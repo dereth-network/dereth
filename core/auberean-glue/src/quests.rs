@@ -32,6 +32,7 @@ const QUEST_INFO_LIST: u32 = 0xA1;
 
 /// This module's natives: package, number, function.
 const NATIVES: &[(u32, u32, NativeFn)] = &[
+    (QUEST_INFO_LIST, 0x07, list_dump),
     (QUEST_INFO, 0x01, quest_id),
     (QUEST_INFO, 0x02, quest_name),
     (QUEST_INFO, 0x03, quest_journal_entry),
@@ -295,5 +296,37 @@ fn list_size(c: &mut Call<'_>) -> Result<Status, Stop> {
     #[allow(clippy::cast_possible_truncation)]
     let n = list_mut(c, r)?.len() as u32;
     c.write(-2, n, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// A list of quest records as text, as a new string at `fp[-2]`: each element numbered, each record's
+/// id, status, phase and challenge, and its times.
+// D2-01626
+fn list_dump(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    let mut text = String::from("-- quest list elements: --\n");
+    if let NativeObject::QuestList(list) = c.vm.heap.native(r)? {
+        for (i, q) in list.iter().enumerate() {
+            text.push_str(&format!(
+                "  Element {i}) \n-- quest contains: --\n  QuestID: 0x{:08X}.\n  Quest Status: \
+                 0x{:08X}.\n  Current Phase: {}.\n  Challenge Level: {}.\n  Bestowal Timestamp: \
+                 {}.\n  Finished Timestamp: {}.\n{}-----------------------\n\n",
+                q.id,
+                q.status,
+                q.phase,
+                q.challenge,
+                f64::from_bits(q.bestowed),
+                f64::from_bits(q.done),
+                if q.maxed_out != 0 {
+                    "  Quest is maxed out.\n"
+                } else {
+                    ""
+                }
+            ));
+        }
+    }
+    text.push_str("-- end of the quest list elements --\n");
+    let id = crate::machine::new_text_in(c, text.encode_utf16().collect());
+    c.write(-2, id, tag::REFERENCE)?;
     Ok(Status::Success)
 }

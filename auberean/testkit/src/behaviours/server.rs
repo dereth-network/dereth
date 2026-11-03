@@ -111,6 +111,228 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.a-restart-keeps-the-consoles-demotion",
+        says: "An account the console made a player again stays a player at the next start, with the \
+               configured list as it was; an admin stays one.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-DEMOTION-KEPT"),
+        station: "yalain::bin.yalain::admin_tests::a_restart_does_not_undo_the_consoles_demotion",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.admin-characters-asked-for-only-by-admins",
+        says: "A creation asking for the admin template from a player's account is answered with the \
+               client's own refusal for it and makes nothing; from an admin's account it makes a character \
+               of that template.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-CREATE"),
+        station: "yalain-testkit::cpu::operator::admins::a_creation_asking_for_the_admin_template_needs_an_admins_account",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.admin-characters-enter-from-the-admin-template",
+        says: "A character of an admin's account made an admin character enters from the admin template, \
+               its object's entity and package and its description's record, for its own client and every \
+               client that sees it; a player's account cannot have one, and its rights stop at once when it \
+               is unmade.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-TEMPLATE"),
+        station: "yalain-testkit::cpu::operator::admins::an_admin_character_enters_from_the_admin_template",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.attackable-hides-from-creatures",
+        says: "A creature does not notice an admin set stealthy or super, and notices one set normal.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-ATTACKABLE"),
+        station: "yalain-testkit::cpu::operator::admin_calls::a_stealthy_admin_is_not_noticed_by_creatures",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.calls-refused-for-anyone-else",
+        says: "Every call of the admin family and every admin-only call of another family is refused from \
+               anyone but an admin character of an admin's account: counted, logged and unanswered, before \
+               any of it is read.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-GATE"),
+        station: "yalain-testkit::cpu::operator::admin_calls::every_admin_call_is_refused_for_anyone_but_an_admin_character",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.character-and-object-calls",
+        says: "An admin character's state and object calls act: health set and made full, a place saved in \
+               its slot, an object made by its template's id and deleted; words that name nothing are \
+               answered as such.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-STATE-CALLS"),
+        station: "yalain-testkit::cpu::operator::admin_calls::the_state_and_object_calls_act",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.cloak-hides-an-admin",
+        says: "A cloaked admin is told to no player's client, and those that knew it see it leave; lifting \
+               it shows it again; an admin who sees what is hidden still sees it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-CLOAK"),
+        station: "yalain-testkit::cpu::operator::admin_calls::a_cloaked_admin_is_seen_by_no_players_client",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.commands-do-nothing-for-anyone-else",
+        says: "Real commands with harmful values do nothing from a player's account or from an ordinary \
+               character of an admin's: no boot, ban, smite, extermination, money, made object, teleport, \
+               broadcast or rename; from an admin character each does what it says.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-GATE-EFFECT"),
+        station: "yalain-testkit::cpu::operator::admin_calls::a_players_admin_calls_do_nothing_and_an_admins_do_what_they_say",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.config-raises-only-what-this-start-makes",
+        says: "The operator's configured list of admins raises a name only on the start that makes its \
+               account from a ticket in the same configuration; an account already there, which on an open \
+               world may be a stranger's, stays a player whatever ticket the list holds, and a name ahead \
+               of its account makes nothing and grants nothing, at that start or the next.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-CONFIG"),
+        station: "yalain::bin.yalain::admin_tests::the_configured_admins_do_not_raise_a_strangers_account",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.dumpadmintable-shows-the-groups",
+        says: "An admin's request for the admin table answers with the account-level commands and the \
+               groups each is kept to, as the operator set them.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-TABLE"),
+        station: "yalain-testkit::cpu::operator::admin_calls::the_admin_table_shows_the_groups_as_set",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.ethereality-override",
+        says: "An ethereality override changes an admin's movement ethereality, told to every client that \
+               knows it; it stands through a change of area until lifted, and normal puts the admin's own \
+               back.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-ETHEREALITY"),
+        station: "yalain-testkit::cpu::operator::admin_calls::an_ethereality_override_is_told_and_lifted",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.every-call-answers-an-admin",
+        says: "Every call of the admin family answers an admin character whatever comes with it: none stops \
+               the server or needs its values.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-ANSWERS"),
+        station: "yalain-testkit::cpu::operator::admin_calls::every_admin_call_answers_an_admin_character_even_with_no_values",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.library-sends-admin-calls-in-the-clear",
+        says: "The library an admin's retail client is served is the install's own with every encrypted \
+               send made a plain one, in the same bytes otherwise, 175 in the final client's library; a \
+               record with too few is refused as not the library this was made for.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-LIBRARY"),
+        station: "yalain-testkit::dat::admin::the_admin_library_is_the_installs_with_every_send_in_the_clear",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.admin.library-served-only-to-admin-accounts",
+        says: "The library goes to an admin's account alone, before its characters: told of it and sent the \
+               record, its list held back until the client has stored it; a player's account is sent none, \
+               nor an admin's whose client lists the library's iteration.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-LIBRARY-SERVED"),
+        station: "yalain-testkit::cpu::operator::admin_calls::only_an_admins_login_is_served_the_library",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.moderation-calls",
+        says: "An admin character's moderation calls answer who an account or character is and change the \
+               world's limit, and show a player a line; a call with no counterpart here is answered that \
+               this server has none.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-MOD-CALLS"),
+        station: "yalain-testkit::cpu::operator::admin_calls::the_moderation_calls_answer_and_act",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.named-groups-gate-the-account-commands",
+        says: "An account-level admin command the operator keeps to named groups is refused to an admin in \
+               none of them, in game and as a call, logged and told so; an admin in one may give it; a \
+               command kept to nothing is open to every admin; the console is never refused.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-GROUPS"),
+        station: "yalain-testkit::cpu::operator::admin_calls::the_account_level_commands_are_kept_to_their_named_groups",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.never-say-die-keeps-an-admin-alive",
+        says: "With never say die on, a killing blow leaves an admin's health at one; off, its health falls \
+               as usual.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-NSD"),
+        station: "yalain-testkit::cpu::operator::admin_calls::never_say_die_holds_an_admins_health_at_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.no-admin-without-a-secret",
+        says: "An account with no secret cannot be made an admin's: an open world gives such an account to \
+               the first ticket it sees.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-NO-SECRET"),
+        station: "yalain-testkit::cpu::operator::admins::an_account_with_no_secret_cannot_be_made_an_admins",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.no-claiming-an-admins-account",
+        says: "An admin's account with no secret is not claimed by the first ticket on an open world, at \
+               the game's login or the friends service's; a player's account with no secret takes the first \
+               ticket, as ever.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-NO-CLAIM"),
+        station: "yalain-testkit::cpu::operator::admins::an_admins_account_with_no_secret_is_not_claimed_by_the_first_ticket",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.rights-end-at-once",
+        says: "An admin character's rights end at once when its account is no longer an admin's, or it is \
+               no longer an admin character: the check is on the server's record at the time of each call.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-RIGHTS-END"),
+        station: "yalain-testkit::cpu::operator::admin_calls::an_admin_characters_rights_end_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.taking-admin-away-ends-what-it-set",
+        says: "A character the console makes a player again is at once no longer hidden, can die, is \
+               noticed by creatures, has its own ethereality and speed, and no longer sees what is hidden, \
+               whether its account lost the flag or the character its template.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-REVOKE"),
+        station: "yalain-testkit::cpu::operator::admin_calls::taking_admin_away_ends_what_the_admins_commands_set",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.template-follows-the-accounts-flag",
+        says: "An admin character whose account is no longer an admin's enters as a player: the template \
+               follows the account's flag at every entry, whatever the character stores.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-FOLLOWS"),
+        station: "yalain-testkit::cpu::operator::admins::an_admin_character_of_a_players_account_enters_as_a_player",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.what-makes-an-admin-is-the-consoles",
+        says: "What makes an admin is the operator's alone: said in game by an admin, raising an account, \
+               making an admin character, changing groups, a new admin's account and another admin's \
+               password are refused and change nothing; a player's password may be set as before.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-CONSOLE-ONLY"),
+        station: "yalain-testkit::cpu::operator::admin_calls::an_admin_in_game_cannot_make_admins_or_join_groups",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.allegiance.an-oath-sworn-and-taken",
         says: "Swearing to a player beside asks it; taking the oath tells the patron who swore and \
                its rank (a new monarch its allegiance's chat room), tells the vassal the chat \
@@ -3798,12 +4020,12 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.network.operator-words-in-game-for-admins",
-        says: "Said @dn admin is an admin's: an admin's line is the operator's command, staff below \
-               it are refused as for any command beyond their level, and a player's is a word the \
-               friends service answers with its help.",
+        says: "The network's operator words said in game need an admin's account, as its verification does: \
+               an admin's line is kept marked as an admin's; a player's is the friends service's, which \
+               answers with its help, and is logged; nobody hears it.",
         since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-IN-GAME"),
-        station: "yalain-testkit::cpu::operator::moderation::dn_admin_said_in_game_is_an_admins_and_staff_below_are_refused",
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-OPERATOR-SAID"),
+        station: "yalain-testkit::cpu::operator::moderation::dn_admin_said_in_game_is_only_an_admins",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4034,13 +4256,12 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.network.verify-in-game-for-admins",
-        says: "Said in game, @dn verify is an admin's: an admin's goes to the hub as its character's \
-               and is answered in its chat window, as is the hub's answer; staff below an admin \
-               are told the command needs an admin's access; a player's is answered with the \
-               @dn help. Nobody hears the line.",
+        says: "The world's verification said in game needs an admin's account: an admin's line goes to the \
+               network marked as an admin's; a player's is the friends service's, which reads it as no word \
+               it knows, and is logged; nobody hears it.",
         since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-SRV-NET-VERIFY-IN-GAME"),
-        station: "yalain-testkit::cpu::operator::moderation::dn_verify_said_in_game_is_an_admins_and_staff_below_are_refused",
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-VERIFY-SAID"),
+        station: "yalain-testkit::cpu::operator::moderation::dn_verify_said_in_game_is_only_an_admins",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4091,14 +4312,34 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.access-levels-become-the-admin-flag",
+        says: "A database kept with access levels takes the admin flag in their place: the highest level \
+               with a secret is an admin; every level below, and the highest with no secret, a player named \
+               in the log; and the levels are gone from the file, kept only in the backup made before the \
+               upgrade.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-MIGRATE"),
+        station: "yalain-store::cpu::persistence::a_file_with_access_levels_takes_the_admin_flag_in_their_place",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.accounts-at-the-console",
-        says: "The operator makes accounts at the console with a bcrypt secret and a level (a player's \
-               unless given another), gives one a new secret or another level (reaching its login \
-               at once), and lists them, with Empyrean's commands and answers; a secret never \
-               shows in a log.",
+        says: "The operator makes accounts at the console with a bcrypt secret, a player's unless given the \
+               word admin, gives one a new secret or the admin flag (reaching its login at once), and lists \
+               them, with Empyrean's commands and answers; a secret never shows in a log.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-ACCOUNTS"),
-        station: "yalain-testkit::cpu::operator::moderation::accounts_are_made_rekeyed_given_levels_and_listed_at_the_console",
+        station: "yalain-testkit::cpu::operator::moderation::accounts_are_made_rekeyed_flagged_and_listed_at_the_console",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.admin-commands-said-in-game",
+        says: "A character of an admin's account says the moderation commands in game after an at sign, \
+               aloud or into a room: the command runs, is answered in its chat window and heard by nobody; \
+               a player's line is said as any other, logged, and does nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-SAID"),
+        station: "yalain-testkit::cpu::operator::moderation::admins_say_the_commands_in_game_and_a_players_line_is_only_said",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4257,11 +4498,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.operator.gamecast-shows-everyone-a-message",
-        says: "The operator's gamecast shows every player in the world Broadcast from System> and \
-               the message, as Empyrean's console command does; said in game by an envoy or above, \
-               the message comes from its character, and from anyone below it is refused.",
+        says: "The operator's gamecast shows every player in the world Broadcast from who, then the \
+               message, as Empyrean's: System from the console, the issuer's character said in game by an \
+               admin; a player's is only said.",
         since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-GAMECAST"),
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-GAMECAST"),
         station: "yalain-testkit::cpu::operator::moderation::gamecast_shows_every_player_in_the_world_the_message",
         tier: Tier::Cpu,
     },
@@ -4594,17 +4835,6 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-SHUTDOWN-INTERVAL"),
         station: "yalain-testkit::cpu::operator::shutdown::a_shutdown_shows_the_operators_message_and_counts_down_the_operators_interval",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
-        id: "server.operator.staff-commands-said-in-game",
-        says: "An account an advocate's or above says the moderation commands in game after @, aloud \
-               or into a room, at its level: heard by nobody and answered in its chat window, since \
-               the September 2013 client's own admin commands are sent where no server can read \
-               them; a player's such line is said as any other.",
-        since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-IN-GAME"),
-        station: "yalain-testkit::cpu::operator::moderation::staff_say_the_commands_in_game_and_a_players_line_is_only_said",
         tier: Tier::Cpu,
     },
     behaviour! {

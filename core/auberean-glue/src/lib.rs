@@ -68,6 +68,7 @@ pub mod names;
 pub mod numbers;
 pub mod options;
 pub mod position;
+pub mod properties;
 pub mod quests;
 pub mod selection;
 pub mod skill_nodes;
@@ -103,6 +104,7 @@ pub fn natives(lib: &Library) -> NativeTable {
     effects::bind(&mut t);
     friends::bind(&mut t);
     position::bind(&mut t);
+    properties::bind(&mut t);
     skill_nodes::bind(&mut t);
     containers::bind(&mut t, lib);
     t

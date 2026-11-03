@@ -85,11 +85,26 @@ fn inq_enum(c: &mut Call<'_>) -> Result<Status, Stop> {
     let value = c
         .host
         .database()
-        .and_then(|db| db.enumeration_value(map, &name));
+        .and_then(|db| db.enumeration_value(map, &name))
+        .or_else(|| unshipped_value(map, &name));
     let prog = Arc::clone(c.vm.program());
     c.vm.write_slot(c.host, c.cx, out, 0, value, tag::MIXED, &prog)?;
     c.write(-5, u32::from(value.is_some()), tag::MIXED)?;
     Ok(Status::Success)
+}
+
+/// The enumeration of an admin's ethereality overrides, which the game's data files do not carry:
+/// the words its command takes, numbered as this game's servers read them.
+const ETHEREALITY: u32 = 0x4100_0026;
+
+/// The value of a word of an enumeration no install holds.
+fn unshipped_value(map: u32, name: &str) -> Option<u32> {
+    (map == ETHEREALITY).then(|| {
+        ["normal", "admin", "super"]
+            .iter()
+            .position(|w| w.eq_ignore_ascii_case(name))
+            .and_then(|i| u32::try_from(i + 1).ok())
+    })?
 }
 
 /// The name of a value (`fp[-3]`) of an enumeration (`fp[-2]`) as a new string at `fp[-4]`, empty

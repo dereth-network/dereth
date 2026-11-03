@@ -4,7 +4,7 @@
 //! A row claims what the September 2013 client does on the wire, held to the client itself and to
 //! the recorded January 2017 sessions.
 
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, TOOLING};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -287,6 +287,25 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SERVER-PLACES-IN-QUALITIES"),
         station: "yalain-testkit::dat::session::looted_moccasins_used_go_on_the_feet_and_the_weapon_stays_in_hand",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.server.an-admin-passes-through-and-cannot-die",
+        says: "An admin's typed ethereality, never-say-die and attackable commands run the game's own \
+               scripts to calls the server honors: what it passes through is told to every client that \
+               knows it, it cannot die, and creatures leave it alone; the override is lifted as typed.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SESSION-ADMIN-GODMODE"),
+        station: "yalain-testkit::dat::admin::an_admin_types_its_way_out_of_harm_and_through_the_world",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "session.server.an-admins-command-reaches-the-server-and-is-answered",
+        says: "An admin's command that goes to the server runs the game's scripts to a plain call, the \
+               server answers it, and the client's own admin script shows the line.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESSION-ADMIN-ANSWER"),
+        station: "yalain-testkit::dat::admin::an_admins_server_command_is_answered_in_the_clients_window",
         tier: Tier::Dat,
     },
     behaviour! {

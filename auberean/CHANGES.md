@@ -31,6 +31,7 @@ not how it was done.
 - Music now follows what's near you.
 - Attacking keeps your selected target with Auto Target on.
 - The camera stays off the ground.
+- An admin character's commands now work: the game's admin commands, with their own dumps and answers.
 
 ## 0.1.2 (2026-11-02)
 

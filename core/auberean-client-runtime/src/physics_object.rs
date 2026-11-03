@@ -414,9 +414,47 @@ fn is_animation_frozen(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// The physics object natives this module binds.
+/// A player's body entity, among its data ids.
+const BODY: u32 = 1;
+
+/// The properties of an object, as the entities it is made from give them (its look's, its body's,
+/// then its template's, each with those it descends from), into the collection at `fp[-2]`; whether it has a
+/// physics object (`fp[-3]`). This is what the data files give: what running animations have since
+/// changed is not kept apart.
+// D2-04770
+fn current_properties(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let id = receiver_object(c)?;
+    let collection = {
+        let h = host(c)?;
+        let made_from = h.model.object(id).map(|o| {
+            let body = o.qualities.data_ids.get(&BODY).copied().unwrap_or(0);
+            [o.visual.parent, body, o.weenie.entity_did]
+        });
+        h.cache.as_ref().filter(|d| !d.is_empty()).and_then(|d| {
+            let db = d.database();
+            made_from.map(|ids| {
+                let mut all = auberean_assets::property::PropertyCollection::default();
+                for e in ids.iter().filter_map(|e| db.entity(*e)) {
+                    all.groups
+                        .extend(e.total_properties(&|i| db.entity(i)).groups);
+                }
+                all
+            })
+        })
+    };
+    let out = c.cx.at(-2)?;
+    let found = collection.is_some();
+    if let Some(col) = collection {
+        auberean_glue::properties::give_collection(c, out, col)?;
+    }
+    c.write(-3, u32::from(found), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
 pub(crate) fn natives() -> impl Iterator<Item = (NativeId, NativeFn)> {
     const PHYSICS_OBJECT: u32 = 0x80;
-    let n: [(u32, NativeFn); 25] = [
+    let n: [(u32, NativeFn); 26] = [
+        (0x4A, current_properties),
         (0x03, set_velocity_scale),
         (0x04, get_velocity_scale),
         (0x05, set_acceleration_scale),

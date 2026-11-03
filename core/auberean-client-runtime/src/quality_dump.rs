@@ -33,6 +33,9 @@ use crate::text::from_wire;
 /// The repository's native package.
 const REPOSITORY: u32 = 0x81;
 
+/// The object table's native package.
+const OBJECT_TABLE: u32 = 0x95;
+
 /// The buckets of an object's own tables.
 const OWN_BUCKETS: u32 = BUCKET_COUNTS[2];
 
@@ -582,4 +585,44 @@ pub(crate) fn natives() -> impl Iterator<Item = (NativeId, NativeFn)> {
     NATIVES
         .iter()
         .map(|(n, f)| (NativeId::new(REPOSITORY, *n), *f))
+        .chain(std::iter::once((
+            NativeId::new(OBJECT_TABLE, 0x03),
+            dump_object_table as NativeFn,
+        )))
+}
+
+/// The client's object table as text, into the string the reference at `fp[-2]` reaches: for each object, its id and name,
+/// its package and entity, and its place.
+// D2-00979, D2-05682
+fn dump_object_table(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let mut text = String::from("\n***Object Maintainter Dump***\n\n");
+    {
+        let h = host(c)?;
+        let mut objects: Vec<&Object> = h.model.objects().collect();
+        objects.sort_by_key(|o| o.id);
+        for o in objects {
+            let name = o
+                .weenie
+                .name
+                .literal
+                .as_ref()
+                .map_or_else(|| "no weenie object".to_owned(), |l| l.text());
+            text.push_str(&format!("Instance: 0x{:016X} {name}\n", o.id));
+            text.push_str(&format!(
+                "Package: 0x{:08X} DID: 0x{:08X} \n",
+                o.weenie.package_id, o.weenie.entity_did
+            ));
+            match o.place {
+                Some(p) => text.push_str(&format!("Position: {:08X} {:?}\n\n", p.cell, p.origin)),
+                None => text.push_str("Position: no physics object\n\n"),
+            }
+        }
+    }
+    let out = c.cx.at(-2)?;
+    let prog = std::sync::Arc::clone(c.vm.program());
+    let (target, _) = c.vm.read_slot(c.host, c.cx, out, 0, &prog)?;
+    if target != NULL {
+        *c.vm.heap.native_mut(target)? = NativeObject::Text(text.encode_utf16().collect());
+    }
+    Ok(Status::Success)
 }

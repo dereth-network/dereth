@@ -15,6 +15,11 @@ use auberean_script::value::{tag, NULL};
 /// The machine's native package.
 const MACHINE: u32 = 0x72;
 
+/// The natives that make an object from a type's name, and those that tell ids apart.
+const TYPE_INFO: u32 = 0x6E;
+const RESERVED_IDS: u32 = 0x63;
+const DISTRIBUTOR: u32 = 0x7E;
+
 /// This module's natives: package, number, function.
 const NATIVES: &[(u32, u32, NativeFn)] = &[
     (MACHINE, 2, singleton_by_name),
@@ -33,7 +38,184 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (MACHINE, 0x15, instance_of),
     (MACHINE, 0x18, data_object),
     (MACHINE, 0x19, state_of),
+    (MACHINE, 0x08, query_process_table),
+    (MACHINE, 0x09, query_processes),
+    (MACHINE, 0x0A, query_process),
+    (MACHINE, 0x0B, query_references),
+    (MACHINE, 0x0C, query_perf),
+    (MACHINE, 0x16, query_reference_tree),
+    (MACHINE, 0x17, query_reference_tree_for_process),
+    (DISTRIBUTOR, 0x01, process_id),
+    (TYPE_INFO, 0x02, new_type),
+    (RESERVED_IDS, 0x01, is_player_id),
 ];
+
+/// A string through a reference the native was given (`fp[out]`); it answers 1 (`fp[answer]`).
+fn answer_text(c: &mut Call<'_>, out: i64, answer: i64, text: &str) -> Result<Status, Stop> {
+    let at = c.cx.at(out)?;
+    let prog = Arc::clone(c.vm.program());
+    let (target, _) = c.vm.read_slot(c.host, c.cx, at, 0, &prog)?;
+    if target != NULL {
+        *c.vm.heap.native_mut(target)? = NativeObject::Text(text.encode_utf16().collect());
+    }
+    c.write(answer, 1, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// A new string, for a native's answer.
+pub(crate) fn new_text_in(c: &mut Call<'_>, units: Vec<u16>) -> u32 {
+    new_text(c, units)
+}
+
+/// The machine's process table, as text, through the reference at `fp[-2]`.
+// D2-09567
+fn query_process_table(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let all = c.vm.process_slots();
+    let (total, size) = (all.iter().flatten().count(), all.len());
+    let text = format!("process table:\n  total: {total}, size: {size}\n");
+    answer_text(c, -2, -3, &text)
+}
+
+/// One process's line: its id, the object it runs for, and its suspended contexts.
+fn process_line(id: usize, p: &auberean_script::vm::Process) -> String {
+    format!(
+        "  process {id}: instance {}, suspended contexts {}\n",
+        p.instance,
+        p.suspended.len()
+    )
+}
+
+/// The contexts of every process, as text, through the reference at `fp[-3]`.
+// D2-09569
+fn query_processes(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let mut lines = String::new();
+    let mut total = 0;
+    for (i, p) in c.vm.process_slots().iter().enumerate() {
+        if let Some(p) = p {
+            total += p.suspended.len();
+            lines.push_str(&process_line(i, p));
+        }
+    }
+    answer_text(c, -3, -4, &format!("contexts:\n  total: {total}\n{lines}"))
+}
+
+/// One process (its id at `fp[-2]`), as text, through the reference at `fp[-3]`; whether it is there
+/// (`fp[-4]`).
+// D2-09568
+fn query_process(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let id = c.cx.at(-2)? as usize;
+    let line =
+        c.vm.process_slots()
+            .get(id)
+            .and_then(Option::as_ref)
+            .map(|p| process_line(id, p));
+    let found = line.is_some();
+    answer_text(c, -3, -4, &line.unwrap_or_default())?;
+    c.write(-4, u32::from(found), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// The reference table's numbers, as text, through the reference at `fp[-2]`.
+// D2-09572
+fn query_references(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let text = format!(
+        "references:\n  live: {}, size: {}\n",
+        c.vm.heap.live(),
+        c.vm.heap.capacity()
+    );
+    answer_text(c, -2, -3, &text)
+}
+
+/// The machine's performance, as text, through the reference at `fp[-2]`: a heading, and nothing
+/// under it, as the client built for players has.
+// D2-09566
+fn query_perf(c: &mut Call<'_>) -> Result<Status, Stop> {
+    answer_text(c, -2, -3, "perf:\n\n")
+}
+
+/// What an object holds, one line for each reference out of it, down from `root`, each seen once.
+fn reference_tree(c: &Call<'_>, root: u32) -> String {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut lines = String::new();
+    let mut stack = vec![(root, 0_usize)];
+    while let Some((r, depth)) = stack.pop() {
+        if r == NULL || !seen.insert(r) {
+            continue;
+        }
+        let Ok(o) = c.vm.heap.object(r) else {
+            continue;
+        };
+        lines.push_str(&format!(
+            "{:indent$}{r}: package {:#x}, native type {:#x}\n",
+            "",
+            o.package,
+            o.native_type,
+            indent = depth * 2
+        ));
+        stack.extend(o.references().into_iter().rev().map(|x| (x, depth + 1)));
+    }
+    lines
+}
+
+/// The references from an object (its reference at `fp[-3]`), as text, through the reference at
+/// `fp[-2]`.
+// D2-09571
+fn query_reference_tree(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let root = c.cx.at(-3)?;
+    let text = reference_tree(c, root);
+    answer_text(c, -2, -4, &text)
+}
+
+/// The references from a process's object (its id at `fp[-3]`), as text, through the reference at
+/// `fp[-2]`.
+// D2-09570
+fn query_reference_tree_for_process(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let id = c.cx.at(-3)? as usize;
+    let root =
+        c.vm.process_slots()
+            .get(id)
+            .and_then(Option::as_ref)
+            .map_or(NULL, |p| p.instance);
+    let text = reference_tree(c, root);
+    answer_text(c, -2, -4, &text)
+}
+
+/// The process an object runs in (at `fp[-2]`): the one whose instance it is, or none.
+// D2-04656
+fn process_id(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    let id =
+        c.vm.process_slots()
+            .iter()
+            .position(|p| p.as_ref().is_some_and(|p| p.instance == r))
+            .map_or(u32::MAX, |i| u32::try_from(i).unwrap_or(u32::MAX));
+    c.write(-2, id, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// A new object of the package a name (the string at `fp[-2]`) names, or null.
+// D2-09547
+fn new_type(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let name = String::from_utf16_lossy(&text_of(c, c.cx.at(-2)?)?);
+    let prog = Arc::clone(c.vm.program());
+    let id = match prog.library.package_id(&name) {
+        Some(p) => c.vm.new_object(c.host, p, &prog)?,
+        None => NULL,
+    };
+    c.write(-3, id, tag::REFERENCE)?;
+    Ok(Status::Success)
+}
+
+/// Is an id (a 64-bit value at `fp[-3]`) a player's? Its top byte's marks say, dynamic and static
+/// ids being told first.
+// D2-08943
+fn is_player_id(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let id = c.long_at(-3)?;
+    let top = (id >> 56) as u32;
+    let player = top & 0x80 == 0 && top & 0x40 == 0 && top & 0x20 != 0;
+    c.write(-4, u32::from(player), tag::MIXED)?;
+    Ok(Status::Success)
+}
 
 /// Bind this module's natives.
 pub fn bind(t: &mut NativeTable) {

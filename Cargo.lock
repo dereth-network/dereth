@@ -7134,6 +7134,7 @@ version = "0.2.0-rc.0"
 dependencies = [
  "auberean-testkit",
  "rusqlite",
+ "tracing",
 ]
 
 [[package]]

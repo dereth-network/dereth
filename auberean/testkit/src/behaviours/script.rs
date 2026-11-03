@@ -7,6 +7,17 @@ use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "script.admin.client-side-commands-run-the-admin-natives",
+        says: "An admin character's client-side commands run the game's scripts to their end through every \
+               native only they reach: physics properties, the script machine's tables, the object table, \
+               the time, the quests and acts, the places, test scripts, a file of lines, a report and the \
+               debugger; none stops for want of a port.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-ADMIN-NATIVES"),
+        station: "yalain-testkit::dat::admin::an_admin_characters_client_side_commands_run_to_their_end",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "script.args.every-captured-call-round-trips",
         says: "Every script call recorded in 2013 and 2017, either way, carries a buffer of tagged \
                values that reads to its last byte, writes back to the same bytes, and holds exactly \

@@ -21,15 +21,19 @@
 
 use std::collections::BTreeMap;
 
-use auberean_script::local::{LocalSystem, LocalTime};
+use auberean_script::local::{bare_name, LocalSystem, LocalTime};
 use auberean_script::native::{Call, NativeFn, Status, Stop};
-use auberean_script::native_object::NativeObject;
-use auberean_script::value::{tag, NativeId};
+use auberean_script::native_object::{native_type, Item, NativeObject};
+use auberean_script::value::{tag, NativeId, NULL};
 
 use crate::host::ClientHost;
 
 /// The file natives' package.
 const PACKAGE: u32 = 0x26;
+
+/// The native package of the original's mail, and the file this client keeps the reports in.
+const MAIL: u32 = 0x21;
+const REPORTS: &str = "bug-reports.txt";
 
 /// The byte-order mark a file starts with.
 const MARK: [u8; 2] = [0xFF, 0xFE];
@@ -177,6 +181,7 @@ impl Files {
 
 const NATIVES: &[(u32, NativeFn)] = &[
     (0x01, write),
+    (0x02, read_lines),
     (0x03, open),
     (0x04, close),
     (0x05, write_stamped),
@@ -187,6 +192,10 @@ pub fn natives() -> impl Iterator<Item = (NativeId, NativeFn)> {
     NATIVES
         .iter()
         .map(|(n, f)| (NativeId::new(PACKAGE, *n), *f))
+        .chain(std::iter::once((
+            NativeId::new(MAIL, 0x01),
+            send_mail as NativeFn,
+        )))
 }
 
 fn host<'a>(c: &'a mut Call<'_>) -> Result<&'a mut ClientHost, Stop> {
@@ -235,6 +244,63 @@ fn open(c: &mut Call<'_>) -> Result<Status, Stop> {
         false,
     )?;
     c.write(-5, u32::from(ok), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// A file's lines (its path at `fp[-2]`) into the list the reference at `fp[-3]` reaches; whether the
+/// file could be read (`fp[-4]`). A file is its 16-bit text after the mark, or plain bytes without
+/// one.
+// D2-08584
+fn read_lines(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let path = text(c, -2)?;
+    let bytes = {
+        let h = host(c)?;
+        let name = file_name(&h.output_path, &path).filter(|n| bare_name(n));
+        name.and_then(|n| crate::host::Checked(&mut h.local).read_file(&n))
+    };
+    let out = c.cx.at(-3)?;
+    let prog = std::sync::Arc::clone(c.vm.program());
+    let (list, _) = c.vm.read_slot(c.host, c.cx, out, 0, &prog)?;
+    let found = bytes.is_some();
+    if let (Some(bytes), true) = (bytes, list != NULL) {
+        let text = if bytes.starts_with(&MARK) {
+            let (pairs, _) = bytes[MARK.len()..].as_chunks::<2>();
+            let units: Vec<u16> = pairs.iter().map(|b| u16::from_le_bytes(*b)).collect();
+            String::from_utf16_lossy(&units)
+        } else {
+            String::from_utf8_lossy(&bytes).into_owned()
+        };
+        let mut items = Vec::new();
+        for line in text.lines() {
+            let t = c.vm.heap.add_native(
+                native_type::WP_STRING,
+                NativeObject::Text(line.encode_utf16().collect()),
+            );
+            items.push(Item::Ref(t));
+        }
+        if let NativeObject::Sequence { items: held, .. } = c.vm.heap.native_mut(list)? {
+            *held = items;
+        }
+    }
+    c.write(-4, u32::from(found), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// A report for the original's mail (four strings: the address, the subject, the body and where to
+/// answer why not, `fp[-2]` to `fp[-5]`): this client mails nothing and keeps it in a file of the
+/// client's folder. It answers whether it was kept (`fp[-6]`).
+// D2-08506
+fn send_mail(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let lines: [Vec<u16>; 3] = [text(c, -2)?, text(c, -3)?, text(c, -4)?];
+    let done = {
+        let h = host(c)?;
+        let mut bytes = Vec::new();
+        for l in &lines {
+            bytes.extend(line_bytes(l));
+        }
+        crate::host::Checked(&mut h.local).append_line(REPORTS, &bytes)
+    };
+    c.write(-6, u32::from(done), tag::MIXED)?;
     Ok(Status::Success)
 }
 

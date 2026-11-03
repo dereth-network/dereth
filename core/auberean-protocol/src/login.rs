@@ -290,6 +290,8 @@ impl CharacterCreated {
     pub const OK: u32 = 1;
     pub const NAME_IN_USE: u32 = 3;
     pub const NAME_REFUSED: u32 = 4;
+    /// The account may not make an admin character.
+    pub const ADMIN_REFUSED: u32 = 7;
     pub const NO_FREE_SLOT: u32 = 8;
 }
 

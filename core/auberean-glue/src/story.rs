@@ -47,6 +47,7 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (ACT_INFO, 0x01, act_init),
     (ACT_INFO, 0x02, act_add_scene),
     (ACT_INFO, 0x03, act_id),
+    (ACT_INFO, 0x04, act_dump),
     (ACT_INFO_LIST, 0x01, acts_insert_sort),
     (ACT_INFO_LIST, 0x02, acts_pop_front),
     (KEYFRAME, 0x02, key_clear),
@@ -669,4 +670,36 @@ pub fn acts_of(o: &NativeObject) -> Vec<ActInfo> {
         NativeObject::Acts(v) => v,
         _ => Vec::new(),
     }
+}
+
+/// An act as text, as a new string at `fp[-2]`.
+// D2-01575
+fn act_dump(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    let NativeObject::Act(a) = c.vm.heap.native(r)? else {
+        return Err(Stop::Host("not an act".into()));
+    };
+    let name = a
+        .name
+        .literal
+        .as_ref()
+        .map_or_else(String::new, |l| String::from_utf16_lossy(l));
+    let text = format!(
+        "\n-- act contains: --\n  Act ID: 0x{:08X}.\n  Act Name: {name}.\n  Act Number: {}.\n  \
+         Act is {}visible.\n  Act is {}playable.\n  Scene list contains {} items:\n{}\n\
+         -----------------------\n",
+        a.id,
+        a.number,
+        if a.visible != 0 { "" } else { "not " },
+        if a.playable != 0 { "" } else { "not " },
+        a.scenes.len(),
+        a.scenes
+            .iter()
+            .map(|s| format!("0x{:08X}", s.id))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+    let id = crate::machine::new_text_in(c, text.encode_utf16().collect());
+    c.write(-2, id, tag::REFERENCE)?;
+    Ok(Status::Success)
 }

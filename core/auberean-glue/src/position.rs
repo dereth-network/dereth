@@ -49,6 +49,7 @@ const BLOCK_LENGTH: f32 = 160.0;
 
 /// This module's natives: package, number, function.
 const NATIVES: &[(u32, u32, NativeFn)] = &[
+    (PLACES_TABLE, 0x03, places_dump),
     (POSITION, 0x01, get_offset),
     (POSITION, 0x02, get_origin),
     (POSITION, 0x03, get_cell),
@@ -98,6 +99,29 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (VECTOR, 0x0E, vector_part::<2>),
     (VECTOR, 0x0F, vector_string),
 ];
+
+/// The named places' table's package and record.
+const PLACES_TABLE: u32 = 0x58;
+const PLACES_RECORD: u32 = 0x0E00_0004;
+
+/// The named places as text, a line for each, as a new string at `fp[-2]`: nothing when the install
+/// holds no table of them, which no player's does.
+// D2-08848
+fn places_dump(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let mut text = String::new();
+    if let Some(table) = c
+        .host
+        .database()
+        .and_then(|db| db.get::<auberean_assets::tables::Places>(PLACES_RECORD))
+    {
+        for (name, at) in &table.places {
+            text.push_str(&format!("{name}: {at:?}.\n"));
+        }
+    }
+    let id = crate::machine::new_text_in(c, text.encode_utf16().collect());
+    c.write(-2, id, tag::REFERENCE)?;
+    Ok(Status::Success)
+}
 
 /// Bind this module's natives.
 pub fn bind(t: &mut NativeTable) {
