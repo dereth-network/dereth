@@ -246,7 +246,7 @@ fn a_character_made_with_a_build_holds_what_a_player_who_earned_it_holds() {
         p.play
             .items
             .iter()
-            .any(|i| i.template == TEST_ITEM && i.quantity == 5 && i.location == 0),
+            .any(|i| i.template == TEST_ITEM && i.quantity == 1 && i.location == 0),
         "its item in its pack: {:?}",
         p.play.items
     );
@@ -259,6 +259,37 @@ fn a_character_made_with_a_build_holds_what_a_player_who_earned_it_holds() {
 
 /// A build that does not hold (a skill its level may not train), or one for a character that has
 /// played, is refused and keeps nothing: no character made, the played one as it was.
+/// A build's count of an item that does not stack is that many items, each of one, as a player
+/// holds them; of an item that stacks, one stack of that count.
+///
+/// Behaviour: server.operator.characters-made-with-a-build
+#[test]
+fn a_build_gives_a_stack_only_of_what_stacks() {
+    const STACKS: u32 = TEST_ITEM + 1;
+    let mut h = world();
+    let mut props = yalain_content::Props::default();
+    props.set("Item_MaxStackSize", yalain_content::Prop::Int(10));
+    h.server.catalog.insert(test_template(STACKS, 0x200, props));
+    let r = Recipe {
+        items: vec![(TEST_ITEM, 2), (STACKS, 3)],
+        account: "made".into(),
+        ..recipe("Two Of Each")
+    };
+    let unix = h.unix;
+    characters::make(&mut h.server, &r, unix).expect("made");
+    let made = id_of(&mut h, "Two Of Each");
+    let (_, play) = kept(&mut h, made);
+    let of = |t: u32| -> Vec<u32> {
+        play.items
+            .iter()
+            .filter(|i| i.template == t)
+            .map(|i| i.quantity)
+            .collect()
+    };
+    assert_eq!(of(TEST_ITEM), [1, 1], "each its own item");
+    assert_eq!(of(STACKS), [3], "one stack");
+}
+
 /// Behaviour: server.operator.characters-made-with-a-build
 #[test]
 fn a_build_that_does_not_hold_or_a_played_character_is_refused_and_nothing_kept() {

@@ -297,18 +297,28 @@ fn build<S: Store>(
         if holds >= quantity {
             continue;
         }
-        if !crate::inventory::fits_in_pack(&play.items, 1) {
-            return Err("the items do not fit in the pack".into());
+        // A template that stacks is one stack; any other is that many items.
+        let most = s
+            .catalog
+            .get(template)
+            .and_then(|t| t.props.int("Item_MaxStackSize"))
+            .unwrap_or(0);
+        let more = quantity - holds;
+        let (items, each) = if most > 1 { (1, more) } else { (more, 1) };
+        for _ in 0..items {
+            if !crate::inventory::fits_in_pack(&play.items, 1) {
+                return Err("the items do not fit in the pack".into());
+            }
+            // Put in the pack as an item given to a player is.
+            let slot = crate::inventory::room_for_one(&mut play.items);
+            play.items.push(Held {
+                id: s.things.new_id(),
+                template,
+                slot,
+                location: 0,
+                quantity: each,
+            });
         }
-        // Put in the pack as an item given to a player is.
-        let slot = crate::inventory::room_for_one(&mut play.items);
-        play.items.push(Held {
-            id: s.things.new_id(),
-            template,
-            slot,
-            location: 0,
-            quantity: quantity - holds,
-        });
     }
     crate::inventory::close_up(&mut play.items);
     // Its quests.
