@@ -460,7 +460,7 @@ fn a_let_go_of_an_item_not_yet_made_never_takes_effect() {
             ServerMessage::Parent(ObjectEvent {
                 sender: stamp(HELD, 1, 2),
                 action: Attach {
-                    parent: stamp(HOLDER, 1, 0),
+                    parent: stamp(HOLDER, 1, 1),
                     location: 1,
                     orientation: 0,
                 },

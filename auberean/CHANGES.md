@@ -32,6 +32,7 @@ not how it was done.
 - Attacking keeps your selected target with Auto Target on.
 - The camera stays off the ground.
 - An admin character's commands now work: the game's admin commands, with their own dumps and answers.
+- Fixed objects vanishing on an out-of-date message.
 
 ## 0.1.2 (2026-11-02)
 

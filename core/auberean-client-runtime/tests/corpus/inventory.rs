@@ -277,12 +277,14 @@ fn an_opened_container_shows_what_its_scripts_were_told_it_holds() {
 
 /// Every `DeParent` recorded in 2013 and 2017 that takes effect names, in its field, an item the
 /// model has hanging from the message's sender, and the item hangs from nothing after it; none
-/// names one hanging from anything else.
+/// names one hanging from anything else. The few that came after a newer `Parent` of the same item
+/// (five in all, the two sent out of their stamps' order) change nothing: the item stays where the
+/// newer one hung it.
 ///
 /// Behaviour: model.replay.every-recorded-let-go-names-an-item-its-sender-held
 #[test]
 fn every_recorded_let_go_names_an_item_its_sender_held() {
-    use auberean_client_model::events::{EventQueue, Item};
+    use auberean_client_model::events::{newer, EventQueue, Item};
     use auberean_client_model::Model;
     let index = auberean_testkit::data::require_capture_index();
     let mut types: Vec<u32> = (0x1_0000..0x1_0100)
@@ -298,6 +300,8 @@ fn every_recorded_let_go_names_an_item_its_sender_held() {
         unknown_item: u64,
         sender_was_held: u64,
         let_go: u64,
+        /// Let-gos stamped no later than a hold already taken, which left the item held.
+        outrun: u64,
         unknown_made_later: u64,
     }
     let mut t = Tally::default();
@@ -350,6 +354,9 @@ fn every_recorded_let_go_names_an_item_its_sender_held() {
                     Some(Some((p, _))) if p == e.sender.id => t.held_by_sender += 1,
                     Some(Some(_)) => t.held_by_other += 1,
                 }
+                t.outrun += u64::from(model.object(e.action.id).is_some_and(|o| {
+                    o.parent.is_some() && !newer(e.action.other_stamp, o.position_stamp)
+                }));
                 model.apply(&item);
                 t.let_go += u64::from(
                     model
@@ -369,7 +376,8 @@ fn every_recorded_let_go_names_an_item_its_sender_held() {
     assert_eq!(t.held_by_other, 0, "{t:?}");
     assert_eq!(t.sender_was_held, 0, "{t:?}");
     assert!(t.held_by_sender >= 1_000, "{t:?}");
-    assert_eq!(t.let_go, t.taken - t.unknown_item, "{t:?}");
+    assert_eq!(t.let_go, t.taken - t.unknown_item - t.outrun, "{t:?}");
+    assert!(t.outrun * 100 < t.taken, "{t:?}");
 }
 
 /// The server's call that tells a trade's two sides of an offer.

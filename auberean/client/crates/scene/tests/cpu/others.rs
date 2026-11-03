@@ -326,6 +326,7 @@ fn made(entity: u32) -> auberean_client_sdk::model::Object {
         wielder: None,
         in_world: true,
         teleport_stamp: None,
+        position_stamp: 0,
         creations: 1,
         qualities: auberean_client_sdk::model::Qualities::default(),
         reports: Vec::new(),

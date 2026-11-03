@@ -249,7 +249,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "model.replay.every-recorded-let-go-names-an-item-its-sender-held",
         says: "Every let-go recorded in 2013 and 2017 that takes effect names an item the model \
-               has hanging from the message's sender, and the item hangs from nothing after it.",
+               has hanging from the message's sender, and the item hangs from nothing after it; \
+               one stamped no later than a hold already taken leaves the item held.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MODEL-LET-GO-REPLAY"),
         station: "auberean-client-runtime::corpus::inventory::every_recorded_let_go_names_an_item_its_sender_held",
@@ -291,6 +292,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MODEL-REFUSED"),
         station: "auberean-client-model::cpu::model::a_refused_entry_is_kept_with_its_reason_and_counted",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "model.state.a-stale-leaving-or-holding-changes-nothing",
+        says: "Leaving the world or being held counts only when its stamp is later than the newest \n               position stamp the object heard; an older or equal one changes nothing, half the \n               circle ahead counting as behind.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-STALE-POSITION-STAMP"),
+        station: "auberean-client-model::cpu::model::a_stale_leaving_or_holding_changes_nothing",
         tier: Tier::Cpu,
     },
     behaviour! {

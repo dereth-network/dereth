@@ -203,6 +203,9 @@ pub struct Object {
     pub in_world: bool,
     /// The teleport stamp of its last position.
     pub teleport_stamp: Option<u16>,
+    /// The newest position stamp heard: what it was told of where it is, leaving the world and
+    /// being held by something included, counts only when stamped later than this.
+    pub position_stamp: u16,
     pub qualities: Qualities,
     /// The positions heard since the world last took them, oldest first (at most
     /// [`KEPT_REPORTS`]).
@@ -213,6 +216,16 @@ pub struct Object {
 }
 
 impl Object {
+    /// Whether a position stamp is later than the newest heard; a later one is kept.
+    // D2-06190
+    fn newer_position(&mut self, stamp: u16) -> bool {
+        let later = crate::events::newer(stamp, self.position_stamp);
+        if later {
+            self.position_stamp = stamp;
+        }
+        later
+    }
+
     /// The engine object a creation makes: its descriptions taken, its own qualities empty (the
     /// record they derive from is named by its descriptions), nothing listening to it yet.
     // D2-07980, D2-00742, D2-00410, D2-08040, D2-08290, D2-08120, D2-08023, D2-08034, D2-08103
@@ -232,6 +245,7 @@ impl Object {
             wielder: None,
             in_world: true,
             teleport_stamp: None,
+            position_stamp: 0,
             qualities: Qualities::default(),
             reports: Vec::new(),
             creations: 1,
@@ -250,6 +264,7 @@ impl Object {
         let parent = p.parent_id();
         if parent == 0 {
             let at = p.position();
+            self.position_stamp = p.stamp(0);
             if at.cell != 0 {
                 self.place = Some(Place {
                     cell: at.cell,
@@ -643,22 +658,32 @@ impl Model {
             }
             // The object goes at the next upkeep ([`Self::forget`]).
             S::ForgetObject(_) => {}
+            // D2-06194
             S::Contain(o) => {
                 if let Some(obj) = self.objects.get_mut(&o.0.id) {
-                    obj.in_world = false;
-                    obj.place = None;
+                    if obj.newer_position(o.0.other_stamp) {
+                        obj.parent = None;
+                        obj.in_world = false;
+                        obj.place = None;
+                    }
                 }
             }
+            // D2-06191
             S::ObjectLeaves(e) => {
+                let player = Some(e.sender.id) == self.player;
                 if let Some(obj) = self.objects.get_mut(&e.sender.id) {
-                    obj.in_world = false;
-                    obj.place = None;
+                    if obj.newer_position(e.action.stamp) && !player {
+                        obj.in_world = false;
+                        obj.place = None;
+                        obj.parent = None;
+                    }
                 }
             }
             S::Position(p) | S::PositionCell(p) => {
                 self.stats.positions += 1;
                 let player = Some(p.sender.id) == self.player;
                 if let Some(obj) = self.objects.get_mut(&p.sender.id) {
+                    obj.newer_position(p.position_stamp);
                     let teleported = player
                         && obj
                             .teleport_stamp
@@ -676,20 +701,27 @@ impl Model {
                     }
                 }
             }
+            // D2-06192
             S::Parent(e) => {
                 if let Some(obj) = self.objects.get_mut(&e.sender.id) {
-                    obj.parent = Some((e.action.parent.id, e.action.location));
-                    obj.parent_placement = e.action.orientation;
-                    obj.place = None;
+                    if obj.newer_position(e.action.parent.other_stamp) {
+                        obj.parent = Some((e.action.parent.id, e.action.location));
+                        obj.parent_placement = e.action.orientation;
+                        obj.place = None;
+                    }
                 }
             }
             // The holder sends it; the object let go of is the one the message names, in the
             // incarnation it names.
-            // D2-04014
+            // D2-04014, D2-06193
             S::DeParent(e) => {
                 if let Some(obj) = self.objects.get_mut(&e.action.id) {
-                    if obj.instance_stamp == e.action.instance_stamp {
+                    if obj.instance_stamp == e.action.instance_stamp
+                        && obj.newer_position(e.action.other_stamp)
+                    {
                         obj.parent = None;
+                        obj.in_world = false;
+                        obj.place = None;
                     }
                 }
             }
