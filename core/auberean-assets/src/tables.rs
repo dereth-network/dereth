@@ -238,7 +238,20 @@ pub struct Places {
     pub places: Vec<(String, Position)>,
 }
 
-// D2-04525, D2-04585, D2-04586
+impl Places {
+    /// The place named `name`, whatever its case (the names are kept in lower case).
+    // D2-13678, D2-13679, D2-13680
+    #[must_use]
+    pub fn place(&self, name: &str) -> Option<&Position> {
+        let name = name.to_lowercase();
+        self.places
+            .iter()
+            .find(|(n, _)| n.to_lowercase() == name)
+            .map(|(_, p)| p)
+    }
+}
+
+// D2-04525, D2-04585, D2-04586, D2-13681
 impl Decode for Places {
     /// The id, then a hash table of a wide-string name to a position.
     // D2-13674, D2-04502
@@ -409,6 +422,8 @@ mod tests {
         assert_eq!(p.places.len(), 1);
         assert_eq!(p.places[0].0, "Home");
         assert_eq!(p.places[0].1.cell.0, 0x5D3A_0101);
+        assert_eq!(p.place("hOME").map(|h| h.cell.0), Some(0x5D3A_0101));
+        assert!(p.place("away").is_none());
     }
 
     #[test]

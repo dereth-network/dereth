@@ -1283,8 +1283,8 @@ impl<'a> SceneBuilder<'a> {
             Some(d) => {
                 let d = &d[model_detail];
                 let reach = if self.camera_moves { CELL_REACH } else { 0.0 };
-                let (mut high, mut low): (Option<(usize, u32)>, Option<(usize, u32)>) =
-                    (None, None);
+                let mut high: Option<(usize, u32)> = None;
+                let mut low: Option<(usize, u32)> = None;
                 for share in [1.0, REFLECTED_DISTANCE] {
                     let near_end = (distance - reach).max(0.0);
                     // just short of where it is gone

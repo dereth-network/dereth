@@ -21,11 +21,12 @@ pub const GRAVITY: u32 = 0x8000_0001;
 const INTEGER: u32 = 0x4000_0002;
 const FLOAT: u32 = 0x4000_0003;
 const VECTOR: u32 = 0x4000_0004;
+const COLOR: u32 = 0x4000_0005;
 
 /// `entry`'s value at point `at` of block `(x, y)`: the block's own value when it is discrete, else
 /// the values at the block's four corners blended at the point, all four being of the property's
-/// type; `None` when one is missing. No world's blended property is of another type.
-// D2-12581, D2-12564, D2-12562, D2-12565, D2-12566, D2-12567, D2-12573, D2-12574, D2-12575
+/// type; `None` when one is missing.
+// D2-12581, D2-12564, D2-12562, D2-12565, D2-12566, D2-12567, D2-12573, D2-12574, D2-12575, D2-12568
 #[must_use]
 pub fn block_property(
     entry: &MappedProperty,
@@ -73,6 +74,22 @@ pub fn block_property(
                 blend(c.map(|v| v.x)),
                 blend(c.map(|v| v.y)),
                 blend(c.map(|v| v.z)),
+            ))
+        }
+        // D2-12576
+        COLOR => {
+            let mut c = [[0.0; 4]; 4];
+            for (k, p) in corners.iter().enumerate() {
+                c[k] = p.value.inq_color()?.channels();
+            }
+            let part = |i: usize| blend(c.map(|v| v[i]));
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u32;
+            PropertyValue::Color(auberean_assets::common::Color32(
+                (byte(part(3)) << 24)
+                    | (byte(part(0)) << 16)
+                    | (byte(part(1)) << 8)
+                    | byte(part(2)),
             ))
         }
         _ => return None,

@@ -63,6 +63,7 @@ impl Mat4 {
     ]);
 
     /// Scale, then rotate by `q`, then move to `origin`: `diag(s) · R(q) · T(origin)`.
+    // D2-13266
     #[must_use]
     pub fn from_parts(origin: Vec3, q: Quat, s: Vec3) -> Self {
         let r = rotation_rows(q);
@@ -78,6 +79,15 @@ impl Mat4 {
     #[must_use]
     pub fn translation(t: Vec3) -> Self {
         Self::from_parts(t, Quat::IDENTITY, Vec3::new(1.0, 1.0, 1.0))
+    }
+
+    /// A point with its own last part through the matrix: each part the row's sum.
+    // D2-13307
+    #[must_use]
+    pub fn transform4(&self, v: [f32; 4]) -> [f32; 4] {
+        let m = &self.0;
+        let row = |k: usize| m[0][k] * v[0] + m[1][k] * v[1] + m[2][k] * v[2] + m[3][k] * v[3];
+        [row(0), row(1), row(2), row(3)]
     }
 
     /// `self · other`: `self` applied first.

@@ -63,7 +63,8 @@ impl std::fmt::Debug for WorldRecords {
     }
 }
 
-/// The region and the descriptions the landscape is drawn from.
+/// The region and the descriptions the landscape is drawn from, let go of whole with the world.
+// D2-07474
 #[derive(Clone, Debug)]
 pub struct RegionSet {
     pub region: Region,
@@ -199,6 +200,7 @@ impl WorldRecords {
     /// # Errors
     /// When the region, the landscape constants, the terrain or the surface description is missing
     /// or does not decode, or the constants are out of range.
+    // D2-07497, D2-07498, D2-07473
     pub fn region(&self) -> Result<RegionSet, WorldError> {
         let region: Region = self.need(REGION_ID)?;
         // The region's current record of a kind: always the first of its list.
@@ -214,6 +216,7 @@ impl WorldRecords {
         let calendar = sky.as_ref().and_then(|s| self.get(s.game_time.0));
         let fog = first(&region.fogs).and_then(|id| self.get(id));
         let scenes = first(&region.scenes).and_then(|id| self.get(id));
+        // D2-03549
         let fog_kinds = fog
             .as_ref()
             .and_then(|f: &FogDesc| self.get(f.distance_map.0));

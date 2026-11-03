@@ -161,7 +161,7 @@ pub fn block_light(
 /// last alone. Each is combined with `light` as a fog kind is, and the two are blended by where
 /// the depth lies between theirs (the shallower's share growing as the depth nears its own); the
 /// fog's alpha is the deeper's. An empty table leaves the light as it is.
-// D2-10872
+// D2-10872, D2-07527, D2-12555, D2-12560
 #[must_use]
 pub fn water_fog(light: &DayLight, table: &[WaterLight], depth: f32) -> DayLight {
     let Some(last) = table.len().checked_sub(1) else {

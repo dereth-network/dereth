@@ -96,7 +96,7 @@ impl Light {
     /// 5, white, at intensity 0.5, taking the properties of its light group (its kind, direction,
     /// range, color, intensity and specular color). With it, its range's and its intensity's
     /// waveforms.
-    // D2-13329, D2-13330, D2-13327
+    // D2-13329, D2-13330, D2-13327, D2-03486, D2-13322
     #[must_use]
     pub fn of_properties(
         cell: u32,

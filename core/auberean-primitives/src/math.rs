@@ -56,6 +56,7 @@ pub struct Frame {
 }
 
 /// An axis-aligned box: its least and greatest corners.
+// D2-13221, D2-02067
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct BBox {
     pub min: Vec3,

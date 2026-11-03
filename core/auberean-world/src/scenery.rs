@@ -400,6 +400,7 @@ struct Place {
 
 /// Something placement keeps clear of: a placed object, a group while and after it places its
 /// members, or a scene's own vertex.
+// D2-12446, D2-12447, D2-12449, D2-12450, D2-12451, D2-12452, D2-12453, D2-03875
 #[derive(Clone, Copy, Debug)]
 struct Clearance {
     origin: Vec3,

@@ -854,6 +854,7 @@ pub struct ObjectRays {
     pub rays: Vec<Ray>,
 }
 
+// D2-06868, D2-13368, D2-15628
 impl ObjectRays {
     // D2-13367
     #[must_use]

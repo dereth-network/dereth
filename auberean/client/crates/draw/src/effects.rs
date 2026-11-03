@@ -375,7 +375,7 @@ impl PlacedLight {
     /// much of it shows (rolling `dice` for any noise), its specular color times that too; its most
     /// range and most intensity (times how much shows) from its waveforms' bounds, for how far and
     /// how strongly it may light what is near it.
-    // D2-06524, D2-13333, D2-13324, D2-13325
+    // D2-06524, D2-13333, D2-13324, D2-13325, D2-13323
     #[must_use]
     pub fn standing(
         &self,

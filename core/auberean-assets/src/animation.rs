@@ -385,6 +385,7 @@ pub struct BoneTrack {
 
 impl BoneTrack {
     // D2-15287, D2-15288, D2-15289, D2-15273, D2-15251, D2-15253, D2-15255, D2-13300, D2-13301, D2-15107
+    // D2-13293, D2-13294, D2-13295, D2-13296, D2-13297, D2-13299, D2-15233, D2-15234, D2-15235, D2-15245
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             scale: r.list(16, vector_key)?,

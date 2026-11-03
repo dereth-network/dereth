@@ -439,7 +439,7 @@ pub fn sky_pieces(day: &DayDesc, t: f32) -> Vec<SkyPiece> {
                 travel(o.begin_pitch, o.end_pitch, r, wte),
             )
         };
-        // D2-07570
+        // D2-07570, D2-07596
         let mut color = Color::WHITE;
         if let Some((b, a, r)) = around {
             let find = |s: &SkyTime| find_replacement(s, o.name).copied();

@@ -32,6 +32,13 @@ pub fn read_vec3(r: &mut Reader<'_>) -> Result<Vec3> {
 }
 
 /// A place: its cell, its origin, its rotation (w, x, y, z).
+/// An offset from a cell: the cell, then the offset.
+// D2-13392
+pub fn write_position_offset(w: &mut Writer, cell: u32, offset: Vec3) {
+    w.u32(cell);
+    write_vec3(w, offset);
+}
+
 // D2-13185
 pub fn write_position(w: &mut Writer, p: &Position) {
     w.u32(p.cell.0);

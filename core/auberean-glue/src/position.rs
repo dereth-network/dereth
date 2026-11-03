@@ -38,6 +38,10 @@ use crate::machine::{new_text, text_of};
 const POSITION: u32 = 0x5A;
 const VECTOR: u32 = 0x70;
 
+/// The places table's enumeration value and mapping.
+const PLACES_ENUM: u32 = 0x4000_0054;
+const PLACES_MAPPING: u32 = 0x4000_0002;
+
 /// The region record the land's size is read from.
 const REGION: u32 = 0x0F00_0000;
 
@@ -85,6 +89,7 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (POSITION, 0x29, cell_x),
     (POSITION, 0x2A, cell_y),
     (POSITION, 0x2B, from_cell_coords),
+    (0x58, 0x03, places_dump),
     (VECTOR, 0x01, cross),
     (VECTOR, 0x02, dot),
     (VECTOR, 0x03, magnitude),
@@ -772,6 +777,27 @@ fn from_real_map_coords(c: &mut Call<'_>) -> Result<Status, Stop> {
     });
     c.write(-3, u32::from(ok), tag::MIXED)?;
     Ok(Status::Success)
+}
+
+/// Every place of the world's places table written out, a line each (a new string), or the words
+/// saying there is no table. No install holds one.
+// D2-13676, D2-13677, D2-08848
+fn places_dump(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let id = c.host.data_id_by_enum(PLACES_ENUM, PLACES_MAPPING);
+    let places = c
+        .host
+        .database()
+        .and_then(|db| db.get::<auberean_assets::tables::Places>(id));
+    let Some(places) = places else {
+        return give_text(c, "Couldn't get places list.\n");
+    };
+    let mut text = String::new();
+    for (name, p) in &places.places {
+        let (o, q) = (p.frame.origin, p.frame.rotation);
+        let frame = [o.x, o.y, o.z, q.w, q.x, q.y, q.z].map(f32::to_bits);
+        text += &format!("{name}: {}.\n", position_text(p.cell.0, &frame));
+    }
+    give_text(c, &text)
 }
 
 /// The receiver written out.

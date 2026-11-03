@@ -80,6 +80,7 @@ pub fn cell_geometry(
                         .collect();
                     v.filter(|v| v.len() >= 3).map(Polygon::new)
                 })?;
+            // D2-04239, D2-04240, D2-04233
             let other = if p.flags & NO_OTHER_CELL != 0 {
                 crate::cells::OUTDOORS
             } else {

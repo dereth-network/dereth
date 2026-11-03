@@ -142,7 +142,7 @@ pub struct Region {
     pub world_maps: Vec<IndexedRecord>,
 }
 
-// D2-07477, D2-07488, D2-07490, D2-05029, D2-07489, D2-07494
+// D2-07477, D2-07488, D2-07490, D2-05029, D2-07489, D2-07494, D2-07501
 impl Decode for Region {
     /// The id, the region number, the name (a narrow string), the map, its scale, the test map,
     /// its size, the landscape constants' id, the length and width in landblocks, then eleven
@@ -403,7 +403,7 @@ pub struct SceneDesc {
     pub scene_types: Vec<SceneryKind>,
 }
 
-// D2-07426, D2-07428, D2-05031, D2-07427, D2-07435
+// D2-07426, D2-07428, D2-05031, D2-07427, D2-07435, D2-07436
 impl Decode for SceneDesc {
     /// A version word **before** the id, the id, then a counted list of scenery kinds.
     // D2-07437
@@ -728,7 +728,7 @@ pub struct SurfaceDesc {
     pub roads: Vec<SurfaceType>,
 }
 
-// D2-07553, D2-07555, D2-05033, D2-07554
+// D2-07553, D2-07555, D2-05033, D2-07554, D2-07545
 impl Decode for SurfaceDesc {
     /// A version word **before** the id, the id, the far texture, its scale, the far water
     /// material, the cloud texture, its scale and scroll speeds, the surfaces, the roads.
@@ -824,7 +824,7 @@ pub struct EncounterDesc {
     pub rows: Vec<EncounterRow>,
 }
 
-// D2-07505, D2-07507, D2-05034, D2-07506, D2-07509
+// D2-07505, D2-07507, D2-05034, D2-07506, D2-07509, D2-07502
 impl Decode for EncounterDesc {
     /// A version word **before** the id, the id, the block map, a counted list of rows.
     // D2-07503, D2-07515
@@ -861,7 +861,7 @@ pub struct SkyDesc {
     pub days: Vec<WeightedDay>,
 }
 
-// D2-12514, D2-12515, D2-07454, D2-07460, D2-05035, D2-07461, D2-07464
+// D2-12514, D2-12515, D2-07454, D2-07460, D2-05035, D2-07461, D2-07464, D2-07465
 impl Decode for SkyDesc {
     /// A version word **before** the id, the id, four 64-bit tick intervals, the calendar, a
     /// counted list of days and frequencies.
@@ -960,7 +960,7 @@ pub struct FogAndLight {
     pub combines: [Combine; 7],
 }
 
-// D2-12536, D2-12540, D2-12534
+// D2-12536, D2-12540, D2-12534, D2-12535, D2-10863, D2-10864
 impl FogAndLight {
     /// The four fog values, the fog kind, the fog color, the direct brightness and color, the
     /// ambient brightness and color, the combine code, then the two multipliers of each channel
@@ -1131,7 +1131,7 @@ pub struct WaterDesc {
     pub waters: Vec<WaterType>,
 }
 
-// D2-07516, D2-07518, D2-05036, D2-07517, D2-07530
+// D2-07516, D2-07518, D2-05036, D2-07517, D2-07530, D2-07531
 impl Decode for WaterDesc {
     /// A version word **before** the id, the id, the two maps, a word saying a default water
     /// follows, alignment, the default water, then a counted list of waters.
@@ -1204,7 +1204,7 @@ pub struct FogDesc {
     pub fogs: Vec<FogType>,
 }
 
-// D2-07533, D2-07535, D2-05037, D2-07534, D2-07542
+// D2-07533, D2-07535, D2-05037, D2-07534, D2-07542, D2-07543
 impl Decode for FogDesc {
     /// A version word **before** the id, the id, four maps, a word saying a default fog follows,
     /// alignment, the default fog, then a counted list of fogs.
@@ -1521,6 +1521,7 @@ pub struct Landscape {
     pub heights: Vec<f32>,
 }
 
+// D2-05058, D2-13311, D2-13317
 impl Decode for Landscape {
     /// The id, the land cell side, the cells per block side, the vertex intervals per cell side,
     /// the greatest object height, the sky height, the road width, the six vertex field widths
@@ -1556,6 +1557,33 @@ impl Decode for Landscape {
             vertex_fields,
             heights,
         })
+    }
+}
+
+impl Landscape {
+    /// The constants until a record gives them: 24 m land cells, eight to a block's side, two
+    /// vertex steps to a cell's, objects to 300 m, the sky at 1000 m, roads 5 m wide; the vertex
+    /// word's terrain 6 bits, scene 4, encounter 4, color 8, road 2 and replace 8.
+    // D2-13310
+    #[must_use]
+    pub fn defaults() -> Self {
+        Self {
+            cell_side: 24.0,
+            road_width: 5.0,
+            cells_per_block_side: 8,
+            pixels_per_cell_side: 2,
+            max_object_height: 300.0,
+            sky_height: 1000.0,
+            vertex_fields: VertexFields {
+                terrain: 6,
+                scene: 4,
+                encounter: 4,
+                color: 8,
+                road: 2,
+                replace: 8,
+            },
+            heights: Vec::new(),
+        }
     }
 }
 
@@ -1616,7 +1644,7 @@ pub struct DetailMap {
     pub rows: Vec<DetailMapRow>,
 }
 
-// D2-07602, D2-05076, D2-07603, D2-07604, D2-07616
+// D2-07602, D2-05076, D2-07603, D2-07604, D2-07616, D2-07605
 impl Decode for DetailMap {
     /// The id, the block map, a counted list of rows.
     // D2-07627, D2-07610
@@ -1646,7 +1674,7 @@ pub struct MapNotes {
     pub notes: Vec<MapNote>,
 }
 
-// D2-07618, D2-05077, D2-07619, D2-07620, D2-07622, D2-07623
+// D2-07618, D2-05077, D2-07619, D2-07620, D2-07622, D2-07623, D2-07621
 impl Decode for MapNotes {
     /// The id, the string table, a counted list of notes.
     // D2-07627, D2-02569, D2-07624

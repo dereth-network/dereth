@@ -102,6 +102,7 @@ pub const SELECTION_WITH_NUMBERS: u32 = 0x4000_0001;
 
 /// A rectangle of the screen with its edges inclusive.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+// D2-02058
 pub struct Box2D {
     pub x0: i32,
     pub y0: i32,
@@ -130,6 +131,70 @@ impl Box2D {
             return false;
         }
         self.x0 <= other.x1 && self.x1 >= other.x0 && self.y0 <= other.y1 && self.y1 >= other.y0
+    }
+
+    /// Where two boxes overlap, when they do.
+    // D2-09620
+    #[must_use]
+    pub fn intersection(&self, other: &Self) -> Option<Self> {
+        let b = Self {
+            x0: self.x0.max(other.x0),
+            y0: self.y0.max(other.y0),
+            x1: self.x1.min(other.x1),
+            y1: self.y1.min(other.y1),
+        };
+        (b.x1 >= b.x0 && b.y1 >= b.y0).then_some(b)
+    }
+
+    /// Whether `other` lies wholly inside this box.
+    // D2-11193
+    #[must_use]
+    pub const fn includes(&self, other: &Self) -> bool {
+        self.x0 <= other.x0 && other.x1 <= self.x1 && self.y0 <= other.y0 && other.y1 <= self.y1
+    }
+
+    /// What is left of this box with `other` taken out, as up to four boxes: the part left of it
+    /// and the part right of it at this box's whole height, then below and above it between them.
+    /// Nothing when the two do not overlap.
+    // D2-11229
+    #[must_use]
+    pub fn subtract(&self, other: &Self) -> Vec<Self> {
+        let mut left = Vec::new();
+        if !self.collide(other) {
+            return left;
+        }
+        let (mut x0, mut x1) = (self.x0, self.x1);
+        if x0 <= other.x0 {
+            left.push(Self {
+                x1: other.x0 - 1,
+                ..*self
+            });
+            x0 = other.x0;
+        }
+        if other.x1 <= x1 {
+            left.push(Self {
+                x0: other.x1 + 1,
+                ..*self
+            });
+            x1 = other.x1;
+        }
+        if self.y0 <= other.y0 {
+            left.push(Self {
+                x0,
+                x1,
+                y0: self.y0,
+                y1: other.y0 - 1,
+            });
+        }
+        if other.y1 <= self.y1 {
+            left.push(Self {
+                x0,
+                x1,
+                y0: other.y1 + 1,
+                y1: self.y1,
+            });
+        }
+        left
     }
 }
 
@@ -1234,5 +1299,31 @@ impl Child for Names {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod box_tests {
+    //! Behaviour: none (a box's sums, held to hand-worked values)
+    use super::Box2D;
+
+    const fn b(x0: i32, y0: i32, x1: i32, y1: i32) -> Box2D {
+        Box2D { x0, y0, x1, y1 }
+    }
+
+    #[test]
+    fn boxes_overlap_include_and_subtract() {
+        let big = b(0, 0, 9, 9);
+        let inner = b(3, 4, 5, 6);
+        assert_eq!(big.intersection(&b(5, 5, 20, 20)), Some(b(5, 5, 9, 9)));
+        assert_eq!(big.intersection(&b(10, 0, 20, 9)), None);
+        assert!(big.includes(&inner));
+        assert!(!inner.includes(&big));
+        assert!(!big.includes(&b(5, 5, 10, 6)));
+        assert_eq!(
+            big.subtract(&inner),
+            vec![b(0, 0, 2, 9), b(6, 0, 9, 9), b(3, 0, 5, 3), b(3, 7, 5, 9),]
+        );
+        assert_eq!(big.subtract(&b(20, 20, 30, 30)), Vec::new());
     }
 }
