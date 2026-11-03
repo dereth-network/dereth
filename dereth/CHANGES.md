@@ -25,6 +25,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - Fixed spell components missing from the Components tab when they arrived before their pack.
 
 - macOS: Intel Macs are no longer supported; Apple silicon only.
+- Better Lighting: no more white line across things standing in water.
 
 ## 0.4.12 (2026-11-03)
 
