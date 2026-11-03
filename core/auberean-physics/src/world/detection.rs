@@ -727,7 +727,7 @@ impl World {
     /// How far along the line from `from` to `to` (in the landblock frame of `cell`) what stands
     /// in `cell` first meets it, as a fraction, and what the line meets facing: the objects whose own
     /// cell it is and those that reach into it, each that blocks `los`.
-    // D2-03863
+    // D2-03863, D2-06132
     fn cell_objects_met(
         &self,
         cell: CellId,

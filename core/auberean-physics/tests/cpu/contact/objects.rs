@@ -156,6 +156,22 @@ fn a_solid_over_a_block_edge_is_in_the_next_blocks_cells() {
     );
 }
 
+/// A moving object reaching over a block's edge stands in the lists of the next block's cells
+/// whether or not that block is in, so nothing is to be done for it when the block comes in.
+///
+/// Behaviour: collision.objects.a-body-is-in-the-lists-of-cells-not-yet-in
+#[test]
+fn a_body_is_in_the_lists_of_cells_not_yet_in() {
+    let land = land();
+    let mut world = World::new();
+    let mut near_edge = body(159.8, 70.0);
+    world.insert_body(&land, 0x50, &mut near_edge);
+    let at = land_cell_id(0x41, 0x40, 0, 3);
+    assert_eq!(world.collision_list(at), vec![0x50], "before it comes in");
+    land.insert(Block::flat(0x41, 0x40, GROUND_Z));
+    assert_eq!(world.collision_list(at), vec![0x50], "and after");
+}
+
 /// A body running at an object the host put in the world stops against it, its sphere outside
 /// the object's cylinder; with the object taken out, a body making the same run goes on past
 /// where it stood.

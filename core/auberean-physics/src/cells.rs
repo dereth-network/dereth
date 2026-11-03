@@ -672,7 +672,6 @@ pub fn within_block(v: Vec3) -> bool {
 }
 
 /// The whole-block cell of the landblock at block coordinates `(x, y)`; 0 off the map.
-// D2-10949
 #[must_use]
 pub fn block_id_at(x: i32, y: i32) -> u32 {
     let (lx, ly) = (x.wrapping_shl(BLOCK_SHIFT), y.wrapping_shl(BLOCK_SHIFT));

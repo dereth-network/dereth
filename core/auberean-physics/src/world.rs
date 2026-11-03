@@ -255,45 +255,6 @@ impl World {
         t
     }
 
-    /// How far along the line from `from` to `to` (in the landblock frame of `cell`) the objects
-    /// of the table with an object id first meet it, as a fraction ([`Shape::check_ray`]), entry
-    /// `skip` left out. An object blocks the line unless its physics type is one `physics` passes
-    /// through (and it is not on the solid list of `objects`), or `objects` passes through it.
-    // D2-03863, D2-06132
-    #[must_use]
-    pub fn trace_ray_objects(
-        &self,
-        cell: CellId,
-        from: Vec3,
-        to: Vec3,
-        skip: Option<BodyKey>,
-        physics: &PhysicsTypes,
-        objects: &crate::ethereal::ObjectEthereality,
-    ) -> Option<f32> {
-        let mut best: Option<f32> = None;
-        for (key, e) in &self.entries {
-            if e.id == 0 || Some(*key) == skip {
-                continue;
-            }
-            if !solid::is_blocking(e.physics_type, e.id, objects, physics) {
-                continue;
-            }
-            let Some(o) = self.objects.get(e.handle) else {
-                continue;
-            };
-            let shift = crate::geom::block_offset(cell, o.position.cell);
-            if let Some(t) = e
-                .shape
-                .check_ray(&o.position.frame, from.sub(shift), to.sub(shift))
-            {
-                if best.is_none_or(|b| t < b) {
-                    best = Some(t);
-                }
-            }
-        }
-        best
-    }
-
     /// Entry `key`'s collisions, once it has collision settings.
     #[must_use]
     pub fn collisions(&self, key: BodyKey) -> Option<&Collisions> {
@@ -616,7 +577,6 @@ impl World {
     }
 
     /// How many cells' collision lists entry `key` is in.
-    // D2-06338
     #[must_use]
     pub fn num_shadow_objects(&self, key: BodyKey) -> usize {
         self.entries.get(&key).map_or(0, |e| e.cells.len())
@@ -624,7 +584,6 @@ impl World {
 
     /// Whether entry `key` stands in a cell and every cell it reaches is loaded: none of its
     /// shadows has lost its cell.
-    // D2-06141
     #[must_use]
     pub fn are_shadow_objects_complete(&self, land: &Land, key: BodyKey) -> bool {
         self.entries.get(&key).is_some_and(|e| {
@@ -636,7 +595,6 @@ impl World {
 
     /// Entry `key`'s collision lists made again: from where it stands when it stands anywhere and
     /// nothing holds it; else it is in none.
-    // D2-06267
     pub fn recalc_cross_cells(&mut self, land: &Land, key: BodyKey, held: bool) {
         match self.position(key).filter(|p| !held && p.cell.0 != 0) {
             Some(at) => {
@@ -657,7 +615,6 @@ impl World {
 
     /// The objects standing in the cells of landblock `block`: its interior cells', then its land
     /// cells', only those that move when `moving`.
-    // D2-03648, D2-06101
     #[must_use]
     pub fn block_objects(&self, land: &Land, block: CellId, moving: bool) -> Vec<u64> {
         let lb = block.landblock();

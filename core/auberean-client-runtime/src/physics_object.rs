@@ -73,6 +73,7 @@ pub fn has_physics_object(h: &ClientHost, object: u64) -> bool {
 
 /// The object whose radius and height an object's top level reads: the object it is held by, or
 /// itself.
+// D2-05967
 #[must_use]
 pub fn top_level(h: &ClientHost, object: u64) -> u64 {
     h.model

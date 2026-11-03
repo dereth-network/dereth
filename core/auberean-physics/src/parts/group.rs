@@ -103,7 +103,6 @@ impl PartGroup {
     }
 
     /// Bone `i`'s transform into the group's frame.
-    // D2-06558
     #[must_use]
     pub fn bone_matrix(&self, i: usize) -> Option<&Mat4> {
         self.array.bone_matrices.get(i)

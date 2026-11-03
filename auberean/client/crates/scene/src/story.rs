@@ -323,6 +323,7 @@ impl StoryHost<Act> for Stage<'_, '_> {
         self.scene.has_body(object)
     }
 
+    // D2-06076
     fn object_behavior(&mut self, object: u64, behavior: &Act) {
         self.scene.play_behavior(object, &behavior.0);
     }
@@ -623,7 +624,14 @@ impl Scene<'_> {
                 }
                 ServerMessage::TurnHead(e) => self.look_dir(id, e.action.x, e.action.y),
                 ServerMessage::MoveSlider(e) => self.recv_do_slider(id, &e.action),
+                // D2-05886
                 ServerMessage::LetGoBehavior(e) => {
+                    if let Some(b) = self.body_mut(id) {
+                        b.set_animation_active(true);
+                    }
+                    if e.action.params.mode != 0 {
+                        self.do_mode(id, e.action.params.mode);
+                    }
                     let anims = &self.anims;
                     if let Some(f) = crate::figure_in(
                         &mut self.player,
@@ -642,6 +650,7 @@ impl Scene<'_> {
                 ServerMessage::DoTargetedFx(e) => {
                     self.do_targeted_fx(id, e.action.fx, e.action.scalar, e.action.target);
                 }
+                // D2-05905
                 ServerMessage::MotionInterpChange(e) => {
                     let record = self
                         .world
@@ -650,6 +659,7 @@ impl Scene<'_> {
                     if let (Some(md), Some(b)) = (record, self.body_mut(id)) {
                         b.minterp
                             .set_description(e.action.0, std::sync::Arc::new(md));
+                        b.set_movement_active(true);
                     }
                 }
                 ServerMessage::InitializeMissile(e) => self.recv_initialize_missile(id, &e.action),

@@ -880,7 +880,7 @@ fn sight_set_ray(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// Starts at the place at `fp[-2]`, along the offset at `fp[-3]`, in the place's cell.
-// D2-08617, D2-08608
+// D2-08617
 fn sight_from_position_and_offset(c: &mut Call<'_>) -> Result<Status, Stop> {
     let at = position(c, 0)?;
     let offset = vector(c, 1)?;

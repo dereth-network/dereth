@@ -289,6 +289,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "collision.objects.a-body-is-in-the-lists-of-cells-not-yet-in",
+        says: "A moving object reaching over a block's edge stands in the lists of the next \
+               block's cells whether or not that block is in.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-INIT-DYNAMIC"),
+        station: "auberean-physics::cpu::contact::objects::a_body_is_in_the_lists_of_cells_not_yet_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "collision.objects.a-body-runs-across-a-dais-reaching-into-its-cell",
         says: "A cell files what it places in every cell the box around what the thing draws \
                reaches: a body standing on the human training hall's dais in the cell beside the \

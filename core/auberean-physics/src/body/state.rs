@@ -143,13 +143,11 @@ impl Body {
     pub const fn is_no_draw(&self) -> bool {
         self.has(flags::NO_DRAW)
     }
-    // D2-06297
     #[must_use]
     pub const fn is_cloaked(&self) -> bool {
         self.has(flags::CLOAKED)
     }
     /// Pushable only while it moves at all.
-    // D2-06298
     #[must_use]
     pub const fn is_pushable(&self) -> bool {
         self.has(flags::PUSHABLE) && self.is_dynamic()
@@ -212,7 +210,6 @@ impl Body {
     pub fn set_report_collisions(&mut self, on: bool) {
         self.put(flags::REPORT_COLLISIONS, on);
     }
-    // D2-06016
     pub fn set_tools_draw(&mut self, on: bool) {
         self.put(flags::TOOLS_DRAW, on);
     }
@@ -226,7 +223,6 @@ impl Body {
         self.put(flags::CLOAKED, on);
         self.set_no_draw(on);
     }
-    // D2-06019
     pub fn set_missile(&mut self, on: bool) {
         self.put(flags::MISSILE, on);
     }
@@ -239,7 +235,6 @@ impl Body {
         self.put(flags::ALIGN_TO_PATH, on);
     }
     /// Sticky objects clip to their path.
-    // D2-06022, D2-06027
     pub fn set_path_clipping(&mut self, on: bool) {
         self.put(flags::PATH_CLIPPED, on);
     }
@@ -282,7 +277,6 @@ impl Body {
     pub fn set_lights(&mut self, on: bool) {
         self.put(flags::LIGHTS, on);
     }
-    // D2-06028
     pub fn set_pushable(&mut self, on: bool) {
         self.put(flags::PUSHABLE, on);
     }
@@ -315,7 +309,6 @@ impl Body {
     pub const fn is_active(&self) -> bool {
         self.is_animation_active() || self.is_movement_active() || self.is_misc_active()
     }
-    // D2-06305
     #[must_use]
     pub const fn is_inactive(&self) -> bool {
         !self.is_active()
@@ -328,7 +321,6 @@ impl Body {
     pub const fn is_in_workspace(&self) -> bool {
         self.has(flags::IN_WORKSPACE)
     }
-    // D2-06031
     pub fn set_in_workspace(&mut self, on: bool) {
         self.put(flags::IN_WORKSPACE, on);
     }
@@ -407,7 +399,6 @@ impl Body {
     }
 
     /// Animation may stop only out of the world.
-    // D2-06008
     #[must_use]
     pub const fn animation_can_be_inactive(&self) -> bool {
         !self.in_world
@@ -439,7 +430,6 @@ impl Body {
     pub const fn on_ground(&self) -> bool {
         self.contact && self.on_walkable
     }
-    // D2-06291
     #[must_use]
     pub const fn off_ground(&self) -> bool {
         !self.on_ground()

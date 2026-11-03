@@ -1026,7 +1026,7 @@ pub fn build(
 fn register(cell_solids: &mut [Vec<u32>], overhangs: &mut Vec<Overhang>, bounds: &Sphere, i: u32) {
     #[allow(clippy::cast_possible_truncation)]
     let cell = |v: f32| (v / CELL_LENGTH).floor() as i32;
-    #[allow(clippy::cast_possible_wrap)]
+    #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
     let side = CELLS_PER_SIDE as i32;
     let (x0, x1) = (
         cell(bounds.center.x - bounds.radius),

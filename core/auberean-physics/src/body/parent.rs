@@ -176,7 +176,6 @@ impl Body {
 
     /// Whether object `id` is among what it holds or, in turn, what they hold (`children_of` gives
     /// another body's children).
-    // D2-06229
     #[must_use]
     pub fn look_up_in_all_children(
         &self,
@@ -290,7 +289,6 @@ impl Body {
 
     /// Lets go of every child, the first each time: the host has each let go of it
     /// (`let_go`, which calls the child's [`Body::unset_parent`]) and it comes off the list.
-    // D2-06224
     pub fn unparent_children(&mut self, mut let_go: impl FnMut(u64)) {
         while let Some(first) = self.child(0).map(|c| c.id) {
             let_go(first);
@@ -300,7 +298,6 @@ impl Body {
 
     /// The object at the top of its holders (`parent_of` gives another body's holder; 0 for
     /// none); none when it is held by nothing.
-    // D2-06147
     #[must_use]
     pub fn top_parent(&self, parent_of: &dyn Fn(u64) -> u64) -> Option<u64> {
         let mut top = None;
@@ -459,7 +456,6 @@ pub fn set_parent(
 /// Body `child` is taken up by `parent` as a part group of its own asks: only when the child has
 /// a part group of key `group`, and then at location 0, whatever frame was asked ([`set_parent`];
 /// `how` says whether the holder holds things there).
-// D2-06000
 #[allow(clippy::too_many_arguments)]
 pub fn set_parent_in_group(
     child: &mut Body,

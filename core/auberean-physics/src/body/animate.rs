@@ -191,7 +191,6 @@ impl Body {
     }
 
     /// No object for its targeted effects, and no look for them to clone.
-    // D2-06098
     pub fn clear_fx_target(&mut self) {
         self.fx_target = 0;
         self.look_to_clone = 0;

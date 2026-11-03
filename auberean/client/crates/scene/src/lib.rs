@@ -1692,6 +1692,7 @@ impl<'w> Scene<'w> {
     /// passed on again) on everything the body holds. Whether the figure took it: a body with no
     /// figure cannot.
     // D2-06263
+    // D2-06262
     pub(crate) fn play_behavior(
         &mut self,
         id: u64,

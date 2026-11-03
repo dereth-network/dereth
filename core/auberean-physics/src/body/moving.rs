@@ -174,7 +174,6 @@ impl Body {
 
     /// A velocity "in the body's frame": it is set as the landblock-frame velocity as it is, not
     /// turned by the body's heading, and kept as the body's animation velocity.
-    // D2-05985
     pub fn set_local_velocity(&mut self, v: Vec3) {
         crate::motion::Owner::set_velocity(self, v);
         self.anim_velocity = v;
@@ -188,7 +187,6 @@ impl Body {
     }
 
     /// A rate of turn in the body's frame, turned into the landblock's.
-    // D2-05986
     pub fn set_local_omega_velocity(&mut self, w: Vec3) {
         let g = geom::local_to_global(&self.position.frame, w);
         self.set_omega_velocity(g);
@@ -209,7 +207,6 @@ impl Body {
     }
 
     /// The heading from the body to a place.
-    // D2-05994
     #[must_use]
     pub fn calc_heading(&self, to: &Position) -> Heading {
         geom::heading_to(&self.position, to)
@@ -262,7 +259,6 @@ impl Body {
     }
 
     /// The distance between the body's cylinder and another's (its radius and height at `p`).
-    // D2-05988
     #[must_use]
     pub fn distance_to_object(&self, p: &Position, radius: f32, height: f32) -> f32 {
         geom::cylinder_distance(

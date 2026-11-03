@@ -443,7 +443,6 @@ impl CollisionReport {
         matches!(self.contact_state, state::BEGIN | state::CHANGED).then_some(self.contact_plane)
     }
 
-    // D2-15547
     #[must_use]
     pub fn is_end_contact(&self) -> bool {
         self.contact_state == state::END
@@ -455,7 +454,6 @@ impl CollisionReport {
         self.records.get(i)
     }
 
-    // D2-15550
     #[must_use]
     pub fn object_property(&self, i: usize) -> Option<&ContactProperty> {
         self.object_properties.get(i)
@@ -467,13 +465,11 @@ impl CollisionReport {
         self.env_properties.get(i)
     }
 
-    // D2-15552
     #[must_use]
     pub fn surface_property(&self, i: usize) -> Option<&ContactProperty> {
         self.surface_properties.get(i)
     }
 
-    // D2-15553
     #[must_use]
     pub fn water_property(&self, i: usize) -> Option<&ContactProperty> {
         self.water_properties.get(i)
@@ -487,7 +483,6 @@ impl CollisionReport {
     }
 
     /// The first record of an object.
-    // D2-15554
     #[must_use]
     pub fn find_object(&self, object: u64) -> Option<&ContactRecord> {
         self.records.iter().find(|r| r.object == object)

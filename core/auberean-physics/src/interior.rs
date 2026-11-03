@@ -126,6 +126,7 @@ fn cell_solids(records: &WorldRecords, trees: &mut Trees, cell: &Cell, id: CellI
 /// Add every interior cell of block `(x, y)` to `land`, with the solid parts of the entities
 /// placed in each and the entities that collide through cylinders or spheres; returns how many
 /// cells were added.
+// D2-03581, D2-03574
 pub fn add_block_cells(
     land: &Land,
     records: &WorldRecords,

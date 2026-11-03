@@ -94,7 +94,6 @@ pub fn vector_text(v: Vec3) -> String {
 }
 
 /// A plane as text: its normal, then its distance, and the end of the line.
-// D2-13141, D2-13142
 #[must_use]
 pub fn plane_text(plane: &Plane) -> String {
     format!(

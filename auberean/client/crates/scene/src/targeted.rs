@@ -163,6 +163,7 @@ impl Scene<'_> {
                 b.unset_parent();
             }
         }
+        // D2-06885
         if n.destroy_target == Some(true) && self.temporaries.has(target) {
             self.destroy_temporary(client, target);
         }
@@ -172,6 +173,7 @@ impl Scene<'_> {
     /// way do, fades in, and stands where the object playing it does, or is held by it at the
     /// entry's holding location or bone. Unless it plays the behavior the entry names, it goes
     /// when the effect ends.
+    // D2-06052
     fn do_create_object_fx(&mut self, client: &mut Client, a: &mut Aimed, look: u32, n: &FxNode) {
         let Some(made) = self.create_temporary(client, look, -1.0) else {
             return;
@@ -212,8 +214,8 @@ impl Scene<'_> {
         }
         let list = self.table.property_list();
         let mut pass = auberean_physics::ethereal::PhysicsTypes::default();
-        pass.set_property(&list, MADE_OBJECT_ETHEREAL, true);
-        pass.set_property(&list, MOVER_ETHEREAL, true);
+        pass.set_property(list, MADE_OBJECT_ETHEREAL, true);
+        pass.set_property(list, MOVER_ETHEREAL, true);
         let s = CollisionSettings {
             bits: settings::PHYSICS_TYPE,
             physics_type: pass,

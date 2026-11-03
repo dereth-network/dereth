@@ -126,8 +126,7 @@ impl NearBlocks {
         self.init_free_blocks();
     }
 
-    /// The blocks let go of since last asked, oldest first: the objects standing in their cells
-    /// are to leave the world.
+    /// The blocks let go of since last asked.
     pub(crate) fn take_released(&mut self) -> Vec<(u8, u8)> {
         std::mem::take(&mut self.released)
     }

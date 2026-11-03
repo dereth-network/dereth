@@ -164,7 +164,6 @@ impl Body {
 
     /// The place on the ground under the body: its own place lowered by its height above what is
     /// walkable; out of the world, its place.
-    // D2-06165
     #[must_use]
     pub fn ground_position(&self) -> Position {
         let mut p = self.position;
@@ -175,7 +174,6 @@ impl Body {
     }
 
     /// The squared distance from its cylinder to another (radius and height) standing at `p`.
-    // D2-05989
     #[must_use]
     pub fn distance_to_object_squared(&self, p: &Position, radius: f32, height: f32) -> f32 {
         cylinder_distance_squared(

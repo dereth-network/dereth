@@ -344,7 +344,6 @@ impl Body {
     }
 
     /// New flight settings; its lifespan and fuel start again.
-    // D2-06241
     pub fn missile_init_missile_parameters(
         &mut self,
         land: &Land,
@@ -360,7 +359,6 @@ impl Body {
     }
 
     /// New aim; the target is looked for again.
-    // D2-06242
     pub fn missile_init_targeting_parameters(
         &mut self,
         land: &Land,
@@ -376,7 +374,6 @@ impl Body {
     }
 
     /// Sets the missile up, then places and launches it when due; true when both took.
-    // D2-05912
     pub fn missile_init_place_and_fire(
         &mut self,
         land: &Land,
@@ -397,12 +394,10 @@ impl Body {
         self.missile_order(Guidance::place_and_fire)
     }
 
-    // D2-06206
     pub fn missile_place(&mut self) -> bool {
         self.missile_order(Guidance::place)
     }
 
-    // D2-06207
     pub fn missile_fire(&mut self) -> bool {
         self.missile_order(Guidance::fire)
     }
@@ -418,7 +413,6 @@ impl Body {
 
     /// The direction the missile would launch in and how fast; a failure (or no guidance, 5) is
     /// told to the game object.
-    // D2-06208
     pub fn missile_inquire_direction(
         &mut self,
         land: &Land,
@@ -439,14 +433,12 @@ impl Body {
     }
 
     /// The velocity the missile flies at, when it is one.
-    // D2-06209
     #[must_use]
     pub fn missile_inquire_current_velocity(&self) -> Option<Vec3> {
         self.missile.as_deref().map(|g| g.velocity)
     }
 
     /// New settings and aim in flight; a failure (or no guidance, 5) is told to the game object.
-    // D2-06210
     pub fn missile_retarget(
         &mut self,
         land: &Land,
@@ -511,7 +503,6 @@ impl Body {
     }
 
     /// The server aimed the missile again: new settings and where its target is.
-    // D2-06239
     pub fn receive_retarget_missile(
         &mut self,
         land: &Land,

@@ -138,7 +138,6 @@ impl Body {
     }
 
     /// The object at the top of what holds it: what holds it, else itself.
-    // D2-05967
     #[must_use]
     pub const fn top_level_object(&self) -> u64 {
         if self.has_parent {
@@ -150,7 +149,6 @@ impl Body {
 
     /// Where it stands for its cell: its first collision sphere's center carried into its
     /// landblock (its own place when it has no sphere), turned as it is.
-    // D2-05964
     #[must_use]
     pub fn cell_position(&self) -> Position {
         let mut p = self.position;

@@ -76,7 +76,6 @@ pub fn write_frame(w: &mut Writer, f: &Frame) {
 pub const BBOX_SIZE: usize = 24;
 
 /// A box: its least corner, then its greatest.
-// D2-13223, D2-02068
 pub fn write_bbox(w: &mut Writer, b: &BBox) {
     write_vec3(w, b.min);
     write_vec3(w, b.max);
@@ -84,7 +83,6 @@ pub fn write_bbox(w: &mut Writer, b: &BBox) {
 
 /// A physics polygon's binary size: its id, its corner count and its corners' vertex numbers (16
 /// bits each), brought to a multiple of four bytes.
-// D2-04169
 #[must_use]
 pub fn polygon_size(p: &auberean_assets::mesh::MeshPolygon) -> usize {
     (p.vertices.len() * 2 + 4).next_multiple_of(4)
@@ -92,7 +90,6 @@ pub fn polygon_size(p: &auberean_assets::mesh::MeshPolygon) -> usize {
 
 /// A physics polygon: its id, its corner count, its corners' vertex numbers, zeros to the next
 /// multiple of four bytes of the stream.
-// D2-04170
 pub fn write_polygon(w: &mut Writer, p: &auberean_assets::mesh::MeshPolygon) {
     w.u16(p.id);
     #[allow(clippy::cast_possible_truncation)]

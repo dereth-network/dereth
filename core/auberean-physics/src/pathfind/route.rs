@@ -85,7 +85,6 @@ impl Path {
     /// The positions to walk: each node's place, but in the middle of the doorway of the link
     /// taken out of it where there is one (the node's cell kept), and the way's own end in place
     /// of the end node. Each faces the next. None when a node's place cannot be found.
-    // D2-13429
     pub fn to_position_list<S: PathMaps + ?Sized>(
         &self,
         db: &mut PathMapDb,

@@ -90,7 +90,6 @@ impl Body {
 
     /// `pos` brought into the interior cell its point (or its first sphere's middle, turned with
     /// it) lies in, when any cell holds it.
-    // D2-06050
     pub fn find_inside_position(&self, land: &Land, pos: &mut Position) -> bool {
         let point = self.spheres().first().map_or(pos.frame.origin, |s| {
             crate::geom::point_to_global(&pos.frame, s.center)
