@@ -11,6 +11,7 @@ what they see, not how it was done.
 - New `@dn link`, friends, world squelches and channels, as on other Dereth Network worlds.
 - New `@dn admin block` in game, from an admin.
 - macOS: Intel Macs are no longer supported; Apple silicon only.
+- An open corpse now closes when you walk away from it.
 
 ## 0.1.2 (2026-11-03)
 

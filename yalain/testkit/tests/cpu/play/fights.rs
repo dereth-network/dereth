@@ -13,6 +13,7 @@ const START_ATTACK: u32 = 0x8204_0008;
 const ATTACK_STATE: u32 = 0x8204_001B;
 const USE: u32 = 0x8216_0016;
 const OPEN_DONE: u32 = 0x820E_005D;
+const CLOSE_DONE: u32 = 0x820E_0060;
 const MOVE_DONE: u32 = 0x820E_005E;
 const CLOSE: u32 = 0x820E_000C;
 const USE_DONE: u32 = 0x8216_0021;
@@ -769,6 +770,51 @@ fn open_corpse(h: &mut Harness, b: usize, me: u64) -> u64 {
     );
     h.run(20);
     corpse
+}
+
+/// An open corpse whose opener goes more than six meters from it closes: the opener is told, as
+/// when it asks to close it; nearer, it stays open.
+/// Behaviour: server.loot.corpse-closes-when-its-opener-walks-away
+#[test]
+fn an_open_corpse_closes_when_its_opener_walks_away() {
+    let (mut h, b, me, _) = fight();
+    let corpse = open_corpse(&mut h, b, me);
+    let world = *h.server.players.keys().next().expect("in");
+    let at = h
+        .server
+        .things
+        .get(corpse)
+        .and_then(|t| t.at)
+        .expect("the corpse stands in the world");
+    let stamp = h.server.players[&world].teleport_stamp;
+    let step = |h: &mut Harness, dx: f32| {
+        let to = auberean_primitives::Vec3::new(at.origin[0] + dx, at.origin[1], at.origin[2]);
+        let report =
+            yalain_testkit::play::report(at.cell, to, 0, yalain_world::world::IDLE_MOTION, stamp);
+        h.bots[b].send(true, queue::WEENIE, &report);
+        h.run(20);
+    };
+    let from = h.bots[b].inbox.len();
+    step(&mut h, 4.0);
+    assert!(
+        !calls_of(&h, b, from).iter().any(|(f, _)| *f == CLOSE_DONE),
+        "still near"
+    );
+    assert_eq!(
+        yalain_world::inventory::open_corpse_of(&h.server, world),
+        Some(corpse)
+    );
+    step(&mut h, 8.0);
+    let closed: Vec<_> = calls_of(&h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == CLOSE_DONE)
+        .collect();
+    assert_eq!(closed.len(), 1, "told once");
+    assert_eq!(closed[0].1.last(), Some(&Value::Long(corpse)));
+    assert_eq!(
+        yalain_world::inventory::open_corpse_of(&h.server, world),
+        None
+    );
 }
 
 /// Ask to turn a corpse's items into money; returns the answer's values.

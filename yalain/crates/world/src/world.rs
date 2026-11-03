@@ -1038,6 +1038,7 @@ fn moved<S: Store>(
     crate::gives::moved(s, net, world, clock);
     crate::places::walked(s, net, world, clock);
     crate::usable::chests::moved(s, net, world, clock);
+    crate::inventory::moved(s, net, world);
     crate::skill_use::moved(s, net, world, clock);
     if jumped {
         // An item's use under way is cut short by a jump.

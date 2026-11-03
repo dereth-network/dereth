@@ -3145,6 +3145,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.corpse-closes-when-its-opener-walks-away",
+        says: "An open corpse whose opener goes more than six meters from it closes: its opener is                told, as when it asks to close it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-WALK-AWAY"),
+        station: "yalain-testkit::cpu::play::fights::an_open_corpse_closes_when_its_opener_walks_away",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.one-viewer-at-a-time",
         says: "A corpse is open to one player at a time: another player's use of it while it is \
                open is refused and opens nothing, until the first closes it.",

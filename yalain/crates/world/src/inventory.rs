@@ -4,7 +4,7 @@
 //! **Opening a corpse** (in reach, 2 m; the player is walked there first): the corpse flashes and
 //! opens for every client that sees it; the opener gets the contents (in slot order) and then each
 //! item it does not know yet. No use answer is sent. **Closing** it: it closes for all, the closer
-//! gets the answer.
+//! gets the answer; it closes so too when the opener walks away from it, as from an open chest.
 //!
 //! **Taking an item** (the client uses the item inside the open corpse): the player plays its
 //! taking behavior, the item leaves the corpse, and once the behavior is through (1.8 s) the item
@@ -1324,6 +1324,28 @@ pub fn close<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, co
         }
     }
     crate::death::closed(s, corpse);
+}
+
+/// A player has moved: the corpse it has open closes once it is farther than an open chest's
+/// opener may go from it.
+pub fn moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let Some(corpse) = open_corpse_of(s, world) else {
+        return;
+    };
+    let Some(here) = s.players.get(&world).map(|p| p.position) else {
+        return;
+    };
+    // A chest open is the chest's own to close.
+    let Some(thing) = s.things.get(corpse).filter(|t| t.corpse.is_some()) else {
+        return;
+    };
+    let far = thing
+        .at
+        .and_then(|at| crate::places::reach(&here, at.cell, at.origin))
+        .is_none_or(|d| d > crate::usable::chests::WALK_AWAY);
+    if far {
+        close(s, net, world, corpse);
+    }
 }
 
 /// The client asks to close a container.
