@@ -132,6 +132,61 @@ maximum_allowed_sessions_per_ip_address = -1
 allow_unlimited_sessions_from_ip_addresses = []
 
 # ----------------------------------------------------------------------------------------------
+[server.websocket]
+# The WebSocket endpoint: clients in a browser connect here directly, one game datagram per
+# message, and reach the login and the world over that one connection. Off unless enabled. wss://
+# needs a certificate and key; plain ws:// is served only on a loopback address or with
+# behind_tls_proxy.
+
+# default: false (--websocket)
+# Listen for WebSocket connections.
+enabled = false
+
+# default: "0.0.0.0:9443" (--websocket-listen)
+# The address to listen on, "<ip>:<port>". Behind a reverse proxy on this machine, a loopback
+# address such as "127.0.0.1:9180".
+listen = "0.0.0.0:9443"
+
+# default: "" (--websocket-tls-certificate)
+# The PEM certificate chain for wss://. Empty serves plain ws://, which is allowed only on loopback
+# or with behind_tls_proxy.
+tls_certificate = ""
+
+# default: "" (--websocket-tls-private-key)
+# The PEM private key for tls_certificate.
+tls_private_key = ""
+
+# default: false (--websocket-behind-tls-proxy)
+# A reverse proxy in front (nginx, Cloudflare) terminates TLS, so plain ws:// may be served on a
+# non-loopback address. The proxy must be the only way in.
+behind_tls_proxy = false
+
+# default: [] (--websocket-trusted-proxy)
+# The proxies whose X-Forwarded-For header names the client, for the limits, the log and the rule
+# that a world login comes from its login's address. Example: ["127.0.0.1"]. A connection from any
+# other address is taken as the client.
+trusted_proxies = []
+
+# default: [] (--websocket-allowed-origin)
+# The web pages allowed to connect, by origin. Example: ["https://play.example.org"]. Empty refuses
+# every browser page.
+allowed_origins = []
+
+# default: 4 (--websocket-max-per-address)
+# WebSocket connections open at once from one client address; -1 is unlimited.
+maximum_connections_per_ip_address = 4
+
+# default: 60 (--websocket-idle-timeout)
+# Seconds a connection may send nothing before it is closed. Keep a proxy's read timeout longer
+# than this.
+idle_timeout = 60
+
+# default: "" (--websocket-public-url)
+# The URL clients use, reported by the status endpoint and told to the hub
+# ("wss://play.example.org/ws"). Empty derives it from listen.
+public_url = ""
+
+# ----------------------------------------------------------------------------------------------
 [server.accounts]
 # Account creation.
 

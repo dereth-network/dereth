@@ -26,6 +26,7 @@ fn settings(room: Option<&'static str>) -> Settings {
         software: "yalain test".into(),
         global_room: room,
         global_room_named: false,
+        websocket_url: None,
     }
 }
 

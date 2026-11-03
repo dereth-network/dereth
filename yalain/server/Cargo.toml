@@ -26,7 +26,7 @@ auberean-world.workspace = true
 dereth-primitives.workspace = true
 auberean-script.workspace = true
 yalain-content.workspace = true
-yalain-net = { workspace = true, features = ["udp"] }
+yalain-net = { workspace = true, features = ["udp", "websocket"] }
 yalain-world.workspace = true
 yalain-store = { workspace = true, features = ["sqlite"] }
 yalain-world-db.workspace = true
@@ -43,6 +43,8 @@ yalain-federation.workspace = true
 dereth-server-update.workspace = true
 # The players' friends service, served on TCP beside the login.
 yalain-friends.workspace = true
+# The settings of its WebSocket endpoint, the game servers' shared one.
+dereth-server-websocket.workspace = true
 # The operator's character recipes, read from TOML (character files are JSON, with serde_json).
 serde.workspace = true
 toml.workspace = true
@@ -75,8 +77,10 @@ auberean-client-sdk = { workspace = true, features = ["fs"] }
 auberean-dat = { workspace = true, features = ["test-support"] }
 yalain-content.workspace = true
 yalain-testkit.workspace = true
-# The live test's stand-in hub takes the world's link as a WebSocket.
+# The live test's stand-in hub takes the world's link as a WebSocket, and the WebSocket endpoint's
+# live test is its client, with the frame it carries.
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+dereth-transport.workspace = true
 
 [lints]
 workspace = true

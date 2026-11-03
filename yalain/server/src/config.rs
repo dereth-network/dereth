@@ -31,6 +31,10 @@ enum Takes {
     Flag(&'static str),
     /// `false` gives the option, which takes no value (a setting on by default turned off).
     Unless(&'static str),
+    /// A string given as the option's value even when it is empty, which a setting's checks read.
+    Text(&'static str),
+    /// A whole number, or a string holding one, given as the option's value.
+    Whole(&'static str),
     /// A list, the option given once for each item.
     Many(&'static str),
     /// A list of paths.
@@ -117,6 +121,52 @@ const KEYS: &[(&str, &str, Takes)] = &[
         "allow_unlimited_sessions_from_ip_addresses",
         Takes::Many("--unlimited-sessions-from"),
     ),
+    ("server.websocket", "enabled", Takes::Flag("--websocket")),
+    (
+        "server.websocket",
+        "listen",
+        Takes::Text("--websocket-listen"),
+    ),
+    (
+        "server.websocket",
+        "tls_certificate",
+        Takes::Path("--websocket-tls-certificate"),
+    ),
+    (
+        "server.websocket",
+        "tls_private_key",
+        Takes::Path("--websocket-tls-private-key"),
+    ),
+    (
+        "server.websocket",
+        "behind_tls_proxy",
+        Takes::Flag("--websocket-behind-tls-proxy"),
+    ),
+    (
+        "server.websocket",
+        "trusted_proxies",
+        Takes::Many("--websocket-trusted-proxy"),
+    ),
+    (
+        "server.websocket",
+        "allowed_origins",
+        Takes::Many("--websocket-allowed-origin"),
+    ),
+    (
+        "server.websocket",
+        "maximum_connections_per_ip_address",
+        Takes::Whole("--websocket-max-per-address"),
+    ),
+    (
+        "server.websocket",
+        "idle_timeout",
+        Takes::Whole("--websocket-idle-timeout"),
+    ),
+    (
+        "server.websocket",
+        "public_url",
+        Takes::Text("--websocket-public-url"),
+    ),
     (
         "server.accounts",
         "allow_auto_account_creation",
@@ -189,7 +239,6 @@ pub const EMPYREAN_ONLY: &[&str] = &[
     "server.admin_channel",
     "server.source_url",
     "server.preloaded_landblocks",
-    "server.websocket",
     "server.network.default_session_timeout",
     "server.accounts.override_character_permissions",
     "server.accounts.default_access_level",
@@ -208,6 +257,7 @@ pub const EMPYREAN_ONLY: &[&str] = &[
 const SECTIONS: &[&str] = &[
     "server",
     "server.network",
+    "server.websocket",
     "server.accounts",
     "status",
     "database",
@@ -298,6 +348,18 @@ impl Reading<'_> {
                 if !text.is_empty() {
                     self.give(option, Some(text));
                 }
+            }
+            Takes::Text(option) => {
+                let text = text_of(key, v)?;
+                self.give(option, Some(text));
+            }
+            Takes::Whole(option) => {
+                let text = match v {
+                    toml::Value::Integer(n) => n.to_string(),
+                    toml::Value::String(s) => s.clone(),
+                    _ => return Err(format!("{key}: a whole number")),
+                };
+                self.give(option, Some(text));
             }
             Takes::Path(option) => {
                 let text = text_of(key, v)?;
@@ -605,7 +667,12 @@ mod tests {
         // Every option a key gives is one the command line takes.
         for (_, _, takes) in KEYS {
             let a = match takes {
-                Takes::Value(o) | Takes::Path(o) | Takes::Many(o) | Takes::ManyPaths(o) => {
+                Takes::Value(o)
+                | Takes::Text(o)
+                | Takes::Whole(o)
+                | Takes::Path(o)
+                | Takes::Many(o)
+                | Takes::ManyPaths(o) => {
                     vec![(*o).to_owned(), "1".into()]
                 }
                 Takes::Flag(o) | Takes::Unless(o) => vec![(*o).to_owned()],
@@ -702,6 +769,119 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// `[server.websocket]` takes each of Empyrean's keys by its name, into the settings Empyrean's
+    /// own read: a key both lists share, off unless enabled, Empyrean's defaults when left out, a
+    /// relative certificate from the file's folder, and no warning.
+    /// Behaviour: server.operator.websocket-settings-read-as-empyreans
+    #[test]
+    fn the_websocket_section_takes_empyreans_keys_into_empyreans_settings() {
+        use dereth_server_websocket::settings::{WebSocketSettings, KEYS};
+        let shared: Vec<&str> = KEYS.to_vec();
+        let ours: Vec<&str> = super::KEYS
+            .iter()
+            .filter(|(section, ..)| *section == "server.websocket")
+            .map(|(_, key, _)| *key)
+            .collect();
+        assert_eq!(ours, shared, "the keys, in the shared order");
+        assert!(!EMPYREAN_ONLY.contains(&"server.websocket"));
+
+        let folder = Path::new("/srv/yalain");
+        let o = crate::parse_from(Vec::<String>::new()).expect("parses");
+        assert_eq!(o.websocket, WebSocketSettings::default(), "the defaults");
+        let (args, warnings) = arguments("[server.websocket]\n", folder).expect("reads");
+        assert!(
+            args.is_empty() && warnings.is_empty(),
+            "{args:?} {warnings:?}"
+        );
+
+        let text = r#"
+            [server.websocket]
+            enabled = true
+            listen = "10.0.0.5:9180"
+            tls_certificate = "cert.pem"
+            tls_private_key = "/etc/yalain/key.pem"
+            behind_tls_proxy = true
+            trusted_proxies = ["10.0.0.1", "10.0.0.2"]
+            allowed_origins = ["https://play.example.org"]
+            maximum_connections_per_ip_address = -1
+            idle_timeout = "90"
+            public_url = "wss://play.example.org/ws"
+        "#;
+        let (args, warnings) = arguments(text, folder).expect("reads");
+        assert!(warnings.is_empty(), "{warnings:?}");
+        let o = crate::parse_from(args).expect("parses");
+        assert_eq!(
+            o.websocket,
+            WebSocketSettings {
+                enabled: true,
+                listen: "10.0.0.5:9180".to_owned(),
+                tls_certificate: folder.join("cert.pem").to_string_lossy().into_owned(),
+                tls_private_key: "/etc/yalain/key.pem".to_owned(),
+                behind_tls_proxy: true,
+                trusted_proxies: vec!["10.0.0.1".to_owned(), "10.0.0.2".to_owned()],
+                allowed_origins: vec!["https://play.example.org".to_owned()],
+                maximum_connections_per_ip_address: -1,
+                idle_timeout: 90,
+                public_url: "wss://play.example.org/ws".to_owned(),
+            }
+        );
+        assert!(
+            arguments("[server.websocket]\nidle_timeout = 1.5\n", folder).is_err(),
+            "a whole number"
+        );
+        assert!(
+            arguments("[server.websocket]\nenabled = 1\n", folder).is_err(),
+            "a flag takes true or false"
+        );
+    }
+
+    /// The server stops at its start, in Empyrean's words, for each setting Empyrean's refuses,
+    /// while the endpoint is on: a plain listener off loopback, half a certificate, an address that
+    /// is none, and a proxy that is no address. Off, none is read.
+    /// Behaviour: server.operator.websocket-settings-refused-as-empyreans
+    #[test]
+    fn a_websocket_setting_empyrean_refuses_stops_the_server_at_its_start() {
+        let folder = Path::new("/srv/yalain");
+        let started = |keys: &str| {
+            let text = format!("[server.websocket]\n{keys}\n");
+            crate::parse_from(arguments(&text, folder).expect("reads").0)
+        };
+        let refusal = |keys: &str| started(&format!("enabled = true\n{keys}")).err();
+        let plain = refusal("listen = \"0.0.0.0:9443\"").expect("refused");
+        assert!(
+            plain.contains("plain ws://") && plain.contains("0.0.0.0:9443"),
+            "{plain}"
+        );
+        assert!(
+            refusal("").is_some(),
+            "the default listen address is not loopback"
+        );
+        let half = refusal("listen = \"0.0.0.0:9443\"\ntls_certificate = \"cert.pem\"");
+        assert!(half.expect("refused").contains("set together"));
+        let half = refusal("listen = \"127.0.0.1:9180\"\ntls_private_key = \"key.pem\"");
+        assert!(half.expect("refused").contains("set together"));
+        let listen = refusal("listen = \"localhost:9443\"").expect("refused");
+        assert!(listen.contains("is not an ip:port"), "{listen}");
+        let empty = refusal("listen = \"\"").expect("refused");
+        assert!(empty.contains("is not an ip:port"), "{empty}");
+        let proxy = refusal("listen = \"127.0.0.1:9180\"\ntrusted_proxies = [\"nginx\"]");
+        assert!(proxy.expect("refused").contains("not an IP address"));
+
+        for allowed in [
+            "listen = \"127.0.0.1:9180\"",
+            "listen = \"[::1]:9180\"",
+            "listen = \"0.0.0.0:9443\"\nbehind_tls_proxy = true",
+            "listen = \"0.0.0.0:9443\"\ntls_certificate = \"c\"\ntls_private_key = \"k\"",
+        ] {
+            let got = started(&format!("enabled = true\n{allowed}"));
+            assert!(got.is_ok(), "{allowed}: {:?}", got.err());
+        }
+        assert!(
+            started("listen = \"0.0.0.0:9443\"").is_ok(),
+            "off, a listener is not checked"
+        );
+    }
+
     /// `federation.global_room` is Empyrean's key, in Empyrean's form: it reaches the server as
     /// named, empty included, left out the world carries the Global room in General, and anything
     /// but the four rooms and empty stops the server. A world only listed reads none of it.
@@ -722,7 +902,11 @@ mod tests {
             let (args, warnings) = arguments(text, &dir)?;
             assert_eq!(warnings, Vec::<String>::new());
             let o = crate::parse_from(args)?;
-            crate::network::settings(o.hub.as_ref().expect("a hub"), o.global_room.as_deref())
+            crate::network::settings(
+                o.hub.as_ref().expect("a hub"),
+                None,
+                o.global_room.as_deref(),
+            )
         };
 
         let unset = settings("[federation]\nenabled = true\nslug = \"dawnsong\"\n").expect("reads");

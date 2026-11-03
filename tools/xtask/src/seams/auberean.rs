@@ -16,7 +16,8 @@
 //! 5. **The action seam.** The contract, the runtime, the SDK and the headless client name no key,
 //!    mouse button or window message ([`DEVICE_NAMES`]): a front end turns its device into actions.
 //! 6. **Four parts.** The client's crates use the core, their own and [`CLIENT_MAY_USE`]; the
-//!    server's the core, their own and [`SERVER_MAY_USE`] (the network's protocol and its link);
+//!    server's the core, their own and [`SERVER_MAY_USE`] (the network's protocol and its link, and
+//!    the game servers' WebSocket endpoint);
 //!    the world builder's the core, its own and
 //!    [`ATHENAEUM_MAY_USE`] (the world's drawing and the world database, never the server's game,
 //!    network, store or program: it runs Yalain as a program); a core crate's
@@ -136,12 +137,13 @@ pub const CLIENT_MAY_USE: &[&str] = &["dereth-render-cpu", "dereth-audio-out"];
 
 /// The crates outside the four parts the server may use: the Dereth Network's protocol and a
 /// world's end of its link, which name no game (the network is self-contained), so that the server
-/// speaks the network with the code every world shares rather than a copy of its own, and the
-/// updater both game servers run.
+/// speaks the network with the code every world shares rather than a copy of its own; and the
+/// WebSocket endpoint and the updater both game servers run, which name no game either.
 pub const SERVER_MAY_USE: &[&str] = &[
     "dereth-network-protocol",
     "dereth-network-link",
     "dereth-server-update",
+    "dereth-server-websocket",
 ];
 
 /// The client's and the server's crates the world builder may use: the world's frame and its

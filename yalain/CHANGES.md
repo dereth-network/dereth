@@ -14,6 +14,7 @@ what they see, not how it was done.
 - Worlds can carry the Dereth Network's Global room in a room of their choice.
 - macOS: Intel Macs are no longer supported; Apple silicon only.
 - An open corpse now closes when you walk away from it.
+- Worlds can take WebSocket connections.
 
 ## 0.1.2 (2026-11-03)
 

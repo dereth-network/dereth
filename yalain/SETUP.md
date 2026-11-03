@@ -179,6 +179,7 @@ to others.
 | `--unlimited-sessions-from <ip>` | an address the per-address limit does not hold back; may be given many times (section 3.7) |
 | `--motd <text>` | a message shown to each player as its character enters the world; `\n` starts a new line (default: none) |
 | `--status <ip>:<port>` | serve the status endpoint at this address (default: off; section 3.8) |
+| `--websocket` and the `--websocket-…` options | also take WebSocket connections, for clients in a browser (default: off; section 4.1) |
 | `--config <file>` | read the options from this configuration file (section 3.6) |
 | `--banned-names <file>` | refuse new character names holding the words it lists (below) |
 | `--no-friends` | serve no friends service (section 4) |
@@ -410,10 +411,12 @@ With `--status <ip>:<port>` (for example `--status 127.0.0.1:9100`), the server 
 - `GET /status` (also `GET /v1/world`): the world as JSON: `world_name`, `server` (`yalain`),
   `version`, `game` (`auberean`), `uptime_seconds`, `state` (`online`, or `maintenance` while a
   shutdown counts down), `players_online` (characters in the world), `logins`, `max_logins` and
-  `connections`.
+  `connections` and `websocket_url` (section 4.1; `null` with the endpoint off).
 
 It has **no authentication**. Keep it on `127.0.0.1` or a private network, and do not open its
-port in the firewall. It is off by default.
+port in the firewall. It is off by default. A web page on an origin in
+`server.websocket.allowed_origins` may read `/status` too, so it can find the WebSocket address; no
+other page can.
 
 ### 3.9 The status ping
 
@@ -557,6 +560,49 @@ or another. If something else already holds the TCP port, the server stops at st
 
 The Dereth Network needs no inbound port: the heartbeat and the link both go out from the server
 to the hub.
+
+With the WebSocket endpoint on (section 4.1), open its TCP port too when it serves `wss://` itself.
+Behind a reverse proxy, open only the proxy's port (443), and keep the endpoint on loopback or a
+private address that only the proxy can reach.
+
+### 4.1 WebSocket connections
+
+A browser cannot send UDP. With `[server.websocket]` enabled, the server also accepts each game
+datagram as one WebSocket message: the same packets, the same sessions and the same world. It is
+off by default. The settings are Empyrean's `[server.websocket]`, key for key, read by the same code,
+so [Empyrean's guide](../empyrean/SETUP.md#47-websocket-browser-clients) serves for this one: its
+reverse proxy and Cloudflare recipes apply as they stand, on the same keys.
+
+| Key | Default | Option | What it does |
+|---|---|---|---|
+| `enabled` | `false` | `--websocket` | Listen for WebSocket connections. |
+| `listen` | `"0.0.0.0:9443"` | `--websocket-listen` | The address and port. |
+| `tls_certificate`, `tls_private_key` | empty | `--websocket-tls-certificate`, `--websocket-tls-private-key` | PEM files for `wss://`. |
+| `behind_tls_proxy` | `false` | `--websocket-behind-tls-proxy` | A proxy in front terminates TLS. |
+| `trusted_proxies` | `[]` | `--websocket-trusted-proxy` | Proxies whose `X-Forwarded-For` names the client. |
+| `allowed_origins` | `[]` | `--websocket-allowed-origin` | The web pages allowed to connect, by origin; empty refuses every page. |
+| `maximum_connections_per_ip_address` | `4` | `--websocket-max-per-address` | Connections open at once from one client; `-1` is unlimited. |
+| `idle_timeout` | `60` | `--websocket-idle-timeout` | Seconds without a message before a connection is closed. |
+| `public_url` | empty | `--websocket-public-url` | The URL reported on `/status` and told to the hub; empty derives it from `listen`. |
+
+**The connection must be encrypted.** The game protocol is not, and the login carries the account's
+password. So set `tls_certificate` and `tls_private_key`, or run behind a reverse proxy that
+terminates TLS, on loopback or with `behind_tls_proxy = true`. Plain `ws://` on any other address is
+refused: the server stops at its start and says why, as it does for half a certificate, a `listen`
+that is no address or a trusted proxy that is none. Each stops it with exit code 1, a `listen` port
+another program holds included: no other game port would help.
+
+**One connection reaches the whole world.** A player's page opens one connection and needs one URL.
+It logs in and is sent to the world over that same connection, so the world's UDP ports do not have
+to be open for it, and the limit counts a player once. Each player's address is the connection's, or
+behind a proxy in `trusted_proxies` the one the proxy names.
+
+**The friends service is TCP, and no WebSocket carries it.** A player on a WebSocket has no friends
+service.
+
+With the Dereth Network linked (section 8.2), the world tells its hub the URL too, and the hub lists
+it while the world is linked. The hub takes only a `wss://` URL, or a plain one to `127.0.0.1` for a
+world and its players on one machine; any other is left out, and the log says why.
 
 ---
 

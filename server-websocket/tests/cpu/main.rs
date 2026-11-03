@@ -87,12 +87,12 @@ fn how_a_connection_numbers_its_ports_can_be_asked_while_it_is_open() {
     let mut ws = client(&e);
     send(&mut ws, 7100, &[1]);
     let from = next(&e).from;
+    assert_eq!(
+        numbering.port(from, 2),
+        Some(7102),
+        "said before it arrives"
+    );
     let until = Instant::now() + HANG;
-    while numbering.port(from, 2).is_none() {
-        assert!(Instant::now() < until, "never numbered");
-        std::thread::yield_now();
-    }
-    assert_eq!(numbering.port(from, 2), Some(7102));
     assert_eq!(
         numbering.port(SocketAddr::from(([192, 0, 2, 1], 1)), 2),
         None

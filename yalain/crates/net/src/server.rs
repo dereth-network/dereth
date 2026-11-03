@@ -250,6 +250,15 @@ impl std::fmt::Debug for Nearby {
     }
 }
 
+/// The port a carried client numbers the world service as ([`ServerNet::refer_carried`]).
+struct Carried(Box<dyn FnMut(SocketAddr) -> Option<u16> + Send>);
+
+impl std::fmt::Debug for Carried {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Carried")
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct PendingReferral {
     login: ConnId,
@@ -267,6 +276,7 @@ pub struct ServerNet {
     next_conn: u32,
     referrals: HashMap<u64, PendingReferral>,
     nearby: Option<Nearby>,
+    carried: Option<Carried>,
     switch_stamp: u32,
     /// The game clock at `clock_base`.
     game_time: f64,
@@ -302,6 +312,7 @@ impl ServerNet {
             next_conn: 1,
             referrals: HashMap::new(),
             nearby: None,
+            carried: None,
             switch_stamp: 0,
             game_time,
             clock_base: now,
@@ -352,16 +363,33 @@ impl ServerNet {
         });
     }
 
+    /// Refer a client the host carries over one connection of its own (a WebSocket) to the world
+    /// service's port as that connection numbers it: `port_of` says it for such a client's address,
+    /// and nothing for any other client, which keeps the service's own port. Such a client has no
+    /// other way there: its connection is all it reaches the server by, and its frames name ports
+    /// by its own numbers.
+    pub fn refer_carried(
+        &mut self,
+        port_of: impl FnMut(SocketAddr) -> Option<u16> + Send + 'static,
+    ) {
+        self.carried = Some(Carried(Box::new(port_of)));
+    }
+
     /// The world service's address as a referral names it to a client at `client`.
-    fn world_addr_for(&mut self, client: IpAddr) -> SocketAddrV4 {
+    fn world_addr_for(&mut self, client: SocketAddr) -> SocketAddrV4 {
         let named = self.cfg.world_addr;
-        match self.nearby.as_mut() {
-            Some(n) => SocketAddrV4::new(
-                crate::referral::world_ip(n.listening, *named.ip(), client, &mut n.toward),
-                named.port(),
-            ),
-            None => named,
-        }
+        let ip = match self.nearby.as_mut() {
+            Some(n) => {
+                crate::referral::world_ip(n.listening, *named.ip(), client.ip(), &mut n.toward)
+            }
+            None => *named.ip(),
+        };
+        let port = self
+            .carried
+            .as_mut()
+            .and_then(|c| (c.0)(client))
+            .unwrap_or(named.port());
+        SocketAddrV4::new(ip, port)
     }
 
     /// The game clock now.
@@ -891,8 +919,8 @@ impl ServerNet {
             self.close(login);
             return None;
         };
-        let c = self.conns.get(&login)?;
-        let addr = self.world_addr_for(c.peer.ip());
+        let peer = self.conns.get(&login)?.peer;
+        let addr = self.world_addr_for(peer);
         let c = self.conns.get_mut(&login)?;
         let r = Referral {
             cookie,

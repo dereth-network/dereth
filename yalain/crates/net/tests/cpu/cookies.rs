@@ -284,3 +284,23 @@ fn a_world_login_from_another_address_than_its_login_is_refused_and_spends_nothi
     let (_, cookie) = referred(&mut net, moved_to);
     assert!(world_handshake(&mut net, moved_to, cookie).is_some());
 }
+
+/// A client the host carries over a connection of its own is told the world service by the port
+/// that connection numbers it as, and only its port changes; every other client keeps the
+/// service's real port.
+/// Behaviour: server.operator.websocket-reaches-both-services
+#[test]
+fn a_carried_client_is_referred_to_the_world_by_its_own_numbers() {
+    let carried = addr("198.51.100.1:5000");
+    let plain = addr("198.51.100.2:5000");
+    let mut net = services(fixed_stream(3));
+    net.refer_carried(move |client| (client == carried).then_some(7002));
+    for (client, port) in [(carried, 7002), (plain, 9002)] {
+        let (conn, _) = logged_in(&mut net, client);
+        net.refer(conn, NOW).expect("a referral");
+        net.tick(LocalTime(11.0));
+        let sent = referral(&net.take_datagrams()).expect("the referral goes");
+        assert_eq!(*sent.addr.ip(), std::net::Ipv4Addr::new(203, 0, 113, 10));
+        assert_eq!(sent.addr.port(), port);
+    }
+}

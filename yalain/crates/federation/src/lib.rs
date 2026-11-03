@@ -145,6 +145,9 @@ pub struct Settings {
     pub slug: String,
     /// What the world calls itself in its `hello` (its program and version).
     pub software: String,
+    /// Where a browser reaches the world, told to the hub in its `hello`: its WebSocket endpoint,
+    /// when it serves one.
+    pub websocket_url: Option<String>,
     /// The link's name for the room that carries the Global room until the hub keeps one
     /// (`federation.global_room`); none carries no room.
     pub global_room: Option<&'static str>,
@@ -680,7 +683,7 @@ impl Federation {
         self.control = vec![Message::Hello {
             proto: PROTOCOL,
             software: self.settings.software.clone(),
-            websocket_url: None,
+            websocket_url: self.settings.websocket_url.clone(),
             status_url: None,
         }];
         tracing::info!("Dereth Network: connected to the hub; greeting");

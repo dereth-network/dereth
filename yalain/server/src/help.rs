@@ -92,6 +92,23 @@ yalain --dats <install folder> [options]
   --status-ping-hellos N  status ping first steps a minute from one address (default 4)
   --status-ping-asks N  status ping second steps a minute from one address (default 4)
   --status-ping-replies N  status ping replies a second, to everyone (default 50)
+  --websocket           also take WebSocket connections, for clients in a browser, as
+                        Empyrean's `[server.websocket]` does, with the options below; off by
+                        default
+  --websocket-listen IP:PORT  where (default 0.0.0.0:9443)
+  --websocket-tls-certificate FILE, --websocket-tls-private-key FILE  the PEM files for wss://;
+                        without them plain ws:// is served, on loopback or with
+                        --websocket-behind-tls-proxy only
+  --websocket-behind-tls-proxy  a reverse proxy in front terminates TLS
+  --websocket-trusted-proxy IP  a proxy whose X-Forwarded-For names the client (may be given
+                        many times)
+  --websocket-allowed-origin URL  a web page allowed to connect, by origin (may be given many
+                        times); none refuses every page
+  --websocket-max-per-address N  connections open at once from one address (default 4; -1 is
+                        unlimited)
+  --websocket-idle-timeout S  seconds a connection may send nothing (default 60)
+  --websocket-public-url URL  the URL clients use, reported to the status endpoint and the hub
+                        (default: from --websocket-listen)
   --config FILE         read the settings from this configuration file, in the form of
                         Empyrean's empyrean.toml (default: yalain.toml in the working folder,
                         else beside the executable, if there is one); the command line wins

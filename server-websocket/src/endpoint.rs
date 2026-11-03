@@ -568,6 +568,20 @@ fn would_block(e: &tungstenite::Error) -> bool {
     matches!(e, tungstenite::Error::Io(io) if matches!(io.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut))
 }
 
+/// Lets the server ask how the connection numbers its ports, once it has said (before the datagram
+/// that said it reaches the server).
+fn note_numbering(run: &PortRun, numbered: &mut bool, shared: &Mutex<Shared>, address: SocketAddr) {
+    if *numbered {
+        return;
+    }
+    if let Some(first) = run.port(0) {
+        if let Some(open) = lock(shared).open.get_mut(&address) {
+            open.first_port = Some(first);
+        }
+        *numbered = true;
+    }
+}
+
 /// Carries frames both ways until the connection closes, goes idle or the endpoint stops, keeping
 /// the connection's latest will.
 #[allow(clippy::too_many_arguments)]
@@ -598,8 +612,10 @@ fn carry(
                         .into_iter()
                         .filter_map(|(port, d)| Some((run.index(port)?, d)))
                         .collect();
+                    note_numbering(run, &mut numbered, shared, address);
                 } else if let Some((port, datagram)) = web_frame::decode(&message) {
                     if let Some(index) = run.index(port) {
+                        note_numbering(run, &mut numbered, shared, address);
                         if tx
                             .send(Inbound {
                                 port: index,
@@ -620,14 +636,6 @@ fn carry(
                 return Ok(Ended::Closed)
             }
             Err(e) => return Err(e.to_string()),
-        }
-        if !numbered {
-            if let Some(first) = run.port(0) {
-                if let Some(open) = lock(shared).open.get_mut(&address) {
-                    open.first_port = Some(first);
-                }
-                numbered = true;
-            }
         }
         if gone_idle(last_heard, Instant::now(), idle_timeout) {
             let _ = ws.close(None);

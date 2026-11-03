@@ -13,7 +13,8 @@
 //! directory's allegiance keys, and the players' friends
 //! service (`yalain-friends`), and `ctrlc` for the system's stop signals, with `serde` and
 //! `toml` for the operator's character recipes and the configuration file (and `serde_json` for character files), and the
-//! servers' updater (`dereth-server-update`). **Used by** nothing: it is the `yalain` program.
+//! servers' updater (`dereth-server-update`) and WebSocket endpoint (`dereth-server-websocket`).
+//! **Used by** nothing: it is the `yalain` program.
 //!
 //! ```text
 //! yalain --dats <install folder> [options]
@@ -102,6 +103,23 @@
 //!   --status IP:PORT      answer GET /health and GET /status (the world's state, as JSON) over
 //!                         HTTP at this address (default: off); keep it on loopback or a private
 //!                         network: it has no authentication
+//!   --websocket           also take WebSocket connections, for clients in a browser, as
+//!                         Empyrean's `[server.websocket]` does, with the options below; off by
+//!                         default
+//!   --websocket-listen IP:PORT  where (default 0.0.0.0:9443)
+//!   --websocket-tls-certificate FILE, --websocket-tls-private-key FILE  the PEM files for wss://;
+//!                         without them plain ws:// is served, on loopback or with
+//!                         --websocket-behind-tls-proxy only
+//!   --websocket-behind-tls-proxy  a reverse proxy in front terminates TLS
+//!   --websocket-trusted-proxy IP  a proxy whose X-Forwarded-For names the client (may be given
+//!                         many times)
+//!   --websocket-allowed-origin URL  a web page allowed to connect, by origin (may be given many
+//!                         times); none refuses every page
+//!   --websocket-max-per-address N  connections open at once from one address (default 4; -1 is
+//!                         unlimited)
+//!   --websocket-idle-timeout S  seconds a connection may send nothing (default 60)
+//!   --websocket-public-url URL  the URL clients use, reported to the status endpoint and the hub
+//!                         (default: from --websocket-listen)
 //!   --config FILE         read the settings from this configuration file, in the form of
 //!                         Empyrean's empyrean.toml (default: yalain.toml in the working folder,
 //!                         else beside the executable, if there is one); the command line wins
@@ -164,8 +182,10 @@ mod update;
 mod verify;
 mod world;
 
+use dereth_server_websocket::settings::WebSocketSettings;
 use yalain_content::{Catalog, ContentPack, LootTable, SpawnTable};
 use yalain_net::udp::UdpPorts;
+use yalain_net::websocket;
 use yalain_net::{LocalTime, NetConfig, ServerNet};
 use yalain_store::{MemoryStore, SqliteStore, Store, StoredPosition};
 use yalain_world::login::{account_for_command, add_account, seed_character};
@@ -234,6 +254,8 @@ struct Options {
     verbose: bool,
     /// Stop, keeping everyone, when the console's input ends (`--stop-at-console-end`).
     stop_at_console_end: bool,
+    /// The WebSocket endpoint (`--websocket` and the options after it).
+    websocket: WebSocketSettings,
     /// The updater's settings (`--update`, `--update-check-hours`, `--update-warning-seconds`,
     /// `--update-source`).
     update: update::Settings,
@@ -344,6 +366,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         seconds: None,
         verbose: false,
         stop_at_console_end: false,
+        websocket: WebSocketSettings::default(),
         update: update::Settings::default(),
         update_trial: None,
         update_test_version: None,
@@ -506,6 +529,24 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
             }
             "--verbose" => o.verbose = true,
             "--stop-at-console-end" => o.stop_at_console_end = true,
+            "--websocket" => o.websocket.enabled = true,
+            "--websocket-listen" => o.websocket.listen = value()?,
+            "--websocket-tls-certificate" => o.websocket.tls_certificate = value()?,
+            "--websocket-tls-private-key" => o.websocket.tls_private_key = value()?,
+            "--websocket-behind-tls-proxy" => o.websocket.behind_tls_proxy = true,
+            "--websocket-trusted-proxy" => o.websocket.trusted_proxies.push(value()?),
+            "--websocket-allowed-origin" => o.websocket.allowed_origins.push(value()?),
+            "--websocket-max-per-address" => {
+                o.websocket.maximum_connections_per_ip_address = value()?
+                    .parse()
+                    .map_err(|e| format!("--websocket-max-per-address: {e}"))?;
+            }
+            "--websocket-idle-timeout" => {
+                o.websocket.idle_timeout = value()?
+                    .parse()
+                    .map_err(|e| format!("--websocket-idle-timeout: {e}"))?;
+            }
+            "--websocket-public-url" => o.websocket.public_url = value()?,
             "--update" => o.update.update = value()?,
             "--update-check-hours" => {
                 o.update.check_hours = value()?
@@ -538,11 +579,16 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
     if o.referral {
         referral::advertised(o.bind, o.advertise)?;
     }
+    if o.websocket.enabled {
+        o.websocket
+            .validate()
+            .map_err(|e| format!("WebSocket: {e}"))?;
+    }
     if o.federation {
         match &o.hub {
             None => return Err("--federation needs --hub, --hub-slug and --hub-key-file".into()),
             Some(h) => {
-                network::settings(h, o.global_room.as_deref())?;
+                network::settings(h, None, o.global_room.as_deref())?;
                 network::link_url(h)?;
             }
         }
@@ -744,7 +790,7 @@ fn run<S: Store>(
     } else {
         o.advertise.unwrap_or(Ipv4Addr::LOCALHOST)
     };
-    let mut ports = UdpPorts::bind(o.bind, o.login_port, o.world_port).map_err(|e| {
+    let ports = UdpPorts::bind(o.bind, o.login_port, o.world_port).map_err(|e| {
         Failure::binding(
             format!(
                 "binding the ports: {}:{}-{} and {}-{}",
@@ -757,6 +803,16 @@ fn run<S: Store>(
             &e,
         )
     })?;
+    // A port of the endpoint's that is taken is no reason to try other game ports: it stops the
+    // start like any setting that cannot be served.
+    let mut wire = websocket::Wire {
+        ports,
+        websocket: websocket::start(&o.websocket)?,
+    };
+    let websocket_url = wire
+        .websocket
+        .as_ref()
+        .map(|ws| o.websocket.url(ws.local_addr(), ws.tls()));
     let started = Instant::now();
     let local = || LocalTime(started.elapsed().as_secs_f64());
     #[allow(clippy::cast_precision_loss)]
@@ -771,6 +827,9 @@ fn run<S: Store>(
     );
     if o.referral {
         net.refer_nearby(o.bind, yalain_net::udp::address_toward);
+    }
+    if let Some(numbering) = wire.websocket.as_ref().map(|ws| ws.numbering()) {
+        net.refer_carried(move |client| websocket::world_port(&numbering, client));
     }
     if o.hold_clock {
         net.hold_clock(local());
@@ -839,7 +898,15 @@ fn run<S: Store>(
     let mut reporter = o.hub.clone().map(hub::Reporter::start);
     let status = o
         .status
-        .map(|at| status::Endpoint::start(at, snapshot(&server, &net, started)))
+        .map(|at| {
+            let first = snapshot(&server, &net, started, websocket_url.as_ref());
+            let pages = if wire.websocket.is_some() {
+                o.websocket.allowed_origins.clone()
+            } else {
+                Vec::new()
+            };
+            status::Endpoint::start(at, first, pages)
+        })
         .transpose()?;
     if let Some(s) = &status {
         tracing::info!("status endpoint listening on http://{}/status", s.addr());
@@ -847,6 +914,7 @@ fn run<S: Store>(
     let mut network = match (&o.hub, o.federation) {
         (Some(h), true) => Some(network::Network::start(
             h,
+            websocket_url.as_deref(),
             o.global_room.as_deref(),
             unix_now(),
             &mut server.store,
@@ -1043,7 +1111,7 @@ fn run<S: Store>(
         // The status ping is answered on the login port before the transport reads anything.
         let mut pinged = Vec::new();
         let seconds = started.elapsed().as_secs();
-        let got = ports.receive(|port, from, bytes| {
+        let got = wire.receive(|port, from, bytes| {
             if port == yalain_net::Port::LOGIN_EVEN
                 && yalain_net::status_ping::is_status_ping(bytes)
             {
@@ -1058,7 +1126,7 @@ fn run<S: Store>(
             }
             net.on_datagram(port, from, bytes, now);
         });
-        ports.send(&pinged);
+        wire.send(&pinged);
         let clock = Clock {
             local: now,
             unix: unix_now(),
@@ -1082,7 +1150,7 @@ fn run<S: Store>(
             );
         }
         if let Some(s) = &status {
-            s.set(snapshot(&server, &net, started));
+            s.set(snapshot(&server, &net, started, websocket_url.as_ref()));
         }
         ping.facts.state = if server.shutdown == yalain_world::shutdown::Shutdown::No {
             yalain_net::status_ping::WorldState::Open
@@ -1105,7 +1173,7 @@ fn run<S: Store>(
         );
         net.tick(now);
         let out = net.take_datagrams();
-        ports.send(&out);
+        wire.send(&out);
         if server.shutdown == yalain_world::shutdown::Shutdown::Done {
             break;
         }
@@ -1121,7 +1189,8 @@ fn run<S: Store>(
     let world_ended = server.shutdown == yalain_world::shutdown::Shutdown::Done;
     let kept = yalain_world::shutdown::save_everyone(&mut server, &mut net);
     tracing::info!("stopping: {kept} characters in the world kept");
-    ports.send(&net.take_datagrams());
+    wire.send(&net.take_datagrams());
+    wire.stop();
     friends.stop();
     if let Some(n) = &mut network {
         n.stop();
@@ -1178,8 +1247,14 @@ fn status_ping(o: &Options) -> yalain_net::status_ping::StatusPing {
 }
 
 /// What the status endpoint says of the world now.
-fn snapshot<S: Store>(server: &Server<S>, net: &ServerNet, started: Instant) -> status::Snapshot {
+fn snapshot<S: Store>(
+    server: &Server<S>,
+    net: &ServerNet,
+    started: Instant,
+    websocket_url: Option<&String>,
+) -> status::Snapshot {
     status::Snapshot {
+        websocket_url: websocket_url.cloned(),
         world_name: server.cfg.world_name.clone(),
         uptime_seconds: started.elapsed().as_secs(),
         shutting_down: server.shutdown != yalain_world::shutdown::Shutdown::No,

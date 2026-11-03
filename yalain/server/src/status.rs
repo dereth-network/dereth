@@ -1,8 +1,13 @@
 //! The status endpoint (`--status <ip>:<port>`), as Empyrean's: plain HTTP on its own TCP port,
 //! answering `GET /health` with `ok` and `GET /status` (also `GET /v1/world`) with the world's
 //! state as JSON: its name, the server's version and game, how long it has run, whether it is
-//! open or shutting down, the players in the world, the logins and the connections. It has no
-//! authentication: it is meant for loopback or a private network.
+//! open or shutting down, the players in the world, the logins, the connections and the WebSocket
+//! endpoint's address (`websocket_url`, null with the endpoint off). It has no authentication: it is
+//! meant for loopback or a private network.
+//!
+//! A web page may read it from a page origin the WebSocket endpoint admits
+//! (`server.websocket.allowed_origins`), so that it can find the endpoint: the answer then carries
+//! `Access-Control-Allow-Origin` for that origin. No other origin is named.
 //!
 //! The loop puts the latest [`Snapshot`] in with [`Endpoint::set`]; a thread of its own answers
 //! the requests from it, one at a time.
@@ -12,6 +17,8 @@ use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Mutex, PoisonError};
 use std::time::Duration;
+
+use dereth_server_websocket::settings::cors_header;
 
 /// What `/status` says.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -28,6 +35,8 @@ pub struct Snapshot {
     pub max_logins: u32,
     /// Connections open, handshakes included.
     pub connections: usize,
+    /// The URL the WebSocket endpoint is reached at, while it serves one.
+    pub websocket_url: Option<String>,
 }
 
 impl Snapshot {
@@ -45,6 +54,7 @@ impl Snapshot {
             "logins": self.logins,
             "max_logins": self.max_logins,
             "connections": self.connections,
+            "websocket_url": self.websocket_url,
         })
         .to_string()
     }
@@ -61,11 +71,15 @@ pub struct Endpoint {
 
 impl Endpoint {
     /// Listen at `at` and answer from a thread of its own, from `first` until the loop gives
-    /// another.
+    /// another; a page from one of `allowed_origins` may read the answers.
     ///
     /// # Errors
     /// The address cannot be bound.
-    pub fn start(at: SocketAddr, first: Snapshot) -> Result<Self, String> {
+    pub fn start(
+        at: SocketAddr,
+        first: Snapshot,
+        allowed_origins: Vec<String>,
+    ) -> Result<Self, String> {
         let listener = TcpListener::bind(at).map_err(|e| format!("--status {at}: {e}"))?;
         let addr = listener
             .local_addr()
@@ -90,7 +104,7 @@ impl Endpoint {
                         .lock()
                         .unwrap_or_else(PoisonError::into_inner)
                         .clone();
-                    if let Err(e) = answer(stream, &snapshot) {
+                    if let Err(e) = answer(stream, &snapshot, &allowed_origins) {
                         tracing::debug!("status endpoint: {e}");
                     }
                 }
@@ -134,15 +148,22 @@ impl Endpoint {
 }
 
 /// Answer one request.
-fn answer(stream: TcpStream, s: &Snapshot) -> std::io::Result<()> {
+fn answer(stream: TcpStream, s: &Snapshot, allowed_origins: &[String]) -> std::io::Result<()> {
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request = String::new();
     reader.read_line(&mut request)?;
-    // The headers, up to the blank line; none is read.
+    // The headers, up to the blank line; only the page's origin is read.
     let mut line = String::new();
+    let mut origin = None;
     while reader.read_line(&mut line)? > 2 {
+        if let Some((name, value)) = line.split_once(':') {
+            if name.trim().eq_ignore_ascii_case("origin") {
+                origin = Some(value.trim().to_owned());
+            }
+        }
         line.clear();
     }
+    let page = cors_header(origin.as_deref(), allowed_origins).unwrap_or_default();
     let mut words = request.split_whitespace();
     let (method, path) = (words.next().unwrap_or(""), words.next().unwrap_or(""));
     let path = path.split('?').next().unwrap_or("");
@@ -159,7 +180,7 @@ fn answer(stream: TcpStream, s: &Snapshot) -> std::io::Result<()> {
     let mut out = stream;
     write!(
         out,
-        "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status}\r\n{page}Content-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     )?;
     out.flush()
@@ -182,12 +203,17 @@ mod tests {
     /// Behaviour: server.update.status-address-let-go
     #[test]
     fn a_stopped_status_endpoint_lets_its_address_go() {
-        let e = Endpoint::start(SocketAddr::from(([127, 0, 0, 1], 0)), Snapshot::default())
-            .expect("listens");
+        let e = Endpoint::start(
+            SocketAddr::from(([127, 0, 0, 1], 0)),
+            Snapshot::default(),
+            Vec::new(),
+        )
+        .expect("listens");
         let at = e.addr();
         assert!(TcpListener::bind(at).is_err(), "held while it runs");
         e.stop();
-        let next = Endpoint::start(at, Snapshot::default()).expect("free for the next server");
+        let next =
+            Endpoint::start(at, Snapshot::default(), Vec::new()).expect("free for the next server");
         assert!(get(next.addr(), "/health").ends_with("ok"));
         next.stop();
     }
@@ -198,9 +224,14 @@ mod tests {
     /// Behaviour: server.operator.status-endpoint
     #[test]
     fn the_status_endpoint_answers_health_and_the_worlds_state() {
-        let e = Endpoint::start(SocketAddr::from(([127, 0, 0, 1], 0)), Snapshot::default())
-            .expect("listens");
+        let e = Endpoint::start(
+            SocketAddr::from(([127, 0, 0, 1], 0)),
+            Snapshot::default(),
+            Vec::new(),
+        )
+        .expect("listens");
         e.set(Snapshot {
+            websocket_url: None,
             world_name: "Dawnsong".into(),
             uptime_seconds: 61,
             shutting_down: true,
@@ -227,7 +258,46 @@ mod tests {
             assert_eq!(v["logins"], 4);
             assert_eq!(v["max_logins"], 128);
             assert_eq!(v["connections"], 7);
+            assert_eq!(v["websocket_url"], serde_json::Value::Null);
         }
         assert!(get(e.addr(), "/nothing").starts_with("HTTP/1.1 404"));
+    }
+
+    /// `/status` reports the WebSocket endpoint's address, and a page from an origin the endpoint
+    /// admits may read it, as on Empyrean's; no other page is named in the answer.
+    /// Behaviour: server.operator.websocket-url-on-the-status-endpoint
+    #[test]
+    fn the_status_endpoint_says_where_the_websocket_is_and_only_an_admitted_page_may_read_it() {
+        let e = Endpoint::start(
+            SocketAddr::from(([127, 0, 0, 1], 0)),
+            Snapshot {
+                websocket_url: Some("wss://play.example.org/ws".into()),
+                ..Snapshot::default()
+            },
+            vec!["https://play.example.org".into()],
+        )
+        .expect("listens");
+        let asked = |origin: &str| {
+            let mut s = TcpStream::connect(e.addr()).expect("connects");
+            write!(
+                s,
+                "GET /status HTTP/1.1\r\nHost: x\r\nOrigin: {origin}\r\n\r\n"
+            )
+            .expect("sent");
+            let mut text = String::new();
+            s.read_to_string(&mut text).expect("an answer");
+            text
+        };
+        let text = asked("https://play.example.org");
+        assert!(
+            text.contains("\r\nAccess-Control-Allow-Origin: https://play.example.org\r\n"),
+            "{text}"
+        );
+        let body = text.split("\r\n\r\n").nth(1).expect("a body");
+        let v: serde_json::Value = serde_json::from_str(body).expect("JSON");
+        assert_eq!(v["websocket_url"], "wss://play.example.org/ws");
+        let text = asked("https://elsewhere.example.org");
+        assert!(!text.contains("Access-Control-Allow-Origin"), "{text}");
+        assert!(!get(e.addr(), "/status").contains("Access-Control-Allow-Origin"));
     }
 }

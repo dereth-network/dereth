@@ -4081,6 +4081,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.network.websocket-url-told-to-the-hub",
+        says: "A world with a WebSocket endpoint names its URL in the hello of its link to the hub, within \
+               the network's rule (wss, or ws on this machine), as Empyrean does; one outside the \
+               rule is left out and logged.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WS-HUB"),
+        station: "yalain-federation::cpu::operator::the_hello_names_the_worlds_websocket_endpoint_when_it_has_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.accounts-at-the-console",
         says: "The operator makes accounts at the console with a bcrypt secret and a level (a player's \
                unless given another), gives one a new secret or another level (reaching its login \
@@ -4668,6 +4678,85 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-TELEPORT"),
         station: "yalain-testkit::cpu::operator::characters::a_teleported_character_goes_through_portal_space_to_where_it_was_sent",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.websocket-allowed-origins",
+        says: "Only a browser page from an origin in allowed_origins connects to the WebSocket endpoint; \
+               none listed refuses every page, and a client naming no origin is no page and connects, \
+               as on Empyrean's.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WS-ORIGINS"),
+        station: "yalain-net::cpu::websocket::only_a_page_from_a_listed_origin_is_let_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.websocket-idle-timeout",
+        says: "A WebSocket connection that sends nothing for idle_timeout seconds is closed, and its will \
+               is delivered as if the client had sent it, each datagram to the service its port names.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WS-IDLE"),
+        station: "yalain-net::cpu::websocket::an_idle_connection_is_closed_and_its_will_delivered",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.websocket-limit-per-address",
+        says: "One client address holds maximum_connections_per_ip_address WebSocket connections at once: \
+               the next is closed, another address connects, and a closed connection gives its place \
+               back.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WS-LIMIT"),
+        station: "yalain-net::cpu::websocket::a_connection_past_the_limit_for_its_address_is_closed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.websocket-proxied-client-address",
+        says: "The sessions take a client behind a trusted proxy at the last address the proxy's \
+               X-Forwarded-For names, so its world login comes from its login's address; a proxy not \
+               in trusted_proxies is itself the client.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WS-PROXY"),
+        station: "yalain-net::cpu::websocket::only_a_trusted_proxy_names_the_client_to_the_sessions",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.websocket-reaches-both-services",
+        says: "One WebSocket connection numbers the login's two ports and the world's two in a row from \
+               its first datagram's port; a client on it is referred to the world by its own numbers, \
+               logs in and plays over that one connection, and every other client keeps the service's \
+               real port.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WS-SERVICES"),
+        station: "yalain::live::referral::a_client_on_one_websocket_logs_in_and_reaches_the_world",
+        tier: Tier::Live,
+    },
+    behaviour! {
+        id: "server.operator.websocket-settings-read-as-empyreans",
+        says: "The server.websocket section takes Empyrean's keys, its defaults and its meanings: the \
+               settings are the type both servers share.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WS-SETTINGS"),
+        station: "yalain::live::network::a_world_tells_its_hub_and_its_status_endpoint_its_public_websocket_address",
+        tier: Tier::Live,
+    },
+    behaviour! {
+        id: "server.operator.websocket-settings-refused-as-empyreans",
+        says: "With the endpoint on, the server stops at its start for each setting Empyrean's refuses: a \
+               plain listener off loopback without behind_tls_proxy, half a certificate, a listen or a \
+               trusted proxy that is no address, a certificate that will not read, and a port another \
+               program holds.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WS-REFUSALS"),
+        station: "yalain::live::configured::a_websocket_setting_that_cannot_be_served_stops_the_server_at_its_start",
+        tier: Tier::Live,
+    },
+    behaviour! {
+        id: "server.operator.websocket-url-on-the-status-endpoint",
+        says: "The status endpoint reports the WebSocket endpoint's URL, null with it off, and a page from \
+               an origin the endpoint admits may read it, as on Empyrean's.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WS-STATUS"),
+        station: "yalain::live::network::a_world_tells_its_hub_and_its_status_endpoint_its_public_websocket_address",
+        tier: Tier::Live,
     },
     behaviour! {
         id: "server.pets.aggressive-unprovoked",

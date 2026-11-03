@@ -72,14 +72,19 @@ pub struct Network {
     verifier: Option<Verifier>,
 }
 
-/// The settings the world's half runs with: on, under the hub's slug, as this program, carrying the
+/// The settings the world's half runs with: on, under the hub's slug, as this program, telling the
+/// hub the WebSocket endpoint's URL (`websocket_url`) within the network's rule, and carrying the
 /// Global room where `federation.global_room` (`global_room`) says, or in General when it says
 /// nothing.
 ///
 /// # Errors
 /// The slug cannot be a network address's world half (too long, or reserved), or `global_room` names
 /// no room.
-pub fn settings(hub: &HubSettings, global_room: Option<&str>) -> Result<Settings, String> {
+pub fn settings(
+    hub: &HubSettings,
+    websocket_url: Option<&str>,
+    global_room: Option<&str>,
+) -> Result<Settings, String> {
     if !is_network_slug(&hub.slug) {
         return Err(format!(
             "--federation: the slug {} cannot join the Dereth Network (2 to 12 small letters, \
@@ -91,9 +96,23 @@ pub fn settings(hub: &HubSettings, global_room: Option<&str>) -> Result<Settings
         enabled: true,
         slug: hub.slug.clone(),
         software: concat!("yalain ", env!("CARGO_PKG_VERSION")).to_owned(),
+        websocket_url: websocket_url.and_then(told_to_the_hub),
         global_room: read_setting(global_room, DEFAULT_ROOM)?,
         global_room_named: global_room.is_some(),
     })
+}
+
+/// The WebSocket endpoint's URL as the hub is told it: only `wss://`, or `ws://` on this machine.
+/// One outside that rule is left out, and the log says why.
+fn told_to_the_hub(url: &str) -> Option<String> {
+    let ok = dereth_network_protocol::web::is_websocket_url(url);
+    if !ok {
+        tracing::warn!(
+            "Dereth Network: the hub is not told the WebSocket endpoint {url:?}: it must be \
+             wss://, or ws:// on this machine (server.websocket.public_url names it)"
+        );
+    }
+    ok.then(|| url.to_owned())
 }
 
 /// The hub's link address for the heartbeat's: `wss://` for `https://`, `ws://` (to this machine)
@@ -119,12 +138,13 @@ impl Network {
     /// The settings or the store, or the link's thread would not start.
     pub fn start(
         hub: &HubSettings,
+        websocket_url: Option<&str>,
         global_room: Option<&str>,
         unix: i64,
         store: &mut impl Store,
     ) -> Result<Self, String> {
         let url = link_url(hub)?;
-        let federation = Federation::load(settings(hub, global_room)?, unix, store)
+        let federation = Federation::load(settings(hub, websocket_url, global_room)?, unix, store)
             .map_err(|e| format!("the network's records: {e}"))?;
         let link = LinkClient::start(&url, &hub.slug, &hub.key)
             .map_err(|e| format!("the link to the hub: {e}"))?;
@@ -434,6 +454,26 @@ mod tests {
     //! the host composes of a character for the directory is the network's own field list
     //! (`docs/network/02-link-protocol.md` section 7).
     use super::*;
+
+    /// The hub is told the WebSocket endpoint's URL only within the network's rule, Empyrean's:
+    /// `wss://` to anywhere, `ws://` to this machine; one outside it is left out.
+    /// Behaviour: server.network.websocket-url-told-to-the-hub
+    #[test]
+    fn the_hub_is_told_a_websocket_url_only_within_the_networks_rule() {
+        let hub = HubSettings {
+            url: "https://hub.example.org".into(),
+            slug: "dawnsong".into(),
+            key: String::new(),
+        };
+        let told = |url: Option<&str>| settings(&hub, url, None).expect("settings").websocket_url;
+        assert_eq!(told(None), None);
+        for url in ["wss://play.example.org/ws", "ws://127.0.0.1:9180/"] {
+            assert_eq!(told(Some(url)).as_deref(), Some(url));
+        }
+        for url in ["ws://play.example.org/ws", "https://play.example.org/ws"] {
+            assert_eq!(told(Some(url)), None, "{url}");
+        }
+    }
     use dereth_network_protocol::limits::Limits;
     use dereth_network_protocol::wire::PROTOCOL;
     use dereth_network_protocol::{Address, Message, Outcome};
@@ -486,8 +526,9 @@ mod tests {
             "ws://127.0.0.1:9/v1/servers/shardfall/link"
         );
         let mut store = MemoryStore::default();
-        let federation = Federation::load(settings(&hub, None).expect("settings"), 1, &mut store)
-            .expect("loaded");
+        let federation =
+            Federation::load(settings(&hub, None, None).expect("settings"), 1, &mut store)
+                .expect("loaded");
         let (link, mut far) = LinkClient::detached();
         let mut n = Network::with(federation, link);
         let mut friends =
@@ -544,7 +585,7 @@ mod tests {
             slug: "a-slug-too-long".into(),
             ..hub
         };
-        assert!(settings(&long, None).is_err());
+        assert!(settings(&long, None, None).is_err());
     }
 
     /// One request a stand-in hub took, and the connection to answer it on.
@@ -627,8 +668,9 @@ mod tests {
         };
         let url = link_url(&hub).expect("a link address");
         let mut store = MemoryStore::default();
-        let federation = Federation::load(settings(&hub, None).expect("settings"), 1, &mut store)
-            .expect("loaded");
+        let federation =
+            Federation::load(settings(&hub, None, None).expect("settings"), 1, &mut store)
+                .expect("loaded");
         let (link, _far) = LinkClient::detached();
         let mut n = Network::with(federation, link);
         n.verifier = Some(Verifier::new(
@@ -720,8 +762,8 @@ mod tests {
             slug: "shardfall".into(),
             key: "drth_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA".into(),
         };
-        let federation =
-            Federation::load(settings(&hub, None).expect("settings"), 1, store).expect("loaded");
+        let federation = Federation::load(settings(&hub, None, None).expect("settings"), 1, store)
+            .expect("loaded");
         let (link, mut far) = LinkClient::detached();
         let mut n = Network::with(federation, link);
         far.hand(Event::Up);

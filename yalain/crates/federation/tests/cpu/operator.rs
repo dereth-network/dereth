@@ -228,3 +228,40 @@ fn the_operators_words_read_the_same_after_admin_and_in_game() {
     assert_eq!(help, lines(IN_GAME_HELP));
     assert!(help.iter().all(|l| l.starts_with("@dn ")), "{help:?}");
 }
+
+/// A world's `hello` names its WebSocket endpoint when it has one, and nothing when it has none.
+/// Behaviour: server.network.websocket-url-told-to-the-hub
+#[test]
+fn the_hello_names_the_worlds_websocket_endpoint_when_it_has_one() {
+    let hello_with = |websocket_url: Option<&str>| {
+        let mut w = World::new();
+        w.fed = Federation::new(
+            Settings {
+                enabled: true,
+                slug: SLUG.into(),
+                software: "yalain test".into(),
+                websocket_url: websocket_url.map(str::to_owned),
+                ..Settings::default()
+            },
+            1,
+        );
+        w.fed.on_link_up();
+        w.frames()
+    };
+    let named = hello_with(Some("wss://play.example.org/ws"));
+    assert!(
+        matches!(named.as_slice(), [Message::Hello { websocket_url: Some(u), .. }] if u == "wss://play.example.org/ws"),
+        "{named:?}"
+    );
+    let none = hello_with(None);
+    assert!(
+        matches!(
+            none.as_slice(),
+            [Message::Hello {
+                websocket_url: None,
+                ..
+            }]
+        ),
+        "{none:?}"
+    );
+}

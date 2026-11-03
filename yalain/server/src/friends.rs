@@ -644,6 +644,7 @@ mod tests {
                 software: "yalain test".into(),
                 global_room: room,
                 global_room_named: false,
+                websocket_url: None,
             },
             1,
         );

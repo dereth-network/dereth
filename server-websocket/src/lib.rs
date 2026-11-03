@@ -3,7 +3,7 @@
 //!
 //! **Depends on** `dereth-transport` for the frame (with the `endpoint` feature), with `serde`
 //! for the settings and `tungstenite` and `rustls` for the listener. **Used by** the game servers:
-//! `empyrean-common` and `empyrean-server`, and `yalain`.
+//! `empyrean-common` and `empyrean-server`, and `yalain-net` and `yalain`.
 //!
 //! **Must never** know one server's sessions or ports: a server says how many ports a connection
 //! numbers and takes each datagram by that port's index.
