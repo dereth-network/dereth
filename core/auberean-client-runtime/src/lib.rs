@@ -2011,6 +2011,7 @@ impl Client {
         self.body.frozen = frozen;
         let sends: Vec<(u32, Vec<u8>, bool)> = std::mem::take(&mut scripts.host.sends);
         if self.script_sends {
+            // Those marked for encryption go the same way: CD2-script-sends-in-the-clear.
             for (function, args, _) in sends {
                 self.send(ClientMessage::ServerCall(ServerCall {
                     function: FunctionId(function),

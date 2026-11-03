@@ -92,6 +92,12 @@ pub static DIVERGENCES: &[Divergence] = &[
                memory.",
     },
     Divergence {
+        id: "CD2-script-sends-in-the-clear",
+        says: "A script call the game marks for encryption goes to the server as a plain script \
+               call, as every other does; the original client wrapped such calls under keys only \
+               the original servers held.",
+    },
+    Divergence {
         id: "CD2-script-step-budget",
         says: "Every script run has a step budget: one that runs too long is stopped instead of \
                freezing the game, where the retail client would hang.",
