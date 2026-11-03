@@ -369,8 +369,9 @@ cargo xtask package dereth --launcher ~/swap-test/launcher --target aarch64-appl
 ```
 
 The first start of the package copies its client out. Both folders below keep the test apart from your
-own launcher and client settings, and the program is run directly so that they reach it. Close the
-window when it has opened:
+own launcher and client settings, and the program is run directly so that they reach it. On Linux also
+set `XDG_DATA_HOME=$PWD/xdg`, or the test's launcher rewrites your desktop's Dereth entry and `dereth://`
+handler to point at the test's AppImage. Close the window when it has opened:
 
 ```sh
 cd ~/swap-test && rm -rf Dereth.app
