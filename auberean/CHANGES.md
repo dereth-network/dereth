@@ -25,6 +25,7 @@ not how it was done.
 - Line of sight outdoors now sees into buildings through their doors.
 - Fixed players getting stuck in deep water; they float and swim now.
 - Knockbacks and other server pushes now move your character.
+- Clicking just beside a creature now selects it.
 
 ## 0.1.2 (2026-11-02)
 

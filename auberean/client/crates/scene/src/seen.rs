@@ -178,10 +178,49 @@ pub fn bounds_of(body: &SeenBody, batches: &[ObjectBatch]) -> Option<(Vec3, Vec3
     any.then_some((lo, hi))
 }
 
+/// The square of clip space a press of the pointer selects on a screen `size`: from the pixel up
+/// and to the left of the one it is on, to that one, each by its corner: least and most x, then y.
+// D2-10536, D2-10570
+#[must_use]
+pub fn selection_bounds((w, h): (f32, f32), (x, y): (f32, f32)) -> (f32, f32, f32, f32) {
+    let clip = |x: f32, y: f32| ((x + x) / w - 1.0 - 1.0 / w, -((y + y) / h - 1.0) - 1.0 / h);
+    let (a, b) = (clip(x, y), clip(x - 1.0, y - 1.0));
+    (a.0.min(b.0), a.1.min(b.1), a.0.max(b.0), a.1.max(b.1))
+}
+
+/// The ray from the camera through the least corner of what the pointer selects.
+// D2-10586, D2-10576
+fn selection_ray(camera: &SeenCamera, (w, h): (f32, f32), pointer: (f32, f32)) -> Vec3 {
+    let (cx, cy, ..) = selection_bounds((w, h), pointer);
+    let t = fm::tanf((camera.fov_y * 0.5).to_radians());
+    let (f, r, u) = camera.axes();
+    math::normalize(math::add(
+        f,
+        math::add(math::scale(r, cx * t * w / h), math::scale(u, cy * t)),
+    ))
+}
+
+/// The share of the ray from the camera through the pointer at which it first meets a body's drawn
+/// triangles.
+// D2-05963
+fn trace_ray(from: Vec3, dir: Vec3, own: &[ObjectBatch]) -> Option<f32> {
+    let mut best = None;
+    for b in own {
+        let tris = crate::view::triangles(b);
+        let length = crate::view::RAY_LENGTH;
+        if let Some(hit) = crate::view::ray_intersects_tri_list(from, dir, length, tris, true) {
+            if best.is_none_or(|bd| hit.fraction < bd) {
+                best = Some(hit.fraction);
+            }
+        }
+    }
+    best
+}
+
 /// The body a ray from the camera through the pointer meets first, by the triangles drawn for
 /// each body (`drawn`: each body's id and its batches' range in `batches`). The pointer is in
-/// window pixels of a window `size`, taken at the pixel's middle.
-// D2-11014, D2-10561, D2-10613, D2-06114
+/// window pixels of a window `size`.
+// D2-11014
 #[must_use]
 pub fn pick(
     camera: &SeenCamera,
@@ -190,33 +229,155 @@ pub fn pick(
     batches: &[ObjectBatch],
     drawn: &[(u64, Range<usize>)],
 ) -> Option<u64> {
-    let (w, h) = size;
-    if w <= 0.0 || h <= 0.0 {
+    if size.0 <= 0.0 || size.1 <= 0.0 {
         return None;
     }
-    let cx = (2.0 * pointer.0 + 1.0) / w - 1.0;
-    let cy = 1.0 - (2.0 * pointer.1 + 1.0) / h;
-    let t = fm::tanf((camera.fov_y * 0.5).to_radians());
-    let (f, r, u) = camera.axes();
-    let dir = math::normalize(math::add(
-        f,
-        math::add(math::scale(r, cx * t * w / h), math::scale(u, cy * t)),
-    ));
-    let from = camera.position;
+    let dir = selection_ray(camera, size, pointer);
     let mut best: Option<(f32, u64)> = None;
     for (id, range) in drawn {
         let Some(own) = batches.get(range.clone()) else {
             continue;
         };
-        for b in own {
-            let tris = crate::view::triangles(b);
-            let length = crate::view::RAY_LENGTH;
-            if let Some(hit) = crate::view::ray_intersects_tri_list(from, dir, length, tris, true) {
-                if best.is_none_or(|(bd, _)| hit.fraction < bd) {
-                    best = Some((hit.fraction, *id));
-                }
+        if let Some(fraction) = trace_ray(camera.position, dir, own) {
+            if best.is_none_or(|(bd, _)| fraction < bd) {
+                best = Some((fraction, *id));
             }
         }
     }
     best.map(|(_, id)| id)
+}
+
+/// How a press in the world may fall on a body.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Selectable {
+    /// Not at all: an object the client made itself, or the player and what it holds with the
+    /// camera at its eyes.
+    No,
+    /// Any body: by its triangles, or failing all of those by its box.
+    Yes,
+    /// The player's own body: only by its triangles, and behind everything else there.
+    Player,
+}
+
+/// The least deep body yet, with its depth.
+type Nearest = Option<(f32, u64)>;
+
+/// How far back the player's own body stands among what a press meets.
+const PLAYER_DEPTH: f32 = 999_999.0;
+
+/// The box a body's drawn parts fill as they stand this frame, in its own frame: each part's own
+/// box of its triangles taken into the body's frame by its eight corners. `None` with nothing drawn.
+// D2-06119, D2-06625, D2-06626, D2-06680, D2-05535
+fn render_box(body: &SeenBody, own: &[ObjectBatch]) -> Option<(Vec3, Vec3)> {
+    let mut out: Option<(Vec3, Vec3)> = None;
+    // A part's materials lie next to each other, under one placement.
+    for part in own.chunk_by(|a, b| a.transform == b.transform) {
+        let mut vertices = part.iter().flat_map(|b| b.vertices.iter());
+        let Some(first) = vertices.next() else {
+            continue;
+        };
+        let (mut lo, mut hi) = (first.position, first.position);
+        for v in vertices {
+            for i in 0..3 {
+                lo[i] = lo[i].min(v.position[i]);
+                hi[i] = hi[i].max(v.position[i]);
+            }
+        }
+        for i in 0..8 {
+            let at = |bit: usize, axis: usize| if i & bit == 0 { lo[axis] } else { hi[axis] };
+            let w = part[0]
+                .transform
+                .point(Vec3::new(at(1, 0), at(2, 1), at(4, 2)));
+            let p = body.to_body(w);
+            let (a, b) = out.get_or_insert((p, p));
+            *a = Vec3::new(a.x.min(p.x), a.y.min(p.y), a.z.min(p.z));
+            *b = Vec3::new(b.x.max(p.x), b.y.max(p.y), b.z.max(p.z));
+        }
+    }
+    out
+}
+
+/// Whether a body's box lies under what the pointer selects: at least one of its corners has to
+/// stand on the screen, and the square of clip space its corners fill has to meet the pointer's.
+/// How deep it reaches if it does (the greatest depth among its corners, deeper than any in front
+/// of the camera for a corner behind it).
+// D2-10561, D2-10533, D2-03479
+#[must_use]
+pub fn check_object_selection(
+    camera: &SeenCamera,
+    body: &SeenBody,
+    bounds: (Vec3, Vec3),
+    aspect: f32,
+    (min_x, min_y, max_x, max_y): (f32, f32, f32, f32),
+) -> Option<f32> {
+    let (f, r, u) = camera.axes();
+    let t = fm::tanf((camera.fov_y * 0.5).to_radians());
+    let (mut on_screen, mut depth) = (false, f32::NEG_INFINITY);
+    let (mut lo, mut hi) = ((f32::MAX, f32::MAX), (f32::MIN, f32::MIN));
+    for corner in body.corners(bounds) {
+        let d = math::sub(corner, camera.position);
+        let w = math::dot(d, f);
+        let (x, y) = (
+            math::dot(d, r) / (w * t * aspect),
+            math::dot(d, u) / (w * t),
+        );
+        on_screen |= w >= 0.0 && x.abs() <= 1.0 && y.abs() <= 1.0;
+        depth = depth.max(1.0 - camera.near / w);
+        lo = (lo.0.min(x), lo.1.min(y));
+        hi = (hi.0.max(x), hi.1.max(y));
+    }
+    (on_screen && lo.0 <= max_x && min_x <= hi.0 && lo.1 <= max_y && min_y <= hi.1).then_some(depth)
+}
+
+/// The body a press of the pointer falls on in the world frame: of the bodies under it by their
+/// boxes, the nearest whose drawn triangles the ray from the camera meets; failing any, the one
+/// whose box reaches least deep. A press finds nothing on the bodies it may not fall on.
+// D2-10586, D2-10612, D2-10613, D2-10561, D2-06114
+#[must_use]
+pub fn select(
+    camera: &SeenCamera,
+    size: (f32, f32),
+    pointer: (f32, f32),
+    batches: &[ObjectBatch],
+    drawn: &[(u64, Range<usize>)],
+    bodies: &[SeenBody],
+    selectable: impl Fn(u64) -> Selectable,
+) -> Option<u64> {
+    if size.0 <= 0.0 || size.1 <= 0.0 {
+        return None;
+    }
+    let bounds = selection_bounds(size, pointer);
+    let dir = selection_ray(camera, size, pointer);
+    let (mut met, mut under): (Nearest, Nearest) = (None, None);
+    let nearer = |best: &mut Nearest, depth: f32, id: u64| {
+        if best.is_none_or(|(d, _)| depth < d) {
+            *best = Some((depth, id));
+        }
+    };
+    for (id, range) in drawn {
+        let kind = selectable(*id);
+        if kind == Selectable::No {
+            continue;
+        }
+        let (Some(own), Some(body)) = (
+            batches.get(range.clone()),
+            bodies.iter().find(|b| b.id == *id),
+        ) else {
+            continue;
+        };
+        let Some(boxed) = render_box(body, own) else {
+            continue;
+        };
+        let Some(depth) = check_object_selection(camera, body, boxed, size.0 / size.1, bounds)
+        else {
+            continue;
+        };
+        match (trace_ray(camera.position, dir, own), kind) {
+            (Some(_), Selectable::Player) => nearer(&mut met, PLAYER_DEPTH, *id),
+            (Some(fraction), _) => nearer(&mut met, fraction, *id),
+            (None, Selectable::Player) => {}
+            (None, _) => nearer(&mut under, depth, *id),
+        }
+    }
+    met.or(under).map(|(_, id)| id)
 }

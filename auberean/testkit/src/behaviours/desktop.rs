@@ -1306,6 +1306,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.world.a-press-falls-on-the-body-under-it-or-failing-that-on-its-box",
+        says: "A press of the pointer falls on the nearest body whose drawn triangles lie under \
+               it; failing any, on the body whose box lies under it and reaches least deep. The \
+               player's own body is found only by its triangles and behind everything else met, \
+               and never with the camera at its eyes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-PRESS-SELECTION"),
+        station: "auberean-shell::dat::session::a_press_falls_on_the_body_under_it_or_failing_that_on_its_box",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.world.a-press-finds-a-box-with-a-corner-on-the-screen",
+        says: "A press finds a body by its box only when a corner of the box stands on the screen                and the box's square of clip space meets the pointer's: the pixel up and to the left                of it to that one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-PRESS-BOX"),
+        station: "auberean-scene::cpu::seen::a_press_finds_a_box_only_with_a_corner_on_the_screen",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.world.an-object-is-told-the-mode-its-body-goes-into",
         says: "Each body the server asks into a mode, or that a behavior carrying one puts there, \
                tells its object the mode, as a notice about the object; every mode the server asked \

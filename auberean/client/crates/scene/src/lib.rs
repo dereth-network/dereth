@@ -4089,15 +4089,63 @@ impl<'w> Scene<'w> {
         true
     }
 
-    /// The body under the pointer in the last world frame (window pixels of a window `size`):
-    /// the first a ray from the camera through it meets.
+    /// The range of the last world frame's objects that are the batches of body `id`.
+    #[must_use]
+    pub fn drawn_batches(&self, id: u64) -> Option<std::ops::Range<usize>> {
+        self.drawn
+            .iter()
+            .find(|(body, _)| *body == id)
+            .map(|(_, range)| range.clone())
+    }
+
+    /// The body a press of the pointer falls on in the last world frame (window pixels of a window
+    /// `size`): see [`seen::select`]. An object the client made itself is never chosen, nor the
+    /// player and what it holds with the camera at its eyes; the player's own body is chosen only
+    /// where nothing else is met.
     #[must_use]
     pub fn pick_world(&self, pointer: (f32, f32), size: (u32, u32)) -> Option<u64> {
         let built = self.built.as_ref()?;
         let camera = self.seen.camera.as_ref()?;
         #[allow(clippy::cast_precision_loss)]
         let size = (size.0 as f32, size.1 as f32);
-        seen::pick(camera, size, pointer, &built.frame.objects, &self.drawn)
+        let player = self.player.as_ref().map(|p| p.id);
+        let eyes = self.camera.first_person_is_ready();
+        let holders = self.held.holders();
+        let held_by_player = |id: u64| {
+            let mut at = id;
+            // What holds it, up to what holds nothing; no chain is longer than the table of what
+            // is held.
+            for _ in 0..=holders.len() {
+                match holders.iter().find(|(item, _)| *item == at) {
+                    Some((_, holder)) => at = *holder,
+                    None => break,
+                }
+            }
+            at != id && Some(at) == player
+        };
+        seen::select(
+            camera,
+            size,
+            pointer,
+            &built.frame.objects,
+            &self.drawn,
+            &self.seen.bodies,
+            |id| {
+                if self.temporaries.get(id).is_some() {
+                    seen::Selectable::No
+                } else if Some(id) == player {
+                    if self.camera.first_person() {
+                        seen::Selectable::No
+                    } else {
+                        seen::Selectable::Player
+                    }
+                } else if eyes && held_by_player(id) {
+                    seen::Selectable::No
+                } else {
+                    seen::Selectable::Yes
+                }
+            },
+        )
     }
 
     /// The light's tick, each frame in the world: when the sky's interval has passed (none in the
@@ -4118,7 +4166,13 @@ impl<'w> Scene<'w> {
         let moved = clock.needs_light();
         let tomorrow = clock.time_til_tomorrow();
         let (known, day) = (self.game_time > 0.0, self.moment().1);
-        let Some(sky) = self.world.region.sky.as_ref().filter(|_| !known || day.is_some()) else {
+        let Some(sky) = self
+            .world
+            .region
+            .sky
+            .as_ref()
+            .filter(|_| !known || day.is_some())
+        else {
             self.sky_at += tomorrow;
             return;
         };

@@ -3326,6 +3326,164 @@ fn a_moved_game_clock_relights_the_ground_at_once_and_a_faster_one_more_often() 
     );
 }
 
+/// A press of the pointer falls on the nearest body whose drawn triangles lie under it; failing any,
+/// on a body whose box lies under it, so a press just off a body's arm still finds it. The player's
+/// own body is found only by its triangles and behind everything else met, and not with the camera
+/// at its eyes. (A figure standing just ahead of the player on the land of block `0xC156`; every
+/// other pixel over their boxes.)
+///
+/// Behaviour: desktop.world.a-press-falls-on-the-body-under-it-or-failing-that-on-its-box
+#[test]
+fn a_press_falls_on_the_body_under_it_or_failing_that_on_its_box() {
+    use auberean_scene::camera::{AvatarInFirstPerson, Press};
+    use auberean_scene::seen::{self, SeenCamera};
+    const CREATURE: u64 = 0x8130_1B05_CC00_0078;
+    let cell = 0xC156_0035;
+    let at = Vec3 {
+        x: 122.84,
+        y: 87.98,
+        z: 80.2,
+    };
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: 122.84,
+                        y: 90.98,
+                        z: 80.2,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let script = script_until(cell, at, Quat::IDENTITY, &[creature], &[], 20.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 6.0 {
+        step(&mut s);
+    }
+    let size = (s.size.0 as f32, s.size.1 as f32);
+    let screen_box = |camera: &SeenCamera, body: &seen::SeenBody| {
+        let (mut lo, mut hi) = ((f32::MAX, f32::MAX), (f32::MIN, f32::MIN));
+        for c in body.corners(body.bounds.expect("drawn")) {
+            let (x, y, _) = camera.project(c, size.0, size.1).expect("in front");
+            lo = (lo.0.min(x), lo.1.min(y));
+            hi = (hi.0.max(x), hi.1.max(y));
+        }
+        (lo, hi)
+    };
+    let (mut by_box, mut by_triangles, mut player_only, mut player_box, mut before_player) =
+        (0, 0, 0, 0, 0);
+    for _ in 0..600 {
+        step(&mut s);
+        let drawn = |id: u64| s.scene.seen.body(id).is_some_and(|b| b.bounds.is_some());
+        if drawn(CREATURE) && drawn(PLAYER) {
+            break;
+        }
+    }
+    let objects = s.frame().world.expect("the world").objects.clone();
+    let camera = s.scene.seen.camera.expect("a camera");
+    let body = |id: u64| s.scene.seen.body(id).cloned().expect("drawn");
+    let (them, me) = (body(CREATURE), body(PLAYER));
+    let range_of = |id: u64| vec![(id, s.scene.drawn_batches(id).expect("drawn"))];
+    let (theirs, mine) = (range_of(CREATURE), range_of(PLAYER));
+    let (a, b) = (screen_box(&camera, &them), screen_box(&camera, &me));
+    let lo = (a.0 .0.min(b.0 .0).max(1.0), a.0 .1.min(b.0 .1).max(1.0));
+    let hi = (
+        a.1 .0.max(b.1 .0).min(size.0 - 1.0),
+        a.1 .1.max(b.1 .1).min(size.1 - 1.0),
+    );
+    let inside = |r: ((f32, f32), (f32, f32)), p: (f32, f32), margin: f32| {
+        p.0 >= r.0 .0 + margin
+            && p.0 <= r.1 .0 - margin
+            && p.1 >= r.0 .1 + margin
+            && p.1 <= r.1 .1 - margin
+    };
+    let mut y = lo.1.floor();
+    while y <= hi.1 {
+        let mut x = lo.0.floor();
+        while x <= hi.0 {
+            let p = (x, y);
+            let picked = s.scene.pick_world(p, s.size);
+            let on_them = seen::pick(&camera, size, p, &objects, &theirs).is_some();
+            let on_me = seen::pick(&camera, size, p, &objects, &mine).is_some();
+            if on_them {
+                assert_eq!(picked, Some(CREATURE), "on the figure at {p:?}");
+                by_triangles += 1;
+                before_player += usize::from(on_me);
+            } else if on_me {
+                assert_eq!(picked, Some(PLAYER), "on the player alone at {p:?}");
+                player_only += 1;
+            } else if inside(a, p, 2.0) {
+                assert_eq!(picked, Some(CREATURE), "in the figure's box at {p:?}");
+                by_box += 1;
+            } else if inside(b, p, 2.0) && !inside(a, p, -2.0) {
+                assert_eq!(picked, None, "in the player's box alone at {p:?}");
+                player_box += 1;
+            }
+            x += 2.0;
+        }
+        y += 2.0;
+    }
+    assert!(
+        by_triangles > 20 && by_box > 20 && player_only > 20 && player_box > 20,
+        "{by_triangles} {by_box} {player_only} {player_box}"
+    );
+    assert!(before_player > 0, "the figure is met through the player");
+    // With the camera at the player's eyes looking down at its body, drawn: never the player.
+    s.scene.camera.options.avatar_in_first_person = AvatarInFirstPerson::Always;
+    s.scene.camera.press(Press::FirstPerson);
+    for _ in 0..30 {
+        step(&mut s);
+    }
+    s.scene.camera.press(Press::MouseLook);
+    let _ = s.scene.camera.mouse(0.0, 600.0);
+    for _ in 0..30 {
+        step(&mut s);
+    }
+    let objects = s.frame().world.expect("the world").objects.clone();
+    let camera = s.scene.seen.camera.expect("a camera");
+    let mine = range_of_at_eyes(&s);
+    let mut on_me = 0;
+    for y in (0..s.size.1).step_by(8) {
+        for x in (0..s.size.0).step_by(8) {
+            #[allow(clippy::cast_precision_loss)]
+            let p = (x as f32, y as f32);
+            on_me += usize::from(seen::pick(&camera, size, p, &objects, &mine).is_some());
+            assert_ne!(s.scene.pick_world(p, s.size), Some(PLAYER), "at {p:?}");
+        }
+    }
+    assert!(on_me > 0, "the ray meets the body drawn at {camera:?}");
+}
+
+/// The batches of the player's body in the last world frame.
+fn range_of_at_eyes(s: &Shell<'_, DoubleHost>) -> Vec<(u64, std::ops::Range<usize>)> {
+    vec![(PLAYER, s.scene.drawn_batches(PLAYER).expect("drawn"))]
+}
+
 /// The world's frame carries the client's running time every frame: the clouds' shadows slide, the
 /// water's ripples move and the sun's flare fades by it. (The player put 150 m up over the land of
 /// block `0x0298`, the frame read every frame for 12 seconds.)
