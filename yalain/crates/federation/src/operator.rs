@@ -1,10 +1,11 @@
-//! The operator's network commands, typed at the server's console: the blocks, and the state of
-//! the world's link.
+//! The operator's network commands, typed at the server's console: the blocks, the state of
+//! the world's link, and verifying the world.
 //!
 //! ```text
 //! dn                                  the world's link to the network, and what is blocked
 //! dn block <world or Name@world>      block a world or a character for everyone on this world
 //! dn unblock <world or Name@world>    lift a block
+//! dn verify <token>                   verify this world with the token the site gave you
 //! dn help                             these lines
 //! ```
 //!
@@ -16,25 +17,42 @@ use dereth_network_protocol::address::is_slug;
 use dereth_network_protocol::Address;
 use yalain_store::Store;
 
-use crate::{Federation, Friends, LinkState, WORLD_OFF};
+use crate::{Federation, Friends, LinkState, VERIFY_HELP, WORLD_OFF};
 
 /// The commands, one line each.
 pub const HELP: &[&str] = &[
     "dn - show the world's link to the Dereth Network and what is blocked",
     "dn block <world or Name@world> - block a world or a character for everyone on this world",
     "dn unblock <world or Name@world> - lift a block",
+    VERIFY_HELP,
 ];
 
+/// Who a verification typed at the console names as its maker, for the hub's log.
+pub const CONSOLE: &str = "the console";
+
 impl Federation {
-    /// A `dn` command typed at the console, without its `dn` (`block coldeve`): the lines to
-    /// answer it with. The blocks are kept in the store.
+    /// A `dn` command typed at the console at `t`, without its `dn` (`block coldeve`): the lines
+    /// to answer it with. The blocks are kept in the store; a verification's answer comes later
+    /// ([`Federation::take_verify_requests`]).
     pub fn operator(
         &mut self,
         store: &mut impl Store,
         friends: &mut impl Friends,
+        t: f64,
         words: &[&str],
     ) -> Vec<String> {
         let help = || HELP.iter().map(|&l| l.to_owned()).collect();
+        // The command's own word is read in any case (`dn BLOCK coldeve`, `dn Verify ...`).
+        let first = words.first().map(|w| w.to_ascii_lowercase());
+        let words: Vec<&str> = first
+            .iter()
+            .map(String::as_str)
+            .chain(words.iter().skip(1).copied())
+            .collect();
+        let words = words.as_slice();
+        if let ["verify", args @ ..] = words {
+            return vec![self.verify(t, None, CONSOLE, args)];
+        }
         if !matches!(words, [] | ["block" | "unblock", ..]) {
             return help();
         }

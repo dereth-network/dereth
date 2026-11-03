@@ -4,7 +4,8 @@
 //!
 //! The service itself is `yalain_friends`'s: this module hands it bytes and the time, checks its
 //! tickets by the login's own rule, tells it who enters and leaves the world, hands it the
-//! network's commands said in chat, and shows its lines in the players' chat windows. With
+//! network's commands said in chat (an admin's `@dn verify` to the network's half), and shows its
+//! lines in the players' chat windows. With
 //! `--no-friends` there is no listener: nobody is present, `@dn` still answers, and each entry
 //! shows the line that the friends list is out of reach (as it does for an account with no
 //! stream).
@@ -19,6 +20,7 @@ use yalain_friends::{Out, Service, StreamId};
 use yalain_net::{ConnId, ServerNet};
 use yalain_store::Store;
 use yalain_world::admin::Ticket;
+use yalain_world::chat::NetworkCommand;
 use yalain_world::Server;
 
 /// The most bytes read from one connection in one pass.
@@ -122,13 +124,17 @@ impl Friends {
         }
         self.world(now, server, fed.as_deref_mut());
         for c in std::mem::take(&mut server.network_commands) {
-            let lines = self.service.said(
-                &mut server.store,
-                fed.as_deref_mut(),
-                c.character,
-                &c.name,
-                &c.words,
-            );
+            let lines = if c.admin && yalain_world::chat::is_verify(&c.words) {
+                vec![verify_said(fed.as_deref_mut(), now.as_secs_f64(), &c)]
+            } else {
+                self.service.said(
+                    &mut server.store,
+                    fed.as_deref_mut(),
+                    c.character,
+                    &c.name,
+                    &c.words,
+                )
+            };
             for line in lines {
                 yalain_world::login::notice(net, c.world, &line);
             }
@@ -350,6 +356,30 @@ impl Friends {
 }
 
 /// The world connection of a character in the world.
+/// `@dn verify <token>`, said in game at `t` by an admin's character: the line to answer it with
+/// at once. The hub's answer comes later, to the same character ([`show_operator`]).
+fn verify_said(fed: Option<&mut Federation>, t: f64, c: &NetworkCommand) -> String {
+    let args: Vec<&str> = c.words.split_whitespace().skip(1).collect();
+    match fed {
+        Some(f) => f.verify(t, Some(c.character), &c.name, &args),
+        None => yalain_federation::WORLD_OFF.to_owned(),
+    }
+}
+
+/// A line for the operator who typed a verification: in its character's chat window while it is
+/// in the world, and in the log otherwise (the console's, or a character's that has left).
+pub fn show_operator<S: Store>(
+    server: &Server<S>,
+    net: &mut ServerNet,
+    who: Option<u64>,
+    line: &str,
+) {
+    match who.and_then(|id| world_of(server, id)) {
+        Some(world) => yalain_world::login::notice(net, world, line),
+        None => tracing::info!("Dereth Network: {line}"),
+    }
+}
+
 fn world_of<S: Store>(server: &Server<S>, character: u64) -> Option<ConnId> {
     server
         .players
@@ -427,5 +457,75 @@ mod tests {
         assert!(h.now.0 - left > 10.0, "it lingered");
         f.world(at(&h), &mut h.server, None);
         assert_eq!(f.in_world.get(&account), None, "gone with its body");
+    }
+
+    /// An admin's `@dn verify <token>` said in game goes to the network's half as its
+    /// character's, and is answered in its chat window at once; the hub's answer comes to the
+    /// same window while the character is in the world, and to the log otherwise. A player's is
+    /// a word the friends service does not know: its help. With the network off, either is told
+    /// the world is not on it.
+    /// Behaviour: server.network.verify-in-game-for-admins
+    #[test]
+    fn an_admins_dn_verify_said_in_game_asks_the_hub_and_is_answered_in_its_chat_window() {
+        use yalain_federation::{Settings, VerifyRequest, ASKING, ON_ITS_WAY, WORLD_OFF};
+        const TOKEN: &str = "dnv_abcdefghijklmnopqrstuvwxyzAB-_01";
+        let mut h = Harness::new();
+        let service = Service::new(yalain_friends::Config::new("Dawnsong", "dawnsong"));
+        let mut f = Friends::start(service, None).expect("no listener");
+        let mut fed = Federation::new(
+            Settings {
+                enabled: true,
+                slug: "dawnsong".into(),
+                software: "yalain test".into(),
+            },
+            1,
+        );
+        let (a, elara) = h.player_in_world("one", "Elara");
+        let (b, cara) = h.player_in_world("two", "Cara");
+        let said = |h: &mut Harness, b: usize, character: u64, name: &str, admin: bool| {
+            let world = world_of(&h.server, character).expect("in the world");
+            h.server.network_commands.push(NetworkCommand {
+                world,
+                character,
+                name: name.into(),
+                words: format!("verify {TOKEN}"),
+                admin,
+            });
+            h.bots[b].inbox.len()
+        };
+        let from = [
+            said(&mut h, a, elara, "Elara", true),
+            said(&mut h, b, cara, "Cara", false),
+        ];
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        h.run(20);
+        assert_eq!(h.bots[a].notices(from[0]), [ASKING]);
+        assert_eq!(
+            h.bots[b].notices(from[1]),
+            yalain_friends::HELP,
+            "a player's is the friends service's"
+        );
+        assert_eq!(
+            fed.take_verify_requests(),
+            [VerifyRequest {
+                token: TOKEN.into(),
+                by: "Elara".into(),
+                who: Some(elara),
+            }]
+        );
+        let from = said(&mut h, a, elara, "Elara", true);
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        show_operator(&h.server, &mut h.net, Some(elara), "The hub's answer.");
+        show_operator(&h.server, &mut h.net, None, "The console's.");
+        h.run(20);
+        assert_eq!(
+            h.bots[a].notices(from),
+            [ON_ITS_WAY, "The hub's answer."],
+            "one at a time, and the answer to its window"
+        );
+        let from = said(&mut h, a, elara, "Elara", true);
+        f.pump(at(&h), &mut h.server, &mut h.net, None);
+        h.run(20);
+        assert_eq!(h.bots[a].notices(from), [WORLD_OFF]);
     }
 }

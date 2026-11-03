@@ -145,6 +145,7 @@ mod network;
 mod referral;
 mod status;
 mod stop;
+mod verify;
 mod world;
 
 use yalain_content::{Catalog, ContentPack, LootTable, SpawnTable};
@@ -886,7 +887,10 @@ fn run<S: Store>(
                     let words: Vec<&str> = words.iter().map(String::as_str).collect();
                     match &mut network {
                         Some(n) => {
-                            for line in n.console(&mut server.store, &mut friends.service, &words) {
+                            let t = local().0;
+                            for line in
+                                n.console(&mut server.store, &mut friends.service, t, &words)
+                            {
                                 tracing::info!("{line}");
                             }
                         }
@@ -986,6 +990,9 @@ fn run<S: Store>(
         if let Some(n) = &mut network {
             n.directory(&mut server, now.0);
             n.pump(&mut friends.service, now.0);
+            for (who, line) in n.verification(&mut net, now.0) {
+                friends::show_operator(&server, &mut net, who, &line);
+            }
         }
         let talked = friends.pump(
             Duration::from_secs_f64(now.0),

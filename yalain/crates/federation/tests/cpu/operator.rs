@@ -10,8 +10,8 @@ fn lines(v: &[&str]) -> Vec<String> {
     v.iter().map(|&s| s.to_owned()).collect()
 }
 
-/// `dn` shows the world's link and what is blocked; `dn block` and `dn unblock` with a world or
-/// `Name@world` block or lift it for everyone on this world, and say so; a block of what is
+/// `dn` shows the world's link and what is blocked; `dn block` and `dn unblock` (in any case) with
+/// a world or `Name@world` block or lift it for everyone on this world, and say so; a block of what is
 /// blocked already, or a lift of what is not, says that; anything else is the help. With the
 /// network off for the world, every command says so.
 /// Behaviour: server.network.operator-console
@@ -51,6 +51,14 @@ fn the_console_shows_the_link_and_the_blocks_and_blocks_and_lifts() {
              online. 0 messages are waiting for the hub.",
             "Blocked: coldeve, mal dark@frost.",
         ])
+    );
+    assert_eq!(
+        w.operator(&["UnBlock", "coldeve"]),
+        lines(&["coldeve is no longer blocked."])
+    );
+    assert_eq!(
+        w.operator(&["BLOCK", "coldeve"]),
+        lines(&["coldeve is blocked for everyone on this world."])
     );
     assert_eq!(
         w.operator(&["unblock", "coldeve"]),

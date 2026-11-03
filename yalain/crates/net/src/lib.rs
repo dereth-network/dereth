@@ -3,7 +3,9 @@
 //! the world, message sending under blob ids, and teardown.
 //!
 //! **Depends on** the shared transport (`dereth-transport`, unchanged, with `dereth-primitives`),
-//! `auberean-primitives`, and `hmac` with `sha2` for the status ping's tokens. **Used by** the game server (`yalain-world`), the server executable
+//! `auberean-primitives`, `hmac` with `sha2` for the status ping's tokens, and the Dereth
+//! Network's protocol (`dereth-network-protocol`) for the hub's challenge to the game port.
+//! **Used by** the game server (`yalain-world`), the server executable
 //! (`yalain`), its test kit (`yalain-testkit`) and the client's test kit's server double
 //! (`auberean-testkit`).
 //!

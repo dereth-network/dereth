@@ -146,6 +146,20 @@ impl Bot {
             .collect()
     }
 
+    /// The world's system lines this client was shown since `from`, an index into its inbox.
+    #[must_use]
+    pub fn notices(&self, from: usize) -> Vec<String> {
+        self.inbox[from..]
+            .iter()
+            .filter_map(|r| match r.message() {
+                Some(ServerMessage::Notice(n)) => {
+                    n.text.literal.map(|l| l.text().trim_end().to_owned())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Take a datagram from the network.
     pub fn on_datagram(&mut self, from: SocketAddr, bytes: &[u8], now: LocalTime) {
         let Ok(p) = ParsedPacket::parse(bytes) else {

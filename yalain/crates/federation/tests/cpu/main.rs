@@ -5,6 +5,7 @@ mod directory;
 mod operator;
 mod presence;
 mod tells;
+mod verify;
 mod watches;
 
 use std::collections::BTreeMap;
@@ -274,7 +275,8 @@ impl World {
 
     /// A `dn` command typed at the console; its lines.
     pub fn operator(&mut self, words: &[&str]) -> Vec<String> {
-        self.fed.operator(&mut self.store, &mut self.service, words)
+        self.fed
+            .operator(&mut self.store, &mut self.service, self.t, words)
     }
 
     /// A tell from a present character of this world to another world's character.

@@ -20,7 +20,8 @@
 //!          keep every character in the world now; the world goes on
 //! dn       the world's link to the Dereth Network and its blocks; `dn block <world or
 //!          Name@world>` and `dn unblock ...` block a world or a character for everyone on this
-//!          world, or lift it (`yalain_federation`'s operator commands)
+//!          world, or lift it; `dn verify <token>` verifies the world with the token the site gave
+//!          (`yalain_federation`'s operator commands)
 //! hero     `hero <name>` makes a character a hero (it earns focus, and has its greatest at
 //!          once), `hero <name> off` no longer one; in the world or out of it
 //! teleport <character> to <where>
@@ -99,7 +100,8 @@ pub const HELP: &str = "commands: reload (compile the world database again and t
                         <seconds> (the countdown's length, 0 to 99999), stop-now [message] (or \
                         stop, or exit), save-world (keep every character in the world now), dn \
                         (the Dereth Network: dn, dn block <world or Name@world>, dn unblock \
-                        <world or Name@world>), hero (hero <name>, hero <name> off: make a \
+                        <world or Name@world>, dn verify <token>), hero (hero <name>, hero \
+                        <name> off: make a \
                         character a hero or no longer one), teleport <character> to <character \
                         | place <name> | cell x y z [heading]>, place <character> to <character \
                         | place <name> | cell x y z [heading]> (where one out of the world \

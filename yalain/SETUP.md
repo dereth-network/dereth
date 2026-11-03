@@ -545,7 +545,7 @@ command, in any case. Answers appear in the log (section 7).
 | `teleport <name> to <where>` | send a character in the world through portal space (section 6.2) |
 | `place <name> to <where>` | set where a character out of the world enters next (section 6.2) |
 | `make-character <file>`, `apply-build <file>`, `deletecharacter <name> [now]`, `forcelogoff <name>`, `export-character <name> <file>`, `import-character <file> <account> [new name]` | the operator's characters (section 6.2) |
-| `dn`, `dn block ...`, `dn unblock ...`, `dn help` | the Dereth Network (section 8.3) |
+| `dn`, `dn block ...`, `dn unblock ...`, `dn verify <token>`, `dn help` | the Dereth Network (section 8.3) |
 | `accountcreate`, `accountget`, `accountlist`, `set-accountpassword`, `set-accountaccess`, `ban`, `unban`, `banlist`, `gag`, `ungag`, `boot`, `gamecast` | accounts, moderation and messages to everyone (section 6.1) |
 | `help` or `?` | list the commands |
 
@@ -870,12 +870,21 @@ every player with the friends service.
 | `dn` | the world's link (connected, connecting or not connected), how many worlds are online, how many messages wait for the hub, and what is blocked |
 | `dn block <world>` or `dn block <Name@world>` | block a world, or one character of it, for everyone on this world |
 | `dn unblock <world>` or `dn unblock <Name@world>` | lift a block |
+| `dn verify <token>` | verify this world with the token the site gave you |
 | `dn help` | list these commands |
 
 A block works both ways and takes hold at once: what the blocked world or character sends is
 refused (its tells are answered as if everyone here were offline), and what this world's
 characters send it is refused too. Lifting it gives back what it took. Blocks are kept in the
 store, across restarts.
+
+**Verifying the world.** The site gives the world's operator a token (`dnv_...`) to prove the
+world is theirs. Type `dn verify <token>` at the console, or say `@dn verify <token>` in game from
+an admin's account (staff below an admin are told the command needs an admin's access). The world
+asks the hub, which sends a challenge to the world's login port; the world answers it over
+HTTPS, so the login port must be reachable from the internet. One line then says how it went: the
+world is verified and on the network, or why not. A second `dn verify` before the hub answers is
+refused.
 
 Without `--federation`, every `dn` command, `dn help` among them, answers *This world is not on
 the Dereth Network.*

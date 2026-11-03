@@ -16,6 +16,10 @@
 //! the network, when the half asks (`@dn on`), every [`LOOK_EVERY_SECS`] while it plays, and at
 //! its logout, from what the world kept as it left.
 //!
+//! **Verifying the world.** The operator's `dn verify <token>` (at the console, or said by an
+//! admin in game) goes to the hub through [`crate::verify`]; while it waits, the game port hands
+//! in the hub's challenges it heard, whose nonces go back the same way ([`Network::verification`]).
+//!
 //! Nothing here logs the key.
 
 use std::collections::BTreeMap;
@@ -27,11 +31,13 @@ use dereth_network_protocol::directory::{
 };
 use dereth_network_protocol::{Address, AubereanProfile};
 use yalain_federation::{Federation, Friends, Settings};
+use yalain_net::ServerNet;
 use yalain_store::Store;
 use yalain_world::player::quality;
 use yalain_world::Server;
 
 use crate::hub::HubSettings;
+use crate::verify::{Answered, Verifier};
 
 /// How often the profiles of the listed characters in the world are looked over for a change, in
 /// seconds. A change shows at most this long after its character's five minutes are up.
@@ -61,6 +67,8 @@ pub struct Network {
     next_look: f64,
     /// The directory's key for each monarch's allegiance, read from the world's record once.
     keys: Option<BTreeMap<u64, String>>,
+    /// The calls to the hub's verification routes; none sends nothing.
+    verifier: Option<Verifier>,
 }
 
 /// The settings the world's half runs with: on, under the hub's slug, as this program.
@@ -114,7 +122,13 @@ impl Network {
             url.link(&hub.slug),
             hub.slug
         );
-        Ok(Self::with(federation, link))
+        let mut n = Self::with(federation, link);
+        n.verifier = Some(Verifier::new(
+            url.verify(&hub.slug),
+            url.answer(&hub.slug),
+            hub.key.clone(),
+        ));
+        Ok(n)
     }
 
     /// The world's half over a link of the caller's.
@@ -127,6 +141,7 @@ impl Network {
             next_pass: 0.0,
             next_look: 0.0,
             keys: None,
+            verifier: None,
         }
     }
 
@@ -219,14 +234,44 @@ impl Network {
         }
     }
 
-    /// A `dn` command typed at the console (its words after `dn`): its lines.
+    /// A `dn` command typed at the console at `t` (its words after `dn`): its lines.
     pub fn console(
         &mut self,
         store: &mut impl Store,
         friends: &mut impl Friends,
+        t: f64,
         words: &[&str],
     ) -> Vec<String> {
-        self.federation.operator(store, friends, words)
+        self.federation.operator(store, friends, t, words)
+    }
+
+    /// The operator's verification, each pass at `t`: the hub's challenges the game port heard go
+    /// to the world's half, the verifications typed and the answers to the challenges go to the
+    /// hub, and the game port hears challenges on only while a verification waits. The hub's
+    /// answers come back, each with whom to show it to (a character by id, or the console).
+    pub fn verification(&mut self, net: &mut ServerNet, t: f64) -> Vec<Answered> {
+        let f = &mut self.federation;
+        f.heard_challenges(t, net.take_hub_challenges());
+        let mut answered = Vec::new();
+        for r in f.take_verify_requests() {
+            match &self.verifier {
+                Some(v) => v.send(r),
+                None => answered.push((r.who, yalain_federation::NOT_SENT.to_owned())),
+            }
+        }
+        for a in f.take_challenge_answers() {
+            if let Some(v) = &self.verifier {
+                v.answer(a);
+            }
+        }
+        if let Some(v) = &self.verifier {
+            answered.extend(std::iter::from_fn(|| v.try_answered()));
+        }
+        if !answered.is_empty() {
+            f.verify_answered();
+        }
+        net.hear_hub_challenges(f.hearing_challenges(t));
+        answered
     }
 
     /// Closes the link.
@@ -471,7 +516,7 @@ mod tests {
             }]
         );
         assert_eq!(
-            n.console(&mut store, &mut friends, &["block", "coldeve"]),
+            n.console(&mut store, &mut friends, 2.0, &["block", "coldeve"]),
             vec!["coldeve is blocked for everyone on this world.".to_owned()]
         );
         assert_eq!(store.network_blocks().expect("read"), vec!["coldeve"]);
@@ -483,6 +528,172 @@ mod tests {
             ..hub
         };
         assert!(settings(&long).is_err());
+    }
+
+    /// One request a stand-in hub took, and the connection to answer it on.
+    struct Taken {
+        line: String,
+        authorization: String,
+        body: serde_json::Value,
+        stream: std::net::TcpStream,
+    }
+
+    impl Taken {
+        fn answer(mut self, status: &str, body: &str) {
+            use std::io::Write as _;
+            let _ = write!(
+                self.stream,
+                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\
+                 Connection: close\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    }
+
+    /// The next request the world sends the stand-in hub, unanswered. The wait only guards
+    /// against a world that never sends.
+    fn take(listener: &std::net::TcpListener) -> Taken {
+        use std::io::{BufRead as _, BufReader, Read as _};
+        let listener = listener.try_clone().expect("the listener");
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("the world calls");
+            let mut reader = BufReader::new(stream.try_clone().expect("the stream"));
+            let mut line = String::new();
+            reader.read_line(&mut line).expect("the request line");
+            let (mut authorization, mut length) = (String::new(), 0);
+            loop {
+                let mut h = String::new();
+                reader.read_line(&mut h).expect("a header");
+                let h = h.trim_end();
+                if h.is_empty() {
+                    break;
+                }
+                let (k, v) = h.split_once(':').expect("a header line");
+                match k.trim().to_ascii_lowercase().as_str() {
+                    "authorization" => authorization = v.trim().to_owned(),
+                    "content-length" => length = v.trim().parse().expect("a length"),
+                    _ => {}
+                }
+            }
+            let mut body = vec![0; length];
+            reader.read_exact(&mut body).expect("the body");
+            let _ = tx.send(Taken {
+                line: line.trim_end().to_owned(),
+                authorization,
+                body: serde_json::from_slice(&body).expect("JSON"),
+                stream,
+            });
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(120))
+            .expect("the world calls the hub")
+    }
+
+    /// `dn verify` at the console goes to the hub's verification route with the world's key, the
+    /// token and who typed it; while it waits, the game port keeps the hub's challenge for this
+    /// world, whose nonce goes to the answer route with the key, and nothing goes back over UDP;
+    /// the hub's answer is one line for the console, after which the game port reads challenges
+    /// no more.
+    /// Behaviour: server.network.verify-challenge-answered-once
+    #[test]
+    fn dn_verify_posts_the_token_and_the_challenges_nonce_to_the_hub_with_the_worlds_key() {
+        use dereth_network_protocol::challenge::{nonce_hex, Challenge, NONCE_LEN};
+        use yalain_net::{LocalTime, NetConfig, Port};
+        const KEY: &str = "drth_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        const TOKEN: &str = "dnv_abcdefghijklmnopqrstuvwxyzAB-_01";
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a stand-in hub");
+        let port = listener.local_addr().expect("its port").port();
+        let hub = HubSettings {
+            url: format!("http://127.0.0.1:{port}"),
+            slug: "shardfall".into(),
+            key: KEY.into(),
+        };
+        let url = link_url(&hub).expect("a link address");
+        let mut store = MemoryStore::default();
+        let federation =
+            Federation::load(settings(&hub).expect("settings"), 1, &mut store).expect("loaded");
+        let (link, _far) = LinkClient::detached();
+        let mut n = Network::with(federation, link);
+        n.verifier = Some(Verifier::new(
+            url.verify("shardfall"),
+            url.answer("shardfall"),
+            KEY.into(),
+        ));
+        let mut net = ServerNet::new(
+            NetConfig::retail_ids("127.0.0.1:9002".parse().expect("an address")),
+            7,
+            0.0,
+            LocalTime(1.0),
+        );
+        let from_hub: std::net::SocketAddr = "203.0.113.9:40000".parse().expect("an address");
+        let challenge = |slug: &str, nonce: u8| {
+            Challenge {
+                slug: slug.into(),
+                nonce: [nonce; NONCE_LEN],
+            }
+            .encode()
+            .expect("a slug it carries")
+        };
+
+        assert_eq!(
+            n.console(&mut store, &mut NoFriendsService, 10.0, &["verify", TOKEN]),
+            [yalain_federation::ASKING]
+        );
+        assert!(n.verification(&mut net, 10.0).is_empty());
+        let verify = take(&listener);
+        assert_eq!(verify.line, "POST /v1/servers/shardfall/verify HTTP/1.1");
+        assert_eq!(verify.authorization, format!("Bearer {KEY}"));
+        assert_eq!(
+            verify.body,
+            serde_json::json!({ "token": TOKEN, "by": "the console" })
+        );
+        for d in [challenge("coldeve", 1), challenge("shardfall", 2)] {
+            net.on_datagram(Port::LOGIN_EVEN, from_hub, &d, LocalTime(11.0));
+        }
+        assert!(n.verification(&mut net, 11.0).is_empty());
+        let answer = take(&listener);
+        assert_eq!(
+            answer.line,
+            "POST /v1/servers/shardfall/verify/answer HTTP/1.1"
+        );
+        assert_eq!(answer.authorization, format!("Bearer {KEY}"));
+        assert_eq!(
+            answer.body,
+            serde_json::json!({ "nonce": nonce_hex(&[2; NONCE_LEN]) })
+        );
+        answer.answer("200 OK", r#"{"answered":true}"#);
+        net.tick(LocalTime(11.0));
+        assert!(net.take_datagrams().is_empty(), "nothing over UDP");
+        verify.answer(
+            "200 OK",
+            r#"{"verified":true,"federation":"on","approval":"approved"}"#,
+        );
+        assert!(n
+            .verifier
+            .as_ref()
+            .expect("the verifier")
+            .wait_for_answer(std::time::Duration::from_secs(120)));
+        assert_eq!(
+            n.verification(&mut net, 12.0),
+            [(
+                None,
+                "The Dereth Network verified this world. It is on the network now; the link \
+                 comes up within a minute."
+                    .to_owned()
+            )]
+        );
+        net.on_datagram(
+            Port::LOGIN_EVEN,
+            from_hub,
+            &challenge("shardfall", 3),
+            LocalTime(12.0),
+        );
+        assert!(net.take_hub_challenges().is_empty(), "no longer read");
+        assert_eq!(
+            n.console(&mut store, &mut NoFriendsService, 13.0, &["verify", TOKEN]),
+            [yalain_federation::ASKING],
+            "the next may go"
+        );
     }
 
     /// The world's half on, linked over a detached link and welcomed; its far end.

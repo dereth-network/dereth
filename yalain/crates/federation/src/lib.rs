@@ -3,8 +3,9 @@
 //! of either game.
 //!
 //! **Depends on** the network's protocol (`dereth-network-protocol`: the link's messages,
-//! addresses, the text rules and the rate limits) and the store (`yalain-store`: each character's
-//! setting and the operator's blocks). **Used by** the server executable (`yalain`), which carries
+//! addresses, the text rules, the rate limits and the hub's challenge), the store (`yalain-store`:
+//! each character's setting and the operator's blocks) and `serde_json` (the hub's answer to a
+//! verification). **Used by** the server executable (`yalain`), which carries
 //! the frames over the link and feeds the clock.
 //!
 //! **Must never** touch a socket, a file or the clock: the host hands it the link's events and the
@@ -37,6 +38,9 @@
 //! - **The directory** (`directory`): a character on the network is listed with its profile, which
 //!   the world composes and hands in at login, while it plays and at logout; it is taken out when
 //!   it goes off the network.
+//! - **Verifying the world** (`verify`): the operator's `dn verify <token>`, at the console or
+//!   said by an admin in game, goes to the hub through the host, and while it waits the world
+//!   answers the hub's challenge to its game port, which the host hands in.
 //!
 //! The host calls [`Federation::on_link_up`], [`Federation::on_frame`],
 //! [`Federation::on_link_down`], [`Federation::take_frames`], [`Federation::tick`] and
@@ -47,6 +51,7 @@ pub mod directory;
 mod operator;
 mod social;
 mod tells;
+mod verify;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
@@ -59,6 +64,10 @@ use chatter::Chatter;
 use directory::Directory;
 
 pub use operator::HELP;
+pub use verify::{
+    answer_line, is_verification_token, unreachable_line, ChallengeAnswer, VerifyRequest, ASKING,
+    KEY_UNKNOWN, MAX_BY_CHARS, MAX_MESSAGE_CHARS, NOT_SENT, ON_ITS_WAY, VERIFY_HELP,
+};
 
 /// The most remote watchers one local character keeps from any one world, and from all worlds
 /// together. A watcher the character lists as a friend is always kept.
@@ -325,6 +334,8 @@ pub struct Federation {
     pace: Option<Bucket>,
     /// The directory's listings of this world's characters.
     directory: Directory,
+    /// The operator's `dn verify` waiting for the hub.
+    verification: verify::Verification,
 }
 
 impl Federation {
@@ -356,6 +367,7 @@ impl Federation {
             next_id: 1,
             pace: None,
             directory: Directory::default(),
+            verification: verify::Verification::default(),
         }
     }
 

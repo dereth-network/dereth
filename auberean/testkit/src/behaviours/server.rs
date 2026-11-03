@@ -3481,9 +3481,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.network.operator-console",
-        says: "The console's dn shows the world's link and its blocks, dn block and dn unblock block or \
-               lift a world or Name@world for everyone on this world, and with the network off each \
-               says so.",
+        says: "The console's dn shows the world's link and its blocks, dn block and dn unblock (their \
+               word in any case) block or lift a world or Name@world for everyone on this world, and \
+               with the network off each says so.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-NET-CONSOLE"),
         station: "yalain-federation::cpu::operator::the_console_shows_the_link_and_the_blocks_and_blocks_and_lifts",
@@ -3559,6 +3559,80 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-NET-E2E"),
         station: "yalain-testkit::network::end_to_end::players_of_both_games_reach_each_other_across_three_worlds_on_one_hub",
         tier: Tier::Network,
+    },
+    behaviour! {
+        id: "server.network.verify-answer-lines",
+        says: "Each of the hub's answers to a dn verify is one line in the network's words: verified \
+               with each approval, the key unknown and where it is set, too many attempts, any \
+               other refusal with the hub's own message (no control characters, at most 200 \
+               characters, ended as a sentence), and a hub that could not be reached.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-VERIFY-LINES"),
+        station: "yalain-federation::cpu::verify::each_of_the_hubs_answers_is_one_line_in_the_networks_words",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.verify-at-the-console",
+        says: "The console's dn verify (its word in any case) with a token of the hub's shape asks \
+               the hub to verify the world, as the console's, and says so; a token of another shape, or none, is \
+               answered with the command's help line, which dn help lists; with the network off it \
+               says the world is not on it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-VERIFY-CONSOLE"),
+        station: "yalain-federation::cpu::verify::dn_verify_at_the_console_asks_the_hub_and_says_so",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.verify-challenge-answered-once",
+        says: "While a dn verify waits for the hub, and for a minute at most from when it was typed, \
+               the world posts back the nonce of each of the hub's challenges for its own slug \
+               once, over HTTPS with its key; a challenge for another slug, before any \
+               verification, past the minute or after the hub answered is ignored.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-VERIFY-CHALLENGE"),
+        station: "yalain-federation::cpu::verify::a_challenge_for_this_world_is_answered_once_while_its_verification_waits",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.verify-eight-nonces",
+        says: "However many of the hub's challenges arrive, at most eight nonces are posted back for \
+               one verification; a new verification answers afresh.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-VERIFY-EIGHT"),
+        station: "yalain-federation::cpu::verify::at_most_eight_nonces_are_answered_for_one_verification",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.verify-game-port-keeps-challenges",
+        says: "The hub's challenge on the login port is taken before the packet reader and kept for \
+               the world only while a verification waits; on any other port, past what a pass \
+               takes, or with none waiting it is dropped. It is never answered over UDP and makes \
+               no connection.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-VERIFY-GAME-PORT"),
+        station: "yalain-net::cpu::hub_challenge::a_hub_challenge_on_the_game_port_is_kept_only_while_the_world_hears_them_and_never_answered",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.verify-in-game-for-admins",
+        says: "Said in game, @dn verify is an admin's: an admin's goes to the hub as its character's \
+               and is answered in its chat window, as is the hub's answer; staff below an admin \
+               are told the command needs an admin's access; a player's is answered with the \
+               @dn help. Nobody hears the line.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-VERIFY-IN-GAME"),
+        station: "yalain-testkit::cpu::operator::moderation::dn_verify_said_in_game_is_an_admins_and_staff_below_are_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.verify-one-at-a-time",
+        says: "One verification goes at a time: a second dn verify, at the console or in game, while \
+               one waits for the hub is answered that one is on its way and sends nothing; once the \
+               hub answered, the next goes.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NET-VERIFY-ONE"),
+        station: "yalain-federation::cpu::verify::a_second_verification_while_one_waits_is_refused_and_sends_nothing",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.network.watch-answered",

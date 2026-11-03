@@ -14,6 +14,7 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 
+use dereth_network_protocol::challenge::{self, Challenge};
 use dereth_primitives::LocalTime;
 use dereth_transport::conn::{ConnectRequest, ConnectSeeds, Referral};
 use dereth_transport::flow::{CONNECTION_TIMEOUT, HANDSHAKE_RESEND, WORLD_LOGIN_TIMEOUT};
@@ -259,7 +260,15 @@ pub struct ServerNet {
     held: bool,
     out: Vec<Datagram>,
     events: VecDeque<NetEvent>,
+    /// The Dereth Network hub's challenges heard on the login service's even port (the world's
+    /// game port), oldest first, for the host to hand the world's network half. `None` while the
+    /// world reads none (the network off, or no verification of the world waiting): a challenge
+    /// is then dropped, as the packet reader drops it for its impossible size.
+    hub_challenges: Option<VecDeque<Challenge>>,
 }
+
+/// The most hub challenges kept for the host between two of its passes; the rest are dropped.
+pub const HUB_CHALLENGES_KEPT: usize = 16;
 
 impl ServerNet {
     /// The services, with `seed` for cookies and checksum seeds and the game clock reading
@@ -279,7 +288,26 @@ impl ServerNet {
             held: false,
             out: Vec::new(),
             events: VecDeque::new(),
+            hub_challenges: None,
         }
+    }
+
+    /// Whether the game port reads the Dereth Network hub's challenges now: only while the world
+    /// waits for the hub to verify it. Turned off, those not yet taken are dropped.
+    pub fn hear_hub_challenges(&mut self, on: bool) {
+        match (on, &self.hub_challenges) {
+            (true, None) => self.hub_challenges = Some(VecDeque::new()),
+            (false, Some(_)) => self.hub_challenges = None,
+            _ => {}
+        }
+    }
+
+    /// The hub's challenges heard since the last call, oldest first.
+    pub fn take_hub_challenges(&mut self) -> Vec<Challenge> {
+        self.hub_challenges
+            .as_mut()
+            .map(|k| k.drain(..).collect())
+            .unwrap_or_default()
     }
 
     /// The configuration.
@@ -510,8 +538,17 @@ impl ServerNet {
         self.close(conn);
     }
 
-    /// Take in one datagram that arrived on `port` from `from`.
+    /// Take in one datagram that arrived on `port` from `from`. A Dereth Network hub's challenge
+    /// is taken before the packet reader: kept on the login service's even port while the world
+    /// hears them ([`ServerNet::hear_hub_challenges`]), and otherwise dropped; it is never
+    /// answered over UDP and makes no connection.
     pub fn on_datagram(&mut self, port: Port, from: SocketAddr, bytes: &[u8], now: LocalTime) {
+        if challenge::is_challenge(bytes) {
+            if port == Port::LOGIN_EVEN {
+                self.keep_hub_challenge(bytes);
+            }
+            return;
+        }
         let p = match ParsedPacket::parse_from_client(bytes) {
             Ok(p) => p,
             Err(e) => {
@@ -550,6 +587,19 @@ impl ServerNet {
             // The client's keep-alive to the odd port: nothing to answer.
         } else {
             self.data(port.service, from, &p, bytes.len(), now);
+        }
+    }
+
+    /// A datagram shaped as the hub's challenge: kept while the world hears them and it reads.
+    fn keep_hub_challenge(&mut self, bytes: &[u8]) {
+        let Some(kept) = self.hub_challenges.as_mut() else {
+            return;
+        };
+        if kept.len() >= HUB_CHALLENGES_KEPT {
+            return;
+        }
+        if let Some(c) = Challenge::parse(bytes) {
+            kept.push_back(c);
         }
     }
 

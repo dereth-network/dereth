@@ -14,6 +14,8 @@ autotests = false
 dereth-network-protocol.workspace = true
 yalain-store.workspace = true
 tracing.workspace = true
+# The hub's answer to the operator's `dn verify`, read from its JSON body.
+serde_json.workspace = true
 
 [lints]
 workspace = true

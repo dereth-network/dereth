@@ -20,6 +20,8 @@ tracing.workspace = true
 # The status ping's tokens: an HMAC-SHA256 code over the asker's address.
 hmac.workspace = true
 sha2.workspace = true
+# The Dereth Network hub's challenge to the game port, read before the packet reader.
+dereth-network-protocol.workspace = true
 
 [lints]
 workspace = true

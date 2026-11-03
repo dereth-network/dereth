@@ -545,6 +545,57 @@ fn staff_say_the_commands_in_game_and_a_players_line_is_only_said() {
     assert_eq!(c.needs(), admin::Access::Sentinel);
 }
 
+/// `@dn verify <token>` is an admin's: an admin's line is kept for the network's half marked as
+/// an admin's; staff below it are refused as for any command beyond their level, and nothing is
+/// kept; a player's line is kept as any other of its `@dn` words, for the friends service to
+/// answer. Nobody hears any of them.
+/// Behaviour: server.network.verify-in-game-for-admins
+#[test]
+fn dn_verify_said_in_game_is_an_admins_and_staff_below_are_refused() {
+    let mut h = Harness::new();
+    let (a, elara) = h.player_in_world("one", "Elara");
+    let (b, babyfare) = h.player_in_world("two", "Babyfare");
+    let (c, cara) = h.player_in_world("three", "Cara");
+    console(&mut h, "set-accountaccess one admin");
+    console(&mut h, "set-accountaccess two developer");
+    let token = "dnv_abcdefghijklmnopqrstuvwxyzAB-_01";
+    let from = [
+        h.bots[a].inbox.len(),
+        h.bots[b].inbox.len(),
+        h.bots[c].inbox.len(),
+    ];
+    say(&mut h, a, &format!("@dn verify {token}"));
+    say(&mut h, b, &format!("@DN Verify {token}"));
+    room_line(&mut h, c, &format!("@dn verify {token}"));
+    say(&mut h, b, "@dn on");
+    let kept: Vec<(u64, String, bool)> = h
+        .server
+        .network_commands
+        .drain(..)
+        .map(|k| (k.character, k.words, k.admin))
+        .collect();
+    assert_eq!(
+        kept,
+        [
+            (elara, format!("verify {token}"), true),
+            (cara, format!("verify {token}"), false),
+            (babyfare, "on".to_owned(), false),
+        ]
+    );
+    assert_eq!(notices(&h, a, from[0]), Vec::<String>::new());
+    assert_eq!(
+        notices(&h, b, from[1]),
+        ["That command needs an Admin's access."]
+    );
+    for (bot, f) in [(a, from[0]), (b, from[1]), (c, from[2])] {
+        for speaker in [elara, babyfare, cara] {
+            assert_eq!(heard(&h, bot, f, speaker), 0, "nobody hears it");
+        }
+        assert_eq!(room_lines(&h, bot, f), 0, "nor in the room");
+    }
+    assert!(chat::is_verify("VERIFY x") && !chat::is_verify("verified") && !chat::is_verify(""));
+}
+
 /// Each line of a moderation command's answer says whether it was done or why nothing was, for the
 /// console's tags: a boot of one online is done, of one not online or by an id that does not read
 /// refused; a gag of a character done, of nobody refused; an account made again, a lift of no ban

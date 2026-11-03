@@ -12,7 +12,9 @@
 //!
 //! **The Dereth Network's command.** A line said as `@dn ...`, aloud or into a room, is heard by
 //! nobody: it is kept for the world's friends service ([`Server::network_commands`]), which
-//! answers it.
+//! answers it. Its one word for the operator, `@dn verify <token>`, is an admin's: kept marked as
+//! an admin's from an admin's account, refused from staff below it as any command beyond their
+//! level is, and from a player's account kept as any other of its words.
 //!
 //! **Gags and admins.** A gagged player ([`crate::admin`]) says, tells, emotes and speaks into a
 //! room to nobody, and is told it is gagged. A line an admin says as one of the admin commands is
@@ -194,21 +196,60 @@ pub struct NetworkCommand {
     pub name: String,
     /// The words after `@dn`.
     pub words: String,
+    /// The speaker's account is an admin's: `@dn verify` is its to give.
+    pub admin: bool,
+}
+
+/// The network's word for the operator, `@dn verify <token>`: an admin's.
+pub const VERIFY: &str = "verify";
+
+/// Whether the words after `@dn` begin with `verify` (in any case).
+#[must_use]
+pub fn is_verify(words: &str) -> bool {
+    words
+        .split_whitespace()
+        .next()
+        .is_some_and(|w| w.eq_ignore_ascii_case(VERIFY))
 }
 
 /// Keeps a line said as the network's command for the friends service: true when it was one.
-fn network_command<S: Store>(s: &mut Server<S>, world: ConnId, text: &str) -> bool {
+/// `@dn verify` from staff below an admin is refused here, as any command beyond their level.
+fn network_command<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    text: &str,
+) -> bool {
     let Some(words) = network_words(text) else {
         return false;
     };
     let Some(p) = s.players.get(&world) else {
         return true;
     };
+    let access = s
+        .sessions
+        .get(&p.login)
+        .map_or(crate::admin::Access::Player, |x| {
+            crate::admin::Access::from_number(x.account.access)
+        });
+    if is_verify(words)
+        && access > crate::admin::Access::Player
+        && access < crate::admin::Access::Admin
+    {
+        tracing::info!(character = %p.name, %access, "refused: dn verify is an admin's");
+        crate::login::notice(
+            net,
+            world,
+            &crate::admin::beyond(crate::admin::Access::Admin),
+        );
+        return true;
+    }
     let command = NetworkCommand {
         world,
         character: p.character,
         name: p.name.clone(),
         words: words.to_owned(),
+        admin: access == crate::admin::Access::Admin,
     };
     s.network_commands.push(command);
     true
@@ -230,7 +271,7 @@ pub fn say<S: Store>(
         .and_then(|t| t.literal)
         .map(|l| String::from_utf16_lossy(&l));
     if let Some(t) = said {
-        if crate::admin::said(s, net, world, &t, clock) || network_command(s, world, &t) {
+        if crate::admin::said(s, net, world, &t, clock) || network_command(s, net, world, &t) {
             return;
         }
     }
@@ -814,7 +855,7 @@ pub fn service<S: Store>(
     if let Some(world) = world {
         let text = String::from_utf16_lossy(&line.text);
         if crate::admin::said(s, net, world, &text, clock)
-            || network_command(s, world, &text)
+            || network_command(s, net, world, &text)
             || crate::admin::refuse_gagged(s, net, world)
         {
             send_chat(

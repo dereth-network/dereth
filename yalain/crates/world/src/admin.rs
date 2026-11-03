@@ -679,6 +679,12 @@ pub fn ticket<S: Store>(s: &mut Server<S>, name: &str, secret: &[u8], now: i64) 
 
 // ---- the commands -----------------------------------------------------------------------------
 
+/// What a command beyond its issuer's level is answered with, as Empyrean answers it.
+#[must_use]
+pub fn beyond(needs: Access) -> String {
+    format!("That command needs {} {needs}'s access.", needs.article())
+}
+
 /// A line of a command's answer: what was done, or why nothing was.
 pub type Answer = Result<String, String>;
 
@@ -708,11 +714,7 @@ pub fn answered<S: Store>(
 ) -> Vec<Answer> {
     if by.access() < c.needs() {
         tracing::info!(issuer = %by, command = ?c, "refused: beyond the issuer's access level");
-        return vec![Err(format!(
-            "That command needs {} {}'s access.",
-            c.needs().article(),
-            c.needs()
-        ))];
+        return vec![Err(beyond(c.needs()))];
     }
     let lines = match c {
         Command::AccountCreate {

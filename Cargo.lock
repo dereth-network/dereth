@@ -7061,6 +7061,7 @@ name = "yalain-federation"
 version = "0.1.1"
 dependencies = [
  "dereth-network-protocol",
+ "serde_json",
  "tracing",
  "yalain-store",
 ]
@@ -7081,6 +7082,7 @@ name = "yalain-net"
 version = "0.1.1"
 dependencies = [
  "auberean-primitives",
+ "dereth-network-protocol",
  "dereth-primitives",
  "dereth-transport",
  "hmac",
