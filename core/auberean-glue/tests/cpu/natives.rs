@@ -1379,3 +1379,138 @@ fn a_package_by_name_makes_an_instance() {
     let (status, slots) = b.call(TYPE_INFO_PACKAGE, 3, NULL, &[name, 0], 1);
     assert_eq!((status, slots[0].0), (Status::Success, u32::MAX));
 }
+
+/// The named places' table: its natives called as the machine calls one, over a table put in the
+/// host's records.
+mod places {
+    use auberean_assets::common::Position;
+    use auberean_assets::tables::Places;
+    use auberean_assets::Database;
+    use auberean_primitives::{CellId, Frame, Quat, Vec3};
+    use auberean_script::native_object::NativeObject;
+    use auberean_script::value::tag;
+    use auberean_script::Status;
+
+    use crate::call::Bench;
+
+    const PLACES_TABLE: u32 = 0x58;
+    const POSITION: u32 = 0x5A;
+    const RECORD: u32 = 0x0E00_0004;
+
+    fn table() -> Places {
+        Places {
+            places: vec![
+                (
+                    "the keep".to_owned(),
+                    Position {
+                        cell: CellId(0x5D3A_0101),
+                        frame: Frame {
+                            origin: Vec3::new(1.0, 2.0, 3.0),
+                            rotation: Quat {
+                                w: 1.0,
+                                x: 0.0,
+                                y: 0.0,
+                                z: 0.0,
+                            },
+                        },
+                    },
+                ),
+                ("Upper".to_owned(), Position::default()),
+            ],
+        }
+    }
+
+    fn bench_with_table() -> (Bench, Database) {
+        let db = Database::new(Vec::new());
+        let held = db.put(RECORD, table()).expect("not loaded yet");
+        drop(held);
+        let mut b = Bench::new();
+        b.host.enum_ids.insert((0x4000_0054, 0x4000_0002), RECORD);
+        (b, db)
+    }
+
+    const KEEP_TEXT: &str =
+        "0x5D3A0101 [1.000000 2.000000 3.000000] 1.000000 0.000000 0.000000 0.000000";
+
+    /// **A named place is found by its name in lower case, whatever case it is asked in**, and copied
+    /// into the position an out reference holds; a name in the table with a capital is never found
+    /// (only the name asked is put in lower case); not found leaves the position as it was. Written
+    /// out, it is the position's own text, in the string an out reference holds, which stays as it was
+    /// when the place is not found.
+    ///
+    /// Behaviour: script.glue.named-places-are-found-in-lower-case
+    #[test]
+    fn a_named_place_is_found_by_its_name_in_lower_case() {
+        let (mut b, db) = bench_with_table();
+        b.host.database = Some(db);
+        let name = b.text("The KEEP");
+        let at = b.object(
+            POSITION,
+            NativeObject::Position {
+                cell: 7,
+                frame: [0; 7],
+            },
+        );
+        let (status, r) = b.call_with_local(PLACES_TABLE, 1, 0, at, &[Some(name), None], 1);
+        assert_eq!(status, Status::Success);
+        assert_eq!(r[0], (1, tag::MIXED));
+        let NativeObject::Position { cell, frame } = b.vm.heap.native(at).unwrap() else {
+            panic!("a position")
+        };
+        assert_eq!(*cell, 0x5D3A_0101);
+        assert_eq!(
+            frame.map(f32::from_bits),
+            [1.0, 2.0, 3.0, 1.0, 0.0, 0.0, 0.0]
+        );
+
+        for gone in ["upper", "Upper", "nowhere"] {
+            let name = b.text(gone);
+            let at = b.object(
+                POSITION,
+                NativeObject::Position {
+                    cell: 7,
+                    frame: [0; 7],
+                },
+            );
+            let (_, r) = b.call_with_local(PLACES_TABLE, 1, 0, at, &[Some(name), None], 1);
+            assert_eq!(r[0], (0, tag::MIXED), "{gone}");
+            let NativeObject::Position { cell, .. } = b.vm.heap.native(at).unwrap() else {
+                panic!("a position")
+            };
+            assert_eq!(*cell, 7, "{gone} leaves the position");
+        }
+
+        let name = b.text("the keep");
+        let out = b.text("before");
+        let (_, r) = b.call_with_local(PLACES_TABLE, 2, 0, out, &[Some(name), None], 1);
+        assert_eq!(r[0], (1, tag::MIXED));
+        assert_eq!(String::from_utf16_lossy(&b.text_of(out)), KEEP_TEXT);
+        let name = b.text("nowhere");
+        let out = b.text("before");
+        let (_, r) = b.call_with_local(PLACES_TABLE, 2, 0, out, &[Some(name), None], 1);
+        assert_eq!(r[0], (0, tag::MIXED));
+        assert_eq!(String::from_utf16_lossy(&b.text_of(out)), "before");
+    }
+
+    /// **The named places' dump is a line for each place, or says it could not get the list**: the
+    /// name, a colon and the position's own text, with a stop; the install holding no table says so.
+    ///
+    /// Behaviour: script.glue.named-places-dump
+    #[test]
+    fn the_named_places_dump_lists_each_place_or_says_it_could_not_get_the_list() {
+        let (mut b, db) = bench_with_table();
+        let (_, none) = b.call(PLACES_TABLE, 3, 0, &[], 1);
+        assert_eq!(
+            String::from_utf16_lossy(&b.text_of(none[0].0)),
+            "Couldn't get places list.\n"
+        );
+        b.host.database = Some(db);
+        let (_, r) = b.call(PLACES_TABLE, 3, 0, &[], 1);
+        assert_eq!(
+            String::from_utf16_lossy(&b.text_of(r[0].0)),
+            format!(
+                "the keep: {KEEP_TEXT}.\nUpper: 0x00000000 [0.000000 0.000000 0.000000] 1.000000 0.000000 0.000000 0.000000.\n"
+            )
+        );
+    }
+}

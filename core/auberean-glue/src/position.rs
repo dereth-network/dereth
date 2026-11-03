@@ -89,6 +89,8 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (POSITION, 0x29, cell_x),
     (POSITION, 0x2A, cell_y),
     (POSITION, 0x2B, from_cell_coords),
+    (0x58, 0x01, inq_place),
+    (0x58, 0x02, inq_place_str),
     (0x58, 0x03, places_dump),
     (VECTOR, 0x01, cross),
     (VECTOR, 0x02, dot),
@@ -798,6 +800,72 @@ fn places_dump(c: &mut Call<'_>) -> Result<Status, Stop> {
         text += &format!("{name}: {}.\n", position_text(p.cell.0, &frame));
     }
     give_text(c, &text)
+}
+
+/// The place named at `fp[-2]`, from the table the install holds, as its cell and frame.
+fn named_place(c: &mut Call<'_>) -> Result<Option<(u32, [u32; 7])>, Stop> {
+    let name = c.cx.at(-2)?;
+    if name == NULL {
+        return Err(Stop::NullReference);
+    }
+    let name = String::from_utf16_lossy(&text_of(c, name)?);
+    let id = c.host.data_id_by_enum(PLACES_ENUM, PLACES_MAPPING);
+    let places = c
+        .host
+        .database()
+        .and_then(|db| db.get::<auberean_assets::tables::Places>(id));
+    Ok(places.and_then(|t| {
+        t.place(&name).map(|p| {
+            let (o, q) = (p.frame.origin, p.frame.rotation);
+            (
+                p.cell.0,
+                [o.x, o.y, o.z, q.w, q.x, q.y, q.z].map(f32::to_bits),
+            )
+        })
+    }))
+}
+
+/// The object an out reference's slot (`fp[-3]`) holds.
+fn out_object(c: &mut Call<'_>) -> Result<u32, Stop> {
+    let out = c.cx.at(-3)?;
+    let prog = std::sync::Arc::clone(c.vm.program());
+    let (target, _) = c.vm.read_slot(c.host, c.cx, out, 0, &prog)?;
+    if target == NULL {
+        return Err(Stop::NullReference);
+    }
+    Ok(target)
+}
+
+/// The place named at `fp[-2]` copied into the position `fp[-3]`'s slot holds; whether it was
+/// found at `fp[-4]`.
+// D2-08850, D2-13679
+fn inq_place(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let out = out_object(c)?;
+    let got = named_place(c)?;
+    if let Some((to_cell, to)) = got {
+        let (cell, frame) = whole_mut(c, out)?;
+        *cell = to_cell;
+        *frame = to;
+    }
+    c.write(-4, u32::from(got.is_some()), tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// The place named at `fp[-2]` written out into the string `fp[-3]`'s slot holds; whether it was
+/// found at `fp[-4]`.
+// D2-08851, D2-13680
+fn inq_place_str(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let out = out_object(c)?;
+    let got = named_place(c)?;
+    if let Some((cell, frame)) = got {
+        let units = position_text(cell, &frame).encode_utf16().collect();
+        match c.vm.heap.native_mut(out)? {
+            NativeObject::Text(t) => *t = units,
+            _ => return Err(c.fail("not a string")),
+        }
+    }
+    c.write(-4, u32::from(got.is_some()), tag::MIXED)?;
+    Ok(Status::Success)
 }
 
 /// The receiver written out.

@@ -1009,6 +1009,64 @@ fn set_table_by_name(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
+/// A string reference read from a text tree: each of the node's children by its keyword,
+/// `STRINGTABLE` naming the table's record (an unknown name leaves the table as it was) and
+/// `STRINGTOKEN` the string, given to `token` as written. Another keyword is warned of and passed
+/// over. A keyword with no one text beneath it is an error on the tree and the end of the reading,
+/// with what was read before it kept: whether the reading got through.
+// D2-14136
+pub fn text_from_node_keeping_token(
+    info: &mut TextInfo,
+    node: Option<&mut auberean_dat::tree::Node>,
+    token: &mut Vec<u8>,
+    table_by_name: &mut dyn FnMut(&str) -> u32,
+) -> bool {
+    let Some(node) = node else {
+        return false;
+    };
+    let mut corrupt = false;
+    let mut warnings = 0;
+    for child in node.children_mut() {
+        if child.is_keyword(b"STRINGTABLE") {
+            let Some(name) = child.leaf_text() else {
+                corrupt = true;
+                break;
+            };
+            let did = table_by_name(&String::from_utf8_lossy(&name));
+            if did != 0 {
+                info.table = table_or_none(did);
+            }
+        } else if child.is_keyword(b"STRINGTOKEN") {
+            let Some(name) = child.leaf_text() else {
+                corrupt = true;
+                break;
+            };
+            info.string_id = auberean_assets::strings::token(&String::from_utf8_lossy(&name));
+            *token = name;
+        } else {
+            warnings += 1;
+        }
+    }
+    for _ in 0..warnings {
+        node.report_warning();
+    }
+    if corrupt {
+        node.report_error();
+    }
+    !corrupt
+}
+
+/// [`text_from_node_keeping_token`], the token's text not asked for.
+// D2-14137
+pub fn text_from_node(
+    info: &mut TextInfo,
+    node: Option<&mut auberean_dat::tree::Node>,
+    table_by_name: &mut dyn FnMut(&str) -> u32,
+) -> bool {
+    let mut token = Vec::new();
+    text_from_node_keeping_token(info, node, &mut token, table_by_name)
+}
+
 /// Set the string id, and the table by name.
 // D2-08987, D2-14125
 fn set_id_and_table_by_name(c: &mut Call<'_>) -> Result<Status, Stop> {
@@ -1345,6 +1403,16 @@ impl fmt::Source for NoTables {
     fn language(&mut self) -> Option<std::sync::Arc<fmt::Language>> {
         None
     }
+}
+
+/// A reference's log line, flags kept, as a dump writes one it holds.
+pub(crate) fn log_line(c: &mut Call<'_>, t: &TextInfo) -> String {
+    let mut s = to_formatter(t);
+    let text = match c.host.text() {
+        Some(src) => s.log_string(src, true),
+        None => s.log_string(&mut NoTables, true),
+    };
+    String::from_utf16_lossy(&text)
 }
 
 /// How a native writes its reference.

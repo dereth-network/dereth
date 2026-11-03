@@ -36,7 +36,7 @@ pub fn host_bound() -> impl Iterator<Item = NativeId> {
     HOST.iter().map(|(id, _)| NativeId(*id))
 }
 
-/// 390 natives, by id.
+/// 385 natives, by id.
 static STUBS: &[(u32, Binding)] = &[
     (0x000a << 16 | 0x0001, not_ported!("D2-09192")),
     (0x000e << 16 | 0x0001, not_ported!("D2-08365")),
@@ -277,8 +277,6 @@ static STUBS: &[(u32, Binding)] = &[
     (0x0057 << 16 | 0x0005, not_ported!("D2-08844")),
     (0x0057 << 16 | 0x0006, not_ported!("D2-08842")),
     (0x0057 << 16 | 0x0007, not_ported!("D2-08845")),
-    (0x0058 << 16 | 0x0001, not_ported!("D2-08850")),
-    (0x0058 << 16 | 0x0002, not_ported!("D2-08851")),
     (0x0058 << 16 | 0x0004, not_ported!("D2-08852")),
     (0x0059 << 16 | 0x0001, not_ported!("D2-08854")),
     (0x0059 << 16 | 0x0002, not_ported!("D2-08856")),
@@ -403,8 +401,6 @@ static STUBS: &[(u32, Binding)] = &[
     (0x009e << 16 | 0x0013, not_ported!("D2-01597")),
     (0x009e << 16 | 0x0014, not_ported!("D2-01591")),
     (0x009e << 16 | 0x0015, not_ported!("D2-01581")),
-    (0x009f << 16 | 0x0001, not_ported!("D2-01612")),
-    (0x00a0 << 16 | 0x0004, not_ported!("D2-01618")),
     (0x00a2 << 16 | 0x0001, not_ported!("D2-01630")),
     (0x00a2 << 16 | 0x0002, not_ported!("D2-01370")),
     (0x00a2 << 16 | 0x0004, not_ported!("D2-01369")),
@@ -412,7 +408,6 @@ static STUBS: &[(u32, Binding)] = &[
     (0x00a2 << 16 | 0x0006, not_ported!("D2-01364")),
     (0x00a2 << 16 | 0x0007, not_ported!("D2-01371")),
     (0x00a2 << 16 | 0x0009, not_ported!("D2-01631")),
-    (0x00a3 << 16 | 0x0001, not_ported!("D2-01644")),
     (0x00a3 << 16 | 0x0003, not_ported!("D2-01646")),
     (0x00b4 << 16 | 0x00f4, not_ported!("D2-00981")),
     (0x1ac0 << 16 | 0x0002, not_ported!("D2-08476")),
