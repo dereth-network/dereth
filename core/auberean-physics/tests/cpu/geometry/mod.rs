@@ -6,6 +6,7 @@ mod boxes;
 mod boxes_cases;
 mod frame;
 mod frame_cases;
+mod material;
 mod matrix;
 mod matrix_cases;
 mod misc;

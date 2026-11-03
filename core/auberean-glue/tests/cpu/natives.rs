@@ -14,6 +14,7 @@ use auberean_script::value::{tag, FunctionId, NULL};
 use auberean_script::{Program, Status, Vm};
 
 use crate::asm::{i, library, small, w, Pkg, TestHost};
+use crate::call::Bench;
 
 const THING: u32 = 0x10;
 const HASH: u32 = 1;
@@ -1278,4 +1279,103 @@ fn an_array_of_references_made_longer_holds_no_reference_in_its_new_places() {
         panic!("an array")
     };
     assert_eq!(items.len(), 1, "made shorter");
+}
+
+const MACHINE_PACKAGE: u32 = 0x72;
+const TYPE_INFO_PACKAGE: u32 = 0x6E;
+const THING_PACKAGE: u32 = 0x80;
+
+fn listing(b: &Bench, id: u32) -> String {
+    String::from_utf16(&b.text_of(id)).expect("text")
+}
+
+/// The table's text gives how many processes it holds and its room, 128 until it is full; the
+/// contexts' text counts each process's suspended ones; a process asked after is there or not, its
+/// text empty.
+///
+/// Behaviour: script.glue.the-machine-counts-its-processes
+#[test]
+fn the_machine_counts_its_processes_and_contexts() {
+    let mut b = Bench::new();
+    let out = b.text("before");
+    let (status, slots) = b.call_with_local(MACHINE_PACKAGE, 8, NULL, out, &[None], 1);
+    assert_eq!((status, slots[0].0), (Status::Success, 1));
+    assert_eq!(listing(&b, out), "process table:\n  total: 0, size: 128\n");
+    for _ in 0..129 {
+        b.vm.create_process(NULL);
+    }
+    b.call_with_local(MACHINE_PACKAGE, 8, NULL, out, &[None], 1);
+    assert_eq!(
+        listing(&b, out),
+        "process table:\n  total: 129, size: 256\n"
+    );
+    b.call_with_local(MACHINE_PACKAGE, 9, NULL, out, &[Some(0), None], 1);
+    assert_eq!(listing(&b, out), "contexts:\n  total: 0\n");
+    b.vm.running_process = 3;
+    let (_, slots) = b.call_with_local(MACHINE_PACKAGE, 9, NULL, out, &[Some(0), None], 1);
+    assert_eq!(listing(&b, out), "contexts:\n  total: 1\n");
+    assert_eq!(slots[0].0, 1);
+    let (_, slots) = b.call_with_local(MACHINE_PACKAGE, 0xA, NULL, out, &[Some(5), None], 1);
+    assert_eq!((slots[0].0, listing(&b, out).as_str()), (1, ""));
+    let (_, slots) = b.call_with_local(MACHINE_PACKAGE, 0xA, NULL, out, &[Some(500), None], 1);
+    assert_eq!(slots[0].0, 0);
+    let (_, slots) = b.call_with_local(MACHINE_PACKAGE, 0xA, NULL, out, &[Some(NULL), None], 1);
+    assert_eq!(slots[0].0, 0, "the id that is no process");
+}
+
+/// The performance listing is a heading and a blank line; the listings of references are empty and
+/// answer true; a null string stops the call.
+///
+/// Behaviour: script.glue.the-machines-other-listings-say-little
+#[test]
+fn the_machines_other_listings_say_little() {
+    let mut b = Bench::new();
+    let out = b.text("before");
+    let (status, slots) = b.call_with_local(MACHINE_PACKAGE, 0xC, NULL, out, &[None], 1);
+    assert_eq!((status, slots[0].0), (Status::Success, 1));
+    assert_eq!(listing(&b, out), "perf:\n\n");
+    for (number, args) in [
+        (0xB, vec![None]),
+        (0x16, vec![None, Some(1)]),
+        (0x17, vec![None, Some(1)]),
+        (0x17, vec![None, Some(NULL)]),
+    ] {
+        let out = b.text("before");
+        let (status, slots) = b.call_with_local(MACHINE_PACKAGE, number, NULL, out, &args, 1);
+        assert_eq!((status, slots[0].0), (Status::Success, 1), "{number:#x}");
+        assert_eq!(listing(&b, out), "", "{number:#x}");
+    }
+    let (status, _) = b.call_with_local(MACHINE_PACKAGE, 0xC, NULL, NULL, &[None], 1);
+    assert_eq!(status, Status::Crash);
+}
+
+/// A package's name comes as a new string, empty for no package; a new instance comes of a package
+/// by name, and a name no package has stops the call with the null reference; a validated new type
+/// always answers -1.
+///
+/// Behaviour: script.glue.a-package-by-name-makes-an-instance
+#[test]
+fn a_package_by_name_makes_an_instance() {
+    let mut b = Bench::with_packages(&[("Thing", THING_PACKAGE, &[])]);
+    let (_, slots) = b.call(TYPE_INFO_PACKAGE, 1, NULL, &[THING_PACKAGE], 1);
+    assert_eq!(slots[0].1, tag::REFERENCE);
+    assert_eq!(listing(&b, slots[0].0), "Thing");
+    let (_, slots) = b.call(TYPE_INFO_PACKAGE, 1, NULL, &[0x7777], 1);
+    assert_eq!(listing(&b, slots[0].0), "");
+    let name = b.text("Thing");
+    let (status, slots) = b.call(TYPE_INFO_PACKAGE, 2, NULL, &[name], 1);
+    assert_eq!(status, Status::Success);
+    let mut host = TestHost::default();
+    let prog = std::sync::Arc::clone(b.vm.program());
+    assert_eq!(
+        b.vm.package_of(&mut host, slots[0].0, &prog),
+        Ok(THING_PACKAGE),
+        "an instance of the package"
+    );
+    let name = b.text("No Such Thing");
+    let (status, slots) = b.call(TYPE_INFO_PACKAGE, 2, NULL, &[name], 1);
+    assert_eq!((status, slots[0].0), (Status::Crash, NULL));
+    let name = b.text("Thing");
+    let (status, slots) = b.call(TYPE_INFO_PACKAGE, 3, NULL, &[name, 0], 1);
+    assert_eq!((status, slots[0].0), (Status::Success, u32::MAX));
 }

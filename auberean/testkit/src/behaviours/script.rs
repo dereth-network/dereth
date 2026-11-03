@@ -179,6 +179,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.a-package-by-name-makes-an-instance",
+        says: "A package's name comes as a new string, empty for no package; a new instance comes of a \
+               package by name, and a name no package has stops the call with the null reference; a \
+               validated new type always answers -1.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-TYPE-INFO"),
+        station: "auberean-glue::cpu::natives::a_package_by_name_makes_an_instance",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.glue.a-positions-parts-distances-and-text",
         says: "A position's cell, origin and height are read and set whole and its frame copied \
                from another; two are in one landblock by their cells' top halves, equal when their \
@@ -461,6 +471,25 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-TEXT-UTILITIES"),
         station: "auberean-glue::cpu::strings::a_text_reads_as_a_whole_number_as_the_c_library_reads_it_and_paths_are_cut",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.the-machine-counts-its-processes",
+        says: "The process table's text gives how many processes it holds and its room, 128 until full \
+               and then doubled; the contexts' text counts the contexts each keeps and the one running; \
+               a process asked after is there or not, with an empty text.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-VM-QUERY-PROCESSES"),
+        station: "auberean-glue::cpu::natives::the_machine_counts_its_processes_and_contexts",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.the-machines-other-listings-say-little",
+        says: "The performance listing is a heading and a blank line; the listings of references are \
+               empty and answer true; a null string stops the call.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-VM-QUERY-LISTINGS"),
+        station: "auberean-glue::cpu::natives::the_machines_other_listings_say_little",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1312,6 +1341,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.natives.a-file-reads-as-narrow-text",
+        says: "A file a script reads comes as narrow text in the Windows Latin code page: a carriage \
+               return before a line feed goes, a Ctrl+Z ends the text, a line stops at a zero, and a \
+               line over 4095 characters goes on as a next one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-FILE-READ"),
+        station: "auberean-client-runtime::cpu::scripts::files::a_file_reads_as_narrow_text_a_line_at_a_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.natives.a-log-line-is-stamped-with-the-local-time",
         says: "A line written with a timestamp starts with the local time, month day year, hours \
                minutes seconds, in angle brackets and two spaces; a host with no files opens and \
@@ -1429,6 +1468,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-OPTIONS-FILES"),
         station: "auberean-glue::cpu::options::the_options_export_to_a_file_and_import_back_and_answer_the_clients_errors",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.reading-a-file-uses-it-up",
+        says: "Reading a file that is not open opens it to read, and fails when there is none; reading \
+               closes the stream while its name stays open, so it gives nothing more until it is \
+               closed, and a file open to write gives nothing and is used up too.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-FILE-READ-USED-UP"),
+        station: "auberean-client-runtime::cpu::scripts::files::reading_a_file_opens_it_and_uses_it_up",
         tier: Tier::Cpu,
     },
     behaviour! {

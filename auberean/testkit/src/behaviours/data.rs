@@ -71,7 +71,7 @@ pub static ROWS: &[Behaviour] = &[
                corners, alpha among them; a corner of another type gives no value.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-BLOCK-PROPERTY-COLOR"),
-        station: "auberean-physics::cpu::material::a_color_laid_over_blocks_blends_between_the_corners",
+        station: "auberean-physics::cpu::geometry::material::a_color_laid_over_blocks_blends_between_the_corners",
         tier: Tier::Cpu,
     },
     behaviour! {

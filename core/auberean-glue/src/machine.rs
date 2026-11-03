@@ -46,138 +46,15 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (MACHINE, 0x16, query_reference_tree),
     (MACHINE, 0x17, query_reference_tree_for_process),
     (DISTRIBUTOR, 0x01, process_id),
+    (TYPE_INFO, 0x01, get_type),
     (TYPE_INFO, 0x02, new_type),
+    (TYPE_INFO, 0x03, new_validated_type),
     (RESERVED_IDS, 0x01, is_player_id),
 ];
-
-/// A string through a reference the native was given (`fp[out]`); it answers 1 (`fp[answer]`).
-fn answer_text(c: &mut Call<'_>, out: i64, answer: i64, text: &str) -> Result<Status, Stop> {
-    let at = c.cx.at(out)?;
-    let prog = Arc::clone(c.vm.program());
-    let (target, _) = c.vm.read_slot(c.host, c.cx, at, 0, &prog)?;
-    if target != NULL {
-        *c.vm.heap.native_mut(target)? = NativeObject::Text(text.encode_utf16().collect());
-    }
-    c.write(answer, 1, tag::MIXED)?;
-    Ok(Status::Success)
-}
 
 /// A new string, for a native's answer.
 pub(crate) fn new_text_in(c: &mut Call<'_>, units: Vec<u16>) -> u32 {
     new_text(c, units)
-}
-
-/// The machine's process table, as text, through the reference at `fp[-2]`.
-// D2-09567
-fn query_process_table(c: &mut Call<'_>) -> Result<Status, Stop> {
-    let all = c.vm.process_slots();
-    let (total, size) = (all.iter().flatten().count(), all.len());
-    let text = format!("process table:\n  total: {total}, size: {size}\n");
-    answer_text(c, -2, -3, &text)
-}
-
-/// One process's line: its id, the object it runs for, and its suspended contexts.
-fn process_line(id: usize, p: &auberean_script::vm::Process) -> String {
-    format!(
-        "  process {id}: instance {}, suspended contexts {}\n",
-        p.instance,
-        p.suspended.len()
-    )
-}
-
-/// The contexts of every process, as text, through the reference at `fp[-3]`.
-// D2-09569
-fn query_processes(c: &mut Call<'_>) -> Result<Status, Stop> {
-    let mut lines = String::new();
-    let mut total = 0;
-    for (i, p) in c.vm.process_slots().iter().enumerate() {
-        if let Some(p) = p {
-            total += p.suspended.len();
-            lines.push_str(&process_line(i, p));
-        }
-    }
-    answer_text(c, -3, -4, &format!("contexts:\n  total: {total}\n{lines}"))
-}
-
-/// One process (its id at `fp[-2]`), as text, through the reference at `fp[-3]`; whether it is there
-/// (`fp[-4]`).
-// D2-09568
-fn query_process(c: &mut Call<'_>) -> Result<Status, Stop> {
-    let id = c.cx.at(-2)? as usize;
-    let line =
-        c.vm.process_slots()
-            .get(id)
-            .and_then(Option::as_ref)
-            .map(|p| process_line(id, p));
-    let found = line.is_some();
-    answer_text(c, -3, -4, &line.unwrap_or_default())?;
-    c.write(-4, u32::from(found), tag::MIXED)?;
-    Ok(Status::Success)
-}
-
-/// The reference table's numbers, as text, through the reference at `fp[-2]`.
-// D2-09572
-fn query_references(c: &mut Call<'_>) -> Result<Status, Stop> {
-    let text = format!(
-        "references:\n  live: {}, size: {}\n",
-        c.vm.heap.live(),
-        c.vm.heap.capacity()
-    );
-    answer_text(c, -2, -3, &text)
-}
-
-/// The machine's performance, as text, through the reference at `fp[-2]`: a heading, and nothing
-/// under it, as the client built for players has.
-// D2-09566
-fn query_perf(c: &mut Call<'_>) -> Result<Status, Stop> {
-    answer_text(c, -2, -3, "perf:\n\n")
-}
-
-/// What an object holds, one line for each reference out of it, down from `root`, each seen once.
-fn reference_tree(c: &Call<'_>, root: u32) -> String {
-    let mut seen = std::collections::BTreeSet::new();
-    let mut lines = String::new();
-    let mut stack = vec![(root, 0_usize)];
-    while let Some((r, depth)) = stack.pop() {
-        if r == NULL || !seen.insert(r) {
-            continue;
-        }
-        let Ok(o) = c.vm.heap.object(r) else {
-            continue;
-        };
-        lines.push_str(&format!(
-            "{:indent$}{r}: package {:#x}, native type {:#x}\n",
-            "",
-            o.package,
-            o.native_type,
-            indent = depth * 2
-        ));
-        stack.extend(o.references().into_iter().rev().map(|x| (x, depth + 1)));
-    }
-    lines
-}
-
-/// The references from an object (its reference at `fp[-3]`), as text, through the reference at
-/// `fp[-2]`.
-// D2-09571
-fn query_reference_tree(c: &mut Call<'_>) -> Result<Status, Stop> {
-    let root = c.cx.at(-3)?;
-    let text = reference_tree(c, root);
-    answer_text(c, -2, -4, &text)
-}
-
-/// The references from a process's object (its id at `fp[-3]`), as text, through the reference at
-/// `fp[-2]`.
-// D2-09570
-fn query_reference_tree_for_process(c: &mut Call<'_>) -> Result<Status, Stop> {
-    let id = c.cx.at(-3)? as usize;
-    let root =
-        c.vm.process_slots()
-            .get(id)
-            .and_then(Option::as_ref)
-            .map_or(NULL, |p| p.instance);
-    let text = reference_tree(c, root);
-    answer_text(c, -2, -4, &text)
 }
 
 /// The process an object runs in (at `fp[-2]`): the one whose instance it is, or none.
@@ -190,19 +67,6 @@ fn process_id(c: &mut Call<'_>) -> Result<Status, Stop> {
             .position(|p| p.as_ref().is_some_and(|p| p.instance == r))
             .map_or(u32::MAX, |i| u32::try_from(i).unwrap_or(u32::MAX));
     c.write(-2, id, tag::MIXED)?;
-    Ok(Status::Success)
-}
-
-/// A new object of the package a name (the string at `fp[-2]`) names, or null.
-// D2-09547
-fn new_type(c: &mut Call<'_>) -> Result<Status, Stop> {
-    let name = String::from_utf16_lossy(&text_of(c, c.cx.at(-2)?)?);
-    let prog = Arc::clone(c.vm.program());
-    let id = match prog.library.package_id(&name) {
-        Some(p) => c.vm.new_object(c.host, p, &prog)?,
-        None => NULL,
-    };
-    c.write(-3, id, tag::REFERENCE)?;
     Ok(Status::Success)
 }
 
@@ -404,5 +268,121 @@ fn state_of(c: &mut Call<'_>) -> Result<Status, Stop> {
         _ => 0,
     };
     ret(c, 1, s, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Put a query's text in the string an out reference (`fp[k]`) holds; the query then answers `v`
+/// below its arguments. A null string stops the call.
+fn query_answer(c: &mut Call<'_>, k: i64, args: i64, text: &str, v: u32) -> Result<Status, Stop> {
+    let out = c.cx.at(k)?;
+    let prog = Arc::clone(c.vm.program());
+    let (target, _) = c.vm.read_slot(c.host, c.cx, out, 0, &prog)?;
+    if target == NULL {
+        return Ok(Status::Crash);
+    }
+    match c.vm.heap.native_mut(target)? {
+        NativeObject::Text(t) => *t = text.encode_utf16().collect(),
+        _ => return Err(c.fail("the out reference holds no string")),
+    }
+    ret(c, args, v, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// The process table's counts as text: how many it holds and how many it has room for, 128 at
+/// first and doubled when full.
+// D2-09567, D2-16465, D2-16428
+fn query_process_table(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let total = c.vm.process_slots().len();
+    let mut size = 128;
+    while size < total {
+        size *= 2;
+    }
+    let text = format!("process table:\n  total: {total}, size: {size}\n");
+    query_answer(c, -2, 1, &text, 1)
+}
+
+/// How many contexts the processes have, as text: each one's it keeps and the one running.
+// D2-09569, D2-16466, D2-16429
+fn query_processes(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let kept: usize =
+        c.vm.process_slots()
+            .iter()
+            .flatten()
+            .map(|p| p.suspended.len())
+            .sum();
+    let total = kept + usize::from(c.vm.process(c.vm.running_process).is_some());
+    let text = format!("contexts:\n  total: {total}\n");
+    query_answer(c, -3, 2, &text, 1)
+}
+
+/// Whether a process (`fp[-2]`) is in the table; the text says nothing of it.
+// D2-09568, D2-16467, D2-16425
+fn query_process(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let p = c.arg(0)?;
+    let there = usize::try_from(p)
+        .ok()
+        .is_some_and(|p| c.vm.process(p).is_some());
+    query_answer(c, -3, 2, "", u32::from(there))
+}
+
+/// The references, as nothing: the shipped client's listing is empty.
+// D2-09572, D2-16468
+fn query_references(c: &mut Call<'_>) -> Result<Status, Stop> {
+    query_answer(c, -2, 1, "", 1)
+}
+
+/// The performance counters: a heading and a blank line.
+// D2-09566, D2-16472
+fn query_perf(c: &mut Call<'_>) -> Result<Status, Stop> {
+    query_answer(c, -2, 1, "perf:\n\n", 1)
+}
+
+/// A reference's tree, as nothing: the shipped client's listing is empty.
+// D2-09571, D2-16469
+fn query_reference_tree(c: &mut Call<'_>) -> Result<Status, Stop> {
+    query_answer(c, -2, 2, "", 1)
+}
+
+/// A process's reference tree, as nothing, whether or not there is such a process.
+// D2-09570, D2-16470
+fn query_reference_tree_for_process(c: &mut Call<'_>) -> Result<Status, Stop> {
+    query_answer(c, -2, 2, "", 1)
+}
+
+/// A new string holding the name of a package (empty when it has none).
+// D2-09546, D2-16438
+fn get_type(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let package = c.arg(0)?;
+    let name =
+        c.vm.program()
+            .library
+            .package(package)
+            .map(|x| x.name.clone())
+            .unwrap_or_default();
+    let id = new_text(c, name.encode_utf16().collect());
+    ret(c, 1, id, tag::REFERENCE)?;
+    Ok(Status::Success)
+}
+
+/// A new instance of the package a string names; a name no package has stops the call.
+// D2-09547, D2-16439
+fn new_type(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let name: String = char::decode_utf16(text_of(c, c.arg(0)?)?)
+        .map(|r| r.unwrap_or('?'))
+        .collect();
+    let prog = Arc::clone(c.vm.program());
+    let Some(package) = prog.library.package_id(&name) else {
+        ret(c, 1, NULL, tag::REFERENCE)?;
+        return Ok(Status::Crash);
+    };
+    let id = c.vm.new_object(c.host, package, &prog)?;
+    ret(c, 1, id, tag::REFERENCE)?;
+    Ok(Status::Success)
+}
+
+/// What a validated new type answers: always -1, and the status is a success.
+// D2-09548, D2-00031
+fn new_validated_type(c: &mut Call<'_>) -> Result<Status, Stop> {
+    c.write(-4, u32::MAX, tag::REFERENCE)?;
     Ok(Status::Success)
 }

@@ -81,7 +81,7 @@ fn an_admin_characters_client_side_commands_run_to_their_end() {
     let all = shown(&s).join("\n");
     assert!(all.contains("Property group"), "{all}");
     assert!(all.contains("Property name"), "{all}");
-    assert!(all.contains("references:"), "{all}");
+    assert!(all.contains("perf:"), "{all}");
     assert!(all.contains("Object Maintainter Dump"), "{all}");
 }
 

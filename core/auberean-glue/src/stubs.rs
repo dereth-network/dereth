@@ -336,8 +336,6 @@ static STUBS: &[(u32, Binding)] = &[
     (0x006b << 16 | 0x0001, not_ported!("D2-09003")),
     (0x006b << 16 | 0x0002, not_ported!("D2-09004")),
     (0x006b << 16 | 0x0003, not_ported!("D2-09005")),
-    (0x006e << 16 | 0x0001, not_ported!("D2-09546")),
-    (0x006e << 16 | 0x0003, not_ported!("D2-09548")),
     (0x0072 << 16 | 0x0001, not_ported!("D2-09554")),
     (0x0072 << 16 | 0x000f, not_ported!("D2-09564")),
     (0x0073 << 16 | 0x0001, not_ported!("D2-09008")),
