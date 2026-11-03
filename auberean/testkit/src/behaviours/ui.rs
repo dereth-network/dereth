@@ -1423,6 +1423,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.quests.the-quest-window-stands-on-the-quests-under-way-until-a-scene-is-added",
+        says: "At the session's start the quest window stands on the quests under way (the whole \
+               list and the whole story change no page); a scene added to the story while it is \
+               hidden turns it to the story and marks its button changed, as a new character's \
+               first entry does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-QUEST-WINDOW-AT-ENTRY"),
+        station: "auberean-ui-game::dat::play::examination::the_quest_window_stands_on_the_quests_under_way_until_a_scene_is_added",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.quests.the-story-page-lists-the-acts-and-opens-the-one-changed",
         says: "The story page lays out the visible acts, in order, each with its scenes' icons \
                (the hidden ones left out), completed when the scene may be played again, else not; \

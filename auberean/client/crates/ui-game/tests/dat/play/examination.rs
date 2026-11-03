@@ -446,6 +446,47 @@ fn scene(id: u32, name: &str, hidden: bool, playable: bool) -> Scene {
     }
 }
 
+/// As the player enters the world the scripts give the journal its whole list and the story its
+/// whole story, and the window stands on the quests under way. A scene added to the story with the
+/// window hidden, as a new character's first entry adds its starting scenes, turns it to the story.
+///
+/// Behaviour: ui.quests.the-quest-window-stands-on-the-quests-under-way-until-a-scene-is-added
+#[test]
+fn the_quest_window_stands_on_the_quests_under_way_until_a_scene_is_added() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let state = |ui: &Ui, n: &str| ui.node(el(ui, n)).expect("node").state;
+    let list = note(
+        notice::UPDATE_QUESTS,
+        vec![change::ALL, 0],
+        vec![
+            None,
+            Some(Record::Quests(vec![quest(
+                1,
+                status::UNDER_WAY,
+                5.0,
+                "One",
+            )])),
+        ],
+    );
+    let story = |how: u32, act: u32| Notice {
+        native: notice::UPDATE_STORY_QUESTS,
+        about: Some(1),
+        words: vec![how, act],
+        records: Vec::new(),
+    };
+    tick(&mut ui, &mut p, &mut t, &[list, story(0x4000_0002, 0)]);
+    tick(&mut ui, &mut p, &mut t, &[]);
+    assert_eq!(state(&ui, "UnderwayTab"), Token::of("open"));
+    assert_eq!(state(&ui, "StoryTab"), Token::of("closed"));
+    tick(&mut ui, &mut p, &mut t, &[story(0x4000_0001, 2)]);
+    tick(&mut ui, &mut p, &mut t, &[]);
+    assert_eq!(state(&ui, "StoryTab"), Token::of("open"));
+    assert_eq!(state(&ui, "UnderwayTab"), Token::of("closed"));
+    assert_eq!(state(&ui, "QuestButton"), Token::of("changed"));
+}
+
 /// The story page lays out the visible acts, in order, each with its scenes' icons (the hidden
 /// ones left out), completed when the scene may be played again, else not; an act the scripts say
 /// changed while the page is not shown marks the window's button, is open (its scenes' rows listed)

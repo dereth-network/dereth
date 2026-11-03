@@ -107,6 +107,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.bodies.each-body-is-drawn-once-a-frame",
+        says: "A body is drawn once in a frame, however many cells it reaches into.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-DRAWN-ONCE"),
+        station: "auberean-scene::corpus::objects::each_body_is_drawn_once_a_frame",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "desktop.bodies.recorded-heads-turn-to-the-servers-directions",
         says: "In a recorded 2017 session, every other body near the player has its look sliders at \
                the direction the server last sent for it two thirds of a second after it came.",
@@ -1293,16 +1301,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
-        id: "desktop.world.a-player-in-deep-water-rises-and-swims",
-        says: "A player on the bottom of deep water is lifted until its water line is near the                surface, and the forward key moves it at its motion description's water speed.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-WATER-MOTION"),
-        station: "auberean-shell::dat::session::a_player_in_deep_water_rises_and_swims",
         id: "desktop.world.a-moved-game-clock-relights-the-ground",
         says: "A time of day moved by an admin lights the ground on the next frame, and the                light's tick is shortened by the rate the world's time runs at.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-MOVED-CLOCK-RELIGHTS"),
         station: "auberean-shell::dat::session::a_moved_game_clock_relights_the_ground_at_once_and_a_faster_one_more_often",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.world.a-player-in-deep-water-rises-and-swims",
+        says: "A player on the bottom of deep water is lifted until its water line is near the                surface, and the forward key moves it at its motion description's water speed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WATER-MOTION"),
+        station: "auberean-shell::dat::session::a_player_in_deep_water_rises_and_swims",
         tier: Tier::Dat,
     },
     behaviour! {
