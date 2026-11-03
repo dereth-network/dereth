@@ -1985,6 +1985,12 @@ fn the_paper_doll_finds_the_part_under_the_pointer() {
     let head = search(0.5 * w, 0.22 * h).expect("the head is under the pointer");
     let middle = search(0.5 * w, 0.4 * h).expect("the figure is under the pointer");
     let beside = search(2.0, 0.4 * h);
+    // In the figure's box, between its parts: found by the box, on no mesh.
+    let in_box = (1..200).find_map(|i| {
+        #[allow(clippy::cast_precision_loss)]
+        search(w * i as f32 / 200.0, 0.3 * h).filter(|hit| hit.mesh_type == 0)
+    });
+    assert_eq!(in_box.map(|hit| hit.figure), Some(0), "by the box");
     assert_eq!(head.figure, 0, "the player's figure");
     assert_eq!(
         mesh_type_to_location(head.mesh_type),

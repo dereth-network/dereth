@@ -268,7 +268,7 @@ const PLAYER_DEPTH: f32 = 999_999.0;
 /// The box a body's drawn parts fill as they stand this frame, in its own frame: each part's own
 /// box of its triangles taken into the body's frame by its eight corners. `None` with nothing drawn.
 // D2-06119, D2-06625, D2-06626, D2-06680, D2-05535
-fn render_box(body: &SeenBody, own: &[ObjectBatch]) -> Option<(Vec3, Vec3)> {
+pub(crate) fn render_box(body: &SeenBody, own: &[ObjectBatch]) -> Option<(Vec3, Vec3)> {
     let mut out: Option<(Vec3, Vec3)> = None;
     // A part's materials lie next to each other, under one placement.
     for part in own.chunk_by(|a, b| a.transform == b.transform) {
@@ -308,21 +308,36 @@ pub fn check_object_selection(
     body: &SeenBody,
     bounds: (Vec3, Vec3),
     aspect: f32,
-    (min_x, min_y, max_x, max_y): (f32, f32, f32, f32),
+    selection: (f32, f32, f32, f32),
 ) -> Option<f32> {
     let (f, r, u) = camera.axes();
     let t = fm::tanf((camera.fov_y * 0.5).to_radians());
-    let (mut on_screen, mut depth) = (false, f32::NEG_INFINITY);
-    let (mut lo, mut hi) = ((f32::MAX, f32::MAX), (f32::MIN, f32::MIN));
-    for corner in body.corners(bounds) {
+    let project = |corner: Vec3| {
         let d = math::sub(corner, camera.position);
         let w = math::dot(d, f);
-        let (x, y) = (
+        (
             math::dot(d, r) / (w * t * aspect),
             math::dot(d, u) / (w * t),
-        );
+            w,
+        )
+    };
+    box_under_pointer(body.corners(bounds), camera.near, project, selection)
+}
+
+/// [`check_object_selection`] for a box's `corners` and a way to `project` a point to clip space,
+/// with its distance along the view.
+pub(crate) fn box_under_pointer(
+    corners: [Vec3; 8],
+    near: f32,
+    project: impl Fn(Vec3) -> (f32, f32, f32),
+    (min_x, min_y, max_x, max_y): (f32, f32, f32, f32),
+) -> Option<f32> {
+    let (mut on_screen, mut depth) = (false, f32::NEG_INFINITY);
+    let (mut lo, mut hi) = ((f32::MAX, f32::MAX), (f32::MIN, f32::MIN));
+    for corner in corners {
+        let (x, y, w) = project(corner);
         on_screen |= w >= 0.0 && x.abs() <= 1.0 && y.abs() <= 1.0;
-        depth = depth.max(1.0 - camera.near / w);
+        depth = depth.max(1.0 - near / w);
         lo = (lo.0.min(x), lo.1.min(y));
         hi = (hi.0.max(x), hi.1.max(y));
     }

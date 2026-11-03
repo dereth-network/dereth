@@ -416,6 +416,7 @@ impl Views {
                 }
             }
             let mut bodies: Vec<(usize, Vec<ObjectBatch>)> = Vec::new();
+            let mut stand: Vec<(Vec3, f32)> = Vec::new();
             for (k, f) in kept.figures.iter_mut().enumerate() {
                 let Some(b) = &mut f.body else { continue };
                 if !f.figure.still {
@@ -434,9 +435,10 @@ impl Views {
                 );
                 let poses = b.pose(anims);
                 bodies.push((k, drawer.batches(records, b, &poses, &place)));
+                stand.push((f.figure.origin, f.figure.heading));
             }
             if let Some(p) = v.pick {
-                let hit = pick(&v.camera, v.rect, p, &bodies);
+                let hit = pick(&v.camera, v.rect, p, &bodies, &stand);
                 picked.push((i, hit));
             }
             let light = match v.light {
@@ -506,47 +508,86 @@ fn scene_light(lights: &[(Vec3, Color, f32)], camera: &ViewCamera) -> DayLight {
     }
 }
 
-/// The figure a ray from the camera through the pointer meets first, by its drawn triangles, and
-/// the kind of the mesh it meets there. The pointer is taken in pixels against the viewport's
-/// size: a panel that wants the viewport's own pixels takes its corner off first.
-// D2-10455, D2-10586, D2-10612, D2-06650
+/// The figure a press of the pointer falls on: of the figures under it by their boxes, the nearest
+/// whose drawn triangles the ray from the camera through the pointer meets, with the kind of the
+/// mesh it meets there; failing any, the one whose box reaches least deep, on no mesh (kind 0). The
+/// pointer is taken in pixels against the viewport's size: a panel that wants the viewport's own
+/// pixels takes its corner off first. `stand` says where each of `bodies` stands and its heading.
+// D2-10455, D2-10586, D2-10612, D2-10613, D2-06650, D2-10561
 #[must_use]
 pub fn pick(
     camera: &ViewCamera,
     rect: [f32; 4],
     pointer: (f32, f32),
     bodies: &[(usize, Vec<ObjectBatch>)],
+    stand: &[(Vec3, f32)],
 ) -> Option<ViewHit> {
     let (w, h) = (rect[2] - rect[0], rect[3] - rect[1]);
     if w <= 0.0 || h <= 0.0 {
         return None;
     }
-    let cx = (2.0 * pointer.0 - 1.0) / w - 1.0;
-    let cy = 1.0 - (2.0 * pointer.1 + 1.0) / h;
+    let bounds = crate::seen::selection_bounds((w, h), pointer);
+    let (cx, cy) = (bounds.0, bounds.1);
     let (f, r, u) = camera.axes();
+    let half = camera.vertical_scale * 0.5;
+    let t = fm::tanf((camera.fov_y * 0.5).to_radians());
+    let aspect = w / h;
     let (from, dir) = if camera.orthographic {
         // Straight on: every ray runs along the view, from the near plane at the pointer.
-        let half = camera.vertical_scale * 0.5;
-        let across = math::add(math::scale(r, cx * half * w / h), math::scale(u, cy * half));
+        let across = math::add(
+            math::scale(r, cx * half * aspect),
+            math::scale(u, cy * half),
+        );
         let from = math::add(
             camera.position,
             math::add(across, math::scale(f, camera.near)),
         );
         (from, f)
     } else {
-        let t = fm::tanf((camera.fov_y * 0.5).to_radians());
         let dir = math::normalize(math::add(
             f,
-            math::add(math::scale(r, cx * t * w / h), math::scale(u, cy * t)),
+            math::add(math::scale(r, cx * t * aspect), math::scale(u, cy * t)),
         ));
         (camera.position, dir)
     };
+    let project = |p: Vec3| {
+        let d = math::sub(p, camera.position);
+        let along = math::dot(d, f);
+        if camera.orthographic {
+            (
+                math::dot(d, r) / (half * aspect),
+                math::dot(d, u) / half,
+                along,
+            )
+        } else {
+            (
+                math::dot(d, r) / (along * t * aspect),
+                math::dot(d, u) / (along * t),
+                along,
+            )
+        }
+    };
     let mut best: Option<(f32, ViewHit)> = None;
-    for (k, batches) in bodies {
+    let mut boxed: Option<(f32, usize)> = None;
+    for ((k, batches), (origin, heading)) in bodies.iter().zip(stand) {
+        let body = crate::seen::SeenBody {
+            id: 0,
+            origin: *origin,
+            heading: *heading,
+            bounds: None,
+            faded: false,
+        };
+        let Some(depth) = crate::seen::render_box(&body, batches).and_then(|b| {
+            crate::seen::box_under_pointer(body.corners(b), camera.near, project, bounds)
+        }) else {
+            continue;
+        };
+        let mut met = false;
         for b in batches {
             // Each batch (a part's material) tried as the client tries a part's triangle lists:
             // from either side, the nearest of all kept.
             if let Some(hit) = ray_intersects_tri_list(from, dir, RAY_LENGTH, triangles(b), true) {
+                met = true;
                 if best.is_none_or(|(bd, _)| hit.fraction < bd) {
                     let hit_of = ViewHit {
                         figure: *k,
@@ -556,8 +597,16 @@ pub fn pick(
                 }
             }
         }
+        if !met && boxed.is_none_or(|(d, _)| depth < d) {
+            boxed = Some((depth, *k));
+        }
     }
-    best.map(|(_, hit)| hit)
+    best.map(|(_, hit)| hit).or_else(|| {
+        boxed.map(|(_, figure)| ViewHit {
+            figure,
+            mesh_type: 0,
+        })
+    })
 }
 
 /// A batch's triangles, each corner where the batch places it.

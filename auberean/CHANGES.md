@@ -40,6 +40,7 @@ not how it was done.
 - The far landscape reaches a block farther and thins out with distance.
 - The options now list the avatar's first-person and see-through settings.
 - Water reflections now show the sea floor.
+- Clicking between a figure's parts in a viewport now selects it.
 
 ## 0.1.2 (2026-11-02)
 

@@ -813,7 +813,7 @@ pub static ROWS: &[Behaviour] = &[
         says: "A search of the paper doll's figure runs straight along its scene's view from the \
                pointer (taken from the viewport's corner) and answers with the figure met first \
                and the kind its mesh names there: the head's mesh, the torso's, nothing beside \
-               the figure.",
+               the figure; in the figure's box between its parts, the figure on no mesh.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-PAPER-DOLL-PICK"),
         station: "auberean-interface::dat::screens::the_paper_doll_finds_the_part_under_the_pointer",
