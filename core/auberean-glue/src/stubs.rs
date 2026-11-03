@@ -36,7 +36,7 @@ pub fn host_bound() -> impl Iterator<Item = NativeId> {
     HOST.iter().map(|(id, _)| NativeId(*id))
 }
 
-/// 437 natives, by id.
+/// 427 natives, by id.
 static STUBS: &[(u32, Binding)] = &[
     (0x000a << 16 | 0x0001, not_ported!("D2-09192")),
     (0x000e << 16 | 0x0001, not_ported!("D2-08365")),
@@ -192,16 +192,6 @@ static STUBS: &[(u32, Binding)] = &[
     (0x0029 << 16 | 0x0001, not_ported!("D2-08759")),
     (0x0029 << 16 | 0x0002, not_ported!("D2-08760")),
     (0x002a << 16 | 0x0001, not_ported!("D2-08589")),
-    (0x002c << 16 | 0x0001, not_ported!("D2-08598")),
-    (0x002c << 16 | 0x0002, not_ported!("D2-08593")),
-    (0x002c << 16 | 0x0003, not_ported!("D2-08592")),
-    (0x002c << 16 | 0x0004, not_ported!("D2-08591")),
-    (0x002c << 16 | 0x0005, not_ported!("D2-08595")),
-    (0x002c << 16 | 0x0006, not_ported!("D2-08594")),
-    (0x002c << 16 | 0x0007, not_ported!("D2-08597")),
-    (0x002c << 16 | 0x0008, not_ported!("D2-08596")),
-    (0x002c << 16 | 0x0009, not_ported!("D2-08590")),
-    (0x002c << 16 | 0x000a, not_ported!("D2-08599")),
     (0x002d << 16 | 0x0005, not_ported!("D2-08603")),
     (0x0036 << 16 | 0x0001, not_ported!("D2-08627")),
     (0x0036 << 16 | 0x0002, not_ported!("D2-08626")),
@@ -488,6 +478,16 @@ static HOST: &[(u32, Binding)] = &[
     (0x0026 << 16 | 0x0003, host_bound!("D2-08577")),
     (0x0026 << 16 | 0x0004, host_bound!("D2-08571")),
     (0x0026 << 16 | 0x0005, host_bound!("D2-08583")),
+    (0x002c << 16 | 0x0001, host_bound!("D2-08598")),
+    (0x002c << 16 | 0x0002, host_bound!("D2-08593")),
+    (0x002c << 16 | 0x0003, host_bound!("D2-08592")),
+    (0x002c << 16 | 0x0004, host_bound!("D2-08591")),
+    (0x002c << 16 | 0x0005, host_bound!("D2-08595")),
+    (0x002c << 16 | 0x0006, host_bound!("D2-08594")),
+    (0x002c << 16 | 0x0007, host_bound!("D2-08597")),
+    (0x002c << 16 | 0x0008, host_bound!("D2-08596")),
+    (0x002c << 16 | 0x0009, host_bound!("D2-08590")),
+    (0x002c << 16 | 0x000a, host_bound!("D2-08599")),
     (0x002e << 16 | 0x0001, host_bound!("D2-08606")),
     (0x002e << 16 | 0x0002, host_bound!("D2-08607")),
     (0x006a << 16 | 0x000a, host_bound!("D2-01370")),

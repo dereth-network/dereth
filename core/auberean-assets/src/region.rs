@@ -1264,6 +1264,7 @@ impl Decode for GameTime {
                     name: r.u32()?,
                 })
             })?,
+            // D2-05483
             week_days: r.list(4, Reader::u32)?,
             seasons: r.list(8, |r| {
                 let begin = r.i32()?;

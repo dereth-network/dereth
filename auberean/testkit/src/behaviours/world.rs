@@ -7,6 +7,60 @@ use super::{Behaviour, Evidence, Tier, RETAIL};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "world.calendar.a-clock-with-no-calendar-is-one-long-day",
+        says: "A clock with no calendar is one 100,000 second day in a one-day year, and has no date \
+               to write.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-DEFAULT"),
+        station: "auberean-world::cpu::clock::a_clock_with_no_calendar_is_one_long_day",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.calendar.a-region-runs-by-its-skys-calendar",
+        says: "The world's region runs by its sky's calendar; a region number with no calendar keeps \
+               the clock it had, or one with no calendar.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-REGION"),
+        station: "auberean-client-runtime::corpus::calls::a_region_runs_by_its_skys_calendar",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "world.calendar.a-stamps-date-takes-the-present-year-and-day",
+        says: "A stamp's date takes the present year, day and season, as the client's does; only the \
+               part of the day comes from the stamp.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-STAMP"),
+        station: "auberean-world::cpu::clock::a_stamps_date_takes_the_present_year_day_and_season",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.calendar.dilating-time-keeps-the-time-of-day",
+        says: "Dilating time keeps the time of day where it was and runs it at the new rate; a rate \
+               at or below 0.0002 is refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-DILATE"),
+        station: "auberean-world::cpu::clock::dilating_time_keeps_the_time_of_day_and_runs_it_at_the_rate",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.calendar.moving-the-time-of-day-goes-straight-there",
+        says: "Moving the time of day goes straight to the value and asks for the land to be lit; a \
+               world offset below zero wraps forward a day.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-MOVE"),
+        station: "auberean-world::cpu::clock::moving_the_time_of_day_goes_straight_there_and_asks_for_light",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.calendar.the-running-clock-updates-at-a-change-of-the-part-of-the-day",
+        says: "The running clock works out the year, day, season and part of the day at a change of \
+               the part only; between changes only the time of day moves.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-RUN"),
+        station: "auberean-world::cpu::clock::the_running_clock_updates_at_a_change_of_the_part_of_the_day",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "world.chargen.a-2017-creations-values-are-stops",
         says: "Every physique value of a creation the 2017 client sent is one of its race and sex's \
                stops for the type, and the types the race and sex lack were sent as 0.",

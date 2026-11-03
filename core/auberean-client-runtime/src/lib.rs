@@ -49,6 +49,7 @@ pub mod effects;
 pub mod examination;
 pub mod files;
 pub mod friends;
+pub mod game_time;
 pub mod host;
 pub mod interface;
 pub mod inventory;
@@ -281,6 +282,8 @@ pub struct Client {
     session_end: SessionEnd,
     /// The game clock.
     clock: clock::Clock,
+    /// The world's clock over the region's calendar, from the first region on.
+    game_clock: Option<auberean_world::calendar::GameClock>,
     now: f64,
     sent: Vec<Sent>,
     /// Calls from the server a host wants to see as they take effect, by function id.
@@ -453,6 +456,7 @@ impl Client {
             ended: false,
             session_end: SessionEnd::default(),
             clock: clock::Clock::default(),
+            game_clock: None,
             now: 0.0,
             sent: Vec::new(),
             observe: Vec::new(),
@@ -1111,6 +1115,7 @@ impl Client {
         let dt = (now.0 - self.now).max(0.0);
         self.now = now.0;
         self.clock.update(now.0);
+        self.use_game_clock();
         self.download.set_time(now.0);
         // The friends service's news first; while its part of the login runs, the game login
         // waits.
@@ -1488,7 +1493,36 @@ impl Client {
             db.get::<auberean_assets::region::Region>(record)
                 .map(|r| (record, r.number))
         };
+        let was = self.world.region();
         self.world.set_region(region, load);
+        if region != 0 && self.world.region() != was {
+            let had = self.game_clock.take();
+            self.game_clock = Some(game_time::region_clock(cache, region, had));
+            self.use_game_clock();
+        }
+    }
+
+    /// The world's clock kept up with the game clock's.
+    // D2-13067
+    fn use_game_clock(&mut self) {
+        let t = self.clock.now();
+        if let Some(clock) = self.game_clock.as_mut() {
+            clock.use_time(t);
+        }
+    }
+
+    /// The world's time now: the game clock's, at the rate and from the place an admin may have
+    /// moved it to. The sky and the calendar read this one.
+    #[must_use]
+    pub fn world_time(&self) -> f64 {
+        let t = self.clock.now();
+        self.game_clock.as_ref().map_or(t, |c| c.world_time(t))
+    }
+
+    /// The world's clock, once the world is in a region.
+    #[must_use]
+    pub const fn game_clock(&self) -> Option<&auberean_world::calendar::GameClock> {
+        self.game_clock.as_ref()
     }
 
     /// The physics object of game object `id`, made by the scene (see
@@ -1855,6 +1889,7 @@ impl Client {
         scripts.host.friends = self.friends.take();
         scripts.host.rooms = self.rooms.take();
         scripts.host.clock = self.clock.now();
+        scripts.host.game_clock = self.game_clock.take();
         scripts.host.my_position = self.body.placed().then(|| {
             let o = self.body.origin;
             // The heading turns the body about the up axis, clockwise from north.
@@ -1893,6 +1928,7 @@ impl Client {
         self.shell = std::mem::take(&mut scripts.host.history);
         self.friends = scripts.host.friends.take();
         self.rooms = scripts.host.rooms.take();
+        self.game_clock = scripts.host.game_clock.take();
         for (w, seconds) in std::mem::take(&mut scripts.host.sleeps) {
             self.waiting.push((self.now + seconds, w));
         }

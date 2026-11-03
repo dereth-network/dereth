@@ -706,7 +706,7 @@ impl<'w, H: Host> Shell<'w, H> {
             while let Some((to, bytes)) = c.poll_transmit() {
                 self.host.send(to, &bytes);
             }
-            self.scene.game_time = c.game_time();
+            self.scene.game_time = c.world_time();
             // An entry refused: the client is back at the character list.
             if let Some((_, n)) = c.model.refused {
                 if n != self.refusals {

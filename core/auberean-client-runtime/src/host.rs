@@ -149,6 +149,8 @@ pub struct ClientHost {
     pub camera_fx_stops: u32,
     /// The game clock as scripts read it.
     pub clock: f64,
+    /// The world's clock, while a call runs (the runtime lends it).
+    pub game_clock: Option<auberean_world::calendar::GameClock>,
     /// Examination requests whole, by reference: the machine holds only their packed forms.
     pub requests: HashMap<u32, crate::examination::Request>,
     /// Selections whole, by reference, likewise.
@@ -589,6 +591,7 @@ pub fn model_natives(lib: &Library) -> NativeTable {
     for (id, f) in crate::selection::natives()
         .chain(crate::repository::natives())
         .chain(crate::quality_dump::natives())
+        .chain(crate::game_time::natives())
         .chain(crate::shell::natives())
         .chain(crate::latent::natives())
         .chain(crate::combat::natives())
@@ -634,6 +637,7 @@ pub fn new_host(portal: Arc<DatFile>, program: Arc<Program>) -> ClientHost {
         behaviors: Vec::new(),
         camera_fx_stops: 0,
         clock: 0.0,
+        game_clock: None,
         requests: HashMap::new(),
         selections: HashMap::new(),
         dice: auberean_glue::numbers::Random::new(),

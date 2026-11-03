@@ -1034,7 +1034,7 @@ impl Retail {
         }
         d.clock = game
             .client
-            .and_then(|c| map::clock(game.world, c.game_time()));
+            .and_then(|c| map::clock(game.world, c.world_time()));
         match self.gather.world(game, &write, &**ui.assets()) {
             Some((w, gone)) => {
                 d.world = Some(w);

@@ -934,7 +934,7 @@ fn is_word_in_string(c: &mut Call<'_>) -> Result<Status, Stop> {
 const STRING_TABLE: u32 = RecordType::STRING_TABLE.0;
 
 /// The mapping a table is looked up by enumeration value through.
-const TABLE_ENUM_MAPPING: u32 = 0x4000_0004;
+pub const TABLE_ENUM_MAPPING: u32 = 0x4000_0004;
 
 fn info<'a>(c: &'a mut Call<'_>) -> Result<Option<&'a mut TextInfo>, Stop> {
     let r = c.receiver()?;
@@ -961,7 +961,7 @@ macro_rules! info_or_crash {
 }
 
 /// A table id when it is a string table's, else none.
-pub(crate) fn table_or_none(did: u32) -> u32 {
+pub fn table_or_none(did: u32) -> u32 {
     if type_of_id(did).is_some_and(|t| t.0 == STRING_TABLE) {
         did
     } else {

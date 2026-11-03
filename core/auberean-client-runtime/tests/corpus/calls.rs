@@ -886,3 +886,24 @@ fn every_created_objects_saved_state_names_its_records_and_asks_for_none_the_rec
         assert_eq!(count(&ours, kind), 0, "{:#x}: {ours:x?}", kind.0);
     }
 }
+
+/// The world's region runs by its sky's calendar: the end-of-retail region's days and years; a
+/// number with no region keeps the clock it had, or one with no calendar.
+///
+/// Behaviour: world.calendar.a-region-runs-by-its-skys-calendar
+#[test]
+fn a_region_runs_by_its_skys_calendar() {
+    use auberean_client_runtime::game_time::region_clock;
+    let data = data().expect("the September 2013 install opens");
+    let c = client(&data);
+    let cache = c.data_download().cache();
+    let clock = region_clock(cache, 1, None);
+    assert_eq!(
+        (clock.day_length_seconds(), clock.days_per_year()),
+        (7347.0, 360)
+    );
+    let none = region_clock(cache, 0x7FFF_FFFF, None);
+    assert_eq!(none.days_per_year(), 1, "no calendar: one long day");
+    let kept = region_clock(cache, 0x7FFF_FFFF, Some(clock));
+    assert_eq!(kept.days_per_year(), 360, "the clock it had");
+}

@@ -1448,6 +1448,34 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.natives.the-world-clock-answers-the-calendars-values",
+        says: "The world clock's natives answer whether it is night, the time of day, the day's and \
+               year's lengths, the day and the year; a null receiver crashes each but the night's, \
+               and with no clock each answers 0.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-NATIVES"),
+        station: "auberean-client-runtime::cpu::scripts::game_time::the_clocks_natives_answer_its_values",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.the-world-clock-takes-an-admins-commands",
+        says: "An admin's two commands move the time of day and dilate time, answering whether they \
+               could: a rate at or below 0.0002 is refused and with no clock neither is done.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-COMMANDS"),
+        station: "auberean-client-runtime::cpu::scripts::game_time::an_admins_commands_move_the_clock_and_answer_whether_they_could",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.the-world-clock-writes-the-date-and-time-as-string-references",
+        says: "The date and time are written into two string references with the calendar's strings' \
+               ids and their variables; with no clock nothing is written and the answer is 0.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-STRINGS"),
+        station: "auberean-client-runtime::cpu::scripts::game_time::the_clock_writes_the_date_and_time_as_string_references",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.options.an-exported-file-imports-back",
         says: "The player's options export as a text tree of the aliases, the damage text's flags \
                and range and bare sections for the rest, and an import of that file gives a new \

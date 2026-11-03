@@ -4,6 +4,7 @@
 mod distributor;
 mod dumps;
 mod files;
+mod game_time;
 mod log_system;
 mod names;
 mod natives;
