@@ -339,6 +339,7 @@ impl Install for DatInstall<'_> {
             last_waits,
             min_level: setup.min_level,
             hero_only: setup.hero_only,
+            monarch_only: setup.monarch_only,
             xp: setup.xp,
             pay: setup.pay,
             // The status to be in; one naming no status is to be completed, as an item's is.
@@ -375,6 +376,7 @@ const SET_LEAST_LEVEL: u32 = 0x01A7_003D;
 const SET_HERO_ONLY: u32 = 0x01A7_009A;
 const SET_REQUIRED_NAMED: u32 = 0x01A7_0091;
 const SET_REQUIRED_STATUS: u32 = 0x01A7_001B;
+const SET_MONARCH_ONLY: u32 = 0x01A7_0057;
 
 /// The calls a quest's setup makes to say what its completion pays: an amount, or a share of what
 /// the player's level takes to reach the next, with what limits that, and whether the amount is
@@ -400,6 +402,8 @@ struct Setup {
     min_level: i32,
     /// Given only to heroes.
     hero_only: bool,
+    /// For the monarch of an allegiance alone.
+    monarch_only: bool,
     /// What its completion pays: an amount, or how a share works out.
     xp: u64,
     pay: yalain_content::quests::CompletionPay,
@@ -486,6 +490,7 @@ fn read_setup(lib: &Library, start: usize, end: usize) -> Setup {
                     SET_REQUIRED_STATUS => {
                         out.required_status = literal.and_then(|v| u32::try_from(v).ok());
                     }
+                    SET_MONARCH_ONLY => out.monarch_only = literal == Some(1),
                     SET_XP => out.xp = amount(literal),
                     SET_XP_SHARE => out.pay.share = float.unwrap_or(0.0),
                     SET_XP_LEAST => out.pay.least = amount(literal),

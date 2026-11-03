@@ -199,6 +199,7 @@ impl Install for Fake {
             last_waits: false,
             min_level: self.min_level,
             hero_only: false,
+            monarch_only: false,
             xp: self.setup_xp,
             pay: self.setup_pay,
             required: None,

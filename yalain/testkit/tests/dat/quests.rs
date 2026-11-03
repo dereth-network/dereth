@@ -306,3 +306,26 @@ fn a_quests_setup_says_what_its_completion_pays() {
         "amounts as limits, weighed: Lodrog the Forsaken"
     );
 }
+
+/// Of every quest's setup, one says it is for the monarch of an allegiance: the Allegiance Hall's.
+/// Behaviour: server.quests.monarch-only-is-read
+#[test]
+fn a_quests_setup_says_whether_it_is_for_a_monarch() {
+    let p = Portal::open();
+    let states = p
+        .dat
+        .entries_in(0x6F00_0000, 0x6FFF_FFFF)
+        .map(|e| e.id)
+        .collect();
+    let lib = p.library();
+    let install = DatInstall::new(
+        Box::new(|id| p.dat.read(id).ok()),
+        p.ctx.clone(),
+        &lib,
+        states,
+    )
+    .expect("install");
+    let monarch = |q: u32| install.quest_definition(None, q).map(|d| d.monarch_only);
+    assert_eq!(monarch(0x4000_01D1), Some(true), "the Hall's");
+    assert_eq!(monarch(0x4000_0009), Some(false), "another's");
+}

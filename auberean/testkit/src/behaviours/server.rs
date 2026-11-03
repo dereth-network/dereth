@@ -6633,6 +6633,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.monarch-only-is-read",
+        says: "A quest's setup says whether it is for the monarch of an allegiance; one setup says so, and nothing yet holds a quest to it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-MONARCH-ONLY"),
+        station: "yalain-testkit::dat::quests::a_quests_setup_says_whether_it_is_for_a_monarch",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.quests.one-event-several-steps",
         says: "One use runs every quest step it triggers, each quest moved on at most once, a \
                step another of the same use made possible included; a second use does neither \

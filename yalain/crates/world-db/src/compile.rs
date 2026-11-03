@@ -68,6 +68,9 @@ pub struct QuestDefinition {
     pub min_level: i32,
     /// Given only to heroes, as its package's setup says.
     pub hero_only: bool,
+    /// For the monarch of an allegiance alone, as its package's setup says. Read, and nothing yet
+    /// holds a quest to it.
+    pub monarch_only: bool,
     /// The experience its completion pays, as its package's setup says.
     pub xp: u64,
     /// How its completion's experience is worked out, as its package's setup says.
