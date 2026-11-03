@@ -3,10 +3,9 @@
 //! water throw off the player's body.
 
 use auberean_animation::body::{Body as Figure, PartPose};
-use auberean_assets::region::DayDesc;
 use auberean_draw::rain::{
-    body_effects, weather, Bone, Ground, Rain, RainWorld, Thrown, BUBBLES, MAPPING, RIPPLES,
-    SHOWS_OVER, VAPOR,
+    body_effects, Bone, Ground, Rain, RainWorld, Thrown, BUBBLES, MAPPING, RIPPLES, SHOWS_OVER,
+    VAPOR,
 };
 use auberean_draw::scene::{ObjectBatch, SceneBuilder};
 use auberean_draw::systems::{ParticleSystems, SystemRef};
@@ -25,7 +24,6 @@ const CELLS_PER_BLOCK: i32 = 8;
 /// Where the camera stands this frame.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Viewer {
-    pub time_of_day: f32,
     /// The block whose frame it stands in.
     pub home: (i32, i32),
     pub eye: Vec3,
@@ -100,9 +98,9 @@ impl Weather {
         self.heard = 0.0;
     }
 
-    /// The frame's turn (with what the world's start made): the moment's rain and wind, the streaks moved on, what they and the
-    /// player's body throw off, the rain's systems queued at the viewer; the draws of the streaks,
-    /// when it rains hard enough to show them.
+    /// The frame's turn (with what the world's start made), given the moment's rain and wind: the streaks moved on, what they
+    /// and the player's body throw off, the rain's systems queued at the viewer; the draws of the streaks, when it rains hard
+    /// enough to show them.
     // D2-11029, D2-10935, D2-11000
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn frame(
@@ -111,12 +109,11 @@ impl Weather {
         builder: &mut SceneBuilder<'_>,
         systems: &ParticleSystems,
         land: &Land,
-        day: Option<&DayDesc>,
+        (amount, wind): (f32, Vec3),
         v: &Viewer,
         player: Option<&BodyBones>,
     ) -> Vec<ObjectBatch> {
         let dice = systems.dice();
-        let (amount, wind) = day.map_or((0.0, Vec3::ZERO), |d| weather(d, v.time_of_day, &dice));
         self.heard = amount;
         let made = self.systems.get_or_insert_with(|| {
             [VAPOR, BUBBLES, RIPPLES].map(|value| {

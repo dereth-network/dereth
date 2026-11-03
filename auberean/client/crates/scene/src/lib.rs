@@ -3294,6 +3294,12 @@ impl<'w> Scene<'w> {
         }
     }
 
+    /// The world's wind at the moment, which missiles feel.
+    #[must_use]
+    pub fn wind(&self) -> Vec3 {
+        dv(self.objects.wind.0)
+    }
+
     /// How hard the rain the camera can see falls: 0 under cover.
     #[must_use]
     pub fn rain_heard(&self) -> f32 {
@@ -4107,8 +4113,13 @@ impl<'w> Scene<'w> {
                 )
             });
         }
+        // The moment's rain and wind; the wind blows on the world's missiles wherever the camera is.
+        // D2-11029, D2-10998
+        let moment = self.builder.day(&spot).map_or((0.0, Vec3::ZERO), |d| {
+            auberean_draw::rain::weather(&d, spot.time_of_day, &self.systems.dice())
+        });
+        self.objects.wind.set(pv(moment.1));
         // The rain, and what it and the water do to the player's body.
-        // D2-11029
         let sees_out = !is_interior(view)
             || built
                 .frame
@@ -4116,16 +4127,14 @@ impl<'w> Scene<'w> {
                 .as_ref()
                 .is_some_and(|r| r.sight(&built.frame.camera, 4.0 / 3.0).outdoors());
         if sees_out {
-            let day = self.builder.day(&spot);
             let (right, _, _) = (axes.0, axes.1, axes.2);
             built.frame.objects.extend(self.weather.frame(
                 &self.world.records,
                 &mut self.builder,
                 &self.systems,
                 &self.land,
-                day.as_ref(),
+                moment,
                 &weather::Viewer {
-                    time_of_day: spot.time_of_day,
                     home: (bx, by),
                     eye: dv(eye),
                     right,

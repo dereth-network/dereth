@@ -1465,6 +1465,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.world.the-days-wind-blows-in-the-world",
+        says: "The day's wind blows on the world's missiles: the day's own while it rains, and one that wanders                with the time of day on a dry moment.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-WIND"),
+        station: "auberean-shell::dat::session::the_days_wind_blows_in_the_world",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.world.the-landscape-preferences-set-the-far-landscape-and-the-frills",
         says: "The landscape's draw distance sets how far the far landscape reaches (none, 2, 4, \
                6 or 8 blocks); the frill distance where frills are drawn (none; the cells next to \

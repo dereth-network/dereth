@@ -2002,6 +2002,76 @@ fn the_bodies_effects_place_lights_among_the_frames() {
     );
 }
 
+/// The day's wind blows on the world's missiles: while it rains the day's own wind, level (none on
+/// this install's rainy days); on a dry moment a wind that wanders, in all three directions.
+///
+/// Behaviour: desktop.world.the-days-wind-blows-in-the-world
+#[test]
+fn the_days_wind_blows_in_the_world() {
+    let at = Vec3 {
+        x: 122.842,
+        y: 89.758,
+        z: 80.0,
+    };
+    let script = script_at(0xC156_0035, at, Quat::IDENTITY);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with_sound(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let run = |s: &mut Shell<'_, DoubleHost>, game_time: f64, until: f64| {
+        while s.host.time < until {
+            let h = &mut s.host;
+            h.time += 1.0 / 60.0;
+            let t = LocalTime(1.0 + h.time);
+            for d in h.double.tick(t) {
+                h.inbox.push_back((d.from, d.bytes));
+            }
+            if let Some(c) = s.client.as_mut() {
+                c.sync_time(game_time);
+            }
+            s.frame();
+        }
+    };
+    let (world, _) = data();
+    let region = &world.region;
+    let (calendar, sky) = (
+        region.calendar.as_ref().expect("a calendar"),
+        region.sky.as_ref().expect("a sky"),
+    );
+    let rain_at = |at: f64| {
+        let c = auberean_world::sky::day_clock(calendar, at);
+        let day =
+            auberean_world::sky::day_for(sky, c.year * i64::from(calendar.days_per_year) + c.day);
+        day.and_then(|d| world.records.day(d))
+            .map_or((0.0, 0.0, 0.0), |d| {
+                auberean_world::sky::rain(&d, c.fraction)
+            })
+    };
+    run(&mut s, 0.0, 3.0);
+    let now = s.scene.game_time + 1000.0;
+    let mut times = (0..2000).map(|k| now + f64::from(k) * 300.0);
+    let dry = times
+        .find(|t| rain_at(*t).0 == 0.0 && rain_at(*t + 300.0).0 == 0.0)
+        .expect("a dry moment");
+    run(&mut s, dry, 5.0);
+    let w = s.scene.wind();
+    assert!(w.x != 0.0 && w.y != 0.0 && w.z != 0.0, "{w:?}");
+    let wet = times
+        .find(|t| rain_at(*t).0 == 1.0 && rain_at(*t + 300.0).0 == 1.0)
+        .expect("a wet moment");
+    run(&mut s, wet, 7.0);
+    let moment = s.scene.game_time;
+    let (_, x, y) = rain_at(moment);
+    assert_eq!(s.scene.wind(), auberean_primitives::Vec3::new(x, y, 0.0));
+}
+
 /// On a rainy day the rain falls about the camera: 2,500 streaks at the day's whole amount, its
 /// sound heard as loud; on a dry moment none, and the sound stops.
 ///

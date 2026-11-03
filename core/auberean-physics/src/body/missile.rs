@@ -11,7 +11,7 @@
 use auberean_primitives::random::Random;
 use dereth_primitives::{Position, Vec3};
 
-use super::{Body, Notice};
+use super::{Body, Notice, Wind};
 use crate::collision::CollisionReport;
 use crate::geom::{self, Heading};
 use crate::land::Land;
@@ -85,7 +85,7 @@ impl Objects for NoObjects {
 #[derive(Clone, Debug, Default)]
 pub struct ObjectTable {
     seen: std::collections::BTreeMap<u64, (Seen, f32, Vec3)>,
-    pub wind: Vec3,
+    pub wind: Wind,
     /// The client's one generator (a table of its own by default).
     pub dice: Random,
 }
@@ -170,7 +170,7 @@ impl Objects for ObjectTable {
         self.dice.check(chance)
     }
     fn wind(&self) -> Vec3 {
-        self.wind
+        self.wind.0
     }
 }
 
