@@ -34,6 +34,10 @@
 //! **Must never** decide what to draw: a frame arrives from `auberean-draw` whole, and this crate
 //! only draws it.
 
+// A browser's device holds JavaScript objects, which stay on the thread they were made on: this
+// crate's shared views are shared within a thread there.
+#![cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
+
 use dereth_primitives::num::math;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -244,6 +248,12 @@ pub struct Renderer {
     /// pipelines.
     flares: HashMap<usize, FlareSlot>,
     flare_scan: Option<FlareScan>,
+    /// Whether the device can look for the flares' objects. wgpu cannot name a render pass's
+    /// occlusion queries to a browser's WebGPU, which refuses the pass for them, so there the
+    /// flares stay unseen, and the world goes on being drawn.
+    flares_seen: bool,
+    /// How the device takes the game's pictures.
+    pictures_as: PictureFormat,
     flare_pipelines: Option<(wgpu::RenderPipeline, wgpu::RenderPipeline)>,
     /// The volumes of shadow's pipelines: the volumes counted in the stencil, and the darkening
     /// where the count is not zero.
@@ -397,6 +407,59 @@ fn view_proj(
     view.then(&proj)
 }
 
+/// How the device takes the game's pictures, which keep blue, green, red, alpha: as they are, or
+/// where it cannot (a browser's WebGL 2 uploads red, green, blue, alpha alone) each texel's red and
+/// blue exchanged on the way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PictureFormat {
+    Bgra,
+    Rgba,
+}
+
+impl PictureFormat {
+    /// The textures' format.
+    #[must_use]
+    pub const fn format(self) -> wgpu::TextureFormat {
+        match self {
+            Self::Bgra => wgpu::TextureFormat::Bgra8Unorm,
+            Self::Rgba => wgpu::TextureFormat::Rgba8Unorm,
+        }
+    }
+
+    /// A picture's texels `bgra` as the device takes them.
+    #[must_use]
+    pub fn bytes(self, bgra: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+        match self {
+            Self::Bgra => bgra.into(),
+            Self::Rgba => {
+                let mut texels = bgra.to_vec();
+                for t in texels.as_chunks_mut::<4>().0 {
+                    t.swap(0, 2);
+                }
+                texels.into()
+            }
+        }
+    }
+}
+
+/// How a device on `backend` takes the game's pictures.
+fn pictures_on(backend: wgpu::Backend) -> PictureFormat {
+    if cfg!(target_arch = "wasm32") && backend == wgpu::Backend::Gl {
+        PictureFormat::Rgba
+    } else {
+        PictureFormat::Bgra
+    }
+}
+
+/// The limits to ask of `adapter`: the usual ones, or in a browser's WebGL 2 what it can give.
+fn limits_on(adapter: &wgpu::Adapter) -> wgpu::Limits {
+    if cfg!(target_arch = "wasm32") && adapter.get_info().backend == wgpu::Backend::Gl {
+        wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits())
+    } else {
+        wgpu::Limits::default()
+    }
+}
+
 impl Renderer {
     /// A renderer on the system's hardware adapter (never a software one).
     ///
@@ -417,13 +480,27 @@ impl Renderer {
         instance: &wgpu::Instance,
         surface: Option<&wgpu::Surface<'_>>,
     ) -> Result<Self, GpuError> {
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
-            force_fallback_adapter: false,
-            compatible_surface: surface,
-            ..Default::default()
-        }))
-        .map_err(|e| GpuError::NoAdapter(e.to_string()))?;
+        pollster::block_on(Self::when_ready(instance, surface))
+    }
+
+    /// [`Self::on`], for a platform that cannot block for its device: a browser's answers on its
+    /// own turn.
+    ///
+    /// # Errors
+    /// When there is no such hardware adapter or no device.
+    pub async fn when_ready(
+        instance: &wgpu::Instance,
+        surface: Option<&wgpu::Surface<'_>>,
+    ) -> Result<Self, GpuError> {
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::HighPerformance,
+                force_fallback_adapter: false,
+                compatible_surface: surface,
+                ..Default::default()
+            })
+            .await
+            .map_err(|e| GpuError::NoAdapter(e.to_string()))?;
         let info = adapter.get_info();
         if info.device_type == wgpu::DeviceType::Cpu {
             return Err(GpuError::NoAdapter(format!(
@@ -439,11 +516,14 @@ impl Renderer {
             && flags.sample_count_supported(2)
             && depth_flags.sample_count_supported(2);
         let samples = if two { 2 } else { 4 };
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            required_features: if two { own } else { wgpu::Features::empty() },
-            ..Default::default()
-        }))
-        .map_err(|e| GpuError::NoDevice(e.to_string()))?;
+        let (device, queue) = adapter
+            .request_device(&wgpu::DeviceDescriptor {
+                required_features: if two { own } else { wgpu::Features::empty() },
+                required_limits: limits_on(&adapter),
+                ..Default::default()
+            })
+            .await
+            .map_err(|e| GpuError::NoDevice(e.to_string()))?;
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("world"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/world.wgsl").into()),
@@ -525,6 +605,7 @@ impl Renderer {
                 bgra: vec![255; 4],
                 smaller: Vec::new(),
             },
+            pictures_on(info.backend),
         ));
         let uniforms = pool::UniformPool::new(&device, std::mem::size_of::<DrawUniforms>());
         let mut r = Self {
@@ -559,6 +640,8 @@ impl Renderer {
             meshes: cache::MeshCache::default(),
             flares: HashMap::new(),
             flare_scan: None,
+            flares_seen: info.backend != wgpu::Backend::BrowserWebGpu,
+            pictures_as: pictures_on(info.backend),
             flare_pipelines: None,
         };
         r.build_terrain_pipelines();
@@ -572,13 +655,24 @@ impl Renderer {
         &self.device
     }
 
+    /// How the device takes the game's pictures, for a host that uploads more of them.
+    #[must_use]
+    pub fn pictures(&self) -> PictureFormat {
+        self.pictures_as
+    }
+
     /// The device's queue.
     #[must_use]
     pub fn queue(&self) -> &wgpu::Queue {
         &self.queue
     }
 
-    fn upload(device: &wgpu::Device, queue: &wgpu::Queue, img: &Image) -> wgpu::TextureView {
+    fn upload(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        img: &Image,
+        pictures: PictureFormat,
+    ) -> wgpu::TextureView {
         let levels = mips(img);
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: None,
@@ -590,7 +684,7 @@ impl Renderer {
             mip_level_count: u32::try_from(levels.len()).unwrap_or(1),
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Bgra8Unorm,
+            format: pictures.format(),
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -602,7 +696,7 @@ impl Renderer {
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
-                data,
+                &pictures.bytes(data),
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(w * 4),
@@ -704,6 +798,7 @@ impl Renderer {
                     &self.device,
                     &self.queue,
                     &img.at_detail(detail),
+                    self.pictures_as,
                 ))
             },
         );
@@ -2017,7 +2112,7 @@ impl Renderer {
         let mut flare_verts: Vec<MeshGpuVertex> = Vec::new();
         let mut flare_runs: Vec<(wgpu::BindGroup, u32)> = Vec::new();
         let mut markers: Vec<(usize, u32)> = Vec::new();
-        let looking = self.flare_scan.is_none();
+        let looking = self.flares_seen && self.flare_scan.is_none();
         for f in frame.flares.iter().filter(|_| sky_shown) {
             let c = clip_of(&vp, [f.at.x, f.at.y, f.at.z]);
             let front = c[3] > 0.0;

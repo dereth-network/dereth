@@ -11,7 +11,7 @@
 //! plugin template (`dereth-plugin-template`), for which folders of a plugin repository hold its
 //! plugins, and Asheron's Call 2's friends stream (`auberean-friends`), for the greeting that asks
 //! a world whether it serves its friends service and for the friends ticket. **Used by** the launcher's window, the Tauri app in `launcher` (a
-//! workspace of its own), and the web client's front page (`dereth-web`).
+//! workspace of its own), and the web client's front page (`dereth-web-front`).
 //!
 //! **Must never** reach for a window, a web view, a GPU or the network, or name a platform API:
 //! it reads and writes files (a dat, an executable, its own state and folders), because a launcher

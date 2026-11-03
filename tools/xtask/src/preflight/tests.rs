@@ -1639,6 +1639,8 @@ fn workspaces() -> plan::Built {
             "dereth-client-runtime",
             "dereth-client",
             "dereth-web",
+            "dereth-web-front",
+            "auberean-web",
             "dereth-launch",
             "dereth-primitives",
         ],
@@ -1690,6 +1692,12 @@ fn workspaces() -> plan::Built {
                 &["dereth-client-runtime", "dereth-launch", "mlua"],
             ),
             ("dereth-web", Some("dereth/web"), &["dereth-client-runtime"]),
+            (
+                "dereth-web-front",
+                Some("dereth/web/front"),
+                &["dereth-launch"],
+            ),
+            ("auberean-web", Some("auberean/web"), &["auberean-dat"]),
             (
                 "dereth-launch",
                 Some("launcher/crates/launch"),
@@ -1770,6 +1778,8 @@ fn workspace_lock() -> Vec<(&'static str, &'static str, bool, &'static [&'static
             &["dereth-client-runtime", "dereth-launch", "mlua"],
         ),
         ("dereth-web", "0.4.6", false, &["dereth-client-runtime"]),
+        ("dereth-web-front", "0.4.6", false, &["dereth-launch"]),
+        ("auberean-web", "0.1.2", false, &["auberean-dat"]),
         ("dereth-launch", "0.4.6", false, &["dereth-primitives"]),
         ("mlua", "0.12.1", false, &["bstr"]),
         ("dereth-primitives", "0.0.0", false, &["proptest", "serde"]),
@@ -1817,6 +1827,9 @@ fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_a
                     "dereth-client",
                     "dereth-client-runtime",
                     "dereth-web",
+                    "dereth-web-front",
+                    "auberean-web",
+                    "auberean-dat",
                     "dereth-launch",
                     "dereth-primitives",
                     "mlua"
@@ -1898,12 +1911,14 @@ fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_a
             Product::Dereth
         ]
     );
-    // Asheron's Call 2's core is its client's and its server's; the world builder is released for
-    // its own folder, as Lyceum is.
+    // Asheron's Call 2's core is its client's, its server's and the web client's, whose one release
+    // carries both games; the world builder is released for its own folder, as Lyceum is.
     assert_eq!(
         of("core/auberean-dat/src/lib.rs"),
-        [Product::Auberean, Product::Yalain]
+        [Product::Dereth, Product::Auberean, Product::Yalain]
     );
+    // Auberean's browser module is released with the web client alone.
+    assert_eq!(of("auberean/web/src/browser.rs"), [Product::Dereth]);
     assert_eq!(of("yalain/server/src/main.rs"), [Product::Yalain]);
     assert_eq!(of("athenaeum/editor/src/main.rs"), [Product::Athenaeum]);
 
@@ -4553,6 +4568,10 @@ fn web_fake() -> Fake {
             "dereth/web/Cargo.toml",
             "[package]\nname = \"dereth-web\"\nversion = \"0.4.3\"\n",
         )
+        .tracked(
+            "dereth/web/front/Cargo.toml",
+            "[package]\nname = \"dereth-web-front\"\nversion = \"0.4.3\"\n",
+        )
         .tracked("dereth/web/www/index.html", "<p>the page</p>")
         .reply(
             "rustup target list --installed",
@@ -4567,6 +4586,9 @@ fn a_dereth_release_builds_the_web_client_as_a_candidate_and_play_web_serves_it_
     let f = &m.inner;
     assert!(f
         .get("D:/preflight/src/dereth/web/Cargo.toml")
+        .is_some_and(|t| t.contains("version = \"0.4.4-rc.1\"")));
+    assert!(f
+        .get("D:/preflight/src/dereth/web/front/Cargo.toml")
         .is_some_and(|t| t.contains("version = \"0.4.4-rc.1\"")));
     assert_eq!(
         f.done("cargo run"),
@@ -5614,8 +5636,18 @@ fn the_launcher_is_its_own_product_and_ships_before_the_games() {
             .into_iter()
             .collect::<Vec<_>>()
     };
-    assert_eq!(of(&["launcher/ui/app.js"]), [Product::Launcher]);
+    // The web client's page is made from the launcher's page and art, and only from those.
+    assert_eq!(
+        of(&["launcher/ui/app.js"]),
+        [Product::Launcher, Product::Dereth]
+    );
+    assert_eq!(
+        of(&["launcher/assets/fonts/a.woff2"]),
+        [Product::Launcher, Product::Dereth]
+    );
+    assert_eq!(of(&["launcher/src/main.rs"]), [Product::Launcher]);
     assert_eq!(of(&["dereth/web/www/front.js"]), [Product::Dereth]);
+    assert_eq!(of(&["auberean/web/src/lib.rs"]), [Product::Dereth]);
     let at = |p: Product| {
         Product::ALL
             .iter()

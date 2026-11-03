@@ -803,7 +803,7 @@ fn every_file_the_desktop_packages_read_from_the_tree_is_there() {
 fn each_product_carries_one_version_of_its_own_which_its_tag_names() {
     let ws = workspace_root();
     for (product, count) in [
-        (Product::Auberean, 2),
+        (Product::Auberean, 3),
         (Product::Yalain, 9),
         (Product::Athenaeum, 3),
     ] {

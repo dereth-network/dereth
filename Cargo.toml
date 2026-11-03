@@ -105,6 +105,10 @@ members = [
     # The web client: the SDK in a browser's Web Worker. Its browser half compiles only for
     # wasm32-unknown-unknown; the host build checks and tests the rest.
     "dereth/web",
+    # What the web client keeps in browser storage for the game and the launcher alike, and the
+    # web front page's launcher, a small WebAssembly module of its own.
+    "dereth/web/store",
+    "dereth/web/front",
     # The launcher's knowledge: worlds, clients, data sets, accounts, its folders and its update.
     # The launcher's window, the Tauri app in launcher, is a workspace of its own (it is no
     # member here), so that nothing here ever builds a web view or needs WebKitGTK.
@@ -169,12 +173,15 @@ members = [
     "auberean/client/crates/audio",
     "auberean/client/crates/draw",
     "auberean/client/crates/gpu",
+    "auberean/client/crates/present",
     "auberean/client/crates/scene",
     "auberean/client/crates/shell",
     "auberean/client",
     "auberean/client/crates/ui",
     "auberean/client/crates/ui-game",
     "auberean/client/crates/interface",
+    # The client in a browser's Web Worker: its browser half compiles only for WebAssembly.
+    "auberean/web",
     "auberean/viewer",
     "auberean/headless",
     # The friends library the retail client loads in place of its original, shipped built for
@@ -267,6 +274,7 @@ dereth-ui-screens = { path = "dereth/client/crates/ui-screens" }
 dereth-ui-kit = { path = "dereth/client/crates/ui-kit" }
 dereth-horizon = { path = "dereth/client/crates/horizon" }
 dereth-web = { path = "dereth/web" }
+dereth-web-store = { path = "dereth/web/store" }
 dereth-web-dev = { path = "tools/web-dev" }
 dereth-web-relay = { path = "tools/web-relay" }
 dereth-world-data = { path = "core/world-data" }
@@ -305,6 +313,7 @@ auberean-draw = { path = "auberean/client/crates/draw" }
 auberean-friends = { path = "core/auberean-friends" }
 auberean-glue = { path = "core/auberean-glue" }
 auberean-gpu = { path = "auberean/client/crates/gpu" }
+auberean-present = { path = "auberean/client/crates/present" }
 auberean-scene = { path = "auberean/client/crates/scene" }
 auberean-shell = { path = "auberean/client/crates/shell" }
 auberean-ui = { path = "auberean/client/crates/ui" }

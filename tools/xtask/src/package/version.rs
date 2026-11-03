@@ -110,6 +110,7 @@ pub const DERETH_TAG_PREFIX: &str = "dereth-v";
 pub const DERETH_MANIFESTS: &[&str] = &[
     "dereth/client/Cargo.toml",
     "dereth/web/Cargo.toml",
+    "dereth/web/front/Cargo.toml",
     "dereth/headless/Cargo.toml",
     "tools/plugin/Cargo.toml",
 ];
@@ -160,11 +161,14 @@ pub fn lyceum_version(ws: &Path) -> Result<String, String> {
 /// The prefix of an Auberean release tag: `auberean-v<version>`.
 pub const AUBEREAN_TAG_PREFIX: &str = "auberean-v";
 
-/// The crates that carry Auberean's version: the client and the headless client, released
-/// together, as Dereth's client and headless client are. The core crates under `core/auberean-*`
-/// keep the workspace's.
-pub const AUBEREAN_MANIFESTS: &[&str] =
-    &["auberean/client/Cargo.toml", "auberean/headless/Cargo.toml"];
+/// The crates that carry Auberean's version: the client, the same client in a browser and the
+/// headless client, released together, as Dereth's client and headless client are. The core crates
+/// under `core/auberean-*` keep the workspace's.
+pub const AUBEREAN_MANIFESTS: &[&str] = &[
+    "auberean/client/Cargo.toml",
+    "auberean/web/Cargo.toml",
+    "auberean/headless/Cargo.toml",
+];
 
 /// The prefix of a Yalain release tag: `yalain-v<version>`.
 pub const YALAIN_TAG_PREFIX: &str = "yalain-v";

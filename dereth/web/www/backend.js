@@ -1,7 +1,7 @@
 // The launcher's backend in the browser. The launcher's own page (`host.js` loads it) draws every
 // screen from one snapshot and sends every action as one command, so this answers by the desktop
 // launcher's command names and in the shape of its snapshot. The answers come from the
-// launcher's logic in the module (the worker runs it: the world list, the worlds, the accounts,
+// launcher's logic in its module (its worker runs it: the world list, the worlds, the accounts,
 // favourites and recent combinations, the data sets and which of them a world takes, plugins) and
 // from this browser's storage.
 //
@@ -141,7 +141,7 @@ export function webBackend({ call, start, params, log, scale }) {
 
   // ---- the snapshot ---------------------------------------------------------------------------
 
-  // What a browser cannot do, for the page to leave out. Only Dereth's realm plays here so far.
+  // What a browser cannot do, for the page to leave out.
   const OFFERS = {
     hosting: false,
     building: false,
@@ -151,7 +151,7 @@ export function webBackend({ call, start, params, log, scale }) {
     client_choice: false,
     make_plugin: false,
     kept_passwords: false,
-    realms: ['dereth'],
+    realms: ['dereth', 'auberean'],
   };
 
   // The client here, as the page shows one it found.
@@ -171,10 +171,16 @@ export function webBackend({ call, start, params, log, scale }) {
   async function read() {
     const all = await call('worlds');
     const st = await state();
-    for (const set of st.dat_sets) set.shown_path = `Kept in this browser as ${String(set.path).split('/').pop()}`;
+    const sets = [...st.dat_sets, ...(st.auberean?.dat_sets ?? [])];
+    for (const set of sets) set.shown_path = `Kept in this browser as ${String(set.path).split('/').pop()}`;
     return {
       offers: OFFERS,
       dereth: client(),
+      // Auberean's realm: its client is part of this page, and its files' check is the launcher's.
+      auberean: {
+        here: { shown_name: 'Auberean', path: 'Runs in this browser.' },
+        check: await call('aubereanCheck'),
+      },
       worlds: all.worlds.map((w) => {
         const reach = reachOf(w);
         return { ...w, reach: { ...reach, text: reach.direct ? 'Directly' : 'Not in a browser yet' } };
@@ -219,11 +225,12 @@ export function webBackend({ call, start, params, log, scale }) {
       if (web.connect[slug] && /^https?:/i.test(web.connect[slug])) await askStatus(slug);
       const page = await call('world', slug);
       if (!page) throw new Error('That world is no longer listed.');
+      const auberean = page.world.game === 'auberean';
       return {
         ...page,
         prefs: page.prefs ?? {},
-        clients: [{ kind: 'dereth', install: client(), runnable: true }],
-        default_client: 'dereth',
+        clients: auberean ? [] : [{ kind: 'dereth', install: client(), runnable: true }],
+        default_client: auberean ? 'auberean' : 'dereth',
         // `?account=<name>`: the account to start from where the world knows none.
         account_hint: params.get('account'),
         reach: reachOf(page.world),
@@ -235,6 +242,12 @@ export function webBackend({ call, start, params, log, scale }) {
     // Nothing is asked of a world here beyond what the hub says of it.
     worlds_shown: () => {},
     probe_world: () => {},
+    // The client is part of this page: there is nothing to download.
+    check_components: () => {},
+    set_realm: async ({ realm }) => {
+      await call('setRealm', realm);
+      await save();
+    },
     launch: ({ choice }) => launch(choice),
     save_favourite: async ({ favourite }) => {
       await call('saveFavourite', favourite);
@@ -272,9 +285,12 @@ export function webBackend({ call, start, params, log, scale }) {
     },
     // A set of one kind, its files taken out of the folder it is kept in.
     delete_set: async ({ id }) => {
-      const set = (await state()).dat_sets.find((s) => s.id === id);
-      if (!set) return;
-      await call('removeSetKind', set.path, set.kind);
+      const st = await state();
+      const set = st.dat_sets.find((s) => s.id === id);
+      const ac2 = st.auberean?.dat_sets?.find((s) => s.id === id);
+      if (!set && !ac2) return;
+      if (set) await call('removeSetKind', set.path, set.kind);
+      else await call('removeSet', ac2.path);
       await save();
       await readKept();
     },
@@ -308,6 +324,7 @@ export function webBackend({ call, start, params, log, scale }) {
     const password = choice.password || (await recallPassword(login));
     if (!password) return { kind: 'need_password', message: `Enter the password for ${account}.` };
 
+    const game = page.world.game === 'auberean' ? 'auberean' : 'dereth';
     // Where to connect: the world's own WebSocket endpoint. A world with none can't be played in a
     // browser.
     const reach = reachOf(page.world);
@@ -322,16 +339,23 @@ export function webBackend({ call, start, params, log, scale }) {
         return { kind: 'failed', message: `Couldn't reach the server's status: ${e?.message ?? e}` };
       }
     }
+    // Refused here, before anything of the game is fetched.
+    const refused = await call('serverProblem', server);
+    if (refused) return { kind: 'failed', message: refused };
 
     // The data files.
     const st = await state();
-    const pathOf = (id) => st.dat_sets.find((s) => s.id === id)?.path ?? null;
+    const pathOf = (id) => [...st.dat_sets, ...(st.auberean?.dat_sets ?? [])].find((s) => s.id === id)?.path ?? null;
     let dats;
     if (choice.dat_set_id === '__http') {
       dats = { mode: 'http' };
     } else if (choice.dat_set_id === '__visit') {
       if (!web.picked) return { kind: 'failed', message: 'Pick the files for this visit first.' };
       dats = { mode: 'files', files: web.picked };
+    } else if (game === 'auberean') {
+      const set = choice.dat_set_id ? pathOf(choice.dat_set_id) : null;
+      if (!set) return { kind: 'failed', message: 'Choose the data files to play with.' };
+      dats = { mode: 'sets', set };
     } else {
       const modern = choice.dat_set_id ? pathOf(choice.dat_set_id) : null;
       const classic = choice.classic_set_id ? pathOf(choice.classic_set_id) : null;
@@ -351,6 +375,7 @@ export function webBackend({ call, start, params, log, scale }) {
     await storePassword(login, password);
     web.playing = true;
     start({
+      game,
       dats,
       server,
       account,
@@ -422,7 +447,7 @@ export function webBackend({ call, start, params, log, scale }) {
 
   // Add a server from what the player typed: `{ name, host, port, emulator, ruleset }`, `host` being
   // a bare host, `host:port`, a `wss://` URL or a status address.
-  async function addServer({ name = '', host: address, port: typed, emulator = 'unknown', ruleset = '' }) {
+  async function addServer({ name = '', host: address, port: typed, emulator = 'unknown', ruleset = '', game = 'dereth' }) {
     let host = String(address ?? '').trim();
     let port = typed || '9000';
     let url = null;
@@ -434,7 +459,8 @@ export function webBackend({ call, start, params, log, scale }) {
     } else if (/^[^:\s/]+:\d+$/.test(host)) {
       [host, port] = host.split(':');
     }
-    const slug = await call('addWorld', name, host, port, ruleset ?? '', url && !/^ws/i.test(url) ? 'empyrean' : emulator || 'unknown');
+    const server = game === 'auberean' ? 'yalain' : 'empyrean';
+    const slug = await call('addWorld', game, name, host, port, ruleset ?? '', url && !/^ws/i.test(url) ? server : emulator || 'unknown');
     if (url) {
       web.connect[slug] = url;
       keep(CONNECT_KEY, web.connect);
@@ -471,9 +497,10 @@ export function webBackend({ call, start, params, log, scale }) {
   async function readKept() {
     const st = await state();
     const sets = await call('scanSets', st.dat_sets.map((s) => s.path), false);
+    const ac2Sets = await call('scanAubereanSets', (st.auberean?.dat_sets ?? []).map((s) => s.path), false);
     await save();
     web.kept = {
-      sets,
+      sets: [...sets, ...ac2Sets],
       overlays: await call('overlays'),
       storage: await call('storage'),
       added: await call('addedPlugins'),
@@ -491,17 +518,24 @@ export function webBackend({ call, start, params, log, scale }) {
     }
   }
 
-  // Keep the data files the player picked as a set in this browser, named `name` (a word for its
-  // folder). Answers the ids of the sets read from them.
-  async function storeFiles(name, files) {
+  // Keep the data files the player picked as a set of `game`'s in this browser, named `name` (a word
+  // for its folder). Answers the ids of the sets read from them. Files that are no set of Asheron's
+  // Call 2's are refused before any is copied.
+  async function storeFiles(name, files, game = 'dereth') {
+    const auberean = game === 'auberean';
+    if (auberean) {
+      const problem = await call('aubereanSetProblem', files.map((f) => f.name));
+      if (problem) throw new Error(problem);
+    }
     await persist();
     const st = await state();
     let folder = String(name).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '') || 'files';
-    const taken = new Set(st.dat_sets.map((s) => String(s.path).split('/').pop()));
+    const kept = auberean ? st.auberean?.dat_sets ?? [] : st.dat_sets;
+    const taken = new Set(kept.map((s) => String(s.path).split('/').pop()));
     if (taken.has(folder)) for (let n = 2; ; n += 1) if (!taken.has(`${folder}-${n}`)) { folder = `${folder}-${n}`; break; }
     web.job = { what: `Keeping ${files.length} file${files.length === 1 ? '' : 's'} in this browser` };
     try {
-      const ids = await call('storeSet', folder, files);
+      const ids = await call(auberean ? 'storeAubereanSet' : 'storeSet', folder, files);
       await save();
       return ids;
     } finally {

@@ -83,6 +83,9 @@
 //!     [`WEB_PAGE`] has the name of a file of [`LAUNCHER_UI`] (the web page's own `index.html`
 //!     aside, and [`LAUNCHER_SHELL_IN_WEB`] included) or the bytes of one, under any name
 //!     ([`launcher_copy_violations`]): the build brings those files in, and two copies drift.
+//! 13. **Each game's web module holds its game alone, and the launcher's neither.** The page fetches
+//!     a module only when it is wanted, and a static host serves a file of 25 MiB at most, so the
+//!     modules' trees stay apart ([`WEB_MODULES`]).
 //!
 //! The dependency half reads `cargo tree`, so a rule broken two crates down is still caught. The
 //! code half is a text scan with comments stripped: the crates' docs are allowed to talk about the
@@ -1174,6 +1177,63 @@ pub const SEAM_WRITES_ALLOWED: &[(&str, usize)] = &[
     ("self.uniform_arena.truncate(recorded_uniform_len);", 1),
 ];
 
+/// Rule 13: the web client's modules, and what each one's tree never holds, by a crate's name or
+/// its prefix (a name ending in `-`).
+pub const WEB_MODULES: &[(&str, &[&str])] = &[
+    (
+        "dereth-web-front",
+        &[
+            "dereth-web",
+            "dereth-client-shell",
+            "dereth-scene",
+            "dereth-render",
+            "dereth-horizon",
+            "dereth-plugin-lua",
+            "auberean-web",
+            "auberean-shell",
+            "auberean-scene",
+            "auberean-gpu",
+            "auberean-client-sdk",
+        ],
+    ),
+    (
+        "dereth-web",
+        &["auberean-", "dereth-web-front", "dereth-launch"],
+    ),
+    (
+        "auberean-web",
+        &[
+            "dereth-web",
+            "dereth-client-shell",
+            "dereth-client-runtime",
+            "dereth-scene",
+            "dereth-render",
+            "dereth-launch",
+        ],
+    ),
+];
+
+/// Rule 13 over a module's `package` tree (`cargo tree --prefix none -f {p}`, a crate to a line).
+#[must_use]
+pub fn web_module_violations(package: &str, not: &[&str], tree: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in tree.lines() {
+        let Some(name) = line.split_whitespace().next() else {
+            continue;
+        };
+        if name == package {
+            continue;
+        }
+        if not
+            .iter()
+            .any(|n| name == *n || (n.ends_with('-') && name.starts_with(n)))
+        {
+            out.push(format!("`{package}` holds `{name}`, which is another's"));
+        }
+    }
+    dedup(out)
+}
+
 /// The clients that never carry the presentation, each package built on its own, as a release
 /// builds it: the browser client and the headless one. The desktop client carries it by design.
 pub const SHIPPED_CLIENTS: &[&str] = &["dereth-web", "dereth-headless"];
@@ -2094,6 +2154,13 @@ pub fn reports() -> Vec<Report> {
         .map(|t| hifi_seam_violations(&t))
         .map_err(|e| format!("{HIFI_SEAM}: {e}"));
     let lyceum = workspace_packages(&ws).map(|p| lyceum_violations(&p));
+    let web_modules = WEB_MODULES
+        .iter()
+        .map(|(p, not)| feature_tree(&ws, p).map(|t| web_module_violations(p, not, &t)))
+        .try_fold(Vec::new(), |mut all, v| {
+            all.extend(v?);
+            Ok::<_, String>(all)
+        });
     let shipped = SHIPPED_CLIENTS
         .iter()
         .map(|p| feature_tree(&ws, p).map(|t| shipped_client_violations(p, &t)))
@@ -2103,6 +2170,12 @@ pub fn reports() -> Vec<Report> {
         });
 
     vec![
+        row(
+            "seam: web modules",
+            web_modules,
+            "the launcher's module holds neither game, and each game's holds its own alone"
+                .to_owned(),
+        ),
         row(
             "seam: primitives deps",
             primitives,
@@ -2926,6 +2999,34 @@ mod tests {
             (PathBuf::from("docs/local.toml"), untracked),
         ];
         assert_eq!(env_name_violations(&both).len(), 2);
+    }
+
+    /// A module that takes in another's crate is found, by its name or its prefix.
+    #[test]
+    fn a_web_module_that_holds_another_game_is_found() {
+        let not = ["dereth-client-shell", "auberean-"];
+        assert_eq!(
+            web_module_violations(
+                "dereth-web",
+                &not,
+                "dereth-web v0.1.0\ndereth-primitives v0.0.0\nserde v1.0.0"
+            ),
+            Vec::<String>::new()
+        );
+        let found = web_module_violations(
+            "dereth-web",
+            &not,
+            "dereth-web v0.1.0\ndereth-client-shell v0.0.0\nauberean-shell v0.0.0 (*)\nauberean-shell v0.0.0",
+        );
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(
+            found.iter().any(|f| f.contains("dereth-client-shell")),
+            "{found:?}"
+        );
+        assert!(
+            found.iter().any(|f| f.contains("auberean-shell")),
+            "{found:?}"
+        );
     }
 
     /// A copy of the launcher's page under the web page's folder fails, by its name or by its

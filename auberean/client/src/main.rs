@@ -4,7 +4,7 @@
 //!
 //! **Depends on** the shell (`auberean-shell`), the game's interface (`auberean-interface`,
 //! `auberean-ui`) and the world it shows (`auberean-scene`), the
-//! world's device (`auberean-gpu`) and its frames (`auberean-draw`), the data files
+//! world's device (`auberean-gpu`, `auberean-present`) and its frames (`auberean-draw`), the data files
 //! (`auberean-dat`, `auberean-assets`, `auberean-world`, `auberean-client-sdk`), the shared math
 //! (`dereth-primitives`), the console (`dereth-console`), the window system (`winit`), the device (`wgpu`) and the sound device
 //! (`dereth-audio-out`, through the sound engine's output seam in `dereth-audio`). **Used by** nothing:
@@ -72,7 +72,6 @@ mod friends;
 mod icon;
 mod keys;
 mod local;
-mod present;
 mod script;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
@@ -81,16 +80,13 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use auberean_client_sdk::dat::locate::{install_dats, DatName};
+use auberean_client_sdk::dat::locate::install_dats;
 use auberean_client_sdk::dat::DatFile;
-use auberean_client_sdk::runtime::data::{DataFiles, ENGLISH};
-use auberean_client_sdk::ClientData;
+use auberean_interface::data::{open_data, ui_assets, Install};
 use auberean_scene::WorldData;
 use auberean_shell::command_line::{parse_args, set_error_text, Arg, ArgList, ClientLine, Reader};
 use auberean_shell::input::{Event, Key};
 use auberean_shell::interface::Interface;
-use auberean_shell::preferences::{EnumNames, Names, Preferences, LANGUAGES};
-use auberean_shell::profile::Profile;
 use auberean_shell::{Host, Shell};
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, ElementState, MouseScrollDelta, WindowEvent};
@@ -365,79 +361,6 @@ fn settings_dir() -> PathBuf {
     )
 }
 
-/// The data files: the world's (portal, cell, high resolution) and the client's (those and the
-/// strings of the language to run in, in the order the client opens them, with the script library
-/// linked). The language is the command line's, else the preferences', else English (English too
-/// when the install has no strings for it); its name comes back with the data.
-// D2-00120
-fn open(
-    dir: &Path,
-    language: Option<&str>,
-    preferences: &str,
-) -> Result<(WorldData, ClientData, String), String> {
-    let found = install_dats(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let open = |want: &dyn Fn(&DatName) -> bool| -> Option<DatFile> {
-        let (_, p) = found.iter().find(|(n, _)| want(n))?;
-        DatFile::open(p).ok()
-    };
-    let portal = open(&|n| *n == DatName::Portal).ok_or("no portal file")?;
-    let cell = open(&|n| *n == DatName::Cell(1)).ok_or("no cell file")?;
-    let ctx = auberean_assets::Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
-    let records = auberean_world::records::WorldRecords::new(
-        portal,
-        cell,
-        open(&|n| *n == DatName::HighRes),
-        ctx,
-    );
-    let world = WorldData::new(records)?;
-    let languages = EnumNames::read(&world.records, LANGUAGES);
-    let prefs = Preferences::startup(Profile::new(preferences), Names::read(&world.records));
-    let mut id = auberean_shell::preferences::language(language, &prefs, &languages);
-    // D2-05140, D2-12611
-    let mut name = languages.name(id).unwrap_or("English").to_owned();
-    if !found
-        .iter()
-        .any(|(n, _)| *n == DatName::Local(name.clone()))
-    {
-        tracing::warn!(language = %name, "no strings for the language: English");
-        id = ENGLISH;
-        name = "English".to_owned();
-    }
-    let portal = Arc::new(open(&|n| *n == DatName::Portal).ok_or("no portal file")?);
-    let mut files = vec![Arc::clone(&portal)];
-    files.extend(open(&|n| *n == DatName::Local(name.clone())).map(Arc::new));
-    files.extend(open(&|n| *n == DatName::Cell(1)).map(Arc::new));
-    files.extend(open(&|n| *n == DatName::HighRes).map(Arc::new));
-    let program = auberean_client_sdk::runtime::link_scripts_noting(&portal, |r| {
-        tracing::warn!("the script library: {r}");
-    })?;
-    let data = ClientData {
-        files: DataFiles {
-            files,
-            language: id,
-        },
-        scripts: Some((portal, Arc::new(program))),
-    };
-    Ok((world, data, name))
-}
-
-/// The interface's records: the language's strings first, then the portal and high-resolution
-/// files.
-fn ui_assets(dir: &Path, language: &str) -> Result<Arc<auberean_ui::DatAssets>, String> {
-    let found = install_dats(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let open = |want: &dyn Fn(&DatName) -> bool| -> Option<DatFile> {
-        let (_, p) = found.iter().find(|(n, _)| want(n))?;
-        DatFile::open(p).ok()
-    };
-    let portal = open(&|n| *n == DatName::Portal).ok_or("no portal file")?;
-    let ctx = auberean_assets::Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
-    let mut dats = Vec::new();
-    dats.extend(open(&|n| *n == DatName::Local(language.to_owned())));
-    dats.push(portal);
-    dats.extend(open(&|n| *n == DatName::HighRes));
-    Ok(Arc::new(auberean_ui::DatAssets::new(dats, ctx)))
-}
-
 /// The desktop as the shell's host.
 struct Desktop {
     start: Instant,
@@ -625,10 +548,21 @@ impl Host for Desktop {
     }
 }
 
+/// The device for `window`.
+fn presenter(window: &Arc<Window>) -> Result<auberean_present::Presenter, String> {
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let size = window.inner_size();
+    let surface = instance
+        .create_surface(Arc::clone(window))
+        .map_err(|e| format!("no surface for the window: {e}"))?;
+    auberean_present::Presenter::new(instance, surface, (size.width, size.height))
+}
+
 struct App<'w> {
     shell: Shell<'w, Desktop>,
     world: &'w WorldData,
-    present: Option<present::Presenter>,
+    present: Option<auberean_present::Presenter>,
     script: Option<script::Script>,
     marks: script::Marks,
     shots: PathBuf,
@@ -806,7 +740,7 @@ impl ApplicationHandler for App<'_> {
                 return;
             }
         };
-        match present::Presenter::new(Arc::clone(&window)) {
+        match presenter(&window) {
             Ok(p) => {
                 tracing::info!(adapter = %p.renderer.adapter, "drawing");
                 self.present = Some(p);
@@ -917,7 +851,15 @@ fn run() -> Result<(), String> {
     let settings = settings_dir();
     let settings_file = settings.join(o.prefs.as_deref().unwrap_or(SETTINGS_FILE));
     let preferences = std::fs::read_to_string(&settings_file).unwrap_or_default();
-    let (world, data, language) = open(&o.dats, o.language.as_deref(), &preferences)?;
+    let found = install_dats(&o.dats).map_err(|e| format!("{}: {e}", o.dats.display()))?;
+    let install = Install {
+        found: found.iter().map(|(n, _)| n.clone()).collect(),
+        open: &|name| {
+            let (_, path) = found.iter().find(|(n, _)| n == name)?;
+            DatFile::open(path).ok()
+        },
+    };
+    let (world, data, language) = open_data(&install, o.language.as_deref(), &preferences)?;
     tracing::info!(settings = %settings.display(), "settings");
     let shots = o
         .shots
@@ -926,7 +868,7 @@ fn run() -> Result<(), String> {
     let server = o
         .server
         .unwrap_or_else(|| SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000));
-    let assets = ui_assets(&o.dats, &language)?;
+    let assets = ui_assets(&install, &language)?;
     let login = o
         .account
         .as_ref()

@@ -175,7 +175,12 @@ fn check_file(path: &Path, want: Kind) -> Option<String> {
         Ok(len) => len,
         Err(_) => return Some("could not be read".to_owned()),
     };
-    let header = match read_header(&head) {
+    check_head(&head, len, want)
+}
+
+/// What is wrong with a file of `len` bytes starting `head`, against what its name says it is.
+fn check_head(head: &[u8], len: u64, want: Kind) -> Option<String> {
+    let header = match read_header(head) {
         Ok(h) => h,
         Err(why) => return Some(why),
     };
@@ -218,6 +223,11 @@ pub fn check_install(dir: &Path) -> InstallCheck {
             });
         }
     }
+    verdict(dir, files, dir.is_dir())
+}
+
+/// What the check found of the `files` looked for in `dir`, which `exists` says is there.
+fn verdict(dir: &Path, files: Vec<FileCheck>, exists: bool) -> InstallCheck {
     let missing: Vec<&str> = files
         .iter()
         .filter(|f| f.required && !f.found)
@@ -228,7 +238,7 @@ pub fn check_install(dir: &Path) -> InstallCheck {
         .filter_map(|f| f.problem.as_ref().map(|p| format!("{} {p}", f.name)))
         .collect();
     let ok = missing.is_empty() && broken.is_empty();
-    let summary = if !dir.is_dir() {
+    let summary = if !exists {
         "That folder is not there.".to_owned()
     } else if ok {
         "Your Asheron's Call 2 files are ready.".to_owned()
@@ -246,6 +256,25 @@ pub fn check_install(dir: &Path) -> InstallCheck {
         ok,
         summary,
     }
+}
+
+/// What the check finds of a set kept where the launcher read its files once, in a browser's
+/// storage: what each file's reading said ([`file_in_storage`]).
+#[must_use]
+pub fn check_set(set: &DatSet) -> InstallCheck {
+    let files = SET_FILES
+        .iter()
+        .map(|(role, name, _)| {
+            let file = set.files.iter().find(|f| f.role == *role);
+            FileCheck {
+                name: (*name).to_owned(),
+                required: *role != DatRole::Highres,
+                found: file.is_some(),
+                problem: file.and_then(|f| f.error.clone()),
+            }
+        })
+        .collect();
+    verdict(&set.path, files, true)
 }
 
 // ----- the library --------------------------------------------------------------------------------
@@ -383,6 +412,82 @@ pub fn scan_dir(dir: &Path, previous: &[DatFileState]) -> Vec<DatFileState> {
     out
 }
 
+/// One file of a set, named `name` and `size` bytes, read through `storage` from where the host
+/// keeps it, as [`scan_dir`] reads one from a folder. `None` for a name that is no file of a set.
+#[must_use]
+pub fn file_in_storage(
+    name: &str,
+    size: u64,
+    storage: Box<dyn dereth_dat::DatStorage>,
+) -> Option<DatFileState> {
+    let (role, _, kind) = SET_FILES
+        .iter()
+        .find(|(_, n, _)| n.eq_ignore_ascii_case(name))?;
+    let mut head = vec![0u8; HEAD_LEN];
+    let problem = match storage.read_exact_at(0, &mut head) {
+        Ok(()) => check_head(&head, size, *kind),
+        Err(_) => Some("could not be read".to_owned()),
+    };
+    let (iterations, error) = match problem {
+        Some(why) => (None, Some(why)),
+        None => match DatFile::read_iterations_from_as(name.into(), storage, &LAYOUT) {
+            Ok(read) => (Some(read.count), None),
+            Err(e) => (
+                None,
+                Some(format!("its list of iterations does not read: {e}")),
+            ),
+        },
+    };
+    Some(DatFileState {
+        role: *role,
+        file_name: name.to_owned(),
+        size,
+        modified: 0,
+        read_only: false,
+        iterations,
+        error,
+    })
+}
+
+/// Why files named `names` are not a set, in words for the player; `None` when they are: the
+/// portal, cell and English files, with the high-resolution pictures when there are any.
+#[must_use]
+pub fn set_problem<'a>(names: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    let names: Vec<&str> = names.into_iter().collect();
+    let has = |n: &str| names.iter().any(|x| x.eq_ignore_ascii_case(n));
+    let missing: Vec<&str> = SET_FILES
+        .iter()
+        .filter(|(role, name, _)| *role != DatRole::Highres && !has(name))
+        .map(|(_, name, _)| *name)
+        .collect();
+    if missing.is_empty() {
+        return None;
+    }
+    let any = SET_FILES.iter().any(|(_, name, _)| has(name));
+    Some(set_problem_words(&missing, any))
+}
+
+/// Why a folder or a choice of files is not a set, by what it lacks and whether it has any of a
+/// set's files.
+fn set_problem_words(missing: &[&str], any: bool) -> String {
+    if any {
+        format!(
+            "This folder has only some of the data files: {} {} missing.",
+            missing.join(", "),
+            if missing.len() == 1 { "is" } else { "are" }
+        )
+    } else {
+        "No Asheron's Call 2 data files in this folder: a set is portal.dat, cell_1.dat and              local_English.dat, with highres.dat when there is one."
+            .to_owned()
+    }
+}
+
+/// The names of a set's files.
+#[must_use]
+pub fn set_file_names() -> Vec<&'static str> {
+    SET_FILES.iter().map(|(_, name, _)| *name).collect()
+}
+
 /// Identify the retail client in `dir`, which must hold `AC2client.exe` (in any case): its build,
 /// when the launcher knows it, else what the program says of itself. The quick step only;
 /// [`crate::install::verify`] checks its folder against its build's manifest.
@@ -420,18 +525,9 @@ pub fn read_folder(path: &Path, state: &LauncherState) -> FolderFind {
         last_patched_by_server: None,
         created_by_launcher: false,
     });
-    let error = dats.is_none().then(|| {
-        if files.is_empty() {
-            "No Asheron's Call 2 data files in this folder: a set is portal.dat, cell_1.dat and              local_English.dat, with highres.dat when there is one."
-                .to_owned()
-        } else {
-            format!(
-                "This folder has only some of the data files: {} {} missing.",
-                missing.join(", "),
-                if missing.len() == 1 { "is" } else { "are" }
-            )
-        }
-    });
+    let error = dats
+        .is_none()
+        .then(|| set_problem_words(&missing, !files.is_empty()));
     FolderFind {
         game: Game::Auberean,
         folder: path.display().to_string(),
@@ -985,6 +1081,64 @@ mod tests {
     }
 
     use crate::testing::{write_auberean_file as container, write_auberean_set as set_of};
+
+    /// A set kept where only a reader reaches it, a browser's storage, is read and checked as a
+    /// folder's: the same iterations, and the same words for a file that is not what it says.
+    #[test]
+    fn a_file_read_through_storage_is_read_and_checked_as_a_folder_s() {
+        let d = tmp("ac2-storage");
+        set_of(&d, END_OF_RETAIL);
+        let read = |name: &str| {
+            let bytes = std::fs::read(d.join(name)).unwrap();
+            let size = bytes.len() as u64;
+            file_in_storage(name, size, Box::new(bytes)).unwrap()
+        };
+        let mut set = read_folder(&d, &LauncherState::default()).dats.unwrap();
+        let from_folder = set.files.clone();
+        set.files = set_file_names().into_iter().map(read).collect();
+        assert_eq!(set.iterations(), END_OF_RETAIL);
+        for (kept, folder) in set.files.iter().zip(&from_folder) {
+            assert_eq!(
+                (&kept.file_name, kept.size, kept.error.as_ref()),
+                (&folder.file_name, folder.size, None)
+            );
+        }
+        assert!(check_set(&set).ok);
+        // The high-resolution pictures stay optional.
+        set.files.retain(|f| f.role != DatRole::Highres);
+        assert!(check_set(&set).ok);
+
+        // A file cut short is named, in the folder check's words, and the set is not ready.
+        let portal = std::fs::read(d.join("portal.dat")).unwrap();
+        let cut = file_in_storage("portal.dat", 0x401, Box::new(portal)).unwrap();
+        let why = cut.error.clone().unwrap();
+        assert!(why.contains("incomplete"), "{why}");
+        set.files[0] = cut;
+        let check = check_set(&set);
+        assert!(!check.ok);
+        assert!(
+            check.summary.starts_with("portal.dat is incomplete"),
+            "{check:?}"
+        );
+        assert!(file_in_storage("elsewhere.dat", 1, Box::new(vec![0u8; 1])).is_none());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Files are refused as a set before anything is kept of them, in the folder's words.
+    #[test]
+    fn a_choice_of_files_that_is_no_set_says_what_it_lacks() {
+        assert_eq!(
+            set_problem(["portal.dat", "CELL_1.dat", "local_english.dat"]),
+            None
+        );
+        let some = set_problem(["portal.dat"]).unwrap();
+        assert!(
+            some.contains("cell_1.dat, local_English.dat are missing"),
+            "{some}"
+        );
+        let none = set_problem(["client_portal.dat"]).unwrap();
+        assert!(none.starts_with("No Asheron's Call 2 data files"), "{none}");
+    }
 
     #[test]
     fn a_folder_of_the_game_s_files_is_a_data_set_with_each_file_s_iterations() {

@@ -690,7 +690,7 @@ mod tests {
     /// The page's policy lets it read Dereth's source and any other `https://` host a player adds.
     #[test]
     fn the_pages_policy_lets_it_read_any_https_source() {
-        let headers = include_str!("../www/_headers");
+        let headers = include_str!("../../www/_headers");
         let policy = headers
             .lines()
             .find(|l| l.trim_start().starts_with("Content-Security-Policy:"))

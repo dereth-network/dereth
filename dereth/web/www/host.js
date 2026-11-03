@@ -14,6 +14,7 @@ import { loginName, webBackend } from './backend.js';
 const RELAY_README = 'https://github.com/dereth-network/dereth/blob/main/tools/web-relay/README.md';
 // The desktop client, for a world a browser can't reach.
 const DESKTOP_RELEASE = 'https://github.com/dereth-network/dereth/releases/latest';
+const AUBEREAN_README = 'https://github.com/dereth-network/dereth/blob/main/auberean/README.md';
 
 const SCALES = ['100', '85', '75', '67', '50'];
 
@@ -56,12 +57,14 @@ export function startHost({ call, start, params, log, scale }) {
   // What the page asks for by the desktop's commands that open the system's folder picker. The files
   // a browser picks are kept as they are chosen, so there is nothing left to add.
   const pickers = {
-    async pick_folder() {
+    async pick_folder({ game } = {}) {
       const files = await chooseFiles($('files'));
       if (!files.length) return null;
-      const ids = await backend.storeFiles('files', files);
+      const ids = await backend.storeFiles('files', files, game);
       if (!ids.length) backend.say('No data files among these.', true);
-      const sets = (await backend.api('snapshot')).state.dat_sets.filter((s) => ids.includes(s.id));
+      const { state } = await backend.api('snapshot');
+      const kept = game === 'auberean' ? state.auberean?.dat_sets ?? [] : state.dat_sets;
+      const sets = kept.filter((s) => ids.includes(s.id));
       return {
         kept: true,
         folder: 'DATA FILES',
@@ -110,11 +113,13 @@ export function startHost({ call, start, params, log, scale }) {
     }
     const custom = world.view.world.dats?.custom;
     try {
-      const ids = await backend.storeFiles(custom ? world.view.world.slug : 'files', files);
+      const ids = await backend.storeFiles(custom ? world.view.world.slug : 'files', files, world.view.world.game);
       if (!ids.length) page.toast('No data files among these.', true);
     } catch (e) {
       page.toast(String(e?.message ?? e), true);
     }
+    // A world of Asheron's Call 2's offers what the snapshot lists, so that comes first.
+    await page.pull();
     await page.reopenWorld();
     await page.pull();
   }
@@ -129,6 +134,9 @@ export function startHost({ call, start, params, log, scale }) {
       return backend.api(cmd, args);
     },
 
+    // Another realm's paintings are fetched only once that realm is shown.
+    paintingsWhenShown: true,
+
     // Where the browser's words are not the desktop's.
     words: {
       'foot.version': (version) => `Dereth ${version}`,
@@ -136,6 +144,7 @@ export function startHost({ call, start, params, log, scale }) {
       'worlds.stale': (error, from) => `${error} Showing the list from ${from}.`,
       'library.no-modern': 'No Modern data files yet. Add the client_*.dat files.',
       'library.no-classic': 'No Classic data files yet. Add portal.dat and cell.dat.',
+      'library.no-auberean': 'No data sets yet. Add portal.dat, cell_1.dat and local_English.dat, and highres.dat when you have it.',
       'find.none': 'No data files among these.',
       'accounts.note': 'Your browser\'s password manager keeps the passwords.',
       'first-run.then': 'Then come back and choose the files.',
@@ -201,8 +210,10 @@ export function startHost({ call, start, params, log, scale }) {
       const st = kept.storage ?? {};
       const used = st.usage != null ? `${size(st.usage)} used${st.quota ? ` of ${size(st.quota)}` : ''}` : 'Not known';
       const storage = row(esc(used), st.persisted ? 'This browser keeps these files until you remove them.' : 'This browser may clear these files when it runs short of space. Playing asks it to keep them.');
-      return `<h2>WORLD UPDATES</h2><p class="muted small">What worlds have patched, kept apart from your files.</p><div class="list">${updates}</div>
-        <h2>STORAGE</h2><div class="list">${storage}</div>`;
+      // Asheron's Call 2's worlds patch nothing a browser keeps.
+      const patched = page.ui.realm === 'auberean' ? ''
+        : `<h2>WORLD UPDATES</h2><p class="muted small">What worlds have patched, kept apart from your files.</p><div class="list">${updates}</div>`;
+      return `${patched}<h2>STORAGE</h2><div class="list">${storage}</div>`;
     },
 
     // A plugin added by hand: its folder's or zip's name, marked Added, with Remove.
@@ -227,6 +238,11 @@ export function startHost({ call, start, params, log, scale }) {
   function reachRows(view) {
     const r = view.reach;
     if (r.direct) return `<label class="lab">CONNECTION</label><div class="plain">Directly <span class="muted small">${esc(r.url)}</span></div>`;
+    // The web relay carries two ports, and a world of Asheron's Call 2's has four.
+    if (view.world.game === 'auberean') {
+      return `<label class="lab">CONNECTION</label><div class="pair"><span class="small warn">This world can't be played in a browser yet.</span>
+        <span class="btns"><button type="button" class="btn" data-url="${AUBEREAN_README}">Get Auberean</button></span></div>`;
+    }
     return `<label class="lab">CONNECTION</label><div class="pair"><span class="small warn">This world can't be played in a browser yet.</span>
         <span class="btns"><button type="button" class="btn" data-url="${DESKTOP_RELEASE}">Get Dereth</button><button type="button" class="btn" data-url="${RELAY_README}">Web relay</button></span></div>`;
   }

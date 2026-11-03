@@ -328,11 +328,11 @@ dependencies = [
  "auberean-draw",
  "auberean-gpu",
  "auberean-interface",
+ "auberean-present",
  "auberean-scene",
  "auberean-shell",
  "auberean-ui",
  "auberean-world",
- "bytemuck",
  "chrono",
  "dereth-audio",
  "dereth-audio-out",
@@ -341,7 +341,6 @@ dependencies = [
  "embed-resource",
  "open",
  "png",
- "pollster",
  "tracing",
  "tracing-subscriber",
  "wgpu",
@@ -541,6 +540,20 @@ name = "auberean-port"
 version = "0.0.0"
 
 [[package]]
+name = "auberean-present"
+version = "0.0.0"
+dependencies = [
+ "auberean-draw",
+ "auberean-gpu",
+ "auberean-shell",
+ "bytemuck",
+ "png",
+ "pollster",
+ "tracing",
+ "wgpu",
+]
+
+[[package]]
 name = "auberean-primitives"
 version = "0.0.0"
 
@@ -665,6 +678,30 @@ dependencies = [
  "auberean-world",
  "dereth-primitives",
  "png",
+]
+
+[[package]]
+name = "auberean-web"
+version = "0.1.2"
+dependencies = [
+ "auberean-client-sdk",
+ "auberean-draw",
+ "auberean-gpu",
+ "auberean-interface",
+ "auberean-present",
+ "auberean-scene",
+ "auberean-shell",
+ "auberean-ui",
+ "dereth-audio",
+ "dereth-primitives",
+ "dereth-transport",
+ "js-sys",
+ "tracing",
+ "tracing-subscriber",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "wgpu",
 ]
 
 [[package]]
@@ -2263,15 +2300,14 @@ dependencies = [
  "dereth-dat",
  "dereth-horizon",
  "dereth-input",
- "dereth-launch",
  "dereth-primitives",
  "dereth-render",
  "dereth-scene",
  "dereth-transport",
  "dereth-ui-screens",
+ "dereth-web-store",
  "js-sys",
  "pollster",
- "serde_json",
  "tracing",
  "tracing-subscriber",
  "wasm-bindgen",
@@ -2285,7 +2321,24 @@ version = "0.0.0"
 dependencies = [
  "ctrlc",
  "dereth-dat",
+ "dereth-launch",
  "wasm-bindgen-cli-support",
+]
+
+[[package]]
+name = "dereth-web-front"
+version = "0.4.12"
+dependencies = [
+ "dereth-client-net",
+ "dereth-client-runtime",
+ "dereth-client-sdk",
+ "dereth-dat",
+ "dereth-launch",
+ "dereth-primitives",
+ "dereth-web-store",
+ "js-sys",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2298,6 +2351,17 @@ dependencies = [
  "rustls",
  "tungstenite",
  "ureq",
+]
+
+[[package]]
+name = "dereth-web-store"
+version = "0.0.0"
+dependencies = [
+ "dereth-client-contract",
+ "dereth-client-runtime",
+ "dereth-dat",
+ "dereth-primitives",
+ "wasm-bindgen",
 ]
 
 [[package]]

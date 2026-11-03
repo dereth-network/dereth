@@ -583,6 +583,17 @@ impl Session {
         self.world = 0;
     }
 
+    /// What [`Self::log_off`] would send, made now and sending nothing: for a host that keeps a
+    /// copy with the far end of its connection, in case it goes away before it can log off.
+    #[must_use]
+    pub fn goodbye(&self) -> Vec<(SocketAddr, Vec<u8>)> {
+        self.net
+            .goodbye()
+            .into_iter()
+            .filter_map(|(bytes, to)| Some((to?, bytes)))
+            .collect()
+    }
+
     /// Log off: goodbye on every connection, and nothing more is sent.
     // D2-05261
     pub fn log_off(&mut self) {

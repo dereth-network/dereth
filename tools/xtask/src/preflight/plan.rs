@@ -60,8 +60,8 @@ impl Product {
 
     /// The packages its release ships, each with the lock file of the workspace it is built in
     /// ([`LOCKS`]): what a change must reach for the product to be released. Dereth's are the
-    /// client and the web client (it carries Dereth's version); Auberean's is its
-    /// client, Yalain's its program. The ACE mod is not built by cargo; Lyceum and Athenaeum are
+    /// client and the web client, whose one release carries both games' modules and the launcher's
+    /// at Dereth's version; Auberean's is its client, Yalain's its program. The ACE mod is not built by cargo; Lyceum and Athenaeum are
     /// released for their own folders' changes ([`products_of`]), and the client's drawing each is
     /// built on (and, for Athenaeum, the server and client it carries) reaches it with its next
     /// release.
@@ -76,6 +76,8 @@ impl Product {
             Self::Dereth => &[
                 ("Cargo.lock", "dereth-client"),
                 ("Cargo.lock", "dereth-web"),
+                ("Cargo.lock", "dereth-web-front"),
+                ("Cargo.lock", "auberean-web"),
             ],
             Self::Auberean => &[("Cargo.lock", "auberean-client")],
             Self::Yalain => &[("Cargo.lock", "yalain")],
@@ -196,12 +198,17 @@ pub enum Bump {
     Minor,
 }
 
-/// The web client's folder: its crate, its page and its scripts.
-const WEB: &str = "dereth/web/";
+/// The web client's folders: Dereth's module with the page and its scripts, the launcher's module
+/// inside it, and Auberean's module.
+const WEB: [&str; 2] = ["dereth/web/", "auberean/web/"];
+
+/// The launcher's folders the web client's page is made from as well: its page and its art.
+const LAUNCHER_PAGE: [&str; 2] = ["launcher/ui/", "launcher/assets/"];
 
 /// Whether the changed file `path` is the web client's.
 pub fn is_web(path: &str) -> bool {
-    path.replace('\\', "/").starts_with(WEB)
+    let path = path.replace('\\', "/");
+    WEB.iter().any(|w| path.starts_with(w))
 }
 
 /// The products the files `changed` (paths from the repository's root) belong to. A file belongs
@@ -210,7 +217,8 @@ pub fn is_web(path: &str) -> bool {
 /// (`depends`, [`Built::depends`]); the
 /// ACE mod's folder is the mod's, Lyceum's folder is Lyceum's and Athenaeum's Athenaeum's, a
 /// change to the launcher's own app
-/// belongs to the launcher, the web client is released as Dereth (it carries Dereth's version), and
+/// belongs to the launcher (its page and art to Dereth as well, since the web client's page is made
+/// from them), the web client is released as Dereth (its one release carries Dereth's version), and
 /// nothing else (the docs, the research notes) is a product. A lock file ([`LOCKS`]) belongs to no
 /// product by itself: a product is in when the crates it is built from moved in one (`moved`, from
 /// [`lock_moves`]).
@@ -244,9 +252,12 @@ pub fn products_of(
         }
         if path.starts_with("launcher/") && !path.starts_with("launcher/crates/") {
             out.insert(Product::Launcher);
+            if LAUNCHER_PAGE.iter().any(|p| path.starts_with(p)) {
+                out.insert(Product::Dereth);
+            }
             continue;
         }
-        if path.starts_with(WEB) {
+        if is_web(&path) {
             out.insert(Product::Dereth);
             continue;
         }

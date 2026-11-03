@@ -1,11 +1,23 @@
-//! Putting a frame in the window: the world drawn by the world's device into a picture; the
-//! interface's picture behind it, the world, the interface's elements deeper than its viewports,
+//! Putting a frame on a surface a host made, a window's or a browser canvas's.
+//!
+//! The world is drawn by the world's device into a picture; the interface's picture behind it, the world, the interface's elements deeper than its viewports,
 //! the scenes of its viewports (each drawn into a clear picture of its viewport's size, its alpha
 //! how much of it the scene covers, and laid over what is behind by that alpha), the interface's
 //! picture in front and the overlay's rectangles composed into the window's picture, which is
-//! copied to the window. The world's and portal space's pictures are laid as they stand, their
+//! copied to the surface. The world's and portal space's pictures are laid as they stand, their
 //! alpha the frame's own. The composed picture can be saved (a screenshot of exactly the window's
 //! drawing).
+//!
+//! **Depends on** the world's device (`auberean-gpu`), a frame's pictures (`auberean-draw`) and
+//! what a frame shows (`auberean-shell`). **Used by** the hosts that have a surface: the desktop
+//! client and the browser client.
+//!
+//! **Must never** make its surface or name what it is on: the host brings it, a window's or a
+//! canvas's, and asks for its device in the way its platform can wait for one.
+
+// A browser's device holds JavaScript objects, which stay on the thread they were made on: this
+// crate's shared views are shared within a thread there.
+#![cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -13,11 +25,10 @@ use std::sync::Arc;
 
 use auberean_draw::picture::Image;
 use auberean_draw::scene::Frame;
-use auberean_gpu::Renderer;
+use auberean_gpu::{PictureFormat, Renderer};
 use auberean_shell::interface::{Canvas, Overlay};
 use auberean_shell::ViewFrame;
 use bytemuck::{Pod, Zeroable};
-use winit::window::Window;
 
 /// The composed picture's format: colors as stored, as the world's device writes them.
 const COMPOSED: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -140,6 +151,7 @@ fn upload(
     w: u32,
     h: u32,
     bgra: &[u8],
+    pictures: PictureFormat,
 ) -> wgpu::TextureView {
     let t = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("overlay picture"),
@@ -151,7 +163,7 @@ fn upload(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Bgra8Unorm,
+        format: pictures.format(),
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -162,7 +174,7 @@ fn upload(
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        bgra,
+        &pictures.bytes(bgra),
         wgpu::TexelCopyBufferLayout {
             offset: 0,
             bytes_per_row: Some(w * 4),
@@ -178,17 +190,17 @@ fn upload(
 }
 
 impl Presenter {
-    /// The device for `window`, on its hardware adapter.
+    /// The device for `surface`, `size` pixels, on `instance`'s hardware adapter. A host whose
+    /// platform can block for the device; one that cannot asks for it itself and calls
+    /// [`Self::on`].
     ///
     /// # Errors
-    /// No surface for the window, no hardware adapter, or no configuration for the surface.
-    pub fn new(window: Arc<Window>) -> Result<Self, String> {
-        let instance =
-            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
-        let size = window.inner_size();
-        let surface = instance
-            .create_surface(window)
-            .map_err(|e| format!("no surface for the window: {e}"))?;
+    /// No hardware adapter, or no configuration for the surface.
+    pub fn new(
+        instance: wgpu::Instance,
+        surface: wgpu::Surface<'static>,
+        size: (u32, u32),
+    ) -> Result<Self, String> {
         let renderer = Renderer::on(&instance, Some(&surface)).map_err(|e| e.to_string())?;
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
@@ -197,10 +209,24 @@ impl Presenter {
             ..Default::default()
         }))
         .map_err(|e| format!("no adapter for the window: {e}"))?;
-        let caps = surface.get_capabilities(&adapter);
+        Self::on(instance, surface, &adapter, renderer, size)
+    }
+
+    /// The device for `surface`, `size` pixels, over `renderer`, which `adapter` made.
+    ///
+    /// # Errors
+    /// No configuration for the surface.
+    pub fn on(
+        instance: wgpu::Instance,
+        surface: wgpu::Surface<'static>,
+        adapter: &wgpu::Adapter,
+        renderer: Renderer,
+        size: (u32, u32),
+    ) -> Result<Self, String> {
+        let caps = surface.get_capabilities(adapter);
         let mut config = surface
-            .get_default_config(&adapter, size.width.max(1), size.height.max(1))
-            .ok_or("the window's surface has no configuration for this adapter")?;
+            .get_default_config(adapter, size.0.max(1), size.1.max(1))
+            .ok_or("the surface has no configuration for this adapter")?;
         // Colors are written as computed, with no conversion, as the world's device writes them.
         if let Some(f) = caps.formats.iter().find(|f| !f.is_srgb()) {
             config.format = *f;
@@ -339,7 +365,14 @@ impl Presenter {
             ..Default::default()
         });
         let nearest = device.create_sampler(&wgpu::SamplerDescriptor::default());
-        let white = upload(device, renderer.queue(), 1, 1, &[255; 4]);
+        let white = upload(
+            device,
+            renderer.queue(),
+            1,
+            1,
+            &[255; 4],
+            renderer.pictures(),
+        );
         Ok(Self {
             _instance: instance,
             surface,
@@ -410,6 +443,7 @@ impl Presenter {
                 img.width,
                 img.height,
                 &img.bgra,
+                self.renderer.pictures(),
             ))
         });
         self.pictures.insert(id, v.clone());
@@ -447,7 +481,7 @@ impl Presenter {
                         mip_level_count: 1,
                         sample_count: 1,
                         dimension: wgpu::TextureDimension::D2,
-                        format: wgpu::TextureFormat::Bgra8Unorm,
+                        format: self.renderer.pictures().format(),
                         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                         view_formats: &[],
                     })
@@ -459,7 +493,7 @@ impl Presenter {
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
-                &c.bgra,
+                &self.renderer.pictures().bytes(&c.bgra),
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(c.width * 4),
@@ -525,6 +559,7 @@ impl Presenter {
                 256,
                 1,
                 texels.as_flattened(),
+                self.renderer.pictures(),
             );
             (b, self.bind(&view))
         });
@@ -823,7 +858,7 @@ impl Presenter {
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("to the window"),
+                label: Some("to the surface"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     depth_slice: None,

@@ -1571,7 +1571,7 @@ function home() {
   // A launcher from Auberean's package fetches Dereth's client when it is first wanted, and one from
   // Dereth's Auberean; Asheron's Call 2 plays over the player's own install, chosen here first.
   const client = game === "auberean"
-    ? `${ac2().check?.ok ? "" : installLine()}${ready("auberean") ? "" : `<div class="client-line">${programLine("auberean")}</div>`}`
+    ? `${ac2().check?.ok ? "" : installLine()}${ac2Ready("auberean") ? "" : `<div class="client-line">${programLine("auberean")}</div>`}`
     : !ui.snap.dereth && comp("dereth") ? `<h2>THE CLIENT</h2>${programLine("dereth")}` : "";
   return `<div class="column narrow">
       <section class="panel"><header><h1>PLAY AGAIN</h1></header>
@@ -1843,7 +1843,7 @@ function hasRequiredSet() {
 function worldCanPlay() {
   const w = ui.world;
   const world = worldBy(w.view.world.slug) ?? w.view.world;
-  if (ac2World(w)) return !!formChoice() && !!world.endpoint && !!clientOf(w.form.client, "auberean") && (w.form.client === "retail" || !!w.form.dat_set_id);
+  if (ac2World(w)) return !!formChoice() && !!world.endpoint && w.view.reach?.direct !== false && !!clientOf(w.form.client, "auberean") && (w.form.client === "retail" || !!w.form.dat_set_id);
   return !!formChoice() && !!world.endpoint && w.view.reach?.direct !== false && hasRequiredSet();
 }
 function worldNotice() {
@@ -1932,13 +1932,14 @@ function worldPage() {
   const remembers = ui.snap.vault_name === "memory only" ? "Remember until the launcher closes" : "Save password securely";
   // Asheron's Call 2: the client, and the data files it plays (the retail client its own).
   const ac2Sets = librarySets("auberean");
+  const moreOption = (s) => `<option value="${esc(s.id)}" ${s.id === f.dat_set_id ? "selected" : ""}>${esc(s.label)}</option>`;
   const ac2Data = f.client === "retail"
     ? `<label class="lab">DATA</label><div class="plain">The data files beside the retail client <span class="muted small">${esc(ui.snap.state.auberean?.retail?.path ?? "")}</span></div>`
-    : ac2Sets.length
-    ? `<label class="lab" for="dats">DATA</label><select id="dats" class="field">${ac2Sets.map((s) => option(s, f.dat_set_id)).join("")}</select>`
+    : ac2Sets.length || more?.length
+    ? `<label class="lab" for="dats">DATA</label><select id="dats" class="field">${ac2Sets.length ? "" : none(f.dat_set_id)}${ac2Sets.map((s) => option(s, f.dat_set_id)).join("")}${(more ?? []).map(moreOption).join("")}</select>`
     : `<label class="lab">DATA</label><div class="pair"><span class="warn small">You have no Asheron's Call 2 game files yet. Add them in the Library.</span><button class="btn" data-go="library">Library</button></div>`;
-  const ac2Client = `<label class="lab">CLIENT</label><div class="pair">${ac2Btn("auberean")}${ac2().retail ? ac2Btn("retail") : ""}</div>
-      ${f.client === "auberean" && !ready("auberean") ? `<span></span>${programLine("auberean")}` : ""}
+  const ac2Client = `${offered("client_choice") ? `<label class="lab">CLIENT</label><div class="pair">${ac2Btn("auberean")}${ac2().retail ? ac2Btn("retail") : ""}</div>
+      ${f.client === "auberean" && !ready("auberean") ? `<span></span>${programLine("auberean")}` : ""}` : ""}
       ${ac2Data}`;
 
   // A host whose own keeper of passwords takes the sign-in draws it, and the page is a form that
@@ -2025,7 +2026,9 @@ function library() {
   }
   const d = ui.snap.dereth;
   const client = ac2Realm
-    ? `<h2>AUBEREAN CLIENT</h2><div class="list">${programRow("auberean")}</div>`
+    ? `<h2>AUBEREAN CLIENT</h2><div class="list">${ac2().here
+      ? `<div class="row static"><div class="grow"><div class="name">${esc(ac2().here.shown_name)}</div><div class="sub">${esc(ac2().here.path)}</div></div></div>${host.libraryClientRows?.(ui.snap) ?? ""}`
+      : programRow("auberean")}</div>`
     : `<h2>DERETH CLIENT</h2><div class="list">${(d
       ? `<div class="row static"><div class="grow"><div class="name">${esc(installName(d))}</div><div class="sub">${esc(d.path)}</div></div></div>`
       : comp("dereth") ? programRow("dereth")
@@ -2045,7 +2048,7 @@ function library() {
   let sets;
   if (ac2Realm) {
     const all = (s.auberean?.dat_sets ?? []).map(setRow).join("")
-      || `<p class="muted">No data sets yet. Add a folder that holds portal.dat, cell_1.dat and local_English.dat.</p>`;
+      || `<p class="muted">${say("library.no-auberean", "No data sets yet. Add a folder that holds portal.dat, cell_1.dat and local_English.dat.")}</p>`;
     sets = `<h2>DATA SETS</h2><p class="muted small">The *.dat files from an install.</p><div class="list">${all}</div>`;
   } else {
     const modern = s.dat_sets.filter((d) => d.kind !== "classic").map(setRow).join("")
@@ -2128,7 +2131,7 @@ function accounts() {
     const password = shown === undefined ? ""
       : shown === null ? `<div class="sub muted">No password is saved for it.</div>`
       : `<div class="sub"><span class="addr">${esc(shown)}</span> <button class="btn mini-btn" data-copy="${esc(shown)}">Copy</button></div>`;
-    const show = ac2Realm ? `<button class="btn" data-show-password="${i}">${shown === undefined ? "Show password" : "Hide password"}</button>` : "";
+    const show = ac2Realm && offered("kept_passwords") ? `<button class="btn" data-show-password="${i}">${shown === undefined ? "Show password" : "Hide password"}</button>` : "";
     return `<div class="row static"><div class="grow"><div class="name">${esc(worldBy(a.world_slug)?.name ?? a.world_slug)} · ${esc(a.username)}</div>${password}</div>
         ${show}<button class="btn" data-forget-account="${i}" title="Forget this account">Forget</button></div>`;
   }).join("") || `<p class="muted">No accounts yet. They are added the first time you sign in to a world.</p>`;
@@ -3212,7 +3215,7 @@ function installLine() {
 // Whether the client of `kind` can start an Asheron's Call 2 world: Auberean downloaded, or the
 // retail client of September 2013 in the player's install (on Windows).
 function ac2Ready(kind) {
-  return kind === "retail" ? !!ac2().retail?.september_2013 : ready("auberean");
+  return kind === "retail" ? !!ac2().retail?.september_2013 : ready("auberean") || !!ac2().here;
 }
 
 // What the realm's last action said.
@@ -3367,6 +3370,7 @@ async function setRealm(realm, from) {
   api("set_realm", { realm }).catch((e) => console.error(e));
   document.documentElement.dataset.realm = realm;
   document.querySelectorAll("[data-realm-pick]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.realmPick === realm)));
+  hangPaintings(realm);
   turnPainting(from);
   ui.homeSel = 0;
   ui.expanded = null;
@@ -3393,6 +3397,21 @@ async function setRealm(realm, from) {
 // last was. A realm with none shows the dark behind them.
 const paintings = {};
 const paintingAt = {};
+let paintingSets = {};
+
+// The realm's paintings, in place behind the page.
+function hangPaintings(realm) {
+  if (paintings[realm]) return;
+  const vistaEl = document.getElementById("vista");
+  paintings[realm] = (paintingSets[realm] ?? []).map((n) => {
+    const i = document.createElement("img");
+    i.src = `assets/background/${n}`;
+    i.alt = "";
+    vistaEl.appendChild(i);
+    return i;
+  });
+  paintingAt[realm] = 0;
+}
 
 async function vista(realms) {
   let sets = {};
@@ -3401,16 +3420,10 @@ async function vista(realms) {
   } catch (_) {
     return;
   }
-  const host = document.getElementById("vista");
+  paintingSets = sets;
   for (const realm of realms) {
-    paintings[realm] = (sets[realm] ?? []).map((n) => {
-      const i = document.createElement("img");
-      i.src = `assets/background/${n}`;
-      i.alt = "";
-      host.appendChild(i);
-      return i;
-    });
-    paintingAt[realm] = 0;
+    // A host that pays for each file fetches another realm's only once that realm is shown.
+    if (!window.launcherHost?.paintingsWhenShown || realm === ui.realm) hangPaintings(realm);
   }
   paintings[ui.realm]?.[0]?.classList.add("on");
   setInterval(() => {

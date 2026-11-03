@@ -25,6 +25,8 @@ auberean-ui.workspace = true
 auberean-scene.workspace = true
 auberean-draw.workspace = true
 auberean-gpu.workspace = true
+# Putting a frame in the window.
+auberean-present.workspace = true
 auberean-world.workspace = true
 auberean-assets.workspace = true
 auberean-dat = { workspace = true, features = ["fs"] }
@@ -37,8 +39,6 @@ dereth-audio-out.workspace = true
 # The window and its events, and the device it presents on.
 winit = { workspace = true, features = ["rwh_06"] }
 wgpu = "30"
-pollster.workspace = true
-bytemuck = { version = "1", features = ["derive"] }
 png.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

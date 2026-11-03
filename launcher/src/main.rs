@@ -1150,7 +1150,9 @@ mod tests {
         );
         // Its Accounts page shows an account's kept password when asked.
         let accounts = page_function("accounts");
-        assert!(accounts.contains(r#"ac2Realm ? `<button class="btn" data-show-password="#));
+        assert!(accounts.contains(
+            r#"ac2Realm && offered("kept_passwords") ? `<button class="btn" data-show-password="#
+        ));
         assert!(include_str!("../ui/app.js").contains(r#"await api("kept_password""#));
         // The world servers: Yalain's, made and saved as Yalain's.
         assert!(page_function("serverList").contains("(h.game ?? \"dereth\") === game"));

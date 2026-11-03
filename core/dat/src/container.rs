@@ -518,6 +518,18 @@ impl DatFile {
         Self::iterations_of(Self::header_only(path, storage, None)?)
     }
 
+    /// [`DatFile::read_iterations_as`] over bytes kept in `storage`.
+    ///
+    /// # Errors
+    /// As [`DatFile::read_iterations_as`].
+    pub fn read_iterations_from_as(
+        path: PathBuf,
+        storage: Box<dyn DatStorage>,
+        layout: &ContainerLayout,
+    ) -> Result<FileIterations, DatError> {
+        Self::iterations_of(Self::header_only(path, storage, Some(layout))?)
+    }
+
     fn iterations_of(me: Self) -> Result<FileIterations, DatError> {
         /// The list is 12 bytes in every retail file; anything this large is not one.
         const MAX_LIST: u32 = 64 * 1024;

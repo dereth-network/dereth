@@ -115,10 +115,11 @@ cargo xtask preflight finish                  # the final builds in the dev worl
 
 - **`preflight`** works out the products the branch changed since `main` and the release each takes,
   and says why (the hub's is a minor release when its registry's schema moves; Empyrean's when a
-  patch would be refused; Dereth's for the web client's changes too, since the web client carries
-  Dereth's version; Lyceum's for changes under `lyceum/`, which no dev world runs, so it is
+  patch would be refused; Dereth's for the web client's changes too, Asheron's Call 2's in it and
+  the launcher's page and art included, since its one release carries both games at Dereth's
+  version; Lyceum's for changes under `lyceum/`, which no dev world runs, so it is
   released by `ship` and built by its own workflow). A product is built from what its release
-  ships (Empyrean's server and import tool; Dereth's client, web client and launcher; the hub)
+  ships (Empyrean's server and import tool; Dereth's client and web client; the launcher; the hub)
   and the crates those depend on, vendored ones included, but not the ones only their tests
   use. A change to `Cargo.lock` or the launcher's lock counts only for a product built from a
   crate that moved in it, and the plan names those crates. A Lyceum release with no highlights in

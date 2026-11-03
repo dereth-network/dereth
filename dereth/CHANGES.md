@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Web: the launcher opens much faster, fetching the game only when you play.
 - The client now updates on its own, apart from the launcher.
 
 - macOS: Intel Macs are no longer supported; Apple silicon only.

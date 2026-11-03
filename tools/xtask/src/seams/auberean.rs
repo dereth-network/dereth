@@ -202,8 +202,8 @@ pub const EXECUTABLES: &[&str] = &[
 
 /// The libraries that are the outermost Rust of their process, loaded by a program that is not
 /// ours, so that each installs its own log subscriber as an executable does: the friends service's
-/// library for the retail client, when it is built.
-pub const OUTERMOST: &[&str] = &["auberean-friends-dll"];
+/// library for the retail client, when it is built, and the client's module in a browser.
+pub const OUTERMOST: &[&str] = &["auberean-friends-dll", "auberean-web"];
 
 /// The test kits: test support, which only tests may name.
 const TEST_KITS: &[&str] = &["auberean-testkit", "yalain-testkit"];

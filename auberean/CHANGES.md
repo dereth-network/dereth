@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Play in a web browser: the web page now offers Asheron's Call 2's worlds.
 - The client now updates on its own, apart from the launcher.
 - Fixed the mouse not steering in first person with steering turned off.
 - Options: the tooltip delay and on/off switch now work.

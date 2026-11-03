@@ -6,8 +6,7 @@
 //! bytes to [`install`], and gets the whole store back through the save hook after every write.
 //! In between they are a map in memory, installed as the runtime's file store.
 //!
-//! The store's bytes are the files one after another, each as its path's length and UTF-8 bytes
-//! and then its contents' length and bytes, lengths little-endian `u32`.
+//! The store's bytes are the files as one bundle (`dereth_primitives::bundle`), named by path.
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -29,43 +28,21 @@ thread_local! {
 
 /// The files in a store's bytes. A short or malformed tail is dropped: what came before it is kept.
 #[must_use]
-pub fn decode(mut bytes: &[u8]) -> Files {
-    let mut files = Files::new();
-    let take = |bytes: &mut &[u8]| -> Option<Vec<u8>> {
-        let (len, rest) = bytes.split_first_chunk::<4>()?;
-        let len = usize::try_from(u32::from_le_bytes(*len)).ok()?;
-        if rest.len() < len {
-            return None;
-        }
-        let (item, rest) = rest.split_at(len);
-        *bytes = rest;
-        Some(item.to_vec())
-    };
-    while !bytes.is_empty() {
-        let (Some(path), Some(data)) = (take(&mut bytes), take(&mut bytes)) else {
-            break;
-        };
-        let Ok(path) = String::from_utf8(path) else {
-            break;
-        };
-        files.insert(PathBuf::from(path), data);
-    }
-    files
+pub fn decode(bytes: &[u8]) -> Files {
+    dereth_primitives::bundle::decode(bytes)
+        .into_iter()
+        .map(|(path, data)| (PathBuf::from(path), data))
+        .collect()
 }
 
 /// A store's bytes for `files`.
 #[must_use]
 pub fn encode(files: &Files) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut put = |item: &[u8]| {
-        out.extend_from_slice(&u32::try_from(item.len()).unwrap_or(u32::MAX).to_le_bytes());
-        out.extend_from_slice(item);
-    };
-    for (path, data) in files {
-        put(path.to_string_lossy().as_bytes());
-        put(data);
-    }
-    out
+    let paths: Vec<(String, &[u8])> = files
+        .iter()
+        .map(|(path, data)| (path.to_string_lossy().into_owned(), data.as_slice()))
+        .collect();
+    dereth_primitives::bundle::encode(paths.iter().map(|(p, d)| (p.as_str(), *d)))
 }
 
 /// The file store the runtime is given: the map, saved whole after each write.

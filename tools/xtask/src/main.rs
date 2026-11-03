@@ -168,7 +168,7 @@ Release and packaging:
                             built, stages the allowlist, runs the deny scan and the header check,
                             and writes the archives, MANIFEST.txt, release.json and SHA256SUMS
   package web [--out <dir>] [--tag <tag>] [--no-build] [--allow-dirty]
-                            the web client's release files: builds the module, stages the page's
+                            the web client's release files: builds the modules, stages the page's
                             allowlist, runs the deny scan, and writes dereth-web-<version>.zip,
                             web.json (the update manifest) and SHA256SUMS (dereth/web/DEPLOY.md)
   package plugins [--out <dir>]

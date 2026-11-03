@@ -18,12 +18,18 @@
 //! and an Empyrean world that has told nobody its era is shown with its era being checked until
 //! the hub's word is read, then unknown.
 //!
+//! **Both games.** The page shows every world, each naming its game. A world of Asheron's Call 2's
+//! has its realm's own data sets ([`Front::add_auberean_sets`]), checked as the desktop launcher
+//! checks them, and its client is told nothing about the world: what Auberean needs of a world is
+//! its address.
+//!
 //! **Plugins.** The page installs plugins from plugin sources as the launcher does, with the
 //! launcher's own shelf of sources: [`crate::plugin_sources`].
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use dereth_launch::auberean;
 use dereth_launch::choices;
 use dereth_launch::datset::{self, DatOrigin, DatSet, SetKind};
 use dereth_launch::eras;
@@ -34,7 +40,7 @@ use dereth_launch::listing::WorldList;
 use dereth_launch::serverlist::{self, ListCache, ListFetch};
 use dereth_launch::state::{Account, Favourite, LauncherState, Realm, Recent, WorldPrefs};
 use dereth_launch::status::{self, LiveStatus};
-use dereth_launch::world::{AccountModel, Emulator, World};
+use dereth_launch::world::{AccountModel, Emulator, Game, World};
 use serde_json::{json, Value};
 
 /// The launcher behind the front page.
@@ -202,15 +208,13 @@ impl Front {
         self.unanswered.insert(slug.to_owned(), false);
     }
 
-    /// Every world as it is shown at `now` (seconds since the epoch): the worlds of the game this
-    /// client plays, Dereth's realm's ([`Realm::shows`]).
-    /// A world whose status document did not answer is shown as down.
+    /// Every world as it is shown at `now` (seconds since the epoch), of either game: the page
+    /// shows a realm's worlds in that realm. A world whose status document did not answer is shown
+    /// as down.
     fn shown(&self, now: u64) -> impl Iterator<Item = World> + '_ {
-        self.list
-            .shown(&self.state, now, |slug| {
-                (self.live.get(slug), self.unanswered.get(slug).copied())
-            })
-            .filter(|w| Realm::Dereth.shows(w))
+        self.list.shown(&self.state, now, |slug| {
+            (self.live.get(slug), self.unanswered.get(slug).copied())
+        })
     }
 
     /// `w` for the page: the world, whether the player added it, and the address it is played at.
@@ -222,16 +226,14 @@ impl Front {
     }
 
     /// The world shown for `slug` at `now`: the world itself, or, for a server the player added
-    /// that the list names too, the list's world; none for a world of another game.
+    /// that the list names too, the list's world.
     fn world_of(&self, slug: &str, now: u64) -> Option<World> {
-        self.list
-            .shown_as(
-                &self.state,
-                now,
-                |slug| (self.live.get(slug), self.unanswered.get(slug).copied()),
-                slug,
-            )
-            .filter(|w| Realm::Dereth.shows(w))
+        self.list.shown_as(
+            &self.state,
+            now,
+            |slug| (self.live.get(slug), self.unanswered.get(slug).copied()),
+            slug,
+        )
     }
 
     /// Every world as it is shown at `now` (seconds since the epoch), with the eras and systems
@@ -253,6 +255,22 @@ impl Front {
     #[must_use]
     pub fn world(&self, slug: &str, now: u64) -> Option<Value> {
         let w = self.world_of(slug, now)?;
+        // A world of Asheron's Call 2's plays one of its realm's own sets, and its client needs
+        // only its address.
+        if w.game == Game::Auberean {
+            return Some(json!({
+                "world": self.world_json(&w),
+                "dat_sets": [],
+                "refused_sets": [],
+                "classic_sets": [],
+                "args": [],
+                "prefs": self.state.world_prefs.get(slug),
+                "accounts": self.state.accounts_for(&w.slug).collect::<Vec<_>>(),
+                "address": address(&w),
+                "overlay_folder": null,
+                "join_link": self.join_link(&w),
+            }));
+        }
         let taken = choices::dat_sets_for(&self.state, &w);
         let refused: Vec<Value> = self
             .state
@@ -302,7 +320,7 @@ impl Front {
         )
     }
 
-    /// Add a server by its host and port.
+    /// Add a server of Asheron's Call's by its host and port.
     ///
     /// # Errors
     /// What is wrong with the host or the port, for the player.
@@ -314,9 +332,33 @@ impl Front {
         ruleset: &str,
         emulator: &str,
     ) -> Result<String, String> {
+        self.add_world_for("dereth", name, host, port, ruleset, emulator)
+    }
+
+    /// [`Front::add_world`], for a server of `game`, as the hub writes it; any other word is
+    /// Asheron's Call's.
+    ///
+    /// # Errors
+    /// As [`Front::add_world`].
+    pub fn add_world_for(
+        &mut self,
+        game: &str,
+        name: &str,
+        host: &str,
+        port: &str,
+        ruleset: &str,
+        emulator: &str,
+    ) -> Result<String, String> {
         let ruleset = Some(ruleset).filter(|r| !r.trim().is_empty());
         self.state
-            .add_custom_world(name, host, port, ruleset, Emulator::parse(emulator))
+            .add_custom_world_for(
+                Game::parse(game).unwrap_or_default(),
+                name,
+                host,
+                port,
+                ruleset,
+                Emulator::parse(emulator),
+            )
             .map_err(|e| e.to_string())
     }
 
@@ -336,13 +378,22 @@ impl Front {
     /// A start on world `slug` at `now` (seconds since the epoch), as the desktop launcher records
     /// one: the account among the world's accounts, the choices as the world's own, and the
     /// combination as the most recent. `prefs` (JSON) names the account and the data sets; the
-    /// client is this one. No password is kept: the browser's password manager keeps it.
+    /// client is the one this browser runs for the world's game. No password is kept: the
+    /// browser's password manager keeps it.
     ///
     /// # Errors
     /// Choices that do not read.
     pub fn record_launch(&mut self, slug: &str, prefs: &str, now: u64) -> Result<(), String> {
         let mut prefs: WorldPrefs = serde_json::from_str(prefs).map_err(|e| e.to_string())?;
-        prefs.client = Some(ClientKind::Dereth);
+        let client = if self
+            .world_of(slug, now)
+            .is_some_and(|w| w.game == Game::Auberean)
+        {
+            ClientKind::Auberean
+        } else {
+            ClientKind::Dereth
+        };
+        prefs.client = Some(client);
         prefs.last_played = Some(now);
         let account = prefs
             .account
@@ -366,7 +417,7 @@ impl Front {
             self.state.record_recent(Recent {
                 world_slug: slug.to_owned(),
                 account: account.clone(),
-                client: ClientKind::Dereth,
+                client,
                 dat_set_id: prefs.dat_set_id.clone(),
                 classic_set_id: prefs.classic_set_id.clone(),
                 last_played: now,
@@ -500,10 +551,77 @@ impl Front {
         ids
     }
 
+    /// The files kept in the browser's folder `folder`, read as a data set of Asheron's Call 2's,
+    /// as the desktop library reads a folder for that realm. The first is the realm's default. A
+    /// folder read before is read again in place. Answers the set's id.
+    pub fn add_auberean_sets(
+        &mut self,
+        folder: &str,
+        files: Vec<(String, u64, Box<dyn dereth_dat::DatStorage>)>,
+    ) -> Vec<String> {
+        let path = PathBuf::from(folder);
+        let files: Vec<_> = files
+            .into_iter()
+            .filter_map(|(name, size, storage)| {
+                datset::file_in_storage(SetKind::Auberean, &name, size, storage)
+            })
+            .collect();
+        if let Some(i) = self
+            .state
+            .auberean
+            .dat_sets
+            .iter()
+            .position(|s| s.path == path)
+        {
+            let set = &mut self.state.auberean.dat_sets[i];
+            set.files = files;
+            return vec![set.id.clone()];
+        }
+        let id = self.state.new_id("web-a");
+        let origin = if self.state.auberean_default_set().is_none() {
+            DatOrigin::Shared
+        } else {
+            DatOrigin::Unassigned
+        };
+        self.state.auberean.dat_sets.push(DatSet {
+            id: id.clone(),
+            path,
+            kind: SetKind::Auberean,
+            origin,
+            files,
+            last_patched_by_server: None,
+            created_by_launcher: true,
+        });
+        vec![id]
+    }
+
+    /// The default Asheron's Call 2 data set's check, as JSON: `{ ok, summary }`, what the page
+    /// shows beside Play. With no set, it is not ready and says nothing.
+    #[must_use]
+    pub fn auberean_check(&self) -> Value {
+        self.state.auberean_default_set().map_or_else(
+            || json!({"ok": false, "summary": ""}),
+            |set| {
+                let check = auberean::check_set(set);
+                json!({"ok": check.ok, "summary": check.summary})
+            },
+        )
+    }
+
+    /// The realm the page last showed: `dereth` or `auberean`.
+    pub fn set_realm(&mut self, realm: &str) {
+        self.state.settings.realm = if realm == "auberean" {
+            Realm::Auberean
+        } else {
+            Realm::Dereth
+        };
+    }
+
     /// Forget every set kept in the browser's folder `folder`.
     pub fn remove_sets(&mut self, folder: &str) {
         let path = PathBuf::from(folder);
         self.state.dat_sets.retain(|s| s.path != path);
+        self.state.auberean.dat_sets.retain(|s| s.path != path);
     }
 }
 
@@ -725,10 +843,10 @@ mod tests {
     /// list just fetched, then read again about once a minute a page at a time, kept while a read
     /// fails, never past the heartbeat's expiry, never over the world's own answer, and never
     /// from the day's copy, the community's list or a list the page names.
-    /// The page plays one game: of the hub's list it shows the worlds that name no game or
-    /// `dereth`, and no other game's, not even by its slug.
+    /// The page offers both games' realms: of the hub's list it shows every world, each naming
+    /// its game, and a world that names none is Asheron's Call's.
     #[test]
-    fn the_page_shows_only_the_worlds_of_its_own_game() {
+    fn the_page_shows_both_games_worlds_each_naming_its_game() {
         let mut f = Front::default();
         f.list_start(None, None).unwrap();
         let mut other = hub_row("Shardfall", "online", None, None);
@@ -743,15 +861,107 @@ mod tests {
             None
         );
         f.list_done(NOW).unwrap();
-        let shown: Vec<String> = f.worlds(NOW)["worlds"]
+        let shown: Vec<(String, String)> = f.worlds(NOW)["worlds"]
             .as_array()
             .unwrap()
             .iter()
-            .map(|w| w["slug"].as_str().unwrap().to_owned())
+            .map(|w| {
+                (
+                    w["slug"].as_str().unwrap().to_owned(),
+                    w["game"].as_str().unwrap_or("dereth").to_owned(),
+                )
+            })
             .collect();
-        assert_eq!(shown, ["coldeve", "frostfell"]);
-        assert!(f.world("shardfall", NOW).is_none());
+        let of = |slug: &str| {
+            shown
+                .iter()
+                .find(|(s, _)| s == slug)
+                .map(|(_, g)| g.as_str())
+        };
+        assert_eq!(shown.len(), 3, "{shown:?}");
+        assert_eq!(of("coldeve"), Some("dereth"));
+        assert_eq!(of("frostfell"), Some("dereth"));
+        assert_eq!(of("shardfall"), Some("auberean"));
         assert!(f.world("coldeve", NOW).is_some());
+        // A world of Asheron's Call 2's plays its realm's own sets, and its client is told nothing
+        // about it.
+        let page = f.world("shardfall", NOW).unwrap();
+        assert_eq!(page["world"]["name"], "Shardfall");
+        assert_eq!(page["args"], json!([]));
+        assert_eq!(page["dat_sets"], json!([]));
+        assert_eq!(page["overlay_folder"], json!(null));
+    }
+
+    /// A world added to Auberean's realm is that game's, a start on it is recorded for its client,
+    /// and an account's combination plays there again.
+    #[test]
+    fn a_world_added_for_auberean_is_that_game_s_and_a_start_on_it_is_auberean_s() {
+        let mut f = Front::default();
+        let slug = f
+            .add_world_for("auberean", "Mine", "127.0.0.1", "9200", "", "yalain")
+            .unwrap();
+        assert_eq!(f.world(&slug, NOW).unwrap()["world"]["game"], "auberean");
+        f.record_launch(&slug, r#"{"account":"Tester","dat_set_id":"a1"}"#, NOW)
+            .unwrap();
+        let state: Value = serde_json::from_str(&f.state_json()).unwrap();
+        assert_eq!(state["recent"][0]["client"], "auberean");
+        assert_eq!(state["recent"][0]["dat_set_id"], "a1");
+        // A world of the other game is Dereth's, as ever.
+        let other = f
+            .add_world("", "ace.example.org", "9000", "", "ace")
+            .unwrap();
+        f.record_launch(&other, r#"{"account":"Tester"}"#, NOW)
+            .unwrap();
+        let state: Value = serde_json::from_str(&f.state_json()).unwrap();
+        assert_eq!(state["recent"][0]["client"], "dereth");
+    }
+
+    /// The realm's data files are kept in its own library, the first its default, and a file that
+    /// is not what its name says shows in the check beside Play.
+    #[test]
+    fn asheron_s_call_2_s_files_make_a_set_of_its_realm_and_a_wrong_file_fails_its_check() {
+        let mut f = Front::default();
+        let check = f.auberean_check();
+        assert_eq!(check["ok"], false, "no set is no check");
+        let wrong = |name: &str| -> (String, u64, Box<dyn dereth_dat::DatStorage>) {
+            (name.to_owned(), 1024, Box::new(vec![0u8; 1024]))
+        };
+        let ids = f.add_auberean_sets(
+            "auberean/sets/files",
+            vec![
+                wrong("portal.dat"),
+                wrong("cell_1.dat"),
+                wrong("local_English.dat"),
+                wrong("not-a-set-file.dat"),
+            ],
+        );
+        assert_eq!(ids.len(), 1);
+        let state: Value = serde_json::from_str(&f.state_json()).unwrap();
+        let set = &state["auberean"]["dat_sets"][0];
+        assert_eq!(set["origin"]["kind"], "shared", "{set}");
+        assert_eq!(set["files"].as_array().unwrap().len(), 3);
+        assert!(state["dat_sets"].as_array().unwrap().is_empty());
+        let check = f.auberean_check();
+        assert_eq!(check["ok"], false);
+        assert!(
+            check["summary"].as_str().unwrap().contains("portal.dat"),
+            "{check}"
+        );
+        f.remove_sets("auberean/sets/files");
+        let state: Value = serde_json::from_str(&f.state_json()).unwrap();
+        assert!(state["auberean"]["dat_sets"].is_null());
+    }
+
+    /// The realm the page shows is kept with the launcher's state, which the page opens in next.
+    #[test]
+    fn the_realm_the_page_shows_is_kept() {
+        let mut f = Front::default();
+        f.set_realm("auberean");
+        let state: Value = serde_json::from_str(&f.state_json()).unwrap();
+        assert_eq!(state["settings"]["realm"], "auberean");
+        f.set_realm("dereth");
+        let state: Value = serde_json::from_str(&f.state_json()).unwrap();
+        assert!(state["settings"]["realm"].is_null());
     }
 
     /// A world starred in the page's world list is a favorite, which the list shows first; a Play
@@ -1077,7 +1287,8 @@ mod tests {
         assert_eq!(page["overlay_folder"], "play.seedsow.example-9050");
         // And the client in the browser reads them as the desktop client reads its command line.
         let words: Vec<String> = args.iter().map(|a| (*a).to_owned()).collect();
-        let cfg = crate::play::world_config(&words, None).unwrap();
+        let mut cfg = dereth_client_runtime::config::Config::default();
+        cfg.apply_args(&words).unwrap();
         assert_eq!(cfg.era, Some(dereth_primitives::EraId::Infiltration));
         assert_eq!(
             cfg.world_base,

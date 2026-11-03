@@ -692,7 +692,7 @@ fn dereths_crates_carry_one_version_which_the_tag_names() {
         .expect_err("another product's tag");
     assert!(e.contains("Dereth"), "{e}");
     assert!(version::check_product_tag(Product::Dereth, "dereth-v9.9.9", &v).is_err());
-    assert_eq!(version::dereth_manifests(&ws).len(), 4);
+    assert_eq!(version::dereth_manifests(&ws).len(), 5);
 }
 
 /// Every file the Dereth package reads from the tree is there.

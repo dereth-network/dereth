@@ -574,6 +574,13 @@ impl Client {
         self.session.poll_transmit()
     }
 
+    /// What [`Self::disconnect`] would send, made now and sending nothing: each datagram and where
+    /// it goes.
+    #[must_use]
+    pub fn goodbye(&self) -> Vec<(SocketAddr, Vec<u8>)> {
+        self.session.goodbye()
+    }
+
     /// Close every connection: a goodbye on each, as the client says when it closes; nothing more
     /// is sent. The data cache is reset.
     // D2-05261

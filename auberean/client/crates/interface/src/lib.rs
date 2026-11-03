@@ -45,6 +45,7 @@
 //! [`auberean_shell::interface::Game`] and draws into pictures the host shows.
 
 mod chat;
+pub mod data;
 pub mod doll;
 pub mod hall;
 mod map;

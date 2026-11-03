@@ -5,14 +5,15 @@
 //! cargo xtask package web [--out <dir>] [--tag <tag>] [--no-build] [--allow-dirty]
 //! ```
 //!
-//! It builds the module (`cargo xtask web --build-only`: the `web-release` profile and the bindgen
-//! step into `dereth/web/www/`), takes the page's files from `www/` by an allowlist, checks them,
+//! It builds the modules (`cargo xtask web --build-only`: the `web-release` profile and the bindgen
+//! step into `dereth/web/www/`: the launcher's, Dereth's and Auberean's, each a module of its own
+//! that the page loads only when it is wanted), takes the page's files from `www/` by an allowlist, checks them,
 //! and writes three release files into `<target dir>/package/dereth-web-<version>/` (or `--out`):
 //!
 //! - `dereth-web-<version>.zip`: the files under one folder, `dereth-web-<version>/`, ready to be
 //!   served as they are ([`FILES`]: the page, the launcher's own page the front page runs, the
-//!   module, the Horizon interface's art beside the module, which the module does not carry, and
-//!   the launcher's art the front page wears in `assets/`), with the notices the module needs
+//!   modules, the Horizon interface's art beside Dereth's module, which the module does not carry,
+//!   and the launcher's art the front page wears in `assets/`), with the notices the modules need
 //!   beside them ([`NOTICES`]:
 //!   the licence, what the module is built from and the typefaces it carries, and every
 //!   third-party crate's licence text);
@@ -24,8 +25,8 @@
 //! A consumer reads the manifest back with [`Manifest::read`] and checks a bundle it unpacked with
 //! [`check_unpacked`] (`cargo xtask deploy web` does both).
 //!
-//! The web client is the Dereth client in a browser, so it carries Dereth's version (the client's
-//! and the launcher's, which `cargo xtask release dereth` moves for all three), and its release tag
+//! One release carries both games' modules and the launcher's, at Dereth's version (the client's,
+//! which `cargo xtask release dereth` moves for them both), and its release tag
 //! is `dereth-web-v<version>` ([`TAG_PREFIX`]); `--tag` refuses a tag that names another version.
 //!
 //! **Plugins:** the bundle carries none. The page installs Dereth's from Dereth's plugin source,
@@ -66,6 +67,12 @@ pub const WWW: &str = "dereth/web/www";
 pub const FILES: &[&str] = &[
     "_headers",
     "app.js",
+    "assets/background/auberean/arwic.webp",
+    "assets/background/auberean/lugian.webp",
+    "assets/background/auberean/portalspace.webp",
+    "assets/background/auberean/tyrant.webp",
+    "assets/background/auberean/valley.webp",
+    "assets/background/auberean/vault.webp",
     "assets/background/dereth/blacksmith.webp",
     "assets/background/dereth/diamond-golem.webp",
     "assets/background/dereth/iconic.webp",
@@ -78,13 +85,21 @@ pub const FILES: &[&str] = &[
     "assets/background/dereth/wilderness.webp",
     "assets/backgrounds.json",
     "assets/emblem/dereth.webp",
+    "assets/emblem/network.webp",
     "assets/fonts/Cinzel-var.ttf",
     "assets/fonts/EBGaramond-var.ttf",
     "assets/fonts/OFL-Cinzel.txt",
     "assets/fonts/OFL-EBGaramond.txt",
+    "assets/portal/auberean-ring.webp",
+    "assets/portal/auberean-vortex.webp",
+    "assets/portal/dereth-ring.webp",
+    "assets/portal/dereth-vortex.webp",
+    "auberean-worker.js",
     "audio-worklet.js",
     "backend.js",
     "datfiles.js",
+    "front-worker.js",
+    "game-loop.js",
     "host.js",
     "index.html",
     "launcher.html",
@@ -101,6 +116,10 @@ pub const FILES: &[&str] = &[
     "pkg/horizon/font-5.png",
     "pkg/horizon/fonts.json",
     "pkg/horizon/manifest.json",
+    "pkg-auberean/auberean_web.js",
+    "pkg-auberean/auberean_web_bg.wasm",
+    "pkg-front/dereth_web_front.js",
+    "pkg-front/dereth_web_front_bg.wasm",
     "play-worker.js",
     "play.js",
     "plugin-io.js",
@@ -122,12 +141,32 @@ const WASM: super::targets::Target = super::targets::Target {
 /// launcher's page it copies into `www/` and the launcher's art it copies into `assets/`.
 const NOT_RELEASED: &[&str] = &[".gitignore", "assets/.gitignore"];
 
-/// No file is larger than this: 25 MiB, the most Cloudflare Pages serves as one file. The module
-/// is about 22 MB, the largest of the Horizon interface's atlases about 9 MB.
+/// No file is larger than this: 25 MiB, the most Cloudflare Pages serves as one file. Dereth's
+/// module is about 23 MB, Auberean's about 10 MB, the launcher's about 1 MB, and the largest of the
+/// Horizon interface's atlases about 9 MB.
 const FILE_CAP: u64 = 25 << 20;
 
 /// No bundle is larger than this in all.
-const TOTAL_CAP: u64 = 64 << 20;
+const TOTAL_CAP: u64 = 96 << 20;
+
+/// The modules whose crates a bundle carries: (the package, its manifest, its name in the licences).
+const MODULES: &[(&str, &str, &str)] = &[
+    (
+        "dereth-web-front",
+        "dereth/web/front/Cargo.toml",
+        "the launcher's module",
+    ),
+    (
+        "dereth-web",
+        "dereth/web/Cargo.toml",
+        "the Dereth client's module",
+    ),
+    (
+        "auberean-web",
+        "auberean/web/Cargo.toml",
+        "the Auberean client's module",
+    ),
+];
 
 /// The archive's file name for `version`.
 #[must_use]
@@ -510,8 +549,12 @@ fn listing(dir: &Path) -> Result<Vec<(String, Vec<u8>)>, String> {
 
 /// `LICENSE`, `NOTICE.txt` and `THIRD-PARTY-LICENSES.html` for the module.
 fn notices(ws: &Path, version: &str, facts: &BuildFacts) -> Result<Vec<Member>, String> {
-    let manifest = "dereth/web/Cargo.toml";
-    let crates = super::dereth::crates_of(ws, manifest, "dereth-web", WASM)?;
+    let mut crates = Vec::new();
+    for (package, manifest, _) in MODULES {
+        crates.extend(super::dereth::crates_of(ws, manifest, package, WASM)?);
+    }
+    crates.sort_by(|a, b| (&a.name, &a.version).cmp(&(&b.name, &b.version)));
+    crates.dedup_by(|a, b| (&a.name, &a.version) == (&b.name, &b.version));
     let mit = String::from_utf8_lossy(&read(&ws.join("LICENSE"))?).into_owned();
     let mut fonts = Vec::new();
     for (name, carried, path) in super::dereth::FONTS {
@@ -533,8 +576,12 @@ fn notices(ws: &Path, version: &str, facts: &BuildFacts) -> Result<Vec<Member>, 
     });
     let about = target_dir().join("package").join("web-about");
     std::fs::create_dir_all(&about).map_err(|e| format!("{}: {e}", about.display()))?;
-    let page = super::dereth::licence_page(ws, manifest, WASM, &about, "dereth-web")?;
-    let licences = super::notice::splice_licence_pages(&[("the web client's module", page)])?;
+    let mut pages = Vec::new();
+    for (package, manifest, name) in MODULES {
+        let page = super::dereth::licence_page(ws, manifest, WASM, &about, package)?;
+        pages.push((*name, page));
+    }
+    let licences = super::notice::splice_licence_pages(&pages)?;
     Ok([
         ("LICENSE", mit.into_bytes()),
         ("NOTICE.txt", text.into_bytes()),
@@ -835,11 +882,12 @@ mod tests {
         assert_eq!(listed, on_disk);
     }
 
-    /// The bundle's launcher art is exactly Dereth's paintings in the launcher's art folder, its
-    /// emblem and the typefaces with their licences: a painting added or taken away changes the
-    /// list, or the package refuses the stray or missing file.
+    /// The bundle's launcher art is exactly both realms' paintings in the launcher's art folder,
+    /// the realms' portals, the emblems the page wears and the typefaces with their licences: a
+    /// painting added or taken away changes the list, or the package refuses the stray or missing
+    /// file.
     #[test]
-    fn the_bundle_s_launcher_art_is_the_launcher_s_dereth_art() {
+    fn the_bundle_s_launcher_art_is_the_launcher_s_art_for_both_realms() {
         // What `cargo xtask web --build-only` copies into `assets/`.
         let art = workspace_root().join("launcher/assets");
         let names = |dir: &str| -> Vec<String> {
@@ -853,6 +901,16 @@ mod tests {
             .into_iter()
             .map(|n| format!("assets/background/dereth/{n}"))
             .chain(
+                names("background/auberean")
+                    .into_iter()
+                    .map(|n| format!("assets/background/auberean/{n}")),
+            )
+            .chain(
+                names("portal")
+                    .into_iter()
+                    .map(|n| format!("assets/portal/{n}")),
+            )
+            .chain(
                 names("fonts")
                     .into_iter()
                     .map(|n| format!("assets/fonts/{n}")),
@@ -860,6 +918,7 @@ mod tests {
             .chain([
                 "assets/backgrounds.json".to_owned(),
                 "assets/emblem/dereth.webp".to_owned(),
+                "assets/emblem/network.webp".to_owned(),
             ])
             .collect();
         on_disk.sort();

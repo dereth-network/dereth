@@ -473,8 +473,7 @@ pub fn file_in_storage(
     let era = match kind {
         SetKind::Modern => ContainerEra::Modern,
         SetKind::Classic => ContainerEra::Classic,
-        // Asheron's Call 2's files are read from a folder only.
-        SetKind::Auberean => return None,
+        SetKind::Auberean => return crate::auberean::file_in_storage(name, size, storage),
     };
     let (iterations, error) = reading(role, era, read_dat_from(name, storage));
     Some(DatFileState {
