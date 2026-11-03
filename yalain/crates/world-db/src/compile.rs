@@ -64,6 +64,8 @@ pub struct QuestDefinition {
     /// Its last phase waits for something other than a kill to end it: the phase's range is more
     /// than one.
     pub last_waits: bool,
+    /// The least level a player is given it at (0: any), as its package's setup says.
+    pub min_level: i32,
 }
 
 /// What a compile reads from the user's install.
@@ -396,7 +398,7 @@ fn subquest_definitions(quests: &mut yalain_content::QuestTable, install: &dyn I
             hidden: true,
             effects: def.effects,
             subquests: def.subquests,
-            min_level: 0,
+            min_level: def.min_level,
             fails_on_death: false,
             once: def.once,
             fellows: def.fellows,
@@ -763,7 +765,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     hidden: !q.visible.unwrap_or(def.description.0 != 0),
                     effects: def.effects,
                     subquests: def.subquests,
-                    min_level: q.min_level.unwrap_or(0),
+                    min_level: q.min_level.unwrap_or(def.min_level),
                     fails_on_death: q.fails_on_death.unwrap_or(false),
                     once: q.once.unwrap_or(def.once),
                     // A row says whether; left out, the setup does, and a quest with no setup

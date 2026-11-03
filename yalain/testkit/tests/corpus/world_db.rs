@@ -888,6 +888,10 @@ fn a_kill_sends_the_updates_recorded_kills_were_sent() {
     let install = dat_install();
     let (mut h, b, me) = served(t);
     h.server.quest_ids = quest_ids();
+    // Of a level no quest of the sample holds back.
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, 302, 60);
+    }
     let mut wrong = Vec::new();
     let mut played = 0usize;
     for s in &recorded {

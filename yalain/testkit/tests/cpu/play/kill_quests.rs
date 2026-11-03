@@ -482,6 +482,39 @@ fn a_kills_step_runs_first_and_its_quest_is_not_moved_again_by_the_effect() {
     assert_eq!(updates(&h, b, from), vec![(0, update::ADVANCE | 4)]);
 }
 
+/// **A kill does not give a quest to a killer under its least level**: the killer is told so in the
+/// record of nothing; a fellow is told nothing; at that level it is given.
+/// Behaviour: server.quests.a-kills-giving-needs-the-least-level
+#[test]
+fn a_killer_under_a_quests_least_level_is_refused_it_and_told() {
+    let (mut h, b, me) = world(QuestDef {
+        min_level: 15,
+        fellows: Fellows {
+            shared: true,
+            near_level: false,
+            near_by: false,
+        },
+        ..quest(3)
+    });
+    let (c, them) = fellows(&mut h, (b, me), 2.0);
+    set_level(&mut h, me, 14);
+    set_level(&mut h, them, 14);
+    let (from, theirs) = (h.bots[b].inbox.len(), h.bots[c].inbox.len());
+    kill(&mut h, me, &["Eff_BestowQuestHunt"]);
+    assert_eq!(state(&h, me), None);
+    assert_eq!(
+        updates(&h, b, from),
+        vec![(refused::LEVEL_TOO_LOW, update::BESTOW)]
+    );
+    assert_eq!(state(&h, them), None);
+    assert!(updates(&h, c, theirs).is_empty(), "a fellow is not told");
+    set_level(&mut h, me, 15);
+    let from = h.bots[b].inbox.len();
+    kill(&mut h, me, &["Eff_BestowQuestHunt"]);
+    assert_eq!(state(&h, me), Some((status::UNDERWAY, 1)));
+    assert_eq!(updates(&h, b, from), vec![(0, update::BESTOW)]);
+}
+
 /// **An effect's name says what it does to which quest**: the kind, the quest by the enumeration's
 /// name (with or without the separator its name has), and for an advance the phase; a name of
 /// any other kind, or of no quest, says nothing.

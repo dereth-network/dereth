@@ -6183,6 +6183,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-kills-giving-needs-the-least-level",
+        says: "A kill does not give a quest to a killer under the quest's least level: the killer is \
+               told so in an update of the giving kind whose record holds nothing, a fellow is told \
+               nothing. In January 2017 two such kills were refused so, and all 83 givings of known \
+               level were at or above it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-LEAST-LEVEL"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_killer_under_a_quests_least_level_is_refused_it_and_told",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-kills-reach-from-setup",
         says: "How a kill's move on a quest reaches fellows is read from the quest's setup: shared \
                or not, each limit named or not; a quest with no setup of its own shares nothing \
@@ -6379,6 +6390,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-VAULT"),
         station: "yalain-testkit::cpu::play::quests::an_item_used_on_an_object_takes_the_player_and_moves_the_quest_on_arrival",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.least-level-from-the-setup",
+        says: "A quest's least level is the one its setup names unless its row names another.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-SETUP-GATES"),
+        station: "yalain-testkit::dat::quests::a_quests_setup_says_its_least_level",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.quests.least-level-refused",

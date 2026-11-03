@@ -27,6 +27,7 @@ what they see, not how it was done.
 - Armor with no worn properties now shows on the body when worn.
 - Items named only in their qualities now show their name when examined.
 - Admins can now log in to a full world.
+- Quests now hold to the least levels the game sets for them.
 
 ## 0.1.2 (2026-11-03)
 

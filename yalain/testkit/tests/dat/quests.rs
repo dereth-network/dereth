@@ -199,3 +199,27 @@ fn every_quest_effect_a_creature_names_names_a_quest_of_the_install() {
     assert!(named > 1000, "{named} quest effects named");
     assert_eq!(resolved, named, "not resolved: {lost:?}");
 }
+
+/// A quest's least level is its setup's.
+/// Behaviour: server.quests.least-level-from-the-setup
+#[test]
+fn a_quests_setup_says_its_least_level() {
+    let p = Portal::open();
+    let states = p
+        .dat
+        .entries_in(0x6F00_0000, 0x6FFF_FFFF)
+        .map(|e| e.id)
+        .collect();
+    let lib = p.library();
+    let install = DatInstall::new(
+        Box::new(|id| p.dat.read(id).ok()),
+        p.ctx.clone(),
+        &lib,
+        states,
+    )
+    .expect("install");
+    let read = |q: u32| install.quest_definition(None, q).map(|d| d.min_level);
+    assert_eq!(read(0x4000_0028), Some(15), "Sanguine Fang");
+    assert_eq!(read(0x4000_006E), Some(30), "Dillo Rustlers");
+    assert_eq!(read(0x4000_02CC), Some(32), "the Brood Mother");
+}

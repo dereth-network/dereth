@@ -319,6 +319,7 @@ impl Install for DatInstall<'_> {
             once: setup.once,
             fellows: setup.fellows,
             last_waits,
+            min_level: setup.min_level,
         })
     }
 
@@ -340,6 +341,9 @@ const SET_SHARED: u32 = 0x01A7_000D;
 const SET_NEAR_LEVEL: u32 = 0x01A7_008B;
 const SET_NEAR_BY: u32 = 0x01A7_0078;
 
+/// The call a quest's setup makes to say the least level it is given at.
+const SET_LEAST_LEVEL: u32 = 0x01A7_003D;
+
 /// What a quest's package sets up beyond its definition.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 struct Setup {
@@ -350,6 +354,8 @@ struct Setup {
     /// How a kill's move on it reaches the killer's fellows; a setup with no such call shares
     /// nothing, and a call with no limit named limits nothing.
     fellows: yalain_content::quests::Fellows,
+    /// The least level a player is given it at (0: any).
+    min_level: i32,
 }
 
 /// A quest package's `Setup` (its own, else the nearest of its bases') read for its literals.
@@ -398,6 +404,9 @@ fn read_setup(lib: &Library, start: usize, end: usize) -> Setup {
                     SET_SHARED => out.fellows.shared = literal == Some(1),
                     SET_NEAR_LEVEL => out.fellows.near_level = literal == Some(1),
                     SET_NEAR_BY => out.fellows.near_by = literal == Some(1),
+                    SET_LEAST_LEVEL => {
+                        out.min_level = literal.and_then(|v| i32::try_from(v).ok()).unwrap_or(0);
+                    }
                     _ => {
                         if lib.function_name(FunctionId(id)).as_deref() == Some(SET_SOLUTIONS) {
                             out.once = literal == Some(1);

@@ -95,6 +95,8 @@ struct Fake {
     entities: HashMap<u32, Entity>,
     /// What the quest's setup says of a kill's reach.
     fellows: yalain_content::quests::Fellows,
+    /// The least level the quest's setup names.
+    min_level: i32,
 }
 
 impl Fake {
@@ -126,6 +128,7 @@ impl Fake {
         Self {
             entities,
             fellows: yalain_content::quests::Fellows::default(),
+            min_level: 0,
         }
     }
 }
@@ -190,6 +193,7 @@ impl Install for Fake {
             once: false,
             fellows: self.fellows,
             last_waits: false,
+            min_level: self.min_level,
         })
     }
 
@@ -1424,4 +1428,25 @@ fn a_static_objects_quest_gate_is_read_checked_and_compiled() {
     assert!(check(&bad)
         .iter()
         .any(|p| p.to_string().contains("requires: a person is talked to")));
+}
+
+/// A quest's least level is its setup's, unless its row says another.
+/// Behaviour: server.quests.least-level-from-the-setup
+#[test]
+fn a_quests_least_level_is_its_setups_unless_its_row_names_one() {
+    let install = Fake {
+        min_level: 15,
+        ..Fake::new()
+    };
+    let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &install).unwrap();
+    assert_eq!(t.quests.quests[0].min_level, 15);
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "duration = 72000",
+        "duration = 72000\nmin_level = 3",
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &install).unwrap();
+    assert_eq!(t.quests.quests[0].min_level, 3);
 }

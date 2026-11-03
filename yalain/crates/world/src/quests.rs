@@ -47,7 +47,8 @@
 //! does not have under way, nor does anything for a stranger to the killer. A fellow of the killer
 //! is moved alike, a quest that is limited so only within ten levels of the killer and in range of
 //! it, and is told nothing when nothing moved. The killer is told when a giving was refused: its
-//! update of the giving kind names why, in a record that holds nothing. Steps a kill triggers run
+//! update of the giving kind names why, in a record that holds nothing, a giving under the quest's
+//! least level among them. Steps a kill triggers run
 //! first, and a quest one of them moved is not moved again.
 //!
 //! 2017, of the 4,068 corpses players saw of such creatures: a killer's quest under way moved on
@@ -302,6 +303,8 @@ pub mod refused {
     pub const DONE: u32 = 4004;
     /// Its wait to be taken again is not over.
     pub const WAITING: u32 = 4005;
+    /// The player is under its least level.
+    pub const LEVEL_TOO_LOW: u32 = 10009;
 }
 
 /// A refused giving's record: the definition's name, description, icon and challenge, no status or
@@ -845,6 +848,12 @@ pub fn moves<S: Store>(
         Move::Bestow => {
             let held = &p.play.quests;
             if given_again(&def, held, clock.unix) {
+                // Under its least level it is refused as the other reasons are (2017: 2 of 2, the
+                // givings at or above it 83 of 83, 9 more of unknown level).
+                if crate::examine::level_of(&p.qualities) < def.min_level {
+                    refuse(s, net, world, &def, refused::LEVEL_TOO_LOW, told, clock);
+                    return;
+                }
                 Update::Bestow
             } else {
                 let why = if done(held, e.quest) && def.once {
