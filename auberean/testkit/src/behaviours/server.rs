@@ -4828,6 +4828,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.sessions-cap-lets-admins-in",
+        says: "A world holding as many logins as it may still lets in an admin's account with its right \
+               ticket, as the game's own help for its user limit says. A wrong ticket for one is told \
+               the world is full, as anyone is, and one address's limit holds it back as anyone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SESSION-CAP-ADMINS"),
+        station: "yalain-testkit::cpu::operator::sessions::an_admins_account_with_its_ticket_gets_into_a_full_world",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.sessions-capped-server-full",
         says: "A world holds at most the operator's number of logins (Empyrean's 128 by default), \
                and one address at most its own number (no limit by default, an exempt address \

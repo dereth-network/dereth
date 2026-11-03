@@ -26,6 +26,7 @@ what they see, not how it was done.
 - New `download_bytes_per_second` setting for how fast clients download data.
 - Armor with no worn properties now shows on the body when worn.
 - Items named only in their qualities now show their name when examined.
+- Admins can now log in to a full world.
 
 ## 0.1.2 (2026-11-03)
 

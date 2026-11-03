@@ -402,7 +402,8 @@ in the source tree's `yalain/server/` lists every key with its default.
 The world holds at most 128 logins at once, as Empyrean does; `--max-sessions <n>` sets another
 number. A login past them is refused before its account is checked: the client shows *The logon
 server is full. Try again later.*, the September 2013 client's own line, and the connection is
-closed. A login that leaves frees its place at once.
+closed. A login that leaves frees its place at once. An admin's account with its right ticket is
+let in past this limit.
 
 `--max-sessions-per-address <n>` limits the logins one address holds at once in the same way
 (Empyrean's default, and Yalain's, is no limit). Players behind one router share an address, so a
@@ -1142,7 +1143,7 @@ On an open world (section 5), the first login with a new name makes the account.
 | `yalain: yalain.toml: ...` | The configuration file is not TOML, or a key's value is not one its setting takes (section 3.6). |
 | `yalain.toml: <key>: not a setting of the server; ignored` | A misspelled key, or one the server does not have. The server starts without it. |
 | `yalain.toml: <key>: Empyrean's setting, which Yalain does not have; ignored` | A key of `empyrean.toml` Yalain has no setting for (section 3.6). The server starts without it. |
-| A player's client says the logon server is full | The world holds `--max-sessions` logins, or the player's address holds `--max-sessions-per-address` (section 3.7). |
+| A player's client says the logon server is full | The world holds `--max-sessions` logins (an admin's account passes this one), or the player's address holds `--max-sessions-per-address` (section 3.7). |
 | `yalain: --status <address>: ...` | The status endpoint's port is in use, or the address is not one of this machine. |
 | `yalain: binding the ports: ... [ports-taken]`, exit code 3 | A port, or the port above it, or the friends service's TCP port, is in use (another server running?). |
 | `yalain: binding the ports: ...`, exit code 1 | `--bind` is not an address of this machine, or the system refused the port. |

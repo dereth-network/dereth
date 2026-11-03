@@ -5,7 +5,8 @@
 //!   connection closed at once.
 //! - **A full world.** A login past the logins the world holds, or past those one address may
 //!   hold, is refused unchecked with the client's "server full" reason (19), as the January 2017
-//!   login server refused one.
+//!   login server refused one. An admin's account with its right ticket passes the world's limit
+//!   (not its address's).
 //! - **The character list.** When the client answers, the server says the download is over and
 //!   sends the account's characters twice: by name and id ([`CharacterNames`], those in play), then
 //!   with their looks ([`CharacterList`], deleted ones still greyed out included).
@@ -348,12 +349,15 @@ pub(crate) fn logged_in<S: Store>(
     login: &GameLogin,
     clock: Clock,
 ) {
-    if let Some(why) = full(s, net, conn) {
+    let name = login.account.trim().to_string();
+    let world_full = holds_as_many_as_it_may(s, conn);
+    let why = address_full(s, net, conn)
+        .or_else(|| (world_full && !names_an_admin(s, &name)).then_some("the world is full"));
+    if let Some(why) = why {
         tracing::info!(?conn, "login refused: {why}");
         refuse_login(net, conn, CharacterRefused::SERVER_FULL, clock);
         return;
     }
-    let name = login.account.trim().to_string();
     let address = net.peer(conn).map(|a| address_key(a.ip()));
     let now = clock.local.0;
     let locked = address
@@ -380,7 +384,14 @@ pub(crate) fn logged_in<S: Store>(
                 s.login_guard.refused(a, now);
             }
         }
-        refuse_login(net, conn, ACCOUNT_INVALID, clock);
+        // A wrong ticket for an admin's account is told what any other login is, or a full world
+        // would say which accounts are admins'.
+        let reason = if world_full {
+            CharacterRefused::SERVER_FULL
+        } else {
+            ACCOUNT_INVALID
+        };
+        refuse_login(net, conn, reason, clock);
         return;
     };
     if crate::admin::banned(&mut s.store, &account, clock.unix) {
@@ -408,14 +419,27 @@ pub(crate) fn logged_in<S: Store>(
     );
 }
 
-/// Why a new login on `conn` finds the world full, if it does: as many logins as the world holds,
-/// or as many from its address as one address may hold (an address the operator exempts is held
-/// back by the first only). Counted before the ticket is checked, as Empyrean counts.
-fn full<S: Store>(s: &Server<S>, net: &ServerNet, conn: ConnId) -> Option<&'static str> {
+/// Does the world hold as many logins as it may, without the new one on `conn`? Counted before the
+/// ticket is checked, as Empyrean counts, since checking a ticket is slow by design.
+fn holds_as_many_as_it_may<S: Store>(s: &Server<S>, conn: ConnId) -> bool {
+    let held = s.sessions.keys().filter(|c| **c != conn).count();
+    held >= s.cfg.max_sessions as usize
+}
+
+/// Does a login name an admin's account? Those the world's limit does not hold back (the game's
+/// `/userlimit` holds back new "non-admin users"), once their ticket has been checked.
+fn names_an_admin<S: Store>(s: &mut Server<S>, name: &str) -> bool {
+    s.store
+        .account_by_name(name)
+        .ok()
+        .flatten()
+        .is_some_and(|a| a.admin)
+}
+
+/// Why a new login on `conn` is held back by its address, if it is: as many from it as one address
+/// may hold (an address the operator exempts is not). Counted before the ticket is checked.
+fn address_full<S: Store>(s: &Server<S>, net: &ServerNet, conn: ConnId) -> Option<&'static str> {
     let held = s.sessions.keys().filter(|c| **c != conn);
-    if held.clone().count() >= s.cfg.max_sessions as usize {
-        return Some("the world is full");
-    }
     let limit = s.cfg.max_sessions_per_address?;
     let ip = net.peer(conn)?.ip().to_canonical();
     if s.cfg
