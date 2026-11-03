@@ -1161,6 +1161,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "physics.transition.a-world-may-take-an-interior-collision-as-straight-up",
+        says: "A mover in the air that an interior cell's tree moves or stops has collided with \
+               it; a world may make that a collision straight up when nothing has named another \
+               normal. This client names none.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-PHYS-ENV-NORMAL-UP"),
+        station: "dereth-physics::cpu::transition::rules::a_world_may_take_an_interior_collision_as_straight_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "physics.transition.a-world-may-test-an-objects-trees-at-a-scale-along-each-axis",
         says: "A world whose objects take a scale along each axis may have their physics trees \
                tested at it: a square floor stretched three times along one axis meets a body \

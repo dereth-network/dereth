@@ -68,6 +68,9 @@ pub struct TransitionRules {
     /// when meeting it, and an up vector that near finds no footprint and no crossed edge. At 0
     /// only an exactly parallel movement is refused, and the up vector is not tested at all.
     pub parallel_band: f32,
+    /// A mover not on the ground that an interior cell's tree stops or moves, with no collision
+    /// normal yet, collided with what is under it: its collision normal is straight up.
+    pub env_collision_normal_up: bool,
     /// The world's own slide along what the mover meets ([`Slide`]), where it works the slide
     /// otherwise than this client; when `None`, the shared slide
     /// ([`super::collide::slide_sphere`]).
@@ -154,6 +157,7 @@ impl Default for TransitionRules {
             placement_ring_fraction: 1.0,
             placement_lifts_before_scatter: false,
             parallel_band: EPSILON,
+            env_collision_normal_up: false,
             slide: None,
         }
     }
