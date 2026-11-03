@@ -116,6 +116,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.the-players-body-does-what-the-server-asks",
+        says: "A push from the server takes the player's body off the ground; a slider the network                moves goes to its value, one the character template leaves to the client does not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYSICS-EVENTS"),
+        station: "auberean-shell::dat::session::the_players_body_does_what_the_server_asks",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.the-player-moves-while-its-body-does-falling-too",
         says: "The player moves while its body does, falling as much as running: dropped from high \
                up, it moves as it falls straight down with no speed along the ground, and stops \

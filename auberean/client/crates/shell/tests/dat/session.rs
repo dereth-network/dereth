@@ -2819,6 +2819,88 @@ fn the_player_arrives_and_runs_in_a_room_with_no_doorways() {
     assert!(s.scene.status.contact, "on the floor");
 }
 
+/// What the server asks of the player's body, it does: a push takes it off the ground and up; a
+/// slider the network moves goes to its value, one the character template leaves to the client does
+/// not; a list of effects meant only for the player plays. Fixture: a server double playing the
+/// messages at set times, the player standing in the hall.
+///
+/// Behaviour: desktop.bodies.the-players-body-does-what-the-server-asks
+#[test]
+fn the_players_body_does_what_the_server_asks() {
+    use auberean_client_sdk::protocol::physics::{Impulse, ObjectEvent, Slide};
+    const NETWORK: u32 = 0x4000_001D;
+    const THE_CLIENTS: u32 = 0x4000_0016;
+    let sender = ObjectStamp {
+        id: PLAYER,
+        instance_stamp: 1,
+        other_stamp: 0,
+    };
+    let slide = |slider: u32, value: f32| {
+        ServerMessage::MoveSlider(ObjectEvent {
+            sender,
+            action: Slide {
+                slider,
+                value,
+                time: 0.0,
+            },
+        })
+    };
+    let later = [
+        (8.0, slide(NETWORK, 0.25)),
+        (8.0, slide(THE_CLIENTS, 0.25)),
+        (
+            9.0,
+            ServerMessage::Push(ObjectEvent {
+                sender,
+                action: Impulse {
+                    direction: Vec3::new(0.0, 0.0, 8.0),
+                    contact: 0,
+                },
+            }),
+        ),
+    ];
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let mut standing = None;
+    let mut highest = f32::MIN;
+    let mut left_the_ground = false;
+    while s.host.time < 14.0 {
+        step(&mut s);
+        let st = &s.scene.status;
+        if !s.scene.has_player() || s.scene.cells_pending() {
+            continue;
+        }
+        if st.contact && standing.is_none() {
+            standing = Some(st.origin.z);
+        }
+        if standing.is_some() {
+            highest = highest.max(st.origin.z);
+            left_the_ground |= !st.contact;
+        }
+    }
+    let before = standing.expect("it stood");
+    let figure = s.scene.player_figure().expect("the player's figure");
+    assert!(
+        (figure.sliders.desired(NETWORK) - 0.25).abs() < 1e-3,
+        "the network's slider moved: {}",
+        figure.sliders.desired(NETWORK)
+    );
+    let local = figure.sliders.desired(THE_CLIENTS);
+    assert!((local - 0.25).abs() > 1e-3, "the client's stays: {local}");
+    assert!(left_the_ground, "the push took it off the ground");
+    assert!(highest > before + 1.0, "up: {before} to {highest}");
+}
+
 /// A player in deep water swims: on the bottom of a lake 20 m deep (block `0x9889`, its surface at
 /// 139.45 m) the water lifts it, its water line coming to the surface, and holding the key moves it
 /// at the water's speed, its description's, not the ground's or none.

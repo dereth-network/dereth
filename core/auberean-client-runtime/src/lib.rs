@@ -109,9 +109,10 @@ pub const EXIT_PORTAL_SPACE: u32 = 0x8212_001B;
 /// behavior played and stopped, a change of mode (gone through, or set at once), an effect played
 /// and stopped, a combat story, a move ordered, the scales of its speed, its acceleration and its
 /// jump, and where it looks (what at, and its head's direction).
-pub const PHYSICS_EVENTS: [u32; 13] = [
+pub const PHYSICS_EVENTS: [u32; 29] = [
     0x1007F, 0x10080, 0x10082, 0x100A9, 0x100A0, 0x100A1, 0x100A8, 0x10083, 0x10092, 0x10093,
-    0x100BA, 0x10096, 0x100C9,
+    0x100BA, 0x10096, 0x100C9, 0x10081, 0x10091, 0x10094, 0x10095, 0x10098, 0x10099, 0x1009B,
+    0x100A2, 0x100A5, 0x100A6, 0x100A7, 0x100B5, 0x100BE, 0x100C5, 0x100CF, 0x100D2,
 ];
 /// How many of them are kept for a scene that has not taken them.
 pub const PHYSICS_KEPT: usize = 1024;
@@ -302,9 +303,11 @@ pub struct Client {
     pub shown: Vec<host::Shown>,
     /// The notices the scripts sent the panels, in order, for a front end to take.
     pub notices: Vec<host::PanelNotice>,
-    /// What the server asked of the objects' bodies ([`PHYSICS_EVENTS`]: the behaviors they play
-    /// and stop, their modes, the effects they play and stop, the combat stories told on them, the
-    /// moves it orders, their speed, acceleration and jump scales, where they look), in the order
+    /// What the server asked of the objects' bodies ([`PHYSICS_EVENTS`]: the behaviors they play,
+    /// stop and let go of, their modes, sliders and motion descriptions, the effects they play and
+    /// stop, the combat stories told on them, the moves it orders, the pushes it gives them, their
+    /// speed, acceleration and jump scales, what the ground does to their motion, where they look,
+    /// the missiles it launches), in the order
     /// it took effect, for the scene to play. When no scene takes them, the oldest
     /// [`PHYSICS_KEPT`] go once twice that many are kept (the heads' directions come many times a
     /// second).
