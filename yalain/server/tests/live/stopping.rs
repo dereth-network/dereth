@@ -255,10 +255,18 @@ fn built_facts() -> serde_json::Value {
     serde_json::from_slice(&out.stdout).expect("JSON")
 }
 
-/// A repository holding this build's version as a patch release, its program this very build.
+/// The release this build is, or is a pre-release of: the updater never installs a pre-release, so
+/// a tree that carries one is offered the release itself, and refuses it at its health check.
+fn release_of_this_build() -> String {
+    let facts = built_facts();
+    let version = facts["version"].as_str().expect("a version");
+    version.split('-').next().expect("a version").to_owned()
+}
+
+/// A repository holding this build's release as a patch release, its program this very build.
 fn repository_of_this_build() -> Repository {
     let facts = built_facts();
-    let version = facts["version"].as_str().expect("a version").to_owned();
+    let version = release_of_this_build();
     let repository = Repository::start("yalain", "yalain-v");
     let program = std::fs::read(env!("CARGO_BIN_EXE_yalain")).expect("the built program");
     repository.publish(
@@ -324,10 +332,7 @@ fn the_running_server_counts_down_installs_and_restarts_into_a_patch_release() {
     let dir = scratch("yalain-live-updating");
     let exe = installation(&dir);
     let repository = repository_of_this_build();
-    let version = built_facts()["version"]
-        .as_str()
-        .expect("a version")
-        .to_owned();
+    let version = release_of_this_build();
     let older = older(&version);
     let install = auberean_dat::testing::require_target_install();
     let login = free_ports();
@@ -361,6 +366,30 @@ fn the_running_server_counts_down_installs_and_restarts_into_a_patch_release() {
         &format!("Update: taken for version {older}"),
         0,
     );
+    // A tree that carries a pre-release: the program offered as the release says it is the
+    // pre-release, so the health check refuses it and the server plays on, nothing changed. A
+    // release's own tree goes on through the whole update.
+    let built = built_facts()["version"]
+        .as_str()
+        .expect("a version")
+        .to_owned();
+    if built != version {
+        wait_for(
+            &dir,
+            &mut server,
+            &format!("server reports version {built}"),
+            at,
+        );
+        assert!(
+            server.0.try_wait().expect("its state").is_none(),
+            "it plays on"
+        );
+        assert_eq!(
+            std::fs::read(dir.join("README.md")).expect("it"),
+            b"old guide"
+        );
+        return;
+    }
     let at = wait_for(
         &dir,
         &mut server,
