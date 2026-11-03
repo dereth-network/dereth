@@ -1029,3 +1029,248 @@ fn a_quest_with_no_setup_and_no_recording_moves_its_killers_quest_and_no_fellows
     };
     assert_eq!((phase(&h, me), phase(&h, them)), (2, 1));
 }
+
+/// A step of a play of a quest a person gives: what the player does, and the phase its quest is
+/// at after (0: done).
+#[derive(Clone, Copy)]
+enum Do {
+    Use(u32),
+    Kill(u32),
+}
+
+/// Quests the January 2017 servers gave at a person's use, moved by kills (and uses between), and
+/// took back at the same person's use, played in the order a recording played them: the quest, then
+/// each thing done with the phase it leaves, 0 for done. A kill at a last phase that waits moves
+/// nothing.
+fn given_sample() -> Vec<(u32, Vec<(Do, u32)>)> {
+    use Do::{Kill, Use};
+    let hunt = |who: u32, creature: u32, kills: u32| {
+        let mut v = vec![(Use(who), 1)];
+        v.extend((1..=kills).map(|n| (Kill(creature), n + 1)));
+        v.push((Kill(creature), kills + 1));
+        v.push((Use(who), 0));
+        v
+    };
+    vec![
+        // Vorgas, Thanos.
+        (0x4000_01F2, hunt(0x4700_2FF9, 0x4700_2AD9, 1)),
+        // Sanduto, ten Glissna Nefane.
+        (0x8000_0385, hunt(0x4700_3275, 0x4700_2889, 10)),
+        // Lupe, ten rabbits, a last phase of no range.
+        (0x4000_028D, hunt(0x4700_3353, 0x4700_0828, 10)),
+        // Stubby's five rabbits, each at its own phase.
+        (
+            0x4000_0335,
+            vec![
+                (Use(0x4700_335B), 1),
+                (Kill(0x4700_082D), 2),
+                (Kill(0x4700_29B9), 3),
+                (Kill(0x4700_29C1), 4),
+                (Kill(0x4700_29BA), 5),
+                (Kill(0x4700_29A2), 6),
+                (Use(0x4700_335B), 0),
+            ],
+        ),
+        // Shi Kahuawa: his routine (a subquest's ten kills), two uses, him, a last use.
+        (0x8000_0374, {
+            let mut v = vec![(Use(0x4700_3279), 1)];
+            v.extend((1..10).map(|_| (Kill(0x4700_21B9), 1)));
+            v.extend([
+                (Kill(0x4700_21B9), 2),
+                (Use(0x4700_3279), 3),
+                (Use(0x4700_3279), 4),
+                (Kill(0x4700_2C2E), 5),
+                (Use(0x4700_3279), 0),
+            ]);
+            v
+        }),
+        // Fraidy: two subquests of ten kills each.
+        (0x8000_0353, {
+            let mut v = vec![(Use(0x4700_2FAE), 1)];
+            v.extend((0..10).map(|_| (Kill(0x4700_2441), 1)));
+            v.extend((1..10).map(|_| (Kill(0x4700_2439), 1)));
+            v.extend([(Kill(0x4700_2439), 2), (Use(0x4700_2FAE), 0)]);
+            v
+        }),
+    ]
+}
+
+/// **A person gives a kill quest and takes it back as 2017's did**: a sample of quests the
+/// recordings hold from their giving to their end, played through the server over the database's
+/// rows and the creatures' own death effects: each update is one the January 2017 servers sent of
+/// it (reason, kind, id, name, description, icon, challenge, status, phase, journal). A world older
+/// than these rows has nothing to play.
+/// Behaviour: server.quests.a-person-gives-and-takes-back-kill-quests
+#[test]
+fn a_person_gives_a_kill_quest_and_takes_it_back_as_the_recordings_show() {
+    use auberean_testkit::captures::{self, carrier};
+    use yalain_world::quests::status;
+    const UPDATE_QUEST: u32 = 0x8213_0024;
+    let t = &compiled().tables;
+    let sample = given_sample();
+    if !t.quests.steps.iter().any(|s| s.quest == sample[0].0) {
+        println!("this world has no rows for the sample yet: nothing played");
+        return;
+    }
+    let dir = require_install(TARGET);
+    let found = install_dats(&dir).expect("the install");
+    let portal = DatFile::open(
+        &found
+            .iter()
+            .find(|(m, _)| *m == DatName::Portal)
+            .expect("a portal")
+            .1,
+    )
+    .expect("opens");
+    let lib = auberean_script::library::Library::from_record(
+        &portal
+            .read(auberean_script::library::RECORD)
+            .expect("the library's record"),
+    )
+    .expect("the library reads");
+    let index = auberean_testkit::data::require_capture_index();
+    let mut recorded: Vec<Said> = Vec::new();
+    captures::messages(&index, &[carrier::TO_PLAYER], &[2017], |m| {
+        let Some(call) = m.script_call() else { return };
+        if call.function == UPDATE_QUEST {
+            if let Some(s) = said_by(&call.args, &lib) {
+                if sample.iter().any(|(q, _)| *q == s.2) {
+                    recorded.push(s);
+                }
+            }
+        }
+    })
+    .expect("the capture index reads");
+    let install = dat_install();
+    let mut wrong = Vec::new();
+    let mut compared = 0usize;
+    for (quest, play) in &sample {
+        let (mut h, b, me) = served(t);
+        h.server.quest_ids = quest_ids();
+        for (i, (what, after)) in play.iter().enumerate() {
+            let from = h.bots[b].inbox.len();
+            match *what {
+                Do::Use(who) => {
+                    let o = t
+                        .content
+                        .objects
+                        .iter()
+                        .position(|o| o.template == who)
+                        .unwrap_or_else(|| panic!("{who:08X} placed"));
+                    // A person with several quests gives one of them at random: ask until it is
+                    // this one, starting afresh.
+                    let mut tries = 0;
+                    use_person(&mut h, b, me, t, o);
+                    while i == 0 && tries < 60 && !holds(&h, *quest) {
+                        for p in h.server.players.values_mut() {
+                            p.play.quests.clear();
+                        }
+                        use_person(&mut h, b, me, t, o);
+                        tries += 1;
+                    }
+                }
+                Do::Kill(creature) => killed_as(&mut h, me, creature, &install),
+            }
+            let sent: Vec<Said> = h
+                .world_messages(b, from)
+                .iter()
+                .filter_map(|m| match m {
+                    ServerMessage::PlayerCall(c) if c.function.0 == UPDATE_QUEST => {
+                        said_by(&c.args.as_ref()?.0, &lib)
+                    }
+                    _ => None,
+                })
+                .filter(|x| x.2 == *quest)
+                .collect();
+            for s in sent {
+                compared += 1;
+                if !recorded.contains(&s) {
+                    wrong.push((i, s));
+                }
+            }
+            let held = h.server.players.values().next().and_then(|p| {
+                p.play
+                    .quests
+                    .iter()
+                    .find(|x| x.quest == *quest)
+                    .map(|x| (x.status, x.phase))
+            });
+            if *after == 0 {
+                assert_eq!(
+                    held.map(|x| x.0),
+                    Some(status::COMPLETED),
+                    "{quest:08X} done at {i}"
+                );
+            } else {
+                assert_eq!(held, Some((status::UNDERWAY, *after)), "{quest:08X} at {i}");
+            }
+        }
+    }
+    println!("{compared} updates compared, {} differ", wrong.len());
+    assert!(compared > 50, "{compared} updates compared");
+    assert!(wrong.is_empty(), "{:08X?}", &wrong[..wrong.len().min(6)]);
+}
+
+/// Does the player hold this quest under way?
+fn holds(h: &Harness, quest: u32) -> bool {
+    h.server.players.values().next().is_some_and(|p| {
+        p.play
+            .quests
+            .iter()
+            .any(|x| x.quest == quest && x.phase != 0)
+    })
+}
+
+/// **A board's postings are given one at a time**: the Postings board gives one of the quests its
+/// description lists, says its line, and gives no other while that one is under way. A world older
+/// than these rows has nothing to play.
+/// Behaviour: server.quests.a-board-gives-what-it-lists
+#[test]
+fn a_postings_board_gives_one_of_the_quests_it_lists_at_a_time() {
+    let t = &compiled().tables;
+    const BOARD: u32 = 0x4700_3182;
+    let listed: Vec<u32> = t
+        .quests
+        .steps
+        .iter()
+        .filter(|s| s.needs == 0 && s.trigger == yalain_content::quests::Trigger::Use(BOARD))
+        .map(|s| s.quest)
+        .collect();
+    if listed.is_empty() {
+        println!("this world has no rows for the board yet: nothing played");
+        return;
+    }
+    assert!(listed.len() > 5, "{} postings", listed.len());
+    let (mut h, b, me) = served(t);
+    let o = t
+        .content
+        .objects
+        .iter()
+        .position(|o| o.template == BOARD)
+        .expect("the board is placed");
+    let said = use_person(&mut h, b, me, t, o);
+    let held = |h: &Harness| -> Vec<u32> {
+        h.server
+            .players
+            .values()
+            .next()
+            .map(|p| {
+                // Its subquests come with it, hidden.
+                p.play
+                    .quests
+                    .iter()
+                    .map(|x| x.quest)
+                    .filter(|q| listed.contains(q))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let first = held(&h);
+    assert_eq!(first.len(), 1, "one posting taken");
+    assert!(
+        said.iter().any(|(_, s)| *s == Some(0x9177_9F7E)),
+        "it says its line: {said:08X?}"
+    );
+    use_person(&mut h, b, me, t, o);
+    assert_eq!(held(&h), first, "none other while that one is under way");
+}

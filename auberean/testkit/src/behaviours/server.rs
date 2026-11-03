@@ -6076,6 +6076,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-board-gives-what-it-lists",
+        says: "A postings board gives one of the quests its own description lists, saying its \
+               line, and no other while that one is under way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-GIVERS-BOARD"),
+        station: "yalain-testkit::corpus::world_db::a_postings_board_gives_one_of_the_quests_it_lists_at_a_time",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.a-kill-advances-from-the-phase-before",
         says: "An effect that advances a quest to a phase moves it there only from the phase \
                before, and one that completes it only from its last phase; from any other phase \
@@ -6172,6 +6181,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-KILL-LAST-WAITS"),
         station: "yalain-testkit::cpu::play::kill_quests::a_last_phase_that_waits_for_something_else_is_not_ended_by_a_kill",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-person-gives-and-takes-back-kill-quests",
+        says: "A sample of kill quests the January 2017 recordings hold from giving to end, played \
+               through the database's rows and the creatures' death effects, sends only updates \
+               those servers sent, and ends at the use of the person who took them back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-GIVERS"),
+        station: "yalain-testkit::corpus::world_db::a_person_gives_a_kill_quest_and_takes_it_back_as_the_recordings_show",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.a-strangers-kill-moves-nothing",
