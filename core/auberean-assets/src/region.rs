@@ -7,12 +7,12 @@
 //! fog type...) indexed by the numbers a landblock's vertex words and the block maps carry.
 
 use auberean_dat::reader::Result;
-use auberean_dat::{QualifiedIds, Reader};
+use auberean_dat::{QualifiedIds, Reader, Writer};
 use auberean_primitives::DataId;
 
 use crate::common::Color32;
 use crate::property::Property;
-use crate::{Context, Decode};
+use crate::{Context, Decode, Encode};
 
 /// A 32-bit truth word, alignment, then the item when the word is set.
 fn optional<T>(
@@ -25,6 +25,15 @@ fn optional<T>(
         Ok(Some(item(r)?))
     } else {
         Ok(None)
+    }
+}
+
+/// A 32-bit truth word, alignment, then the item when there is one.
+fn write_optional<T>(w: &mut Writer, item: Option<&T>, write: impl FnOnce(&mut Writer, &T)) {
+    w.u32(u32::from(item.is_some()));
+    w.align();
+    if let Some(item) = item {
+        write(w, item);
     }
 }
 
@@ -55,6 +64,16 @@ impl Decode for BlockMap {
     }
 }
 
+impl Encode for BlockMap {
+    // D2-12590
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(id);
+        w.u32(self.height);
+        w.u32(self.width);
+        w.bytes(&self.cells);
+    }
+}
+
 /// One entry of a region's list of descriptions: the record and the index it is known by.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct IndexedRecord {
@@ -78,6 +97,19 @@ fn indexed_records(r: &mut Reader<'_>) -> Result<Vec<IndexedRecord>> {
     }
     r.align()?;
     Ok(v)
+}
+
+/// A counted list of record ids, then the same count of indices, then alignment.
+// D2-07478
+fn write_indexed_records(w: &mut Writer, v: &[IndexedRecord]) {
+    w.u32(u32::try_from(v.len()).unwrap_or(u32::MAX));
+    for e in v {
+        w.data_id(e.record);
+    }
+    for e in v {
+        w.u32(e.index);
+    }
+    w.align();
 }
 
 /// The region (`.rgn`, `0x0F000000`+): the world's name, its maps, its size in landblocks, the
@@ -162,6 +194,38 @@ impl Decode for Region {
             properties,
             world_maps,
         })
+    }
+}
+
+impl Encode for Region {
+    // D2-07499, D2-07491
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(id);
+        w.u32(self.number);
+        w.narrow_string(&self.name);
+        w.data_id(self.map);
+        w.f32(self.map_scale);
+        w.data_id(self.test_map);
+        w.u32(self.test_map_size);
+        w.data_id(self.landscape);
+        w.u32(self.blocks_long);
+        w.u32(self.blocks_wide);
+        for list in [
+            &self.sounds,
+            &self.scenes,
+            &self.terrains,
+            &self.surfaces,
+            &self.encounters,
+            &self.detail_maps,
+            &self.skies,
+            &self.waters,
+            &self.fogs,
+            &self.properties,
+            &self.world_maps,
+        ] {
+            write_indexed_records(w, list);
+        }
+        w.align();
     }
 }
 
@@ -317,6 +381,21 @@ impl SceneryKind {
     }
 }
 
+impl SceneryKind {
+    // D2-12392, D2-12393, D2-12400
+    fn write(&self, w: &mut Writer) {
+        w.u32(self.index);
+        w.align();
+        w.u32(self.sound);
+        w.align();
+        w.list(&self.scenes, |w, e| {
+            w.data_id(e.scene);
+            w.f32(e.frequency);
+            w.u32(e.rotate);
+        });
+    }
+}
+
 /// The region's scenery (`.scd`, `0x11000000`+): every kind of scenery.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct SceneDesc {
@@ -338,6 +417,15 @@ impl Decode for SceneDesc {
     }
 }
 
+impl Encode for SceneDesc {
+    // D2-07430, D2-07429
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(self.version);
+        w.u32(id);
+        w.list(&self.scene_types, |w, k| k.write(w));
+    }
+}
+
 /// Which scenery a terrain type grows: a scenery kind and its index.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct TerrainScenery {
@@ -355,6 +443,15 @@ impl TerrainScenery {
             kind,
             index: r.u32()?,
         })
+    }
+}
+
+impl TerrainScenery {
+    // D2-12498
+    fn write(self, w: &mut Writer) {
+        w.u32(self.kind);
+        w.align();
+        w.u32(self.index);
     }
 }
 
@@ -395,6 +492,19 @@ impl TerrainType {
     }
 }
 
+impl TerrainType {
+    // D2-12496, D2-12491
+    fn write(&self, w: &mut Writer) {
+        w.narrow_string(&self.name);
+        w.u32(self.surface);
+        w.align();
+        w.u32(self.index);
+        w.f32(self.hard_edge_angle);
+        write_optional(w, self.default_scenery.as_ref(), |w, e| e.write(w));
+        w.list(&self.scenery, |w, e| e.write(w));
+    }
+}
+
 /// The region's terrain (`.trd`, `0x12000000`+): every kind of terrain.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct TerrainDesc {
@@ -418,6 +528,16 @@ impl Decode for TerrainDesc {
             default_terrain,
             terrains,
         })
+    }
+}
+
+impl Encode for TerrainDesc {
+    // D2-07447, D2-07442
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(id);
+        w.u32(self.version);
+        write_optional(w, self.default_terrain.as_ref(), |w, t| t.write(w));
+        w.list(&self.terrains, |w, t| t.write(w));
     }
 }
 
@@ -884,6 +1004,48 @@ impl FogAndLight {
     }
 }
 
+impl FogAndLight {
+    /// The combine code the channels' modes make: seven 3-bit modes, ambient brightness lowest.
+    // D2-12542, D2-12537
+    #[must_use]
+    pub fn code(&self) -> u32 {
+        self.combines
+            .iter()
+            .enumerate()
+            .fold(0, |code, (i, c)| code | ((c.mode & 7) << (3 * i)))
+    }
+
+    // D2-12543, D2-12544
+    fn write(&self, w: &mut Writer) {
+        w.f32(self.fog_min);
+        w.f32(self.fog_max);
+        w.f32(self.fog_sky);
+        w.f32(self.fog_density);
+        w.u32(self.fog_kind);
+        self.fog_color.write(w);
+        w.f32(self.direct_brightness);
+        self.direct_color.write(w);
+        w.f32(self.ambient_brightness);
+        self.ambient_color.write(w);
+        // A stored mode above 4, which reads as multiply, stays as it was stored.
+        let kept = (0..7).fold(0, |kept, i| {
+            let field = (self.combine_code >> (3 * i)) & 7;
+            if field > 4 && self.combines[i].mode == 0 {
+                kept | (field << (3 * i))
+            } else {
+                kept
+            }
+        });
+        w.u32(self.code() | kept);
+        for c in &self.combines {
+            if c.mode == 1 {
+                w.f32(c.first);
+                w.f32(c.second);
+            }
+        }
+    }
+}
+
 /// The fog and light under water from one depth down.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct WaterLight {
@@ -938,6 +1100,26 @@ impl WaterType {
     }
 }
 
+impl WaterType {
+    // D2-12550, D2-12551, D2-12557
+    fn write(&self, w: &mut Writer) {
+        w.u32(self.index);
+        w.u32(self.no_water);
+        if self.no_water == 0 {
+            w.data_id(self.above_material);
+            w.data_id(self.below_material);
+            w.data_id(self.physics_material);
+            w.f32(self.tile_width);
+            w.f32(self.poly_width);
+            self.color.write(w);
+            w.list(&self.lighting, |w, l| {
+                w.f32(l.depth);
+                l.light.write(w);
+            });
+        }
+    }
+}
+
 /// The region's water (`.wtd`, `0x16000000`+).
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct WaterDesc {
@@ -971,6 +1153,18 @@ impl Decode for WaterDesc {
     }
 }
 
+impl Encode for WaterDesc {
+    // D2-07519, D2-07520
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(self.version);
+        w.u32(id);
+        w.data_id(self.height_map);
+        w.data_id(self.kind_map);
+        write_optional(w, self.default_water.as_ref(), |w, t| t.write(w));
+        w.list(&self.waters, |w, t| t.write(w));
+    }
+}
+
 /// One kind of fog: its index and its fog and light.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct FogType {
@@ -986,6 +1180,14 @@ impl FogType {
             index: r.u32()?,
             light: FogAndLight::read(r)?,
         })
+    }
+}
+
+impl FogType {
+    // D2-12559
+    fn write(&self, w: &mut Writer) {
+        w.u32(self.index);
+        self.light.write(w);
     }
 }
 
@@ -1025,6 +1227,20 @@ impl Decode for FogDesc {
             default_fog,
             fogs,
         })
+    }
+}
+
+impl Encode for FogDesc {
+    // D2-07536, D2-07537
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(self.version);
+        w.u32(id);
+        w.data_id(self.distance_map);
+        w.data_id(self.volume_map);
+        w.data_id(self.bottom_map);
+        w.data_id(self.top_map);
+        write_optional(w, self.default_fog.as_ref(), |w, t| t.write(w));
+        w.list(&self.fogs, |w, t| t.write(w));
     }
 }
 
@@ -1340,6 +1556,26 @@ impl Decode for Landscape {
             vertex_fields,
             heights,
         })
+    }
+}
+
+impl Encode for Landscape {
+    // D2-13315, D2-13314
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(id);
+        w.f32(self.cell_side);
+        w.i32(self.cells_per_block_side);
+        w.i32(self.pixels_per_cell_side);
+        w.f32(self.max_object_height);
+        w.f32(self.sky_height);
+        w.f32(self.road_width);
+        let f = self.vertex_fields;
+        for v in [f.terrain, f.scene, f.encounter, f.color, f.road, f.replace] {
+            w.u32(v);
+        }
+        for h in &self.heights {
+            w.f32(*h);
+        }
     }
 }
 

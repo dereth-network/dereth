@@ -197,6 +197,7 @@ impl Decode for LightInfo {
 }
 
 /// A doorway from one interior cell to another (or to the outside).
+// D2-04237, D2-04238
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct CellPortal {
     pub flags: u16,
