@@ -7,6 +7,7 @@
 use dereth_launch::pad::{reach, Rect, Step};
 
 /// The event each of the page's moves goes to it as.
+#[cfg(any(windows, test))]
 pub const EVENT: &str = "pad";
 
 /// Which of the page's controls (where each is drawn, in the page's order) a move one `step` from

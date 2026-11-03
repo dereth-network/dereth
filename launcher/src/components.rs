@@ -1381,6 +1381,7 @@ pub fn remove_component(shared: State<'_, Shared>, product: Product) -> Result<(
 }
 
 pub fn command(program: &Path) -> Command {
+    #[cfg_attr(not(windows), allow(unused_mut))]
     let mut command = Command::new(program);
     #[cfg(windows)]
     {

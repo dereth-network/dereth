@@ -171,7 +171,10 @@ mod tests {
             r#"{"realm":"auberean","updates":"auberean"}"#,
         )
         .unwrap();
-        assert_eq!(Defaults::read(&dir, &dir.join("data")).updates, Game::Auberean);
+        assert_eq!(
+            Defaults::read(&dir, &dir.join("data")).updates,
+            Game::Auberean
+        );
         let _ = std::fs::remove_dir_all(&dir);
 
         let app = temp("bundle");
@@ -184,7 +187,10 @@ mod tests {
             r#"{"realm":"auberean","updates":"auberean"}"#,
         )
         .unwrap();
-        assert_eq!(Defaults::read(&macos, &macos.join("data")).realm, Realm::Auberean);
+        assert_eq!(
+            Defaults::read(&macos, &macos.join("data")).realm,
+            Realm::Auberean
+        );
         let _ = std::fs::remove_dir_all(&app);
     }
 

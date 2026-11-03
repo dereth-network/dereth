@@ -151,6 +151,7 @@ pub fn linux_mimeapps_file(path: &Path, current: Option<&str>) -> Option<(PathBu
 /// Registers the scheme for this launcher, when it is a release's (`release`); a checkout's build
 /// leaves the system as it is. A failure is reported and otherwise ignored: the launcher runs
 /// without its links rather than not at all.
+#[cfg_attr(not(windows), allow(clippy::needless_return))]
 pub fn register(release: bool) {
     if !release {
         return;
