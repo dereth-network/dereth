@@ -1568,7 +1568,11 @@ const FILTERS = [
 
 // The emulators a player can name for a server they add, by the backend's names: Unknown, the
 // default, then Empyrean first.
-const EMULATORS = [["unknown", "Unknown"], ["empyrean", "Empyrean"], ["ace", "ACE"], ["classic_ace", "ClassicACE"], ["gdle", "GDLE"]];
+// The server software a world added by hand may name, by its game.
+const EMULATORS = {
+  dereth: [["unknown", "Unknown"], ["empyrean", "Empyrean"], ["ace", "ACE"], ["classic_ace", "ClassicACE"], ["gdle", "GDLE"]],
+  auberean: [["unknown", "Unknown"], ["yalain", "Yalain"]],
+};
 
 const isCustom = (w) => ui.snap.state.custom_worlds.some((c) => c.slug === w.slug);
 
@@ -1674,7 +1678,7 @@ function worlds() {
   const stale = s.list_state === "unavailable" && s.worlds.length
     ? `<p class="small warn">${esc(s.list_error ?? "")} — showing the list from ${esc(fetched ? fetched.toLocaleString() : "before")}</p>` : "";
   const a = ui.addServer;
-  const emulatorOpts = EMULATORS.map(([v, l]) => `<option value="${v}" ${a?.emulator === v ? "selected" : ""}>${l}</option>`).join("");
+  const emulatorOpts = (EMULATORS[a?.game ?? REALMS[ui.realm].game] ?? EMULATORS.dereth).map(([v, l]) => `<option value="${v}" ${a?.emulator === v ? "selected" : ""}>${l}</option>`).join("");
   const rulesOpts = [["", "Unknown"], ["PvE", "PvE"], ["PvP", "PvP"]].map(([v, l]) => `<option value="${v}" ${a?.ruleset === v ? "selected" : ""}>${l}</option>`).join("");
   const form = a
     ? `<section class="panel pending"><header><h1>ADD A WORLD</h1></header>
@@ -1693,7 +1697,7 @@ function worlds() {
   return `<div class="column wide" style="height:100%">
       ${form}
       <section class="panel grow"><header><h1>WORLDS</h1><span class="muted small">${rows.length} worlds</span>
-        ${ui.realm === "dereth" ? `<button class="btn" data-act="server-open" title="Add a world by its address">+ Add world</button>` : ""}
+        <button class="btn" data-act="server-open" title="Add a world by its address">+ Add world</button>
         <button class="btn icon-btn" data-act="refresh" title="Fetch the world list again">↻</button></header>
         <div class="btns" style="margin-bottom:12px">
           <input id="search" class="field" autocomplete="off" style="max-width:360px" placeholder="search" value="${esc(ui.search)}">
