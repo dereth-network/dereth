@@ -1378,6 +1378,7 @@ fn a_quest_an_admin_takes_off_a_player_leaves_its_clients_list_at_once() {
             last_waits: false,
             hero_only: false,
             required: None,
+            pay: yalain_content::quests::CompletionPay::default(),
         };
         h.server.quests = yalain_content::QuestTable {
             quests: vec![def(SHOWN, false), def(OTHER, false), def(HIDDEN, true)],

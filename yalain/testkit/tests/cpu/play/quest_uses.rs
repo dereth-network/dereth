@@ -84,6 +84,7 @@ fn quest(id: u32, table: u32, phases: usize) -> QuestDef {
         fellows: yalain_content::quests::Fellows::default(),
         last_waits: false,
         hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
         required: None,
     }
 }

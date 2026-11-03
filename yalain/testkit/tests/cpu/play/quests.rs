@@ -8,13 +8,15 @@ use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use auberean_script::native_object::QuestInfo;
 use auberean_script::wire::In;
+use yalain_content::quests::CompletionPay;
 use yalain_content::quests::{Need, Place, QuestDef, QuestTable, Step, Trigger, Update};
 use yalain_content::{ContentObject, ContentPack, Description, Facts, Kind};
 use yalain_testkit::play::server_call;
 use yalain_testkit::{test_catalog, Harness, TEST_ITEM};
 use yalain_world::calls::{self, Value};
 use yalain_world::graph::{Builder, Slot};
-use yalain_world::quests::{completion_xp, status};
+use yalain_world::levels::{Level, LevelTable};
+use yalain_world::quests::{completion_pay, completion_xp, status};
 use yalain_world::state::QuestState;
 
 const USE: u32 = 0x8216_0016;
@@ -78,6 +80,7 @@ fn quest(id: u32, xp: u64, challenge: i32) -> QuestDef {
         fellows: yalain_content::quests::Fellows::default(),
         last_waits: false,
         hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
         required: None,
     }
 }
@@ -342,6 +345,169 @@ fn a_completion_pays_its_experience_weighed_by_challenge_against_level() {
     assert_eq!(completion_xp(100, 3, 16), 55);
     assert_eq!(completion_xp(1000, 3, 40), 10);
     assert_eq!(completion_xp(500, -999, 40), 500);
+}
+
+/// A level table where a level takes the amounts given to reach the next, from level 1.
+fn level_costs(costs: &[(i32, u64)]) -> LevelTable {
+    let top = costs.iter().map(|(l, _)| *l).max().unwrap_or(0) + 1;
+    let mut xp = 0;
+    let levels = (1..=top)
+        .map(|level| {
+            let this = Level {
+                xp,
+                ..Level::default()
+            };
+            xp += costs
+                .iter()
+                .find(|(l, _)| *l == level)
+                .map_or(1, |(_, cost)| *cost);
+            this
+        })
+        .collect();
+    LevelTable { levels }
+}
+
+fn paying(challenge: i32, pay: CompletionPay) -> QuestDef {
+    QuestDef {
+        pay,
+        ..quest(HALL_QUEST, 0, challenge)
+    }
+}
+
+/// A quest may pay a share of what its player's level takes to reach the next, rounded down: the
+/// amounts below are what January 2017's completions paid, with each kind of limit a setup names.
+/// Behaviour: server.quests.completion-pays-a-share
+#[test]
+fn a_completion_pays_a_share_of_what_the_level_takes_within_its_limits() {
+    let levels = level_costs(&[
+        (42, 21_000_000),
+        (46, 83_998_037),
+        (47, 110_785_010),
+        (49, 191_266_097),
+        (52, 600_000_000),
+        (55, 1_491_900_877),
+        (57, 2_992_628_674),
+    ]);
+    let share = |share: f32| CompletionPay {
+        share,
+        flat: true,
+        ..CompletionPay::default()
+    };
+    assert_eq!(
+        completion_pay(&levels, &paying(49, share(0.04)), 49),
+        7_650_643,
+        "the share"
+    );
+    let at_level = |s: f32, level: i32| CompletionPay {
+        most_at_level: Some((s, level)),
+        ..share(s)
+    };
+    assert_eq!(
+        completion_pay(&levels, &paying(46, at_level(0.045, 46)), 49),
+        3_779_911,
+        "over the level its limit names, what that level comes to"
+    );
+    assert_eq!(
+        completion_pay(&levels, &paying(52, at_level(0.03, 52)), 49),
+        5_737_982,
+        "under that level, its own"
+    );
+    let chaos = CompletionPay {
+        least: 40_000_000,
+        most: 100_000_000,
+        ..share(0.02)
+    };
+    assert_eq!(
+        completion_pay(&levels, &paying(-999, chaos), 47),
+        40_000_000,
+        "at least its least"
+    );
+    assert_eq!(
+        completion_pay(&levels, &paying(-999, chaos), 57),
+        59_852_572,
+        "over its least, its own"
+    );
+    let most = CompletionPay {
+        least: 1_000_000,
+        most: 5_000_000,
+        ..share(0.35)
+    };
+    assert_eq!(
+        completion_pay(&levels, &paying(-999, most), 42),
+        5_000_000,
+        "at most its most"
+    );
+}
+
+/// A quest whose setup says its challenge is ignored pays its amount whole, and any other is
+/// weighed: at level 13, a challenge 1 quest of 300 pays 300 or 210.
+/// Behaviour: server.quests.completion-paid-whole
+#[test]
+fn a_completion_its_setup_says_ignores_its_challenge_is_paid_whole() {
+    let levels = LevelTable::default();
+    let weighed = quest(HALL_QUEST, 300, 1);
+    assert_eq!(completion_pay(&levels, &weighed, 13), 210);
+    let whole = QuestDef {
+        pay: CompletionPay {
+            flat: true,
+            ..CompletionPay::default()
+        },
+        ..weighed
+    };
+    assert_eq!(completion_pay(&levels, &whole, 13), 300);
+}
+
+/// Completing a quest that pays a share adds that much to the player's experience.
+/// Behaviour: server.quests.completion-pays-a-share
+#[test]
+fn completing_a_quest_that_pays_a_share_adds_it_to_the_players_experience() {
+    let mut h = Harness::new();
+    h.server.levels = level_costs(&[(1, 1_000)]);
+    h.server.content = ContentPack {
+        objects: vec![object(
+            EXPLORER,
+            EXPLORER_TEMPLATE,
+            Kind::Npc,
+            [61.0, 241.0, -44.6],
+        )],
+        ..ContentPack::default()
+    };
+    h.server.quests = QuestTable {
+        quests: vec![paying(
+            -999,
+            CompletionPay {
+                share: 0.5,
+                flat: true,
+                ..CompletionPay::default()
+            },
+        )],
+        steps: vec![step(
+            HALL_QUEST,
+            1,
+            Trigger::Use(EXPLORER_TEMPLATE),
+            Update::Complete,
+        )],
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    at_phase(&mut h, HALL_QUEST, 1);
+    let total = |h: &Harness| {
+        h.server
+            .players
+            .values()
+            .next()
+            .and_then(|p| {
+                yalain_world::quals::long(&p.qualities, yalain_world::progress::q::TOTAL_XP)
+            })
+            .unwrap_or(0)
+    };
+    let before = total(&h);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(USE, &[use_on(EXPLORER, 0, me)]),
+    );
+    h.run(20);
+    assert_eq!(total(&h) - before, 500);
 }
 
 /// A step for some races runs only for a player of one of them: of two steps on the same use, one

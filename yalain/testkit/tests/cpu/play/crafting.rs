@@ -603,6 +603,7 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
                 fellows: yalain_content::quests::Fellows::default(),
                 last_waits: false,
                 hero_only: false,
+                pay: yalain_content::quests::CompletionPay::default(),
                 required: None,
             }],
             steps: Vec::new(),

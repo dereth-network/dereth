@@ -50,6 +50,7 @@ fn quest(phases: u32) -> QuestDef {
         fellows: Fellows::default(),
         last_waits: false,
         hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
         required: None,
     }
 }
@@ -255,6 +256,7 @@ fn a_last_phase_that_waits_for_something_else_is_not_ended_by_a_kill() {
     let (mut h, b, me) = world(QuestDef {
         last_waits: true,
         hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
         required: None,
         ..quest(3)
     });
@@ -526,6 +528,7 @@ fn a_killer_under_a_quests_least_level_is_refused_it_and_told() {
 fn a_kill_or_a_step_gives_a_heros_quest_only_to_a_hero() {
     let (mut h, b, me) = world(QuestDef {
         hero_only: true,
+        pay: yalain_content::quests::CompletionPay::default(),
         ..quest(3)
     });
     let from = h.bots[b].inbox.len();

@@ -77,6 +77,7 @@ use yalain_net::{ConnId, ServerNet};
 use yalain_store::Store;
 
 use crate::graph::Builder;
+use crate::levels::LevelTable;
 use crate::progress::{self, Award};
 use crate::state::QuestState;
 use crate::{session, Clock, Server};
@@ -1172,6 +1173,42 @@ pub fn completion_xp(xp: u64, challenge: i32, level: i32) -> u64 {
     xp * share / 100
 }
 
+/// The experience a quest's completion pays a player of a level. A quest may pay a share of what
+/// the player's level takes to reach the next, rounded down, with its limits (2017: 13 of 13
+/// completions of such quests whose player's level was known, exactly, each kind of limit among them);
+/// a share's limit at a level is that share of what that level takes. A quest with no share
+/// pays its amount. Either is weighed by its challenge unless the quest says it is paid whole (2017:
+/// where weighing would change it, the quests that say so 2 of 2 whole, the others 6 of 6 weighed).
+#[must_use]
+pub fn completion_pay(levels: &LevelTable, def: &QuestDef, level: i32) -> u64 {
+    let pay = &def.pay;
+    let amount = if pay.share > 0.0 {
+        #[allow(
+            clippy::cast_precision_loss,
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss
+        )]
+        let share_of = |share: f32, level: i32| -> u64 {
+            (f64::from(share) * levels.to_next(level).unwrap_or(0) as f64) as u64
+        };
+        let mut paid = share_of(pay.share, level);
+        if let Some((share, at)) = pay.most_at_level {
+            paid = paid.min(share_of(share, at));
+        }
+        if pay.most > 0 {
+            paid = paid.min(pay.most);
+        }
+        paid.max(pay.least)
+    } else {
+        def.xp
+    };
+    if pay.flat {
+        amount
+    } else {
+        completion_xp(amount, def.challenge, level)
+    }
+}
+
 /// Make a quest update and tell the player.
 pub fn apply<S: Store>(
     s: &mut Server<S>,
@@ -1202,13 +1239,15 @@ pub fn apply<S: Store>(
     if xp > 0 {
         progress::award(s, net, world, xp, Award::Step);
     }
-    if up == Update::Complete && def.xp > 0 {
+    if up == Update::Complete {
         let level = s
             .players
             .get(&world)
             .map_or(1, |p| crate::examine::level_of(&p.qualities));
-        let paid = completion_xp(def.xp, def.challenge, level);
-        progress::award(s, net, world, paid, Award::Quest(def.name));
+        let paid = completion_pay(&s.levels, &def, level);
+        if paid > 0 {
+            progress::award(s, net, world, paid, Award::Quest(def.name));
+        }
     }
     let Some(p) = s.players.get_mut(&world) else {
         return;

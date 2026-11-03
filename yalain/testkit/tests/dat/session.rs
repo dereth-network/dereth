@@ -292,6 +292,7 @@ fn a_character_entering_again_gives_the_journal_its_quests() {
             fellows: yalain_content::quests::Fellows::default(),
             last_waits: false,
             hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
             required: None,
         }],
         steps: Vec::new(),

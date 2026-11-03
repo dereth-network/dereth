@@ -97,6 +97,8 @@ struct Fake {
     fellows: yalain_content::quests::Fellows,
     /// The least level the quest's setup names.
     min_level: i32,
+    setup_xp: u64,
+    setup_pay: yalain_content::quests::CompletionPay,
 }
 
 impl Fake {
@@ -129,6 +131,8 @@ impl Fake {
             entities,
             fellows: yalain_content::quests::Fellows::default(),
             min_level: 0,
+            setup_xp: 0,
+            setup_pay: yalain_content::quests::CompletionPay::default(),
         }
     }
 }
@@ -195,6 +199,8 @@ impl Install for Fake {
             last_waits: false,
             min_level: self.min_level,
             hero_only: false,
+            xp: self.setup_xp,
+            pay: self.setup_pay,
             required: None,
         })
     }
@@ -1451,4 +1457,65 @@ fn a_quests_least_level_is_its_setups_unless_its_row_names_one() {
     );
     let t = compile(&merge(&read(&files).unwrap()).unwrap(), &install).unwrap();
     assert_eq!(t.quests.quests[0].min_level, 3);
+}
+
+/// What a completion pays is the setup's, unless the row says: a row's amount is paid in place of
+/// the setup's share, and a row's share in place of all the setup says, paid whole, up to the row's
+/// level.
+/// Behaviour: server.quests.completion-pays-a-share
+#[test]
+fn what_a_quest_pays_is_its_setups_unless_its_row_says() {
+    use yalain_content::quests::CompletionPay;
+    let setup = CompletionPay {
+        share: 0.04,
+        least: 7,
+        most_at_level: Some((0.03, 40)),
+        ..CompletionPay::default()
+    };
+    let install = Fake {
+        setup_xp: 90,
+        setup_pay: setup,
+        ..Fake::new()
+    };
+    let pay = |extra: &str| {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "duration = 72000",
+            &format!("duration = 72000\n{extra}"),
+        );
+        let t = compile(&merge(&read(&files).unwrap()).unwrap(), &install).unwrap();
+        (t.quests.quests[0].xp, t.quests.quests[0].pay)
+    };
+    assert_eq!(
+        pay("xp_share = 0.005\nxp_share_level = 72").1,
+        CompletionPay {
+            share: 0.005,
+            most_at_level: Some((0.005, 72)),
+            flat: true,
+            ..CompletionPay::default()
+        },
+        "the row's share"
+    );
+    let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &install).unwrap();
+    assert_eq!(
+        t.quests.quests[0].pay.share, setup.share,
+        "left out: the setup's"
+    );
+    let (xp, row) = pay("xp = 12");
+    assert_eq!((xp, row.share), (12, 0.0), "a row's amount, no share");
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "duration = 72000",
+        "duration = 72000\nxp_share = 0.005\nxp_share_level = 72",
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &install).unwrap();
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "kept in the text form"
+    );
 }

@@ -244,6 +244,11 @@ pub struct Quest {
     pub duration: Option<f64>,
     pub retry: Option<f64>,
     pub xp: Option<u64>,
+    /// In place of an amount, the share of what the player's level takes to reach the next that its
+    /// completion pays; left out, as the quest's setup in the install says.
+    pub xp_share: Option<f64>,
+    /// The level at and above which that share pays no more.
+    pub xp_share_level: Option<i32>,
     pub cancellable: Option<bool>,
     /// Whether the quest is shown to its player; left out, a quest is shown when its definition
     /// has a description.
@@ -619,6 +624,8 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "duration",
             "retry",
             "xp",
+            "xp_share",
+            "xp_share_level",
             "cancellable",
             "visible",
             "min_level",
@@ -1059,6 +1066,8 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             duration: f.float("duration"),
             retry: f.float("retry"),
             xp: f.int("xp").and_then(|v| u64::try_from(v).ok()),
+            xp_share: f.float("xp_share"),
+            xp_share_level: f.int("xp_share_level").and_then(|v| i32::try_from(v).ok()),
             cancellable: f.bool("cancellable"),
             visible: f.bool("visible"),
             min_level: f.int("min_level").and_then(|v| i32::try_from(v).ok()),

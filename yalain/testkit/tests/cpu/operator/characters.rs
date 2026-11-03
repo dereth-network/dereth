@@ -88,6 +88,7 @@ fn quest() -> QuestDef {
         fellows: yalain_content::quests::Fellows::default(),
         last_waits: false,
         hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
         required: None,
     }
 }

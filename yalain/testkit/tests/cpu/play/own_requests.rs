@@ -330,6 +330,7 @@ fn a_quest_cancelled_is_updated_as_cancelled_and_no_longer_under_way() {
         fellows: yalain_content::quests::Fellows::default(),
         last_waits: false,
         hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
         required: None,
     });
     let (a, _, world) = player(&mut h, "one");

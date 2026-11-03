@@ -14,8 +14,8 @@ use auberean_assets::Context;
 use auberean_script::graph::{Body, Graph, PackedObject};
 use auberean_script::library::Library;
 use auberean_script::native_object::{Item, NativeObject};
-use auberean_script::opcode::{length, low_byte, signed};
-use auberean_script::value::FunctionId;
+use auberean_script::opcode::{length, low_byte, signed, tag_of};
+use auberean_script::value::{join, tag, FunctionId};
 use yalain_content::stores::SaleGate;
 use yalain_content::{FactIds, Props, FACT_NAMES};
 
@@ -339,6 +339,8 @@ impl Install for DatInstall<'_> {
             last_waits,
             min_level: setup.min_level,
             hero_only: setup.hero_only,
+            xp: setup.xp,
+            pay: setup.pay,
             // The status to be in; one naming no status is to be completed, as an item's is.
             required: setup.required.as_deref().and_then(|name| {
                 let status = setup
@@ -374,8 +376,18 @@ const SET_HERO_ONLY: u32 = 0x01A7_009A;
 const SET_REQUIRED_NAMED: u32 = 0x01A7_0091;
 const SET_REQUIRED_STATUS: u32 = 0x01A7_001B;
 
+/// The calls a quest's setup makes to say what its completion pays: an amount, or a share of what
+/// the player's level takes to reach the next, with what limits that, and whether the amount is
+/// paid whole whatever the quest's challenge.
+const SET_XP: u32 = 0x01A7_0021;
+const SET_XP_SHARE: u32 = 0x01A7_00B4;
+const SET_XP_LEAST: u32 = 0x01A7_0099;
+const SET_XP_MOST: u32 = 0x01A7_0088;
+const SET_XP_MOST_AT_LEVEL: u32 = 0x01A7_006D;
+const SET_XP_FLAT: u32 = 0x01A7_0061;
+
 /// What a quest's package sets up beyond its definition.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 struct Setup {
     /// Done once: the literal 1 passed to [`SET_SOLUTIONS`]. Any other value (the globals' -1, any
     /// number) or no such call: it may be done again (2017: of the quests whose setup says 1, 0 of
@@ -388,6 +400,9 @@ struct Setup {
     min_level: i32,
     /// Given only to heroes.
     hero_only: bool,
+    /// What its completion pays: an amount, or how a share works out.
+    xp: u64,
+    pay: yalain_content::quests::CompletionPay,
     /// The name of a quest a player is to have at a status to be given it.
     required: Option<String>,
     required_status: Option<u32>,
@@ -425,13 +440,26 @@ fn read_setup(lib: &Library, start: usize, end: usize) -> Setup {
     let mut literal: Option<i64> = None;
     // Likewise the last string literal.
     let mut text: Option<String> = None;
+    // Likewise the last float literal, which a whole number pushed after it leaves alone.
+    let mut float: Option<f32> = None;
     let mut at = start;
     while at < end {
         let word = lib.code[at];
         match low_byte(word) {
             // A small literal; a literal in the next word.
-            0x03 => literal = Some(i64::from(signed(word))),
+            0x03 | 0x83 => literal = Some(i64::from(signed(word))),
+            0x02 if tag_of(word) == tag::FLOAT => {
+                literal = None;
+                float = lib.code.get(at + 1).map(|v| f32::from_bits(*v));
+            }
             0x02 => literal = lib.code.get(at + 1).map(|v| i64::from(*v)),
+            // A long literal: the high word, then the low.
+            0x82 => {
+                literal = match (lib.code.get(at + 1), lib.code.get(at + 2)) {
+                    (Some(hi), Some(lo)) => Some(join(*lo, *hi).cast_signed()),
+                    _ => None,
+                };
+            }
             // A string literal.
             0x08 => {
                 literal = None;
@@ -458,6 +486,15 @@ fn read_setup(lib: &Library, start: usize, end: usize) -> Setup {
                     SET_REQUIRED_STATUS => {
                         out.required_status = literal.and_then(|v| u32::try_from(v).ok());
                     }
+                    SET_XP => out.xp = amount(literal),
+                    SET_XP_SHARE => out.pay.share = float.unwrap_or(0.0),
+                    SET_XP_LEAST => out.pay.least = amount(literal),
+                    SET_XP_MOST => out.pay.most = amount(literal),
+                    SET_XP_MOST_AT_LEVEL => {
+                        out.pay.most_at_level =
+                            float.zip(literal.and_then(|v| i32::try_from(v).ok()));
+                    }
+                    SET_XP_FLAT => out.pay.flat = literal == Some(1),
                     _ => {
                         if lib.function_name(FunctionId(id)).as_deref() == Some(SET_SOLUTIONS) {
                             out.once = literal == Some(1);
@@ -466,15 +503,22 @@ fn read_setup(lib: &Library, start: usize, end: usize) -> Setup {
                 }
                 literal = None;
                 text = None;
+                float = None;
             }
             _ => {
                 literal = None;
                 text = None;
+                float = None;
             }
         }
         at += length(&lib.code, at).unwrap_or(1);
     }
     out
+}
+
+/// An amount of experience a literal names; none for no literal or a negative one.
+fn amount(literal: Option<i64>) -> u64 {
+    literal.and_then(|v| u64::try_from(v).ok()).unwrap_or(0)
 }
 
 /// Reading a saved state's graph by the library's names for its fields.

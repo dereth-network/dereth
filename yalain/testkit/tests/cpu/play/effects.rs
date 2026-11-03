@@ -518,6 +518,7 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
         fellows: yalain_content::quests::Fellows::default(),
         last_waits: false,
         hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
         required: None,
     });
     let step = Step {

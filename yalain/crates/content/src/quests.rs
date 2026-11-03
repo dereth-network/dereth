@@ -67,6 +67,8 @@ pub struct QuestDef {
     pub last_waits: bool,
     /// Given only to heroes.
     pub hero_only: bool,
+    /// How its completion's experience is worked out, beyond its own amount.
+    pub pay: CompletionPay,
     /// A quest a player is to have at a status to be given it: the status as its update names it (a
     /// status, or under way at a phase).
     pub required: Option<(u32, u32)>,
@@ -74,6 +76,54 @@ pub struct QuestDef {
 
 /// A status a required quest is to be in when its setup names none: completed.
 pub const COMPLETED: u32 = 0x3000_0000;
+
+/// How a quest's completion works out its experience, beyond an amount of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct CompletionPay {
+    /// It pays this share of what the player's level takes to reach the next, in place of an amount
+    /// (0: it pays its amount).
+    pub share: f32,
+    /// A share pays at least this (0: no such limit).
+    pub least: u64,
+    /// A share pays at most this (0: no such limit).
+    pub most: u64,
+    /// A share pays at most this share of what this level takes to reach the next.
+    pub most_at_level: Option<(f32, i32)>,
+    /// It is paid whole, whatever its challenge against the player's level.
+    pub flat: bool,
+}
+
+impl CompletionPay {
+    fn word(&self) -> String {
+        let (most_share, most_level) = self.most_at_level.unwrap_or((0.0, 0));
+        format!(
+            "{}:{}:{}:{most_share}:{most_level}:{}",
+            self.share,
+            self.least,
+            self.most,
+            u8::from(self.flat)
+        )
+    }
+
+    fn of_word(w: &str) -> Result<Self, String> {
+        let c: Vec<&str> = w.split(':').collect();
+        let [share, least, most, most_share, most_level, flat] = c[..] else {
+            return Err(format!("a completion's pay has six parts, not {w}"));
+        };
+        fn num<T: std::str::FromStr>(s: &str) -> Result<T, String> {
+            s.parse().map_err(|_| format!("{s} is not a number"))
+        }
+        let most_share: f32 = num(most_share)?;
+        let most_level: i32 = num(most_level)?;
+        Ok(Self {
+            share: num(share)?,
+            least: num(least)?,
+            most: num(most)?,
+            most_at_level: (most_level != 0).then_some((most_share, most_level)),
+            flat: flat == "1",
+        })
+    }
+}
 
 /// How a kill's move on a quest reaches the killer's fellows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -293,7 +343,7 @@ impl QuestTable {
                 .join(",");
             let _ = writeln!(
                 out,
-                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 q.id,
                 r(q.name),
                 r(q.description),
@@ -314,6 +364,7 @@ impl QuestTable {
                 u8::from(q.hero_only),
                 q.required
                     .map_or_else(String::new, |(q, st)| format!("{q:08X}:{st:08X}")),
+                q.pay.word(),
             );
         }
         for s in &self.steps {
@@ -397,7 +448,7 @@ impl QuestTable {
             let at = |e: String| format!("line {}: {e}", n + 1);
             let c: Vec<&str> = line.split('\t').collect();
             match c[0] {
-                "quest" if (13..=23).contains(&c.len()) => t.quests.push(QuestDef {
+                "quest" if (13..=24).contains(&c.len()) => t.quests.push(QuestDef {
                     id: hex(c[1]).map_err(at)?,
                     name: pair(c[2]).map_err(at)?,
                     description: pair(c[3]).map_err(at)?,
@@ -449,6 +500,10 @@ impl QuestTable {
                     required: match c.get(22) {
                         Some(v) if !v.is_empty() => Some(pair(v).map_err(at)?),
                         _ => None,
+                    },
+                    pay: match c.get(23) {
+                        Some(v) if !v.is_empty() => CompletionPay::of_word(v).map_err(at)?,
+                        _ => CompletionPay::default(),
                     },
                 }),
                 "step" if (9..=15).contains(&c.len()) => {

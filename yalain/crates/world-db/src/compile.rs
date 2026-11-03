@@ -46,7 +46,7 @@ pub struct InstallSale {
 /// A quest's definition, as the install holds it: name and description (string, table), icon,
 /// whether updates play an effect, the journal entry of each phase from the first, and the effects
 /// each kind of update puts on the player (the kind, the effect's saved state).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct QuestDefinition {
     pub state: u32,
     pub name: (u32, u32),
@@ -68,6 +68,10 @@ pub struct QuestDefinition {
     pub min_level: i32,
     /// Given only to heroes, as its package's setup says.
     pub hero_only: bool,
+    /// The experience its completion pays, as its package's setup says.
+    pub xp: u64,
+    /// How its completion's experience is worked out, as its package's setup says.
+    pub pay: yalain_content::quests::CompletionPay,
     /// A quest a player is to have at a status to be given it, as its package's setup says.
     pub required: Option<(u32, u32)>,
 }
@@ -409,8 +413,36 @@ fn subquest_definitions(quests: &mut yalain_content::QuestTable, install: &dyn I
             last_waits: def.last_waits,
             hero_only: def.hero_only,
             required: def.required,
+            pay: yalain_content::quests::CompletionPay::default(),
         });
     }
+}
+
+/// How a quest's completion pays: as its setup says, unless its row says otherwise. A row's amount
+/// is paid in place of the setup's share. A row's share is paid whole, as nearly every share a setup
+/// names is (89 of 91), and at most what it comes to at the row's level.
+fn quest_pay(
+    setup: yalain_content::quests::CompletionPay,
+    q: &crate::rows::Quest,
+) -> yalain_content::quests::CompletionPay {
+    use yalain_content::quests::CompletionPay;
+    if let Some(share) = q.xp_share {
+        #[allow(clippy::cast_possible_truncation)]
+        let share = share as f32;
+        return CompletionPay {
+            share,
+            most_at_level: q.xp_share_level.map(|level| (share, level)),
+            flat: true,
+            ..CompletionPay::default()
+        };
+    }
+    if q.xp.is_some() {
+        return CompletionPay {
+            share: 0.0,
+            ..setup
+        };
+    }
+    setup
 }
 
 /// Compile a merged database against an install.
@@ -763,7 +795,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     challenge: q.challenge.unwrap_or(-999),
                     duration: q.duration.unwrap_or(0.0),
                     retry: q.retry.unwrap_or(0.0),
-                    xp: q.xp.unwrap_or(0),
+                    xp: q.xp.unwrap_or(def.xp),
                     cancellable: q.cancellable.unwrap_or(false),
                     placed: prov_text(&q.prov),
                     // A quest is shown when its row says so, else when its definition has a
@@ -790,6 +822,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     last_waits: def.last_waits,
                     hero_only: def.hero_only,
                     required: def.required,
+                    pay: quest_pay(def.pay, q),
                 });
             }
             Row::Step(s) => {

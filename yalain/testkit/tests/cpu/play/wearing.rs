@@ -485,6 +485,7 @@ fn a_chest_piece_whose_race_skill_level_or_quest_the_wearer_lacks_is_refused_in_
             fellows: yalain_content::quests::Fellows::default(),
             last_waits: false,
             hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
             required: None,
         }],
         steps: Vec::new(),

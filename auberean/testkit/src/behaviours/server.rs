@@ -6475,6 +6475,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.completion-paid-whole",
+        says: "A quest whose setup says its challenge is ignored pays its completion whole, whatever \
+               its challenge against the player's level.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-PAID-WHOLE"),
+        station: "yalain-testkit::cpu::play::quests::a_completion_its_setup_says_ignores_its_challenge_is_paid_whole",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.completion-pays-a-share",
+        says: "A quest may pay a share of what its player's level takes to reach the next, rounded \
+               down, at least and at most what its setup or its row says.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-PAY-SHARE"),
+        station: "yalain-testkit::cpu::play::quests::a_completion_pays_a_share_of_what_the_level_takes_within_its_limits",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.completion-pays-by-challenge",
         says: "A quest's completion pays its experience weighed by its challenge against the \
                player's level as a kill's is weighed; a quest without a challenge pays it whole.",

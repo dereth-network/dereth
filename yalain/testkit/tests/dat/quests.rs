@@ -1,7 +1,7 @@
 //! Quests' definitions as the server's world compile reads them from the September 2013 data: the
 //! phases done by other quests.
 
-use yalain_content::quests::Subquests;
+use yalain_content::quests::{CompletionPay, Subquests};
 use yalain_testkit::authored::Portal;
 use yalain_world_db::compile::Install as _;
 use yalain_world_db::install::DatInstall;
@@ -245,5 +245,64 @@ fn a_quests_setup_says_who_it_is_for() {
         read(0x4000_026C),
         Some((37, false, Some((0x4000_026B, 0x3000_0000)))),
         "the second step of a chain needing the first done"
+    );
+}
+
+/// What a completion pays is its setup's: an amount; or a share, with its limits, paid whole.
+/// Behaviour: server.quests.completion-pays-a-share
+#[test]
+fn a_quests_setup_says_what_its_completion_pays() {
+    let p = Portal::open();
+    let states = p
+        .dat
+        .entries_in(0x6F00_0000, 0x6FFF_FFFF)
+        .map(|e| e.id)
+        .collect();
+    let lib = p.library();
+    let install = DatInstall::new(
+        Box::new(|id| p.dat.read(id).ok()),
+        p.ctx.clone(),
+        &lib,
+        states,
+    )
+    .expect("install");
+    let read = |q: u32| {
+        install
+            .quest_definition(None, q)
+            .map(|d| (d.xp, d.pay))
+            .expect("the quest")
+    };
+    assert_eq!(read(0x4000_0009).0, 100, "an amount: the Beetle Slayer");
+    assert_eq!(read(0x4000_0009).1, CompletionPay::default());
+    assert_eq!(
+        read(0x4000_0223),
+        (
+            0,
+            CompletionPay {
+                share: 0.045,
+                most_at_level: Some((0.045, 46)),
+                flat: true,
+                ..CompletionPay::default()
+            }
+        ),
+        "a share with its limit at a level: the Thornling Torturer"
+    );
+    assert_eq!(
+        read(0x4000_0373).1.most_at_level,
+        Some((0.05, 65)),
+        "a limit with its own share: Black Ferah's Shadow"
+    );
+    assert_eq!(
+        read(0x4000_0075),
+        (
+            0,
+            CompletionPay {
+                share: 0.35,
+                least: 1_000_000,
+                most: 5_000_000,
+                ..CompletionPay::default()
+            }
+        ),
+        "amounts as limits, weighed: Lodrog the Forsaken"
     );
 }
