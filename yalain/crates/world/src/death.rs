@@ -40,7 +40,6 @@ use auberean_protocol::types::{
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use auberean_script::native_object::TextInfo;
-use yalain_content::quests::Trigger;
 use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::Store;
 
@@ -165,6 +164,7 @@ pub fn creature_dies<S: Store>(
     let unfair = c.unreached.contains(&killer);
     let parts = std::mem::take(&mut c.taken_by);
     let unreached = c.unreached.clone();
+    let death_effects = c.stats.death_effects.clone();
     let (template, level, death_xp, death_focus, camp, name, group) = (
         t.template,
         c.stats.level,
@@ -190,7 +190,7 @@ pub fn creature_dies<S: Store>(
         progress::killed(net, world, name);
         // A killer the creature could not reach moves no quest on.
         if !unfair {
-            crate::quests::triggered(s, net, world, Trigger::Kill(template), None, clock);
+            crate::quests::killed(s, net, world, template, &death_effects, clock);
         }
     }
     if let Some(w) = blow_fellow {

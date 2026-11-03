@@ -12,7 +12,10 @@
 //!   optionally, the hidden flag (0/1), the update effects (`KIND:STATE`, the update's kind and
 //!   the effect's saved state, joined by `,`), the phases' subquests (`PHASE:ANY:QUEST/QUEST...`,
 //!   ANY 1 when one of them is enough, joined by `,`), the least level it is given at (0 for any),
-//!   whether it fails when its player dies (0/1) and whether it is given only once (0/1);
+//!   whether it fails when its player dies (0/1), whether it is given only once (0/1), how a kill's
+//!   move on it reaches the killer's fellows (added up: 1 it does, 2 only those near the killer's
+//!   level, 4 only those near the killer) and whether its last phase waits for something other than
+//!   a kill to end it (0/1);
 //! - `step`: quest, the phase it needs (0: the quest not under way), the trigger (`use:TEMPLATE`,
 //!   `useon:ITEM:TARGET`, `give:ITEM:TARGET`, `arrive:TEMPLATE`, `take:TEMPLATE`, `kill:TEMPLATE`, `done:QUEST`), the giver's line
 //!   (`string:table`, `=` and literal text, or empty), the update (`bestow`, `advance:N`, `complete`), experience, items
@@ -57,6 +60,36 @@ pub struct QuestDef {
     /// its wait is over, at once when it has none). The install's setup of the quest says so; a
     /// world's row may say otherwise.
     pub once: bool,
+    /// How a kill's move on it reaches the killer's fellows.
+    pub fellows: Fellows,
+    /// Its last phase waits for something other than a kill to end it (a phase that reads "return
+    /// to" someone).
+    pub last_waits: bool,
+}
+
+/// How a kill's move on a quest reaches the killer's fellows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Fellows {
+    /// It reaches them.
+    pub shared: bool,
+    /// Only those near the killer's level.
+    pub near_level: bool,
+    /// Only those near the killer.
+    pub near_by: bool,
+}
+
+impl Fellows {
+    fn word(self) -> u8 {
+        u8::from(self.shared) | u8::from(self.near_level) << 1 | u8::from(self.near_by) << 2
+    }
+
+    fn of_word(w: u8) -> Self {
+        Self {
+            shared: w & 1 != 0,
+            near_level: w & 2 != 0,
+            near_by: w & 4 != 0,
+        }
+    }
 }
 
 /// A phase of a quest done by doing other quests: given with the phase, kept hidden, the phase
@@ -249,7 +282,7 @@ impl QuestTable {
                 .join(",");
             let _ = writeln!(
                 out,
-                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}",
+                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}\t{}\t{}",
                 q.id,
                 r(q.name),
                 r(q.description),
@@ -265,6 +298,8 @@ impl QuestTable {
                 q.min_level,
                 u8::from(q.fails_on_death),
                 u8::from(q.once),
+                q.fellows.word(),
+                u8::from(q.last_waits),
             );
         }
         for s in &self.steps {
@@ -347,7 +382,7 @@ impl QuestTable {
             let at = |e: String| format!("line {}: {e}", n + 1);
             let c: Vec<&str> = line.split('\t').collect();
             match c[0] {
-                "quest" if (13..=19).contains(&c.len()) => t.quests.push(QuestDef {
+                "quest" if (13..=21).contains(&c.len()) => t.quests.push(QuestDef {
                     id: hex(c[1]).map_err(at)?,
                     name: pair(c[2]).map_err(at)?,
                     description: pair(c[3]).map_err(at)?,
@@ -390,6 +425,11 @@ impl QuestTable {
                     },
                     fails_on_death: c.get(17) == Some(&"1"),
                     once: c.get(18) == Some(&"1"),
+                    fellows: match c.get(19) {
+                        Some(v) if !v.is_empty() => Fellows::of_word(num(v).map_err(at)?),
+                        _ => Fellows::default(),
+                    },
+                    last_waits: c.get(20) == Some(&"1"),
                 }),
                 "step" if (9..=15).contains(&c.len()) => {
                     let (kind, tpl) = c[3]

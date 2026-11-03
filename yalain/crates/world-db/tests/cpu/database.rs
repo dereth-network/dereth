@@ -93,6 +93,8 @@ fn name(string: u32, table: u32) -> PropertyValue {
 /// and two products, the store's sales, a quest's definition and one profile name.
 struct Fake {
     entities: HashMap<u32, Entity>,
+    /// What the quest's setup says of a kill's reach.
+    fellows: yalain_content::quests::Fellows,
 }
 
 impl Fake {
@@ -121,7 +123,10 @@ impl Fake {
             0x4700_20B9,
             entity(CLASS, 0x0D00, vec![(NAME, name(0x026F_0DD2, 0x2500_1BBC))]),
         );
-        Self { entities }
+        Self {
+            entities,
+            fellows: yalain_content::quests::Fellows::default(),
+        }
     }
 }
 
@@ -183,6 +188,8 @@ impl Install for Fake {
             effects: Vec::new(),
             subquests: Vec::new(),
             once: false,
+            fellows: self.fellows,
+            last_waits: false,
         })
     }
 
@@ -760,6 +767,59 @@ fn a_quest_row_may_say_it_is_given_once_and_a_line_may_say_it_is_too_soon() {
         t.quests,
         "it reads back as written"
     );
+}
+
+#[test]
+fn a_quest_row_may_say_whether_a_kills_move_on_it_reaches_fellows() {
+    let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(!t.quests.quests[0].fellows.shared, "left out: the setup's");
+    // A row's word over a setup that shares, with no limit: true keeps the setup's, false stops it.
+    let sharing = Fake {
+        fellows: yalain_content::quests::Fellows {
+            shared: true,
+            ..Default::default()
+        },
+        ..Fake::new()
+    };
+    let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &sharing).unwrap();
+    assert_eq!(
+        t.quests.quests[0].fellows, sharing.fellows,
+        "left out: the setup's"
+    );
+    for (written, shared) in [("fellows = true", true), ("fellows = false", false)] {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "duration = 72000",
+            &format!("duration = 72000\n{written}"),
+        );
+        let t = compile(&merge(&read(&files).unwrap()).unwrap(), &sharing).unwrap();
+        let f = t.quests.quests[0].fellows;
+        assert_eq!((f.shared, f.near_level, f.near_by), (shared, false, false));
+    }
+    for (written, shared) in [("fellows = true", true), ("fellows = false", false)] {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "duration = 72000",
+            &format!("duration = 72000\n{written}"),
+        );
+        let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+        let f = t.quests.quests[0].fellows;
+        assert_eq!(f.shared, shared);
+        assert_eq!(
+            (f.near_level, f.near_by),
+            (shared, shared),
+            "a setup that says nothing"
+        );
+        assert_eq!(
+            yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+            t.quests,
+            "it reads back as written"
+        );
+    }
 }
 
 #[test]

@@ -704,3 +704,320 @@ fn use_on(item: u64, player: u64, on: u64) -> auberean_script::args::Arg {
     );
     auberean_script::args::Arg::Object(b.graph())
 }
+
+/// The quests a sample of recorded kills moved: the quest, a creature whose death gives it (when one
+/// does), and one whose death moves it on.
+const KILL_SAMPLE: [(u32, Option<u32>, u32); 10] = [
+    (0x4000_0159, Some(0x4700_2205), 0x4700_21F8),
+    (0x4000_00D9, Some(0x4700_2BD0), 0x4700_2BB2),
+    (0x4000_009F, Some(0x4700_28B2), 0x4700_28A2),
+    (0x4000_0156, Some(0x4700_2CBF), 0x4700_2C82),
+    (0x4000_0157, Some(0x4700_2203), 0x4700_21F3),
+    (0x4000_0009, None, 0x4700_2225),
+    (0x4000_000A, None, 0x4700_2963),
+    (0x8000_00B7, None, 0x4700_282F),
+    (0x8000_00BE, None, 0x4700_21B3),
+    (0x8000_00BF, None, 0x4700_27BF),
+];
+
+/// What a quest update says, read from a call's arguments: why (0 for a move), the update's kind,
+/// and the record's id, name, description, icon, challenge, status, phase and journal entry.
+type Said = (
+    u32,
+    u32,
+    u32,
+    (u32, u32),
+    (u32, u32),
+    u32,
+    i32,
+    u32,
+    u32,
+    (u32, u32),
+);
+
+fn said_by(a: &[u8], lib: &auberean_script::library::Library) -> Option<Said> {
+    use auberean_script::args::{self, Arg};
+    use auberean_script::graph::Body;
+    use auberean_script::native_object::NativeObject;
+    let v = args::decode(a, lib).ok()?;
+    let (Arg::Int(why), Arg::Object(g), Arg::Int(kind)) = (v.first()?, v.get(1)?, v.get(2)?) else {
+        return None;
+    };
+    let q = g.entries.iter().find_map(|e| match &e.body {
+        Body::Object(o) => match &o.native {
+            Some(NativeObject::Quest(q)) => Some(q),
+            _ => None,
+        },
+        _ => None,
+    })?;
+    let t = |x: &auberean_script::native_object::TextInfo| (x.string_id, x.table);
+    Some((
+        *why,
+        *kind,
+        q.id,
+        t(&q.name),
+        t(&q.description),
+        q.icon,
+        q.challenge,
+        q.status,
+        q.phase,
+        t(&q.journal),
+    ))
+}
+
+/// A beetle of the harness made a creature of this template, by the install's own properties, hurt
+/// to death by this character.
+fn killed_as(h: &mut Harness, me: u64, template: u32, install: &DatInstall<'_>) {
+    use yalain_world_db::compile::Install;
+    let props = yalain_content::Props::of(template, &|id| install.entity(id), &|id| {
+        install.property_name(id)
+    });
+    let stats = yalain_content::CreatureStats::from_props(&props).expect("a creature's template");
+    for p in h.server.players.values_mut() {
+        p.position.cell = 0x0299_0109;
+        p.position.origin = [59.06, 240.2, -44.6];
+    }
+    h.add_creatures(1);
+    h.run(20);
+    let id = h
+        .server
+        .things
+        .by_id
+        .values()
+        .filter(|t| {
+            t.creature
+                .as_ref()
+                .is_some_and(|c| c.mode != yalain_world::things::Mode::Dead)
+        })
+        .map(|t| t.id)
+        .max()
+        .expect("a creature");
+    let t = h.server.things.get_mut(id).expect("the creature");
+    t.template = template;
+    t.health = 10;
+    t.max_health = 10;
+    if let Some(c) = t.creature.as_mut() {
+        c.stats.attacks_first = false;
+        c.stats.death_effects = stats.death_effects;
+    }
+    let clock = h.clock();
+    yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, id, me, 50, clock);
+    h.run(2);
+}
+
+/// The quest's id by its name, from the install.
+fn quest_ids() -> std::collections::HashMap<String, u32> {
+    let dir = require_install(TARGET);
+    let found = install_dats(&dir).expect("the install");
+    let portal = DatFile::open(
+        &found
+            .iter()
+            .find(|(m, _)| *m == DatName::Portal)
+            .expect("a portal")
+            .1,
+    )
+    .expect("opens");
+    let ctx = Context::from_portal(&portal).expect("context");
+    let names: auberean_assets::strings::EnumMap = auberean_assets::decode(
+        0x2300_0090,
+        &portal.read(0x2300_0090).expect("the quests' names"),
+        &ctx,
+    )
+    .expect("the quests' names read");
+    names.names.into_iter().map(|(v, n)| (n, v)).collect()
+}
+
+/// **A kill sends what a recorded kill was sent**: every update the January 2017 servers sent of a
+/// sample of kill quests, its record and its kind, played by killing a creature of the install's
+/// that names the quest with the player's quest where the update found it: a giving, a move to each
+/// phase, a completion, a refusal. A quest whose last phase waits is told nothing there.
+/// Behaviour: server.quests.a-kill-sends-what-2017-sent
+#[test]
+fn a_kill_sends_the_updates_recorded_kills_were_sent() {
+    use auberean_testkit::captures::{self, carrier};
+    use yalain_world::quests::{refused, status, update};
+    use yalain_world::state::QuestState;
+    const UPDATE_QUEST: u32 = 0x8213_0024;
+    let lib = {
+        let dir = require_install(TARGET);
+        let found = install_dats(&dir).expect("the install");
+        let portal = DatFile::open(
+            &found
+                .iter()
+                .find(|(m, _)| *m == DatName::Portal)
+                .expect("a portal")
+                .1,
+        )
+        .expect("opens");
+        auberean_script::library::Library::from_record(
+            &portal
+                .read(auberean_script::library::RECORD)
+                .expect("the library's record"),
+        )
+        .expect("the library reads")
+    };
+    let lib = &lib;
+    let t = &compiled().tables;
+    let index = auberean_testkit::data::require_capture_index();
+    let mut recorded: Vec<Said> = Vec::new();
+    captures::messages(&index, &[carrier::TO_PLAYER], &[2017], |m| {
+        let Some(call) = m.script_call() else { return };
+        if call.function != UPDATE_QUEST {
+            return;
+        }
+        if let Some(s) = said_by(&call.args, lib) {
+            if KILL_SAMPLE.iter().any(|(q, _, _)| *q == s.2) {
+                recorded.push(s);
+            }
+        }
+    })
+    .expect("the capture index reads");
+    assert!(
+        recorded.len() > 150,
+        "{} updates of the sample",
+        recorded.len()
+    );
+    let install = dat_install();
+    let (mut h, b, me) = served(t);
+    h.server.quest_ids = quest_ids();
+    let mut wrong = Vec::new();
+    let mut played = 0usize;
+    for s in &recorded {
+        let (why, kind, quest) = (s.0, s.1, s.2);
+        let (_, gives, moves) = KILL_SAMPLE
+            .iter()
+            .find(|(q, _, _)| *q == quest)
+            .expect("in the sample");
+        let last = t.quests.quest(quest).expect("a row").journals.len();
+        let last = u32::try_from(last).expect("a few phases");
+        // Where the update found the quest.
+        let (held, template) = match (why, kind & 0xF000_0000) {
+            (0, update::BESTOW) => match gives {
+                Some(g) => (None, *g),
+                None => continue,
+            },
+            (0, update::ADVANCE) => (Some((kind & 0xFFFF) - 1), *moves),
+            // A last phase that waits is ended by someone used, not by a kill.
+            (0, update::COMPLETE) if t.quests.quest(quest).is_some_and(|d| d.last_waits) => {
+                continue
+            }
+            (0, update::COMPLETE) => (Some(last), *moves),
+            (refused::UNDER_WAY, update::BESTOW) => match gives {
+                Some(g) => (Some(1), *g),
+                None => continue,
+            },
+            _ => continue,
+        };
+        for p in h.server.players.values_mut() {
+            p.play.quests.retain(|q| q.quest != quest);
+            if let Some(phase) = held {
+                p.play.quests.push(QuestState {
+                    quest,
+                    status: status::UNDERWAY,
+                    phase,
+                    started: 0,
+                    updated: 0,
+                });
+            }
+        }
+        let from = h.bots[b].inbox.len();
+        killed_as(&mut h, me, template, &install);
+        let sent: Vec<Said> = h
+            .world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::PlayerCall(c) if c.function.0 == UPDATE_QUEST => {
+                    said_by(&c.args.as_ref()?.0, lib)
+                }
+                _ => None,
+            })
+            .filter(|x| x.2 == quest)
+            .collect();
+        played += 1;
+        if sent != [*s] {
+            wrong.push((*s, sent));
+        }
+    }
+    println!(
+        "{} recorded, {played} played, {} differ",
+        recorded.len(),
+        wrong.len()
+    );
+    assert!(played > 100, "{played} updates played");
+    assert!(wrong.is_empty(), "{:08X?}", &wrong[..wrong.len().min(6)]);
+    // A last phase that waits: the first kill quest of the people's is told nothing more.
+    let waits = 0x8000_00B7;
+    assert!(t.quests.quest(waits).is_some_and(|d| d.last_waits));
+    let last = t.quests.quest(waits).expect("a row").journals.len();
+    let last = u32::try_from(last).expect("a few phases");
+    for p in h.server.players.values_mut() {
+        p.play.quests.retain(|q| q.quest != waits);
+        p.play.quests.push(QuestState {
+            quest: waits,
+            status: status::UNDERWAY,
+            phase: last,
+            started: 0,
+            updated: 0,
+        });
+    }
+    let from = h.bots[b].inbox.len();
+    killed_as(&mut h, me, 0x4700_282F, &install);
+    assert!(!h.functions(b, from).contains(&UPDATE_QUEST));
+}
+
+/// **A quest with no setup that no recording shows reaching fellows moves for its killer alone**: a
+/// quest kept from the install's definition with no word on fellows, a kill of a creature naming it,
+/// the killer's fellow beside it holding the quest at the same phase.
+/// Behaviour: server.quests.an-unrecorded-quest-reaches-no-fellow
+#[test]
+fn a_quest_with_no_setup_and_no_recording_moves_its_killers_quest_and_no_fellows() {
+    use auberean_script::args::Arg;
+    use auberean_script::native_object::{native_type, NativeObject};
+    use yalain_world::fellowship::function;
+    use yalain_world::quests::{phase_of, status};
+    use yalain_world::state::QuestState;
+    const QUEST: u32 = 0x8000_01C4;
+    const NAMES_IT: u32 = 0x4700_2300;
+    let t = &compiled().tables;
+    assert!(
+        !t.quests.quest(QUEST).expect("a row").fellows.shared,
+        "no word on fellows"
+    );
+    let install = dat_install();
+    let (mut h, a, me) = served(t);
+    h.server.quest_ids = quest_ids();
+    let (b, them) = h.player_in_world("two", "Haskel");
+    let mut name = yalain_world::graph::Builder::new();
+    #[allow(clippy::cast_possible_truncation)]
+    name.native(
+        native_type::WP_STRING as u16,
+        NativeObject::Text("Band".encode_utf16().collect()),
+    );
+    h.ask(
+        a,
+        function::CREATE,
+        &[Arg::Int(1), Arg::Int(0), Arg::Object(name.graph())],
+        10,
+    );
+    for p in h.server.players.values_mut() {
+        p.position.cell = 0x0299_0109;
+        p.position.origin = [59.06, 240.2, -44.6];
+        p.play.quests = vec![QuestState {
+            quest: QUEST,
+            status: status::UNDERWAY,
+            phase: 1,
+            started: 0,
+            updated: 0,
+        }];
+    }
+    h.ask(a, function::RECRUIT, &[Arg::LongInt(them)], 10);
+    h.ask(b, function::ACCEPT, &[Arg::LongInt(me)], 10);
+    let f = h.server.fellowships.of(me).expect("a fellowship");
+    assert_eq!(h.server.fellowships.of(them), Some(f), "fellows");
+    killed_as(&mut h, me, NAMES_IT, &install);
+    let phase = |h: &Harness, who: u64| {
+        let p = h.server.players.values().find(|p| p.character == who);
+        phase_of(&p.expect("in the world").play.quests, QUEST)
+    };
+    assert_eq!((phase(&h, me), phase(&h, them)), (2, 1));
+}

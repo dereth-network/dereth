@@ -28,7 +28,7 @@ pub const SAMPLES: [&str; 7] = [
 
 /// The rules a derived row or field may name; each is stated in the database's format
 /// description.
-pub const RULES: [&str; 19] = [
+pub const RULES: [&str; 20] = [
     "camp-regen-generator",
     "camp-regen-median",
     "camp-regen-hall",
@@ -39,6 +39,7 @@ pub const RULES: [&str; 19] = [
     "quest-definition",
     "quest-setup-static",
     "quest-death-effect",
+    "quest-kill-fellows",
     "quest-retry-measured",
     "talk-token-role",
     "talk-quest-number",

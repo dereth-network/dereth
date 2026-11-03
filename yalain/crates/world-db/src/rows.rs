@@ -254,6 +254,9 @@ pub struct Quest {
     pub fails_on_death: Option<bool>,
     /// Whether it is given only once.
     pub once: Option<bool>,
+    /// Whether a kill's move on it reaches the killer's fellows; left out, as the quest's setup in
+    /// the install says.
+    pub fellows: Option<bool>,
     pub prov: Prov,
 }
 
@@ -620,6 +623,7 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "min_level",
             "fails_on_death",
             "once",
+            "fellows",
             "prov",
         ],
     ),
@@ -1059,6 +1063,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             min_level: f.int("min_level").and_then(|v| i32::try_from(v).ok()),
             fails_on_death: f.bool("fails_on_death"),
             once: f.bool("once"),
+            fellows: f.bool("fellows"),
             prov: f.req_prov()?,
         }),
         "step" => {

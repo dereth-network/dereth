@@ -28,6 +28,7 @@ mod follow;
 mod gives;
 mod interactions;
 mod items;
+mod kill_quests;
 mod kingdoms;
 mod map_trips;
 mod maps;

@@ -59,6 +59,11 @@ pub struct QuestDefinition {
     pub subquests: Vec<yalain_content::quests::Subquests>,
     /// Done once: its package's setup says it may be done one time.
     pub once: bool,
+    /// How a kill's move on it reaches the killer's fellows, as its package's setup says.
+    pub fellows: yalain_content::quests::Fellows,
+    /// Its last phase waits for something other than a kill to end it: the phase's range is more
+    /// than one.
+    pub last_waits: bool,
 }
 
 /// What a compile reads from the user's install.
@@ -394,6 +399,8 @@ fn subquest_definitions(quests: &mut yalain_content::QuestTable, install: &dyn I
             min_level: 0,
             fails_on_death: false,
             once: def.once,
+            fellows: def.fellows,
+            last_waits: def.last_waits,
         });
     }
 }
@@ -759,6 +766,20 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     min_level: q.min_level.unwrap_or(0),
                     fails_on_death: q.fails_on_death.unwrap_or(false),
                     once: q.once.unwrap_or(def.once),
+                    // A row says whether; left out, the setup does, and a quest with no setup
+                    // stays the killer's. A row that shares a quest whose setup says nothing has
+                    // the limits most quests' setups name (205 of the 226 that share name both).
+                    fellows: match q.fellows {
+                        None => def.fellows,
+                        Some(false) => yalain_content::quests::Fellows::default(),
+                        Some(true) if def.fellows.shared => def.fellows,
+                        Some(true) => yalain_content::quests::Fellows {
+                            shared: true,
+                            near_level: true,
+                            near_by: true,
+                        },
+                    },
+                    last_waits: def.last_waits,
                 });
             }
             Row::Step(s) => {

@@ -685,6 +685,7 @@ struct Play {
     plant_looks: yalain_world::plants::Looks,
     item_uses: yalain_world::item_use::ItemUses,
     worn_effects: yalain_world::item_use::ItemUses,
+    quest_ids: std::collections::HashMap<String, u32>,
     craft: yalain_world::craft::Crafting,
     vitae_costs: Vec<u64>,
     stores: yalain_content::StoreTable,
@@ -852,6 +853,7 @@ fn run<S: Store>(
     server.plants.looks = play.plant_looks;
     server.item_uses = play.item_uses;
     server.worn_effects = play.worn_effects;
+    server.quest_ids = play.quest_ids;
     server.crafting = play.craft;
     server.vitae_costs = play.vitae_costs;
     server.stores = play.stores;
@@ -1627,6 +1629,7 @@ fn load_play(dats: &Path, compiled: Tables) -> Result<(ContentPack, Play), Strin
             plant_looks,
             item_uses,
             worn_effects,
+            quest_ids: data::quest_ids(&portal)?,
             craft,
             vitae_costs,
             stores,

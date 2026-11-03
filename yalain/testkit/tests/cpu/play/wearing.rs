@@ -482,6 +482,8 @@ fn a_chest_piece_whose_race_skill_level_or_quest_the_wearer_lacks_is_refused_in_
             min_level: 0,
             fails_on_death: false,
             once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
         }],
         steps: Vec::new(),
     };

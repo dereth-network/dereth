@@ -235,6 +235,8 @@ fn a_character_entering_again_gives_the_journal_its_quests() {
             min_level: 0,
             fails_on_death: false,
             once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
         }],
         steps: Vec::new(),
     };

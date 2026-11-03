@@ -38,6 +38,29 @@
 //! the person saying why when it is not; one that fails when its player dies fails as the player
 //! dies.
 //!
+//! **Kills.** A creature's template names the effects its death has, and a quest effect moves its
+//! quest for the killer (the one credited with the kill) and, where the quest says so, for the
+//! killer's fellows. An effect that gives a quest gives it at its first phase if it is not under
+//! way and its wait is over; one that increments moves it on a phase, the last phase's completing it
+//! unless that phase waits for something else; one that advances to a phase does so from the phase
+//! before; one that completes does so from the last phase; none of these moves a quest the player
+//! does not have under way, nor does anything for a stranger to the killer. A fellow of the killer
+//! is moved alike, a quest that is limited so only within ten levels of the killer and in range of
+//! it, and is told nothing when nothing moved. The killer is told when a giving was refused: its
+//! update of the giving kind names why, in a record that holds nothing. Steps a kill triggers run
+//! first, and a quest one of them moved is not moved again.
+//!
+//! 2017, of the 4,068 corpses players saw of such creatures: a killer's quest under way moved on
+//! every increment that could move it (518 of 518), and nothing moved where it was not under way
+//! (0 of 4,101), nor at a last phase that waits (0 of 37). An advance from the phase before moved
+//! it (51 of 52), from any other phase not (1 of 108). A completion, from the last phase (8 of 8).
+//! A killer free to take a quest was given it (46 of 46); one with it under way or waiting was
+//! told the refusal (117 of 118). A fellow near the killer's level moved as the killer did (88 of
+//! 88 at up to 8 levels apart), not from 15 levels apart (0 of 17), and was never told a refusal
+//! (0 of 94). No recording holds a fellow farther off than sight, or a stranger with an increment
+//! to move: those limits are the rule's, and the fellows' share range's; the level limit is
+//! inferred. A quest with no setup and no recording to say otherwise stays the killer's.
+//!
 //! **Hidden quests.** A quest the world keeps without showing it (its definition shows none:
 //! no description, or it is set not to be shown) is held and moved on like any other, but never
 //! listed at entry and never told in an update; a use that needs one and finds it not where it
@@ -75,6 +98,8 @@ pub mod update {
     pub const ADVANCE: u32 = 0x2000_0000;
     pub const COMPLETE: u32 = 0x3000_0000;
     pub const FAIL: u32 = 0x4000_0000;
+    /// The kind of effect that moves a quest on a phase; no update is told of this kind.
+    pub const INCREMENT: u32 = 0x6000_0000;
     pub const CANCEL: u32 = 0x8000_0000;
 }
 
@@ -269,6 +294,50 @@ fn write_record(
     b
 }
 
+/// Why a giving was refused, as its update names it.
+pub mod refused {
+    /// The quest is under way (a move no quest's status allows).
+    pub const UNDER_WAY: u32 = 4001;
+    /// The quest is done and is given only once.
+    pub const DONE: u32 = 4004;
+    /// Its wait to be taken again is not over.
+    pub const WAITING: u32 = 4005;
+}
+
+/// A refused giving's record: the definition's name, description, icon and challenge, no status or
+/// phase, given at no time and last done at the clock's zero, nothing to wait for.
+fn write_refused(q: &QuestDef, st: &QuestState, game_epoch: f64) -> Vec<u8> {
+    let mut b = Vec::new();
+    let w32 = |b: &mut Vec<u8>, v: u32| b.extend_from_slice(&v.to_le_bytes());
+    let f64w = |b: &mut Vec<u8>, v: f64| b.extend_from_slice(&v.to_bits().to_le_bytes());
+    let ti = |b: &mut Vec<u8>, (s, t): (u32, u32)| {
+        b.extend_from_slice(
+            &TextInfo {
+                string_id: s,
+                table: t,
+                ..TextInfo::default()
+            }
+            .pack(),
+        );
+    };
+    w32(&mut b, q.id);
+    ti(&mut b, q.name);
+    ti(&mut b, q.description);
+    w32(&mut b, q.icon);
+    w32(&mut b, st.status);
+    w32(&mut b, st.phase);
+    ti(&mut b, (0, 0));
+    w32(&mut b, q.challenge.cast_unsigned());
+    f64w(&mut b, 0.0);
+    f64w(&mut b, game_epoch);
+    w32(&mut b, 0);
+    f64w(&mut b, -1.0);
+    f64w(&mut b, 0.0);
+    w32(&mut b, u32::from(q.play_fx));
+    w32(&mut b, u32::from(q.cancellable));
+    b
+}
+
 /// The update call: the result (0), the record, the update kind.
 #[must_use]
 pub fn update_call(record: Vec<u8>, kind: u32) -> auberean_protocol::ServerMessage {
@@ -283,6 +352,37 @@ pub fn update_call(record: Vec<u8>, kind: u32) -> auberean_protocol::ServerMessa
     session::call(
         UPDATE_QUEST,
         &[Arg::Int(0), Arg::Object(b.graph()), Arg::Int(kind)],
+    )
+    .expect("a quest record packs")
+}
+
+/// The update that tells a giving was refused: why, a record of the quest holding nothing but what
+/// its definition says (no status, no phase, no times: 2017, 148 of 148), the giving kind. The client
+/// updates nothing for it.
+#[must_use]
+pub fn refusal_call(q: &QuestDef, why: u32, game_epoch: f64) -> auberean_protocol::ServerMessage {
+    let st = QuestState {
+        quest: q.id,
+        status: 0,
+        phase: 0,
+        started: 0,
+        updated: 0,
+    };
+    let mut b = Builder::new();
+    b.native(
+        QUEST_INFO,
+        NativeObject::Packed {
+            ty: QUEST_INFO.into(),
+            bytes: write_refused(q, &st, game_epoch),
+        },
+    );
+    session::call(
+        UPDATE_QUEST,
+        &[
+            Arg::Int(why),
+            Arg::Object(b.graph()),
+            Arg::Int(update::BESTOW),
+        ],
     )
     .expect("a quest record packs")
 }
@@ -486,6 +586,20 @@ pub fn triggered<S: Store>(
     triggered_with(s, net, world, trigger, who, None, clock).0
 }
 
+/// Something happened that may move quests on: run every step it triggers (each quest at most
+/// once). Returns the quests they moved.
+fn moved_by<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    trigger: Trigger,
+    clock: Clock,
+) -> Vec<u32> {
+    let mut moved = Vec::new();
+    run_triggered(s, net, world, trigger, None, None, clock, &mut moved);
+    moved
+}
+
 /// An item given to a person or an object may move quests on: every step the give triggers runs
 /// (each quest at most once), a step that takes the item keeping the one given, the items a step
 /// gives made from the person. An item so given that moves a quest when received moves it after.
@@ -508,10 +622,27 @@ fn triggered_with<S: Store>(
     world: ConnId,
     trigger: Trigger,
     who: Option<(u64, Option<(u32, u32)>)>,
-    mut given: Option<crate::gives::Given>,
+    given: Option<crate::gives::Given>,
     clock: Clock,
 ) -> (bool, bool) {
-    let mut moved: Vec<u32> = Vec::new();
+    let mut moved = Vec::new();
+    let kept = run_triggered(s, net, world, trigger, who, given, clock, &mut moved);
+    (!moved.is_empty(), kept)
+}
+
+/// Run every step a trigger triggers, listing the quests moved; returns whether a step kept the
+/// item given.
+#[allow(clippy::too_many_arguments)]
+fn run_triggered<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    trigger: Trigger,
+    who: Option<(u64, Option<(u32, u32)>)>,
+    mut given: Option<crate::gives::Given>,
+    clock: Clock,
+    moved: &mut Vec<u32>,
+) -> bool {
     let mut kept = false;
     // A person who gives several quests gives one of them at a time.
     let several = match trigger {
@@ -521,15 +652,16 @@ fn triggered_with<S: Store>(
     loop {
         // Reckoned at each step: one given (now under way) blocks the rest.
         let blocked = several.len() >= 2 && person_blocks(s, world, &several, clock.unix);
+        let seen = moved.clone();
         let runs = |s: &Server<S>, st: &Step| {
             st.trigger == trigger
                 && st.to.is_none()
-                && !moved.contains(&st.quest)
+                && !seen.contains(&st.quest)
                 && !(blocked && st.needs == 0 && several.contains(&st.quest))
                 && may_run(s, world, st, clock.unix)
         };
         let Some(mut step) = s.quests.steps.iter().find(|st| runs(s, st)).cloned() else {
-            return (!moved.is_empty(), kept);
+            return kept;
         };
         if several.len() >= 2 && step.needs == 0 && several.contains(&step.quest) {
             // Which of them: one at random of those it may give.
@@ -554,6 +686,210 @@ fn triggered_with<S: Store>(
             triggered(s, net, world, Trigger::Take(template), None, clock);
         }
     }
+}
+
+/// What a quest effect does to its quest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Move {
+    /// Gives it.
+    Bestow,
+    /// Moves it on a phase, completing it from its last.
+    Increment,
+    /// Moves it on to this phase from the phase before.
+    Advance(u32),
+    /// Completes it from its last phase.
+    Complete,
+    /// Fails it.
+    Fail,
+}
+
+/// An effect on a quest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct QuestEffect {
+    pub quest: u32,
+    pub act: Move,
+}
+
+/// What an effect's name says it does to a quest: the kind of effect, then the quest's name in the
+/// enumeration of quests, and for an advance the phase (`quest_id` answers the enumeration; every
+/// name of the 273 the install holds a saved state for says what that state says).
+#[must_use]
+pub fn effect_named(name: &str, quest_id: impl Fn(&str) -> Option<u32>) -> Option<QuestEffect> {
+    let head = name.get(..4)?;
+    if !head.eq_ignore_ascii_case("Eff_") {
+        return None;
+    }
+    let rest = &name[4..];
+    let (verb, rest) = [
+        ("Increment", Move::Increment),
+        ("Bestow", Move::Bestow),
+        ("Complete", Move::Complete),
+        ("Advance", Move::Advance(0)),
+        ("Fail", Move::Fail),
+    ]
+    .into_iter()
+    .find_map(|(w, v)| Some((v, rest.strip_prefix(w)?)))?;
+    let rest = rest.strip_prefix("Quest")?;
+    let id = |r: &str| quest_id(&format!("Quest{r}"));
+    // A quest's own name may end in a phase's word.
+    let (base, phase) = rest
+        .rfind("Phase")
+        .and_then(|i| Some((&rest[..i], rest[i + 5..].parse::<u32>().ok()?)))
+        .map_or((rest, None), |(b, p)| (b, Some(p)));
+    match (verb, phase) {
+        (Move::Advance(_), Some(p)) => Some(QuestEffect {
+            quest: id(base)?,
+            act: Move::Advance(p),
+        }),
+        (Move::Advance(_), None) => None,
+        (act, _) => Some(QuestEffect {
+            quest: id(rest).or_else(|| id(base))?,
+            act,
+        }),
+    }
+}
+
+/// How far apart in level a fellow and a killer may be for a move limited by level to reach the
+/// fellow. Inferred: 2017's fellows moved at up to 8 levels apart, 88 of 88, and not from 15, 0 of
+/// 17, and nothing was recorded between them.
+pub const KILL_LEVELS: i32 = 10;
+
+/// A creature died with its kill credited to a player: the steps the kill triggers run for the
+/// killer, then the template's quest effects on each quest no step moved, then on the killer's
+/// fellows the effects whose quests reach them.
+pub fn killed<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    killer: ConnId,
+    template: u32,
+    effects: &[String],
+    clock: Clock,
+) {
+    let moved = moved_by(s, net, killer, Trigger::Kill(template), clock);
+    let named: Vec<QuestEffect> = effects
+        .iter()
+        .filter_map(|n| effect_named(n, |q| s.quest_ids.get(q).copied()))
+        .collect();
+    if named.is_empty() {
+        return;
+    }
+    for e in named.iter().filter(|e| !moved.contains(&e.quest)) {
+        moves(s, net, killer, *e, true, clock);
+    }
+    let fellows = fellows_of(s, killer);
+    for w in fellows {
+        for e in &named {
+            if reaches(s, *e, killer, w) {
+                moves(s, net, w, *e, false, clock);
+            }
+        }
+    }
+}
+
+/// The world connections of a player's fellows in the world.
+fn fellows_of<S: Store>(s: &Server<S>, world: ConnId) -> Vec<ConnId> {
+    let Some(me) = s.players.get(&world).map(|p| p.character) else {
+        return Vec::new();
+    };
+    let Some(f) = s.fellowships.of(me) else {
+        return Vec::new();
+    };
+    s.fellowships.list[f]
+        .fellows
+        .iter()
+        .filter(|x| x.id != me)
+        .filter_map(|x| crate::social::world_of(s, x.id))
+        .collect()
+}
+
+/// Does an effect a killer's kill has on a quest reach this fellow: the quest shares, and the fellow
+/// is within the limits it names?
+fn reaches<S: Store>(s: &Server<S>, e: QuestEffect, killer: ConnId, fellow: ConnId) -> bool {
+    let Some(f) = s.quests.quest(e.quest).map(|d| d.fellows) else {
+        return false;
+    };
+    let (Some(a), Some(b)) = (s.players.get(&killer), s.players.get(&fellow)) else {
+        return false;
+    };
+    let levels = crate::examine::level_of(&a.qualities) - crate::examine::level_of(&b.qualities);
+    f.shared
+        && (!f.near_level || levels.abs() <= KILL_LEVELS)
+        && (!f.near_by
+            || crate::presence::distance(&a.position, &b.position)
+                .is_some_and(|d| d <= crate::fellowship::SHARE_RANGE))
+}
+
+/// A quest effect on a player: its quest moves if its status allows it; for one a giving is refused
+/// to (`told`: the one it was put on), its refusal told.
+pub fn moves<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    e: QuestEffect,
+    told: bool,
+    clock: Clock,
+) {
+    let Some(def) = s.quests.quest(e.quest).cloned() else {
+        return;
+    };
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let phase = phase_of(&p.play.quests, e.quest);
+    let last = u32::try_from(def.journals.len()).unwrap_or(0);
+    let up = match e.act {
+        Move::Bestow if phase != 0 => {
+            refuse(s, net, world, &def, refused::UNDER_WAY, told, clock);
+            return;
+        }
+        Move::Bestow => {
+            let held = &p.play.quests;
+            if given_again(&def, held, clock.unix) {
+                Update::Bestow
+            } else {
+                let why = if done(held, e.quest) && def.once {
+                    refused::DONE
+                } else {
+                    refused::WAITING
+                };
+                refuse(s, net, world, &def, why, told, clock);
+                return;
+            }
+        }
+        _ if phase == 0 => return,
+        Move::Increment if phase < last => Update::Advance(phase + 1),
+        Move::Increment if def.last_waits => return,
+        Move::Increment => Update::Complete,
+        Move::Advance(n) if n == phase + 1 => Update::Advance(n),
+        Move::Advance(_) => return,
+        Move::Complete if phase >= last => Update::Complete,
+        Move::Complete => return,
+        Move::Fail => {
+            fail(s, net, world, e.quest, clock);
+            return;
+        }
+    };
+    apply(s, net, world, e.quest, up, 0, clock);
+}
+
+/// Tell a player its giving of a quest was refused, unless the quest is hidden or it is not the one
+/// the effect was put on.
+fn refuse<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    def: &QuestDef,
+    why: u32,
+    told: bool,
+    clock: Clock,
+) {
+    if !told || is_hidden(&s.quests, def) {
+        return;
+    }
+    let game_now = net.game_time(clock.local);
+    #[allow(clippy::cast_precision_loss)]
+    let game_epoch = game_now - clock.unix as f64;
+    progress::private(net, world, &refusal_call(def, why, game_epoch));
 }
 
 /// How long a person who gives several quests with no wait of their own gives none after giving

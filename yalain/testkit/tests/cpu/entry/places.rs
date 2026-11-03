@@ -679,6 +679,8 @@ fn portal_quest(id: u32) -> yalain_content::quests::QuestDef {
         min_level: 0,
         fails_on_death: false,
         once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
     }
 }
 

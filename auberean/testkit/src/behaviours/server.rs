@@ -5834,6 +5834,132 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-kill-advances-from-the-phase-before",
+        says: "An effect that advances a quest to a phase moves it there only from the phase \
+               before, and one that completes it only from its last phase; from any other phase \
+               nothing moves and nothing is told.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-ADVANCE"),
+        station: "yalain-testkit::cpu::play::kill_quests::an_advance_moves_from_the_phase_before_and_a_completion_from_the_last_phase",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-kill-gives-a-quest",
+        says: "A creature whose death gives a quest gives it to its killer at the first phase, when \
+               the killer has never had it, or has done or failed it and its wait is over.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-BESTOW"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kill_gives_its_quest_to_a_killer_free_to_take_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-kill-moves-a-quest-under-way-on",
+        says: "A creature whose death increments a quest moves its killer's quest under way on a \
+               phase, each kill one, and the kill at the last phase completes it; each move is told \
+               as an advance to the phase, then the completion.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-INCREMENT"),
+        station: "yalain-testkit::cpu::play::kill_quests::each_kill_moves_a_quest_under_way_on_a_phase_and_the_last_completes_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-kill-moves-no-quest-not-under-way",
+        says: "A kill moves on no quest its killer does not have under way, never had or done, and \
+               tells nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-NOT-HELD"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kill_moves_on_no_quest_its_killer_does_not_have_under_way",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-kill-reaches-fellows-as-its-quest-says",
+        says: "A kill's move reaches the killer's fellows when the quest shares, those it limits \
+               only within ten levels of the killer (inferred) and within 160 meters of it; a fellow is moved \
+               as the killer is, never told a refusal, and a quest that does not share stays the \
+               killer's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-FELLOWS"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kill_moves_a_fellows_quest_only_as_the_quest_says",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-kill-sends-what-2017-sent",
+        says: "Every update the January 2017 servers sent of a sample of kill quests, played by \
+               killing a creature of the install that names the quest, is sent with the same kind, \
+               reason and record: 263 of 263.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-REPLAY"),
+        station: "yalain-testkit::corpus::world_db::a_kill_sends_the_updates_recorded_kills_were_sent",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.a-kill-step-comes-before-its-effect",
+        says: "A world's own step a kill triggers runs first, and a quest it moved is not moved \
+               again by the creature's effect at that kill.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-STEP-FIRST"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kills_step_runs_first_and_its_quest_is_not_moved_again_by_the_effect",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-kills-reach-from-setup",
+        says: "How a kill's move on a quest reaches fellows is read from the quest's setup: shared \
+               or not, each limit named or not; a quest with no setup of its own shares nothing \
+               unless a row says so. A last phase spanning two waits for something other than a \
+               kill.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-SETUP"),
+        station: "yalain-testkit::dat::quests::a_quests_setup_says_how_a_kill_reaches_fellows_and_its_definition_whether_its_last_phase_waits",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.quests.a-kills-refused-giving-is-told",
+        says: "A killer whose kill would give a quest it has under way, whose wait is not over or \
+               that it has done once is told why, in an update of the giving kind holding a record \
+               of nothing, and its quest stays as it was.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-REFUSED"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_killer_is_told_why_a_kills_giving_was_refused_and_its_quest_stays_as_it_was",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-last-phase-that-waits-holds",
+        says: "A kill does not end a quest whose last phase waits for something else; it stays at \
+               that phase.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-LAST-WAITS"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_last_phase_that_waits_for_something_else_is_not_ended_by_a_kill",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-strangers-kill-moves-nothing",
+        says: "A kill moves nothing for a player who is no fellow of the killer, whatever it holds \
+               and however near it stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-STRANGER"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kill_moves_nothing_for_a_player_who_is_no_fellow_of_the_killer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.an-effects-name-names-its-quest",
+        says: "An effect's name says what it does to which quest: the kind, the quest by the \
+               enumeration's name with or without the separator, and for an advance the phase; a \
+               name of any other kind, or of no quest, says nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-NAMES"),
+        station: "yalain-testkit::cpu::play::kill_quests::an_effects_name_says_what_it_does_to_which_quest",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.an-unrecorded-quest-reaches-no-fellow",
+        says: "A quest with no setup and no recording to say otherwise moves for its killer and \
+               for no fellow, near as the fellow stands and whatever it holds.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-UNRECORDED"),
+        station: "yalain-testkit::corpus::world_db::a_quest_with_no_setup_and_no_recording_moves_its_killers_quest_and_no_fellows",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.cancel-a-quest",
         says: "A quest under way that may be cancelled is cancelled on request: one update of the \
                cancel kind with the quest's record, and the quest no longer under way.",
@@ -5868,6 +5994,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-ONCE-NO-ROWS"),
         station: "yalain-testkit::corpus::world_db::a_quest_its_setup_says_is_done_once_is_not_given_again_whatever_the_rows_say",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.every-death-effect-names-a-quest",
+        says: "Every effect a creature template of the install names that reads as a quest effect \
+               names a quest of the install.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KILL-NAMED-ALL"),
+        station: "yalain-testkit::dat::quests::every_quest_effect_a_creature_names_names_a_quest_of_the_install",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.quests.every-quest-held-listed-at-entry",

@@ -242,6 +242,7 @@ impl Install for DatInstall<'_> {
         };
         let mut phases = Vec::new();
         let mut subquests = Vec::new();
+        let mut ranges = Vec::new();
         for (k, v) in nav.entries(nav.field(root, "m_questPhaseInfo")?)? {
             let Item::Word(phase) = k else { continue };
             let o = nav.object(v.reference()?)?;
@@ -250,6 +251,7 @@ impl Install for DatInstall<'_> {
                 _ => (0, 0),
             };
             phases.push((phase, j));
+            ranges.push((phase, nav.field(o, "m_uiPhaseRange").unwrap_or(1)));
             // The quests the phase is done by, in their order.
             let quests: Vec<u32> = nav
                 .field(o, "m_listSubquests")
@@ -294,6 +296,11 @@ impl Install for DatInstall<'_> {
             }
         }
         effects.sort_by_key(|(k, _)| *k);
+        let last_waits = ranges
+            .iter()
+            .max_by_key(|(p, _)| *p)
+            .is_some_and(|(_, r)| *r > 1);
+        let setup = setup_of(&self.lib, root.package_id());
         Some(QuestDefinition {
             state,
             name: text("m_siLongName")?,
@@ -303,7 +310,9 @@ impl Install for DatInstall<'_> {
             journals: phases.into_iter().map(|(_, j)| j).collect(),
             effects,
             subquests,
-            once: done_once(&self.lib, root.package_id()),
+            once: setup.once,
+            fellows: setup.fellows,
+            last_waits,
         })
     }
 
@@ -318,39 +327,53 @@ impl Install for DatInstall<'_> {
     }
 }
 
-/// The call a quest's setup makes to say how many times it may be done.
+/// The calls a quest's setup makes to say how many times it may be done, and how a kill's move on
+/// it reaches the killer's fellows.
 const SET_SOLUTIONS: &str = "Quest::SetMaxNumberOfSolutions";
+const SET_SHARED: u32 = 0x01A7_000D;
+const SET_NEAR_LEVEL: u32 = 0x01A7_008B;
+const SET_NEAR_BY: u32 = 0x01A7_0078;
 
-/// Is a quest's package set up to be done once: its `Setup` (its own, else the nearest of its
-/// bases') passes the literal 1 to [`SET_SOLUTIONS`]? Any other value (the globals' -1, any
-/// number) or no such call: it may be done again (2017: of the quests whose setup says 1, 0 of 49
-/// were given again; of the others, 50 were).
-fn done_once(lib: &Library, package: u32) -> bool {
+/// What a quest's package sets up beyond its definition.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Setup {
+    /// Done once: the literal 1 passed to [`SET_SOLUTIONS`]. Any other value (the globals' -1, any
+    /// number) or no such call: it may be done again (2017: of the quests whose setup says 1, 0 of
+    /// 49 were given again; of the others, 50 were).
+    once: bool,
+    /// How a kill's move on it reaches the killer's fellows; a setup with no such call shares
+    /// nothing, and a call with no limit named limits nothing.
+    fellows: yalain_content::quests::Fellows,
+}
+
+/// A quest package's `Setup` (its own, else the nearest of its bases') read for its literals.
+fn setup_of(lib: &Library, package: u32) -> Setup {
     let mut at = lib.export_of(package);
     let mut guard = 0;
     while let Some(i) = at {
         let Some(p) = lib.packages.get(i) else {
-            return false;
+            return Setup::default();
         };
         if let Some(f) = p.functions.iter().find(|f| f.name == "Setup") {
             let Some(offset) = f.offset else {
-                return false;
+                return Setup::default();
             };
             let start = (offset / 4) as usize;
             let end = start + (f.size / 4) as usize;
-            return passes_one(lib, start, end.min(lib.code.len()));
+            return read_setup(lib, start, end.min(lib.code.len()));
         }
         at = p.parent;
         guard += 1;
         if guard > lib.packages.len() {
-            return false;
+            return Setup::default();
         }
     }
-    false
+    Setup::default()
 }
 
-/// Does the code in `start..end` call [`SET_SOLUTIONS`] with the literal 1 the last value pushed?
-fn passes_one(lib: &Library, start: usize, end: usize) -> bool {
+/// The setters' literals in the code in `start..end`: each call reads the literal pushed before it.
+fn read_setup(lib: &Library, start: usize, end: usize) -> Setup {
+    let mut out = Setup::default();
     // The last literal pushed, cleared by anything else that puts a value on the stack.
     let mut literal: Option<i64> = None;
     let mut at = start;
@@ -362,11 +385,18 @@ fn passes_one(lib: &Library, start: usize, end: usize) -> bool {
             0x02 => literal = lib.code.get(at + 1).map(|v| i64::from(*v)),
             // The receiver pushed for the call leaves the argument alone.
             0x23 => {}
-            // A call: the one that sets the count reads the literal pushed before it.
+            // A call: the one that sets a value reads the literal pushed before it.
             0x0B | 0x4F | 0x51 | 0x53 => {
                 let id = lib.code.get(at + 1).copied().unwrap_or(0);
-                if lib.function_name(FunctionId(id)).as_deref() == Some(SET_SOLUTIONS) {
-                    return literal == Some(1);
+                match id & 0x7FFF_FFFF {
+                    SET_SHARED => out.fellows.shared = literal == Some(1),
+                    SET_NEAR_LEVEL => out.fellows.near_level = literal == Some(1),
+                    SET_NEAR_BY => out.fellows.near_by = literal == Some(1),
+                    _ => {
+                        if lib.function_name(FunctionId(id)).as_deref() == Some(SET_SOLUTIONS) {
+                            out.once = literal == Some(1);
+                        }
+                    }
                 }
                 literal = None;
             }
@@ -374,7 +404,7 @@ fn passes_one(lib: &Library, start: usize, end: usize) -> bool {
         }
         at += length(&lib.code, at).unwrap_or(1);
     }
-    false
+    out
 }
 
 /// Reading a saved state's graph by the library's names for its fields.

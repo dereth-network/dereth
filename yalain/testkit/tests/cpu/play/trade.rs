@@ -671,6 +671,8 @@ fn quests() -> QuestTable {
             min_level: 0,
             fails_on_death: false,
             once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
         }],
         steps: vec![
             step(0, GUARD_TEMPLATE, Update::Bestow),

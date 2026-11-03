@@ -61,13 +61,13 @@ use auberean_protocol::types::{PhysicsStory, StoryHook};
 use auberean_protocol::ServerMessage;
 use auberean_script::args::Arg;
 use auberean_script::native_object::TextInfo;
-use yalain_content::quests::Update;
 use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::Store;
 
 use crate::effect_defs::{aura_target, combo_flag, vital, Aura, Combo, EffectDef, Kind};
 use crate::graph::{tag, Builder, Slot};
 use crate::player::quality;
+use crate::quests::Move;
 use crate::rules::Outcome;
 use crate::state::EffectState;
 use crate::{progress, quals, session, Clock, Server, Timer};
@@ -467,16 +467,15 @@ pub fn apply_on<S: Store>(
             true
         }
         (Kind::Quest { quest, update }, On::Player(world)) => {
-            let up = match update & 0xF000_0000 {
-                0x1000_0000 => Update::Bestow,
-                0x3000_0000 => Update::Complete,
-                crate::quests::update::FAIL => {
-                    crate::quests::fail(s, net, world, *quest, clock);
-                    return true;
-                }
-                _ => Update::Advance(update & 0x0FFF_FFFF),
+            let act = match update & 0xF000_0000 {
+                crate::quests::update::BESTOW => Move::Bestow,
+                crate::quests::update::COMPLETE => Move::Complete,
+                crate::quests::update::FAIL => Move::Fail,
+                crate::quests::update::INCREMENT => Move::Increment,
+                _ => Move::Advance(update & 0x0FFF_FFFF),
             };
-            crate::quests::apply(s, net, world, *quest, up, 0, clock);
+            let e = crate::quests::QuestEffect { quest: *quest, act };
+            crate::quests::moves(s, net, world, e, true, clock);
             true
         }
         // A teleport is no record: its target goes when its time is up (2017: 10.0 s after the

@@ -600,6 +600,8 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
                 min_level: 0,
                 fails_on_death: false,
                 once: false,
+                fellows: yalain_content::quests::Fellows::default(),
+                last_waits: false,
             }],
             steps: Vec::new(),
         };

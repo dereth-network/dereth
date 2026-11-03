@@ -142,6 +142,8 @@ fn hall() -> Harness {
         min_level: 0,
         fails_on_death: false,
         once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
     });
     h.server.quests.steps.push(Step {
         quest: ENTER_QUEST,

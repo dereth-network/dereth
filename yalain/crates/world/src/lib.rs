@@ -337,6 +337,8 @@ pub struct Server<S: Store> {
     pub item_uses: item_use::ItemUses,
     /// The effects each item template puts on whoever wears or wields it.
     pub worn_effects: item_use::ItemUses,
+    /// The enumeration of quests: each quest's id by its name, for the effects that name quests.
+    pub quest_ids: HashMap<String, u32>,
     /// What each player is examining.
     pub examining: HashMap<ConnId, examine::Examining>,
     /// The packages of the objects a player uses by walking into them (portals).
@@ -638,6 +640,7 @@ impl<S: Store> Server<S> {
             item_effects: HashMap::new(),
             item_uses: HashMap::new(),
             worn_effects: HashMap::new(),
+            quest_ids: HashMap::new(),
             examining: HashMap::new(),
             walk_in_packages: std::collections::HashSet::new(),
             person_packages: std::collections::HashSet::new(),

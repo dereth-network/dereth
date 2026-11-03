@@ -34,10 +34,13 @@ fn icons(g: &Graph) -> Vec<(u32, Vec<u8>)> {
 
 /// The script object that holds a reference to an entry of a graph.
 fn holder(g: &Graph, of: u32) -> Option<u32> {
-    g.ids.iter().zip(&g.entries).find_map(|(id, e)| match &e.body {
-        Body::Object(o) if o.native.is_none() && o.slots.contains(&of) => Some(*id),
-        _ => None,
-    })
+    g.ids
+        .iter()
+        .zip(&g.entries)
+        .find_map(|(id, e)| match &e.body {
+            Body::Object(o) if o.native.is_none() && o.slots.contains(&of) => Some(*id),
+            _ => None,
+        })
 }
 
 /// **A sale recorded in January 2017, copied whole as a script's copy copies it, holds its
@@ -64,7 +67,9 @@ fn a_recorded_sale_copied_keeps_the_layers_of_its_products_icon() {
                 continue;
             }
             let mut heap = Heap::new();
-            let root = heap.import(g, None).expect("the graph reads into the table");
+            let root = heap
+                .import(g, None)
+                .expect("the graph reads into the table");
             let held = heap.export(root).expect("the graph packs again");
             for (id, bytes) in icons(&held) {
                 let sale = holder(&held, id).expect("a sale holds its product's icon");
@@ -82,7 +87,10 @@ fn a_recorded_sale_copied_keeps_the_layers_of_its_products_icon() {
             let mut after: Vec<Vec<u8>> = icons(&held).into_iter().map(|(_, b)| b).collect();
             before.sort();
             after.sort();
-            assert_eq!(before, after, "the graph read in holds the icons the server sent");
+            assert_eq!(
+                before, after,
+                "the graph read in holds the icons the server sent"
+            );
         }
     })
     .expect("the capture index reads");

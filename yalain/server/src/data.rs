@@ -497,6 +497,24 @@ pub fn item_uses(
     ))
 }
 
+/// The enumeration of quests: each quest's id by its name.
+pub const QUEST_NAMES: u32 = 0x2300_0090;
+
+/// The quests' ids by their names.
+///
+/// # Errors
+/// The enumeration does not read.
+pub fn quest_ids(p: &Portal) -> Result<std::collections::HashMap<String, u32>, String> {
+    let bytes = p
+        .dat
+        .read(QUEST_NAMES)
+        .map_err(|e| format!("{QUEST_NAMES:08X}: {e}"))?;
+    let names: auberean_assets::strings::EnumMap =
+        auberean_assets::decode(QUEST_NAMES, &bytes, &p.ctx)
+            .map_err(|e| format!("{QUEST_NAMES:08X}: {e}"))?;
+    Ok(names.names.into_iter().map(|(v, n)| (n, v)).collect())
+}
+
 /// The dye plants' ripe looks: each species' plant item's look, by the item.
 #[must_use]
 pub fn plant_looks(p: &Portal, catalog: &Catalog) -> yalain_world::plants::Looks {
