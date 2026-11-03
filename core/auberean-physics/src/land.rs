@@ -219,6 +219,30 @@ impl Block {
         }
         None
     }
+
+    /// The ground triangles of land cell `(cx, cy)`: its squares taken x-major, two to a square,
+    /// none over a hole.
+    pub(crate) fn cell_triangles(
+        &self,
+        cx: usize,
+        cy: usize,
+    ) -> impl Iterator<Item = Polygon> + '_ {
+        let side = self.geometry.squares_per_side;
+        let per = side / CELLS_PER_SIDE;
+        (cx * per..(cx + 1) * per)
+            .flat_map(move |i| (cy * per..(cy + 1) * per).map(move |j| i * side + j))
+            .filter(|&n| !self.geometry.holes.get(n).copied().unwrap_or(false))
+            .flat_map(|n| self.geometry.triangles[2 * n..2 * n + 2].iter())
+            .map(|t| Polygon {
+                vertices: t
+                    .v
+                    .iter()
+                    .map(|&k| self.geometry.vertices[k as usize])
+                    .collect(),
+                plane: t.plane,
+                pos_surface: 1,
+            })
+    }
 }
 
 /// One land cell, answering for its ground and its solids.
@@ -350,6 +374,8 @@ pub struct Land {
     /// What interior cells add to the material of a body in them, by full id: their landblock's
     /// properties, then their own.
     cell_materials: RwLock<HashMap<u32, Arc<CellMaterial>>>,
+    /// The interior cells with doorways out that touch each land cell, by the land cell's full id.
+    touching: RwLock<HashMap<u32, Vec<CellId>>>,
     table: Box<[f32; LAND_HEIGHT_TABLE_LEN]>,
 }
 
@@ -369,6 +395,7 @@ impl Land {
             cell_objects: RwLock::new(HashMap::new()),
             properties: OnceLock::new(),
             cell_materials: RwLock::new(HashMap::new()),
+            touching: RwLock::new(HashMap::new()),
             table: Box::new([0.0; LAND_HEIGHT_TABLE_LEN]),
         }
     }
@@ -378,6 +405,58 @@ impl Land {
         if let Ok(mut c) = self.cells.write() {
             c.insert(cell.id.0, Arc::new(cell));
         }
+    }
+
+    /// Tells each land cell of block `(x, y)` the interior cells that touch it, from `cells`, the low
+    /// words of the interior cells the block sees from outside: each with a doorway out and a physics
+    /// tree touches the land cells under the box around its tree's sphere, reckoned from the land
+    /// cell its middle lies over. A land cell past the block's edge counts as the cell at the same
+    /// place in this block.
+    // D2-03669, D2-03877, D2-04114
+    pub fn connect_cells(&self, x: u8, y: u8, cells: &[u32]) {
+        let block = u32::from(x) << 24 | u32::from(y) << 16;
+        for &low in cells {
+            let id = CellId(block | low);
+            let Some(g) = self.cell(id) else {
+                continue;
+            };
+            if !crate::camera::touches_outside(&g) {
+                continue;
+            }
+            let Some(sphere) = g
+                .physics_bsp
+                .as_ref()
+                .and_then(|t| t.root())
+                .map(|n| n.sphere)
+            else {
+                continue;
+            };
+            let (mut over, mut origin) = (id, g.frame.origin);
+            let _ = crate::cells::adjust_to_outside(&mut over, &mut origin);
+            let at = Position::new(over, Frame::new(origin, g.frame.rotation));
+            let found = crate::cells::find_cells_of_spheres(self, &at, &[sphere]);
+            let Ok(mut touching) = self.touching.write() else {
+                return;
+            };
+            for c in found {
+                if crate::interior::is_interior(c) || c.index() == 0 {
+                    continue;
+                }
+                let k = usize::from(c.index()) - 1;
+                let here = land_cell_id(x, y, k / CELLS_PER_SIDE, k % CELLS_PER_SIDE);
+                touching.entry(here.0).or_default().push(id);
+            }
+        }
+    }
+
+    /// The interior cells that touch land cell `id`.
+    #[must_use]
+    pub fn touching_cells(&self, id: CellId) -> Vec<CellId> {
+        self.touching
+            .read()
+            .ok()
+            .and_then(|t| t.get(&id.0).cloned())
+            .unwrap_or_default()
     }
 
     /// The properties laid over the world, taken once.
@@ -607,6 +686,15 @@ impl Land {
     /// Every solid the line from `from` to `to` passes through, as the fraction of the way it
     /// meets it and the surface's normal.
     fn solid_hits(&self, block: LandblockId, from: Vec3, to: Vec3) -> Vec<(f32, Vec3)> {
+        self.solids_near(block, from, to)
+            .iter()
+            .flat_map(|s| s.hits(from, to))
+            .collect()
+    }
+
+    /// The solids of every block whose spheres the line from `from` to `to` (in `block`'s frame)
+    /// reaches.
+    pub(crate) fn solids_near(&self, block: LandblockId, from: Vec3, to: Vec3) -> Vec<SolidNear> {
         let r = crate::rules::rules();
         let mut out = Vec::new();
         let Ok(blocks) = self.blocks.read() else {
@@ -619,29 +707,13 @@ impl Land {
             );
             // The line in this block's frame.
             let (f, t) = (from.add(off), to.add(off));
-            for s in &b.solids {
-                if segment_distance(s.bounds.center, f, t) > s.bounds.radius {
-                    continue;
-                }
-                let Some(tree) = s.part.physics_bsp.as_ref() else {
-                    continue;
-                };
-                let frame = &s.part.pos.frame;
-                let inv = if s.part.gfxobj_scale > 0.0 {
-                    1.0 / s.part.gfxobj_scale
-                } else {
-                    1.0
-                };
-                let lf = dereth_physics::math::globaltolocal(frame, f).mul(inv);
-                let lt = dereth_physics::math::globaltolocal(frame, t).mul(inv);
-                for poly in &tree.polygons {
-                    if let Some(u) = segment_polygon(lf, lt, &poly.vertices) {
-                        let n = dereth_physics::math::localtoglobalvec(
-                            dereth_physics::math::l2g(frame.rotation),
-                            poly.plane.normal,
-                        );
-                        out.push((u, n));
-                    }
+            for (index, s) in b.solids.iter().enumerate() {
+                if segment_distance(s.bounds.center, f, t) <= s.bounds.radius {
+                    out.push(SolidNear {
+                        block: Arc::clone(b),
+                        index,
+                        off,
+                    });
                 }
             }
         }
@@ -681,6 +753,69 @@ impl Land {
             cy: (index - 1) % CELLS_PER_SIDE,
         })
     }
+}
+
+/// A solid of some block near a line, and how to bring the line into that block's frame.
+#[derive(Debug)]
+pub struct SolidNear {
+    block: Arc<Block>,
+    index: usize,
+    off: Vec3,
+}
+
+impl SolidNear {
+    /// Where the line from `from` to `to` passes through this solid, as the fraction of the way it
+    /// meets each polygon and the polygon's facing, turned into the world.
+    fn hits(&self, from: Vec3, to: Vec3) -> Vec<(f32, Vec3)> {
+        let mut out = Vec::new();
+        let s = &self.block.solids[self.index];
+        let Some(tree) = s.part.physics_bsp.as_ref() else {
+            return out;
+        };
+        let (f, t) = (from.add(self.off), to.add(self.off));
+        let frame = &s.part.pos.frame;
+        let inv = if s.part.gfxobj_scale > 0.0 {
+            1.0 / s.part.gfxobj_scale
+        } else {
+            1.0
+        };
+        let lf = dereth_physics::math::globaltolocal(frame, f).mul(inv);
+        let lt = dereth_physics::math::globaltolocal(frame, t).mul(inv);
+        for poly in &tree.polygons {
+            if let Some(u) = segment_polygon(lf, lt, &poly.vertices) {
+                let n = dereth_physics::math::localtoglobalvec(
+                    dereth_physics::math::l2g(frame.rotation),
+                    poly.plane.normal,
+                );
+                out.push((u, n));
+            }
+        }
+        out
+    }
+}
+
+/// What of `solids` the line from `from` to `to` (in its block's frame) meets over land cell
+/// `(cx, cy)` of that block: a solid reaching over from another block is met where it stands over
+/// this one.
+pub(crate) fn solids_hit_in_cell(
+    solids: &[SolidNear],
+    (cx, cy): (usize, usize),
+    from: Vec3,
+    to: Vec3,
+) -> Vec<(f32, Vec3)> {
+    let index = |v: f32| {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let i = (v / CELL_LENGTH).floor().max(0.0) as usize;
+        i.min(CELLS_PER_SIDE - 1)
+    };
+    solids
+        .iter()
+        .flat_map(|s| s.hits(from, to))
+        .filter(|(t, _)| {
+            let at = from.add(to.sub(from).mul(*t));
+            (index(at.x), index(at.y)) == (cx, cy)
+        })
+        .collect()
 }
 
 /// Build block `(x, y)`.

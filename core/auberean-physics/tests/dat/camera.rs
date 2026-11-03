@@ -76,3 +76,69 @@ fn the_camera_stands_in_the_cell_its_last_line_ended_in() {
     assert!(rooms >= 8, "{rooms} in rooms");
     assert_eq!(outside, 8, "on the land, in the land cell under it");
 }
+
+/// A line of sight from the land through a cave's mouth ends in the cave: the land cell under the
+/// mouth knows the room, which its block names among the cells it sees from outside. Told nothing,
+/// the same line would run on under the land.
+///
+/// Behaviour: detection.sight.a-line-of-sight-from-the-land-goes-into-a-cave-by-its-mouth
+#[test]
+fn a_line_of_sight_from_the_land_goes_into_a_cave_by_its_mouth() {
+    use auberean_physics::cells::{adjust_to_outside, OUTDOORS};
+    use auberean_physics::ethereal::SightLine;
+    use auberean_physics::geom::Ray;
+    use auberean_physics::world::World;
+    use dereth_physics::math::{globaltolocal, l2g, localtoglobalvec};
+    use dereth_primitives::Vec3;
+
+    let w = need_world!();
+    let land = Land::new();
+    let mut trees = Trees::default();
+    land.add_block(&w.records, &w.region, &mut trees, 0x69, 0x67);
+    add_block_cells(&land, &w.records, &mut trees, 0x69, 0x67);
+    let mouth = CellId(0x6967_0100);
+    let g = land.cell(mouth).expect("the cave's first room");
+    let door = g
+        .portals
+        .iter()
+        .find(|p| p.other_cell_id == OUTDOORS)
+        .expect("a doorway out");
+    let n = door.portal.vertices.len();
+    #[allow(clippy::cast_precision_loss)]
+    let k = 1.0 / n as f32;
+    let mid = door.portal.vertices.iter().fold(Vec3::ZERO, |a, v| {
+        Vec3::new(a.x + v.x * k, a.y + v.y * k, a.z + v.z * k)
+    });
+    let middle = dereth_physics::math::localtoglobal(&g.frame, mid);
+    let facing = localtoglobalvec(l2g(g.frame.rotation), door.portal.plane.normal);
+    let along = |d: f32| {
+        Vec3::new(
+            middle.x + facing.x * d,
+            middle.y + facing.y * d,
+            middle.z + facing.z * d,
+        )
+    };
+    // The side of the doorway the room's own cell tree holds is in; the other is out.
+    let held = |p: Vec3| {
+        g.cell_bsp
+            .as_ref()
+            .is_some_and(|t| t.point_inside_cell_bsp(globaltolocal(&g.frame, p)))
+    };
+    let sign = if held(along(1.0)) { -1.0 } else { 1.0 };
+    let (from, to) = (along(sign), along(-sign));
+    assert!(held(to), "ends in the room: {to:?}");
+    let (mut over, mut start) = (mouth, from);
+    assert!(adjust_to_outside(&mut over, &mut start));
+    assert!(
+        !land.touching_cells(over).is_empty(),
+        "the land under the mouth knows the room"
+    );
+    let world = World::new();
+    let mut los = SightLine::default();
+    los.set_ray(Ray::segment(from, to), over.0);
+    assert!(world.los_check(&land, &mut los));
+    assert!(
+        is_interior(CellId(los.final_cell)),
+        "ends in the cave: {los:?}"
+    );
+}

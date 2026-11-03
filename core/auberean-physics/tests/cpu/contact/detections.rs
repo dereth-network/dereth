@@ -1288,8 +1288,231 @@ mod rooms {
         assert_eq!(los.impact_normal, Vec3::ZERO, "an object faces nowhere");
     }
 
+    /// Room `id` standing at `middle`, with its tree's sphere of radius `radius` around the room's
+    /// own middle and one doorway out, east of it, 5 m off; `wall` a solid wall `west` of the middle.
+    fn shed_at(land: &Land, id: CellId, middle: Vec3, radius: f32, west: f32) {
+        let mut tree = solid_behind(Vec3::new(1.0, 0.0, 0.0), west);
+        tree.nodes[0].sphere = Sphere::new(Vec3::ZERO, radius);
+        land.insert_cell(EnvCellGeometry {
+            id,
+            frame: Frame::new(middle, Quat::IDENTITY),
+            portals: vec![doorway(Vec3::new(5.0, 0.0, 0.0), false, OUTDOORS, -1)],
+            physics_polygons: Vec::new(),
+            physics_bsp: Some(Arc::new(tree)),
+            cell_bsp: None,
+            stab_list: Vec::new(),
+            seen_outside: false,
+            holds_without_portals: true,
+            static_objects: Vec::new(),
+        });
+    }
+
+    /// A room with a doorway out and a physics tree touches the land cells under the box around the
+    /// tree's sphere, as the block names it among the cells it sees from outside: a room the block
+    /// does not name, one with no doorway out and one with no tree touch nothing. A land cell past
+    /// the block's edge counts as the cell at the same place in this block.
+    ///
+    /// Behaviour: detection.sight.a-room-with-a-doorway-out-touches-the-land-cells-under-its-sphere
+    #[test]
+    fn a_room_with_a_doorway_out_touches_the_land_cells_under_its_sphere() {
+        let land = land();
+        shed_at(&land, SHED, Vec3::new(58.0, 50.0, 11.0), 5.0, 100.0);
+        // Over the block's east edge; its tree's sphere reaches the block beside this one.
+        shed_at(&land, HUT, Vec3::new(158.0, 50.0, 11.0), 5.0, 100.0);
+        // Named, with no doorway out.
+        room(
+            &land,
+            NEAR,
+            open(),
+            vec![doorway(Vec3::ZERO, true, FAR.0, 0)],
+        );
+        // Named, a doorway out, no tree.
+        land.insert_cell(EnvCellGeometry {
+            id: FAR,
+            frame: Frame::new(Vec3::new(50.0, 50.0, 11.0), Quat::IDENTITY),
+            portals: vec![doorway(Vec3::ZERO, true, OUTDOORS, -1)],
+            physics_polygons: Vec::new(),
+            physics_bsp: None,
+            cell_bsp: None,
+            stab_list: Vec::new(),
+            seen_outside: false,
+            holds_without_portals: true,
+            static_objects: Vec::new(),
+        });
+        // Not named.
+        shed_at(
+            &land,
+            CellId(0x4040_0104),
+            Vec3::new(50.0, 50.0, 11.0),
+            5.0,
+            100.0,
+        );
+        land.connect_cells(0x40, 0x40, &[0x100, 0x101, 0x102, 0x103]);
+
+        let cell = |x: f32, y: f32| standing(x, y).cell;
+        assert_eq!(land.touching_cells(cell(50.0, 50.0)), vec![SHED]);
+        assert_eq!(land.touching_cells(cell(61.0, 50.0)), vec![SHED]);
+        assert_eq!(land.touching_cells(cell(150.0, 50.0)), vec![HUT]);
+        assert_eq!(
+            land.touching_cells(cell(5.0, 50.0)),
+            vec![HUT],
+            "past the edge, the same place in this block"
+        );
+        assert!(land.touching_cells(cell(50.0, 90.0)).is_empty());
+    }
+
+    /// A line of sight over the land asks the rooms that touch the land cells it crosses: going in
+    /// through a room's doorway out, it goes on inside, and the room's wall stops it there, in the
+    /// room, facing back. Past the doorway's side, or with the room touching no cell it crosses, it
+    /// goes on over the land, clear. A line that the ground stops before the doorway never reaches it.
+    ///
+    /// Behaviour: detection.sight.a-line-of-sight-over-the-land-goes-in-through-the-doorways-of-rooms-it-touches
+    #[test]
+    fn a_line_of_sight_over_the_land_goes_in_through_the_doorways_of_rooms_it_touches() {
+        let land = land();
+        shed_at(&land, SHED, Vec3::new(50.0, 50.0, 11.0), 5.0, 8.0);
+        land.connect_cells(0x40, 0x40, &[0x102]);
+        let world = table::World::new();
+        let start = standing(58.0, 50.0).cell;
+
+        let los = traced(
+            &world,
+            &land,
+            sight(
+                start,
+                Vec3::new(58.0, 50.0, 11.0),
+                Vec3::new(30.0, 50.0, 11.0),
+                0,
+            ),
+        );
+        assert_eq!((los.trace_result, los.final_cell), (1, SHED.0), "{los:?}");
+        assert!(
+            (los.end_point().x - 42.0).abs() < 1e-3,
+            "at the wall, 8 m west of the room's middle: {:?}",
+            los.end_point()
+        );
+        assert!((los.impact_normal.x - 1.0).abs() < 1e-6);
+
+        let beside = traced(
+            &world,
+            &land,
+            sight(
+                start,
+                Vec3::new(58.0, 55.0, 11.0),
+                Vec3::new(30.0, 55.0, 11.0),
+                0,
+            ),
+        );
+        assert_eq!(beside.trace_result, 0, "{beside:?}");
+        assert_eq!(beside.final_cell, standing(30.0, 55.0).cell.0);
+
+        let short = traced(
+            &world,
+            &land,
+            sight(
+                start,
+                Vec3::new(58.0, 50.0, 11.0),
+                Vec3::new(50.0, 50.0, 5.0),
+                0,
+            ),
+        );
+        assert_eq!(short.trace_result, 1, "{short:?}");
+        assert_eq!(short.final_cell, standing(55.0, 50.0).cell.0, "on the land");
+        assert!(short.end_point().z >= 9.99, "{:?}", short.end_point());
+
+        // The same room, told of nothing.
+        let land = crate::contact::objects::land();
+        shed_at(&land, SHED, Vec3::new(50.0, 50.0, 11.0), 5.0, 8.0);
+        let los = traced(
+            &world,
+            &land,
+            sight(
+                start,
+                Vec3::new(58.0, 50.0, 11.0),
+                Vec3::new(30.0, 50.0, 11.0),
+                0,
+            ),
+        );
+        assert_eq!(los.trace_result, 0);
+        assert_eq!(los.final_cell, standing(30.0, 50.0).cell.0);
+    }
+
+    /// The land stops a line of sight at the first of its triangles the line crosses, either way, in
+    /// the land cell the triangle is in, and the line's impact faces the way the ground does. A line
+    /// straight down stops the same way.
+    ///
+    /// Behaviour: detection.sight.the-land-stops-a-line-of-sight-at-its-triangles-facing-up
+    #[test]
+    fn the_land_stops_a_line_of_sight_at_its_triangles_facing_up() {
+        let land = land();
+        let world = table::World::new();
+        let start = standing(39.0, 50.0).cell;
+        for (from, to, end) in [
+            // Down, across a land cell's edge.
+            (
+                Vec3::new(38.0, 50.0, 11.0),
+                Vec3::new(42.0, 50.0, 9.0),
+                Vec3::new(40.0, 50.0, 10.0),
+            ),
+            // Up, from under the ground.
+            (
+                Vec3::new(38.0, 50.0, 9.0),
+                Vec3::new(38.0, 54.0, 11.0),
+                Vec3::new(38.0, 52.0, 10.0),
+            ),
+            // Straight down.
+            (
+                Vec3::new(38.0, 50.0, 12.0),
+                Vec3::new(38.0, 50.0, 8.0),
+                Vec3::new(38.0, 50.0, 10.0),
+            ),
+        ] {
+            let los = traced(&world, &land, sight(start, from, to, 0));
+            assert_eq!(los.trace_result, 1, "{from:?}: {los:?}");
+            let e = los.end_point();
+            assert!(
+                (e.x - end.x).abs() < 1e-2
+                    && (e.y - end.y).abs() < 1e-2
+                    && (e.z - end.z).abs() < 1e-3,
+                "{e:?}"
+            );
+            assert!((los.impact_normal.z - 1.0).abs() < 1e-6, "{los:?}");
+        }
+    }
+
+    /// A line of sight tracing doorways only passes what stands on the land; it passes nothing else's
+    /// test either way.
+    ///
+    /// Behaviour: detection.sight.a-line-tracing-doorways-passes-what-stands-on-the-land
+    #[test]
+    fn a_line_tracing_doorways_passes_what_stands_on_the_land() {
+        let land = land();
+        let mut world = table::World::new();
+        world.insert(
+            &land,
+            POST,
+            &WorldObject {
+                shape: post(),
+                position: standing(60.0, 50.0),
+                is_static: true,
+                passable: false,
+            },
+        );
+        let start = standing(50.0, 50.0).cell;
+        let (from, to) = (Vec3::new(50.0, 50.0, 11.0), Vec3::new(70.0, 50.0, 11.0));
+        let los = traced(&world, &land, sight(start, from, to, 0));
+        assert_eq!(los.trace_result, 1, "the post stops a line of shapes");
+        assert!(
+            (los.impact_normal.x + 1.0).abs() < 1e-6,
+            "facing back along the line: {:?}",
+            los.impact_normal
+        );
+        let los = traced(&world, &land, sight(start, from, to, 3));
+        assert_eq!(los.trace_result, 0, "a line of doorways passes it: {los:?}");
+    }
+
     /// A line of sight leaving a room through a doorway out goes on over the land from the doorway,
-    /// and a post standing outside stops it, in the land cell it stands over. When the line's start
+    /// and a post standing outside stops it. When the line's start
     /// lies over another land cell than the doorway does, the land traces the line again from its
     /// start, so a post standing between the start and the doorway stops it too.
     ///
@@ -1332,7 +1555,11 @@ mod rooms {
         );
         let los = traced(&world, &land, sight(SHED, shed.0, shed.1, 0));
         assert_eq!(los.trace_result, 1, "stopped outside");
-        assert_eq!(los.final_cell, standing(59.5, 50.0).cell.0);
+        assert_eq!(
+            los.final_cell,
+            standing(70.0, 50.0).cell.0,
+            "reported in the last land cell of the box around the line"
+        );
         assert!(
             (los.end_point().x - 59.5).abs() < 0.01,
             "{:?}",

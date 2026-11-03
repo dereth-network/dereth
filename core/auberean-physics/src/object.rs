@@ -227,14 +227,24 @@ impl Shape {
     /// shape's own frame and divided by its scale, then met with its spheres when it has any, else
     /// with its upright cylinders, else with the polygons of its physics trees. A sphere or a
     /// cylinder met only at the far end or beyond does not count. None when nothing is met.
-    ///
-    /// What meets a sphere or a cylinder is reported facing straight back along the line.
-    // D2-06184
     #[must_use]
     pub fn check_ray(&self, at: &dereth_primitives::Frame, from: Vec3, to: Vec3) -> Option<f32> {
+        self.check_ray_facing(at, from, to).map(|(t, _)| t)
+    }
+
+    /// [`Self::check_ray`], with what the line meets facing it: a sphere or a cylinder straight back
+    /// along the line, a tree by its polygon's facing, turned into the world.
+    // D2-06184
+    #[must_use]
+    pub fn check_ray_facing(
+        &self,
+        at: &dereth_primitives::Frame,
+        from: Vec3,
+        to: Vec3,
+    ) -> Option<(f32, Vec3)> {
         use crate::geom::{CylinderOps, Ray, SphereOps};
         if self.spheres.is_empty() && self.cylinders.is_empty() {
-            return self.check_trees(at, self.scale, from, to);
+            return self.check_trees_facing(at, self.scale, from, to);
         }
         let (a, b) = unscaled_line(at, self.scale, from, to);
         let ray = Ray::segment(a, b);
@@ -255,7 +265,9 @@ impl Shape {
                 take(SphereOps::trace_ray(sp, &ray));
             }
         }
-        hit.then_some(best)
+        let line = Ray::segment(from, to);
+        let back = Vec3::new(-line.dir.x, -line.dir.y, -line.dir.z);
+        hit.then_some((best, back))
     }
 
     /// Where the line from `from` to `to` (both in the landblock frame of `at`) first meets the
@@ -269,18 +281,33 @@ impl Shape {
         from: Vec3,
         to: Vec3,
     ) -> Option<f32> {
+        self.check_trees_facing(at, scale, from, to).map(|(t, _)| t)
+    }
+
+    /// [`Self::check_trees`], with the facing of the polygon met, turned into the world.
+    #[must_use]
+    pub fn check_trees_facing(
+        &self,
+        at: &dereth_primitives::Frame,
+        scale: Vec3,
+        from: Vec3,
+        to: Vec3,
+    ) -> Option<(f32, Vec3)> {
         let (a, b) = unscaled_line(at, scale, from, to);
-        let mut best: Option<f32> = None;
+        let mut best: Option<(f32, Vec3)> = None;
         for tree in &self.trees {
             for poly in &tree.polygons {
                 if let Some(t) = crate::land::segment_polygon(a, b, &poly.vertices) {
-                    if best.is_none_or(|x| t < x) {
-                        best = Some(t);
+                    if best.is_none_or(|(x, _)| t < x) {
+                        best = Some((t, poly.plane.normal));
                     }
                 }
             }
         }
-        best
+        best.map(|(t, n)| {
+            let turn = dereth_physics::math::l2g(at.rotation);
+            (t, dereth_physics::math::localtoglobalvec(turn, n))
+        })
     }
 
     /// The box around what it draws, scaled.

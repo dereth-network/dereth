@@ -59,10 +59,56 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "detection.sight.a-line-of-sight-over-the-land-goes-in-through-the-doorways-of-rooms-it-touches",
+        says: "A line of sight over the land asks the rooms touching each land cell it crosses: \
+               through a room's doorway out it goes on inside, where the room's wall stops it, in \
+               the room, facing back; past the doorway it goes on over the land.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-LOS-LAND-ROOMS"),
+        station: "auberean-physics::cpu::contact::detections::rooms::a_line_of_sight_over_the_land_goes_in_through_the_doorways_of_rooms_it_touches",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "detection.sight.a-line-of-sight-from-the-land-goes-into-a-cave-by-its-mouth",
+        says: "A line of sight from the land through the world's cave mouth ends in the cave.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-LOS-LAND-ROOMS"),
+        station: "auberean-physics::dat::camera::a_line_of_sight_from_the_land_goes_into_a_cave_by_its_mouth",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "detection.sight.a-room-with-a-doorway-out-touches-the-land-cells-under-its-sphere",
+        says: "A room the block sees from outside, with a doorway out and a physics tree, touches \
+               the land cells under the box around its tree's sphere; a land cell past the block's \
+               edge counts as the cell at the same place in this block.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-LOS-LAND-ROOMS"),
+        station: "auberean-physics::cpu::contact::detections::rooms::a_room_with_a_doorway_out_touches_the_land_cells_under_its_sphere",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "detection.sight.the-land-stops-a-line-of-sight-at-its-triangles-facing-up",
+        says: "The land stops a line of sight at the first of its triangles the line crosses, from \
+               either side, and the line's impact faces the way the ground does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-LOS-LAND-ROOMS"),
+        station: "auberean-physics::cpu::contact::detections::rooms::the_land_stops_a_line_of_sight_at_its_triangles_facing_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "detection.sight.a-line-tracing-doorways-passes-what-stands-on-the-land",
+        says: "What stands on the land stops a line tracing physics shapes, facing back along it, \
+               and passes a line tracing doorways only.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-LOS-LAND-ROOMS"),
+        station: "auberean-physics::cpu::contact::detections::rooms::a_line_tracing_doorways_passes_what_stands_on_the_land",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "detection.sight.a-line-of-sight-goes-out-through-a-doorway-onto-the-land",
         says: "A line of sight leaving a room through a doorway out goes on over the land from the \
-               doorway, where what stands outside stops it in the land cell it stands over; when \
-               the line's start lies over another land cell than the doorway does, the land traces \
+               doorway, where what stands outside stops it, reported in the last land cell of the \
+               box around the line; when the line's start lies over another land cell than the doorway does, the land traces \
                the line again from its start.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DETECT-LOS-OUT"),

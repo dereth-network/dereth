@@ -176,6 +176,7 @@ pub fn add_block_cells(
             added += 1;
         }
     }
+    land.connect_cells(x, y, &info.outside_visible);
     added
 }
 
