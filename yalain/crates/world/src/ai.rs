@@ -215,11 +215,27 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
 /// The player a creature notices: the nearest within its perception that is in the world, out of
 /// portal space, alive and not under lifestone protection.
 fn notice<S: Store>(s: &Server<S>, at: &StoredPosition, radius: f32) -> Option<u64> {
+    notices_among(s, at, radius, |p| {
+        fightable(p) && p.admin.attackable == Attackable::Normal
+    })
+}
+
+/// The nearest player within `radius` that `may` passes. Where a player stands is known at once and
+/// `may` reads its state, so it is asked only of those near: the world's every creature looks every
+/// second, and nearly all have no player near.
+#[doc(hidden)]
+pub fn notices_among<S: Store>(
+    s: &Server<S>,
+    at: &StoredPosition,
+    radius: f32,
+    mut may: impl FnMut(&crate::world::Player) -> bool,
+) -> Option<u64> {
     s.players
         .values()
-        .filter(|p| fightable(p) && p.admin.attackable == Attackable::Normal)
-        .filter_map(|p| presence::distance(at, &p.position).map(|d| (d, p.character)))
+        .filter_map(|p| presence::distance(at, &p.position).map(|d| (d, p)))
         .filter(|(d, _)| *d <= radius)
+        .filter(|(_, p)| may(p))
+        .map(|(d, p)| (d, p.character))
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, id)| id)
 }

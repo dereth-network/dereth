@@ -2057,6 +2057,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.look-reads-near-players-only",
+        says: "A creature's look for a player reads the state only of players near it, however many \
+               are in the world. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-LOOK-NEAR"),
+        station: "yalain-testkit::cpu::play::creatures::a_creature_looking_reads_the_state_of_the_players_near_it_only",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.missiles-arrive-after-flight",
         says: "A creature's missile arrives after the creature's windup and its flight at 35 \
                m/s.",
