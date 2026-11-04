@@ -157,6 +157,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "data.cache.scripts-find-an-object-after-the-next-upkeep",
+        says: "Scripts look for an object in vain from its creation until the next upkeep.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CACHE-BEING-MADE"),
+        station: "auberean-client-runtime::cpu::world::cache::scripts_find_an_object_after_the_next_upkeep",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.camera-fx.every-record-decodes",
         says: "Every camera effect reads as a 64-bit word saying which settings follow, then those \
                settings: shake, the camera modes, intensity, period, ramps, blur, flash and distance.",

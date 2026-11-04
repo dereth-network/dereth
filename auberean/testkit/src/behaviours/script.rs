@@ -1004,6 +1004,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.model.a-moves-answer-does-not-find-an-object-being-made",
+        says: "A move's answer asking for an object by id finds nothing while it is being made, and finds it after; another script finds it at once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-BEING-MADE"),
+        station: "auberean-client-runtime::cpu::scripts::lookup::a_moves_answer_does_not_find_an_object_being_made",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.model.a-physics-object-passes-requests-to-its-body",
         says: "What a script asks of an object's physics object (its speed or acceleration scale, \
                cloaking, reporting or ignoring collisions, looking at an object, a push, stopping \

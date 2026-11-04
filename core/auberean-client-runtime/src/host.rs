@@ -23,7 +23,7 @@
 //!   answers 1, or 8 for an object that is not here).
 
 use std::any::Any;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use auberean_assets::names::FileNames;
@@ -122,6 +122,12 @@ pub struct ClientHost {
     /// Instance to object, and object to instance.
     pub links: HashMap<u32, u64>,
     pub instances: HashMap<u64, u32>,
+    /// Objects created since the last upkeep, the soonest the world's upkeep could have made them.
+    /// This client has them from the moment they are created; a move's answer alone must not
+    /// find them, since it names what it can find.
+    pub being_made: HashSet<u64>,
+    /// A move's answer is running: a script asking for an object being made finds nothing.
+    pub answering_a_move: bool,
     /// What scripts sent to the server: the function, its packed arguments, encrypted or not.
     pub sends: Vec<(u32, Vec<u8>, bool)>,
     /// Notices to the panels, by native, counted.
@@ -672,6 +678,8 @@ pub fn new_host(portal: Arc<DatFile>, program: Arc<Program>) -> ClientHost {
         model: Model::new(),
         links: HashMap::new(),
         instances: HashMap::new(),
+        being_made: HashSet::new(),
+        answering_a_move: false,
         sends: Vec::new(),
         notices: BTreeMap::new(),
         panel_notices: Vec::new(),
@@ -1569,14 +1577,19 @@ fn is_the_player(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// The instance of an object by id (`fp[-3..-2]`), or the null reference when the client does
-/// not have it.
-// D2-04665, D2-08057
+/// not have it yet.
+// D2-04665, D2-08057, D2-05641
 fn weenie_object(c: &mut Call<'_>) -> Result<Status, Stop> {
     if c.receiver()? == NULL {
         return Ok(Status::Crash);
     }
     let id = c.long_at(-3)?;
-    let r = instance(c, id)?;
+    let h = host(c)?;
+    let r = if h.answering_a_move && h.being_made.contains(&id) && h.model.player != Some(id) {
+        NULL
+    } else {
+        instance(c, id)?
+    };
     c.write(-4, r, tag::REFERENCE)?;
     Ok(Status::Success)
 }
