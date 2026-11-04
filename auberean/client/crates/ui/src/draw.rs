@@ -334,8 +334,7 @@ fn draw_element(
 /// between their four neighbours); the rectangle the turned picture covers.
 // D2-10429
 #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-fn turn_layer(layer: &Surface, area: Rect, degrees: i32) -> (Surface, Rect) {
-    let mut out = Surface::new(layer.width, layer.height);
+fn turn_layer(layer: &Surface, out: &mut Surface, area: Rect, degrees: i32) -> Rect {
     let a = (degrees as f32).to_radians();
     let (sin, cos) = (
         dereth_primitives::num::math::sinf(a),
@@ -353,7 +352,7 @@ fn turn_layer(layer: &Surface, area: Rect, degrees: i32) -> (Surface, Rect) {
         to_i32((cy + rh).ceil()),
     );
     let Some(c) = covers.intersect(layer.bounds()) else {
-        return (out, covers);
+        return covers;
     };
     let sample = |x: f32, y: f32| -> [f32; 4] {
         let (x0, y0) = (x.floor(), y.floor());
@@ -404,7 +403,7 @@ fn turn_layer(layer: &Surface, area: Rect, degrees: i32) -> (Surface, Rect) {
             );
         }
     }
-    (out, covers)
+    covers
 }
 
 /// A line one texel wide from `a` to `b` (both ends drawn) in a color, inside `clip`.
@@ -479,6 +478,7 @@ pub fn draw(ui: &Ui, frame: &mut Surface) {
 // D2-11219, D2-11163
 pub fn draw_where(ui: &Ui, frame: &mut Surface, keep: impl Fn(i32) -> bool) {
     let mut layer = Surface::new(frame.width, frame.height);
+    let mut turned = None;
     let screen = frame.bounds();
     for (r, z) in layers(ui) {
         let Some(n) = ui.node(r) else { continue };
@@ -495,8 +495,10 @@ pub fn draw_where(ui: &Ui, frame: &mut Surface, keep: impl Fn(i32) -> bool) {
             if n.rotation == 0 {
                 composite(frame, &layer, area.intersect(n.rect).unwrap_or(area));
             } else {
-                let (turned, covers) = turn_layer(&layer, n.rect, n.rotation);
-                composite(frame, &turned, covers);
+                let turned = turned.get_or_insert_with(|| Surface::new(layer.width, layer.height));
+                let covers = turn_layer(&layer, turned, n.rect, n.rotation);
+                composite(frame, turned, covers);
+                turned.clear_area(covers);
             }
             // The next element starts from a clear layer.
             layer.clear_area(area);
@@ -618,6 +620,7 @@ fn composite_over(dst: &mut Surface, layer: &Surface, area: Rect) {
 pub fn draw_layers_where(ui: &Ui, out: &mut Surface, keep: impl Fn(i32) -> bool) {
     out.clear();
     let mut layer = Surface::new(out.width, out.height);
+    let mut turned = None;
     let screen = out.bounds();
     for (r, z) in layers(ui) {
         let Some(n) = ui.node(r) else { continue };
@@ -634,8 +637,10 @@ pub fn draw_layers_where(ui: &Ui, out: &mut Surface, keep: impl Fn(i32) -> bool)
             if n.rotation == 0 {
                 composite_over(out, &layer, area);
             } else {
-                let (turned, covers) = turn_layer(&layer, n.rect, n.rotation);
-                composite_over(out, &turned, covers);
+                let turned = turned.get_or_insert_with(|| Surface::new(layer.width, layer.height));
+                let covers = turn_layer(&layer, turned, n.rect, n.rotation);
+                composite_over(out, turned, covers);
+                turned.clear_area(covers);
             }
             // The next element starts from a clear layer.
             layer.clear_area(area);
