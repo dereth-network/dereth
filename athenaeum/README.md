@@ -79,8 +79,8 @@ to where it leads.
   around the camera as the client draws them. Placing and dragging go by the floor under the pointer,
   and a row keeps track of the room it is in.
 - The selected row has handles: red, green and blue arrows move it east, north and up, and the
-  ring turns it. **Snap** along the top makes moves and turns go by steps; Shift while dragging does
-  the other.
+  ring turns it. **Snap** along the top makes moves and turns go by steps, R landing on them too;
+  Shift while dragging does the other.
 - Drag a marker to move its row over the ground; R turns it (Shift+R the other way); Delete or
   Backspace takes it away; F flies to it.
 - **Place**, with a kind and a template along the top, shows the new row under the pointer and puts
@@ -95,6 +95,7 @@ to where it leads.
   it; the window stays open for the next.
 - Ctrl+F or **Find rows** finds any row of the world by its name, template, kind or key, nearest
   or not, and goes to a landblock (`5766` or `5766:123,45`).
+- G stands the selected rows on what is under them; Shift+G also leans objects with the ground.
 - `=` and `-` make the selected objects larger and smaller, and **scale** on the right sets it; an
   empty one goes back to their template's.
 - Ctrl+D or **Duplicate** copies the selected row beside it and selects the copy, whatever it is:

@@ -880,3 +880,50 @@ fn a_looks_picture_shows_its_body_and_one_with_no_body_has_none() {
     assert!(!frame.objects.is_empty());
     assert!(e.scene.picture_frame(0x02FF_FFFF).is_none());
 }
+
+#[test]
+fn g_stands_every_row_selected_on_the_ground_as_one_step() {
+    let (mut e, a, b, g, h) = with_two_rows("ground");
+    let raised = |p: [f32; 3], up: f32| [OPEN[0] + (p[0] - g[0]), OPEN[1], p[2] + up];
+    e.session.move_to(&a, TOWN, raised(g, 6.0)).unwrap();
+    e.session.move_to(&b, TOWN, raised(h, 3.0)).unwrap();
+    let steps = e.session.steps().0;
+    key(&mut e, KeyCode::KeyG, false);
+    assert_eq!(e.session.steps().0, steps + 1, "one step");
+    // The town's boards stand a little over the ground here, and they are what it stands on.
+    for (item, p) in [(&a, g), (&b, h)] {
+        let z = place_of(&e, item)[2];
+        assert!(
+            z >= p[2] - 0.05 && z < p[2] + 1.0,
+            "{item}: {z} over {}",
+            p[2]
+        );
+    }
+    assert_eq!(e.selected.as_deref(), Some(a.as_str()), "still selected");
+    assert_eq!(e.also, vec![b.clone()], "still selected");
+}
+
+#[test]
+fn r_with_snap_on_lands_on_a_whole_step() {
+    let (mut e, item, _) = with_a_row("snap-turn");
+    e.session.turn(&item, 7.0).unwrap();
+    e.snap.on = true;
+    key(&mut e, KeyCode::KeyR, false);
+    assert!(
+        (heading(&e, &item) - 15.0).abs() < 0.01,
+        "{}",
+        heading(&e, &item)
+    );
+    key(&mut e, KeyCode::KeyR, false);
+    assert!(
+        (heading(&e, &item) - 30.0).abs() < 0.01,
+        "{}",
+        heading(&e, &item)
+    );
+    key(&mut e, KeyCode::KeyR, true);
+    assert!(
+        (heading(&e, &item) - 15.0).abs() < 0.01,
+        "{}",
+        heading(&e, &item)
+    );
+}

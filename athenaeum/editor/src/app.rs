@@ -56,6 +56,11 @@ const TILE_GAP: f32 = 6.0;
 /// A finder picture's side, in pixels. Each is drawn at twice this and halved, for smooth edges.
 const PICTURE: u32 = 176;
 
+/// How far each way the ground is read to find how it leans, in meters.
+const LEAN_ACROSS: f32 = 0.5;
+/// How near the ground a row is to count as on it, in meters.
+const ON_THE_GROUND: f32 = 0.1;
+
 /// What a key makes a selected object larger or smaller by.
 pub const SCALE_STEP: f32 = 1.1;
 /// How small and how large a key will make one.
@@ -276,6 +281,24 @@ fn rotation_of(row: &Row) -> [f32; 4] {
         _ => (None, None),
     };
     q.unwrap_or_else(|| view::heading_rotation(h.unwrap_or(0.0)))
+}
+
+/// The rotation (scalar first) of something facing `heading` degrees and leaning with ground whose
+/// upward normal is `normal`.
+#[must_use]
+pub fn leaning(heading: f32, normal: [f32; 3]) -> [f32; 4] {
+    let [nx, ny, nz] = normal;
+    let (w, x, y) = (1.0 + nz, -ny, nx);
+    let len = (w * w + x * x + y * y).sqrt();
+    let (w, x, y) = (w / len, x / len, y / len);
+    let [hw, hx, hy, hz] = view::heading_rotation(heading);
+    // The lean after the heading: the turn is its own, about its own up.
+    [
+        w * hw - x * hx - y * hy,
+        w * hx + x * hw + y * hz,
+        w * hy + y * hw - x * hz,
+        w * hz + x * hy - y * hx,
+    ]
 }
 
 /// A square picture, `side` * 2 pixels across and red, green, blue, alpha, at half the size and
@@ -985,8 +1008,81 @@ impl<'w> Editor<'w> {
         let Some(e) = self.session.entry(&item) else {
             return;
         };
-        let h = heading_of(&e.row.row) + by;
+        let h = self.turned(heading_of(&e.row.row), by);
         self.turn_group(&item, h);
+    }
+
+    /// A heading turned by `by`, onto a whole step with Snap on.
+    fn turned(&self, heading: f32, by: f32) -> f32 {
+        if self.snap.on {
+            gizmo::snapped(heading + by, self.snap.angle)
+        } else {
+            heading + by
+        }
+    }
+
+    /// Stand every row selected on what is under it, as one step; with `lean`, an object also
+    /// leans with the ground it stands on.
+    pub fn ground_selected(&mut self, lean: bool) {
+        let items = self.all_selected();
+        let (lead, also) = (self.selected.clone(), self.also.clone());
+        self.session.begin_step();
+        for item in &items {
+            let Some(e) = self.session.entry(item).cloned() else {
+                continue;
+            };
+            let g = entry_global(&e, &mut self.scene);
+            // One sunk into the ground comes up onto it.
+            let z = self.scene.ground(g[0], g[1]).map_or(g[2], |z| z.max(g[2]));
+            let on = self.surface_under([g[0], g[1], z]);
+            self.move_row(item, on);
+            if lean {
+                self.lean_row(item, on);
+            }
+        }
+        self.session.end_step();
+        self.selected = lead;
+        self.also = also;
+        self.fields_of = None;
+    }
+
+    /// An object standing on the ground at `g` leans with it. Among rooms, or on what stands on
+    /// the ground, it stays as it is.
+    fn lean_row(&mut self, item: &str, g: [f32; 3]) {
+        let Some(e) = self.session.entry(item).cloned() else {
+            return;
+        };
+        let is_object = matches!(&e.row.row, Row::Object(o) if o.kind != ObjectKind::Npc);
+        if !is_object || self.inside.is_some() {
+            return;
+        }
+        let h = LEAN_ACROSS;
+        let mut z = |x: f32, y: f32| self.scene.ground(x, y);
+        let (Some(here), Some(e0), Some(w0), Some(n0), Some(s0)) = (
+            z(g[0], g[1]),
+            z(g[0] + h, g[1]),
+            z(g[0] - h, g[1]),
+            z(g[0], g[1] + h),
+            z(g[0], g[1] - h),
+        ) else {
+            return;
+        };
+        if (here - g[2]).abs() > ON_THE_GROUND {
+            return;
+        }
+        let n = [w0 - e0, s0 - n0, 2.0 * h];
+        let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        let q = leaning(heading_of(&e.row.row), [n[0] / len, n[1] / len, n[2] / len]);
+        let num = athenaeum_foundry::toml::number_text;
+        let text = format!(
+            "[{}, {}, {}, {}]",
+            num(q[0]),
+            num(q[1]),
+            num(q[2]),
+            num(q[3])
+        );
+        let r = self.session.set(item, "rotation", &text);
+        self.report(r);
     }
 
     /// Copy the selected row a little to the camera's right, and select the copy.
@@ -1827,11 +1923,12 @@ impl<'w> Editor<'w> {
                         self.scale_selected(1.0 / SCALE_STEP);
                     }
                     KeyCode::KeyF if input.ctrl => self.toggle_row_finder(),
+                    KeyCode::KeyG if !input.ctrl => self.ground_selected(input.shift),
                     KeyCode::KeyR if !input.ctrl => {
                         let step = self.snap.turn_step(TURN_STEP);
                         let by = if input.shift { -step } else { step };
                         if self.tool == Tool::Place {
-                            self.place_heading = Some(self.placing_heading() + by);
+                            self.place_heading = Some(self.turned(self.placing_heading(), by));
                         } else {
                             self.turn_selected(by);
                         }
@@ -2806,12 +2903,10 @@ impl<'w> Editor<'w> {
         ui.horizontal(|ui| {
             if ui
                 .button("Ground")
-                .on_hover_text("stand it on the ground or floor under it")
+                .on_hover_text("stand it on what is under it (G); Shift+G leans it with the ground")
                 .clicked()
             {
-                let g = view::global(e.landblock(), [x, y, z]);
-                let g = self.surface_under(g);
-                self.move_row(&item, g);
+                self.ground_selected(false);
             }
             if ui
                 .button("Here")

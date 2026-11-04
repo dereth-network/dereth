@@ -4,7 +4,7 @@ mod play;
 
 use std::path::Path;
 
-use athenaeum_editor::app::{badge, halved, kind_word, parse_id};
+use athenaeum_editor::app::{badge, halved, kind_word, leaning, parse_id};
 use athenaeum_editor::scene::picture_camera;
 use athenaeum_editor::script::{parse, Step};
 use athenaeum_editor::view::{global, hit_ground, local, View};
@@ -402,4 +402,38 @@ fn a_picture_is_halved_by_averaging_and_comes_out_opaque() {
         halved(&big, 2),
         [25, 50, 75, 255, 0, 0, 0, 255, 0, 0, 0, 255, 4, 4, 4, 255]
     );
+}
+
+#[test]
+fn a_lean_keeps_the_heading_on_flat_ground_and_points_up_along_the_slope() {
+    let turned = |q: [f32; 4], v: [f32; 3]| {
+        let [w, x, y, z] = q;
+        let u = [x, y, z];
+        let cross = |a: [f32; 3], b: [f32; 3]| {
+            [
+                a[1] * b[2] - a[2] * b[1],
+                a[2] * b[0] - a[0] * b[2],
+                a[0] * b[1] - a[1] * b[0],
+            ]
+        };
+        let t = cross(u, v).map(|c| 2.0 * c);
+        let c = cross(u, t);
+        [
+            v[0] + w * t[0] + c[0],
+            v[1] + w * t[1] + c[1],
+            v[2] + w * t[2] + c[2],
+        ]
+    };
+    let flat = leaning(90.0, [0.0, 0.0, 1.0]);
+    let plain = athenaeum_editor::view::heading_rotation(90.0);
+    for (a, b) in flat.iter().zip(plain) {
+        assert!((a - b).abs() < 1e-5, "{flat:?} {plain:?}");
+    }
+    let n = [0.6, 0.0, 0.8];
+    for heading in [0.0, 37.0, 200.0] {
+        let up = turned(leaning(heading, n), [0.0, 0.0, 1.0]);
+        for (a, b) in up.iter().zip(n) {
+            assert!((a - b).abs() < 1e-4, "{heading}: {up:?}");
+        }
+    }
 }

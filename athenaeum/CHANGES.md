@@ -21,6 +21,7 @@ see, not how it was done.
 - Lead a portal to a place from a list, and change a camp's creatures by name.
 - Placing and dragging land on platforms and other things the world has built, not just the ground.
 - Find shows templates as pictures.
+- G puts the selection on the ground, and Shift+G leans objects with it.
 - Objects can be scaled: `=` and `-`, or the scale field.
 - Duplicate copies the selected row beside it (Ctrl+D).
 - macOS: the editor opens at full size on Retina screens, Cmd works as Ctrl, and Backspace deletes.
