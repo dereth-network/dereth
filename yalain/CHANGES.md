@@ -104,6 +104,7 @@ what they see, not how it was done.
 - Armor no longer takes your weapon's place in a fight.
 - Large data requests can no longer stall the world.
 - A panic now stops the world cleanly, keeping everything saved before it.
+- Fixed collecting a consignment from anywhere.
 
 ## 0.1.2 (2026-11-03)
 

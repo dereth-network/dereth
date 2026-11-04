@@ -318,6 +318,35 @@ fn part_of_a_stack_put_up_with_a_broker_keeps_the_stacks_numbers() {
     assert_eq!(h.server.things.get(stack).expect("kept").quantity, 3);
 }
 
+/// A consignment is taken back only in reach of its broker: from afar nothing moves and it stays up.
+/// Behaviour: server.market.dealings-in-reach-and-with-room
+#[test]
+fn a_consignment_is_collected_only_in_reach_of_its_broker() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 1_000);
+    put_up_a_made_item(&mut h, a, ida);
+    let sale = h.server.market.list[0].sale;
+    let collect = [Arg::Int(0), Arg::Int(sale), Arg::LongInt(BROKER)];
+    let world = *h.server.players.keys().next().expect("in the world");
+    let at = h.server.players[&world].position;
+    let held = h.server.players[&world].play.items.len();
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .position
+        .origin[0] += 100.0;
+    h.ask(a, function::COLLECT, &collect, 10);
+    assert_eq!(h.server.market.list.len(), 1, "not from afar");
+    assert_eq!(h.server.players[&world].play.items.len(), held);
+    h.server.players.get_mut(&world).expect("in").position = at;
+    h.ask(a, function::COLLECT, &collect, 10);
+    assert!(h.server.market.list.is_empty(), "in reach");
+    assert_eq!(h.server.players[&world].play.items.len(), held + 1);
+}
+
 /// A seller collecting the price of what another player bought leaves the buyer's item alone.
 /// Behaviour: server.market.a-consigned-item-keeps-what-it-holds
 #[test]

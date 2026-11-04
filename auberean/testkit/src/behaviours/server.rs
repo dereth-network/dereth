@@ -4540,7 +4540,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.market.dealings-in-reach-and-with-room",
-        says: "A broker's store, consignments and sales answer only a player in reach; a \
+        says: "A broker's store, consignments, sales and collecting answer only a player in reach; a \
                sale bought into a full pack is refused for want of room and neither paid \
                nor moved.",
         since: TOOLING,

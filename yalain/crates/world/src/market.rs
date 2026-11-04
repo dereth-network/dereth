@@ -787,6 +787,9 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
     let Some(me) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
+    if !near(s, world, keeper) {
+        return;
+    }
     let Some(i) = s
         .market
         .list
