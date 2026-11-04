@@ -53,6 +53,10 @@ what they see, not how it was done.
 - The Water Temple obelisks open in the right order.
 - Sparks's, Fraidy's and Elder Jrick's quests now take each item in turn.
 - Obelisk search stones no longer teleport you; the portal beside each one does.
+- People and shrines now take the items they took in 2017: offerings, relics, donations, a bribe.
+- Miners charge their fee, and their portals stay shut until you pay.
+- People no longer talk about the wrong item when they turn down a give.
+- Warders accept any item you no longer want.
 
 ## 0.1.2 (2026-11-03)
 
