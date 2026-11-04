@@ -119,6 +119,8 @@ pub struct ItemState {
     /// The value it was given (a treasure item's draw, a made item's), 0 when its template's is
     /// its value.
     pub value: u32,
+    /// What a player inscribed on it, and the player's name.
+    pub inscription: Option<(String, String)>,
 }
 
 /// Everything a character holds and has done in play.
@@ -182,6 +184,8 @@ const OWN_MADE: u32 = 0x8;
 const OWN_DYE: u32 = 0x10;
 /// The value it was given.
 const OWN_VALUE: u32 = 0x20;
+/// What a player inscribed on it.
+const OWN_INSCRIPTION: u32 = 0x40;
 
 /// An item's durability as kept: none (never worn) is a value no durability takes.
 const UNWORN: u32 = u32::MAX;
@@ -286,6 +290,7 @@ impl ItemState {
             own: t.own,
             enchantments: t.enchantments.clone(),
             value: t.value,
+            inscription: t.inscription.clone(),
         }
     }
 
@@ -300,6 +305,7 @@ impl ItemState {
         item.own = self.own;
         item.enchantments.clone_from(&self.enchantments);
         item.value = self.value;
+        item.inscription.clone_from(&self.inscription);
         // A made item saved before an item's own value was kept has it in what its level gave it.
         if let Some(m) = item.own.made {
             item.value = m.value;
@@ -362,7 +368,12 @@ impl ItemState {
         } | if own.effect.is_some() { OWN_EFFECT } else { 0 }
             | if own.made.is_some() { OWN_MADE } else { 0 }
             | if own.dye.is_some() { OWN_DYE } else { 0 }
-            | if self.value > 0 { OWN_VALUE } else { 0 };
+            | if self.value > 0 { OWN_VALUE } else { 0 }
+            | if self.inscription.is_some() {
+                OWN_INSCRIPTION
+            } else {
+                0
+            };
         w32(out, has);
         if let Some(v) = own.min_level {
             w32(out, v.cast_unsigned());
@@ -390,6 +401,12 @@ impl ItemState {
         }
         if self.value > 0 {
             w32(out, self.value);
+        }
+        if let Some((said, by)) = &self.inscription {
+            for text in [said, by] {
+                w32(out, u32::try_from(text.len()).unwrap_or(0));
+                out.extend_from_slice(text.as_bytes());
+            }
         }
     }
 
@@ -426,6 +443,7 @@ impl ItemState {
         let mut own = crate::treasure::Own::default();
         let mut enchantments = Vec::new();
         let mut value = 0;
+        let mut inscription = None;
         if version >= 11 {
             let has = r.u32()?;
             if has & OWN_MIN_LEVEL != 0 {
@@ -454,6 +472,9 @@ impl ItemState {
             if has & OWN_VALUE != 0 {
                 value = r.u32()?;
             }
+            if has & OWN_INSCRIPTION != 0 {
+                inscription = Some((r.text()?, r.text()?));
+            }
         }
         Some(Self {
             id,
@@ -466,6 +487,7 @@ impl ItemState {
             own,
             enchantments,
             value,
+            inscription,
         })
     }
 }

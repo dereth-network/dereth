@@ -3611,6 +3611,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.inscription-kept-across-sessions",
+        says: "An inscription stays with its item across a logout, with who wrote it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-INSCRIPTION-KEPT"),
+        station: "yalain-testkit::cpu::play::own_requests::an_inscription_is_kept_across_a_logout",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.item-ids-never-given-twice",
         says: "An id an item holds is never given again: the world's ids come in blocks the \
                store sets aside before they are given, above every range a run before them \
@@ -5314,7 +5322,7 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.operator.character-files-keep-items-own-numbers",
         says: "A character file's state holds every number an item holds of its own, so an imported \
                item has its value, what its level gave it, its effects, its maker, its wear, its \
-               map's place and its color. The file's build names items by template and count only, \
+               map's place, its color and its inscription. The file's build names items by template and count only, \
                and an import never reads it.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-EXPORT-ITEM-NUMBERS"),

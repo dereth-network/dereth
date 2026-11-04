@@ -78,6 +78,7 @@ what they see, not how it was done.
 - Fixed new items taking the ids of items players already held.
 - Treasure items keep their value across a logout.
 - Items on sale with a broker keep their own numbers.
+- Inscriptions are kept across a logout.
 
 ## 0.1.2 (2026-11-03)
 

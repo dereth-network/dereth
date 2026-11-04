@@ -384,7 +384,7 @@ fn a_deleted_character_is_booted_and_grayed_out_for_the_hour_then_gone() {
 
 /// A character file carries every number an item holds of its own, in its state: imported under a
 /// new id, the item comes back with its value, what its level gave it, its effects, its maker, its
-/// wear, its map's place and its color. The build beside it names items by template and count only;
+/// wear, its map's place, its color and its inscription. The build beside it names items by template and count only;
 /// it isn't what the import reads.
 /// Behaviour: server.operator.character-files-keep-items-own-numbers
 #[test]
@@ -423,6 +423,7 @@ fn a_character_file_keeps_what_each_item_holds_of_its_own() {
         t.durability = Some(150);
         t.destination = Some(place);
         t.binds_on_use = true;
+        t.inscription = Some(("Sharp".to_owned(), "Wanderer".to_owned()));
     }
     let treasure =
         yalain_world::inventory::give(&mut a.server, &mut a.net, w, TEST_ITEM, 1).expect("given");
@@ -466,6 +467,10 @@ fn a_character_file_keeps_what_each_item_holds_of_its_own() {
     assert_eq!(t.durability, Some(150));
     assert_eq!(t.destination, Some(place));
     assert!(t.binds_on_use);
+    assert_eq!(
+        t.inscription,
+        Some(("Sharp".to_owned(), "Wanderer".to_owned()))
+    );
     assert_eq!(of(77).own, yalain_world::treasure::Own::default());
 }
 

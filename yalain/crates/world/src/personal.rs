@@ -118,6 +118,7 @@ pub fn inscribe<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId,
         if let Some(t) = s.things.get_mut(*item) {
             t.inscription = Some((literal, name));
         }
+        crate::world::keep_player(s, world);
         text::INSCRIBED
     } else {
         text::CANNOT_INSCRIBE
