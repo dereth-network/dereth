@@ -118,6 +118,8 @@ pub struct World {
     /// The install's property list (the physics types' bits), when the host has given it.
     properties: PropertyList,
     materials: BTreeMap<u32, PhysicsMaterial>,
+    /// The entries put in an interior cell not yet read, whose collision lists wait for it.
+    waiting: BTreeSet<BodyKey>,
     /// The clock, seconds.
     now: f64,
     /// The entries whose other updates something woke ([`World::take_woken`]).
@@ -554,6 +556,11 @@ impl World {
         } else {
             e.shape.cross_cells(land, &position)
         };
+        if crate::interior::is_interior(position.cell) && land.cell(position.cell).is_none() {
+            self.waiting.insert(key);
+        } else {
+            self.waiting.remove(&key);
+        }
         let (reached, handle, is_static) = (e.cells.clone(), e.handle, e.is_static);
         for c in &reached {
             self.file_in_cell(c.0, handle, is_static);
@@ -564,6 +571,27 @@ impl World {
         }
         self.refile(key, position.cell);
         true
+    }
+
+    /// Every entry put in an interior cell before it was read, its cell now read, goes into the
+    /// collision lists of all the cells it reaches.
+    // D2-06255
+    pub fn file_those_waiting(&mut self, land: &Land) {
+        if self.waiting.is_empty() {
+            return;
+        }
+        let waiting: Vec<BodyKey> = self.waiting.iter().copied().collect();
+        for key in waiting {
+            match self.position(key) {
+                Some(at) if land.cell(at.cell).is_some() => {
+                    self.place(land, key, at);
+                }
+                Some(_) => {}
+                None => {
+                    self.waiting.remove(&key);
+                }
+            }
+        }
     }
 
     /// The objects in a cell's collision list, in the order a move meets them.

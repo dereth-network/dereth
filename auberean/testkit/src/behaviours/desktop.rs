@@ -69,6 +69,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.a-body-goes-round-a-stone-in-the-way",
+        says: "A body run into a round stone a little to one side slides round it and goes on, never inside it, though the stone reaches a cell beyond its own and was made before its cell was read.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-STONE"),
+        station: "auberean-shell::dat::session::a_body_goes_round_a_stone_in_the_way",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.a-body-held-against-a-wall-is-animated-standing",
         says: "A body's figure is animated at how far the body moved over its last physics tick \
                (ten times the move, in the body's frame before it), not at the velocity it asks \

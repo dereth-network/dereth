@@ -4040,6 +4040,89 @@ fn an_object_fades_in_as_it_enters_the_world() {
     assert_eq!(f.sliders.desired(OPACITY), 1.0);
 }
 
+/// A body run into the teaching stone at the start, a little to one side, slides round it and goes
+/// on, never inside it, though the stone reaches a cell beyond its own and was made before its cell
+/// was read. Fixture: a server double making the stone at its place in the hall, the player facing
+/// it from where a new character starts.
+///
+/// Behaviour: desktop.bodies.a-body-goes-round-a-stone-in-the-way
+#[test]
+fn a_body_goes_round_a_stone_in_the_way() {
+    const STONE: u64 = 0x8130_1B05_CC00_018A;
+    const HALL: u32 = 0x0298_0109;
+    const STONE_AT: Vec3 = Vec3 {
+        x: 43.8744,
+        y: 240.1739,
+        z: -44.2061,
+    };
+    let stone = CreateObject {
+        id: STONE,
+        visual: VisualDesc {
+            bits: VisualDesc::PARENT,
+            parent: 0x1F00_02F4,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION | PhysicsDesc::MODE,
+            mode: 0x4000_0001,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: HALL,
+                frame: Frame {
+                    origin: STONE_AT,
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 59.060577,
+        y: 240.199,
+        z: -44.606205,
+    };
+    let facing = Quat {
+        w: 0.7049,
+        x: 0.0,
+        y: 0.0,
+        z: 0.7093,
+    };
+    let script = script_until(HALL, at, facing, &[stone], &[], 60.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 8.0 {
+        step(&mut s);
+    }
+    s.event(&Event::Key {
+        key: Key::W,
+        down: true,
+        repeat: false,
+    });
+    let until = s.host.time + 7.0;
+    let mut nearest = f32::MAX;
+    while s.host.time < until {
+        step(&mut s);
+        let o = s.scene.status.origin;
+        let (dx, dy) = (o.x - STONE_AT.x, o.y - STONE_AT.y);
+        nearest = nearest.min((dx * dx + dy * dy).sqrt());
+    }
+    let o = s.scene.status.origin;
+    assert!(nearest > 1.5, "never inside the stone: {nearest}");
+    assert!(o.x < STONE_AT.x - 5.0, "it went on past: {o:?}");
+    assert!(o.y < STONE_AT.y - 1.5, "round its left: {o:?}");
+}
+
 /// An effect with a decal lays it where its object stands: on the land outdoors, on its cell's
 /// ground inside, and it is drawn with the frame. Fixture: the server double asks the player's body
 /// for the effect at a set time, at the camp and in the hall.

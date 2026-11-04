@@ -2484,6 +2484,7 @@ impl<'w> Scene<'w> {
             #[allow(clippy::cast_possible_truncation)]
             let tick = TICK as f32;
             self.table.set_now(client.game_time());
+            self.table.file_those_waiting(&self.land);
             // Each tick the body moves while its movement runs, then its other updates run while
             // woken: its detections checked, what its collisions began and ended reported.
             for _ in 0..ticks {
