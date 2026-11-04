@@ -337,6 +337,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.dialogs.an-offer-to-bring-the-player-back-asks-by-name",
+        says: "Someone offering to bring the player back asks the question, naming them, in place of \n               death's own dialog; an offer with no name reads as no offer.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-RESURRECT-OFFER"),
+        station: "auberean-ui-game::dat::play::dialogs::an_offer_to_bring_the_player_back_asks_by_name",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.dialogs.one-dialog-is-up-at-a-time-and-the-rest-wait-their-turn",
         says: "One dialog is up at a time: another waits its turn, one asked for first goes up at once and the one it displaced waits at the head of the line; a dialog closed by its number leaves the line, and when the one up closes the next goes up. Every dialog of the world keeps mouse look off from being asked for until it goes. A question's yes answers yes and its other button no; a message's and death's button answer them.",
         since: RETAIL,

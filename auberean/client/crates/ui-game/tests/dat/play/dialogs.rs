@@ -465,3 +465,34 @@ fn a_message_the_scripts_ask_for_first_goes_up_at_once() {
         "the displaced one comes back first"
     );
 }
+
+/// Someone offering to bring the player back asks the question, naming them, in place of death's
+/// own dialog; an offer with no name reads as no offer.
+///
+/// Behaviour: ui.dialogs.an-offer-to-bring-the-player-back-asks-by-name
+#[test]
+fn an_offer_to_bring_the_player_back_asks_by_name() {
+    let mut w = World::new();
+    let offer = |name: &str| Notice {
+        native: notice::RESURRECTION_REQUESTED_BY_OTHER,
+        records: vec![Some(Record::Text(StringInfo::literal(name)))],
+        ..Notice::default()
+    };
+    let out = w.tick(&[offer("Asher")]);
+    let asked: Vec<_> = out
+        .iter()
+        .filter_map(|r| match r {
+            Request::Dialog(d) => Some(d),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(asked.len(), 1, "{out:?}");
+    assert_eq!(asked[0].kind, kind::CONFIRMATION);
+    assert!(asked[0].text.contains("Asher"), "{:?}", asked[0].text);
+    let out = w.tick(&[offer("")]);
+    assert!(
+        out.iter()
+            .any(|r| matches!(r, Request::Dialog(d) if d.kind == kind::RESURRECT)),
+        "{out:?}"
+    );
+}

@@ -954,6 +954,22 @@ impl GamePlay {
                 self.make_confirmation_dialog(text, objects, n.word_at(4), out);
             }
             notice::PORTAL_SCENE => self.portal_scene(ui, n.word() != 0, &scenes_of(n), out),
+            // An offer with no name reads as no offer.
+            notice::RESURRECTION_REQUESTED_BY_OTHER => {
+                let by = n
+                    .records
+                    .iter()
+                    .flatten()
+                    .find_map(|r| match r {
+                        Record::Text(t) => ui.assets().write(t),
+                        _ => None,
+                    })
+                    .filter(|s| !s.is_empty());
+                match by {
+                    Some(by) => self.resurrection_requested_by_other(ui, &by, out),
+                    None => self.make_resurrect_dialog(ui, None, out),
+                }
+            }
             crate::story::notice::FINISH_PLAY_SEQUENCE => {
                 self.finish_play_sequence(ui, &scenes_of(n), out);
             }

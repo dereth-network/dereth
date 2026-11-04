@@ -48,6 +48,7 @@ not how it was done.
 - `/saveui` and `/loadui` now save and restore your window layout.
 - Rooms seen from outside now show only through their doorways, lit as rooms.
 - Wind-driven animations now follow the wind.
+- Someone offering to bring you back now asks you by name.
 
 ## 0.1.2 (2026-11-02)
 
