@@ -828,3 +828,130 @@ fn a_later_pulse_is_kept_off_by_the_blocker_of_the_first() {
     assert_eq!(count(&h, SKIN), 1, "kept off");
     assert_eq!(count(&h, BLOCKER), 2, "the rest comes on");
 }
+
+/// A practice dummy holds what sends a share of each attack back from its first moment, by its
+/// level, and shows it; the dummy of its level on another kind of template holds nothing.
+/// Behaviour: server.creatures.practice-dummy-sends-back
+#[test]
+fn a_practice_dummy_sends_back_a_share_of_each_attack_by_its_level() {
+    use yalain_world::spawn::{
+        practice_dummy_spellcraft, PRACTICE_DUMMIES, PRACTICE_DUMMY_EFFECT as HOLDS,
+    };
+    const STURDY: u32 = 0x4700_2DB6;
+    /// Level 30, on the plain drudges' table.
+    const NOT_ONE: u32 = 0x4700_2DB0;
+    assert!(PRACTICE_DUMMIES.contains(&STURDY) && !PRACTICE_DUMMIES.contains(&NOT_ONE));
+    assert_eq!(practice_dummy_spellcraft(40), 35.0);
+    assert_eq!(practice_dummy_spellcraft(50), 40.0);
+    assert_eq!(practice_dummy_spellcraft(60), 45.0);
+    assert_eq!(practice_dummy_spellcraft(70), 50.0);
+    let dummy = |template: u32| {
+        let mut h = Harness::new();
+        h.server.catalog = yalain_testkit::test_catalog();
+        let mut props = yalain_content::Props::default();
+        props
+            .set("GameplayStatistics_Level", yalain_content::Prop::Int(40))
+            .set(
+                "GameplayStatistics_MaxHealth",
+                yalain_content::Prop::Int(5_000_000),
+            )
+            .set("AICombat_NaturalDamage", yalain_content::Prop::Float(0.0))
+            .set("AICombat_NaturalVariance", yalain_content::Prop::Float(0.0))
+            .set("AI_PerceptionRadius", yalain_content::Prop::Float(20.0));
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(template, 0x1169, props));
+        let mut w = watcher(0.0, 0.0);
+        w.sends_back = Share {
+            chance: 1.0,
+            amount: Scale(vec![(1.0, 0.01), (500.0, 5.0)]),
+            spread: 0.0,
+        };
+        let mut d = def(HOLDS, 43, w);
+        d.fx = 0x4100_0719;
+        h.server.effect_table.effects.insert(HOLDS, d);
+        let (b, me) = h.player_in_world("one", "Elara");
+        let at = h
+            .server
+            .players
+            .values()
+            .next()
+            .expect("in the world")
+            .position;
+        let mut spot = at.origin;
+        spot[0] += 1.0;
+        h.server.spawns.camps.push(yalain_content::Camp {
+            id: "made up".into(),
+            cell: at.cell,
+            origin: spot,
+            radius: 0.0,
+            population: 1,
+            regen: 600.0,
+            templates: vec![(template, 1)],
+            spots: vec![(at.cell, spot)],
+            placed: "authored for the tests".into(),
+            confidence: "authored".into(),
+            moves: yalain_content::CampMoves::default(),
+        });
+        h.server
+            .camps
+            .push(yalain_world::spawn::CampState::default());
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &auberean_protocol::ClientMessage::SceneRenderingComplete(
+                auberean_protocol::login::Empty,
+            ),
+        );
+        h.run(5);
+        let id = h
+            .world_messages(b, 0)
+            .iter()
+            .find_map(|m| match m {
+                ServerMessage::CreateObject(o) if o.weenie.entity_did == template => Some(o.id),
+                _ => None,
+            })
+            .expect("made for the player");
+        (h, b, me, id)
+    };
+    let (h, _, _, id) = dummy(NOT_ONE);
+    assert!(effects::records_of(&h.server, On::Creature(id)).is_empty());
+    let (mut h, b, me, id) = dummy(STURDY);
+    tall(&mut h, me);
+    let r = effects::records_of(&h.server, On::Creature(id));
+    assert_eq!(r.len(), 1);
+    assert_eq!((r[0].state, r[0].spellcraft), (HOLDS, 35.0));
+    assert!(h.world_messages(b, 0).iter().any(
+        |m| matches!(m, ServerMessage::DoFx(e) if e.sender.id == id && e.action.fx == 0x4100_0719)
+    ));
+    h.arm(b, me, STARTER_SWORD);
+    let from = h.bots[b].inbox.len();
+    attack(&mut h, b, id);
+    assert!(
+        h.run_until(4000, |h| {
+            hooks(h, b, from, me, id)
+                .iter()
+                .filter(|k| landed(k))
+                .count()
+                >= 4
+        }),
+        "it swings"
+    );
+    for k in hooks(&h, b, from, me, id).iter().filter(|k| landed(k)) {
+        let harm = -k.numbers[3];
+        assert!(harm > 0, "{k:?}");
+        // Reckoned as the records' single-precision share is.
+        let back = dereth_primitives::num::to_i32((harm as f32 * 0.35_f32).ceil());
+        assert_eq!(k.numbers[4], -back, "{k:?}");
+    }
+}
+
+/// The practice dummy of level 30 goes by the same line as the rest, a third of an attack less a
+/// little. Our choice: it shows its effect's appearance, and no recording holds an attack on it.
+/// Behaviour: server.creatures.practice-dummy-at-30
+#[test]
+fn the_weakest_practice_dummy_goes_by_the_same_line() {
+    use yalain_world::spawn::{practice_dummy_spellcraft, PRACTICE_DUMMIES};
+    assert!(PRACTICE_DUMMIES.contains(&0x4700_2DAF));
+    assert_eq!(practice_dummy_spellcraft(30), 30.0);
+}

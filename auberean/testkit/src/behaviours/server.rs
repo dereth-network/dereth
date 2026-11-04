@@ -2132,6 +2132,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.practice-dummy-at-30",
+        says: "The practice dummy of level 30 sends back by the same line as the others, 0.30. Our choice: it \
+               shows the effect's appearance, and no recording holds an attack on it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PRACTICE-DUMMY-30"),
+        station: "yalain-testkit::cpu::play::watchers::the_weakest_practice_dummy_goes_by_the_same_line",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.practice-dummy-sends-back",
+        says: "A practice dummy holds an effect that sends back a share of each attack from its first moment: \
+               0.35 at level 40, 0.40 at 50, 0.45 at 60, 0.50 at 70. The dummy on another kind of table holds \
+               none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PRACTICE-DUMMY"),
+        station: "yalain-testkit::cpu::play::watchers::a_practice_dummy_sends_back_a_share_of_each_attack_by_its_level",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.protectors-buff-kin",
         says: "A protector buffs a kin of its in the same fight, most often at its first turn and often \
                again at its next, and a heal's or buff's hook takes a point of health one time in two.",

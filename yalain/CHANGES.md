@@ -156,6 +156,7 @@ what they see, not how it was done.
 - Attunable items can no longer be dropped.
 - Contracts can't be bought yet, so they no longer cost anything.
 - Alacrity, Quickening and other attack speed effects now speed up your attacks.
+- Practice dummies hurt whoever hits them.
 
 ## 0.1.2 (2026-11-03)
 

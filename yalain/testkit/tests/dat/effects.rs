@@ -625,6 +625,7 @@ fn the_watchers_read_as_the_data_defines_them() {
     let t = p.effects(&[
         0x6F00_0186,
         0x6F00_018A,
+        0x7000_1C79,
         0x7000_08D8,
         0x7000_070E,
         0x6F00_1964,
@@ -644,6 +645,12 @@ fn the_watchers_read_as_the_data_defines_them() {
     let reflection = w(0x6F00_018A);
     assert_eq!(reflection.sends_back.amount.at(1.0), Some(0.025));
     assert!(reflection.absorbs.amount.is_empty());
+    // A practice dummy's: a hundredth a point, for good.
+    let dummy = w(0x7000_1C79);
+    assert_eq!(dummy.sends_back.amount.at(1.0), Some(0.01));
+    assert_eq!(dummy.sends_back.amount.at(500.0), Some(5.0));
+    assert!((dummy.sends_back.amount.at(35.0).unwrap_or(0.0) - 0.35).abs() < 1e-3);
+    assert!(dummy.watches);
     let thornskin = w(0x7000_08D8);
     assert_eq!(thornskin.sends_back.amount.at(1.0), Some(0.08));
     assert_eq!(thornskin.sends_back.amount.at(50.0), Some(0.35));
