@@ -388,7 +388,8 @@ pub struct HifiWater {
     pub calm: f32,
     /// How rough the water stays where its ripples are too fine or far to draw: 0 a mirror.
     pub far_rough: f32,
-    /// How strongly a body moving through the water stirs it: 0 not at all.
+    /// How strongly a body moving through the water stirs it, or, where the water is not
+    /// simulated, rings round one standing in it: 0 not at all.
     pub rings: f32,
     /// How strongly the water reflects the sky and the land.
     pub reflection: f32,

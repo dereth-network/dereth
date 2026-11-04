@@ -367,7 +367,7 @@ pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
     num(Knob::RippleStrength, "ripple_strength", 1.0, (0.0, 3.0), "", "water", "how much the ripples bend the surface and break up its reflections"),
     num(Knob::RippleCalm, "ripple_calm", 120.0, (10.0, 2000.0), "m", "water", "how far from the eye the ripples have calmed, so far water shows no repeat: past it they are kept only as roughness (water_far_rough)"),
     num(Knob::WaterFarRough, "water_far_rough", 1.0, (0.0, 3.0), "", "water", "how rough the water stays where its ripples are too fine or far to draw: it blurs what far water mirrors, dulls its reflection seen low and spreads the sun's glint; 0 leaves far water a mirror"),
-    num(Knob::WaterRings, "water_rings", 1.0, (0.0, 3.0), "", "water", "how strongly a body moving through the water stirs it, the waves spreading from where it passed: 0 not at all"),
+    num(Knob::WaterRings, "water_rings", 1.0, (0.0, 3.0), "", "water", "how strongly a body moving through the water stirs it, the waves spreading from where it passed (without compute shaders, how strongly the water rings round a body standing in it): 0 not at all"),
     num(Knob::WaterReflection, "water_reflection", 1.0, (0.0, 1.5), "", "water", "how strongly the water reflects the sky and the land"),
     num(Knob::ShoreSoft, "shore_soft", 1.5, (0.0, 8.0), "m", "water", "how far from its edge the water takes to come in: larger is a softer shore"),
     num(Knob::ShoreWet, "shore_wet", 0.35, (0.0, 1.0), "", "water", "how much darker the wet ground along the water is: where retail lays water above the water's edge, and a strip of any ground beside it"),

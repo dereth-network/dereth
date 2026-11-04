@@ -20,7 +20,7 @@
 //! water the sun's light ripples over the bed. Near the eye the water is simulated ([`sim`]): a
 //! body moving through it stirs it, and its waves spread, cross, meet the shore and die away. The
 //! simulation steps in a compute shader, so a device without compute shaders (WebGL 2) draws the
-//! water without it.
+//! water without it, with small rings round each body standing in it instead.
 //!
 //! Only pixels change: collision, physics, what can be picked and everything the game reads keep
 //! retail's surface. Without the drawn ground, which an art pack's ground or the Reflective Water
@@ -77,11 +77,16 @@ pub const CONSTANT_FLOATS: usize = 16 * 3
     + 4 * 4
     + 4 * 3
     + 4
+    + 4 * WADERS
     + 4 * waves::COUNT
     + 4 * 3
     + 4 * 2;
 /// How far from the eye a body stands for it to stir the simulated water, meters.
 const STIRS_WITHIN: f32 = 30.0;
+/// The most bodies the water rings round as they stand in it, where it is not simulated.
+pub const WADERS: usize = 8;
+/// How far from the eye a body stands for the water to ring round it, meters.
+const WADERS_WITHIN: f32 = 60.0;
 /// Where the physical sky's share of the sky drawn sits in the atmosphere's constants, floats.
 const SKY_SHARE: usize = 90;
 
@@ -568,6 +573,8 @@ pub struct Inputs {
     pub sim_area: [f32; 4],
     /// Where render space's origin lies in the world, wrapped to the simulated square's side.
     pub sim_fold: glam::Vec2,
+    /// Whether the water rings round the bodies standing in it, as it does where not simulated.
+    pub rings: bool,
 }
 
 /// The shader's constants for `frame`, with `water` its look and `hues` retail's water under the
@@ -668,10 +675,26 @@ pub fn constants(
         crate::passes::lighting::env_f32("DERETH_HIFI_WATER_VIEW", 0.0),
         0.0,
     ]);
-    // The water's own clock, seconds, kept short so the shader's arithmetic stays exact.
-    // LINT-OK: a wrapped clock.
-    #[allow(clippy::cast_possible_truncation)]
-    c.extend([(frame.time % 600.0) as f32, water.far_rough, 0.0, 0.0]);
+    // The water's own clock, seconds, kept short so the shader's arithmetic stays exact; and,
+    // where it is not simulated, how many bodies it rings round and how strongly.
+    let mut waders = if inputs.rings {
+        near_bodies(frame, WADERS_WITHIN)
+    } else {
+        Vec::new()
+    };
+    waders.truncate(WADERS);
+    // LINT-OK: a wrapped clock and a count of at most WADERS.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    c.extend([
+        (frame.time % 600.0) as f32,
+        water.far_rough,
+        waders.len() as f32,
+        water.rings,
+    ]);
+    for i in 0..WADERS {
+        let b = waders.get(i).copied().unwrap_or(Vec3::ZERO);
+        c.extend([b.x, b.y, b.z, 0.0]);
+    }
     for w in waves::constants(frame.time, global) {
         c.extend(w);
     }
@@ -702,6 +725,28 @@ fn floats(values: &[f32]) -> Vec<u8> {
     values.iter().flat_map(|f| f.to_le_bytes()).collect()
 }
 
+/// The bodies within `within` meters of the eye, render space, nearest first.
+fn near_bodies(frame: &HifiFrame, within: f32) -> Vec<Vec3> {
+    let eye = frame.camera.eye.truncate();
+    let mut bodies: Vec<Vec3> = frame
+        .drawn
+        .as_ref()
+        .map(|d| {
+            d.bodies
+                .iter()
+                .copied()
+                .filter(|b| (b.truncate() - eye).length() < within)
+                .collect()
+        })
+        .unwrap_or_default();
+    bodies.sort_by(|a, b| {
+        (a.truncate() - eye)
+            .length()
+            .total_cmp(&(b.truncate() - eye).length())
+    });
+    bodies
+}
+
 /// What the simulated water runs this frame: where its square lies and each step's constants,
 /// stirred by the bodies near the eye. `None` where it is not simulated, which leaves it calm.
 fn stir(
@@ -713,27 +758,11 @@ fn stir(
     if !simulated {
         return None;
     }
-    let eye = frame.camera.eye;
-    let mut bodies: Vec<Vec3> = frame
-        .drawn
-        .as_ref()
-        .map(|d| {
-            d.bodies
-                .iter()
-                .copied()
-                .filter(|b| (b.truncate() - eye.truncate()).length() < STIRS_WITHIN)
-                .collect()
-        })
-        .unwrap_or_default();
-    bodies.sort_by(|a, b| {
-        (a.truncate() - eye.truncate())
-            .length()
-            .total_cmp(&(b.truncate() - eye.truncate()).length())
-    });
+    let bodies = near_bodies(frame, STIRS_WITHIN);
     Some(state.plan(&sim::Disturbance {
         clock: frame.time,
         global: frame.drawn.as_ref().map_or(glam::Vec2::ZERO, |d| d.global),
-        eye,
+        eye: frame.camera.eye,
         bodies: &bodies,
         stir: water.rings,
     }))
@@ -919,6 +948,7 @@ impl HifiPass for Water {
                 cascades: cascades.as_ref().map(|(size, _)| *size),
                 sim_area: plan.as_ref().map_or(NO_SIM_AREA, |p| p.area),
                 sim_fold: plan.as_ref().map_or(glam::Vec2::ZERO, |p| p.fold),
+                rings: plan.is_none(),
             },
         );
         queue.write_buffer(&gpu.constants, 0, &floats(&values));
@@ -1062,6 +1092,12 @@ mod tests {
             .map(|e| e.name.as_str())
             .collect();
         assert_eq!(entries, ["vs_fullscreen", "fs_water"]);
+        let block = module
+            .types
+            .iter()
+            .find(|(_, t)| t.name.as_deref() == Some("Water"))
+            .map(|(_, t)| t.inner.size(module.to_ctx()));
+        assert_eq!(block, Some(u32::try_from(CONSTANT_FLOATS * 4).unwrap()));
     }
 
     #[test]
@@ -1084,7 +1120,7 @@ mod tests {
     }
 
     #[test]
-    fn without_compute_the_water_is_drawn_calm_and_never_simulated() {
+    fn without_compute_the_water_is_never_simulated() {
         let water = HifiWater::default();
         let at = |time: f64| HifiFrame {
             time,
@@ -1106,6 +1142,7 @@ mod tests {
                 cascades: None,
                 sim_area: NO_SIM_AREA,
                 sim_fold: glam::Vec2::ZERO,
+                rings: true,
             },
         );
         let [x0, y0, x1, y1] = values[CONSTANT_FLOATS - 4..] else {
@@ -1117,6 +1154,49 @@ mod tests {
         assert!(stir(&mut stirred.sim, &at(10.0), &water, true).is_some());
         let plan = stir(&mut stirred.sim, &at(10.5), &water, true).expect("simulated");
         assert_eq!(plan.steps.len(), sim::MOST_STEPS);
+    }
+
+    #[test]
+    fn unsimulated_the_water_rings_round_the_bodies_standing_in_it() {
+        let water = HifiWater {
+            rings: 0.7,
+            ..HifiWater::default()
+        };
+        let frame = HifiFrame {
+            drawn: Some(crate::snapshot::HifiDrawnGround {
+                world: std::sync::Arc::default(),
+                tiles: Vec::new(),
+                reach: 3,
+                global: glam::Vec2::ZERO,
+                knobs: crate::snapshot::HifiGroundKnobs::default(),
+                bodies: vec![Vec3::new(500.0, 0.0, 0.0), Vec3::new(3.0, 0.0, -0.5)],
+                cover: None,
+            }),
+            ..HifiFrame::default()
+        };
+        let wake = CONSTANT_FLOATS - 4 * (2 + 3 + waves::COUNT + WADERS + 1);
+        let with = |rings| {
+            constants(
+                &frame,
+                &water,
+                &[Vec3::ONE; 5],
+                &Inputs {
+                    viewport: [0.0, 0.0, 1920.0, 1080.0],
+                    physical_sky: 1.0,
+                    fogged: false,
+                    cascades: None,
+                    sim_area: NO_SIM_AREA,
+                    sim_fold: glam::Vec2::ZERO,
+                    rings,
+                },
+            )
+        };
+        // The near body only, and as strongly as the knob says.
+        let ringed = with(true);
+        assert_eq!(ringed[wake + 2..wake + 4], [1.0, 0.7]);
+        assert_eq!(ringed[wake + 4..wake + 7], [3.0, 0.0, -0.5]);
+        // Simulated, the simulation stirs the water instead.
+        assert_eq!(with(false)[wake + 2], 0.0);
     }
 
     #[test]
@@ -1133,6 +1213,7 @@ mod tests {
                 cascades: Some(2048),
                 sim_area: NO_SIM_AREA,
                 sim_fold: glam::Vec2::ZERO,
+                rings: true,
             },
         );
         assert_eq!(values.len(), CONSTANT_FLOATS);

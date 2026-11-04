@@ -17,7 +17,8 @@
 // crests. Through shallow water the sun's light ripples over the bed. Near the eye the water is
 // simulated (`sim.wgsl`): what disturbs it, a body moving through it, spreads as waves, crosses and
 // meets the shore, and the water is drawn bent, mirroring and focusing the light by the simulated
-// surface as by the rest.
+// surface as by the rest. Where it is not simulated, small rings spread round each body standing
+// in it instead.
 
 struct Water {
     // Render space, height up, to clip space, at the frame's jitter.
@@ -69,8 +70,12 @@ struct Water {
     // effect on it: red the shelter, green the waterline, blue the crests); w unused.
     shadow: vec4<f32>,
     // x the water's clock, seconds, kept short so the shader's arithmetic stays exact; y how rough
-    // the water stays where its ripples are too fine to draw; zw unused.
+    // the water stays where its ripples are too fine to draw; z how many bodies stand in `waders`;
+    // w how strongly the water rings round them.
     wake: vec4<f32>,
+    // Where the water is not simulated, the bodies near the eye it rings round where they stand
+    // in it, render space.
+    waders: array<vec4<f32>, 8>,
     // Each wave on lakes and the sea: xy its wave vector, radians a meter east and north; z its
     // steepness; w its phase at render space's origin, radians. A lake's chop, then the sea's swell
     // laid toward each of `HEADINGS` headings, four waves each.
@@ -458,6 +463,54 @@ fn caustic_layer(p: vec2<f32>, cell: f32, clock: f32, foot: f32, salt: i32) -> f
 fn caustics(p: vec2<f32>, clock: f32, foot: f32) -> f32 {
     return caustic_layer(p, 1.1, clock, foot, 13) * 0.75
         + caustic_layer(p.yx + vec2<f32>(3.1, 7.7), 0.7, clock, foot, 29) * 0.5;
+}
+
+// --- the rings, where the water is not simulated ------------------------------------------------
+
+// The rings round a body standing in the water: how far apart they run, meters; how many a
+// second spread from it; how high they rise, meters; how far out they have faded to a third, and
+// past how far none are drawn.
+const RING_APART: f32 = 0.6;
+const RING_RATE: f32 = 0.8;
+const RING_HEIGHT: f32 = 0.06;
+const RING_FADE: f32 = 2.0;
+const RING_REACH: f32 = 6.0;
+
+// The slope east and north the rings round the bodies standing in the water give it at render
+// space `p`, at the water's level `level`: a few small rings spreading from each, fading within a
+// few meters, moving with the water's clock. None where the water is simulated, which stirs it
+// instead.
+fn rings(p: vec2<f32>, level: f32) -> vec2<f32> {
+    var s = vec2<f32>(0.0);
+    let count = i32(W.wake.z);
+    for (var k = 0; k < count; k = k + 1) {
+        let b = W.waders[k].xyz;
+        // Only a body standing in the water: its feet under the surface, not far under it.
+        if (b.z > level + 0.05 || b.z < level - 1.6) {
+            continue;
+        }
+        let d = p - b.xy;
+        let r = length(d);
+        if (r > RING_REACH || r < 1e-3) {
+            continue;
+        }
+        if (shore_distance(b.xy + W.global.xy, 0.0) <= 0.0) {
+            continue;
+        }
+        s = s + d / r * ring_rise(r, W.wake.x);
+    }
+    return s * W.wake.w;
+}
+
+// How steeply the rings round a body standing in the water rise going out from it, `r` meters
+// out, `clock` seconds into the water's clock: rings spreading from its legs outward, fading out
+// within a few meters.
+fn ring_rise(r: f32, clock: f32) -> f32 {
+    let wave = 6.2831853 / RING_APART;
+    let phase = wave * r - 6.2831853 * RING_RATE * clock;
+    let fade = exp(-r / RING_FADE) * smoothstep(0.25, 0.55, r)
+        * (1.0 - smoothstep(0.7 * RING_REACH, RING_REACH, r));
+    return RING_HEIGHT * (wave * cos(phase) - sin(phase) / RING_FADE) * fade;
 }
 
 // --- the simulated water ------------------------------------------------------------------------
@@ -969,7 +1022,8 @@ fn fs_water(in: FullscreenOut) -> @location(0) vec4<f32> {
         dp_dx * min(1.0, cap / max(length(dp_dx), 1e-6)),
         dp_dy * min(1.0, cap / max(length(dp_dy), 1e-6)),
         foot,
-    ) + waves.slope) * (1.0 - 0.65 * bodies.x) + stirred.xy;
+    ) + waves.slope) * (1.0 - 0.65 * bodies.x) + stirred.xy
+        + rings(s.xy, level) * (1.0 - smoothstep(0.08, 0.15, foot));
     let n = normalize(vec3<f32>(-slope.x, -slope.y, 1.0));
     let v = -dir;
     // The ripples too fine or far to draw, as roughness.
