@@ -461,6 +461,39 @@ fn a_body_held_where_a_placement_would_refuse_it_stays_where_it_is() {
     assert!(worst < 0.3, "put back {worst}");
 }
 
+/// Where one creature stopped holds no other up: a creature of another template walks through the
+/// place.
+/// Behaviour: server.creatures.chase-around-walls
+#[test]
+fn where_a_creature_stopped_holds_no_other_up() {
+    let on_open_ground = |y| StoredPosition {
+        cell: yalain_world::spawn::outdoor(0x6FA9, 45.24, y).0,
+        origin: [45.24, y, 85.26],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let mut w = walls();
+    let mut stopped = on_open_ground(90.51);
+    for _ in 0..4 {
+        stopped = w
+            .step(DIGGER, 1.0, &stopped, [0.0, 0.5])
+            .expect("placed")
+            .at;
+    }
+    let mut other = on_open_ground(88.51);
+    for _ in 0..12 {
+        other = w
+            .step(TEST_CREATURE, 1.0, &other, [0.0, 0.5])
+            .expect("placed")
+            .at;
+    }
+    assert!(
+        other.origin[1] > stopped.origin[1] + 1.0,
+        "past it: {:?}, it stopped at {:?}",
+        other.origin,
+        stopped.origin
+    );
+}
+
 /// A creature running straight at what it cannot climb stands where it met it, step after step;
 /// aimed across it, it slides along.
 /// Behaviour: server.creatures.held-up-not-put-back

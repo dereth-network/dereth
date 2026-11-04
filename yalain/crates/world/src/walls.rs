@@ -561,6 +561,11 @@ impl Walls {
             }
             break;
         }
+        // A body stands in the world only for its step: it is no wall to the next creature's.
+        if let Some(entry) = body.key() {
+            let nowhere = Position::new(CellId(0), Frame::new(Vec3::ZERO, Quat::IDENTITY));
+            self.world.place(&self.land, entry, nowhere);
+        }
         let moved = flat(&start, &end);
         let mut at = stored(&end);
         at.rotation = stored(&start).rotation;
