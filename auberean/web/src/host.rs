@@ -1,13 +1,13 @@
 //! The browser as the shell's host: the page's clock, datagrams carried over the worker's one
 //! WebSocket, the page's lock on the pointer, the client's files in browser storage, and the page's
-//! audio worklet as the sound device. A browser has no way to open the friends service's stream, so
-//! this host does not carry it, and the player is without friends.
+//! audio worklet as the sound device. A browser can open no connection of the friends service's
+//! own, so its stream rides the game's WebSocket by a port of its own, where a ticket may ride it.
 
 use core::net::{IpAddr, SocketAddr};
 use std::collections::{BTreeMap, VecDeque};
 
 use auberean_client_sdk::script::local::{bare_name, LocalSystem, LocalTime};
-use auberean_shell::Host;
+use auberean_shell::{FriendsNews, Host};
 use dereth_transport::web_frame;
 
 use crate::store;
@@ -87,6 +87,13 @@ pub struct PageHost<B> {
     outbox: Vec<Vec<u8>>,
     /// Whether the client holds the pointer, as last told, for the page to lock it.
     held: bool,
+    /// Whether the WebSocket may carry the friends service's stream, whose ticket it would carry.
+    friends_allowed: bool,
+    /// The friends stream while it is open: when it opened, until its world first answers.
+    friends_open: Option<Option<f64>>,
+    friends_news: VecDeque<FriendsNews>,
+    /// A message has opened the connection's numbering of its ports.
+    numbered: bool,
 }
 
 impl<B: Browser> PageHost<B> {
@@ -101,11 +108,42 @@ impl<B: Browser> PageHost<B> {
             inbox: VecDeque::new(),
             outbox: Vec::new(),
             held: false,
+            friends_allowed: false,
+            friends_open: None,
+            friends_news: VecDeque::new(),
+            numbered: false,
         }
+    }
+
+    /// Let the WebSocket carry the friends service's stream: it is one a ticket may ride.
+    #[must_use]
+    pub const fn with_friends(mut self) -> Self {
+        self.friends_allowed = true;
+        self
+    }
+
+    /// The port the friends stream goes by, in the client's numbering.
+    fn friends_port(&self) -> u16 {
+        self.server.port() + web_frame::FRIENDS_STREAM
     }
 
     /// A message the WebSocket brought.
     pub fn received(&mut self, message: Vec<u8>) {
+        if let Some((port, bytes)) = web_frame::decode(&message) {
+            if port == self.friends_port() {
+                if self.friends_open.is_some() {
+                    if bytes.is_empty() {
+                        self.friends_open = None;
+                        self.friends_news.push_back(FriendsNews::Closed);
+                    } else {
+                        self.friends_open = Some(None);
+                        self.friends_news
+                            .push_back(FriendsNews::Bytes(bytes.to_vec()));
+                    }
+                }
+                return;
+            }
+        }
         self.inbox.push_back(message);
     }
 
@@ -120,6 +158,10 @@ impl<B: Browser> PageHost<B> {
         self.held
     }
 }
+
+/// How long a world has to answer on the friends stream before the client takes it as not served,
+/// seconds.
+const FRIENDS_ANSWER: f64 = 3.0;
 
 /// The lower of the pair of ports `port` is one of.
 const fn pair_of(port: u16) -> u16 {
@@ -144,7 +186,50 @@ impl<B: Browser> Host for PageHost<B> {
         Ok(())
     }
 
+    fn carries_friends(&self) -> bool {
+        self.friends_allowed
+    }
+
+    /// The stream rides the WebSocket, already there. The connection numbers its ports from its
+    /// first message, so that opens with the login's port even as the stream goes first; a server
+    /// takes the empty datagram for nothing.
+    fn friends_dial(&mut self, _host: &str, _port: u16) {
+        if !self.numbered {
+            self.numbered = true;
+            self.outbox.push(web_frame::encode(self.server.port(), &[]));
+        }
+        self.friends_open = Some(Some(self.browser.now()));
+        self.friends_news.push_back(FriendsNews::Opened);
+    }
+
+    fn friends_send(&mut self, bytes: &[u8]) {
+        if self.friends_open.is_some() {
+            self.outbox
+                .push(web_frame::encode(self.friends_port(), bytes));
+        }
+    }
+
+    fn friends_close(&mut self) {
+        if self.friends_open.take().is_some() {
+            self.outbox
+                .push(web_frame::encode(self.friends_port(), &[]));
+        }
+    }
+
+    /// A server that does not carry the stream drops it unanswered, as a relay to a server's UDP
+    /// ports does: the login waits on the stream no longer than [`FRIENDS_ANSWER`].
+    fn friends_news(&mut self) -> Option<FriendsNews> {
+        if let Some(Some(opened)) = self.friends_open {
+            if self.browser.now() - opened > FRIENDS_ANSWER {
+                self.friends_open = None;
+                self.friends_news.push_back(FriendsNews::Failed);
+            }
+        }
+        self.friends_news.pop_front()
+    }
+
     fn send(&mut self, to: SocketAddr, bytes: &[u8]) {
+        self.numbered = true;
         self.peers.insert(pair_of(to.port()), to.ip());
         self.outbox.push(web_frame::encode(to.port(), bytes));
     }
@@ -309,8 +394,51 @@ mod tests {
     }
 
     #[test]
-    fn a_browser_does_not_carry_the_friends_service() {
+    fn the_friends_stream_rides_the_websocket_only_where_a_ticket_may() {
         assert!(!host().carries_friends());
+        assert!(host().with_friends().carries_friends());
+    }
+
+    #[test]
+    fn the_friends_stream_opens_the_numbering_and_goes_by_its_own_port() {
+        let mut h = host().with_friends();
+        h.friends_dial("ignored", 1);
+        assert_eq!(h.friends_news(), Some(FriendsNews::Opened));
+        h.friends_send(b"hello");
+        assert_eq!(
+            h.take_messages(),
+            vec![
+                web_frame::encode(9000, &[]),
+                web_frame::encode(9004, b"hello")
+            ],
+            "the login's port first, though the stream went first"
+        );
+        h.received(web_frame::encode(9004, b"welcome"));
+        h.received(web_frame::encode(9000, b"game"));
+        assert_eq!(
+            h.friends_news(),
+            Some(FriendsNews::Bytes(b"welcome".to_vec()))
+        );
+        assert_eq!(h.receive().map(|(_, d)| d), Some(b"game".to_vec()));
+        h.received(web_frame::encode(9004, &[]));
+        assert_eq!(h.friends_news(), Some(FriendsNews::Closed));
+        h.friends_send(b"late");
+        assert!(h.take_messages().is_empty());
+    }
+
+    #[test]
+    fn a_friends_stream_ending_says_so_and_a_login_first_opens_the_numbering_itself() {
+        let mut h = host().with_friends();
+        h.send(SocketAddr::from(([127, 0, 0, 1], 9000)), b"login");
+        h.friends_dial("ignored", 1);
+        h.friends_close();
+        assert_eq!(
+            h.take_messages(),
+            vec![
+                web_frame::encode(9000, b"login"),
+                web_frame::encode(9004, &[])
+            ]
+        );
     }
 
     #[test]

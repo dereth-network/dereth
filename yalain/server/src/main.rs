@@ -903,6 +903,7 @@ fn run<S: Store>(
     let mut wire = websocket::Wire {
         ports,
         websocket: websocket::start(&o.websocket)?,
+        friends: Vec::new(),
     };
     let websocket_url = wire
         .websocket
@@ -1293,12 +1294,35 @@ fn run<S: Store>(
                     friends::show_operator(&server, &mut net, who, &line);
                 }
             }
+            let carried = wire.take_friends();
+            // With no friends service the stream goes unanswered, and the client gives it up.
+            if o.friends {
+                let at = Duration::from_secs_f64(now.0);
+                for (from, bytes) in carried {
+                    friends.on_carried(
+                        at,
+                        from,
+                        &bytes,
+                        &mut server.store,
+                        network.as_mut().map(|n| &mut n.federation),
+                    );
+                }
+                friends.drop_carried(
+                    at,
+                    |a| wire.is_open(a),
+                    &mut server.store,
+                    network.as_mut().map(|n| &mut n.federation),
+                );
+            }
             let talked = friends.pump(
                 Duration::from_secs_f64(now.0),
                 &mut server,
                 &mut net,
                 network.as_mut().map(|n| &mut n.federation),
             );
+            for (to, bytes) in friends.take_carried_out() {
+                wire.send_friends(to, &bytes);
+            }
             net.tick(now);
             let out = net.take_datagrams();
             wire.send(&out);

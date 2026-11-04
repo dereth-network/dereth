@@ -70,7 +70,18 @@ async function start(msg) {
     log(`WebAssembly memory with the data files open: ${memoryMiB().toFixed(0)} MiB`);
   }
   // `?gpu=webgl` draws with WebGL 2 even where the browser has WebGPU.
-  return auberean.WebPlay.create(msg.canvas, msg.pageArray, msg.account, msg.password, params.get('gpu') === 'webgl');
+  return auberean.WebPlay.create(msg.canvas, msg.pageArray, msg.account, msg.password, params.get('gpu') === 'webgl', ticketMayRide(msg.server));
+}
+
+// The friends service's stream rides the game's WebSocket with its ticket: over TLS, or to this
+// computer.
+function ticketMayRide(server) {
+  try {
+    const url = new URL(server);
+    return url.protocol === 'wss:' || ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname);
+  } catch {
+    return false;
+  }
 }
 
 serve({

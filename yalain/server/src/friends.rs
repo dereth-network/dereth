@@ -31,10 +31,21 @@ const READ_PER_PASS: usize = 16 * 1024;
 /// The most bytes waiting to be written to one connection; a client that reads slower is closed.
 const MAX_PENDING: usize = 1024 * 1024;
 
+/// What carries a stream.
+#[derive(Debug)]
+enum Carrier {
+    Tcp(TcpStream),
+    /// The friends stream of the game's WebSocket connection at this address.
+    Game(SocketAddr),
+}
+
+/// The most bytes in one message of a game connection's friends stream.
+const CARRIED_PIECE: usize = 16 * 1024;
+
 /// One connection.
 #[derive(Debug)]
 struct Conn {
-    tcp: TcpStream,
+    carrier: Carrier,
     /// Bytes waiting for the socket.
     pending: Vec<u8>,
     /// The service closed it: it goes once what waits is written.
@@ -47,6 +58,10 @@ pub struct Friends {
     pub service: Service,
     listener: Option<TcpListener>,
     conns: HashMap<StreamId, Conn>,
+    /// The streams the game's connections carry, by the connection's address.
+    carried: HashMap<SocketAddr, StreamId>,
+    /// What to send on those connections' streams, an empty message to end one.
+    carried_out: Vec<(SocketAddr, Vec<u8>)>,
     next: StreamId,
     /// Each account's character in the world, as last told to the service.
     in_world: HashMap<u64, u64>,
@@ -80,9 +95,71 @@ impl Friends {
             service,
             listener,
             conns: HashMap::new(),
+            carried: HashMap::new(),
+            carried_out: Vec::new(),
             next: 1,
             in_world: HashMap::new(),
         })
+    }
+
+    /// What a game connection sent on its friends stream: its first bytes open the stream, and an
+    /// empty message ends it.
+    pub fn on_carried<S: Store>(
+        &mut self,
+        now: Duration,
+        from: SocketAddr,
+        bytes: &[u8],
+        store: &mut S,
+        fed: Option<&mut Federation>,
+    ) {
+        if bytes.is_empty() {
+            if let Some(id) = self.carried.remove(&from) {
+                self.conns.remove(&id);
+                self.service.closed(now, id, store, fed);
+            }
+            return;
+        }
+        let id = match self.carried.get(&from) {
+            Some(id) => *id,
+            None => {
+                let id = self.next;
+                self.next += 1;
+                self.carried.insert(from, id);
+                self.conns.insert(
+                    id,
+                    Conn {
+                        carrier: Carrier::Game(from),
+                        pending: Vec::new(),
+                        closing: false,
+                    },
+                );
+                self.service.accept(now, id, from.ip());
+                id
+            }
+        };
+        self.service.on_bytes(now, id, bytes, store, fed);
+    }
+
+    /// The streams whose game connection has gone end with it.
+    pub fn drop_carried<S: Store>(
+        &mut self,
+        now: Duration,
+        open: impl Fn(SocketAddr) -> bool,
+        store: &mut S,
+        mut fed: Option<&mut Federation>,
+    ) {
+        let gone: Vec<SocketAddr> = self.carried.keys().copied().filter(|a| !open(*a)).collect();
+        for from in gone {
+            if let Some(id) = self.carried.remove(&from) {
+                self.conns.remove(&id);
+                self.service.closed(now, id, store, fed.as_deref_mut());
+            }
+        }
+    }
+
+    /// What to send on game connections' friends streams.
+    pub fn take_carried_out(&mut self) -> Vec<(SocketAddr, Vec<u8>)> {
+        std::mem::take(&mut self.carried_out)
     }
 
     /// One pass of the world's loop: new connections, what they sent, the tickets, who entered
@@ -289,7 +366,7 @@ impl Friends {
                     self.conns.insert(
                         id,
                         Conn {
-                            tcp,
+                            carrier: Carrier::Tcp(tcp),
                             pending: Vec::new(),
                             closing: false,
                         },
@@ -320,7 +397,10 @@ impl Friends {
             if c.closing {
                 continue;
             }
-            match c.tcp.read(&mut buf) {
+            let Carrier::Tcp(tcp) = &mut c.carrier else {
+                continue;
+            };
+            match tcp.read(&mut buf) {
                 Ok(0) => gone.push(*id),
                 Ok(n) => got.push((*id, buf[..n].to_vec())),
                 Err(e) if e.kind() == ErrorKind::WouldBlock => {}
@@ -424,8 +504,25 @@ impl Friends {
         }
         let mut gone = Vec::new();
         for (id, c) in &mut self.conns {
+            if let Carrier::Game(to) = c.carrier {
+                if !c.pending.is_empty() {
+                    any = true;
+                    for piece in c.pending.chunks(CARRIED_PIECE) {
+                        self.carried_out.push((to, piece.to_vec()));
+                    }
+                    c.pending.clear();
+                }
+                if c.closing {
+                    self.carried_out.push((to, Vec::new()));
+                    gone.push(*id);
+                }
+                continue;
+            }
+            let Carrier::Tcp(tcp) = &mut c.carrier else {
+                continue;
+            };
             while !c.pending.is_empty() {
-                match c.tcp.write(&c.pending) {
+                match tcp.write(&c.pending) {
                     Ok(0) => {
                         gone.push(*id);
                         break;
@@ -448,7 +545,14 @@ impl Friends {
         }
         for id in &gone {
             if let Some(c) = self.conns.remove(id) {
-                let _ = c.tcp.shutdown(std::net::Shutdown::Both);
+                match c.carrier {
+                    Carrier::Tcp(tcp) => {
+                        let _ = tcp.shutdown(std::net::Shutdown::Both);
+                    }
+                    Carrier::Game(to) => {
+                        self.carried.remove(&to);
+                    }
+                }
             }
         }
         (any, gone)
@@ -457,8 +561,11 @@ impl Friends {
     /// Closes every connection.
     pub fn stop(&mut self) {
         for (_, c) in self.conns.drain() {
-            let _ = c.tcp.shutdown(std::net::Shutdown::Both);
+            if let Carrier::Tcp(tcp) = c.carrier {
+                let _ = tcp.shutdown(std::net::Shutdown::Both);
+            }
         }
+        self.carried.clear();
         self.listener = None;
     }
 }
@@ -649,6 +756,30 @@ mod tests {
         p.play.suffix.clear();
         f.world(at_now, &mut h.server, None);
         assert_eq!(f.service.target(shown), Target::NoSuchUser);
+    }
+
+    /// A game connection's first bytes on its friends stream open the stream, what the world says
+    /// goes back by that connection in messages of its own, and an empty message ends it. A stream
+    /// whose connection has gone ends too.
+    /// Behaviour: none (this project's carriage of the stream for a browser: no retail behavior)
+    #[test]
+    fn a_game_connection_carries_a_friends_stream_from_its_first_bytes_to_its_end() {
+        use auberean_friends::PREAMBLE;
+        let mut h = Harness::new();
+        let service = Service::new(yalain_friends::Config::new("Dawnsong", ""));
+        let mut f = Friends::start(service, None).expect("no listener");
+        let from = SocketAddr::from(([127, 0, 0, 1], 50_000));
+        let t = at(&h);
+        f.on_carried(t, from, &PREAMBLE, &mut h.server.store, None);
+        assert_eq!(f.carried.len(), 1, "its first bytes open it");
+        f.on_carried(t, from, b"", &mut h.server.store, None);
+        assert!(f.carried.is_empty(), "an empty message ends it");
+        assert!(f.conns.is_empty());
+        f.on_carried(t, from, &PREAMBLE, &mut h.server.store, None);
+        f.drop_carried(t, |_| true, &mut h.server.store, None);
+        assert_eq!(f.carried.len(), 1, "open, it stays");
+        f.drop_carried(t, |_| false, &mut h.server.store, None);
+        assert!(f.carried.is_empty(), "gone, it ends");
     }
 
     /// A stream for an account, admitted without a check of its ticket.

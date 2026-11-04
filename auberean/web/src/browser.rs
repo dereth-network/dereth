@@ -328,7 +328,8 @@ impl std::fmt::Debug for WebPlay {
 impl WebPlay {
     /// Bring the client up in `canvas` over the files [`open_dats`] opened, on a page of `page`
     /// (`[width, height, scale]`: the page in the device's own pixels and the share of them to
-    /// draw), and start logging in as `account`, on WebGL 2 when `webgl_only`. The server is
+    /// draw), and start logging in as `account`, on WebGL 2 when `webgl_only`, with the friends
+    /// service when `friends`. The server is
     /// whatever the worker's WebSocket reaches.
     ///
     /// # Errors
@@ -339,6 +340,7 @@ impl WebPlay {
         account: String,
         password: String,
         webgl_only: bool,
+        friends: bool,
     ) -> Result<WebPlay, JsError> {
         let at = |i: usize, or: u32| page.get(i).copied().unwrap_or(or);
         let (page, scale) = ((at(0, 800), at(1, 600)), at(2, 100));
@@ -364,8 +366,8 @@ impl WebPlay {
             Some(login),
         ));
         let host = PageHost::new(PageClock, CLOCK, server);
+        let host = if friends { host.with_friends() } else { host };
         let mut shell = Shell::new(host, world, data, interface);
-        shell.friends = auberean_shell::FriendsService::Off;
         shell.event(&Event::Resized {
             width: drawn.0,
             height: drawn.1,

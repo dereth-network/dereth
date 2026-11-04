@@ -58,6 +58,7 @@ and one connection numbers them all in a row:
 | P + 1 | the login service's odd port |
 | P + 2 | the world service's even port |
 | P + 3 | the world service's odd port |
+| P + 4 | the friends service's stream: its bytes in order, not datagrams, and an empty message for its end ([08-friends-stream.md](../network/08-friends-stream.md) section 9) |
 
 The first datagram is the login, as above, so its port is P. A client told to go to the world gets a
 referral naming **P + 2**, in the connection's own numbering, whatever port the world service really

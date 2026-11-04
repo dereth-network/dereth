@@ -25,6 +25,11 @@ pub const PORT_PREFIX: usize = 2;
 /// The port a message is addressed to when it is the session's will. No server listens on port 0.
 pub const WILL_PORT: u16 = 0;
 
+/// How far above a connection's first port a world numbers its friends service's stream: the
+/// stream's bytes in order, not a datagram, and an empty message for its end. Past the game's four
+/// ports, so a server without the stream drops it as any other port it does not number.
+pub const FRIENDS_STREAM: u16 = 4;
+
 /// A datagram for `port`, framed.
 #[must_use]
 pub fn encode(port: u16, datagram: &[u8]) -> Vec<u8> {

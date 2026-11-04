@@ -16,6 +16,10 @@
 //! connections from one address counts a player once; the connection's will covers both of its
 //! sessions; and a world login comes from its login's address, as it must, because the two share
 //! their connection. Its address is the connection's, the client's own behind a trusted proxy.
+//!
+//! **The friends service rides it too.** `P + 4` ([`FRIENDS`]) carries the friends stream's bytes,
+//! for a browser, which can open no TCP connection of its own. [`Wire`] keeps them apart from the
+//! datagrams for the friends service's host, which sees the connection as one more stream.
 
 use std::io;
 use std::net::SocketAddr;
@@ -27,7 +31,10 @@ use dereth_server_websocket::endpoint::{Endpoint, EndpointConfig, Numbering};
 use dereth_server_websocket::settings::WebSocketSettings;
 
 /// The ports one connection numbers.
-pub const PORTS: u16 = 4;
+pub const PORTS: u16 = 5;
+
+/// The index of the friends stream in a connection's numbering.
+pub const FRIENDS: u16 = dereth_transport::web_frame::FRIENDS_STREAM;
 
 /// The index of the world service's even port in a connection's numbering.
 pub const WORLD: u16 = 2;
@@ -88,6 +95,8 @@ pub fn world_port(numbering: &Numbering, address: SocketAddr) -> Option<u16> {
 pub struct Wire {
     pub ports: UdpPorts,
     pub websocket: Option<Endpoint>,
+    /// What connections sent on the friends stream since it was last taken.
+    pub friends: Vec<(SocketAddr, Vec<u8>)>,
 }
 
 impl Wire {
@@ -97,7 +106,10 @@ impl Wire {
         let mut n = self.ports.receive(&mut each);
         if let Some(ws) = &self.websocket {
             while let Some(d) = ws.try_recv() {
-                if let Some(port) = port_of(d.port) {
+                if d.port == FRIENDS {
+                    n += 1;
+                    self.friends.push((d.from, d.bytes));
+                } else if let Some(port) = port_of(d.port) {
                     n += 1;
                     each(port, d.from, &d.bytes);
                 }
@@ -118,6 +130,29 @@ impl Wire {
                 Some(sent) => log_failed(sent, d.to),
             }
         }
+    }
+
+    /// What connections sent on the friends stream since the last call, an empty message for a
+    /// stream the client ended.
+    pub fn take_friends(&mut self) -> Vec<(SocketAddr, Vec<u8>)> {
+        std::mem::take(&mut self.friends)
+    }
+
+    /// Send on the friends stream of the connection at `to`, an empty message to end it.
+    pub fn send_friends(&self, to: SocketAddr, bytes: &[u8]) {
+        if let Some(ws) = &self.websocket {
+            if let Some(sent) = ws.transmit(to, FRIENDS, bytes) {
+                log_failed(sent, to);
+            }
+        }
+    }
+
+    /// Whether the connection at `address` is still open.
+    #[must_use]
+    pub fn is_open(&self, address: SocketAddr) -> bool {
+        self.websocket
+            .as_ref()
+            .is_some_and(|ws| ws.numbering().port(address, 0).is_some())
     }
 
     /// Stop listening for connections; those open close.

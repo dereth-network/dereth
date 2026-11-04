@@ -624,8 +624,9 @@ It logs in and is sent to the world over that same connection, so the world's UD
 to be open for it, and the limit counts a player once. Each player's address is the connection's, or
 behind a proxy in `trusted_proxies` the one the proxy names.
 
-**The friends service is TCP, and no WebSocket carries it.** A player on a WebSocket has no friends
-service.
+**The friends service rides the WebSocket too,** for a player in a browser on `wss://` or on this
+computer: no port of its own to open. On a plain `ws://` from elsewhere its ticket would go in the
+clear, so that player goes without friends.
 
 With the Dereth Network linked (section 8.2), the world tells its hub the URL too, and the hub lists
 it while the world is linked. The hub takes only a `wss://` URL, or a plain one to `127.0.0.1` for a

@@ -16,7 +16,7 @@ use tungstenite::http::StatusCode;
 use tungstenite::{Message, WebSocket};
 use yalain_net::endpoint::standalone;
 use yalain_net::login::build_login;
-use yalain_net::websocket::{index_of, port_of, start, world_port, PORTS, WORLD};
+use yalain_net::websocket::{index_of, port_of, start, world_port, FRIENDS, PORTS, WORLD};
 use yalain_net::{fixed_stream, LocalTime, NetConfig, NetEvent, Port, ServerNet};
 
 /// A guard against a hang, not the time a step is expected to take.
@@ -83,10 +83,15 @@ fn a_connection_numbers_the_login_pair_and_then_the_world_pair() {
         [0, 1, 2, 3],
         "login's even and odd, then the world's"
     );
-    for index in 0..PORTS {
+    for index in 0..FRIENDS {
         assert_eq!(port_of(index).map(index_of), Some(index));
     }
-    assert_eq!(port_of(PORTS), None);
+    assert_eq!(
+        port_of(FRIENDS),
+        None,
+        "the friends stream carries no datagrams"
+    );
+    assert_eq!(FRIENDS + 1, PORTS, "and is the last the connection numbers");
 }
 
 /// Only a page from a listed origin is let in; none listed refuses every page, and a client
