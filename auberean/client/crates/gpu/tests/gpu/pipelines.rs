@@ -5,11 +5,15 @@
 //!
 //! Behaviour: none (a check of the device, which no behavior of the game names)
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
+use auberean_draw::body::BodyDrawer;
 use auberean_draw::material::{draw_layers, instance_material, DEVICE_FLAGS};
+use auberean_draw::mesh::{MeshVertex, PosedVertex};
 use auberean_draw::scene::{SceneBuilder, Spot};
-use auberean_primitives::Vec3;
+use auberean_primitives::{DataId, Quat, Vec3};
+use auberean_world::math::Mat4;
 
 use crate::common::{checked, ids_of, install, renderer, renderer_antialiased};
 
@@ -272,4 +276,117 @@ fn frames_from_inside_under_two_lights_are_drawn() {
         let colors: HashSet<&[u8]> = p.rgba.chunks(4).collect();
         assert!(colors.len() > 100, "{block:02X?}: {} colors", colors.len());
     }
+}
+
+/// A frame with the human male standing in it, and the same batches of him.
+fn frame_with_a_body(
+    builder: &mut SceneBuilder<'_>,
+    r: &auberean_world::records::WorldRecords,
+) -> (
+    auberean_draw::scene::Frame,
+    Vec<auberean_draw::scene::ObjectBatch>,
+) {
+    let at = Vec3::new(127.0, 148.0, 79.5);
+    let spot = Spot {
+        block: (0xCB, 0x94),
+        position: Vec3::new(at.x + 1.0, at.y - 3.5, at.z + 2.5),
+        heading: -10.0,
+        pitch: -30.0,
+        time_of_day: 0.4,
+        day: None,
+    };
+    let frame = builder.frame(&spot, 60.0);
+    let recs = auberean_animation::CachedRecords::new(r);
+    let figure = auberean_animation::body::Body::assemble(&recs, DataId(0x1F00_0023))
+        .expect("the human male");
+    let poses = figure.pose(&recs);
+    let place = Mat4::from_parts(at, Quat::IDENTITY, Vec3::new(1.0, 1.0, 1.0));
+    let batches = BodyDrawer::default().batches(r, &figure, &poses, &place);
+    (frame, batches)
+}
+
+/// A body's places and facings in a stream of their own draw the picture its vertices written whole
+/// draw, and the device has no complaint of the two streams.
+#[test]
+fn a_body_in_two_streams_is_the_picture_of_its_vertices_written_whole() {
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let (bare, batches) = frame_with_a_body(&mut builder, r);
+    assert!(batches.iter().all(|b| b.posed.is_some()));
+    let mut streams = bare.clone();
+    streams.objects.extend(batches.iter().cloned());
+    let mut whole = bare.clone();
+    whole.objects.extend(batches.iter().map(|b| {
+        let mut b = b.clone();
+        let posed = b.posed.take().expect("its places");
+        let vertices = b
+            .vertices
+            .iter()
+            .zip(posed.iter())
+            .map(|(v, p)| MeshVertex {
+                position: p.position,
+                normal: p.normal,
+                ..*v
+            })
+            .collect();
+        b.vertices = Arc::new(vertices);
+        b
+    }));
+    let mut device = renderer();
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let (a, b, none) = checked(&mut device, |d| {
+        (
+            d.render(&streams, 640, 480, &mut load).expect("read back"),
+            d.render(&whole, 640, 480, &mut load).expect("read back"),
+            d.render(&bare, 640, 480, &mut load).expect("read back"),
+        )
+    });
+    assert_eq!(a, b, "the same picture");
+    assert_ne!(a, none, "the body shows");
+}
+
+/// A body's places and facings make no buffer of their own, whether its list is new each frame or
+/// stands for as long as its pose: only the mesh's own list, seen again, gets one.
+#[test]
+fn a_bodys_places_make_no_buffer() {
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let (bare, batches) = frame_with_a_body(&mut builder, r);
+    let mut frame = bare.clone();
+    frame.objects.extend(batches.iter().cloned());
+    let body = bare.objects.len()..frame.objects.len();
+    let mut device = renderer();
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let (standing, moving) = checked(&mut device, |d| {
+        for _ in 0..3 {
+            d.render(&frame, 320, 240, &mut load).expect("read back");
+        }
+        d.take_work();
+        d.render(&frame, 320, 240, &mut load).expect("read back");
+        let standing = d.take_work();
+        // A new list for each list of places, shared by its draws as they were.
+        let mut new: HashMap<usize, Arc<Vec<PosedVertex>>> = HashMap::new();
+        for b in &mut frame.objects[body.clone()] {
+            let list = b.posed.as_ref().expect("its places");
+            let moved = new
+                .entry(Arc::as_ptr(list) as usize)
+                .or_insert_with(|| Arc::new(list.to_vec()));
+            b.posed = Some(moved.clone());
+        }
+        d.render(&frame, 320, 240, &mut load).expect("read back");
+        (standing, d.take_work())
+    });
+    assert_eq!(standing.buffers, 0, "{standing:?}");
+    assert_eq!(moving.buffers, 0, "{moving:?}");
+    let lists = batches
+        .iter()
+        .map(auberean_draw::scene::ObjectBatch::places)
+        .collect::<HashSet<_>>();
+    assert_eq!(
+        moving.mesh_misses as usize,
+        lists.len(),
+        "each list of places, and nothing else: {moving:?}"
+    );
 }

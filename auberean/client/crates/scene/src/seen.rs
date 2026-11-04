@@ -175,22 +175,20 @@ pub fn bounds_of(body: &SeenBody, batches: &[ObjectBatch]) -> Option<(Vec3, Vec3
     let mut any = false;
     let turn = body.turn();
     // The layers and fragments of one part share its vertices, in one place.
-    let mut done: Vec<(*const Vec<auberean_draw::mesh::MeshVertex>, [[f32; 4]; 4])> = Vec::new();
+    let mut done: Vec<(usize, [[f32; 4]; 4])> = Vec::new();
     for b in batches {
-        let this = (std::sync::Arc::as_ptr(&b.vertices), b.transform.0);
+        let this = (b.places(), b.transform.0);
         if done.contains(&this) {
             continue;
         }
         done.push(this);
-        for v in b.vertices.iter() {
-            let w = b
-                .transform
-                .point(Vec3::new(v.position[0], v.position[1], v.position[2]));
+        b.each_position(|[x, y, z]| {
+            let w = b.transform.point(Vec3::new(x, y, z));
             let p = body.to_body_turned(w, turn);
             lo = Vec3::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z));
             hi = Vec3::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z));
             any = true;
-        }
+        });
     }
     any.then_some((lo, hi))
 }
@@ -289,17 +287,19 @@ pub(crate) fn render_box(body: &SeenBody, own: &[ObjectBatch]) -> Option<(Vec3, 
     let mut out: Option<(Vec3, Vec3)> = None;
     // A part's materials lie next to each other, under one placement.
     for part in own.chunk_by(|a, b| a.transform == b.transform) {
-        let mut vertices = part.iter().flat_map(|b| b.vertices.iter());
-        let Some(first) = vertices.next() else {
+        let mut bounds: Option<([f32; 3], [f32; 3])> = None;
+        for b in part {
+            b.each_position(|at| {
+                let (lo, hi) = bounds.get_or_insert((at, at));
+                for i in 0..3 {
+                    lo[i] = lo[i].min(at[i]);
+                    hi[i] = hi[i].max(at[i]);
+                }
+            });
+        }
+        let Some((lo, hi)) = bounds else {
             continue;
         };
-        let (mut lo, mut hi) = (first.position, first.position);
-        for v in vertices {
-            for i in 0..3 {
-                lo[i] = lo[i].min(v.position[i]);
-                hi[i] = hi[i].max(v.position[i]);
-            }
-        }
         for i in 0..8 {
             let at = |bit: usize, axis: usize| if i & bit == 0 { lo[axis] } else { hi[axis] };
             let w = part[0]

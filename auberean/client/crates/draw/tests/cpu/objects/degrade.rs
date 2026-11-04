@@ -113,6 +113,7 @@ fn fade_batch(anchor: Vec3) -> ObjectBatch {
     let r = layer();
     ObjectBatch {
         vertices: Arc::new(Vec::new()),
+        posed: None,
         indices: Arc::new(Vec::new()),
         transform: Mat4::IDENTITY,
         layer: r,
@@ -150,10 +151,12 @@ fn an_objects_opacity_follows_the_camera_and_its_landblock() {
     let mut objects = vec![
         b.clone(),
         ObjectBatch {
+            posed: None,
             block: Some((0xC1, 0x56)),
             ..b.clone()
         },
         ObjectBatch {
+            posed: None,
             visible: None,
             anchor: Some(Vec3::new(0.0, 39.0, 0.0)),
             ..b

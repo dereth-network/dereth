@@ -432,6 +432,7 @@ dependencies = [
  "auberean-primitives",
  "auberean-testkit",
  "auberean-world",
+ "bytemuck",
  "dereth-landscape",
  "dereth-primitives",
  "dereth-render-cpu",

@@ -59,6 +59,7 @@ pub(crate) fn wall(y: f32, g: f32, blended: bool, anchor: f32) -> ObjectBatch {
         motion: None,
     };
     ObjectBatch {
+        posed: None,
         vertices: Arc::new(vec![
             vertex(-100.0, -100.0),
             vertex(100.0, -100.0),

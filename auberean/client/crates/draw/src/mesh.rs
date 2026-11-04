@@ -22,6 +22,15 @@ pub struct MeshVertex {
     pub to_light: [f32; 3],
 }
 
+/// What a moved body changes of a vertex: where it stands and which way it faces. The rest of the
+/// vertex stays as the mesh has it, in a list kept from frame to frame.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PosedVertex {
+    pub position: [f32; 3],
+    pub normal: [f32; 3],
+}
+
 /// Where each element sits in a stored vertex, from the format word.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Layout {

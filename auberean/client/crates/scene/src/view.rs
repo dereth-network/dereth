@@ -664,7 +664,7 @@ pub fn pick(
 /// A batch's triangles, each corner where the batch places it.
 pub(crate) fn triangles(b: &ObjectBatch) -> impl Iterator<Item = [Vec3; 3]> + '_ {
     let at = |i: u16| {
-        let v = b.vertices.get(usize::from(i))?.position;
+        let v = b.position(usize::from(i))?;
         Some(b.transform.point(Vec3::new(v[0], v[1], v[2])))
     };
     b.indices

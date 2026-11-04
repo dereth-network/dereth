@@ -144,6 +144,19 @@ struct MeshGpuVertex {
     to_light: [f32; 3],
 }
 
+/// An attribute at `offset` of a vertex, read by the shader at `location`.
+const fn attribute(
+    format: wgpu::VertexFormat,
+    offset: usize,
+    location: u32,
+) -> wgpu::VertexAttribute {
+    wgpu::VertexAttribute {
+        format,
+        offset: offset as u64,
+        shader_location: location,
+    }
+}
+
 impl MeshGpuVertex {
     fn of(v: &auberean_draw::mesh::MeshVertex) -> Self {
         let c = auberean_world::color::Color::from_argb(v.diffuse);
@@ -184,6 +197,8 @@ struct PassKey {
     target: Target,
     /// The depth test turned over: it passes past what is marked.
     past: bool,
+    /// A moved body's draw: its places and facings come from a stream of their own.
+    posed: bool,
 }
 
 /// What a draw writes in its picture.
@@ -303,6 +318,7 @@ struct Bound {
     env: Option<usize>,
     textures: Option<wgpu::BindGroup>,
     vertices: Option<cache::Slice>,
+    posed: Option<cache::Slice>,
     indices: Option<cache::Slice>,
 }
 
@@ -313,6 +329,7 @@ impl Default for Bound {
             env: None,
             textures: None,
             vertices: None,
+            posed: None,
             indices: None,
         }
     }
@@ -966,6 +983,16 @@ impl Renderer {
         layout: wgpu::VertexBufferLayout<'_>,
         key: PassKey,
     ) -> wgpu::RenderPipeline {
+        self.pipeline_of(vs, fs, &[Some(layout)], key)
+    }
+
+    fn pipeline_of(
+        &self,
+        vs: &str,
+        fs: &str,
+        buffers: &[Option<wgpu::VertexBufferLayout<'_>>],
+        key: PassKey,
+    ) -> wgpu::RenderPipeline {
         let (blend, write_mask) = blend_of(key.src, key.dst, key.target);
         self.device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -975,7 +1002,7 @@ impl Renderer {
                     module: &self.module,
                     entry_point: Some(vs),
                     compilation_options: Default::default(),
-                    buffers: &[Some(layout)],
+                    buffers,
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &self.module,
@@ -1037,6 +1064,57 @@ impl Renderer {
         }
     }
 
+    /// A moved body's two streams: all a vertex keeps but its place and facing, from the mesh's own
+    /// list, whose place and facing are not read; and the place and facing, from the pose's.
+    fn posed_layouts() -> [Option<wgpu::VertexBufferLayout<'static>>; 2] {
+        const KEPT: [wgpu::VertexAttribute; 6] = [
+            attribute(
+                wgpu::VertexFormat::Float32x4,
+                std::mem::offset_of!(MeshGpuVertex, diffuse),
+                2,
+            ),
+            attribute(
+                wgpu::VertexFormat::Float32x2,
+                std::mem::offset_of!(MeshGpuVertex, uv0),
+                3,
+            ),
+            attribute(
+                wgpu::VertexFormat::Float32x2,
+                std::mem::offset_of!(MeshGpuVertex, uv1),
+                4,
+            ),
+            attribute(
+                wgpu::VertexFormat::Float32x3,
+                std::mem::offset_of!(MeshGpuVertex, tangent_u),
+                5,
+            ),
+            attribute(
+                wgpu::VertexFormat::Float32x3,
+                std::mem::offset_of!(MeshGpuVertex, tangent_v),
+                6,
+            ),
+            attribute(
+                wgpu::VertexFormat::Float32x3,
+                std::mem::offset_of!(MeshGpuVertex, to_light),
+                7,
+            ),
+        ];
+        const POSED: [wgpu::VertexAttribute; 2] =
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+        [
+            Some(wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<MeshGpuVertex>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &KEPT,
+            }),
+            Some(wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<auberean_draw::mesh::PosedVertex>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &POSED,
+            }),
+        ]
+    }
+
     fn build_terrain_pipelines(&mut self) {
         let opaque = PassKey {
             src: 2,
@@ -1046,6 +1124,7 @@ impl Renderer {
             cull: d3d::CULL_CW,
             target: Target::Frame,
             past: false,
+            posed: false,
         };
         let blended = PassKey {
             src: d3d::BLEND_SRC_ALPHA,
@@ -1055,6 +1134,7 @@ impl Renderer {
             cull: d3d::CULL_CW,
             target: Target::Frame,
             past: false,
+            posed: false,
         };
         let base = self.pipeline(
             "vs_terrain",
@@ -1088,6 +1168,7 @@ impl Renderer {
                 cull: d3d::CULL_CW,
                 target: Target::Frame,
                 past: false,
+                posed: false,
             },
         );
         let fog = self.pipeline(
@@ -1583,7 +1664,11 @@ impl Renderer {
 
     fn mesh_pipeline(&mut self, key: PassKey) {
         if !self.mesh_pipelines.contains_key(&key) {
-            let p = self.pipeline("vs_mesh", "fs_mesh", Self::mesh_layout(), key);
+            let p = if key.posed {
+                self.pipeline_of("vs_mesh", "fs_mesh", &Self::posed_layouts(), key)
+            } else {
+                self.pipeline("vs_mesh", "fs_mesh", Self::mesh_layout(), key)
+            };
             self.mesh_pipelines.insert(key, p);
         }
     }
@@ -1599,6 +1684,7 @@ impl Renderer {
             cull: layer.cull,
             target,
             past: false,
+            posed: false,
         }
     }
 
@@ -1613,6 +1699,7 @@ impl Renderer {
             cull: layer.cull,
             target,
             past: false,
+            posed: false,
         }
     }
 
@@ -1637,6 +1724,7 @@ impl Renderer {
             cull: d3d::CULL_NONE,
             target: Target::Frame,
             past: false,
+            posed: false,
         };
         let flare = self.pipeline(
             "vs_screen",
@@ -1677,6 +1765,13 @@ impl Renderer {
             self.water_pipeline(Self::water_key(layer, Target::Frame));
             for target in [Target::FrameAlpha, Target::Coverage] {
                 self.mesh_pipeline(Self::object_key(layer, false, target));
+            }
+            // As a moved body's part, in the world or in a scene over the interface.
+            for target in [Target::Frame, Target::Coverage] {
+                self.mesh_pipeline(PassKey {
+                    posed: true,
+                    ..Self::object_key(layer, false, target)
+                });
             }
             // Faded, a layer that tests or blends by alpha marks no depth.
             if layer.alpha_test && layer.depth_write {
@@ -2232,6 +2327,7 @@ impl Renderer {
         struct Draw {
             pipeline: Pipe,
             vertices: cache::Slice,
+            posed: Option<cache::Slice>,
             indices: cache::Slice,
             index_count: u32,
             index_format: wgpu::IndexFormat,
@@ -2364,6 +2460,7 @@ impl Renderer {
                 let faded = b.layer.faded(b.tint.a, b.far);
                 let mut key = Self::object_key(&b.layer, sky, writes);
                 key.depth_write = key.depth_write && faded.depth_write;
+                key.posed = b.posed.is_some();
                 this.mesh_pipeline(key);
                 let bound = Self::bound_stages(&b.layer);
                 let textures = bound.map(|s| {
@@ -2424,6 +2521,10 @@ impl Renderer {
                 );
                 let (vertices, indices) =
                     this.meshes.buffers(&this.device, &b.vertices, &b.indices);
+                let posed = b
+                    .posed
+                    .as_ref()
+                    .map(|list| this.meshes.posed_buffer(&this.device, list));
                 // The reflection gathers what stands on the land alone, no cell's.
                 // D2-11030
                 let in_reflection = b.reflected(frame.camera.position)
@@ -2468,6 +2569,7 @@ impl Renderer {
                 draws.push(Draw {
                     pipeline: Pipe::Mesh(key),
                     vertices,
+                    posed,
                     indices,
                     index_count: u32::try_from(b.indices.len()).unwrap_or(0),
                     index_format: wgpu::IndexFormat::Uint16,
@@ -2534,6 +2636,7 @@ impl Renderer {
             draws.push(Draw {
                 pipeline: Pipe::Terrain(name),
                 vertices,
+                posed: None,
                 indices,
                 index_count: u32::try_from(b.indices.len()).unwrap_or(0),
                 index_format: wgpu::IndexFormat::Uint32,
@@ -2795,6 +2898,7 @@ impl Renderer {
                     cull: d.cull,
                     target,
                     past: true,
+                    posed: false,
                 };
                 self.mesh_pipeline(key);
                 d.pipeline = Pipe::Mesh(key);
@@ -2858,6 +2962,10 @@ impl Renderer {
                 if bound.vertices.as_ref() != Some(&d.vertices) {
                     pass.set_vertex_buffer(0, d.vertices.get());
                     bound.vertices = Some(d.vertices.clone());
+                }
+                if let Some(posed) = d.posed.as_ref().filter(|p| bound.posed.as_ref() != Some(p)) {
+                    pass.set_vertex_buffer(1, posed.get());
+                    bound.posed = Some(posed.clone());
                 }
                 if bound.indices.as_ref() != Some(&d.indices) {
                     pass.set_index_buffer(d.indices.get(), d.index_format);
@@ -3090,6 +3198,9 @@ impl Renderer {
                     pass.set_bind_group(1, g, &[]);
                     pass.set_bind_group(2, &d.texture_group, &[]);
                     pass.set_vertex_buffer(0, d.vertices.get());
+                    if let Some(posed) = &d.posed {
+                        pass.set_vertex_buffer(1, posed.get());
+                    }
                     pass.set_index_buffer(d.indices.get(), d.index_format);
                     pass.draw_indexed(0..d.index_count, 0, 0..1);
                 };
@@ -3154,6 +3265,7 @@ impl Renderer {
                     cull: d3d::CULL_NONE,
                     target: Target::Frame,
                     past: false,
+                    posed: false,
                 };
                 if self.ripple_pipeline.is_none() {
                     self.ripple_pipeline =
@@ -3235,6 +3347,7 @@ impl Renderer {
                 water_draws.push(Draw {
                     pipeline: Pipe::Water(key),
                     vertices,
+                    posed: None,
                     indices,
                     index_count: u32::try_from(b.indices.len()).unwrap_or(0),
                     index_format: wgpu::IndexFormat::Uint16,

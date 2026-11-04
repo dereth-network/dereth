@@ -282,6 +282,7 @@ impl Trail {
             .iter()
             .map(|layer| ObjectBatch {
                 vertices: vertices.clone(),
+                posed: None,
                 indices: indices.clone(),
                 transform: place,
                 layer: layer.clone(),

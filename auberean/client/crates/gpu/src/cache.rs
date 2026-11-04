@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use auberean_draw::mesh::MeshVertex;
+use auberean_draw::mesh::{MeshVertex, PosedVertex};
 use auberean_draw::scene::TerrainVertex;
 use bytemuck::Pod;
 use wgpu::util::DeviceExt;
@@ -218,6 +218,44 @@ impl<T> Lists<T> {
         }
     }
 
+    /// Where `list` is on the device when it changes from frame to frame: written as it stands
+    /// into the arena of each draw that asks for it, never given buffers of its own.
+    fn passing(
+        &mut self,
+        (device, arena): (&wgpu::Device, &mut Arena),
+        now: Now,
+        counts: &mut Counts,
+        list: &Arc<Vec<T>>,
+    ) -> Slice
+    where
+        T: Pod,
+    {
+        let key = Arc::as_ptr(list) as usize;
+        if let Some(Entry {
+            place: Place::Passing(slice, seen),
+            used,
+            ..
+        }) = self.entries.get_mut(&key)
+        {
+            if *seen == now.draw {
+                *used = now.frame;
+                counts.hits += 1;
+                return slice.clone();
+            }
+        }
+        counts.misses += 1;
+        let slice = arena.put(device, bytemuck::cast_slice(list.as_slice()));
+        self.entries.insert(
+            key,
+            Entry {
+                _list: Arc::clone(list),
+                place: Place::Passing(slice.clone(), now.draw),
+                used: now.frame,
+            },
+        );
+        slice
+    }
+
     /// A frame is over: lists its frames have not gone on drawing are let go.
     fn end_frame(&mut self, frame: u64) {
         self.entries.retain(|_, e| match e.place {
@@ -230,6 +268,7 @@ impl<T> Lists<T> {
 /// The lists on the device, and the two arenas of one frame's.
 pub(crate) struct MeshCache {
     vertices: Lists<MeshVertex>,
+    posed: Lists<PosedVertex>,
     indices: Lists<u16>,
     land: Lists<TerrainVertex>,
     land_indices: Lists<u32>,
@@ -245,6 +284,7 @@ impl Default for MeshCache {
     fn default() -> Self {
         Self {
             vertices: Lists::default(),
+            posed: Lists::default(),
             indices: Lists::default(),
             land: Lists::default(),
             land_indices: Lists::default(),
@@ -302,6 +342,21 @@ impl MeshCache {
         )
     }
 
+    /// The buffer of a moved body's places and facings.
+    pub(crate) fn posed_buffer(
+        &mut self,
+        device: &wgpu::Device,
+        list: &Arc<Vec<PosedVertex>>,
+    ) -> Slice {
+        let now = self.now();
+        self.posed.passing(
+            (device, &mut self.passing_vertices),
+            now,
+            &mut self.counts,
+            list,
+        )
+    }
+
     /// The vertex and index buffers of a piece of the land's lists.
     pub(crate) fn land_buffers(
         &mut self,
@@ -356,6 +411,7 @@ impl MeshCache {
     pub(crate) fn end_frame(&mut self) {
         let frame = self.frame;
         self.vertices.end_frame(frame);
+        self.posed.end_frame(frame);
         self.indices.end_frame(frame);
         self.land.end_frame(frame);
         self.land_indices.end_frame(frame);

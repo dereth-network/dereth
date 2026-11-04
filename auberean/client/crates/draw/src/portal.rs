@@ -532,6 +532,7 @@ impl Passage {
                 layer.move_on(now, &self.dice);
                 frame.objects.push(ObjectBatch {
                     vertices: v.clone(),
+                    posed: None,
                     indices: i.clone(),
                     transform: Mat4::IDENTITY,
                     layer,

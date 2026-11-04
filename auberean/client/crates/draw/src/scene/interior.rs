@@ -1070,20 +1070,18 @@ fn reach_of(batches: &[ObjectBatch]) -> Option<f32> {
     let mut lo = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
     let mut hi = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
     // The layers and fragments of one part share its vertices, in one place.
-    let mut done: Vec<(*const Vec<crate::mesh::MeshVertex>, [[f32; 4]; 4])> = Vec::new();
+    let mut done: Vec<(usize, [[f32; 4]; 4])> = Vec::new();
     for b in batches {
-        let this = (Arc::as_ptr(&b.vertices), b.transform.0);
+        let this = (b.places(), b.transform.0);
         if done.contains(&this) {
             continue;
         }
         done.push(this);
-        for v in b.vertices.iter() {
-            let w = b
-                .transform
-                .point(Vec3::new(v.position[0], v.position[1], v.position[2]));
+        b.each_position(|[x, y, z]| {
+            let w = b.transform.point(Vec3::new(x, y, z));
             lo = Vec3::new(lo.x.min(w.x), lo.y.min(w.y), lo.z.min(w.z));
             hi = Vec3::new(hi.x.max(w.x), hi.y.max(w.y), hi.z.max(w.z));
-        }
+        });
     }
     (lo.x <= hi.x).then(|| 0.5 * (hi.x - lo.x).max(hi.y - lo.y).max(hi.z - lo.z))
 }

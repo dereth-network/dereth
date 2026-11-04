@@ -42,7 +42,6 @@ use dereth_primitives::num::math::{cosf, sinf};
 use dereth_primitives::shape::Plane;
 use dereth_primitives::Vec3 as V;
 
-use crate::mesh::MeshVertex;
 use crate::scene::{Camera, Cull, ObjectBatch};
 
 /// The first low word of an interior cell.
@@ -477,19 +476,18 @@ pub fn look_into(
 pub fn body_cull(cell: u32, touching: &[u32], batches: &[ObjectBatch]) -> Cull {
     let mut lo = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
     let mut hi = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
-    let mut last: Option<(*const MeshVertex, Mat4)> = None;
+    let mut last: Option<(usize, Mat4)> = None;
     for b in batches {
-        let here = (b.vertices.as_ptr(), b.transform);
+        let here = (b.places(), b.transform);
         if last == Some(here) {
             continue;
         }
         last = Some(here);
-        for vertex in b.vertices.iter() {
-            let [x, y, z] = vertex.position;
+        b.each_position(|[x, y, z]| {
             let w = b.transform.point(Vec3::new(x, y, z));
             lo = Vec3::new(lo.x.min(w.x), lo.y.min(w.y), lo.z.min(w.z));
             hi = Vec3::new(hi.x.max(w.x), hi.y.max(w.y), hi.z.max(w.z));
-        }
+        });
     }
     if lo.x > hi.x {
         return Cull::Never;

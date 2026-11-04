@@ -3654,6 +3654,7 @@ impl<'w> Scene<'w> {
     /// The frames of the interface's viewport scenes, their figures animated over `dt` seconds;
     /// the picks asked are answered in `views.picked`.
     pub fn view_frames(&mut self, scenes: &[view::ViewScene], dt: f32) -> Vec<view::ViewFrame> {
+        self.drawer.begin_frame();
         // Nothing degrades with distance in the interface's scenes.
         self.drawer.eye = None;
         self.views.frames(

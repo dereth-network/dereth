@@ -28,7 +28,7 @@ use crate::material::{
     device_flags, draw_layers, ground_picture, instance_material, instance_material_with,
     material_kind, shadow_layer, DrawLayer,
 };
-use crate::mesh::{level_at, marked_levels, vertices, MeshVertex};
+use crate::mesh::{level_at, marked_levels, vertices, MeshVertex, PosedVertex};
 use crate::shadow::{CloudShadows, ShadowMap};
 
 mod interior;
@@ -97,6 +97,9 @@ pub struct TerrainBatch {
 #[derive(Clone, Debug)]
 pub struct ObjectBatch {
     pub vertices: Arc<Vec<MeshVertex>>,
+    /// A body's: where each of `vertices` stands this frame and which way it faces, in place of
+    /// the positions and normals they hold.
+    pub posed: Option<Arc<Vec<PosedVertex>>>,
     pub indices: Arc<Vec<u16>>,
     pub transform: Mat4,
     pub layer: DrawLayer,
@@ -498,6 +501,34 @@ pub fn land_shadow(tb: &TerrainBlock, local: Vec3, square_side: f32, light_direc
 }
 
 impl ObjectBatch {
+    /// What tells the list of places its vertices stand at from another draw's: draws with the
+    /// same one, under the same transform, stand in the same place.
+    #[must_use]
+    pub fn places(&self) -> usize {
+        self.posed
+            .as_ref()
+            .map_or(Arc::as_ptr(&self.vertices) as usize, |p| {
+                Arc::as_ptr(p) as usize
+            })
+    }
+
+    /// Where vertex `i` stands in the draw's own frame.
+    #[must_use]
+    pub fn position(&self, i: usize) -> Option<[f32; 3]> {
+        match &self.posed {
+            Some(p) => p.get(i).map(|v| v.position),
+            None => self.vertices.get(i).map(|v| v.position),
+        }
+    }
+
+    /// `f` of where each vertex stands in the draw's own frame, in order.
+    pub fn each_position(&self, mut f: impl FnMut([f32; 3])) {
+        match &self.posed {
+            Some(p) => p.iter().for_each(|v| f(v.position)),
+            None => self.vertices.iter().for_each(|v| f(v.position)),
+        }
+    }
+
     /// Whether the draw shows at all: an object fades out to nothing, an opaque layer included.
     // D2-06658
     #[must_use]
@@ -1270,6 +1301,7 @@ impl<'a> SceneBuilder<'a> {
             };
             out.push(ObjectBatch {
                 vertices: verts.clone(),
+                posed: None,
                 indices: frag.indices.clone(),
                 transform,
                 layer,
@@ -1468,6 +1500,7 @@ impl<'a> SceneBuilder<'a> {
                 for layer in layers {
                     out.push(ObjectBatch {
                         vertices: verts.clone(),
+                        posed: None,
                         indices: indices.clone(),
                         transform,
                         layer,
@@ -1512,6 +1545,7 @@ impl<'a> SceneBuilder<'a> {
             .into_iter()
             .map(|layer| ObjectBatch {
                 vertices: vertices.clone(),
+                posed: None,
                 indices: indices.clone(),
                 transform: Mat4::IDENTITY,
                 layer,
@@ -2351,6 +2385,7 @@ impl<'a> SceneBuilder<'a> {
                 .into_iter()
                 .map(|layer| ObjectBatch {
                     vertices: d.shore.vertices.clone(),
+                    posed: None,
                     indices: indices.clone(),
                     transform: Mat4::IDENTITY,
                     layer,
@@ -2457,6 +2492,7 @@ impl<'a> SceneBuilder<'a> {
             .into_iter()
             .map(|layer| ObjectBatch {
                 vertices: verts.clone(),
+                posed: None,
                 indices: indices.clone(),
                 transform: *place,
                 layer,
