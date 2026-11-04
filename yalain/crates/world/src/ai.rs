@@ -634,9 +634,9 @@ fn reconsider<S: Store>(
     let near: Vec<(u64, f32)> = s
         .players
         .values()
-        .filter(|p| fightable(p))
-        .filter_map(|p| presence::distance(at, &p.position).map(|d| (p.character, d)))
-        .filter(|(_, d)| *d <= perception)
+        .filter_map(|p| presence::distance(at, &p.position).map(|d| (p, d)))
+        .filter(|(p, d)| *d <= perception && fightable(p))
+        .map(|(p, d)| (p.character, d))
         .collect();
     let harmers: Vec<(u64, f32, f64)> = harm
         .iter()

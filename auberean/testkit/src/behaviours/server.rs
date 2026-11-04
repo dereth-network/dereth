@@ -2109,6 +2109,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.is-dead-reads-numbers-only",
+        says: "Whether a player is dead is read from its numbers alone, not its whole qualities. \
+               Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-IS-DEAD-NUMBERS"),
+        station: "yalain-testkit::cpu::play::creatures::whether_a_player_is_dead_is_read_from_its_numbers_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.kin-join-a-fight",
         says: "When a creature goes after a player, resting creatures of its own kind nearby may \
                come too, though the player is beyond their own notice; strangers stay put.",

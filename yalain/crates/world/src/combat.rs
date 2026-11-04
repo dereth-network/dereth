@@ -510,7 +510,7 @@ pub fn with_pk_damage(m: &mut ServerMessage, player: u64) {
 /// Is a player dead (its health gone)?
 #[must_use]
 pub fn is_dead(p: &Player) -> bool {
-    crate::examine::Vitals::of_qualities(&p.qualities).is_some_and(|v| v.health == 0)
+    crate::quals::int(&p.qualities, crate::player::quality::HEALTH) == Some(0)
 }
 
 /// Send a visual event about a player or a thing to its own client (a player) and every client

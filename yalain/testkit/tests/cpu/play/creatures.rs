@@ -332,3 +332,38 @@ fn a_creature_gives_up_a_second_after_the_player_leaves_its_perception() {
         "about a second beyond its perception: {t} s"
     );
 }
+
+/// A player's numbers are read without what follows them in its qualities: creatures ask whether
+/// each player near them is dead many times a step.
+/// Behaviour: server.creatures.is-dead-reads-numbers-only
+#[test]
+fn whether_a_player_is_dead_is_read_from_its_numbers_alone() {
+    use auberean_protocol::types::Qualities;
+    use auberean_protocol::wire::{Field, Writer};
+    use yalain_world::player::quality;
+    let numbers_only = |health: i32| {
+        let mut q = Qualities {
+            header: Qualities::INTS,
+            ..Qualities::default()
+        };
+        yalain_world::quals::set(&mut q.ints, quality::HEALTH, health);
+        let mut w = Writer::default();
+        q.write(&mut w);
+        let mut bytes = w.finish();
+        // Tables said to follow the numbers that were never written: reading them would fail.
+        bytes[0] |= u8::try_from(Qualities::BOOLS | Qualities::STRINGS).unwrap();
+        bytes
+    };
+    let mut h = Harness::new();
+    let (_, me) = h.player_in_world("one", "Elara");
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == me)
+        .unwrap();
+    p.qualities = numbers_only(0);
+    assert!(yalain_world::combat::is_dead(p));
+    p.qualities = numbers_only(1);
+    assert!(!yalain_world::combat::is_dead(p));
+}
