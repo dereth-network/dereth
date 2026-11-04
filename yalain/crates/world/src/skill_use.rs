@@ -111,6 +111,7 @@ pub mod refusal {
     pub const MOVING: u32 = 30_027;
     pub const NOT_RESET: u32 = 30_030;
     pub const MISSING_EFFECT: u32 = 30_024;
+    pub const BARRED_BY_EFFECT: u32 = 30_025;
     pub const DEAD: u32 = 30_041;
 }
 
@@ -1011,6 +1012,15 @@ fn check<S: Store>(
     }
     if !carries(s, world, &u.required_effects) {
         return Err(refusal::MISSING_EFFECT);
+    }
+    // 2017: 4 of 4 specials asked under a bar that names them refused so (the one player's 25 s
+    // under a missile bar); 0 of 6,315 specials told went under one.
+    if p.play
+        .effects
+        .iter()
+        .any(|e| u.barring_effects.contains(&e.state))
+    {
+        return Err(refusal::BARRED_BY_EFFECT);
     }
     let walks = u.ui_flags & ui_flag::MOVE_TO != 0;
     match aim_of(s, world, r, &u) {

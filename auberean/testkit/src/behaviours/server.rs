@@ -9242,6 +9242,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.barred-by-an-effect",
+        says: "A special is refused while its user holds an effect that bars it (status 30025), and \
+               goes once the effect is off.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-BAR-REFUSED"),
+        station: "yalain-testkit::cpu::play::specials::a_special_under_an_effect_that_bars_it_is_refused_until_the_effect_is_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.specials.combat-speed-read",
         says: "A skill's definition may say how much faster it goes; three do.",
         since: RETAIL,
