@@ -118,6 +118,7 @@ what they see, not how it was done.
 - Fixed a position far outside the land not being handled safely.
 - Looted bows and two-handed weapons take both hands and look right.
 - Skills cost vigor for whatever weapons and shield you hold.
+- Special attacks now do the damage their rating adds.
 
 ## 0.1.2 (2026-11-03)
 

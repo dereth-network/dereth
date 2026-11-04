@@ -759,6 +759,7 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         .right
         .and_then(|(_, t)| crate::skill_use::implement_of(&s.catalog, t));
     let kind = kind_of(s, skill, false);
+    let rating = crate::skill_use::rating_of(s, world, skill);
     // Each blow is drawn apart, with its own hand's weapon (2017: the two outcomes of 23,872
     // stories as often together as apart; each hand's damage the same in every skill).
     let mut blows = Vec::new();
@@ -780,6 +781,16 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         let damage = if outcome.landed() {
             let weapon = if left { hands.left } else { hands.right };
             let me = hitter_with(s, p, weapon.map(|(w, _)| w));
+            let striking = usage.and_then(|u| {
+                let strikes = crate::skill_use::strikes(u);
+                let at = if two_blows.is_some() {
+                    Some(index)
+                } else {
+                    strikes.first().copied()
+                };
+                at.and_then(|i| u.hooks.get(i))
+            });
+            let me = striking.map_or(me, |h| crate::skill_use::hitting_with(me, h, rating));
             rules::player_hit(&mut s.rng, me, armor, outcome == Outcome::Critical)
                 + armor_taken(s, run.target)
         } else {
@@ -934,6 +945,13 @@ fn stand_and_swing<S: Store>(
             weapon: weapon_damage(s, weapon),
             added,
         };
+        let strike = crate::skill_use::strikes(&u)
+            .first()
+            .and_then(|i| u.hooks.get(*i))
+            .or(thrown.as_ref());
+        let me = strike.map_or(me, |h| {
+            crate::skill_use::hitting_with(me, h, crate::skill_use::rating_of(s, world, skill))
+        });
         rules::player_hit(&mut s.rng, me, armor, outcome == Outcome::Critical)
             + armor_taken(s, run.target)
     } else {

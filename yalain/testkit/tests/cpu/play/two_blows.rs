@@ -234,6 +234,36 @@ fn each_blow_does_its_own_hands_weapons_damage() {
     }
 }
 
+/// A basic attack's hook that adds by rating adds at the player's rating in the skill, on top of the
+/// weapon's damage, a critical doubling it with the rest.
+/// Behaviour: server.weapons.hook-adds-by-rating
+#[test]
+fn a_basic_attacks_hook_adds_by_the_players_rating() {
+    let plain_at = |points: Vec<(f32, f32)>, granted: u32| -> (i32, i32) {
+        let mut one = blow(0x2002, 1);
+        one.add_by_rating = points;
+        let skill = basic(816, im::HANDBLADE, vec![one, blow(0x1002, 2)]);
+        let (mut h, b, me, beetle) = fighter(skill, im::HANDBLADE);
+        let p = player_of(&mut h, me);
+        p.play.skills.last_mut().expect("the skill").granted = granted;
+        h.server.skill_table.skills.get_mut(&816).expect("the skill").cap = 50;
+        let from = attack(&mut h, b, beetle);
+        h.run(6000);
+        let told = stories(&h, b, from, me);
+        let of = |code: i32| {
+            told.iter()
+                .find(|s| s.hooks[1].numbers[0] == code)
+                .map_or(0, |s| -s.hooks[1].numbers[3])
+        };
+        (of(0x4000_0008), of(0x4000_0009))
+    };
+    let (none, none_crit) = plain_at(Vec::new(), 30);
+    let (rated, rated_crit) = plain_at(vec![(1.0, 7.0), (50.0, 100.0), (100.0, 200.0)], 30);
+    // 7 + 29 / 49 of 93: 62 by the line up to the rating of 50.
+    assert_eq!(rated - none, 62, "{rated} {none}");
+    assert_eq!(rated_crit - none_crit, 2 * 62, "doubled by a critical");
+}
+
 /// The target is hurt by each blow as that blow lands, the first at its skill's time and the second
 /// at its own, over the time scale.
 /// Behaviour: server.weapons.two-blows

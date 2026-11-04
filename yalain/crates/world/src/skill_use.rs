@@ -744,8 +744,8 @@ pub fn aim_of<S: Store>(s: &Server<S>, world: ConnId, r: Request, u: &Usage) -> 
     }
 }
 
-/// A player's rating in a skill (the spellcraft of the skill's effects).
-fn rating_of<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> f32 {
+/// A player's rating in a skill (the spellcraft of the skill's effects, what its hooks add by).
+pub(crate) fn rating_of<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> f32 {
     let Some(p) = s.players.get(&world) else {
         return 1.0;
     };
@@ -1467,6 +1467,15 @@ fn area_targets<S: Store>(
     out
 }
 
+/// A hitter as a blow of this hook is reckoned: with what the hook adds at its rating, doubled by
+/// a critical with the rest of the hit (2017, a skill of 351 criticals: 2.09 times its plain hit).
+pub(crate) fn hitting_with(me: rules::Hitter, h: &Hook, rating: f32) -> rules::Hitter {
+    rules::Hitter {
+        added: me.added + h.rated_add(rating),
+        ..me
+    }
+}
+
 /// How one hook comes out on one creature: a hit, critical, miss or evade by the rules (a strike
 /// is evaded, never missed), and the damage when it lands and hurts.
 fn roll_hook<S: Store>(
@@ -1551,6 +1560,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
     let me = p.character;
     let my_level = crate::examine::level_of(&p.qualities);
     let me_hits = combat::hitter(s, p);
+    let rating = rating_of(s, world, r.skill);
     let held = wielded(s, me);
     let on_self = aim == Aim::Me;
     let target = aimed_at(aim).unwrap_or(me);
@@ -1620,7 +1630,8 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
             o
         };
         let dmg = if o.landed() {
-            let base = rules::player_hit(&mut s.rng, me_hits, armor, o == Outcome::Critical)
+            let hitting = hitting_with(me_hits, h, rating);
+            let base = rules::player_hit(&mut s.rng, hitting, armor, o == Outcome::Critical)
                 + combat::armor_taken(s, target);
             #[allow(clippy::cast_precision_loss)]
             let d = (base as f32 + h.add) * if h.mult > 0.0 { h.mult } else { 1.0 };
@@ -1634,7 +1645,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
     let landings = if helpful(&u) {
         Vec::new()
     } else {
-        landings_of(s, world, &u, aim, target, outcome, me_hits)
+        landings_of(s, world, &u, aim, target, outcome, (me_hits, rating))
     };
     let hooks = story_hooks_with(&u, target, weapon, &landings);
     let hostile_at_player = matches!(aim, Aim::Player(..)) && !helpful(&u);
@@ -1777,7 +1788,7 @@ fn landings_of<S: Store>(
     aim: Aim,
     target: u64,
     rolled: Option<(Outcome, i32)>,
-    me: rules::Hitter,
+    (me, rating): (rules::Hitter, f32),
 ) -> Vec<Landing> {
     let center = match aim {
         Aim::Thing(t) => s
@@ -1826,7 +1837,7 @@ fn landings_of<S: Store>(
         for t in targets {
             let o = match rolled {
                 Some(r) if t == target && first_damaging.is_some() => Some(r),
-                _ => roll_hook(s, u, h, me, t),
+                _ => roll_hook(s, u, h, hitting_with(me, h, rating), t),
             };
             if let Some((outcome, damage)) = o {
                 out.push(Landing {

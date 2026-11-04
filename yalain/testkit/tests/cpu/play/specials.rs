@@ -160,6 +160,64 @@ fn deadeye_from_rest_shoots_and_ends_with_the_skills_information() {
     assert!(h.server.players.values().all(|p| p.using.is_none()));
 }
 
+/// A special's hook that adds by rating adds at the player's rating in it: Deadeye with a hook of
+/// points does that much more than without.
+/// Behaviour: server.specials.hook-adds-by-rating
+#[test]
+fn a_specials_hook_adds_by_the_players_rating() {
+    let hits = |points: Vec<(f32, f32)>| -> i32 {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        const BOW_OF_KNOWN_DAMAGE: u32 = 0x4700_07A3;
+        let mut p = yalain_content::Props::default();
+        p.set("Weapon_Damage", yalain_content::Prop::Int(100));
+        h.server.catalog.insert(yalain_testkit::test_template(
+            BOW_OF_KNOWN_DAMAGE,
+            0x1067,
+            p,
+        ));
+        h.server
+            .catalog
+            .implements
+            .insert(BOW_OF_KNOWN_DAMAGE, yalain_world::skill_use::implement::BOW);
+        h.arm(b, me, BOW_OF_KNOWN_DAMAGE);
+        let u = h
+            .server
+            .skill_table
+            .skills
+            .get_mut(&DEADEYE)
+            .and_then(|d| d.usage.as_mut())
+            .expect("Deadeye");
+        for hook in &mut u.hooks {
+            hook.add_by_rating.clone_from(&points);
+        }
+        if let Some(t) = h.server.things.get_mut(beetle) {
+            t.max_health = 10_000_000;
+            t.health = 10_000_000;
+        }
+        for _ in 0..50 {
+            let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+            h.run(120);
+            let plain = h.world_messages(b, from).iter().find_map(|m| match m {
+                ServerMessage::DoStory(e) => e
+                    .action
+                    .hooks
+                    .iter()
+                    .find(|k| k.numbers[0] == 0x4000_0008 && k.numbers[3] < 0)
+                    .map(|k| -k.numbers[3]),
+                _ => None,
+            });
+            if let Some(d) = plain {
+                return d;
+            }
+        }
+        panic!("no plain hit in 50 uses");
+    };
+    let without = hits(Vec::new());
+    let with = hits(vec![(1.0, 40.0), (100.0, 40.0)]);
+    assert_eq!(with - without, 40, "{with} {without}");
+}
+
 /// A bow the player came by costs what it says, not what a starting bow does.
 /// Behaviour: server.specials.vigor-of-what-is-held
 #[test]

@@ -170,7 +170,7 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
                 missile: 0x4700_00BE,
                 missile_speed: 35.0,
                 radius: 0.0,
-                ..strike
+                ..strike.clone()
             }],
         )
     };
@@ -245,7 +245,7 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
                 5.0,
                 0x4_0000,
                 0xC81,
-                vec![plays(0x8100_00CD), strike],
+                vec![plays(0x8100_00CD), strike.clone()],
             ),
         ),
         (
@@ -327,7 +327,7 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
                 1,
                 0x4100_00B0 + i,
                 0x14A0,
-                vec![plays(0), bolt],
+                vec![plays(0), bolt.clone()],
             ),
         ));
     }
@@ -358,7 +358,15 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
         ));
         autos.push((
             199 + i,
-            basic(1.0, 80.0, 0x4, 1, 0x4100_00E2 + i, 0x14A0, vec![arrow]),
+            basic(
+                1.0,
+                80.0,
+                0x4,
+                1,
+                0x4100_00E2 + i,
+                0x14A0,
+                vec![arrow.clone()],
+            ),
         ));
     }
     for (id, usage) in autos {

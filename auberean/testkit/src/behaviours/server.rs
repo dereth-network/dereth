@@ -8586,6 +8586,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.hook-adds-by-rating",
+        says: "A hook with points adds to its hit by the player's rating in the skill, along the \
+               lines between its points, rounded down.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HOOK-ADDS"),
+        station: "yalain-testkit::dat::effects::a_hooks_points_read_in_full_and_add_along_their_lines",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.specials.inside-a-run",
         says: "Inside an attack run a special waits for the run's next swing and takes it; the \n               run's basic swings go on after it.",
         since: RETAIL,
@@ -9184,6 +9193,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-HOLD-READ"),
         station: "yalain-testkit::dat::effects::a_things_hold_reads_from_its_template",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.weapons.hook-adds-by-rating",
+        says: "A basic attack's hook with points adds by the player's rating in it, on top of the \
+               weapon's damage, doubled by a critical with the rest. Our choice: specials measure \
+               this; of basic attacks only 13 swings of one player could show it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-BASIC-HOOK-ADDS"),
+        station: "yalain-testkit::cpu::play::two_blows::a_basic_attacks_hook_adds_by_the_players_rating",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.weapons.implement-by-class",

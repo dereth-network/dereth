@@ -838,3 +838,27 @@ fn a_things_hold_reads_from_its_template() {
         (1, 1, 192, flags::WORN)
     );
 }
+
+/// A hook's damage by rating reads with all its points: a rating of 30 on the middle line.
+/// Behaviour: server.specials.hook-adds-by-rating
+#[test]
+fn a_hooks_points_read_in_full_and_add_along_their_lines() {
+    let t = Portal::open().skills();
+    let hook = t.skills[&733]
+        .usage
+        .as_ref()
+        .expect("used")
+        .hooks
+        .iter()
+        .find(|h| !h.add_by_rating.is_empty())
+        .expect("a hook with points")
+        .clone();
+    assert_eq!(
+        hook.add_by_rating,
+        [(1.0, 12.0), (50.0, 260.0), (150.0, 1300.0)]
+    );
+    assert_eq!(hook.rated_add(1.0), 12);
+    assert_eq!(hook.rated_add(30.0), 158);
+    assert_eq!(hook.rated_add(100.0), 780);
+    assert_eq!(hook.rated_add(200.0), 1300, "held at its last");
+}

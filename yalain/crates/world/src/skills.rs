@@ -145,7 +145,7 @@ pub mod mask {
 }
 
 /// One of a used skill's hooks: what lands on the target when the skill's animation reaches it.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Hook {
     /// A hook with its own damage numbers (the static kind), else one that plays effects only.
     pub damages: bool,
@@ -165,27 +165,46 @@ pub struct Hook {
     pub target_fx: [u32; 3],
     /// The attacker's effects on a hit, a miss and a critical.
     pub attacker_fx: [u32; 3],
-    /// The damage it adds by the user's rating in the skill (the linear kind's: its first and last
-    /// points, each a rating and the damage added there); none for a hook that adds none by rating.
-    pub add_by_rating: Option<[(f32, f32); 2]>,
+    /// The damage it adds by the user's rating in the skill (the linear kind's: its points, each a
+    /// rating and the damage added there); empty for a hook that adds none by rating.
+    pub add_by_rating: Vec<(f32, f32)>,
 }
 
 impl Hook {
-    /// The damage this hook adds at a rating in its skill: the line between its points, held at
-    /// the ends; the static kind's own add for a hook without points.
+    /// The damage this hook adds at a rating in its skill: along the lines between its points, held
+    /// at the ends, rounded down; the static kind's own add for a hook without points.
     #[must_use]
     pub fn added_at(&self, rating: f32) -> f32 {
-        let Some([(r0, v0), (r1, v1)]) = self.add_by_rating else {
+        let pts = &self.add_by_rating;
+        let (Some(first), Some(last)) = (pts.first(), pts.last()) else {
             return self.add;
         };
-        if rating <= r0 {
-            return v0;
+        if rating <= first.0 {
+            return first.1.floor();
         }
-        if rating >= r1 {
-            return v1;
+        if rating >= last.0 {
+            return last.1.floor();
         }
+        let i = pts
+            .iter()
+            .position(|p| rating < p.0)
+            .unwrap_or(pts.len() - 1);
+        let ((r0, v0), (r1, v1)) = (pts[i.saturating_sub(1)], pts[i]);
         let t = (rating - r0) / (r1 - r0).max(f32::EPSILON);
-        v0 + t * (v1 - v0)
+        (v0 + t * (v1 - v0)).floor()
+    }
+
+    /// What this hook adds to its user's hit at a rating: by its points; nothing for a hook without
+    /// (2017: the plain hits of 16 skills with points above the same player's unrated basic hits
+    /// on the same target within 6 s: 168 for 158 at a rating of 30, n 149; 143 for 140 at 35, n
+    /// 117; 160 for 160 at 40, n 45).
+    #[must_use]
+    pub fn rated_add(&self, rating: f32) -> i32 {
+        if self.add_by_rating.is_empty() {
+            0
+        } else {
+            dereth_primitives::num::to_i32(self.added_at(rating))
+        }
     }
 }
 
@@ -470,23 +489,17 @@ impl Hook {
                 word("mAttackerFXMiss")?,
                 word("mAttackerFXCrit")?,
             ],
-            add_by_rating: {
-                let pts: Vec<(f32, f32)> = nav
-                    .list(o, "m_addDmgData")
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|d| {
-                        Some((
-                            nav.number(d, "m_level").ok()?,
-                            nav.number(d, "m_value").ok()?,
-                        ))
-                    })
-                    .collect();
-                match (pts.first(), pts.last()) {
-                    (Some(a), Some(b)) => Some([*a, *b]),
-                    _ => None,
-                }
-            },
+            add_by_rating: nav
+                .list(o, "m_addDmgData")
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|d| {
+                    Some((
+                        nav.number(d, "m_level").ok()?,
+                        nav.number(d, "m_value").ok()?,
+                    ))
+                })
+                .collect(),
         })
     }
 }
