@@ -235,8 +235,8 @@ pub struct Renderer {
     trilinear: Option<bool>,
     /// The adapter's name, for the caption.
     pub adapter: String,
-    /// Samples per pixel: two, as the client asks for with antialiasing on, or the fewest more the
-    /// adapter offers.
+    /// Samples per pixel: with antialiasing on two, as the client asks for, or the fewest more the
+    /// adapter offers; with it off one.
     pub samples: u32,
     /// The color the world's frame starts as (its alpha is the frame's, whatever this one's); a
     /// scene laid over the interface starts clear.
@@ -483,6 +483,19 @@ impl Renderer {
         pollster::block_on(Self::when_ready(instance, surface))
     }
 
+    /// [`Self::on`], the edges smoothed or not: with them smoothed, each pixel is sampled more than
+    /// once; without, once.
+    ///
+    /// # Errors
+    /// When there is no such hardware adapter or no device.
+    pub fn antialiased(
+        instance: &wgpu::Instance,
+        surface: Option<&wgpu::Surface<'_>>,
+        antialiasing: bool,
+    ) -> Result<Self, GpuError> {
+        pollster::block_on(Self::made(instance, surface, antialiasing))
+    }
+
     /// [`Self::on`], for a platform that cannot block for its device: a browser's answers on its
     /// own turn.
     ///
@@ -491,6 +504,14 @@ impl Renderer {
     pub async fn when_ready(
         instance: &wgpu::Instance,
         surface: Option<&wgpu::Surface<'_>>,
+    ) -> Result<Self, GpuError> {
+        Self::made(instance, surface, true).await
+    }
+
+    async fn made(
+        instance: &wgpu::Instance,
+        surface: Option<&wgpu::Surface<'_>>,
+        antialiasing: bool,
     ) -> Result<Self, GpuError> {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -512,10 +533,15 @@ impl Renderer {
         let depth_flags = adapter.get_texture_format_features(DEPTH_FORMAT).flags;
         // Two samples need the adapter's own format features; four every adapter offers.
         let own = wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES;
-        let two = adapter.features().contains(own)
+        let two = antialiasing
+            && adapter.features().contains(own)
             && flags.sample_count_supported(2)
             && depth_flags.sample_count_supported(2);
-        let samples = if two { 2 } else { 4 };
+        let samples = match (antialiasing, two) {
+            (false, _) => 1,
+            (true, true) => 2,
+            (true, false) => 4,
+        };
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 required_features: if two { own } else { wgpu::Features::empty() },

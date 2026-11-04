@@ -320,3 +320,204 @@ fn the_client_pages_other_section_sets_tooltips() {
     );
     assert_eq!(value("TooltipEnable").as_deref(), Some("0"), "{kept:?}");
 }
+
+const RESOLUTION: u32 = 0x4000_0047;
+const FULL_SCREEN: u32 = 0x4000_0003;
+const SYNC: u32 = 0x4000_0006;
+const ANTIALIASING: u32 = 0x4000_0060;
+
+/// The rendering section as the page sees it: a menu of sizes, then its yes-or-no rows.
+fn rendering_rows(
+    p: &Preferences,
+) -> (
+    auberean_ui_game::options::preference::Choice,
+    Vec<(u32, bool, bool)>,
+) {
+    let l = p.listing().expect("listed");
+    let rows = &l
+        .sections
+        .iter()
+        .find(|(s, _)| *s == section::RENDERING)
+        .expect("listed")
+        .1;
+    let Change::Choice(size) = rows[0].clone() else {
+        panic!("a choice first: {rows:?}");
+    };
+    let flags = rows[1..]
+        .iter()
+        .map(|c| match c {
+            Change::Flag(f) => (f.description.key, f.get(), f.default_value()),
+            _ => panic!("yes or no: {c:?}"),
+        })
+        .collect();
+    (size, flags)
+}
+
+/// The rendering section holds the display's size and five yes-or-no preferences, in the device's
+/// order. The sizes are those the display can take from 800 by 600 up, with 1024 by 768 always
+/// there and the default, each named by its numbers. The defaults are full screen, waiting for the
+/// display's refresh and nothing else; the values start as the settings hold them, a window's own
+/// size among the choices when the display does not list it.
+///
+/// Behaviour: ui.options.the-rendering-section-lists-the-displays-sizes-and-the-devices-preferences
+#[test]
+fn the_rendering_section_lists_the_displays_sizes_and_the_devices_preferences() {
+    let records = &crate::screens::data().0.records;
+    let settings = Settings::read("[Display]\r\nWindowWidth=1500\r\nWindowHeight=900\r\n");
+    let mut p = Preferences::default();
+    p.start(&settings, records);
+    p.set_presentation(
+        &[(640, 480), (800, 600), (1920, 1080), (800, 600)],
+        &settings,
+    );
+    p.handle(&Request::Attach(vec![section::RENDERING]));
+    let (size, flags) = rendering_rows(&p);
+    assert_eq!(size.description.key, RESOLUTION);
+    let listed: Vec<&str> = size
+        .list_choices()
+        .iter()
+        .map(|(v, _)| size.literal_choice(*v).expect("named by its numbers"))
+        .collect();
+    assert_eq!(listed, ["800x600", "1024x768", "1920x1080", "1500x900"]);
+    assert_eq!(size.default_value(), 1024 << 16 | 768, "the default");
+    assert_eq!(size.get(), 1500 << 16 | 900, "the window's");
+    assert!(!size.changed(), "as applied");
+    assert_eq!(
+        flags,
+        [
+            (FULL_SCREEN, false, true),
+            (0x4000_0005, false, false),
+            (0x4000_0007, false, false),
+            (SYNC, true, true),
+            (ANTIALIASING, true, false),
+        ]
+    );
+}
+
+/// What the player sets in the rendering section reaches the host only when submitted, and then
+/// again when put back. Kept, each goes to the file by the data's names, the size as one number,
+/// its width above its height; read back it is the same.
+///
+/// Behaviour: ui.options.the-rendering-section-reaches-the-host-when-submitted-and-is-kept
+#[test]
+fn the_rendering_section_reaches_the_host_when_submitted_and_is_kept() {
+    let records = &crate::screens::data().0.records;
+    let settings = Settings::read("[Rendering]\r\nDisplayResolution=67109632\r\nFullScreen=0\r\n");
+    let mut p = Preferences::default();
+    p.start(&settings, records);
+    p.set_presentation(&[(800, 600), (1024, 768), (1280, 960)], &settings);
+    p.handle(&Request::Attach(vec![section::RENDERING]));
+    let (mut size, flags) = rendering_rows(&p);
+    assert_eq!(size.get(), 1024 << 16 | 768, "as read");
+    assert_eq!(flags[0], (FULL_SCREEN, false, true));
+    // A smaller size and antialiasing off tried: the host hears nothing yet.
+    size.set_value(800 << 16 | 600);
+    p.handle(&Request::Change(Change::Choice(size)));
+    let aa = p
+        .listing()
+        .and_then(|l| {
+            l.sections
+                .iter()
+                .flat_map(|(_, r)| r.iter())
+                .find_map(|c| match c {
+                    Change::Flag(f) if f.description.key == ANTIALIASING => Some(*f),
+                    _ => None,
+                })
+        })
+        .expect("listed");
+    let mut off = aa;
+    off.set_value(false);
+    p.handle(&Request::Change(Change::Flag(off)));
+    assert_eq!(p.take_presentation(), None, "tried");
+    // Submitted: the host told; not yet marked applied, so no puts it back.
+    p.handle(&Request::Submit(section::RENDERING));
+    let shown = p.take_presentation().expect("told");
+    assert_eq!(shown.size, (800, 600));
+    assert!(!shown.antialiasing && !shown.full_screen && shown.sync_to_display);
+    p.handle(&Request::Recall(section::RENDERING));
+    let back = p.take_presentation().expect("told again");
+    assert_eq!(back.size, (1024, 768));
+    assert!(back.antialiasing);
+    // Submitted again and kept: the file's words.
+    let (mut size, _) = rendering_rows(&p);
+    size.set_value(1280 << 16 | 960);
+    p.handle(&Request::Change(Change::Choice(size)));
+    p.handle(&Request::Submit(section::RENDERING));
+    p.handle(&Request::Synchronize(section::RENDERING));
+    p.handle(&Request::Save);
+    let kept = p.take_kept().expect("kept");
+    for (key, value) in [
+        ("DisplayResolution", (1280 << 16 | 960).to_string()),
+        ("FullScreen", "0".to_owned()),
+        ("TripleBuffering", "0".to_owned()),
+        ("OptimalRefreshRate", "0".to_owned()),
+        ("SyncToDisplayRefresh", "1".to_owned()),
+        ("Antialiasing", "1".to_owned()),
+    ] {
+        assert!(
+            kept.iter()
+                .any(|(s, k, v)| s == "Rendering" && k == key && *v == value),
+            "{key} {value}: {kept:?}"
+        );
+    }
+    let read = Settings::read(&format!(
+        "[Rendering]\r\nDisplayResolution={}\r\nFullScreen=0\r\n",
+        1280 << 16 | 960
+    ));
+    assert_eq!(read.window, (1280, 960));
+}
+
+/// Full screen flipped goes through its preference: the host told, the page told so its row shows
+/// it, marked applied, so the page sees nothing to apply; flipped back the same.
+///
+/// Behaviour: ui.options.a-flip-of-full-screen-goes-through-its-preference
+#[test]
+fn a_flip_of_full_screen_goes_through_its_preference() {
+    let records = &crate::screens::data().0.records;
+    let settings = Settings::default();
+    let mut p = Preferences::default();
+    p.start(&settings, records);
+    p.set_presentation(&[(1024, 768)], &settings);
+    p.handle(&Request::Attach(vec![section::RENDERING]));
+    assert!(p.take_changed().is_empty(), "nothing yet");
+    p.toggle_full_screen();
+    assert!(p.take_presentation().expect("the host told").full_screen);
+    let told = p.take_changed();
+    let [Change::Flag(f)] = told.as_slice() else {
+        panic!("the page told of the one: {told:?}");
+    };
+    assert_eq!(f.description.key, FULL_SCREEN);
+    assert!(f.get() && !f.changed(), "on, and applied");
+    p.toggle_full_screen();
+    assert!(!p.take_presentation().expect("told").full_screen);
+}
+
+/// While the game is a window, a window the player resizes is the display's size: its row shows
+/// it and keeping keeps it. In full screen the window's size says nothing of the preference.
+///
+/// Behaviour: ui.options.a-resized-window-is-the-displays-size
+#[test]
+fn a_resized_window_is_the_displays_size() {
+    let records = &crate::screens::data().0.records;
+    let settings = Settings::default();
+    let mut p = Preferences::default();
+    p.start(&settings, records);
+    p.set_presentation(&[(1024, 768), (1920, 1080)], &settings);
+    p.handle(&Request::Attach(vec![section::RENDERING]));
+    p.follow_window((1280, 960));
+    let serial = p.listing().expect("listed").serial;
+    p.follow_window((1280, 960));
+    assert_eq!(p.listing().expect("listed").serial, serial, "no change");
+    p.follow_window((1500, 900));
+    let (size, _) = rendering_rows(&p);
+    assert!(p.listing().expect("listed").serial > serial, "listed again");
+    assert_eq!(size.get(), 1500 << 16 | 900);
+    assert_eq!(size.literal_choice(size.get()), Some("1500x900"));
+    assert!(!size.changed(), "as applied");
+    assert_eq!(p.take_presentation(), None, "the host did it");
+    p.toggle_full_screen();
+    p.take_presentation();
+    p.follow_window((1920, 1080));
+    let (size, _) = rendering_rows(&p);
+    assert_eq!(size.get(), 1500 << 16 | 900, "full screen: not the size");
+}

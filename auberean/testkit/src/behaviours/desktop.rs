@@ -1443,6 +1443,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.settings.the-rendering-options-read-by-the-clients-names-and-kept",
+        says: "The rendering options are read by the client's own names, and written back by them: \
+               a first start waits for the display's refresh and smooths its edges, with no third \
+               buffer.",
+        since: THIS_CLIENT,
+        divergence: "CD2-the-window-can-be-any-size",
+        evidence: Evidence::Private("AC2-EVID-OPTIONS-RENDERING-SETTINGS"),
+        station: "auberean-shell::cpu::settings::the_rendering_options_read_by_the_clients_names_and_kept",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.shell.a-behavior-that-locks-actions-holds-the-player",
         says: "A behavior asked with its actions locked holds the player's own movement, its turning and its jumping while it plays; they come back when it ends.",
         since: RETAIL,
@@ -1512,6 +1523,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-RUN"),
         station: "auberean-shell::dat::session::the_body_runs_with_the_default_keys_and_is_reported",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.shell.the-host-shows-the-game-as-the-interface-asks",
+        says: "How the game is shown goes to the host and into the settings as the interface asks: \
+               a flip of full screen is the interface's to answer, and what it answers is carried \
+               out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OPTIONS-RENDERING-FLIP-HOST"),
+        station: "auberean-shell::dat::session::the_host_shows_the_game_as_the_interface_asks",
         tier: Tier::Dat,
     },
     behaviour! {

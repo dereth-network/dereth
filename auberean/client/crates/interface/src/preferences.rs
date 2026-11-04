@@ -16,14 +16,18 @@
 //! change and as they are applied. The interface's own two (how long the pointer rests before a
 //! tooltip shows, and whether tooltips show) are the page's last section, handed to the interface
 //! as read and as they are applied. Keeping writes every preference to the file. The rendering
-//! section lists nothing yet.
+//! section (the display's size, full screen, triple buffering, the refresh rate, waiting for the
+//! display's refresh, antialiasing) lists the sizes the host's display can take; its values start as
+//! the settings hold them, follow the window's size while it is a window, and go to the host when
+//! submitted or put back. A flip of full screen goes through the same preference, and shows on the
+//! page.
 
 use auberean_audio::options as sound;
 use auberean_draw::quality::{Graphics, Kind, GRAPHICS, PREFERENCES};
 use auberean_scene::camera::Options;
 use auberean_shell::preferences::EnumNames;
 use auberean_shell::profile::Profile;
-use auberean_shell::Settings;
+use auberean_shell::{Presentation, Settings};
 use auberean_ui::Token;
 use auberean_ui_game::options::bank::{
     Bank, Notice, Party, PreferenceFile, KEY_NAMES, SECTION_NAMES,
@@ -50,8 +54,62 @@ const CAMERA_HANDLER: u32 = 2;
 const SOUND_HANDLER: u32 = 3;
 const FX_HANDLER: u32 = 4;
 const TOOLTIP_HANDLER: u32 = 5;
+const RENDERING_HANDLER: u32 = 6;
 /// The page, the monitor of its sections.
 const PAGE: u32 = 1;
+
+/// The rendering preferences: their section and keys, the yes-or-no ones in the order they are
+/// put in with their labels and defaults, the display's size chosen when none is.
+mod rendering {
+    pub const SECTION: u32 = 0x4000_000B;
+    pub const RESOLUTION: u32 = 0x4000_0047;
+    pub const FULL_SCREEN: u32 = 0x4000_0003;
+    pub const TRIPLE_BUFFERING: u32 = 0x4000_0005;
+    pub const SYNC: u32 = 0x4000_0006;
+    pub const OPTIMAL_REFRESH: u32 = 0x4000_0007;
+    pub const ANTIALIASING: u32 = 0x4000_0060;
+    pub const FLAGS: [(u32, &str, &str, bool); 5] = [
+        (
+            FULL_SCREEN,
+            "ID_Rendering_FullScreen",
+            "ID_Rendering_FullScreen_Help",
+            true,
+        ),
+        (
+            TRIPLE_BUFFERING,
+            "ID_Rendering_TripleBuffering",
+            "ID_Rendering_TripleBuffering_Help",
+            false,
+        ),
+        (
+            OPTIMAL_REFRESH,
+            "ID_Rendering_OptimalRefreshRate",
+            "ID_Rendering_OptimalRefreshRate_Help",
+            false,
+        ),
+        (
+            SYNC,
+            "ID_Rendering_SyncToDisplayRefresh",
+            "ID_Rendering_SyncToDisplayRefresh_Help",
+            true,
+        ),
+        (
+            ANTIALIASING,
+            "ID_Rendering_Antialiasing",
+            "ID_Rendering_Antialiasing_Help",
+            false,
+        ),
+    ];
+    pub const DEFAULT_SIZE: (u32, u32) = (1024, 768);
+    /// The least width and height listed.
+    pub const LEAST_SIZE: (u32, u32) = (800, 600);
+}
+
+/// A display's size as one number: its width above its height.
+#[allow(clippy::cast_possible_wrap)] // sizes are far under the top bit
+const fn packed_size(size: (u32, u32)) -> i32 {
+    (size.0 << 16 | size.1 & 0xFFFF) as i32
+}
 
 /// The sections and keys of the camera's preferences.
 mod section {
@@ -333,6 +391,12 @@ pub struct Preferences {
     /// The tooltip delay and whether tooltips show, each when applied since last handed on (and,
     /// first, as read).
     tooltips: (Option<f32>, Option<bool>),
+    /// The rendering preferences submitted or put back since the host last took them.
+    fresh_presentation: bool,
+    /// The window's size when last looked at.
+    window: (u32, u32),
+    /// The preferences the client changed itself, for the page.
+    changed: Vec<Change>,
     /// The top gore level and blood color the language allows.
     tops: (u32, u32),
     /// What the command line forces over them (0: nothing).
@@ -355,6 +419,9 @@ impl Default for Preferences {
             sound: Vec::new(),
             fresh_channels: false,
             tooltips: (None, None),
+            fresh_presentation: false,
+            window: (0, 0),
+            changed: Vec::new(),
             tops: (fx::NORMAL, fx::RED),
             forced_tops: (0, 0),
         };
@@ -590,6 +657,181 @@ impl Preferences {
                 .find(key::TOOLTIP_ENABLE)
                 .map(|p| number_of(p) != 0.0),
         );
+    }
+
+    /// The rendering preferences put in, read from the file the settings were read from: the sizes
+    /// the display can take that are large enough and the size chosen when none is, smallest first,
+    /// each named by its width and height; the values as the settings hold them, as applied.
+    // D2-08358
+    pub fn set_presentation(&mut self, modes: &[(u32, u32)], settings: &Settings) {
+        let mut sizes: Vec<(u32, u32)> = modes
+            .iter()
+            .copied()
+            .filter(|&(w, h)| w >= rendering::LEAST_SIZE.0 && h >= rendering::LEAST_SIZE.1)
+            .chain([rendering::DEFAULT_SIZE])
+            .collect();
+        sizes.sort_by_key(|&(w, h)| (u64::from(w) * u64::from(h), w));
+        sizes.dedup();
+        let describe = |label: &str, help: &str| {
+            let mut d = Description::default();
+            d.describe(
+                PREFERENCE_STRINGS,
+                Token::of(label).raw(),
+                Token::of(help).raw(),
+            );
+            d
+        };
+        let mut size = Choice::new();
+        for &(w, h) in &sizes {
+            size.assign_literal_choice(packed_size((w, h)), &format!("{w}x{h}"));
+        }
+        size.set_default(packed_size(rendering::DEFAULT_SIZE));
+        size.description = describe(
+            "ID_Rendering_DisplayResolution",
+            "ID_Rendering_DisplayResolution_Help",
+        );
+        let file = File(settings.profile());
+        let mut out = Vec::new();
+        let mut size = Pref::Choice(size);
+        self.bank.bless(
+            &mut size,
+            rendering::SECTION,
+            rendering::RESOLUTION,
+            &file,
+            &self.names,
+            &mut out,
+        );
+        self.bank.link(rendering::RESOLUTION, RENDERING_HANDLER);
+        for (k, label, help, default) in rendering::FLAGS {
+            let mut f = Flag::new();
+            f.set_default(default);
+            f.description = describe(label, help);
+            self.bank.bless(
+                &mut Pref::Flag(f),
+                rendering::SECTION,
+                k,
+                &file,
+                &self.names,
+                &mut out,
+            );
+            self.bank.link(k, RENDERING_HANDLER);
+        }
+        let p = settings.presentation();
+        self.show_size(p.size);
+        for (k, on) in [
+            (rendering::FULL_SCREEN, p.full_screen),
+            (rendering::TRIPLE_BUFFERING, p.triple_buffering),
+            (rendering::SYNC, p.sync_to_display),
+            (rendering::ANTIALIASING, p.antialiasing),
+        ] {
+            if let Some(Pref::Flag(mut f)) = self.bank.find(k).cloned() {
+                f.set_value(on);
+                self.bank.take_value(&Pref::Flag(f));
+            }
+        }
+        self.bank.synchronize(rendering::SECTION);
+        self.relist();
+    }
+
+    /// The display's size made this one, a choice of its own when the host's display does not list
+    /// it (a window can be any size).
+    fn show_size(&mut self, size: (u32, u32)) {
+        let Some(Pref::Choice(mut c)) = self.bank.find(rendering::RESOLUTION).cloned() else {
+            return;
+        };
+        let v = packed_size(size);
+        if c.examine_choice(v).is_none() {
+            c.assign_literal_choice(v, &format!("{}x{}", size.0, size.1));
+            c.set_value(v);
+            let mut out = Vec::new();
+            self.bank.set(
+                &Pref::Choice(c),
+                &File(&Profile::default()),
+                &self.names,
+                &mut out,
+            );
+        } else {
+            c.set_value(v);
+            self.bank.take_value(&Pref::Choice(c));
+        }
+    }
+
+    /// How the rendering preferences show the game now.
+    fn presentation(&self) -> Presentation {
+        let on = |k: u32| matches!(self.bank.find(k), Some(Pref::Flag(f)) if f.get());
+        #[allow(clippy::cast_sign_loss)] // a size, its top bit clear
+        let size = match self.bank.find(rendering::RESOLUTION) {
+            Some(Pref::Choice(c)) => {
+                let v = c.get() as u32;
+                (v >> 16, v & 0xFFFF)
+            }
+            _ => rendering::DEFAULT_SIZE,
+        };
+        Presentation {
+            size,
+            full_screen: on(rendering::FULL_SCREEN),
+            triple_buffering: on(rendering::TRIPLE_BUFFERING),
+            sync_to_display: on(rendering::SYNC),
+            antialiasing: on(rendering::ANTIALIASING),
+        }
+    }
+
+    /// How the game is to be shown, when the rendering preferences were submitted or put back
+    /// since last taken.
+    pub fn take_presentation(&mut self) -> Option<Presentation> {
+        std::mem::take(&mut self.fresh_presentation).then(|| self.presentation())
+    }
+
+    /// The preferences the client changed itself since last taken, for the page.
+    pub fn take_changed(&mut self) -> Vec<Change> {
+        std::mem::take(&mut self.changed)
+    }
+
+    /// The window's size now: when it moved and the game is not full screen, the display's size
+    /// preference is it, as applied.
+    pub fn follow_window(&mut self, size: (u32, u32)) {
+        if size == self.window {
+            return;
+        }
+        self.window = size;
+        if self.presentation().full_screen || self.bank.find(rendering::RESOLUTION).is_none() {
+            return;
+        }
+        if self.presentation().size != size {
+            self.show_size(size);
+            let mut out = Vec::new();
+            if let Some(p) = self.bank.find(rendering::RESOLUTION).cloned() {
+                self.bank.apply_one(&p, &mut out);
+            }
+            self.relist();
+        }
+    }
+
+    /// Full screen flipped: the preference's value, applied (the host told) and changed (the page
+    /// told).
+    // D2-08327
+    pub fn toggle_full_screen(&mut self) {
+        let Some(Pref::Flag(mut f)) = self.bank.find(rendering::FULL_SCREEN).cloned() else {
+            return;
+        };
+        f.set_value(!f.get());
+        self.bank.take_value(&Pref::Flag(f));
+        let mut out = Vec::new();
+        self.bank.apply_one(&Pref::Flag(f), &mut out);
+        let Some(kept) = self.bank.find(rendering::FULL_SCREEN).cloned() else {
+            return;
+        };
+        self.bank.change(&kept, &mut out);
+        for n in &out {
+            if let Notice::Change {
+                party: Party::Monitor(_),
+                pref: Pref::Flag(f),
+            } = n
+            {
+                self.changed.push(Change::Flag(*f));
+            }
+        }
+        self.told(out);
     }
 
     /// The tooltip delay and whether tooltips show, each when applied since last taken (and,
@@ -842,6 +1084,7 @@ impl Preferences {
             if let Notice::Handle { handler, prefs } = n {
                 match handler {
                     FX_HANDLER => self.fresh_channels = true,
+                    RENDERING_HANDLER => self.fresh_presentation = true,
                     SOUND_HANDLER => self.sound.extend(
                         prefs
                             .iter()
@@ -907,10 +1150,7 @@ impl Preferences {
             Request::Submit(s) => self.bank.submit(*s, &mut out),
             Request::Apply(s) => self.bank.apply(*s, &mut out),
             Request::Synchronize(s) => self.bank.synchronize(*s),
-            Request::Recall(s) => {
-                self.bank.recall(*s, &mut out);
-                self.relist();
-            }
+            Request::Recall(s) => self.bank.recall(*s, &mut out),
             Request::Save => {
                 let mut w = Writes::default();
                 self.bank.save(&mut w, &self.names);
@@ -992,14 +1232,16 @@ mod tests {
             p.take_applied().and_then(|g| g.get(gkey::TEXTURE_DETAIL)),
             Some(2.0)
         );
-        // Tried back to high and recalled: the applied value listed again.
+        // Tried back to high and recalled: the applied value handed back, the page left as it is.
         let mut back = texture;
         back.set_value(3);
         p.handle(&Request::Change(Change::Choice(back)));
         p.handle(&Request::Recall(GRAPHICS));
-        let again = p.listing().expect("listed").clone();
-        assert!(again.serial > l.serial);
-        assert_eq!(choice(&again, gkey::TEXTURE_DETAIL).get(), 2);
+        assert_eq!(
+            p.take_applied().and_then(|g| g.get(gkey::TEXTURE_DETAIL)),
+            Some(2.0)
+        );
+        assert_eq!(p.listing().expect("listed").serial, l.serial);
         p.handle(&Request::Detach(vec![0x4000_000B, GRAPHICS]));
         assert!(p.listing().is_none());
     }

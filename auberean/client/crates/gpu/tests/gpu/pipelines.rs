@@ -11,7 +11,7 @@ use auberean_draw::material::{draw_layers, instance_material, DEVICE_FLAGS};
 use auberean_draw::scene::{SceneBuilder, Spot};
 use auberean_primitives::Vec3;
 
-use crate::common::{checked, ids_of, install, renderer};
+use crate::common::{checked, ids_of, install, renderer, renderer_antialiased};
 
 /// Every pipeline the device makes builds: its own, and those every material layer in the data
 /// asks for as a world object, a sky object and a water surface.
@@ -89,6 +89,44 @@ fn a_frame_with_every_kind_of_draw_is_drawn() {
         let colors: HashSet<&[u8]> = p.rgba.chunks(4).collect();
         assert!(colors.len() > 500, "{} colors", colors.len());
     }
+}
+
+/// With antialiasing off every pixel is sampled once, a frame with every kind of draw still goes
+/// through with no complaint from the device, and the picture differs from the smoothed one only
+/// along edges: most of it is the same.
+#[test]
+fn a_frame_is_drawn_with_antialiasing_off() {
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    builder.uptime = 30.0;
+    let spot = Spot {
+        block: (0xC1, 0x56),
+        position: Vec3::new(122.842, 89.758, 81.6),
+        heading: 90.0,
+        pitch: 5.0,
+        time_of_day: 0.40,
+        day: None,
+    };
+    let frame = builder.frame(&spot, 60.0);
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let mut draw = |on: bool| {
+        let mut device = renderer_antialiased(on);
+        assert_eq!(device.samples > 1, on);
+        checked(&mut device, |d| {
+            d.render(&frame, 320, 240, &mut load).expect("read back")
+        })
+    };
+    let smooth = draw(true);
+    let sharp = draw(false);
+    let same = smooth
+        .rgba
+        .chunks(4)
+        .zip(sharp.rgba.chunks(4))
+        .filter(|(a, b)| a.iter().zip(*b).all(|(x, y)| x.abs_diff(*y) <= 16))
+        .count();
+    assert!(same > 320 * 240 / 2, "{same} of {}", 320 * 240);
+    assert_ne!(smooth.rgba, sharp.rgba, "the edges differ");
 }
 
 /// Frames seen from inside, under two lights at once (the rooms under the interior's, what they

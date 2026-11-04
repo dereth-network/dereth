@@ -171,6 +171,8 @@ struct Shared {
     options: Option<auberean_ui_game::options::Values>,
     /// The client's own preferences as last listed, for the options window.
     preferences: Option<auberean_ui_game::options::client::Listing>,
+    /// The client's own preferences it changed itself since the last frame.
+    preferences_changed: Vec<auberean_ui_game::options::helper::Change>,
     shift: bool,
     /// What the map draws on (made once from the region), and the game's date and time.
     atlas: Option<std::sync::Arc<auberean_ui_game::map::Atlas>>,
@@ -233,6 +235,7 @@ impl FlowScreen<Shared> for PlayScreen {
             inventory: data.inventory.as_ref(),
             options: data.options,
             preferences: data.preferences.as_ref(),
+            preferences_changed: &data.preferences_changed,
             shift: data.shift,
             skills: data.skills.as_ref(),
             acts: data.acts.as_ref().map(|(_, a)| a.as_slice()),
@@ -1172,6 +1175,9 @@ impl Retail {
                             if let Some(o) = self.preferences.take_camera() {
                                 requests.push(Request::Camera(CameraRequest::Options(o)));
                             }
+                            if let Some(p) = self.preferences.take_presentation() {
+                                requests.push(Request::Presentation(p));
+                            }
                             if let Some(kept) = self.preferences.take_kept() {
                                 requests.push(Request::KeepPreferences(kept));
                             }
@@ -2103,6 +2109,7 @@ impl Interface for Retail {
     fn update(&mut self, game: &Game<'_>, requests: &mut Vec<Request>) {
         if game.size.0 > 0 && game.size.1 > 0 {
             self.window = game.size;
+            self.preferences.follow_window(game.size);
         }
         self.follow_window();
         self.ui.use_time(game.now);
@@ -2286,6 +2293,7 @@ impl Interface for Retail {
         if d.preferences.as_ref().map(|l| l.serial) != listed.map(|l| l.serial) {
             d.preferences = listed.cloned();
         }
+        d.preferences_changed = self.preferences.take_changed();
     }
 
     fn wants_pointer(&self, game: &Game<'_>) -> bool {
@@ -2306,6 +2314,17 @@ impl Interface for Retail {
 
     fn set_graphics(&mut self, graphics: &auberean_draw::quality::Graphics) {
         self.preferences.set(graphics);
+    }
+
+    fn set_presentation(&mut self, modes: &[(u32, u32)], settings: &auberean_shell::Settings) {
+        self.preferences.set_presentation(modes, settings);
+    }
+
+    fn toggle_full_screen(&mut self, requests: &mut Vec<Request>) {
+        self.preferences.toggle_full_screen();
+        if let Some(p) = self.preferences.take_presentation() {
+            requests.push(Request::Presentation(p));
+        }
     }
 
     fn set_random(&mut self, random: &auberean_world::chargen::Random) {

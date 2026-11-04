@@ -76,6 +76,7 @@ not how it was done.
 - Foot-step effects now vary with the ground.
 - Fixed running through stones and other objects near a doorway between rooms.
 - Fixed the options scroll thumb vanishing after closing a section.
+- Options: the Rendering section now works: resolution, full screen, sync and antialiasing.
 
 ## 0.1.2 (2026-11-02)
 

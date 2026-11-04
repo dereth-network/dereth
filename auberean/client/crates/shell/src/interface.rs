@@ -81,6 +81,8 @@ pub enum Request {
     /// The key maps the player applied on the key map screen, each a list of an input and its
     /// action (keys alone, with Shift, with Ctrl): written to their files and bound from now on.
     KeyMaps([Vec<(u32, u32)>; 3]),
+    /// Show the game on the screen this way from now on.
+    Presentation(crate::settings::Presentation),
     /// Preferences to keep in the preferences file now: each one's section, key and value as the
     /// file holds them.
     KeepPreferences(Vec<(String, String, String)>),
@@ -369,6 +371,13 @@ pub trait Interface {
     /// The graphics preferences the client starts with (read from the settings, else the
     /// highest quality's), as applied.
     fn set_graphics(&mut self, _graphics: &auberean_draw::quality::Graphics) {}
+
+    /// The sizes the host's display can take and how the settings show the game: the rendering
+    /// preferences put in.
+    fn set_presentation(&mut self, _modes: &[(u32, u32)], _settings: &crate::Settings) {}
+
+    /// Full screen flipped, as the rendering preferences' own.
+    fn toggle_full_screen(&mut self, _requests: &mut Vec<Request>) {}
 
     /// The client's random numbers, the one generator everything in the program draws from.
     fn set_random(&mut self, _random: &auberean_primitives::random::Random) {}

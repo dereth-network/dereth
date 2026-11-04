@@ -3,7 +3,7 @@
 //!
 //! A row claims what the September 2013 client's interface does.
 
-use super::{Behaviour, Evidence, Tier, RETAIL, TOOLING};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -1268,6 +1268,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.options.a-flip-of-full-screen-goes-through-its-preference",
+        says: "Full screen flipped goes through its preference: the host told, the page told so its \
+               row shows it, marked applied, so the page sees nothing to apply.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OPTIONS-RENDERING-FLIP"),
+        station: "auberean-interface::dat::preferences::a_flip_of_full_screen_goes_through_its_preference",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.options.a-number-preference-is-written-as-percent-f",
         says: "A number preference is written as the C library writes `%f`: its first seventeen \
                significant digits, zeros after them, and six places, a tie rounding up.",
@@ -1284,6 +1293,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-PREFERENCE-COMPARE"),
         station: "auberean-ui-game::cpu::preferences::a_preference_compares_and_copies_by_kind",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.options.a-resized-window-is-the-displays-size",
+        says: "While the game is a window, a window the player resizes is the display's size: its \
+               row shows it and keeping keeps it. In full screen the window's size says nothing of \
+               the preference.",
+        since: THIS_CLIENT,
+        divergence: "CD2-the-window-can-be-any-size",
+        evidence: Evidence::Private("AC2-EVID-OPTIONS-RENDERING-RESIZE"),
+        station: "auberean-interface::dat::preferences::a_resized_window_is_the_displays_size",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "ui.options.apply-asks-first-then-sets-every-chat-option-and-the-filters-last",
@@ -1404,6 +1424,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.options.the-client-page-shows-the-sizes-and-the-clients-own-changes",
+        says: "A preference labeled in words of its own shows them on its row's menu, and a change \
+               the client made itself shows on the row that holds it, with nothing left for the \
+               page to apply.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OPTIONS-RENDERING-PAGE"),
+        station: "auberean-ui-game::dat::play::options::the_client_page_shows_the_sizes_and_the_clients_own_changes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.options.the-client-pages-other-section-sets-tooltips",
         says: "The client page's last section lists the tooltip delay, from none to ten seconds, and \
                whether tooltips show, read from the preferences file by the data's names; applied, \
@@ -1427,6 +1457,37 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-FX-CHANNEL-PREFS"),
         station: "auberean-interface::dat::preferences::the_effects_section_chooses_what_keyed_effects_play",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.the-rendering-question-keeps-or-puts-back-and-leaves-the-rows",
+        says: "Applying a changed rendering preference submits it and asks, in words that count \
+               their seconds, whether to keep it; no puts it back and keeps the file, the row left \
+               as it was set, so Apply and Revert stay lit; yes keeps it and they go dark.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OPTIONS-RENDERING-QUESTION"),
+        station: "auberean-ui-game::dat::play::options::the_rendering_question_keeps_or_puts_back_and_leaves_the_rows",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.the-rendering-section-lists-the-displays-sizes-and-the-devices-preferences",
+        says: "The rendering section holds the display's size and five yes-or-no preferences, in \
+               the device's order. The sizes are those the display can take from 800 by 600 up, \
+               with 1024 by 768 always there and the default, each named by its numbers; the \
+               defaults are full screen and waiting for the display's refresh.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OPTIONS-RENDERING-LISTS"),
+        station: "auberean-interface::dat::preferences::the_rendering_section_lists_the_displays_sizes_and_the_devices_preferences",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.the-rendering-section-reaches-the-host-when-submitted-and-is-kept",
+        says: "What the player sets in the rendering section reaches the host only when submitted, \
+               and again when put back; kept, each goes to the file by the data's names, the size \
+               as one number, its width above its height.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OPTIONS-RENDERING-HOST"),
+        station: "auberean-interface::dat::preferences::the_rendering_section_reaches_the_host_when_submitted_and_is_kept",
         tier: Tier::Dat,
     },
     behaviour! {

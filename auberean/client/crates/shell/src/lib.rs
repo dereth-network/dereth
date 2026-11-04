@@ -58,7 +58,7 @@ pub use auberean_scene::view::ViewFrame;
 pub use host::{FriendsNews, Host};
 use input::Event;
 use interface::{CameraRequest, Game, Heard, Interface, Notice, Overlay, Phase, Request, Shown};
-pub use settings::Settings;
+pub use settings::{Presentation, Settings};
 
 /// The game as the interface sees it, from the shell's fields one by one (so the interface itself
 /// may be borrowed beside it).
@@ -337,6 +337,23 @@ impl<'w, H: Host> Shell<'w, H> {
         }
     }
 
+    /// The sizes the host's display can take, in pixels, from a host that lets the player choose
+    /// how the game is shown: the options window's rendering section lists them. A host that
+    /// does not say leaves that section empty.
+    pub fn set_display_modes(&mut self, modes: &[(u32, u32)]) {
+        self.interface.set_presentation(modes, &self.settings);
+    }
+
+    /// Full screen, or back to the window.
+    // D2-08327
+    pub fn toggle_full_screen(&mut self) {
+        let mut requests = Vec::new();
+        self.interface.toggle_full_screen(&mut requests);
+        for r in requests {
+            self.request(r);
+        }
+    }
+
     fn request(&mut self, r: Request) {
         match r {
             Request::Connect {
@@ -374,6 +391,10 @@ impl<'w, H: Host> Shell<'w, H> {
                 self.settings.graphics = Some(g);
             }
             Request::FxChannels(c) => self.scene.set_fx_channels(c),
+            Request::Presentation(p) => {
+                self.settings.set_presentation(&p);
+                self.host.set_presentation(&p);
+            }
             Request::KeepPreferences(writes) => {
                 for (section, key, value) in &writes {
                     self.settings.keep(section, key, value);

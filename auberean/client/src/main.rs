@@ -87,7 +87,7 @@ use auberean_scene::WorldData;
 use auberean_shell::command_line::{parse_args, set_error_text, Arg, ArgList, ClientLine, Reader};
 use auberean_shell::input::{Event, Key};
 use auberean_shell::interface::Interface;
-use auberean_shell::{Host, Shell};
+use auberean_shell::{Host, Presentation, Shell};
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, ElementState, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -366,6 +366,8 @@ struct Desktop {
     start: Instant,
     socket: Option<UdpSocket>,
     window: Option<Arc<Window>>,
+    /// How the game is to be shown, asked for and not yet carried out.
+    presentation: Option<Presentation>,
     settings: PathBuf,
     /// The preferences file, in the settings folder unless named elsewhere.
     settings_file: PathBuf,
@@ -382,6 +384,10 @@ struct Desktop {
 impl Host for Desktop {
     fn now(&self) -> f64 {
         self.start.elapsed().as_secs_f64()
+    }
+
+    fn set_presentation(&mut self, presentation: &Presentation) {
+        self.presentation = Some(*presentation);
     }
 
     fn unix_time(&self) -> u32 {
@@ -549,20 +555,79 @@ impl Host for Desktop {
 }
 
 /// The device for `window`.
-fn presenter(window: &Arc<Window>) -> Result<auberean_present::Presenter, String> {
+fn presenter(
+    window: &Arc<Window>,
+    presentation: &Presentation,
+) -> Result<auberean_present::Presenter, String> {
     let instance =
         wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
     let size = window.inner_size();
     let surface = instance
         .create_surface(Arc::clone(window))
         .map_err(|e| format!("no surface for the window: {e}"))?;
-    auberean_present::Presenter::new(instance, surface, (size.width, size.height))
+    let mut p = auberean_present::Presenter::new(
+        instance,
+        surface,
+        (size.width, size.height),
+        presentation.antialiasing,
+    )?;
+    p.set_presentation(
+        presentation.full_screen,
+        presentation.triple_buffering,
+        presentation.sync_to_display,
+    );
+    Ok(p)
+}
+
+/// The sizes a monitor can show pictures at, from its modes of full color.
+fn monitor_sizes(monitor: Option<winit::monitor::MonitorHandle>) -> Vec<(u32, u32)> {
+    let Some(m) = monitor else {
+        return Vec::new();
+    };
+    let mut sizes: Vec<(u32, u32)> = m
+        .video_modes()
+        .filter(|v| v.bit_depth() >= 32)
+        .map(|v| (v.size().width, v.size().height))
+        .collect();
+    sizes.sort_unstable();
+    sizes.dedup();
+    sizes
+}
+
+/// Full screen at a size: the monitor as it is when that is its size or it has no such mode, else
+/// its mode of that size, at its present refresh rate when it has that, else its fastest.
+// D2-08343
+fn full_screen_at(
+    monitor: Option<winit::monitor::MonitorHandle>,
+    size: (u32, u32),
+) -> winit::window::Fullscreen {
+    use winit::window::Fullscreen;
+    let Some(m) = monitor else {
+        return Fullscreen::Borderless(None);
+    };
+    let whole = m.size();
+    if (whole.width, whole.height) == size {
+        return Fullscreen::Borderless(Some(m));
+    }
+    let now = m.refresh_rate_millihertz();
+    let mode = m
+        .video_modes()
+        .filter(|v| v.bit_depth() >= 32 && (v.size().width, v.size().height) == size)
+        .max_by_key(|v| {
+            (
+                Some(v.refresh_rate_millihertz()) == now,
+                v.refresh_rate_millihertz(),
+            )
+        });
+    mode.map_or(Fullscreen::Borderless(Some(m)), Fullscreen::Exclusive)
 }
 
 struct App<'w> {
     shell: Shell<'w, Desktop>,
     world: &'w WorldData,
     present: Option<auberean_present::Presenter>,
+    /// How the game is shown now.
+    shown: Presentation,
     script: Option<script::Script>,
     marks: script::Marks,
     shots: PathBuf,
@@ -650,11 +715,7 @@ impl App<'_> {
                 down: true,
                 repeat: false,
             } if self.alt => {
-                let full = !self.shell.settings.full_screen;
-                self.shell.settings.full_screen = full;
-                if let Some(w) = &self.shell.host.window {
-                    w.set_fullscreen(full.then_some(winit::window::Fullscreen::Borderless(None)));
-                }
+                self.shell.toggle_full_screen();
                 return;
             }
             _ => {}
@@ -662,8 +723,43 @@ impl App<'_> {
         self.shell.event(e);
     }
 
+    /// The game shown as the rendering preferences now ask: full screen or the window at its size;
+    /// the device made again for the edges smoothed or not; the way pictures reach the screen.
+    // D2-08343, D2-09722
+    fn show(&mut self, el: &ActiveEventLoop, p: Presentation) {
+        let Some(w) = self.shell.host.window.clone() else {
+            return;
+        };
+        let was = std::mem::replace(&mut self.shown, p);
+        if p.full_screen != was.full_screen || (p.full_screen && p.size != was.size) {
+            w.set_fullscreen(
+                p.full_screen
+                    .then(|| full_screen_at(w.current_monitor(), p.size)),
+            );
+        }
+        if !p.full_screen && (was.full_screen || p.size != was.size) {
+            let _ = w.request_inner_size(winit::dpi::PhysicalSize::new(p.size.0, p.size.1));
+        }
+        if p.antialiasing != was.antialiasing {
+            // The window's surface is let go before another is made on it.
+            self.present = None;
+            match presenter(&w, &p) {
+                Ok(made) => self.present = Some(made),
+                Err(e) => {
+                    self.failed = Some(e);
+                    el.exit();
+                }
+            }
+        } else if let Some(present) = &mut self.present {
+            present.set_presentation(p.full_screen, p.triple_buffering, p.sync_to_display);
+        }
+    }
+
     // D2-00029
     fn redraw(&mut self, el: &ActiveEventLoop) {
+        if let Some(p) = self.shell.host.presentation.take() {
+            self.show(el, p);
+        }
         if let Some(s) = &mut self.script {
             let asked = s.step(
                 self.shell.host.now(),
@@ -721,6 +817,8 @@ impl ApplicationHandler for App<'_> {
         if self.present.is_some() {
             return;
         }
+        self.shell
+            .set_display_modes(&monitor_sizes(el.primary_monitor()));
         let (w, h) = self.shell.size;
         let attrs = icon::with_icon(Window::default_attributes())
             .with_title("Auberean")
@@ -730,7 +828,7 @@ impl ApplicationHandler for App<'_> {
                 self.shell
                     .settings
                     .full_screen
-                    .then_some(winit::window::Fullscreen::Borderless(None)),
+                    .then(|| full_screen_at(el.primary_monitor(), (w, h))),
             );
         let window = match el.create_window(attrs) {
             Ok(w) => Arc::new(w),
@@ -740,7 +838,8 @@ impl ApplicationHandler for App<'_> {
                 return;
             }
         };
-        match presenter(&window) {
+        self.shown = self.shell.settings.presentation();
+        match presenter(&window, &self.shown) {
             Ok(p) => {
                 tracing::info!(adapter = %p.renderer.adapter, "drawing");
                 self.present = Some(p);
@@ -896,6 +995,7 @@ fn run() -> Result<(), String> {
         start: Instant::now(),
         socket: None,
         window: None,
+        presentation: None,
         settings_file,
         settings,
         install: o.dats.clone(),
@@ -922,10 +1022,12 @@ fn run() -> Result<(), String> {
     if let Some(seconds) = o.no_window {
         return no_window(shell, script, seconds);
     }
+    let shown = shell.settings.presentation();
     let mut app = App {
         shell,
         world: &world,
         present: None,
+        shown,
         script,
         marks: script::Marks::default(),
         shots,

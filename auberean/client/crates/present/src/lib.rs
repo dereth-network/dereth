@@ -108,11 +108,31 @@ struct QuadVertex {
     color: [f32; 4],
 }
 
+/// How pictures reach the screen: each waits for the display's refresh, in a window always; in full
+/// screen unless told not to, then with none in the way, as near that as the surface offers.
+// D2-09870
+#[must_use]
+pub fn present_mode(
+    offered: &[wgpu::PresentMode],
+    full_screen: bool,
+    sync: bool,
+) -> wgpu::PresentMode {
+    if !full_screen || sync {
+        return wgpu::PresentMode::Fifo;
+    }
+    [wgpu::PresentMode::Immediate, wgpu::PresentMode::Mailbox]
+        .into_iter()
+        .find(|m| offered.contains(m))
+        .unwrap_or(wgpu::PresentMode::Fifo)
+}
+
 /// The window's device and what it keeps between frames.
 pub struct Presenter {
     _instance: wgpu::Instance,
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
+    /// The ways the surface can take pictures to the screen.
+    present_modes: Vec<wgpu::PresentMode>,
     pub renderer: Renderer,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
@@ -200,8 +220,10 @@ impl Presenter {
         instance: wgpu::Instance,
         surface: wgpu::Surface<'static>,
         size: (u32, u32),
+        antialiasing: bool,
     ) -> Result<Self, String> {
-        let renderer = Renderer::on(&instance, Some(&surface)).map_err(|e| e.to_string())?;
+        let renderer = Renderer::antialiased(&instance, Some(&surface), antialiasing)
+            .map_err(|e| e.to_string())?;
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             force_fallback_adapter: false,
@@ -231,11 +253,8 @@ impl Presenter {
         if let Some(f) = caps.formats.iter().find(|f| !f.is_srgb()) {
             config.format = *f;
         }
-        config.present_mode = if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
-            wgpu::PresentMode::Mailbox
-        } else {
-            wgpu::PresentMode::Fifo
-        };
+        config.present_mode = present_mode(&caps.present_modes, false, true);
+        let present_modes = caps.present_modes.clone();
         let device = renderer.device();
         surface.configure(device, &config);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -377,6 +396,7 @@ impl Presenter {
             _instance: instance,
             surface,
             config,
+            present_modes,
             renderer,
             layout,
             sampler,
@@ -393,6 +413,19 @@ impl Presenter {
             pictures: HashMap::new(),
             composed: None,
         })
+    }
+
+    /// How pictures reach the screen: a window waits for the display's refresh; full screen as
+    /// asked, its back buffers one, or two with triple buffering.
+    // D2-09870
+    pub fn set_presentation(&mut self, full_screen: bool, triple_buffering: bool, sync: bool) {
+        self.config.present_mode = present_mode(&self.present_modes, full_screen, sync);
+        self.config.desired_maximum_frame_latency = if !full_screen || triple_buffering {
+            2
+        } else {
+            1
+        };
+        self.surface.configure(self.renderer.device(), &self.config);
     }
 
     /// The window's drawing area changed.
@@ -959,5 +992,30 @@ impl Presenter {
         enc.set_depth(png::BitDepth::Eight);
         let mut wr = enc.write_header().map_err(|e| e.to_string())?;
         wr.write_image_data(&rgba).map_err(|e| e.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (how the rendering preferences choose the way pictures reach the screen)
+    use super::present_mode;
+    use wgpu::PresentMode::{Fifo, Immediate, Mailbox};
+
+    #[test]
+    fn a_window_and_a_synchronized_full_screen_wait_for_the_refresh() {
+        let all = [Fifo, Mailbox, Immediate];
+        assert_eq!(present_mode(&all, false, true), Fifo);
+        assert_eq!(present_mode(&all, false, false), Fifo);
+        assert_eq!(present_mode(&all, true, true), Fifo);
+    }
+
+    #[test]
+    fn full_screen_unsynchronized_takes_the_nearest_the_surface_offers() {
+        assert_eq!(
+            present_mode(&[Fifo, Mailbox, Immediate], true, false),
+            Immediate
+        );
+        assert_eq!(present_mode(&[Fifo, Mailbox], true, false), Mailbox);
+        assert_eq!(present_mode(&[Fifo], true, false), Fifo);
     }
 }

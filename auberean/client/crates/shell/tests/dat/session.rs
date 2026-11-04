@@ -5415,3 +5415,33 @@ fn the_applied_graphics_preferences_reach_the_next_frame() {
         high.len()
     );
 }
+
+/// How the game is shown goes to the host and into the settings as the interface asks: a flip of
+/// full screen is the interface's to answer, and what it answers is carried out.
+///
+/// Behaviour: desktop.shell.the-host-shows-the-game-as-the-interface-asks
+#[test]
+fn the_host_shows_the_game_as_the_interface_asks() {
+    use auberean_shell::host::TestHost;
+    use auberean_shell::Presentation;
+    struct Flips;
+    impl Interface for Flips {
+        fn update(&mut self, _game: &Game<'_>, _requests: &mut Vec<Request>) {}
+        fn toggle_full_screen(&mut self, requests: &mut Vec<Request>) {
+            requests.push(Request::Presentation(Presentation {
+                size: (800, 600),
+                full_screen: true,
+                triple_buffering: true,
+                sync_to_display: false,
+                antialiasing: false,
+            }));
+        }
+    }
+    let (world, data) = data();
+    let mut s = Shell::new(TestHost::default(), world, data.clone(), Box::new(Flips));
+    s.toggle_full_screen();
+    assert_eq!(s.host.presentations.len(), 1);
+    assert_eq!(s.settings.presentation(), s.host.presentations[0]);
+    assert_eq!(s.settings.window, (800, 600));
+    assert!(s.settings.full_screen);
+}

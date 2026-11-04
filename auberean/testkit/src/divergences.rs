@@ -134,6 +134,13 @@ pub static DIVERGENCES: &[Divergence] = &[
                and the program ends at once.",
     },
     Divergence {
+        id: "CD2-the-window-can-be-any-size",
+        says: "The game's window can be resized by hand, and the display's size preference then \
+               holds its size; the original client's window had no resizing frame. A first start \
+               is a window with antialiasing on, where the original's configuration program \
+               chose full screen and, below the top quality, no antialiasing.",
+    },
+    Divergence {
         id: "CD2-window-title-names-the-account",
         says: "The window's title names the account the player logged in with (`Auberean | kara`), \
                as Dereth's does, so several clients open at once can be told apart on the task \

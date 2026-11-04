@@ -195,6 +195,10 @@ impl ClientPage {
         let Some(s) = self.lookup_expander(section) else {
             return;
         };
+        let open = matches!(
+            self.rows.all.get(s).map(|r| &r.control),
+            Some(helper::Control::Section { open: true, .. })
+        );
         self.rows.clear(ui, s);
         for p in prefs {
             let mut row = match p {
@@ -207,8 +211,14 @@ impl ClientPage {
             self.rows.all.push(row);
             self.rows.add_to_section(s, at);
         }
+        if open {
+            self.rows.construct(ui, s);
+        }
         for (_, r) in self.sections.clone() {
             self.rows.refit(ui, r);
+        }
+        if let Some(list) = self.page.and_then(|p| ui.child_recursive(p, name::LIST)) {
+            ui.list_update_and_draw(list);
         }
         self.update_buttons(ui);
     }
@@ -241,8 +251,10 @@ impl ClientPage {
         for (s, r) in self.sections.clone() {
             if s == section::RENDERING {
                 rendering = self.rows.changed(ui, r);
+                self.rows.submit(ui, r);
+            } else {
+                self.rows.apply(ui, r);
             }
-            self.rows.apply(ui, r);
         }
         let mut ask = |r| out.push(gameplay::Request::Options(super::Request::Preferences(r)));
         ask(Request::Submit(section::RENDERING));
@@ -312,8 +324,21 @@ impl ClientPage {
     // D2-02847
     pub fn verify_render_options(&mut self, ui: &Ui, out: &mut Vec<gameplay::Request>) {
         if self.context_render == 0 {
-            self.context_render =
-                Self::question(ui, TIMED_CONFIRMATION, "ID_Option_RenderText", out);
+            let id = super::new_dialog_id();
+            let table = ui
+                .assets()
+                .data_id_by_enum(helper::OPTION_STRINGS, crate::flow::TABLE_MAPPING);
+            out.push(gameplay::Request::Dialog(Dialog {
+                id,
+                kind: TIMED_CONFIRMATION,
+                text: String::new(),
+                modal: false,
+                info: Some(auberean_text::StringInfo::entry(
+                    table,
+                    Token::of("ID_Option_RenderText").raw(),
+                )),
+            }));
+            self.context_render = id;
         }
     }
 
@@ -332,7 +357,8 @@ impl ClientPage {
         }
     }
 
-    /// A question answered: the rendering kept (yes) or put back (no), and the preferences kept
+    /// A question answered: the rendering kept (yes) or put back (no) with its rows left as they
+    /// are, so put back they differ from it and the page can apply them again; the preferences kept
     /// in their file; yes recalls, or puts the defaults in; the questions forgotten.
     // D2-02858
     pub fn close_confirmation_dialog(
@@ -350,6 +376,9 @@ impl ClientPage {
                 Request::Recall(section::RENDERING)
             });
             ask(Request::Save);
+            if let Some(s) = self.lookup_expander(section::RENDERING) {
+                self.rows.settle(s, yes);
+            }
             self.update_buttons(ui);
         }
         if yes {

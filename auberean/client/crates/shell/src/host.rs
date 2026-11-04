@@ -83,6 +83,10 @@ pub trait Host {
     fn local_system(&self) -> Option<Box<dyn LocalSystem + Send>> {
         None
     }
+    /// Show the game on the screen this way.
+    fn set_presentation(&mut self, presentation: &crate::settings::Presentation) {
+        let _ = presentation;
+    }
     /// Where the platform's input method writes, in the window's pixels, while an entry that
     /// allows it takes the keyboard; none turns it off.
     fn set_input_method(&mut self, area: Option<InputArea>) {
@@ -198,9 +202,14 @@ pub struct TestHost {
     pub page_error: Option<i32>,
     /// The boxes of text shown: the title and the text.
     pub boxes: Vec<(String, String)>,
+    /// How the game was asked to be shown, each time.
+    pub presentations: Vec<crate::settings::Presentation>,
 }
 
 impl Host for TestHost {
+    fn set_presentation(&mut self, presentation: &crate::settings::Presentation) {
+        self.presentations.push(*presentation);
+    }
     fn now(&self) -> f64 {
         self.time
     }

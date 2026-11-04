@@ -330,6 +330,198 @@ fn the_client_page_shows_the_preferences_the_client_lists() {
     assert_eq!(rows_of_graphics(&p), 2, "a row for each listed preference");
 }
 
+/// A preference labeled in words of its own shows them on its row's menu, and a change the client
+/// made itself shows on the row that holds it, with nothing left for the page to apply.
+///
+/// Behaviour: ui.options.the-client-page-shows-the-sizes-and-the-clients-own-changes
+#[test]
+fn the_client_page_shows_the_sizes_and_the_clients_own_changes() {
+    use auberean_ui_game::options::client::{self, section, Listing};
+    use auberean_ui_game::options::helper::Change;
+    use auberean_ui_game::options::preference::{Choice, Description, Flag};
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let b = el(&ui, "OptionButton");
+    click(&mut ui, &mut p, &mut t, b);
+    let tab = el(&ui, "ClientTab");
+    click(&mut ui, &mut p, &mut t, tab);
+    let describe = |key: u32, label: &str| Description {
+        section: section::RENDERING,
+        key,
+        table: client::PREFERENCE_STRINGS,
+        label: Token::of(label).raw(),
+        help: 0,
+    };
+    let mut size = Choice::new();
+    size.assign_literal_choice(800 << 16 | 600, "800x600");
+    size.assign_literal_choice(1024 << 16 | 768, "1024x768");
+    size.set_default(1024 << 16 | 768);
+    size.description = describe(0x4000_0047, "ID_Rendering_DisplayResolution");
+    let full = client::flag(
+        describe(0x4000_0003, "ID_Rendering_FullScreen"),
+        false,
+        true,
+    );
+    let listing = Listing {
+        serial: 1,
+        sections: vec![(section::RENDERING, vec![Change::Choice(size), full])],
+    };
+    let tick = |ui: &mut Ui, p: &mut GamePlay, t: &mut f64, changed: &[Change]| {
+        *t += 0.05;
+        ui.use_time(*t);
+        let view = View {
+            options: Some(START),
+            preferences: Some(&listing),
+            preferences_changed: changed,
+            ..View::default()
+        };
+        p.tick(ui, &view, &[], &mut Vec::new());
+    };
+    tick(&mut ui, &mut p, &mut t, &[]);
+    tick(&mut ui, &mut p, &mut t, &[]);
+    let c = window(&p).client.as_ref().expect("the client page");
+    let (rows, sections) = c.rows();
+    let section_row = sections
+        .iter()
+        .find(|(s, _)| *s == section::RENDERING)
+        .map(|(_, r)| *r)
+        .expect("the section");
+    let Control::Section { rows: of, .. } = &rows.all[section_row].control else {
+        panic!("a section");
+    };
+    let (size_row, flag_row) = (of[0], of[1]);
+    let Control::Choice { menu, .. } = rows.all[size_row].control else {
+        panic!("a choice");
+    };
+    let menu = menu.expect("its menu");
+    let words: Vec<String> = (0..ui.menu_len(menu))
+        .filter_map(|at| ui.menu_item(menu, at))
+        .map(|i| ui.text(i).unwrap_or_default())
+        .collect();
+    assert_eq!(words, ["800x600", "1024x768"]);
+    assert_eq!(rows.all[size_row].choice_now(&ui), 1024 << 16 | 768);
+    assert!(!rows.all[flag_row].flag_now(&ui));
+    // The client flipped it itself.
+    let mut on = Flag::new();
+    on.set_default(true);
+    on.set_value(true);
+    on.apply();
+    on.description = describe(0x4000_0003, "ID_Rendering_FullScreen");
+    tick(&mut ui, &mut p, &mut t, &[Change::Flag(on)]);
+    let c = window(&p).client.as_ref().expect("the client page");
+    let (rows, _) = c.rows();
+    assert!(rows.all[flag_row].flag_now(&ui), "the row shows it");
+    assert!(!c.changed(&ui), "nothing to apply");
+}
+
+/// Applying a changed rendering preference submits it and asks, in words that count their seconds,
+/// whether to keep it. No puts it back and keeps the file, the row left as it was set, so Apply and
+/// Revert stay lit. Asked again and answered yes, it is kept, and they go dark.
+///
+/// Behaviour: ui.options.the-rendering-question-keeps-or-puts-back-and-leaves-the-rows
+#[test]
+fn the_rendering_question_keeps_or_puts_back_and_leaves_the_rows() {
+    use auberean_ui_game::options::client::{self, section, Listing, Request as Asked};
+    use auberean_ui_game::options::preference::Description;
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let b = el(&ui, "OptionButton");
+    click(&mut ui, &mut p, &mut t, b);
+    let tab = el(&ui, "ClientTab");
+    click(&mut ui, &mut p, &mut t, tab);
+    let full = client::flag(
+        Description {
+            section: section::RENDERING,
+            key: 0x4000_0003,
+            table: client::PREFERENCE_STRINGS,
+            label: Token::of("ID_Rendering_FullScreen").raw(),
+            help: 0,
+        },
+        false,
+        true,
+    );
+    let listing = Listing {
+        serial: 1,
+        sections: vec![(section::RENDERING, vec![full])],
+    };
+    let frame = |ui: &mut Ui, p: &mut GamePlay, t: &mut f64, notices: &[Notice]| {
+        *t += 0.05;
+        ui.use_time(*t);
+        let view = View {
+            options: Some(START),
+            preferences: Some(&listing),
+            ..View::default()
+        };
+        let mut out = Vec::new();
+        p.tick(ui, &view, notices, &mut out);
+        out
+    };
+    frame(&mut ui, &mut p, &mut t, &[]);
+    let checkbox = {
+        let c = window(&p).client.as_ref().expect("the client page");
+        let (rows, sections) = c.rows();
+        let Control::Section { rows: of, .. } = &rows.all[sections
+            .iter()
+            .find(|(s, _)| *s == section::RENDERING)
+            .expect("the section")
+            .1]
+            .control
+        else {
+            panic!("a section");
+        };
+        let Control::Flag { checkbox, .. } = rows.all[of[0]].control else {
+            panic!("a yes or no");
+        };
+        checkbox.expect("its box")
+    };
+    let apply = button(&ui, "ClientPage", "ApplyButton");
+    assert!(ghosted(&ui, apply), "nothing changed");
+    let ask = |ui: &mut Ui, p: &mut GamePlay, t: &mut f64| {
+        ui.set_attr(checkbox, attr::HIGHLIGHTED, Value::Bool(true));
+        frame(ui, p, t, &[]);
+        click(ui, p, t, apply)
+    };
+    let out = ask(&mut ui, &mut p, &mut t);
+    let id = out
+        .iter()
+        .find_map(|r| match r {
+            Request::Dialog(d) if d.kind == client::TIMED_CONFIRMATION => {
+                let info = d.info.as_ref().expect("the string, to count its seconds");
+                assert_eq!(info.string_id, Token::of("ID_Option_RenderText").raw());
+                Some(d.id)
+            }
+            _ => None,
+        })
+        .expect("the question");
+    assert!(
+        out.contains(&Request::Options(options::Request::Preferences(
+            Asked::Submit(section::RENDERING)
+        )))
+    );
+    let out = frame(&mut ui, &mut p, &mut t, &[answer(id, false)]);
+    let asked: Vec<&Asked> = out
+        .iter()
+        .filter_map(|r| match r {
+            Request::Options(options::Request::Preferences(a)) => Some(a),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(asked, [&Asked::Recall(section::RENDERING), &Asked::Save]);
+    assert!(!ghosted(&ui, apply), "the row still differs");
+    let out = ask(&mut ui, &mut p, &mut t);
+    let id = out
+        .iter()
+        .find_map(|r| match r {
+            Request::Dialog(d) if d.kind == client::TIMED_CONFIRMATION => Some(d.id),
+            _ => None,
+        })
+        .expect("asked again");
+    frame(&mut ui, &mut p, &mut t, &[answer(id, true)]);
+    assert!(ghosted(&ui, apply), "kept");
+}
+
 /// The page's bar shows no widget when first opened with every section closed. A section opened
 /// makes the widget the share in view; closed again, every row showing, the bar is disabled and the
 /// widget stays, the bar's whole length.

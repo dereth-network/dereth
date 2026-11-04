@@ -231,3 +231,31 @@ fn the_avatars_looks_read_by_the_clients_names() {
     );
     assert_eq!(Settings::read(&out).camera, w.camera);
 }
+
+/// The rendering options are read by the client's own names, and written back by them: a first
+/// start waits for the display's refresh and smooths its edges, with no third buffer.
+///
+/// Behaviour: desktop.settings.the-rendering-options-read-by-the-clients-names-and-kept
+#[test]
+fn the_rendering_options_read_by_the_clients_names_and_kept() {
+    let first = Settings::default().presentation();
+    assert!(first.sync_to_display && first.antialiasing && !first.triple_buffering);
+    assert!(!first.full_screen);
+    let s = Settings::read(
+        "[Rendering]\nTripleBuffering=1\nSyncToDisplayRefresh=0\nAntialiasing=0\nFullScreen=1\n",
+    );
+    let p = s.presentation();
+    assert!(p.triple_buffering && !p.sync_to_display && !p.antialiasing && p.full_screen);
+    let mut s = s;
+    let mut q = p;
+    q.triple_buffering = false;
+    q.sync_to_display = true;
+    q.size = (800, 600);
+    s.set_presentation(&q);
+    assert_eq!(s.window, (800, 600));
+    let text = s.write();
+    assert!(text.contains("TripleBuffering=0"), "{text}");
+    assert!(text.contains("SyncToDisplayRefresh=1"), "{text}");
+    assert!(text.contains("Antialiasing=0"), "{text}");
+    assert_eq!(Settings::read(&text).presentation(), q);
+}

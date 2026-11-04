@@ -226,6 +226,8 @@ pub struct View<'a> {
     pub options: Option<crate::options::Values>,
     /// The client's own preferences as last listed (the options window's client page).
     pub preferences: Option<&'a crate::options::client::Listing>,
+    /// The client's own preferences it changed itself since the last frame.
+    pub preferences_changed: &'a [crate::options::helper::Change],
     /// The shift key is held.
     pub shift: bool,
     /// The skill window's panels and skills, as the player's scripts last answered.
