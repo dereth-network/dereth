@@ -121,6 +121,16 @@ its players the friends service within the world.
   enters. If it does not enter again in time, its stream ends, or another character of the account
   enters, it is seen to leave then. A character that entered with its stream already open (every
   ordinary logoff) is seen to leave as it leaves.
+- **A character renamed by the operator** stays in the world, present, with its stream and state.
+  Every character's friend and ignore entries for it hold the new name, kept with the rename itself.
+  A friend present is told the old name is offline and the new one in the character's state. The
+  client's friends window keeps the old name until it next asks for the list, at the character's
+  next entry or the player's `/friend list`.
+- **To other worlds a new name is another character**, since an address is a name: the old address's
+  watchers and the friends it lists on other worlds see it offline, and it is taken out of the
+  directory ([03](03-world-behaviour.md) section 10). The character stays on the network, watches its
+  friends and is listed under the new name. Other worlds' friends lists keep the old address, and its
+  link to a Discord account does not follow it: the player says `@dn link` again.
 
 ## 3. The client's requests
 

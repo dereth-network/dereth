@@ -2,7 +2,7 @@
 
 use super::*;
 use dereth_network_protocol::Outcome;
-use yalain_federation::{NOT_ON, WORLD_OFF};
+use yalain_federation::{Friends, NOT_ON, WORLD_OFF};
 use yalain_friends::{tell_code, FRIEND_REFUSED};
 
 /// Another world's friend needs the world on the network and the character on it: refused with
@@ -423,5 +423,251 @@ fn a_friend_added_on_another_world_that_does_not_answer_is_shown_offline_after_t
     assert_eq!(
         events(&w.take(ann)),
         vec![stat("Cara@coldeve", Mode::ONLINE)]
+    );
+}
+
+/// A rename reaches the network at once, without a restart: other worlds see the old address go, and
+/// the character goes on as the new one. It stays on the network, watches its friends under its new
+/// name, and answers to it, and a friend's world answering again shows its client nothing new.
+/// Behaviour: server.network.rename-seen-at-once
+#[test]
+fn a_renamed_character_goes_on_on_the_network_under_its_new_name() {
+    let mut w = World::linked();
+    let ann = w.player("Ann");
+    w.on("Ann");
+    w.request(
+        ann,
+        Request::FriendAdd {
+            user: "Bob@coldeve".into(),
+        },
+    );
+    w.hub(&Message::Presence {
+        to: addr("Ann@dawnsong"),
+        of: addr("Bob@coldeve"),
+        online: true,
+    });
+    w.hub(&Message::Watch {
+        owner: addr("Cid@coldeve"),
+        target: addr("Ann@dawnsong"),
+        on: true,
+    });
+    w.frames();
+    w.take(ann);
+
+    w.rename("Ann", "Anna");
+    let sent = w.frames();
+    let of_old = |to: &str| Message::Presence {
+        to: addr(to),
+        of: addr("Ann@dawnsong"),
+        online: false,
+    };
+    assert!(sent.contains(&of_old("Cid@coldeve")), "{sent:?}");
+    assert!(sent.contains(&of_old("Bob@coldeve")), "{sent:?}");
+    for (owner, on) in [("Ann@dawnsong", false), ("Anna@dawnsong", true)] {
+        let watch = Message::Watch {
+            owner: addr(owner),
+            target: addr("Bob@coldeve"),
+            on,
+        };
+        assert!(sent.contains(&watch), "{owner}: {sent:?}");
+    }
+    assert!(w.fed.as_ref().expect("linked").is_on("Anna"));
+    assert!(!w.fed.as_ref().expect("linked").is_on("Ann"));
+    assert_eq!(
+        w.fed.as_ref().expect("linked").watcher_count("Ann"),
+        0,
+        "nobody goes on watching the old address"
+    );
+    assert!(
+        Friends::remote_friends(&w.service, "Ann").is_empty(),
+        "the old name holds nothing"
+    );
+
+    // Its friend's world answers the new watch: what its client shows already stands.
+    w.hub(&Message::Presence {
+        to: addr("Anna@dawnsong"),
+        of: addr("Bob@coldeve"),
+        online: true,
+    });
+    assert!(events(&w.take(ann)).is_empty());
+    w.hub(&Message::Presence {
+        to: addr("Anna@dawnsong"),
+        of: addr("Bob@coldeve"),
+        online: false,
+    });
+    assert_eq!(
+        events(&w.take(ann)),
+        vec![stat("Bob@coldeve", Mode::OFFLINE)]
+    );
+
+    // A watch of each name is answered by what each now is.
+    for (target, online) in [("Ann@dawnsong", false), ("Anna@dawnsong", true)] {
+        w.hub(&Message::Watch {
+            owner: addr("Dee@coldeve"),
+            target: addr(target),
+            on: true,
+        });
+        let answered = Message::Presence {
+            to: addr("Dee@coldeve"),
+            of: addr(target),
+            online,
+        };
+        let sent = w.frames();
+        assert!(sent.contains(&answered), "{target}: {sent:?}");
+    }
+
+    // A tell from another world reaches it under the new name.
+    w.hub(&Message::Tell {
+        id: "t1".into(),
+        from: addr("Bob@coldeve"),
+        to: addr("Anna@dawnsong"),
+        text: "Hi".into(),
+        friend: true,
+    });
+    assert_eq!(
+        events(&w.take(ann)),
+        vec![Event::UTellEv {
+            user: "Bob@coldeve".into(),
+            text: "Hi".into(),
+            extra: None,
+        }]
+    );
+}
+
+/// A character off the network, renamed, sends the network nothing.
+/// Behaviour: server.network.rename-seen-at-once
+#[test]
+fn a_rename_off_the_network_tells_the_network_nothing() {
+    let mut w = World::linked();
+    w.player("Ann");
+    w.frames();
+    w.rename("Ann", "Anna");
+    assert_eq!(w.frames(), Vec::new());
+    assert!(!w.fed.as_ref().expect("linked").is_on("Anna"));
+}
+
+/// A friend on another world being added as its adder is renamed is answered all the same, by the
+/// answer its world gives the new name's watch.
+/// Behaviour: server.network.rename-seen-at-once
+#[test]
+fn an_add_waiting_for_its_friends_world_is_answered_after_a_rename() {
+    let mut w = World::linked();
+    let ann = w.player("Ann");
+    w.on("Ann");
+    let cx = w.request(
+        ann,
+        Request::FriendAdd {
+            user: "Bob@coldeve".into(),
+        },
+    );
+    assert!(w.take(ann).is_empty(), "waiting");
+    w.rename("Ann", "Anna");
+    w.hub(&Message::Presence {
+        to: addr("Anna@dawnsong"),
+        of: addr("Bob@coldeve"),
+        online: true,
+    });
+    let got = w.take(ann);
+    assert_eq!(answer(&got, cx).0, Hr::OK);
+    assert_eq!(events(&got), vec![stat("Bob@coldeve", Mode::ONLINE)]);
+}
+
+/// An add shown offline for want of an answer stays so after a rename: its world's late offline
+/// shows nothing more.
+/// Behaviour: server.network.rename-seen-at-once
+#[test]
+fn an_add_assumed_offline_stays_so_after_a_rename() {
+    let mut w = World::linked();
+    let ann = w.player("Ann");
+    w.on("Ann");
+    let cx = w.request(
+        ann,
+        Request::FriendAdd {
+            user: "Bob@coldeve".into(),
+        },
+    );
+    w.advance(yalain_friends::ADD_WAIT.as_secs());
+    assert_eq!(answer(&w.take(ann), cx).0, Hr::OK);
+    w.rename("Ann", "Anna");
+    w.hub(&Message::Presence {
+        to: addr("Anna@dawnsong"),
+        of: addr("Bob@coldeve"),
+        online: false,
+    });
+    assert!(events(&w.take(ann)).is_empty());
+}
+
+/// A friend's state waiting for its pace as its lister is renamed is shown when its time comes.
+/// Behaviour: server.network.rename-seen-at-once
+#[test]
+fn a_friends_state_waiting_for_its_pace_is_shown_after_a_rename() {
+    let mut w = World::linked();
+    let ann = w.player("Ann");
+    w.on("Ann");
+    w.request(
+        ann,
+        Request::FriendAdd {
+            user: "Bob@coldeve".into(),
+        },
+    );
+    let mut online = true;
+    for _ in 0..7 {
+        w.hub(&Message::Presence {
+            to: addr("Ann@dawnsong"),
+            of: addr("Bob@coldeve"),
+            online,
+        });
+        online = !online;
+    }
+    let last_said = !online;
+    w.take(ann);
+    w.rename("Ann", "Anna");
+    assert!(events(&w.take(ann)).is_empty(), "held to its pace");
+    w.advance(10);
+    let mode = if last_said {
+        Mode::ONLINE
+    } else {
+        Mode::OFFLINE
+    };
+    assert_eq!(events(&w.take(ann)), vec![stat("Bob@coldeve", mode)]);
+}
+
+/// A character hidden on the network and renamed says nothing to the network either way, and watches
+/// nobody until it comes back.
+/// Behaviour: server.network.rename-seen-at-once
+#[test]
+fn a_hidden_character_renamed_says_nothing_to_the_network() {
+    let mut w = World::linked();
+    let ann = w.player("Ann");
+    w.on("Ann");
+    w.request(
+        ann,
+        Request::FriendAdd {
+            user: "Bob@coldeve".into(),
+        },
+    );
+    let (_, id) = w.ids("Ann");
+    let hide = |w: &mut World, ids: &[u64]| {
+        w.service.set_hidden(
+            w.now,
+            ids.iter().copied().collect(),
+            &mut w.store,
+            w.fed.as_mut(),
+        );
+        w.flush();
+    };
+    hide(&mut w, &[id]);
+    w.frames();
+    w.rename("Ann", "Anna");
+    assert_eq!(w.frames(), Vec::new());
+    hide(&mut w, &[]);
+    let sent = w.frames();
+    assert!(
+        sent.contains(&Message::Watch {
+            owner: addr("Anna@dawnsong"),
+            target: addr("Bob@coldeve"),
+            on: true,
+        }),
+        "{sent:?}"
     );
 }

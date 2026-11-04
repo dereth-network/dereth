@@ -34,6 +34,8 @@
 //!   say it is here. Its client keeps its stream, and it may still tell whom it chooses.
 //! - **A gagged character** ([`Service::set_gagged`]) tells nobody, here or on another world: it
 //!   is shown [`GAGGED`], and its client that the tell could not be sent.
+//! - **A renamed character** ([`Service::renamed`]) keeps its stream and its state. Every character's
+//!   lists hold it by the new name; a friend present sees the old name go and the new one come.
 //! - **Names.** A name whose world part is the world's own name (any case) or its slug is a
 //!   character of the world, and is written back as `Name@` and the world's name exactly, so the
 //!   client knows its own world. Every other character is written as its network address.
@@ -808,6 +810,75 @@ impl Service {
         if let Some(f) = fed.filter(|_| !self.hidden.contains(&w.character)) {
             f.arrived(self, &w.name);
         }
+    }
+
+    /// A character took a new name, which the store has now, in everyone's lists too. It stays
+    /// present with the stream and state it had. Whoever lists it and is present sees the old name
+    /// leave and the new one arrive: a client shows no other way to change one name to another, and
+    /// its friends window finds the new name only when it next asks for the list.
+    pub fn renamed(
+        &mut self,
+        now: Duration,
+        character: u64,
+        old: &str,
+        new: &str,
+        store: &mut impl Store,
+        mut fed: Option<&mut Federation>,
+    ) {
+        self.now = now;
+        let (from, to) = (old.to_lowercase(), new.to_lowercase());
+        if self.here.contains_key(&from) {
+            self.tell_friends_of(old, Mode::OFFLINE);
+        }
+        if let Some(f) = fed.as_deref_mut() {
+            f.renaming(self, old);
+        }
+        for l in self.lists.values_mut() {
+            names::rename(&mut l.friends, &from, &to, new);
+            names::rename(&mut l.ignored, &from, &to, new);
+        }
+        self.ignores_changed = true;
+        self.ids.remove(&from);
+        self.ids.insert(to.clone(), (character, new.to_owned()));
+        for w in self
+            .in_world
+            .values_mut()
+            .filter(|w| w.character == character)
+        {
+            new.clone_into(&mut w.name);
+        }
+        if let Some(mut h) = self.here.remove(&from) {
+            new.clone_into(&mut h.name);
+            self.here.insert(to.clone(), h);
+        }
+        let adding: Vec<(String, String)> = self
+            .adding
+            .keys()
+            .filter(|(c, _)| *c == from)
+            .cloned()
+            .collect();
+        for key in adding {
+            if let Some(a) = self.adding.remove(&key) {
+                self.adding.insert((to.clone(), key.1), a);
+            }
+        }
+        let assumed: Vec<(String, String)> = self
+            .assumed_offline
+            .iter()
+            .filter(|(c, _)| *c == from)
+            .cloned()
+            .collect();
+        for key in assumed {
+            self.assumed_offline.remove(&key);
+            self.assumed_offline.insert((to.clone(), key.1));
+        }
+        if let Some(f) = fed.as_deref_mut() {
+            f.renamed(self, old, new);
+        }
+        if let Some(mode) = self.here.get(&to).map(|h| mode_of(&h.state)) {
+            self.tell_friends_of(new, mode);
+        }
+        self.settle(now, store, fed);
     }
 
     /// Sends a present character's stream its friends, each with its state.

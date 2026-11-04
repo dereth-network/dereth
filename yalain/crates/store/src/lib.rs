@@ -234,7 +234,8 @@ pub trait Store {
     /// No account has this id, or the database failed.
     fn set_account_ban(&mut self, account: u64, ban: Option<&Ban>) -> StoreResult<()>;
 
-    /// Give a character a new name (free: the caller checks).
+    /// Give a character a new name (free: the caller checks). Every character's lists that hold it
+    /// by its old name hold it by the new one, in the same breath.
     ///
     /// # Errors
     /// No character has this id, the name is taken, or the database failed.

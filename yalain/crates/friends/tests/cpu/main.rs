@@ -18,7 +18,7 @@ use auberean_friends::{
     Ticket, PREAMBLE, PROTO,
 };
 use dereth_network_protocol::limits::Limits;
-use dereth_network_protocol::wire::PROTOCOL;
+use dereth_network_protocol::wire::{WireError, PROTOCOL};
 use dereth_network_protocol::{Address, Message, RoomsMessage, WorldInfo};
 use yalain_federation::{Federation, GlobalLine, Settings};
 use yalain_friends::{Config, Out, Service, StreamId, GAGGED};
@@ -275,6 +275,23 @@ impl World {
         self.flush();
     }
 
+    /// An admin renames a character: the store first, then the service, as the host tells it.
+    pub fn rename(&mut self, old: &str, new: &str) {
+        let (_, character) = self.ids(old);
+        self.store
+            .rename_character(character, new)
+            .expect("renamed");
+        self.service.renamed(
+            self.now,
+            character,
+            old,
+            new,
+            &mut self.store,
+            self.fed.as_mut(),
+        );
+        self.flush();
+    }
+
     /// A character made, with a stream, in the world: its stream, its welcome taken.
     pub fn player(&mut self, name: &str) -> StreamId {
         self.character(name);
@@ -352,13 +369,16 @@ impl World {
         self.flush();
     }
 
-    /// What the world sends the hub now.
+    /// What the world sends the hub now, the directory's listings aside.
     pub fn frames(&mut self) -> Vec<Message> {
         let t = self.now.as_secs_f64();
         self.fed.as_mut().map_or_else(Vec::new, |f| {
             f.take_frames(t)
                 .iter()
-                .map(|f| Message::from_json(f).expect("a message the hub reads"))
+                .filter_map(|f| match Message::from_json(f) {
+                    Err(WireError::Unknown(what)) if what == "listing" => None,
+                    m => Some(m.expect("a message the hub reads")),
+                })
                 .collect()
         })
     }

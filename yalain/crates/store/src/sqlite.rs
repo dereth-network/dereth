@@ -654,17 +654,30 @@ impl Store for SqliteStore {
     }
 
     fn rename_character(&mut self, character: u64, name: &str) -> StoreResult<()> {
-        let n = self
-            .db
-            .execute(
-                "UPDATE character SET name = ?2 WHERE id = ?1",
-                params![character as i64, name],
+        let tx = self.db.transaction().map_err(err)?;
+        let old: Option<String> = tx
+            .query_row(
+                "SELECT name FROM character WHERE id = ?1",
+                [character as i64],
+                |r| r.get(0),
             )
+            .optional()
             .map_err(err)?;
-        if n == 0 {
+        let Some(old) = old else {
             return Err(StoreError(format!("no character {character}")));
-        }
-        Ok(())
+        };
+        tx.execute(
+            "UPDATE character SET name = ?2 WHERE id = ?1",
+            params![character as i64, name],
+        )
+        .map_err(err)?;
+        // A list that holds both names holds the new one once. The column ignores case.
+        tx.execute(
+            "UPDATE OR REPLACE network_list SET entry = ?2 WHERE entry = ?1",
+            params![old, name],
+        )
+        .map_err(err)?;
+        tx.commit().map_err(err)
     }
 
     fn set_account_ban(&mut self, account: u64, ban: Option<&Ban>) -> StoreResult<()> {

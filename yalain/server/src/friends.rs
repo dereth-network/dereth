@@ -96,6 +96,16 @@ impl Friends {
         mut fed: Option<&mut Federation>,
     ) -> bool {
         let mut busy = self.accept(now);
+        for r in std::mem::take(&mut server.renames) {
+            self.service.renamed(
+                now,
+                r.character,
+                &r.old,
+                &r.new,
+                &mut server.store,
+                fed.as_deref_mut(),
+            );
+        }
         self.service.set_gagged(server.gags.characters());
         if let Some(f) = fed.as_deref_mut() {
             f.set_too_new(yalain_world::saves::too_new_in_world(server));
@@ -634,6 +644,81 @@ mod tests {
             &mut h.server.store,
             Some(fed),
         );
+    }
+
+    /// `/rename` reaches the friends service and the network at their next pass, with no relog: the
+    /// character goes on present and on the network by the new name, and what the world's own tell
+    /// honours follows the list of one who ignores it.
+    /// Behaviour: server.friends.rename-seen-at-once
+    #[test]
+    fn a_rename_said_in_the_world_reaches_the_friends_service_and_the_network() {
+        use auberean_friends::{Element, Request};
+        use auberean_script::args::Arg;
+        use auberean_script::native_object::NativeObject;
+        use yalain_world::graph::Builder;
+        const RENAME: u32 = 0x8201_0130;
+        let mut h = Harness::new();
+        let (_, elara) = h.player_in_world("one", "Elara");
+        let (_, cara) = h.player_in_world("two", "Cara");
+        let me = h.at_character_list("three");
+        let keeper = h.create_character(me, "three", "Keeper");
+        let clock = h.clock();
+        for line in ["set-accountadmin three", "set-characteradmin Keeper"] {
+            let c = yalain_world::admin::parse(line)
+                .expect("a command")
+                .expect("it reads");
+            yalain_world::admin::run(
+                &mut h.server,
+                &mut h.net,
+                clock,
+                &yalain_world::admin::Issuer::Console,
+                &c,
+            );
+        }
+        h.enter_world(me, "three", keeper);
+        h.run(10);
+        let (mut f, mut fed) = linked(&h, None);
+        stream_for(&mut h, &mut f, &mut fed, 1, "one");
+        stream_for(&mut h, &mut f, &mut fed, 2, "two");
+        fed.set_on(&mut h.server.store, &f.service, elara, "Elara", true)
+            .expect("kept");
+        f.world(at(&h), &mut h.server, Some(&mut fed));
+        let mut bytes = Vec::new();
+        Element::Request {
+            cx: auberean_friends::Cx(2),
+            request: Request::IgnoredAdd {
+                user: "Elara".into(),
+            },
+        }
+        .write_frame(&mut bytes)
+        .expect("fits");
+        f.service
+            .on_bytes(at(&h), 2, &bytes, &mut h.server.store, Some(&mut fed));
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+
+        let mut b = Builder::new();
+        b.native(118, NativeObject::Text("Renamed".encode_utf16().collect()));
+        // Its parameters as declared travel last first.
+        let call = yalain_testkit::play::server_call(
+            RENAME,
+            &[Arg::Object(b.graph()), Arg::LongInt(elara)],
+        );
+        h.bots[me].send(true, auberean_protocol::queue::WEENIE, &call);
+        h.run(20);
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        assert!(f.service.is_present("Renamed"));
+        assert!(!f.service.is_present("Elara"));
+        assert!(fed.is_on("Renamed"));
+        assert!(!fed.is_on("Elara"));
+        assert_eq!(
+            h.server.ignoring[&cara],
+            std::collections::HashSet::from(["renamed".to_owned()])
+        );
+        // The pass after has nothing to do: it is not seen to leave and come again.
+        let _ = fed.take_frames(h.now.0);
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        assert!(f.service.is_present("Renamed"));
+        assert_eq!(fed.take_frames(h.now.0), Vec::<String>::new());
     }
 
     /// A cloak reaches the friends service and the network from the world at its next pass: a friend

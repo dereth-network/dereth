@@ -100,7 +100,26 @@ impl Store for MemoryStore {
             .iter_mut()
             .find(|c| c.id == character)
             .ok_or_else(|| StoreError(format!("no character {character}")))?;
-        c.name = name.to_owned();
+        let old = std::mem::replace(&mut c.name, name.to_owned()).to_lowercase();
+        // A list that holds both names holds the new one once.
+        let key = name.to_lowercase();
+        let renamed: Vec<Listed> = self
+            .lists
+            .iter()
+            .filter(|l| l.entry.to_lowercase() == old)
+            .cloned()
+            .collect();
+        self.lists.retain(|l| {
+            l.entry.to_lowercase() != old
+                && !(l.entry.to_lowercase() == key
+                    && renamed
+                        .iter()
+                        .any(|r| r.character == l.character && r.list == l.list))
+        });
+        self.lists.extend(renamed.into_iter().map(|l| Listed {
+            entry: name.to_owned(),
+            ..l
+        }));
         Ok(())
     }
 

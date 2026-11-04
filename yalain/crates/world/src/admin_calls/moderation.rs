@@ -286,6 +286,11 @@ fn rename<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
         return Vec::new();
     };
     let old = std::mem::replace(&mut p.name, name.clone());
+    cx.s.renames.push(crate::player::Renamed {
+        character: id,
+        old: old.clone(),
+        new: name.clone(),
+    });
     crate::player::show_name(cx.s, cx.net, w);
     crate::world::keep_player(cx.s, w);
     answer(cx.net, w, &format!("You are now named {name}."));

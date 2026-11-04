@@ -2647,6 +2647,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.friends.lists-follow-a-rename",
+        says: "A rename changes every character's friend and ignore entries for it, in the store with \
+               the name and in the service, so they hold for good, whether the lister is in the world \
+               or not. An entry for another world's character of that name stays; a list holding both \
+               names holds it once. Chosen: no recording holds a rename.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-RENAME-LISTS"),
+        station: "yalain-friends::cpu::friends::other_characters_lists_hold_a_renamed_character_by_its_new_name",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.friends.lists-kept",
         says: "Each character's friends and ignored names are kept across a restart, a name once \
                in any case, and forgotten with the character; a database kept before the friends \
@@ -2699,6 +2710,17 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-REMOTE-TELL"),
         station: "yalain-friends::cpu::network::a_tell_to_another_world_is_answered_once_by_how_it_ended",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.friends.rename-seen-at-once",
+        says: "A renamed character stays present with its stream and state under the new name alone, \
+               without a relog: a friend present sees the old name go and the new come, tells find the \
+               new name and not the old, and a hidden one tells nobody until it comes back. Chosen over \
+               the relog the client's help describes.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-RENAME"),
+        station: "yalain-friends::cpu::presence::a_renamed_character_stays_present_under_its_new_name_alone",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -3983,6 +4005,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.network.directory-rename",
+        says: "A renamed character on the network is taken out of the directory under the name it had, \
+               at once, and listed under the new one; one the hub holds out stays out under the new \
+               name.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NETWORK-RENAME-LISTING"),
+        station: "yalain-federation::cpu::directory::a_renamed_character_leaves_the_directory_under_its_old_name_and_is_listed_under_its_new",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.network.directory-taken-out-by-operator",
         says: "The hub's operator taking a character out: the world says it heard at once, tells \
                the character (at its next login when away), and sends nothing for it until its next \
@@ -4268,6 +4300,17 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-REACH"),
         station: "yalain-federation::cpu::persons::the_hubs_question_about_a_character_away_is_true_only_as_a_shown_tell_would_be",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.rename-seen-at-once",
+        says: "A rename reaches the network at once, without a restart: other worlds see the old \
+               address go offline and its watchers are forgotten; the character stays on the network, \
+               watches its friends and answers under the new name, and a friend's world answering again \
+               shows its client nothing new.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NETWORK-RENAME"),
+        station: "yalain-friends::cpu::network::a_renamed_character_goes_on_on_the_network_under_its_new_name",
         tier: Tier::Cpu,
     },
     behaviour! {

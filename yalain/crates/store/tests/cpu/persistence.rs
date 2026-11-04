@@ -354,6 +354,70 @@ fn an_earlier_database_gains_the_friends_lists_and_keeps_them() {
     );
 }
 
+/// A rename changes every character's lists that hold the character, in any case, and no other: not
+/// another world's character of that name, nor a list that holds the new name already but for
+/// holding it once. Run on each store, and the file's survives reopening it.
+fn a_rename_reaches_the_lists(s: &mut impl Store) {
+    const OTHER: u64 = 8;
+    let listed = |character, list, entry: &str| Listed {
+        character,
+        list,
+        entry: entry.to_owned(),
+    };
+    s.insert_character(&character(7, 1, "Elara")).expect("made");
+    s.insert_character(&character(OTHER, 1, "Cara"))
+        .expect("made");
+    for (who, list, entry) in [
+        (OTHER, NetworkList::Friends, "elara"),
+        (OTHER, NetworkList::Ignored, "Elara"),
+        (OTHER, NetworkList::Ignored, "Renamed"),
+        (OTHER, NetworkList::Friends, "Elara@coldeve"),
+        (OTHER, NetworkList::Friends, "Elaran"),
+        (7, NetworkList::Friends, "Cara"),
+    ] {
+        s.set_listed(who, list, entry, true).expect("kept");
+    }
+    s.rename_character(7, "Renamed").expect("renamed");
+    assert_eq!(
+        s.network_lists().expect("reads"),
+        vec![
+            listed(7, NetworkList::Friends, "Cara"),
+            listed(OTHER, NetworkList::Friends, "Elara@coldeve"),
+            listed(OTHER, NetworkList::Friends, "Elaran"),
+            listed(OTHER, NetworkList::Friends, "Renamed"),
+            listed(OTHER, NetworkList::Ignored, "Renamed"),
+        ]
+    );
+    assert!(s.rename_character(99, "Nobody").is_err(), "no character");
+    assert_eq!(s.network_lists().expect("reads").len(), 5, "nothing else");
+}
+
+/// Behaviour: server.friends.lists-follow-a-rename
+#[test]
+fn a_rename_changes_the_name_in_every_characters_lists_on_the_memory_store() {
+    a_rename_reaches_the_lists(&mut MemoryStore::default());
+}
+
+/// Behaviour: server.friends.lists-follow-a-rename
+#[test]
+fn a_rename_changes_the_name_in_every_characters_lists_in_the_file() {
+    let file = TempFile(std::env::temp_dir().join(format!(
+        "yalain-store-test-rename-{}.sqlite",
+        std::process::id()
+    )));
+    let _ = std::fs::remove_file(&file.0);
+    {
+        let mut s = SqliteStore::open(&file.0).expect("opens");
+        s.create_account("Tester", Some(vec![1, 2, 3]), 100)
+            .expect("made");
+        a_rename_reaches_the_lists(&mut s);
+    }
+    let mut s = SqliteStore::open(&file.0).expect("opens again");
+    let lists = s.network_lists().expect("reads");
+    assert_eq!(lists.len(), 5);
+    assert!(lists.iter().all(|l| l.entry != "Elara"), "{lists:?}");
+}
+
 /// Behaviour: server.friends.lists-kept
 #[test]
 fn the_memory_store_keeps_the_friends_lists_alike() {

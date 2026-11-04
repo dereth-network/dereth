@@ -192,3 +192,87 @@ fn the_lists_outlive_a_restart_of_the_service() {
         }]
     );
 }
+
+/// Friend and ignore entries follow a rename, for a character in the world or not, and for good: the
+/// lists it is asked for, what it can take off, the world's own tell's names, and the lists as a
+/// later start reads them. An entry for another world's character of that name stays. One who lists
+/// both names lists it once.
+/// Behaviour: server.friends.lists-follow-a-rename
+#[test]
+fn other_characters_lists_hold_a_renamed_character_by_its_new_name() {
+    let mut w = World::linked();
+    let ann = w.player("Ann");
+    w.on("Ann");
+    let (_, ann_id) = w.ids("Ann");
+    w.player("Bob");
+    w.character("Robertson");
+    for user in ["Bob", "Robertson", "Bob@coldeve"] {
+        w.request(ann, Request::FriendAdd { user: user.into() });
+    }
+    for user in ["Bob", "Robertson"] {
+        w.request(ann, Request::IgnoredAdd { user: user.into() });
+    }
+    w.hub(&Message::Presence {
+        to: addr("Ann@dawnsong"),
+        of: addr("Bob@coldeve"),
+        online: false,
+    });
+    w.frames();
+    w.take(ann);
+    assert!(w.service.local_ignores().is_some());
+
+    let (_, freed) = w.ids("Robertson");
+    w.store.purge_character(freed).expect("its name free");
+    w.rename("Bob", "Robertson");
+
+    let cx = w.request(ann, Request::GetFriendsList);
+    let Answer::GetFriendsList { friends } = answer(&w.take(ann), cx).1 else {
+        panic!("its list");
+    };
+    let names: Vec<&str> = friends.iter().map(|f| f.user.as_str()).collect();
+    assert_eq!(names, ["Robertson@Dawnsong", "Bob@coldeve"]);
+    let cx = w.request(ann, Request::GetIgnoredList);
+    assert_eq!(
+        answer(&w.take(ann), cx).1,
+        Answer::GetIgnoredList {
+            ignored: vec!["Robertson@Dawnsong".to_owned()]
+        }
+    );
+    let ignoring = w.service.local_ignores().expect("changed");
+    assert_eq!(
+        ignoring[&ann_id],
+        std::collections::HashSet::from(["robertson".to_owned()])
+    );
+
+    let mut again = Service::load(Config::new(NAME, SLUG), &mut w.store).expect("reads");
+    assert_eq!(
+        again.local_ignores().expect("all of it"),
+        ignoring,
+        "a restart"
+    );
+
+    let cx = w.request(ann, Request::FriendDelete { user: "Bob".into() });
+    assert_eq!(
+        answer(&w.take(ann), cx).0,
+        NOT_IN_LIST,
+        "the old name is off it"
+    );
+    let cx = w.request(
+        ann,
+        Request::FriendDelete {
+            user: "Robertson".into(),
+        },
+    );
+    assert_eq!(answer(&w.take(ann), cx).0, Hr::OK, "the new one comes off");
+    let lists = w.store.network_lists().expect("reads");
+    assert!(
+        lists.iter().all(|l| l.entry != "Bob" && l.entry != "bob"),
+        "{lists:?}"
+    );
+    assert!(
+        lists
+            .iter()
+            .all(|l| l.entry != "Robertson" || l.list == yalain_store::NetworkList::Ignored),
+        "{lists:?}"
+    );
+}

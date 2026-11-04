@@ -218,18 +218,67 @@ impl Federation {
         Ok(true)
     }
 
+    /// A character is about to take a new name, the friends service still knowing it by this one:
+    /// while it is present and on the network, its address's watchers and its friends on other
+    /// worlds see that address offline, and it stops watching under it.
+    pub fn renaming(&mut self, friends: &impl Friends, name: &str) {
+        self.out_of_sight(friends, name);
+    }
+
+    /// A character has taken a new name, which the friends service knows it by now. An address is a
+    /// name, so to other worlds this is another character: nobody keeps watching the old one, and
+    /// it is taken out of the directory. It stays on the network under the new name, and is listed
+    /// and watches its friends again under it. What its friends' worlds told it stands, so its
+    /// client is shown nothing new of them when they answer again. A character the hub holds out
+    /// stays held out.
+    pub fn renamed(&mut self, friends: &impl Friends, old: &str, new: &str) {
+        let (from, to) = (old.to_lowercase(), new.to_lowercase());
+        self.watchers.remove(&from);
+        let Some(mut on) = self.on.remove(&from) else {
+            return;
+        };
+        let id = on.id;
+        new.clone_into(&mut on.name);
+        self.on.insert(to.clone(), on);
+        let told: Vec<(String, String)> = self
+            .presence
+            .keys()
+            .filter(|(c, _)| *c == from)
+            .cloned()
+            .collect();
+        for key in told {
+            let moved = (to.clone(), key.1.clone());
+            if self.presence_due.remove(&key) {
+                self.presence_due.insert(moved.clone());
+            }
+            if let Some(status) = self.presence.remove(&key) {
+                self.presence.insert(moved, status);
+            }
+        }
+        self.listing_renamed(id, old, new);
+        if friends.present(new).is_some() {
+            self.arrived(friends, new);
+        }
+    }
+
     /// A character is off the network now, its setting kept: while it is present, its watchers
     /// and friends on other worlds see it offline, and it stops watching its friends.
     pub(crate) fn went_off(&mut self, friends: &impl Friends, name: &str) {
+        self.out_of_sight(friends, name);
+        let character = name.to_lowercase();
+        self.presence.retain(|(c, _), _| *c != character);
+        self.presence_due.retain(|(c, _)| *c != character);
+        self.on.remove(&character);
+    }
+
+    /// While a character is present, its watchers and friends on other worlds see it offline, and
+    /// it stops watching its friends.
+    fn out_of_sight(&mut self, friends: &impl Friends, name: &str) {
         if self.enabled() && friends.present(name).is_some() {
             self.tell_watchers(friends, name, Some(false));
             self.watch_friends_of(friends, name, false);
             self.watch_person(name, false);
         }
-        let character = name.to_lowercase();
-        self.presence.retain(|(c, _), _| *c != character);
-        self.presence_due.retain(|(c, _)| *c != character);
-        self.on.remove(&character);
     }
 
     /// A present character on the network added a friend on another world: it is watched while

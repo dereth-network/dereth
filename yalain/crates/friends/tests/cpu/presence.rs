@@ -626,3 +626,156 @@ fn a_hidden_character_is_not_there_to_other_worlds() {
     assert!(sent.contains(&online("Bob@coldeve")), "{sent:?}");
     assert!(sent.contains(&starts), "{sent:?}");
 }
+
+/// A renamed character stays in the world with its stream and its state, by the new name alone: a
+/// friend present sees the old name go and the new come, once each, in the state it has; a tell
+/// finds the new name and not the old; and leaving goes by the new name. A friend's list, and one it
+/// asks for or enters to, holds the new name.
+/// Behaviour: server.friends.rename-seen-at-once
+#[test]
+fn a_renamed_character_stays_present_under_its_new_name_alone() {
+    let mut w = World::new();
+    let ann = w.player("Ann");
+    let bob = w.player("Bob");
+    w.character("Cara");
+    let cara = w.stream("Cara");
+    let dan = w.player("Dan");
+    w.request(ann, Request::FriendAdd { user: "Bob".into() });
+    w.request(ann, Request::FriendAdd { user: "Dan".into() });
+    w.enter("Cara");
+    w.take(cara);
+    w.request(cara, Request::FriendAdd { user: "Bob".into() });
+    w.leave("Cara");
+    w.request(
+        bob,
+        Request::SetLoc {
+            flags: 2,
+            location: String::new(),
+        },
+    );
+    for s in [ann, bob, cara, dan] {
+        w.take(s);
+    }
+
+    w.rename("Bob", "Robert");
+    let away = Mode::ONLINE.with(Mode::AWAY);
+    assert_eq!(
+        events(&w.take(ann)),
+        vec![
+            stat(&here("Bob"), Mode::OFFLINE),
+            stat(&here("Robert"), away)
+        ],
+        "the old name goes, the new comes, in its state"
+    );
+    assert!(events(&w.take(dan)).is_empty(), "one who lists it not");
+    assert!(
+        events(&w.take(bob)).is_empty(),
+        "its own client: its stream goes on"
+    );
+    assert!(w.service.is_present("robert"));
+    assert!(!w.service.is_present("Bob"));
+
+    let cx = w.request(ann, Request::GetFriendsList);
+    assert_eq!(
+        answer(&w.take(ann), cx).1,
+        Answer::GetFriendsList {
+            friends: vec![
+                status(&here("Robert"), away),
+                status(&here("Dan"), Mode::ONLINE)
+            ]
+        }
+    );
+    // Its own requests go on, as the new name.
+    let cx = w.request(
+        bob,
+        Request::SetLoc {
+            flags: 0,
+            location: String::new(),
+        },
+    );
+    assert_eq!(answer(&w.take(bob), cx).0, Hr::OK);
+    assert_eq!(
+        events(&w.take(ann)),
+        vec![stat(&here("Robert"), Mode::ONLINE)]
+    );
+
+    let tell = |w: &mut World, user: &str| {
+        let cx = w.request(
+            ann,
+            Request::SendToUserEx {
+                user: user.into(),
+                text: "Psst".into(),
+                extra: None,
+            },
+        );
+        answer(&w.take(ann), cx).0
+    };
+    assert_eq!(tell(&mut w, "Robert"), Hr::OK);
+    assert_eq!(events(&w.take(bob)).len(), 1, "it hears");
+    assert_eq!(
+        tell(&mut w, "Bob"),
+        Hr::NO_SUCH_USER,
+        "the old name is nobody"
+    );
+
+    // Who was out of the world when it happened finds the new name on entering.
+    w.enter("Cara");
+    let got = w.take(cara);
+    assert_eq!(
+        events(&got),
+        vec![Event::FStart {
+            friends: vec![status(&here("Robert"), Mode::ONLINE)]
+        }]
+    );
+
+    w.leave("Robert");
+    assert_eq!(
+        events(&w.take(ann)),
+        vec![stat(&here("Robert"), Mode::OFFLINE)]
+    );
+    assert!(!w.service.is_present("Robert"), "gone by the new name");
+}
+
+/// A character renamed while hidden tells nobody either name, and comes back under the new one.
+/// Behaviour: server.friends.rename-seen-at-once
+#[test]
+fn a_hidden_character_renamed_is_seen_only_as_it_comes_back() {
+    let mut w = World::new();
+    let ann = w.player("Ann");
+    w.player("Bob");
+    w.request(ann, Request::FriendAdd { user: "Bob".into() });
+    hide(&mut w, &["Bob"]);
+    w.take(ann);
+    w.rename("Bob", "Robert");
+    assert!(events(&w.take(ann)).is_empty());
+    hide(&mut w, &[]);
+    assert_eq!(
+        events(&w.take(ann)),
+        vec![stat(&here("Robert"), Mode::ONLINE)]
+    );
+}
+
+/// A character handed over to a new client and renamed before its old body left is held under the
+/// new name, and goes under it when the time is up.
+/// Behaviour: server.friends.rename-seen-at-once
+#[test]
+fn a_character_renamed_after_a_hand_over_goes_under_its_new_name() {
+    let mut w = World::new();
+    let ann = w.player("Ann");
+    w.player("Bob");
+    w.request(ann, Request::FriendAdd { user: "Bob".into() });
+    let again = w.stream("Bob");
+    w.take(again);
+    w.take(ann);
+    w.rename("Bob", "Robert");
+    w.take(ann);
+    w.leave("Robert");
+    assert!(w.service.is_present("Robert"), "held");
+    assert!(events(&w.take(ann)).is_empty());
+    w.advance(yalain_friends::HAND_OVER.as_secs());
+    assert!(!w.service.is_present("Robert"), "gone at last");
+    assert_eq!(
+        events(&w.take(ann)),
+        vec![stat(&here("Robert"), Mode::OFFLINE)]
+    );
+}

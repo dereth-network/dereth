@@ -98,6 +98,14 @@ pub fn world_name(name: &str, sex: u32) -> String {
 /// The quality a player's name is, as an object's name is.
 pub const NAME_QUALITY: u32 = 256;
 
+/// A character's name changed in the world, for the host's services that know it by name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Renamed {
+    pub character: u64,
+    pub old: String,
+    pub new: String,
+}
+
 /// Make a player's encoded qualities name it.
 pub fn set_name(qualities: &mut Vec<u8>, name: &str, sex: u32) {
     let mut q = crate::quals::read(qualities);

@@ -34,6 +34,18 @@ pub(crate) fn read_entry(entry: &str) -> Target {
     }
 }
 
+/// A list's entry for a character of this world under its old name (`from`, in small letters) now
+/// names it `new` (`to`, in small letters), keeping its place; a list that held both holds it once.
+pub(crate) fn rename(list: &mut Vec<String>, from: &str, to: &str, new: &str) {
+    if !list.iter().any(|e| e.to_lowercase() == from) {
+        return;
+    }
+    list.retain(|e| e.to_lowercase() != to);
+    for e in list.iter_mut().filter(|e| e.to_lowercase() == from) {
+        new.clone_into(e);
+    }
+}
+
 /// What an address names.
 fn by_address(address: &str) -> Target {
     match Address::parse(address) {
