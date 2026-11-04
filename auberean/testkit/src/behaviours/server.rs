@@ -2851,6 +2851,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.friends.suffixed-name",
+        says: "A name on the friends stream may be one in the world as a client shows it, with its \
+               suffix, as the client's add button and a tell by the shown name send it: a friend, \
+               a squelch and a tell find the character and keep its own name; its own name wins; \
+               a cloaked admin's shown name is no one.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-SUFFIXED"),
+        station: "yalain-friends::cpu::friends::a_friend_or_a_squelch_by_a_name_with_its_suffix_keeps_the_character",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.friends.tell-within-the-world",
         says: "A tell to a present character of this world reaches its stream from the teller as \
                Name@ and the world's name, with its extra data, answered done (with the world's \

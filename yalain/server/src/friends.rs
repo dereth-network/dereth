@@ -377,6 +377,8 @@ impl Friends {
             &mut server.store,
             fed.as_deref_mut(),
         );
+        self.service
+            .set_suffixed(yalain_world::presence::suffixed_characters(server));
         for (account, (character, name)) in here {
             if self.in_world.contains_key(&account) {
                 continue;
@@ -599,6 +601,44 @@ mod tests {
         assert!(h.now.0 - left > 10.0, "it lingered");
         f.world(at(&h), &mut h.server, None);
         assert_eq!(f.in_world.get(&account), None, "gone with its body");
+    }
+
+    /// The world tells the service who has a suffix on every pass: a name as a client shows it finds
+    /// the character until the suffix comes off, and never while it is cloaked.
+    /// Behaviour: server.friends.suffixed-name
+    #[test]
+    fn the_service_knows_the_names_clients_are_shown_while_they_are_shown() {
+        use yalain_friends::Target;
+        let mut h = Harness::new();
+        let service = Service::new(yalain_friends::Config::new("Dawnsong", ""));
+        let mut f = Friends::start(service, None).expect("no listener");
+        let (_, id) = h.player_in_world("one", "Elara");
+        let shown = "Elara St. 3@Dawnsong";
+        let world = |h: &Harness| {
+            *h.server
+                .players
+                .iter()
+                .find(|(_, p)| p.character == id)
+                .expect("in the world")
+                .0
+        };
+        let at_now = at(&h);
+        f.world(at_now, &mut h.server, None);
+        assert_eq!(f.service.target(shown), Target::NoSuchUser);
+        let w = world(&h);
+        let p = h.server.players.get_mut(&w).expect("in the world");
+        "St. 3".clone_into(&mut p.play.suffix);
+        f.world(at_now, &mut h.server, None);
+        assert_eq!(f.service.target(shown), Target::Local("Elara".into()));
+        let p = h.server.players.get_mut(&w).expect("in the world");
+        p.admin.cloaked = true;
+        f.world(at_now, &mut h.server, None);
+        assert_eq!(f.service.target(shown), Target::NoSuchUser);
+        let p = h.server.players.get_mut(&w).expect("in the world");
+        p.admin.cloaked = false;
+        p.play.suffix.clear();
+        f.world(at_now, &mut h.server, None);
+        assert_eq!(f.service.target(shown), Target::NoSuchUser);
     }
 
     /// A stream for an account, admitted without a check of its ticket.

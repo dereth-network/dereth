@@ -285,6 +285,8 @@ pub struct Service {
     gagged: HashSet<u64>,
     /// The characters no one is to know are here, as the host says.
     hidden: HashSet<u64>,
+    /// Those in the world with a suffix, by the name a client shows, in small letters.
+    suffixed: HashMap<String, String>,
 }
 
 /// The time as the link's half counts it.
@@ -344,6 +346,7 @@ impl Service {
             now: Duration::ZERO,
             gagged: HashSet::new(),
             hidden: HashSet::new(),
+            suffixed: HashMap::new(),
         }
     }
 
@@ -586,6 +589,14 @@ impl Service {
     /// service go nowhere.
     pub fn set_gagged(&mut self, characters: HashSet<u64>) {
         self.gagged = characters;
+    }
+
+    /// The characters in the world with a suffix, each as a client shows it and by its own name.
+    pub fn set_suffixed(&mut self, characters: impl IntoIterator<Item = (String, String)>) {
+        self.suffixed = characters
+            .into_iter()
+            .map(|(shown, own)| (shown.to_lowercase(), own))
+            .collect();
     }
 
     /// The characters no one is to know are here, as the world says. Those newly so go offline to

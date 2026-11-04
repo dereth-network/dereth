@@ -5,6 +5,10 @@
 //! its network address. A character of this world is written back as `Name@` and the world's
 //! name exactly as its login names it, so that the client recognizes its own world; another
 //! world's as its address.
+//!
+//! A name may be one in the world as a client shows it, with its suffix ([`Service::set_suffixed`]):
+//! the client's own add button and a tell by the name it shows send that. The character is meant,
+//! and its own name wins, as in the world's chat.
 
 use dereth_network_protocol::address::is_character_name;
 use dereth_network_protocol::Address;
@@ -84,6 +88,12 @@ impl Service {
             }
         };
         if local {
+            let lower = name.to_lowercase();
+            if !self.here.contains_key(&lower) {
+                if let Some(own) = self.suffixed.get(&lower) {
+                    return Target::Local(own.clone());
+                }
+            }
             return if is_character_name(name) {
                 Target::Local(name.to_owned())
             } else {

@@ -355,6 +355,17 @@ pub fn cloaked_characters<S: Store>(s: &Server<S>) -> std::collections::HashSet<
         .collect()
 }
 
+/// The characters in the world with a suffix, as a client shows each and by its own name, for the
+/// friends service, which is told of no cloaked admin.
+#[must_use]
+pub fn suffixed_characters<S: Store>(s: &Server<S>) -> Vec<(String, String)> {
+    s.players
+        .values()
+        .filter(|p| !p.play.suffix.is_empty() && !p.admin.cloaked)
+        .map(|p| (p.shown_name(), p.name.clone()))
+        .collect()
+}
+
 /// An admin was cloaked, or no longer is: the clients that may no longer see it see it leave, and
 /// those that may now are told of it.
 pub fn cloak_changed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
