@@ -318,7 +318,6 @@ impl StringInfo {
 
     /// The reference's bucket among `n`: a literal's text hashed, else its table's and its
     /// token's remainders added. `n` must not be 0 (the client divides by it); 0 answers 0.
-    // D2-14123
     #[must_use]
     pub fn bucket(&self, n: u32) -> u32 {
         if n == 0 {

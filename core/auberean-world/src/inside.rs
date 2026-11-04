@@ -1102,7 +1102,7 @@ impl BlockLights {
     /// not directional light every vertex (`max(n·l, 0)` over `1 + 10 d² / R²`) and lean its
     /// direction toward themselves, each by `max(1 - d² / R², 0)`; the direction is made a unit at
     /// the end.
-    // D2-03609, D2-03517, D2-03526, D2-03494, D2-03495, D2-03559, D2-03567, D2-13326
+    // D2-03609, D2-03517, D2-03526, D2-03559, D2-03567, D2-13326
     #[must_use]
     pub fn cell_vertices(
         &self,
@@ -1122,7 +1122,7 @@ impl BlockLights {
     /// intensity at that moment, `at` (the client's running time, and its generator for a light
     /// whose intensity is noise, rolled afresh for each vertex), or at its intensity's start with
     /// none; and the lean toward each listed light.
-    // D2-03609, D2-03526, D2-13326, D2-13338, D2-03898, D2-03915, D2-03916
+    // D2-03609, D2-03526, D2-03494, D2-03495, D2-13326, D2-13338, D2-03898, D2-03915, D2-03916
     #[must_use]
     pub fn cell_bake(
         &self,

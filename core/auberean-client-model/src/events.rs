@@ -983,13 +983,14 @@ impl EventQueue {
     /// [`Self::take_force_creates`], with those a blocked visual queue gave up on), then
     /// let go of the objects forgotten since the last upkeep, and of whatever waited for them
     /// (they come out of [`Self::take_destroyed`]).
-    // D2-05739, D2-05723
+    // D2-05739
     pub fn use_time(&mut self, now: f64) {
         self.use_time_creating(now, |_| false);
     }
 
     /// The upkeep ([`Self::use_time`]), where `being_created` says which objects are being made
     /// from their records: a queue waiting for one of them is never given up.
+    // D2-05723
     pub fn use_time_creating(&mut self, now: f64, being_created: impl Fn(u64) -> bool) {
         // Objects whose time to be destroyed came go with the forgotten ones, earliest first.
         let mut due: Vec<(f64, u64)> = self
