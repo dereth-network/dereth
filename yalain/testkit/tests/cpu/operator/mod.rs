@@ -14,3 +14,4 @@ mod reload_veins;
 mod saves;
 mod sessions;
 mod shutdown;
+mod store_faults;

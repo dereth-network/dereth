@@ -160,6 +160,13 @@ pub struct PlayState {
 /// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix).
 const VERSION: u32 = 15;
 
+/// Do these bytes say a newer build kept them (a world that went back to an older build)?
+#[must_use]
+pub fn kept_by_a_newer_build(b: &[u8]) -> bool {
+    b.first_chunk::<4>()
+        .is_some_and(|w| u32::from_le_bytes(*w) > VERSION)
+}
+
 /// Which of a treasure item's own properties are kept: its least level, its Arcane Lore, its effect.
 const OWN_MIN_LEVEL: u32 = 0x1;
 const OWN_ARCANE_LORE: u32 = 0x2;

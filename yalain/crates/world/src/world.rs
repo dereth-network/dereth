@@ -30,6 +30,7 @@
 use dereth_primitives::num::math;
 use std::collections::BTreeMap;
 
+use auberean_protocol::login::CharacterRefused;
 use auberean_protocol::physics::{position_flags, Fx, ObjectPosition, Word};
 use auberean_protocol::types::{ObjectStamp, Qualities, VisualDesc};
 use auberean_protocol::wire::{Field, Reader, Writer};
@@ -291,8 +292,63 @@ pub(crate) fn first_state<S: Store>(s: &Server<S>, c: &yalain_store::Character) 
     }
 }
 
+/// What a character is kept as, for its entry; the reason its client is refused when it cannot be
+/// read. A character whose kept state cannot be read does not enter: played on a new state, its next
+/// save would write over what it had. The bytes stay where they are in the store, and the operator is
+/// told which.
+pub(crate) fn kept_for_entry<S: Store>(
+    s: &mut Server<S>,
+    c: &yalain_store::Character,
+) -> Result<(WorldState, crate::state::PlayState), u32> {
+    let id = format_args!("{:#x}", c.id);
+    let st = match s.store.world_state(c.id) {
+        Ok(st) => st.unwrap_or_default(),
+        Err(e) => {
+            tracing::error!(
+                id = %id,
+                "{}: the store could not read this character, so it may not enter: {e}",
+                c.name
+            );
+            return Err(CharacterRefused::ERROR);
+        }
+    };
+    let damaged = |what: &str, e: &str| {
+        tracing::error!(
+            id = %id,
+            "{}: its kept {what} does not read, so it may not enter: {e}. Nothing is changed: its \
+             bytes stay in the database, in the character's rows of world_state and play_state",
+            c.name
+        );
+        CharacterRefused::CORRUPT_CHARACTER
+    };
+    let play = crate::state::PlayState::from_bytes(&st.play).map_err(|e| {
+        if crate::state::kept_by_a_newer_build(&st.play) {
+            tracing::error!(
+                id = %id,
+                "{}: a newer Yalain kept this character, so it may not enter this one: {e}. Nothing \
+                 is changed: run that Yalain, or put back a backup kept before its upgrade",
+                c.name
+            );
+            return CharacterRefused::OLD_CHARACTER;
+        }
+        damaged("play state", &e)
+    })?;
+    if !st.qualities.is_empty() {
+        Qualities::read(&mut Reader::new(&st.qualities))
+            .map_err(|e| damaged("qualities", &e.to_string()))?;
+    }
+    if !st.options.is_empty() {
+        Options::from_packed(&st.options).map_err(|e| damaged("options", &e))?;
+    }
+    Ok((st, play))
+}
+
 /// A character enters the world on a connection (its world connection, or its login connection
-/// when the server sends no referral).
+/// when the server sends no referral). A character that may not is not touched, and the reason its
+/// client is to be told comes back.
+///
+/// # Errors
+/// The reason to refuse it with: its state cannot be read.
 pub fn enter<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -300,19 +356,24 @@ pub fn enter<S: Store>(
     login: ConnId,
     character: u64,
     clock: Clock,
-) {
-    let Ok(Some(c)) = s.store.character(character) else {
-        s.unhandled
-            .note("entering with a character the store has not");
-        return;
+) -> Result<(), u32> {
+    let c = match s.store.character(character) {
+        Ok(Some(c)) => c,
+        Ok(None) => {
+            s.unhandled
+                .note("entering with a character the store has not");
+            return Err(CharacterRefused::NOT_OWNED);
+        }
+        Err(e) => {
+            tracing::error!(
+                id = format_args!("{character:#x}"),
+                "the store could not read this character, so it may not enter: {e}"
+            );
+            return Err(CharacterRefused::ERROR);
+        }
     };
+    let (mut st, play) = kept_for_entry(s, &c)?;
     let fresh = first_state(s, &c);
-    let mut st = s
-        .store
-        .world_state(character)
-        .ok()
-        .flatten()
-        .unwrap_or_default();
     if st.qualities.is_empty() {
         st.qualities = fresh.qualities;
     }
@@ -325,7 +386,7 @@ pub fn enter<S: Store>(
     let Some(position) = st.position else {
         s.unhandled
             .note("a character with no start area for its race");
-        return;
+        return Ok(());
     };
     // One that left the world dead enters where it returns to, and comes back a moment later.
     let dead = crate::examine::Vitals::of_qualities(&st.qualities).is_some_and(|v| v.health == 0);
@@ -343,13 +404,14 @@ pub fn enter<S: Store>(
     let conflict = crate::kingdoms::status_at(&s.content.conflict, position.cell);
     crate::kingdoms::entering(&mut st.qualities, conflict, new_character);
     let _ = s.store.set_world_state(character, &st);
-    let options = Options::from_packed(&st.options).unwrap_or_else(|e| {
-        tracing::warn!(
+    let options = Options::from_packed(&st.options).map_err(|e| {
+        tracing::error!(
             id = format_args!("{character:#x}"),
-            "kept options do not read ({e}); a new character's"
+            "{}: a new character's options do not read: {e}",
+            c.name
         );
-        Options::new_character(&s.start.skills.get(&c.race).cloned().unwrap_or_default())
-    });
+        CharacterRefused::CORRUPT_CHARACTER
+    })?;
     // The template follows the account's flag at every entry: an admin character of an account no
     // longer an admin's enters as a player.
     let admin_character = c.entity_did == player::ADMIN_ENTITY
@@ -393,10 +455,7 @@ pub fn enter<S: Store>(
         following: None,
         trip: None,
         places: st.places.clone(),
-        play: crate::state::PlayState::from_bytes(&st.play).unwrap_or_else(|e| {
-            tracing::warn!(id = format_args!("{character:#x}"), "kept play state: {e}");
-            crate::state::PlayState::default()
-        }),
+        play,
         shopping: None,
         attacking: None,
         dying: None,
@@ -640,6 +699,7 @@ pub fn enter<S: Store>(
             )
         )
     );
+    Ok(())
 }
 
 /// Keep what a character is in the world. Its next periodic save is counted from now

@@ -4996,6 +4996,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.a-state-that-will-not-read-refuses-entry",
+        says: "A character whose kept state cannot be read (the database fails, the state \
+               is damaged, a newer build kept it) is refused its entry with the client's \
+               own words for it, and nothing is written over what it had.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STATE-UNREADABLE"),
+        station: "yalain-testkit::cpu::operator::store_faults::a_damaged_state_refuses_the_entry_and_its_bytes_stay",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.access-levels-become-the-admin-flag",
         says: "A database kept with access levels takes the admin flag in their place: the highest level \
                with a secret is an admin; every level below, and the highest with no secret, a player named \

@@ -828,11 +828,25 @@ fn enter<S: Store>(
     character: u64,
     clock: Clock,
 ) {
-    let Some(c) = owned(s, conn, character) else {
+    let Some(account) = s.sessions.get(&conn).map(|x| x.account.id) else {
+        return refuse(net, conn, CharacterRefused::NOT_OWNED);
+    };
+    let c = match s.store.character(character) {
+        Ok(found) => found.filter(|c| c.account == account && c.deleted_at.is_none()),
+        Err(e) => {
+            tracing::error!(?conn, "the store could not read a character to enter: {e}");
+            return refuse(net, conn, CharacterRefused::ERROR);
+        }
+    };
+    let Some(c) = c else {
         return refuse(net, conn, CharacterRefused::NOT_OWNED);
     };
     if account_in_world(s, c.account) {
         return refuse(net, conn, CharacterRefused::IN_WORLD);
+    }
+    // One that cannot be read is told so before it is sent anywhere.
+    if let Err(reason) = crate::world::kept_for_entry(s, &c) {
+        return refuse(net, conn, reason);
     }
     if !s.cfg.referral {
         if let Some(session) = s.sessions.get_mut(&conn) {
@@ -846,7 +860,9 @@ fn enter<S: Store>(
             id = format_args!("{character:#x}"),
             "entering the world on the login connection"
         );
-        crate::world::enter(s, net, conn, conn, character, clock);
+        if let Err(reason) = crate::world::enter(s, net, conn, conn, character, clock) {
+            entry_refused(s, net, conn, conn, reason);
+        }
         return;
     }
     let Some(cookie) = net.refer(conn, clock.local) else {
@@ -860,6 +876,24 @@ fn enter<S: Store>(
         id = format_args!("{character:#x}"),
         "entering the world: referral sent"
     );
+}
+
+/// An entry under way is refused after all: back at the character list, with why.
+fn entry_refused<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    login: ConnId,
+    world: ConnId,
+    reason: u32,
+) {
+    if let Some(session) = s.sessions.get_mut(&login) {
+        session.stage = Stage::Selecting;
+    }
+    if world != login {
+        s.worlds.remove(&world);
+        net.close(world);
+    }
+    refuse(net, login, reason);
 }
 
 /// A player logs off: a character in the world first lingers in it (its leaving ends in
@@ -1049,7 +1083,9 @@ pub(crate) fn world_joined<S: Store>(
                 id = format_args!("{character:#x}"),
                 "world connection up"
             );
-            crate::world::enter(s, net, world, login, character, clock);
+            if let Err(reason) = crate::world::enter(s, net, world, login, character, clock) {
+                entry_refused(s, net, login, world, reason);
+            }
         }
         _ => net.close(world),
     }

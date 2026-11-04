@@ -65,6 +65,7 @@ what they see, not how it was done.
 - A person's two-hour wait between quests counts only time played.
 - Fixed characters coming back stuck at 0 health after logging out dead.
 - Creature hits now take health as they land, so the hit shows before "killed you".
+- Fixed characters being wiped when their saved state couldn't be read: they're now refused entry.
 
 ## 0.1.2 (2026-11-03)
 

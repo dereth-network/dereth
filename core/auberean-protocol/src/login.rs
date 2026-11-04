@@ -277,10 +277,16 @@ pub struct CharacterRefused {
 }
 
 impl CharacterRefused {
+    /// "There has been an error."
+    pub const ERROR: u32 = 9;
     /// The character is still in the world.
     pub const IN_WORLD: u32 = 11;
     /// The character is not on this account.
     pub const NOT_OWNED: u32 = 13;
+    /// "You are trying to enter with an old character."
+    pub const OLD_CHARACTER: u32 = 15;
+    /// "This character is corrupt. Contact tech support for help."
+    pub const CORRUPT_CHARACTER: u32 = 16;
     /// The server has no room.
     pub const SERVER_FULL: u32 = 19;
     /// The character was booted from the world (the reason a boot ends a login with).

@@ -19,6 +19,7 @@
 #[cfg(feature = "retail-dats")]
 pub mod authored;
 pub mod bot;
+pub mod faults;
 pub mod invariants;
 pub mod play;
 #[cfg(feature = "retail-dats")]
