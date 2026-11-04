@@ -277,7 +277,7 @@ fn a_plugin_s_blip_is_drawn_on_the_minimap() {
 #[test]
 fn a_press_on_the_map_tells_the_plugins_the_place_under_the_pointer() {
     use dereth_client_contract::panels::map::{MapButton, MapClick};
-    use dereth_ui_screens::mapradar::map::{place_marker_on_map, SHIPPED_NOTE_BINDING};
+    use dereth_horizon::ui::panels::map::map_pixel;
     let state = in_world();
     let mut h = Harness::new(Default::default());
     h.frame(&state);
@@ -287,16 +287,6 @@ fn a_press_on_the_map_tells_the_plugins_the_place_under_the_pointer() {
         h.ui.windows
             .map_picture
             .expect("the map window draws its picture");
-    let fit = area.w / 257.0;
-    let markers = SHIPPED_NOTE_BINDING.2;
-    // The middle of the picture's pixel `(px, py)`, on the screen.
-    #[allow(clippy::cast_precision_loss)]
-    let at = |px: i32, py: i32| {
-        (
-            area.x + (px as f32 + 0.5) * fit,
-            area.y + (py as f32 + 0.5) * fit,
-        )
-    };
     let press = |h: &mut Harness, (x, y): (f32, f32), button: usize, shift: bool| {
         h.move_to(x, y);
         h.input.shift = shift;
@@ -310,8 +300,8 @@ fn a_press_on_the_map_tells_the_plugins_the_place_under_the_pointer() {
         h.ui.windows.plugins.take_inputs()
     };
 
-    let holtburg = place_marker_on_map(markers, 33.8, 42.2, (0, 0));
-    let told = press(&mut h, at(holtburg.0, holtburg.1), 0, false);
+    let holtburg = h.ui.windows.map_view.on_screen(area, map_pixel(42.2, 33.8));
+    let told = press(&mut h, holtburg, 0, false);
     let [Input::Map(MapClick {
         ns,
         ew,
@@ -323,18 +313,12 @@ fn a_press_on_the_map_tells_the_plugins_the_place_under_the_pointer() {
     else {
         panic!("one left press on the map: {told:?}");
     };
-    #[allow(clippy::cast_possible_truncation)]
-    let back = place_marker_on_map(markers, *ew as f32, *ns as f32, (0, 0));
-    assert_eq!(
-        back, holtburg,
-        "a marker at {ns}, {ew} lands on the pixel pressed"
-    );
     assert!(
-        (ns - 42.2).abs() < 0.85 && (ew - 33.8).abs() < 0.85,
-        "Holtburg to within a pixel: {ns}, {ew}"
+        (ns - 42.2).abs() < 0.2 && (ew - 33.8).abs() < 0.2,
+        "Holtburg to within a pixel of the screen: {ns}, {ew}"
     );
 
-    let told = press(&mut h, at(holtburg.0, holtburg.1), 1, true);
+    let told = press(&mut h, holtburg, 1, true);
     assert!(
         matches!(
             told.as_slice(),
@@ -347,8 +331,8 @@ fn a_press_on_the_map_tells_the_plugins_the_place_under_the_pointer() {
         "a right press with Shift: {told:?}"
     );
 
-    let told = press(&mut h, at(markers.x0 - 3, markers.y0 + 50), 0, false);
-    assert!(told.is_empty(), "the margin is beyond the world: {told:?}");
+    let told = press(&mut h, (area.x - 3.0, area.y + 50.0), 0, false);
+    assert!(told.is_empty(), "beside the picture: {told:?}");
 }
 
 /// The places a HUD may be anchored to.

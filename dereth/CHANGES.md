@@ -63,6 +63,9 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - macOS: Intel Macs are no longer supported; Apple silicon only.
 - Better Lighting: no more white line across things standing in water.
 - Fixed a right-drag begun away from the window's middle throwing the camera across.
+- Horizon: a new, far more detailed world map, drawn from the game's own files in the original
+  map's colours, with every major town marked and named on it, and the cottages, villas and
+  mansions as you zoom in. The wheel zooms in on it and a drag pans around it.
 
 ## 0.4.12 (2026-11-03)
 
