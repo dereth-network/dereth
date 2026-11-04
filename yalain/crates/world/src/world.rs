@@ -776,6 +776,7 @@ pub fn leave<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
         crate::pets::owner_leaves(s, net, id);
         crate::plants::owner_leaves(s, net, id);
         crate::drops::left(s, world);
+        crate::gives::left(s, net, world);
     }
     if let Some(p) = s.players.remove(&world) {
         presence::depart(s, net, &p);

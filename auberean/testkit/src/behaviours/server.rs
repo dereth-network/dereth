@@ -3327,6 +3327,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.a-step-under-way-runs-as-its-player-leaves",
+        says: "A player leaving with a give's step still to come (the gift already kept, \
+               the transformation under way) has the step run as it leaves: it is not out \
+               of its gift for nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-LEFT"),
+        station: "yalain-testkit::cpu::play::gives::a_hero_step_under_way_runs_as_its_player_leaves",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.gives.any-count-taken-whole",
         says: "A give's step that names no count runs for whatever is given and takes all of it.",
         since: RETAIL,

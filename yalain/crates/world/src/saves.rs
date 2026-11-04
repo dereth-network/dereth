@@ -58,6 +58,8 @@ struct Failing {
 pub struct Saves {
     /// The time as the world last read it.
     pub(crate) now: LocalTime,
+    /// The same, in seconds since 1970.
+    pub(crate) unix: i64,
     /// By character id: when it was last kept (or entered the world).
     last: HashMap<u64, LocalTime>,
     /// Characters' states not yet in the store.
@@ -201,6 +203,7 @@ pub(crate) fn read_record<S: Store, T>(
 /// unsaved first. A character the world has not seen before starts its wait now.
 pub(crate) fn tick<S: Store>(s: &mut Server<S>, clock: Clock) {
     s.saves.now = clock.local;
+    s.saves.unix = clock.unix;
     let interval = f64::from(s.cfg.save_seconds);
     let mut due: Vec<(f64, u64, ConnId)> = Vec::new();
     for (world, p) in &s.players {

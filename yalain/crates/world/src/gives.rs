@@ -684,6 +684,25 @@ fn transforms<S: Store>(
     );
 }
 
+/// A player leaves the world with a give's step still to come: its gift is gone, so the step runs now.
+pub(crate) fn left<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let mut due = Vec::new();
+    s.timers.retain(|(_, t)| match t {
+        Timer::GiveStep { world: w, step } if *w == world => {
+            due.push(step.clone());
+            false
+        }
+        _ => true,
+    });
+    let clock = Clock {
+        local: s.saves.now,
+        unix: s.saves.unix,
+    };
+    for step in due {
+        step_due(s, net, world, &step, clock);
+    }
+}
+
 /// A give's step due after its wait: run if it still may.
 pub fn step_due<S: Store>(
     s: &mut Server<S>,

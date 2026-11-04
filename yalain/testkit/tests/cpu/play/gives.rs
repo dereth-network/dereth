@@ -1057,6 +1057,38 @@ fn a_give_that_makes_a_hero_does_so_when_the_transformation_is_through() {
     );
 }
 
+/// One who logs off with its gift given and the transformation under way (the linger is shorter)
+/// has what the gift was for: it is a hero when it comes back, not out of its gift for nothing.
+/// Behaviour: server.gives.a-step-under-way-runs-as-its-player-leaves
+#[test]
+fn a_hero_step_under_way_runs_as_its_player_leaves() {
+    const ELYSA: u32 = 0x4000_024A;
+    const GEM: u32 = 0x4700_1505;
+    let mut h = world();
+    h.server.quests = QuestTable {
+        quests: vec![quest(ELYSA, 4)],
+        steps: vec![Step {
+            takes: vec![GEM],
+            effects: vec![gives::HERO_TRANSFORMATION],
+            ..step(ELYSA, 4, Trigger::Give(GEM, OBJECT_T), Update::Complete)
+        }],
+        gives: Vec::new(),
+    };
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, ELYSA, 4);
+    let (gem, slot) = hold(&mut h, me, GEM, 1);
+    h.bots[b].send(true, queue::WEENIE, &give(me, gem, slot, OBJECT, 1));
+    h.run(steps(HANDED_AFTER) + 8);
+    assert!(!holds(&h, me, gem), "kept");
+    let w = world_of(&h, me);
+    yalain_world::world::leave(&mut h.server, &mut h.net, w);
+    h.run(2);
+    let st = yalain_store::Store::world_state(&mut h.server.store, me)
+        .expect("reads")
+        .expect("kept");
+    assert!(yalain_world::focus::is_hero(&st.qualities), "a hero");
+}
+
 const NAMED_LINE: u32 = 0x3DE6_3E47;
 const TAKING_LINE: u32 = 0x4DAF_1F70;
 

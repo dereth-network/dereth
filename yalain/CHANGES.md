@@ -91,6 +91,7 @@ what they see, not how it was done.
 - A crash just after coming back no longer strips what your items carry.
 - Coins out of the money bag now need room in your pack.
 - Stores and brokers now only deal with you when you're near them.
+- A hero's gift under way is no longer lost if you log off.
 
 ## 0.1.2 (2026-11-03)
 
