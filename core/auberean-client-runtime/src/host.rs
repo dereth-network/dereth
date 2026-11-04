@@ -133,6 +133,8 @@ pub struct ClientHost {
     pub bodies: crate::body::Bodies,
     /// What the bodies say of themselves when the scripts ask, as a front end last read them.
     pub readings: crate::body::Readings,
+    /// What the cells the bodies have been in made of them, as a front end last read it.
+    pub materials: crate::body::Materials,
     /// What the scripts asked of the objects' bodies, in order, for a front end to carry out.
     pub body_requests: Vec<crate::physics_object::BodyRequest>,
     /// The kinds of log line the client keeps.
@@ -630,6 +632,7 @@ pub fn new_host(portal: Arc<DatFile>, program: Arc<Program>) -> ClientHost {
         frozen: HashMap::new(),
         bodies: HashMap::new(),
         readings: HashMap::new(),
+        materials: HashMap::new(),
         body_requests: Vec::new(),
         logs: crate::log_system::LogMasks::default(),
         looks: HashMap::new(),

@@ -1028,6 +1028,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.model.a-physics-objects-properties-are-its-bodys-material",
+        says: "A physics object's current properties are what the cells its body has been in made \
+               of it: an object whose body has stood in none, or with no body, has none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-PHYSICS-PROPERTIES"),
+        station: "auberean-client-runtime::cpu::scripts::physics_object::a_physics_objects_properties_are_its_bodys_material",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.model.a-quality-is-answered-by-the-description-then-the-object-then-its-record",
         says: "An object's quality is answered by its description, for a quality the description holds and has marked set; else by the object's own table of that kind; else by its qualities record, the record's description first and then its tables. Times, texts, positions, packages and 64-bit numbers are never the description's.",
         since: RETAIL,

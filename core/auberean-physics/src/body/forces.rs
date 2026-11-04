@@ -15,7 +15,7 @@
 
 use dereth_physics::geom::Plane;
 use dereth_physics::V3;
-use dereth_primitives::{Position, Vec3};
+use dereth_primitives::{CellId, Position, Vec3};
 
 use auberean_assets::animation::{ModeKey, MotionParams};
 use auberean_assets::property::{Property, PropertyCollection, PropertyList};
@@ -231,6 +231,12 @@ impl Body {
             .map(|v| Vec3::new(v.x, v.y, v.z));
         world.add_environmental_properties(key, material);
         self.update_gravity(gravity);
+    }
+
+    /// The cell the body last took its material from; none before the first.
+    #[must_use]
+    pub const fn material_cell(&self) -> Option<CellId> {
+        self.material_cell
     }
 
     /// What the cells the body has been in made of it; none before the first.

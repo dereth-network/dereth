@@ -68,6 +68,7 @@ not how it was done.
 - New `--adminclient` option shows the admin button when creating a character.
 - Resizing a chat window no longer loses its scroll bar.
 - Faces turned away from torches are no longer teal indoors.
+- `/cliprops` now shows the properties your surroundings give you.
 
 ## 0.1.2 (2026-11-02)
 

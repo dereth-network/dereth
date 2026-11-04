@@ -1,6 +1,8 @@
 //! An admin's whole session with the September 2013 data: our client and our server together, an
 //! admin character's commands typed into the client's command line and run by the game's own scripts.
 
+use auberean_assets::property::{Property, PropertyCollection, PropertyGroup, PropertyValue};
+use auberean_client_sdk::runtime::body::BodyMaterial;
 use auberean_client_sdk::Action;
 use yalain_testkit::session::{self as play, Drive, InProcess};
 use yalain_world::admin::{self, Issuer};
@@ -52,6 +54,31 @@ fn shown(s: &InProcess) -> Vec<String> {
 #[test]
 fn an_admin_characters_client_side_commands_run_to_their_end() {
     let mut s = admin_session();
+    // `/cliprops` lists what the cells made of the player's body. This session has no scene, so no
+    // bodies and no front end to publish one: it is handed over here, as the scene hands it over.
+    let me = s.client_ref().model.player.expect("the player");
+    s.client()
+        .with_host(|h| {
+            h.materials.insert(
+                me,
+                BodyMaterial {
+                    cell: 0,
+                    properties: PropertyCollection {
+                        groups: vec![PropertyGroup {
+                            group: 1,
+                            properties: vec![Property {
+                                id: 1,
+                                group: 1,
+                                value: PropertyValue::Integer(1),
+                                ..Property::default()
+                            }],
+                            optional: Vec::new(),
+                        }],
+                    },
+                },
+            );
+        })
+        .expect("the player's scripts run");
     for line in [
         "/cliprops",
         "/vm query cli",

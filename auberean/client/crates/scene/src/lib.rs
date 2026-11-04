@@ -2729,9 +2729,23 @@ impl<'w> Scene<'w> {
             return;
         };
         let readings = &mut scripts.host.readings;
+        let materials = &mut scripts.host.materials;
         readings.clear();
         let mut note = |id: u64, b: &Body, f: Option<&Figure>| {
             readings.insert(id, reading_of(b, f));
+            // Read again only when the body changes cell, which is when it changes.
+            if let (Some(cell), Some(properties)) = (b.material_cell(), b.current_properties()) {
+                if materials.get(&id).is_none_or(|m| m.cell != cell.0) {
+                    let properties = properties.clone();
+                    materials.insert(
+                        id,
+                        auberean_client_sdk::runtime::body::BodyMaterial {
+                            cell: cell.0,
+                            properties,
+                        },
+                    );
+                }
+            }
         };
         if let Some(p) = &self.player {
             note(p.id, &p.body, Some(&p.figure));
@@ -2749,6 +2763,7 @@ impl<'w> Scene<'w> {
                 note(id, &t.body, t.figure.as_ref());
             }
         }
+        materials.retain(|id, _| readings.contains_key(id));
     }
 
     /// What the scripts asked of the bodies since the last frame, carried out in order on each

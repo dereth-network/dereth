@@ -414,14 +414,8 @@ fn is_animation_frozen(c: &mut Call<'_>) -> Result<Status, Stop> {
     read_word(c, |h, id| u32::from(frozen(h, id, false)))
 }
 
-/// The physics object natives this module binds.
-/// A player's body entity, among its data ids.
-const BODY: u32 = 1;
-
-/// The properties of an object, as the entities it is made from give them (its look's, its body's,
-/// then its template's, each with those it descends from), into the collection at `fp[-2]`; whether it has a
-/// physics object (`fp[-3]`). This is what the data files give: what running animations have since
-/// changed is not kept apart.
+/// What the cells the object's body has been in made of it, into the collection at `fp[-2]`;
+/// whether it has any (`fp[-3]`): a body that has stood in no cell, or none at all, has not.
 // D2-04770, D2-08196
 fn current_properties(c: &mut Call<'_>) -> Result<Status, Stop> {
     let id = receiver_object(c)?;
@@ -435,27 +429,13 @@ fn current_properties(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
-/// The properties of an object, as the entities it is made from give them.
+/// What the cells the object's body has been in made of it: none for a body that has stood in no
+/// cell, or with no body.
 fn properties_of(
     c: &mut Call<'_>,
     id: u64,
 ) -> Result<Option<auberean_assets::property::PropertyCollection>, Stop> {
-    let h = host(c)?;
-    let made_from = h.model.object(id).map(|o| {
-        let body = o.qualities.data_ids.get(&BODY).copied().unwrap_or(0);
-        [o.visual.parent, body, o.weenie.entity_did]
-    });
-    Ok(h.cache.as_ref().filter(|d| !d.is_empty()).and_then(|d| {
-        let db = d.database();
-        made_from.map(|ids| {
-            let mut all = auberean_assets::property::PropertyCollection::default();
-            for e in ids.iter().filter_map(|e| db.entity(*e)) {
-                all.groups
-                    .extend(e.total_properties(&|i| db.entity(i)).groups);
-            }
-            all
-        })
-    }))
+    Ok(host(c)?.materials.get(&id).map(|m| m.properties.clone()))
 }
 
 /// The one property of an object named at `fp[-2]`, into the property the reference at `fp[-3]`
@@ -468,6 +448,7 @@ fn current_property(c: &mut Call<'_>) -> Result<Status, Stop> {
     auberean_glue::properties::give_property(c, found)
 }
 
+/// The physics object natives this module binds.
 pub(crate) fn natives() -> impl Iterator<Item = (NativeId, NativeFn)> {
     const PHYSICS_OBJECT: u32 = 0x80;
     let n: [(u32, NativeFn); 27] = [

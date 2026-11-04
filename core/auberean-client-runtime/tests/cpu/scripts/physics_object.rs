@@ -1,7 +1,7 @@
 //! An object's physics object as the scripts reach it, each native called as the machine calls one.
 
 use auberean_client_model::model::Place;
-use auberean_client_runtime::body::BodyReading;
+use auberean_client_runtime::body::{BodyMaterial, BodyReading};
 use auberean_client_runtime::physics_object::BodyRequest;
 use auberean_primitives::Vec3;
 use auberean_script::native_object::{native_type, NativeObject};
@@ -11,6 +11,33 @@ use auberean_script::Status;
 use crate::common::{Bench, ABSENT, ABSENT_REF, HOLDER, HOLDER_REF, ITEM, ITEM_REF};
 
 const PHYSICS_OBJECT: u32 = 0x80;
+
+/// A physics object's current properties are what the cells its body has been in made of it: an
+/// object whose body has stood in none, or with no body, has none.
+///
+/// Behaviour: script.model.a-physics-objects-properties-are-its-bodys-material
+#[test]
+fn a_physics_objects_properties_are_its_bodys_material() {
+    let mut b = Bench::new();
+    b.host.materials.insert(ITEM, BodyMaterial::default());
+    const COLLECTION: u32 = 0x5B;
+    let out =
+        b.vm.heap
+            .add_native(COLLECTION, NativeObject::Text(Vec::new()));
+    let args = [(out, tag::REFERENCE)];
+    assert_eq!(b.answer(PHYSICS_OBJECT, 0x4A, HOLDER_REF, &args), 0);
+    assert_eq!(b.answer(PHYSICS_OBJECT, 0x4A, ABSENT_REF, &args), 0);
+    assert_eq!(
+        b.vm.heap.native(out).unwrap(),
+        &NativeObject::Text(Vec::new()),
+        "nothing given"
+    );
+    assert_eq!(b.answer(PHYSICS_OBJECT, 0x4A, ITEM_REF, &args), 1);
+    assert!(matches!(
+        b.vm.heap.native(out).unwrap(),
+        NativeObject::Engine(_)
+    ));
+}
 
 /// What the scripts read of a physics object comes from its body as a front end read it (the
 /// radius and height of its top level from the object holding it); with no physics object, 0.

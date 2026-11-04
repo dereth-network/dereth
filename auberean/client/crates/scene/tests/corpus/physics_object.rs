@@ -64,6 +64,17 @@ fn the_scripts_read_each_bodys_physics_object() {
         let readings = &c.scripts.as_ref().expect("the scripts run").host.readings;
         followed += usize::from(readings.values().any(|r| r.remote_motion.is_some()));
     });
+    let materials = &c.scripts.as_ref().expect("the scripts run").host.materials;
+    let player_material = materials
+        .get(&c.model.player.expect("the player"))
+        .expect("the player's body stands in a cell");
+    assert_eq!(
+        Some(&player_material.properties),
+        scene
+            .body(c.model.player.expect("the player"))
+            .and_then(|b| b.current_properties()),
+        "the scripts read what the cell made of the body"
+    );
     let readings = &c.scripts.as_ref().expect("the scripts run").host.readings;
     let player = c.model.player.expect("the player");
     let (mut bodies, mut own_scaled, mut moded, mut following, mut scaled_read) = (0, 0, 0, 0, 0);
