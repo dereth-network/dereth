@@ -2624,6 +2624,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.friends.first-state-offline-quiet",
+        says: "A friend on another world first reported offline shows nothing: the client was told \
+               so with its friends and prints a line for every state. A first report of online, and \
+               a later change either way, are shown.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-FIRST-OFFLINE"),
+        station: "yalain-friends::cpu::network::a_friend_first_reported_offline_is_not_announced_as_having_left",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.friends.friend-added-and-removed",
         says: "A friend of this world must be a character of it, named with no world, the world's \
                name in any case or its slug, and is written back with the world's name exactly; \

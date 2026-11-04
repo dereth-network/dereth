@@ -134,12 +134,18 @@ impl Service {
                     return vec!["You are not on the Dereth Network.".to_owned()];
                 }
                 let linked = f.is_linked(name);
+                let shown: Vec<Address> = self
+                    .remote_friends(name)
+                    .into_iter()
+                    .filter(|a| f.shown(name, a) == Some(true))
+                    .collect();
                 match f.set_on(store, self, character, name, false) {
                     Ok(_) => {
-                        // Nothing of another world is watched for it now: each such friend shows
-                        // offline, until its world answers a watch again after `@dn on`.
-                        for friend in self.remote_friends(name) {
-                            self.show_presence(name, &friend, false, false);
+                        // Nothing of another world is watched for it now: each such friend shown
+                        // online shows offline, until its world answers a watch again after
+                        // `@dn on`.
+                        for friend in shown {
+                            self.show_presence(name, &friend, false, true);
                         }
                         let mut lines = vec![
                             "You are off the Dereth Network. Nobody on another world can see you \

@@ -660,7 +660,7 @@ impl Service {
                 .collect();
         f.left(self, name);
         for friend in shown {
-            yalain_federation::Friends::show_presence(self, name, &friend, false, false);
+            yalain_federation::Friends::show_presence(self, name, &friend, false, true);
         }
     }
 

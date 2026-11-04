@@ -206,7 +206,8 @@ pub trait Friends {
 
     /// Show a present character the state of a friend on another world, named as it listed the
     /// friend. `news`: a change from a state it was already shown; otherwise the first state
-    /// after the friend was added, or after its world (or the hub) came back.
+    /// after the friend was added, after the character arrived, or after its world (or the hub)
+    /// came back.
     fn show_presence(&mut self, to: &str, friend: &Address, online: bool, news: bool);
 
     /// A tell a character sent another world has ended ([`Federation::tell`]).

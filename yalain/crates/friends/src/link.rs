@@ -82,7 +82,7 @@ impl Friends for Service {
         }
     }
 
-    fn show_presence(&mut self, to: &str, friend: &Address, online: bool, _news: bool) {
+    fn show_presence(&mut self, to: &str, friend: &Address, online: bool, news: bool) {
         let key = (to.to_lowercase(), friend.key());
         if self.adding.contains_key(&key) {
             self.added(&key, online);
@@ -90,6 +90,11 @@ impl Friends for Service {
         }
         // An add shown offline for want of an answer: the answer, late, only if it is news.
         if self.assumed_offline.remove(&key) && !online {
+            return;
+        }
+        // The client was told offline when it was told its friends, and prints a line for every
+        // state: a first report of offline is nothing to it.
+        if !online && !news {
             return;
         }
         if let Some(stream) = self.here.get(&to.to_lowercase()).map(|h| h.stream) {

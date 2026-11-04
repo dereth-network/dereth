@@ -112,6 +112,57 @@ fn going_off_the_network_shows_each_friend_on_another_world_offline() {
     );
 }
 
+/// The client was told a friend on another world is offline when it was told its friends, and prints
+/// a line for every state: the first report of offline shows nothing, a first report of online does,
+/// and a later change either way does.
+/// Behaviour: server.friends.first-state-offline-quiet
+#[test]
+fn a_friend_first_reported_offline_is_not_announced_as_having_left() {
+    let mut w = World::linked();
+    let ann = w.player("Ann");
+    w.on("Ann");
+    for friend in ["Bob@coldeve", "Cal@coldeve"] {
+        let cx = w.request(
+            ann,
+            Request::FriendAdd {
+                user: friend.into(),
+            },
+        );
+        w.hub(&Message::Presence {
+            to: addr("Ann@dawnsong"),
+            of: addr(friend),
+            online: false,
+        });
+        assert_eq!(answer(&w.take(ann), cx).0, Hr::OK);
+    }
+    w.leave("Ann");
+    w.enter("Ann");
+    w.take(ann);
+    w.frames();
+    let say = |w: &mut World, of: &str, online: bool| {
+        w.hub(&Message::Presence {
+            to: addr("Ann@dawnsong"),
+            of: addr(of),
+            online,
+        });
+    };
+    say(&mut w, "Bob@coldeve", false);
+    say(&mut w, "Cal@coldeve", true);
+    assert_eq!(
+        events(&w.take(ann)),
+        vec![stat("Cal@coldeve", Mode::ONLINE)]
+    );
+    say(&mut w, "Bob@coldeve", true);
+    say(&mut w, "Cal@coldeve", false);
+    assert_eq!(
+        events(&w.take(ann)),
+        vec![
+            stat("Bob@coldeve", Mode::ONLINE),
+            stat("Cal@coldeve", Mode::OFFLINE)
+        ]
+    );
+}
+
 /// A present character on the network is online to another world's watch, and offline once it
 /// has no stream; within the world, presence needs no network at all.
 /// Behaviour: server.friends.remote-friend-watched

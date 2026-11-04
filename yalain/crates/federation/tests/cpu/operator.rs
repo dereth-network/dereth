@@ -113,8 +113,8 @@ fn a_block_takes_hold_at_once_and_lifting_it_gives_back_what_it_took() {
     );
     assert_eq!(w.service.states.len(), 1);
     assert!(
-        !w.service.states[0].2 && !w.service.states[0].3,
-        "offline, as a state"
+        !w.service.states[0].2 && w.service.states[0].3,
+        "offline, a change from what it was shown"
     );
     // Its presence is no longer shown, and its watches are answered offline.
     w.service.states.clear();

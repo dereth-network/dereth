@@ -62,8 +62,8 @@ impl Federation {
         }
     }
 
-    /// A world (or the whole hub) is gone: its characters show offline, as a state rather than
-    /// news, and are unknown until their world says again. Its watchers are forgotten too; it
+    /// A world (or the whole hub) is gone: its characters show offline, and are unknown until their
+    /// world says again. Its watchers are forgotten too; it
     /// watches again when it is back.
     pub(crate) fn world_gone(&mut self, friends: &mut impl Friends, slug: &str) {
         let suffix = format!("@{slug}");
@@ -75,7 +75,7 @@ impl Federation {
     }
 
     /// Forgets what local characters were told of the friends whose identity keys `which`
-    /// accepts, and shows those shown online offline, as a state rather than news.
+    /// accepts, and shows those shown online offline.
     fn forget_presence(&mut self, friends: &mut impl Friends, which: impl Fn(&str) -> bool) {
         let known: Vec<((String, String), bool)> = self
             .presence
@@ -97,7 +97,7 @@ impl Federation {
                 .into_iter()
                 .find(|f| f.key() == key);
             if let Some(f) = listed {
-                friends.show_presence(&present.name, &f, false, false);
+                friends.show_presence(&present.name, &f, false, true);
             }
         }
     }
