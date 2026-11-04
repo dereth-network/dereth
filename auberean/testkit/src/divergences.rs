@@ -54,6 +54,12 @@ pub static DIVERGENCES: &[Divergence] = &[
                connection.",
     },
     Divergence {
+        id: "CD2-lists-iterations-it-need-not-hold",
+        says: "Asked which data it holds, the client also lists the portal file iterations a server \
+               gives what it adds for a retail client's script calls, which this client doesn't \
+               need, so an admin's login isn't held up for minutes downloading them.",
+    },
+    Divergence {
         id: "CD2-math-last-bit",
         says: "The scripts' sine, cosine, tangent, arc sine, arc cosine, arc tangent, logarithms \
                and exponential come from this client's own functions, which can differ from the \

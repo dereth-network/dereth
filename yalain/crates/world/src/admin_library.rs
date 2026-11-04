@@ -119,6 +119,15 @@ pub fn plain(record: &[u8]) -> (Vec<u8>, usize) {
 }
 
 impl AdminLibrary {
+    /// How many bytes a client that holds none of it is sent.
+    #[must_use]
+    pub fn bytes(&self) -> u32 {
+        match &self.begins {
+            ServerMessage::DownloadBegins(b) => b.bytes,
+            _ => 0,
+        }
+    }
+
     /// The library made from the install's own record.
     ///
     /// # Errors

@@ -281,6 +281,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.library-not-sent-to-our-client",
+        says: "Our client on an admin's account is sent no library by a server that serves one: its \
+               characters come straight on, with nothing downloaded.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-LIBRARY-NOT-OURS"),
+        station: "yalain-testkit::dat::admin::our_client_on_an_admins_account_is_not_sent_the_library",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.admin.library-sends-admin-calls-in-the-clear",
         says: "The library an admin's retail client is served is the install's own with every encrypted \
                send made a plain one, in the same bytes otherwise, 175 in the final client's library; a \

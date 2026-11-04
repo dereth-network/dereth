@@ -940,8 +940,14 @@ fn run<S: Store>(
             .ok_or_else(|| {
                 "--serve-admin-library: no script library in the data files".to_owned()
             })?;
-        server.admin_library = Some(AdminLibrary::of(&record)?);
-        tracing::info!("serving admin accounts' retail clients the script library");
+        let library = AdminLibrary::of(&record)?;
+        let bytes = library.bytes();
+        tracing::info!(
+            "serving admin accounts' retail clients the script library: {bytes} bytes, about {} s \
+             of a client's first login",
+            bytes / o.download_rate
+        );
+        server.admin_library = Some(library);
     }
     server.data = Some(Box::new(files));
     server.levels = play.levels;

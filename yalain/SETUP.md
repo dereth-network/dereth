@@ -692,10 +692,11 @@ follow `fingeraccount`. The console is never refused.
 **A retail client's admin commands.** The original client sends its admin commands encrypted, under a
 key only the original servers could read. `--serve-admin-library` (`[server.accounts]
 serve_admin_library`) serves an admin account's client a script library that sends them in the clear,
-through the login's data download: about 7 MB, once. That client must run with `-rodat off` and on a
-copy of the install kept for this world, since the download writes into its data files. Auberean
-sends them in the clear already and needs none of this. Without the option, the `@` commands work from
-any client.
+through the login's data download: about 7 MB, once, which holds its login for about two minutes at
+the default `--download-rate`. That client must run with `-rodat off` and on a copy of the install kept
+for this world, since the download writes into its data files. Auberean sends them in the clear already,
+so it tells the server it holds the library and is sent none of it; a release before this one takes the
+download at every login. Without the option, the `@` commands work from any client.
 
 **Upgrading from access levels.** A database from before this keeps its accounts. One at the highest
 level (5, Admin) with a ticket becomes an admin. One in between (Advocate, Sentinel, Envoy or Developer),

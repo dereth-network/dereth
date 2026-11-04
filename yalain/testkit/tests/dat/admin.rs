@@ -185,3 +185,43 @@ fn the_log_types_names_are_the_record_the_client_looks_for_and_the_install_lacks
         .chain(table.tool_ids.iter())
         .any(|(k, d)| *k == LOG_TYPE && d.0 == LOG_TYPE_RECORD));
 }
+
+/// Our client on an admin's account gets no library from a server that serves one: asked which data
+/// it holds, it lists the library, and its characters come straight on, with nothing downloaded.
+/// Behaviour: server.admin.library-not-sent-to-our-client
+#[test]
+fn our_client_on_an_admins_account_is_not_sent_the_library() {
+    use auberean_dat::disk::download::event;
+    use yalain_testkit::session::{client, Ours};
+    use yalain_world::admin_library::{AdminLibrary, RECORD};
+    let mut s = InProcess::new();
+    ok(play::character_list(&mut s));
+    console(&mut s, "set-accountadmin ours");
+    let dir = auberean_dat::testing::require_target_install();
+    let (_, path) = auberean_dat::locate::install_dats(&dir)
+        .expect("list the install")
+        .into_iter()
+        .find(|(name, _)| *name == auberean_dat::locate::DatName::Portal)
+        .expect("the install's portal file");
+    let record = auberean_dat::DatFile::open(&path)
+        .expect("opens")
+        .read(RECORD)
+        .expect("the library");
+    s.h.server.admin_library = Some(AdminLibrary::of(&record).expect("made"));
+    s.ours = Ours {
+        addr: std::net::SocketAddr::from(([127, 0, 0, 1], 51_001)),
+        client: client(
+            yalain_testkit::port_addr(yalain_net::Port::LOGIN_EVEN),
+            "ours",
+        ),
+    };
+    ok(play::character_list(&mut s));
+    let events = &s.client_ref().data_download().events;
+    assert!(
+        !events
+            .iter()
+            .any(|(e, _)| [event::PATCHING, event::PROGRESS].contains(e)),
+        "nothing came: {events:?}"
+    );
+    assert!(s.h.server.storing_library.is_empty());
+}

@@ -940,6 +940,7 @@ pub(crate) fn message<S: Store>(
         ClientMessage::DownloadEnds(_) => {
             // It has stored the library it was sent; its characters follow.
             if s.storing_library.remove(&conn) {
+                tracing::info!(?conn, "an admin's client has stored the script library");
                 send(
                     net,
                     conn,

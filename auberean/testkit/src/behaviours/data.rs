@@ -486,6 +486,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "data.download.lists-a-servers-library-as-held",
+        says: "Asked which data it holds, the client lists the iterations of a server's library for its \
+               portal file beside those the file has had, every time, and no other file's list changes.",
+        since: THIS_CLIENT,
+        divergence: "CD2-lists-iterations-it-need-not-hold",
+        evidence: Evidence::Private("AC2-EVID-DDD-LISTS-SERVER-LIBRARY"),
+        station: "auberean-client-runtime::cpu::world::download::the_portal_file_is_listed_as_holding_a_servers_library",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.download.records-stored-and-checked-off",
         says: "Each downloaded record is stored in its file and checked off; records that came before the \
                download began are checked off when it begins; a file whose records have all come, or \
