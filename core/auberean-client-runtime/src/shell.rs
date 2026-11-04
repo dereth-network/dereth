@@ -490,7 +490,7 @@ impl Typing<'_> {
     /// The help for command `name`, or for every command when `name` is empty, shown: the help's
     /// text as help text (kind 8) when it has any; for a name the help does not know, the
     /// unrecognized-command line naming it (kind 1).
-    // D2-08083
+    // D2-08083, D2-08072, D2-04674
     pub fn display_help_text(&mut self, name: &str) -> Result<(), Stop> {
         let (status, text) = self.help_text(name)?;
         let shown = match status {

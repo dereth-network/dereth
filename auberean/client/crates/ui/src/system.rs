@@ -658,7 +658,8 @@ impl Ui {
     // D2-11321
     fn create_element_with(&mut self, refdesc: DescIx, owns_object: bool) -> Option<Handle> {
         let desc = self.lib.dereference(refdesc)?;
-        let (id, kind) = (self.lib.get(refdesc).id, self.lib.get(desc).kind);
+        let kind = self.lib.referent_kind(refdesc)?;
+        let id = self.lib.get(refdesc).id;
         self.lib.add_ref(self.lib.get(desc).layout);
         let h = self.alloc(Node {
             desc,

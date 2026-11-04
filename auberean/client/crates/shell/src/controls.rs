@@ -372,7 +372,7 @@ impl Controls {
     }
 
     /// Shift, Ctrl and Alt held, by the modifier actions in force.
-    // D2-03447, D2-03446, D2-03448
+    // D2-03448
     #[must_use]
     pub fn modifiers_down(&self, keys: &Keys) -> (bool, bool, bool) {
         let m = self.modifier_bitfield(keys);

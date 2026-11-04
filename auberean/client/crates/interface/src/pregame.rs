@@ -444,8 +444,8 @@ impl Retail {
         }
         for action in order {
             let text = texts.as_ref().and_then(|t| {
-                let x = t.texts.iter().find(|x| x.action == action)?;
-                self.ui.assets().string(t.string_table.0, x.name)
+                let (name, _) = t.descrip_values(action)?;
+                self.ui.assets().string(t.string_table.0, name)
             });
             match text {
                 Some(s) if !s.is_empty() => actions.push((action, s)),

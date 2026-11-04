@@ -694,6 +694,7 @@ impl Ui {
     }
 
     /// Whether Shift and Ctrl are held, as the host last said.
+    // D2-03447, D2-03446
     #[must_use]
     pub fn modifiers(&self) -> (bool, bool) {
         (self.keyboard.shift, self.keyboard.ctrl)

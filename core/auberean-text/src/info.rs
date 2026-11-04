@@ -280,7 +280,6 @@ impl StringInfo {
     }
 
     /// A text variable from narrow text, read in the English Windows code page (1252).
-    // D2-14175
     pub fn add_variable_narrow(&mut self, id: u32, text: &[u8]) {
         let wide: Vec<u16> = text.iter().map(|&b| cp1252(b)).collect();
         self.add_variable_string(id, &wide);

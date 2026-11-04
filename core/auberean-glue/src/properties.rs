@@ -248,7 +248,7 @@ fn group_count(c: &mut Call<'_>) -> Result<Status, Stop> {
 
 /// The group at an index (`fp[-2]`) into the group the reference at `fp[-3]` reaches; whether there
 /// was one (`fp[-4]`).
-// D2-08899
+// D2-08899, D2-16117
 fn group_at(c: &mut Call<'_>) -> Result<Status, Stop> {
     let i = c.cx.at(-2)? as usize;
     let g = engine::<CollectionValue>(c, c.receiver()?)?.and_then(|v| v.0.groups.get(i).cloned());
@@ -301,14 +301,14 @@ pub fn give_property(c: &mut Call<'_>, p: Option<Property>) -> Result<Status, St
     Ok(Status::Success)
 }
 
-// D2-08914
+// D2-08914, D2-16095
 fn property_at(c: &mut Call<'_>) -> Result<Status, Stop> {
     let i = c.cx.at(-2)? as usize;
     let p = receiver_group(c)?.and_then(|g| g.properties.get(i).cloned());
     give_property(c, p)
 }
 
-// D2-08912
+// D2-08912, D2-16096
 fn optional_at(c: &mut Call<'_>) -> Result<Status, Stop> {
     let i = c.cx.at(-2)? as usize;
     let p = receiver_group(c)?.and_then(|g| g.optional.get(i).cloned());

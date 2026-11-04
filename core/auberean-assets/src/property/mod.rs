@@ -575,13 +575,11 @@ impl PropertyGroup {
     }
 
     /// A copy of the stored property at a place.
-    // D2-16095
     #[must_use]
     pub fn inq_at(&self, n: usize) -> Option<Property> {
         self.properties.get(n).cloned()
     }
 
-    // D2-16096
     #[must_use]
     pub fn inq_optional_at(&self, n: usize) -> Option<Property> {
         self.optional.get(n).cloned()
@@ -753,7 +751,6 @@ impl PropertyCollection {
     }
 
     /// A copy of the group at a place.
-    // D2-16117
     #[must_use]
     pub fn inq_group_at(&self, n: usize) -> Option<PropertyGroup> {
         self.groups.get(n).cloned()

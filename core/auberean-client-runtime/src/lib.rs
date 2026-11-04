@@ -1436,16 +1436,6 @@ impl Client {
         true
     }
 
-    /// An object's scripts asked to show a line of text of a kind: `None` when no scripts run
-    /// or the object is not here.
-    // D2-08072, D2-04674
-    pub fn display_text(&mut self, object: u64, kind: u32, text: &[u16]) -> Option<CallResult> {
-        let args = [InterfaceArg::Text(text.to_vec()), InterfaceArg::Word(kind)];
-        self.with_scripts(|s| s.call_object(object, latent::function::DISPLAY_TEXT, &args))
-            .flatten()
-            .map(|(r, _)| r)
-    }
-
     /// An object's scripts asked to show a string reference (its packed form) of a kind.
     // D2-08073, D2-04673
     pub fn display_string_info(

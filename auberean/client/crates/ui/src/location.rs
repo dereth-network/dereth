@@ -118,12 +118,4 @@ impl Ui {
             n.default_location = Some(l);
         }
     }
-
-    /// A panel finished setting the element up.
-    // D2-11289
-    pub fn set_initialized(&mut self, h: Handle) {
-        if let Some(n) = self.node_mut(h) {
-            n.initialized = true;
-        }
-    }
 }

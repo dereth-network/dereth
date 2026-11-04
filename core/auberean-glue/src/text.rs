@@ -339,7 +339,7 @@ fn joined(text: Vec<u16>, number: &str, order: u32) -> Vec<u16> {
 /// A name's written form, given the audience (`fp[-2]`, unused), the name (`fp[-3]`) and an out
 /// reference (`fp[-4]`) to the string it goes into: answers (`fp[-5]`) whether the form differs from
 /// what was typed. Data files with no word filter leave the string alone and answer 0.
-// D2-09005
+// D2-09005, D2-14301
 fn format_for_audience(c: &mut Call<'_>) -> Result<Status, Stop> {
     let name = text_arg(c, -3)?;
     let out = c.cx.at(-4)?;
@@ -543,7 +543,7 @@ fn append_uint(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// Append a number in hex.
-// D2-09610
+// D2-09610, D2-09253
 fn append_hex(c: &mut Call<'_>) -> Result<Status, Stop> {
     let v = c.cx.at(-2)?;
     text_or_crash!(c).extend(units(&format!("0x{v:08X}")));

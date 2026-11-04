@@ -784,8 +784,7 @@ impl ChatPane {
         tell.add_variable_string(tok::TARGET.raw(), &units);
         let Some(e) = self.entry else { return };
         let info = self.message_info(text_type::CHAT_ENTRY).unwrap_or_default();
-        let text = write(ui, &tell);
-        ui.set_string_with_font(e, &text, info.size, info.color);
+        ui.set_string_info_with_font(e, &tell, info.size, info.color);
         ui.select_all(e);
         ui.activate_element(e);
     }
