@@ -98,6 +98,8 @@ pub struct Catalog {
     /// The bodies of the templates whose looks give one: the radius and height of the look's
     /// cylinder (before the object's own scale).
     pub bodies: BTreeMap<u32, [f32; 2]>,
+    /// What the templates of a class that says so are wielded as (their implement kinds).
+    pub implements: BTreeMap<u32, u32>,
 }
 
 impl Catalog {

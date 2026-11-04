@@ -883,6 +883,21 @@ pub fn bodies(p: &Portal, catalog: &Catalog) -> BTreeMap<u32, [f32; 2]> {
         .collect()
 }
 
+/// What the catalog's templates are wielded as, by the script classes they derive from.
+///
+/// # Errors
+/// The library does not read.
+pub fn implements(p: &Portal, catalog: &Catalog) -> Result<BTreeMap<u32, u32>, String> {
+    let lib = library(p)?;
+    Ok(yalain_world::skill_use::implements_of_catalog(
+        catalog,
+        |package, class| {
+            lib.package_id(class)
+                .is_some_and(|base| lib.derives_from(package, base))
+        },
+    ))
+}
+
 /// The brokers among the world's placed objects: each template whose properties name a store
 /// group (its catalog) and where it stands.
 pub fn brokers(

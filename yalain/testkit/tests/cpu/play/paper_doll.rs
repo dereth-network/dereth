@@ -301,3 +301,51 @@ fn a_ring_for_another_race_dragged_to_the_doll_is_refused_and_stays_in_the_pack(
     );
     assert_eq!(slot_of(&h, world, ring), (0, at), "still in the pack");
 }
+
+/// A weapon in the off hand is listed there at entry, taking that hand alone, its fellow in the
+/// primary hand; and it hangs from its secondary place.
+/// Behaviour: server.inventory.off-hand-listed-at-entry
+#[test]
+fn a_weapon_in_the_off_hand_stays_there_across_a_login() {
+    let (mut h, b, me, world, [_, _, first]) = player();
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, SWORD, 1);
+    h.run(3);
+    let second = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == SWORD && i.id != first)
+        .expect("a second sword")
+        .id;
+    for (item, hand) in [(first, equip::PRIMARY_HAND), (second, equip::OFF_HAND)] {
+        let at = slot_of(&h, world, item).1;
+        h.ask(
+            b,
+            function::DIRECTIVE_EQUIP,
+            &[directive(item, me, hand, 0, at)],
+            3,
+        );
+    }
+    let p = &h.server.players[&world];
+    let worn = yalain_world::inventory::worn(&h.server.catalog, &p.play.items, &[], 1, 1);
+    let listed = |item: u64| {
+        worn.iter()
+            .find(|w| w.item == item)
+            .map(|w| (w.location, w.taken))
+    };
+    assert_eq!(
+        listed(first),
+        Some((equip::PRIMARY_HAND, equip::PRIMARY_HAND))
+    );
+    assert_eq!(listed(second), Some((equip::OFF_HAND, equip::OFF_HAND)));
+    let instance = p.instance;
+    let hang = |item: u64| {
+        let t = h.server.things.get(item).expect("the item");
+        yalain_world::inventory::held_create(t, instance)
+            .physics
+            .parent
+            .location
+    };
+    assert_eq!(hang(first), equip::SWORD.primary);
+    assert_eq!(hang(second), equip::SWORD.secondary);
+}

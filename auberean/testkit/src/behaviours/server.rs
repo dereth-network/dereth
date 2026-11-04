@@ -3864,6 +3864,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.off-hand-listed-at-entry",
+        says: "A weapon in the off hand is listed there as its player enters the world, taking that \
+               hand alone, and hangs from its secondary place.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-OFF-HAND-ENTRY"),
+        station: "yalain-testkit::cpu::play::paper_doll::a_weapon_in_the_off_hand_stays_there_across_a_login",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.one-item-one-holder",
         says: "An item in a corpse goes to one holder: a take finds the item still in its \
                container when it is through, or is refused; a taker gone by then, or with a \
@@ -8973,6 +8982,33 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.weapons.implement-by-class",
+        says: "What a player wields is known by its class: a weapon of a known class draws from \
+               the basic attacks its kind allows in both hands; of no known class it swings the \
+               plain ones as a sword's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-IMPLEMENT-BY-CLASS"),
+        station: "yalain-testkit::cpu::play::two_blows::a_weapon_known_by_its_class_fights_as_its_kind",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.weapons.implement-by-class-read",
+        says: "A weapon's implement kind is what its class says.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-IMPLEMENT-CLASSES"),
+        station: "yalain-testkit::dat::effects::a_weapons_implement_is_what_its_class_says",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.weapons.mode-by-implement",
+        says: "A player's combat mode is what it wields: by the right hand's implement, and for \
+               a one-handed weapon by the left's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MODE-BY-IMPLEMENT"),
+        station: "yalain-testkit::cpu::play::two_blows::a_players_combat_mode_comes_from_what_it_wields",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.weapons.standing-run-refusals",
         says: "A run that stands is told it is too far beyond every basic attack's range, and that \
                it cannot shoot while moving, about a second apart, its combat mode coming with its \
@@ -8992,12 +9028,39 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.weapons.two-blows",
+        says: "A basic attack with two blows tells a result for each: drawn apart, doing the \
+               damage of the weapon in the hand its hook names, each landing at its own time; \
+               its next swing comes after its own period.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TWO-BLOWS"),
+        station: "yalain-testkit::cpu::play::two_blows::a_skill_that_strikes_twice_tells_a_result_for_each_blow",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.weapons.two-blows-read",
+        says: "The skills that strike twice read with two hooks that strike, each naming its hand.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TWO-BLOWS-READ"),
+        station: "yalain-testkit::dat::effects::the_skills_that_strike_twice_read_with_each_blows_hand",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.weapons.walking-run-walks-silently",
         says: "A run whose attacks walk, on a target out of reach, has one order to walk and is told \
                nothing until it arrives, when it swings; it goes on until the player stops it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-WALKING-RUN"),
         station: "yalain-testkit::cpu::play::weapons::a_sword_run_out_of_reach_is_ordered_once_and_told_nothing_until_it_arrives",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.weapons.worn-is-not-wielded",
+        says: "What a player wears is not what it wields: its weapon's attacks, mode and damage \
+               are its hands', whatever it wears and in whatever order it came by them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WORN-NOT-WIELDED"),
+        station: "yalain-testkit::cpu::play::two_blows::what_is_worn_does_not_take_the_place_of_what_is_wielded",
         tier: Tier::Cpu,
     },
     behaviour! {

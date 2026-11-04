@@ -503,7 +503,7 @@ pub fn item_create(t: &Thing) -> CreateObject {
         0,
     );
     // A bow is made strung: its own mode is the bow's.
-    if crate::skill_use::implement_of(t.template) == Some(crate::skill_use::implement::BOW) {
+    if crate::skill_use::starting_implement(t.template) == Some(crate::skill_use::implement::BOW) {
         physics.mode = crate::skill_use::mode::BOW;
     }
     if t.at.is_some() {
@@ -557,11 +557,17 @@ pub fn held_create(t: &Thing, player_instance: u16) -> CreateObject {
         o.weenie.objects[1] = player;
     }
     // What is held in the hand hangs from it; what is worn on the body does not.
-    if let Some((player, crate::equip::PRIMARY_HAND)) = t.wielded {
+    if let Some((player, hand @ (crate::equip::PRIMARY_HAND | crate::equip::OFF_HAND))) = t.wielded
+    {
+        let hold = crate::equip::hold_of(t.template);
         o.physics.bits |= PhysicsDesc::PARENT;
         o.physics.parent = ParentLink {
             parent: player,
-            location: crate::equip::hold_of(t.template).primary,
+            location: if hand == crate::equip::PRIMARY_HAND {
+                hold.primary
+            } else {
+                hold.secondary
+            },
             stamp: player_instance,
         };
     }
@@ -597,11 +603,20 @@ pub fn worn(
                     }),
                 }
             } else {
+                let off = h.location == crate::equip::OFF_HAND;
                 session::Worn {
                     item: h.id,
-                    location: crate::equip::PRIMARY_HAND,
-                    taken: crate::equip::hold_of(h.template).taken,
-                    implement: crate::skill_use::implement_of(h.template).unwrap_or(0),
+                    location: if off {
+                        crate::equip::OFF_HAND
+                    } else {
+                        crate::equip::PRIMARY_HAND
+                    },
+                    taken: if off {
+                        crate::equip::OFF_HAND
+                    } else {
+                        crate::equip::hold_of(h.template).taken
+                    },
+                    implement: crate::skill_use::implement_of(catalog, h.template).unwrap_or(0),
                     look: None,
                 }
             }
@@ -1926,6 +1941,8 @@ pub fn enter<S: Store>(s: &mut Server<S>, world: ConnId) -> Vec<u64> {
         }
         if h.location & crate::equip::BODY_PLACES != 0 {
             item.wielded = Some((owner, h.location));
+        } else if h.location == crate::equip::OFF_HAND {
+            item.wielded = Some((owner, crate::equip::OFF_HAND));
         } else if h.location != 0 {
             item.wielded = Some((owner, crate::equip::PRIMARY_HAND));
         }

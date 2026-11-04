@@ -145,6 +145,66 @@ fn the_basic_attacks_read_as_the_data_defines_them() {
     assert!(!t.skills[&207].auto_attack, "Deadeye is a special");
 }
 
+/// The skills that strike twice read as the data defines them: each of the 19 has two hooks that
+/// strike, each naming its hand; handblades and a pair of one-handed weapons strike with each hand
+/// and a polearm twice with the right; 817 and 1403 start with the left.
+/// Behaviour: server.weapons.two-blows-read
+#[test]
+fn the_skills_that_strike_twice_read_with_each_blows_hand() {
+    use yalain_world::skill_use::{hook_flag::LEFT_HAND, strikes};
+    let t = Portal::open().skills();
+    let hands = |skill: u32| -> Vec<bool> {
+        let u = t.skills[&skill].usage.as_ref().expect("used");
+        strikes(u)
+            .into_iter()
+            .map(|i| u.hooks[i].flags & LEFT_HAND != 0)
+            .collect()
+    };
+    for skill in [313, 314, 315, 316, 317, 816, 818, 984, 985, 986, 1402, 1404] {
+        assert_eq!(hands(skill), [false, true], "{skill}");
+    }
+    for skill in [817, 1403] {
+        assert_eq!(hands(skill), [true, false], "{skill}");
+    }
+    for skill in 335..=339 {
+        assert_eq!(hands(skill), [false, false], "{skill}");
+    }
+    assert_eq!(hands(122), [false], "one blow");
+    assert_eq!(hands(62), [false], "the hook that only plays is no blow");
+}
+
+/// What a weapon is wielded as is what its class says: each starting weapon's table entry is its
+/// class's, and the install's other weapons are known by theirs.
+/// Behaviour: server.weapons.implement-by-class-read
+#[test]
+fn a_weapons_implement_is_what_its_class_says() {
+    use yalain_world::skill_use::{implements_of_catalog, starting_implement, STARTING_WEAPONS};
+    let p = Portal::open();
+    let lib = p.library();
+    let mut catalog = yalain_content::Catalog::default();
+    for (name, _) in yalain_world::skill_use::IMPLEMENT_CLASSES {
+        assert!(lib.package_id(name).is_some(), "the library has {name}");
+    }
+    for (t, _) in STARTING_WEAPONS {
+        catalog.insert(p.template(t));
+    }
+    let read = implements_of_catalog(&catalog, |package, class| {
+        lib.package_id(class)
+            .is_some_and(|base| lib.derives_from(package, base))
+    });
+    for (t, _) in STARTING_WEAPONS {
+        assert_eq!(read.get(&t).copied(), starting_implement(t), "{t:#x}");
+    }
+    let of = |class: &str, base: &str| {
+        lib.derives_from(
+            lib.package_id(class).expect("the class"),
+            lib.package_id(base).expect("its base"),
+        )
+    };
+    assert!(of("HandbladeRavager", "HandbladeTemplate"));
+    assert!(of("PolearmLugianHammerbladeGoldenAge", "PolearmTemplate"));
+}
+
 /// The hall's practice dummy has the body its look's setup gives (radius 0.71, height 2.0).
 /// Behaviour: server.specials.range-between-bodies
 #[test]

@@ -137,6 +137,8 @@ pub mod hook_flag {
     pub const AREA: u32 = 0x1;
     pub const PROJECTILE: u32 = 0x4;
     pub const NON_DAMAGING: u32 = 0x40;
+    /// The hand that strikes: which weapon's damage the blow does.
+    pub const LEFT_HAND: u32 = 0x1000;
 }
 
 /// A skill information's mask: the skill has a time it was last used; a toggled skill is on
@@ -250,13 +252,86 @@ pub mod story_hook {
     pub const ATTACK_HOOK: u32 = 0x400;
 }
 
-/// Implement kinds (bits a skill's definition allows): a sword, a bow, a stave.
+/// Implement kinds (bits a skill's definition allows).
 pub mod implement {
-    /// An empty hand.
+    /// An empty hand, and what holds nothing a skill asks of a hand (a ring, a tool, a lute).
     pub const NONE: u32 = 0x1;
     pub const SWORD: u32 = 0x2;
     pub const BOW: u32 = 0x4;
+    pub const DRUM: u32 = 0x8;
+    pub const SHIELD: u32 = 0x10;
+    pub const AXE: u32 = 0x20;
+    pub const DAGGER: u32 = 0x40;
+    pub const GUNBLADE: u32 = 0x80;
+    pub const HAMMER: u32 = 0x100;
+    pub const HANDBLADE: u32 = 0x200;
+    pub const POLEARM: u32 = 0x400;
+    pub const ALCHEMY: u32 = 0x800;
+    pub const BOULDER: u32 = 0x1000;
+    pub const WASP_NEST: u32 = 0x2000;
+    pub const WRENCH: u32 = 0x4000;
+    pub const SPEAR: u32 = 0x8000;
+    pub const CESTAS: u32 = 0x1_0000;
+    pub const FLAIL: u32 = 0x2_0000;
     pub const STAVE: u32 = 0x4_0000;
+    pub const SCYTHE: u32 = 0x8_0000;
+    pub const HAND: u32 = 0x10_0000;
+    pub const ORB: u32 = 0x20_0000;
+}
+
+/// The script classes that say what their items are wielded as, and what they say. No class here
+/// derives from another.
+pub const IMPLEMENT_CLASSES: [(&str, u32); 31] = [
+    ("MiningToolTemplate", implement::NONE),
+    ("ToolTemplate", implement::NONE),
+    ("RingTemplate", implement::NONE),
+    ("TalismanTemplate", implement::NONE),
+    ("LuteTemplate", implement::NONE),
+    ("EarringsToadfang", implement::NONE),
+    ("ShieldTemplate", implement::SHIELD),
+    ("AlchemyTemplate", implement::ALCHEMY),
+    ("AxeTemplate", implement::AXE),
+    ("BoulderTemplate", implement::BOULDER),
+    ("BowTemplate", implement::BOW),
+    ("CestasTemplate", implement::CESTAS),
+    ("DaggerTemplate", implement::DAGGER),
+    ("DrumTemplate", implement::DRUM),
+    ("FlailTemplate", implement::FLAIL),
+    ("FrogstaveTemplate", implement::STAVE),
+    ("HammerTemplate", implement::HAMMER),
+    ("HandbladeTemplate", implement::HANDBLADE),
+    ("HandTemplate", implement::HAND),
+    ("GunbladeTemplate", implement::GUNBLADE),
+    ("OrbTemplate", implement::ORB),
+    ("JailaiTemplate", implement::CESTAS),
+    ("PolearmTemplate", implement::POLEARM),
+    ("ScepterLugianTemplate", implement::STAVE),
+    ("ScytheTemplate", implement::SCYTHE),
+    ("SharpstickTemplate", implement::AXE),
+    ("SpearTemplate", implement::SPEAR),
+    ("StaveTemplate", implement::STAVE),
+    ("SwordTemplate", implement::SWORD),
+    ("WaspnestTemplate", implement::WASP_NEST),
+    ("WrenchTemplate", implement::WRENCH),
+];
+
+/// The implement kinds of a catalog's templates: for each, what the class its package derives
+/// from says; none for a template of no such class.
+#[must_use]
+pub fn implements_of_catalog(
+    catalog: &yalain_content::Catalog,
+    derives_from: impl Fn(u32, &str) -> bool,
+) -> std::collections::BTreeMap<u32, u32> {
+    catalog
+        .templates
+        .values()
+        .filter_map(|t| {
+            IMPLEMENT_CLASSES
+                .iter()
+                .find(|(class, _)| derives_from(t.description.package, class))
+                .map(|(_, i)| (t.id, *i))
+        })
+        .collect()
 }
 
 /// The starting weapons' implements (their classes'), and their vigor costs (4 each).
@@ -278,6 +353,12 @@ pub mod mode {
     pub const BOW: u32 = 0x4100_0010;
     pub const STAVE: u32 = 0x4100_0011;
     pub const ONE_HANDED: u32 = 0x4100_000A;
+    pub const WITH_SHIELD: u32 = 0x4100_000B;
+    pub const POLEARM: u32 = 0x4100_000C;
+    pub const TWO_WEAPONS: u32 = 0x4100_000E;
+    pub const HANDBLADE: u32 = 0x4100_000F;
+    pub const FLAIL: u32 = 0x4100_0013;
+    pub const ALCHEMY: u32 = 0x4100_0015;
 }
 
 /// The private effect a player's client plays when it exploits an opening, and a creature's
@@ -412,66 +493,95 @@ pub fn refused(err: u32, target: u64, skill: u32) -> ServerMessage {
     .expect("packs")
 }
 
-/// The things a player wields, with their templates (in the order it holds them).
-pub(crate) fn wielded<S: Store>(s: &Server<S>, player: u64) -> Vec<(u64, u32)> {
-    s.players
-        .values()
-        .find(|p| p.character == player)
-        .map(|p| {
-            p.play
-                .items
-                .iter()
-                .filter(|h| h.location != 0)
-                .map(|h| (h.id, h.template))
-                .collect()
-        })
-        .unwrap_or_default()
+/// What a player holds in its hands: each thing and its template. A thing that takes both hands
+/// (a bow, a stave) is the right hand's.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Hands {
+    pub right: Option<(u64, u32)>,
+    pub left: Option<(u64, u32)>,
 }
 
-/// What a template is wielded as (its implement kind), when the server knows it.
+/// What a player holds in its hands (what it wears on its body is not among them).
+pub(crate) fn hands<S: Store>(s: &Server<S>, player: u64) -> Hands {
+    let mut hands = Hands::default();
+    let Some(p) = s.players.values().find(|p| p.character == player) else {
+        return hands;
+    };
+    for h in &p.play.items {
+        if h.location == crate::equip::OFF_HAND {
+            hands.left = Some((h.id, h.template));
+        } else if h.location != 0 && h.location & crate::equip::BODY_PLACES == 0 {
+            hands.right = Some((h.id, h.template));
+        }
+    }
+    hands
+}
+
+/// The things a player wields, with their templates: the right hand's, then the left's.
+pub(crate) fn wielded<S: Store>(s: &Server<S>, player: u64) -> Vec<(u64, u32)> {
+    let hands = hands(s, player);
+    hands.right.into_iter().chain(hands.left).collect()
+}
+
+/// What a starting weapon is wielded as.
 #[must_use]
-pub fn implement_of(template: u32) -> Option<u32> {
+pub fn starting_implement(template: u32) -> Option<u32> {
     STARTING_WEAPONS
         .iter()
         .find(|(t, _)| *t == template)
         .map(|(_, i)| *i)
 }
 
-/// The combat mode of what is wielded.
+/// What a template is wielded as (its implement kind), when the server knows it.
 #[must_use]
-pub fn mode_of(implements: &[u32]) -> u32 {
-    if implements.contains(&implement::BOW) {
-        mode::BOW
-    } else if implements.contains(&implement::STAVE) {
-        mode::STAVE
-    } else {
-        mode::ONE_HANDED
+pub fn implement_of(catalog: &yalain_content::Catalog, template: u32) -> Option<u32> {
+    starting_implement(template).or_else(|| catalog.implements.get(&template).copied())
+}
+
+/// The combat mode of what is wielded, by the right hand's implement and the left's (2017, the
+/// mode a player was in as it swung, by the implements the skill allows; of 166,210 stories 1,519
+/// came at peace and 1 otherwise: handblades 16,631, polearms 407, two one-handed weapons 6,782,
+/// one with a shield 31,149, one alone 701, bows, spears, orbs and hammers 22,457, staves, drums
+/// and hands 44,926, alchemy, cestas and boulders 41,582, wasp nests and flails 55).
+#[must_use]
+pub fn mode_of(right: Option<u32>, left: Option<u32>) -> u32 {
+    use implement as i;
+    match right {
+        Some(i::BOW | i::SPEAR | i::ORB | i::HAMMER | i::WRENCH) => mode::BOW,
+        Some(i::STAVE | i::DRUM | i::HAND) => mode::STAVE,
+        Some(i::HANDBLADE) => mode::HANDBLADE,
+        Some(i::POLEARM) => mode::POLEARM,
+        Some(i::ALCHEMY | i::CESTAS | i::BOULDER) => mode::ALCHEMY,
+        Some(i::WASP_NEST | i::FLAIL) => mode::FLAIL,
+        _ => match left {
+            Some(i::SHIELD) => mode::WITH_SHIELD,
+            Some(i::SWORD | i::AXE | i::DAGGER | i::SCYTHE) => mode::TWO_WEAPONS,
+            _ => mode::ONE_HANDED,
+        },
     }
 }
 
 /// The player's combat mode, by what it wields.
 pub fn player_mode<S: Store>(s: &Server<S>, player: u64) -> u32 {
-    let implements: Vec<u32> = wielded(s, player)
-        .iter()
-        .filter_map(|(_, t)| implement_of(*t))
-        .collect();
-    mode_of(&implements)
+    let h = hands(s, player);
+    let of = |hand: Option<(u64, u32)>| hand.and_then(|(_, t)| implement_of(&s.catalog, t));
+    mode_of(of(h.right), of(h.left))
 }
 
 /// Is a skill used with what the player wields? Each hand's implement must be among the skill's
 /// allowed ones for that hand (an empty hand is the implement "none", bit 1: so a skill allowing
-/// all but none, the recall's, needs something in the right hand). The player wields one thing at
-/// most, in its right hand; a wielded thing whose implement the server does not know is taken to
-/// be allowed.
+/// all but none, the recall's, needs something in the right hand). A wielded thing whose implement
+/// the server does not know is taken to be allowed.
 #[must_use]
-pub fn implement_allowed(u: &Usage, wielded: &[(u64, u32)]) -> bool {
-    let right = u.implements_right.cast_unsigned();
-    let left = u.implements_left.cast_unsigned();
-    let right_ok = match wielded.first() {
-        None => right & implement::NONE != 0,
-        Some((_, t)) => implement_of(*t).is_none_or(|i| right & i != 0),
+pub fn implement_allowed(catalog: &yalain_content::Catalog, u: &Usage, hands: Hands) -> bool {
+    let fits = |allowed: i32, hand: Option<(u64, u32)>| {
+        let allowed = allowed.cast_unsigned();
+        match hand {
+            None => allowed & implement::NONE != 0,
+            Some((_, t)) => implement_of(catalog, t).is_none_or(|i| allowed & i != 0),
+        }
     };
-    right_ok && left & implement::NONE != 0
+    fits(u.implements_right, hands.right) && fits(u.implements_left, hands.left)
 }
 
 /// A skill's vigor cost for a player with this greatest vigor and these things wielded: the
@@ -486,7 +596,7 @@ pub fn vigor_cost(u: &Usage, max_vigor: i32, wielded: &[(u64, u32)]) -> i32 {
     let weapon = if u.ui_flags & (ui_flag::IGNORE_WEAPON_VIGOR | ui_flag::SELF_TARGETED) == 0 {
         wielded
             .iter()
-            .filter(|(_, t)| implement_of(*t).is_some())
+            .filter(|(_, t)| starting_implement(*t).is_some())
             .map(|_| STARTING_WEAPON_VIGOR)
             .sum::<i32>()
     } else {
@@ -727,7 +837,7 @@ fn check<S: Store>(
         return Err(refusal::DEAD);
     }
     let held = wielded(s, p.character);
-    if !implement_allowed(&u, &held) {
+    if !implement_allowed(&s.catalog, &u, hands(s, p.character)) {
         return Err(refusal::WRONG_IMPLEMENT);
     }
     let vigor = quals::int(&p.qualities, quality::VIGOR).unwrap_or(0);
@@ -1186,6 +1296,17 @@ pub(crate) fn story_hooks(
         })
         .collect();
     story_hooks_with(u, target, weapon, &landings)
+}
+
+/// The hooks of a basic attack that strike by their own hand: their indexes among the skill's.
+#[must_use]
+pub fn strikes(u: &Usage) -> Vec<usize> {
+    u.hooks
+        .iter()
+        .enumerate()
+        .filter(|(_, h)| !plays_only(h) && !throws(h))
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// Does a hook only play (no target to strike)?

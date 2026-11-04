@@ -8,7 +8,9 @@
 //! With a weapon whose attacks walk the player (a sword's): each swing a movement order toward the
 //! target (the client closes in), then the story: the attacker, its swing's behavior and time
 //! scale, the skill, and the result on the target (a hit or a critical with the damage, or an
-//! evade), the damage done as the strike lands. With a bow or a stave the player stands: each swing stops it and turns it to the target;
+//! evade), the damage done as the strike lands. A skill with two blows has a result hook for each,
+//! each blow's outcome drawn apart, its damage its hand's weapon's, landing at its own time. With
+//! a bow or a stave the player stands: each swing stops it and turns it to the target;
 //! a bow shoots beyond a meter between the bodies and strikes within one, a stave strikes within ten
 //! meters and throws beyond nine; a thrown attack's story names the weapon, and its target tells how
 //! it came out as it arrives (after the throw's windup and its flight); a strike lands at its hit
@@ -233,6 +235,19 @@ pub fn swing_seconds(implement: Option<u32>, thrown: bool) -> f64 {
     }
 }
 
+/// The period of a skill that strikes twice, over its time scale, by the behavior it plays (2017:
+/// handblades 2.032 over 8,909 swings and 2.198 over 4,391, two one-handed weapons 2.221 over
+/// 3,179, a polearm 1.607 over 314).
+#[must_use]
+pub fn two_blow_seconds(skill: u32) -> f64 {
+    match skill {
+        816 | 818 | 1402 | 1404 => 2.032,
+        817 | 1403 => 2.198,
+        335..=339 => 1.607,
+        _ => 2.221,
+    }
+}
+
 /// When a thrown basic attack leaves (over the time scale), and its speed, by the weapon: a bow's
 /// arrow 0.831 s and its hook's speed (2017: 0.839 s at 35.1 m/s fitted over 67 shots at still
 /// targets); a stave's 0.817 s (161).
@@ -247,9 +262,9 @@ pub fn windup_seconds(implement: Option<u32>) -> f64 {
 
 /// When a player's basic strike lands after its story, over the time scale: the median its skill
 /// showed from the story to its target's wound or death (2017: 6,161 strikes at creatures, 69 at
-/// once); 816, 817 and 818 strike twice in retail's swing, and are timed at their first blow, as
-/// the one this server tells (196, 180 and 206 strikes); by what is held for a skill seen too
-/// little: a bow's 0.572, a stave's 0.817; else the median of all strikes that walk, 0.713 (3,054).
+/// once); of a skill that strikes twice its first blow (816, 817 and 818: 196, 180 and 206
+/// strikes; a polearm's together, 59); by what is held for a skill seen too little: a bow's 0.572,
+/// a stave's 0.817; else the median of all strikes that walk, 0.713 (3,054).
 #[must_use]
 pub fn hit_seconds(skill: u32, implement: Option<u32>) -> f64 {
     use crate::skill_use::implement as im;
@@ -273,6 +288,7 @@ pub fn hit_seconds(skill: u32, implement: Option<u32>) -> f64 {
         310 => 0.823,
         311 => 0.768,
         312 => 0.661,
+        335..=339 => 0.696,
         616 => 0.747,
         617 => 1.056,
         618 => 0.675,
@@ -292,6 +308,21 @@ pub fn hit_seconds(skill: u32, implement: Option<u32>) -> f64 {
             Some(im::STAVE) => 0.817,
             _ => 0.713,
         },
+    }
+}
+
+/// When a skill's second blow lands after its story, over the time scale: as a first blow's,
+/// where its skill or its weapon's skills were seen enough (2017: 163, 200 and 152 strikes of 816,
+/// 817 and 818; a polearm's together, 60; 1402 to 1404 play the behaviors of 816 to 818), else the
+/// median of the rest, two one-handed weapons', 0.987 (88).
+#[must_use]
+pub fn second_blow_seconds(skill: u32) -> f64 {
+    match skill {
+        816 | 1402 => 1.225,
+        817 | 1403 => 1.345,
+        818 | 1404 => 1.237,
+        335..=339 => 1.464,
+        _ => 0.987,
     }
 }
 
@@ -321,10 +352,10 @@ pub(crate) fn auto_attacks<S: Store>(
     let Some(p) = s.players.get(&world) else {
         return Vec::new();
     };
-    let held = crate::skill_use::wielded(s, p.character);
-    if held
-        .first()
-        .is_none_or(|(_, t)| crate::skill_use::implement_of(*t).is_none())
+    let hands = crate::skill_use::hands(s, p.character);
+    if hands
+        .right
+        .is_none_or(|(_, t)| crate::skill_use::implement_of(&s.catalog, t).is_none())
     {
         return Vec::new();
     }
@@ -334,7 +365,7 @@ pub(crate) fn auto_attacks<S: Store>(
         .filter_map(|h| {
             let d = s.skill_table.skills.get(&h.skill)?;
             let u = d.usage.clone()?;
-            (d.auto_attack && crate::skill_use::implement_allowed(&u, &held))
+            (d.auto_attack && crate::skill_use::implement_allowed(&s.catalog, &u, hands))
                 .then_some((h.skill, u))
         })
         .collect()
@@ -713,30 +744,54 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         return;
     };
     let my_level = crate::examine::level_of(&p.qualities);
-    let (skill, behavior) = if autos.is_empty() {
-        MELEE_SKILLS[s.rng.below(MELEE_SKILLS.len())]
+    let (skill, behavior, usage) = if autos.is_empty() {
+        let (skill, behavior) = MELEE_SKILLS[s.rng.below(MELEE_SKILLS.len())];
+        (skill, behavior, None)
     } else {
         let (k, u) = &autos[s.rng.below(autos.len())];
-        (*k, u.behavior_other[0])
+        (*k, u.behavior_other[0], Some(u))
     };
+    let two_blows = usage
+        .map(crate::skill_use::strikes)
+        .filter(|strikes| strikes.len() > 1);
+    let hands = crate::skill_use::hands(s, id);
+    let implement = hands
+        .right
+        .and_then(|(_, t)| crate::skill_use::implement_of(&s.catalog, t));
     let kind = kind_of(s, skill, false);
-    let outcome = rules::roll_outcome(
-        &mut s.rng,
-        Direction::PlayerOnCreature,
-        kind,
-        my_level,
-        level,
-    );
-    let Some(p) = s.players.get(&world) else {
-        return;
-    };
-    let damage = if outcome.landed() {
-        let me = hitter(s, p);
-        rules::player_hit(&mut s.rng, me, armor, outcome == Outcome::Critical)
-            + armor_taken(s, run.target)
-    } else {
-        0
-    };
+    // Each blow is drawn apart, with its own hand's weapon (2017: the two outcomes of 23,872
+    // stories as often together as apart; each hand's damage the same in every skill).
+    let mut blows = Vec::new();
+    for index in two_blows.clone().unwrap_or_else(|| vec![0]) {
+        let left = two_blows.is_some()
+            && usage
+                .and_then(|u| u.hooks.get(index))
+                .is_some_and(|h| h.flags & crate::skill_use::hook_flag::LEFT_HAND != 0);
+        let outcome = rules::roll_outcome(
+            &mut s.rng,
+            Direction::PlayerOnCreature,
+            kind,
+            my_level,
+            level,
+        );
+        let Some(p) = s.players.get(&world) else {
+            return;
+        };
+        let damage = if outcome.landed() {
+            let weapon = if left { hands.left } else { hands.right };
+            let me = hitter_with(s, p, weapon.map(|(w, _)| w));
+            rules::player_hit(&mut s.rng, me, armor, outcome == Outcome::Critical)
+                + armor_taken(s, run.target)
+        } else {
+            0
+        };
+        blows.push(crate::skill_use::Landing {
+            target: run.target,
+            hook: index,
+            outcome,
+            damage,
+        });
+    }
     let ts = PLAYER_TIME_SCALE * s.rng.between(0.9, 1.1);
     let mut st = story(
         s,
@@ -746,34 +801,46 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
             behavior,
             time_scale: ts,
             target: run.target,
-            outcome,
-            damage,
+            outcome: blows[0].outcome,
+            damage: blows[0].damage,
         },
     );
+    if let (true, Some(u), ServerMessage::DoStory(e)) = (two_blows.is_some(), usage, &mut st) {
+        e.action.hooks = crate::skill_use::story_hooks_with(u, run.target, 0, &blows);
+    }
     if other.is_some() {
         with_pk_damage(&mut st, run.target);
     }
     to_all_seeing(s, net, id, &st);
     if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
-        r.next_swing = now + swing_seconds(None, false) / f64::from(ts);
+        let period = if two_blows.is_some() {
+            two_blow_seconds(skill)
+        } else {
+            swing_seconds(None, false)
+        };
+        r.next_swing = now + period / f64::from(ts);
     }
-    if outcome.landed() {
-        let implement = crate::skill_use::wielded(s, id)
-            .first()
-            .and_then(|(_, t)| crate::skill_use::implement_of(*t));
-        s.after(
-            clock,
-            hit_seconds(skill, implement) / f64::from(ts),
-            crate::Timer::Landing(Landing {
-                world,
-                target: run.target,
-                skill,
-                outcome,
-                damage,
-                index: 0,
-                thrown: false,
-            }),
-        );
+    for (nth, blow) in blows.iter().enumerate() {
+        if blow.outcome.landed() {
+            let seconds = if nth == 0 {
+                hit_seconds(skill, implement)
+            } else {
+                second_blow_seconds(skill)
+            };
+            s.after(
+                clock,
+                seconds / f64::from(ts),
+                crate::Timer::Landing(Landing {
+                    world,
+                    target: run.target,
+                    skill,
+                    outcome: blow.outcome,
+                    damage: blow.damage,
+                    index: u32::try_from(blow.hook).unwrap_or(0),
+                    thrown: false,
+                }),
+            );
+        }
     }
     // A creature swung at goes after the one who swung.
     if other.is_none() && s.things.get(run.target).is_some_and(|t| t.alive()) {
@@ -841,9 +908,9 @@ fn stand_and_swing<S: Store>(
     let my_level = crate::examine::level_of(&p.qualities);
     let added = crate::effects::damage_added(s, p);
     let held = crate::skill_use::wielded(s, id);
-    let (weapon, implement) = held
-        .first()
-        .map_or((0, None), |(i, t)| (*i, crate::skill_use::implement_of(*t)));
+    let (weapon, implement) = held.first().map_or((0, None), |(i, t)| {
+        (*i, crate::skill_use::implement_of(&s.catalog, *t))
+    });
     if !run.mode_sent {
         let mode = crate::skill_use::player_mode(s, id);
         set_player_mode(s, net, world, mode);
@@ -1264,10 +1331,16 @@ pub fn weapon_damage<S: Store>(s: &Server<S>, weapon: u64) -> Option<rules::Weap
 pub fn hitter<S: Store>(s: &Server<S>, p: &Player) -> rules::Hitter {
     let weapon = crate::skill_use::wielded(s, p.character)
         .first()
-        .and_then(|(i, _)| weapon_damage(s, *i));
+        .map(|(i, _)| *i);
+    hitter_with(s, p, weapon)
+}
+
+/// A player as a blow of this weapon is reckoned.
+#[must_use]
+fn hitter_with<S: Store>(s: &Server<S>, p: &Player, weapon: Option<u64>) -> rules::Hitter {
     rules::Hitter {
         level: crate::examine::level_of(&p.qualities),
-        weapon,
+        weapon: weapon.and_then(|w| weapon_damage(s, w)),
         added: crate::effects::damage_added(s, p),
     }
 }

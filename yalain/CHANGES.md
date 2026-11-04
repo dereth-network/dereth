@@ -99,6 +99,9 @@ what they see, not how it was done.
 - Dyeing now works on all armor.
 - A dyed item's icon now shows its color.
 - Loot weapons, shields and armor now have real stats for their level.
+- Attacks that strike twice now hit twice, one blow per hand.
+- Looted weapons fight as their kind, and your stance follows your weapon.
+- Armor no longer takes your weapon's place in a fight.
 
 ## 0.1.2 (2026-11-03)
 
