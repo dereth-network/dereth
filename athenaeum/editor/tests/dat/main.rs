@@ -1057,6 +1057,37 @@ fn a_row_of_effects_alone_draws_them_and_stops_when_it_is_gone() {
 }
 
 #[test]
+fn find_rows_goes_to_a_room_by_its_id() {
+    let mut e = editor("room-go");
+    assert_eq!(
+        athenaeum_editor::app::room_of("03BB022C"),
+        Some(0x03BB_022C)
+    );
+    assert_eq!(
+        athenaeum_editor::app::room_of("0x03BB022C"),
+        Some(0x03BB_022C)
+    );
+    assert_eq!(athenaeum_editor::app::room_of("5766"), None);
+    assert_eq!(
+        athenaeum_editor::app::room_of("57660023"),
+        None,
+        "land, not a room"
+    );
+    e.go_to_room(0x03BB_022C);
+    frame(&mut e, &ViewInput::default());
+    assert!(
+        e.status.is_empty() || !e.status.starts_with("no room"),
+        "{}",
+        e.status
+    );
+    assert_eq!(
+        e.inside().map(|(lb, _)| lb),
+        Some(0x03BB),
+        "among its rooms"
+    );
+}
+
+#[test]
 fn a_row_selected_is_drawn_however_far_off_it_stands() {
     let (mut e, item, _) = with_a_row("far");
     e.camera.position.x += 400.0;

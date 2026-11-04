@@ -504,6 +504,28 @@ impl<'w> Scene<'w> {
         best
     }
 
+    /// A point in the middle of a room, in its landblock, by what its walls and floors reach.
+    pub fn room_point(&mut self, cell: u32) -> Option<[f32; 3]> {
+        #[allow(clippy::cast_possible_truncation)]
+        self.read_cells((cell >> 16) as u16);
+        let c = self.land.cell(CellId(cell))?;
+        let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for p in c.physics_polygons.iter().flat_map(|p| &p.vertices) {
+            let w = dereth_physics::math::localtoglobal(&c.frame, *p);
+            for ((lo, hi), v) in lo.iter_mut().zip(&mut hi).zip([w.x, w.y, w.z]) {
+                *lo = lo.min(v);
+                *hi = hi.max(v);
+            }
+        }
+        (lo[0] <= hi[0]).then(|| {
+            [
+                (lo[0] + hi[0]) / 2.0,
+                (lo[1] + hi[1]) / 2.0,
+                (lo[2] + 1.8).min(hi[2]),
+            ]
+        })
+    }
+
     /// Whether a look is a body of several parts that moves: a person, not a barrel or a portal.
     pub fn is_moving_body(&mut self, look: u32) -> bool {
         Look::of(&self.anims, &plain_desc(look))

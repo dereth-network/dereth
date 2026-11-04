@@ -1480,6 +1480,22 @@ impl<'w> Editor<'w> {
         self.home = None;
     }
 
+    /// Fly into a room, by its cell's id.
+    pub fn go_to_room(&mut self, cell: u32) {
+        #[allow(clippy::cast_possible_truncation)]
+        let lb = (cell >> 16) as u16;
+        let held = self
+            .scene
+            .room_point(cell)
+            .filter(|at| self.enter_block(lb, *at));
+        let Some(at) = held else {
+            self.status = format!("no room {cell:08X}");
+            return;
+        };
+        let g = view::global(lb, at);
+        self.camera.position = Vec3::new(g[0], g[1], g[2]);
+    }
+
     /// The Find window: any row of the world by its name, template, kind or key, and a landblock to
     /// go to.
     fn row_finder(&mut self, ctx: &egui::Context) {
@@ -1489,6 +1505,7 @@ impl<'w> Editor<'w> {
         let mut open = true;
         let mut pick = None;
         let mut go = None;
+        let mut room = None;
         egui::Window::new("Find")
             .open(&mut open)
             .default_size([420.0, 440.0])
@@ -1505,15 +1522,28 @@ impl<'w> Editor<'w> {
                 if std::mem::take(&mut self.focus_find) {
                     field.request_focus();
                 }
+                // Enter takes what the window would offer first.
+                let enter = field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 if let Some((lb, at)) = go_to_of(&text) {
                     if ui
                         .button(format!("Go to {lb:04X} ({:.0}, {:.0})", at[0], at[1]))
                         .clicked()
+                        || enter
                     {
                         go = Some((lb, at));
                     }
+                } else if let Some(cell) = room_of(&text) {
+                    if ui.button(format!("Go to room {cell:08X}")).clicked() || enter {
+                        room = Some(cell);
+                    }
                 }
                 let found = self.rows_matching(&text, FOUND);
+                if enter && go.is_none() && room.is_none() {
+                    pick = found
+                        .first()
+                        .and_then(|i| self.session.entries().get(*i))
+                        .map(|e| e.item.clone());
+                }
                 if found.is_empty() {
                     if !text.trim().is_empty() {
                         ui.label(egui::RichText::new("no row holds that").weak());
@@ -1549,10 +1579,15 @@ impl<'w> Editor<'w> {
             self.select(Some(item.clone()));
             self.fly_to(&item);
         }
+        // Going somewhere leaves the way clear to see it.
+        let going = go.is_some() || room.is_some();
         if let Some((lb, at)) = go {
             self.go_to(lb, at);
         }
-        if open {
+        if let Some(cell) = room {
+            self.go_to_room(cell);
+        }
+        if open && !going {
             self.finding_rows = Some(text);
         }
     }
@@ -3361,6 +3396,19 @@ pub fn go_to_of(text: &str) -> Option<(u16, [f32; 2])> {
         }
     };
     Some((lb, at))
+}
+
+/// A room's cell id as typed (`03BB022C`, or with `0x`): a landblock's interior cell.
+#[must_use]
+pub fn room_of(text: &str) -> Option<u32> {
+    let t = text.trim();
+    let t = t.strip_prefix("0x").unwrap_or(t);
+    if t.len() != 8 {
+        return None;
+    }
+    u32::from_str_radix(t, 16)
+        .ok()
+        .filter(|c| c & 0xFFFF >= 0x100 && c & 0xFFFF < 0xFFFE)
 }
 
 /// A data id written in hexadecimal (`0x47002224`, or without `0x`).

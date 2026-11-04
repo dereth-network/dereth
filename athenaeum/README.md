@@ -97,7 +97,8 @@ to where it leads.
   Things to carry stay out of the way until **Items** is ticked, or **Worn**, which shows what can
   be worn on a body. **no picture** is something that shows only as effects, which play once it stands in the world.
 - Ctrl+F or **Find rows** finds any row of the world by its name, template, kind or key, nearest
-  or not, and goes to a landblock (`5766` or `5766:123,45`).
+  or not, and goes to a landblock (`5766` or `5766:123,45`) or a room (`03BB022C`). Enter takes
+  the first thing it offers.
 - G stands the selected rows on what is under them; Shift+G also leans objects with the ground.
 - Ctrl+C keeps the selected rows, and Ctrl+V puts copies down at the pointer, in any landblock,
   standing as they stood to each other.
