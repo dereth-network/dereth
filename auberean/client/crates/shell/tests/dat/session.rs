@@ -646,6 +646,82 @@ fn entering_the_world_goes_through_portal_space() {
     );
 }
 
+/// The server hears the scene is ready only once a frame of the world has been drawn, so what it
+/// keeps going until then (the mist of arrival) is seen.
+///
+/// Behaviour: desktop.shell.the-scene-is-reported-after-a-frame-of-the-world
+#[test]
+fn the_scene_is_reported_after_a_frame_of_the_world() {
+    use auberean_client_sdk::protocol::ClientMessage;
+    let server = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell(Box::new(DevLogin::new(
+        server,
+        "tester".into(),
+        "t".into(),
+        Some("tester".into()),
+    )));
+    let mut drawn = false;
+    let mut reported = false;
+    while s.host.time < 12.0 && !reported {
+        reported = s.client.as_ref().is_some_and(|c| {
+            c.sent()
+                .iter()
+                .any(|m| matches!(m.message, ClientMessage::SceneRenderingComplete(_)))
+        });
+        assert!(!reported || drawn, "reported at {} unseen", s.host.time);
+        step(&mut s);
+        drawn |= s.frame().world.is_some();
+    }
+    assert!(reported, "it is reported");
+}
+
+/// An effect the server asks of the player's body while the world is out of sight (portal space,
+/// here as the player enters) plays at once, not when the body is next drawn: stopped in the same
+/// moment it would never have shown.
+///
+/// Behaviour: desktop.bodies.an-effect-asked-out-of-sight-plays-at-once
+#[test]
+fn an_effect_asked_out_of_sight_plays_at_once() {
+    use auberean_client_sdk::protocol::physics::{Fx, ObjectEvent};
+    const ARRIVAL: u32 = 0x4100_0010;
+    let later = [(
+        0.5,
+        ServerMessage::DoFx(ObjectEvent {
+            sender: ObjectStamp {
+                id: PLAYER,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            action: Fx {
+                fx: ARRIVAL,
+                scalar: 1.0,
+            },
+        }),
+    )];
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let mut unseen = false;
+    while s.host.time < 4.0 && !unseen {
+        step(&mut s);
+        unseen = s.frame().world.is_none()
+            && s.scene
+                .player_effects()
+                .iter()
+                .any(|(fx, _)| *fx == ARRIVAL);
+    }
+    assert!(unseen, "playing while the world is out of sight");
+}
+
 /// An interface that takes every key.
 struct TakesKeys(DevLogin);
 

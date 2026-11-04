@@ -295,6 +295,9 @@ pub struct Client {
     script_sends: bool,
     /// The scene waits to be reported drawn.
     scene_wanted: bool,
+    /// Whether the host's last frame drew the world; none for a host that draws nothing. The server
+    /// hears the scene is ready only once it has.
+    pub world_frame_drawn: Option<bool>,
     portal_space: bool,
     /// The entry's session was ended: one log-off an entry into the world.
     ended: bool,
@@ -474,6 +477,7 @@ impl Client {
             account: settings.account,
             script_sends: settings.script_sends,
             scene_wanted: false,
+            world_frame_drawn: None,
             portal_space: false,
             ended: false,
             session_end: SessionEnd::default(),
@@ -2633,7 +2637,11 @@ impl Client {
 
     // D2-01904, D2-03986, D2-10650, D2-10651, D2-11020, D2-11021, D2-04055
     fn report_scene(&mut self) {
-        if self.scene_wanted && !self.portal_space && self.model.player_object().is_some() {
+        if self.scene_wanted
+            && !self.portal_space
+            && self.world_frame_drawn != Some(false)
+            && self.model.player_object().is_some()
+        {
             self.scene_wanted = false;
             self.send(ClientMessage::SceneRenderingComplete(Empty));
         }

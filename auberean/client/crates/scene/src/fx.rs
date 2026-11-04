@@ -111,28 +111,15 @@ impl BodyFx {
         mut figure: Option<&mut Figure>,
         dress: Option<&mut ObjectLook>,
     ) -> Option<Look> {
-        let home = match self.home {
-            Some(h) => h,
-            None => {
-                let h = block_of_global(at);
-                self.home = Some(h);
-                let rig = FigureRig {
-                    figure: figure.as_deref(),
-                    anims,
-                    water,
-                };
-                self.fx.start_on(
-                    systems,
-                    records,
-                    h,
-                    &place_in(at, heading, h),
-                    scale,
-                    now,
-                    &rig,
-                );
-                h
-            }
-        };
+        let home = self.home_at(
+            systems,
+            records,
+            anims,
+            (at, heading, scale),
+            now,
+            water,
+            figure.as_deref(),
+        );
         let place = place_in(at, heading, home);
         let spot = FxSpot {
             home,
@@ -140,28 +127,7 @@ impl BodyFx {
             scale,
             now,
         };
-        for (effect, play) in std::mem::take(&mut self.asked) {
-            match play {
-                Some(intensity) => {
-                    let rig = FigureRig {
-                        figure: figure.as_deref(),
-                        anims,
-                        water,
-                    };
-                    let (_, scripts) = self
-                        .fx
-                        .do_fx(systems, records, effect, intensity, &spot, who, &rig);
-                    if let Some(f) = figure.as_deref_mut() {
-                        for s in scripts {
-                            f.do_fx_script(anims, s);
-                        }
-                    }
-                }
-                None => {
-                    self.fx.stop_fx(records, effect, false);
-                }
-            }
-        }
+        self.play_asked(systems, records, anims, &spot, who, water, &mut figure);
         self.fx.use_time(records, now);
         self.fx.let_go_of_spent_lights(now);
         let rig = FigureRig {
@@ -192,6 +158,115 @@ impl BodyFx {
         }
         self.sounds.extend(self.fx.take_sounds());
         Some(total)
+    }
+
+    /// The block whose frame its effects stand in; the first time, the body standing at `stands`
+    /// (where, facing, scale), that of its place, and its startup effects begin.
+    #[allow(clippy::too_many_arguments)]
+    fn home_at(
+        &mut self,
+        systems: &ParticleSystems,
+        records: &WorldRecords,
+        anims: &CachedRecords<'_>,
+        stands: (Vec3, f32, Vec3),
+        now: f64,
+        water: Option<f32>,
+        figure: Option<&Figure>,
+    ) -> (i32, i32) {
+        if let Some(h) = self.home {
+            return h;
+        }
+        let (at, heading, scale) = stands;
+        let h = block_of_global(at);
+        self.home = Some(h);
+        let rig = FigureRig {
+            figure,
+            anims,
+            water,
+        };
+        self.fx.start_on(
+            systems,
+            records,
+            h,
+            &place_in(at, heading, h),
+            scale,
+            now,
+            &rig,
+        );
+        h
+    }
+
+    /// The effects asked are played or stopped, as they are asked: the systems they set going wait
+    /// to run until they are next drawn.
+    #[allow(clippy::too_many_arguments)]
+    fn play_asked(
+        &mut self,
+        systems: &ParticleSystems,
+        records: &WorldRecords,
+        anims: &CachedRecords<'_>,
+        spot: &FxSpot,
+        who: FxWho,
+        water: Option<f32>,
+        figure: &mut Option<&mut Figure>,
+    ) {
+        for (effect, play) in std::mem::take(&mut self.asked) {
+            match play {
+                Some(intensity) => {
+                    let rig = FigureRig {
+                        figure: figure.as_deref(),
+                        anims,
+                        water,
+                    };
+                    let (_, scripts) = self
+                        .fx
+                        .do_fx(systems, records, effect, intensity, spot, who, &rig);
+                    if let Some(f) = figure.as_deref_mut() {
+                        for s in scripts {
+                            f.do_fx_script(anims, s);
+                        }
+                    }
+                }
+                None => {
+                    self.fx.stop_fx(records, effect, false);
+                }
+            }
+        }
+    }
+
+    /// A frame the body is not drawn in (portal space's): the effects asked still play, standing
+    /// at `at`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn play_undrawn(
+        &mut self,
+        systems: &ParticleSystems,
+        records: &WorldRecords,
+        anims: &CachedRecords<'_>,
+        at: Vec3,
+        heading: f32,
+        scale: Vec3,
+        now: f64,
+        who: FxWho,
+        water: Option<f32>,
+        figure: Option<&mut Figure>,
+    ) {
+        let mut figure = figure;
+        let home = self.home_at(
+            systems,
+            records,
+            anims,
+            (at, heading, scale),
+            now,
+            water,
+            figure.as_deref(),
+        );
+        let place = place_in(at, heading, home);
+        let spot = FxSpot {
+            home,
+            place,
+            scale,
+            now,
+        };
+        self.play_asked(systems, records, anims, &spot, who, water, &mut figure);
     }
 
     /// The lights its effects placed on the body, as they stand `now` with the body at `at` (on

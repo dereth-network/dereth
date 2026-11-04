@@ -160,6 +160,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.bodies.an-effect-asked-out-of-sight-plays-at-once",
+        says: "An effect asked of the player's body in portal space plays at once, its systems \
+               running when the body is next drawn: the mist of arrival shows out of the white.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-ARRIVAL"),
+        station: "auberean-shell::dat::session::an_effect_asked_out_of_sight_plays_at_once",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.an-object-an-effect-makes-goes-with-its-behavior",
         says: "An object an effect makes hangs from the object playing it at the entry's holding                location or bone. An entry naming a behavior plays it on the object; as it ends the                object is hidden at once and goes three seconds later, whenever the effect ends.",
         since: RETAIL,
@@ -1602,6 +1611,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DESKTOP-REPORT-MOTION"),
         station: "auberean-shell::dat::session::the_reports_carry_the_motion_a_move_ordered_asks",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.shell.the-scene-is-reported-after-a-frame-of-the-world",
+        says: "The server hears the scene is ready only once a frame of the world has been drawn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCENE-AFTER-FRAME"),
+        station: "auberean-shell::dat::session::the_scene_is_reported_after_a_frame_of_the_world",
         tier: Tier::Dat,
     },
     behaviour! {

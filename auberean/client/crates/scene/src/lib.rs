@@ -375,6 +375,8 @@ pub struct Scene<'w> {
     arrivals: u32,
     /// The effects of the objects drawn with the world.
     placed_effects: PlacedEffects,
+    /// The last frame built drew the world.
+    world_was_drawn: bool,
     /// The particle systems every object's effects keep going.
     systems: ParticleSystems,
     /// The other objects as the bodies' guidance sees them, refreshed each frame.
@@ -1250,6 +1252,7 @@ impl<'w> Scene<'w> {
             ready_to_enter: false,
             arrivals: 0,
             placed_effects: PlacedEffects::default(),
+            world_was_drawn: false,
             systems: ParticleSystems::default(),
             objects: ObjectTable::default(),
             shake_drawn: false,
@@ -1351,10 +1354,43 @@ impl<'w> Scene<'w> {
         // D2-10658
         let world_drawn =
             world && self.world_shown && look.draw_world && self.build_world(now, look.world_fov);
+        self.world_was_drawn = world_drawn;
+        if !world_drawn {
+            self.play_player_fx_undrawn(now);
+        }
         self.portal_frame = self
             .portal
             .frame(&self.world.records, &mut self.builder, &look, now);
         self.prepared = Some(world_drawn);
+    }
+
+    /// A frame without the world: what the server asks of the player's effects still happens as
+    /// it asks, its systems waiting to run until the player is drawn again.
+    fn play_player_fx_undrawn(&mut self, now: f64) {
+        let night = self.is_night();
+        let Some(pl) = self.player.as_mut() else {
+            return;
+        };
+        let Some(fx) = pl.effects.as_mut() else {
+            return;
+        };
+        let at = pl.body.position;
+        let water = self.land.water_plane(at.cell).map(|p| -p.d);
+        fx.play_undrawn(
+            &self.systems,
+            &self.world.records,
+            &self.anims,
+            figures::global(at.cell.0, dv(at.frame.origin)),
+            pl.body.heading,
+            pl.scale,
+            now,
+            auberean_draw::effects::FxWho {
+                player: true,
+                night,
+            },
+            water,
+            Some(&mut pl.figure),
+        );
     }
 
     /// What to draw at `now`: the world when the player is in it and portal space leaves it in
@@ -1480,6 +1516,15 @@ impl<'w> Scene<'w> {
     #[must_use]
     pub fn land(&self) -> &Land {
         &self.land
+    }
+
+    /// The effects the player's body is playing, with their strengths.
+    #[must_use]
+    pub fn player_effects(&self) -> Vec<(u32, f32)> {
+        self.player
+            .as_ref()
+            .and_then(|p| p.effects.as_ref())
+            .map_or_else(Vec::new, fx::BodyFx::current_fx)
     }
 
     /// Whether the scene has the player's body.
@@ -2688,6 +2733,8 @@ impl<'w> Scene<'w> {
         client.world.blocking_for_cells = self.cells.blocking;
 
         self.follow_portal_space(client, now);
+        // The server hears the scene is ready once a frame of the world has been drawn.
+        client.world_frame_drawn = Some(self.world_was_drawn || !self.world_shown);
 
         // Everything else.
         let player = self.player.as_ref().map(|p| (p.id, p.body.position));
