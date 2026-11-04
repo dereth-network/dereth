@@ -797,7 +797,8 @@ pub(crate) fn effective_rating<S: Store>(
     held: &[crate::skills::Held],
     skill: u32,
 ) -> u32 {
-    s.skill_table.rating_with(held, skill, &|sk, rating| {
+    let hero = crate::focus::is_hero(&p.qualities);
+    s.skill_table.rating_with(held, skill, hero, &|sk, rating| {
         crate::effects::skill_rating(&s.effect_table, &p.play.effects, sk, rating)
     })
 }

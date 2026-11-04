@@ -125,6 +125,86 @@ fn raising_a_skill_spends_the_experience_to_its_tables_next_level() {
     assert_eq!(fs, vec![SHOW_TEXT], "short of experience: a text alone");
 }
 
+/// An active skill stops at 50 for a player who is no hero, whatever its experience and its parents
+/// come to; a hero's goes on to the skill's own cap, in its rating and in a raise. A passive skill
+/// has its own cap for anyone.
+/// Behaviour: server.skills.active-cap-for-who-is-no-hero
+#[test]
+fn an_active_skill_stops_at_fifty_for_who_is_no_hero_and_goes_on_for_a_hero() {
+    use yalain_world::skills::{refusal, Held};
+    const PARENT: u32 = 16;
+    let mut t = table();
+    t.tables.insert(
+        TABLE,
+        (0..=100u64).map(|n| 2 * n * n.saturating_sub(1)).collect(),
+    );
+    let at = |n: u64| 2 * n * n.saturating_sub(1);
+    let def = |id: u32, active: bool, parents: Vec<(u32, u32)>| SkillDef {
+        id,
+        cap: 150,
+        table: TABLE,
+        active,
+        parents,
+        ..SkillDef::default()
+    };
+    t.skills.insert(SKILL, def(SKILL, true, vec![(PARENT, 0)]));
+    t.skills.insert(PARENT, def(PARENT, false, vec![]));
+    let held = |skill: u32, xp: u64| Held {
+        skill,
+        granted: 0,
+        xp,
+        mask: 0x3,
+        cost: 0,
+        children: 0,
+        dependents: 0,
+    };
+    // A parent of 50 gives 5: 62 of its own comes to 67.
+    let skills = [held(SKILL, at(62)), held(PARENT, at(50))];
+    assert_eq!(t.rating(&skills, SKILL, true), 67, "a hero's");
+    assert_eq!(t.rating(&skills, SKILL, false), 50, "no hero's");
+    assert_eq!(t.rating(&skills, PARENT, false), 50);
+    let passive = [held(PARENT, at(62))];
+    assert_eq!(t.rating(&passive, PARENT, false), 62, "passive");
+    let at_fifty = [held(SKILL, at(50))];
+    assert_eq!(
+        t.raise(&at_fifty, SKILL, 1_000_000, false),
+        Err(refusal::CAP)
+    );
+    assert_eq!(
+        t.raise(&at_fifty, SKILL, 1_000_000, true),
+        Ok(at(51) - at(50)),
+        "a hero raises on"
+    );
+
+    // Asked of the server, by a hero and by a player who is none.
+    let raises = |hero: bool| {
+        let mut h = Harness::new();
+        let b = trainee(&mut h);
+        h.server.skill_table = t.clone();
+        h.server
+            .skill_table
+            .skills
+            .get_mut(&SKILL)
+            .unwrap()
+            .parents
+            .clear();
+        ask(&mut h, b, TRAIN);
+        for p in h.server.players.values_mut() {
+            yalain_world::quals::set_bool(&mut p.qualities, yalain_world::focus::HERO, hero);
+            yalain_world::quals::set_long(&mut p.qualities, 301, 1_000_000);
+            let s = p.play.skills.iter_mut().find(|s| s.skill == SKILL).unwrap();
+            s.spent = at(50);
+        }
+        let from = ask(&mut h, b, RAISE);
+        calls_of(&h, b, from)
+            .iter()
+            .map(|(f, _)| *f)
+            .collect::<Vec<u32>>()
+    };
+    assert_eq!(raises(true), vec![UPDATE_INFO, SHOW_TEXT], "a hero's raise");
+    assert_eq!(raises(false), vec![SHOW_TEXT], "refused at 50");
+}
+
 /// A skill's level in its table: the highest level whose experience it holds (none still reaches
 /// level 1); a raise costs the experience to the next, none at the top.
 /// A rating with effects: a parent's counts, as changed, toward its child; the cap still holds.
@@ -154,18 +234,21 @@ fn a_skills_rating_counts_its_own_and_its_parents_effects_up_to_its_cap() {
         dependents: 0,
     };
     let skills = [held(SKILL, 20), held(PARENT, 10)];
-    assert_eq!(t.rating(&skills, SKILL), 20 + 1 + 1);
+    assert_eq!(t.rating(&skills, SKILL, false), 20 + 1 + 1);
     // The parent's raised rating counts as a tenth, at most its 50.
     let parent_raised = |sk: u32, r: u32| if sk == PARENT { r + 19 } else { r };
-    assert_eq!(t.rating_with(&skills, SKILL, &parent_raised), 20 + 3 + 1);
+    assert_eq!(
+        t.rating_with(&skills, SKILL, false, &parent_raised),
+        20 + 3 + 1
+    );
     let own_raised = |sk: u32, r: u32| if sk == SKILL { r + 6 } else { r };
-    assert_eq!(t.rating_with(&skills, SKILL, &own_raised), 22 + 6);
+    assert_eq!(t.rating_with(&skills, SKILL, false, &own_raised), 22 + 6);
     let far = |sk: u32, r: u32| if sk == SKILL { r + 600 } else { r };
-    assert_eq!(t.rating_with(&skills, SKILL, &far), 50, "its cap");
+    assert_eq!(t.rating_with(&skills, SKILL, false, &far), 50, "its cap");
     // No effect, as without.
     assert_eq!(
-        t.rating_with(&skills, SKILL, &|_, r| r),
-        t.rating(&skills, SKILL)
+        t.rating_with(&skills, SKILL, false, &|_, r| r),
+        t.rating(&skills, SKILL, false)
     );
 }
 

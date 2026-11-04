@@ -166,7 +166,7 @@ fn a_character_made_with_a_build_holds_what_a_player_who_earned_it_holds() {
         let p = h.server.players.get(&w).expect("in the world");
         let starting = h.server.start.skills.get(&1).cloned().unwrap_or_default();
         let held = yalain_world::skills::held(&starting, &p.play.skills);
-        h.server.skill_table.rating(&held, SKILL)
+        h.server.skill_table.rating(&held, SKILL, false)
     };
     for f in [0x8214_0002u32].into_iter().chain([0x8214_000C; 4]) {
         h.bots[b].send(true, queue::WEENIE, &server_call(f, &[Arg::Int(SKILL)]));
@@ -704,7 +704,7 @@ fn a_build_given_to_a_played_character_raises_it_as_play_would_and_keeps_the_res
         let p = h.server.players.get(&we).expect("in the world");
         let starting = h.server.start.skills.get(&1).cloned().unwrap_or_default();
         let held = yalain_world::skills::held(&starting, &p.play.skills);
-        h.server.skill_table.rating(&held, SKILL)
+        h.server.skill_table.rating(&held, SKILL, false)
     };
     assert!(reached >= 3, "trained and raised by requests: {reached}");
     yalain_world::world::keep_player(&mut h.server, we);

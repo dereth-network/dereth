@@ -13,8 +13,9 @@
 //!   no experience, and is marked trained (and the player's to untrain when the skill may be).
 //! - **A skill's rating** is its granted level, plus a tenth of its trained parents' ratings (each
 //!   at most 50), plus the level its experience reaches in its advancement table (the highest level
-//!   whose experience it has: none still reaches level 1), at most its cap (for an active skill at
-//!   most 50 as well).
+//!   whose experience it has: none still reaches level 1), at most its cap (for an active skill of
+//!   a player who is no hero, at most 50 as well: 2017, 1,268 records above 50, all of heroes, 0 of
+//!   16,397 others').
 //! - **Raising** a skill costs the experience from what it holds to its table's next level (none at
 //!   the table's top). It is refused when the skill cannot be raised, is untrained, is at its cap,
 //!   or the player's available experience is short of the cost; raised, the experience moves from
@@ -267,7 +268,7 @@ pub struct SkillDef {
     pub prereqs: Vec<(u32, u32)>,
     /// The races it is for (0: all).
     pub species: u32,
-    /// An active skill (one used), capped at 50 for players.
+    /// An active skill (one used), capped at 50 for players who are no heroes.
     pub active: bool,
     /// One of the basic attacks a run swings (it has weights to be drawn by).
     pub auto_attack: bool,
@@ -603,11 +604,24 @@ pub fn held(starting: &[(u32, u32)], kept: &[SkillState]) -> Vec<Held> {
     out
 }
 
-impl SkillTable {
-    /// A held skill's rating (see the module's rules).
+impl SkillDef {
+    /// The most a player's rating in this skill may be: its cap, and for an active skill of a player
+    /// who is no hero, at most 50.
     #[must_use]
-    pub fn rating(&self, skills: &[Held], skill: u32) -> u32 {
-        self.rating_at(skills, skill, 0, &|_, raw| raw)
+    pub fn cap_for(&self, hero: bool) -> u32 {
+        if self.active && !hero {
+            self.cap.min(50)
+        } else {
+            self.cap
+        }
+    }
+}
+
+impl SkillTable {
+    /// A held skill's rating (see the module's rules), for a hero or a player who is none.
+    #[must_use]
+    pub fn rating(&self, skills: &[Held], skill: u32, hero: bool) -> u32 {
+        self.rating_at(skills, skill, hero, 0, &|_, raw| raw)
     }
 
     /// A held skill's rating with what its holder's effects make of each skill's own (`changed`,
@@ -619,15 +633,17 @@ impl SkillTable {
         &self,
         skills: &[Held],
         skill: u32,
+        hero: bool,
         changed: &dyn Fn(u32, u32) -> u32,
     ) -> u32 {
-        self.rating_at(skills, skill, 0, changed)
+        self.rating_at(skills, skill, hero, 0, changed)
     }
 
     fn rating_at(
         &self,
         skills: &[Held],
         skill: u32,
+        hero: bool,
         depth: u32,
         changed: &dyn Fn(u32, u32) -> u32,
     ) -> u32 {
@@ -646,7 +662,7 @@ impl SkillTable {
             d.parents
                 .iter()
                 .filter(|(p, _)| trained(*p))
-                .map(|(p, _)| self.rating_at(skills, *p, depth + 1, changed).min(50))
+                .map(|(p, _)| self.rating_at(skills, *p, hero, depth + 1, changed).min(50))
                 .sum()
         } else {
             0
@@ -656,7 +672,7 @@ impl SkillTable {
             .get(&d.table)
             .map_or(0, |t| table_level(t, h.xp));
         let bonus = parents / 10;
-        let cap = if d.active { d.cap.min(50) } else { d.cap };
+        let cap = d.cap_for(hero);
         changed(skill, (h.granted + bonus + level).min(cap)).min(cap)
     }
 
@@ -701,7 +717,7 @@ impl SkillTable {
         }
         if d.prereqs
             .iter()
-            .any(|(p, at)| !trained(*p) || self.rating(skills, *p) < *at)
+            .any(|(p, at)| !trained(*p) || self.rating(skills, *p, credits.hero.is_some()) < *at)
         {
             return Some(refusal::PREREQUISITE);
         }
@@ -720,7 +736,13 @@ impl SkillTable {
     ///
     /// # Errors
     /// The refusal's code.
-    pub fn raise(&self, skills: &[Held], skill: u32, available: u64) -> Result<u64, u32> {
+    pub fn raise(
+        &self,
+        skills: &[Held],
+        skill: u32,
+        available: u64,
+        hero: bool,
+    ) -> Result<u64, u32> {
         let d = self.skills.get(&skill);
         if d.is_some_and(|d| d.flags & flag::CANNOT_RAISE != 0) {
             return Err(refusal::CANNOT_RAISE);
@@ -737,8 +759,7 @@ impl SkillTable {
         let Some(d) = d else {
             return Err(refusal::CANNOT_RAISE);
         };
-        let cap = if d.active { d.cap.min(50) } else { d.cap };
-        if self.rating(skills, skill) >= cap {
+        if self.rating(skills, skill, hero) >= d.cap_for(hero) {
             return Err(refusal::CAP);
         }
         let cost = self.tables.get(&d.table).map_or(0, |t| raise_cost(t, h.xp));
@@ -1033,20 +1054,21 @@ pub fn raise<S: Store>(
     let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
     let mut skills = held(&starting, &p.play.skills);
     let available = quals::long(&p.qualities, progress::q::AVAILABLE_XP).unwrap_or(0);
-    let cost = match s.skill_table.raise(&skills, skill, available) {
+    let hero = crate::focus::is_hero(&p.qualities);
+    let cost = match s.skill_table.raise(&skills, skill, available, hero) {
         Ok(c) => c,
         Err(code) => {
             refuse(net, world, &s.skill_table, skill, code);
             return;
         }
     };
-    let before = s.skill_table.rating(&skills, skill);
+    let before = s.skill_table.rating(&skills, skill, hero);
     let Some(h) = skills.iter_mut().find(|h| h.skill == skill) else {
         return;
     };
     h.xp += cost;
     let h = *h;
-    let after = s.skill_table.rating(&skills, skill);
+    let after = s.skill_table.rating(&skills, skill, hero);
     let time = net.game_time(clock.local);
     let name = skill_name(&s.skill_table, skill);
     let Some(p) = s.players.get_mut(&world) else {

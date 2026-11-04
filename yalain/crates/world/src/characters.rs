@@ -222,14 +222,14 @@ fn build<S: Store>(
     // Its skills: each trained with its credits, then raised with its experience to the rating.
     let starting = s.start.skills.get(&c.race).cloned().unwrap_or_default();
     let mut skills = held(&starting, &play.skills);
+    let hero = r
+        .hero
+        .unwrap_or_else(|| crate::focus::is_hero(&st.qualities));
     for &(skill, rating) in &r.skills {
         let is_trained = skills
             .iter()
             .any(|h| h.skill == skill && h.mask & crate::skills::mask::TRAINED != 0);
         if !is_trained {
-            let hero = r
-                .hero
-                .unwrap_or_else(|| crate::focus::is_hero(&st.qualities));
             let (_, _, (cost, hero_cost)) = trained(
                 &s.skill_table,
                 &mut skills,
@@ -245,14 +245,14 @@ fn build<S: Store>(
             play.credits -= cost;
             play.hero_credits -= hero_cost;
         }
-        while s.skill_table.rating(&skills, skill) < rating {
+        while s.skill_table.rating(&skills, skill, hero) < rating {
             let cost = s
                 .skill_table
-                .raise(&skills, skill, available)
+                .raise(&skills, skill, available, hero)
                 .map_err(|code| {
                     format!(
                         "skill {skill} not raised to {rating} (it is {}): {}",
-                        s.skill_table.rating(&skills, skill),
+                        s.skill_table.rating(&skills, skill, hero),
                         refusal_words(code)
                     )
                 })?;
@@ -727,10 +727,11 @@ pub fn build_of<S: Store>(s: &Server<S>, c: &Character, st: &WorldState) -> Resu
     };
     let starting = s.start.skills.get(&c.race).cloned().unwrap_or_default();
     let skills = held(&starting, &play.skills);
+    let hero = crate::focus::is_hero(&st.qualities);
     let mut trained: Vec<(u32, u32)> = skills
         .iter()
         .filter(|h| h.mask & crate::skills::mask::TRAINED != 0)
-        .map(|h| (h.skill, s.skill_table.rating(&skills, h.skill)))
+        .map(|h| (h.skill, s.skill_table.rating(&skills, h.skill, hero)))
         .collect();
     trained.sort_unstable();
     let mut items: Vec<(u32, u32)> = Vec::new();

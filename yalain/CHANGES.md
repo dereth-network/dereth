@@ -138,6 +138,7 @@ what they see, not how it was done.
 - Treasure names now use the right word for what the item is.
 - Loot can now have Stasis, armor counters and Burning Edge.
 - Fixed specials that strike with the left hand doing the right hand's damage.
+- Heroes' skills can now go past 50.
 
 ## 0.1.2 (2026-11-03)
 

@@ -8477,6 +8477,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.active-cap-for-who-is-no-hero",
+        says: "An active skill stops at 50 for a player who is no hero, in its rating and in a \
+               raise; a hero's goes on to the skill's own cap.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-CAP-HEROES"),
+        station: "yalain-testkit::cpu::play::skills::an_active_skill_stops_at_fifty_for_who_is_no_hero_and_goes_on_for_a_hero",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.advancement-table",
         says: "A skill's level in its advancement table is the highest whose experience it holds \
                (none still reaches level 1), and a raise costs the experience to the next, none \
