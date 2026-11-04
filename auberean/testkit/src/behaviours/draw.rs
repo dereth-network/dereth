@@ -183,6 +183,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.effects.an-effects-color-goes-back-as-it-ends",
+        says: "An effect's entry that says so puts its object's color back to white in a tenth of a second as the effect stops, playing or not; a color that lasts holds its effect for as long.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-RESTORE-COLOR"),
+        station: "auberean-draw::dat::effects::an_effects_color_goes_back_as_it_ends",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.effects.an-effects-entries-play-as-the-players-preferences-ask",
         says: "An effect's entries keyed to how much gore, the color of blood or steps raising particles play only as the player's preferences ask; a channel no preference holds says nothing.",
         since: RETAIL,

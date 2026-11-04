@@ -1690,7 +1690,7 @@ impl<'w> Scene<'w> {
     }
 
     /// The figure of object `id` (see [`figure_in`]).
-    pub(crate) fn figure_mut(&mut self, id: u64) -> Option<&mut Figure> {
+    pub fn figure_mut(&mut self, id: u64) -> Option<&mut Figure> {
         figure_in(
             &mut self.player,
             &mut self.others,
@@ -3965,6 +3965,33 @@ impl<'w> Scene<'w> {
                         b.ground = Some(*at);
                     }
                 }
+            }
+        }
+        // Every body is drawn in the color and at the opacity its sliders hold.
+        // D2-06474
+        for (id, range, _, _) in &noted {
+            let figure = if *id == p.id {
+                Some(&p.figure)
+            } else {
+                self.others
+                    .figure(*id)
+                    .or_else(|| self.held.figure(*id))
+                    .or_else(|| self.temporaries.get(*id).and_then(|t| t.figure.as_ref()))
+            };
+            let Some([r, g, b, a]) = figure.map(|f| f.sliders.draw_color()) else {
+                continue;
+            };
+            for d in built
+                .frame
+                .objects
+                .get_mut(range.clone())
+                .into_iter()
+                .flatten()
+            {
+                d.tint.r *= r;
+                d.tint.g *= g;
+                d.tint.b *= b;
+                d.tint.a *= a;
             }
         }
         let casting = Casting {

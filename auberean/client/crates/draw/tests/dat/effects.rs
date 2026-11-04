@@ -1065,3 +1065,46 @@ fn an_effects_entries_play_as_the_players_preferences_ask() {
     assert_eq!(playing(1, 2), fun);
     assert_eq!(playing(1, 1), fun);
 }
+
+/// An effect that sees its object through while it plays puts it back: the arrival effect's entry
+/// (`0x41000010` of the player's table) takes the alpha to a half and, as it stops, the color goes
+/// back to white in a tenth of a second. Stopping it when it is not playing puts the color back
+/// all the same.
+///
+/// Behaviour: draw.effects.an-effects-color-goes-back-as-it-ends
+#[test]
+fn an_effects_color_goes_back_as_it_ends() {
+    use auberean_draw::effects::{FxSlider, FxSpot, FxWho, NoRig};
+    const ARRIVAL: u32 = 0x4100_0010;
+    const ALPHA: u32 = 0x4000_001A;
+    let r = &install().records;
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let systems = ParticleSystems::default();
+    let spot = FxSpot {
+        home: (0, 0),
+        place: Mat4::IDENTITY,
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        now: 1.0,
+    };
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let (took, _) = fx.do_fx(&systems, r, ARRIVAL, 1.0, &spot, FxWho::default(), &NoRig);
+    assert!(took);
+    let asked = fx.take_sliders();
+    assert!(
+        asked.iter().any(|s| s.slider == ALPHA && s.value == 0.5),
+        "{asked:?}"
+    );
+    assert!(fx.stop_fx(r, ARRIVAL, false));
+    let back = fx.take_sliders();
+    let white = |list: &[FxSlider]| {
+        [0x4000_0016, 0x4000_0017, 0x4000_0018, ALPHA]
+            .iter()
+            .all(|k| {
+                list.iter()
+                    .any(|s| s.slider == *k && s.value == 1.0 && s.time == 0.1)
+            })
+    };
+    assert!(white(&back), "{back:?}");
+    assert!(!fx.stop_fx(r, ARRIVAL, false), "no longer playing");
+    assert!(white(&fx.take_sliders()), "put back all the same");
+}

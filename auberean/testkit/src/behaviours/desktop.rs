@@ -55,6 +55,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.bodies.a-body-is-drawn-in-the-color-its-sliders-hold",
+        says: "A body is drawn in the color and at the opacity its sliders hold: its red, green,                blue and alpha sliders multiply its draws, its fade slider their alpha too.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-ANIM-COLOR"),
+        station: "auberean-shell::dat::session::a_body_is_drawn_in_the_color_its_sliders_hold",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.a-body-turns-its-head-to-what-it-looks-at",
         says: "A body asked to look at an object turns its head to it, blended in over half a \
                second and held: its turn the object's angle from straight ahead, its pitch the \

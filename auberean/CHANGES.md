@@ -58,6 +58,7 @@ not how it was done.
 - Avatars in the hall pose when you point at them and act when chosen.
 - Fixed a tooltip staying up after its screen closed.
 - Effects now use the gore and blood color options.
+- Characters and objects now show the colors and fades effects give them.
 
 ## 0.1.2 (2026-11-02)
 

@@ -1074,16 +1074,19 @@ impl ObjectEffects {
 
     /// Stops effect `effect`: the particle systems it keeps going are let go of, and it no longer
     /// plays; a startup effect only when `force`d. Asked (not `force`d), the appearances its
-    /// entries lay over the object are taken off it.
+    /// entries lay over the object are taken off it. An entry that says so puts the object's color
+    /// back to white in a tenth of a second, whether the effect was playing or not.
     // D2-06920
     pub fn stop_fx(&mut self, records: &WorldRecords, effect: u32, force: bool) -> bool {
         let Some(state) = self.states.get(&effect) else {
+            self.restore_color(records, effect);
             return false;
         };
         if state.startup && !force {
             return false;
         }
         let gone = state.systems.clone();
+        self.restore_color(records, effect);
         self.systems.retain(|c| !gone.contains(&c.id));
         if !force {
             for data in self.table.fx_data(records, effect) {
@@ -1098,6 +1101,21 @@ impl ObjectEffects {
         self.states.remove(&effect);
         self.sounds.push(FxSound::Stop { effect });
         true
+    }
+
+    /// The object's color back to white, once for each of the effect's entries that says so.
+    fn restore_color(&mut self, records: &WorldRecords, effect: u32) {
+        for data in self.table.fx_data(records, effect) {
+            if node_for(&data, self.terrain).restore == Some(true) {
+                self.sliders
+                    .extend(COLOR_SLIDERS.into_iter().map(|slider| FxSlider {
+                        slider,
+                        value: 1.0,
+                        time: 0.1,
+                        children: false,
+                    }));
+            }
+        }
     }
 
     /// The object is going: every effect it plays stops, its startup effects too, with the systems
@@ -1256,6 +1274,12 @@ fn calc_duration(
     if let Some(s) = script {
         if let Some(fx) = records.get::<auberean_assets::fx::FxScript>(s) {
             d = Some(f64::from(fx.period));
+        }
+    }
+    // A color that lasts holds the effect for as long.
+    if node.color.is_some_and(|(on, _)| on) {
+        if let Some(life) = node.color_lifetime.filter(|l| *l > 0.0) {
+            d = Some(f64::from(life));
         }
     }
     d

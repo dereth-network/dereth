@@ -3182,6 +3182,96 @@ fn an_object_takes_up_its_description() {
     assert!((value - 0.25).abs() < 1e-3, "its slider: {value}");
 }
 
+/// A body is drawn in the color and at the opacity its sliders hold: red, green, blue and alpha
+/// multiply its draws, the opacity its alpha too; moved over a time they go there as it passes.
+/// Fixture: the human figure created in the hall's cell, its red slider 0.25.
+///
+/// Behaviour: desktop.bodies.a-body-is-drawn-in-the-color-its-sliders-hold
+#[test]
+fn a_body_is_drawn_in_the_color_its_sliders_hold() {
+    use auberean_client_sdk::protocol::types::SliderSetting;
+    use auberean_physics::body::parent::FADE_SLIDER;
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const CREATURE: u64 = 0x8130_1B05_CC00_0191;
+    const RED: u32 = 0x4000_0016;
+    const ALPHA: u32 = 0x4000_001A;
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION | PhysicsDesc::SLIDERS,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: DRUDGES_CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: -3.9,
+                        y: 337.5,
+                        z: -44.7,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            sliders: vec![SliderSetting {
+                slider: RED,
+                value: 0.25,
+                time: 0.0,
+            }],
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -44.7,
+    };
+    let script = script_with(DRUDGES_CELL, at, Quat::IDENTITY, &[creature]);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 12.0 {
+        step(&mut s);
+    }
+    // The player's own draws stay white; only the creature's red is 0.25.
+    fn reds(s: &mut Shell<'static, DoubleHost>) -> Vec<(f32, f32)> {
+        let now = s.host.time;
+        let frame = s.scene.frame(now).expect("the world drawn");
+        frame
+            .objects
+            .iter()
+            .filter(|b| b.mesh != 0 && b.tint.r < 0.99)
+            .map(|b| (b.tint.r, b.tint.a))
+            .collect()
+    }
+    let at_first = reds(&mut s);
+    assert!(
+        !at_first.is_empty() && at_first.iter().all(|(r, a)| *r == 0.25 && *a == 1.0),
+        "{at_first:?}"
+    );
+    let figure = s.scene.figure_mut(CREATURE).expect("its figure");
+    figure.sliders.do_slider(0, ALPHA, 0.5, 0.0);
+    figure.sliders.do_slider(0, FADE_SLIDER, 0.5, 0.0);
+    let faded = reds(&mut s);
+    assert!(
+        !faded.is_empty() && faded.iter().all(|(r, a)| *r == 0.25 && *a == 0.25),
+        "{faded:?}"
+    );
+}
+
 /// An effect aimed at another object acts on it: the entry that hides its target hides it, and it
 /// shows again when the effect is over. Fixture: the human figure created in the hall's cell, a
 /// server double asking the player's body for the effect at a set time.
