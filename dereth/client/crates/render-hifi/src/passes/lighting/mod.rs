@@ -14,6 +14,7 @@
 
 pub mod cells;
 pub mod derive;
+pub mod sunshafts;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -672,6 +673,58 @@ fn buf_entry(binding: u32, stage: wgpu::ShaderStages, dynamic: bool) -> wgpu::Bi
     }
 }
 
+/// How strongly each level of God Rays shows the sunlight in the air.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct GodRays {
+    /// The share of the sun's light a metre of air sends toward the eye at noon.
+    density: f32,
+    /// How many times more it sends with the sun on the horizon.
+    low_sun: f32,
+    /// How many times more where all round the eye stands in shade.
+    in_shade: f32,
+    /// How strongly the shafts through leaves and roofs show on screen.
+    streaks: f32,
+}
+
+impl GodRays {
+    /// Low, Medium and High.
+    const LEVELS: [Self; 3] = [
+        Self {
+            density: 0.0015,
+            low_sun: 1.5,
+            in_shade: 1.5,
+            streaks: 0.6,
+        },
+        Self {
+            density: 0.0025,
+            low_sun: 2.0,
+            in_shade: 2.5,
+            streaks: 1.2,
+        },
+        Self {
+            density: 0.004,
+            low_sun: 3.0,
+            in_shade: 4.0,
+            streaks: 2.0,
+        },
+    ];
+
+    /// The level `level` stands for; `None` for none.
+    fn at(level: u8) -> Option<Self> {
+        Self::LEVELS
+            .get(usize::from(level).checked_sub(1)?)
+            .copied()
+    }
+
+    /// How dense the air is with the sunlight it scatters, a share a metre: thin at noon under
+    /// a clear sky, thicker as the sun sinks toward the hills and in fog, when shafts show most.
+    fn density(self, frame: &HifiFrame) -> f32 {
+        let low = 1.0 - (frame.sky.sun_direction.normalize_or(Vec3::Z).z / 0.5).clamp(0.0, 1.0);
+        let fog = if frame.sky.fog.is_some() { 2.0 } else { 1.0 };
+        env_f32("DERETH_HIFI_SHAFTS", self.density) * (1.0 + self.low_sun * low * low) * fog
+    }
+}
+
 fn uniform(device: &wgpu::Device, label: &str, size: u64) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some(label),
@@ -1036,6 +1089,8 @@ pub struct Lighting {
     rt: crate::passes::rt::RtScene,
     /// A lamp picture of one unlit texel, bound when the lamps draw nothing.
     no_lamps: Option<(wgpu::Texture, wgpu::TextureView)>,
+    /// The shafts of sunlight gathered on screen, once first drawn.
+    sunshafts: Option<sunshafts::SunShafts>,
     /// The outdoor lamps' light after dusk.
     lamps: crate::passes::lamps::LampLight,
     /// The rooms' own light per pixel.
@@ -1734,6 +1789,18 @@ impl HifiPass for Lighting {
             }
             None => p.extend([0.0; 8]),
         }
+        let rays = GodRays::at(frame.god_rays);
+        #[allow(clippy::cast_precision_loss)] // the frame's number, wrapped to a few dozen
+        p.extend([
+            match rays {
+                Some(r) if sun_on => r.density(frame),
+                _ => 0.0,
+            },
+            env_f32("DERETH_HIFI_SHAFT_FORWARD", 0.6),
+            (frame.stamp % 64) as f32,
+            env_f32("DERETH_HIFI_SHAFT_REACH", 120.0).min(SPLITS[3]),
+        ]);
+        p.extend([rays.map_or(0.0, |r| r.in_shade), 0.0, 0.0, 0.0]);
         queue.write_buffer(&gpu.params, 0, &floats(&p));
         let mut lb: Vec<f32> = Vec::with_capacity(MAX_LIGHTS * 8);
         for l in &lights {
@@ -1849,6 +1916,21 @@ impl HifiPass for Lighting {
                 &device, &queue, cx.encoder, frame, cx.depth, &rt.hdr, viewport, cx.timer,
             )
         {
+            cx.seam.count_pass();
+        }
+        // The light through the gaps of leaves and roofs, gathered on screen toward the sun.
+        let rays = GodRays::at(frame.god_rays).filter(|_| frame.sky.outdoor && sun_up(frame));
+        let on_screen = rays.and_then(|r| Some((sunshafts::sun_on_screen(frame)?, r.streaks)));
+        if let Some((on_screen, streaks)) = on_screen {
+            let (sun, _) = legacy_light(frame);
+            let gain = env_f32("DERETH_HIFI_SUN", 2.6) * DayLight::of(frame).sun;
+            let sun = sun.map(|c| dereth_primitives::num::math::powf(c.max(0.0), 2.2) * gain);
+            self.sunshafts
+                .get_or_insert_with(|| sunshafts::SunShafts::new(&device, HDR))
+                .draw(
+                    &device, &queue, cx.encoder, frame, on_screen, streaks, sun, cx.depth, &rt.hdr,
+                    viewport, cx.timer,
+                );
             cx.seam.count_pass();
         }
         Ok(())
@@ -2638,8 +2720,9 @@ fn colour_pass_clear<'e>(
 
 /// The lighting shaders as the device is handed them, for validation without a device.
 #[must_use]
-pub fn shaders() -> [(&'static str, String); 7] {
+pub fn shaders() -> [(&'static str, String); 8] {
     [
+        ("sun shafts", sunshafts::shader()),
         ("room light", cells::shader(false)),
         ("room light, traced", cells::shader(true)),
         ("gi", crate::passes::gi::GI_WGSL.to_owned()),

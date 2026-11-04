@@ -8,6 +8,7 @@ pub mod background;
 pub mod classic;
 pub mod config;
 pub mod fidelity;
+pub mod god_rays;
 pub mod interface;
 pub mod landscape;
 pub mod names;

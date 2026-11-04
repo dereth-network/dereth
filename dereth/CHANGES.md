@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Better Lighting: a God Rays menu, Off to High: sunlight shows in the air in shafts where walls, roofs and trees break it, most at dawn and dusk, in fog and under trees.
+
 ## 0.4.12 (2026-11-03)
 
 - Launcher: you can add a world by its address in Auberean's realm too.

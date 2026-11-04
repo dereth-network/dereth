@@ -62,6 +62,12 @@ struct Params {
     cloud_map: vec4<f32>,
     // x how much of the sun the clouds' shadows take, 0 for none; yzw unused.
     cloud_shade: vec4<f32>,
+    // The sunlight the air scatters toward the eye: x how dense the air is, a share of the sun's
+    // light a metre of it sends, 0 for none; y how much more it sends forward, away from the
+    // sun; z the frame's number, wrapped; w how far along each ray, metres, it is gathered.
+    shafts: vec4<f32>,
+    // x how many times thicker the air is where all round the eye stands in shade; yzw unused.
+    shafts_shade: vec4<f32>,
 };
 
 struct Light {
@@ -473,8 +479,83 @@ fn out(c: vec4<f32>, s: vec4<f32>) -> Out {
     return o;
 }
 
+// Whether the air at `world`, `t` metres along the eye's ray, stands in the sun: one look at the
+// cascade that holds it, and sunlit past the shadow maps' reach.
+fn air_sunlit(world: vec3<f32>, t: f32) -> f32 {
+    for (var c: i32 = 0; c < 4; c = c + 1) {
+        if (t < params.splits[c]) {
+            let lp = params.cascade[c] * vec4<f32>(world, 1.0);
+            let uv = vec2<f32>(lp.x * 0.5 + 0.5, 0.5 - lp.y * 0.5);
+            if (any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || lp.z > 1.0) {
+                return 1.0;
+            }
+            return textureSampleCompareLevel(shadow_map, shadow_cmp, uv, c, lp.z);
+        }
+    }
+    return 1.0;
+}
+
+// How many points along a ray the sunlit air is looked for at.
+const SHAFT_STEPS: i32 = 16;
+// How many metres above the eye the air thins by about two thirds: the haze lies low, among the
+// trees and the walls, and leaves the sky clear.
+const SHAFT_HEIGHT: f32 = 25.0;
+// The share of the reach the air is gathered over toward the open sky.
+const SKY_REACH: f32 = 0.4;
+
+// The sunlight the air scatters toward the eye along the pixel's ray, from the eye to its surface
+// or as far as the shafts are gathered: the ray is marched through the sun's shadow maps, so a
+// wall, a roof or a canopy cuts the light in the air into shafts. The points are moved along the
+// ray from pixel to pixel and frame to frame, for the anti-aliasing to smooth.
+fn sun_shafts(p: vec2<f32>) -> vec3<f32> {
+    if (params.shafts.x <= 0.0 || params.sun_dir.w < 0.5 || params.indoor.x < 0.5
+        || params.tune.w > 0.5) {
+        return vec3<f32>(0.0);
+    }
+    let d = textureLoad(depth, vec2<i32>(p), 0);
+    let eye = params.eye.xyz;
+    let ray = normalize(render_at(p, 1.0) - eye);
+    // Over the open sky the air is gathered only so far, so the sky keeps its blue.
+    var reach = params.shafts.w * SKY_REACH;
+    if (d < 1.0) {
+        reach = min(params.shafts.w, length(render_at(p, d) - eye));
+    }
+    let step = reach / f32(SHAFT_STEPS);
+    let along = fract(ign(p) + 0.618034 * params.shafts.z);
+    // Air the eye stands in the shade of, under a canopy or among walls, holds more of what
+    // the light catches, and the few beams that reach it show.
+    var shaded = 0.0;
+    for (var k: i32 = 0; k < 8; k = k + 1) {
+        let a = f32(k) * 0.7853982;
+        let round = eye + vec3<f32>(cos(a) * 6.0, sin(a) * 6.0, 2.0 + f32(k % 2) * 4.0);
+        shaded = shaded + 1.0 - air_sunlit(round, 6.0);
+    }
+    let thick = 1.0 + params.shafts_shade.x * shaded / 8.0;
+    var sunlit = 0.0;
+    for (var i: i32 = 0; i < SHAFT_STEPS; i = i + 1) {
+        let t = (f32(i) + along) * step;
+        let at = eye + ray * t;
+        let thin = exp(-max(at.z - eye.z + 2.0, 0.0) / SHAFT_HEIGHT);
+        sunlit = sunlit + air_sunlit(at, t) * thin;
+    }
+    // Henyey-Greenstein: the air sends most of the light on, so the shafts show brightest
+    // looking toward the sun.
+    let g = params.shafts.y;
+    let cos_t = dot(ray, params.sun_dir.xyz);
+    let phase = (1.0 - g * g) / (12.566371 * pow(max(1.0 + g * g - 2.0 * g * cos_t, 1e-4), 1.5));
+    let sun_lin = pow(params.sun_legacy.rgb, vec3<f32>(2.2)) * params.sun_legacy.w;
+    return sun_lin * (sunlit * step * params.shafts.x * thick * phase);
+}
+
 @fragment
 fn fs_relight(@builtin(position) p: vec4<f32>) -> Out {
+    var o = relit(p);
+    let shafts = sun_shafts(p.xy);
+    o.colour = vec4<f32>(o.colour.rgb + shafts, o.colour.a);
+    return o;
+}
+
+fn relit(p: vec4<f32>) -> Out {
     let px = vec2<i32>(p.xy);
     let c = textureLoad(picture, px, 0);
     let nw = textureLoad(normals, px, 0);

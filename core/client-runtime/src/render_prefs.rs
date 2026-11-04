@@ -549,6 +549,8 @@ pub enum FidelityFeature {
     NoAntiAliasing,
     /// `Fidelity.NoSlopeMaterials`.
     NoSlopeMaterials,
+    /// `Fidelity.GodRays`.
+    GodRays,
     /// `Fidelity.Debug`.
     Debug,
 }
@@ -556,7 +558,7 @@ pub enum FidelityFeature {
 #[cfg(feature = "hifi")]
 impl FidelityFeature {
     /// Every option, in the order the names list them.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 12] = [
         Self::Lighting,
         Self::Shadows,
         Self::GlobalIllumination,
@@ -567,6 +569,7 @@ impl FidelityFeature {
         Self::RetailLook,
         Self::NoAntiAliasing,
         Self::NoSlopeMaterials,
+        Self::GodRays,
         Self::Debug,
     ];
 
@@ -584,17 +587,19 @@ impl FidelityFeature {
             Self::RetailLook => fidelity::RETAIL_LOOK,
             Self::NoAntiAliasing => fidelity::NO_ANTI_ALIASING,
             Self::NoSlopeMaterials => fidelity::NO_SLOPE_MATERIALS,
+            Self::GodRays => fidelity::GOD_RAYS,
             Self::Debug => fidelity::DEBUG,
         }
     }
 
     /// The highest value the option takes: 4 for an effect (Ultra), 1 for the switches that
-    /// turn something off (the retail look's, the anti-aliasing's, the slope materials'), the last
-    /// view for the diagnostic views.
+    /// turn something off (the retail look's, the anti-aliasing's, the slope materials'), 3 for
+    /// God Rays' levels, the last view for the diagnostic views.
     #[must_use]
     pub const fn max(self) -> u32 {
         match self {
             Self::Debug => 7,
+            Self::GodRays => 3,
             Self::RetailLook | Self::NoAntiAliasing | Self::NoSlopeMaterials => 1,
             _ => 4,
         }
@@ -622,7 +627,7 @@ impl FidelityFeature {
 pub struct FidelityPreferences {
     /// Each option's stored value, in [`FidelityFeature::ALL`] order. 0 is off for every one; a
     /// ticked box is 1.
-    pub values: [u32; 11],
+    pub values: [u32; 12],
     /// Whether the interface shown is Horizon. Never kept in the profile: it is read from the
     /// interface choice at start-up and follows the interface shown after that. Off, every option
     /// is off in effect, whatever it stores.
@@ -640,6 +645,13 @@ impl FidelityPreferences {
             let raw = match feature {
                 // The view a diagnostic run asks for, by number.
                 FidelityFeature::Debug => prefs.u32(feature.name()),
+                // A level by its name or number.
+                FidelityFeature::GodRays => prefs
+                    .get(feature.name())
+                    .and_then(|v| {
+                        dereth_client_contract::options::god_rays::parse_value(feature.name(), v)
+                    })
+                    .and_then(|v| u32::try_from(v).ok()),
                 // A box the page ticked; a number the file holds otherwise (from an older
                 // build) is not read, as the page does not read it.
                 _ => prefs.bool(feature.name()).map(u32::from),
@@ -684,7 +696,8 @@ impl FidelityPreferences {
 
     /// Whether any option is on in effect. Without one the presentation is not installed. The
     /// switches that turn something off (the retail look's, the anti-aliasing's, the slope
-    /// materials') draw nothing of their own, so they alone are none.
+    /// materials') and God Rays, drawn inside the better lighting, draw nothing of their own, so
+    /// they alone are none.
     #[must_use]
     pub fn any_effective(&self) -> bool {
         FidelityFeature::ALL
@@ -695,6 +708,7 @@ impl FidelityPreferences {
                     FidelityFeature::RetailLook
                         | FidelityFeature::NoAntiAliasing
                         | FidelityFeature::NoSlopeMaterials
+                        | FidelityFeature::GodRays
                 )
             })
             .any(|f| self.effective(f) != 0)
@@ -835,6 +849,26 @@ mod tests {
         for f in FidelityFeature::ALL {
             assert!(fidelity::NAMES.contains(&f.name()), "{f:?}");
         }
+    }
+
+    #[test]
+    #[cfg(feature = "hifi")]
+    fn the_god_rays_level_is_read_by_name_or_number_and_draws_nothing_alone() {
+        let read = |v: &str| {
+            FidelityPreferences::from_preferences(&Preferences::parse(&format!(
+                "[UI]\nInterface=Horizon\n[Fidelity]\nGodRays={v}\n"
+            )))
+        };
+        assert_eq!(read("Medium").effective(FidelityFeature::GodRays), 2);
+        assert_eq!(read("3").effective(FidelityFeature::GodRays), 3);
+        assert_eq!(read("9").effective(FidelityFeature::GodRays), 0);
+        assert!(
+            !read("High").any_effective(),
+            "God Rays draws inside the better lighting"
+        );
+        let switched = FidelityPreferences::parse_switch("Lighting=1,GodRays=2").unwrap();
+        assert_eq!(switched.effective(FidelityFeature::GodRays), 2);
+        assert!(switched.any_effective());
     }
 
     #[test]

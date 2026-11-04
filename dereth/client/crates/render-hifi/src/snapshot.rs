@@ -24,6 +24,8 @@ pub struct HifiFrame {
     pub camera: HifiCamera,
     /// The sun, the ambient light, the fog and the sky.
     pub sky: HifiSky,
+    /// How strongly the sunlit air shows shafts of light: 0 for none, then Low, Medium and High.
+    pub god_rays: u8,
     /// The point lights in the world.
     pub lights: Vec<HifiLight>,
     /// The outdoor lamps of the resident blocks: lights the data places on outdoor objects, which
