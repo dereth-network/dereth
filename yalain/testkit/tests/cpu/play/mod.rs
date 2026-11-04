@@ -26,6 +26,7 @@ mod fights;
 mod focus;
 mod follow;
 mod gives;
+mod integrity;
 mod interactions;
 mod items;
 mod kill_quests;

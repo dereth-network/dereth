@@ -79,6 +79,7 @@ what they see, not how it was done.
 - Treasure items keep their value across a logout.
 - Items on sale with a broker keep their own numbers.
 - Inscriptions are kept across a logout.
+- Fixed a corpse's item being taken twice, and a stranger selling a corpse's items for money.
 
 ## 0.1.2 (2026-11-03)
 

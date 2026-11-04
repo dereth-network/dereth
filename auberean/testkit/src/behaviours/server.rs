@@ -3685,6 +3685,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.money-from-a-corpse-open",
+        says: "A corpse is turned into money only by the player who has it open, as taking \
+               everything from one is.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MONEY-OPEN"),
+        station: "yalain-testkit::cpu::play::integrity::a_corpse_the_player_has_not_open_is_not_turned_into_money",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.one-item-one-holder",
+        says: "An item in a corpse goes to one holder: a take finds the item still in its \
+               container when it is through, or is refused; a taker gone by then, or with a \
+               full pack, leaves it where it was.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ONE-HOLDER"),
+        station: "yalain-testkit::cpu::play::integrity::an_item_taken_by_two_from_one_corpse_goes_to_one_of_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.pack-segments-are-windows-of-the-contents",
         says: "The pack's contents go as one list with the main pack's room and count, then each \
                bag's: the counts tile the list in order, each window holding its segment's items, \

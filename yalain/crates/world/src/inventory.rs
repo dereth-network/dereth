@@ -1474,15 +1474,48 @@ pub fn taken<S: Store>(
     item: u64,
     clock: Clock,
 ) {
-    let Some((corpse, from_slot)) = s.things.get(item).and_then(|t| t.container) else {
-        return;
-    };
-    if let Some(c) = s.things.get_mut(corpse).and_then(|t| t.corpse.as_mut()) {
-        c.contents.retain(|x| *x != item);
-    }
     let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
+    let Some((corpse, from_slot)) = s.things.get(item).and_then(|t| t.container) else {
+        return;
+    };
+    // Someone else may have got it meanwhile (the corpse closed and opened by another): one item,
+    // one holder. It leaves the corpse only for a pack with room.
+    let there = s
+        .things
+        .get(corpse)
+        .and_then(|t| t.corpse.as_ref())
+        .map(|c| c.contents.clone())
+        .or_else(|| crate::usable::chests::contents(s, corpse))
+        .is_some_and(|c| c.contains(&item));
+    let full = s
+        .players
+        .get(&world)
+        .is_some_and(|p| pack_full(&p.play.items));
+    if !there || full {
+        let m = Move {
+            move_type: move_type::TAKE,
+            item,
+            split_item: item,
+            quantity: 1,
+            from: corpse,
+            actual_from: corpse,
+            target: player,
+            actual_target: player,
+            status: if there {
+                crate::pack::status::CONTAINER_FULL
+            } else {
+                refused::CANT_GET_THERE
+            },
+            ..Move::default()
+        };
+        progress::private(net, world, &move_done(&m));
+        return;
+    }
+    if let Some(c) = s.things.get_mut(corpse).and_then(|t| t.corpse.as_mut()) {
+        c.contents.retain(|x| *x != item);
+    }
     let Some(slot) = hold(s, world, item) else {
         return;
     };
@@ -1558,6 +1591,12 @@ pub fn transmute_all<S: Store>(
     let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
+    // Its own viewer's alone, as taking everything is.
+    if open_corpse_of(s, world) != Some(corpse) {
+        s.unhandled
+            .note("turning into money a corpse the player does not have open");
+        return;
+    }
     let contents = s
         .things
         .get(corpse)
@@ -1623,11 +1662,11 @@ pub fn transmute_all<S: Store>(
             ..Move::default()
         };
         progress::private(net, world, &move_done(&m));
-        earned += worth;
+        earned = earned.saturating_add(worth);
         let Some(p) = s.players.get_mut(&world) else {
             return;
         };
-        let money = crate::store::money(&p.qualities) + worth;
+        let money = crate::store::money(&p.qualities).saturating_add(worth);
         crate::quals::set_int(&mut p.qualities, crate::store::MONEY, money.cast_signed());
         progress::send_int(net, world, crate::store::MONEY, money.cast_signed());
         let gone =
