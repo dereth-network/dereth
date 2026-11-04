@@ -853,6 +853,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.the-layout-commands-write-and-read-the-panels-places",
+        says: "The player's commands write the panels' places to the file they name and put them \
+               back from it, and a file that isn't there changes nothing. With no name the file \
+               is this character's, world's and screen's; the world's name is the login's, with \
+               or without the friends service.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-LAYOUT-FILE"),
+        station: "auberean-interface::dat::screens::the_layout_commands_write_and_read_the_panels_places",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.the-left-button-runs-forward-in-mouse-look-over-the-world",
         says: "In mouse look the left button runs the body forward while held, though the field \
                over the world takes the press: the world's controls see the button too, and the \

@@ -2091,6 +2091,124 @@ fn the_players_scripts_write_its_own_name() {
     assert_eq!(named(&mut s).as_deref(), Some(NAME));
 }
 
+/// The player's folder for one test: files by name behind a lock the test keeps a handle to.
+#[derive(Clone, Default)]
+struct Folder(Arc<std::sync::Mutex<std::collections::BTreeMap<String, Vec<u8>>>>);
+
+impl auberean_client_sdk::script::local::LocalSystem for Folder {
+    fn folder(&self) -> Option<String> {
+        None
+    }
+
+    fn local_time(&self) -> Option<auberean_client_sdk::script::local::LocalTime> {
+        None
+    }
+
+    fn append_line(&mut self, _file: &str, _bytes: &[u8]) -> bool {
+        false
+    }
+
+    fn write_file(&mut self, file: &str, bytes: &[u8]) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .insert(file.to_owned(), bytes.to_vec());
+        true
+    }
+
+    fn read_file(&mut self, file: &str) -> Option<Vec<u8>> {
+        self.0.lock().unwrap().get(file).cloned()
+    }
+}
+
+/// The scripts' save notice writes the panels' places to the file it names and the load notice puts
+/// them back from it; a file that isn't there changes nothing. With no name the file is this
+/// character's, world's and screen's, the world's name being the login's whether or not the friends
+/// service runs.
+///
+/// Behaviour: desktop.interface.the-layout-commands-write-and-read-the-panels-places
+#[test]
+fn the_layout_commands_write_and_read_the_panels_places() {
+    let (mut s, retail) = into_the_world_running(script(), data_with_scripts());
+    assert!(
+        until(&mut s, 5.0, |s| s
+            .client
+            .as_ref()
+            .is_some_and(|c| c.model.player_object().is_some())),
+        "the player stands"
+    );
+    assert!(
+        until(&mut s, 2.0, |_| retail.borrow().vitals_shown().is_some()),
+        "in the world"
+    );
+    use auberean_client_sdk::protocol::login::Text;
+    use auberean_client_sdk::script::native_object::{NativeObject, TextInfo};
+    use auberean_ui_game::gameplay::notice::{LOAD_UI, SAVE_UI};
+    let folder = Folder::default();
+    let local = folder.clone();
+    let say = |s: &mut Shell<'_, DoubleHost>, native: u32, name: &str| {
+        let notice = auberean_client_sdk::runtime::host::PanelNotice {
+            native,
+            about: Some(PLAYER),
+            words: vec![1],
+            objects: vec![Some(NativeObject::TextInfo(TextInfo {
+                has_literal: 1,
+                literal: Some(name.encode_utf16().collect()),
+                ..TextInfo::default()
+            }))],
+            requests: vec![None],
+            effect_lines: Vec::new(),
+            listed: Vec::new(),
+        };
+        s.client
+            .as_mut()
+            .expect("in the world")
+            .notices
+            .push(notice);
+        step(s);
+        step(s);
+    };
+    let origin = |r: &Rc<RefCell<Retail>>| {
+        let r = r.borrow();
+        let panel = r.ui().find(Token::of("ChatWindow1")).expect("the panel");
+        r.ui().screen_origin(panel).expect("placed")
+    };
+    {
+        let c = s.client.as_mut().expect("in the world");
+        assert!(c.friends().is_none(), "this session has no friends service");
+        c.with_host(|h| h.set_local(Some(Box::new(local))));
+        c.take_message(
+            3 << 56,
+            ServerMessage::WorldName(Text(StringInfo::literal("Coldeve"))),
+        );
+    }
+    let at = origin(&retail);
+    say(&mut s, SAVE_UI, "mine");
+    {
+        let files = folder.0.lock().unwrap();
+        let text = String::from_utf8_lossy(&files["mine.txt"]);
+        assert_eq!(text.lines().count(), 9, "{text}");
+        assert!(
+            text.contains(&format!("<CHAT1> X:{} Y: {} W: ", at.0, at.1)),
+            "{text}"
+        );
+    }
+    {
+        let mut r = retail.borrow_mut();
+        let ui = r.ui_mut();
+        let panel = ui.find(Token::of("ChatWindow1")).expect("the panel");
+        ui.move_to(panel, at.0 + 37, at.1 + 21);
+    }
+    say(&mut s, LOAD_UI, "other");
+    assert_eq!(origin(&retail), (at.0 + 37, at.1 + 21), "no such file");
+    say(&mut s, LOAD_UI, "mine");
+    assert_eq!(origin(&retail), at, "put back");
+    say(&mut s, SAVE_UI, "");
+    let names: Vec<String> = folder.0.lock().unwrap().keys().cloned().collect();
+    let own = format!("UI-{NAME}-Coldeve-1024-768.txt");
+    assert_eq!(names, [own, "mine.txt".to_owned()]);
+}
+
 /// Enter starts a chat line: the host's input method is turned on over the part of the chat entry
 /// that shows, in the window's pixels; Enter again ends the line and turns it off.
 ///

@@ -87,30 +87,40 @@ impl Places {
         self.load_layout = Some(name);
     }
 
-    /// A layout file's name, for this character, world and screen when the player gave none.
-    fn layout_name(client: &mut Client, ui: &Ui, name: &str) -> String {
-        let character = client
-            .model
-            .player
-            .and_then(|p| client.object_name(p, 1))
-            .unwrap_or_default();
-        let world = client
-            .friends()
-            .map_or_else(String::new, |f| String::from_utf16_lossy(f.world_name()));
+    /// A layout file's name, for this character, world and screen when the player gave none; with
+    /// no name and no player, none.
+    fn layout_name(client: &mut Client, ui: &Ui, name: &str) -> Option<String> {
+        let character = client.player_name();
+        if name.is_empty() && character.is_none() {
+            return None;
+        }
+        let world = client.world_name();
         let (width, height) = ui.display();
-        layout_file::file_name(name, &character, &world, width, height)
+        Some(layout_file::file_name(
+            name,
+            &character.unwrap_or_default(),
+            &world,
+            width,
+            height,
+        ))
     }
 
     /// What was asked, through the client: the table kept with the player's options and sent;
     /// the panels of the play screen (when it is up) put back where the options keep them; a
     /// layout file written or read.
     pub fn prepare(&mut self, client: &mut Client, ui: &mut Ui, frame: Option<FrameId>) {
-        if let Some(name) = self.save_layout.take() {
-            let file = Self::layout_name(client, ui, &name);
+        if let Some(file) = self
+            .save_layout
+            .take()
+            .and_then(|name| Self::layout_name(client, ui, &name))
+        {
             client.write_player_file(&file, layout_file::write(ui).as_bytes());
         }
-        if let Some(name) = self.load_layout.take() {
-            let file = Self::layout_name(client, ui, &name);
+        if let Some(file) = self
+            .load_layout
+            .take()
+            .and_then(|name| Self::layout_name(client, ui, &name))
+        {
             if let Some(bytes) = client.read_player_file(&file) {
                 layout_file::read(ui, &String::from_utf8_lossy(&bytes));
             }

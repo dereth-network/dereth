@@ -1478,6 +1478,16 @@ fn the_layout_commands_reach_the_panels_with_their_file() {
     c.process_text("/loadui mine");
     let natives: Vec<u32> = c.notices.iter().map(|n| n.native).collect();
     assert_eq!(natives, [0x85 << 16 | 0x1C, 0x85 << 16 | 0x1D]);
+    for n in &c.notices {
+        assert_eq!(n.about, c.model.player, "it is about the player");
+        assert!(
+            n.objects
+                .iter()
+                .flatten()
+                .any(|o| matches!(o, auberean_script::native_object::NativeObject::TextInfo(_))),
+            "it carries the name"
+        );
+    }
     assert!(c.write_player_file("mine.txt", b"<CHAT1> X:1 Y: 2 W: 3 H: 4\n"));
     assert_eq!(
         c.read_player_file("mine.txt").as_deref(),

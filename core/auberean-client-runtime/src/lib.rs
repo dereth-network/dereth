@@ -2504,6 +2504,16 @@ impl Client {
             .flatten()
     }
 
+    /// The player's own name as its repository answers it; `None` when no scripts run or there is
+    /// no player.
+    pub fn player_name(&mut self) -> Option<String> {
+        let id = self.model.player?;
+        self.with_host(|h| {
+            let name = repository::name(h, id);
+            crate::text::from_script(&name).text(&mut h.text)
+        })
+    }
+
     /// An object's name as its scripts give it for a number of it, as a string reference, for a
     /// text element to write once the string tables it reads are at hand; `None` as for
     /// [`Self::object_name`].

@@ -987,9 +987,6 @@ impl Client {
     /// The world's name, from the login, to the layer.
     // D2-01695
     pub(crate) fn friends_world_name(&mut self) {
-        let Some(name) = self.model.world_name.as_ref() else {
-            return;
-        };
         if self
             .friends
             .as_ref()
@@ -997,14 +994,27 @@ impl Client {
         {
             return;
         }
-        let mut info = crate::text::from_wire(name);
-        let units: Vec<u16> = match self.scripts.as_mut() {
-            Some(s) => info.text(&mut s.host.text).encode_utf16().collect(),
-            None => info.literal_value(false),
+        let Some(units) = self.world_name_units() else {
+            return;
         };
         if let Some(f) = self.friends.as_mut() {
             f.set_world_name(&units);
         }
+    }
+
+    /// The world's name as the login last named it, whether or not the friends service runs.
+    fn world_name_units(&mut self) -> Option<Vec<u16>> {
+        let mut info = crate::text::from_wire(self.model.world_name.as_ref()?);
+        Some(match self.scripts.as_mut() {
+            Some(s) => info.text(&mut s.host.text).encode_utf16().collect(),
+            None => info.literal_value(false),
+        })
+    }
+
+    /// The world's name as text; empty before the login names it.
+    pub fn world_name(&mut self) -> String {
+        self.world_name_units()
+            .map_or_else(String::new, |u| String::from_utf16_lossy(&u))
     }
 
     /// One thing the layer heard, handed on: to the player's scripts (through the player's own
