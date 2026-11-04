@@ -326,6 +326,8 @@ pub struct Preferences {
     fresh_channels: bool,
     /// The top gore level and blood color the language allows.
     tops: (u32, u32),
+    /// What the command line forces over them (0: nothing).
+    forced_tops: (u32, u32),
 }
 
 impl Default for Preferences {
@@ -344,6 +346,7 @@ impl Default for Preferences {
             sound: Vec::new(),
             fresh_channels: false,
             tops: (fx::NORMAL, fx::RED),
+            forced_tops: (0, 0),
         };
         me.put_in(&Profile::default());
         me.set(&Graphics::first_run());
@@ -528,6 +531,12 @@ fn number_of(p: &Pref) -> f32 {
 }
 
 impl Preferences {
+    /// The command line's top gore level and top blood color, over the language's (0: its own).
+    // D2-14179, D2-14180, D2-14185, D2-14186
+    pub fn force_tops(&mut self, gore: u32, blood: u32) {
+        self.forced_tops = (gore, blood);
+    }
+
     /// Every part's preferences put in, read from the file the settings were read from, with the
     /// world's names for them; the camera's options as the settings hold them.
     pub fn start(&mut self, settings: &Settings, records: &WorldRecords) {
@@ -537,6 +546,12 @@ impl Preferences {
         let language = records.data_id_by_enum(LANGUAGE_VALUE, TABLE_MAPPING);
         if let Some(s) = records.get::<auberean_assets::strings::StringState>(language) {
             self.tops = (s.top_gore_level(), s.top_blood_color());
+        }
+        if self.forced_tops.0 != 0 {
+            self.tops.0 = self.forced_tops.0;
+        }
+        if self.forced_tops.1 != 0 {
+            self.tops.1 = self.forced_tops.1;
         }
         self.put_in(settings.profile());
         self.start_sound();

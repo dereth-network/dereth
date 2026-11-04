@@ -704,6 +704,13 @@ impl Retail {
         self
     }
 
+    /// The gore level and blood color the command line forces (0: the language's).
+    #[must_use]
+    pub fn with_forced_gore(mut self, gore: u32, blood: u32) -> Self {
+        self.preferences.force_tops(gore, blood);
+        self
+    }
+
     /// The element tree, to look at (a test, a screenshot's caption).
     #[must_use]
     pub const fn ui(&self) -> &Ui {

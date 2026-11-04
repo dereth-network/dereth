@@ -1364,6 +1364,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.options.the-command-line-forces-the-top-gore-and-blood",
+        says: "The command line's maxgore and greenblood stand over the language's top gore level and                blood color: the effects start at them and nothing above them is offered.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-FORCED-GORE"),
+        station: "auberean-interface::dat::preferences::the_command_line_forces_the_top_gore_and_blood",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.options.the-effects-section-chooses-what-keyed-effects-play",
         says: "The options' effects section lists how much gore, blood's color and steps raising particles, by what the language allows, at its top levels by default, and tells the effects as they change.",
         since: RETAIL,

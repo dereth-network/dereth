@@ -134,6 +134,52 @@ fn the_client_page_lists_the_cameras_preferences_and_keeps_them() {
     assert_eq!(kept.len(), 21 + 16 + 8 + 3 + 3);
 }
 
+/// The command line's gore level and blood color stand over the language's: the effects start at
+/// them, and a level above them is not offered.
+///
+/// Behaviour: ui.options.the-command-line-forces-the-top-gore-and-blood
+#[test]
+fn the_command_line_forces_the_top_gore_and_blood() {
+    use auberean_draw::effects::Channels;
+    const GORE: u32 = 0x4000_0035;
+    let records = &crate::screens::data().0.records;
+    let settings = Settings::read(
+        "[Graphics]
+OverallGraphicsQuality=4
+",
+    );
+    let mut p = Preferences::default();
+    p.force_tops(2, 1);
+    p.start(&settings, records);
+    assert_eq!(
+        p.take_channels().expect("told as read"),
+        Channels {
+            gore: 2,
+            blood: 1,
+            foot_step_particles: true
+        }
+    );
+    p.handle(&Request::Attach(vec![section::EFFECTS]));
+    let l = p.listing().expect("listed").clone();
+    let prefs = &l
+        .sections
+        .iter()
+        .find(|(s, _)| *s == section::EFFECTS)
+        .expect("the section")
+        .1;
+    let offered = prefs
+        .iter()
+        .find_map(|c| match c {
+            Change::Choice(c) if c.description.key == GORE => Some(c.list_choices().len()),
+            _ => None,
+        })
+        .expect("the gore choice");
+    assert!(
+        offered < 4,
+        "what is above the forced level goes: {offered}"
+    );
+}
+
 /// The effects section lists how much gore, blood's color and steps raising particles, the gore
 /// and the color choosing among what the language's top levels allow, at those top levels by
 /// default; a choice tried is told to the effects at once, and the file's word is read back.

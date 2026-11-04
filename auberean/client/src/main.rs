@@ -123,6 +123,8 @@ struct Options {
     prefs: Option<String>,
     /// The language named.
     language: Option<String>,
+    /// The top gore level and blood color forced (0: the language's).
+    forced_gore: (u32, u32),
 }
 
 /// This program's own options, beside the September 2013 client's: each one's form (what it takes
@@ -307,6 +309,7 @@ fn options() -> Result<Options, String> {
         }
     }
     o.language.clone_from(&c.language);
+    o.forced_gore = (c.top_gore.unwrap_or(0), u32::from(c.green_blood));
     o.gun_server.clone_from(&c.gun_server);
     o.gun_port = (c.gun_port != 0).then_some(c.gun_port);
     o.gun_ticket = c.gun_ticket != 0;
@@ -914,7 +917,8 @@ fn run() -> Result<(), String> {
             account: account.clone(),
             password: password.clone(),
         });
-    let mut retail = auberean_interface::Retail::new(assets, o.size.unwrap_or((1024, 768)), login);
+    let mut retail = auberean_interface::Retail::new(assets, o.size.unwrap_or((1024, 768)), login)
+        .with_forced_gore(o.forced_gore.0, o.forced_gore.1);
     if let Some((account, password)) = &o.login {
         retail = retail.with_auto(auberean_shell::dev::DevLogin::new(
             server,
