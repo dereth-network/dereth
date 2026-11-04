@@ -2511,3 +2511,433 @@ fn every_hand_in_that_names_a_count_wants_it() {
         "Sparks's quest is done by its subquests"
     );
 }
+
+/// The player's quest at a phase, as a save holds it.
+fn quest_at(h: &mut Harness, quest: u32, phase: u32) {
+    for p in h.server.players.values_mut() {
+        p.play.quests.retain(|q| q.quest != quest);
+        p.play.quests.push(yalain_world::state::QuestState {
+            quest,
+            status: yalain_world::quests::status::UNDERWAY,
+            phase,
+            started: 0,
+            updated: 0,
+        });
+    }
+}
+
+/// The world a test's player is in.
+fn player_world(h: &Harness) -> yalain_net::ConnId {
+    *h.server.players.keys().next().expect("a player")
+}
+
+const COIN: u32 = 0x4700_0538;
+const JUNK: u32 = 0x4700_2108;
+
+/// The strings a person says of a given item, in order, as it takes it by a give moving no quest.
+fn taking(h: &mut Harness, t: &Tables, who: u32, item: u32) -> Vec<u32> {
+    let i = placed(t, who);
+    yalain_world::talk::with_give(&mut h.server, who, Some(i), item)
+        .iter()
+        .map(|l| match l.words {
+            yalain_content::talk::Words::Ref(s, _) => s,
+            yalain_content::talk::Words::Literal(_) => 0,
+        })
+        .collect()
+}
+
+/// What a person says as it refuses a given item.
+fn refusing(h: &mut Harness, t: &Tables, who: u32, item: u32) -> Option<u32> {
+    let i = placed(t, who);
+    yalain_world::talk::at_give(&mut h.server, who, Some(i), item).map(|l| match l.words {
+        yalain_content::talk::Words::Ref(s, _) => s,
+        yalain_content::talk::Words::Literal(_) => 0,
+    })
+}
+
+/// **Gives 2017 kept that moved nothing the player could see**: an offering's chain, a shrine's
+/// recipe, the mirras charged, a bucket filled, the alembic dipped again, the donation, the bribe, the
+/// carcass: each runs for the count recorded, gives what came back, says its first line recorded.
+/// Behaviour: server.gives.kept-in-2017
+#[test]
+fn gives_2017_kept_with_no_quest_moved_have_their_rows() {
+    // Item, to, count, what came back, its first line.
+    #[allow(clippy::type_complexity)]
+    let kept: &[(u32, u32, u32, &[(u32, u32)], u32)] = &[
+        (0x4700_1779, 0x4700_31D9, 1, &[], 0xC0F1_6AB7),
+        (
+            0x4700_1765,
+            0x4700_31D9,
+            1,
+            &[(0x4700_176F, 1)],
+            0x6082_3410,
+        ),
+        (
+            0x4700_176F,
+            0x4700_31E5,
+            1,
+            &[(0x4700_1777, 1)],
+            0xBCEB_0FF2,
+        ),
+        (
+            0x4700_1777,
+            0x4700_31CC,
+            1,
+            &[(0x4700_1775, 1)],
+            0xC66B_08F6,
+        ),
+        (
+            0x4700_1775,
+            0x4700_31D4,
+            1,
+            &[(0x4700_1758, 8)],
+            0x5A61_9B97,
+        ),
+        (
+            0x4700_1742,
+            0x4700_31C3,
+            1,
+            &[(0x4700_1740, 1)],
+            0x8839_3C97,
+        ),
+        (
+            0x4700_1732,
+            0x4700_31C3,
+            1,
+            &[(0x4700_1730, 1)],
+            0xA13E_7640,
+        ),
+        (
+            0x4700_1749,
+            0x4700_31C3,
+            1,
+            &[(0x4700_1747, 1)],
+            0xE53C_1549,
+        ),
+        (
+            0x4700_185E,
+            0x4700_31AC,
+            1,
+            &[(0x4700_185F, 1)],
+            0x5D77_9E06,
+        ),
+        (COIN, 0x4700_327C, 50, &[], 0x61DE_D4C0),
+        (COIN, 0x4700_3009, 5000, &[(0x4700_10DA, 1)], 0xA076_90AC),
+        (
+            0x4700_1BA1,
+            0x4700_33D6,
+            1,
+            &[(0x4700_1B92, 1)],
+            0x014B_8529,
+        ),
+    ];
+    let t = &compiled().tables;
+    let (mut h, _, _) = served(t);
+    let world = player_world(&h);
+    for &(item, to, count, back, first) in kept {
+        let row = yalain_world::quests::give_for(&h.server, world, item, to, count)
+            .unwrap_or_else(|| panic!("{item:08X} to {to:08X}"));
+        let got: Vec<(u32, u32)> = row
+            .gives
+            .iter()
+            .enumerate()
+            .map(|(n, g)| (*g, row.counts.get(n).copied().unwrap_or(1)))
+            .collect();
+        assert_eq!(got, back, "{item:08X} to {to:08X}");
+        assert_eq!(
+            taking(&mut h, t, to, item).first(),
+            Some(&first),
+            "{item:08X} to {to:08X}"
+        );
+    }
+    // The shrine's recipe, the healer's spell.
+    let row = yalain_world::quests::give_for(&h.server, world, 0x4700_1779, 0x4700_31D9, 1);
+    assert_eq!(row.map(|r| r.effects), Some(vec![0x6F00_1DEF]));
+    let row = yalain_world::quests::give_for(&h.server, world, COIN, 0x4700_327C, 50);
+    assert_eq!(row.map(|r| r.effects), Some(vec![0x6F00_1ED0]));
+    // The carcass's seven lines, in the order they came.
+    assert_eq!(taking(&mut h, t, 0x4700_33D6, 0x4700_1BA1).len(), 7);
+    // A count not the one asked is refused with the person's own words for it.
+    assert!(yalain_world::quests::give_for(&h.server, world, COIN, 0x4700_327C, 49).is_none());
+    assert_eq!(refusing(&mut h, t, 0x4700_327C, COIN), Some(0xF961_FDEF));
+    assert!(yalain_world::quests::give_for(&h.server, world, COIN, 0x4700_3009, 100).is_none());
+    assert_eq!(refusing(&mut h, t, 0x4700_3009, COIN), Some(0x4FFF_35F3));
+}
+
+/// **The alembic dipped again**: at the quest's third phase the geysers fill it again and teach the
+/// recipe again (32 of 32 such gives moved no quest); at no other phase but the first, which is the
+/// quest's own step.
+/// Behaviour: server.gives.kept-in-2017
+#[test]
+fn an_alembic_is_dipped_again_at_the_third_phase_alone() {
+    const ALEMBIC: u32 = 0x4700_0B38;
+    const ORLEN: u32 = 0x4000_018F;
+    let t = &compiled().tables;
+    let (mut h, _, _) = served(t);
+    let world = player_world(&h);
+    for (geyser, waters, recipe) in [
+        (0x4700_31AC, 0x4700_0B39, 0x6F00_1DA6),
+        (0x4700_31AE, 0x4700_0B3A, 0x6F00_1DA7),
+    ] {
+        for phase in [0, 2] {
+            quest_at(&mut h, ORLEN, phase);
+            assert!(
+                yalain_world::quests::give_for(&h.server, world, ALEMBIC, geyser, 1).is_none(),
+                "{geyser:08X} at {phase}"
+            );
+        }
+        quest_at(&mut h, ORLEN, 3);
+        let row = yalain_world::quests::give_for(&h.server, world, ALEMBIC, geyser, 1)
+            .unwrap_or_else(|| panic!("{geyser:08X}"));
+        assert_eq!(row.gives, vec![waters]);
+        assert_eq!(row.effects, vec![recipe]);
+    }
+}
+
+/// **The Warders take anything**, each thanking in its own land's words (2017: 5 of 5 of 3 items to
+/// 3 Warders, every word as its land's), and leave no other land's line.
+/// Behaviour: server.gives.kept-in-2017
+#[test]
+fn the_warders_take_any_item_and_thank_in_their_own_lands_words() {
+    const OSTETH: u32 = 0x7D8F_7E9A;
+    const OMISHAN: u32 = 0x893E_BF9D;
+    let t = &compiled().tables;
+    let (mut h, _, _) = served(t);
+    let world = player_world(&h);
+    for (who, line) in [
+        (0x4700_3224, OSTETH),
+        (0x4700_323F, OSTETH),
+        (0x4700_3220, OMISHAN),
+    ] {
+        assert!(yalain_world::quests::give_for(&h.server, world, JUNK, who, 1).is_some());
+        assert_eq!(taking(&mut h, t, who, JUNK), vec![line], "{who:08X}");
+    }
+    let lines = |who: u32| {
+        t.talk
+            .lines
+            .iter()
+            .filter(|l| l.who == who && l.when == yalain_content::talk::When::Give)
+            .count()
+    };
+    assert_eq!(lines(0x4700_3220), 1, "its own land's line alone");
+    let warders = t
+        .quests
+        .gives
+        .iter()
+        .filter(|g| g.item.is_none() && lines(g.to) == 1)
+        .count();
+    assert!(warders >= 20, "{warders}");
+}
+
+/// **A miner's toll**: the pyreal starts a hidden quest, its portals ask for that quest under way, and
+/// a player who has paid hears the miner's line for a toll still good.
+/// Behaviour: server.gives.mine-tolls
+#[test]
+fn a_miners_toll_is_a_hidden_quest_its_portals_ask_for() {
+    let t = &compiled().tables;
+    for (miner, pyreal, quest, portals, good) in [
+        (
+            0x4700_31B2,
+            0x4700_0AFF,
+            0x4000_0183,
+            &[0x4079_9400_0000_0003_u64][..],
+            0xF2AE_9DAA,
+        ),
+        (
+            0x4700_31B0,
+            0x4700_0B10,
+            0x4000_0186,
+            &[0x40BA_8700_0000_0013, 0x40BA_8700_0000_0014][..],
+            0xF2AE_9DAA,
+        ),
+        (
+            0x4700_31B6,
+            0x4700_0AFD,
+            0x4000_0189,
+            &[0x4056_6000_0000_0004][..],
+            0xF2AE_9DAA,
+        ),
+    ] {
+        let def = t
+            .quests
+            .quest(quest)
+            .unwrap_or_else(|| panic!("{quest:08X}"));
+        assert!(def.hidden, "{quest:08X}");
+        let step = t
+            .quests
+            .steps
+            .iter()
+            .find(|s| s.trigger == yalain_content::quests::Trigger::Give(pyreal, miner))
+            .unwrap_or_else(|| panic!("{miner:08X}"));
+        assert_eq!(
+            (step.quest, step.needs, step.takes.as_slice()),
+            (quest, 0, &[pyreal][..])
+        );
+        for id in portals {
+            let o = t
+                .content
+                .objects
+                .iter()
+                .find(|o| o.object == Some(*id))
+                .unwrap_or_else(|| panic!("{id:016X}"));
+            let gate = o.gate.unwrap_or_else(|| panic!("{id:016X} is gated"));
+            assert_eq!(gate.quest, quest, "{id:016X}");
+        }
+        let (mut h, b, me) = served(t);
+        let o = placed(t, miner);
+        let said = use_person(&mut h, b, me, t, o);
+        assert!(!said.iter().any(|(_, s)| *s == Some(good)), "{said:08X?}");
+        quest_at(&mut h, quest, 1);
+        let said = use_person(&mut h, b, me, t, o);
+        assert!(said.iter().any(|(_, s)| *s == Some(good)), "{said:08X?}");
+    }
+}
+
+/// **The gem hand-in and the periapt**: the jade stone finishes its quest and pays its fee; the altars
+/// give the three gems as the quest's subquests, the periapt made and given moves it to its last
+/// phase, as one character's whole run of it was recorded.
+/// Behaviour: server.gives.kept-in-2017
+#[test]
+fn a_gem_and_a_periapt_given_move_their_quests() {
+    use yalain_world::quests::status;
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    let (mut h, _, _) = served(t);
+    quest_at(&mut h, 0x4000_02EE, 1);
+    hand_in(&mut h, &portal, 0x4700_1045, 0x4700_2FD7);
+    assert_eq!(
+        quest_state(&h, 0x4000_02EE).map(|q| q.0),
+        Some(status::COMPLETED)
+    );
+    let fee = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| s.trigger == yalain_content::quests::Trigger::Give(0x4700_1045, 0x4700_2FD7))
+        .map(|s| s.counts.clone());
+    assert_eq!(fee, Some(vec![900]));
+
+    const PERIAPT_Q: u32 = 0x4000_0071;
+    const PERIAPT: u32 = 0x4700_0898;
+    let (mut h, b, me) = served(t);
+    set_level(&mut h, 60);
+    use_person(&mut h, b, me, t, placed(t, 0x4700_2EF7));
+    assert_eq!(
+        quest_state(&h, PERIAPT_Q),
+        Some((status::UNDERWAY, 1)),
+        "given"
+    );
+    // Each altar its own subquest and gem, and none before it is used.
+    for (altar, sub, gem) in [
+        (0x4700_2EF8, 0x4000_0072, 0x4700_0895),
+        (0x4700_2EF9, 0x4000_0074, 0x4700_0897),
+        (0x4700_2EFA, 0x4000_0073, 0x4700_0896),
+    ] {
+        assert_eq!(
+            quest_state(&h, PERIAPT_Q),
+            Some((status::UNDERWAY, 1)),
+            "before {altar:08X}"
+        );
+        assert_eq!(
+            quest_state(&h, sub),
+            Some((status::UNDERWAY, 1)),
+            "before {altar:08X}"
+        );
+        let step = t
+            .quests
+            .steps
+            .iter()
+            .find(|s| s.quest == sub)
+            .unwrap_or_else(|| panic!("{sub:08X}"));
+        assert_eq!(step.gives, vec![gem], "{altar:08X}");
+        use_person(&mut h, b, me, t, placed(t, altar));
+        assert_eq!(
+            quest_state(&h, sub).map(|q| q.0),
+            Some(status::COMPLETED),
+            "{altar:08X}"
+        );
+    }
+    assert_eq!(
+        quest_state(&h, PERIAPT_Q),
+        Some((status::UNDERWAY, 2)),
+        "the three gems"
+    );
+    let world = player_world(&h);
+    h.server.catalog.insert(portal.template(PERIAPT));
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, PERIAPT, 1);
+    h.run(2);
+    let clock = h.clock();
+    yalain_world::quests::triggered(
+        &mut h.server,
+        &mut h.net,
+        world,
+        yalain_content::quests::Trigger::Take(PERIAPT),
+        None,
+        clock,
+    );
+    assert_eq!(
+        quest_state(&h, PERIAPT_Q),
+        Some((status::UNDERWAY, 3)),
+        "made"
+    );
+    hand_in(&mut h, &portal, PERIAPT, 0x4700_2EF7);
+    assert_eq!(
+        quest_state(&h, PERIAPT_Q),
+        Some((status::UNDERWAY, 4)),
+        "given"
+    );
+}
+
+/// **A wrong give hears only what fits it**: a plain give hears none of the lines about one item
+/// (2017: 0 of 30 wrong gives said one), and a line about one item comes for that item.
+/// Behaviour: server.gives.a-line-for-an-item
+#[test]
+fn a_wrong_give_hears_no_line_about_another_item() {
+    let t = &compiled().tables;
+    let (mut h, _, _) = served(t);
+    // A line about one item, and the people who have it.
+    let named: &[(u32, u32, Option<u32>)] = &[
+        (0x4700_2FBB, 0x8B5D_89B4, None),
+        (0x4700_2FBB, 0x8B5D_89B8, None),
+        (0x4700_3173, 0x6279_7D94, None),
+        (0x4700_31B9, 0x7900_23E0, None),
+        (0x4700_32BD, 0x1136_CD8C, None),
+        (0x4700_32CB, 0x11EE_CD9A, None),
+        (0x4700_32D0, 0x3DE6_3E47, None),
+        (0x4700_32D0, 0x675D_C980, None),
+        (0x4700_32D3, 0x2530_079C, None),
+        (0x4700_32D3, 0x7D9E_3D81, None),
+        (0x4700_32D3, 0xA3C0_6CC4, Some(0x4700_1902)),
+        (0x4700_32D7, 0x79F7_73E8, None),
+        (0x4700_2FB4, 0x217A_D287, Some(0x4700_08FB)),
+        (0x4700_3367, 0x11EE_C3FA, Some(COIN)),
+        (0x4700_3319, 0x7DE6_7DA2, Some(0x4700_0912)),
+    ];
+    for &(who, line, item) in named {
+        for _ in 0..16 {
+            assert_ne!(
+                refusing(&mut h, t, who, JUNK),
+                Some(line),
+                "{who:08X}: {line:08X}"
+            );
+        }
+        if let Some(item) = item {
+            assert_eq!(
+                refusing(&mut h, t, who, item),
+                Some(line),
+                "{who:08X}: {item:08X}"
+            );
+        }
+    }
+    // What the recordings heard of two items stays plain.
+    assert_eq!(
+        refusing(&mut h, t, 0x4700_31AE, JUNK),
+        Some(0x2DDF_72B1),
+        "the geyser's"
+    );
+    assert_eq!(
+        refusing(&mut h, t, 0x4700_3353, JUNK),
+        Some(0x098E_5251),
+        "Lupe's"
+    );
+}

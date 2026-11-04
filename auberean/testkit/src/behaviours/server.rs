@@ -2959,6 +2959,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.kept-in-2017",
+        says: "The gives January 2017 kept with no step here have their rows: the offerings' chain, the \
+               shrine's recipe, the mirras, the bucket, the repeat dips, the donation, the bribe, the \
+               carcass, the Warders' donations, the gem hand-in and the periapt.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-GIVES-KEPT-2017"),
+        station: "yalain-testkit::corpus::world_db::gives_2017_kept_with_no_quest_moved_have_their_rows",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.gives.map-named-by-the-persons-line",
         says: "A person whose table names no land sends players only with the maps its lines name (the \
                miller's starter map); another map is handed back with its line for a map it does not take.",
@@ -3002,6 +3012,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-GIVE-MAPS-NO-ROWS"),
         station: "yalain-testkit::corpus::world_db::the_pinned_release_names_a_place_for_the_maps_2017_sent_players_by",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.gives.mine-tolls",
+        says: "A miner's toll is a hidden quest: the fee starts it, the miner's portals ask for it under \
+               way, and a player who has paid hears the miner's line for a toll still good.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-MINE-TOLLS-2017"),
+        station: "yalain-testkit::corpus::world_db::a_miners_toll_is_a_hidden_quest_its_portals_ask_for",
         tier: Tier::Corpus,
     },
     behaviour! {
