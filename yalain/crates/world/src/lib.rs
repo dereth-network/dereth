@@ -471,6 +471,12 @@ pub enum Timer {
     PetExpires { pet: u64 },
     /// A creature's heal or buff on itself takes effect.
     CreatureHelps { creature: u64, skill: u32, on: u64 },
+    /// A creature's strike reaches the player it was at.
+    CreatureStrikeLands {
+        creature: u64,
+        target: ConnId,
+        damage: i32,
+    },
     /// A dead player's corpse is made.
     PlayerCorpse { world: ConnId },
     /// A character that left the world dead comes back.
@@ -789,6 +795,11 @@ impl<S: Store> Server<S> {
                 } => {
                     missiles::helped(self, net, creature, skill, on, clock);
                 }
+                Timer::CreatureStrikeLands {
+                    creature,
+                    target,
+                    damage,
+                } => combat::creature_strike_lands(self, net, creature, target, damage, clock),
                 Timer::PlayerCorpse { world } => death::player_corpse(self, net, world, clock),
                 Timer::BackAfterEntry { world } => death::back_after_entry(self, net, world, clock),
                 Timer::ProtectionEnds { world, eid } => effects::runs_out(self, net, world, eid),

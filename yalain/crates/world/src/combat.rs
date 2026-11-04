@@ -1291,7 +1291,7 @@ pub fn creature_strikes<S: Store>(
 }
 
 /// A creature strikes its target where it stands with a skill (a special told without the
-/// basic-attack flag): the story with its result, the player hurt by a hit.
+/// basic-attack flag): the story with its result, the player hurt as a hit reaches it.
 pub fn creature_strike_with<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1366,7 +1366,51 @@ pub fn creature_strike_with<S: Store>(
         crate::skill_use::creature_attacked(s, id, clock);
     }
     if outcome.landed() {
-        hurt_player(s, net, target, id, damage, clock);
+        s.after(
+            clock,
+            creature_hit_seconds(skill.skill, skill.behavior, special) / f64::from(ts),
+            crate::Timer::CreatureStrikeLands {
+                creature: id,
+                target,
+                damage,
+            },
+        );
+    }
+}
+
+/// When a creature's strike reaches its target after its story, over the time scale, as its client
+/// plays the blow and writes the hit (2017: its basic melee attacks a median 0.778 s, 1,098 strikes,
+/// 1 at once; the specials measured by their own; another special at the share of an animation a
+/// player's strike lands at).
+#[must_use]
+pub fn creature_hit_seconds(skill: u32, behavior: u32, special: bool) -> f64 {
+    match skill {
+        1035 => 0.524,
+        462 => 1.198,
+        981 => 1.207,
+        1801 => 2.066,
+        _ if special => {
+            crate::skill_use::STRIKE_LANDS * crate::skill_use::animation_seconds(behavior)
+        }
+        _ => 0.778,
+    }
+}
+
+/// A creature's strike reaches its target: the player hurt, and dead if that was the last of its
+/// health. One gone into portal space or dead by now is not hurt by it.
+pub fn creature_strike_lands<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    creature: u64,
+    target: ConnId,
+    damage: i32,
+    clock: Clock,
+) {
+    if s.players
+        .get(&target)
+        .is_some_and(|p| p.trip.is_none() && !is_dead(p))
+    {
+        hurt_player(s, net, target, creature, damage, clock);
     }
 }
 

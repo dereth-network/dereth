@@ -64,6 +64,7 @@ what they see, not how it was done.
 - A timed quest's clock now stops while you're logged out.
 - A person's two-hour wait between quests counts only time played.
 - Fixed characters coming back stuck at 0 health after logging out dead.
+- Creature hits now take health as they land, so the hit shows before "killed you".
 
 ## 0.1.2 (2026-11-03)
 

@@ -1976,6 +1976,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.death.blow-before-kill-text",
+        says: "A creature's strike is told by its story first; the player loses the health as the \
+               blow reaches it, most of a second later for a basic attack, a special by its own \
+               time, and the kill text follows the health in that instant. A player gone into \
+               portal space or dead by then is not hurt by it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BLOW-LANDS"),
+        station: "yalain-testkit::cpu::play::dying::a_creatures_killing_blow_is_told_before_the_health_and_the_kill_text",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.death.corpse-and-leaving",
         says: "Two seconds after its death a creature's corpse appears where it fell, holding \
                what its loot profile leaves; three seconds later the creature leaves the world.",

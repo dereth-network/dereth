@@ -753,3 +753,112 @@ fn a_character_alive_at_its_entry_is_not_brought_back() {
         "not protected"
     );
 }
+
+/// A creature's blow: its story first, and only as the blow reaches the player, most of a second
+/// later, its health at none and the kill text, in that order, so the client has written the hit
+/// before it writes the kill.
+/// Behaviour: server.death.blow-before-kill-text
+#[test]
+fn a_creatures_killing_blow_is_told_before_the_health_and_the_kill_text() {
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    let from = h.bots[b].inbox.len();
+    let told = |m: &ServerMessage| {
+        matches!(m, ServerMessage::DoStory(e) if e.action.hooks.iter().any(|k| k.target == me
+            && k.bits == yalain_world::combat::hook::HIT))
+    };
+    assert!(
+        h.run_until(4000, |h| h.world_messages(b, from).iter().any(told)),
+        "the creature lands a blow"
+    );
+    let struck = h.now.0;
+    let at_none = |m: &ServerMessage| matches!(m, ServerMessage::UpdateInt(q) if q.quality == HEALTH && q.value == 0);
+    assert!(
+        !h.world_messages(b, from).iter().any(at_none),
+        "not hurt as it is told"
+    );
+    assert!(
+        h.run_until(4000, |h| h.world_messages(b, from).iter().any(at_none)),
+        "the blow reaches it"
+    );
+    let gap = h.now.0 - struck;
+    assert!(
+        (0.4..1.1).contains(&gap),
+        "the blow reached it {gap:.2} s after its story"
+    );
+    let _ = run_to_death(&mut h, b, from);
+    let messages = h.world_messages(b, from);
+    let at = |pick: &dyn Fn(&ServerMessage) -> bool| messages.iter().position(pick);
+    let kill_text =
+        at(&|m| matches!(m, ServerMessage::PlayerCall(c) if c.function.0 == DEATH_MESSAGE));
+    assert!(at(&told) < at(&at_none), "the story before the health");
+    assert!(at(&at_none) < kill_text, "the health before the kill text");
+}
+
+/// A blow told at a player who has since gone into portal space does not reach it.
+/// Behaviour: server.death.blow-before-kill-text
+#[test]
+fn a_blow_at_a_player_gone_into_portal_space_does_not_hurt_it() {
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let world = *h.server.players.keys().next().expect("the player");
+    let clock = h.clock();
+    let to = a_lifestone();
+    yalain_world::places::resurrection_trip(&mut h.server, &mut h.net, world, to, clock);
+    let before = yalain_world::quals::int(&h.server.players[&world].qualities, HEALTH);
+    yalain_world::combat::creature_strike_lands(&mut h.server, &mut h.net, me, world, 5, clock);
+    assert_eq!(
+        yalain_world::quals::int(&h.server.players[&world].qualities, HEALTH),
+        before
+    );
+}
+
+/// A second blow told before the first killed the player does nothing when it reaches it: the
+/// player does not die again.
+/// Behaviour: server.death.blow-before-kill-text
+#[test]
+fn a_blow_at_a_player_already_dead_does_nothing() {
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let world = *h.server.players.keys().next().expect("the player");
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, HEALTH, 0);
+    }
+    let clock = h.clock();
+    yalain_world::combat::creature_strike_lands(&mut h.server, &mut h.net, me, world, 5, clock);
+    assert!(h.server.players[&world].dying.is_none(), "no second death");
+}
+
+/// A player alive and in the world is hurt by a blow that reaches it: the same call's other side.
+/// Behaviour: server.death.blow-before-kill-text
+#[test]
+fn a_blow_that_reaches_a_player_hurts_it_by_its_damage() {
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let world = *h.server.players.keys().next().expect("the player");
+    let clock = h.clock();
+    let before = yalain_world::quals::int(&h.server.players[&world].qualities, HEALTH).unwrap_or(0);
+    yalain_world::combat::creature_strike_lands(&mut h.server, &mut h.net, me, world, 5, clock);
+    assert_eq!(
+        yalain_world::quals::int(&h.server.players[&world].qualities, HEALTH),
+        Some(before - 5)
+    );
+}
+
+/// When a blow reaches its target by what it is: a creature's basic attacks, the specials measured
+/// by their own, another special at the share of a player's strike.
+/// Behaviour: server.death.blow-before-kill-text
+#[test]
+fn a_creatures_strike_reaches_its_target_by_its_skill() {
+    use yalain_world::combat::creature_hit_seconds as at;
+    assert!((at(1845, 0, false) - 0.778).abs() < 1e-9);
+    assert!((at(1035, 0, true) - 0.524).abs() < 1e-9);
+    assert!((at(462, 0, true) - 1.198).abs() < 1e-9);
+    assert!((at(981, 0, true) - 1.207).abs() < 1e-9);
+    assert!((at(1801, 0, true) - 2.066).abs() < 1e-9);
+    assert!((at(7, 0, true) - 0.71 * 1.6).abs() < 1e-9);
+    assert!((at(7, 0x4100_0077, true) - 0.71 * 1.444).abs() < 1e-9);
+}
