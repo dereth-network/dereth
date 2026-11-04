@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// The manifest format the Dereth client reads (`dereth_assets::art_pack::FORMAT`).
-pub const FORMAT: i64 = 2;
+pub const FORMAT: i64 = 1;
 
 /// The folder form's manifest (`dereth_assets::art_pack::MANIFEST_FILE`).
 const MANIFEST: &str = "manifest.toml";
@@ -77,10 +77,10 @@ mod tests {
         let folder = root.join("folder-pack");
         std::fs::create_dir_all(&folder).unwrap();
         let manifest = |f: i64| format!("[pack]\nname = \"Woods\"\nformat = {f}\n");
-        std::fs::write(folder.join(MANIFEST), manifest(2)).unwrap();
-        assert_eq!(read_art_pack(&folder).as_deref(), Ok("Woods"));
         std::fs::write(folder.join(MANIFEST), manifest(1)).unwrap();
-        assert!(read_art_pack(&folder).unwrap_err().contains("format 1"));
+        assert_eq!(read_art_pack(&folder).as_deref(), Ok("Woods"));
+        std::fs::write(folder.join(MANIFEST), manifest(2)).unwrap();
+        assert!(read_art_pack(&folder).unwrap_err().contains("format 2"));
         let packed = root.join("woods.dat");
         std::fs::write(&packed, b"....Pack....").unwrap();
         assert_eq!(read_art_pack(&packed).as_deref(), Ok("woods"));
