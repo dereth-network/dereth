@@ -390,6 +390,8 @@ pub struct Scene<'w> {
     stand_ins: [bool; 2],
     /// Effects asked of objects since the last frame: the object, the effect, its strength.
     asked_fx: Vec<(u64, u32, f32)>,
+    /// The server's objects a behavior asked to go, hidden until the time each goes.
+    going: Vec<(u64, f64)>,
     /// Effects asked of objects or stopped since the last frame, in order, for their bodies: the
     /// object, the effect, and its strength (none to stop it).
     body_fx: Vec<(u64, u32, Option<f32>)>,
@@ -1227,6 +1229,7 @@ impl<'w> Scene<'w> {
             first_person_hidden: first_person_hidden(&world.records),
             stand_ins: [false; 2],
             asked_fx: Vec::new(),
+            going: Vec::new(),
             body_fx: Vec::new(),
             aimed: Vec::new(),
             fx_aims: Vec::new(),
@@ -2704,6 +2707,7 @@ impl<'w> Scene<'w> {
                 .map(|e| (e.object, e.effect, e.intensity)),
         );
         self.route_figure_events(asked_of, &mut played, now);
+        self.forget_those_gone(client, now);
         // The scripts' effects and the figures' play on the bodies too (those asked through the
         // scene already were).
         for &(id, effect, intensity) in &played[asked..] {
@@ -3117,6 +3121,25 @@ impl<'w> Scene<'w> {
                     self.camera
                         .set_targeted_camera(&objects, target, words, time, ramp);
                 }
+                // Hidden at once, and it goes three seconds on. (The objects the client made see
+                // to their own.)
+                // D2-06097, D2-05707
+                Event::Remove => {
+                    if self.player.as_ref().is_some_and(|p| p.id == id)
+                        || self.going.iter().any(|(g, _)| *g == id)
+                    {
+                        continue;
+                    }
+                    if let Some(f) = self.figure_mut(id) {
+                        f.sliders.do_slider(
+                            0,
+                            auberean_physics::body::parent::FADE_SLIDER,
+                            0.0,
+                            0.0,
+                        );
+                        self.going.push((id, now + temporaries::REMOVED_GONE));
+                    }
+                }
                 // The body stops where it is, and its keys ask nothing more of it.
                 // D2-06094, D2-09644
                 Event::LockInput => {
@@ -3138,6 +3161,17 @@ impl<'w> Scene<'w> {
                 ),
             }
         }
+    }
+
+    /// The server's objects whose time to go has come are forgotten, bodies and all.
+    // D2-05707
+    fn forget_those_gone(&mut self, client: &mut Client, now: f64) {
+        let due = |at: f64| at <= now;
+        for (id, _) in self.going.iter().filter(|(_, at)| due(*at)) {
+            client.model.forget(*id);
+            client.queue.remove_object(*id);
+        }
+        self.going.retain(|(_, at)| !due(*at));
     }
 
     /// The camera's part of each effect played on an object (`object`, its effect id, its

@@ -42,7 +42,7 @@ use crate::{Scene, BLOCK_LENGTH};
 /// How long a fading object takes to fade out, and the opacity it fades to, seconds.
 pub const FADE_TIME: f64 = 0.5;
 /// How long after a behavior asks that its object go it goes, hidden until then, seconds.
-const REMOVED_GONE: f64 = 3.0;
+pub(crate) const REMOVED_GONE: f64 = 3.0;
 
 /// One object the client made.
 pub(crate) struct Temporary {

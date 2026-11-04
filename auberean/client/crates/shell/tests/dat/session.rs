@@ -3741,6 +3741,101 @@ fn an_object_starts_the_behaviors_and_effects_its_description_gives() {
     assert!(made, "the effect its description lists makes its object");
 }
 
+/// A behavior the server starts on one of its own objects that says to destroy it as it ends hides
+/// the object and takes it away three seconds on. Fixture: a server double asking at a set time.
+///
+/// Behaviour: desktop.bodies.a-behavior-that-destroys-its-object-takes-a-server-object-away
+#[test]
+fn a_behavior_that_destroys_its_object_takes_a_server_object_away() {
+    use auberean_client_sdk::protocol::physics::ObjectEvent;
+    use auberean_client_sdk::protocol::types::BehaviorParams;
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const CREATURE: u64 = 0x8130_1B05_CC00_018A;
+    const OPACITY: u32 = 0x4000_0015;
+    /// Flag 0x8000 is the twelfth of the flags followed by a word.
+    const DESTROYS_WORD: usize = 11;
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -44.7,
+    };
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: DRUDGES_CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: 4.0,
+                        y: 330.0,
+                        z: -44.7,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let mut once = BehaviorParams {
+        bits: BehaviorParams::BEHAVIOR | BehaviorParams::WORD_BITS[DESTROYS_WORD],
+        behavior: 0x4100_0083,
+        ..BehaviorParams::default()
+    };
+    once.words[DESTROYS_WORD] = 1;
+    let later = [(
+        9.0,
+        ServerMessage::PlayBehavior(ObjectEvent {
+            sender: ObjectStamp {
+                id: CREATURE,
+                instance_stamp: 1,
+                other_stamp: 1,
+            },
+            action: once,
+        }),
+    )];
+    let script = script_until(DRUDGES_CELL, at, Quat::IDENTITY, &[creature], &later, 60.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let mut hidden_at = None;
+    let mut gone_at = None;
+    let mut seen = false;
+    while s.host.time < 40.0 && gone_at.is_none() {
+        step(&mut s);
+        match s.scene.figure(CREATURE) {
+            Some(f) => {
+                seen = true;
+                if hidden_at.is_none() && f.sliders.desired(OPACITY) == 0.0 {
+                    hidden_at = Some(s.host.time);
+                }
+            }
+            None if seen => gone_at = Some(s.host.time),
+            None => {}
+        }
+    }
+    let hidden_at = hidden_at.expect("hidden as the behavior ends");
+    let gone_at = gone_at.expect("taken away");
+    let after = gone_at - hidden_at;
+    assert!((2.5..4.0).contains(&after), "three seconds on: {after}");
+}
+
 /// An effect with a decal lays it where its object stands: on the land outdoors, on its cell's
 /// ground inside, and it is drawn with the frame. Fixture: the server double asks the player's body
 /// for the effect at a set time, at the camp and in the hall.

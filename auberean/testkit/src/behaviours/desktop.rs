@@ -9,6 +9,14 @@ use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "desktop.bodies.a-behavior-that-destroys-its-object-takes-a-server-object-away",
+        says: "A behavior that destroys its object as it ends hides a server's object at once, and the object goes three seconds on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-REMOVE-SERVER-OBJECT"),
+        station: "auberean-shell::dat::session::a_behavior_that_destroys_its_object_takes_a_server_object_away",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.a-behavior-that-locks-actions-holds-the-players-keys",
         says: "While a behavior that locks the player's actions plays, the body stops at once and what \
                the keys ask of it waits; a behavior a key names plays and stops on the player's figure.",
