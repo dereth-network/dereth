@@ -541,8 +541,9 @@ fn has_surface(ui: &Ui, root: Handle) -> bool {
 
 /// The top-level elements from the deepest, each with the depth it is drawn at, then an item
 /// being dragged, in front of everything: each top-level element is an object of its own while it
-/// is on the screen.
-// D2-11281, D2-11220, D2-11265, D2-11152
+/// is on the screen. Of equal depths the one put on the screen first is drawn last, in front; a
+/// tooltip is in front of them all.
+// D2-11281, D2-11220, D2-11265, D2-11152, D2-10386
 fn layers(ui: &Ui) -> Vec<(Handle, i32)> {
     let mut out: Vec<(Handle, i32)> = ui
         .roots()
@@ -550,6 +551,12 @@ fn layers(ui: &Ui) -> Vec<(Handle, i32)> {
         .rev()
         .filter_map(|r| ui.node(*r).map(|n| (*r, n.z)))
         .collect();
+    if let Some(tip) = ui.tooltip() {
+        if let Some(at) = out.iter().position(|(r, _)| *r == tip) {
+            let shown = out.remove(at);
+            out.push(shown);
+        }
+    }
     if let Some(d) = ui.dragged() {
         out.push((d, i32::MIN));
     }

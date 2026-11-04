@@ -255,6 +255,42 @@ fn the_nearest_top_level_element_is_drawn_last() {
     assert_eq!(screen_over(&u, [0, 0, 0, 255]).get(5, 5), [0, 0, 255, 255]);
 }
 
+/// Of two top-level elements at one depth the first put on the screen is drawn in front, and the
+/// pointer meets it first.
+///
+/// Behaviour: ui.draw.of-equal-depths-the-first-on-the-screen-is-drawn-in-front
+#[test]
+fn of_equal_depths_the_first_on_the_screen_is_drawn_in_front() {
+    let piece = |name, picture| {
+        element(
+            name,
+            "field",
+            [0, 0, 9, 9],
+            10,
+            vec![state(
+                "stateless",
+                0,
+                vec![],
+                vec![image(picture, 0)],
+                vec![],
+            )],
+        )
+    };
+    let mut u = ui(
+        vec![piece("First", 1), piece("Second", 2)],
+        vec![
+            (1, solid(10, 10, [0, 0, 255, 255])),
+            (2, solid(10, 10, [0, 255, 0, 255])),
+        ],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    let first = u.create_root(l, Token::of("First")).unwrap();
+    let second = u.create_root(l, Token::of("Second")).unwrap();
+    assert_eq!(screen_over(&u, [0, 0, 0, 255]).get(5, 5), [0, 0, 255, 255]);
+    assert_eq!(u.hit(5, 5), Some(first), "the pointer meets what it sees");
+    assert_ne!(first, second);
+}
+
 /// A rectangle painted over an element (the radar's blips) is a window onto the element's own
 /// picture, pressed onto it: one reaching past an edge paints the texels along that edge, one
 /// inside paints itself, and nothing lands outside the element.

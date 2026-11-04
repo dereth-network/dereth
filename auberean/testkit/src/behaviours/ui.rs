@@ -531,6 +531,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.draw.of-equal-depths-the-first-on-the-screen-is-drawn-in-front",
+        says: "Of two top-level elements at one depth the first put on the screen is drawn in front, and the pointer meets it first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-DRAW-EQUAL-DEPTHS"),
+        station: "auberean-ui::cpu::compositor::of_equal_depths_the_first_on_the_screen_is_drawn_in_front",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.draw.the-nearest-top-level-element-is-drawn-last",
         says: "Top-level elements are laid over each other from the deepest, the nearest drawn \
                last.",
@@ -2008,6 +2016,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-STRDL-STORY"),
         station: "auberean-ui-game::dat::play::story::a_subtitle_waits_for_its_string_table_then_shows",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.story.the-shortcut-strip-shows-in-front-of-the-storys-background",
+        says: "The story's background stands at the shortcut strip's depth and came after it, so the strip is drawn in front of it, the only part of the play screen that shows through, and the pointer meets it there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-STORY-STRIP"),
+        station: "auberean-ui-game::dat::play::story::the_shortcut_strip_shows_in_front_of_the_storys_background",
         tier: Tier::Dat,
     },
     behaviour! {

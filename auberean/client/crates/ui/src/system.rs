@@ -567,7 +567,8 @@ impl Ui {
         self.free.push(h.index);
     }
 
-    /// The top-level elements, nearest first.
+    /// The top-level elements, nearest first, as the pointer meets them; of equal depths the first
+    /// put on the screen comes first.
     #[must_use]
     pub fn roots(&self) -> &[Handle] {
         &self.roots
@@ -764,9 +765,18 @@ impl Ui {
     pub fn add_root(&mut self, h: Handle) {
         self.roots.retain(|r| *r != h);
         let z = self.node(h).map_or(0, |n| n.z);
-        let at = self.insert_at(&self.roots, z);
+        let at = self.root_at(&self.roots, z);
         self.roots.insert(at, h);
         self.place_tree(h);
+    }
+
+    /// Where a top-level element of depth `z` goes in a list kept nearest first: after every one at
+    /// its depth or nearer, so of equal depths the first put on the screen stays nearest.
+    // D2-10386
+    fn root_at(&self, list: &[Handle], z: i32) -> usize {
+        list.iter()
+            .position(|c| self.node(*c).is_some_and(|n| n.z > z))
+            .unwrap_or(list.len())
     }
 
     /// Where an element of depth `z` goes in a list kept nearest first: after every nearer one,
@@ -1554,7 +1564,7 @@ impl Ui {
                 if self.roots.contains(&h) {
                     let mut list = self.roots.clone();
                     list.retain(|c| *c != h);
-                    let at = self.insert_at(&list, z);
+                    let at = self.root_at(&list, z);
                     list.insert(at, h);
                     self.roots = list;
                 }

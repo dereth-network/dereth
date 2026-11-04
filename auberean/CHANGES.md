@@ -106,6 +106,7 @@ not how it was done.
 - Items you put down now show on the ground for you.
 - Much higher frame rates in towns and outdoors.
 - Fixed "You just entered a peace area" showing when a new character enters.
+- The shortcut bar now shows during story scenes.
 
 ## 0.1.2 (2026-11-02)
 
