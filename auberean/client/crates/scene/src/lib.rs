@@ -69,6 +69,7 @@ use auberean_draw::portal::{Look as PortalLook, Passage};
 use auberean_draw::scene::{Frame, SceneBuilder, Spot};
 use auberean_draw::systems::ParticleSystems;
 use auberean_physics::body::missile::{ObjectTable, Objects};
+use auberean_physics::body::placing::error as place_error;
 use auberean_physics::body::{
     setup_spheres, Animate, AnimationClock, Body, BodyConfig, Notice, Ticker, JUMP_BEHAVIOR, TICK,
 };
@@ -171,6 +172,12 @@ struct Player {
     scale: Vec3,
     /// Just put somewhere by the server: stood on the ground once the ground there is loaded.
     settle: bool,
+    /// Made, or teleported, and not yet in the world.
+    arriving: bool,
+    /// The last teleport of the server's it has taken.
+    teleport_stamp: u16,
+    /// Arriving at a place with no room for it: out of the world, and trying again each frame.
+    no_room: bool,
     /// The behaviors its figure was last told the body shows.
     shown: BTreeSet<u32>,
     /// The effects it plays.
@@ -1252,8 +1259,8 @@ impl<'w> Scene<'w> {
     /// Portal space follows the session: on at once when the player starts entering the world;
     /// then wanted until the server has the player in the world (it took the player out of it for
     /// a trip, or has not said who the player is yet) and the client has the player's body placed
-    /// with the world around it loaded; a teleport of the player wants it again, unless a door's
-    /// scene plays in its place.
+    /// with the world around it loaded, which a place with no room for the body never lets it be;
+    /// a teleport of the player wants it again, unless a door's scene plays in its place.
     // D2-01910, D2-01944, D2-01909, D2-10657, D2-10665, D2-10643, D2-10644, D2-11001, D2-11002, D2-04056, D2-04057
     fn follow_portal_space(&mut self, client: &Client, now: f64) {
         let in_session = self.entering || client.model.player.is_some();
@@ -1276,7 +1283,7 @@ impl<'w> Scene<'w> {
             if client.body.placed() {
                 self.teleport_stamp = Some(stamp);
             }
-            let client_ready = self.player.is_some() && !teleported;
+            let client_ready = self.player.as_ref().is_some_and(|p| !p.arriving) && !teleported;
             self.portal.want(
                 !(server_ready && client_ready) && !self.portal_scene_playing,
                 false,
@@ -2333,6 +2340,9 @@ impl<'w> Scene<'w> {
             radius,
             scale,
             settle: true,
+            arriving: true,
+            teleport_stamp: b.teleport_stamp,
+            no_room: false,
             shown: BTreeSet::new(),
             effects,
             ticked: dereth_primitives::Vec3::ZERO,
@@ -2444,6 +2454,10 @@ impl<'w> Scene<'w> {
                 p.body.on_walkable = true;
                 p.body.contact_plane = None;
                 p.settle = true;
+                if b.teleport_stamp != p.teleport_stamp {
+                    p.teleport_stamp = b.teleport_stamp;
+                    p.arriving = true;
+                }
                 tracing::info!(
                     cell = format_args!("{:#010x}", b.cell),
                     "the server placed the player"
@@ -2456,7 +2470,9 @@ impl<'w> Scene<'w> {
         // A place under the ground outdoors is lifted onto it, as a placement is; then the body
         // stands where there is room for it nearest that place, as the client puts a body the
         // server placed (beside the start hall's fir it rises 0.69 m and steps 0.45 m aside):
-        // once the cells it was put in are in.
+        // once the cells it was put in are in. A body arriving where there is no room stays out
+        // of the world, and tries again next frame.
+        // D2-10657, D2-06059
         let cells_in = !self.cells.pending;
         if let Some(p) = &mut self.player {
             if cells_in && std::mem::take(&mut p.settle) {
@@ -2471,14 +2487,21 @@ impl<'w> Scene<'w> {
                     }
                 }
                 let at = p.body.position;
-                let _ = p
+                let r = p
                     .body
                     .set_position_simple(&self.land, &mut self.table, at, true);
-                p.body.set_placement_position(at);
-                // The camera is placed afresh there, not drawn from where it stood.
-                self.camera_stands = None;
+                p.no_room = p.arriving
+                    && matches!(r, place_error::NO_VALID_POSITION | place_error::COLLIDED);
+                p.settle = p.no_room;
+                if !p.no_room {
+                    p.arriving = false;
+                    p.body.set_placement_position(at);
+                    // The camera is placed afresh there, not drawn from where it stood.
+                    self.camera_stands = None;
+                }
             }
         }
+        client.body.out_of_world = self.player.as_ref().is_none_or(|p| p.arriving);
         // A throw of the server's comes after the place it came with.
         if let Some(p) = self.player.as_mut().filter(|p| !p.settle) {
             let (count, velocity) = client.body.thrown();
@@ -2580,7 +2603,7 @@ impl<'w> Scene<'w> {
             self.table.file_those_waiting(&self.land);
             // Each tick the body moves while its movement runs, then its other updates run while
             // woken: its detections checked, what its collisions began and ended reported.
-            for _ in 0..ticks {
+            for _ in 0..if p.no_room { 0 } else { ticks } {
                 p.body.update_in(
                     &self.land,
                     &mut self.table,

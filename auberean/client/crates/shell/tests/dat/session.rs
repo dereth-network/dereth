@@ -1047,6 +1047,78 @@ fn a_placed_player_stands_where_there_is_room() {
     );
 }
 
+/// A player the server puts where there is no room for the body stays in portal space and out of
+/// the world: it does not fall and nothing is reported of it. A teleport to a place with room brings
+/// it out.
+///
+/// Behaviour: desktop.shell.a-player-put-where-there-is-no-room-stays-in-portal-space
+#[test]
+fn a_player_put_where_there_is_no_room_stays_in_portal_space() {
+    const NO_ROOM: (u32, Vec3) = (
+        0x0298_010C,
+        Vec3 {
+            x: 14.2,
+            y: 425.0,
+            z: -43.1,
+        },
+    );
+    let there = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: HALL_CELL,
+        origin: HALL_AT,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1,
+        force_position_stamp: 0,
+        teleport_stamp: 1,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let mut script = script_then(NO_ROOM.0, NO_ROOM.1, Quat::IDENTITY, &[], &[(8.0, there)]);
+    // The scene is never reported from portal space, so the double doesn't wait for it.
+    script
+        .events
+        .retain(|e| !matches!(e, Step::Msg { msg, .. } if msg.c2s && msg.mtype == 0x100D1));
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let taken = |s: &Shell<'_, DoubleHost>| {
+        s.client
+            .as_ref()
+            .is_some_and(|c| c.body.teleport_stamp == 1)
+    };
+    while !taken(&s) {
+        assert!(s.host.time < 30.0, "the teleport never took effect");
+        if s.scene.has_player() {
+            assert!(s.scene.in_portal_space(), "at {}", s.host.time);
+            assert_eq!(s.scene.status.origin, NO_ROOM.1, "it does not fall");
+        }
+        step(&mut s);
+    }
+    assert!(s.scene.has_player(), "the body was made");
+    assert_eq!(s.scene.arrivals(), 0, "not arrived");
+    assert_eq!(reports(&s), vec![], "nothing reported");
+    let came_out = s.host.time + 4.0;
+    while s.scene.in_portal_space() {
+        assert!(s.host.time < came_out, "still in portal space");
+        step(&mut s);
+    }
+    assert_eq!(s.scene.arrivals(), 1, "arrived");
+    assert!(!reports(&s).is_empty(), "reported again");
+}
+
 /// A body far into an interior is drawn. The human training hall's cells reach more than 500 m
 /// north of its landblock's corner; a creature beside the player at the hall's straw drudges, some
 /// 338 m north of it, is drawn, as the retail client draws the drudges there.
@@ -1085,7 +1157,7 @@ fn a_body_far_into_the_hall_is_drawn() {
     let at = Vec3 {
         x: 2.0,
         y: 330.0,
-        z: -44.7,
+        z: -43.76,
     };
     let script = script_with(DRUDGES_CELL, at, Quat::IDENTITY, &[creature]);
     let server =
@@ -1269,7 +1341,7 @@ fn a_position_of_the_players_own_with_an_impulse_throws_the_body() {
     step(&mut s);
     let (from, going) = s.scene.player_motion().expect("the player's body");
     assert!(going.z > 0.0, "going up: {going:?}");
-    for _ in 0..5 {
+    for _ in 0..12 {
         step(&mut s);
     }
     let (now, _) = s.scene.player_motion().expect("the player's body");
@@ -2635,9 +2707,9 @@ fn rain_falls_on_a_rainy_day() {
     assert!(!plays(&s), "the sound stops with the rain");
 }
 
-/// The objects placed on a landblock taken up fade in with it: at the camp, entered from nowhere,
-/// each of the frame's objects standing on the land is drawn no more opaque than its block's
-/// opacity, and whole a second on.
+/// The objects placed on a landblock taken up fade in with it: put a block east of the camp, each
+/// of the frame's objects standing on the land is drawn no more opaque than its block's opacity,
+/// and whole a second on.
 ///
 /// Behaviour: desktop.world.a-blocks-placed-objects-fade-in-with-it
 #[test]
@@ -2647,7 +2719,23 @@ fn a_blocks_placed_objects_fade_in_with_it() {
         y: 89.758,
         z: 80.0,
     };
-    let script = script_at(0xC156_0035, at, Quat::IDENTITY);
+    let east = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: 0xC256_0035,
+        origin: at,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1,
+        force_position_stamp: 0,
+        teleport_stamp: 1,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let script = script_then(0xC156_0035, at, Quat::IDENTITY, &[], &[(5.5, east)]);
     let server =
         ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
     let mut s = shell_with(
@@ -2660,7 +2748,7 @@ fn a_blocks_placed_objects_fade_in_with_it() {
         )),
     );
     let (mut faded, mut whole) = (0, 0);
-    while s.host.time < 6.0 {
+    while s.host.time < 8.0 {
         let h = &mut s.host;
         h.time += 1.0 / 60.0;
         let t = LocalTime(1.0 + h.time);
@@ -2699,8 +2787,9 @@ fn a_blocks_placed_objects_fade_in_with_it() {
 /// A landblock's objects fade in over the second after the near window takes it up, made or found
 /// again among the free blocks: each frame lists the blocks taken up less than a second before
 /// (not at the very moment) with the time since as their objects' opacity, and a body standing on
-/// such a block's land is drawn at that opacity. The blocks the window keeps are not listed. (The
-/// player put one block east of block `0x0298`, then back; a creature on the land two blocks east.)
+/// such a block's land is drawn at that opacity. The blocks the window keeps are not listed, and
+/// the first window's second is over before portal space shows the world. (The player put one
+/// block east of block `0x0298`, then back; a creature on the land two blocks east.)
 ///
 /// Behaviour: desktop.world.a-landblocks-objects-fade-in-over-a-second-as-it-is-taken-up
 #[test]
@@ -2857,8 +2946,11 @@ fn a_landblocks_objects_fade_in_over_a_second_as_it_is_taken_up() {
             .filter(|(_, _, b)| !b.is_empty())
             .count()
     };
-    let first: Vec<(u8, u8)> = (bx - 1..=bx + 1).flat_map(&column).collect();
-    assert_eq!(blocks_in(0, east_from), first, "the first window taken up");
+    assert_eq!(
+        blocks_in(0, east_from),
+        [],
+        "the first window, in portal space"
+    );
     assert_eq!(
         blocks_in(east_from, back_from),
         column(bx + 2),
@@ -3483,7 +3575,7 @@ fn an_object_takes_up_its_description() {
     let at = Vec3 {
         x: 2.0,
         y: 330.0,
-        z: -44.7,
+        z: -43.76,
     };
     let script = script_with(DRUDGES_CELL, at, Quat::IDENTITY, &[creature]);
     let server =
@@ -3552,7 +3644,7 @@ fn a_body_is_drawn_in_the_color_its_sliders_hold() {
     let at = Vec3 {
         x: 2.0,
         y: 330.0,
-        z: -44.7,
+        z: -43.76,
     };
     let script = script_with(DRUDGES_CELL, at, Quat::IDENTITY, &[creature]);
     let server =
@@ -3635,7 +3727,7 @@ fn an_aimed_effect_acts_on_its_target() {
     let at = Vec3 {
         x: 2.0,
         y: 330.0,
-        z: -44.7,
+        z: -43.76,
     };
     let later = [(
         9.0,
@@ -4037,7 +4129,7 @@ fn an_object_starts_the_behaviors_and_effects_its_description_gives() {
     let at = Vec3 {
         x: 2.0,
         y: 330.0,
-        z: -44.7,
+        z: -43.76,
     };
     let script = script_until(DRUDGES_CELL, at, Quat::IDENTITY, &[creature], &[], 30.0);
     let server =
@@ -4080,7 +4172,7 @@ fn a_behavior_that_destroys_its_object_takes_a_server_object_away() {
     let at = Vec3 {
         x: 2.0,
         y: 330.0,
-        z: -44.7,
+        z: -43.76,
     };
     let creature = CreateObject {
         id: CREATURE,
@@ -4534,7 +4626,7 @@ fn an_effects_decal_is_laid_where_its_object_stands() {
             Vec3 {
                 x: 2.0,
                 y: 330.0,
-                z: -44.7,
+                z: -43.76,
             },
         ),
     ] {
@@ -4595,7 +4687,7 @@ fn a_body_does_the_rest_of_what_the_server_asks() {
     let at = Vec3 {
         x: 2.0,
         y: 330.0,
-        z: -44.7,
+        z: -43.76,
     };
     let event = |t: f64, m: ServerMessage| (t, m);
     let later = [
@@ -4680,9 +4772,9 @@ fn a_body_does_the_rest_of_what_the_server_asks() {
     assert_eq!(b.minterp.global_mod, 7, "the global modifier");
     assert!(had_terrain, "the terrain modifier was kept");
     assert!(cleared, "and cleared");
-    // The player stands 5.9 m east and 7.5 m south of it.
+    // The player stands 5.9 m east and 7.1 m south of it.
     assert!(
-        (pushed.0 + 3.71).abs() < 0.01 && (pushed.1 - 4.72).abs() < 0.01,
+        (pushed.0 + 3.83).abs() < 0.01 && (pushed.1 - 4.58).abs() < 0.01,
         "pushed away from the player at the speed asked: {pushed:?}"
     );
     while s.host.time < 13.0 {
@@ -4742,7 +4834,7 @@ fn an_object_takes_up_its_stamps_and_flight_from_its_description() {
     let at = Vec3 {
         x: 2.0,
         y: 330.0,
-        z: -44.7,
+        z: -43.76,
     };
     let script = script_with(DRUDGES_CELL, at, Quat::IDENTITY, &[creature]);
     let server =

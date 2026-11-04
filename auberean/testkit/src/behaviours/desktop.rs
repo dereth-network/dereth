@@ -1563,6 +1563,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.shell.a-player-put-where-there-is-no-room-stays-in-portal-space",
+        says: "A player the server puts where there is no room for the body stays in portal \
+               space and out of the world, trying again each frame: it does not fall and nothing \
+               is reported of it. A place with room brings it out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-NO-ROOM"),
+        station: "auberean-shell::dat::session::a_player_put_where_there_is_no_room_stays_in_portal_space",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.shell.a-standing-jump-leads-in-then-leaves-the-ground",
         says: "The jump key with the player standing: its figure plays the jump's lead-in while \
                the body stays on the ground, until the lead-in's animation sets the jump off; \

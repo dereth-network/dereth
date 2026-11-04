@@ -64,6 +64,9 @@ pub struct Body {
     pub frozen: bool,
     /// Moved by the host's own physics ([`Body::follow`]): the body takes no step of its own.
     pub driven: bool,
+    /// The host's physics has not yet found room for the body where the server put it: it is out
+    /// of the world, and nothing is reported of it.
+    pub out_of_world: bool,
     placed: bool,
     placements: u32,
     impulses: u32,
@@ -194,10 +197,10 @@ impl Body {
     }
 
     /// Whether the client sends a report this frame.
-    // D2-09635
+    // D2-09635, D2-09636
     #[must_use]
     pub fn should_report(&self, now: f64) -> bool {
-        if !self.placed {
+        if !self.placed || self.out_of_world {
             return false;
         }
         if self.times_jumped > self.jumps_reported {
