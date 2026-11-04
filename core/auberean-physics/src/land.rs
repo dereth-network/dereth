@@ -40,6 +40,10 @@ const HOLE_TERRAIN: u32 = 0x1E;
 /// The group of an interior cell's own properties, and the one that names its physics material.
 const CELL_GROUP: u32 = 0x4000_0010;
 const CELL_MATERIAL: u32 = 0x4000_005F;
+/// The property of that group that names the kind of ambient sound of the cell, and the kind of a
+/// cell that names none.
+const CELL_AMBIENT_KIND: u32 = 0x4000_0060;
+pub const INTERIOR_KIND: u32 = 2;
 
 /// A land cell's id: block `(x, y)`, cell `(cx, cy)` (x major, numbered from 1).
 #[must_use]
@@ -536,6 +540,31 @@ impl Land {
         let lb = id.landblock();
         self.block(lb.x(), lb.y())
             .map_or(0, |b| b.physics_material(at))
+    }
+
+    /// The kind of ambient sound an interior cell makes: what its own properties name, else the
+    /// plain interior's.
+    // D2-03606, D2-03545
+    #[must_use]
+    pub fn cell_ambient_kind(&self, id: CellId) -> u32 {
+        let Some(c) = self
+            .cell_materials
+            .read()
+            .ok()
+            .and_then(|c| c.get(&id.0).cloned())
+        else {
+            return INTERIOR_KIND;
+        };
+        c.own
+            .iter()
+            .flat_map(|p| p.groups.iter())
+            .filter(|g| g.group == CELL_GROUP)
+            .flat_map(|g| g.properties.iter())
+            .filter(|p| p.id == CELL_AMBIENT_KIND)
+            .fold(INTERIOR_KIND, |kept, p| match p.value {
+                PropertyValue::Enum(k) => k,
+                _ => kept,
+            })
     }
 
     /// Add what an interior cell adds to the material of a body in it.

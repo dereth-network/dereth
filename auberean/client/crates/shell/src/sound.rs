@@ -407,7 +407,7 @@ impl Sound {
             f32::from(u8::try_from((h.cell >> 16) & 0xFF).unwrap_or(0)) * bl,
         ];
         let at = |p: auberean_primitives::Vec3| [p.x + corner[0], p.y + corner[1], p.z];
-        let cells: Vec<[f32; 3]> = h.cells.iter().map(|c| at(*c)).collect();
+        let cells: Vec<(u32, [f32; 3])> = h.cells.iter().map(|(k, c)| (*k, at(*c))).collect();
         let around = Surroundings {
             cell: h.cell,
             player: at(h.place),

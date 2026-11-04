@@ -3151,6 +3151,12 @@ fn what_the_ambient_sound_hears_follows_the_players_cells() {
     let hall = hall.expect("in the hall");
     assert!(!hall.outside && hall.blocks.is_empty(), "shut in");
     assert!(hall.cells.len() > 1, "its cell and those it sees");
+    let of_kind = |kind: u32| hall.cells.iter().filter(|(k, _)| *k == kind).count();
+    assert_eq!(
+        [of_kind(2), of_kind(0x8100_000F), of_kind(0x8100_001A)],
+        [12, 14, 1],
+        "the kinds its cells name"
+    );
     let cave = cave.expect("in the caverns");
     assert!(
         cave.outside && !cave.blocks.is_empty(),
@@ -3159,7 +3165,7 @@ fn what_the_ambient_sound_hears_follows_the_players_cells() {
     assert!(
         cave.cells
             .iter()
-            .any(|c| (c.x + 205.861).abs() < 0.01 && (c.y - 281.616).abs() < 0.01),
+            .any(|(_, c)| (c.x + 205.861).abs() < 0.01 && (c.y - 281.616).abs() < 0.01),
         "the cells' own places"
     );
     assert!(blocking > 0, "the placements' waits");
@@ -5764,13 +5770,14 @@ fn losing_the_keyboard_ends_a_held_strafe_and_keeps_the_latched_run() {
     }
 }
 
-/// In the hall, the interior cells' ambient kind dominates and its place music (`2C000168`, a
+/// In the hall, the kind most of its cells name dominates and its place music (`2C000169`, a
 /// primary piece) plays from an ambient sound's object, its piece on the performance.
 ///
 /// Behaviour: audio.ambient.a-session-hears-its-place
 #[test]
 fn in_the_hall_the_interiors_place_music_plays() {
-    const HALL_MUSIC: u32 = 0x2C00_0168;
+    const HALL_KIND: u32 = 0x8100_000F;
+    const HALL_MUSIC: u32 = 0x2C00_0169;
     let script = script();
     let server =
         ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
@@ -5786,10 +5793,7 @@ fn in_the_hall_the_interiors_place_music_plays() {
     while s.host.time < 8.0 {
         step(&mut s);
     }
-    assert_eq!(
-        s.sound.ambient().dominant_kind(),
-        Some(auberean_audio::ambient::INTERIOR_KIND)
-    );
+    assert_eq!(s.sound.ambient().dominant_kind(), Some(HALL_KIND));
     let playing = s.sound.manager.playing();
     assert!(
         playing.iter().any(|&(_, id, _)| id == HALL_MUSIC),

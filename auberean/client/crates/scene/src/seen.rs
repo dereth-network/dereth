@@ -147,11 +147,11 @@ pub struct SeenHearing {
     /// The cells about the player are being waited for (a placement blocking): the ambient
     /// update skips this frame.
     pub blocking: bool,
-    /// The interior cells in the visible set, each cell's origin (its record's position), in the
-    /// player's landblock's coordinates: outdoors, those the near window's landblocks see from
+    /// The interior cells in the visible set, each with the kind of ambient sound it names and its
+    /// origin (its record's position), in the player's landblock's coordinates: outdoors, those the near window's landblocks see from
     /// outside; inside, the player's cell and those it sees, and when it sees the outdoors those
     /// the window's landblocks see from outside too. Only cells the land holds.
-    pub cells: Vec<Vec3>,
+    pub cells: Vec<(u32, Vec3)>,
     /// The landscape's points are heard: outdoors, or the player's interior cell is not in the
     /// visible set or sees the outdoors.
     pub outside: bool,

@@ -108,6 +108,7 @@ not how it was done.
 - Fixed "You just entered a peace area" showing when a new character enters.
 - The shortcut bar now shows during story scenes.
 - Shards now swing the camera up and around before their story.
+- The start hall now plays its own music.
 
 ## 0.1.2 (2026-11-02)
 

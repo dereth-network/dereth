@@ -2208,10 +2208,13 @@ impl<'w> Scene<'w> {
             let o = c.frame.origin;
             #[allow(clippy::cast_precision_loss)] // a block or two
             let shift = |a: u32, b: u32| (i64::from(a) - i64::from(b)) as f32 * BLOCK_LENGTH;
-            cells.push(Vec3::new(
-                o.x + shift(id >> 24, home.0),
-                o.y + shift((id >> 16) & 0xFF, home.1),
-                o.z,
+            cells.push((
+                self.land.cell_ambient_kind(CellId(id)),
+                Vec3::new(
+                    o.x + shift(id >> 24, home.0),
+                    o.y + shift((id >> 16) & 0xFF, home.1),
+                    o.z,
+                ),
             ));
         }
         let outside =
