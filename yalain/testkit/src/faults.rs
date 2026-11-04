@@ -19,6 +19,8 @@ pub struct FaultStore {
     pub state_reads_fail: bool,
     /// Reads of a character's world state fail once this many more have gone through.
     pub state_reads_after: Option<u32>,
+    /// Reads of the world's records fail.
+    pub records_read_fail: bool,
     /// Writes of world state that failed.
     pub failed_writes: u32,
 }
@@ -177,6 +179,9 @@ impl Store for FaultStore {
 
     fn world_record(&mut self, name: &str) -> StoreResult<Option<Vec<u8>>> {
         self.read()?;
+        if self.records_read_fail {
+            return Err(StoreError("database is locked".into()));
+        }
         self.inner.world_record(name)
     }
 

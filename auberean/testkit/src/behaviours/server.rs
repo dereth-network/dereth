@@ -4996,6 +4996,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.a-record-that-will-not-read-is-not-written-over",
+        says: "The world's records (the consignments, the allegiances) are never started \
+               empty by a read that failed: nothing is done with them until the store \
+               answers; a record that does not read is copied aside for the operator before \
+               a new one is kept.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-RECORD-UNREADABLE"),
+        station: "yalain-testkit::cpu::operator::store_faults::a_record_that_will_not_read_is_not_written_over",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.a-state-that-will-not-read-refuses-entry",
         says: "A character whose kept state cannot be read (the database fails, the state \
                is damaged, a newer build kept it) is refused its entry with the client's \

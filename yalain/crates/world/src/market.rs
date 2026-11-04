@@ -190,18 +190,16 @@ impl Market {
     }
 }
 
-/// Read the consignments once, making their items again where the record keeps them.
-pub fn ensure<S: Store>(s: &mut Server<S>) {
+/// Read the consignments once, making their items again where the record keeps them. Whether they
+/// are read: while the store cannot answer, nothing about them may be done or kept.
+pub fn ensure<S: Store>(s: &mut Server<S>) -> bool {
     if s.market.loaded {
-        return;
+        return true;
     }
-    let read = s
-        .store
-        .world_record(RECORD)
-        .ok()
-        .flatten()
-        .and_then(|b| Market::from_bytes(&b))
-        .unwrap_or_default();
+    let Some(read) = crate::saves::read_record(s, RECORD, Market::from_bytes) else {
+        return false;
+    };
+    let read = read.unwrap_or_default();
     s.market.list = read.list;
     s.market.next_sale = read.next_sale;
     s.market.loaded = true;
@@ -216,9 +214,13 @@ pub fn ensure<S: Store>(s: &mut Server<S>) {
             }
         }
     }
+    true
 }
 
 fn keep<S: Store>(s: &mut Server<S>) {
+    if !s.market.loaded {
+        return;
+    }
     let b = s.market.to_bytes();
     if let Err(e) = s.store.set_world_record(RECORD, &b) {
         tracing::warn!("the consignments were not kept: {e}");
@@ -306,7 +308,9 @@ pub fn use_broker<S: Store>(
     done: &ServerMessage,
     clock: Clock,
 ) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     progress::private(net, world, done);
     if let Some(p) = s.players.get_mut(&world) {
         if p.shopping.is_some_and(|(k, _, _)| k == keeper) {
@@ -516,7 +520,9 @@ fn broker_of<S: Store>(s: &Server<S>, keeper: u64) -> Option<Broker> {
 
 /// A store chosen from a catalog: its player sales.
 pub fn enter_store<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let (Some(keeper), Some(&store)) = (long_of(v, 0), ints(v).first()) else {
         return;
     };
@@ -566,7 +572,9 @@ pub fn enter_consignment<S: Store>(
     world: ConnId,
     v: &[Value],
 ) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let Some(keeper) = long_of(v, 0) else { return };
     let Some(br) = broker_of(s, keeper) else {
         return;
@@ -587,7 +595,9 @@ pub fn sell<S: Store>(
     v: &[Value],
     clock: Clock,
 ) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     // The values come last parameter first: the store, the price, how many, the item, the keeper.
     let w = ints(v);
     let (Some(keeper), Some(item)) = (long_of(v, 1), long_of(v, 0)) else {
@@ -699,7 +709,9 @@ pub fn sell<S: Store>(
 
 /// A consignment collected: an unsold one's item back as a new item, a sold one's price paid.
 pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     // The values come last parameter first: the profits flag, the sale, the keeper.
     let w = ints(v);
     let Some(keeper) = long_of(v, 0) else { return };
@@ -762,7 +774,9 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
 
 /// A player entering the world is reminded of its consignments, one reminder per broker.
 pub fn enter<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let Some(me) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
@@ -790,7 +804,9 @@ pub fn purchase<S: Store>(
     item: u64,
     keeper: u64,
 ) -> bool {
-    ensure(s);
+    if !ensure(s) {
+        return false;
+    }
     let Some(i) = s
         .market
         .list

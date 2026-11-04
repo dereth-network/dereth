@@ -447,25 +447,27 @@ impl Allegiances {
     }
 }
 
-/// Read the allegiances from the store, once.
-pub fn ensure<S: Store>(s: &mut Server<S>) {
+/// Read the allegiances from the store, once. Whether they are read: while the store cannot answer,
+/// nothing about them may be done or kept.
+pub fn ensure<S: Store>(s: &mut Server<S>) -> bool {
     if s.allegiances.loaded {
-        return;
+        return true;
     }
-    let read = s
-        .store
-        .world_record(RECORD)
-        .ok()
-        .flatten()
-        .and_then(|b| Allegiances::from_bytes(&b));
+    let Some(read) = crate::saves::read_record(s, RECORD, Allegiances::from_bytes) else {
+        return false;
+    };
     let offers = std::mem::take(&mut s.allegiances.offers);
     s.allegiances = read.unwrap_or_default();
     s.allegiances.offers = offers;
     s.allegiances.loaded = true;
+    true
 }
 
 /// Keep the allegiances.
 pub fn keep<S: Store>(s: &mut Server<S>) {
+    if !s.allegiances.loaded {
+        return;
+    }
     let b = s.allegiances.to_bytes();
     if let Err(e) = s.store.set_world_record(RECORD, &b) {
         tracing::warn!("the allegiances were not kept: {e}");
@@ -569,7 +571,7 @@ fn data(b: &mut Builder, s_: &Allegiances, id: u64, f: &Facts) -> u32 {
 
 /// The profile centred on a member (the empty profile for one in no allegiance).
 pub fn profile<S: Store>(s: &mut Server<S>, member: u64) -> ServerMessage {
-    ensure(s);
+    let _ = ensure(s);
     let Some(monarch) = s.allegiances.monarch(member) else {
         return no_allegiance();
     };
@@ -666,7 +668,9 @@ fn chat_room_message(room: u32) -> ServerMessage {
 /// profile (the empty profile alone for one in none), then what its vassals earned for it while it
 /// was away and a rank that fell meanwhile.
 pub fn enter<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let Some(id) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
@@ -900,7 +904,9 @@ fn hierarchy<S: Store>(s: &mut Server<S>, monarch: u64) -> Builder {
 /// The tree exported to a file: the asker is sent its whole allegiance and the file's name (one
 /// in no allegiance is refused by its own client before it asks).
 pub fn export<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let Some(me) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
@@ -958,7 +964,7 @@ fn swore_by(vassal: u64, name: &str, err: u32) -> ServerMessage {
 /// Why an oath to a patron cannot be: the vassal has a patron, the patron is under the vassal,
 /// the patron has as many vassals as it may.
 fn refusal<S: Store>(s: &mut Server<S>, vassal: u64, patron: u64) -> Option<u32> {
-    ensure(s);
+    let _ = ensure(s);
     if s.allegiances
         .nodes
         .get(&vassal)
@@ -1032,7 +1038,9 @@ pub fn accept<S: Store>(
     v: &[Value],
     clock: Clock,
 ) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let vassal = id_of(v);
     let Some(patron) = s.players.get(&world).map(|p| p.character) else {
         return;
@@ -1151,7 +1159,9 @@ pub fn decline<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
 /// it broke with and gets its profile as it now stands, and its object no longer names the
 /// monarch; the other side, in the world, gets its profile.
 pub fn break_with<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let target = id_of(v);
     let Some(me) = s.players.get(&world).map(|p| p.character) else {
         return;
@@ -1234,7 +1244,9 @@ fn level_of<S: Store>(s: &mut Server<S>, id: u64) -> i32 {
 /// A vassal has earned experience: its patron's pool takes a quarter, and a pool that reaches its
 /// threshold is paid to the patron, a tenth of which goes on up.
 pub fn earned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, vassal: u64, amount: u64) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let mut from = vassal;
     #[allow(
         clippy::cast_possible_truncation,

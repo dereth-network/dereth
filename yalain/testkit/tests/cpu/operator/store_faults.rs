@@ -8,6 +8,7 @@ use auberean_protocol::{queue, ClientMessage, ServerMessage};
 use yalain_store::{SqliteStore, Store};
 use yalain_testkit::faults::FaultStore;
 use yalain_testkit::{test_rules, Harness};
+use yalain_world::market::{Consignment, Market, RECORD};
 use yalain_world::ServerConfig;
 
 const COINS: u32 = 0x4700_0538;
@@ -188,6 +189,95 @@ fn a_state_gone_bad_after_the_referral_goes_back_to_the_list() {
         .items
         .iter()
         .any(|x| x.id == coins));
+}
+
+/// The world's own records are never started empty by a read that failed: nothing is done with them
+/// meanwhile, and what they held is there once the store answers.
+/// Behaviour: server.operator.a-record-that-will-not-read-is-not-written-over
+#[test]
+fn a_record_that_will_not_read_is_not_written_over() {
+    let market = Market {
+        next_sale: 7,
+        list: vec![Consignment {
+            sale: 7,
+            owner: 1,
+            keeper: 2,
+            catalog: 3,
+            store: 4,
+            item: 5,
+            template: 6,
+            price: 8.0,
+            offered: 9,
+            sold: 0,
+            entered: 10.0,
+        }],
+        ..Market::default()
+    }
+    .to_bytes();
+    let allegiances = yalain_world::allegiance::Allegiances {
+        loaded: true,
+        nodes: [(11, yalain_world::allegiance::Node::default())].into(),
+        ..Default::default()
+    }
+    .to_bytes();
+    let mut h = Harness::with(ServerConfig::default(), FaultStore::default(), test_rules());
+    let store = &mut h.server.store;
+    store.inner.set_world_record(RECORD, &market).expect("kept");
+    let names = yalain_world::allegiance::RECORD;
+    store
+        .inner
+        .set_world_record(names, &allegiances)
+        .expect("kept");
+    store.records_read_fail = true;
+    // A player enters, which reads them both, and the world saves what it may.
+    let (_, id) = h.player_in_world("one", "Elara");
+    assert!(!h.server.market.loaded && !h.server.allegiances.loaded);
+    assert!(!yalain_world::market::ensure(&mut h.server));
+    yalain_world::allegiance::keep(&mut h.server);
+    let world = world_of(&h, id).expect("in the world");
+    let mine = h.server.players[&world].character;
+    yalain_world::allegiance::earned(&mut h.server, &mut h.net, mine, 100);
+    h.run(5);
+    let store = &mut h.server.store;
+    assert_eq!(
+        store.inner.world_record(RECORD).expect("reads"),
+        Some(market)
+    );
+    assert_eq!(
+        store.inner.world_record(names).expect("reads"),
+        Some(allegiances)
+    );
+    store.records_read_fail = false;
+    assert!(yalain_world::market::ensure(&mut h.server));
+    assert_eq!(h.server.market.list.len(), 1, "what they held");
+    assert!(yalain_world::allegiance::ensure(&mut h.server));
+    assert!(h.server.allegiances.nodes.contains_key(&11));
+}
+
+/// A record that does not read is copied aside for the operator before the world starts it empty,
+/// and a second one does not take the first one's place.
+/// Behaviour: server.operator.a-record-that-will-not-read-is-not-written-over
+#[test]
+fn a_damaged_record_is_copied_aside_before_the_world_writes_a_new_one() {
+    let mut h = Harness::new();
+    for rubbish in [[0xFFu8; 3], [0xFEu8; 3]] {
+        h.server.market.loaded = false;
+        h.server
+            .store
+            .set_world_record(RECORD, &rubbish)
+            .expect("kept");
+        assert!(yalain_world::market::ensure(&mut h.server));
+        assert!(h.server.market.list.is_empty());
+    }
+    for (name, rubbish) in [
+        ("consignments.unreadable", [0xFFu8; 3]),
+        ("consignments.unreadable.2", [0xFEu8; 3]),
+    ] {
+        assert_eq!(
+            h.server.store.world_record(name).expect("reads").as_deref(),
+            Some(&rubbish[..])
+        );
+    }
 }
 
 /// On the store the server runs, another program holding the file's write lock does not stop a read

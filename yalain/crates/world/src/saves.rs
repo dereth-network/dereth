@@ -90,6 +90,52 @@ pub fn too_new_in_world<S: Store>(s: &Server<S>) -> std::collections::HashSet<St
         .collect()
 }
 
+/// A record of the world's, read for its first use: `None` while the store cannot answer, for the
+/// caller to try again and write nothing meanwhile; else what it holds, nothing when it has no such
+/// record. A record kept that does not read (damaged, or a newer build's) is copied aside first, as
+/// `<name>.unreadable`, `.unreadable.2` ..., since the world will write over it.
+pub(crate) fn read_record<S: Store, T>(
+    s: &mut Server<S>,
+    name: &str,
+    parse: fn(&[u8]) -> Option<T>,
+) -> Option<Option<T>> {
+    let bytes = match s.store.world_record(name) {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => return Some(None),
+        Err(e) => {
+            tracing::error!("the store could not read the record {name}: {e}");
+            return None;
+        }
+    };
+    if let Some(read) = parse(&bytes) {
+        return Some(Some(read));
+    }
+    let mut aside = format!("{name}.unreadable");
+    let mut n = 2;
+    loop {
+        match s.store.world_record(&aside) {
+            Ok(None) => break,
+            Ok(Some(_)) => {
+                aside = format!("{name}.unreadable.{n}");
+                n += 1;
+            }
+            Err(e) => {
+                tracing::error!("the store could not read the record {aside}: {e}");
+                return None;
+            }
+        }
+    }
+    if let Err(e) = s.store.set_world_record(&aside, &bytes) {
+        tracing::error!("the record {name} does not read, and could not be copied aside: {e}");
+        return None;
+    }
+    tracing::error!(
+        "the record {name} does not read, so the world starts it empty; its bytes are kept in the \
+         database's world_record table as {aside}"
+    );
+    Some(None)
+}
+
 /// Keep the characters whose last save is old enough, at most [`PER_TICK`] of them, the longest
 /// unsaved first. A character the world has not seen before starts its wait now.
 pub(crate) fn tick<S: Store>(s: &mut Server<S>, clock: Clock) {
