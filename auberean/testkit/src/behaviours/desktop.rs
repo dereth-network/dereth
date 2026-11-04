@@ -230,6 +230,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.the-ground-gives-a-body-its-terrain-type",
+        says: "The ground under a body gives it the terrain type of its physics material: its motion takes it, and its effects play their variants for it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-TERRAIN-TYPE"),
+        station: "auberean-shell::dat::session::the_ground_gives_a_body_its_terrain_type",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.the-player-moves-while-its-body-does-falling-too",
         says: "The player moves while its body does, falling as much as running: dropped from high \
                up, it moves as it falls straight down with no speed along the ground, and stops \

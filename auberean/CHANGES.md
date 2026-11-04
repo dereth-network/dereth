@@ -72,6 +72,7 @@ not how it was done.
 - `/loadui` no longer leaves the chat scrolled to the top.
 - Blood and other effect decals now show on the ground.
 - Fixed the logging-out swirl sitting at the ankles.
+- Foot-step effects now vary with the ground.
 
 ## 0.1.2 (2026-11-02)
 

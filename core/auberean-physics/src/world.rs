@@ -74,6 +74,8 @@ struct Entry {
     passable: bool,
     /// The physics types it is.
     physics_type: PhysicsTypes,
+    /// The terrain type its collisions last showed, not yet taken by its body.
+    terrain: Option<u32>,
     /// Its collisions, once it has collision settings.
     collisions: Option<Box<Collisions>>,
     /// Bodies that pass through it do not test it at all.
@@ -339,6 +341,7 @@ impl World {
         self.entries.insert(
             key,
             Entry {
+                terrain: None,
                 handle,
                 id,
                 shape: Arc::clone(shape),
@@ -934,6 +937,7 @@ impl World {
                 self.entries.insert(
                     key,
                     Entry {
+                        terrain: None,
                         handle: h,
                         id: 0,
                         radius: s.bounds.radius,
@@ -1296,7 +1300,11 @@ impl CollisionHost for Host<'_> {
             e.physics_type = *mask;
         }
     }
-    fn set_terrain_type(&mut self, _terrain: u32) {}
+    fn set_terrain_type(&mut self, terrain: u32) {
+        if let Some(e) = self.world.entries.get_mut(&self.key) {
+            e.terrain = Some(terrain);
+        }
+    }
     fn reports_collisions(&self) -> bool {
         true
     }

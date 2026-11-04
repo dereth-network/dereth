@@ -100,7 +100,7 @@ impl Scene<'_> {
     }
 
     /// `object`'s effects, whichever kind of object it is.
-    fn fx_of(&mut self, object: u64) -> Option<&mut crate::fx::BodyFx> {
+    pub(crate) fn fx_of(&mut self, object: u64) -> Option<&mut crate::fx::BodyFx> {
         match self.player.as_mut() {
             Some(p) if p.id == object => p.effects.as_mut(),
             _ => self

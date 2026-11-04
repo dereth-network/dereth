@@ -48,6 +48,8 @@ pub enum Notice {
     },
     /// Hold it on the object it struck.
     StickTo(u64),
+    /// What it stands on has a new terrain type: its effects' variants for that.
+    TerrainType(u32),
     /// It entered or left the world (its game object and the bookkeeping are told).
     EnteredWorld,
     LeftWorld,

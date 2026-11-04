@@ -573,9 +573,20 @@ impl Body {
             self.update_cell_material(land, world, key, &at);
         }
         self.advance(land, world, key, objects, dt);
+        if let Some(terrain) = world.take_terrain(key) {
+            self.set_terrain_type(terrain);
+        }
         if world.position(key) != Some(self.position) {
             world.place(land, key, self.position);
         }
+    }
+
+    /// What the body stands on has a new terrain type: its motion takes the values for it, and its
+    /// effects from now on play their variants for it.
+    // D2-06336, D2-06447
+    pub fn set_terrain_type(&mut self, terrain: u32) {
+        self.minterp.set_terrain_type(terrain);
+        self.notices.push(Notice::TerrainType(terrain));
     }
 
     fn advance(

@@ -130,6 +130,11 @@ impl WorldRecords {
         }
     }
 
+    /// The ids the portal file holds from `lo` to `hi`.
+    pub fn portal_ids(&self, lo: u32, hi: u32) -> impl Iterator<Item = u32> + '_ {
+        self.portal.entries_in(lo, hi).map(|e| e.id)
+    }
+
     /// Read the cell file's records through `reader` from now on (`None`: from the file).
     pub fn read_cells_through(&self, reader: Option<CellReader>) {
         match self.cells.write() {

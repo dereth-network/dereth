@@ -3938,6 +3938,52 @@ fn a_behavior_that_fades_children_fades_what_the_body_holds() {
     assert_eq!(asked(&s), 0.0, "faded as the second starts");
 }
 
+/// The ground under a body names a physics material whose properties give a terrain type: the body's
+/// motion takes it, and its effects play their variants for it. Fixture: a server double, the
+/// player at the camp.
+///
+/// Behaviour: desktop.bodies.the-ground-gives-a-body-its-terrain-type
+#[test]
+fn the_ground_gives_a_body_its_terrain_type() {
+    let at = Vec3 {
+        x: 122.842,
+        y: 89.758,
+        z: 79.968,
+    };
+    let script = script_until(0xC156_0035, at, Quat::IDENTITY, &[], &[], 30.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 8.0 {
+        step(&mut s);
+    }
+    s.event(&Event::Key {
+        key: Key::W,
+        down: true,
+        repeat: false,
+    });
+    let until = s.host.time + 2.0;
+    while s.host.time < until {
+        step(&mut s);
+    }
+    let (motion, effects) = s.scene.player_terrain().expect("the player");
+    assert_eq!(motion, effects, "both take the one terrain type");
+    assert_ne!(
+        motion >> 24,
+        0,
+        "the kinds are enumeration values: {motion:#x}"
+    );
+    assert_ne!(motion, 0x8000_0001, "not the no-terrain value");
+}
+
 /// An effect with a decal lays it where its object stands: on the land outdoors, on its cell's
 /// ground inside, and it is drawn with the frame. Fixture: the server double asks the player's body
 /// for the effect at a set time, at the camp and in the hall.

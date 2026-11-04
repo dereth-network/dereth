@@ -1198,6 +1198,13 @@ impl<'w> Scene<'w> {
                 {
                     t.set_property_list(list);
                 }
+                // The physics materials what bodies touch may name.
+                // D2-06766
+                for id in world.records.portal_ids(0x3700_0000, 0x37FF_FFFF) {
+                    if let Some(m) = world.records.get(id) {
+                        t.add_material(id, m);
+                    }
+                }
                 t
             },
             others: others::Others::default(),
@@ -1702,6 +1709,16 @@ impl<'w> Scene<'w> {
             &mut self.temporaries,
             id,
         )
+    }
+
+    /// The terrain type the player's motion and the player's effects play for.
+    #[must_use]
+    pub fn player_terrain(&self) -> Option<(u32, u32)> {
+        let p = self.player.as_ref()?;
+        Some((
+            p.body.minterp.terrain_type(),
+            p.effects.as_ref()?.fx.terrain(),
+        ))
     }
 
     /// Whether the player's figure plays a behavior.
@@ -3318,6 +3335,13 @@ impl<'w> Scene<'w> {
                     };
                     if let Some(b) = body {
                         b.deliver(&n);
+                    }
+                    continue;
+                }
+                // D2-06447
+                if let Notice::TerrainType(terrain) = n {
+                    if let Some(f) = self.fx_of(from) {
+                        f.fx.terrain = terrain;
                     }
                     continue;
                 }
