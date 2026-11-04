@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Fixed Add on the friends page staying off when you selected a player.
 - Enter World on the character screen now shows its swirling portal.
 - Chat now says "the item" when someone hands you something.
 - Fixed an object's looping sounds not coming back when it does.
