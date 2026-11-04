@@ -562,6 +562,10 @@ pub struct Retail {
     /// Each key held for a play action: the modifier bits it was pressed with (its release ends
     /// the action its press began).
     play_keys: std::collections::HashMap<u32, u32>,
+    /// The keys and pointer buttons the elements have heard held: let go when the window goes
+    /// inactive.
+    held_keys: std::collections::BTreeSet<u32>,
+    held_buttons: std::collections::BTreeSet<u32>,
     /// How many entry refusals the screens have shown.
     refusals: u32,
     /// The client's own error lines for the chat windows, shown at the next frame.
@@ -670,6 +674,8 @@ impl Retail {
             cursor: None,
             mods: (false, false),
             play_keys: std::collections::HashMap::new(),
+            held_keys: std::collections::BTreeSet::new(),
+            held_buttons: std::collections::BTreeSet::new(),
             refusals: 0,
             errors: Vec::new(),
             chat: chat::ChatClient::default(),
@@ -1594,7 +1600,39 @@ impl Retail {
     /// An interface key pressed or let go: the element with the keyboard first, else every
     /// screen that hears keys. Returns whether an element took it.
     fn interface_key(&mut self, key: u32, down: bool) -> bool {
+        if down {
+            self.held_keys.insert(key);
+        } else {
+            self.held_keys.remove(&key);
+        }
         self.ui.key(key, down)
+    }
+
+    /// A pointer button pressed or let go, as the elements hear it.
+    fn interface_button(&mut self, button: u32, down: bool) -> bool {
+        if down {
+            self.held_buttons.insert(button);
+        } else {
+            self.held_buttons.remove(&button);
+        }
+        self.ui.pointer_button(button, down)
+    }
+
+    /// The window went inactive: every key and button the elements hold is let go, as its release
+    /// would be, since no release comes while the window is inactive; Shift and Ctrl read as up
+    /// until pressed again.
+    // D2-03459
+    fn let_go(&mut self) {
+        for key in std::mem::take(&mut self.held_keys) {
+            self.ui.key(key, false);
+        }
+        for button in std::mem::take(&mut self.held_buttons) {
+            self.ui.pointer_button(button, false);
+        }
+        self.play_keys.clear();
+        self.left_to_world = false;
+        self.mods = (false, false);
+        self.ui.set_modifiers(false, false);
     }
 
     /// The left button pressed or let go, as the interface hears it: a press within the double
@@ -1939,7 +1977,7 @@ impl Interface for Retail {
                     Button::Right => button_id::RIGHT,
                     Button::Middle => button_id::MIDDLE,
                 };
-                let took = self.ui.pointer_button(id, *down);
+                let took = self.interface_button(id, *down);
                 if *down && *button == Button::Left && pregame {
                     let (shift, ctrl) = self.mods;
                     self.key_for_keyboard(pregame::LEFT_BUTTON_WORD, shift, ctrl);
@@ -2011,7 +2049,7 @@ impl Interface for Retail {
                         if *down && selection::key::wants_targets(a) {
                             self.gather.want_targets = true;
                         }
-                        self.ui.key(a, *down);
+                        self.interface_key(a, *down);
                         return true;
                     }
                 }
@@ -2041,6 +2079,10 @@ impl Interface for Retail {
                 }
                 let took = self.play_key(*key);
                 took || used || held
+            }
+            Event::Focus(false) => {
+                self.let_go();
+                pregame
             }
             _ => pregame,
         }

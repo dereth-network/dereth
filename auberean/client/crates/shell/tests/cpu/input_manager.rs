@@ -16,9 +16,9 @@ fn pointer() -> Event {
     Event::Pointer { x: 10.0, y: 20.0 }
 }
 
-/// While the window is not the active one nothing hears a press, the wheel, mouse motion or the
-/// pointer; letting go passes, so nothing stays held; the window's own events always pass. Where
-/// the pointer went is heard once, the last place, when the window is active again.
+/// While the window is not the active one nothing hears a press or a release, the wheel, mouse
+/// motion or the pointer; the window's own events always pass. Where the pointer went is heard
+/// once, the last place, when the window is active again.
 ///
 /// Behaviour: desktop.input.an-inactive-window-hears-no-device
 #[test]
@@ -29,9 +29,18 @@ fn an_inactive_window_hears_no_device_and_then_the_pointer_where_it_went() {
     assert!(m.admit(&Event::Focus(false)));
     for e in [
         press(),
+        Event::Key {
+            key: Key::W,
+            down: false,
+            repeat: false,
+        },
         Event::Button {
             button: Button::Left,
             down: true,
+        },
+        Event::Button {
+            button: Button::Left,
+            down: false,
         },
         Event::Wheel { notches: 1.0 },
         Event::Motion { dx: 1.0, dy: 1.0 },
@@ -40,19 +49,7 @@ fn an_inactive_window_hears_no_device_and_then_the_pointer_where_it_went() {
     ] {
         assert!(!m.admit(&e), "{e:?}");
     }
-    for e in [
-        Event::Key {
-            key: Key::W,
-            down: false,
-            repeat: false,
-        },
-        Event::Button {
-            button: Button::Left,
-            down: false,
-        },
-        Event::Text("a".into()),
-        Event::Close,
-    ] {
+    for e in [Event::Text("a".into()), Event::Close] {
         assert!(m.admit(&e), "{e:?}");
     }
     assert_eq!(m.take_missed(), None, "not yet");

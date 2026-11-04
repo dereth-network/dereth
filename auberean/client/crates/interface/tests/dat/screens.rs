@@ -886,6 +886,82 @@ fn the_chat_entry_taking_the_keys_stops_a_key_held() {
     );
 }
 
+/// Whether any element holds the left button.
+fn left_held(retail: &Rc<RefCell<Retail>>) -> bool {
+    fn walk(ui: &auberean_ui::Ui, h: auberean_ui::Handle) -> bool {
+        ui.node(h).is_some_and(|n| {
+            n.holds(auberean_ui::types::button_id::LEFT) || n.children.iter().any(|c| walk(ui, *c))
+        })
+    }
+    let r = retail.borrow();
+    let ui = r.ui();
+    ui.roots().iter().any(|h| walk(ui, *h))
+}
+
+/// With the window going inactive the elements let go of what they hold: the right button's mouse
+/// look ends, a panel held by the left button is let go, Shift reads as up. Nothing is let go
+/// again by a release while the window is inactive, and the pointer moving later moves no panel.
+///
+/// Behaviour: desktop.interface.an-inactive-window-lets-go-of-what-the-elements-hold
+#[test]
+fn an_inactive_window_lets_go_of_what_the_elements_hold() {
+    let (mut s, retail) = into_the_world();
+    assert!(
+        until(&mut s, 2.0, |_| retail.borrow().vitals_shown().is_some()),
+        "in the world"
+    );
+    s.event(&Event::Key {
+        key: Key::ShiftLeft,
+        down: true,
+        repeat: false,
+    });
+    assert_eq!(retail.borrow().ui().modifiers(), (true, false));
+    let (x, y) = middle(&retail, "ChatWindow1");
+    s.event(&Event::Pointer { x, y });
+    step(&mut s);
+    s.event(&Event::Button {
+        button: Button::Left,
+        down: true,
+    });
+    step(&mut s);
+    assert!(left_held(&retail), "the panel holds the button");
+    s.event(&Event::Button {
+        button: Button::Right,
+        down: true,
+    });
+    assert!(
+        until(&mut s, 1.0, |s| s.scene.camera.mouse_look),
+        "the right button held looks"
+    );
+
+    s.event(&Event::Focus(false));
+    assert!(!left_held(&retail), "the button let go");
+    assert_eq!(retail.borrow().ui().modifiers(), (false, false));
+    assert!(
+        until(&mut s, 1.0, |s| !s.scene.camera.mouse_look),
+        "the look ended"
+    );
+
+    s.event(&Event::Button {
+        button: Button::Right,
+        down: false,
+    });
+    s.event(&Event::Key {
+        key: Key::ShiftLeft,
+        down: false,
+        repeat: false,
+    });
+    s.event(&Event::Focus(true));
+    step(&mut s);
+    let before = middle(&retail, "ChatWindow1");
+    s.event(&Event::Pointer {
+        x: x + 40.0,
+        y: y - 40.0,
+    });
+    step(&mut s);
+    assert_eq!(middle(&retail, "ChatWindow1"), before, "no panel follows");
+}
+
 /// A player in the world whose login the server ends with a boot (its line, from the game's
 /// strings, that the character was booted) is taken to the disconnected screen showing that line:
 /// the play screen goes, the character is logged off and the world let go; the screen stays, and

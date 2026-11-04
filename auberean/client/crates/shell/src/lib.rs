@@ -329,10 +329,9 @@ impl<'w, H: Host> Shell<'w, H> {
         }
         let phase = self.phase();
         let game = game!(self, phase);
-        if self.interface.event(e, &game) {
-            return;
+        if !self.interface.event(e, &game) {
+            self.controls.event(e, &self.keys);
         }
-        self.controls.event(e, &self.keys);
         if let Some((x, y)) = self.input.take_missed() {
             self.event(&Event::Pointer { x, y });
         }

@@ -707,8 +707,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.input.an-inactive-window-hears-no-device",
-        says: "While the window is not the active one nothing hears a press, the wheel, mouse motion or \
-               the pointer; letting go passes; where the pointer went is heard when the window is \
+        says: "While the window is not the active one nothing hears a press or a release, the wheel, \
+               mouse motion or the pointer; where the pointer went is heard when the window is \
                active again.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-INPUT-ACTIVE-WINDOW"),
@@ -816,6 +816,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-CGAME4-SERVER-GONE-SCREEN"),
         station: "auberean-interface::dat::screens::a_world_server_gone_ends_the_session_on_the_disconnected_screen",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.interface.an-inactive-window-lets-go-of-what-the-elements-hold",
+        says: "With the window going inactive the elements let go of every key and button they \
+               hold: mouse look held by the right button ends, a panel held by the left button is \
+               let go, Shift and Ctrl read as up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-INACTIVE-LETS-GO"),
+        station: "auberean-interface::dat::screens::an_inactive_window_lets_go_of_what_the_elements_hold",
         tier: Tier::Dat,
     },
     behaviour! {

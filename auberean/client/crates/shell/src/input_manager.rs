@@ -1,9 +1,9 @@
 //! What stands between the devices and what hears them: whether the window is the active one, and
 //! whether the pointer is held for mouse look.
 //!
-//! - While the window is not the active one, nothing hears the devices: a press, the wheel, mouse
-//!   motion or the pointer. Letting go still passes, so nothing stays held. Where the pointer went
-//!   is heard when the window is active again.
+//! - While the window is not the active one, nothing hears the devices: a press or a release, the
+//!   wheel, mouse motion or the pointer. The window going inactive lets go of everything held, so
+//!   nothing stays held. Where the pointer went is heard when the window is active again.
 //! - While the pointer is held nothing hears where it is, and taking hold of it puts it at the
 //!   middle of the display.
 
@@ -44,8 +44,8 @@ impl InputManager {
                 false
             }
             Event::Pointer { .. } => !self.pointer_held,
-            Event::Key { down: true, .. }
-            | Event::Button { down: true, .. }
+            Event::Key { .. }
+            | Event::Button { .. }
             | Event::Wheel { .. }
             | Event::Motion { .. } => self.active,
             _ => true,

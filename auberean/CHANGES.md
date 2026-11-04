@@ -61,6 +61,7 @@ not how it was done.
 - Effects now use the gore and blood color options.
 - Characters and objects now show the colors and fades effects give them.
 - Naming a character on the command line now takes you straight in.
+- Switching away from the window now lets go of held keys and buttons.
 
 ## 0.1.2 (2026-11-02)
 
