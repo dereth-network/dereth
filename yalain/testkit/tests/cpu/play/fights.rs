@@ -848,6 +848,21 @@ fn a_treasure_items_word_goes_by_its_sort_level_and_combat_delay() {
         .all(|x| w::WEAPON_WORDS.iter().any(|a| a.word == *x)));
 }
 
+/// Water's and Wounding's tiers that 2017 showed as the effect itself carry it, not the apply state
+/// that holds the next tier's name; each still puts the same effect on what it hits.
+/// Behaviour: server.loot.treasure-named-for-an-enchantment
+#[test]
+fn water_and_wounding_tiers_carry_the_effect_2017_showed() {
+    use yalain_content::treasure_effects::{tier_of, When};
+    for (itself, apply) in [(0x6F00_03DB, 0x6F00_2614), (0x6F00_03E0, 0x6F00_261B)] {
+        let (when, tier) = tier_of(itself).expect("a tier");
+        assert_eq!(when, When::Hit);
+        assert_eq!(tier.puts_on, itself);
+        assert!(tier.chance > 0.0 && tier.chance < 1.0, "{}", tier.chance);
+        assert!(tier_of(apply).is_none(), "{apply:x}");
+    }
+}
+
 /// A slayer harms what it names by its spellcraft as each hit lands, told as a story of its own, and
 /// does nothing to any other creature.
 /// Behaviour: server.loot.treasure-slayer

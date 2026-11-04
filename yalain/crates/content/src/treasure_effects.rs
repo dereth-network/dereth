@@ -195,7 +195,7 @@ pub const WEAPON_FAMILIES: &[Family] = &[
         by_level: true,
         tiers: &[
             tier(0, 0x6F002616, 0x6F0003DD, 0.10, 0.76),
-            tier(16, 0x6F002614, 0x6F0003DB, 0.10, 0.76),
+            tier(16, 0x6F0003DB, 0x6F0003DB, 0.10, 0.76),
             tier(30, 0x6F002618, 0x6F0003DF, 0.10, 0.76),
             tier(40, 0x6F002617, 0x6F0003DE, 0.10, 0.76),
             tier(45, 0x6F002615, 0x6F0003DC, 0.10, 0.76),
@@ -210,7 +210,7 @@ pub const WEAPON_FAMILIES: &[Family] = &[
             tier(16, 0x6F00261F, 0x6F0003E2, 0.10, 0.96),
             tier(30, 0x6F002624, 0x6F0003E4, 0.10, 0.96),
             tier(40, 0x6F00261E, 0x6F0003E1, 0.10, 0.96),
-            tier(45, 0x6F00261B, 0x6F0003E0, 0.10, 0.96),
+            tier(45, 0x6F0003E0, 0x6F0003E0, 0.10, 0.96),
         ],
     },
     Family {

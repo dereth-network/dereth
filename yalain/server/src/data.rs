@@ -1282,6 +1282,26 @@ mod tests {
         }
     }
 
+    /// The tiers named for Water's River and Wounding's Crippling carry the name 2017's items of them
+    /// show, not the next tier's.
+    /// Behaviour: server.loot.treasure-named-for-an-enchantment
+    #[test]
+    fn water_and_wounding_tiers_carry_the_names_2017_showed() {
+        use yalain_content::treasure_effects::{states, tier_of};
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new()).expect("a context");
+        let wanted: Vec<u32> = states().collect();
+        let table = effect_table(&p, &wanted).expect("the table");
+        for (state, name) in [(0x6F00_03DB, 0x2500_08C9), (0x6F00_03E0, 0x2500_08CE)] {
+            let (_, tier) = tier_of(state).expect("a tier");
+            assert_eq!(tier.puts_on, state, "it puts itself on what it hits");
+            assert_eq!(
+                table.get(state).and_then(|d| d.name).map(|n| n.1),
+                Some(name)
+            );
+        }
+    }
+
     /// The files served to clients are the ones the start read, not opened again; and a record the
     /// tables ask for again is not read again.
     /// Behaviour: server.operator.start-shares-the-open-files
