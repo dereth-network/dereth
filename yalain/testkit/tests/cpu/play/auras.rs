@@ -629,7 +629,7 @@ fn an_aura_names_the_kind_of_thing_it_holds_on() {
     aura_on_what_is_held(&mut h, me, to::SHIELD);
     assert_eq!(on(&h, blade, false), 0);
     assert_eq!(on(&h, blade, true), 2);
-    assert_eq!(on(&h, 0x8130_0000_0000_0001, false), 0, "not in hand");
+    assert_eq!(on(&h, 0x8130_0000_0000_0001, true), 0, "not in hand");
 }
 
 /// A weapon's examination lists what an aura holds on it, under its own heading with its spellcraft,

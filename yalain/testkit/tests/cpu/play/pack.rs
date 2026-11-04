@@ -808,15 +808,29 @@ fn an_item_past_every_segment_goes_to_the_packs_front_and_no_bag_grows() {
     );
     assert_eq!(contents[43], last, "the bag's first");
     assert_eq!(contents.len(), 79);
-    // A move to the slot just past the last bag's last item is no way into the pack.
+}
+
+/// A move to the slot just past a full last bag is refused: that slot is no way into the pack, though
+/// the pack has room.
+/// Behaviour: server.inventory.past-every-segment-the-pack-itself-grows
+#[test]
+fn a_move_past_a_full_last_bag_is_refused_though_the_pack_has_room() {
+    let (mut h, b, me, world) = player();
+    let items = give(&mut h, world, TEST_ITEM, 13);
+    let p = h.server.players.get_mut(&world).unwrap();
+    for (n, id) in items[1..].iter().enumerate() {
+        p.play.items.iter_mut().find(|x| x.id == *id).unwrap().slot =
+            66 + u32::try_from(n).unwrap_or(0);
+    }
     let from = h.bots[b].inbox.len();
     h.ask(
         b,
         function::REORGANIZE,
-        &[move_request(me, contents[1], 1, 1, 78)],
+        &[move_request(me, items[0], 1, 0, 78)],
         4,
     );
     assert_eq!(reorganized(&h, b, from)[0][40].1, status::CONTAINER_FULL);
+    assert_eq!(pack_slots(&h, world)[0], (items[0], 0), "where it was");
 }
 
 /// A pack kept with an item past the last bag holds it in the pack itself, in its window: no slot
