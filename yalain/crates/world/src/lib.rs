@@ -473,6 +473,8 @@ pub enum Timer {
     CreatureHelps { creature: u64, skill: u32, on: u64 },
     /// A dead player's corpse is made.
     PlayerCorpse { world: ConnId },
+    /// A character that left the world dead comes back.
+    BackAfterEntry { world: ConnId },
     /// A player's lifestone protection runs out.
     ProtectionEnds { world: ConnId, eid: u32 },
     /// The next step of a player's use of a skill (the use's number).
@@ -788,6 +790,7 @@ impl<S: Store> Server<S> {
                     missiles::helped(self, net, creature, skill, on, clock);
                 }
                 Timer::PlayerCorpse { world } => death::player_corpse(self, net, world, clock),
+                Timer::BackAfterEntry { world } => death::back_after_entry(self, net, world, clock),
                 Timer::ProtectionEnds { world, eid } => effects::runs_out(self, net, world, eid),
                 Timer::Skill { world, id, step } => {
                     skill_use::step(self, net, world, id, step, clock);

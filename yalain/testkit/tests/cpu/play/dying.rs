@@ -2,6 +2,7 @@
 //! vitae.
 
 use auberean_protocol::{queue, ServerMessage};
+use yalain_store::Store;
 use yalain_testkit::play::server_call;
 use yalain_testkit::Harness;
 use yalain_world::calls::{self, Value};
@@ -476,4 +477,279 @@ fn attacking_ends_a_lifestone_protection() {
     );
     wait(&mut h, 1.0);
     assert!(ended(&h, b, from, eid, me), "ended by the attack");
+}
+
+const HEALTH: u32 = 258;
+const VITAE: u32 = 286;
+const LEVEL: u32 = 302;
+/// More steps than a leaving takes.
+const STEPS_TO_LEAVE: usize = 2000;
+
+/// The bound lifestone of the tests that return to one.
+fn a_lifestone() -> yalain_store::StoredPosition {
+    yalain_store::StoredPosition {
+        cell: 0x0102_0003,
+        origin: [12.5, 34.5, 2.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    }
+}
+
+/// A player of level 30 (so a resurrection costs it vitae), bound to [`a_lifestone`], dead with its
+/// corpse made and its box up: where a client may ask to be resurrected and has not.
+fn dead_with_its_box_up(h: &mut Harness) -> (usize, u64) {
+    let (b, me) = about_to_die(h);
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, LEVEL, 30);
+        p.places
+            .push((yalain_world::places::kind::LIFESTONE, a_lifestone()));
+    }
+    let from = h.bots[b].inbox.len();
+    let _ = run_to_death(h, b, from);
+    wait(h, 11.0);
+    assert!(
+        calls_of(h, b, from).contains(&(DEATH_STATE, vec![Value::Int(1)])),
+        "its box is up"
+    );
+    (b, me)
+}
+
+fn log_off(h: &mut Harness, b: usize, id: u64) {
+    let before = h.bots[b].inbox.len();
+    h.bots[b].send(
+        false,
+        queue::LOGON,
+        &auberean_protocol::ClientMessage::LogOff(auberean_protocol::login::CharacterRef {
+            character: id,
+        }),
+    );
+    assert!(h.run_until(STEPS_TO_LEAVE, |h| h.bots[b].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+}
+
+/// What an entry since `from` has to show of a character that left the world dead, once it has
+/// come back: told it enters at no health, never told it is dead, nor of a death, nor to ask; then
+/// its health and vigor, alive, standing and glowing where it entered, the place it returns to,
+/// its vitae five less and three quarters of its health, protected, its actions no longer refused.
+fn came_back_alive(h: &mut Harness, b: usize, me: u64, from: usize) {
+    let messages = h.world_messages(b, from);
+    let described = messages.iter().find_map(|m| match m {
+        ServerMessage::PlayerQualities(q) => q.0.ints.get(HEALTH).copied(),
+        _ => None,
+    });
+    assert_eq!(described, Some(0), "it enters at no health");
+    wait(h, 2.0);
+    let calls = calls_of(h, b, from);
+    assert!(
+        !calls.iter().any(|(f, _)| *f == DEATH_MESSAGE),
+        "no death told"
+    );
+    let states: Vec<&Vec<Value>> = calls
+        .iter()
+        .filter(|(f, _)| *f == DEATH_STATE)
+        .map(|(_, v)| v)
+        .collect();
+    assert_eq!(states, vec![&vec![Value::Int(0)]], "alive, never dead");
+    assert_eq!(
+        calls.iter().filter(|(f, _)| *f == ADD_EFFECT).count(),
+        1,
+        "protected"
+    );
+    let messages = h.world_messages(b, from);
+    let look: Vec<(&str, u32)> = messages
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::SetMode(e) if e.sender.id == me => Some(("set", e.action.0)),
+            ServerMessage::DoFx(e) if e.sender.id == me && e.action.fx == GLOW => {
+                Some(("effect", e.action.fx))
+            }
+            ServerMessage::UpdateBoolVisual(q) if q.object.id == me && q.quality == DEAD => {
+                Some(("dead", u32::from(q.value != 0)))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        look,
+        vec![("set", 0x4000_0001), ("effect", GLOW), ("dead", 0)],
+        "set standing, glowing, alive"
+    );
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .expect("in the world");
+    assert!(p.trip.is_none(), "not through portal space");
+    assert!(p.dying.is_none(), "no longer dying");
+    assert_eq!(p.position.cell, a_lifestone().cell, "at its lifestone");
+    assert_eq!(p.position.origin, a_lifestone().origin);
+    let max = yalain_world::quals::int(&p.qualities, 263).unwrap_or(100);
+    assert_eq!(
+        yalain_world::quals::float(&p.qualities, VITAE),
+        Some(95.0),
+        "five vitae less"
+    );
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
+    let back = ((max as f32 * 0.95).floor() * 0.75) as i32;
+    assert_eq!(
+        yalain_world::quals::int(&p.qualities, HEALTH),
+        Some(back),
+        "three quarters of its health at that vitae"
+    );
+    let kept = h
+        .server
+        .store
+        .world_state(me)
+        .expect("reads")
+        .expect("kept");
+    assert_eq!(
+        yalain_world::quals::int(&kept.qualities, HEALTH),
+        Some(back),
+        "kept as it comes back, so a stop now does not take its vitae again"
+    );
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    assert!(
+        !yalain_world::places::actions_locked(&h.server, world),
+        "its actions are no longer refused"
+    );
+}
+
+/// A character that logs off dead, its box up, comes back alive by itself: at its lifestone, the
+/// entry at no health, a moment later its vitae five less, three quarters of its health and vigor,
+/// protected and playing its return, and no box and nothing to ask for.
+/// Behaviour: server.death.back-at-entry
+#[test]
+fn a_character_that_logged_off_dead_comes_back_alive_at_its_lifestone() {
+    let mut h = Harness::new();
+    let (b, me) = dead_with_its_box_up(&mut h);
+    log_off(&mut h, b, me);
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    came_back_alive(&mut h, b, me, from);
+}
+
+/// A character whose client went away while it was dead comes back as one that logged off dead.
+/// Behaviour: server.death.back-at-entry
+#[test]
+fn a_character_whose_client_went_away_dead_comes_back_alive_at_its_lifestone() {
+    let mut h = Harness::new();
+    let (b, me) = dead_with_its_box_up(&mut h);
+    h.bots[b].leave();
+    assert!(
+        h.run_until(STEPS_TO_LEAVE, |h| h.server.players.is_empty()),
+        "it lingers and leaves"
+    );
+    let again = h.at_character_list("one");
+    let from = h.bots[again].inbox.len();
+    h.enter_world(again, "one", me);
+    came_back_alive(&mut h, again, me, from);
+}
+
+/// A character in the world dead as the server stops comes back as one that logged off dead when
+/// the server is up again.
+/// Behaviour: server.death.back-at-entry
+#[test]
+fn a_character_dead_at_a_server_restart_comes_back_alive_at_its_lifestone() {
+    let mut h = Harness::new();
+    let (_, me) = dead_with_its_box_up(&mut h);
+    assert_eq!(
+        yalain_world::shutdown::save_everyone(&mut h.server, &mut h.net),
+        1
+    );
+    let store = std::mem::take(&mut h.server.store);
+    let mut h = Harness::with(
+        yalain_world::ServerConfig::default(),
+        store,
+        yalain_testkit::test_rules(),
+    );
+    let b = h.at_character_list("one");
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    came_back_alive(&mut h, b, me, from);
+}
+
+/// A character kept dead by an older server, its place and everything else as it left them, needs
+/// nothing done to what is kept: its next entry brings it back.
+/// Behaviour: server.death.back-at-entry
+#[test]
+fn a_character_already_kept_dead_comes_out_of_it_at_its_next_entry() {
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, LEVEL, 30);
+        p.places
+            .push((yalain_world::places::kind::LIFESTONE, a_lifestone()));
+    }
+    log_off(&mut h, b, me);
+    let mut kept = h
+        .server
+        .store
+        .world_state(me)
+        .expect("reads")
+        .expect("kept");
+    yalain_world::quals::set_int(&mut kept.qualities, HEALTH, 0);
+    h.server.store.set_world_state(me, &kept).expect("kept");
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    came_back_alive(&mut h, b, me, from);
+}
+
+/// A character that was never bound comes back beside the nearest lifestone, as a resurrection
+/// would take it: where it fell when the world has none near.
+/// Behaviour: server.death.back-at-entry
+#[test]
+fn a_character_never_bound_comes_back_where_it_fell_with_no_lifestone_near() {
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    let from = h.bots[b].inbox.len();
+    let _ = run_to_death(&mut h, b, from);
+    let fell = h
+        .server
+        .players
+        .values()
+        .next()
+        .expect("the player")
+        .position;
+    wait(&mut h, 11.0);
+    log_off(&mut h, b, me);
+    h.enter_world(b, "one", me);
+    wait(&mut h, 2.0);
+    let p = h.server.players.values().next().expect("the player");
+    assert!(p.dying.is_none(), "alive");
+    assert_eq!(p.position.cell, fell.cell);
+    assert_eq!(p.position.origin, fell.origin);
+    assert!(yalain_world::quals::int(&p.qualities, HEALTH).unwrap_or(0) > 0);
+}
+
+/// A character alive at its entry is not brought back: nothing of a return is sent.
+/// Behaviour: server.death.back-at-entry
+#[test]
+fn a_character_alive_at_its_entry_is_not_brought_back() {
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    log_off(&mut h, b, me);
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    wait(&mut h, 2.0);
+    assert!(
+        !calls_of(&h, b, from).iter().any(|(f, _)| *f == DEATH_STATE),
+        "no death state"
+    );
+    assert!(
+        !calls_of(&h, b, from).iter().any(|(f, _)| *f == ADD_EFFECT),
+        "not protected"
+    );
 }

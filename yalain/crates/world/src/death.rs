@@ -29,6 +29,9 @@
 //!
 //! **A corpse leaves the world** three minutes after it appeared if nobody touched it, fifteen
 //! seconds after it was closed empty, a minute after it was closed with items left.
+//!
+//! **A character that leaves the world dead** comes back as it next enters, with no box and nothing
+//! to ask for ([`back_after_entry`]).
 
 use auberean_protocol::physics::{CreateObject, Leave, ObjectEvent, ObjectOnly, Slide, Word};
 use auberean_protocol::quality::VisualQuality;
@@ -854,6 +857,10 @@ pub const PLAYER_CORPSE_ROTS: f64 = 60.0;
 pub const VITAE_LOST: f32 = 5.0;
 pub const RETURNS_WITH: f32 = 0.75;
 
+/// How long after its description a character that left the world dead comes back (2017: 1.43 s,
+/// 1 of 1).
+pub const BACK_AFTER_ENTRY: f64 = 1.43;
+
 /// The vitae cost table's saved state.
 pub const VITAE_COSTS: u32 = 0x7000_1BE6;
 
@@ -1206,6 +1213,12 @@ pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     let to = crate::places::resurrection_place(s, world);
     // Protected for three minutes, the protection added before portal space.
     crate::effects::protect(s, net, world, clock);
+    resurrection_look(s, net, world);
+    crate::places::resurrection_trip(s, net, world, to, clock);
+}
+
+/// For everyone who sees it, a player coming back is set standing at peace and glows.
+fn resurrection_look<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -1223,7 +1236,27 @@ pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
     });
     to_all_seeing(s, net, id, &peace);
     to_all_seeing(s, net, id, &fx);
-    crate::places::resurrection_trip(s, net, world, to, clock);
+}
+
+/// A character that left the world dead, entered where it returns to and at no health, comes back
+/// where it stands: protected, its vitae, health and vigor, alive as far as its client knows,
+/// standing, glowing, playing its return. Its client was never told it was dead, so no box is up
+/// and it asks for nothing. Our choice, on one recording: the one such entry of 434, of a character
+/// that died during its own log-off, 1.43 s after its description and at the place of its two
+/// resurrections before. Logging off with the box up, a client gone while dead and a restart while
+/// dead are unrecorded, and take the same way. It is kept at once, so a server that stops now does
+/// not take its vitae again.
+pub fn back_after_entry<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    clock: Clock,
+) {
+    crate::effects::protect(s, net, world, clock);
+    returns(s, net, world);
+    resurrection_look(s, net, world);
+    returned(s, net, world);
+    crate::world::keep_player(s, world);
 }
 
 /// A share of a player's vitae is taken (a person's tap of it): its vitae is that share of what it

@@ -327,6 +327,14 @@ pub fn enter<S: Store>(
             .note("a character with no start area for its race");
         return;
     };
+    // One that left the world dead enters where it returns to, and comes back a moment later.
+    let dead = crate::examine::Vitals::of_qualities(&st.qualities).is_some_and(|v| v.health == 0);
+    let position = if dead {
+        crate::places::resurrection_place_of(s, &st.places, position)
+    } else {
+        position
+    };
+    st.position = Some(position);
     // Never in the world before (one the operator made with a build holds what it was given, and
     // is new all the same).
     let first_entry = st.instances == 0;
@@ -575,6 +583,13 @@ pub fn enter<S: Store>(
         send(net, world, BlobKind::PRIVATE, &session::welcome());
     }
     s.players.insert(world, p);
+    if dead {
+        s.after(
+            clock,
+            crate::death::BACK_AFTER_ENTRY,
+            crate::Timer::BackAfterEntry { world },
+        );
+    }
     if new_character {
         crate::scenes::first_entry(s, net, world);
     }

@@ -1962,6 +1962,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.death.back-at-entry",
+        says: "A character that left the world dead, by logging off, its client going away or the \
+               server stopping, comes back by itself as it enters: at the lifestone it is bound \
+               to, described at no health, then with five vitae less, three quarters of its health \
+               and vigor, protected, set standing and playing its return where it stands. It is \
+               told of no death, shown no box, and asks for nothing. Our choice: the one recording behind \
+               this is a death during a character's log-off, and logging off with the box up is \
+               unrecorded.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEAD-AT-ENTRY"),
+        station: "yalain-testkit::cpu::play::dying::a_character_that_logged_off_dead_comes_back_alive_at_its_lifestone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.death.corpse-and-leaving",
         says: "Two seconds after its death a creature's corpse appears where it fell, holding \
                what its loot profile leaves; three seconds later the creature leaves the world.",

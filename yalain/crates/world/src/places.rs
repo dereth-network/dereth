@@ -1958,16 +1958,26 @@ pub fn resurrection_place<S: Store>(s: &Server<S>, world: ConnId) -> StoredPosit
             rotation: [1.0, 0.0, 0.0, 0.0],
         };
     };
-    if let Some((_, at)) = p.places.iter().find(|(k, _)| *k == kind::LIFESTONE) {
+    resurrection_place_of(s, &p.places, p.position)
+}
+
+/// [`resurrection_place`] for a character with these kept places, fallen at `fell`.
+#[must_use]
+pub fn resurrection_place_of<S: Store>(
+    s: &Server<S>,
+    places: &[(u32, StoredPosition)],
+    fell: StoredPosition,
+) -> StoredPosition {
+    if let Some((_, at)) = places.iter().find(|(k, _)| *k == kind::LIFESTONE) {
         return *at;
     }
     s.content
         .objects
         .iter()
         .filter(|o| LIFESTONES.contains(&o.template))
-        .filter_map(|o| reach(&p.position, o.cell, o.origin).map(|d| (d, o)))
+        .filter_map(|o| reach(&fell, o.cell, o.origin).map(|d| (d, o)))
         .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map_or(p.position, |(_, o)| beside(o.cell, o.origin, &p.position))
+        .map_or(fell, |(_, o)| beside(o.cell, o.origin, &fell))
 }
 
 /// A dead player goes through portal space to where it returns (its effects, frozen, portal
