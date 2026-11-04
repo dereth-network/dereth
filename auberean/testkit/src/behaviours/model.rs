@@ -303,9 +303,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "model.replay.every-recorded-let-go-names-an-item-its-sender-held",
-        says: "Every let-go recorded in 2013 and 2017 that takes effect names an item the model \
-               has hanging from the message's sender, and the item hangs from nothing after it; \
-               one stamped no later than a hold already taken leaves the item held.",
+        says: "Every let-go recorded in 2013 and 2017 that finds its item hanging names an item the \
+               model has hanging from the message's sender, and the item hangs from nothing after \
+               it; one stamped no later than a hold already taken leaves the item held, and one \
+               coming after the item's move to a pack, stamped later, has nothing left to do.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MODEL-LET-GO-REPLAY"),
         station: "auberean-client-runtime::corpus::inventory::every_recorded_let_go_names_an_item_its_sender_held",

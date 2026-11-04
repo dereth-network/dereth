@@ -275,11 +275,12 @@ fn an_opened_container_shows_what_its_scripts_were_told_it_holds() {
     assert!(tally.empty * 100 < tally.opened, "{tally:?}");
 }
 
-/// Every `DeParent` recorded in 2013 and 2017 that takes effect names, in its field, an item the
-/// model has hanging from the message's sender, and the item hangs from nothing after it; none
-/// names one hanging from anything else. The few that came after a newer `Parent` of the same item
-/// (five in all, the two sent out of their stamps' order) change nothing: the item stays where the
-/// newer one hung it.
+/// Every `DeParent` recorded in 2013 and 2017 that finds its item hanging names, in its field, an
+/// item the model has hanging from the message's sender, and the item hangs from nothing after it;
+/// none names one hanging from anything else. About one in six comes just after the item's own
+/// `Contain`, stamped one later, which already took it from its holder's hand, so it has nothing
+/// left to do. The few that came after a newer `Parent` of the same item (five in all, the two sent
+/// out of their stamps' order) change nothing: the item stays where the newer one hung it.
 ///
 /// Behaviour: model.replay.every-recorded-let-go-names-an-item-its-sender-held
 #[test]
@@ -296,6 +297,8 @@ fn every_recorded_let_go_names_an_item_its_sender_held() {
         taken: u64,
         held_by_sender: u64,
         held_by_other: u64,
+        /// Let-gos of an item its `Contain` had already taken from its holder.
+        after_contain: u64,
         not_held: u64,
         unknown_item: u64,
         sender_was_held: u64,
@@ -307,6 +310,7 @@ fn every_recorded_let_go_names_an_item_its_sender_held() {
     let mut t = Tally::default();
     let mut capture = -1;
     let mut unknown = std::collections::BTreeSet::new();
+    let mut contained = std::collections::BTreeSet::new();
     let (mut queue, mut model) = (EventQueue::new(), Model::new());
     let mut frame = f64::NEG_INFINITY;
     captures::messages_in_time_order(&index, &types, &[2013, 2017], |m| {
@@ -314,6 +318,7 @@ fn every_recorded_let_go_names_an_item_its_sender_held() {
             capture = m.capture;
             (queue, model) = (EventQueue::new(), Model::new());
             unknown.clear();
+            contained.clear();
             frame = f64::NEG_INFINITY;
         }
         if m.time > frame {
@@ -350,6 +355,7 @@ fn every_recorded_let_go_names_an_item_its_sender_held() {
                         t.unknown_item += 1;
                         unknown.insert(e.action.id);
                     }
+                    Some(None) if contained.contains(&e.action.id) => t.after_contain += 1,
                     Some(None) => t.not_held += 1,
                     Some(Some((p, _))) if p == e.sender.id => t.held_by_sender += 1,
                     Some(Some(_)) => t.held_by_other += 1,
@@ -368,7 +374,21 @@ fn every_recorded_let_go_names_an_item_its_sender_held() {
             if let ServerMessage::CreateObject(c) = &item.message {
                 t.unknown_made_later += u64::from(unknown.remove(&c.id));
             }
+            let contain = match &item.message {
+                ServerMessage::Contain(o) => Some(o.0.id),
+                _ => None,
+            };
+            let held =
+                contain.is_some_and(|id| model.object(id).is_some_and(|o| o.parent.is_some()));
             model.apply(&item);
+            if let (Some(id), true) = (contain, held) {
+                if model.object(id).is_some_and(|o| o.parent.is_none()) {
+                    contained.insert(id);
+                }
+            }
+            if let ServerMessage::Parent(e) = &item.message {
+                contained.remove(&e.sender.id);
+            }
         }
     })
     .expect("the index reads");
@@ -376,6 +396,8 @@ fn every_recorded_let_go_names_an_item_its_sender_held() {
     assert_eq!(t.held_by_other, 0, "{t:?}");
     assert_eq!(t.sender_was_held, 0, "{t:?}");
     assert!(t.held_by_sender >= 1_000, "{t:?}");
+    assert!(t.after_contain * 20 >= t.taken, "{t:?}");
+    assert!(t.not_held * 100 < t.taken, "{t:?}");
     assert_eq!(t.let_go, t.taken - t.unknown_item - t.outrun, "{t:?}");
     assert!(t.outrun * 100 < t.taken, "{t:?}");
 }
