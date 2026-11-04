@@ -109,6 +109,7 @@ not how it was done.
 - The shortcut bar now shows during story scenes.
 - Shards now swing the camera up and around before their story.
 - The start hall now plays its own music.
+- Fixed sky flashing before you arrive through a door with a scene.
 
 ## 0.1.2 (2026-11-02)
 

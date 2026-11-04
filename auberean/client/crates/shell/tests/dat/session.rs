@@ -3071,6 +3071,62 @@ fn a_landblocks_objects_fade_in_over_a_second_as_it_is_taken_up() {
     );
 }
 
+/// The player put in a cell that isn't there yet, with no portal space on the way: while its cells
+/// are waited for no world is drawn at all, and once they are in it is drawn from there.
+///
+/// Behaviour: desktop.world.no-world-is-drawn-from-a-cell-still-waited-for
+#[test]
+fn no_world_is_drawn_from_a_cell_still_waited_for() {
+    let (caverns, caverns_at) = (0x04AB_0101, Vec3::new(-205.86, 281.62, 0.5));
+    let put = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: caverns,
+        origin: caverns_at,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1,
+        force_position_stamp: 0,
+        teleport_stamp: 1,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &[(8.0, put)], 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 4.0 {
+        step(&mut s);
+    }
+    let (mut waited, mut drawn_while_waiting, mut drawn_there) = (0, 0, 0);
+    while s.host.time < 8.0 {
+        s.scene.portal_scene_playing = true;
+        step(&mut s);
+        let blocking = s.scene.seen.hearing.as_ref().is_some_and(|h| h.blocking);
+        let drawn = s.frame().world.is_some();
+        if blocking {
+            waited += 1;
+            drawn_while_waiting += i32::from(drawn);
+        } else if s.scene.status.cell == caverns && drawn {
+            drawn_there += 1;
+        }
+    }
+    assert!(waited > 0, "the cells were waited for");
+    assert_eq!(drawn_while_waiting, 0);
+    assert!(drawn_there > 0, "drawn once they are in");
+}
+
 /// What the ambient sound hears about the player follows the cells about it each frame: outdoors
 /// (block `0x0298`), its land cell and place, the landscape heard, the near window's nine blocks
 /// and no interior cell seen from outside about them; in the start hall, whose cells do not see

@@ -3679,6 +3679,17 @@ impl<'w> Scene<'w> {
         let cell = pos.cell.0;
         let block = pos.cell.landblock();
         let origin = pos.frame.origin;
+        // While the cells the player was just put in are waited for, the camera is there with it,
+        // and from a cell not there yet nothing is drawn.
+        // D2-11042
+        let there = if is_interior(cell) {
+            self.land.cell(pos.cell).is_some()
+        } else {
+            self.land.block(block.x(), block.y()).is_some()
+        };
+        if self.cells.blocking && !there {
+            return false;
+        }
         let Some(stands) = self.camera_stands else {
             return false;
         };

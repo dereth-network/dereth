@@ -1843,6 +1843,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.world.no-world-is-drawn-from-a-cell-still-waited-for",
+        says: "The player put in a cell that isn't there yet, with no portal space on the way: while its cells are waited for no world is drawn at all, and once they are in it is drawn from there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-NOT-DRAWN-WAITING"),
+        station: "auberean-shell::dat::session::no_world_is_drawn_from_a_cell_still_waited_for",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.world.rain-falls-on-a-rainy-day",
         says: "On a rainy day the rain falls about the camera as its day says, and none on a \n               dry moment.",
         since: RETAIL,
