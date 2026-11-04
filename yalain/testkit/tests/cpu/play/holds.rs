@@ -195,6 +195,11 @@ fn a_shield_and_a_tool_are_answered_as_worn() {
         made.physics.parent.location, 2,
         "its first place: its own hand"
     );
+    let attached = h.world_messages(b, from).iter().find_map(|m| match m {
+        ServerMessage::Parent(e) if e.sender.id == shield => Some(e.action.location),
+        _ => None,
+    });
+    assert_eq!(attached, Some(2), "attached there too");
     let tool = id_of(&h, world, TOOL);
     let from = h.bots[b].inbox.len();
     use_it(&mut h, b, me, tool);

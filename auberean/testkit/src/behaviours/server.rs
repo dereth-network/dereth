@@ -8653,21 +8653,21 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "server.store.a-sale-the-world-cannot-make-is-not-paid-for",
-        says: "A sale whose template the world doesn't hold is refused, not found: nothing \
-               is paid and nothing made.",
-        since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-SRV-STORE-UNMAKEABLE"),
-        station: "yalain-testkit::cpu::play::trade::a_purchase_of_what_the_world_cannot_make_is_refused_and_nothing_is_paid",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
         id: "server.specials.vigor-of-what-is-held",
         says: "A skill costs its own, what its weapons cost and what its shield costs, each by the \
                item's own number or its template's, unless the skill ignores it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-VIGOR-OF-HELD"),
         station: "yalain-testkit::cpu::play::holds::a_use_pays_for_each_weapon_and_the_shield_by_their_own_numbers",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.store.a-sale-the-world-cannot-make-is-not-paid-for",
+        says: "A sale whose template the world doesn't hold is refused, not found: nothing \
+               is paid and nothing made.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STORE-UNMAKEABLE"),
+        station: "yalain-testkit::cpu::play::trade::a_purchase_of_what_the_world_cannot_make_is_refused_and_nothing_is_paid",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -976,7 +976,6 @@ fn wield<S: Store>(
     }
     if let Some(t) = s.things.get_mut(item) {
         t.wielded = Some((player, location));
-        t.own.hand = location;
     }
     let instance = s.players.get(&world).map_or(0, |p| p.instance);
     if let Some(made) = s.things.get(item).map(|t| {
