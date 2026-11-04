@@ -926,6 +926,13 @@ impl Ui {
         self.named_element(h, a)
     }
 
+    /// A list's rows laid out again and its controls brought in step with its view, for a row whose
+    /// height changed. Nothing else under the list's window is touched.
+    // D2-11550
+    pub fn list_update_and_draw(&mut self, list: Handle) {
+        self.listbox_update_and_draw(list);
+    }
+
     /// Lay out, keep the view on the sheet, update the controls.
     // D2-11550
     pub(crate) fn listbox_update_and_draw(&mut self, h: Handle) {

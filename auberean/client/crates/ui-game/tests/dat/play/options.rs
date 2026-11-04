@@ -329,3 +329,83 @@ fn the_client_page_shows_the_preferences_the_client_lists() {
     }
     assert_eq!(rows_of_graphics(&p), 2, "a row for each listed preference");
 }
+
+/// The page's bar shows no widget when first opened with every section closed. A section opened
+/// makes the widget the share in view; closed again, every row showing, the bar is disabled and the
+/// widget stays, the bar's whole length.
+///
+/// Behaviour: ui.options.closing-a-section-leaves-the-pages-scroll-widget-long
+#[test]
+fn closing_a_section_leaves_the_pages_scroll_widget_long() {
+    use auberean_ui::token::attr as a;
+    use auberean_ui_game::options::client::{self, section, Listing};
+    use auberean_ui_game::options::helper::Change;
+    use auberean_ui_game::options::preference::Description;
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let b = el(&ui, "OptionButton");
+    click(&mut ui, &mut p, &mut t, b);
+    let rows: Vec<Change> = (0..12)
+        .map(|k| {
+            client::flag(
+                Description {
+                    section: section::RENDERING,
+                    key: 0x4000_0100 + k,
+                    table: client::PREFERENCE_STRINGS,
+                    label: Token::of("ID_Rendering_FullScreen").raw(),
+                    help: 0,
+                },
+                false,
+                true,
+            )
+        })
+        .collect();
+    let listing = Listing {
+        serial: 1,
+        sections: vec![(section::RENDERING, rows)],
+    };
+    let frame = |ui: &mut Ui, p: &mut GamePlay, t: &mut f64| {
+        *t += 0.05;
+        ui.use_time(*t);
+        let view = View {
+            options: Some(START),
+            preferences: Some(&listing),
+            ..View::default()
+        };
+        p.tick(ui, &view, &[], &mut Vec::new());
+    };
+    frame(&mut ui, &mut p, &mut t);
+    let tab = el(&ui, "ClientTab");
+    click(&mut ui, &mut p, &mut t, tab);
+    let list = el(&ui, "ClientList");
+    let bar = ui
+        .node(list)
+        .and_then(|n| n.id_attr(a::VERTICAL_SCROLLBAR))
+        .and_then(|id| ui.element(Token(id)))
+        .expect("the list's bar");
+    let widget = ui.child(bar, a::WIDGET).expect("its widget");
+    assert!(!ui.is_visible(widget), "none when first opened");
+    let header = {
+        let c = window(&p).client.as_ref().expect("the client page");
+        let (rows, sections) = c.rows();
+        let r = sections
+            .iter()
+            .find(|(s, _)| *s == section::RENDERING)
+            .expect("the section")
+            .1;
+        let Control::Section { header, .. } = rows.all[r].control else {
+            panic!("a section");
+        };
+        header.expect("its header")
+    };
+    let whole = ui.screen_rect(bar).expect("placed").height();
+    click(&mut ui, &mut p, &mut t, header);
+    frame(&mut ui, &mut p, &mut t);
+    assert!(ui.is_visible(widget), "opened");
+    assert!(ui.screen_rect(widget).expect("placed").height() < whole);
+    click(&mut ui, &mut p, &mut t, header);
+    frame(&mut ui, &mut p, &mut t);
+    assert!(ui.is_visible(widget), "closed");
+    assert_eq!(ui.screen_rect(widget).expect("placed").height(), whole);
+}

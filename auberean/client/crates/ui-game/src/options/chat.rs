@@ -562,7 +562,7 @@ impl ChatOptionsPage {
             }
             if what == helper::name::EXPANDER_TOGGLE {
                 if let Some(list) = self.list {
-                    ui.update(list);
+                    ui.list_update_and_draw(list);
                 }
             }
             self.update_buttons(ui);

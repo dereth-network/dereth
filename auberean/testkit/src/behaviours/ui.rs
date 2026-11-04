@@ -1297,6 +1297,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.options.closing-a-section-leaves-the-pages-scroll-widget-long",
+        says: "The page's bar shows no widget when first opened with every section closed; a \
+               section opened makes the widget the share in view; closed again, every row showing, \
+               the bar is disabled and the widget stays, the bar's whole length.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OPTIONS-SECTION-SCROLL-WIDGET"),
+        station: "auberean-ui-game::dat::play::options::closing_a_section_leaves_the_pages_scroll_widget_long",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.options.each-preference-reads-and-writes-its-value-as-the-file-keeps-it",
         says: "Each preference kind reads and writes its value as the preferences file keeps it: a \
                yes-or-no as 1 or 0, a number only when the whole text is one (six places \
@@ -1558,6 +1568,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-UI-RADAR-PLACE"),
         station: "auberean-ui-game::dat::play::radar::the_place_line_reads_inside_or_the_map_coordinates",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.scrollbar.a-list-showing-all-its-rows-leaves-the-widget-long",
+        says: "A list that comes to show all its rows disables its bar and leaves the widget as it \
+               was laid out just before, long and showing; its rows laid out again, it stays; its \
+               window updated, which lays the disabled bar out afresh, takes the widget away.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SCROLLBAR-DISABLED-WIDGET"),
+        station: "auberean-ui::cpu::lists::a_list_showing_all_its_rows_leaves_the_widget_long",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "ui.scrollbar.dragging-the-widget-scrolls-its-list",

@@ -205,6 +205,46 @@ fn dragging_the_widget_scrolls_its_list() {
         .any(|m| m.what == Token::of("widget_release")));
 }
 
+/// A list that comes to show all its rows disables its bar and leaves the widget as it was laid out
+/// just before: long, the bar's whole length, and showing. Its rows laid out again, it stays. The
+/// window updated, which lays the disabled bar out afresh, takes the widget away. More rows than
+/// show, and the widget is back, the share in view.
+///
+/// Behaviour: ui.scrollbar.a-list-showing-all-its-rows-leaves-the-widget-long
+#[test]
+fn a_list_showing_all_its_rows_leaves_the_widget_long() {
+    let (mut u, list, rows) = five_rows(vec![
+        row(),
+        window(vec![("vertical_scrollbar", id("Bar"))], vec![bar()]),
+    ]);
+    let w = u.roots()[0];
+    let b = u.child(w, Token::of("Bar")).unwrap();
+    let widget = u.child(b, Token::of("widget")).unwrap();
+    assert_eq!(u.screen_rect(widget).unwrap().height(), 16);
+    for r in &rows[1..] {
+        u.list_delete(list, *r);
+    }
+    let whole = u.screen_rect(b).unwrap().height();
+    let long = |u: &Ui| {
+        assert!(u.is_visible(widget), "showing");
+        assert_eq!(u.screen_rect(widget).unwrap().height(), whole);
+    };
+    long(&u);
+    assert!(u.node(b).unwrap().bool_attr(Token::of("disabled")));
+    u.list_update_and_draw(list);
+    long(&u);
+    u.update(w);
+    assert!(!u.is_visible(widget), "laid out while disabled");
+    let l = u.load_layout(LAYOUT).unwrap();
+    for _ in 0..4 {
+        let r = u.create(l, Token::of("Row")).unwrap();
+        u.list_add(list, r);
+    }
+    assert!(u.is_visible(widget));
+    assert!(!u.node(b).unwrap().bool_attr(Token::of("disabled")));
+    assert_eq!(u.screen_rect(widget).unwrap().height(), 16);
+}
+
 /// A smooth list glides to its goal: half way after half its movement time, there at the end,
 /// and the goal is then forgotten.
 ///

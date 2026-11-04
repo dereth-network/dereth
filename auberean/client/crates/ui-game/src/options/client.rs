@@ -420,7 +420,7 @@ impl ClientPage {
                     else {
                         return;
                     };
-                    ui.update(list);
+                    ui.list_update_and_draw(list);
                 }
                 self.update_buttons(ui);
             }
