@@ -4,9 +4,9 @@ use yalain_testkit::invariants::newer;
 use yalain_world::rules::{self, Direction, Kind};
 use yalain_world::xp::kill_award;
 
-/// A solo kill pays the creature's death experience in full from ten levels below the killer to
-/// nine above, 15% less a level further below (at least 1%), 20% less a level further above,
-/// rounded down.
+/// A solo kill by a killer under level 50 pays the creature's death experience in full from ten
+/// levels below the killer to nine above, 15% less a level further below (at least 1%), 20% less a
+/// level further above, rounded down.
 /// Behaviour: server.experience.solo-kill-award
 #[test]
 fn a_solo_kill_pays_the_death_experience_weighed_by_the_level_difference() {
@@ -22,6 +22,27 @@ fn a_solo_kill_pays_the_death_experience_weighed_by_the_level_difference() {
     assert_eq!(at(31, 20), 60);
     assert_eq!(kill_award(11, 2, 1), 11);
     assert_eq!(kill_award(7, 1, 30), 0, "1% of 7 rounds down to nothing");
+}
+
+/// From level 50 what is below a killer pays in full only to four levels below it, then 20% less
+/// a level (at least 1%); at level 49 it still pays in full to ten below. A creature above the
+/// killer pays as before.
+/// Behaviour: server.experience.from-level-50-the-fall-comes-sooner
+#[test]
+fn from_level_50_a_kill_pays_in_full_only_to_four_levels_below_the_killer() {
+    let at = |creature: i32, killer: i32| kill_award(100, creature, killer);
+    assert_eq!(at(46, 50), 100, "four below: in full");
+    assert_eq!(at(45, 50), 80);
+    assert_eq!(at(44, 50), 60);
+    assert_eq!(at(43, 50), 40);
+    assert_eq!(at(42, 50), 20);
+    assert_eq!(at(41, 50), 1, "nine below: never under 1%");
+    assert_eq!(at(49, 57), 20, "the same at a higher level");
+    assert_eq!(at(41, 49), 100, "at level 49, eight below: in full");
+    assert_eq!(at(39, 49), 100, "at level 49, ten below: in full");
+    assert_eq!(at(38, 49), 85, "at level 49, eleven below: as before");
+    assert_eq!(at(59, 50), 100, "nine above: in full");
+    assert_eq!(at(60, 50), 80, "ten above: as before");
 }
 
 /// Whether an attack lands follows the measured fits, by direction, kind, level difference and the

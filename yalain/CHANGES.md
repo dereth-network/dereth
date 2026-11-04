@@ -38,6 +38,7 @@ what they see, not how it was done.
 - Completing quests now raises your quest rating.
 - Objects meant for monarchs now refuse everyone else.
 - People no longer say "come back later" while you're on their quest.
+- From level 50, kills and quests well below your level pay less, as in 2017.
 
 ## 0.1.2 (2026-11-03)
 

@@ -1163,13 +1163,13 @@ fn step_effects<S: Store>(
 /// The experience a quest's completion pays a player of a level: the quest's, weighed by its
 /// challenge against the player's level as a kill's is by the creature's (a quest without a
 /// challenge is not weighed); 2017 paid exactly this for 89 of 99 completions where the player's
-/// level was known.
+/// level was known, and for all 33 vault shards, among them 9 under vitae, which changes nothing.
 #[must_use]
 pub fn completion_xp(xp: u64, challenge: i32, level: i32) -> u64 {
     if challenge == NO_CHALLENGE {
         return xp;
     }
-    let share = crate::xp::kill_share(challenge - level).cast_unsigned();
+    let share = crate::xp::kill_share(challenge, level).cast_unsigned();
     xp * share / 100
 }
 

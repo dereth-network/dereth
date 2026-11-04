@@ -2315,9 +2315,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.experience.from-level-50-the-fall-comes-sooner",
+        says: "From level 50 what is below a player pays in full only to four levels below it, then 20% less a \
+               level, at least 1%, for a kill and for a completion by its challenge; at level 49 it pays as at any \
+               lower level. Vitae has no part in it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-XP-FROM-LEVEL-50"),
+        station: "yalain-testkit::cpu::play::rules::from_level_50_a_kill_pays_in_full_only_to_four_levels_below_the_killer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.experience.solo-kill-award",
-        says: "A solo kill pays the creature's death experience in full from ten levels below the \
-               killer to nine above, 15% less a level further below (at least 1%), 20% less a \
+        says: "A solo kill by a killer under level 50 pays the creature's death experience in full from ten \
+               levels below the killer to nine above, 15% less a level further below (at least 1%), 20% less a \
                level further above, rounded down.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-KILL-XP"),

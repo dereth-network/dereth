@@ -347,6 +347,19 @@ fn a_completion_pays_its_experience_weighed_by_challenge_against_level() {
     assert_eq!(completion_xp(500, -999, 40), 500);
 }
 
+/// A completion below a player of level 50 falls as a kill does, sooner and faster: the 2017 vault
+/// shards of challenge 44 paid level 50 60% and level 47 in full.
+/// Behaviour: server.experience.from-level-50-the-fall-comes-sooner
+#[test]
+fn a_completion_below_a_level_50_player_is_weighed_as_a_kill_of_that_level_is() {
+    assert_eq!(completion_xp(1_500_000, 44, 50), 900_000);
+    assert_eq!(completion_xp(2_600_000, 44, 50), 1_560_000);
+    assert_eq!(completion_xp(1_500_000, 44, 47), 1_500_000);
+    assert_eq!(completion_xp(3_800_000, 46, 50), 3_800_000);
+    assert_eq!(completion_xp(10_000_000, 40, 57), 100_000);
+    assert_eq!(completion_xp(500, -999, 60), 500, "no challenge: whole");
+}
+
 /// A level table where a level takes the amounts given to reach the next, from level 1.
 fn level_costs(costs: &[(i32, u64)]) -> LevelTable {
     let top = costs.iter().map(|(l, _)| *l).max().unwrap_or(0) + 1;
