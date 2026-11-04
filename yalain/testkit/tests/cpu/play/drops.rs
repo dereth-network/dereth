@@ -755,3 +755,176 @@ fn an_item_a_camp_keeps_lies_again_at_its_spot_once_its_period_after_the_taking_
         "at the same spot"
     );
 }
+
+/// Run a world's work on a thread of its own: `true` when it ends.
+fn ends(work: impl FnOnce() + Send + 'static) -> bool {
+    let (done, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        work();
+        let _ = done.send(());
+    });
+    ended
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .is_ok()
+}
+
+/// Stepping a point onto its landblock, a block at a time: what any point on the land comes to.
+fn stepped(landblock: u32, x: f32, y: f32) -> (u32, f32, f32) {
+    let side = yalain_world::spawn::BLOCK_SIDE;
+    let (mut bx, mut by) = (
+        i64::from(landblock >> 8 & 0xFF),
+        i64::from(landblock & 0xFF),
+    );
+    let (mut x, mut y) = (x, y);
+    while x < 0.0 {
+        x += side;
+        bx -= 1;
+    }
+    while x >= side {
+        x -= side;
+        bx += 1;
+    }
+    while y < 0.0 {
+        y += side;
+        by -= 1;
+    }
+    while y >= side {
+        y -= side;
+        by += 1;
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let (cx, cy) = ((x / 20.0) as u32, (y / 20.0) as u32);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let block = ((bx.clamp(0, 255) as u32) << 8) | by.clamp(0, 255) as u32;
+    (block << 16 | (cx.min(7) * 8 + cy.min(7) + 1), x, y)
+}
+
+/// Any point within the land's side of its block is placed as stepping it there block by block
+/// places it: across the whole span, and on either side of every block's edge.
+/// Behaviour: server.places.a-place-off-the-land-is-no-place
+#[test]
+fn a_point_on_the_land_is_placed_as_stepping_it_block_by_block_places_it() {
+    let side = yalain_world::spawn::BLOCK_SIDE;
+    let land = yalain_world::spawn::LAND_SIDE;
+    let mut points = Vec::new();
+    let mut x = -land;
+    while x <= land {
+        points.push(x);
+        x += 1.37;
+    }
+    let mut edge = -land;
+    while edge <= land {
+        points.extend([edge.next_down(), edge, edge.next_up()]);
+        edge += side;
+    }
+    points.push(land);
+    points.retain(|x| x.abs() <= land);
+    for block in [0u32, 0x0299, 0x7F7F, 0xFFFF] {
+        for (i, x) in points.iter().enumerate() {
+            let y = points[(i * 7) % points.len()];
+            let got = yalain_world::spawn::outdoor(block, *x, y);
+            let want = stepped(block, *x, y);
+            assert_eq!(
+                (got.0, got.1.to_bits(), got.2.to_bits()),
+                (want.0, want.1.to_bits(), want.2.to_bits()),
+                "{block:04X} {x} {y}"
+            );
+        }
+    }
+}
+
+/// A point no land could hold still comes to a place on it, whatever its numbers.
+/// Behaviour: server.places.a-place-off-the-land-is-no-place
+#[test]
+fn a_point_far_off_the_land_comes_to_a_place_at_its_edge() {
+    assert!(ends(|| {
+        for x in [1.0e30, -1.0e30, f32::MAX, f32::MIN, 1.0e10, -1.0e10] {
+            let (cell, px, py) = yalain_world::spawn::outdoor(0x0299, x, 5.0);
+            assert!(!yalain_world::presence::indoors(cell), "{cell:08X}");
+            assert!(
+                (0.0..=yalain_world::spawn::BLOCK_SIDE).contains(&px),
+                "{px}"
+            );
+            assert!(
+                (0.0..=yalain_world::spawn::BLOCK_SIDE).contains(&py),
+                "{py}"
+            );
+        }
+        for x in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let _ = yalain_world::spawn::outdoor(0x0299, x, x);
+        }
+    }));
+}
+
+/// A place reported beyond the land's side from its block is not taken: the player stays where it
+/// was. Further than any of the 1,827,746 reports recorded (at most 720 m, indoors).
+/// Behaviour: server.places.a-place-off-the-land-is-no-place
+#[test]
+fn a_place_reported_far_off_the_land_is_not_taken() {
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Far");
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| c)
+        .expect("in the world");
+    let stamp = h.server.players[&world].teleport_stamp;
+    let report = |x: f32| {
+        yalain_testkit::play::report(
+            0x0299_0009,
+            auberean_primitives::Vec3::new(x, 10.0, 10.0),
+            0,
+            0x4100_0003,
+            stamp,
+        )
+    };
+    h.bots[b].send(true, queue::WEENIE, &report(100.0));
+    h.run(3);
+    assert_eq!(h.server.players[&world].position.origin[0], 100.0, "on it");
+    for x in [
+        yalain_world::spawn::LAND_SIDE.next_up(),
+        -yalain_world::spawn::LAND_SIDE.next_up(),
+        1.0e10,
+        1.0e30,
+        f32::MAX,
+    ] {
+        h.bots[b].send(true, queue::WEENIE, &report(x));
+        h.run(3);
+        assert_eq!(h.server.players[&world].position.origin[0], 100.0, "{x}");
+    }
+    h.bots[b].send(true, queue::WEENIE, &report(719.8));
+    h.run(3);
+    assert_eq!(
+        h.server.players[&world].position.origin[0], 719.8,
+        "the furthest recorded"
+    );
+}
+
+/// An item put down by a player kept far off the land (from before such a place was refused) ends
+/// on the land's edge.
+/// Behaviour: server.places.a-place-off-the-land-is-no-place
+#[test]
+fn an_item_put_down_from_far_off_the_land_lands_on_its_edge() {
+    assert!(ends(|| {
+        let (mut h, b, me, _, item) = two_players_and_an_item();
+        let world = *h
+            .server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == me)
+            .map(|(c, _)| c)
+            .expect("in the world");
+        let p = h.server.players.get_mut(&world).expect("in the world");
+        p.position.cell = 0x0299_0009;
+        p.position.origin = [1.0e30, 10.0, 10.0];
+        h.bots[b].send(true, queue::WEENIE, &put_down(me, item, 0));
+        h.run(steps(5.0));
+        assert!(h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .all(|i| i.id != item));
+    }));
+}

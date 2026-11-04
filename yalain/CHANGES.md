@@ -114,6 +114,7 @@ what they see, not how it was done.
 - Loot weapons, armor and shields can now carry enchantments.
 - Totems now hold an enchantment and can be used on an item of their kind.
 - Fixed broker collections that could lose an item or what it holds.
+- Fixed a position far outside the land not being handled safely.
 
 ## 0.1.2 (2026-11-03)
 

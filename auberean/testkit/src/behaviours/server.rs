@@ -6677,6 +6677,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-place-off-the-land-is-no-place",
+        says: "A place reported further from its block than the whole land's side is not \
+               taken and the player stays where it was; a point that far from a block comes \
+               to a place at the land's edge, and points on the land are placed as stepping \
+               them block by block does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLACE-OFF-LAND"),
+        station: "yalain-testkit::cpu::play::drops::a_place_reported_far_off_the_land_is_not_taken",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.actions-locked",
         says: "A use asked for while the player's earlier action is still carried out (in portal space, dead, walking to an earlier use's object, taking an item) is refused at once: its answer alone, with the status that actions are locked.",
         since: RETAIL,

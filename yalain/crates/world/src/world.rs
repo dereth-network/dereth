@@ -1119,10 +1119,11 @@ fn moved<S: Store>(
     c: &auberean_protocol::physics::ClientPosition,
     clock: Clock,
 ) {
-    let finite = [c.origin.x, c.origin.y, c.origin.z]
+    // On the land, or within its side of a block: the 1,827,746 reports recorded came to 720 m.
+    let on_land = [c.origin.x, c.origin.y, c.origin.z]
         .iter()
-        .all(|v| v.is_finite());
-    if c.cell == 0 || !finite {
+        .all(|v| v.abs() <= crate::spawn::LAND_SIDE);
+    if c.cell == 0 || !on_land {
         s.unhandled.note("a position that is no place");
         return;
     }

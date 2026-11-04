@@ -65,6 +65,8 @@ pub struct CampState {
 /// The side of a landblock and of a land cell, in meters.
 pub const BLOCK_SIDE: f32 = 160.0;
 pub const CELL_SIDE: f32 = 20.0;
+/// The side of the whole land, of 256 landblocks.
+pub const LAND_SIDE: f32 = 256.0 * BLOCK_SIDE;
 
 /// An outdoor point given relative to a landblock, as a cell and a point of the landblock it lies
 /// in (landblocks are 160 m on a side; land cells 20 m, numbered from 1 along y within each x).
@@ -74,7 +76,11 @@ pub fn outdoor(landblock: u32, x: f32, y: f32) -> (u32, f32, f32) {
         i64::from(landblock >> 8 & 0xFF),
         i64::from(landblock & 0xFF),
     );
-    let (mut x, mut y) = (x, y);
+    // No point of the land is further from a block than this.
+    let (mut x, mut y) = (
+        x.clamp(-LAND_SIDE, LAND_SIDE),
+        y.clamp(-LAND_SIDE, LAND_SIDE),
+    );
     while x < 0.0 {
         x += BLOCK_SIDE;
         bx -= 1;
