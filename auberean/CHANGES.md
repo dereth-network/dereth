@@ -81,6 +81,7 @@ not how it was done.
 - Next-item keys now find held weapons too.
 - Tooltips no longer stay after their window closes.
 - Signposts show their wood and words.
+- Fixed shops saying you can't afford everything.
 
 ## 0.1.2 (2026-11-02)
 

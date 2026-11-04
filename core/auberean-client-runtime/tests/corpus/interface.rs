@@ -507,6 +507,8 @@ struct Replay<'a> {
     unread: std::collections::BTreeSet<u32>,
     /// The chat panel was made: the player's commands are known.
     commands_known: bool,
+    /// The purchases the recorded player made, and those the scripts said it could afford.
+    purchases: (u32, u32),
 }
 
 impl<'a> Replay<'a> {
@@ -526,6 +528,7 @@ impl<'a> Replay<'a> {
             reread: 0,
             unread: std::collections::BTreeSet::new(),
             commands_known: false,
+            purchases: (0, 0),
         }
     }
 
@@ -854,6 +857,10 @@ impl<'a> Replay<'a> {
                 }) else {
                     return;
                 };
+                c.refresh_store();
+                let most = c.store().max_purchase.get(&item).copied().unwrap_or(0);
+                self.purchases.0 += 1;
+                self.purchases.1 += u32::from(most >= quantity);
                 // Pushed last first: the slot, the quantity, the item.
                 let a = [
                     InterfaceArg::Word(slot),
@@ -1264,6 +1271,13 @@ fn selecting_what_the_recorded_player_selected_sends_what_the_recorded_client_se
             t.other
         );
     }
+    // What the recorded player bought, the scripts said it could: the shop window asks before it
+    // buys.
+    assert!(
+        r.purchases.0 > 0 && r.purchases.1 == r.purchases.0,
+        "{:?}",
+        r.purchases
+    );
     // A corpse placed in the world takes the player's selection when its creature was selected:
     // those selections are the scripts' own. The replay places a corpse as its message arrives,
     // the client once its parts have loaded, so a few selections (and the uses, attacks and
