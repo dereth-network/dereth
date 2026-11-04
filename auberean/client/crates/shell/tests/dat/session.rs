@@ -4361,7 +4361,8 @@ fn a_body_goes_round_a_stone_in_the_way() {
         let (dx, dy) = (o.x - STONE_AT.x, o.y - STONE_AT.y);
         nearest = nearest.min((dx * dx + dy * dy).sqrt());
         for (x, y, closest) in &mut retails {
-            *closest = closest.min((o.x - *x).hypot(o.y - *y));
+            let (dx, dy) = (o.x - *x, o.y - *y);
+            *closest = closest.min((dx * dx + dy * dy).sqrt());
         }
     }
     let o = s.scene.status.origin;
