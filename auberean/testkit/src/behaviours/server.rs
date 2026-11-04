@@ -1334,6 +1334,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.made-item-attuned",
+        says: "An item of a making whose outcome attunes it, the spinner within the action's range, \
+               is attuned to whoever holds it: refused a drop, a trade and a sale as an attunable \
+               template's item is. Our choice: the action's body and any such item are out of view; \
+               the recipes' text says their result will be attuned.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-ATTUNED"),
+        station: "yalain-testkit::cpu::play::crafting::a_made_item_its_recipe_attunes_is_attuned_when_the_spinner_is_in_range",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.made-item-binds-on-use",
         says: "An item a recipe's outcome binds (on the product's ordinal, the spinner chosen within \
                the action's range) is made to bind when used in combat.",

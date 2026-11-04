@@ -9,6 +9,7 @@ what they see, not how it was done.
 - Fixed a rebuilt server refusing to start when its world database wasn't downloaded yet.
 - Items now bind piece by piece as you fight, and tell you when they do.
 - Bound and attuned items can't be put up for sale.
+- Recipes that attune an item now do.
 
 ## 0.2.0 (2026-11-05)
 

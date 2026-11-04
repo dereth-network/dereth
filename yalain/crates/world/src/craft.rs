@@ -287,6 +287,9 @@ pub enum Action {
     /// Make an item of the making (a product by its ordinal) one that binds to its holder when used
     /// in combat, when the spinner the player chose is within the action's.
     Bind { ordinal: u32, spinners: (u32, u32) },
+    /// Attune an item of the making (by its ordinal) to whoever holds it, when the spinner the
+    /// player chose is within the action's.
+    Attune { ordinal: u32, spinners: (u32, u32) },
     /// Change an item of the making (a product by its ordinal) by the spinner chosen, when it is
     /// within the action's: through a table (its saved state), or by no number.
     Mutate {
@@ -1081,6 +1084,10 @@ fn action(lib: &Library, nav: &Nav<'_>, a: &PackedObject) -> Action {
             }
         }
         "BindRecipeAction" => Action::Bind {
+            ordinal: w("m_uiOrdinal"),
+            spinners: (w("m_uiMinSpinnerVal"), w("m_uiMaxSpinnerVal")),
+        },
+        "AttuneRecipeAction" => Action::Attune {
             ordinal: w("m_uiOrdinal"),
             spinners: (w("m_uiMinSpinnerVal"), w("m_uiMaxSpinnerVal")),
         },
@@ -2095,6 +2102,7 @@ fn result<S: Store>(
     let mut effects: Vec<(u32, f32)> = Vec::new();
     let mut made: Vec<(u32, u64)> = Vec::new();
     let mut binds: Vec<u32> = Vec::new();
+    let mut attunes: Vec<u32> = Vec::new();
     for a in &outcome.actions {
         match a {
             Action::Produce {
@@ -2169,6 +2177,11 @@ fn result<S: Store>(
                     binds.push(*ordinal);
                 }
             }
+            Action::Attune { ordinal, spinners } => {
+                if (spinners.0..=spinners.1).contains(&m.spinner) {
+                    attunes.push(*ordinal);
+                }
+            }
             Action::Custom => match def.custom {
                 Custom::Refine { product } => {
                     xp = xp.max(refine(s, net, world, &def, &outcome, m.spinner, product));
@@ -2199,6 +2212,18 @@ fn result<S: Store>(
             .map(|(_, i)| *i);
         if let Some(t) = item.and_then(|i| s.things.get_mut(i)) {
             t.binds_on_use = true;
+        }
+    }
+    // An item of the making it attunes stays with whoever holds it (its outcome's own word; the
+    // library's action, and the recipes' text "The final result of this recipe will be attuned").
+    for ordinal in attunes {
+        let item = made
+            .iter()
+            .chain(m.slots.iter())
+            .find(|(o, _)| *o == ordinal)
+            .map(|(_, i)| *i);
+        if let Some(t) = item.and_then(|i| s.things.get_mut(i)) {
+            t.own.attuned = true;
         }
     }
     // The effects' updates (a quest moved on) follow the text.

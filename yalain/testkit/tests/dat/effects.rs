@@ -216,6 +216,31 @@ fn a_creatures_body_is_its_looks_setups() {
     );
 }
 
+/// A recipe's attune outcome reads with the ordinal it names and its spinners: Armor Dyeing attunes
+/// what it dyes at any spinner of its own, the Atlan Bow its product at 45 to 85.
+/// Behaviour: server.craft.made-item-attuned
+#[test]
+fn a_recipes_attune_outcome_reads_with_its_ordinal_and_spinners() {
+    let p = Portal::open();
+    let c = p.crafting(&[], &[0x6F00_56B2, 0x6F00_1CB2]);
+    let attunes = |recipe: u32| -> Vec<(u32, (u32, u32))> {
+        c.recipes[&recipe]
+            .checks
+            .iter()
+            .flat_map(|k| k.outcomes.iter())
+            .flat_map(|o| o.actions.iter())
+            .filter_map(|a| match a {
+                Action::Attune { ordinal, spinners } => Some((*ordinal, *spinners)),
+                _ => None,
+            })
+            .collect()
+    };
+    let dyeing = attunes(0x6F00_56B2);
+    assert!(!dyeing.is_empty() && dyeing.iter().all(|a| *a == (1, (1, 150))));
+    let bow = attunes(0x6F00_1CB2);
+    assert!(bow.contains(&(10_001, (45, 85))), "{bow:?}");
+}
+
 /// The Small Sword reads as the data defines it: a spinner from 1 to 100, needing the crafting
 /// workshop's effect; at item level 1 only its iron is asked for, 26 of it, used up by its action's
 /// table; coal comes in at 20 and steel at 35, in their tables' amounts.

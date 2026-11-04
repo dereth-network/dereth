@@ -844,6 +844,48 @@ fn a_made_item_its_recipe_binds_is_marked_to_bind_when_used_in_combat() {
     }
 }
 
+/// A made item its recipe's outcome attunes (on its ordinal, the spinner within the action's range)
+/// is attuned to whoever holds it; outside the range it is not, and it may be put down.
+/// Behaviour: server.craft.made-item-attuned
+#[test]
+fn a_made_item_its_recipe_attunes_is_attuned_when_the_spinner_is_in_range() {
+    use yalain_world::craft::Action;
+    for (spinners, attuned) in [((1, 100), true), ((20, 100), false)] {
+        let (mut h, b, _, world) = in_world();
+        if h.server.catalog.get(yalain_testkit::KNIFE).is_none() {
+            h.server.catalog.insert(yalain_testkit::test_template(
+                yalain_testkit::KNIFE,
+                0x200,
+                yalain_content::Props::default(),
+            ));
+        }
+        if let Some(r) = h.server.crafting.recipes.get_mut(&KNIFE_RECIPE) {
+            for o in r.checks.iter_mut().flat_map(|c| c.outcomes.iter_mut()) {
+                o.actions.push(Action::Attune {
+                    ordinal: 10_001,
+                    spinners,
+                });
+            }
+        }
+        execute_at(&mut h, b, KNIFE_RECIPE, &[], 17);
+        h.run(4);
+        wait(&mut h, 9.0);
+        let knife = h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .find(|i| i.template == yalain_testkit::KNIFE)
+            .map(|i| i.id)
+            .expect("the knife made");
+        let t = h.server.things.get(knife).expect("made");
+        assert_eq!(t.own.attuned, attuned, "spinners {spinners:?}");
+        assert_eq!(
+            yalain_world::inventory::attuned(&h.server.catalog, t),
+            attuned
+        );
+    }
+}
+
 /// A made item carries the effects its recipe's outcome gives it for whoever wears or wields it, at
 /// the spinner the player chose (through the recipe's level table): wielded, the knife puts its
 /// bonus on its holder at that spellcraft.
