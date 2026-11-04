@@ -1,6 +1,6 @@
 //! The event queue: what waits, and in what order messages take effect.
 
-use auberean_client_model::events::{EventQueue, Item};
+use auberean_client_model::events::{newer, EventQueue, Item};
 use auberean_protocol::ServerMessage;
 
 use crate::{create_item, fx, player_object, private_int, PLAYER};
@@ -521,4 +521,92 @@ fn leaving_the_world_drops_what_was_held_while_entering() {
     let got = drain(&mut q);
     assert_eq!(got.len(), 1, "only the player's creation");
     assert!(matches!(got[0].message, ServerMessage::PlayerObject(_)));
+}
+
+/// Two stamps are ordered round the circle: the larger is newer while they are less than half the
+/// circle apart and the smaller from there on. At exactly half, the smaller is newer, so of two
+/// stamps that far apart one is always newer and never both.
+///
+/// Behaviour: model.events.stamps-exactly-half-the-circle-apart-favor-the-smaller
+#[test]
+fn stamps_exactly_half_the_circle_apart_favor_the_smaller() {
+    assert!(newer(0, 0x8000));
+    assert!(!newer(0x8000, 0));
+    assert!(newer(0x1234, 0x9234));
+    assert!(!newer(0x9234, 0x1234));
+    // One step either side of half.
+    assert!(newer(0x7FFF, 0));
+    assert!(!newer(0, 0x7FFF));
+    assert!(newer(0, 0x8001));
+    assert!(!newer(0x8001, 0));
+    // Equal is never newer, and an ordinary step and the wrap read as they should.
+    assert!(!newer(7, 7));
+    assert!(newer(8, 7));
+    assert!(newer(0, 0xFFFF));
+    assert!(!newer(0xFFFF, 0));
+    // Any two different stamps: exactly one of them is newer.
+    for b in [0u16, 1, 0x7FFF, 0x8000, 0xFFFF] {
+        for gap in 1..=0xFFFFu16 {
+            let a = b.wrapping_add(gap);
+            assert!(newer(a, b) != newer(b, a), "{a:#x} and {b:#x}");
+        }
+    }
+}
+
+/// A visual message exactly half the circle from what the queue wants next waits when its stamp is
+/// the smaller of the two and is dropped when it is the larger.
+///
+/// Behaviour: model.events.stamps-exactly-half-the-circle-apart-favor-the-smaller
+#[test]
+fn a_visual_message_exactly_half_the_circle_ahead_waits_or_drops_by_the_smaller_stamp() {
+    let id = 0x8130_0000_0000_0002;
+    // The queue wants 0x8000, the message is 0: the smaller, so it is newer and it waits.
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 1, 0x7FFF));
+    drain(&mut q);
+    q.receive(0.1, fx(id, 1, 0, 0xA));
+    assert!(drain(&mut q).is_empty());
+    assert_eq!(q.stats().held_visual, 1, "it was counted as held");
+    assert_eq!(q.stats().dropped, 0, "and it was not dropped");
+    // The queue wants 1, the message is 0x8001: the larger, so it is older and it is dropped.
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 1, 0));
+    drain(&mut q);
+    q.receive(0.1, fx(id, 1, 0x8001, 0xC));
+    assert_eq!(q.stats().dropped, 1);
+    q.receive(0.2, fx(id, 1, 1, 0xD));
+    assert_eq!(
+        drain(&mut q)
+            .iter()
+            .filter_map(effect_of)
+            .collect::<Vec<_>>(),
+        vec![0xD]
+    );
+}
+
+/// A creation exactly half the circle of incarnations away replaces the object when its stamp is
+/// the smaller and is ignored when it is the larger; a message about that incarnation waits or is
+/// dropped alike.
+///
+/// Behaviour: model.events.stamps-exactly-half-the-circle-apart-favor-the-smaller
+#[test]
+fn an_incarnation_exactly_half_the_circle_away_replaces_or_is_ignored_by_the_smaller_stamp() {
+    let id = 0x8130_0000_0000_0002;
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 0x8000, 1));
+    drain(&mut q);
+    q.receive(0.1, fx(id, 0, 1, 0xA));
+    assert!(drain(&mut q).is_empty());
+    assert_eq!(q.waiting_objects(), 1, "about the newer one: it waits");
+    q.receive(0.2, create_item(id, 0, 1));
+    assert_eq!(q.stats().replaced, 1);
+
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 0, 1));
+    drain(&mut q);
+    q.receive(0.1, fx(id, 0x8000, 1, 0xA));
+    assert_eq!(q.waiting_objects(), 0, "about an older one: dropped");
+    q.receive(0.2, create_item(id, 0x8000, 1));
+    assert!(drain(&mut q).is_empty(), "an older creation is ignored");
+    assert_eq!(q.stats().replaced, 0);
 }

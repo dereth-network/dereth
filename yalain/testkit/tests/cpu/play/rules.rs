@@ -1,5 +1,6 @@
 //! The rules of a fight and of experience, as numbers.
 
+use yalain_testkit::invariants::newer;
 use yalain_world::rules::{self, Direction, Kind};
 use yalain_world::xp::kill_award;
 
@@ -161,4 +162,21 @@ fn a_players_hit_is_its_weapons_damage_less_the_creatures_armor() {
             "at least 1"
         );
     }
+}
+
+/// The invariant checker orders stamps as the client does: the larger of two is newer while they are
+/// less than half the circle apart and the smaller from there on, exactly half included.
+/// Behaviour: server.replay.the-checker-orders-stamps-as-the-client-does
+#[test]
+fn the_checker_orders_stamps_as_the_client_does() {
+    assert!(newer(8, 7));
+    assert!(!newer(7, 7));
+    assert!(newer(0, 0xFFFF), "across the wrap");
+    assert!(!newer(0xFFFF, 0));
+    assert!(newer(0x7FFF, 0), "one short of half");
+    assert!(newer(0, 0x8001), "one past half");
+    assert!(newer(0, 0x8000), "exactly half: the smaller");
+    assert!(!newer(0x8000, 0));
+    assert!(newer(0x1234, 0x9234));
+    assert!(!newer(0x9234, 0x1234));
 }

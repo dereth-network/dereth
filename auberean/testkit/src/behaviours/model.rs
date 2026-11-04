@@ -166,6 +166,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "model.events.stamps-exactly-half-the-circle-apart-favor-the-smaller",
+        says: "Of two stamps exactly half the circle apart the numerically smaller is the newer: a visual \
+               message waits or is dropped by it, and an incarnation replaces or is ignored by it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-STAMP-HALF-CIRCLE"),
+        station: "auberean-client-model::cpu::events::stamps_exactly_half_the_circle_apart_favor_the_smaller",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "model.events.the-world-waits-for-the-player",
         says: "While the client enters the world, every message but the player's creation (or the \
                refusal) waits; once the player is created the world's messages wait for the player's \

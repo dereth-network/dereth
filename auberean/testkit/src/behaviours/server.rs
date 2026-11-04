@@ -6996,6 +6996,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.replay.the-checker-orders-stamps-as-the-client-does",
+        says: "The checker of what a world connection sends orders stamps as the client does: the larger of two is \
+               newer while they are less than half the circle apart and the smaller from there on, exactly half \
+               included.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHECKER-STAMPS"),
+        station: "yalain-testkit::cpu::play::rules::the_checker_orders_stamps_as_the_client_does",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.selection.vitals-of-the-selected",
         says: "Selecting a player is answered with its selection information: the selected \
                object, then its health, player-killer damage, greatest health, vigor, vigor lost \

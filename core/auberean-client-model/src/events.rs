@@ -89,10 +89,15 @@ pub enum WorldState {
     InWorld,
 }
 
-/// `a` is newer than `b` on a 16-bit stamp circle: the difference is less than half the circle.
+/// `a` is newer than `b` on a 16-bit stamp circle: the larger number is newer while they are less
+/// than half the circle apart, and the smaller from there on, exactly half included.
 #[must_use]
 pub fn newer(a: u16, b: u16) -> bool {
-    a != b && a.wrapping_sub(b) < 0x8000
+    if a.abs_diff(b) < 0x8000 {
+        b < a
+    } else {
+        a < b
+    }
 }
 
 /// The object a message is about: the sender of an object event, the object of a visual quality
