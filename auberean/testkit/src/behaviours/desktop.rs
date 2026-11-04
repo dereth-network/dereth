@@ -756,6 +756,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.a-character-named-on-the-line-goes-into-the-world",
+        says: "A character named on the command line goes into the world as soon as the account's \
+               characters are listed: the list never comes up and no character is made.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-NAMED-ON-LINE"),
+        station: "auberean-interface::dat::screens::a_character_named_on_the_line_goes_into_the_world",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.a-click-in-the-world-selects-what-lies-under-it",
         says: "A click on a body standing in the world lands on the field over the world, and the \
                body under the pointer, found by the triangles drawn, is selected through the \

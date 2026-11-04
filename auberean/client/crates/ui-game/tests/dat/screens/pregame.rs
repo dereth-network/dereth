@@ -321,6 +321,45 @@ fn connecting_says_how_it_goes_and_the_list_leads_on() {
     );
 }
 
+/// The character named to play goes before the one named to make and play, which stands in when
+/// none is named to play; the names are asked after once, so the next list stays a list; a name
+/// the list lacks, or a deleted character's, leads to the list.
+///
+/// Behaviour: ui.datapatch.the-characters-named-on-the-line-are-asked-after-once
+#[test]
+fn the_characters_named_on_the_line_are_asked_after_once() {
+    let listed = |user: &str, create: &str| {
+        let mut r = Run::new();
+        r.show(|ui, data, out| Box::new(DataPatch::new(ui, data, out)));
+        r.take();
+        r.data = Run::new()
+            .with_characters(&[("Firstlight", 0), ("Embertail", 0), ("Gone", 5)], 4)
+            .data;
+        r.data.start_character = user.into();
+        r.data.create_character = create.into();
+        r.update();
+        (r.take(), r)
+    };
+    let play = |character| {
+        vec![
+            Request::Play { character },
+            Request::Mode(mode::GAMEPLAY, String::new()),
+        ]
+    };
+    let list = vec![Request::Mode(mode::CHARACTER_SELECTION, String::new())];
+    assert_eq!(listed("Embertail", "Firstlight").0, play(0x5000_0002));
+    assert_eq!(listed("", "Firstlight").0, play(0x5000_0001));
+    assert_eq!(
+        listed("nobody", "Firstlight").0,
+        list,
+        "the first name only"
+    );
+    assert_eq!(listed("gone", "").0, list);
+    let (_, r) = listed("Embertail", "Firstlight");
+    assert!(r.data.start_character.is_empty());
+    assert!(r.data.create_character.is_empty());
+}
+
 /// A login refused, or a login server letting its connection go, with an error leads from
 /// connecting to the disconnected screen with that error's own line; an address the client cannot
 /// understand names the host; an error with no line of its own leaves the screen as it is.

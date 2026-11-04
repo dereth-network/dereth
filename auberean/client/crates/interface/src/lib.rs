@@ -711,6 +711,19 @@ impl Retail {
         self
     }
 
+    /// The characters the command line named: the one to play and the one to make and play. The
+    /// first the account's list has goes into the world as soon as the list comes.
+    #[must_use]
+    pub fn with_start_character(mut self, user: Option<&str>, create: Option<&str>) -> Self {
+        let pre = &mut self.flow.flow.data.pre;
+        user.unwrap_or_default()
+            .clone_into(&mut pre.start_character);
+        create
+            .unwrap_or_default()
+            .clone_into(&mut pre.create_character);
+        self
+    }
+
     /// The element tree, to look at (a test, a screenshot's caption).
     #[must_use]
     pub const fn ui(&self) -> &Ui {

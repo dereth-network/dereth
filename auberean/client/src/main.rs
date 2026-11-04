@@ -37,7 +37,9 @@
 //! The command line is read as the September 2013 client reads its own, and takes its options too:
 //! `-h`/`--host` and `-p`/`--port` name the server (instead of `--server`), `-a`/`--account` the
 //! account (in small letters), `-z` is `--glsticketdirect`, `--width` and `--height` the window,
-//! `--prefs` the preferences file (in the settings folder unless a path says otherwise). An option
+//! `--prefs` the preferences file (in the settings folder unless a path says otherwise), `-u`/`--user`
+//! the character to go into the world with as soon as the account's are listed, and `-r`/`--create`
+//! the one to go in with when `--user` names none. An option
 //! may be written `-name`, `--name` or `/name`. Named with a host or an account, the line also
 //! needs the other, as the client's own does. A line that does not read (`-?` included) lists
 //! every option.
@@ -125,6 +127,10 @@ struct Options {
     language: Option<String>,
     /// The top gore level and blood color forced (0: the language's).
     forced_gore: (u32, u32),
+    /// The character named to play.
+    user: Option<String>,
+    /// The character named to make and play.
+    create: Option<String>,
 }
 
 /// This program's own options, beside the September 2013 client's: each one's form (what it takes
@@ -315,6 +321,8 @@ fn options() -> Result<Options, String> {
     o.gun_ticket = c.gun_ticket != 0;
     o.gun_ticket_override.clone_from(&c.gun_ticket_override);
     o.prefs.clone_from(&c.prefs);
+    o.user.clone_from(&c.user);
+    o.create.clone_from(&c.create);
     Ok(o)
 }
 
@@ -919,7 +927,8 @@ fn run() -> Result<(), String> {
             password: password.clone(),
         });
     let mut retail = auberean_interface::Retail::new(assets, o.size.unwrap_or((1024, 768)), login)
-        .with_forced_gore(o.forced_gore.0, o.forced_gore.1);
+        .with_forced_gore(o.forced_gore.0, o.forced_gore.1)
+        .with_start_character(o.user.as_deref(), o.create.as_deref());
     if let Some((account, password)) = &o.login {
         retail = retail.with_auto(auberean_shell::dev::DevLogin::new(
             server,

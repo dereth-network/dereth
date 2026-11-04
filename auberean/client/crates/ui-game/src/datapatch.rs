@@ -307,14 +307,19 @@ impl DataPatch {
     }
 
     /// The account's characters are listed: the download is done, and the game goes on, into
-    /// the world as the character the client was started with (a living one of that name, or of
-    /// that name marked as an administrator's), else to the character list.
+    /// the world as the character the client was started with (the one named to play, else the
+    /// one named to make and play; a living one of that name, or of that name marked as an
+    /// administrator's), else to the character list. The names are asked after once.
     // D2-01742
     fn list_arrived(&mut self, ui: &mut Ui, data: &mut Data, out: &mut Vec<Request>) {
         self.received = self.expected;
         self.refresh(ui);
         // D2-01734, D2-01735
-        let start = std::mem::take(&mut data.start_character);
+        let mut start = std::mem::take(&mut data.start_character);
+        let create = std::mem::take(&mut data.create_character);
+        if start.is_empty() {
+            start = create;
+        }
         if !start.is_empty() {
             let set = data.characters.as_ref();
             let lower = start.to_lowercase();

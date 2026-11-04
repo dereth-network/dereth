@@ -308,6 +308,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.datapatch.the-characters-named-on-the-line-are-asked-after-once",
+        says: "The character named to play on the command line goes before the one named to make \
+               and play, which stands in when none is named to play; both are forgotten once the \
+               first list comes; a name the list lacks, or a deleted character's, leads to the \
+               character list.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-DATAPATCH-NAMED"),
+        station: "auberean-ui-game::dat::screens::pregame::the_characters_named_on_the_line_are_asked_after_once",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.dialogs.a-message-the-scripts-ask-for-first-goes-up-at-once",
         says: "The scripts' message says whether it goes up at once: one that does goes up in \
                place of the dialog up, which waits at the head of the line and comes back when it \

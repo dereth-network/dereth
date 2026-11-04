@@ -167,8 +167,14 @@ fn script() -> Script {
 
 /// [`script`], with more of the server's messages on the world's connection.
 fn script_with(extra: Vec<Step>) -> Script {
+    script_listing(Vec::new(), extra)
+}
+
+/// [`script_with`] on an account with these characters: with any, none is made.
+fn script_listing(characters: Vec<CharacterIdentity>, extra: Vec<Step>) -> Script {
+    let has_characters = !characters.is_empty();
     let list = CharacterList {
-        characters: Vec::new(),
+        characters,
         deleted: Vec::new(),
         status: 0,
         slots: 6,
@@ -276,6 +282,10 @@ fn script_with(extra: Vec<Step>) -> Script {
         c2s(8.00, 1, 3, 0x100D1),
     ];
     let mut events = events;
+    if has_characters {
+        // No character is made: the steps at six seconds up to the entry go.
+        events.retain(|e| !(5.9..6.2).contains(&e.t()));
+    }
     events.extend(extra);
     events.sort_by(|a, b| a.t().total_cmp(&b.t()));
     let s = Script {
@@ -441,6 +451,44 @@ fn until(
     done(shell)
 }
 
+/// A shell and its interface over `script`, nothing yet played.
+fn shell_over(
+    script: Script,
+    client_data: &'static ClientData,
+    with: impl FnOnce(Retail) -> Retail,
+) -> (Shell<'static, DoubleHost>, Rc<RefCell<Retail>>) {
+    let (world, _, assets) = data();
+    let double = ServerDouble::new(script, std::net::Ipv4Addr::LOCALHOST, 1.0, 7);
+    let server = double.login_addr();
+    let records: Arc<dyn auberean_ui::Assets + Send + Sync> = Arc::clone(assets) as _;
+    let retail = Rc::new(RefCell::new(with(Retail::new(
+        records,
+        (1024, 768),
+        Some(Login {
+            server,
+            account: "tester".into(),
+            password: "t".into(),
+        }),
+    ))));
+    let host = DoubleHost {
+        time: 0.0,
+        double,
+        inbox: VecDeque::new(),
+        input_method: None,
+        pages: Vec::new(),
+        page_error: None,
+        boxes: Vec::new(),
+    };
+    let mut s = Shell::new(
+        host,
+        world,
+        client_data.clone(),
+        Box::new(Shared(Rc::clone(&retail))),
+    );
+    s.size = (1024, 768);
+    (s, retail)
+}
+
 /// The flow every test here starts with: an empty list, Create, the man in the hall, Next, the
 /// name typed, Enter, until the player is in the world.
 fn into_the_world() -> (Shell<'static, DoubleHost>, Rc<RefCell<Retail>>) {
@@ -473,35 +521,7 @@ fn into_the_world_running(
     script: Script,
     client_data: &'static ClientData,
 ) -> (Shell<'static, DoubleHost>, Rc<RefCell<Retail>>) {
-    let (world, _, assets) = data();
-    let double = ServerDouble::new(script, std::net::Ipv4Addr::LOCALHOST, 1.0, 7);
-    let server = double.login_addr();
-    let records: Arc<dyn auberean_ui::Assets + Send + Sync> = Arc::clone(assets) as _;
-    let retail = Rc::new(RefCell::new(Retail::new(
-        records,
-        (1024, 768),
-        Some(Login {
-            server,
-            account: "tester".into(),
-            password: "t".into(),
-        }),
-    )));
-    let host = DoubleHost {
-        time: 0.0,
-        double,
-        inbox: VecDeque::new(),
-        input_method: None,
-        pages: Vec::new(),
-        page_error: None,
-        boxes: Vec::new(),
-    };
-    let mut s = Shell::new(
-        host,
-        world,
-        client_data.clone(),
-        Box::new(Shared(Rc::clone(&retail))),
-    );
-    s.size = (1024, 768);
+    let (mut s, retail) = shell_over(script, client_data, |r| r);
     let screen = |r: &Rc<RefCell<Retail>>| r.borrow().screen();
     past_the_intro(&mut s, &retail);
 
@@ -648,6 +668,40 @@ fn the_screens_take_a_player_from_the_list_into_the_world() {
         .iter()
         .any(|m| matches!(m, ClientMessage::PlayCharacter(p) if p.character == PLAYER));
     assert!(played, "entered with the character made");
+}
+
+/// A character named on the command line goes into the world as soon as the account's characters
+/// are listed: the list never comes up and no character is made.
+///
+/// Behaviour: desktop.interface.a-character-named-on-the-line-goes-into-the-world
+#[test]
+fn a_character_named_on_the_line_goes_into_the_world() {
+    let (_, client_data, _) = data();
+    let held = CharacterIdentity {
+        id: PLAYER,
+        name: WideString(NAME.encode_utf16().collect()),
+        seconds_greyed_out: 0,
+        visual: VisualDesc::default(),
+    };
+    let lower = NAME.to_lowercase();
+    let (mut s, retail) = shell_over(script_listing(vec![held], Vec::new()), client_data, |r| {
+        r.with_start_character(Some(&lower), None)
+    });
+    past_the_intro(&mut s, &retail);
+    let mut saw_list = false;
+    let entered = until(&mut s, 10.0, |s| {
+        saw_list |= retail.borrow().screen() == "select";
+        s.phase() == Phase::World
+    });
+    assert!(entered, "in the world: {:?}", s.phase());
+    assert!(!saw_list, "the list never comes up");
+    let sent = s.client.as_ref().expect("the session").sent();
+    assert!(sent
+        .iter()
+        .any(|m| matches!(&m.message, ClientMessage::PlayCharacter(p) if p.character == PLAYER)));
+    assert!(!sent
+        .iter()
+        .any(|m| matches!(m.message, ClientMessage::CreateCharacter(_))));
 }
 
 /// The text a text element shows.
