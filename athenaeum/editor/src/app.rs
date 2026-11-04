@@ -1915,13 +1915,22 @@ impl<'w> Editor<'w> {
     fn standing(&mut self) -> Vec<Standing> {
         let mut out = Vec::new();
         let near: Vec<(usize, f32)> = self.near.clone();
-        for (i, d) in near {
-            if d > NEAR || out.len() >= 400 {
+        let entries = self.session.entries();
+        let mut drawn: Vec<Entry> = near
+            .iter()
+            .take_while(|(_, d)| *d <= NEAR)
+            .filter_map(|(i, _)| entries.get(*i).cloned())
+            .collect();
+        // What is selected is drawn however far off it stands.
+        for item in self.selected.iter().chain(&self.also) {
+            if !drawn.iter().any(|e| e.item == *item) {
+                drawn.extend(self.session.entry(item).cloned());
+            }
+        }
+        for e in drawn {
+            if out.len() >= 400 {
                 break;
             }
-            let Some(e) = self.session.entries().get(i).cloned() else {
-                continue;
-            };
             if !self.shows(&e) {
                 continue;
             }

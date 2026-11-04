@@ -1055,3 +1055,15 @@ fn a_row_of_effects_alone_draws_them_and_stops_when_it_is_gone() {
         "gone with it"
     );
 }
+
+#[test]
+fn a_row_selected_is_drawn_however_far_off_it_stands() {
+    let (mut e, item, _) = with_a_row("far");
+    e.camera.position.x += 400.0;
+    frame(&mut e, &ViewInput::default());
+    let selected = e.frame().objects.len();
+    e.select(None);
+    frame(&mut e, &ViewInput::default());
+    let not = e.frame().objects.len();
+    assert!(selected > not, "{item}: {selected} against {not}");
+}
