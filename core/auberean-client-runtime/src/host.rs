@@ -190,7 +190,7 @@ pub struct ClientHost {
     /// The machine's wall clock and the files in the client's own folder, when the front end
     /// gives them (none: the natives that need them answer as the client does when they fail).
     pub local: Option<Box<dyn LocalSystem + Send>>,
-    records: HashMap<u32, Option<Arc<Record>>>,
+    records: HashMap<u32, Arc<Record>>,
     /// The client's one data cache: the data files' records, decoded once and kept (opened the
     /// first time one is asked for), shared with the data cache's requests.
     pub(crate) cache: Option<crate::cache::DataCache>,
@@ -338,20 +338,24 @@ impl ClientHost {
         self.cache.as_ref().filter(|c| !c.is_empty())
     }
 
-    /// The qualities record with this id, read once: an object's defaults, the record its own
-    /// qualities derive from. A record the portal file holds that does
-    /// not read is read again first: only a failure that repeats is remembered (a read the
-    /// machine got wrong once would otherwise hide the record for the rest of the run).
-    // D2-07253
+    /// The qualities record with this id: an object's defaults, the record its own qualities
+    /// derive from. It is read through the data cache, so one the server sent is read as the
+    /// files' own are. A record is kept once read and a missing one is looked for again next time:
+    /// it may come. A record the portal file holds that does not read is read again first.
+    // D2-07253, D2-12600
     pub(crate) fn record(&mut self, id: u32) -> Option<Arc<Record>> {
         if id == 0 {
             return None;
         }
         if let Some(r) = self.records.get(&id) {
-            return r.clone();
+            return Some(r.clone());
         }
         let read = || {
-            self.portal.read(id).ok().and_then(|b| {
+            let bytes = match self.data_cache() {
+                Some(c) => c.database().read(id),
+                None => self.portal.read(id).ok(),
+            };
+            bytes.and_then(|b| {
                 auberean_assets::decode::<Record>(id, &b, &auberean_assets::Context::empty()).ok()
             })
         };
@@ -364,7 +368,9 @@ impl ClientHost {
             r = read();
         }
         let r = r.map(Arc::new);
-        self.records.insert(id, r.clone());
+        if let Some(r) = &r {
+            self.records.insert(id, r.clone());
+        }
         r
     }
 

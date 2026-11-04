@@ -236,6 +236,48 @@ fn an_objects_creation_asks_the_server_for_the_records_its_files_lack_and_a_refu
     assert!(!again.contains(&(RecordType::ENTITY.0, entity)));
 }
 
+/// A qualities record no file holds answers nothing until the server sends it, and from then on
+/// the object made from it reads its qualities there.
+///
+/// Behaviour: data.cache.a-qualities-record-that-comes-later-is-read
+#[test]
+fn a_qualities_record_the_server_sends_later_is_read_by_an_object_made_before_it() {
+    use auberean_client_runtime::repository::{answer, INT};
+    let mut c = client(true);
+    let id = 0x8130_0000_1000_0001;
+    c.take_message(
+        NOW,
+        ServerMessage::CreateObject(CreateObject {
+            id,
+            weenie: WeenieDesc {
+                mask: WeenieDesc::ENTITY,
+                entity_did: 0x4700_0005,
+                ..WeenieDesc::default()
+            },
+            ..CreateObject::default()
+        }),
+    );
+    let quality = |c: &mut Client| c.with_host(|h| answer(h, &INT, id, 7)).expect("a host");
+    assert_eq!(quality(&mut c), None, "no file holds it");
+    // A qualities record of one integer: its flags, its id, then its table.
+    let mut bytes = Vec::new();
+    for word in [0x2u32, 0x8100_0005, 1, 7, 42] {
+        bytes.extend_from_slice(&word.to_le_bytes());
+    }
+    c.take_message(
+        LOGIN | 1,
+        ServerMessage::DataRecord(DataRecord {
+            dat_file: PORTAL,
+            kind: RecordType::QUALITIES.0,
+            id: 0x8100_0005,
+            size: 0,
+            bytes,
+        }),
+    );
+    c.upkeep();
+    assert_eq!(quality(&mut c), Some(42), "it came");
+}
+
 /// An object whose records the files lack is made at once: its records are asked for behind it.
 ///
 /// Behaviour: data.cache.objects-made-before-their-records

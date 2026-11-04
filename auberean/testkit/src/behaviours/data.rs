@@ -87,6 +87,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "data.cache.a-qualities-record-that-comes-later-is-read",
+        says: "Our choice: a qualities record no file holds answers nothing until the server sends \
+               it, then is read through the one cache, also by an object made before it came. \
+               Retail's lookup remembers no miss; what its older objects do is not known.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-CACHE-QUALITIES-LATER"),
+        station: "auberean-client-runtime::cpu::world::cache::a_qualities_record_the_server_sends_later_is_read_by_an_object_made_before_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.cache.an-objects-creation-asks-for-its-records",
         says: "An object's creation asks the data cache for the records it is made from (its visual \
                description's, its script state and qualities records by its entity or package, and \
