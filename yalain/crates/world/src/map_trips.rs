@@ -109,7 +109,7 @@ pub fn refuse<S: Store>(
     let item = s.things.get(m.item).map_or(0, |t| t.template);
     let who = s.content.objects[i].template;
     let line = crate::talk::at_give_as(s, who, Some(i), Role::RefuseMap, item)
-        .or_else(|| crate::talk::at_give(s, who, Some(i)));
+        .or_else(|| crate::talk::at_give(s, who, Some(i), item));
     if let Some(line) = line {
         let speaker = crate::talk::content_speaker(s, i);
         crate::talk::say(s, net, world, &speaker, &line.words, line.how);

@@ -1052,3 +1052,61 @@ fn a_give_that_makes_a_hero_does_so_when_the_transformation_is_through() {
         "the hero's text"
     );
 }
+
+const NAMED_LINE: u32 = 0x3DE6_3E47;
+const TAKING_LINE: u32 = 0x4DAF_1F70;
+
+/// A person with a plain refusal and lines naming an item.
+fn with_lines_for_ashes(h: &mut Harness, role: Role) {
+    h.server.talk.lines.push(Line {
+        item: Some(ASHES),
+        ..line(PERSON_T, NAMED_LINE, Some(role), None)
+    });
+}
+
+/// A line naming an item is said of that item, over the plain refusal, and of no other.
+///
+/// Behaviour: server.gives.a-line-for-an-item
+#[test]
+fn a_line_naming_an_item_is_said_of_that_item_and_no_other() {
+    let mut h = world();
+    with_lines_for_ashes(&mut h, Role::RefuseGive);
+    let (b, me) = player(&mut h, "one", "Elara");
+    let junk = hold(&mut h, me, JUNK, 1);
+    let (lines, _) = give_ashes(&mut h, b, me, junk, 1);
+    assert_eq!(lines, vec![PLAIN_REFUSAL], "another item");
+    let ashes = hold(&mut h, me, ASHES, 1);
+    let (lines, _) = give_ashes(&mut h, b, me, ashes, 1);
+    assert_eq!(lines, vec![NAMED_LINE], "the item it names");
+}
+
+/// Refused, a person does not say its line for taking the item.
+///
+/// Behaviour: server.gives.a-line-for-an-item
+#[test]
+fn a_line_for_taking_an_item_is_not_said_as_it_is_refused() {
+    let mut h = world();
+    h.server.talk.lines.push(Line {
+        item: Some(ASHES),
+        ..line(PERSON_T, TAKING_LINE, Some(Role::Accept), None)
+    });
+    let (b, me) = player(&mut h, "one", "Elara");
+    let ashes = hold(&mut h, me, ASHES, 1);
+    let (lines, _) = give_ashes(&mut h, b, me, ashes, 1);
+    assert_eq!(lines, vec![PLAIN_REFUSAL]);
+}
+
+/// A person with no plain refusal and a line naming an item says nothing when given another.
+///
+/// Behaviour: server.gives.a-line-for-an-item
+#[test]
+fn a_person_with_only_a_line_for_another_item_says_nothing_of_this_one() {
+    let mut h = world();
+    h.server.talk.lines.retain(|l| l.who != PERSON_T);
+    with_lines_for_ashes(&mut h, Role::Use);
+    let (b, me) = player(&mut h, "one", "Elara");
+    let junk = hold(&mut h, me, JUNK, 1);
+    let (lines, _) = give_ashes(&mut h, b, me, junk, 1);
+    assert_eq!(lines, Vec::<u32>::new());
+    assert!(holds(&h, me, junk.0), "handed back");
+}

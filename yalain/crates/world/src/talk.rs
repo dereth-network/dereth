@@ -10,8 +10,8 @@
 //! **Used, too soon.** A person who gives several quests and gave the player one too lately to give
 //! another says its too-soon line.
 //!
-//! **Given an item it has no use for.** A person says its refusal of a give (else another line it
-//! says at a give naming no quest) as it hands the item back.
+//! **Given an item it has no use for.** A person says its line for that item, else its refusal of
+//! a give (else another line it says at a give naming no quest) as it hands the item back.
 //!
 //! **Given a map.** A person who sends players where their maps lead says its line for that as it
 //! hands the map back, and its own line for a map it does not take.
@@ -338,16 +338,37 @@ pub fn at_use<S: Store>(
     pick(s, &said)
 }
 
-/// What a person given an item it has no step for says as it hands the item back: its refusal of a
-/// give, else another of the lines it says when given something that names no quest (2017: 30 of 30
-/// such gives said one of the person's own lines at a give, 13 of them its refusal).
-pub fn at_give<S: Store>(s: &mut Server<S>, who: u32, object: Option<usize>) -> Option<Line> {
+/// What a person given an item it has no step for says as it hands the item back: a line naming
+/// that item, else its refusal of a give, else another of the lines it says when given something
+/// that names no quest (2017: 30 of 30 such gives said one of the person's own lines at a give, 13
+/// of them its refusal). A line naming an item is said of that item and no other, and a person's
+/// lines for taking an item are not among these.
+pub fn at_give<S: Store>(
+    s: &mut Server<S>,
+    who: u32,
+    object: Option<usize>,
+    item: u32,
+) -> Option<Line> {
     let lines: Vec<Line> = s
         .talk
         .of(who, object)
-        .filter(|l| l.when == When::Give && l.quest.is_none() && l.update.is_none())
+        .filter(|l| {
+            l.when == When::Give
+                && l.quest.is_none()
+                && l.update.is_none()
+                && l.item.is_none_or(|i| i == item)
+                && l.role != Some(Role::Accept)
+        })
         .cloned()
         .collect();
+    let named: Vec<Line> = lines
+        .iter()
+        .filter(|l| l.item == Some(item) && !matches!(l.role, Some(Role::Teleport)))
+        .cloned()
+        .collect();
+    if !named.is_empty() {
+        return pick(s, &named);
+    }
     let refusals: Vec<Line> = lines
         .iter()
         .filter(|l| l.role == Some(Role::RefuseGive))
@@ -386,7 +407,7 @@ pub fn at_wrong_count<S: Store>(
         .cloned()
         .collect();
     if lines.is_empty() {
-        return at_give(s, who, object);
+        return at_give(s, who, object, item);
     }
     pick(s, &lines)
 }

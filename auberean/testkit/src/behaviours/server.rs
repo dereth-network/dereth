@@ -2904,6 +2904,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.a-line-for-an-item",
+        says: "A line a person says at a give naming an item is said of that item and no other, before \
+               its plain refusal, and a line for taking an item is not said as one is refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-LINE-FOR-ITEM"),
+        station: "yalain-testkit::cpu::play::gives::a_line_naming_an_item_is_said_of_that_item_and_no_other",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.gives.a-step-keeps-the-item",
         says: "An item given to a person that a quest step takes is kept: it leaves the pack and the \
                world, destroyed in the person, the person says its line with the update and the quest \

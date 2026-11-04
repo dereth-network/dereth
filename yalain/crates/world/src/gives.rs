@@ -402,7 +402,8 @@ fn refused<S: Store>(
     clock: Clock,
 ) {
     let template = s.content.objects[i].template;
-    if let Some(line) = crate::talk::at_give(s, template, Some(i)) {
+    let item = s.things.get(m.item).map_or(0, |t| t.template);
+    if let Some(line) = crate::talk::at_give(s, template, Some(i), item) {
         let speaker = crate::talk::content_speaker(s, i);
         crate::talk::say(s, net, world, &speaker, &line.words, line.how);
     }
