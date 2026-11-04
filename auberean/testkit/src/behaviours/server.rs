@@ -4384,6 +4384,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.lying-client.recorded-messages-bitten-do-no-harm",
+        says: "Every kind of message and call the 2017 clients sent, bitten, cut short and \
+               with counts inflated from a fixed seed, through the real parser and into a \
+               world, panics nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LYING-RECORDED"),
+        station: "yalain-testkit::corpus::replay::every_kind_of_recorded_message_bitten_panics_nothing",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.market.a-consigned-item-keeps-what-it-holds",
         says: "An item on sale holds what it held in the pack: taken back unsold it comes as a new \
                item with the old one's value and own numbers, a restart leaves it as it was, and \
