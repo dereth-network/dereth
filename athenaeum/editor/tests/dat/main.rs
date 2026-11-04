@@ -1031,3 +1031,27 @@ fn the_finder_leaves_out_things_to_carry_until_asked() {
     e.show_worn = true;
     assert_eq!(&*e.templates_matching("boots"), [boots]);
 }
+
+#[test]
+fn a_row_of_effects_alone_draws_them_and_stops_when_it_is_gone() {
+    let mut e = editor("row-effects");
+    let (look, _) = e.look(0x4700_33A5).expect("a portal of effects alone");
+    let g = ground(&mut e);
+    let v = e.view();
+    let row = athenaeum_editor::scene::Standing {
+        look,
+        at: [g[0], g[1], g[2]],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        scale: 1.0,
+    };
+    let bare = e.scene.frame(&v, &[], None).objects.len();
+    let _ = e.scene.frame(&v, &[row], None);
+    let with = e.scene.frame(&v, &[row], None).objects.len();
+    assert!(with > bare, "{with} against {bare}");
+    let _ = e.scene.frame(&v, &[], None);
+    assert_eq!(
+        e.scene.frame(&v, &[], None).objects.len(),
+        bare,
+        "gone with it"
+    );
+}

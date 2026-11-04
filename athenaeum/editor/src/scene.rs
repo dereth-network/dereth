@@ -12,7 +12,9 @@ use auberean_assets::Context;
 use auberean_dat::locate::{install_dats, DatName};
 use auberean_dat::DatFile;
 use auberean_draw::body::BodyDrawer;
+use auberean_draw::effects::ObjectEffects;
 use auberean_draw::scene::{inside_light, Camera, Frame, ObjectBatch, SceneBuilder, Spot};
+use auberean_draw::systems::ParticleSystems;
 use auberean_physics::interior::add_block_cells;
 use auberean_physics::land::Land;
 use auberean_physics::mesh::Trees;
@@ -71,11 +73,19 @@ pub struct Standing {
     pub scale: f32,
 }
 
-/// A look put together once: its body at rest and its parts' poses.
+/// A look put together once: its body at rest and its parts' poses, and the look itself where it
+/// carries effects.
 struct Posed {
     figure: Figure,
     poses: Vec<PartPose>,
     scale: Vec3,
+    with_effects: Option<Look>,
+}
+
+/// One row's effects as they play, and the block they stand in.
+struct RowEffects {
+    effects: ObjectEffects,
+    home: (i32, i32),
 }
 
 /// The world's frame as last built: for the camera's block, cell and moment of the day, with how
@@ -169,6 +179,11 @@ pub struct Scene<'w> {
     cells_read: HashSet<u16>,
     /// What each look is made of, for clicks on it and for standing on it.
     shapes: HashMap<u32, Option<std::sync::Arc<LookShape>>>,
+    /// The particle systems of what the rows play, and the rows' effects, by look and which of
+    /// that look's rows they are.
+    systems: ParticleSystems,
+    row_effects: HashMap<(u32, usize), RowEffects>,
+    started: std::time::Instant,
 }
 
 impl std::fmt::Debug for Scene<'_> {
@@ -200,6 +215,9 @@ impl<'w> Scene<'w> {
             time_of_day: 0.45,
             cells_read: HashSet::new(),
             shapes: HashMap::new(),
+            systems: ParticleSystems::default(),
+            row_effects: HashMap::new(),
+            started: std::time::Instant::now(),
         }
     }
 
@@ -414,6 +432,7 @@ impl<'w> Scene<'w> {
                     figure,
                     poses,
                     scale: l.scale,
+                    with_effects: l.global.has_fx().then(|| l.clone()),
                 })
             });
             self.looks.insert(look, posed);
@@ -546,6 +565,92 @@ impl<'w> Scene<'w> {
         self.builder.parts_frame(&[], bodies, camera, light, None)
     }
 
+    /// What the rows' effects draw now: each plays from when its row first stands here and stops
+    /// when it is gone, standing where its row stands.
+    fn row_effects_batches(
+        &mut self,
+        rows: &[Standing],
+        block: (i32, i32),
+        view: &View,
+    ) -> Vec<ObjectBatch> {
+        let now = self.started.elapsed().as_secs_f64();
+        let records = &self.data.records;
+        let mut seen: HashMap<u32, usize> = HashMap::new();
+        let mut kept = HashSet::new();
+        for r in rows {
+            let Some(Some(p)) = self.looks.get(&r.look) else {
+                continue;
+            };
+            let Some(look) = &p.with_effects else {
+                continue;
+            };
+            let n = seen.entry(r.look).or_default();
+            let key = (r.look, *n);
+            *n += 1;
+            kept.insert(key);
+            let floor = dereth_primitives::num::floor_to_i32;
+            let home = (floor(r.at[0] / BLOCK), floor(r.at[1] / BLOCK));
+            #[allow(clippy::cast_precision_loss)]
+            let place = Mat4::from_parts(
+                Vec3::new(
+                    r.at[0] - home.0 as f32 * BLOCK,
+                    r.at[1] - home.1 as f32 * BLOCK,
+                    r.at[2],
+                ),
+                Quat {
+                    w: r.rotation[0],
+                    x: r.rotation[1],
+                    y: r.rotation[2],
+                    z: r.rotation[3],
+                },
+                Vec3::new(1.0, 1.0, 1.0),
+            );
+            let scale = Vec3::new(
+                p.scale.x * r.scale,
+                p.scale.y * r.scale,
+                p.scale.z * r.scale,
+            );
+            // A row carried into another block starts its effects again there.
+            if self.row_effects.get(&key).is_some_and(|e| e.home != home) {
+                self.row_effects.remove(&key);
+            }
+            let playing = match self.row_effects.entry(key) {
+                std::collections::hash_map::Entry::Occupied(e) => e.into_mut(),
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    let Some(mut effects) = ObjectEffects::of_look(look) else {
+                        continue;
+                    };
+                    effects.start(&self.systems, records, home, &place, scale, now);
+                    e.insert(RowEffects { effects, home })
+                }
+            };
+            playing.effects.use_time(records, now);
+            playing
+                .effects
+                .think(&self.systems, home, &place, scale, Color::WHITE, now);
+        }
+        self.row_effects.retain(|k, _| kept.contains(k));
+        if kept.is_empty() {
+            return Vec::new();
+        }
+        let f = view.forward;
+        let forward = Vec3::new(f[0], f[1], f[2]);
+        let right = math::normalize(Vec3::new(f[1], -f[0], 0.0));
+        let up = Vec3::new(
+            right.y * forward.z - right.z * forward.y,
+            right.z * forward.x - right.x * forward.z,
+            right.x * forward.y - right.y * forward.x,
+        );
+        #[allow(clippy::cast_precision_loss)]
+        let eye = Vec3::new(
+            view.eye[0] - block.0 as f32 * BLOCK,
+            view.eye[1] - block.1 as f32 * BLOCK,
+            view.eye[2],
+        );
+        self.systems
+            .batches(block, BLOCK, now, eye, (right, forward, up))
+    }
+
     /// The frame from `view`, with `rows` standing in it; `inside` the block and interior cell the
     /// camera is in, if it is in one.
     pub fn frame(&mut self, view: &View, rows: &[Standing], inside: Option<(u16, u16)>) -> &Frame {
@@ -598,6 +703,7 @@ impl<'w> Scene<'w> {
         for r in rows {
             let _ = self.posed(r.look);
         }
+        let effects = self.row_effects_batches(rows, block, view);
         let (looks, drawer, records) = (&self.looks, &mut self.drawer, &self.data.records);
         let mut batches = Vec::new();
         for r in rows {
@@ -626,6 +732,7 @@ impl<'w> Scene<'w> {
         let frame = &mut built.3;
         frame.objects.truncate(built.4);
         frame.objects.extend(batches);
+        frame.objects.extend(effects);
         frame.camera.position = eye;
         frame.camera.heading = view.heading();
         frame.camera.pitch = view.pitch();
