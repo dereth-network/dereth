@@ -63,6 +63,7 @@ not how it was done.
 - Naming a character on the command line now takes you straight in.
 - Switching away from the window now lets go of held keys and buttons.
 - New `--adminclient` option shows the admin button when creating a character.
+- Resizing a chat window no longer loses its scroll bar.
 
 ## 0.1.2 (2026-11-02)
 

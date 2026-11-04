@@ -1559,6 +1559,7 @@ impl Retail {
 
     /// Redraw the pictures when the tree changed.
     fn redraw(&mut self) {
+        self.ui.lay_out_text_shown();
         let key = (self.ui.revision(), self.ui.display());
         if self.drawn == Some(key) {
             return;

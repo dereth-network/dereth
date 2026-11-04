@@ -809,6 +809,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.a-resized-chat-windows-scroll-bar-follows-it",
+        says: "A chat window made taller keeps its scroll bar: with the text all showing, the \
+               widget fills the taller bar once the frame is drawn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-RESIZED-CHAT-BAR"),
+        station: "auberean-interface::dat::screens::a_resized_chat_windows_scroll_bar_follows_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.a-server-gone-ends-the-session-on-the-disconnected-screen",
         says: "A player in the world whose world server goes (its goodbye answered, or 140 \
                seconds of silence) goes to the disconnected screen saying the connection to the \

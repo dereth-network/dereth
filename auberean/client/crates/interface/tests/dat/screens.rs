@@ -886,6 +886,62 @@ fn the_chat_entry_taking_the_keys_stops_a_key_held() {
     );
 }
 
+/// The chat window's scroll bars, each with its bar's height and its widget's, when the widget shows.
+fn chat_bars(retail: &Rc<RefCell<Retail>>) -> Vec<(i32, Option<i32>)> {
+    fn walk(ui: &auberean_ui::Ui, h: auberean_ui::Handle, out: &mut Vec<(i32, Option<i32>)>) {
+        let Some(n) = ui.node(h) else { return };
+        if n.kind == auberean_ui::token::kind::SCROLLBAR && ui.shown(h) {
+            let widget = n.children.iter().find_map(|c| {
+                let w = ui.node(*c)?;
+                w.visible.then(|| w.rect.height())
+            });
+            out.push((n.rect.height(), widget));
+        }
+        for c in &n.children {
+            walk(ui, *c, out);
+        }
+    }
+    let r = retail.borrow();
+    let ui = r.ui();
+    let mut out = Vec::new();
+    walk(
+        ui,
+        ui.find(Token::of("ChatWindow1")).expect("the chat"),
+        &mut out,
+    );
+    out
+}
+
+/// A chat window made taller keeps its scroll bar: with the text all showing, the widget fills the
+/// taller bar once the frame is drawn.
+///
+/// Behaviour: desktop.interface.a-resized-chat-windows-scroll-bar-follows-it
+#[test]
+fn a_resized_chat_windows_scroll_bar_follows_it() {
+    let (mut s, retail) = into_the_world();
+    assert!(until(&mut s, 2.0, |_| retail
+        .borrow()
+        .vitals_shown()
+        .is_some()));
+    step(&mut s);
+    let before = chat_bars(&retail);
+    let (bar, widget) = *before.first().expect("the chat has a scroll bar");
+    assert_eq!(widget, Some(bar), "the text all shows");
+    {
+        let mut r = retail.borrow_mut();
+        let ui = r.ui_mut();
+        let h = ui.find(Token::of("ChatWindow1")).expect("the chat");
+        let rect = ui.node(h).expect("the chat").rect;
+        ui.resize_to(h, rect.width(), rect.height() + 90);
+    }
+    step(&mut s);
+    let (taller, widget) = *chat_bars(&retail)
+        .first()
+        .expect("the chat has a scroll bar");
+    assert_eq!(taller, bar + 90);
+    assert_eq!(widget, Some(taller), "the widget fills the taller bar");
+}
+
 /// Whether any element holds the left button.
 fn left_held(retail: &Rc<RefCell<Retail>>) -> bool {
     fn walk(ui: &auberean_ui::Ui, h: auberean_ui::Handle) -> bool {
