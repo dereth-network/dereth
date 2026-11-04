@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use auberean_client_sdk::dat::disk::client_files::CLIENT_VERSIONS;
 use auberean_client_sdk::dat::locate::DatName;
 use auberean_client_sdk::dat::DatFile;
 use auberean_client_sdk::runtime::data::{DataFiles, ENGLISH};
@@ -12,6 +13,11 @@ use auberean_client_sdk::ClientData;
 use auberean_scene::WorldData;
 use auberean_shell::preferences::{EnumNames, Names, Preferences, LANGUAGES};
 use auberean_shell::profile::Profile;
+
+/// What is said of an install with no portal file of this game's version.
+pub const NO_PORTAL: &str = "no portal file of this game's version";
+/// What is said of an install with no cell file of this game's version.
+pub const NO_CELL: &str = "no cell file of this game's version";
 
 /// An install, as its host reaches it.
 pub struct Install<'a> {
@@ -30,12 +36,30 @@ impl std::fmt::Debug for Install<'_> {
 }
 
 impl Install<'_> {
-    /// The file `name`, when the install has it and it opens.
+    /// The file `name`, when the install has it, it opens and it holds the game version this client
+    /// reads.
+    // D2-05172, D2-17654
     fn file(&self, name: &DatName) -> Option<DatFile> {
-        self.found
+        let file = self
+            .found
             .contains(name)
             .then(|| (self.open)(name))
-            .flatten()
+            .flatten()?;
+        let wanted = match name {
+            DatName::Cell(_) => CLIENT_VERSIONS.game_cell,
+            _ => CLIENT_VERSIONS.game_data,
+        };
+        let version = file.header().game_pack_vnum;
+        if version != wanted {
+            tracing::warn!(
+                file = %name.file_name(),
+                version,
+                wanted,
+                "a data file of another game version"
+            );
+            return None;
+        }
+        Some(file)
     }
 }
 
@@ -43,15 +67,15 @@ impl Install<'_> {
 /// else the preferences', else English (English too when the install has no strings for it).
 ///
 /// # Errors
-/// No portal or cell file, or one whose records do not read.
+/// No portal or cell file of this game's version, or one whose records do not read.
 // D2-00120
 pub fn open_data(
     install: &Install<'_>,
     language: Option<&str>,
     preferences: &str,
 ) -> Result<(WorldData, ClientData, String), String> {
-    let portal = install.file(&DatName::Portal).ok_or("no portal file")?;
-    let cell = install.file(&DatName::Cell(1)).ok_or("no cell file")?;
+    let portal = install.file(&DatName::Portal).ok_or(NO_PORTAL)?;
+    let cell = install.file(&DatName::Cell(1)).ok_or(NO_CELL)?;
     let ctx = auberean_assets::Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
     let records = auberean_world::records::WorldRecords::new(
         portal,
@@ -65,7 +89,7 @@ pub fn open_data(
     let mut id = auberean_shell::preferences::language(language, &prefs, &languages);
     // D2-05140, D2-12611
     let mut name = languages.name(id).unwrap_or("English").to_owned();
-    if !install.found.contains(&DatName::Local(name.clone())) {
+    if install.file(&DatName::Local(name.clone())).is_none() {
         tracing::warn!(language = %name, "no strings for the language: English");
         id = ENGLISH;
         name = "English".to_owned();
@@ -73,7 +97,7 @@ pub fn open_data(
     if let Some(file) = install.file(&DatName::Local(name.clone())) {
         world.records.use_language_file(file);
     }
-    let portal = Arc::new(install.file(&DatName::Portal).ok_or("no portal file")?);
+    let portal = Arc::new(install.file(&DatName::Portal).ok_or(NO_PORTAL)?);
     let mut files = vec![Arc::clone(&portal)];
     files.extend(install.file(&DatName::Local(name.clone())).map(Arc::new));
     files.extend(install.file(&DatName::Cell(1)).map(Arc::new));

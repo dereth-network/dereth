@@ -33,9 +33,8 @@ pub static DIVERGENCES: &[Divergence] = &[
     },
     Divergence {
         id: "CD2-data-files-from-one-folder",
-        says: "The data files are opened from the one install folder named, without checking \
-               their game versions; the first region's cell file is always used, and a language \
-               with no file falls back to English.",
+        says: "The data files are opened from the one install folder named; the first region's \
+               cell file is always used, and a language with no file falls back to English.",
     },
     Divergence {
         id: "CD2-data-read-again",

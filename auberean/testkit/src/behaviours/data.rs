@@ -384,6 +384,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "data.disk.a-file-of-another-game-version-is-not-opened",
+        says: "A data file whose game version isn't the one the client reads (3, and 0 for a cell \
+               file) counts as not there: with no portal or cell file nothing opens.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DATA-GAME-VERSION"),
+        station: "auberean-interface::dat::data::a_file_of_another_game_version_is_not_opened",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "data.disk.a-file-without-a-version-list-is-closed",
         says: "A data file opened reads the list of data versions it holds; one without a list that reads \
                is closed again and a notice shown.",
