@@ -17,6 +17,7 @@ see, not how it was done.
 - Names read as people read them, without the game's grammar marks.
 - The editor now goes indoors: rooms and dungeons are drawn, and rows are placed on their floors.
 - Click a person or an object itself to select it, not just its marker.
+- Shift+click selects several rows, to move, turn, copy and take away together.
 - Duplicate copies the selected row beside it (Ctrl+D).
 - macOS: the editor opens at full size on Retina screens, Cmd works as Ctrl, and Backspace deletes.
 

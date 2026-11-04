@@ -207,6 +207,8 @@ pub struct Editor<'w> {
     closing: bool,
     /// The window is to close now.
     pub close_now: bool,
+    /// The other rows selected with [`Editor::selected`], which move, turn and go with it.
+    pub also: Vec<String>,
     /// What the Find window looks for, and what it reads each row by, of a revision of the world.
     finding_rows: Option<String>,
     focus_find: bool,
@@ -407,6 +409,7 @@ impl<'w> Editor<'w> {
             adding: play::Adding::default(),
             closing: false,
             close_now: false,
+            also: Vec::new(),
             finding_rows: None,
             focus_find: false,
             row_index: None,
@@ -533,8 +536,13 @@ impl<'w> Editor<'w> {
             .as_deref()
             .is_some_and(|i| self.session.entry(i).is_none())
         {
-            self.select(None);
+            let next = self.also.first().cloned();
+            let also: Vec<String> = self.also.iter().skip(1).cloned().collect();
+            self.select(next);
+            self.also = also;
         }
+        let session = &self.session;
+        self.also.retain(|a| session.entry(a).is_some());
         if let Some((at, r)) = self.near_at {
             let d = math::hypotf(at[0] - eye[0], at[1] - eye[1]);
             if r == rev && d < 8.0 {
@@ -596,6 +604,7 @@ impl<'w> Editor<'w> {
 
     /// Select a row, or none.
     pub fn select(&mut self, item: Option<String>) {
+        self.also.clear();
         self.selected = item;
         self.fields_of = None;
         self.held = None;
@@ -698,11 +707,97 @@ impl<'w> Editor<'w> {
         let r = self.session.move_into(item, lb, at, cell);
         if let Some(moved) = self.report(r) {
             self.status = format!("moved {moved}");
+            let also = std::mem::take(&mut self.also);
             self.select(Some(moved));
+            self.also = also;
         }
     }
 
-    /// Turn the selected row by `by` degrees.
+    /// Add a row to the selection, or take it out if it is in; the last one added leads.
+    pub fn toggle_selected(&mut self, item: String) {
+        if self.selected.as_deref() == Some(item.as_str()) {
+            let next = self.also.pop();
+            let also = std::mem::take(&mut self.also);
+            self.select(next);
+            self.also = also;
+        } else if let Some(i) = self.also.iter().position(|a| *a == item) {
+            self.also.remove(i);
+        } else {
+            let was = self.selected.take();
+            let also = std::mem::take(&mut self.also);
+            self.select(Some(item));
+            self.also = also;
+            self.also.extend(was);
+        }
+    }
+
+    /// Whether a row is selected.
+    fn is_selected(&self, item: &str) -> bool {
+        self.selected.as_deref() == Some(item) || self.also.iter().any(|a| a == item)
+    }
+
+    /// Every row selected, the one that leads first.
+    fn all_selected(&self) -> Vec<String> {
+        self.selected.iter().chain(&self.also).cloned().collect()
+    }
+
+    /// Move the other rows selected by what the leading row just moved by, as one step with it.
+    fn move_the_rest(&mut self, by: [f32; 3]) {
+        for (i, item) in self.also.clone().into_iter().enumerate() {
+            let Some(e) = self.session.entry(&item).cloned() else {
+                continue;
+            };
+            let g = entry_global(&e, &mut self.scene);
+            let to = [g[0] + by[0], g[1] + by[1], g[2] + by[2]];
+            let (lb, cell, at) = self.where_is(to);
+            let cell = cell.or_else(|| {
+                is_indoors(&e.row.row)
+                    .then(|| yalain_world_db::compile::outdoor_cell(lb, at[0], at[1]))
+            });
+            let r = self.session.move_into(&item, lb, at, cell);
+            if let Some(moved) = self.report(r) {
+                self.also[i] = moved;
+            }
+        }
+    }
+
+    /// Turn the leading row to `facing`, and the others with it, about it.
+    fn turn_group(&mut self, item: &str, facing: f32) {
+        let Some(e) = self.session.entry(item).cloned() else {
+            return;
+        };
+        let by = facing - heading_of(&e.row.row);
+        let middle = entry_global(&e, &mut self.scene);
+        self.session.begin_step();
+        let r = self.session.turn(item, facing);
+        self.report(r);
+        let (s, c) = (math::sinf(by.to_radians()), math::cosf(by.to_radians()));
+        for (i, other) in self.also.clone().into_iter().enumerate() {
+            let Some(o) = self.session.entry(&other).cloned() else {
+                continue;
+            };
+            let g = entry_global(&o, &mut self.scene);
+            let (dx, dy) = (g[0] - middle[0], g[1] - middle[1]);
+            // Clockwise seen from above, as a heading turns.
+            let to = [
+                middle[0] + dx * c + dy * s,
+                middle[1] - dx * s + dy * c,
+                g[2],
+            ];
+            let (lb, cell, at) = self.where_is(to);
+            let r = self.session.move_into(&other, lb, at, cell);
+            if let Some(moved) = self.report(r) {
+                if matches!(o.row.row, Row::Object(_) | Row::Place(_)) {
+                    let r = self.session.turn(&moved, heading_of(&o.row.row) + by);
+                    self.report(r);
+                }
+                self.also[i] = moved;
+            }
+        }
+        self.session.end_step();
+    }
+
+    /// Turn the selected row by `by` degrees, and the rest of the selection with it.
     pub fn turn_selected(&mut self, by: f32) {
         let Some(item) = self.selected.clone() else {
             return;
@@ -711,18 +806,32 @@ impl<'w> Editor<'w> {
             return;
         };
         let h = heading_of(&e.row.row) + by;
-        let r = self.session.turn(&item, h);
-        self.report(r);
+        self.turn_group(&item, h);
     }
 
     /// Copy the selected row a little to the camera's right, and select the copy.
     pub fn duplicate_selected(&mut self) {
-        let Some(item) = self.selected.clone() else {
-            return;
-        };
-        let Some(e) = self.session.entry(&item).cloned() else {
-            return;
-        };
+        let items = self.all_selected();
+        self.session.begin_step();
+        let mut copies = Vec::new();
+        for item in &items {
+            copies.extend(self.duplicate_row(item));
+        }
+        self.session.end_step();
+        let mut copies = copies.into_iter();
+        if let Some(first) = copies.next() {
+            self.status = match &items[..] {
+                [one] => format!("copied {one} as {first}"),
+                _ => format!("copied {} rows", items.len()),
+            };
+            self.select(Some(first));
+            self.also = copies.collect();
+        }
+    }
+
+    /// A copy of one row a little to the camera's right.
+    fn duplicate_row(&mut self, item: &str) -> Option<String> {
+        let e = self.session.entry(item).cloned()?;
         let g = entry_global(&e, &mut self.scene);
         let (sy, cy) = (math::sinf(self.camera.yaw), math::cosf(self.camera.yaw));
         let (x, y) = (g[0] + cy * DUPLICATE_AWAY, g[1] + sy * DUPLICATE_AWAY);
@@ -736,24 +845,32 @@ impl<'w> Editor<'w> {
         } else {
             (x, y, z)
         };
-        let (lb, at) = view::local([x, y, z]);
-        let r = self.session.duplicate(&item, lb, at);
-        if let Some(copy) = self.report(r) {
-            self.status = format!("copied {item} as {copy}");
-            self.select(Some(copy));
-        }
+        let (lb, _, at) = self.where_is([x, y, z]);
+        let r = self.session.duplicate(item, lb, at);
+        self.report(r)
     }
 
     /// Take the selected row away.
     pub fn delete_selected(&mut self) {
-        if let Some(item) = self.selected.clone() {
-            match self.session.delete(&item) {
-                Ok(()) => {
-                    self.status = format!("took {item} away");
-                    self.select(None);
-                }
+        let items = self.all_selected();
+        if items.is_empty() {
+            return;
+        }
+        self.session.begin_step();
+        let mut gone = 0;
+        for item in &items {
+            match self.session.delete(item) {
+                Ok(()) => gone += 1,
                 Err(e) => self.status = e,
             }
+        }
+        self.session.end_step();
+        if gone > 0 {
+            self.status = match &items[..] {
+                [one] => format!("took {one} away"),
+                _ => format!("took {gone} rows away"),
+            };
+            self.select(None);
         }
     }
 
@@ -1374,8 +1491,19 @@ impl<'w> Editor<'w> {
                 Tool::Select => {
                     if !self.take_handle(input.pointer) {
                         match self.pick(input.pointer) {
+                            Some(item) if input.shift => self.toggle_selected(item),
                             Some(item) => {
-                                self.select(Some(item.clone()));
+                                if self.is_selected(&item) && !self.also.is_empty() {
+                                    // Taken by one of them, the whole selection moves.
+                                    if self.selected.as_deref() != Some(item.as_str()) {
+                                        let was = self.selected.take();
+                                        self.also.retain(|a| *a != item);
+                                        self.also.extend(was);
+                                        self.selected = Some(item.clone());
+                                    }
+                                } else {
+                                    self.select(Some(item.clone()));
+                                }
                                 self.drag = Some(Drag {
                                     item,
                                     from: input.pointer,
@@ -1383,7 +1511,11 @@ impl<'w> Editor<'w> {
                                     to: None,
                                 });
                             }
-                            None => self.select(None),
+                            None => {
+                                if !input.shift {
+                                    self.select(None);
+                                }
+                            }
                         }
                     }
                 }
@@ -1404,7 +1536,7 @@ impl<'w> Editor<'w> {
                 self.drag = Some(d);
             } else if d.moved {
                 if let Some(to) = d.to {
-                    self.move_row(&d.item, to);
+                    self.move_selection(&d.item, to);
                 }
             }
         }
@@ -1492,12 +1624,26 @@ impl<'w> Editor<'w> {
             self.grip = Some(g);
         } else if g.handle == Handle::Turn {
             if (g.facing - g.heading).abs() > f32::EPSILON {
-                let r = self.session.turn(&g.item, g.facing);
-                self.report(r);
+                self.turn_group(&g.item, g.facing);
             }
         } else if g.at != g.origin {
-            self.move_row(&g.item, g.at);
+            self.move_selection(&g.item, g.at);
         }
+    }
+
+    /// Move the leading row to a point, and the rest of the selection by as much, as one step.
+    fn move_selection(&mut self, item: &str, to: [f32; 3]) {
+        let Some(e) = self.session.entry(item).cloned() else {
+            return;
+        };
+        let from = entry_global(&e, &mut self.scene);
+        let by = [to[0] - from[0], to[1] - from[1], to[2] - from[2]];
+        let also = std::mem::take(&mut self.also);
+        self.session.begin_step();
+        self.move_row(item, to);
+        self.also = also;
+        self.move_the_rest(by);
+        self.session.end_step();
     }
 
     /// A point of the ground at the nearest whole number of the grid, on the ground there.
@@ -1519,12 +1665,58 @@ impl<'w> Editor<'w> {
         if let Some(g) = self.grip.as_ref().filter(|g| g.item == item) {
             return (Some(g.at), Some(g.facing));
         }
+        if self.also.iter().any(|a| a == item) {
+            return self.held_with_the_rest(item);
+        }
         let at = self
             .drag
             .as_ref()
             .filter(|d| d.item == item && d.moved)
             .and_then(|d| d.to);
         (at, None)
+    }
+
+    /// What one of the other rows selected would become with what is held.
+    fn held_with_the_rest(&self, item: &str) -> (Option<[f32; 3]>, Option<f32>) {
+        let Some(e) = self.session.entry(item) else {
+            return (None, None);
+        };
+        let at = e.at();
+        let g = view::global(e.landblock(), [at.x, at.y, at.z.unwrap_or(0.0)]);
+        if let Some(grip) = &self.grip {
+            if grip.handle == Handle::Turn {
+                let by = grip.facing - grip.heading;
+                let (s, c) = (math::sinf(by.to_radians()), math::cosf(by.to_radians()));
+                let (dx, dy) = (g[0] - grip.origin[0], g[1] - grip.origin[1]);
+                let to = [
+                    grip.origin[0] + dx * c + dy * s,
+                    grip.origin[1] - dx * s + dy * c,
+                    g[2],
+                ];
+                return (Some(to), Some(heading_of(&e.row.row) + by));
+            }
+            let by = [
+                grip.at[0] - grip.origin[0],
+                grip.at[1] - grip.origin[1],
+                grip.at[2] - grip.origin[2],
+            ];
+            return (Some([g[0] + by[0], g[1] + by[1], g[2] + by[2]]), None);
+        }
+        if let Some(d) = self.drag.as_ref().filter(|d| d.moved) {
+            if let (Some(to), Some(lead)) = (d.to, self.session.entry(&d.item)) {
+                let a = lead.at();
+                let l = view::global(lead.landblock(), [a.x, a.y, a.z.unwrap_or(to[2])]);
+                return (
+                    Some([
+                        g[0] + to[0] - l[0],
+                        g[1] + to[1] - l[1],
+                        g[2] + to[2] - l[2],
+                    ]),
+                    None,
+                );
+            }
+        }
+        (None, None)
     }
 
     /// Draw the selected row's handles.
@@ -1581,7 +1773,7 @@ impl<'w> Editor<'w> {
             if let (Some(to), _) = self.held_as(&e.item) {
                 g = to;
             }
-            let selected = self.selected.as_deref() == Some(e.item.as_str());
+            let selected = self.is_selected(&e.item);
             let color = color_of(&e.row.row);
             if let Row::Camp(c) = &e.row.row {
                 if d < NEAR || selected {
@@ -2031,7 +2223,7 @@ impl<'w> Editor<'w> {
                         Layer::Target if e.was.is_some() => " (changed)",
                         _ => " (new)",
                     };
-                    let selected = self.selected.as_deref() == Some(e.item.as_str());
+                    let selected = self.is_selected(&e.item);
                     let text = egui::RichText::new(format!(
                         "[{letter}] {} {}{mark}  {name}  {d:.0} m",
                         kind_word(&e.row.row),
@@ -2089,6 +2281,15 @@ impl<'w> Editor<'w> {
             return;
         };
         ui.heading(&item);
+        if !self.also.is_empty() {
+            ui.label(
+                egui::RichText::new(format!(
+                    "and {} more selected: they move, turn, copy and go with it",
+                    self.also.len()
+                ))
+                .color(egui::Color32::from_rgb(255, 255, 160)),
+            );
+        }
         let kind = kind_word(&e.row.row);
         match &e.row.row {
             Row::Object(o) => {

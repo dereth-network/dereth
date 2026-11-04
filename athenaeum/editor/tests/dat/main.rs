@@ -519,3 +519,107 @@ fn a_click_on_a_rows_body_selects_it_though_its_marker_is_elsewhere() {
     click(&mut e, [head[0] + 300.0, head[1] - 200.0], false);
     assert_eq!(e.selected, None, "clear of it, nothing");
 }
+
+/// Two rows in the town, selected together, the second leading.
+fn with_two_rows(name: &str) -> (Editor<'static>, String, String, [f32; 3], [f32; 3]) {
+    let (mut e, first, g) = with_a_row(name);
+    let h = view::global(TOWN, [OPEN[0] + 4.0, OPEN[1], 0.0]);
+    let h = [h[0], h[1], e.scene.ground(h[0], h[1]).expect("ground")];
+    e.place_at(h, 0.0);
+    frame(&mut e, &ViewInput::default());
+    let second = e.selected.clone().expect("the second row");
+    let at = pixel(&e, [g[0], g[1], g[2] + 1.0]);
+    click(&mut e, at, true);
+    assert_eq!(
+        e.selected.as_deref(),
+        Some(first.as_str()),
+        "the last added leads"
+    );
+    assert_eq!(e.also, vec![second.clone()]);
+    (e, first, second, g, h)
+}
+
+#[test]
+fn a_selection_moves_together_and_one_undo_takes_it_back() {
+    let (mut e, first, second, g, h) = with_two_rows("group-move");
+    let handles = gizmo::handles(&e.view(), g, true).unwrap();
+    let tip = handles.arrows.iter().find(|a| a.0 == Handle::X).unwrap().1;
+    let mid = [
+        (handles.origin[0] + tip[0]) / 2.0,
+        (handles.origin[1] + tip[1]) / 2.0,
+    ];
+    let steps = e.session.steps().0;
+    drag(&mut e, mid, [mid[0] + 50.0, mid[1]], false);
+    assert_eq!(e.session.steps().0, steps + 1, "one step");
+    let (a, b) = (place_of(&e, &first), place_of(&e, &second));
+    assert!(a[0] > g[0] + 0.5, "{a:?}");
+    assert!(
+        ((b[0] - a[0]) - (h[0] - g[0])).abs() < 0.01,
+        "they keep their distance"
+    );
+    frame(
+        &mut e,
+        &ViewInput {
+            pressed: vec![KeyCode::KeyZ],
+            ctrl: true,
+            ..ViewInput::default()
+        },
+    );
+    assert_eq!(place_of(&e, &first), g);
+    assert_eq!(place_of(&e, &second), h);
+}
+
+#[test]
+fn a_selection_turns_about_the_row_that_leads() {
+    let (mut e, first, second, g, h) = with_two_rows("group-turn");
+    e.snap.on = true;
+    e.snap.angle = 90.0;
+    key(&mut e, KeyCode::KeyR, false);
+    assert!((heading(&e, &first) - 90.0).abs() < 0.01);
+    assert!((heading(&e, &second) - 90.0).abs() < 0.01);
+    assert_eq!(place_of(&e, &first), g, "the leader stays");
+    let b = place_of(&e, &second);
+    // East of the leader, a quarter turn clockwise puts it south.
+    assert!((b[0] - g[0]).abs() < 0.01, "{b:?}");
+    assert!((b[1] - (g[1] - (h[0] - g[0]))).abs() < 0.01, "{b:?}");
+}
+
+#[test]
+fn a_selection_copies_and_goes_together() {
+    let (mut e, first, second, _, _) = with_two_rows("group-copy");
+    let rows = e.session.entries().len();
+    frame(
+        &mut e,
+        &ViewInput {
+            pressed: vec![KeyCode::KeyD],
+            ctrl: true,
+            ..ViewInput::default()
+        },
+    );
+    assert_eq!(e.session.entries().len(), rows + 2);
+    assert_eq!(e.also.len(), 1, "the copies are selected");
+    assert_ne!(e.selected.as_deref(), Some(first.as_str()));
+    let steps = e.session.steps().0;
+    key(&mut e, KeyCode::Delete, false);
+    assert_eq!(e.session.entries().len(), rows);
+    assert_eq!(e.session.steps().0, steps + 1, "one step");
+    assert!(e.session.entry(&first).is_some() && e.session.entry(&second).is_some());
+    assert_eq!(e.selected, None);
+}
+
+#[test]
+fn shift_click_takes_a_selected_row_out_and_a_plain_click_lets_the_rest_go() {
+    let (mut e, first, second, g, h) = with_two_rows("group-toggle");
+    let on = |e: &Editor<'_>, p: [f32; 3]| pixel(e, [p[0], p[1], p[2] + 1.0]);
+    let at = on(&e, h);
+    click(&mut e, at, true);
+    assert_eq!(e.selected.as_deref(), Some(first.as_str()));
+    assert!(e.also.is_empty(), "{:?}", e.also);
+    let at = on(&e, h);
+    click(&mut e, at, false);
+    assert_eq!(e.selected.as_deref(), Some(second.as_str()));
+    let at = on(&e, g);
+    click(&mut e, at, false);
+    assert_eq!(e.selected.as_deref(), Some(first.as_str()));
+    assert!(e.also.is_empty());
+}

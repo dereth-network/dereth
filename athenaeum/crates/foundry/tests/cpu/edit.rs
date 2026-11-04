@@ -215,6 +215,25 @@ fn a_row_placed_in_a_room_names_it_and_moves_from_room_to_room_and_out() {
 }
 
 #[test]
+fn changes_gathered_together_undo_and_redo_as_one_step() {
+    let mut s = session();
+    let a = s.place(&person([1.0, 2.0, 3.0])).unwrap();
+    let b = s.place(&person([4.0, 2.0, 3.0])).unwrap();
+    let steps = s.steps().0;
+    s.begin_step();
+    s.move_to(&a, LB, [10.0, 2.0, 3.0]).unwrap();
+    s.move_to(&b, LB, [20.0, 2.0, 3.0]).unwrap();
+    s.end_step();
+    assert_eq!(s.steps().0, steps + 1);
+    s.undo();
+    assert_eq!(s.entry(&a).unwrap().at().x, 1.0);
+    assert_eq!(s.entry(&b).unwrap().at().x, 4.0);
+    s.redo();
+    assert_eq!(s.entry(&a).unwrap().at().x, 10.0);
+    assert_eq!(s.entry(&b).unwrap().at().x, 20.0);
+}
+
+#[test]
 fn a_copy_of_a_row_has_a_key_of_its_own_and_the_rest_as_it_was() {
     let mut s = session();
     let first = s.place(&person([1.0, 2.0, 3.0])).unwrap();

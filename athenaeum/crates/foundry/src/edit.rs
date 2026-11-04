@@ -138,6 +138,8 @@ pub struct Session {
     store: Box<dyn SourceStore>,
     sources: Sources,
     history: History,
+    /// The step changes are gathered into, between [`Session::begin_step`] and [`Session::end_step`].
+    gathering: Option<Step>,
     files: Files,
     base: Arc<Base>,
     /// The base's rows by item, as indexes into its merged rows.
@@ -229,6 +231,7 @@ impl Session {
             store,
             sources: Sources::default(),
             history: History::default(),
+            gathering: None,
             files,
             base: Arc::new(base),
             base_items,
@@ -390,8 +393,30 @@ impl Session {
             return;
         }
         self.put_texts(&step.after);
-        self.history.record(step);
+        match &mut self.gathering {
+            Some(g) => {
+                for (path, text) in step.before {
+                    g.before.entry(path).or_insert(text);
+                }
+                g.after.extend(step.after);
+            }
+            None => self.history.record(step),
+        }
         self.refresh();
+    }
+
+    /// Changes from here to [`Session::end_step`] undo as one step.
+    pub fn begin_step(&mut self) {
+        self.gathering.get_or_insert_with(Step::default);
+    }
+
+    /// The changes since [`Session::begin_step`] become one step.
+    pub fn end_step(&mut self) {
+        if let Some(g) = self.gathering.take() {
+            if !g.after.is_empty() {
+                self.history.record(g);
+            }
+        }
     }
 
     /// Read, check and merge the world again.
