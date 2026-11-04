@@ -139,6 +139,11 @@ pub static DIVERGENCES: &[Divergence] = &[
                freezing the game, where the retail client would hang.",
     },
     Divergence {
+        id: "CD2-several-clients-at-once",
+        says: "Several clients can run at once on one machine. The original refused a second \
+               copy with an error dialog and closed.",
+    },
+    Divergence {
         id: "CD2-stops-on-the-disconnected-screen",
         says: "A record the server sends that the client cannot store ends the session on the \
                disconnected screen, which shows the client's line (it failed to save data) and \
