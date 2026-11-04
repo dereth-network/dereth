@@ -41,13 +41,18 @@ impl Loaded {
     /// Where the vertices stand on a skinned mesh, in its pose.
     fn skinned(&self, inf: &[Influences], pose: &PartPose) -> Vec<PosedVertex> {
         let none = Influences::default();
+        let whole = pose.world == Mat4::IDENTITY;
         self.rest
             .iter()
             .enumerate()
             .map(|(k, (p, n))| {
                 let (p, n) = skin_vertex(*p, *n, inf.get(k).unwrap_or(&none), &pose.palette);
-                let p = pose.world.point(p);
-                let n = normalize(pose.world.direction(n));
+                let (p, n) = if whole {
+                    (p, n)
+                } else {
+                    (pose.world.point(p), pose.world.direction(n))
+                };
+                let n = normalize(n);
                 PosedVertex {
                     position: [p.x, p.y, p.z],
                     normal: [n.x, n.y, n.z],
@@ -456,7 +461,11 @@ impl BodyDrawer {
 fn normalize(v: Vec3) -> Vec3 {
     let n = (v.x * v.x + v.y * v.y + v.z * v.z).sqrt();
     if n > 1e-12 {
-        Vec3::new(v.x / n, v.y / n, v.z / n)
+        let (at, mut out) = ([v.x, v.y, v.z, 0.0], [0.0f32; 4]);
+        for i in 0..4 {
+            out[i] = at[i] / n;
+        }
+        Vec3::new(out[0], out[1], out[2])
     } else {
         v
     }

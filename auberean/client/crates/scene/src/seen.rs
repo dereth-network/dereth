@@ -9,7 +9,7 @@
 
 use std::ops::Range;
 
-use auberean_draw::scene::ObjectBatch;
+use auberean_draw::scene::{widen, ObjectBatch};
 use auberean_primitives::Vec3;
 use auberean_world::math;
 use dereth_primitives::num::math as fm;
@@ -170,8 +170,7 @@ impl Seen {
 /// The box a body's batches fill in its own frame.
 #[must_use]
 pub fn bounds_of(body: &SeenBody, batches: &[ObjectBatch]) -> Option<(Vec3, Vec3)> {
-    let mut lo = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
-    let mut hi = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
+    let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
     let mut any = false;
     let turn = body.turn();
     // The layers and fragments of one part share its vertices, in one place.
@@ -185,12 +184,12 @@ pub fn bounds_of(body: &SeenBody, batches: &[ObjectBatch]) -> Option<(Vec3, Vec3
         b.each_position(|[x, y, z]| {
             let w = b.transform.point(Vec3::new(x, y, z));
             let p = body.to_body_turned(w, turn);
-            lo = Vec3::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z));
-            hi = Vec3::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z));
+            widen(&mut lo, &mut hi, [p.x, p.y, p.z]);
             any = true;
         });
     }
-    any.then_some((lo, hi))
+    let v = |[x, y, z]: [f32; 3]| Vec3::new(x, y, z);
+    any.then_some((v(lo), v(hi)))
 }
 
 /// The square of clip space a press of the pointer selects on a screen `size`: from the pixel up

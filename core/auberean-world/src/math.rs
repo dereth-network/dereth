@@ -104,13 +104,15 @@ impl Mat4 {
 
     /// The image of point `p`.
     #[must_use]
+    #[inline]
     pub fn point(&self, p: Vec3) -> Vec3 {
         let m = &self.0;
-        Vec3::new(
-            p.x * m[0][0] + p.y * m[1][0] + p.z * m[2][0] + m[3][0],
-            p.x * m[0][1] + p.y * m[1][1] + p.z * m[2][1] + m[3][1],
-            p.x * m[0][2] + p.y * m[1][2] + p.z * m[2][2] + m[3][2],
-        )
+        let mut out = [0.0f32; 4];
+        // A column at a time, the four kept in step so that they go through together.
+        for i in 0..4 {
+            out[i] = p.x * m[0][i] + p.y * m[1][i] + p.z * m[2][i] + m[3][i];
+        }
+        Vec3::new(out[0], out[1], out[2])
     }
 
     /// The point whose image is `p` under this transform, when it is a rotation and a translation
@@ -128,13 +130,14 @@ impl Mat4 {
 
     /// The image of direction `d` (no translation).
     #[must_use]
+    #[inline]
     pub fn direction(&self, d: Vec3) -> Vec3 {
         let m = &self.0;
-        Vec3::new(
-            d.x * m[0][0] + d.y * m[1][0] + d.z * m[2][0],
-            d.x * m[0][1] + d.y * m[1][1] + d.z * m[2][1],
-            d.x * m[0][2] + d.y * m[1][2] + d.z * m[2][2],
-        )
+        let mut out = [0.0f32; 4];
+        for i in 0..4 {
+            out[i] = d.x * m[0][i] + d.y * m[1][i] + d.z * m[2][i];
+        }
+        Vec3::new(out[0], out[1], out[2])
     }
 }
 

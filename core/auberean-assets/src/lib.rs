@@ -27,6 +27,7 @@ pub mod entity;
 pub mod fx;
 pub mod keymap;
 pub mod landblock;
+pub mod lookup;
 pub mod material;
 pub mod mesh;
 pub mod names;

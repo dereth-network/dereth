@@ -500,6 +500,15 @@ pub fn land_shadow(tb: &TerrainBlock, local: Vec3, square_side: f32, light_direc
     }
 }
 
+/// `lo` and `hi` widened to take in `p`. What is not a number widens nothing.
+#[inline]
+pub fn widen(lo: &mut [f32; 3], hi: &mut [f32; 3], p: [f32; 3]) {
+    for i in 0..3 {
+        lo[i] = if p[i] < lo[i] { p[i] } else { lo[i] };
+        hi[i] = if p[i] > hi[i] { p[i] } else { hi[i] };
+    }
+}
+
 impl ObjectBatch {
     /// What tells the list of places its vertices stand at from another draw's: draws with the
     /// same one, under the same transform, stand in the same place.

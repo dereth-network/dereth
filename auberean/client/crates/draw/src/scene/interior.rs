@@ -1067,8 +1067,7 @@ type InteriorPart = (
 /// The largest half side of the box about `batches` in the frame's world; none for draws with no
 /// vertex.
 fn reach_of(batches: &[ObjectBatch]) -> Option<f32> {
-    let mut lo = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
-    let mut hi = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
+    let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
     // The layers and fragments of one part share its vertices, in one place.
     let mut done: Vec<(usize, [[f32; 4]; 4])> = Vec::new();
     for b in batches {
@@ -1079,11 +1078,10 @@ fn reach_of(batches: &[ObjectBatch]) -> Option<f32> {
         done.push(this);
         b.each_position(|[x, y, z]| {
             let w = b.transform.point(Vec3::new(x, y, z));
-            lo = Vec3::new(lo.x.min(w.x), lo.y.min(w.y), lo.z.min(w.z));
-            hi = Vec3::new(hi.x.max(w.x), hi.y.max(w.y), hi.z.max(w.z));
+            super::widen(&mut lo, &mut hi, [w.x, w.y, w.z]);
         });
     }
-    (lo.x <= hi.x).then(|| 0.5 * (hi.x - lo.x).max(hi.y - lo.y).max(hi.z - lo.z))
+    (lo[0] <= hi[0]).then(|| 0.5 * (hi[0] - lo[0]).max(hi[1] - lo[1]).max(hi[2] - lo[2]))
 }
 
 /// Light `batches`, one draw of an interface scene standing at `at`, by the lights it keeps there
