@@ -11,8 +11,8 @@ use dereth_primitives::shape::Plane;
 use dereth_primitives::{Position, Vec3};
 
 use super::{
-    inquirable, same_property, CollisionReport, CollisionSettings, ContactProperties,
-    ContactProperty, ContactRecord, ObjectContact, Push,
+    same_property, CollisionReport, CollisionSettings, ContactProperties, ContactProperty,
+    ContactRecord, ObjectContact, Push,
 };
 use crate::ethereal::PhysicsTypes;
 use crate::geom;
@@ -200,7 +200,7 @@ fn set_properties(
 ) {
     list.properties.clear();
     for p in groups.iter().flat_map(|g| g.properties.iter()) {
-        if inquirable(props, p.id) {
+        if props.is_inquirable(p.id) {
             list.add(ContactProperty::new(p.clone(), *next_id));
             *next_id = next_id.wrapping_add(1);
         }
@@ -219,7 +219,7 @@ fn update_property_array(
     let held = list.len();
     let mut changed = false;
     for p in groups.iter().flat_map(|g| g.properties.iter()) {
-        if !inquirable(props, p.id) {
+        if !props.is_inquirable(p.id) {
             continue;
         }
         if let Some(c) = list[..held].iter_mut().find(|c| c.name() == p.id) {

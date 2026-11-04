@@ -36,20 +36,6 @@ pub mod change {
     pub const SAME: u32 = 3;
 }
 
-/// Whether the game logic hears of a property when it is touched (its descriptor says reported).
-// D2-16240, D2-16065
-#[must_use]
-pub fn reported(list: &PropertyList, property: u32) -> bool {
-    list.descriptor(property).is_some_and(|d| d.report == 0)
-}
-
-/// Whether a property can be asked about (its descriptor does not say ignored).
-// D2-16241, D2-16066
-#[must_use]
-pub fn inquirable(list: &PropertyList, property: u32) -> bool {
-    list.descriptor(property).is_some_and(|d| d.report != 2)
-}
-
 /// Two properties are the same: the same id, the same kind of value, equal values.
 // D2-16078
 #[must_use]
@@ -135,7 +121,7 @@ impl ContactProperty {
     // D2-15584
     #[must_use]
     pub fn is_reported(&self, list: &PropertyList) -> bool {
-        reported(list, self.name())
+        list.is_reported(self.name())
     }
 
     /// Takes a newly touched value: the same as held marks it unchanged; a different value of the
