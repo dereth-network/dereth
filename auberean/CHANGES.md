@@ -8,6 +8,7 @@ not how it was done.
 ## Unreleased
 
 - Names near the screen's edge now run off it instead of sliding back in.
+- The first start from a cold disk is faster.
 - Scaled objects now block you at the size they're drawn.
 - Fixed frozen characters still moving and animating.
 - Fixed names and selection marks floating over the portal swirl.
