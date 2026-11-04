@@ -328,6 +328,7 @@ impl App<'_> {
                 },
                 Step::Type(text) => self.gui.type_text(&text),
                 Step::Shot(p) => self.shot_next = Some(p),
+                Step::Close => e.ask_close(),
                 Step::Quit => self.quit = true,
             }
             tracing::info!("script: {}", self.editor.status);
@@ -358,7 +359,14 @@ impl App<'_> {
         });
         let p = self.gui.pointer_pixels();
         let inside = viewport.contains(egui::pos2(p[0] / self.gui.scale, p[1] / self.gui.scale));
-        let over = !inside || self.gui.ctx.egui_is_using_pointer();
+        // A window floating over the world keeps its clicks.
+        let pointer = egui::pos2(p[0] / self.gui.scale, p[1] / self.gui.scale);
+        let over_window = self
+            .gui
+            .ctx
+            .layer_id_at(pointer)
+            .is_some_and(|l| l.order != egui::Order::Background);
+        let over = !inside || over_window || self.gui.ctx.egui_is_using_pointer();
         let typing = self.gui.ctx.egui_wants_keyboard_input();
         self.input.pointer = self.gui.pointer_pixels();
         self.editor.world_input(&self.input, over, typing, dt);
@@ -387,7 +395,7 @@ impl App<'_> {
                     .map_or_else(String::new, |n| n.to_string_lossy().to_string())
             ));
         }
-        if self.quit {
+        if self.quit || self.editor.close_now {
             self.editor.keep_camera();
             self.editor.live.stop_all();
             el.exit();
@@ -433,11 +441,7 @@ impl ApplicationHandler for App<'_> {
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         self.gui.event(&event);
         match &event {
-            WindowEvent::CloseRequested => {
-                self.editor.keep_camera();
-                self.editor.live.stop_all();
-                el.exit();
-            }
+            WindowEvent::CloseRequested => self.editor.ask_close(),
             WindowEvent::Resized(s) => {
                 if let Some(p) = &mut self.present {
                     p.resize(s.width, s.height);

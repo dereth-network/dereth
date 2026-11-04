@@ -183,6 +183,10 @@ pub struct Editor<'w> {
     pub skill_names: Vec<(u32, String)>,
     /// What the Characters window is adding to the chosen recipe, and importing.
     adding: play::Adding,
+    /// Closing was asked for with changes not saved: the panels ask what to do with them.
+    closing: bool,
+    /// The window is to close now.
+    pub close_now: bool,
 }
 
 impl std::fmt::Debug for Editor<'_> {
@@ -339,6 +343,8 @@ impl<'w> Editor<'w> {
             published: 0,
             skill_names: Vec::new(),
             adding: play::Adding::default(),
+            closing: false,
+            close_now: false,
         };
         e.read_characters();
         e
@@ -507,6 +513,49 @@ impl<'w> Editor<'w> {
                 Err(e) => self.status = e,
             }
         }
+    }
+
+    /// The window was asked to close: at once with nothing to lose, or once the panels have asked.
+    pub fn ask_close(&mut self) {
+        if self.session.unsaved() {
+            self.closing = true;
+        } else {
+            self.close_now = true;
+        }
+    }
+
+    /// Whether the panels are asking what to do with changes not saved.
+    #[must_use]
+    pub const fn closing(&self) -> bool {
+        self.closing
+    }
+
+    /// What to do with changes not saved, when the window is to close.
+    fn closing_window(&mut self, ctx: &egui::Context) {
+        if !self.closing {
+            return;
+        }
+        egui::Window::new("Close Athenaeum?")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.label("This world has changes that are not saved.");
+                ui.horizontal(|ui| {
+                    if ui.button("Save").clicked() {
+                        self.save();
+                        self.closing = false;
+                        self.close_now = !self.session.unsaved();
+                    }
+                    if ui.button("Don't save").clicked() {
+                        self.closing = false;
+                        self.close_now = true;
+                    }
+                    if ui.button("Cancel").clicked() {
+                        self.closing = false;
+                    }
+                });
+            });
     }
 
     /// Save the world. (The editor's own Yalain has every change already, saved or not.)
@@ -1058,6 +1107,7 @@ impl<'w> Editor<'w> {
         let ctx = ui.ctx().clone();
         self.finder(&ctx);
         self.characters_window(&ctx);
+        self.closing_window(&ctx);
     }
 
     fn status_panel(&mut self, ui: &mut egui::Ui, serving: bool) {

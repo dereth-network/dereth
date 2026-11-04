@@ -30,6 +30,7 @@
 //! key KEY [ctrl] [shift]              a key pressed, as `KeyR`, `Delete` or `Digit1`
 //! type TEXT                          the rest of the line typed
 //! shot FILE                          save the window's picture
+//! close                              what the window's close button does
 //! quit
 //! ```
 //!
@@ -80,6 +81,7 @@ pub enum Step {
     Key(String, bool, bool),
     Type(String),
     Shot(PathBuf),
+    Close,
     Quit,
 }
 
@@ -229,6 +231,7 @@ pub fn parse(text: &str, dir: &Path) -> Result<Vec<Step>, String> {
             ),
             ["type", t @ ..] => Step::Type(t.join(" ")),
             ["shot", f] => Step::Shot(dir.join(f)),
+            ["close"] => Step::Close,
             ["quit"] => Step::Quit,
             _ => return Err(bad(format!("not a step: {line}"))),
         };
