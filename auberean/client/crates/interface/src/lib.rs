@@ -730,6 +730,14 @@ impl Retail {
         self
     }
 
+    /// The creation screen offers the administrator's button; the server decides whether the
+    /// account may have such a character.
+    #[must_use]
+    pub fn with_admin_client(mut self, on: bool) -> Self {
+        self.flow.flow.data.pre.admin_client = on;
+        self
+    }
+
     /// The element tree, to look at (a test, a screenshot's caption).
     #[must_use]
     pub const fn ui(&self) -> &Ui {

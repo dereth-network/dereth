@@ -238,6 +238,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.creation.an-admin-client-offers-the-admin-character",
+        says: "A client started as an administrator's shows the administrator's button beside \
+               Cancel and Enter on the creation screen; lit, the character is asked for as an \
+               administrator's. A player's client never shows it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-UI-ADMIN-CLIENT"),
+        station: "auberean-ui-game::dat::screens::pregame::an_admin_client_offers_the_admin_character",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.creation.the-appearance-shows-the-avatars-rows-and-shapes-it",
         says: "The appearance shows the chosen avatar's rows (a kind its race lacks gone), each \
                labelled, its slider and buttons' tooltips naming it, at the avatar's stop; a \

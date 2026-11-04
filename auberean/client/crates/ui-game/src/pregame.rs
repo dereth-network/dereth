@@ -93,6 +93,8 @@ pub struct Data {
     pub start_character: String,
     /// The character the command line named to make and play, read when it named none to play.
     pub create_character: String,
+    /// The creation screen offers the administrator's character.
+    pub admin_client: bool,
     /// The answer to the last selection in a screen's scene: the figure the pointer was over, or
     /// none; `None` while it is asked or when none was.
     pub selection: Option<Option<usize>>,

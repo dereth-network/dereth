@@ -800,6 +800,46 @@ fn the_appearance_shows_the_avatars_rows_and_shapes_it() {
     assert_eq!(queued(&r.take()), vec![mode::AVATAR_SELECTION]);
 }
 
+/// An administrator's client shows the administrator's button beside Cancel and Enter; lit, the
+/// character is asked for as an administrator's; let off again, as a player's.
+///
+/// Behaviour: ui.creation.an-admin-client-offers-the-admin-character
+#[test]
+fn an_admin_client_offers_the_admin_character() {
+    let asked = |presses: usize| {
+        let mut r = Run::new().with_characters(&[], 4);
+        r.data.admin_client = true;
+        r.data.avatar = Some(Avatar {
+            race: 1,
+            sex: 0x1000,
+        });
+        r.data.choices = human_rows();
+        r.show(|ui, data, out| Box::new(AvatarModification::new(ui, data, out)));
+        r.take();
+        r.press("NextButton");
+        assert!(r.ui.find(Token::of("EnterButton")).is_some());
+        assert!(r.ui.find(Token::of("CancelButton")).is_some());
+        for _ in 0..presses {
+            r.press("AdminButton");
+        }
+        r.press("NameEntry");
+        r.ui.type_text("Name");
+        r.step();
+        r.take();
+        r.press("EnterButton");
+        r.take()
+            .into_iter()
+            .find_map(|q| match q {
+                Request::Create { admin, .. } => Some(admin),
+                _ => None,
+            })
+            .expect("the character asked for")
+    };
+    assert!(!asked(0), "a player's unless lit");
+    assert!(asked(1), "lit");
+    assert!(!asked(2), "let off");
+}
+
 /// The name is asked with Cancel and Enter, the pair of buttons the player's client shows; the
 /// entry shows its hint and takes no keys until it is pressed, its hint goes then, it takes only
 /// a name's letters, and at most sixteen of them. Enter asks for the character; the server's

@@ -127,6 +127,8 @@ struct Options {
     language: Option<String>,
     /// The top gore level and blood color forced (0: the language's).
     forced_gore: (u32, u32),
+    /// The creation screen offers the administrator's character.
+    admin_client: bool,
     /// The character named to play.
     user: Option<String>,
     /// The character named to make and play.
@@ -135,7 +137,13 @@ struct Options {
 
 /// This program's own options, beside the September 2013 client's: each one's form (what it takes
 /// and keeps), long name, help and a switch's value.
-const OWN_OPTIONS: [(u32, &str, &str, i32); 11] = [
+const OWN_OPTIONS: [(u32, &str, &str, i32); 12] = [
+    (
+        0x11,
+        "adminclient",
+        "Show the administrator's button on the creation screen.",
+        0,
+    ),
     (
         0x32,
         "dats",
@@ -213,6 +221,7 @@ impl Reader for Line {
             (a.to_owned(), p.to_owned())
         };
         match arg.name.as_str() {
+            "adminclient" => self.o.admin_client = true,
             "dats" => self.o.dats = PathBuf::from(value),
             "server" => match value.parse() {
                 Ok(a) => self.o.server = Some(a),
@@ -928,7 +937,8 @@ fn run() -> Result<(), String> {
         });
     let mut retail = auberean_interface::Retail::new(assets, o.size.unwrap_or((1024, 768)), login)
         .with_forced_gore(o.forced_gore.0, o.forced_gore.1)
-        .with_start_character(o.user.as_deref(), o.create.as_deref());
+        .with_start_character(o.user.as_deref(), o.create.as_deref())
+        .with_admin_client(o.admin_client);
     if let Some((account, password)) = &o.login {
         retail = retail.with_auto(auberean_shell::dev::DevLogin::new(
             server,

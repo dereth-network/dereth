@@ -70,8 +70,10 @@ mod name {
     pub const ADMIN_BUTTON: Token = Token::of("AdminButton");
     pub const NAME_ENTRY: Token = Token::of("NameEntry");
     pub const BUTTON_FIELD: Token = Token::of("ButtonField");
-    /// The player's client: enter and cancel (an administrator's adds a third button).
+    /// The player's client: enter and cancel.
     pub const NON_ADMIN_CLIENT: Token = Token::of("nonadminclient");
+    /// An administrator's client: the administrator's button too.
+    pub const ADMIN_CLIENT: Token = Token::of("adminclient");
     pub const ERROR_MSG: Token = Token::of("GenerationConfirmationErrorMsg");
     pub const MUSIC: Token = Token::of("music");
 }
@@ -796,7 +798,11 @@ impl AvatarModification {
         }
         if element == name::NEXT_BUTTON {
             if self.confirmation.is_none() {
-                self.confirmation = Some(GenerationConfirmation::new(ui, self.frame));
+                self.confirmation = Some(GenerationConfirmation::new(
+                    ui,
+                    self.frame,
+                    data.admin_client,
+                ));
             }
             return;
         }
@@ -889,11 +895,11 @@ pub struct GenerationConfirmation {
 }
 
 impl GenerationConfirmation {
-    /// The panel made under the appearance: its field, the player's buttons, Create, Enter, the
-    /// administrator's button and the entry taking the keyboard heard; the entry takes only a
-    /// name's letters.
+    /// The panel made under the appearance: its field, the player's buttons (an administrator's
+    /// client shows the administrator's button too), Create, Enter, the administrator's button
+    /// and the entry taking the keyboard heard; the entry takes only a name's letters.
     // D2-01894
-    pub fn new(ui: &mut Ui, parent: FrameId) -> Self {
+    pub fn new(ui: &mut Ui, parent: FrameId, admin_client: bool) -> Self {
         let frame = ui.new_child_frame(parent);
         let field = ui.frame_create_root(
             frame,
@@ -909,7 +915,14 @@ impl GenerationConfirmation {
         let Some(b) = field.and_then(|f| ui.child_recursive(f, name::BUTTON_FIELD)) else {
             return me;
         };
-        ui.set_state(b, name::NON_ADMIN_CLIENT);
+        ui.set_state(
+            b,
+            if admin_client {
+                name::ADMIN_CLIENT
+            } else {
+                name::NON_ADMIN_CLIENT
+            },
+        );
         for (e, w) in [
             (name::CREATE_BUTTON, msg::BUTTON_RELEASE_ON),
             (name::ENTER_BUTTON, msg::BUTTON_RELEASE_ON),
