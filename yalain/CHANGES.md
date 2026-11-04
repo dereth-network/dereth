@@ -163,6 +163,7 @@ what they see, not how it was done.
 - Creatures now pass through scenery marked for them.
 - Creatures in a camp now each take their own spot.
 - Heavier armor and weapons now slow your attacks.
+- Sinew Snap now plays at its proper speed.
 
 ## 0.1.2 (2026-11-03)
 

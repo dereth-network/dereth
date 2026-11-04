@@ -245,6 +245,8 @@ pub struct Usage {
     pub required_effects: Vec<u32>,
     pub hooks: Vec<Hook>,
     pub ui_flags: u32,
+    /// How much faster its definition says it goes, for the few that say.
+    pub combat_speed: Option<f32>,
     /// Its use bars it for a while after (an effect the use leaves on its user blocks the skill):
     /// a creature's special waits 40 s before it is used again.
     pub barred_after: bool,
@@ -450,6 +452,7 @@ impl Usage {
             required_effects,
             hooks,
             ui_flags: word("m_uiFlags")?,
+            combat_speed: num("m_fCombatSpeedModifier").ok().filter(|m| *m != 1.0),
             barred_after: !nav
                 .states(o, "m_BarringEffects")
                 .unwrap_or_default()

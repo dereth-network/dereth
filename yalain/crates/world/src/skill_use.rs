@@ -176,11 +176,14 @@ pub const RECALL_ENDS_AFTER: f64 = 0.18;
 pub const RECALL_FAILS_AFTER: f64 = 0.70;
 pub const FAILED_ENDS_AFTER: f64 = 0.60;
 /// A special's animation from its story to its end, at time scale 1, by behavior (2017: Deadeye's
-/// 1.878, Riposte's 1.444, Mind Lash's behavior 2.080, the heals' 1.43-1.51); others 1.6.
+/// 1.878, Riposte's 1.444, Mind Lash's behavior 2.080, the heals' 1.43-1.51, Blinding Arrow's and
+/// Sinew Snap's 3.25: 3.124 s to what came next at time scale 1.053, 46, and 1.373 s at 2.64, 147);
+/// others 1.6.
 #[must_use]
 pub fn animation_seconds(behavior: u32) -> f64 {
     match behavior {
         0x4100_007A => 1.878,
+        0x4100_007B => 3.25,
         0x4100_0077 => 1.444,
         0x4100_00B9 => 2.080,
         0x4100_00C2 | 0x4100_00C9 => 1.47,
@@ -1061,7 +1064,7 @@ pub fn starts<S: Store>(
         }
     };
     let began = net.game_time(clock.local);
-    let ts = combat::player_time_scale(s, world);
+    let ts = use_time_scale(s, world, &u);
     let aim = aim_of(s, world, r, &u);
     let spellcraft = rating_of(s, world, r.skill);
     let Some(p) = s.players.get(&world) else {
@@ -1284,7 +1287,7 @@ pub fn slot<S: Store>(
         }
     };
     let began = net.game_time(clock.local);
-    let ts = combat::player_time_scale(s, world);
+    let ts = use_time_scale(s, world, &u);
     let aim = aim_of(s, world, r, &u);
     let spellcraft = rating_of(s, world, r.skill);
     let Some(p) = s.players.get_mut(&world) else {
@@ -1635,6 +1638,13 @@ fn roll_hook<S: Store>(
         0
     };
     Some((o, dmg))
+}
+
+/// The time scale a player tells a use at: its own, times the square of what the skill's
+/// definition says of its speed (2017: Sinew Snap's 1.6 told 2.56 x its session's other stories, 2.50
+/// to 2.62 over 9 sessions and 170 stories).
+pub(crate) fn use_time_scale<S: Store>(s: &mut Server<S>, world: ConnId, u: &Usage) -> f32 {
+    combat::player_time_scale(s, world) * u.combat_speed.map_or(1.0, |m| m * m)
 }
 
 /// The behavior params of a special's story.

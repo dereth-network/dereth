@@ -9074,6 +9074,23 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.combat-speed-read",
+        says: "A skill's definition may say how much faster it goes; three do.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-COMBAT-SPEED-READ"),
+        station: "yalain-testkit::dat::skills::only_three_skills_say_they_go_faster",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.specials.combat-speed-squared",
+        says: "A skill whose definition says it goes faster is told at the square of that over the \
+               player's time scale, and what comes next follows its animation at that scale.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-COMBAT-SPEED-SQUARED"),
+        station: "yalain-testkit::cpu::play::specials::a_skill_that_says_it_goes_faster_is_told_at_the_square_of_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.specials.critical-by-weapon-only",
         says: "A special is critical only by what its weapon adds to the chance.",
         since: RETAIL,

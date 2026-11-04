@@ -304,3 +304,19 @@ fn an_item_whose_class_names_a_quest_for_taking_reads_with_it() {
     let medallion = p.template(0x4700_08CF);
     assert_eq!(medallion.props.word("Usage_RequiredQuest_ForTaking"), None);
 }
+
+/// Three skills' definitions say how much faster they go: Sinew Snap 1.6, the two drudges' 1.4; no
+/// other's does.
+/// Behaviour: server.specials.combat-speed-read
+#[test]
+fn only_three_skills_say_they_go_faster() {
+    let portal = Portal::open();
+    let skills = portal.skills();
+    let mut said: Vec<(u32, f32)> = skills
+        .skills
+        .values()
+        .filter_map(|d| Some((d.id, d.usage.as_ref()?.combat_speed?)))
+        .collect();
+    said.sort_by_key(|x| x.0);
+    assert_eq!(said, [(994, 1.6), (2088, 1.4), (2113, 1.4)]);
+}

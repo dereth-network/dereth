@@ -269,6 +269,74 @@ fn a_special_goes_at_its_players_pace() {
     }
 }
 
+/// A skill whose definition says it goes faster tells its story at the square of that, and what
+/// comes next follows: at Sinew Snap's 1.6, 2.56 times what the player's other skills are told at.
+/// Behaviour: server.specials.combat-speed-squared
+#[test]
+fn a_skill_that_says_it_goes_faster_is_told_at_the_square_of_it() {
+    const LONG: u32 = 0x4100_007B;
+    let told = |speed: Option<f32>| -> Vec<(f32, f64)> {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        h.arm(b, me, BOW);
+        let u = h
+            .server
+            .skill_table
+            .skills
+            .get_mut(&DEADEYE)
+            .and_then(|d| d.usage.as_mut())
+            .expect("Deadeye");
+        u.combat_speed = speed;
+        u.behavior_other = [LONG; 3];
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+        );
+        h.run(30);
+        let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+        let mut at = Vec::new();
+        for _ in 0..200 {
+            h.step();
+            let n = at.len();
+            for (i, m) in h.world_messages(b, from).iter().enumerate() {
+                if i < n {
+                    continue;
+                }
+                let ts = match m {
+                    ServerMessage::DoStory(e) if e.sender.id == me && e.action.attacker == me => {
+                        Some(e.action.attacker_behavior.time_scale)
+                    }
+                    _ => None,
+                };
+                at.push((ts.unwrap_or(0.0), h.now.0));
+            }
+        }
+        at.retain(|x| x.0 > 0.0);
+        at
+    };
+    let plain = told(None);
+    let fast = told(Some(1.6));
+    assert!(plain.len() > 2 && fast.len() > 2);
+    let bare = yalain_world::combat::time_scale_at_delay(0);
+    assert!(
+        (bare * 0.9..=bare * 1.1).contains(&plain[0].0),
+        "{:?}",
+        plain[0]
+    );
+    let at = bare * 2.56;
+    assert!((at * 0.9..=at * 1.1).contains(&fast[0].0), "{:?}", fast[0]);
+    // The next story comes the animation over the time scale and the pause on.
+    for (run, name) in [(&plain, "plain"), (&fast, "fast")] {
+        let gap = run[1].1 - run[0].1;
+        let due = 3.25 / f64::from(run[0].0) + yalain_world::skill_use::NEXT_SWING_AFTER;
+        assert!(
+            (gap - due).abs() < 0.11,
+            "{name}: {gap:.3} where {due:.3} was due"
+        );
+    }
+}
+
 /// A special's hook that adds by rating adds at the player's rating in it: Deadeye with a hook of
 /// points does that much more than without.
 /// Behaviour: server.specials.hook-adds-by-rating
