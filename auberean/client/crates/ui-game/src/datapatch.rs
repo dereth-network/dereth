@@ -325,10 +325,11 @@ impl DataPatch {
             let lower = start.to_lowercase();
             let admin = format!("+{start}").to_lowercase();
             let found = set.and_then(|s| {
-                s.characters.iter().find(|c| {
-                    c.greyed == 0
+                s.characters.iter().enumerate().find_map(|(i, c)| {
+                    (s.greyed_out_for(i) == 0
                         && c.id != INVALID_ID
-                        && (c.name.to_lowercase() == lower || c.name.to_lowercase() == admin)
+                        && (c.name.to_lowercase() == lower || c.name.to_lowercase() == admin))
+                        .then_some(c)
                 })
             });
             if let Some(c) = found {

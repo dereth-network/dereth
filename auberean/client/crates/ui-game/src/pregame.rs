@@ -43,15 +43,21 @@ pub struct CharacterSet {
 }
 
 impl CharacterSet {
-    /// A row's character.
+    /// A row's character; none for a row that holds the invalid id.
+    // D2-13097, D2-13098, D2-13099
     #[must_use]
     pub fn identity(&self, row: usize) -> Option<&Character> {
-        self.characters.get(row)
+        self.characters.get(row).filter(|c| c.id != INVALID_ID)
     }
 
-    /// The seconds until a row's character is purged (0: not deleted, or no such row).
+    /// The seconds until a row's character is purged: 0 when it is not deleted, for no such
+    /// character, and for a row past the number the account may have (when it may have any).
+    // D2-13101
     #[must_use]
     pub fn greyed_out_for(&self, row: usize) -> u32 {
+        if self.slots >= 1 && i32::try_from(row).map_or(true, |r| r >= self.slots) {
+            return 0;
+        }
         self.identity(row).map_or(0, |c| c.greyed)
     }
 

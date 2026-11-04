@@ -67,6 +67,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.charselect.a-row-past-the-accounts-limit-is-not-a-deleted-one",
+        says: "A character's time until it is purged reads nothing for a row past the number the \
+               account may have, so it lists and enters as a living one; a row holding the invalid \
+               id has no character.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHARSELECT-LIMIT"),
+        station: "auberean-ui-game::cpu::flow::a_row_past_the_accounts_limit_is_not_a_deleted_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.charselect.an-empty-list-leaves-enter-and-delete-ghosted",
         says: "With no character on the account, creation, the controls and the credits are \
                offered once the list arrives, but Enter and Delete stay ghosted: no row is \
