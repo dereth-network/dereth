@@ -8728,6 +8728,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.vigor-lowered-by-effects",
+        says: "A player's effects can lower what its skills cost, a fraction rounded up, down to half \
+               the skill's own.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-VIGOR-LOWERED"),
+        station: "yalain-testkit::cpu::play::specials::an_effect_lowers_what_a_skill_costs_down_to_half_its_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.specials.vigor-of-what-is-held",
         says: "A skill costs its own, what its weapons cost and what its shield costs, each by the \
                item's own number or its template's, unless the skill ignores it.",

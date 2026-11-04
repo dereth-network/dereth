@@ -129,6 +129,7 @@ what they see, not how it was done.
 - Loot can now have slayers, wards and skill boosts.
 - A server stop now sends players to the disconnected screen.
 - Creatures attack on time instead of a little late.
+- Effects that lower what skills cost now work.
 
 ## 0.1.2 (2026-11-03)
 

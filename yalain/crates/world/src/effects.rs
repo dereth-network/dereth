@@ -214,6 +214,9 @@ pub mod learned {
 /// The quality of damage added to a player's hits (an integer, 295).
 pub const DAMAGE_ADD: u32 = 0x4_0127;
 
+/// The quality of what a player's skills cost above their own (an integer, 296; negative lowers them).
+pub const VIGOR_COST_ADD: u32 = 0x4_0128;
+
 /// The quality of armor rating (an integer, 293), and of attack speed (a float, 297: a share of
 /// the usual pace, 0 for a hold).
 pub const ARMOR_RATING: u32 = 0x4_0125;
@@ -421,6 +424,12 @@ pub fn max_vital<S: Store>(s: &Server<S>, p: &crate::world::Player, max_quality:
 pub fn damage_added<S: Store>(s: &Server<S>, p: &crate::world::Player) -> i32 {
     let (add, _) = modifier(&s.effect_table, &p.play.effects, DAMAGE_ADD);
     dereth_primitives::num::to_i32(add)
+}
+
+/// What a player's effects add to its skills' costs (negative: what they take off).
+#[must_use]
+pub fn vigor_cost_added<S: Store>(s: &Server<S>, p: &crate::world::Player) -> f32 {
+    modifier(&s.effect_table, &p.play.effects, VIGOR_COST_ADD).0
 }
 
 /// Put an effect on a player: what it does, as cast. Returns whether it did anything.

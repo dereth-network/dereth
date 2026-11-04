@@ -880,3 +880,18 @@ fn a_hooks_points_read_in_full_and_add_along_their_lines() {
     assert_eq!(hook.rated_add(100.0), 780);
     assert_eq!(hook.rated_add(200.0), 1300, "held at its last");
 }
+
+/// The buff that lowers what skills cost is read with its stat and its line by spellcraft.
+/// Behaviour: server.specials.vigor-lowered-by-effects
+#[test]
+fn the_buff_that_lowers_skills_costs_reads_with_its_stat() {
+    let p = Portal::open();
+    let t = p.effects(&[0x6F00_1147]);
+    let d = t.get(0x6F00_1147).expect("the buff");
+    let changes = d.changes(20.0);
+    assert_eq!(changes.len(), 1);
+    let (stat, multiply, by) = changes[0];
+    assert_eq!(stat, yalain_world::effects::VIGOR_COST_ADD);
+    assert!(!multiply);
+    assert!((by + 22.449).abs() < 0.01, "{by}");
+}

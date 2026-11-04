@@ -642,6 +642,15 @@ pub fn held_vigor<S: Store>(s: &Server<S>, player: u64) -> HeldVigor {
 /// 10 for a skill that does not ignore it, 5 for one that does).
 #[must_use]
 pub fn vigor_cost(u: &Usage, max_vigor: i32, held: HeldVigor) -> i32 {
+    vigor_cost_with(u, max_vigor, held, 0.0)
+}
+
+/// [`vigor_cost`] with what the player's effects add, a fraction rounded up, the whole at least half
+/// the skill's own (2017, a buff of the stat alone on three players: its reckoning exact on 665 of 666
+/// uses, 98 of 104, 63 of 63; where the reckoning went under half, 99 of 99 paid half; other players
+/// paid a few less, by what wasn't seen).
+#[must_use]
+pub fn vigor_cost_with(u: &Usage, max_vigor: i32, held: HeldVigor, effects: f32) -> i32 {
     #[allow(clippy::cast_precision_loss)]
     let base = dereth_primitives::num::to_i32(max_vigor as f32 * u.vigor_mult)
         - dereth_primitives::num::to_i32(u.vigor_add);
@@ -655,7 +664,19 @@ pub fn vigor_cost(u: &Usage, max_vigor: i32, held: HeldVigor) -> i32 {
     } else {
         0
     };
-    base + weapons + shield
+    #[allow(clippy::cast_precision_loss)]
+    let whole = dereth_primitives::num::to_i32(((base + weapons + shield) as f32 + effects).ceil());
+    whole.max((base + 1) / 2)
+}
+
+/// What a skill costs this player now.
+fn cost_now<S: Store>(s: &Server<S>, p: &crate::world::Player, u: &Usage, max_vigor: i32) -> i32 {
+    vigor_cost_with(
+        u,
+        max_vigor,
+        held_vigor(s, p.character),
+        crate::effects::vigor_cost_added(s, p),
+    )
 }
 
 /// Is the player moving, as its last report says (an asked motion, or a jump)?
@@ -898,7 +919,6 @@ fn check<S: Store>(
     if combat::is_dead(p) {
         return Err(refusal::DEAD);
     }
-    let held = held_vigor(s, p.character);
     if !implement_allowed(&s.catalog, &u, hands(s, p.character)) {
         return Err(refusal::WRONG_IMPLEMENT);
     }
@@ -911,7 +931,7 @@ fn check<S: Store>(
     if time_left(s, world, r.skill, &u, now_game) > 0.0 {
         return Err(refusal::NOT_RESET);
     }
-    if vigor < vigor_cost(&u, max_vigor, held) {
+    if vigor < cost_now(s, p, &u, max_vigor) {
         return Err(refusal::NOT_ENOUGH_VIGOR);
     }
     if !u.required_effects.is_empty() && !carries(s, world, &u.required_effects) {
@@ -1324,13 +1344,12 @@ fn pay<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: &Usag
     let Some(p) = s.players.get(&world) else {
         return;
     };
-    let held = held_vigor(s, p.character);
+    let vigor = quals::int(&p.qualities, quality::VIGOR).unwrap_or(0);
+    let max = quals::int(&p.qualities, quality::VIGOR_MAX).unwrap_or(vigor);
+    let left = (vigor - cost_now(s, p, u, max)).max(0);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
-    let vigor = quals::int(&p.qualities, quality::VIGOR).unwrap_or(0);
-    let max = quals::int(&p.qualities, quality::VIGOR_MAX).unwrap_or(vigor);
-    let left = (vigor - vigor_cost(u, max, held)).max(0);
     quals::set_int(&mut p.qualities, quality::VIGOR, left);
     progress::send_int(net, world, quality::VIGOR, left);
     if left == 0 {

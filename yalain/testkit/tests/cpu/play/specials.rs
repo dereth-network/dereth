@@ -381,6 +381,61 @@ fn a_specials_critical_does_a_quarter_more_than_its_plain_hit() {
     assert_eq!(critical, (plain * 5 + 2) / 4, "{plain}");
 }
 
+/// An effect that lowers a skill's cost does, a fraction rounded up, down to half the skill's own:
+/// Deadeye costs 32 and the bow's 4.
+/// Behaviour: server.specials.vigor-lowered-by-effects
+#[test]
+fn an_effect_lowers_what_a_skill_costs_down_to_half_its_own() {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    const LOWERS: u32 = 0x6F00_7777;
+    let paid = |by: f32| -> i32 {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        h.arm(b, me, BOW);
+        let mut d: EffectDef = h
+            .server
+            .effect_table
+            .effects
+            .values()
+            .next()
+            .cloned()
+            .expect("an effect");
+        d.state = LOWERS;
+        d.fx = 0;
+        d.eq_class = 0;
+        d.duration = Scale(vec![(0.0, 3000.0)]);
+        d.kind = Kind::Numeric {
+            flags: 0,
+            stats: vec![yalain_world::effects::VIGOR_COST_ADD],
+            magnitude: Scale(vec![(0.0, by)]),
+        };
+        h.server.effect_table.effects.insert(LOWERS, d);
+        let world = *h.server.players.keys().next().expect("in the world");
+        let clock = h.clock();
+        let cast = yalain_world::effects::Cast {
+            caster: me,
+            spellcraft: 1.0,
+            ..yalain_world::effects::Cast::default()
+        };
+        assert!(yalain_world::effects::apply(
+            &mut h.server,
+            &mut h.net,
+            world,
+            LOWERS,
+            cast,
+            clock
+        ));
+        h.run(2);
+        let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+        h.run(80);
+        100 - vigor_sent(&h, b, from).first().copied().expect("it paid")
+    };
+    assert_eq!(paid(0.0), 36);
+    assert_eq!(paid(-10.0), 26);
+    assert_eq!(paid(-10.5), 26, "rounded up");
+    assert_eq!(paid(-1000.0), 16, "half its own");
+}
+
 /// A bow the player came by costs what it says, not what a starting bow does.
 /// Behaviour: server.specials.vigor-of-what-is-held
 #[test]
