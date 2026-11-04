@@ -3651,6 +3651,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.the-last-subquest-says-the-next-phase",
+        says: "The give that closes a phase's subquests is said as the quest's next phase where the \
+               person has a line for that; the rest, and a person with no such line, as the \
+               subquest's own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LAST-SUB-LINE"),
+        station: "yalain-testkit::cpu::play::gives::the_give_closing_a_phase_is_said_as_the_next_phase_where_a_line_says_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.gives.vitae-tap",
         says: "A step's tap of vitae leaves the player nine tenths of its vitae, told with what is \
                still to earn, its appearance played on the player.",

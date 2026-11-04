@@ -1187,10 +1187,17 @@ fn run_with<S: Store>(
             let template = s.content.objects[i].template;
             let speaker = crate::talk::content_speaker(s, i);
             // The move that finishes a quest's last subquests is said as that quest's completion
-            // (2017: the last element handed over, 1 of 1).
-            let said = finishes_parent(s, world, step)
-                .map_or((step.quest, step.update), |q| (q, Update::Complete));
-            for l in crate::talk::with_update(s, template, Some(i), said.0, said.1) {
+            // (2017: the last element handed over, 1 of 1), and one that finishes an earlier
+            // phase's as its next phase where the person has a line for that.
+            let parents = finishes_parent(s, world, step).map_or_else(Vec::new, |(q, up)| {
+                crate::talk::with_update(s, template, Some(i), q, up)
+            });
+            let lines = if parents.is_empty() {
+                crate::talk::with_update(s, template, Some(i), step.quest, step.update)
+            } else {
+                parents
+            };
+            for l in lines {
                 if step.tell.as_ref() != Some(&l.words) {
                     crate::talk::say(s, net, world, &speaker, &l.words, l.how);
                 }
@@ -1579,9 +1586,10 @@ fn give_subquests<S: Store>(
     }
 }
 
-/// The quest a step's completion of its subquest would finish: the quest held at its last phase,
-/// which that phase's subquests done with this one finish.
-fn finishes_parent<S: Store>(s: &Server<S>, world: ConnId, step: &Step) -> Option<u32> {
+/// The quest a step's completion of its subquest would move on, and how: the quest held at the
+/// phase whose subquests done with this one finish it, done from its last phase, else on to the
+/// next.
+fn finishes_parent<S: Store>(s: &Server<S>, world: ConnId, step: &Step) -> Option<(u32, Update)> {
     if step.update != Update::Complete {
         return None;
     }
@@ -1594,7 +1602,12 @@ fn finishes_parent<S: Store>(s: &Server<S>, world: ConnId, step: &Step) -> Optio
         .quests
         .iter()
         .map(|q| *q == step.quest || done(held, *q));
-    (last && (subs.any || others.all(|d| d))).then_some(parent)
+    let up = if last {
+        Update::Complete
+    } else {
+        Update::Advance(at + 1)
+    };
+    (subs.any || others.all(|d| d)).then_some((parent, up))
 }
 
 /// A subquest of a quest's phase has moved: once all of the phase's subquests are done (one,

@@ -926,6 +926,71 @@ fn items_given_close_a_phases_subquests_and_the_last_moves_it_on() {
     );
 }
 
+/// The last of a phase's subquests is said as the quest's next phase where the person has a line
+/// for that; the others, and a person with no such line, as the subquest's own.
+///
+/// Behaviour: server.gives.the-last-subquest-says-the-next-phase
+#[test]
+fn the_give_closing_a_phase_is_said_as_the_next_phase_where_a_line_says_it() {
+    const MAIN: u32 = 0x4000_005E;
+    const SUBS: [u32; 2] = [0x4000_005F, 0x4000_0060];
+    const ITEMS: [u32; 2] = [0x4700_1A54, 0x4700_1A55];
+    const OWN: u32 = 0x1111_0001;
+    const NEXT: u32 = 0x1111_0002;
+    let mut h = world();
+    let mut quests = vec![QuestDef {
+        subquests: vec![Subquests {
+            phase: 2,
+            quests: SUBS.to_vec(),
+            any: false,
+        }],
+        ..quest(MAIN, 3)
+    }];
+    let mut steps_ = Vec::new();
+    for (q, item) in SUBS.iter().zip(ITEMS) {
+        quests.push(quest(*q, 1));
+        steps_.push(Step {
+            takes: vec![item],
+            ..step(*q, 1, Trigger::Give(item, PERSON_T), Update::Complete)
+        });
+        h.server.talk.lines.push(Line {
+            update: Some(TalkUpdate::Complete),
+            ..line(PERSON_T, OWN, Some(Role::Complete), Some(*q))
+        });
+    }
+    h.server.talk.lines.push(Line {
+        phase: Some(3),
+        ..line(PERSON_T, NEXT, Some(Role::Advance), Some(MAIN))
+    });
+    steps_.push(step(MAIN, 1, Trigger::Use(PERSON_T), Update::Advance(2)));
+    h.server.quests = QuestTable {
+        quests,
+        steps: steps_,
+        gives: Vec::new(),
+    };
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, MAIN, 1);
+    let world = world_of(&h, me);
+    let clock = h.clock();
+    yalain_world::quests::triggered(
+        &mut h.server,
+        &mut h.net,
+        world,
+        Trigger::Use(PERSON_T),
+        None,
+        clock,
+    );
+    let mut said = Vec::new();
+    for item in ITEMS {
+        let (id, slot) = hold(&mut h, me, item, 1);
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(true, queue::WEENIE, &give(me, id, slot, PERSON, 1));
+        h.run(steps(HANDED_AFTER) + 8);
+        said.push(told(&h, b, from));
+    }
+    assert_eq!(said, vec![vec![OWN], vec![NEXT]]);
+}
+
 /// An item a give's step hands the player that moves the same quest on when received moves it
 /// after the step's own update: two records, in that order (the Land Claim for the ashes).
 ///
