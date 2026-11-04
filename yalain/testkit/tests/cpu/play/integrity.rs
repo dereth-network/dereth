@@ -3,10 +3,11 @@
 
 use auberean_script::args::Arg;
 use yalain_net::ConnId;
+use yalain_store::Store as _;
 use yalain_testkit::play::use_of;
 use yalain_testkit::{Harness, STEP, TEST_ITEM};
 use yalain_world::inventory;
-use yalain_world::state::Held;
+use yalain_world::state::{Held, PlayState};
 use yalain_world::things::{Corpse, Kind, Thing};
 
 const USE: u32 = yalain_world::requests::function::USE;
@@ -293,4 +294,81 @@ fn an_offer_split_after_accepting_moves_nothing() {
         "A gets nothing for what it split off"
     );
     assert_eq!(holds(&h, idb, gold), 1);
+}
+
+/// A world stopping while an item is being put down: the item is not lost.
+/// Behaviour: server.inventory.an-item-being-put-down-is-kept-at-a-stop
+#[test]
+fn a_world_stopped_while_an_item_is_put_down_keeps_it() {
+    let (mut h, (a, ida), _) = players();
+    let bow = hold(&mut h, ida, TEST_ITEM, 1);
+    let m = inventory::Move {
+        move_type: yalain_world::drops::DROP,
+        item: bow,
+        quantity: 1,
+        ..inventory::Move::default()
+    };
+    h.ask(
+        a,
+        yalain_world::drops::function::MOVE_ITEM,
+        &[inventory::move_graph(&m)],
+        2,
+    );
+    assert_eq!(holds(&h, ida, bow), 0, "under way");
+    yalain_world::shutdown::save_everyone(&mut h.server, &mut h.net);
+    h.run(2);
+    let st = h
+        .server
+        .store
+        .world_state(ida)
+        .expect("reads")
+        .expect("kept");
+    let kept = PlayState::from_bytes(&st.play).expect("reads");
+    assert!(
+        kept.item_states.iter().any(|k| k.id == bow),
+        "with what it carries"
+    );
+    assert!(
+        kept.items.iter().any(|x| x.id == bow),
+        "it is back in the pack"
+    );
+}
+
+/// An item that has landed is out of its dropper's kept pack at once: picked up by another and the
+/// server dying, it has one holder.
+/// Behaviour: server.inventory.an-item-being-put-down-is-kept-at-a-stop
+#[test]
+fn an_item_put_down_and_picked_up_by_another_has_one_holder_in_the_store() {
+    let (mut h, (a, ida), (b, idb)) = players();
+    let bow = hold(&mut h, ida, TEST_ITEM, 1);
+    // It is in the pack as the store last had it.
+    let w = world_of(&h, ida);
+    yalain_world::world::keep_player(&mut h.server, w);
+    h.run(2);
+    let m = inventory::Move {
+        move_type: yalain_world::drops::DROP,
+        item: bow,
+        quantity: 1,
+        ..inventory::Move::default()
+    };
+    h.ask(
+        a,
+        yalain_world::drops::function::MOVE_ITEM,
+        &[inventory::move_graph(&m)],
+        steps(3.0),
+    );
+    h.ask(b, USE, &[use_of(bow, idb)], steps(3.0));
+    assert_eq!(holds(&h, idb, bow), 1, "picked up");
+    let kept = |h: &mut Harness, who: u64| -> Vec<u64> {
+        let st = h
+            .server
+            .store
+            .world_state(who)
+            .expect("reads")
+            .expect("kept");
+        let play = PlayState::from_bytes(&st.play).expect("reads");
+        play.items.iter().map(|x| x.id).collect()
+    };
+    assert!(!kept(&mut h, ida).contains(&bow), "not the dropper's");
+    assert!(kept(&mut h, idb).contains(&bow), "the taker's");
 }

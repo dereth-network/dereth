@@ -272,6 +272,43 @@ fn put_down<S: Store>(
     );
 }
 
+/// A player leaves the world with an item still being put down: it is back in its pack, kept with
+/// it, and its timer forgotten.
+pub(crate) fn left<S: Store>(s: &mut Server<S>, world: ConnId) {
+    let mut pending = Vec::new();
+    s.timers.retain(|(_, t)| match t {
+        Timer::PutDown {
+            world: w,
+            slot,
+            asked,
+        } if *w == world => {
+            pending.push((*slot, asked.item));
+            false
+        }
+        _ => true,
+    });
+    for (slot, item) in pending {
+        let Some(me) = s.players.get(&world).map(|p| p.character) else {
+            return;
+        };
+        let Some(t) = s.things.get_mut(item) else {
+            continue;
+        };
+        t.container = Some((me, slot));
+        let (template, quantity) = (t.template, t.quantity);
+        if let Some(p) = s.players.get_mut(&world) {
+            crate::inventory::insert_at(&mut p.play.items, slot);
+            p.play.items.push(crate::state::Held {
+                id: item,
+                template,
+                slot,
+                location: 0,
+                quantity,
+            });
+        }
+    }
+}
+
 /// Where an item put down by a player standing at `at`, reaching `reach` meters, lands: straight
 /// ahead of it, [`LIFT`] up, facing as it faces; outdoors in the cell that holds that point.
 #[must_use]
@@ -337,6 +374,8 @@ pub fn put<S: Store>(
     }
     place_item(s, net, item, place, clock);
     s.after(clock, SETTLE_SECONDS, Timer::Settle { item });
+    // It is out of the pack for good: a crash after another has picked it up finds it held once.
+    crate::world::keep_player(s, world);
 }
 
 /// The item put down comes to rest: [`REST`] above the feet of the player that put it down.

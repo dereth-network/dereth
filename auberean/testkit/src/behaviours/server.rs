@@ -3560,6 +3560,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.an-item-being-put-down-is-kept-at-a-stop",
+        says: "An item being put down when its player leaves the world, the world stopping \
+               or the player taken out of it, is back in its pack and kept; one that has \
+               landed is out of the kept pack at once.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PUT-DOWN-STOP"),
+        station: "yalain-testkit::cpu::play::integrity::a_world_stopped_while_an_item_is_put_down_keeps_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.an-item-lying-in-the-world-is-walked-to-and-picked-up",
         says: "Using an item lying in the world walks the player to it (the order sent even when it is \
                there), then plays the picking-up behavior; when that is through the item is in the \
