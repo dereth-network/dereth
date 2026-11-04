@@ -2,7 +2,8 @@
 //! turning on the player that hurts them most, standing still while held, drawing their basic
 //! attacks by weight, a damage debuff taking from their hits, and healing and buffing themselves;
 //! effects that slow their attacks or their running, and armor debuffs adding to players' hits;
-//! protectors buffing their kin and healers healing theirs.
+//! protectors buffing their kin and healers healing theirs; counters answering them and wards
+//! keeping their effects off.
 //! Fixture: creatures of templates made up for each test, in a camp beside where a character starts.
 
 use auberean_protocol::{queue, ServerMessage};
@@ -13,8 +14,10 @@ use yalain_testkit::{
     HEART_OF_ICE_EFFECT, PARALYZE_EFFECT, STILL_WATER_EFFECT, VACUUM_EFFECT,
 };
 use yalain_world::combat;
+use yalain_world::effect_defs::{EffectDef, Kind, Scale};
 use yalain_world::effects::{self, Cast, On};
 use yalain_world::missiles::{self, AttackSkill, CREATURE_ATTACKS};
+use yalain_world::rules::Outcome;
 use yalain_world::things::Mode;
 
 const TEMPLATE: u32 = 0x4700_2230;
@@ -1137,4 +1140,284 @@ fn a_healer_heals_its_badly_hurt_kin() {
     h.run(30);
     let health = h.server.things.get(two).map_or(0, |t| t.health);
     assert!(health > 300, "healed: {health}");
+}
+
+/// A player's worn record of a made-up counter or ward, its definition in the table.
+fn holds(h: &mut Harness, me: u64, state: u32, kind: yalain_world::effect_defs::Kind) {
+    let world = conn(h, me);
+    h.server.effect_table.effects.insert(
+        state,
+        EffectDef {
+            kind,
+            internal_flags: 0x0100_0783,
+            ..effect_of(state, Kind::Other)
+        },
+    );
+    let clock = h.clock();
+    let on = effects::put_on_worn(
+        &mut h.server,
+        &mut h.net,
+        world,
+        0x8130_0000_0000_0001,
+        &[(state, 30.0)],
+        clock,
+    );
+    assert_eq!(on.len(), 1, "it is on");
+}
+
+fn conn(h: &Harness, me: u64) -> yalain_net::ConnId {
+    *h.server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0
+}
+
+fn effect_of(state: u32, kind: Kind) -> EffectDef {
+    EffectDef {
+        state,
+        kind,
+        duration: Scale::default(),
+        priority: Scale::default(),
+        fx: 0,
+        external_flags: 0,
+        internal_flags: 0,
+        enum_value: 0,
+        eq_class: 0,
+        name: None,
+    }
+}
+
+const COUNTER: u32 = 0x6F00_7301;
+const ANSWER: u32 = 0x6F00_7302;
+
+/// A counter of this chance, answering by harming the one it answers for 1.
+fn counter_held(h: &mut Harness, me: u64, chance: f32) {
+    h.server.effect_table.effects.insert(
+        ANSWER,
+        effect_of(
+            ANSWER,
+            Kind::InstantVital {
+                flags: 1,
+                change: Scale(vec![(0.0, -1.0)]),
+            },
+        ),
+    );
+    holds(
+        h,
+        me,
+        COUNTER,
+        Kind::Counter {
+            effect: ANSWER,
+            chance: Scale(vec![(0.0, chance)]),
+        },
+    );
+}
+
+/// Each of a creature's strikes that reaches a player holding a counter that always answers is
+/// answered, and none it evades.
+/// Behaviour: server.effects.counter-answers-an-attack
+#[test]
+fn a_counter_answers_a_strike_that_lands_on_its_holder_and_not_one_evaded() {
+    let (mut h, b, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    hardy(&mut h, me);
+    counter_held(&mut h, me, 1.0);
+    let from = h.bots[b].inbox.len();
+    h.run(1000);
+    let told = h.world_messages(b, from);
+    let (mut landed, mut evaded, mut answers) = (0, 0, 0);
+    for m in &told {
+        let ServerMessage::DoStory(e) = m else {
+            continue;
+        };
+        if e.action.attacker == me && e.sender.id == id {
+            answers += 1;
+        } else if e.action.attacker == id {
+            let code = e.action.hooks.last().map_or(0, |k| k.numbers[0]);
+            if code == Outcome::Hit.code().cast_signed()
+                || code == Outcome::Critical.code().cast_signed()
+            {
+                landed += 1;
+            } else {
+                evaded += 1;
+            }
+        }
+    }
+    assert!(
+        landed > 10 && evaded > 0,
+        "{landed} landed, {evaded} evaded"
+    );
+    // One may still be on its way.
+    assert!(
+        (landed - 1..=landed).contains(&answers),
+        "{answers} answers of {landed} landed, {evaded} evaded"
+    );
+}
+
+/// A counter answers by its chance, each attack drawn alone.
+/// Behaviour: server.effects.counter-answers-an-attack
+#[test]
+fn a_counter_answers_by_its_chance() {
+    let (mut h, _, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    counter_held(&mut h, me, 0.25);
+    let world = conn(&h, me);
+    if let Some(t) = h.server.things.get_mut(id) {
+        t.health = 1_000_000;
+        t.max_health = 1_000_000;
+    }
+    let clock = h.clock();
+    for _ in 0..4000 {
+        effects::answer_attack(&mut h.server, &mut h.net, world, id, clock);
+    }
+    let answers = 1_000_000 - h.server.things.get(id).map_or(0, |t| t.health);
+    assert!((800..1200).contains(&answers), "{answers} of 4,000");
+}
+
+/// A counter answers another player who attacks its holder, on that player.
+/// Behaviour: server.effects.counter-answers-an-attack
+#[test]
+fn a_counter_answers_a_player_on_that_player() {
+    let (mut h, _, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    hardy(&mut h, me);
+    counter_held(&mut h, me, 1.0);
+    let (_, other) = h.player_in_world("two", "Babyfare");
+    let health = |h: &Harness, who: u64| {
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == who)
+            .and_then(|p| {
+                yalain_world::quals::int(&p.qualities, yalain_world::player::quality::HEALTH)
+            })
+    };
+    let (world, was, creature) = (
+        conn(&h, me),
+        health(&h, other),
+        h.server.things.get(id).map(|t| t.health),
+    );
+    let clock = h.clock();
+    effects::answer_attack(&mut h.server, &mut h.net, world, other, clock);
+    assert_eq!(health(&h, other), was.map(|x| x - 1));
+    assert_eq!(h.server.things.get(id).map(|t| t.health), creature);
+}
+
+/// Harm over time an effect does its holder is no attack: a counter leaves it unanswered.
+/// Behaviour: server.effects.counter-answers-an-attack
+#[test]
+fn a_counter_does_not_answer_harm_over_time() {
+    const BURN: u32 = 0x6F00_7303;
+    let mut h = Harness::new();
+    camp(&mut h, creature(0.1, &[]), [61.0, 240.2, -44.6]);
+    let (b, me) = h.player_in_world("one", "Elara");
+    drawn(&mut h, b);
+    let id = the_creature(&h, b);
+    hardy(&mut h, me);
+    counter_held(&mut h, me, 1.0);
+    h.server.effect_table.effects.insert(
+        BURN,
+        EffectDef {
+            duration: Scale(vec![(0.0, 5.0)]),
+            ..effect_of(
+                BURN,
+                Kind::VitalOverTime {
+                    flags: 1,
+                    per_second: Scale(vec![(0.0, -3.0)]),
+                },
+            )
+        },
+    );
+    let (world, clock) = (conn(&h, me), h.clock());
+    assert!(effects::apply(
+        &mut h.server,
+        &mut h.net,
+        world,
+        BURN,
+        Cast {
+            caster: id,
+            spellcraft: 1.0,
+            pk: true,
+            ..Cast::default()
+        },
+        clock,
+    ));
+    let was = h.server.things.get(id).map(|t| t.health);
+    h.run(120);
+    let health = h.server.players.get(&world).and_then(|p| {
+        yalain_world::quals::int(&p.qualities, yalain_world::player::quality::HEALTH)
+    });
+    assert!(health < Some(100_000), "it burned");
+    assert_eq!(h.server.things.get(id).map(|t| t.health), was);
+}
+
+/// A ward keeps off effects of its classes by its chance, and no others; a ward of chance 1 keeps
+/// off every one.
+/// Behaviour: server.effects.ward-keeps-off-its-classes
+#[test]
+fn a_ward_keeps_off_the_effects_of_its_classes_by_its_chance() {
+    let (mut h, _, me, _) = noticed(&[], [61.0, 240.2, -44.6]);
+    hardy(&mut h, me);
+    let world = conn(&h, me);
+    const WARD: u32 = 0x6F00_7304;
+    const SURE: u32 = 0x6F00_7305;
+    const OF_ITS_CLASS: u32 = 0x6F00_7306;
+    const OF_ANOTHER: u32 = 0x6F00_7307;
+    const OF_THE_SURE: u32 = 0x6F00_7308;
+    let harm = |state, class| EffectDef {
+        eq_class: class,
+        ..effect_of(
+            state,
+            Kind::InstantVital {
+                flags: 1,
+                change: Scale(vec![(0.0, -1.0)]),
+            },
+        )
+    };
+    for d in [
+        harm(OF_ITS_CLASS, 48),
+        harm(OF_ANOTHER, 49),
+        harm(OF_THE_SURE, 22),
+    ] {
+        h.server.effect_table.effects.insert(d.state, d);
+    }
+    holds(
+        &mut h,
+        me,
+        WARD,
+        Kind::Ward {
+            classes: &[48],
+            chance: 0.15,
+        },
+    );
+    holds(
+        &mut h,
+        me,
+        SURE,
+        Kind::Ward {
+            classes: &[22],
+            chance: 1.0,
+        },
+    );
+    let clock = h.clock();
+    let count = |state: u32, h: &mut Harness| {
+        (0..4000)
+            .filter(|_| {
+                effects::apply(
+                    &mut h.server,
+                    &mut h.net,
+                    world,
+                    state,
+                    Cast {
+                        spellcraft: 1.0,
+                        ..Cast::default()
+                    },
+                    clock,
+                )
+            })
+            .count()
+    };
+    let through = count(OF_ITS_CLASS, &mut h);
+    assert!((3200..3600).contains(&through), "{through} of 4,000");
+    assert_eq!(count(OF_ANOTHER, &mut h), 4000);
+    assert_eq!(count(OF_THE_SURE, &mut h), 0);
 }

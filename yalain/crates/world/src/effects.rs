@@ -489,7 +489,7 @@ pub fn apply_on<S: Store>(
             .note(format!("an effect {state:08X} the server does not know"));
         return false;
     };
-    if !present(s, on) {
+    if !present(s, on) || warded(s, on, &def) {
         return false;
     }
     match (&def.kind, on) {
@@ -567,11 +567,72 @@ pub fn apply_on<S: Store>(
             combine(s, net, on, &def, c, cast, clock);
             true
         }
-        (Kind::Other, _) if !def.lasts() => false,
+        (Kind::Other | Kind::Counter { .. } | Kind::Ward { .. }, _) if !def.lasts() => false,
         _ => {
             add_on(s, net, on, &def, cast, Shape::TIMED, clock);
             true
         }
+    }
+}
+
+/// Does a ward its target holds keep this effect off? One of each ward draws, by its own chance.
+fn warded<S: Store>(s: &mut Server<S>, on: On, def: &EffectDef) -> bool {
+    let On::Player(world) = on else {
+        return false;
+    };
+    let Some(p) = s.players.get(&world) else {
+        return false;
+    };
+    let chances: Vec<f32> = p
+        .play
+        .effects
+        .iter()
+        .filter_map(|r| match s.effect_table.get(r.state)?.kind {
+            Kind::Ward { classes, chance } if classes.contains(&def.eq_class) => Some(chance),
+            _ => None,
+        })
+        .collect();
+    chances.into_iter().any(|c| s.rng.chance(c))
+}
+
+/// An attack has reached a player: each counter it holds may answer, by its chance at its
+/// spellcraft, with its effect on the attacker. An effect's harm over time is no attack.
+pub fn answer_attack<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    by: u64,
+    clock: Clock,
+) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let me = p.character;
+    let counters: Vec<(u32, f32, f32, u64)> = p
+        .play
+        .effects
+        .iter()
+        .filter_map(|r| match &s.effect_table.get(r.state)?.kind {
+            Kind::Counter { effect, chance } => {
+                let at = chance.at(r.spellcraft)?;
+                Some((*effect, at, r.spellcraft, r.item))
+            }
+            _ => None,
+        })
+        .collect();
+    for (effect, chance, spellcraft, item) in counters {
+        if !s.rng.chance(chance) {
+            continue;
+        }
+        let on = conn_of(s, by).map_or(On::Creature(by), On::Player);
+        let cast = Cast {
+            caster: me,
+            spellcraft,
+            pk: true,
+            item,
+            ..Cast::default()
+        };
+        apply_on(s, net, on, effect, cast, clock);
     }
 }
 

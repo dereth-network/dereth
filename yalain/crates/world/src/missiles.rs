@@ -598,6 +598,9 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
         drain(s, net, world, f.creature, level);
     }
     combat::after_hurt(s, net, world, f.creature, clock);
+    if outcome.landed() {
+        crate::effects::answer_attack(s, net, world, f.creature, clock);
+    }
 }
 
 /// How much a harming missile's drain takes at the attacker's level: 2 at level 1 to 150 at level

@@ -99,6 +99,31 @@ pub const CATEGORY_FLAGS: [(u32, u32); 5] = [
     (0x1000, 0x10),
 ];
 
+/// What a counter's external flags say of its chance: the same at any spellcraft, or along a line.
+mod counter_flag {
+    pub const CONSTANT: u32 = 0x40;
+    pub const VARIABLE: u32 = 0x80;
+}
+
+/// The wards and what they keep off, as their descriptions say: the classes of fire and of what
+/// lowers vigor are those the install's own protections from them name, of poison those its poisons
+/// are in, of what lowers armor those that hold its armor-lowering effects. Their own data names
+/// neither. Our choice.
+fn ward_of(state: u32) -> Option<Kind> {
+    const FIRE: &[u32] = &[48, 1119, 5013];
+    const VIGOR: &[u32] = &[49, 5014, 26, 4015, 5043, 5050];
+    const POISON: &[u32] = &[53, 5007, 5022, 5046];
+    const ARMOR: &[u32] = &[22, 5061];
+    let (classes, chance) = match state {
+        0x6F00_2671 => (VIGOR, 0.15),
+        0x6F00_2672 => (FIRE, 0.15),
+        0x6F00_2675 => (POISON, 0.15),
+        0x6F00_266E | 0x6F00_2670 | 0x6F00_2674 => (ARMOR, 1.0),
+        _ => return None,
+    };
+    Some(Kind::Ward { classes, chance })
+}
+
 /// A combination's flags (its effect's external flags): what it takes off of the effects it found.
 pub mod combo_flag {
     /// The oldest of them.
@@ -180,6 +205,14 @@ pub enum Kind {
     Teleport(yalain_store::StoredPosition),
     /// A recall: where its skill takes its user.
     Recall(Recall),
+    /// Held by its wearer, it may answer an attack that reaches them: an effect put on the attacker,
+    /// by a chance at its spellcraft.
+    Counter { effect: u32, chance: Scale },
+    /// Held by its wearer, it may keep off effects of these classes, by a chance.
+    Ward {
+        classes: &'static [u32],
+        chance: f32,
+    },
     /// Anything else (kept as a record only).
     Other,
 }
@@ -239,6 +272,7 @@ impl EffectDef {
             .flatten()
             .collect(),
             Kind::Aura(a) => a.pulsed.clone(),
+            Kind::Counter { effect, .. } => vec![*effect],
             _ => Vec::new(),
         }
     }
@@ -370,7 +404,29 @@ impl EffectDef {
             nav.states_of_ref(r)
         };
         let flags = word("m_uiExternalFlags")?;
-        let kind = if is("InstantVitalEffect") {
+        let number = |name: &str| nav.number(o, name).unwrap_or(0.0);
+        let kind = if let Some(ward) = ward_of(state) {
+            ward
+        } else if let Some(effect) = state_of("m_effGenerate").filter(|_| {
+            is("ReflectiveVitalEffect")
+                && flags & (counter_flag::CONSTANT | counter_flag::VARIABLE) != 0
+        }) {
+            let begin = number("m_fGenerateProbBegin");
+            Kind::Counter {
+                effect,
+                chance: if flags & counter_flag::VARIABLE == 0 {
+                    Scale(vec![(0.0, begin)])
+                } else {
+                    Scale(vec![
+                        (number("m_fGenerateSpellcraftBegin"), begin),
+                        (
+                            number("m_fGenerateSpellcraftEnd"),
+                            number("m_fGenerateProbEnd"),
+                        ),
+                    ])
+                },
+            }
+        } else if is("InstantVitalEffect") {
             Kind::InstantVital {
                 flags,
                 change: scale("m_changeData"),

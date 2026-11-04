@@ -72,6 +72,71 @@ fn shooter_id(h: &Harness, b: usize) -> u64 {
         .expect("the shooter is made")
 }
 
+/// A counter answers a shot that lands as it answers a strike: the shooter takes its effect.
+/// Behaviour: server.effects.counter-answers-an-attack
+#[test]
+fn a_counter_answers_a_shot_that_lands_on_its_holder() {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    use yalain_world::player::quality;
+    const COUNTER: u32 = 0x6F00_7311;
+    const ANSWER: u32 = 0x6F00_7312;
+    let mut h = Harness::new();
+    shooter_at(&mut h, 22.0, false);
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let id = shooter_id(&h, b);
+    let def = |state, kind, internal_flags| EffectDef {
+        state,
+        kind,
+        duration: Scale::default(),
+        priority: Scale::default(),
+        fx: 0,
+        external_flags: 0,
+        internal_flags,
+        enum_value: 0,
+        eq_class: 0,
+        name: None,
+    };
+    let harm = Kind::InstantVital {
+        flags: 1,
+        change: Scale(vec![(0.0, -1.0)]),
+    };
+    let always = Kind::Counter {
+        effect: ANSWER,
+        chance: Scale(vec![(0.0, 1.0)]),
+    };
+    for d in [def(ANSWER, harm, 0), def(COUNTER, always, 0x0100_0783)] {
+        h.server.effect_table.effects.insert(d.state, d);
+    }
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    if let Some(p) = h.server.players.get_mut(&world) {
+        yalain_world::quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 100_000);
+        yalain_world::quals::set_int(&mut p.qualities, quality::HEALTH, 100_000);
+    }
+    let clock = h.clock();
+    yalain_world::effects::put_on_worn(
+        &mut h.server,
+        &mut h.net,
+        world,
+        0x8130_0000_0000_0001,
+        &[(COUNTER, 30.0)],
+        clock,
+    );
+    let from = h.bots[b].inbox.len();
+    let answered = |h: &Harness| {
+        h.world_messages(b, from).iter().any(
+            |m| matches!(m, ServerMessage::DoStory(e) if e.sender.id == id && e.action.attacker == me),
+        )
+    };
+    assert!(h.run_until(1000, answered), "it answers");
+}
+
 /// A shooter's shot comes when it is due, not at the world's next step: each gap is its rhythm's over
 /// the shot's time scale, within the harness's step.
 /// Behaviour: server.creatures.attacks-when-due

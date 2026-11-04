@@ -145,6 +145,7 @@ what they see, not how it was done.
 - Picking up a quest item now moves its quest on.
 - Fixed a weapon in the off hand stopping your stance and swings from showing.
 - An admin's /generate now makes at most a hundred.
+- Counters on weapons now answer attacks, and wards keep their effects off.
 
 ## 0.1.2 (2026-11-03)
 

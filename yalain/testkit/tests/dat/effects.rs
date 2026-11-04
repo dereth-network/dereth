@@ -561,6 +561,60 @@ fn the_effects_items_put_on_their_wearers_read_from_their_names() {
     );
 }
 
+/// The counters read with the effect each answers with, and its chance; the wards with what they
+/// keep off.
+/// Behaviour: server.effects.counters-and-wards-read
+#[test]
+fn the_counters_and_wards_read_as_the_data_defines_them() {
+    let p = Portal::open();
+    let t = p.effects(&[
+        0x6F00_2646,
+        0x6F00_2648,
+        0x6F00_24C8,
+        0x6F00_24CB,
+        0x6F00_24CE,
+        0x6F00_266E,
+        0x6F00_2671,
+        0x6F00_2672,
+        0x6F00_2675,
+    ]);
+    let counter = |s: u32| match &t.get(s).expect("read").kind {
+        Kind::Counter { effect, chance } => (*effect, chance.at(30.0)),
+        k => panic!("{s:08X}: {k:?}"),
+    };
+    assert_eq!(counter(0x6F00_2646), (0x6F00_2647, Some(0.05)));
+    assert_eq!(counter(0x6F00_2648), (0x6F00_2649, Some(0.1)));
+    assert_eq!(counter(0x6F00_24C8), (0x6F00_24C9, Some(0.05)));
+    assert_eq!(counter(0x6F00_24CB), (0x6F00_24CC, Some(0.03)));
+    assert_eq!(counter(0x6F00_24CE), (0x6F00_24CF, Some(0.03)));
+    // Its answers come with it, and do what they say: harm, and less armor.
+    let harm = t.get(0x6F00_2647).expect("Countering's answer");
+    assert!(
+        matches!(&harm.kind, Kind::VitalOverTime { per_second, .. } if per_second.at(0.0) == Some(-120.0))
+    );
+    assert_eq!(harm.duration.at(30.0), Some(1.0));
+    let brittle = t.get(0x6F00_24C9).expect("Brittle Bones's answer");
+    assert_eq!(brittle.changes(30.0), [(0x4_0125, false, -50.0)]);
+    assert_eq!(brittle.duration.at(30.0), Some(30.0));
+    let ward = |s: u32| match &t.get(s).expect("read").kind {
+        Kind::Ward { classes, chance } => (classes.to_vec(), *chance),
+        k => panic!("{s:08X}: {k:?}"),
+    };
+    assert_eq!(ward(0x6F00_266E), (vec![22, 5061], 1.0));
+    assert_eq!(ward(0x6F00_2672), (vec![48, 1119, 5013], 0.15));
+    assert_eq!(ward(0x6F00_2675), (vec![53, 5007, 5022, 5046], 0.15));
+    assert_eq!(
+        ward(0x6F00_2671),
+        (vec![49, 5014, 26, 4015, 5043, 5050], 0.15)
+    );
+    // They go on their wearers as records.
+    for s in [0x6F00_2646, 0x6F00_266E] {
+        assert!(t.get(s).expect("read").client_visible(), "{s:08X}");
+    }
+    // What an Armor Ward keeps off holds the counters' own.
+    assert_eq!(brittle.eq_class, 5061);
+}
+
 /// A recipe that binds its product names it by the product's ordinal over the whole spinner range
 /// (`0x6F000E9D`: each outcome makes `0x470008D4` and binds it, spinners 1 to 100).
 /// Behaviour: server.craft.recipe-binds-read

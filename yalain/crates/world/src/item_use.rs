@@ -845,7 +845,12 @@ pub(crate) fn put_on<S: Store>(
     };
     match def.kind {
         // What it does is the server's own (an antidote's cure, a portal): not made here.
-        Kind::Other | Kind::Pet { .. } | Kind::Aura(_) | Kind::Recall(_) => {
+        Kind::Other
+        | Kind::Pet { .. }
+        | Kind::Aura(_)
+        | Kind::Recall(_)
+        | Kind::Counter { .. }
+        | Kind::Ward { .. } => {
             s.unhandled
                 .note(format!("an item's effect {:08X} of no kind made", e.state));
         }

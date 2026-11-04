@@ -1777,6 +1777,7 @@ pub(crate) fn hurt_player<S: Store>(
     };
     wounded(s, net, id, share, was);
     after_hurt(s, net, world, by, clock);
+    crate::effects::answer_attack(s, net, world, by, clock);
 }
 
 /// A creature or a pet strikes another thing in its reach (a pet its target, a creature a pet that

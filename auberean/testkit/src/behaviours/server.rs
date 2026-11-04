@@ -2495,6 +2495,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.counter-answers-an-attack",
+        says: "A counter a player holds answers an attack that reaches it with its effect on the \
+               attacker, creature or player, by its chance at its spellcraft; harm over time is no \
+               attack, and an attack evaded goes unanswered. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-COUNTER"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_counter_answers_a_strike_that_lands_on_its_holder_and_not_one_evaded",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.counters-and-wards-read",
+        says: "The counters read with their chance and the effect they answer with; the wards read with \
+               the classes of effect they keep off.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-COUNTER-READ"),
+        station: "yalain-testkit::dat::effects::the_counters_and_wards_read_as_the_data_defines_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.effects.creature-debuff-shows-until-it-runs-out",
         says: "A debuff a player's skill lands on a creature shows its appearance to those who \
                see it from the add until its duration ends, and changes the creature's numbers \
@@ -2636,6 +2655,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SPEED-EACH-RECORD"),
         station: "yalain-testkit::cpu::play::effects::speed_is_told_at_every_speed_records_coming_and_going_even_unchanged",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.ward-keeps-off-its-classes",
+        says: "A ward a player holds keeps off effects of its classes by its chance, and no others. Our \
+               choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WARD"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_ward_keeps_off_the_effects_of_its_classes_by_its_chance",
         tier: Tier::Cpu,
     },
     behaviour! {
