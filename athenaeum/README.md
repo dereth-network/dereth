@@ -96,6 +96,8 @@ to where it leads.
 - Ctrl+F or **Find rows** finds any row of the world by its name, template, kind or key, nearest
   or not, and goes to a landblock (`5766` or `5766:123,45`).
 - G stands the selected rows on what is under them; Shift+G also leans objects with the ground.
+- Ctrl+C keeps the selected rows, and Ctrl+V puts copies down at the pointer, in any landblock,
+  standing as they stood to each other.
 - `=` and `-` make the selected objects larger and smaller, and **scale** on the right sets it; an
   empty one goes back to their template's.
 - Ctrl+D or **Duplicate** copies the selected row beside it and selects the copy, whatever it is:

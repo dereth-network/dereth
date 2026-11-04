@@ -22,6 +22,7 @@ see, not how it was done.
 - Placing and dragging land on platforms and other things the world has built, not just the ground.
 - Find shows templates as pictures.
 - G puts the selection on the ground, and Shift+G leans objects with it.
+- Rows can be copied between landblocks with Ctrl+C and Ctrl+V.
 - Objects can be scaled: `=` and `-`, or the scale field.
 - Duplicate copies the selected row beside it (Ctrl+D).
 - macOS: the editor opens at full size on Retina screens, Cmd works as Ctrl, and Backspace deletes.

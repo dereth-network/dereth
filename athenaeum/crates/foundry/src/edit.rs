@@ -173,6 +173,17 @@ fn not_found(item: &str) -> String {
     format!("no row {item} in the world")
 }
 
+/// Which cell a copy of a row stands in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CopyCell {
+    /// The land cell under it, or the room the row was in.
+    Follows,
+    /// The land cell under it.
+    Land,
+    /// This room.
+    Room(u32),
+}
+
 impl Session {
     /// The world `opened`, its edits going into the pack `target` (its folder or its name; by
     /// default the last pack the world loads), read and written on disk.
@@ -916,6 +927,32 @@ impl Session {
         landblock: u16,
         at: [f32; 3],
     ) -> Result<String, String> {
+        self.copy_row(item, landblock, at, CopyCell::Follows)
+    }
+
+    /// Copy a row to `at` in `landblock`, among the rooms in `room`'s, or out of any room when
+    /// there is none. Otherwise as [`Self::duplicate`].
+    ///
+    /// # Errors
+    /// No such row, or a file that is not TOML.
+    pub fn copy_to(
+        &mut self,
+        item: &str,
+        landblock: u16,
+        at: [f32; 3],
+        room: Option<u32>,
+    ) -> Result<String, String> {
+        let cell = room.map_or(CopyCell::Land, CopyCell::Room);
+        self.copy_row(item, landblock, at, cell)
+    }
+
+    fn copy_row(
+        &mut self,
+        item: &str,
+        landblock: u16,
+        at: [f32; 3],
+        cell: CopyCell,
+    ) -> Result<String, String> {
         let e = self.entry(item).ok_or_else(|| not_found(item))?.clone();
         // Another pack's row is read, and only copied.
         let mut table = if e.layer == Layer::Other {
@@ -963,13 +1000,16 @@ impl Session {
                 z: Some(at[2]),
             })),
         );
-        // A land cell follows the point; an interior cell is kept.
+        // A land cell follows the point; an interior cell is kept unless the copy goes elsewhere.
         let interior = table
             .get("cell")
             .and_then(Item::as_integer)
             .is_some_and(|c| c & 0xFFFF >= 0x100);
         let is_place = matches!(e.row.row, Row::Place(_));
-        if !interior && (is_place || table.contains_key("cell")) {
+        if let CopyCell::Room(room) = cell {
+            table.insert("cell", Item::Value(rowtoml::hex(room)));
+        } else if (cell == CopyCell::Land || !interior) && (is_place || table.contains_key("cell"))
+        {
             table.insert(
                 "cell",
                 Item::Value(rowtoml::hex(outdoor_cell(landblock, at[0], at[1]))),

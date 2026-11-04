@@ -245,6 +245,8 @@ pub struct Editor<'w> {
     grip: Option<Grip>,
     /// The steps moves and turns snap to.
     pub snap: Snap,
+    /// The rows Ctrl+C copied, for Ctrl+V to put down anywhere.
+    copied: Vec<Copied>,
     /// The block whose rooms the camera was last put among: a dungeon's rooms run on over other
     /// blocks' ground, so where the camera is doesn't say whose they are.
     home: Option<u16>,
@@ -281,6 +283,14 @@ fn rotation_of(row: &Row) -> [f32; 4] {
         _ => (None, None),
     };
     q.unwrap_or_else(|| view::heading_rotation(h.unwrap_or(0.0)))
+}
+
+/// A row Ctrl+C copied: how it stood to the row leading the selection, and above the ground.
+#[derive(Debug, Clone, PartialEq)]
+struct Copied {
+    item: String,
+    from_lead: [f32; 3],
+    above_ground: f32,
 }
 
 /// The rotation (scalar first) of something facing `heading` degrees and leaning with ground whose
@@ -499,6 +509,7 @@ impl<'w> Editor<'w> {
             hovered: None,
             grip: None,
             snap: Snap::default(),
+            copied: Vec::new(),
             home: None,
             inside: None,
             ghost: None,
@@ -1083,6 +1094,75 @@ impl<'w> Editor<'w> {
         );
         let r = self.session.set(item, "rotation", &text);
         self.report(r);
+    }
+
+    /// Keep the selected rows for Ctrl+V: how they stand to the one leading.
+    pub fn copy_selected(&mut self) {
+        let Some(lead) = self.selected.clone() else {
+            return;
+        };
+        let Some(e) = self.session.entry(&lead).cloned() else {
+            return;
+        };
+        let from = entry_global(&e, &mut self.scene);
+        let mut copied = Vec::new();
+        for item in self.all_selected() {
+            let Some(e) = self.session.entry(&item).cloned() else {
+                continue;
+            };
+            let g = entry_global(&e, &mut self.scene);
+            copied.push(Copied {
+                above_ground: self.scene.ground(g[0], g[1]).map_or(0.0, |z| g[2] - z),
+                from_lead: [g[0] - from[0], g[1] - from[1], g[2] - from[2]],
+                item,
+            });
+        }
+        self.status = match copied.len() {
+            1 => format!("copied {lead}: Ctrl+V puts it down"),
+            n => format!("copied {n} rows: Ctrl+V puts them down"),
+        };
+        self.copied = copied;
+    }
+
+    /// Put down what Ctrl+C copied, with the row that led at `to`, as they stood to it, as one
+    /// step, and select the copies.
+    pub fn paste_at(&mut self, to: [f32; 3]) {
+        if self.copied.is_empty() {
+            self.status = "nothing copied: Ctrl+C keeps the selected rows".into();
+            return;
+        }
+        let (x, y) = if self.snap.on {
+            (
+                gizmo::snapped(to[0], self.snap.grid),
+                gizmo::snapped(to[1], self.snap.grid),
+            )
+        } else {
+            (to[0], to[1])
+        };
+        // On the ground the rows keep to it; on a platform or among rooms they keep to that.
+        let on_ground = self.inside.is_none()
+            && self
+                .scene
+                .ground(to[0], to[1])
+                .is_some_and(|z| (z - to[2]).abs() < ON_THE_GROUND);
+        self.session.begin_step();
+        let mut made = Vec::new();
+        for c in self.copied.clone() {
+            let (cx, cy) = (x + c.from_lead[0], y + c.from_lead[1]);
+            let ground = self.scene.ground(cx, cy).filter(|_| on_ground);
+            let z = ground.map_or(to[2] + c.from_lead[2], |z| z + c.above_ground);
+            let (lb, room, at) = self.where_is([cx, cy, z]);
+            let r = self.session.copy_to(&c.item, lb, at, room);
+            made.extend(self.report(r));
+        }
+        self.session.end_step();
+        let n = made.len();
+        let mut made = made.into_iter();
+        if let Some(first) = made.next() {
+            self.select(Some(first));
+            self.also = made.collect();
+            self.status = format!("put down {n} of {}", self.copied.len());
+        }
     }
 
     /// Copy the selected row a little to the camera's right, and select the copy.
@@ -1923,6 +2003,12 @@ impl<'w> Editor<'w> {
                         self.scale_selected(1.0 / SCALE_STEP);
                     }
                     KeyCode::KeyF if input.ctrl => self.toggle_row_finder(),
+                    KeyCode::KeyC if input.ctrl => self.copy_selected(),
+                    KeyCode::KeyV if input.ctrl => {
+                        let to = self.ground_at(input.pointer).filter(|_| !over_panels);
+                        let to = to.unwrap_or_else(|| self.under_camera());
+                        self.paste_at(to);
+                    }
                     KeyCode::KeyG if !input.ctrl => self.ground_selected(input.shift),
                     KeyCode::KeyR if !input.ctrl => {
                         let step = self.snap.turn_step(TURN_STEP);
@@ -2998,6 +3084,13 @@ impl<'w> Editor<'w> {
                 .clicked()
             {
                 self.duplicate_selected();
+            }
+            if ui
+                .button("Copy")
+                .on_hover_text("to put down anywhere, in any landblock, with Ctrl+V (Ctrl+C)")
+                .clicked()
+            {
+                self.copy_selected();
             }
             if ui
                 .add_enabled(e.layer != Layer::Other, egui::Button::new("Take away"))

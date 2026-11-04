@@ -234,6 +234,33 @@ fn changes_gathered_together_undo_and_redo_as_one_step() {
 }
 
 #[test]
+fn a_row_copied_from_a_room_stands_where_it_goes() {
+    let mut s = session();
+    let item = s
+        .place_in(&person([1.0, 2.0, 3.0]), Some(0x77B7_0105))
+        .unwrap();
+    let cell = |s: &Session, i: &str| match &s.entry(i).unwrap().row.row {
+        Row::Object(o) => o.cell,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(cell(&s, &item), Some(0x77B7_0105));
+    let kept = s.duplicate(&item, LB, [4.0, 2.0, 3.0]).unwrap();
+    assert_eq!(
+        cell(&s, &kept),
+        Some(0x77B7_0105),
+        "beside it: the room is kept"
+    );
+    let out = s.copy_to(&item, LB, [4.0, 2.0, 3.0], None).unwrap();
+    let land = cell(&s, &out).expect("a land cell");
+    assert!(land & 0xFFFF < 0x100, "{land:08X}");
+    let other = s
+        .copy_to(&item, LB, [4.0, 2.0, 3.0], Some(0x77B7_0106))
+        .unwrap();
+    assert_eq!(cell(&s, &other), Some(0x77B7_0106));
+    clean(&s);
+}
+
+#[test]
 fn an_objects_scale_is_set_kept_and_taken_away() {
     let mut s = session();
     let item = s.place(&person([1.0, 2.0, 3.0])).unwrap();

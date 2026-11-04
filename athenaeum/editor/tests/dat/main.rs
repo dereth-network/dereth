@@ -881,6 +881,18 @@ fn a_looks_picture_shows_its_body_and_one_with_no_body_has_none() {
     assert!(e.scene.picture_frame(0x02FF_FFFF).is_none());
 }
 
+fn ctrl_key(e: &mut Editor<'_>, code: KeyCode, pointer: [f32; 2]) {
+    frame(
+        e,
+        &ViewInput {
+            pressed: vec![code],
+            ctrl: true,
+            pointer,
+            ..ViewInput::default()
+        },
+    );
+}
+
 #[test]
 fn g_stands_every_row_selected_on_the_ground_as_one_step() {
     let (mut e, a, b, g, h) = with_two_rows("ground");
@@ -926,4 +938,33 @@ fn r_with_snap_on_lands_on_a_whole_step() {
         "{}",
         heading(&e, &item)
     );
+}
+
+#[test]
+fn rows_copied_go_down_in_another_landblock_standing_as_they_stood() {
+    let (mut e, a, b, g, h) = with_two_rows("paste");
+    ctrl_key(&mut e, KeyCode::KeyC, [0.0, 0.0]);
+    // Over the next block, looking down at open ground.
+    let to = [g[0] + view::BLOCK, g[1], 0.0];
+    let z = e.scene.ground(to[0], to[1]).expect("ground there");
+    e.paste_at([to[0], to[1], z]);
+    let lead = e.selected.clone().expect("a copy selected");
+    let other = e.also.first().cloned().expect("the other copy selected");
+    assert!(
+        lead != a && lead != b && other != a && other != b,
+        "{lead} {other}"
+    );
+    let block = |e: &Editor<'_>, i: &str| e.session.entry(i).expect("the row").landblock();
+    assert_ne!(block(&e, &lead), TOWN, "in the other block");
+    assert_eq!(block(&e, &a), TOWN, "the rows copied stay");
+    assert_eq!(block(&e, &b), TOWN, "the rows copied stay");
+    let (l, o) = (place_of(&e, &lead), place_of(&e, &other));
+    assert!((l[0] - to[0]).abs() < 0.01, "the lead at the point: {l:?}");
+    assert!(((o[0] - l[0]) - (h[0] - g[0])).abs() < 0.01, "{l:?} {o:?}");
+    assert!(((o[1] - l[1]) - (h[1] - g[1])).abs() < 0.01, "{l:?} {o:?}");
+    let steps = e.session.steps().0;
+    e.session.undo();
+    assert_eq!(e.session.steps().0, steps - 1);
+    assert!(e.session.entry(&lead).is_none(), "one undo takes both");
+    assert!(e.session.entry(&other).is_none(), "one undo takes both");
 }
