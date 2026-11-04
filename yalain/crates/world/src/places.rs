@@ -320,6 +320,9 @@ fn portal_scene<S: Store>(s: &Server<S>, f: u32, scene: u32) -> ServerMessage {
 pub const USE_STATUS_IN_USE: u32 = 10001;
 pub const USE_FLAGS_IN_USE: u32 = 956;
 
+/// The use answer's control flags for an item of the pack with no use, refused.
+pub const USE_FLAGS_PACK: u32 = 316;
+
 /// The use answer's control flags for another player used: it cannot be (the status is the same
 /// "cannot use").
 pub const USE_FLAGS_A_PLAYER: u32 = 828;

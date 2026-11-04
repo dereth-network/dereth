@@ -131,6 +131,7 @@ what they see, not how it was done.
 - Creatures attack on time instead of a little late.
 - Effects that lower what skills cost now work.
 - Weapons are fought in their own stances.
+- Items with no use are refused instead of being held as a sword.
 
 ## 0.1.2 (2026-11-03)
 

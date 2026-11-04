@@ -4057,6 +4057,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.use-with-no-place-refused",
+        says: "A use of an item in the pack that names no hand or body place, and has no use of its \
+               own, is refused and the item stays. Our choice: 2017 never wielded one in 931 uses, and \
+               refused motes and broken medallions this way; other items with no use weren't seen.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-USE-NO-PLACE"),
+        station: "yalain-testkit::cpu::play::holds::an_item_with_no_place_is_refused_by_its_use_and_stays_in_the_pack",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.wield-keeps-the-packs-order",
         says: "Wielding answers with the item's place in the pack as the client keeps it (the pack's order, closed up behind anything taken out), before the weapon is drawn and the item moves; whatever is in the way goes back where the item was first.",
         since: RETAIL,

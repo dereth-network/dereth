@@ -362,6 +362,58 @@ fn hold(h: &mut Harness, world: yalain_net::ConnId, template: u32, location: u32
     id
 }
 
+/// An item that names no hand or body place, and isn't known as a weapon, is refused by its use and
+/// stays in the pack, nothing wielded; the same template known as a weapon is wielded.
+/// Behaviour: server.inventory.use-with-no-place-refused
+#[test]
+fn an_item_with_no_place_is_refused_by_its_use_and_stays_in_the_pack() {
+    let (mut h, b, me, world) = player();
+    let tool = yalain_testkit::test_template(0x4700_7B07, 0x200, Props::default());
+    h.server.catalog.insert(tool);
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, 0x4700_7B07, 1);
+    h.run(3);
+    let item = id_of(&h, world, 0x4700_7B07);
+    let from = h.bots[b].inbox.len();
+    use_it(&mut h, b, me, item);
+    let at = |h: &Harness| {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .find(|i| i.id == item)
+            .expect("still held")
+            .location
+    };
+    assert_eq!(at(&h), 0, "in the pack");
+    assert!(answers(&h, b, from).is_empty(), "no equip answer");
+    let told: Vec<u32> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::PlayerCall(c)
+                if c.function.0 == yalain_world::places::function::USE_DONE =>
+            {
+                let v = calls::values(&c.args.as_ref()?.0).ok()?;
+                let Value::Graph(g) = v.first()? else {
+                    return None;
+                };
+                g.iter().find_map(|(_, n)| match n {
+                    Node::Script {
+                        package: 0x245,
+                        slots,
+                    } => slots.get(11).map(|(_, s)| *s),
+                    _ => None,
+                })
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(told, [10_001], "cannot be used");
+    h.server.catalog.implements.insert(0x4700_7B07, im::SWORD);
+    use_it(&mut h, b, me, item);
+    assert_eq!(at(&h), equip::SWORD.preferred, "known as a weapon");
+}
+
 /// A player's combat mode is the stance the right hand's template names for what the left holds; a
 /// stave that names the sword's stance is fought in that, not the stave's.
 /// Behaviour: server.weapons.mode-by-stance

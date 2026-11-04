@@ -364,6 +364,10 @@ fn use_it(h: &mut Harness, b: usize, me: u64, item: u64) {
 /// A player with two swords it has not held.
 fn two_swords() -> (Harness, usize, u64, ConnId, u64, u64) {
     let (mut h, b, me, world, [_, _, first]) = player();
+    h.server
+        .catalog
+        .implements
+        .insert(SWORD, yalain_world::skill_use::implement::SWORD);
     yalain_world::inventory::give(&mut h.server, &mut h.net, world, SWORD, 1);
     h.run(3);
     let second = h.server.players[&world]

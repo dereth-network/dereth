@@ -533,6 +533,16 @@ pub fn use_held<S: Store>(
     let fit = s.catalog.get(h.template).and_then(|t| fit_of(&t.props));
     match (h.location, fit) {
         (0, Some(fit)) => wear(s, net, world, item, fit, None, flags::WORN, clock),
+        (0, None) if !wields_by_use(s, h.template) => {
+            let no = crate::places::use_refused(
+                u,
+                0,
+                Some(crate::places::USE_FLAGS_PACK),
+                0.0,
+                crate::places::USE_STATUS_IN_USE,
+            );
+            progress::private(net, world, &no);
+        }
         (0, None) => {
             let hand = hand_of_use(s, item, h.template);
             wield(s, net, world, item, hand, None, clock);
@@ -835,6 +845,19 @@ fn hand_of_use<S: Store>(s: &Server<S>, item: u64, template: u32) -> u32 {
         .map(|t| t.own.hand)
         .filter(|hand| hold.valid & hand != 0)
         .unwrap_or(hold.preferred)
+}
+
+/// Is a use of this template from the pack a wielding: does it name a hand, or is it known as something
+/// wielded? (2017: of 931 uses of items in the pack naming no place, none was wielded, nor of 10,433 of
+/// anything naming none. A thing with no use of its own is refused: 7 of the 7 such uses of
+/// motes and broken medallions.)
+fn wields_by_use<S: Store>(s: &Server<S>, template: u32) -> bool {
+    crate::skill_use::implement_of(&s.catalog, template).is_some()
+        || s.catalog.get(template).is_some_and(|t| {
+            t.props
+                .word("Item_ValidInventoryLocations")
+                .is_some_and(|v| v & (PRIMARY_HAND | OFF_HAND) != 0)
+        })
 }
 
 /// Wield an item of the pack in a hand, by its use or by a directive naming the hand: whatever is in

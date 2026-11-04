@@ -859,6 +859,10 @@ fn a_made_item_carries_its_outcomes_bonus_at_the_spinner_chosen_and_puts_it_on_w
             yalain_content::Props::default(),
         ));
     }
+    h.server.catalog.implements.insert(
+        yalain_testkit::KNIFE,
+        yalain_world::skill_use::implement::DAGGER,
+    );
     if let Some(r) = h.server.crafting.recipes.get_mut(&KNIFE_RECIPE) {
         for o in r.checks.iter_mut().flat_map(|c| c.outcomes.iter_mut()) {
             o.actions.push(Action::ItemEffect {
