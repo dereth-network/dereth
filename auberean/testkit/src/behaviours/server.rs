@@ -8644,6 +8644,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.vigor-of-what-is-held",
+        says: "A skill costs its own, what its weapons cost and what its shield costs, each by the \
+               item's own number or its template's, unless the skill ignores it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-VIGOR-OF-HELD"),
+        station: "yalain-testkit::cpu::play::holds::a_use_pays_for_each_weapon_and_the_shield_by_their_own_numbers",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.store.greeting-and-store",
         says: "Using a storekeeper in reach is answered, then the storekeeper greets the player \
                by name and opens its store on its first page.",

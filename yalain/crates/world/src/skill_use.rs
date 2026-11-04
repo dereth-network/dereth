@@ -125,6 +125,7 @@ pub mod q {
 pub mod ui_flag {
     pub const USE_WHILE_MOVING: u32 = 0x1;
     pub const IGNORE_WEAPON_VIGOR: u32 = 0x20;
+    pub const IGNORE_SHIELD_VIGOR: u32 = 0x80;
     pub const NON_DAMAGING: u32 = 0x200;
     /// The player is walked to its target (rather than refused as too far).
     pub const MOVE_TO: u32 = 0x800;
@@ -334,7 +335,8 @@ pub fn implements_of_catalog(
         .collect()
 }
 
-/// The starting weapons' implements (their classes'), and their vigor costs (4 each).
+/// The starting weapons' implements (their classes'), and their vigor costs (4 each: their
+/// templates name none).
 pub const STARTING_WEAPONS: [(u32, u32); 9] = [
     (0x4700_051B, implement::BOW),
     (0x4700_051C, implement::SWORD),
@@ -592,25 +594,68 @@ pub fn implement_allowed(catalog: &yalain_content::Catalog, u: &Usage, hands: Ha
     fits(u.implements_right, hands.right) && fits(u.implements_left, hands.left)
 }
 
-/// A skill's vigor cost for a player with this greatest vigor and these things wielded: the
-/// greatest vigor times the definition's share, less its added part (negative), and the wielded
-/// weapon's own cost (the starting weapons' 4) unless the skill ignores it.
+/// What a player's hands add to a skill's vigor cost.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HeldVigor {
+    /// Its weapons', one or two.
+    pub weapons: i32,
+    /// Its shield's.
+    pub shield: i32,
+}
+
+/// What each thing in a player's hands costs its skills: the item's own number (a treasure or
+/// made item's), else its template's; a starting weapon's 4 (2017: an item's own or its template's
+/// number, both weapons' when it holds two; 237 of 248 uses by players whose costs nothing else
+/// lowered paid them on themselves too).
+pub fn held_vigor<S: Store>(s: &Server<S>, player: u64) -> HeldVigor {
+    let mut held = HeldVigor::default();
+    for (item, template) in wielded(s, player) {
+        let own = s
+            .things
+            .get(item)
+            .and_then(|t| t.own.made)
+            .and_then(|m| m.vigor);
+        let cost = own
+            .or_else(|| {
+                s.catalog
+                    .get(template)
+                    .and_then(|t| t.props.int("Weapon_VigorCost"))
+                    .and_then(|c| i32::try_from(c).ok())
+            })
+            .unwrap_or(if starting_implement(template).is_some() {
+                STARTING_WEAPON_VIGOR
+            } else {
+                0
+            });
+        if implement_of(&s.catalog, template) == Some(implement::SHIELD) {
+            held.shield += cost;
+        } else {
+            held.weapons += cost;
+        }
+    }
+    held
+}
+
+/// A skill's vigor cost for a player with this greatest vigor and these things held: the greatest
+/// vigor times the definition's share, less its added part (negative), what its weapons cost and
+/// what its shield costs, unless the skill ignores them (2017, a shield of 5 beside a weapon of 5:
+/// 10 for a skill that does not ignore it, 5 for one that does).
 #[must_use]
-pub fn vigor_cost(u: &Usage, max_vigor: i32, wielded: &[(u64, u32)]) -> i32 {
+pub fn vigor_cost(u: &Usage, max_vigor: i32, held: HeldVigor) -> i32 {
     #[allow(clippy::cast_precision_loss)]
     let base = dereth_primitives::num::to_i32(max_vigor as f32 * u.vigor_mult)
         - dereth_primitives::num::to_i32(u.vigor_add);
-    // A skill used on its user alone takes no weapon's cost (2017: 86 of 89 such uses paid 1).
-    let weapon = if u.ui_flags & (ui_flag::IGNORE_WEAPON_VIGOR | ui_flag::SELF_TARGETED) == 0 {
-        wielded
-            .iter()
-            .filter(|(_, t)| starting_implement(*t).is_some())
-            .map(|_| STARTING_WEAPON_VIGOR)
-            .sum::<i32>()
+    let weapons = if u.ui_flags & ui_flag::IGNORE_WEAPON_VIGOR == 0 {
+        held.weapons
     } else {
         0
     };
-    base + weapon
+    let shield = if u.ui_flags & ui_flag::IGNORE_SHIELD_VIGOR == 0 {
+        held.shield
+    } else {
+        0
+    };
+    base + weapons + shield
 }
 
 /// Is the player moving, as its last report says (an asked motion, or a jump)?
@@ -844,7 +889,7 @@ fn check<S: Store>(
     if combat::is_dead(p) {
         return Err(refusal::DEAD);
     }
-    let held = wielded(s, p.character);
+    let held = held_vigor(s, p.character);
     if !implement_allowed(&s.catalog, &u, hands(s, p.character)) {
         return Err(refusal::WRONG_IMPLEMENT);
     }
@@ -857,7 +902,7 @@ fn check<S: Store>(
     if time_left(s, world, r.skill, &u, now_game) > 0.0 {
         return Err(refusal::NOT_RESET);
     }
-    if vigor < vigor_cost(&u, max_vigor, &held) {
+    if vigor < vigor_cost(&u, max_vigor, held) {
         return Err(refusal::NOT_ENOUGH_VIGOR);
     }
     if !u.required_effects.is_empty() && !carries(s, world, &u.required_effects) {
@@ -1270,13 +1315,13 @@ fn pay<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: &Usag
     let Some(p) = s.players.get(&world) else {
         return;
     };
-    let held = wielded(s, p.character);
+    let held = held_vigor(s, p.character);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
     let vigor = quals::int(&p.qualities, quality::VIGOR).unwrap_or(0);
     let max = quals::int(&p.qualities, quality::VIGOR_MAX).unwrap_or(vigor);
-    let left = (vigor - vigor_cost(u, max, &held)).max(0);
+    let left = (vigor - vigor_cost(u, max, held)).max(0);
     quals::set_int(&mut p.qualities, quality::VIGOR, left);
     progress::send_int(net, world, quality::VIGOR, left);
     if left == 0 {

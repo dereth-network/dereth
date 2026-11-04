@@ -160,6 +160,32 @@ fn deadeye_from_rest_shoots_and_ends_with_the_skills_information() {
     assert!(h.server.players.values().all(|p| p.using.is_none()));
 }
 
+/// A bow the player came by costs what it says, not what a starting bow does.
+/// Behaviour: server.specials.vigor-of-what-is-held
+#[test]
+fn deadeye_with_a_looted_bow_pays_that_bows_cost() {
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    const LOOTED: u32 = 0x4700_07A3;
+    let mut p = yalain_content::Props::default();
+    p.set("Weapon_VigorCost", yalain_content::Prop::Int(18));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(LOOTED, 0x1067, p));
+    h.server
+        .catalog
+        .implements
+        .insert(LOOTED, yalain_world::skill_use::implement::BOW);
+    h.arm(b, me, LOOTED);
+    let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+    h.run(80);
+    assert_eq!(
+        vigor_sent(&h, b, from).first(),
+        Some(&50),
+        "100 less 32 and 18"
+    );
+}
+
 /// A special with nothing in hand is refused in one tick: the player attacking, the use over,
 /// why (not wielding the right item), not attacking. The recall too needs something in the right
 /// hand.

@@ -117,6 +117,7 @@ what they see, not how it was done.
 - Fixed broker collections that could lose an item or what it holds.
 - Fixed a position far outside the land not being handled safely.
 - Looted bows and two-handed weapons take both hands and look right.
+- Skills cost vigor for whatever weapons and shield you hold.
 
 ## 0.1.2 (2026-11-03)
 

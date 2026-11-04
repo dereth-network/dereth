@@ -8,7 +8,7 @@ use yalain_testkit::play::{server_call, use_of};
 use yalain_testkit::Harness;
 use yalain_world::calls::{self, Node, Value};
 use yalain_world::equip::{self, flags, function, OFF_HAND, PRIMARY_HAND};
-use yalain_world::skill_use::implement as im;
+use yalain_world::skill_use::{implement as im, HeldVigor};
 
 const BOW: u32 = 0x4700_7B01;
 const SWORD: u32 = 0x4700_7B02;
@@ -228,4 +228,121 @@ fn a_looted_bow_is_made_strung() {
         })
         .collect();
     assert_eq!(made, [(BOW, 0x4100_0010), (SWORD, 0x4000_0001)]);
+}
+
+/// A skill's cost: its own, what its weapons cost and what its shield costs, each unless the skill
+/// ignores it; used on its user alone it costs the same.
+/// Behaviour: server.specials.vigor-of-what-is-held
+#[test]
+fn a_skill_costs_its_own_and_what_the_hands_hold_unless_it_ignores_them() {
+    use yalain_world::skill_use::{ui_flag, vigor_cost};
+    let held = HeldVigor {
+        weapons: 16,
+        shield: 5,
+    };
+    let cost = |ui_flags: u32| {
+        let u = yalain_world::skills::Usage {
+            vigor_add: -100.0,
+            ui_flags,
+            ..yalain_world::skills::Usage::default()
+        };
+        vigor_cost(&u, 1000, held)
+    };
+    assert_eq!(cost(0), 121);
+    assert_eq!(cost(ui_flag::SELF_TARGETED), 121, "on its user alone");
+    assert_eq!(cost(ui_flag::IGNORE_WEAPON_VIGOR), 105);
+    assert_eq!(cost(ui_flag::IGNORE_SHIELD_VIGOR), 116);
+    assert_eq!(
+        cost(ui_flag::IGNORE_WEAPON_VIGOR | ui_flag::IGNORE_SHIELD_VIGOR),
+        100
+    );
+    let share = yalain_world::skills::Usage {
+        vigor_mult: 0.5,
+        ..yalain_world::skills::Usage::default()
+    };
+    assert_eq!(
+        vigor_cost(&share, 1000, held),
+        521,
+        "a share of the greatest"
+    );
+}
+
+/// Two weapons each cost theirs, by the item's own number where it has one, a template's or a
+/// starting weapon's otherwise, a shield its own beside them.
+/// Behaviour: server.specials.vigor-of-what-is-held
+#[test]
+fn a_use_pays_for_each_weapon_and_the_shield_by_their_own_numbers() {
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let (mut right, mut left) = (
+        held(SWORD, (192, 64, 0), Some((1, 2)), Some(0x4100_000A)),
+        held(HANDBLADE, (192, 64, 0), Some((1, 2)), Some(0x4100_000F)),
+    );
+    right.props.set("Weapon_VigorCost", Prop::Int(18));
+    left.props.set("Weapon_VigorCost", Prop::Int(7));
+    let mut shield = held(SHIELD, (128, 128, 0), Some((2, 1)), None);
+    shield.props.set("Weapon_VigorCost", Prop::Int(3));
+    for t in [right, left, shield] {
+        h.server.catalog.insert(t);
+    }
+    h.server.catalog.implements.insert(SWORD, im::SWORD);
+    h.server.catalog.implements.insert(HANDBLADE, im::HANDBLADE);
+    h.server.catalog.implements.insert(SHIELD, im::SHIELD);
+    let (_, me) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("a player");
+    h.server.players.get_mut(&world).unwrap().play.items.clear();
+    let cost = |h: &Harness| yalain_world::skill_use::held_vigor(&h.server, me);
+    let first = hold(&mut h, world, SWORD, PRIMARY_HAND);
+    assert_eq!(
+        cost(&h),
+        HeldVigor {
+            weapons: 18,
+            shield: 0
+        },
+        "its template's"
+    );
+    if let Some(t) = h.server.things.get_mut(first) {
+        t.own.made = Some(yalain_world::made::Made {
+            vigor: Some(25),
+            ..yalain_world::made::Made::default()
+        });
+    }
+    assert_eq!(cost(&h).weapons, 25, "the item's own");
+    let second = hold(&mut h, world, HANDBLADE, OFF_HAND);
+    assert_eq!(cost(&h).weapons, 32, "both weapons'");
+    let p = h.server.players.get_mut(&world).unwrap();
+    p.play.items.retain(|i| i.id != second);
+    hold(&mut h, world, SHIELD, OFF_HAND);
+    assert_eq!(
+        cost(&h),
+        HeldVigor {
+            weapons: 25,
+            shield: 3
+        },
+        "and a shield's"
+    );
+    let p = h.server.players.get_mut(&world).unwrap();
+    p.play.items.clear();
+    h.server.catalog.insert(yalain_testkit::test_template(
+        0x4700_051C,
+        0x1067,
+        Props::default(),
+    ));
+    hold(&mut h, world, 0x4700_051C, PRIMARY_HAND);
+    assert_eq!(cost(&h).weapons, 4, "a starting weapon's");
+}
+
+/// A thing made of a template, placed straight at a place on the player.
+fn hold(h: &mut Harness, world: yalain_net::ConnId, template: u32, location: u32) -> u64 {
+    let id = yalain_world::inventory::make_item(&mut h.server, template, 1, 0).expect("made");
+    let p = h.server.players.get_mut(&world).unwrap();
+    let slot = u32::try_from(p.play.items.len()).unwrap_or(0);
+    p.play.items.push(yalain_world::state::Held {
+        id,
+        template,
+        slot,
+        location,
+        quantity: 1,
+    });
+    id
 }
