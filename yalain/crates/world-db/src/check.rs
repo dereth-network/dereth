@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::merge::merge;
+use crate::merge::{merge, Merged};
 use crate::rows::{read, Database, Located, Prov, Row, Source, Trigger, Update};
 use crate::{Files, Problem};
 
@@ -68,16 +68,26 @@ pub fn is_handle(s: &str) -> bool {
 /// held only to its reading: a row left out would make others' references look broken.
 #[must_use]
 pub fn check(files: &Files) -> Vec<Problem> {
-    let db = match read(files) {
-        Ok(db) => db,
-        Err(p) => return p,
-    };
-    let mut problems = check_database(&db);
-    if let Err(p) = merge(&db) {
-        problems.extend(p);
+    match read(files) {
+        Ok(db) => check_read(&db).0,
+        Err(p) => p,
     }
+}
+
+/// [`check`] of a database already read: every problem, sorted, and the rows merged when they
+/// merge.
+#[must_use]
+pub fn check_read(db: &Database) -> (Vec<Problem>, Option<Merged>) {
+    let mut problems = check_database(db);
+    let merged = match merge(db) {
+        Ok(m) => Some(m),
+        Err(p) => {
+            problems.extend(p);
+            None
+        }
+    };
     problems.sort();
-    problems
+    (problems, merged)
 }
 
 /// A reference's pack and key (`pack:key` or `key`, this pack).

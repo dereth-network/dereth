@@ -461,9 +461,16 @@ pub fn compile_dir(
     base_dir: Option<&Path>,
 ) -> Result<Tables, String> {
     let files = load(db_dir)?;
-    let named = rows::read_partly(&files).0.and_then(|db| db.world.base);
-    let (problems, base) = match &named {
-        None => (check::check(&files), None),
+    let (read, read_problems) = rows::read_partly(&files);
+    let named = read.as_ref().and_then(|db| db.world.base.clone());
+    let (problems, base, checked) = match &named {
+        None => match (&read, read_problems.is_empty()) {
+            (Some(db), true) => {
+                let (problems, merged) = check::check_read(db);
+                (problems, None, merged)
+            }
+            _ => (read_problems.clone(), None, None),
+        },
         Some(b) => {
             let dir = match base_dir {
                 Some(d) => d.to_path_buf(),
@@ -471,7 +478,7 @@ pub fn compile_dir(
             };
             let base = layer::Base::new(&load(&dir)?)
                 .map_err(|p| format!("{}\nthe base {}", report(&p), dir.display()))?;
-            (layer::check(&base, &files), Some(base))
+            (layer::check(&base, &files), Some(base), None)
         }
     };
     if !problems.is_empty() {
@@ -482,12 +489,20 @@ pub fn compile_dir(
             db_dir.display()
         ));
     }
-    let db = rows::read(&files).map_err(|p| report(&p))?;
-    let merged = match &base {
-        None => merge::merge(&db),
-        Some(base) => layer::merge_over(base, &db),
-    }
-    .map_err(|p| report(&p))?;
+    let merged = match checked {
+        Some(merged) => merged,
+        None => {
+            let db = match (read, read_problems) {
+                (Some(db), p) if p.is_empty() => db,
+                (_, p) => return Err(report(&p)),
+            };
+            match &base {
+                None => merge::merge(&db),
+                Some(base) => layer::merge_over(base, &db),
+            }
+            .map_err(|p| report(&p))?
+        }
+    };
     let mut install = DatInstall::new(
         Box::new(|id| p.dat.read(id).ok()),
         p.ctx.clone(),

@@ -13,7 +13,7 @@ use dereth_primitives::num::math;
 use yalain_content::quests::{Need, Trigger, Update};
 use yalain_content::talk::{How, Role, TalkUpdate, When};
 use yalain_content::{FactIds, Kind, Words};
-use yalain_world_db::check::check;
+use yalain_world_db::check::{check, check_read};
 use yalain_world_db::compile::{compile, Install, InstallSale, QuestDefinition};
 use yalain_world_db::merge::merge;
 use yalain_world_db::release::{self, Host};
@@ -219,6 +219,25 @@ fn the_test_world_reads_checks_and_merges_without_problems() {
     assert_eq!(db.world.era, "eor");
     assert_eq!(db.packs.len(), 2);
     assert_eq!(db.packs[0].rows.len(), 16);
+}
+
+#[test]
+fn a_database_already_read_is_checked_and_merged_as_its_files_are() {
+    let files = fixture();
+    let db = read(&files).unwrap();
+    let (problems, merged) = check_read(&db);
+    assert_eq!(problems, check(&files));
+    assert_eq!(merged, Some(merge(&db).unwrap()));
+    // With no word from the world, the later pack's rows conflict: no rows merged, the problem said.
+    let mut bad = files.clone();
+    let world = files["world.toml"].clone();
+    let cut = world.find("[[override]]").unwrap();
+    bad.insert("world.toml".into(), world[..cut].to_string());
+    let db = read(&bad).unwrap();
+    let (problems, merged) = check_read(&db);
+    assert!(!problems.is_empty(), "it says what is wrong");
+    assert_eq!(problems, check(&bad));
+    assert_eq!(merged, None);
 }
 
 #[test]
