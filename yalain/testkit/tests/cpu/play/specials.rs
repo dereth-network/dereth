@@ -493,6 +493,99 @@ fn a_specials_critical_does_a_quarter_more_than_its_plain_hit() {
     assert_eq!(critical, (plain * 5 + 2) / 4, "{plain}");
 }
 
+/// A hook of the left hand does the damage of what that hand holds, a shield's too, and the right
+/// hand's weapon's with nothing there that does damage. A hook of the right hand is untouched.
+/// Behaviour: server.specials.hook-of-the-left-hand
+#[test]
+fn a_hook_of_the_left_hand_does_the_damage_of_what_it_holds() {
+    use yalain_content::{Prop, Props};
+    use yalain_world::skill_use::hook_flag::LEFT_HAND;
+    const SHIELD: u32 = 0x4700_07A4;
+    const CLOTH: u32 = 0x4700_07A5;
+    const BOW_OF_KNOWN_DAMAGE: u32 = 0x4700_07A3;
+    let hit = |flags: u32, left: Option<u32>| -> i32 {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        let known = |h: &mut Harness, t: u32, damage: i64| {
+            let mut p = Props::default();
+            p.set("Weapon_Damage", Prop::Int(damage))
+                .set("Weapon_Variance", Prop::Float(0.0));
+            h.server
+                .catalog
+                .insert(yalain_testkit::test_template(t, 0x1067, p));
+        };
+        known(&mut h, BOW_OF_KNOWN_DAMAGE, 100);
+        known(&mut h, SHIELD, 30);
+        h.server.catalog.insert(yalain_testkit::test_template(
+            CLOTH,
+            0x200,
+            Props::default(),
+        ));
+        h.server
+            .catalog
+            .implements
+            .insert(BOW_OF_KNOWN_DAMAGE, yalain_world::skill_use::implement::BOW);
+        h.arm(b, me, BOW_OF_KNOWN_DAMAGE);
+        if let Some(template) = left {
+            let id =
+                yalain_world::inventory::make_item(&mut h.server, template, 1, 0).expect("made");
+            let p = h.server.players.values_mut().next().expect("in the world");
+            let slot = u32::try_from(p.play.items.len()).unwrap_or(0);
+            p.play.items.push(yalain_world::state::Held {
+                id,
+                template,
+                slot,
+                location: yalain_world::equip::OFF_HAND,
+                quantity: 1,
+            });
+        }
+        let u = h
+            .server
+            .skill_table
+            .skills
+            .get_mut(&DEADEYE)
+            .and_then(|d| d.usage.as_mut())
+            .expect("Deadeye");
+        u.implements_left = -1;
+        for hook in &mut u.hooks {
+            hook.flags |= flags;
+            hook.add = 0.0;
+            hook.add_by_rating.clear();
+        }
+        if let Some(t) = h.server.things.get_mut(beetle) {
+            t.max_health = 10_000_000;
+            t.health = 10_000_000;
+            if let Some(c) = t.creature.as_mut() {
+                c.stats.armor = 0;
+            }
+        }
+        h.server.rng = yalain_world::rng::Rng::new(7);
+        for _ in 0..200 {
+            let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+            h.run(120);
+            for m in h.world_messages(b, from) {
+                let ServerMessage::DoStory(e) = m else {
+                    continue;
+                };
+                for k in &e.action.hooks {
+                    if k.numbers[3] < 0 && k.numbers[0] == 0x4000_0008 {
+                        return -k.numbers[3];
+                    }
+                }
+            }
+        }
+        panic!("no plain hit");
+    };
+    assert_eq!(hit(0, Some(SHIELD)), 100, "the right hand's own hook");
+    assert_eq!(hit(LEFT_HAND, None), 100, "nothing in the left hand");
+    assert_eq!(
+        hit(LEFT_HAND, Some(CLOTH)),
+        100,
+        "nothing there with damage"
+    );
+    assert_eq!(hit(LEFT_HAND, Some(SHIELD)), 30, "the shield's");
+}
+
 /// An effect that lowers a skill's cost does, a fraction rounded up, down to half the skill's own:
 /// Deadeye costs 32 and the bow's 4.
 /// Behaviour: server.specials.vigor-lowered-by-effects

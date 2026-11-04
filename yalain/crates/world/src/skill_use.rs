@@ -1530,6 +1530,32 @@ pub(crate) fn hitting_with(me: rules::Hitter, h: &Hook, rating: f32) -> rules::H
     }
 }
 
+/// A hitter as a blow of this hook is reckoned by the hand that strikes: one of the left hand does
+/// the damage of what the left hand holds, a shield's too (2017, Victimize with a shield recorded:
+/// median 99, 103 by the shield and 171 by the right hand's weapon, 32 hits). The right hand's, when
+/// the left holds nothing with damage.
+fn by_its_hand<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    me: rules::Hitter,
+    h: &Hook,
+) -> rules::Hitter {
+    if h.flags & hook_flag::LEFT_HAND == 0 {
+        return me;
+    }
+    let Some(p) = s.players.get(&world) else {
+        return me;
+    };
+    let Some((left, _)) = hands(s, p.character).left else {
+        return me;
+    };
+    combat::weapon_damage(s, left).map_or(me, |weapon| rules::Hitter {
+        weapon: Some(weapon),
+        critical: combat::critical_bonus(s, Some(left)),
+        ..me
+    })
+}
+
 /// What a special's hook does on a creature when it lands.
 fn hook_hit<S: Store>(
     s: &mut Server<S>,
@@ -1679,6 +1705,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         } else {
             Kind::Melee
         };
+        let me_hits = by_its_hand(s, world, me_hits, h);
         let o = rules::roll_special(&mut s.rng, kind, my_level, level, me_hits.critical);
         // Strikes of specials are evaded, never missed.
         let o = if kind == Kind::Melee && o == Outcome::Miss {
@@ -1889,7 +1916,10 @@ fn landings_of<S: Store>(
         for t in targets {
             let o = match rolled {
                 Some(r) if t == target && first_damaging.is_some() => Some(r),
-                _ => roll_hook(s, u, h, hitting_with(me, h, rating), t),
+                _ => {
+                    let me = by_its_hand(s, world, me, h);
+                    roll_hook(s, u, h, hitting_with(me, h, rating), t)
+                }
             };
             if let Some((outcome, damage)) = o {
                 out.push(Landing {

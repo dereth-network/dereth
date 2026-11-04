@@ -8729,6 +8729,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.specials.hook-of-the-left-hand",
+        says: "A special whose hook strikes with the left hand does the damage of what the left hand \
+               holds, a shield's too; the right hand's weapon if the left holds nothing with damage.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-LEFT-HAND"),
+        station: "yalain-testkit::cpu::play::specials::a_hook_of_the_left_hand_does_the_damage_of_what_it_holds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.specials.inside-a-run",
         says: "Inside an attack run a special waits for the run's next swing and takes it; the \n               run's basic swings go on after it.",
         since: RETAIL,
