@@ -3578,6 +3578,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.a-part-split-off-holds-the-stacks-numbers",
+        says: "Part of a stack split off, in the pack, to a trade or to a broker, is a new item \
+               holding all the stack holds of its own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPLIT-NUMBERS"),
+        station: "yalain-testkit::cpu::play::stack_numbers::a_part_split_off_in_the_pack_keeps_the_stacks_numbers",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.a-picked-up-item-goes-to-the-packs-front",
         says: "An item picked up goes to the front of the pack, every item there moving up one, \
                and the move names that slot as both where it was sent and where it went.",
@@ -3900,6 +3909,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-REORG-SPLIT"),
         station: "yalain-testkit::cpu::play::pack::part_of_a_stack_moved_splits_off_as_a_new_stack_at_the_slot",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.stacks-join-only-with-like-numbers",
+        says: "Items join a stack only when each piece is worth the same and carries the same of \
+               its own; any other goes in as an item of its own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STACK-JOIN"),
+        station: "yalain-testkit::cpu::play::stack_numbers::a_piece_worth_little_does_not_join_a_piece_worth_much",
         tier: Tier::Cpu,
     },
     behaviour! {

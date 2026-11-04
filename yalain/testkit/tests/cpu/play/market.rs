@@ -273,6 +273,51 @@ fn an_item_taken_back_from_a_broker_keeps_what_it_holds_of_its_own() {
     assert_eq!(t.crafter.as_deref(), Some("Seller"));
 }
 
+/// Part of a stack put up holds what the stack held of its own.
+/// Behaviour: server.inventory.a-part-split-off-holds-the-stacks-numbers
+#[test]
+fn part_of_a_stack_put_up_with_a_broker_keeps_the_stacks_numbers() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 1_000);
+    let stack = yalain_world::inventory::make_item(&mut h.server, GEM, 5, 41).expect("made");
+    h.server.things.get_mut(stack).expect("made").crafter = Some("Seller".to_owned());
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == ida)
+        .expect("in the world");
+    p.play.items.push(yalain_world::state::Held {
+        id: stack,
+        template: GEM,
+        slot: 0,
+        location: 0,
+        quantity: 5,
+    });
+    h.ask(
+        a,
+        function::SELL,
+        &[
+            Arg::Int(STORE),
+            Arg::Int(100),
+            Arg::Int(2),
+            Arg::LongInt(stack),
+            Arg::LongInt(BROKER),
+        ],
+        10,
+    );
+    let sale = h.server.market.list[0];
+    assert_ne!(sale.item, stack, "a new item");
+    let t = h.server.things.get(sale.item).expect("with the broker");
+    assert_eq!(
+        (t.quantity, t.value, t.crafter.as_deref()),
+        (2, 41, Some("Seller"))
+    );
+    assert_eq!(h.server.things.get(stack).expect("kept").quantity, 3);
+}
+
 /// A seller collecting the price of what another player bought leaves the buyer's item alone.
 /// Behaviour: server.market.a-consigned-item-keeps-what-it-holds
 #[test]

@@ -630,6 +630,59 @@ pub fn make_item<S: Store>(
     Some(id)
 }
 
+/// What one piece of an item is worth: its own value, else its template's.
+fn piece_worth<S: Store>(s: &Server<S>, t: &Thing) -> u32 {
+    if t.value > 0 {
+        t.value
+    } else {
+        item_value(s, t.template)
+    }
+}
+
+/// May two items share a stack? A stack holds one set of numbers, so they must be of one template,
+/// each piece worth the same and carrying the same of its own. The name of who made one is not
+/// among them: the kept stack keeps its maker.
+pub(crate) fn same_numbers<S: Store>(s: &Server<S>, a: u64, b: u64) -> bool {
+    let (Some(x), Some(y)) = (s.things.get(a), s.things.get(b)) else {
+        return false;
+    };
+    x.template == y.template
+        && piece_worth(s, x) == piece_worth(s, y)
+        && x.own == y.own
+        && x.enchantments == y.enchantments
+        && x.bonuses == y.bonuses
+        && x.inscription == y.inscription
+        && x.durability == y.durability
+        && x.destination == y.destination
+        && x.binds_on_use == y.binds_on_use
+}
+
+/// Does an item carry nothing beyond its template, so that new pieces of the template may join it?
+fn is_plain<S: Store>(s: &Server<S>, t: &Thing) -> bool {
+    piece_worth(s, t) == item_value(s, t.template)
+        && t.own.is_empty()
+        && t.enchantments.is_empty()
+        && t.bonuses.is_empty()
+        && t.inscription.is_none()
+        && t.durability.is_none()
+        && t.destination.is_none()
+        && !t.binds_on_use
+}
+
+/// So many pieces split from a stack make a new item (nowhere yet), holding all the stack holds of
+/// its own. The stack's count is the caller's to lower.
+pub(crate) fn split_off<S: Store>(s: &mut Server<S>, stack: u64, quantity: u32) -> Option<u64> {
+    let (template, kept) = s
+        .things
+        .get(stack)
+        .map(|t| (t.template, crate::state::ItemState::of(t)))?;
+    let id = make_item(s, template, quantity, 0)?;
+    if let Some(t) = s.things.get_mut(id) {
+        kept.restore(t);
+    }
+    Some(id)
+}
+
 /// Number each segment's items from its first slot in their order, as the client keeps its pack: a
 /// list that closes up when an item leaves it.
 pub fn close_up(items: &mut [Held]) {
@@ -801,8 +854,8 @@ pub fn give_made<S: Store>(
     Some(id)
 }
 
-/// Add so many units of a template to a player's stack of it (its new quantity shown), else make
-/// a stack of them in the pack.
+/// Add so many units of a template to a player's plain stack of it (its new quantity shown), else
+/// make a stack of them in the pack.
 pub fn give_stacked<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -810,14 +863,22 @@ pub fn give_stacked<S: Store>(
     template: u32,
     n: u32,
 ) {
-    let stack = s.players.get_mut(&world).and_then(|p| {
-        let h = p
-            .play
+    let plain = s.players.get(&world).and_then(|p| {
+        p.play
             .items
-            .iter_mut()
-            .find(|h| h.template == template && h.location == 0)?;
+            .iter()
+            .find(|h| {
+                h.template == template
+                    && h.location == 0
+                    && s.things.get(h.id).is_some_and(|t| is_plain(s, t))
+            })
+            .map(|h| h.id)
+    });
+    let stack = plain.and_then(|id| {
+        let p = s.players.get_mut(&world)?;
+        let h = p.play.items.iter_mut().find(|h| h.id == id)?;
         h.quantity = h.quantity.max(1) + n;
-        Some((h.id, h.quantity))
+        Some((id, h.quantity))
     });
     let Some((id, quantity)) = stack else {
         give(s, net, world, template, n);
@@ -931,14 +992,16 @@ pub mod refused {
     pub const CONTAINER_FULL: u32 = 1085;
 }
 
-/// The stack of a template in a player's pack an item of `quantity` would join, with its slot and
-/// its quantity: a template that stacks (one of more than one to a stack), with room for them all.
+/// The stack in a player's pack an item of `quantity` would join, with its slot and its quantity:
+/// of its template and its numbers, a template that stacks (one of more than one to a stack), with
+/// room for them all.
 pub(crate) fn stack_for<S: Store>(
     s: &Server<S>,
     world: ConnId,
-    template: u32,
+    item: u64,
     quantity: u32,
 ) -> Option<(u64, u32, u32)> {
+    let template = s.things.get(item)?.template;
     let most = s
         .catalog
         .get(template)
@@ -955,6 +1018,7 @@ pub(crate) fn stack_for<S: Store>(
         .find(|h| {
             h.template == template
                 && h.location == 0
+                && same_numbers(s, h.id, item)
                 && i64::from(h.quantity.max(1)) + i64::from(quantity) <= most
         })
         .map(|h| (h.id, h.slot, h.quantity.max(1)))
@@ -1077,7 +1141,7 @@ pub fn picked_up<S: Store>(
             stamp: stamp.wrapping_add(1),
         },
     });
-    if let Some((stack, slot, had)) = stack_for(s, world, template, quantity) {
+    if let Some((stack, slot, had)) = stack_for(s, world, item, quantity) {
         let slot = i32::try_from(slot).unwrap_or(0);
         let m = Move {
             split_item: 0,

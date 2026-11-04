@@ -94,6 +94,7 @@ what they see, not how it was done.
 - A hero's gift under way is no longer lost if you log off.
 - An item put down while its use plays no longer runs the use.
 - Fixed selling a valued stack one at a time paying too much.
+- Items with different stats no longer merge into one stack.
 
 ## 0.1.2 (2026-11-03)
 

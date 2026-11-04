@@ -705,7 +705,7 @@ pub fn sell<S: Store>(
         if let Some(t) = s.things.get_mut(item) {
             t.quantity -= quantity;
         }
-        match inventory::make_item(s, held.template, quantity, 0) {
+        match inventory::split_off(s, item, quantity) {
             Some(n) => n,
             None => return,
         }

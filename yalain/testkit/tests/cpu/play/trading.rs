@@ -242,6 +242,28 @@ fn part_of_a_stack_moves_as_a_new_item_and_the_rest_stays() {
     assert!(p[0].0 != coins && p[0].2 == 150, "{p:?}");
 }
 
+/// Part of a stack offered holds what the stack held of its own.
+/// Behaviour: server.inventory.a-part-split-off-holds-the-stacks-numbers
+#[test]
+fn part_of_a_stack_traded_keeps_the_stacks_numbers() {
+    let (mut h, (a, aid), (b, bid)) = two();
+    let coins = hold(&mut h, aid, COINS, 5);
+    {
+        let t = h.server.things.get_mut(coins).expect("held");
+        t.value = 41;
+        t.own.min_level = Some(9);
+    }
+    opened(&mut h, (a, aid), (b, bid));
+    h.ask(a, function::OFFER, &[Arg::Int(2), Arg::LongInt(coins)], 10);
+    h.ask(a, function::ACCEPT, &[], 10);
+    h.ask(b, function::ACCEPT, &[], 10);
+    let p = pack(&h, bid);
+    assert_eq!(p[0].2, 2, "{p:?}");
+    let t = h.server.things.get(p[0].0).expect("traded");
+    assert_eq!((t.value, t.own.min_level), (41, Some(9)));
+    assert_eq!(h.server.things.get(coins).expect("kept").quantity, 3);
+}
+
 /// A changed offer clears both acceptances: an acceptance before the change and one after do not
 /// trade.
 /// Behaviour: server.trade.offered-accepted-exchanged

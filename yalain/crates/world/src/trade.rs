@@ -699,8 +699,7 @@ fn give<S: Store>(
         }
         item
     } else {
-        let value = s.things.get(item).map_or(0, |x| x.value);
-        let Some(new) = inventory::make_item(s, template, n, value) else {
+        let Some(new) = inventory::split_off(s, item, n) else {
             return;
         };
         let left = held.quantity - n;

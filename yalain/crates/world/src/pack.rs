@@ -6,8 +6,9 @@
 //! slot, that segment closing up, and goes in at the slot named, the items there moving up one;
 //! the move is answered with the slot the server held it at and the slot one before the target
 //! when it came from an earlier slot (else the target), and its container is cleared and set
-//! again. Part of a stack moved splits off as a new stack at the slot; an item moved onto a stack
-//! of its kind with room joins it. Asked while another action is under way, it is refused and
+//! again. Part of a stack moved splits off as a new stack at the slot, holding all the old one
+//! held; an item moved onto a stack of its kind with its numbers and room joins it, and one with
+//! other numbers goes in beside it. Asked while another action is under way, it is refused and
 //! nothing moves.
 //!
 //! **The money bag.** An item of the pack dragged to the money bag is sold for its value, for each
@@ -141,12 +142,13 @@ fn place_for(held: &[Held], target: u32) -> Option<u32> {
     Some(target.min(inv::segment_start(segment) + n))
 }
 
-/// The stack an item moved to a slot would join: the item there, of the same template, one that
-/// stacks, with room for `quantity` more.
+/// The stack an item moved to a slot would join: the item there, of the same template and the same
+/// numbers, one that stacks, with room for `quantity` more.
 fn stack_at<S: Store>(
     s: &Server<S>,
     held: &[Held],
     slot: u32,
+    moved: u64,
     template: u32,
     quantity: u32,
 ) -> Option<u64> {
@@ -160,6 +162,7 @@ fn stack_at<S: Store>(
         .filter(|h| {
             most > 1
                 && h.template == template
+                && inv::same_numbers(s, h.id, moved)
                 && i64::from(h.quantity.max(1)) + i64::from(quantity) <= most
         })
         .map(|h| h.id)
@@ -224,7 +227,7 @@ pub fn reorganize<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
     // The item leaves its slot, its segment closing up.
     held.retain(|x| x.id != h.id);
     inv::close_up(&mut held);
-    if let Some(stack) = stack_at(s, &held, target, h.template, moved) {
+    if let Some(stack) = stack_at(s, &held, target, h.id, h.template, moved) {
         let m = Move {
             merge: true,
             merge_slot: -1,
@@ -293,7 +296,7 @@ fn split<S: Store>(
         progress::private(net, world, &reorganize_done(&m));
         return;
     };
-    let Some(new) = inv::make_item(s, h.template, moved, 0) else {
+    let Some(new) = inv::split_off(s, h.id, moved) else {
         return;
     };
     let player = answer.target;
@@ -731,7 +734,7 @@ pub fn took_all<S: Store>(
             split_quantity: quantity,
             ..Move::default()
         };
-        if let Some((stack, _, had)) = inv::stack_for(s, world, template, quantity) {
+        if let Some((stack, _, had)) = inv::stack_for(s, world, item, quantity) {
             let m = Move {
                 merge: true,
                 merge_slot: -1,

@@ -426,6 +426,44 @@ fn world_of(h: &Harness, me: u64) -> yalain_net::ConnId {
         .expect("in the world")
 }
 
+/// A picked up item with other numbers than the stack the pack holds stays an item of its own.
+/// Behaviour: server.inventory.stacks-join-only-with-like-numbers
+#[test]
+fn a_picked_up_item_with_other_numbers_stays_its_own() {
+    let (mut h, b, me, _, _) = two_players_and_an_item();
+    let mut props = yalain_content::Props::default();
+    props.set("Item_MaxStackSize", yalain_content::Prop::Int(1000));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(STACKING, 0x200, props));
+    let world = world_of(&h, me);
+    h.server.players.get_mut(&world).unwrap().play.items.clear();
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, STACKING, 1);
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, STACKING, 4);
+    h.run(5);
+    let (one, stack) = {
+        let items = &h.server.players[&world].play.items;
+        (items[0].id, items[1].id)
+    };
+    h.server.things.get_mut(one).expect("made").value = 500;
+    h.bots[b].send(true, queue::WEENIE, &put_down(me, one, 0));
+    h.run(steps(2.5));
+    h.bots[b].send(true, queue::WEENIE, &use_item(one, me));
+    h.run(4);
+    h.run(steps(1.9));
+    let mut held: Vec<(u64, u32)> = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .map(|x| (x.id, x.quantity.max(1)))
+        .collect();
+    held.sort_unstable();
+    let mut want = [(one, 1), (stack, 4)];
+    want.sort_unstable();
+    assert_eq!(held, want);
+    assert_eq!(h.server.things.get(one).expect("kept").value, 500);
+}
+
 /// An item of a template the player holds a stack of, picked up, joins the stack: the move
 /// answered as merged (no item split off, no slot to merge at), the stack's new quantity, the
 /// item destroyed and out of the world for every client that knew it; the pack still holds the
