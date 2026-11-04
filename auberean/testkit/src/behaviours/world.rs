@@ -187,6 +187,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "world.fog.the-days-light-is-scaled-only-past-its-range",
+        says: "The day's light as a fog kind takes it, sun and ambient added, stays as it is up to                two ten-thousandths past full; past that it is scaled so its brightest channel is                full.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-LIGHT-RANGE"),
+        station: "auberean-world::cpu::fog::the_days_light_is_scaled_only_past_its_range",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "world.fog.under-water-the-fog-is-the-waters-by-depth",
         says: "Under water the fog is the water's, the light the same: the water's table of depths, \
                each combined with the light above as a fog kind is, blended between the last depth \

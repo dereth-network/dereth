@@ -1067,11 +1067,11 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "data.property-value.compare-within-a-tolerance",
         says: "Vectors, colors, waveforms and positions compare equal within two ten-thousandths a \
-               component; floats, integers, strings and ids compare exactly; values of different \
-               types never compare equal.",
+               component; strings ignore case; floats, integers and ids compare exactly; values of \
+               different types never compare equal.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PROPERTY-VALUE-COMPARE"),
-        station: "auberean-assets::cpu::property::vectors_and_waveforms_compare_within_two_ten_thousandths_and_floats_exactly",
+        station: "auberean-assets::cpu::property::vectors_and_waveforms_compare_within_a_tolerance_floats_exactly_and_strings_ignoring_case",
         tier: Tier::Cpu,
     },
     behaviour! {
