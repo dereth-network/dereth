@@ -277,6 +277,10 @@ pub struct CharacterRefused {
 }
 
 impl CharacterRefused {
+    /// "The server has crashed."
+    pub const SERVER_CRASH: u32 = 3;
+    /// "You have been logged off."
+    pub const LOGGED_OFF: u32 = 4;
     /// "There has been an error."
     pub const ERROR: u32 = 9;
     /// The character is still in the world.

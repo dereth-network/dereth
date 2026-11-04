@@ -1350,7 +1350,7 @@ fn run<S: Store>(
         yalain_world::guard::stopped(&mut server, &mut net, clock, what);
     }
     let world_ended = server.shutdown == yalain_world::shutdown::Shutdown::Done;
-    let left = yalain_world::shutdown::save_everyone(&mut server, &mut net);
+    let left = yalain_world::shutdown::stopping(&mut server, &mut net, local());
     let lost = save_at_stop(&mut server);
     if lost.is_none() && panicked.is_none() {
         tracing::info!("stopping: {left} characters in the world kept");

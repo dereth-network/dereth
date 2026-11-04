@@ -127,6 +127,7 @@ what they see, not how it was done.
 - Treasure rings and talismans can carry enchantments.
 - Enchanted loot is named for one of its effects.
 - Loot can now have slayers, wards and skill boosts.
+- A server stop now sends players to the disconnected screen.
 
 ## 0.1.2 (2026-11-03)
 

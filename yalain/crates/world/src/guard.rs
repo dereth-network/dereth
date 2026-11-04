@@ -17,6 +17,7 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
+use auberean_protocol::login::CharacterRefused;
 use yalain_net::ServerNet;
 use yalain_store::Store;
 
@@ -51,10 +52,7 @@ pub fn stopped<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock, w
         for world in s.players.keys() {
             crate::login::notice(net, *world, STOPPING);
         }
-        let conns = s.sessions.keys().chain(s.worlds.keys()).copied();
-        for conn in conns.collect::<std::collections::BTreeSet<_>>() {
-            net.end(conn, clock.local);
-        }
+        crate::login::let_everyone_go(s, net, CharacterRefused::SERVER_CRASH, clock.local);
     }));
     if told.is_err() {
         tracing::error!("the connections could not be told the world is stopping");

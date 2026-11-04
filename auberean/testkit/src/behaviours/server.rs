@@ -5696,6 +5696,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.a-stop-lets-every-client-go",
+        says: "A stop tells every client it was logged off, and a panic that the server \
+               crashed, which takes it from the world to its disconnected screen, and every \
+               connection ends; a stop after a panic tells it nothing more.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STOP-LETS-GO"),
+        station: "yalain-testkit::cpu::operator::shutdown::a_stop_tells_every_client_it_was_logged_off_and_ends_its_connection",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.access-levels-become-the-admin-flag",
         says: "A database kept with access levels takes the admin flag in their place: the highest level \
                with a secret is an admin; every level below, and the highest with no secret, a player named \

@@ -38,7 +38,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use yalain_net::login::GameLogin;
-use yalain_net::{BlobKind, CloseReason, ConnId, ServerNet};
+use yalain_net::{BlobKind, CloseReason, ConnId, LocalTime, ServerNet};
 use yalain_store::{Account, Character, Store};
 
 use crate::{AccountPolicy, Clock, Server, Session, Stage};
@@ -453,6 +453,18 @@ fn address_full<S: Store>(s: &Server<S>, net: &ServerNet, conn: ConnId) -> Optio
         .filter(|c| net.peer(**c).is_some_and(|a| a.ip().to_canonical() == ip))
         .count();
     (from_it >= limit as usize).then_some("its address holds as many logins as it may")
+}
+
+/// The world is stopping: every client is told why, which takes it from the world to its
+/// disconnected screen as a connection merely ending does not, and every connection ends.
+pub fn let_everyone_go<S: Store>(s: &Server<S>, net: &mut ServerNet, reason: u32, now: LocalTime) {
+    let conns: std::collections::BTreeSet<ConnId> =
+        s.sessions.keys().chain(s.worlds.keys()).copied().collect();
+    let m = ServerMessage::CharacterRefused(CharacterRefused { reason }).encode();
+    for conn in conns {
+        net.send(conn, queue::EVENT, BlobKind::LOGIN, m.clone());
+        net.end(conn, now);
+    }
 }
 
 /// Refuse a login: the refusal, and the connection closed with it, as the January 2017 login

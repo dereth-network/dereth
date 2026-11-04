@@ -736,6 +736,13 @@ fn a_panic_tells_everyone_and_ends_their_connections() {
     assert!(h.server.panicked.is_some());
     h.run(4);
     assert_eq!(notices(&h, c, from), vec![guard::STOPPING.to_owned()]);
+    assert!(
+        h.bots[c].inbox[from..].iter().any(|r| matches!(
+            r.message(),
+            Some(ServerMessage::CharacterRefused(x)) if x.reason == CharacterRefused::SERVER_CRASH
+        )),
+        "its client goes to its disconnected screen"
+    );
 }
 
 /// An event that was whole is kept though the next in its pass panics.

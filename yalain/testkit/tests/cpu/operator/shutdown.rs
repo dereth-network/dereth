@@ -124,6 +124,53 @@ fn stopping_the_server_keeps_every_character_still_in_the_world() {
     }
 }
 
+/// A stop takes every client from the world to its disconnected screen, told it was logged off,
+/// one at its character list too, and every connection ends rather than timing out.
+/// Behaviour: server.operator.a-stop-lets-every-client-go
+#[test]
+fn a_stop_tells_every_client_it_was_logged_off_and_ends_its_connection() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let b = h.at_character_list("two");
+    h.run(5);
+    let (from_a, from_b) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    assert!(h.net.connection_count() >= 3);
+    let now = h.now;
+    assert_eq!(shutdown::stopping(&mut h.server, &mut h.net, now), 1);
+    assert_eq!(h.net.connection_count(), 0, "every connection is ended");
+    h.run(4);
+    for (bot, from) in [(a, from_a), (b, from_b)] {
+        assert!(
+            h.bots[bot].inbox[from..].iter().any(|r| matches!(
+                r.message(),
+                Some(auberean_protocol::ServerMessage::CharacterRefused(x))
+                    if x.reason == auberean_protocol::login::CharacterRefused::LOGGED_OFF
+            )),
+            "bot {bot}"
+        );
+    }
+}
+
+/// A stop after a panic has nothing more to tell: everyone was let go at the panic.
+/// Behaviour: server.operator.a-stop-lets-every-client-go
+#[test]
+fn a_stop_after_a_panic_tells_no_one_it_was_logged_off() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    h.run(5);
+    let clock = h.clock();
+    yalain_world::guard::stopped(&mut h.server, &mut h.net, clock, "a test");
+    let from = h.bots[a].inbox.len();
+    let now = h.now;
+    assert_eq!(shutdown::stopping(&mut h.server, &mut h.net, now), 0);
+    h.run(4);
+    assert!(!h.bots[a].inbox[from..].iter().any(|r| matches!(
+        r.message(),
+        Some(auberean_protocol::ServerMessage::CharacterRefused(x))
+            if x.reason == auberean_protocol::login::CharacterRefused::LOGGED_OFF
+    )));
+}
+
 /// What a player was shown as notices since `from`: for each, when it was sent (seconds after the
 /// countdown began, from the inbox's length each second: what the world sends at a step reaches
 /// the client at the next), and its text: the operator's literal, or the countdown's string and

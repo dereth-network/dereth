@@ -19,10 +19,10 @@
 //! However the server stops, every character still in the world is kept first, as when its client
 //! goes away ([`save_everyone`]).
 
-use auberean_protocol::login::Notice;
+use auberean_protocol::login::{CharacterRefused, Notice};
 use auberean_protocol::text::{StringInfo, Variable, VariableValue};
 use auberean_protocol::{queue, ServerMessage};
-use yalain_net::{BlobKind, ServerNet};
+use yalain_net::{BlobKind, LocalTime, ServerNet};
 use yalain_store::Store;
 
 use crate::{Clock, Server, Timer};
@@ -241,4 +241,15 @@ pub fn save_everyone<S: Store>(s: &mut Server<S>, net: &mut ServerNet) -> usize 
     }
     let _ = crate::saves::write_out(s);
     worlds.len()
+}
+
+/// The server is stopping on its operator's word: everyone is kept ([`save_everyone`]) and let go,
+/// each client told it was logged off. Returns how many left the world. A world that panicked has
+/// let go of everyone already.
+pub fn stopping<S: Store>(s: &mut Server<S>, net: &mut ServerNet, now: LocalTime) -> usize {
+    let left = save_everyone(s, net);
+    if s.panicked.is_none() {
+        crate::login::let_everyone_go(s, net, CharacterRefused::LOGGED_OFF, now);
+    }
+    left
 }
