@@ -306,6 +306,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.inside.a-cells-own-mesh-keeps-the-sky-lights-alone",
+        says: "A cell's own mesh takes only the sky lights of the lights it keeps, from inside and from \n               the land; what stands in its rooms takes the others too.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-CELL-SKY-LIGHTS"),
+        station: "auberean-draw::dat::outdoors::a_cells_own_mesh_keeps_the_sky_lights_alone",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.inside.a-closed-room-shows-nothing-outdoors",
         says: "From a room whose cells see neither the sky nor a doorway out, a frame draws nothing                outdoors: no sky, no land, and no light outdoors.",
         since: RETAIL,
@@ -401,9 +409,7 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "draw.inside.rooms-seen-from-outside-are-lit-as-rooms",
         says: "The rooms a block lists as seen from outside, drawn in a frame outdoors, are lit as \
-               rooms and not by the sun: each drawn once, its mesh by the light its vertices carry, \
-               with no light of its own besides; a light carried inside reaches them, one carried \
-               on the land outside does not.",
+               rooms and not by the sun: each drawn once, its mesh by the light its vertices carry                and the lights it keeps where it stands; a light carried inside reaches them, one                carried on the land outside does not.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-ROOMS-SEEN-FROM-OUTSIDE"),
         station: "auberean-draw::dat::outdoors::rooms_seen_from_outside_are_lit_as_rooms",
@@ -1439,6 +1445,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-VOLUME-CONNECTIVITY"),
         station: "auberean-draw::cpu::objects::volume::triangles_meet_at_edges_run_the_other_way",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.water.a-rooms-draws-are-not-in-the-reflection",
+        says: "A room's draws seen from the land are not in the water's reflection, which gathers only \n               what stands on the land; with the camera in a room there is no reflection at all.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-REFLECT-LAND"),
+        station: "auberean-gpu::gpu::shores::a_rooms_draws_are_not_in_the_reflection",
+        tier: Tier::Gpu,
     },
     behaviour! {
         id: "draw.water.an-object-under-the-water-reflects-only-past-it",

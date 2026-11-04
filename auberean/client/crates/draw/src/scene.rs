@@ -291,6 +291,17 @@ pub enum Cull {
     },
 }
 
+impl Cull {
+    /// Whether it culls something standing in a cell, seen from the land.
+    #[must_use]
+    pub const fn is_looked_in(&self) -> bool {
+        matches!(
+            self,
+            Self::Looked { .. } | Self::LookedIn { .. } | Self::Body { .. }
+        )
+    }
+}
+
 /// The box about the box from `lo` to `hi` carried by `m`: about its eight corners.
 #[must_use]
 pub fn placed_box(lo: Vec3, hi: Vec3, m: &Mat4) -> (Vec3, Vec3) {
@@ -662,6 +673,9 @@ pub struct Frame {
     pub rooms: Option<Arc<crate::cull::Rooms>>,
     /// The blocks' cells a view onto the land may look into.
     pub look_in: Arc<Vec<crate::cull::LookIn>>,
+    /// The light those cells are drawn under, with the camera on the land: the interior ambient
+    /// and fog of the camera's own block.
+    pub looked_light: Option<DayLight>,
     /// The dynamic objects' volumes of shadow, drawn after the opaque objects that cast none.
     pub volumes: crate::volume::Volumes,
     /// The decals laid on the ground this frame, drawn after the landscape.
@@ -1909,6 +1923,11 @@ impl<'a> SceneBuilder<'a> {
                 }
             }
             let outside = auberean_world::inside::Outside::of(&light);
+            let mut cell_lights = self.block_lights((bx, by)).map(|l| {
+                let scene = l.scene();
+                let sky = scene.sky_alone(&l);
+                (scene, sky, l)
+            });
             for (k, part) in parts.iter().enumerate() {
                 let at = part.transform.then(&place).point(Vec3::ZERO);
                 let d = auberean_world::math::length(auberean_world::math::sub(at, spot.position));
@@ -1944,6 +1963,7 @@ impl<'a> SceneBuilder<'a> {
                         (bx, by),
                         id,
                         reach,
+                        cell_lights.as_mut(),
                         &outside,
                     );
                     for b in &mut objects[first..] {
@@ -2081,6 +2101,7 @@ impl<'a> SceneBuilder<'a> {
             outside: None,
             rooms: None,
             look_in: Arc::new(look_in),
+            looked_light: None,
             volumes: crate::volume::Volumes::default(),
             decals: Vec::new(),
             textures: self.textures,
@@ -2230,6 +2251,7 @@ impl<'a> SceneBuilder<'a> {
             outside: None,
             rooms: None,
             look_in: Arc::default(),
+            looked_light: None,
             volumes: crate::volume::Volumes::default(),
             decals: Vec::new(),
             textures: self.textures,

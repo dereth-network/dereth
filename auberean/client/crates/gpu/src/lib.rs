@@ -1895,6 +1895,12 @@ impl Renderer {
         let frame_group = self.uniform_group(&self.frame_layout, bytemuck::bytes_of(&frame_u));
         let out_group = self.uniform_group(&self.frame_layout, bytemuck::bytes_of(&out_u));
         let sky_group = self.uniform_group(&self.frame_layout, bytemuck::bytes_of(&sky_u));
+        let mut looked_u = frame_u;
+        if let Some(l) = &frame.looked_light {
+            looked_u.light(l);
+        }
+        let looked_sun = looked_u.sun_color;
+        let looked_group = self.uniform_group(&self.frame_layout, bytemuck::bytes_of(&looked_u));
         self.uniforms.begin();
         let mut encoder = self
             .device
@@ -2085,10 +2091,17 @@ impl Renderer {
                 }
                 let env = match under {
                     Env::Own if b.outside => Env::Outside,
+                    Env::Own if frame.looked_light.is_some() && b.cull.is_looked_in() => {
+                        Env::Looked
+                    }
                     e => e,
                 };
                 let sky = env == Env::Sky;
-                let sun = if env == Env::Own { sun } else { out_sun };
+                let sun = match env {
+                    Env::Own => sun,
+                    Env::Looked => looked_sun,
+                    _ => out_sun,
+                };
                 if !b.drawn() {
                     continue;
                 }
@@ -2155,7 +2168,17 @@ impl Renderer {
                 );
                 let (vertices, indices) =
                     this.meshes.buffers(&this.device, &b.vertices, &b.indices);
-                let in_reflection = b.reflected(frame.camera.position);
+                // The reflection gathers what stands on the land alone, no cell's.
+                // D2-11030
+                let in_reflection = b.reflected(frame.camera.position)
+                    && !matches!(
+                        b.cull,
+                        auberean_draw::scene::Cull::Cell(_)
+                            | auberean_draw::scene::Cull::InCell { .. }
+                            | auberean_draw::scene::Cull::Looked { .. }
+                            | auberean_draw::scene::Cull::LookedIn { .. }
+                            | auberean_draw::scene::Cull::Body { .. }
+                    );
                 let above = frame
                     .reflection
                     .is_none_or(|r| sky || b.step.is_some() || b.stands_above(r.height));
@@ -2551,7 +2574,7 @@ impl Renderer {
         // `groups` holds the frame's lights: its own, the outdoors' and the sky's.
         let record = |pass: &mut wgpu::RenderPass<'_>,
                       this: &Self,
-                      groups: [&wgpu::BindGroup; 3],
+                      groups: [&wgpu::BindGroup; 4],
                       water: &[Draw],
                       shadows: bool,
                       reflecting: bool| {
@@ -2688,6 +2711,9 @@ impl Renderer {
                 self.uniform_group(&self.frame_layout, bytemuck::bytes_of(&m_frame));
             let m_out_group = self.uniform_group(&self.frame_layout, bytemuck::bytes_of(&m_out));
             let m_sky_group = self.uniform_group(&self.frame_layout, bytemuck::bytes_of(&m_sky));
+            let m_looked = mirrored(&looked_u);
+            let m_looked_group =
+                self.uniform_group(&self.frame_layout, bytemuck::bytes_of(&m_looked));
             // The reflection is drawn into a picture of its own, 512 texels square whatever the
             // screen's size, with a depth of its own the same size, cleared as the frame is; the
             // camera keeps the screen's shape, so the picture lies over the screen as it stands.
@@ -2746,7 +2772,7 @@ impl Renderer {
                 record(
                     &mut pass,
                     self,
-                    [&m_frame_group, &m_out_group, &m_sky_group],
+                    [&m_frame_group, &m_out_group, &m_sky_group, &m_looked_group],
                     &[],
                     false,
                     true,
@@ -2796,7 +2822,7 @@ impl Renderer {
                     a: FRAME_ALPHA,
                 });
                 pass.set_bind_group(3, &shadow_group, &[]);
-                let groups = [&m_frame_group, &m_out_group, &m_sky_group];
+                let groups = [&m_frame_group, &m_out_group, &m_sky_group, &m_looked_group];
                 let put = |pass: &mut wgpu::RenderPass<'_>, d: &Draw, key: PassKey, g| {
                     pass.set_pipeline(&self.mesh_pipelines[&key]);
                     pass.set_bind_group(0, groups[d.env as usize], &[]);
@@ -3010,7 +3036,7 @@ impl Renderer {
             record(
                 &mut pass,
                 self,
-                [&frame_group, &out_group, &sky_group],
+                [&frame_group, &out_group, &sky_group, &looked_group],
                 &water_draws,
                 true,
                 false,
@@ -3230,6 +3256,8 @@ enum Env {
     Own = 0,
     Outside = 1,
     Sky = 2,
+    /// The light cells looked into from the land are drawn under.
+    Looked = 3,
 }
 
 impl FrameUniforms {

@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use auberean_draw::material::{d3d, switch, DrawLayer};
 use auberean_draw::mesh::MeshVertex;
-use auberean_draw::scene::{Camera, Frame, ObjectBatch, Reflection, SceneBuilder, Spot};
+use auberean_draw::scene::{Camera, Cull, Frame, ObjectBatch, Reflection, SceneBuilder, Spot};
 use auberean_gpu::Renderer;
 use auberean_primitives::Vec3;
 use auberean_world::color::Color;
@@ -573,4 +573,74 @@ fn an_object_under_the_water_reflects_only_past_it() {
         rows += 1;
     }
     assert!(rows > 3, "{rows} rows");
+}
+
+/// A cell's mesh seen from the land is not in the water's reflection, however it stands: the
+/// reflection gathers what stands on the land alone.
+///
+/// Behaviour: draw.water.a-rooms-draws-are-not-in-the-reflection
+#[test]
+fn a_rooms_draws_are_not_in_the_reflection() {
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let camp = camp_layers(&mut builder);
+    let white = plain(
+        &camp.water.layer,
+        Color::WHITE,
+        (d3d::BLEND_ONE, d3d::BLEND_ZERO),
+    );
+    let mut wall = flat(&camp.water, 0.0, 0.0, 1.0, white);
+    wall.vertices = Arc::new(vec![
+        vertex([-80.0, 20.0, 1.0], [0.0, 0.0], 0.0),
+        vertex([80.0, 20.0, 1.0], [1.0, 0.0], 0.0),
+        vertex([-80.0, 20.0, 6.0], [0.0, 1.0], 1.0),
+        vertex([80.0, 20.0, 6.0], [1.0, 1.0], 1.0),
+    ]);
+    wall.anchor = Some(Vec3::new(0.0, 20.0, 1.0));
+    let mut frame = empty_frame(&mut builder);
+    frame.water = vec![flat(
+        &camp.water,
+        0.0,
+        -20.0,
+        140.0,
+        camp.water.layer.clone(),
+    )];
+    frame.reflection = Some(Reflection {
+        height: 0.0,
+        ripples: false,
+    });
+    let bare = frame.clone();
+    let mut land = frame.clone();
+    land.objects = vec![wall.clone()];
+    let mut room = frame.clone();
+    wall.cull = Cull::InCell {
+        cell: 0x100,
+        lo: Vec3::new(-80.0, 20.0, 1.0),
+        hi: Vec3::new(80.0, 20.0, 6.0),
+    };
+    room.objects = vec![wall];
+    let mut device = renderer();
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let [none, on_land, in_room] = checked(&mut device, |d| {
+        [&bare, &land, &room].map(|f| {
+            d.render(
+                f,
+                u32::try_from(W).expect("a width"),
+                u32::try_from(H).expect("a height"),
+                &mut load,
+            )
+            .expect("read back")
+            .rgba
+        })
+    });
+    let row = (0..H)
+        .find(|&r| distance_at(r).is_some_and(|d| (7.0..12.0).contains(&d)))
+        .expect("a row of water");
+    let at = |p: &[u8]| row_mean(p, 1, W / 4..3 * W / 4, row);
+    assert!(at(&on_land) > at(&none) + 20.0, "on the land it reflects");
+    assert!(
+        (at(&in_room) - at(&none)).abs() < 2.0,
+        "in a room it does not"
+    );
 }

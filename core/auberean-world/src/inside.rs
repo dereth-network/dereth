@@ -612,6 +612,21 @@ pub struct SceneLights {
 }
 
 impl SceneLights {
+    /// The lights linked while the cells' own meshes are drawn: the sky lights alone. The rest are
+    /// linked after them, for what stands in the cells.
+    // D2-03520, D2-03519
+    #[must_use]
+    pub fn sky_alone(&self, lights: &BlockLights) -> Self {
+        Self {
+            order: self
+                .order
+                .iter()
+                .copied()
+                .filter(|&k| lights.lights[k].kind == LightKind::Sky)
+                .collect(),
+        }
+    }
+
     /// The lights a draw at `at` reaching `radius` around it keeps, by their place in the block's
     /// lights, strongest first: the frame's lights sorted by their weight there (and left in that
     /// order for the next draw), then those whose most range reaches the draw, at most six.

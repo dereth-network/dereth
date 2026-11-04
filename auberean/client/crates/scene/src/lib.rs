@@ -3520,7 +3520,21 @@ impl<'w> Scene<'w> {
                 );
                 f
             } else {
-                self.builder.frame(&spot, self.fov)
+                let mut f = self.builder.frame(&spot, self.fov);
+                // The cells looked into from the land are drawn under the interior light of the
+                // block the camera stands in: black when it has none.
+                // D2-11007
+                if !f.look_in.is_empty() {
+                    let home = block_of(view);
+                    let home = (i32::from(home.x()), i32::from(home.y()));
+                    let outside = auberean_world::inside::Outside::of(&f.light);
+                    let lights = self.builder.block_lights(home);
+                    let mut light = f.light;
+                    light.ambient_color = auberean_world::color::Color::new(0.0, 0.0, 0.0, 1.0);
+                    inside_light(&mut light, lights.as_deref(), dv(eye), &outside);
+                    f.looked_light = Some(light);
+                }
+                f
             };
             let world_objects = frame.objects.len();
             self.placed_effects
@@ -3740,7 +3754,8 @@ impl<'w> Scene<'w> {
                 let Some((cell, key)) = stands else {
                     continue;
                 };
-                if !inside && !is_interior(cell) {
+                // On the land everything is in view from the land, and the player always is.
+                if !is_interior(cell) && (!inside || root == p.id) {
                     continue;
                 }
                 let touching: Vec<u32> = key

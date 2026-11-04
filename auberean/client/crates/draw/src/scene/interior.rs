@@ -298,9 +298,12 @@ impl SceneBuilder<'_> {
             f.placed.clear();
             f.shadow = None;
             f.clouds = None;
-            f.reflection = None;
             f.look_in = Arc::default();
         }
+        f.looked_light = None;
+        // The water takes no reflection with the camera in a cell.
+        // D2-11030
+        f.reflection = None;
         if !outlook.sky && !outlook.land {
             f.sky_before.clear();
             f.sky_after.clear();
@@ -510,6 +513,11 @@ impl SceneBuilder<'_> {
         let mut counts = Counts::default();
         let lights = self.block_lights(block);
         let mut scene = lights.as_deref().map(BlockLights::scene);
+        // A cell's own mesh takes the lights linked as it is drawn: the sky lights alone.
+        let mut sky = lights
+            .as_deref()
+            .zip(scene.as_ref())
+            .map(|(l, s)| s.sky_alone(l));
         #[allow(clippy::cast_sign_loss)]
         let high = ((bx as u32) << 24) | ((by as u32) << 16);
         // Each part: the cell it is (for a cell's own mesh), or the object it belongs to (by its
@@ -589,12 +597,12 @@ impl SceneBuilder<'_> {
                 }
             }
             // A cell's own mesh carries in its vertices the light its record lists and the sun's;
-            // the lights kept about the cell, as many point lights as each layer's program takes of
-            // them (no directional light inside), light it as they shine at the moment.
-            if let (Some(id), Some(l), Some(scene)) = (cell_id, lights.as_deref(), scene.as_mut()) {
+            // the sky lights kept about the cell, as many point lights as each layer's program
+            // takes of them, light it as they shine at the moment.
+            if let (Some(id), Some(l), Some(sky)) = (cell_id, lights.as_deref(), sky.as_mut()) {
                 let radius = self.cell_reach(part).unwrap_or(0.0);
                 let at = part.transform.point(Vec3::ZERO);
-                let kept = self.kept_lights((*id, 0), at, radius, l, scene, outside);
+                let kept = self.kept_lights((*id, 0), at, radius, l, sky, outside);
                 let device = kept
                     .iter()
                     .filter(|&&k| l.lights[k].kind != LightKind::Directional)
@@ -856,10 +864,13 @@ impl SceneBuilder<'_> {
     /// Light `batches`, the draws of `part` in block `block`'s interior cell `id` seen from outside
     /// (the cell's own mesh, or with `object` one standing in it: its key, place and reach), as a
     /// cell is lit and not by the sun: the cell's mesh by the light its vertices carry (its record's
-    /// lights and the day's sun, baked as for a camera inside), what stands in it by no light of
-    /// its own (a camera outside links no cell's lights); both by the lights objects carry inside
-    /// that reach them, each frame. A block with no interior light leaves them as they are.
+    /// lights and the day's sun, baked as for a camera inside) and the sky lights it keeps, what
+    /// stands in it by the lights it keeps, each as many point lights as each layer's program
+    /// takes, as for a camera inside; both by the lights objects carry inside that reach them, each
+    /// frame. A block with no interior light leaves them as they are. `lights` is the block's: the
+    /// scene and the sky lights alone that its draws keep lights from.
     // D2-03619, D2-03609, D2-10630
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn light_seen_from_outside(
         &mut self,
         batches: &mut [ObjectBatch],
@@ -867,11 +878,13 @@ impl SceneBuilder<'_> {
         block: (i32, i32),
         id: u32,
         object: Option<ObjectReach>,
+        lights: Option<&mut (SceneLights, SceneLights, Arc<BlockLights>)>,
         outside: &Outside,
     ) {
-        let Some(lights) = self.block_lights(block) else {
+        let Some((scene, sky, lights)) = lights else {
             return;
         };
+        let lights = lights.clone();
         let (key, at, radius) = match object {
             Some(o) => o,
             None => (
@@ -888,12 +901,32 @@ impl SceneBuilder<'_> {
         } else {
             None
         };
+        let scene = if object.is_none() { sky } else { scene };
+        let kept = self.kept_lights(key, at, radius, &lights, scene, outside);
+        let device = kept
+            .iter()
+            .filter(|&&k| lights.lights[k].kind != LightKind::Directional)
+            .count();
+        #[allow(clippy::cast_precision_loss)] // block offsets are a few blocks
+        let place = batches.first().map_or(Mat4::IDENTITY, |b| {
+            let p = b.transform.point(Vec3::ZERO);
+            let q = part.transform.point(Vec3::ZERO);
+            Mat4::translation(Vec3::new(p.x - q.x, p.y - q.y, 0.0))
+        });
         for b in batches.iter_mut() {
             if let Some(lit) = &lit {
                 b.vertices = lit.clone();
                 b.layer.switches |= LIT_IN_VERTICES;
             }
-            b.points = PointLights::inside(&[], &Mat4::IDENTITY);
+            let variants = &b.layer.light_variants;
+            let points = variant_for(
+                variants,
+                0,
+                u32::try_from(device.min(DRAW_LIGHTS)).unwrap_or(0),
+            )
+            .map_or(0, |k| variants[k].1);
+            let points = usize::try_from(points).unwrap_or(0);
+            b.points = PointLights::inside(&lights.device_lights(&kept, outside, points), &place);
             b.kept_by = Some(KeptBy {
                 key,
                 block,
@@ -901,7 +934,7 @@ impl SceneBuilder<'_> {
                 at,
                 radius,
                 took_carried: false,
-                own: false,
+                own: true,
             });
         }
     }
