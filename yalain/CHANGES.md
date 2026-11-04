@@ -164,6 +164,7 @@ what they see, not how it was done.
 - Creatures in a camp now each take their own spot.
 - Heavier armor and weapons now slow your attacks.
 - Sinew Snap now plays at its proper speed.
+- Alchemists' attacks now change with the dark side and Immolation.
 
 ## 0.1.2 (2026-11-03)
 

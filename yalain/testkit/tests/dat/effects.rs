@@ -1327,3 +1327,140 @@ fn the_contracts_are_bought_for_what_their_acquiring_does() {
     }
     assert!(!more(&p.template(0x4700_16C6).props), "a Lost Artifact");
 }
+
+/// Immolation's effects turn an alchemist's basic attacks: its plain ones go, the fiery ones of the
+/// install come with their rating raised by the buff, and with the dark side on, their melee kind.
+/// Behaviour: server.weapons.immolations-attacks
+#[test]
+fn immolation_turns_an_alchemists_basic_attacks_fiery() {
+    use auberean_protocol::{queue, ClientMessage, ServerMessage};
+    use auberean_script::args::Arg;
+    use yalain_testkit::play::server_call;
+    use yalain_testkit::{Harness, TEST_CREATURE};
+    use yalain_world::effects::{self, Cast, On};
+    use yalain_world::state::SkillState;
+    const START_ATTACK: u32 = 0x8204_0008;
+    const VIAL: u32 = 0x4700_7A01;
+    const IMMOLATION: u32 = 1079;
+    const DARK_SIDE: u32 = 0x7000_1F43;
+
+    let p = Portal::open();
+    let skills = p.skills();
+    let mut states = skills.skills[&IMMOLATION]
+        .usage
+        .as_ref()
+        .expect("used")
+        .user_effects
+        .clone();
+    states.push(DARK_SIDE);
+    let table = p.effects(&states);
+
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    let beetle = h
+        .world_messages(b, 0)
+        .iter()
+        .find_map(|m| match m {
+            ServerMessage::CreateObject(o) if o.weenie.entity_did == TEST_CREATURE => Some(o.id),
+            _ => None,
+        })
+        .expect("the camp's creature");
+    h.server.skill_table = skills;
+    h.server.effect_table = table;
+    h.server
+        .catalog
+        .implements
+        .insert(VIAL, yalain_world::skill_use::implement::ALCHEMY);
+    h.arm(b, me, VIAL);
+    let world = *h.server.players.keys().next().expect("in the world");
+    let at = h.server.players[&world].position;
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        if let Some(c) = t.creature.as_mut() {
+            c.stats.movement.perception = 0.0;
+            c.stats.scale = 0.0;
+        }
+        let mut place = at;
+        place.origin[0] += 0.5;
+        t.at = Some(place);
+        t.max_health = 10_000_000;
+        t.health = 10_000_000;
+    }
+    if let Some(p) = h.server.players.get_mut(&world) {
+        // A human's saved list holds every one of these, Fire Breath once it is trained.
+        for skill in [
+            189, 804, 805, 806, 953, 954, 955, 1371, 1372, 1373, 1374, 1375, 1376,
+        ] {
+            p.play.skills.push(SkillState {
+                skill,
+                granted: 1,
+                mask: 1,
+                cost: 0,
+                children: 0,
+                dependents: 0,
+                spent: 0,
+            });
+        }
+        yalain_world::quals::set_int(
+            &mut p.qualities,
+            yalain_world::player::quality::HEALTH_MAX,
+            10_000_000,
+        );
+        yalain_world::quals::set_int(
+            &mut p.qualities,
+            yalain_world::player::quality::HEALTH,
+            10_000_000,
+        );
+    }
+    let told = |h: &mut Harness| {
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+        );
+        h.run(400);
+        let mut seen: Vec<u32> = h
+            .world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e) if e.sender.id == me => Some(e.action.skill),
+                _ => None,
+            })
+            .collect();
+        seen.sort_unstable();
+        seen.dedup();
+        h.run(20);
+        seen
+    };
+    let apply = |h: &mut Harness, state: u32| {
+        let clock = h.clock();
+        assert!(effects::apply_on(
+            &mut h.server,
+            &mut h.net,
+            On::Player(world),
+            state,
+            Cast {
+                spellcraft: 50.0,
+                ..Cast::default()
+            },
+            clock,
+        ));
+    };
+    let rating = |h: &Harness| yalain_world::skill_use::rating_of_for_test(&h.server, world, 1371);
+    assert_eq!(told(&mut h), [804, 805, 806]);
+    let plain = rating(&h);
+    for state in [0x7000_1F51, 0x7000_1F52] {
+        apply(&mut h, state);
+    }
+    assert_eq!(told(&mut h), [1371, 1372, 1373]);
+    assert!(rating(&h) >= plain + 40.0, "{plain} to {}", rating(&h));
+    apply(&mut h, DARK_SIDE);
+    assert_eq!(told(&mut h), [1374, 1375, 1376]);
+}

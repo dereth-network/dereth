@@ -360,3 +360,148 @@ fn the_time_scale_of_delay_stays_within_what_was_seen() {
         assert!((combat::time_scale_at_delay(heavy) - 1.0).abs() < 1e-6);
     }
 }
+
+/// The basic attacks told of the run, for `steps` of the world.
+fn attacks_told(h: &mut Harness, b: usize, me: u64, beetle: u64, steps: u32) -> Vec<u32> {
+    h.run(10);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    for _ in 0..steps {
+        h.step();
+    }
+    stories(h, b, from, me).iter().map(|s| s.skill).collect()
+}
+
+/// The next made-up state, which [`speeded`] then puts on the player.
+fn next_state(h: &Harness) -> u32 {
+    FIRST_STATE + u32::try_from(h.server.effect_table.effects.len()).unwrap_or(0)
+}
+
+/// Each basic attack of the test's sword by its id: an even one wants the effect, an odd one is barred by it.
+fn split_by(h: &mut Harness, state: u32) {
+    for d in h.server.skill_table.skills.values_mut() {
+        let id = d.id;
+        if !d.auto_attack {
+            continue;
+        }
+        let u = d.usage.as_mut().expect("used");
+        if id % 2 == 0 {
+            u.required_effects = vec![state];
+        } else {
+            u.barring_effects = vec![state];
+        }
+    }
+}
+
+/// A run swings only the basic attacks its player's effects allow: the plain ones without the
+/// effect that bars them, the others with the effect they require, as an alchemist's turn fiery.
+/// Behaviour: server.weapons.basic-attacks-go-by-their-effects
+#[test]
+fn a_run_swings_only_what_its_players_effects_allow() {
+    let (mut h, b, me, beetle) = with_a_sword();
+    let state = next_state(&h);
+    split_by(&mut h, state);
+    let plain = attacks_told(&mut h, b, me, beetle, 600);
+    assert!(plain.len() > 5, "{plain:?}");
+    assert!(plain.iter().all(|k| k % 2 == 1), "{plain:?}");
+    speeded(&mut h, OTHER_CLASS, 1.0, true);
+    let fiery = attacks_told(&mut h, b, me, beetle, 600);
+    assert!(fiery.len() > 5, "{fiery:?}");
+    assert!(fiery.iter().all(|k| k % 2 == 0), "{fiery:?}");
+}
+
+/// A basic attack that requires two effects wants both, however many of them are carried.
+/// Behaviour: server.weapons.basic-attacks-go-by-their-effects
+#[test]
+fn a_basic_attack_wanting_two_effects_wants_both() {
+    let (mut h, b, me, beetle) = with_a_sword();
+    let first = next_state(&h);
+    let second = first + 1;
+    for d in h.server.skill_table.skills.values_mut() {
+        if d.auto_attack {
+            let u = d.usage.as_mut().expect("used");
+            u.required_effects = vec![first, second];
+        }
+    }
+    speeded(&mut h, OTHER_CLASS, 1.0, true);
+    assert_eq!(attacks_told(&mut h, b, me, beetle, 200), Vec::<u32>::new());
+    speeded(&mut h, OTHER_CLASS + 1, 1.0, true);
+    assert!(!attacks_told(&mut h, b, me, beetle, 200).is_empty());
+}
+
+/// With every basic attack of its weapon withheld, a run tells nothing and does not walk; when the
+/// effect comes, it swings.
+/// Behaviour: server.weapons.withheld-run-waits
+#[test]
+fn a_run_with_nothing_it_may_swing_waits() {
+    let (mut h, b, me, beetle) = with_a_sword();
+    let state = next_state(&h);
+    for d in h.server.skill_table.skills.values_mut() {
+        if d.auto_attack {
+            d.usage.as_mut().expect("used").required_effects = vec![state];
+        }
+    }
+    h.run(10);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    h.run(200);
+    assert!(stories(&h, b, from, me).is_empty());
+    assert!(h
+        .world_messages(b, from)
+        .iter()
+        .all(|m| !matches!(m, ServerMessage::MoveTo(_))));
+    speeded(&mut h, OTHER_CLASS, 1.0, true);
+    h.run(100);
+    assert!(!stories(&h, b, from, me).is_empty(), "with the effect on");
+}
+
+/// A basic attack that names skills to be trained is not swung until they are, and rated as named.
+/// Behaviour: server.weapons.basic-attacks-want-their-skills
+#[test]
+fn a_basic_attack_waits_for_the_skills_it_names() {
+    use yalain_world::state::SkillState;
+    const LATER: u32 = 991;
+    let (mut h, b, me, beetle) = with_a_sword();
+    h.server.skill_table.skills.insert(
+        LATER,
+        yalain_world::skills::SkillDef {
+            id: LATER,
+            cap: 100,
+            ..Default::default()
+        },
+    );
+    for d in h.server.skill_table.skills.values_mut() {
+        if d.auto_attack && d.id % 2 == 0 {
+            d.usage.as_mut().expect("used").use_prereqs = vec![(LATER, 3)];
+        }
+    }
+    let plain = attacks_told(&mut h, b, me, beetle, 600);
+    assert!(plain.iter().all(|k| k % 2 == 1), "{plain:?}");
+    let train = |h: &mut Harness, granted: u32| {
+        let p = h.server.players.values_mut().next().expect("in the world");
+        p.play.skills.retain(|s| s.skill != LATER);
+        p.play.skills.push(SkillState {
+            skill: LATER,
+            granted,
+            mask: 1,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    };
+    train(&mut h, 2);
+    let low = attacks_told(&mut h, b, me, beetle, 600);
+    assert!(low.iter().all(|k| k % 2 == 1), "{low:?}");
+    train(&mut h, 3);
+    let told = attacks_told(&mut h, b, me, beetle, 1200);
+    assert!(told.iter().any(|k| k % 2 == 0), "{told:?}");
+}

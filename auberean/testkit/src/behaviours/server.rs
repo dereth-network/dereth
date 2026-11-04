@@ -9747,12 +9747,39 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.weapons.basic-attacks-go-by-their-effects",
+        says: "A run swings only the basic attacks whose required effects its player carries, all of \
+               them, and whose barring effects it carries none of.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BASIC-BY-EFFECTS"),
+        station: "yalain-testkit::cpu::play::attack_speed::a_run_swings_only_what_its_players_effects_allow",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.weapons.basic-attacks-read-from-their-definitions",
         says: "A player's basic attacks are the used skills with weights to be drawn by; each read \n               with its ranges and the implements it is used with.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-AUTO-ATTACK-DEFS"),
         station: "yalain-testkit::dat::effects::the_basic_attacks_read_as_the_data_defines_them",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.weapons.basic-attacks-read-what-they-want",
+        says: "A used skill's definition names the effects required, the effects barring it and the \
+               skills to be trained, each read with it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BASIC-READ-WANTS"),
+        station: "yalain-testkit::dat::skills::an_alchemists_basic_attacks_name_what_they_want_and_what_bars_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.weapons.basic-attacks-want-their-skills",
+        says: "A run swings no basic attack whose named skills its player has not trained at the \
+               ratings named.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BASIC-WANTS-SKILLS"),
+        station: "yalain-testkit::cpu::play::attack_speed::a_basic_attack_waits_for_the_skills_it_names",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.weapons.bow-made-strung",
@@ -9800,6 +9827,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-BASIC-HOOK-ADDS"),
         station: "yalain-testkit::cpu::play::two_blows::a_basic_attacks_hook_adds_by_the_players_rating",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.weapons.immolations-attacks",
+        says: "An alchemist under Immolation swings the fiery basic attacks in place of its plain ones, \
+               rated by what the buff raises. Read from the skills' and effects' definitions; no \
+               recording holds a use of it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-BASIC-IMMOLATION"),
+        station: "yalain-testkit::dat::effects::immolation_turns_an_alchemists_basic_attacks_fiery",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.weapons.implement-by-class",
@@ -9936,6 +9973,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-WALKING-RUN"),
         station: "yalain-testkit::cpu::play::weapons::a_sword_run_out_of_reach_is_ordered_once_and_told_nothing_until_it_arrives",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.weapons.withheld-run-waits",
+        says: "A run with no basic attack it may swing waits without a word and swings when it may; a \
+               special waiting for a swing still goes. Our choice: three records of an effect barring \
+               a player's attacks are held, none with a run under it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-BASIC-WITHHELD"),
+        station: "yalain-testkit::cpu::play::attack_speed::a_run_with_nothing_it_may_swing_waits",
         tier: Tier::Cpu,
     },
     behaviour! {

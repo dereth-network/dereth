@@ -827,11 +827,36 @@ pub fn rating_of_for_test<S: Store>(s: &Server<S>, world: ConnId, skill: u32) ->
     rating_of(s, world, skill)
 }
 
-/// Does a player carry an effect of one of these saved states?
+/// Does a player carry an effect of each of these saved states?
 fn carries<S: Store>(s: &Server<S>, world: ConnId, states: &[u32]) -> bool {
-    s.players
-        .get(&world)
-        .is_some_and(|p| p.play.effects.iter().any(|e| states.contains(&e.state)))
+    s.players.get(&world).is_some_and(|p| {
+        states
+            .iter()
+            .all(|st| p.play.effects.iter().any(|e| e.state == *st))
+    })
+}
+
+/// May a player swing this basic attack: it carries all the effects the skill requires and none
+/// that bars it (2017: 35,700 swings seen of alchemy's two kinds changed kind 23 times, about 10 s
+/// apart; 120,326 basic attacks of capturing players, none under an effect barring it), and has
+/// trained the skills it names (15,389 of 15,389 that name any, by the session's saved list).
+pub(crate) fn may_swing<S: Store>(s: &Server<S>, world: ConnId, u: &Usage) -> bool {
+    let Some(p) = s.players.get(&world) else {
+        return false;
+    };
+    if !carries(s, world, &u.required_effects)
+        || p.play
+            .effects
+            .iter()
+            .any(|e| u.barring_effects.contains(&e.state))
+    {
+        return false;
+    }
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    let held = crate::skills::held(&starting, &p.play.skills);
+    u.use_prereqs.iter().all(|(skill, rating)| {
+        held.iter().any(|h| h.skill == *skill) && effective_rating(s, p, &held, *skill) >= *rating
+    })
 }
 
 /// A missile hook of a skill, if it throws one.
@@ -984,7 +1009,7 @@ fn check<S: Store>(
     if vigor < cost_now(s, p, &u, max_vigor) {
         return Err(refusal::NOT_ENOUGH_VIGOR);
     }
-    if !u.required_effects.is_empty() && !carries(s, world, &u.required_effects) {
+    if !carries(s, world, &u.required_effects) {
         return Err(refusal::MISSING_EFFECT);
     }
     let walks = u.ui_flags & ui_flag::MOVE_TO != 0;

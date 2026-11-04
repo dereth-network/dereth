@@ -320,3 +320,35 @@ fn only_three_skills_say_they_go_faster() {
     said.sort_by_key(|x| x.0);
     assert_eq!(said, [(994, 1.6), (2088, 1.4), (2113, 1.4)]);
 }
+
+/// An alchemist's basic attacks are told apart by what they name: its plain ones bar the dark side
+/// and Immolation, its melee ones require the first and bar the second, and each has a fiery kind
+/// that requires Immolation; all name Fire Breath to be trained.
+/// Behaviour: server.weapons.basic-attacks-read-what-they-want
+#[test]
+fn an_alchemists_basic_attacks_name_what_they_want_and_what_bars_them() {
+    const DARK_SIDE: u32 = 0x7000_1F43;
+    const IMMOLATION: u32 = 0x7000_1F51;
+    const FIRE_BREATH: u32 = 189;
+    let skills = Portal::open().skills();
+    let usage = |k: u32| skills.skills[&k].usage.as_ref().expect("used");
+    for plain in [804, 805, 806] {
+        let u = usage(plain);
+        assert!(u.required_effects.is_empty());
+        assert!(u.barring_effects.contains(&DARK_SIDE) && u.barring_effects.contains(&IMMOLATION));
+        assert_eq!(u.use_prereqs, [(FIRE_BREATH, 0)]);
+    }
+    for melee in [953, 954, 955] {
+        let u = usage(melee);
+        assert_eq!(u.required_effects, [DARK_SIDE]);
+        assert!(u.barring_effects.contains(&IMMOLATION));
+    }
+    for fiery in [1371, 1372, 1373] {
+        let u = usage(fiery);
+        assert_eq!(u.required_effects, [IMMOLATION]);
+        assert!(u.barring_effects.contains(&DARK_SIDE));
+    }
+    for fiery_melee in [1374, 1375, 1376] {
+        assert_eq!(usage(fiery_melee).required_effects, [DARK_SIDE, IMMOLATION]);
+    }
+}

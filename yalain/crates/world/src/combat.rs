@@ -376,12 +376,29 @@ pub struct Landing {
 /// A thrown basic attack's arrival, told by its target: the attacker, the skill, a basic attack.
 pub const BASIC_ARRIVAL: u32 = PhysicsStory::ATTACKER | PhysicsStory::SKILL | 0x20;
 
-/// The basic attacks a player's weapon swings: the skills it holds that are basic attacks and fit
-/// what it wields (none for a weapon the server does not know).
+/// The basic attacks a player's weapon swings: those that fit it (see [`fitting_attacks`]) that
+/// the player may swing as it is now.
 pub(crate) fn auto_attacks<S: Store>(
     s: &Server<S>,
     world: ConnId,
 ) -> Vec<(u32, crate::skills::Usage)> {
+    let mut autos = fitting_attacks(s, world);
+    autos.retain(|(_, u)| crate::skill_use::may_swing(s, world, u));
+    autos
+}
+
+/// Does a player's weapon have basic attacks, and none it may swing now?
+fn all_attacks_withheld<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    autos: &[(u32, crate::skills::Usage)],
+) -> bool {
+    autos.is_empty() && !fitting_attacks(s, world).is_empty()
+}
+
+/// The skills a player holds that are basic attacks and fit what it wields (none for a weapon the
+/// server does not know).
+fn fitting_attacks<S: Store>(s: &Server<S>, world: ConnId) -> Vec<(u32, crate::skills::Usage)> {
     let Some(p) = s.players.get(&world) else {
         return Vec::new();
     };
@@ -747,6 +764,19 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         return;
     };
     let autos = auto_attacks(s, world);
+    // Our choice: with nothing it may swing, the run waits; a special waiting for a swing still goes.
+    if all_attacks_withheld(s, world, &autos) {
+        let special = s.players.get_mut(&world).and_then(|p| p.in_run.take());
+        if let Some(r) = special {
+            if crate::skill_use::slot(s, net, world, r, clock) {
+                return;
+            }
+        }
+        if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
+            r.next_swing = now + WALKING_CHECK;
+        }
+        return;
+    }
     if !walks(&autos) {
         return stand_and_swing(s, net, world, run, &autos, (at, level, armor), clock);
     }

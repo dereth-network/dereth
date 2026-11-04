@@ -243,6 +243,10 @@ pub struct Usage {
     pub target_effects: Vec<u32>,
     pub user_effects: Vec<u32>,
     pub required_effects: Vec<u32>,
+    /// The effects whose carrier may not use it.
+    pub barring_effects: Vec<u32>,
+    /// The skills its user must have trained to use it, each at the rating named.
+    pub use_prereqs: Vec<(u32, u32)>,
     pub hooks: Vec<Hook>,
     pub ui_flags: u32,
     /// How much faster its definition says it goes, for the few that say.
@@ -411,6 +415,18 @@ impl SkillDef {
     }
 }
 
+/// The skills a definition names to be trained before it is used, with their ratings.
+fn use_prereqs(nav: &Nav<'_>, o: &PackedObject) -> Vec<(u32, u32)> {
+    nav.field(o, "m_UsePrereqSkills")
+        .ok()
+        .filter(|r| *r != 0 && *r != NULL)
+        .and_then(|r| nav.entries(r).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(k, v)| Some((Nav::word(k).ok()?, Nav::word(v).ok()?)))
+        .collect()
+}
+
 impl Usage {
     /// Read how a skill is used from its definition's object.
     ///
@@ -450,6 +466,8 @@ impl Usage {
             target_effects,
             user_effects,
             required_effects,
+            barring_effects: nav.states(o, "m_BarringEffects").unwrap_or_default(),
+            use_prereqs: use_prereqs(nav, o),
             hooks,
             ui_flags: word("m_uiFlags")?,
             combat_speed: num("m_fCombatSpeedModifier").ok().filter(|m| *m != 1.0),
