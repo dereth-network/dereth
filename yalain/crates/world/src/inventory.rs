@@ -1475,12 +1475,10 @@ pub fn close_request<S: Store>(
         _ => None,
     });
     match id {
-        Some(id) if s.things.get(id).is_some_and(|t| t.corpse.is_some()) => {
-            close(s, net, world, id);
-        }
+        Some(id) if open_corpse_of(s, world) == Some(id) => close(s, net, world, id),
         _ => s
             .unhandled
-            .note("closing a container the world does not have"),
+            .note("closing a container the player does not have open"),
     }
 }
 

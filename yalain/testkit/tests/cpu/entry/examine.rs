@@ -978,6 +978,54 @@ fn an_item_lists_the_skills_and_arcane_lore_it_takes() {
     assert_eq!(got[0][20..], p.packed(&got[0][..20])[20..], "as built");
 }
 
+/// An item in another player's pack answers no examination until the other side knows of it, as
+/// an offer in a trade makes it known.
+/// Behaviour: server.selection.examining-what-another-holds
+#[test]
+fn an_item_in_another_players_pack_answers_only_once_offered() {
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (b, idb) = h.player_in_world("two", "Birch");
+    let world_of = |h: &Harness, id: u64| {
+        *h.server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == id)
+            .expect("in the world")
+            .0
+    };
+    let (owner, viewer) = (world_of(&h, ida), world_of(&h, idb));
+    let mut at = h.server.players[&owner].position;
+    at.origin[0] += 1.0;
+    h.server.players.get_mut(&viewer).expect("in").position = at;
+    let item = yalain_world::inventory::give(
+        &mut h.server,
+        &mut h.net,
+        owner,
+        yalain_testkit::TEST_ITEM,
+        1,
+    )
+    .expect("given");
+    h.run(2);
+    let ask = |h: &mut Harness| {
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::EXAMINE, &[about(item, 0x3FF)]),
+        );
+        h.run(10);
+        profile_nodes(h, b, from).len()
+    };
+    assert_eq!(ask(&mut h), 0, "a stranger's pack");
+    use yalain_world::trade::function as trade;
+    h.ask(a, trade::OPEN, &[Arg::LongInt(idb)], 10);
+    h.ask(b, trade::OPEN, &[Arg::LongInt(ida)], 10);
+    h.ask(a, trade::OFFER, &[Arg::Int(1), Arg::LongInt(item)], 10);
+    assert_eq!(ask(&mut h), 1, "offered to it");
+}
+
 /// A stack with a value of its own shows what all its pieces are worth, as a sale of it pays.
 /// Behaviour: server.inventory.a-stack-pays-for-each-piece
 #[test]

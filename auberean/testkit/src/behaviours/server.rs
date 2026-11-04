@@ -3707,6 +3707,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.closing-only-what-the-player-has-open",
+        says: "Only the player who has a corpse open closes it; another naming it changes nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CLOSE-OPEN"),
+        station: "yalain-testkit::cpu::play::integrity::a_corpse_another_player_has_open_is_not_closed_by_a_stranger",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.coins-out-of-the-bag-need-room",
         says: "Coins taken out of the money bag into a full pack, or by a player busy or \
                dead, do nothing.",
@@ -8135,6 +8143,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CHECKER-STAMPS"),
         station: "yalain-testkit::cpu::play::rules::the_checker_orders_stamps_as_the_client_does",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.selection.examining-what-another-holds",
+        says: "An item in another player's pack answers no examination until the examiner knows \
+               of it, as an offer in a trade makes it known.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-HELD"),
+        station: "yalain-testkit::cpu::entry::examine::an_item_in_another_players_pack_answers_only_once_offered",
         tier: Tier::Cpu,
     },
     behaviour! {

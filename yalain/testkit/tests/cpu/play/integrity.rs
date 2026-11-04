@@ -122,6 +122,41 @@ fn an_item_taken_by_two_from_one_corpse_goes_to_one_of_them() {
     );
 }
 
+/// Only the player who has a corpse open closes it: another naming it from anywhere neither ends
+/// the viewer's look nor sets the corpse rotting.
+/// Behaviour: server.inventory.closing-only-what-the-player-has-open
+#[test]
+fn a_corpse_another_player_has_open_is_not_closed_by_a_stranger() {
+    let (mut h, (a, ida), (b, _)) = players();
+    let (c, _) = corpse(&mut h, ida, 1);
+    h.ask(a, USE, &[use_of(c, ida)], 5);
+    let until = |h: &Harness| {
+        h.server
+            .things
+            .get(c)
+            .and_then(|t| t.corpse.as_ref())
+            .expect("a corpse")
+            .expires
+    };
+    let before = until(&h);
+    let from = h.bots[b].inbox.len();
+    h.ask(b, CLOSE, &[Arg::LongInt(c)], 2);
+    assert!(!h
+        .functions(b, from)
+        .contains(&inventory::function::CLOSE_DONE));
+    assert!((until(&h) - before).abs() < f64::EPSILON, "no sooner gone");
+    assert_eq!(
+        inventory::open_corpse_of(&h.server, world_of(&h, ida)),
+        Some(c),
+        "still open to its viewer"
+    );
+    h.ask(a, CLOSE, &[Arg::LongInt(c)], 2);
+    assert_eq!(
+        inventory::open_corpse_of(&h.server, world_of(&h, ida)),
+        None
+    );
+}
+
 /// The request to turn a corpse into money, as the client packs it.
 fn transmute_request(corpse: u64) -> Arg {
     use yalain_world::graph::{Builder, Slot};
