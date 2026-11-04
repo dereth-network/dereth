@@ -722,14 +722,12 @@ fn the_wounded_effect_lays_its_appearance_over_its_object_until_it_stops() {
         scale: Vec3::new(1.0, 1.0, 1.0),
         now: 0.0,
     };
+    // Only the entry keyed to normal gore and red blood plays; stopping takes off all four.
     let applied = |scalar: f32| -> Vec<AppearanceFx> {
-        TABLES
-            .iter()
-            .map(|t| AppearanceFx::Apply {
-                table: *t,
-                key: AppearanceKey { key: 2, scalar },
-            })
-            .collect()
+        vec![AppearanceFx::Apply {
+            table: 0x2000_003A,
+            key: AppearanceKey { key: 2, scalar },
+        }]
     };
     let removed: Vec<AppearanceFx> = TABLES
         .iter()
@@ -1035,4 +1033,35 @@ fn a_scenes_objects_play_their_effects() {
         drawn = drawn.max(effects.batches(r, now, white, None, eye, axes).len());
     }
     assert!(drawn > 0, "the hall's objects draw particles");
+}
+
+/// An effect keyed to the player's preferences plays the entries keyed as they ask and no others:
+/// a wound's blood (`0x410004D3` of the shared table) has an entry for each level of gore and each
+/// color, a level with nothing to show plays nothing, and a channel no preference holds says
+/// nothing.
+///
+/// Behaviour: draw.effects.an-effects-entries-play-as-the-players-preferences-ask
+#[test]
+fn an_effects_entries_play_as_the_players_preferences_ask() {
+    use auberean_draw::effects::{stored_fx_data, Channels};
+    let r = &install().records;
+    let list = stored_fx_data(r, 0x1E00_0057, 0x4100_04D3);
+    let playing = |gore: u32, blood: u32| -> Vec<u32> {
+        let asked = Channels {
+            gore,
+            blood,
+            foot_step_particles: true,
+        };
+        list.iter()
+            .filter(|d| !asked.mismatch(&d.default))
+            .flat_map(|d| d.default.particles.iter().flatten().map(|p| p.0))
+            .collect()
+    };
+    assert_eq!(playing(4, 2), [0x3900_0308]);
+    assert_eq!(playing(4, 1), [0x3900_0309]);
+    assert_eq!(playing(3, 2), [0x3900_0308]);
+    assert_eq!(playing(2, 2), [0u32; 0], "none");
+    let fun = [0x3900_030A, 0x3900_030B, 0x3900_030C, 0x3900_030D];
+    assert_eq!(playing(1, 2), fun);
+    assert_eq!(playing(1, 1), fun);
 }

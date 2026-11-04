@@ -1404,6 +1404,12 @@ impl<'w> Scene<'w> {
         self.built = None;
     }
 
+    /// What the player's effect preferences ask of the effects from now on.
+    // D2-06910, D2-06911
+    pub fn set_fx_channels(&self, channels: auberean_draw::effects::Channels) {
+        self.systems.set_fx_channels(channels);
+    }
+
     /// The lights the objects' effects carried in the last frame drawn, as they stood there (each
     /// at its place in its own cell's block): those of the objects placed with the world, the
     /// bodies, what they hold and what the client made.
@@ -3142,6 +3148,9 @@ impl<'w> Scene<'w> {
             let table = auberean_draw::effects::ObjectFxTable::of_group_with(records, &look.global);
             for data in table.fx_data(records, effect) {
                 let node = auberean_draw::effects::node_for(&data, 0);
+                if self.systems.fx_channels().mismatch(node) {
+                    continue;
+                }
                 if node.player_only == Some(true) && player != Some(object) {
                     continue;
                 }

@@ -1364,6 +1364,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.options.the-effects-section-chooses-what-keyed-effects-play",
+        says: "The options' effects section lists how much gore, blood's color and steps raising particles, by what the language allows, at its top levels by default, and tells the effects as they change.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-CHANNEL-PREFS"),
+        station: "auberean-interface::dat::preferences::the_effects_section_chooses_what_keyed_effects_play",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.panel.opening-a-tab-closes-the-others",
         says: "A panel's tabs each make their page beside them and show it only while open; pressing a \
                closed tab opens it and closes the one that was open; a closed tab rolls over under \

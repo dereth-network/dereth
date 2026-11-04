@@ -213,6 +213,57 @@ impl ObjectFxTable {
     }
 }
 
+/// The channels an effect's entry may be keyed to, and what its key there says.
+pub mod channel {
+    /// How much gore: fun, none, low or normal, 1 to 4.
+    pub const GORE: u32 = 0x4000_0001;
+    /// The color of blood: green or red, 1 or 2.
+    pub const BLOOD: u32 = 0x4000_0007;
+    /// Whether steps raise particles: 1 or 0.
+    pub const FOOT_STEP_PARTICLES: u32 = 0x4000_0008;
+}
+
+/// What the player's preferences ask of the entries of an effect keyed to a channel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Channels {
+    pub gore: u32,
+    pub blood: u32,
+    pub foot_step_particles: bool,
+}
+
+impl Default for Channels {
+    /// Normal gore, red blood, steps raising particles.
+    fn default() -> Self {
+        Self {
+            gore: 4,
+            blood: 2,
+            foot_step_particles: true,
+        }
+    }
+}
+
+impl Channels {
+    /// Whether an entry is keyed otherwise than the preferences ask: such an entry does not play.
+    /// A channel no preference holds is not looked at.
+    // D2-06908
+    #[must_use]
+    pub fn mismatch(&self, node: &FxNode) -> bool {
+        let asked = [
+            (channel::GORE, self.gore),
+            (channel::BLOOD, self.blood),
+            (
+                channel::FOOT_STEP_PARTICLES,
+                u32::from(self.foot_step_particles),
+            ),
+        ];
+        node.channel_keys.as_ref().is_some_and(|keys| {
+            asked
+                .iter()
+                .any(|(channel, value)| keys.iter().any(|(c, v)| c == channel && v != value))
+        })
+    }
+}
+
 /// One effect an object is playing: how strongly, whether it began with the object, the ids of
 /// the particle systems it keeps going (those that run until stopped), and when it ends (the
 /// client's time; none for never).
@@ -325,6 +376,8 @@ pub struct ObjectEffects {
     streak_asks: Vec<(bool, u32)>,
     /// The sliders its effects moved since last taken, in order.
     sliders: Vec<FxSlider>,
+    /// What the player's preferences last asked of its effects' entries.
+    channels: Channels,
     /// The sounds its effects played or stopped, in order, not yet taken.
     sounds: Vec<FxSound>,
 }
@@ -469,6 +522,7 @@ impl ObjectEffects {
             streaks: Vec::new(),
             streak_asks: Vec::new(),
             sliders: Vec::new(),
+            channels: Channels::default(),
             sounds: Vec::new(),
         })
     }
@@ -871,8 +925,11 @@ impl ObjectEffects {
         if list.is_empty() {
             return (false, Vec::new());
         }
+        let channels = systems.fx_channels();
+        self.channels = channels;
         let applies = |n: &FxNode| {
-            (n.player_only != Some(true) || who.player)
+            !channels.mismatch(n)
+                && (n.player_only != Some(true) || who.player)
                 && (n.day_time.unwrap_or(true) || who.night)
                 && (n.night_time.unwrap_or(true) || !who.night)
         };
@@ -888,7 +945,7 @@ impl ObjectEffects {
             let mut appearance = Vec::new();
             for data in &list {
                 let n = node_for(data, terrain);
-                if n.player_only == Some(true) && !who.player {
+                if channels.mismatch(n) || (n.player_only == Some(true) && !who.player) {
                     continue;
                 }
                 if n.ramp_time.unwrap_or(0.0) < 0.0002 {
@@ -1071,6 +1128,9 @@ impl ObjectEffects {
             }
             for data in self.table.fx_data(records, *effect) {
                 let n = node_for(&data, self.terrain);
+                if self.channels.mismatch(n) {
+                    continue;
+                }
                 let ramp = n.ramp_time.unwrap_or(0.0);
                 if ramp >= 0.0002 {
                     let step = dt / ramp;

@@ -73,6 +73,8 @@ pub enum Request {
     /// The graphics preferences the player applied: the world is drawn by them from now on, and
     /// they are kept with the settings.
     Graphics(auberean_draw::quality::Graphics),
+    /// What the player's effect preferences ask of the effects from now on.
+    FxChannels(auberean_draw::effects::Channels),
     /// A movement action the interface asks for as a key would (the camera's arrows, its left
     /// button in mouse look): pressed with an extent of 1, let go with 0.
     Move { action: u32, extent: f32 },

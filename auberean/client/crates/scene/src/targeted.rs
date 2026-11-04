@@ -73,7 +73,8 @@ impl Scene<'_> {
             };
             let player = self.player.as_ref().is_some_and(|p| p.id == object);
             for n in self.fx_nodes(object, effect) {
-                if (n.player_only == Some(true) && !player)
+                if self.systems.fx_channels().mismatch(&n)
+                    || (n.player_only == Some(true) && !player)
                     || (n.day_time == Some(false) && !night)
                     || (n.night_time == Some(false) && night)
                 {

@@ -2046,6 +2046,10 @@ impl Interface for Retail {
         let out = std::mem::take(&mut self.flow.flow.data.out);
         self.carry_out(out, requests);
         self.carry_out_pregame(requests);
+        // The effects' preferences changed or applied (and, first, as read).
+        if let Some(c) = self.preferences.take_channels() {
+            requests.push(Request::FxChannels(c));
+        }
         // The sound preferences changed or applied (and, first, their values as read).
         for (key, value, applied) in self.preferences.take_sound() {
             requests.push(Request::Sound(

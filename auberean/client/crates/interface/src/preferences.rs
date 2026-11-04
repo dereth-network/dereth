@@ -11,8 +11,10 @@
 //! the overall graphics quality they match is worked out again. The sound manager's preferences
 //! (the sound section: four volume sliders, the sound features, the number of sounds, sound off
 //! and music off) are told to the sound as they change and as they are applied, and their values
-//! as read handed to it at startup. Keeping writes every preference to the file. The rendering,
-//! effects and other sections list nothing yet.
+//! as read handed to it at startup. The effects' preferences (how much gore, blood's color, steps
+//! raising particles) choose among the entries of effects keyed to them, and are told as they
+//! change and as they are applied. Keeping writes every preference to the file. The rendering and
+//! other sections list nothing yet.
 
 use auberean_audio::options as sound;
 use auberean_draw::quality::{Graphics, Kind, GRAPHICS, PREFERENCES};
@@ -36,10 +38,15 @@ const GRAPHICS_VALUES: u32 = 0x4000_004A;
 /// The label prefix of a graphics choice's name.
 const LEVEL: &str = "ID_Graphics_Value_";
 
-/// Who handles a preference: the world's drawing, the camera, the sound.
+/// The mapping that names the language's string state, and its value there.
+const TABLE_MAPPING: u32 = 0x4000_0004;
+const LANGUAGE_VALUE: u32 = 0x4000_0001;
+
+/// Who handles a preference: the world's drawing, the camera, the sound, the effects.
 const DRAWING: u32 = 1;
 const CAMERA_HANDLER: u32 = 2;
 const SOUND_HANDLER: u32 = 3;
+const FX_HANDLER: u32 = 4;
 /// The page, the monitor of its sections.
 const PAGE: u32 = 1;
 
@@ -247,6 +254,8 @@ impl Names {
                 KEY_NAMES,
                 GRAPHICS_VALUES,
                 FIRST_PERSON_VALUES,
+                fx::GORE_VALUES,
+                fx::BLOOD_VALUES,
             ]
             .into_iter()
             .map(|e| (e, EnumNames::read(records, e)))
@@ -313,6 +322,10 @@ pub struct Preferences {
     /// The sound preferences told to the sound, not yet handed on: each key, value, and whether
     /// applied (else changed).
     sound: Vec<(u32, f32, bool)>,
+    /// The effects' preferences changed or applied since last handed on (and, first, as read).
+    fresh_channels: bool,
+    /// The top gore level and blood color the language allows.
+    tops: (u32, u32),
 }
 
 impl Default for Preferences {
@@ -329,6 +342,8 @@ impl Default for Preferences {
             fresh_camera: false,
             keep: None,
             sound: Vec::new(),
+            fresh_channels: false,
+            tops: (fx::NORMAL, fx::RED),
         };
         me.put_in(&Profile::default());
         me.set(&Graphics::first_run());
@@ -445,6 +460,62 @@ fn sound_preference(p: &sound::SoundPreference) -> Pref {
     }
 }
 
+/// The effects' preferences: their section, keys and choices.
+mod fx {
+    pub const SECTION: u32 = 0x4000_0009;
+    pub const GORE: u32 = 0x4000_0035;
+    pub const BLOOD: u32 = 0x4000_0036;
+    pub const FOOT_STEP_PARTICLES: u32 = 0x4000_0039;
+    pub const GORE_VALUES: u32 = 0x4000_0044;
+    pub const BLOOD_VALUES: u32 = 0x4000_0045;
+    pub const NORMAL: u32 = 4;
+    pub const RED: u32 = 2;
+    /// Each level, its words, and the language's top level it asks for.
+    pub const GORE_CHOICES: [(i32, &str, u32); 4] = [
+        (1, "ID_Graphics_Value_Fun", 0),
+        (2, "ID_Graphics_Value_None", 0),
+        (3, "ID_Graphics_Value_Low", 3),
+        (4, "ID_Graphics_Value_Normal", 4),
+    ];
+    /// Each color, its words, and the language's top color it asks for.
+    pub const BLOOD_CHOICES: [(i32, &str, u32); 2] = [
+        (1, "ID_FX_Hue_Value_Green", 0),
+        (2, "ID_FX_Hue_Value_Red", 2),
+    ];
+}
+
+/// A choice among the effects' preferences as the bank keeps it: those the language's top level
+/// allows, that top level its default.
+#[allow(clippy::cast_possible_wrap)] // a few levels
+fn fx_choice(
+    label: &str,
+    help: &str,
+    enumeration: u32,
+    choices: &[(i32, &str, u32)],
+    top: u32,
+) -> Pref {
+    let mut d = Description::default();
+    d.describe(
+        PREFERENCE_STRINGS,
+        Token::of(label).raw(),
+        Token::of(help).raw(),
+    );
+    let mut c = Choice::new();
+    c.map(enumeration);
+    for (v, words, least) in choices {
+        if top >= *least {
+            c.assign_named_choice(
+                *v,
+                (PREFERENCE_STRINGS, Token::of(words).raw()),
+                v.unsigned_abs(),
+            );
+        }
+    }
+    c.set_default(top as i32);
+    c.description = d;
+    Pref::Choice(c)
+}
+
 /// A preference's value as a number (a choice's number, 1 or 0 for yes or no).
 #[allow(clippy::cast_precision_loss)] // a few levels
 fn number_of(p: &Pref) -> f32 {
@@ -463,8 +534,35 @@ impl Preferences {
         self.names = Names::read(records);
         self.bank = Bank::new();
         self.camera = settings.camera;
+        let language = records.data_id_by_enum(LANGUAGE_VALUE, TABLE_MAPPING);
+        if let Some(s) = records.get::<auberean_assets::strings::StringState>(language) {
+            self.tops = (s.top_gore_level(), s.top_blood_color());
+        }
         self.put_in(settings.profile());
         self.start_sound();
+        self.fresh_channels = true;
+    }
+
+    /// What the effects' preferences ask of the effects, when changed since last taken.
+    pub fn take_channels(&mut self) -> Option<auberean_draw::effects::Channels> {
+        std::mem::take(&mut self.fresh_channels).then(|| self.channels())
+    }
+
+    /// What the effects' preferences ask of the effects.
+    #[allow(clippy::cast_sign_loss)] // the choices are small and positive
+    fn channels(&self) -> auberean_draw::effects::Channels {
+        let choice = |k: u32, or: u32| match self.bank.find(k) {
+            Some(Pref::Choice(c)) => c.get() as u32,
+            _ => or,
+        };
+        auberean_draw::effects::Channels {
+            gore: choice(fx::GORE, fx::NORMAL),
+            blood: choice(fx::BLOOD, fx::RED),
+            foot_step_particles: match self.bank.find(fx::FOOT_STEP_PARTICLES) {
+                Some(Pref::Flag(f)) => f.get(),
+                _ => true,
+            },
+        }
     }
 
     /// The sound takes the sound preferences' values as read, as it starts.
@@ -508,6 +606,42 @@ impl Preferences {
                 &mut out,
             );
             self.bank.link(p.key, SOUND_HANDLER);
+        }
+        // D2-06886
+        let (top_gore, top_blood) = self.tops;
+        let mut steps = Flag::new();
+        steps.set_default(true);
+        steps.description.describe(
+            PREFERENCE_STRINGS,
+            Token::of("ID_FX_Foot_Step_Particles").raw(),
+            Token::of("ID_FX_Foot_Step_Particles_Help").raw(),
+        );
+        for (k, mut pref) in [
+            (
+                fx::GORE,
+                fx_choice(
+                    "ID_FX_Gore_Amount",
+                    "ID_FX_Gore_Amount_Help",
+                    fx::GORE_VALUES,
+                    &fx::GORE_CHOICES,
+                    top_gore,
+                ),
+            ),
+            (
+                fx::BLOOD,
+                fx_choice(
+                    "ID_FX_Gore_Hue",
+                    "ID_FX_Gore_Hue_Help",
+                    fx::BLOOD_VALUES,
+                    &fx::BLOOD_CHOICES,
+                    top_blood,
+                ),
+            ),
+            (fx::FOOT_STEP_PARTICLES, Pref::Flag(steps)),
+        ] {
+            self.bank
+                .bless(&mut pref, fx::SECTION, k, &file, &self.names, &mut out);
+            self.bank.link(k, FX_HANDLER);
         }
         // D2-01694
         for (k, default) in KEY_MAP_FILES {
@@ -636,8 +770,17 @@ impl Preferences {
                     .push((pref.description().key, number_of(pref), false));
                 continue;
             }
+            if let Notice::Change {
+                party: Party::Handler(FX_HANDLER),
+                ..
+            } = &n
+            {
+                self.fresh_channels = true;
+                continue;
+            }
             if let Notice::Handle { handler, prefs } = n {
                 match handler {
+                    FX_HANDLER => self.fresh_channels = true,
                     SOUND_HANDLER => self.sound.extend(
                         prefs
                             .iter()

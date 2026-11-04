@@ -131,5 +131,95 @@ fn the_client_page_lists_the_cameras_preferences_and_keeps_them() {
     assert_eq!(sound.len(), 8, "{sound:?}");
     assert!(has("Sound", &music, "1.000000"), "{sound:?}");
     assert!(has("Sound", &features, "Hardware"), "{sound:?}");
-    assert_eq!(kept.len(), 21 + 16 + 8 + 3);
+    assert_eq!(kept.len(), 21 + 16 + 8 + 3 + 3);
+}
+
+/// The effects section lists how much gore, blood's color and steps raising particles, the gore
+/// and the color choosing among what the language's top levels allow, at those top levels by
+/// default; a choice tried is told to the effects at once, and the file's word is read back.
+///
+/// Behaviour: ui.options.the-effects-section-chooses-what-keyed-effects-play
+#[test]
+fn the_effects_section_chooses_what_keyed_effects_play() {
+    use auberean_draw::effects::Channels;
+    const GORE: u32 = 0x4000_0035;
+    const BLOOD: u32 = 0x4000_0036;
+    const STEPS: u32 = 0x4000_0039;
+    let records = &crate::screens::data().0.records;
+    let settings = Settings::read("[Graphics]\r\nOverallGraphicsQuality=4\r\n");
+    let mut p = Preferences::default();
+    p.start(&settings, records);
+    let first = p.take_channels().expect("told as read");
+    assert_eq!(
+        first,
+        Channels {
+            gore: 4,
+            blood: 2,
+            foot_step_particles: true
+        }
+    );
+    assert_eq!(p.take_channels(), None, "told once");
+    p.handle(&Request::Attach(vec![section::EFFECTS]));
+    let l = p.listing().expect("listed").clone();
+    let prefs = &l
+        .sections
+        .iter()
+        .find(|(s, _)| *s == section::EFFECTS)
+        .expect("the section")
+        .1;
+    assert_eq!(prefs.len(), 3);
+    let gore = prefs
+        .iter()
+        .find_map(|c| match c {
+            Change::Choice(c) if c.description.key == GORE => Some(c.clone()),
+            _ => None,
+        })
+        .expect("gore");
+    assert_eq!(gore.get(), 4);
+    assert_eq!(gore.list_choices().len(), 4);
+    let blood = prefs
+        .iter()
+        .find_map(|c| match c {
+            Change::Choice(c) if c.description.key == BLOOD => Some(c.clone()),
+            _ => None,
+        })
+        .expect("blood");
+    assert_eq!(blood.list_choices().len(), 2);
+    let mut none = gore.clone();
+    none.set_value(2);
+    p.handle(&Request::Change(Change::Choice(none)));
+    assert_eq!(
+        p.take_channels(),
+        Some(Channels { gore: 2, ..first }),
+        "told as it changes"
+    );
+    let steps = prefs
+        .iter()
+        .find_map(|c| match c {
+            Change::Flag(f) if f.description.key == STEPS => Some(*f),
+            _ => None,
+        })
+        .expect("steps");
+    let mut off = steps;
+    off.set_value(false);
+    p.handle(&Request::Change(Change::Flag(off)));
+    assert!(
+        !p.take_channels().expect("told").foot_step_particles,
+        "steps off"
+    );
+    // The file's words for them, and read back.
+    p.handle(&Request::Apply(section::EFFECTS));
+    p.handle(&Request::Save);
+    let kept = p.take_kept().expect("kept");
+    for (key, word) in [
+        ("Gore", "None"),
+        ("BloodColor", "red"),
+        ("FootStepParticles", "0"),
+    ] {
+        assert!(
+            kept.iter()
+                .any(|(s, k, v)| s == "FX" && k == key && v == word),
+            "{key}"
+        );
+    }
 }

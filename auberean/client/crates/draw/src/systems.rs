@@ -72,6 +72,8 @@ struct Inner {
     no_lights: bool,
     /// The streak effects preference is off: the effects make no streaks.
     no_streaks: bool,
+    /// What the player's preferences ask of the effects' entries.
+    channels: crate::effects::Channels,
     /// The volumetric fog effects preference is off: the systems whose particles move by
     /// repulsors (the ground's mists) neither think nor draw.
     no_fog: bool,
@@ -323,6 +325,17 @@ impl ParticleSystems {
     #[must_use]
     pub fn streak_effects(&self) -> bool {
         !self.lock().no_streaks
+    }
+
+    /// What the player's preferences ask of the effects' entries from now on.
+    pub fn set_fx_channels(&self, channels: crate::effects::Channels) {
+        self.lock().channels = channels;
+    }
+
+    /// What the player's preferences ask of the effects' entries.
+    #[must_use]
+    pub fn fx_channels(&self) -> crate::effects::Channels {
+        self.lock().channels
     }
 
     /// Whether the systems whose particles move by repulsors (the ground's mists) think and draw:

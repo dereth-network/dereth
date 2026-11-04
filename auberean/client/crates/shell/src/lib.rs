@@ -374,6 +374,7 @@ impl<'w, H: Host> Shell<'w, H> {
                 self.scene.init_preferences(&g);
                 self.settings.graphics = Some(g);
             }
+            Request::FxChannels(c) => self.scene.set_fx_channels(c),
             Request::KeepPreferences(writes) => {
                 for (section, key, value) in &writes {
                     self.settings.keep(section, key, value);

@@ -183,6 +183,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.effects.an-effects-entries-play-as-the-players-preferences-ask",
+        says: "An effect's entries keyed to how much gore, the color of blood or steps raising particles play only as the player's preferences ask; a channel no preference holds says nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-CHANNELS"),
+        station: "auberean-draw::dat::effects::an_effects_entries_play_as_the_players_preferences_ask",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.effects.an-object-going-stops-its-effects",
         says: "An object going stops every effect it plays, startup or asked for, with the systems \n               they keep going and their sounds.",
         since: RETAIL,
