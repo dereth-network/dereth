@@ -365,13 +365,60 @@ fn beside(store: &Path, suffix: &str) -> PathBuf {
     store.with_file_name(name)
 }
 
+/// Seconds since 1970 as the timestamp a Yalain store's backup is named by: `YYYYMMDDTHHMMSSZ`.
+fn backup_stamp(unix: u64) -> String {
+    let (days, secs) = (i64::try_from(unix / 86_400).unwrap_or(0), unix % 86_400);
+    // Days since 1970 to a civil date (the proleptic Gregorian calendar).
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}{month:02}{day:02}T{:02}{:02}{:02}Z",
+        secs / 3600,
+        secs / 60 % 60,
+        secs % 60
+    )
+}
+
+/// What a backup's name orders it by: its timestamp, and its number within that second. A name
+/// from before backups were named as Yalain names them, ending in plain seconds, reads as the same
+/// time. `None` for anything else (a backup's `-wal`).
+fn backup_time(rest: &str) -> Option<(String, u32)> {
+    let last = rest.rsplit('-').next()?;
+    if let Ok(unix) = last.parse::<u64>() {
+        return Some((backup_stamp(unix), 1));
+    }
+    let (stamp, n) = last
+        .split_once('.')
+        .map_or((last, Some(1)), |(s, n)| (s, n.parse().ok()));
+    let ok = stamp.len() == 16
+        && stamp.as_bytes()[8] == b'T'
+        && stamp.ends_with('Z')
+        && stamp[..8].bytes().all(|b| b.is_ascii_digit())
+        && stamp[9..15].bytes().all(|b| b.is_ascii_digit());
+    ok.then(|| (stamp.to_owned(), n.unwrap_or(1)))
+}
+
 /// Back up the Yalain world's store (`store`, and its `-wal` and `-shm` when it has them) before
-/// the update from `from` to `to`, keeping the newest [`KEPT_BACKUPS`]. The backup's path.
+/// the update from `from` to `to`, named as Yalain names its own backups, so that it lists and trims
+/// them with its own, and keep the newest [`KEPT_BACKUPS`] of them all. The backup's path.
 fn backup_store(store: &Path, from: &str, to: &str) -> Result<PathBuf, String> {
     let at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    let backup = beside(store, &format!(".backup-update-v{from}-v{to}-{at}"));
+    let stamp = backup_stamp(at);
+    let named = format!(".backup-update-v{from}-v{to}-{stamp}");
+    // Two in one second are told apart by a number, as Yalain tells its own.
+    let backup = std::iter::once(beside(store, &named))
+        .chain((2..).map(|n| beside(store, &format!("{named}.{n}"))))
+        .find(|p| !p.exists())
+        .unwrap_or_else(|| beside(store, &named));
     if store.is_file() {
         std::fs::copy(store, &backup).map_err(|e| format!("Could not back up the store: {e}"))?;
     } else {
@@ -386,25 +433,37 @@ fn backup_store(store: &Path, from: &str, to: &str) -> Result<PathBuf, String> {
         }
     }
     let prefix = format!(
-        "{}.backup-update-",
+        "{}.backup-",
         store.file_name().unwrap_or_default().to_string_lossy()
     );
-    let mut backups: Vec<(u64, PathBuf)> = std::fs::read_dir(store.parent().unwrap_or(store))
+    let names: Vec<String> = std::fs::read_dir(store.parent().unwrap_or(store))
         .into_iter()
         .flatten()
         .flatten()
-        .filter_map(|e| {
-            let name = e.file_name().to_string_lossy().into_owned();
-            let rest = name.strip_prefix(&prefix)?;
-            let time = rest.rsplit('-').next()?.parse().ok()?;
-            Some((time, e.path()))
-        })
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with(&prefix))
         .collect();
-    backups.sort_by_key(|(time, _)| std::cmp::Reverse(*time));
-    for (_, old) in backups.into_iter().skip(KEPT_BACKUPS) {
+    let mut backups: Vec<((String, u32), &String)> = names
+        .iter()
+        .filter_map(|n| Some((backup_time(n.strip_prefix(&prefix)?)?, n)))
+        .collect();
+    backups.sort_by(|a, b| b.0.cmp(&a.0));
+    let dir = store.parent().unwrap_or(store);
+    for (_, old) in backups.iter().skip(KEPT_BACKUPS) {
+        let old = dir.join(old);
         let _ = std::fs::remove_file(&old);
         for companion in ["-wal", "-shm"] {
             let _ = std::fs::remove_file(beside(&old, companion));
+        }
+    }
+    // Yalain trims a backup without its companions: those it left go too.
+    for name in &names {
+        for companion in ["-wal", "-shm"] {
+            if let Some(whose) = name.strip_suffix(companion) {
+                if !dir.join(whose).exists() {
+                    let _ = std::fs::remove_file(dir.join(name));
+                }
+            }
         }
     }
     Ok(backup)
@@ -864,6 +923,10 @@ mod tests {
         assert!(
             left.iter().any(|n| n.ends_with("-400")) && left.iter().any(|n| n.ends_with("-300"))
         );
+        assert!(
+            left.iter().any(|n| n.ends_with('Z')),
+            "the new one named by the time: {left:?}"
+        );
         assert!(!temp
             .path()
             .join("yalain.sqlite.backup-update-v0.0.0-v0.1.0-100")
@@ -872,6 +935,50 @@ mod tests {
             .path()
             .join("yalain.sqlite.backup-update-v0.0.0-v0.1.0-100-wal")
             .exists());
+    }
+
+    /// A store's backup is named as Yalain names its own, so Yalain lists and trims it: the time
+    /// in UTC to the second, and a number after it for a second one in that second.
+    #[test]
+    fn a_yalain_store_s_backup_is_named_by_the_time_as_yalain_names_its_own() {
+        assert_eq!(backup_stamp(0), "19700101T000000Z");
+        assert_eq!(backup_stamp(951_782_400), "20000229T000000Z");
+        assert_eq!(backup_stamp(1_793_581_052), "20261102T005732Z");
+        let temp = tempfile::tempdir().unwrap();
+        let store = temp.path().join("yalain.sqlite");
+        std::fs::write(&store, b"store").unwrap();
+        let first = backup_store(&store, "0.1.0", "0.2.0").unwrap();
+        let name = first.file_name().unwrap().to_string_lossy().into_owned();
+        let rest = name.strip_prefix("yalain.sqlite.backup-").unwrap();
+        assert!(rest.starts_with("update-v0.1.0-v0.2.0-"), "{rest}");
+        let time = backup_time(rest).expect("the name reads").0;
+        assert!(rest.ends_with(&time), "{rest}");
+    }
+
+    /// The newest three of all a store's backups are kept, Yalain's own among them, whichever way
+    /// each is named; a companion whose backup Yalain took away goes too.
+    #[test]
+    fn a_yalain_store_keeps_three_backups_of_all_kinds_and_no_lost_companions() {
+        let temp = tempfile::tempdir().unwrap();
+        let store = temp.path().join("yalain.sqlite");
+        std::fs::write(&store, b"store").unwrap();
+        for old in [
+            ".backup-update-v0.1.0-v0.2.0-100",
+            ".backup-v3-v4-20000101T000000Z",
+            ".backup-v4-v5-20010101T000000Z",
+            ".backup-v5-v6-20010101T000000Z.2",
+        ] {
+            std::fs::write(beside(&store, old), b"old").unwrap();
+        }
+        let lost = beside(&store, ".backup-update-v0.0.1-v0.1.0-50-wal");
+        std::fs::write(&lost, b"wal").unwrap();
+        let backup = backup_store(&store, "0.4.0", "0.5.0").unwrap();
+        assert!(backup.exists());
+        assert!(beside(&store, ".backup-v5-v6-20010101T000000Z.2").exists());
+        assert!(beside(&store, ".backup-v4-v5-20010101T000000Z").exists());
+        assert!(!beside(&store, ".backup-v3-v4-20000101T000000Z").exists());
+        assert!(!beside(&store, ".backup-update-v0.1.0-v0.2.0-100").exists());
+        assert!(!lost.exists());
     }
 
     fn host() -> tempfile::TempDir {
