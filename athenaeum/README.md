@@ -93,7 +93,8 @@ to where it leads.
   the template along the top.
 - **Find** shows the templates as pictures, by name or id. Click one and click the ground to place
   it; Shift+click keeps the window open for the next, and it opens again on the same search.
-  **Worn** shows what can be worn on a body.
+  Things to carry stay out of the way until **Items** is ticked, or **Worn**, which shows what can
+  be worn on a body. **no picture** is something that shows only as effects when played.
 - Ctrl+F or **Find rows** finds any row of the world by its name, template, kind or key, nearest
   or not, and goes to a landblock (`5766` or `5766:123,45`).
 - G stands the selected rows on what is under them; Shift+G also leans objects with the ground.

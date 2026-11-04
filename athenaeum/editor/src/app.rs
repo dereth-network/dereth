@@ -218,8 +218,13 @@ pub struct Editor<'w> {
     finding: Option<String>,
     /// What the finder last searched for, for when it opens again.
     last_find: String,
-    /// The templates the finder's text matches, and the text they match.
-    found: Option<(String, std::sync::Arc<[u32]>)>,
+    /// The templates the finder's text matches, and what they were matched by: the text, and
+    /// whether things to carry are among them.
+    found: Option<Found>,
+    /// Whether the finder shows things to carry as well as what stands in the world.
+    pub show_items: bool,
+    /// Which templates are things to carry, once asked.
+    items: HashMap<u32, bool>,
     /// The pictures drawn so far; `None` for one that shows nothing.
     pictures: HashMap<Picture, Option<egui::TextureHandle>>,
     /// The pictures the finder shows this frame that are not drawn yet.
@@ -301,6 +306,9 @@ fn rotation_of(row: &Row) -> [f32; 4] {
     };
     q.unwrap_or_else(|| view::heading_rotation(h.unwrap_or(0.0)))
 }
+
+/// What the finder asked for, the text and whether things to carry are among it, and what it found.
+type Found = ((String, bool), std::sync::Arc<[u32]>);
 
 /// What a finder tile pictures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -545,6 +553,8 @@ impl<'w> Editor<'w> {
             finding: None,
             last_find: String::new(),
             found: None,
+            show_items: false,
+            items: HashMap::new(),
             pictures: HashMap::new(),
             pictures_wanted: Vec::new(),
             show_worn: false,
@@ -1562,6 +1572,8 @@ impl<'w> Editor<'w> {
                     if std::mem::take(&mut self.focus_find) {
                         field.request_focus();
                     }
+                    ui.checkbox(&mut self.show_items, "Items")
+                        .on_hover_text("things to carry, too");
                     ui.checkbox(&mut self.show_worn, "Worn")
                         .on_hover_text("what can be worn, on a body");
                 });
@@ -1644,27 +1656,48 @@ impl<'w> Editor<'w> {
     /// The templates whose name or id has `text`.
     pub fn templates_matching(&mut self, text: &str) -> std::sync::Arc<[u32]> {
         let want = text.trim().to_lowercase();
+        let items = self.show_items || self.show_worn;
+        let asked = (want.clone(), items);
         if let Some((known, list)) = &self.found {
-            if *known == want {
+            if *known == asked {
                 return list.clone();
             }
         }
-        // Asked for nothing in particular, the many with nothing to show stay out of the way.
+        // Asked for nothing in particular, the many with nothing to show stay out of the way. An id
+        // asked for is found whatever it is.
         let list: std::sync::Arc<[u32]> = self
             .templates
             .clone()
             .into_iter()
             .filter(|t| {
                 if want.is_empty() {
-                    self.look(*t).is_some()
+                    self.look(*t).is_some() && (items || !self.is_item(*t))
+                } else if format!("0x{t:08x}").contains(&want) {
+                    true
                 } else {
-                    format!("0x{t:08x}").contains(&want)
-                        || self.label(*t).to_lowercase().contains(&want)
+                    self.label(*t).to_lowercase().contains(&want) && (items || !self.is_item(*t))
                 }
             })
             .collect();
-        self.found = Some((want, list.clone()));
+        self.found = Some((asked, list.clone()));
         list
+    }
+
+    /// Whether a template is a thing to carry, by what its template says of it as an item. A
+    /// generator's marker says that much of itself and stands in the world.
+    fn is_item(&mut self, t: u32) -> bool {
+        if let Some(known) = self.items.get(&t) {
+            return *known;
+        }
+        let install = self.install;
+        let props =
+            yalain_content::Props::of(t, &|id| install.entity(id), &|id| install.property_name(id));
+        let item = props
+            .values
+            .keys()
+            .any(|k| k.starts_with("Item_") && k != "Item_GenIsAGenerator");
+        self.items.insert(t, item);
+        item
     }
 
     /// What a finder tile shows of a template, when it shows anything.
@@ -1711,7 +1744,7 @@ impl<'w> Editor<'w> {
                     painter.text(
                         picture.center(),
                         egui::Align2::CENTER_CENTER,
-                        "no look",
+                        "no picture",
                         egui::FontId::proportional(11.0),
                         egui::Color32::GRAY,
                     );

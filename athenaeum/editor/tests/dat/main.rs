@@ -1016,3 +1016,18 @@ fn a_template_chosen_is_placed_as_what_it_is() {
     e.choose_template(0x4700_1A58);
     assert_eq!(e.new_kind, NewKind::Static, "a camp keeps no building");
 }
+
+#[test]
+fn the_finder_leaves_out_things_to_carry_until_asked() {
+    let mut e = editor("items");
+    let (gem, bore, boots) = (0x4700_0803, 0x4700_3432, 0x4700_07D0);
+    e.set_templates(vec![boots, gem, bore]);
+    assert_eq!(&*e.templates_matching("portal"), [bore]);
+    assert_eq!(&*e.templates_matching(""), [bore]);
+    assert_eq!(&*e.templates_matching("0x47000803"), [gem], "by its id");
+    e.show_items = true;
+    assert_eq!(&*e.templates_matching("portal"), [gem, bore]);
+    e.show_items = false;
+    e.show_worn = true;
+    assert_eq!(&*e.templates_matching("boots"), [boots]);
+}
