@@ -47,6 +47,10 @@ what they see, not how it was done.
 - Friends on other worlds no longer show as leaving when you log in.
 - Linked characters now list their person's friends.
 - Fixed a last set of quest errands not finishing the quest.
+- Quest hand-ins now take exactly the number asked for, and people say so when it's wrong.
+- More people in the drudge towns give their quests.
+- Fixed people telling strong players they were too weak.
+- The Water Temple obelisks open in the right order.
 
 ## 0.1.2 (2026-11-03)
 

@@ -6715,6 +6715,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.a-reminder-at-its-phase-sends-no-one",
+        says: "A person reminds a player at the phases heard, sending no one: a portal beside it does the sending.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LAHRY-REMINDERS"),
+        station: "yalain-testkit::corpus::world_db::lahry_reminds_a_player_at_the_fifth_phase_and_the_portal_beside_him_sends_them",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.a-required-quest-holds-back-a-giving",
         says: "A quest whose setup names a required quest and status is given, by a kill or a step, \
                only to a player with that quest at that status; otherwise nothing is given or said. In \
@@ -7009,6 +7017,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.points-a-pattern-supports",
+        says: "Quests no recording measured add what the person's other quests all add, or a guide's figure; where measures disagree they add nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QP-MORE"),
+        station: "yalain-testkit::corpus::world_db::quests_no_recording_measured_add_what_their_pattern_or_a_guide_supports",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.points-with-no-setup",
         says: "A quest with no setup adds to a quest rating what 2017's ratings moved by as it was completed.",
         since: RETAIL,
@@ -7039,6 +7055,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-RATINGS-2017"),
         station: "yalain-testkit::corpus::world_db::a_players_rating_moved_in_2017_by_the_points_of_what_it_completed",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.recorded-givings",
+        says: "People give the quests 2017 recorded them giving, with their lines, their reminder and their under-level refusal, and what the journal asks for finishes them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-RECORDED-GIVINGS-2017"),
+        station: "yalain-testkit::corpus::world_db::people_give_the_quests_2017_recorded_and_say_their_lines_for_them",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -7097,11 +7121,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.the-antechamber-code",
+        says: "Three obelisks touched in the recorded twelve-touch order send the player on; a wrong touch fails the hidden quest and the order starts over.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ANTECHAMBER-2017"),
+        station: "yalain-testkit::corpus::world_db::three_obelisks_touched_in_their_order_lead_on_and_a_wrong_touch_starts_over",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.under-level-line-is-the-persons",
         says: "A person says its under-level line to a player too low for what it gives, and to no one else.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-UNDER-LEVEL-LINE"),
         station: "yalain-testkit::corpus::world_db::a_person_says_its_under_level_line_to_a_player_too_low_and_to_no_one_else",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.under-level-line-out-of-the-plain-pool",
+        says: "A placed person with anything else to say never says its under-level line to anyone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNDER-LEVEL-LINES"),
+        station: "yalain-testkit::corpus::world_db::no_placed_person_with_anything_else_to_say_says_its_under_level_line_to_anyone",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -7638,6 +7678,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-STORY-START"),
         station: "yalain-testkit::cpu::play::story::a_new_character_is_given_the_starting_scenes_as_it_first_enters",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.talk.a-reminder-is-said-with-a-quest-under-way",
+        says: "A person's line asking why the player is still there is said with one of its quests under way, and never to a player with none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-QUEST-REMINDERS-2017"),
+        station: "yalain-testkit::corpus::world_db::a_reminder_line_is_said_with_a_quest_under_way_and_not_without",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.talk.a-reminder-may-name-its-phase",

@@ -1878,3 +1878,369 @@ fn a_posting_pays_the_share_the_guide_gives() {
         "less below it"
     );
 }
+
+/// Hand an item to a person, as a server takes it: the item made in the pack, then what a give of
+/// it triggers.
+fn hand_in(h: &mut Harness, portal: &yalain_testkit::authored::Portal, item: u32, to: u32) {
+    use yalain_content::quests::Trigger;
+    let world = *h.server.players.keys().next().expect("a player");
+    if !h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .any(|i| i.template == item)
+    {
+        h.server.catalog.insert(portal.template(item));
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, item, 1);
+        h.run(2);
+    }
+    let id = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == item)
+        .expect("held")
+        .id;
+    let clock = h.clock();
+    yalain_world::quests::triggered_by_give(
+        &mut h.server,
+        &mut h.net,
+        world,
+        Trigger::Give(item, to),
+        None,
+        yalain_world::gives::Given {
+            item: id,
+            template: item,
+            quantity: 1,
+            target: 0,
+        },
+        clock,
+    );
+    h.run(2);
+}
+
+/// A quest's status and phase, as its player holds it.
+fn quest_state(h: &Harness, quest: u32) -> Option<(u32, u32)> {
+    h.server.players.values().next().and_then(|p| {
+        p.play
+            .quests
+            .iter()
+            .find(|q| q.quest == quest)
+            .map(|q| (q.status, q.phase))
+    })
+}
+
+fn placed(t: &Tables, template: u32) -> usize {
+    t.content
+        .objects
+        .iter()
+        .position(|o| o.template == template)
+        .unwrap_or_else(|| panic!("{template:08X} placed"))
+}
+
+/// **People give what 2017 recorded them giving**: each with its line for offering it; a person's
+/// reminder while it runs; its under-level line to a player too low, and no giving; and what its
+/// journal asks for handed in finishes it, directly or by its subquests, the job offer there and
+/// back through the person it goes to. A world older than these rows has nothing to play.
+/// Behaviour: server.quests.recorded-givings
+#[test]
+fn people_give_the_quests_2017_recorded_and_say_their_lines_for_them() {
+    use yalain_world::quests::status;
+    const BEGIN: u32 = 0x2AE6_122C;
+    const TOO_LOW: u32 = 0x68F4_92A3;
+    const REMINDER: u32 = 0x8B6B_186F;
+    const FLICK: u32 = 0x4700_32C6;
+    const HAKATA: u32 = 0x8000_02EE;
+    const LITHIUM: u32 = 0x4700_08E9;
+    let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
+    for (who, quest) in [
+        (0x4700_2FB7, 0x8000_0319),
+        (0x4700_3293, 0x4000_0101),
+        (FLICK, HAKATA),
+        (0x4700_32C7, 0x8000_02E3),
+        (0x4700_32C3, 0x8000_02F4),
+        (0x4700_32CD, 0x8000_02FA),
+        (0x4700_32CE, 0x8000_02FB),
+        (0x4700_32D2, 0x8000_0303),
+    ] {
+        let (mut h, b, me) = served(t);
+        set_level(&mut h, 60);
+        let said = use_person(&mut h, b, me, t, placed(t, who));
+        assert!(holds(&h, quest), "{who:08X} gives {quest:08X}: {said:08X?}");
+        assert!(
+            said.iter().any(|(_, s)| *s == Some(BEGIN)),
+            "{who:08X}'s line: {said:08X?}"
+        );
+    }
+    // Under what 2017 gave at and over what it refused at; its reminder; its one hand-in.
+    let (mut h, b, me) = served(t);
+    let o = placed(t, FLICK);
+    set_level(&mut h, 34);
+    let said = use_person(&mut h, b, me, t, o);
+    assert!(said.iter().any(|(_, s)| *s == Some(TOO_LOW)), "{said:08X?}");
+    assert!(!holds(&h, HAKATA), "too low for it");
+    set_level(&mut h, 35);
+    use_person(&mut h, b, me, t, o);
+    assert!(holds(&h, HAKATA), "given");
+    let said = use_person(&mut h, b, me, t, o);
+    assert!(
+        said.iter().any(|(_, s)| *s == Some(REMINDER)),
+        "reminded: {said:08X?}"
+    );
+    hand_in(&mut h, &portal, LITHIUM, FLICK);
+    assert_eq!(
+        quest_state(&h, HAKATA).map(|q| q.0),
+        Some(status::COMPLETED)
+    );
+    // A quest of subquests: each of its items, and it is done with the last.
+    let (mut h, b, me) = served(t);
+    set_level(&mut h, 60);
+    const DAX: u32 = 0x4700_32C3;
+    const ARMOR: u32 = 0x8000_02F4;
+    use_person(&mut h, b, me, t, placed(t, DAX));
+    let items = [0x4700_08D7, 0x4700_06C6, 0x4700_1CB0, 0x4700_18EB];
+    for item in items {
+        assert_eq!(
+            quest_state(&h, ARMOR),
+            Some((status::UNDERWAY, 1)),
+            "before {item:08X}"
+        );
+        hand_in(&mut h, &portal, item, DAX);
+    }
+    assert_eq!(quest_state(&h, ARMOR).map(|q| q.0), Some(status::COMPLETED));
+    // The job offer: to the person it goes to, and his answer back.
+    let (mut h, b, me) = served(t);
+    const THRIBBLE: u32 = 0x4700_2FB9;
+    const DRANDY: u32 = 0x4700_2FBA;
+    const OFFER: u32 = 0x8000_031A;
+    set_level(&mut h, 42);
+    let said = use_person(&mut h, b, me, t, placed(t, THRIBBLE));
+    assert!(said.iter().any(|(_, s)| *s == Some(TOO_LOW)), "{said:08X?}");
+    set_level(&mut h, 43);
+    h.server.catalog.insert(portal.template(0x4700_1415));
+    h.server.catalog.insert(portal.template(0x4700_1416));
+    use_person(&mut h, b, me, t, placed(t, THRIBBLE));
+    assert_eq!(quest_state(&h, OFFER), Some((status::UNDERWAY, 1)));
+    let held = |h: &Harness, item: u32| {
+        h.server
+            .players
+            .values()
+            .next()
+            .is_some_and(|p| p.play.items.iter().any(|i| i.template == item))
+    };
+    h.run(40);
+    assert!(held(&h, 0x4700_1415), "he hands over the offer");
+    hand_in(&mut h, &portal, 0x4700_1415, DRANDY);
+    assert_eq!(quest_state(&h, OFFER), Some((status::UNDERWAY, 2)));
+    h.run(40);
+    assert!(held(&h, 0x4700_1416), "he hands over his answer");
+    hand_in(&mut h, &portal, 0x4700_1416, THRIBBLE);
+    assert_eq!(quest_state(&h, OFFER).map(|q| q.0), Some(status::COMPLETED));
+}
+
+/// **An under-level line is no plain line**: no placed person who is left with another line keeps
+/// its under-level line in what it says to anyone; only the four with nothing else to say do.
+/// Behaviour: server.quests.under-level-line-out-of-the-plain-pool
+#[test]
+fn no_placed_person_with_anything_else_to_say_says_its_under_level_line_to_anyone() {
+    const TOO_LOW: u32 = 0x68F4_92A3;
+    const NOTHING_ELSE: [u32; 4] = [0x4700_30E7, 0x4700_3156, 0x4700_3159, 0x4700_315B];
+    let t = &compiled().tables;
+    let mut plain: Vec<u32> = t
+        .talk
+        .lines
+        .iter()
+        .filter(|l| {
+            matches!(l.words, yalain_content::talk::Words::Ref(s, _) if s == TOO_LOW)
+                && l.quest.is_none()
+                && t.content.objects.iter().any(|o| o.template == l.who)
+        })
+        .map(|l| l.who)
+        .collect();
+    plain.sort_unstable();
+    assert_eq!(plain, NOTHING_ELSE, "{plain:08X?}");
+}
+
+/// **Lahry sends no one**: of the 40 recorded trips from beside him, 31 used the portal five meters
+/// from him and 9 walked into it, and none followed from him. At his quest's fifth phase he says
+/// his reminder and the player stays; the portal beside him does the sending. At its sixth he says
+/// the sixth's reminder.
+/// Behaviour: server.quests.a-reminder-at-its-phase-sends-no-one
+#[test]
+fn lahry_reminds_a_player_at_the_fifth_phase_and_the_portal_beside_him_sends_them() {
+    const LAHRY: u32 = 0x4700_33D6;
+    const RABBIT: u32 = 0x4000_0294;
+    const FIFTH: u32 = 0xC964_3512;
+    const SIXTH: u32 = 0x0964_3512;
+    let t = &compiled().tables;
+    let (mut h, b, me) = served(t);
+    set_level(&mut h, 60);
+    let o = placed(t, LAHRY);
+    for phase in 1..=5 {
+        use_person(&mut h, b, me, t, o);
+        assert_eq!(
+            quest_state(&h, RABBIT).map(|q| q.1),
+            Some(phase),
+            "phase {phase}"
+        );
+        let until = h.now.0 + 8.0;
+        h.run_to(yalain_net::LocalTime(until));
+    }
+    let said = use_person(&mut h, b, me, t, o);
+    assert!(
+        said.iter().any(|(_, s)| *s == Some(FIFTH)),
+        "his fifth's: {said:08X?}"
+    );
+    assert!(
+        !said.iter().any(|(_, s)| *s == Some(SIXTH)),
+        "not the sixth's: {said:08X?}"
+    );
+    let until = h.now.0 + 12.0;
+    h.run_to(yalain_net::LocalTime(until));
+    let p = h.server.players.values().next().expect("a player");
+    assert_eq!(
+        p.position.cell, t.content.objects[o].cell,
+        "he sends no one"
+    );
+    for p in h.server.players.values_mut() {
+        if let Some(q) = p.play.quests.iter_mut().find(|q| q.quest == RABBIT) {
+            q.phase = 6;
+        }
+    }
+    let said = use_person(&mut h, b, me, t, o);
+    assert!(
+        said.iter().any(|(_, s)| *s == Some(SIXTH)),
+        "his sixth's: {said:08X?}"
+    );
+    let portal = t
+        .content
+        .objects
+        .iter()
+        .position(|x| x.template == 0x4700_1154 && x.landblock() == 0x75A5)
+        .expect("the portal beside him");
+    use_person(&mut h, b, me, t, portal);
+    let until = h.now.0 + 12.0;
+    h.run_to(yalain_net::LocalTime(until));
+    let p = h.server.players.values().next().expect("a player");
+    assert_eq!(p.position.cell, 0x09F2_0100, "the portal's trip");
+}
+
+/// **The three obelisks' order**: twelve touches in the one order recorded, each with its click,
+/// and the last sends the player on. A touch out of order fails the hidden quest with the
+/// obelisks' failure and the next touch of the first obelisk starts it over; before the order is
+/// begun the others do nothing. A player under the quest's least level gets nothing of it.
+/// Behaviour: server.quests.the-antechamber-code
+#[test]
+fn three_obelisks_touched_in_their_order_lead_on_and_a_wrong_touch_starts_over() {
+    use yalain_world::quests::status;
+    const CENTER: u32 = 0x4700_3000;
+    const LEFT: u32 = 0x4700_3001;
+    const RIGHT: u32 = 0x4700_3002;
+    const CODE: [u32; 12] = [
+        CENTER, LEFT, CENTER, LEFT, RIGHT, LEFT, RIGHT, CENTER, LEFT, LEFT, RIGHT, CENTER,
+    ];
+    const QUEST: u32 = 0x4000_0264;
+    const CLICK: u32 = 0xE3DF_2CC2;
+    const FAILED: u32 = 0x6A4B_D3CB;
+    const NOTHING: u32 = 0x8B5B_AB29;
+    let t = &compiled().tables;
+    let (mut h, b, me) = served(t);
+    set_level(&mut h, 44);
+    use_person(&mut h, b, me, t, placed(t, CENTER));
+    assert_eq!(quest_state(&h, QUEST), None, "under its least level");
+    set_level(&mut h, 45);
+    let said = use_person(&mut h, b, me, t, placed(t, LEFT));
+    assert!(said.iter().any(|(_, s)| *s == Some(NOTHING)), "{said:08X?}");
+    assert_eq!(quest_state(&h, QUEST), None, "not the order's first");
+    use_person(&mut h, b, me, t, placed(t, CENTER));
+    assert_eq!(quest_state(&h, QUEST), Some((status::UNDERWAY, 1)));
+    let said = use_person(&mut h, b, me, t, placed(t, RIGHT));
+    assert!(said.iter().any(|(_, s)| *s == Some(FAILED)), "{said:08X?}");
+    assert_eq!(quest_state(&h, QUEST), Some((status::FAILED, 0)));
+    for (n, who) in CODE.iter().enumerate() {
+        let said = use_person(&mut h, b, me, t, placed(t, *who));
+        assert!(
+            said.iter().any(|(_, s)| *s == Some(CLICK)),
+            "touch {n}: {said:08X?}"
+        );
+        if n + 1 < CODE.len() {
+            assert_eq!(
+                quest_state(&h, QUEST),
+                Some((status::UNDERWAY, u32::try_from(n).expect("small") + 1))
+            );
+        }
+    }
+    assert_eq!(quest_state(&h, QUEST).map(|q| q.0), Some(status::COMPLETED));
+    let until = h.now.0 + 12.0;
+    h.run_to(yalain_net::LocalTime(until));
+    let p = h.server.players.values().next().expect("a player");
+    assert_eq!(p.position.cell, 0x09F3_0127, "where it leads");
+}
+
+/// **A reminder needs a quest under way**: two people's lines asking why the player is still there
+/// are said with one of their quests under way, and never to a player with none.
+/// Behaviour: server.talk.a-reminder-is-said-with-a-quest-under-way
+#[test]
+fn a_reminder_line_is_said_with_a_quest_under_way_and_not_without() {
+    use yalain_content::talk::Words;
+    use yalain_world::quests::status;
+    let t = &compiled().tables;
+    for (who, string, quest) in [
+        (0x4700_335B, 0xBFE7_E842, 0x4000_037A),
+        (0x4700_3353, 0xCA33_899B, 0x4000_028C),
+    ] {
+        let (mut h, _b, _me) = served(t);
+        let world = *h.server.players.keys().next().expect("a player");
+        for _ in 0..64 {
+            let line = yalain_world::talk::at_use(&mut h.server, world, who, None);
+            assert!(
+                !line.is_some_and(|l| matches!(l.words, Words::Ref(s, _) if s == string)),
+                "{who:08X} to a player with nothing under way"
+            );
+        }
+        for p in h.server.players.values_mut() {
+            p.play.quests.push(yalain_world::state::QuestState {
+                quest,
+                status: status::UNDERWAY,
+                phase: 1,
+                started: 0,
+                updated: 0,
+            });
+        }
+        let line = yalain_world::talk::at_use(&mut h.server, world, who, None).expect("a line");
+        assert!(
+            matches!(line.words, Words::Ref(s, _) if s == string),
+            "{who:08X} with its quest under way: {:08X?}",
+            line.words
+        );
+    }
+}
+
+/// **Points no recording measured, where something supports them**: other quests of people whose
+/// measured quests all add one value, a guide's figure as far as it holds. Where measures disagree
+/// with no rule between them the world says nothing.
+/// Behaviour: server.quests.points-a-pattern-supports
+#[test]
+fn quests_no_recording_measured_add_what_their_pattern_or_a_guide_supports() {
+    let t = &compiled().tables;
+    let points = |q: u32| t.quests.quest(q).expect("a row").pay.points;
+    for (q, want) in [
+        (0x4000_0176, 50),
+        (0x4000_0182, 50),
+        (0x4000_01AF, 50),
+        (0x4000_027D, 1200),
+        (0x4000_028B, 1200),
+        (0x4000_0299, 1200),
+    ] {
+        assert_eq!(points(q), want, "{q:08X}");
+    }
+    assert_eq!(points(0x4000_028D), 1850, "measured, kept");
+    assert_eq!(points(0x4000_0119), 0, "no rule between three measures");
+    assert_eq!(points(t_quest("QuestAncientPeriapt")), 4200);
+    assert_eq!(points(t_quest("QuestRashansRevenge")), 2000);
+}
+
+fn t_quest(name: &str) -> u32 {
+    *quest_ids().get(name).expect("named")
+}
