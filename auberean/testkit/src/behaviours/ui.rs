@@ -416,6 +416,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.draw.a-resize-line-outlines-the-new-size-until-release",
+        says: "A window with a resize line keeps its picture while it is resized: a white outline                one texel wide shows the new place and size, and the window takes them on release.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-RESIZE-OUTLINE"),
+        station: "auberean-ui::cpu::compositor::a_resize_line_outlines_the_new_size_until_release",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.draw.a-small-picture-repeats-unless-sized-to-its-element",
         says: "A picture smaller than its element repeats across it from the element's top left; \
                one the element asks to fit to it is stretched over it instead.",

@@ -2,7 +2,7 @@
 
 use auberean_assets::ui::AttributeValue as V;
 use auberean_ui::draw::{self, Surface};
-use auberean_ui::Token;
+use auberean_ui::{Rect, Token};
 
 use crate::fixture::{element, image, solid, state, ui, LAYOUT};
 
@@ -342,6 +342,72 @@ fn the_revision_moves_only_with_a_change() {
     assert_eq!(u.revision(), r0, "looking changes nothing");
     u.set_visible(h, false);
     assert!(u.revision() > r0, "hiding is a change");
+}
+
+/// A window with a resize line keeps its picture while it is resized: a white outline one texel
+/// wide follows the pointer, and on release the window takes the outline's place and the outline
+/// goes. Laid over the scene as a picture of its own, the outline shows the same.
+///
+/// Behaviour: ui.draw.a-resize-line-outlines-the-new-size-until-release
+#[test]
+fn a_resize_line_outlines_the_new_size_until_release() {
+    const WHITE: [u8; 4] = [255, 255, 255, 255];
+    const UNDER: [u8; 4] = [10, 20, 30, 255];
+    let mut u = ui(
+        vec![element(
+            "Window",
+            "field",
+            [100, 100, 199, 199],
+            0,
+            vec![state(
+                "stateless",
+                0,
+                vec![("resize_line", V::Bool(true))],
+                vec![],
+                vec![],
+            )],
+        )],
+        vec![],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    assert!(screen_over(&u, UNDER).get(100, 100) == UNDER, "no line yet");
+
+    u.pointer_move(199, 199);
+    u.start_resizing(w, auberean_ui::types::resizebar::Border::LowerRight);
+    let before = u.revision();
+    u.pointer_move(239, 219);
+    assert!(u.revision() > before, "the line moving is a change");
+    assert_eq!(u.node(w).unwrap().rect, Rect::new(100, 100, 199, 199));
+
+    let s = screen_over(&u, UNDER);
+    for (x, y) in [
+        (100, 100),
+        (239, 100),
+        (100, 219),
+        (239, 219),
+        (170, 100),
+        (239, 160),
+        (170, 219),
+        (100, 160),
+    ] {
+        assert_eq!(s.get(x, y), WHITE, "the outline at {x},{y}");
+    }
+    for (x, y) in [(99, 100), (240, 219), (170, 170), (199, 199)] {
+        assert_eq!(s.get(x, y), UNDER, "not the outline at {x},{y}");
+    }
+    let mut over = Surface::new(1024, 768);
+    draw::draw_layers_where(&u, &mut over, |_| true);
+    assert_eq!(over.get(239, 219), WHITE, "laid over the scene too");
+    assert_eq!(over.get(170, 170), [0; 4]);
+
+    u.stop_resizing(w);
+    assert_eq!(u.node(w).unwrap().rect, Rect::new(100, 100, 239, 219));
+    assert_eq!(
+        screen_over(&u, UNDER).get(239, 219),
+        UNDER,
+        "the line is gone"
+    );
 }
 
 /// A top-level element marked `no_surface_object` is drawn into no picture of its own: its own

@@ -51,6 +51,7 @@ not how it was done.
 - Someone offering to bring you back now asks you by name.
 - The water's reflection now shows objects standing in the water, at the right detail.
 - Caves and halls are lit as in retail, without the harsh yellow walls.
+- Resizing the chat window now shows an outline until you let go.
 
 ## 0.1.2 (2026-11-02)
 

@@ -448,7 +448,23 @@ pub fn draw_where(ui: &Ui, frame: &mut Surface, keep: impl Fn(i32) -> bool) {
             let (turned, covers) = turn_layer(&layer, n.rect, n.rotation);
             composite(frame, &turned, covers);
         }
+        draw_resize_outline(ui, frame, r, screen);
     }
+}
+
+/// While a window with a resize line is being resized its picture stays as it was, and a white
+/// outline one texel wide shows the place and size it takes on release, at the window's own depth.
+// D2-10398, D2-10399, D2-11282
+fn draw_resize_outline(ui: &Ui, out: &mut Surface, root: Handle, screen: Rect) {
+    const WHITE: [f32; 3] = [1.0, 1.0, 1.0];
+    let Some(line) = ui.resize_outline(root) else {
+        return;
+    };
+    let (x0, y0, x1, y1) = (line.x0, line.y0, line.x1, line.y1);
+    draw_line(out, (x0, y0), (x1, y0), WHITE, screen);
+    draw_line(out, (x0, y1), (x0, y0), WHITE, screen);
+    draw_line(out, (x0, y1), (x1, y1), WHITE, screen);
+    draw_line(out, (x1, y0), (x1, y1), WHITE, screen);
 }
 
 /// Where a layer is drawn: the screen, and for an item being dragged only the area it is shown
@@ -562,6 +578,7 @@ pub fn draw_layers_where(ui: &Ui, out: &mut Surface, keep: impl Fn(i32) -> bool)
             let (turned, covers) = turn_layer(&layer, n.rect, n.rotation);
             composite_over(out, &turned, covers);
         }
+        draw_resize_outline(ui, out, r, screen);
     }
 }
 
