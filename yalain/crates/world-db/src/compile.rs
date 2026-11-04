@@ -515,6 +515,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         continue;
                     }
                 };
+                match o.scale {
+                    Some(s) if s > 0.0 => d.scale = Some(s),
+                    Some(s) => cx.warn(l, format!("scale {s}: not above zero, left as it was")),
+                    None => {}
+                }
                 if let Some(n) = o.name {
                     d.name = Some(pair(n));
                     d.source.push_str(", name as recorded");

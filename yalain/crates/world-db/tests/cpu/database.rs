@@ -1366,6 +1366,41 @@ fn a_person_names_a_route_it_walks_and_only_a_person_may() {
 }
 
 #[test]
+fn an_objects_own_scale_is_served_in_place_of_its_templates() {
+    let scale_with = |row: &str| {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/landblocks/77B7.toml",
+            "to = \"inn\"\nprov = { from = \"authored\" }",
+            &format!("to = \"inn\"\n{row}prov = {{ from = \"authored\" }}"),
+        );
+        let merged = merge(&read(&files).unwrap()).unwrap();
+        let t = compile(&merged, &Fake::new()).unwrap();
+        assert_eq!(
+            yalain_content::ContentPack::from_text(&t.content.to_text()).unwrap(),
+            t.content,
+            "the content's text keeps it"
+        );
+        let scale = t
+            .content
+            .objects
+            .iter()
+            .find(|o| o.object == Some(0x4077_B700_0000_0001))
+            .unwrap()
+            .description
+            .scale;
+        let warned = t.warnings.iter().any(|w| w.message.starts_with("scale"));
+        (scale, warned)
+    };
+    let (own, warned) = scale_with("");
+    assert!(!warned);
+    assert_ne!(own, Some(2.5));
+    assert_eq!(scale_with("scale = 2.5\n"), (Some(2.5), false));
+    assert_eq!(scale_with("scale = 0.0\n"), (own, true), "left as it was");
+}
+
+#[test]
 fn a_static_objects_quest_gate_is_read_checked_and_compiled() {
     let mut files = fixture();
     edit(

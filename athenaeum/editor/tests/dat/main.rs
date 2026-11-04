@@ -827,3 +827,31 @@ fn a_row_lands_on_a_placed_objects_top_and_a_person_is_not_stood_on() {
     let under = e.surface_under([h[0], h[1], h[2] + 30.0]);
     assert!(under[2] < top[2], "{under:?} under {top:?}");
 }
+
+#[test]
+fn keys_scale_the_selection_as_one_step_and_it_is_drawn_and_clicked_so() {
+    let (mut e, a, b, g, _) = with_two_rows("scale");
+    let steps = e.session.steps().0;
+    key(&mut e, KeyCode::Equal, false);
+    assert_eq!(e.session.steps().0, steps + 1, "one step");
+    let scale = |e: &Editor<'_>, i: &str| match &e.session.entry(i).unwrap().row.row {
+        Row::Object(o) => o.scale.expect("a scale"),
+        other => panic!("{other:?}"),
+    };
+    assert!((scale(&e, &a) - athenaeum_editor::app::SCALE_STEP).abs() < 0.01);
+    assert!((scale(&e, &b) - athenaeum_editor::app::SCALE_STEP).abs() < 0.01);
+    for _ in 0..12 {
+        key(&mut e, KeyCode::Equal, false);
+    }
+    assert!(
+        e.session.problems().is_empty(),
+        "{:?}",
+        e.session.problems()
+    );
+    frame(&mut e, &ViewInput::default());
+    e.select(None);
+    // Far over the head it stood at before, the body now grown under the pointer.
+    let high = pixel(&e, [g[0], g[1], g[2] + 3.5]);
+    click(&mut e, high, false);
+    assert_eq!(e.selected.as_deref(), Some(a.as_str()));
+}

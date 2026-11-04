@@ -158,6 +158,7 @@ fn a_rows_letter_says_where_it_came_from() {
             },
             rotation: None,
             heading: None,
+            scale: None,
             name: None,
             name_text: None,
             to: to.map(str::to_string),

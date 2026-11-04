@@ -567,6 +567,7 @@ impl Session {
                     at,
                     rotation: None,
                     heading: Some(new.heading.rem_euclid(360.0)),
+                    scale: None,
                     name: None,
                     name_text: None,
                     to: None,

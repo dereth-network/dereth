@@ -8,6 +8,7 @@ what they see, not how it was done.
 ## Unreleased
 
 - Players in a browser now have their friends list.
+- A world's objects can have a scale of their own.
 - Killing creatures moves the quests their deaths name, and a kill can give a quest.
 - New `yalain update`, and worlds can keep themselves up to date.
 - Fixed login cookies that another player could work out.

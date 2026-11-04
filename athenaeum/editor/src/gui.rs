@@ -93,6 +93,8 @@ pub fn key_named(name: &str) -> Option<KeyCode> {
         C::Space,
         C::Delete,
         C::Backspace,
+        C::Equal,
+        C::Minus,
         C::ArrowUp,
         C::ArrowDown,
         C::ArrowLeft,

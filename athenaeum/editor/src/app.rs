@@ -5,7 +5,8 @@
 //! **In the world.** The right button held turns the camera; W, A, S, D fly it, E rises and Q
 //! sinks, the wheel changes its speed. A click on a marker or a body selects its row; dragging it moves the
 //! row over the ground, and the selected row's handles ([`gizmo`]) move it along east, north and
-//! up and turn it, by steps with Snap on (Shift for the other). R turns the selected row a step to the right (with Shift, to the left),
+//! up and turn it, by steps with Snap on (Shift for the other). `=` and `-` make an object larger
+//! and smaller. R turns the selected row a step to the right (with Shift, to the left),
 //! Delete or Backspace takes it away, F flies to it, Escape lets it go. T sends the character
 //! playing on the editor's own Yalain to the camera. Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes
 //! (Cmd on macOS, as well).
@@ -48,6 +49,11 @@ pub const MARKED: f32 = 400.0;
 pub const HIT: f32 = 12.0;
 /// How far a look finds what the world has built, meters.
 pub const BUILT_REACH: f32 = 400.0;
+/// What a key makes a selected object larger or smaller by.
+pub const SCALE_STEP: f32 = 1.1;
+/// How small and how large a key will make one.
+pub const SCALE_LEAST: f32 = 0.05;
+pub const SCALE_MOST: f32 = 50.0;
 /// How many rows the Find window lists.
 pub const FOUND: usize = 200;
 /// How far from a row its copy stands, meters.
@@ -259,6 +265,14 @@ fn rotation_of(row: &Row) -> [f32; 4] {
     q.unwrap_or_else(|| view::heading_rotation(h.unwrap_or(0.0)))
 }
 
+/// How large a row stands by its own word, in place of its template's.
+fn row_scale(row: &Row) -> Option<f32> {
+    match row {
+        Row::Object(o) => o.scale,
+        _ => None,
+    }
+}
+
 /// A row's heading, degrees.
 fn heading_of(row: &Row) -> f32 {
     match row {
@@ -278,6 +292,7 @@ fn field_text(row: &Row, field: &str) -> String {
     let num = athenaeum_foundry::toml::number_text;
     match (row, field) {
         (Row::Object(o), "template") => hex(o.template),
+        (Row::Object(o), "scale") => o.scale.map(num).unwrap_or_default(),
         (Row::Object(o), "kind") => format!(
             "\"{}\"",
             if o.kind == ObjectKind::Npc {
@@ -357,7 +372,7 @@ pub fn field_toml(field: &str, typed: &str) -> String {
 /// The fields the inspector lets a person change, by kind.
 fn editable(row: &Row) -> &'static [&'static str] {
     match row {
-        Row::Object(_) => &["template", "kind", "to", "name", "id", "cell"],
+        Row::Object(_) => &["template", "kind", "scale", "to", "name", "id", "cell"],
         Row::Camp(_) => &["radius", "population", "regen", "cell"],
         Row::Place(_) => &["cell", "destination"],
         _ => &[],
@@ -901,6 +916,30 @@ impl<'w> Editor<'w> {
         self.session.end_step();
     }
 
+    /// Make every object selected `by` times as large, as one step: from the scale it stands at.
+    pub fn scale_selected(&mut self, by: f32) {
+        let items = self.all_selected();
+        self.session.begin_step();
+        for item in items {
+            let Some(e) = self.session.entry(&item).cloned() else {
+                continue;
+            };
+            let Row::Object(o) = &e.row.row else {
+                continue;
+            };
+            let now = o
+                .scale
+                .or_else(|| self.look(o.template).map(|l| l.1))
+                .unwrap_or(1.0);
+            let to = (now * by).clamp(SCALE_LEAST, SCALE_MOST);
+            let text = athenaeum_foundry::toml::number_text(to);
+            let r = self.session.set(&item, "scale", &text);
+            self.report(r);
+        }
+        self.session.end_step();
+        self.fields_of = None;
+    }
+
     /// Turn the selected row by `by` degrees, and the rest of the selection with it.
     pub fn turn_selected(&mut self, by: f32) {
         let Some(item) = self.selected.clone() else {
@@ -1404,6 +1443,7 @@ impl<'w> Editor<'w> {
             let Some((look, scale)) = self.look(template) else {
                 continue;
             };
+            let scale = row_scale(&e.row.row).unwrap_or(scale);
             let (held, facing) = self.held_as(&e.item);
             let at = held.unwrap_or_else(|| entry_global(&e, &mut self.scene));
             out.push(Standing {
@@ -1452,7 +1492,7 @@ impl<'w> Editor<'w> {
             };
             let g = entry_global(&e, &mut self.scene);
             let q = rotation_of(&e.row.row);
-            let s = scale.max(0.01);
+            let s = row_scale(&e.row.row).unwrap_or(scale).max(0.01);
             let to = view::unrotated(q, [from[0] - g[0], from[1] - g[1], from[2] - g[2]]);
             let along = view::unrotated(q, dir);
             let start = [to[0] / s, to[1] / s, to[2] / s];
@@ -1629,6 +1669,10 @@ impl<'w> Editor<'w> {
                         self.session.redo();
                     }
                     KeyCode::KeyD if input.ctrl => self.duplicate_selected(),
+                    KeyCode::Equal | KeyCode::NumpadAdd => self.scale_selected(SCALE_STEP),
+                    KeyCode::Minus | KeyCode::NumpadSubtract => {
+                        self.scale_selected(1.0 / SCALE_STEP);
+                    }
                     KeyCode::KeyF if input.ctrl => self.toggle_row_finder(),
                     KeyCode::KeyR if !input.ctrl => {
                         let step = self.snap.turn_step(TURN_STEP);

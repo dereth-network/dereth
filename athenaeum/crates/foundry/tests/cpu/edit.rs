@@ -234,6 +234,23 @@ fn changes_gathered_together_undo_and_redo_as_one_step() {
 }
 
 #[test]
+fn an_objects_scale_is_set_kept_and_taken_away() {
+    let mut s = session();
+    let item = s.place(&person([1.0, 2.0, 3.0])).unwrap();
+    s.set(&item, "scale", "1.5").unwrap();
+    clean(&s);
+    let scale = |s: &Session| match &s.entry(&item).unwrap().row.row {
+        Row::Object(o) => o.scale,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(scale(&s), Some(1.5));
+    s.move_to(&item, LB, [4.0, 2.0, 3.0]).unwrap();
+    assert_eq!(scale(&s), Some(1.5), "a move keeps it");
+    s.set(&item, "scale", "").unwrap();
+    assert_eq!(scale(&s), None);
+}
+
+#[test]
 fn a_copy_of_a_row_has_a_key_of_its_own_and_the_rest_as_it_was() {
     let mut s = session();
     let first = s.place(&person([1.0, 2.0, 3.0])).unwrap();
