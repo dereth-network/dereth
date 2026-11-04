@@ -532,6 +532,14 @@ pub fn starting_implement(template: u32) -> Option<u32> {
         .map(|(_, i)| *i)
 }
 
+/// Is a template a bow? Its objects are made strung: their own mode is the bow's (2017: 1,273 of
+/// 1,273 bows made so, 26,018 other things a hand holds at peace).
+#[must_use]
+pub fn is_bow(t: &yalain_content::Template) -> bool {
+    starting_implement(t.id) == Some(implement::BOW)
+        || t.props.word("Item_ImplementType") == Some(implement::BOW)
+}
+
 /// What a template is wielded as (its implement kind), when the server knows it.
 #[must_use]
 pub fn implement_of(catalog: &yalain_content::Catalog, template: u32) -> Option<u32> {

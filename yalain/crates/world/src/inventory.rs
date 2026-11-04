@@ -503,7 +503,7 @@ pub fn item_create(t: &Thing) -> CreateObject {
         0,
     );
     // A bow is made strung: its own mode is the bow's.
-    if crate::skill_use::starting_implement(t.template) == Some(crate::skill_use::implement::BOW) {
+    if t.strung {
         physics.mode = crate::skill_use::mode::BOW;
     }
     if t.at.is_some() {

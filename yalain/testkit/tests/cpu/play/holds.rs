@@ -8,6 +8,7 @@ use yalain_testkit::play::{server_call, use_of};
 use yalain_testkit::Harness;
 use yalain_world::calls::{self, Node, Value};
 use yalain_world::equip::{self, flags, function, OFF_HAND, PRIMARY_HAND};
+use yalain_world::skill_use::implement as im;
 
 const BOW: u32 = 0x4700_7B01;
 const SWORD: u32 = 0x4700_7B02;
@@ -194,4 +195,37 @@ fn a_shield_and_a_tool_are_answered_as_worn() {
         (PRIMARY_HAND, 192, 128, flags::WORN)
     );
     assert_eq!((f[1], f[2]), (1, 1));
+}
+
+/// A bow is made strung however it came, and nothing else is.
+/// Behaviour: server.weapons.bow-made-strung
+#[test]
+fn a_looted_bow_is_made_strung() {
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let mut bow = held(BOW, (64, 64, 128), Some((2, 1)), Some(BOW_STANCE));
+    bow.props
+        .set("Item_ImplementType", Prop::Int(i64::from(im::BOW)));
+    let mut sword = held(SWORD, (192, 64, 0), Some((1, 0x11)), Some(0x4100_000A));
+    sword
+        .props
+        .set("Item_ImplementType", Prop::Int(i64::from(im::SWORD)));
+    h.server.catalog.insert(bow);
+    h.server.catalog.insert(sword);
+    let (b, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("a player");
+    let from = h.bots[b].inbox.len();
+    for t in [BOW, SWORD] {
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, t, 1);
+    }
+    h.run(3);
+    let made: Vec<(u32, u32)> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::CreateObject(o) => Some((o.weenie.entity_did, o.physics.mode)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(made, [(BOW, 0x4100_0010), (SWORD, 0x4000_0001)]);
 }

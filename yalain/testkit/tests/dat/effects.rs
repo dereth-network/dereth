@@ -824,6 +824,9 @@ fn a_things_hold_reads_from_its_template() {
         bow,
         "the starting bow as a looted one"
     );
+    let strung = |t: u32| yalain_world::skill_use::is_bow(catalog.get(t).expect("in the catalog"));
+    assert!(strung(0x4700_07A3), "a looted bow is a bow");
+    assert!(!strung(0x4700_071F), "a handblade is not");
     let shield = hold_of(&catalog, 0x4700_06FD);
     assert_eq!(
         (shield.valid, shield.preferred, shield.taken, shield.flags),

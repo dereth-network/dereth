@@ -9140,6 +9140,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.weapons.bow-made-strung",
+        says: "A bow is made strung however it came: its own mode is the bow's; nothing else in a \
+               hand is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOW-STRUNG"),
+        station: "yalain-testkit::cpu::play::holds::a_looted_bow_is_made_strung",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.weapons.bow-shoots",
         says: "A bow's run stands: the player stopped and turned to its target before each swing; \
                beyond a meter between the bodies it shoots (its story names the bow, which plays \

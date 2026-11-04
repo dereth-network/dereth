@@ -226,6 +226,8 @@ pub struct Thing {
     pub own: crate::treasure::Own,
     /// Its own permanent effects (a made item's): each saved state and the spellcraft it is at.
     pub enchantments: Vec<(u32, f32)>,
+    /// It is a bow, made strung.
+    pub strung: bool,
 }
 
 impl Thing {
@@ -274,6 +276,7 @@ impl Thing {
             binds_on_use: false,
             own: crate::treasure::Own::default(),
             enchantments: Vec::new(),
+            strung: crate::skill_use::is_bow(t),
         }
     }
 
