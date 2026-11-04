@@ -369,6 +369,17 @@ impl Ui {
         }
     }
 
+    /// Put a top-level element's picture at a place of the screen, with no word of its place and no
+    /// keeping it on the screen: the words the game sets over the world run off the edges.
+    // D2-10403
+    pub fn move_picture(&mut self, h: Handle, x: i32, y: i32) {
+        if let Some(n) = self.node_mut(h) {
+            let (w, hh) = (n.rect.width(), n.rect.height());
+            n.rect = Rect::sized(x, y, w, hh);
+            n.sized = true;
+        }
+    }
+
     /// Resize an element within its least and greatest width and height; its children follow
     /// their edges.
     // D2-11393, D2-11175

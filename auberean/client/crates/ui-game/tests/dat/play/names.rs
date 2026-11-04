@@ -354,6 +354,32 @@ fn names_over_heads_stand_clear_of_each_other() {
     assert!(names_of(&p).names().is_empty());
 }
 
+/// A name over a head near the screen's side runs off the edge, cut there, not pushed back in.
+///
+/// Behaviour: ui.names.a-name-at-the-screens-side-runs-off-it
+#[test]
+fn a_name_at_the_screens_side_runs_off_it() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    // Eleven meters off is just inside the right edge from eleven meters back at this view.
+    let w = world(vec![body_at(7, 11.0, 10.0, [1.0; 4])]);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, true);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, false);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    let n = names_of(&p);
+    let shown: Vec<_> = n
+        .names()
+        .iter()
+        .filter(|x| ui.shown(x.element))
+        .map(|x| ui.screen_rect(x.element).expect("placed"))
+        .collect();
+    assert_eq!(shown.len(), 1, "{shown:?}");
+    assert!(shown[0].x0 < 1024 && shown[0].x1 > 1023, "{shown:?}");
+}
+
 /// A name the scripts give as a string reference is given to the name over the object's head and
 /// to the selection's name as one: when the scripts say the object's look changed (it was
 /// renamed), both are made again from its new name, which shows once the string table it reads

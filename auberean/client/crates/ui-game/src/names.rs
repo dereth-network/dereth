@@ -579,7 +579,7 @@ impl Names {
                 continue;
             }
             placed.push(b);
-            ui.move_to(d.element, b.x0, b.y0);
+            ui.move_picture(d.element, b.x0, b.y0);
             ui.set_visible(d.element, true);
         }
         self.damage = kept;
@@ -863,7 +863,7 @@ impl Names {
         ui.set_visible(o, true);
         hide.off_screen = false;
         ui.set_rotation(o, angle + tilt);
-        ui.move_to(o, px, py);
+        ui.move_picture(o, px, py);
         self.reticle_box = Box2D::sized(px, py, ow, oh);
     }
 
@@ -945,7 +945,7 @@ impl Names {
             if let Some(m) = self.reticle[i] {
                 ui.set_visible(m, true);
                 ui.set_rotation(m, turn);
-                ui.move_to(m, xs[i], ys[i]);
+                ui.move_picture(m, xs[i], ys[i]);
             }
             step += 90;
         }
@@ -971,14 +971,14 @@ impl Names {
             let stuff_y = name_y + nh;
             box_x0 = box_x0.min(stuff_x);
             box_x1 = box_x1.max(stuff_x + rw - 1);
-            ui.move_to(stuff, stuff_x, stuff_y);
+            ui.move_picture(stuff, stuff_x, stuff_y);
             ui.set_visible(stuff, true);
             hide.stuff = false;
         }
         self.reticle_box.x0 = box_x0;
         self.reticle_box.x1 = box_x1;
         self.reticle_box.y0 = name_y;
-        ui.move_to(name, name_x, name_y);
+        ui.move_picture(name, name_x, name_y);
         ui.set_visible(name, true);
         hide.name = false;
         hide.reticle = false;
@@ -1074,7 +1074,7 @@ impl Names {
                 continue;
             }
             placed.push(b);
-            ui.move_to(n.element, b.x0, b.y0);
+            ui.move_picture(n.element, b.x0, b.y0);
             ui.set_visible(n.element, true);
         }
         self.names = names;

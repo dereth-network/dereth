@@ -1248,6 +1248,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.names.a-name-at-the-screens-side-runs-off-it",
+        says: "A name over a head near the screen's side runs off the edge, cut there, not pushed back in.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-NAMES-RUN-OFF"),
+        station: "auberean-ui-game::dat::play::names::a_name_at_the_screens_side_runs_off_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.names.a-name-moves-off-another-the-shortest-way",
         says: "Two boxes overlap when they share a texel; a name's box lying over another is moved off it the shortest way still allowed (left and up stopping two texels short, as the client measures them) and may not then go straight back.",
         since: RETAIL,
