@@ -1619,6 +1619,32 @@ fn with_a_man() -> Script {
     with_a_man_and(Vec::new())
 }
 
+/// The panels are told portal space is drawn for as long as it is, which lasts past the server's
+/// having put the player back: a man is known, and the world behind it, before it has gone.
+///
+/// Behaviour: desktop.interface.the-panels-hear-portal-space-as-it-is-drawn
+#[test]
+fn the_panels_hear_portal_space_as_it_is_drawn() {
+    let (mut s, retail) = into_the_world_with(with_a_man());
+    let (mut told, mut known_while_drawn, mut wrong) = (false, false, 0);
+    let gone = until(&mut s, 30.0, |s| {
+        let r = retail.borrow();
+        if let Some(w) = r.world() {
+            told |= w.portal_drawn;
+            wrong += u32::from(w.portal_drawn != s.scene.in_portal_space());
+            known_while_drawn |= w.portal_drawn && !w.portal_space && w.thing(MAN).is_some();
+        }
+        told && !s.scene.in_portal_space()
+    });
+    assert!(gone && told, "portal space came and went");
+    assert!(known_while_drawn, "drawn after the server was done");
+    // The frame the panels last heard is the scene's last, at most one behind it as it changes.
+    assert!(
+        wrong <= 2,
+        "the panels hear it as it is drawn: {wrong} frames off"
+    );
+}
+
 /// A body left behind when the player went elsewhere waits out of the world in the cell it stood
 /// in. Created again where the player now is, it stands there at once, without moving: a player
 /// who went through a portal first is seen by one who follows.

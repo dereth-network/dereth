@@ -112,6 +112,12 @@ impl<P> Flow<P> {
         self.current.as_deref()
     }
 
+    /// What lives across screens.
+    #[must_use]
+    pub const fn data(&self) -> &P {
+        &self.data
+    }
+
     /// The screen up, to tell it something, with what lives across screens.
     pub fn current_mut(&mut self) -> (Option<&mut (dyn Screen<P> + 'static)>, &mut P) {
         (self.current.as_deref_mut(), &mut self.data)

@@ -1283,6 +1283,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.names.no-names-stand-over-portal-space",
+        says: "While portal space is drawn, which lasts past the server's putting the player \
+               back, no name, damage or selection mark stands over it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-NAMES-PORTAL"),
+        station: "auberean-ui-game::dat::play::names::no_names_stand_over_portal_space",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.names.placed-after-the-world-the-marks-take-its-camera",
         says: "Placed after the world's update, the names' clock only asks for a placing: the marks stay where the last camera put them until the placing is made with this frame's camera, once for each time the clock asked.",
         since: RETAIL,

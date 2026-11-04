@@ -1083,7 +1083,7 @@ impl Names {
     /// The names' frame: the selection's marks placed, then the names over heads.
     // D2-02126
     pub fn place_all(&mut self, ui: &mut Ui, world: &World, out: &mut Vec<Request>) {
-        let in_portal = world.portal_space;
+        let in_portal = world.portal_drawn;
         self.update_reticle(ui, world, in_portal, out);
         self.update_damage(ui, world, in_portal);
         if self.showing_names {

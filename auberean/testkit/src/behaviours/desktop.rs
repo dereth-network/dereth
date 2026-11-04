@@ -1032,6 +1032,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.the-panels-hear-portal-space-as-it-is-drawn",
+        says: "The panels are told portal space is drawn for as long as the scene draws it, past \
+               the server's having put the player back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-PANELS-PORTAL"),
+        station: "auberean-interface::dat::screens::the_panels_hear_portal_space_as_it_is_drawn",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.the-play-screen-follows-the-player-and-takes-war-and-chat",
         says: "In the world the status bar shows the player's health and vigor from its qualities, \
                the war button asks the player's scripts to attack while the buttons wait on their \

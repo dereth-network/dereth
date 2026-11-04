@@ -823,6 +823,12 @@ impl Retail {
         self.flow.flow.mode()
     }
 
+    /// The world as the panels last heard it, while the player is in one.
+    #[must_use]
+    pub fn world(&self) -> Option<&auberean_ui_game::world::World> {
+        self.flow.flow.data().world.as_ref()
+    }
+
     /// The play screen, while it is up.
     #[must_use]
     pub fn play(&self) -> Option<&GamePlay> {

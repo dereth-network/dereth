@@ -401,6 +401,7 @@ impl Gather {
             show_coordinates: coords,
             show_names: names,
             portal_space: client.in_portal_space(),
+            portal_drawn: s.portal_drawn,
             moving: s.moving,
             fellow_xp: self.fellow_xp.clone(),
             last_attacker: client.last_attacker,

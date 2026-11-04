@@ -8,6 +8,7 @@ not how it was done.
 ## Unreleased
 
 - Fixed frozen characters still moving and animating.
+- Fixed names and selection marks floating over the portal swirl.
 - Tell on a fellow now starts a tell to them in chat.
 - Fixed camera shakes and flashes carrying on after a story scene.
 - Play in a web browser: the web page now offers Asheron's Call 2's worlds.

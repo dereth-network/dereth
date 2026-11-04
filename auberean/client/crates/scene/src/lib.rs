@@ -277,6 +277,8 @@ pub struct Status {
     pub nearest: Vec<(u64, f32, f32)>,
     /// The effects the bodies' figures asked to start and to stop, counted.
     pub figure_fx: (u64, u64),
+    /// Portal space is drawn: it comes in at once and goes out after the server is done with it.
+    pub portal_drawn: bool,
 }
 
 /// The world frame kept between frames and what it was built for.
@@ -1296,6 +1298,7 @@ impl<'w> Scene<'w> {
             self.ready_to_enter = ready;
         }
         self.portal_look = self.portal.think(now);
+        self.status.portal_drawn = self.in_portal_space();
     }
 
     /// How many times the player's body has come to be placed with its cells loaded: on entering

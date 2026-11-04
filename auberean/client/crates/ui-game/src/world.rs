@@ -186,6 +186,8 @@ pub struct World {
     pub show_names: bool,
     /// The player is in portal space.
     pub portal_space: bool,
+    /// Portal space is drawn, which lasts past the server's putting the player back.
+    pub portal_drawn: bool,
     /// The camera the world was last drawn from, once it was.
     pub camera: Option<Camera>,
     /// The answer to the last pick in the world asked: the object under the pointer, or none;
