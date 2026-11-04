@@ -827,6 +827,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.input.a-click-that-brings-the-window-forward-is-not-heard",
+        says: "A window coming active has the devices from its next frame: a button pressed before                then is not heard, nor is that press's release.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-INPUT-FOCUS-CLICK"),
+        station: "auberean-shell::cpu::input_manager::a_click_that_brings_the_window_forward_is_not_heard",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.input.an-inactive-window-hears-no-device",
         says: "While the window is not the active one nothing hears a press or a release, the wheel, \
                mouse motion or the pointer; where the pointer went is heard when the window is \

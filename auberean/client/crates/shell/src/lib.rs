@@ -720,6 +720,7 @@ impl<'w, H: Host> Shell<'w, H> {
     /// One frame: the network, the interface, the world, the client; the world's frame, what is
     /// placed over it; then what to show.
     pub fn frame(&mut self) -> Output<'_> {
+        self.input.frame_begins();
         let now = self.host.now();
         #[allow(clippy::cast_possible_truncation)]
         let dt = (now - self.last).clamp(0.0, 0.25) as f32;

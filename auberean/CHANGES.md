@@ -7,6 +7,8 @@ not how it was done.
 
 ## Unreleased
 
+- A click that brings the window forward no longer acts on the game.
+
 ## 0.1.3 (2026-11-05)
 
 - Fixed Add on the friends page staying off when you selected a player.
