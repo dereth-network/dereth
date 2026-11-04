@@ -2230,6 +2230,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.spots-hold-one",
+        says: "A camp's next creature appears at a spot none of its living creatures holds, while one \
+               is free, so a camp as many as its spots fills every one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CAMP-SPOTS-HOLD-ONE"),
+        station: "yalain-testkit::cpu::play::creatures::a_camp_as_many_as_its_spots_fills_every_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.stuck-in-something-put-out",
         says: "A creature that stands in something and can move no way at all is put where it \
                fits nearest when it next steps. Our choice: 2017's creatures were placed where \

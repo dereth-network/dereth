@@ -161,6 +161,7 @@ what they see, not how it was done.
 - Fixed creatures jumping back when something held them up.
 - Fixed creatures stopping at nothing where another creature had stood.
 - Creatures now pass through scenery marked for them.
+- Creatures in a camp now each take their own spot.
 
 ## 0.1.2 (2026-11-03)
 

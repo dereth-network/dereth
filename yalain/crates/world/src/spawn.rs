@@ -242,7 +242,7 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
     let template = s.catalog.get(camp.templates[pick].0)?.clone();
     let Some(mut stats) = yalain_content::CreatureStats::from_props(&template.props) else {
         if is_item(&template.props) {
-            let (at, _) = place(s, &camp);
+            let (at, _) = place(s, &camp, i);
             return lay(s, template.id, at);
         }
         s.unhandled.note(format!(
@@ -258,7 +258,7 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
         .as_ref()
         .filter(|r| !r.waypoints.is_empty())
         .map(|r| crate::ai::Patrol::new(r.clone(), camp.moves.start, camp.moves.backward));
-    let (at, heading) = place(s, &camp);
+    let (at, heading) = place(s, &camp, i);
     let max_health = if s.rng.chance(HEALTH_EXACT) {
         stats.max_health
     } else {
@@ -315,8 +315,45 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
     Some(id)
 }
 
+/// How near two places must be, in meters, to be one spot.
+const ONE_SPOT: f32 = 0.5;
+
+/// A camp's spots no creature or item it keeps now holds, by their index; all of them when each is
+/// held. A spot holds one (2017: of 10,731 pairs of one session's creatures seen at one place, 8 were
+/// alive together).
+fn free_spots<S: Store>(s: &Server<S>, camp: &yalain_content::Camp, i: usize) -> Vec<usize> {
+    let held: Vec<StoredPosition> = s
+        .camps
+        .get(i)
+        .into_iter()
+        .flat_map(|state| &state.alive)
+        .filter_map(|id| s.things.get(*id))
+        .filter_map(|t| t.creature.as_ref().map(|c| c.home).or(t.at))
+        .collect();
+    let free: Vec<usize> = (0..camp.spots.len())
+        .filter(|k| {
+            let (cell, p) = camp.spots[*k];
+            !held.iter().any(|h| {
+                let (dx, dy) = (h.origin[0] - p[0], h.origin[1] - p[1]);
+                h.cell >> 16 == cell >> 16
+                    && (dx * dx + dy * dy).sqrt() <= ONE_SPOT
+                    && (h.origin[2] - p[2]).abs() <= 2.0
+            })
+        })
+        .collect();
+    if free.is_empty() {
+        (0..camp.spots.len()).collect()
+    } else {
+        free
+    }
+}
+
 /// Where a camp's next creature or item appears, facing a random way, and that heading.
-fn place<S: Store>(s: &mut Server<S>, camp: &yalain_content::Camp) -> (StoredPosition, u8) {
+fn place<S: Store>(
+    s: &mut Server<S>,
+    camp: &yalain_content::Camp,
+    i: usize,
+) -> (StoredPosition, u8) {
     let at = if camp.spots.is_empty() {
         // A point drawn uniformly inside the camp's circle.
         let r = camp.radius * s.rng.unit().sqrt();
@@ -337,7 +374,8 @@ fn place<S: Store>(s: &mut Server<S>, camp: &yalain_content::Camp) -> (StoredPos
             rotation: [1.0, 0.0, 0.0, 0.0],
         }
     } else {
-        let (cell, p) = camp.spots[s.rng.below(camp.spots.len())];
+        let free = free_spots(s, camp, i);
+        let (cell, p) = camp.spots[free[s.rng.below(free.len())]];
         StoredPosition {
             cell,
             origin: p,
