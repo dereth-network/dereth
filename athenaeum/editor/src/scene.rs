@@ -485,6 +485,12 @@ impl<'w> Scene<'w> {
         best
     }
 
+    /// Whether a look is a body of several parts that moves: a person, not a barrel or a portal.
+    pub fn is_moving_body(&mut self, look: u32) -> bool {
+        Look::of(&self.anims, &plain_desc(look))
+            .is_ok_and(|l| l.motion_desc != DataId::NONE && l.groups.entries.len() > 1)
+    }
+
     /// A picture of `look` alone: its parts and body at rest in a plain light, framed to the box
     /// it fills. `None` for a look that draws nothing.
     pub fn picture_frame(&mut self, look: u32) -> Option<Frame> {

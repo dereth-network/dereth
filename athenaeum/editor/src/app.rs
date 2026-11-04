@@ -64,6 +64,9 @@ const WORN_SEX: u32 = 0x1000;
 const WORN_APPEARANCES: u32 = 16;
 const WORN_SHOWN: u32 = 0x10;
 
+/// The kind of entity a creature's template is.
+const CREATURE_ENTITY: u32 = 0x4000_0007;
+
 /// How far each way the ground is read to find how it leans, in meters.
 const LEAN_ACROSS: f32 = 0.5;
 /// How near the ground a row is to count as on it, in meters.
@@ -1590,13 +1593,46 @@ impl<'w> Editor<'w> {
                     });
             });
         if let Some(t) = chosen {
-            self.template = format!("0x{t:08X}");
-            self.tool = Tool::Place;
-            self.status = "click the ground to place it".into();
+            self.choose_template(t);
         }
         if open {
             self.finding = Some(text);
         }
+    }
+
+    /// Place `t` next: as what it is, at the next click on the ground.
+    pub fn choose_template(&mut self, t: u32) {
+        self.template = format!("0x{t:08X}");
+        self.tool = Tool::Place;
+        self.status = "click the ground to place it".into();
+        let person = self.is_person(t);
+        self.new_kind = match self.new_kind {
+            NewKind::Camp if person => NewKind::Camp,
+            _ if person => NewKind::Person,
+            _ => NewKind::Static,
+        };
+    }
+
+    /// Whether a template is one of the world's people or creatures, not an object: as the world
+    /// already places it, else a creature's entity, else a body of several parts that moves.
+    #[must_use]
+    pub fn is_person(&mut self, t: u32) -> bool {
+        let placed = self
+            .session
+            .entries()
+            .iter()
+            .find_map(|e| match &e.row.row {
+                Row::Object(o) if o.template == t => Some(o.kind == ObjectKind::Npc),
+                _ => None,
+            });
+        if let Some(person) = placed {
+            return person;
+        }
+        if self.install.entity(t).and_then(|e| e.kind) == Some(CREATURE_ENTITY) {
+            return true;
+        }
+        self.look(t)
+            .is_some_and(|(look, _)| self.scene.is_moving_body(look))
     }
 
     /// The templates whose name or id has `text`.

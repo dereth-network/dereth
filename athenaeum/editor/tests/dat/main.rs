@@ -991,3 +991,28 @@ fn what_can_be_worn_is_pictured_on_a_body_and_differs_from_the_bare_body() {
         "the boots change the body"
     );
 }
+
+#[test]
+fn a_template_chosen_is_placed_as_what_it_is() {
+    let mut e = editor("kinds");
+    for (t, person) in [
+        (0x4700_33D0, true),  // a vendor
+        (0x4700_23B3, true),  // a creature
+        (0x4700_1A58, false), // a building
+        (0x4700_26C4, false), // a barrel
+        (0x4700_3432, false), // a portal
+        (0x4700_33A5, false), // a portal of effects alone
+    ] {
+        assert_eq!(e.is_person(t), person, "{t:08X}");
+    }
+    e.choose_template(0x4700_1A58);
+    assert_eq!(e.new_kind, NewKind::Static);
+    assert_eq!(e.tool, Tool::Place);
+    e.choose_template(0x4700_33D0);
+    assert_eq!(e.new_kind, NewKind::Person);
+    e.new_kind = NewKind::Camp;
+    e.choose_template(0x4700_23B3);
+    assert_eq!(e.new_kind, NewKind::Camp, "a creature for the camp");
+    e.choose_template(0x4700_1A58);
+    assert_eq!(e.new_kind, NewKind::Static, "a camp keeps no building");
+}
