@@ -5311,6 +5311,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.character-files-keep-items-own-numbers",
+        says: "A character file's state holds every number an item holds of its own, so an imported \
+               item has its value, what its level gave it, its effects, its maker, its wear, its \
+               map's place and its color. The file's build names items by template and count only, \
+               and an import never reads it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXPORT-ITEM-NUMBERS"),
+        station: "yalain-testkit::cpu::operator::characters::a_character_file_keeps_what_each_item_holds_of_its_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.characters-deleted-at-once",
         says: "The operator deletes a character at once, with no hour in its account's list: one in the \
                world is taken out of it and its login booted, one grayed out by a deletion goes too, \

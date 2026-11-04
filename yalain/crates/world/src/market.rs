@@ -16,8 +16,8 @@
 //! **Consignments**: entering them shows the player's own (and its reminder of them at that
 //! broker). Putting an item up for a price takes a charge of a hundredth of what it would fetch
 //! (at least 1), moves the item to the broker and shows the consignment. Collecting an unsold one
-//! gives the item back as a new item holding all it held; collecting a sold one pays its price. A player entering the
-//! world is reminded of its consignments, one reminder per broker.
+//! gives the item back as a new item holding all it held; collecting a sold one pays its price. A
+//! player entering the world is reminded of its consignments, one reminder per broker.
 //!
 //! **Buying a player's sale**: the price taken, the item moved from the broker into the buyer's
 //! pack, the sale's stock told as gone; the seller collects the price.
