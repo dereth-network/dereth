@@ -2765,7 +2765,8 @@ impl<'w> Editor<'w> {
                 {
                     self.toggle_row_finder();
                 }
-                ui.separator();
+            });
+            ui.horizontal_wrapped(|ui| {
                 ui.checkbox(&mut self.snap.on, "Snap").on_hover_text(
                     "moves and turns go by steps; Shift while dragging does the other",
                 );
