@@ -202,19 +202,13 @@ pub(super) fn on_view(w: &mut World, to: &Address, linked: bool, persons: &[Pers
         }
     }
     let slug = w.federation.settings.slug.clone();
-    // In the view's order, each character once, with the first handle that names it. A character
-    // of this world (the character itself among them) is its own world's to list.
-    let mut want: BTreeMap<String, (Address, Address)> = BTreeMap::new();
-    let mut order = Vec::new();
-    for p in persons {
-        for c in &p.characters {
-            if c.is_channel() || c.world() == slug || want.contains_key(&c.key()) {
-                continue;
-            }
-            order.push(c.key());
-            want.insert(c.key(), (c.clone(), p.handle.clone()));
-        }
-    }
+    // In the view's order, each character once, with the first handle that names it.
+    let listing = dereth_network_protocol::person::view_listing(persons, &slug);
+    let order: Vec<String> = listing.iter().map(|(c, _)| c.key()).collect();
+    let mut want: BTreeMap<String, (Address, Address)> = listing
+        .into_iter()
+        .map(|(c, h)| (c.key(), (c, h)))
+        .collect();
     let derived: BTreeMap<String, Address> = w
         .federation
         .store
