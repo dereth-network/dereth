@@ -1632,16 +1632,14 @@ impl Renderer {
             }
             [1, opts, 0, 0]
         });
-        // The pixel programs' lit color: the first light's diffuse (the sun's, or inside the first
-        // point light's, black with none) times the layer's diffuse (and tint), each channel at
-        // most 1, alpha the layer's at most 1.
-        let sun = if points.inside {
+        // The pixel programs' lit color: the first light's diffuse (the first point light's, else
+        // the sun's, black inside with neither) times the layer's diffuse (and tint), each channel
+        // at most 1, alpha the layer's at most 1.
+        let sun = if points.count > 0 {
             let f = points.lights[0].diffuse;
-            if points.count > 0 {
-                [f.r, f.g, f.b, 1.0]
-            } else {
-                [0.0, 0.0, 0.0, 1.0]
-            }
+            [f.r, f.g, f.b, 1.0]
+        } else if points.inside {
+            [0.0, 0.0, 0.0, 1.0]
         } else {
             sun
         };

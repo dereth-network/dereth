@@ -67,6 +67,7 @@ not how it was done.
 - Switching away from the window now lets go of held keys and buttons.
 - New `--adminclient` option shows the admin button when creating a character.
 - Resizing a chat window no longer loses its scroll bar.
+- Faces turned away from torches are no longer teal indoors.
 
 ## 0.1.2 (2026-11-02)
 

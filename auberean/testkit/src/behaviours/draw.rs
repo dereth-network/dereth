@@ -218,7 +218,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "draw.effects.carried-lights-light-what-stands-near-them-outdoors",
-        says: "Outdoors the lights objects carry light the objects and bodies near them beside the                sun: the town's torches at night leave the frame brighter in many places and darker                in none, and a human standing by one takes it and throws its shadow from it.",
+        says: "Outdoors the lights objects carry light the objects and bodies near them beside the                sun: the town's torches at night leave the frame brighter in more places than darker, a normal map they reach being lit from them in place of the sun, and a human standing by one takes it and throws its shadow from it.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-CARRIED-LIGHTS-OUTDOORS"),
         station: "auberean-gpu::gpu::shadows::carried_lights_light_what_stands_near_them_outdoors",
@@ -374,6 +374,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-PARTICLE-LIGHTS-HALL"),
         station: "auberean-draw::dat::inside::a_lit_particle_inside_is_lit_by_the_lights_kept_where_its_system_stands",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.inside.a-normal-mapped-layers-second-light-shines-in-the-firsts-color",
+        says: "A normal-mapped layer lights its normal map from its first point light, outdoors as well as inside, and the sun then joins the others in its second color. Each other point light's share shines in the color of the light before it: the program counts its diffuse colors only where they are used, and the first light uses none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-BUMP-LIGHT-COLORS"),
+        station: "auberean-gpu::gpu::inside::a_normal_mapped_layers_second_light_shines_in_the_firsts_color",
+        tier: Tier::Gpu,
     },
     behaviour! {
         id: "draw.inside.a-room-open-to-the-sky-shows-the-sky",
