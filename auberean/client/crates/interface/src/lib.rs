@@ -1368,11 +1368,6 @@ impl Retail {
                         data_id: e.data_id,
                         selection: e.selection,
                     }));
-                    // The examination panel opens: the client's own notice to the panels.
-                    self.said.push(gameplay::Notice {
-                        native: auberean_ui_game::inventory::notice::OPEN_EXAMINATION,
-                        ..gameplay::Notice::default()
-                    });
                 }
                 R::Social(r) => requests.push(Request::Act(map::social_action(r))),
                 R::Resurrect => requests.push(Request::Act(Action::Resurrect)),

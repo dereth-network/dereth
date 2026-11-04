@@ -924,6 +924,7 @@ impl Effects {
             data_enum: eid,
             ..Examination::default()
         }));
+        out.push(Request::OpenExaminationPanel);
     }
 }
 
@@ -1572,6 +1573,7 @@ impl Child for VitaeStatus {
                     kind: EXAMINE_VITAE,
                     ..Examination::default()
                 }));
+                out.push(Request::OpenExaminationPanel);
             }
         }
     }

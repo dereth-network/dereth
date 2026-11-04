@@ -83,6 +83,7 @@ not how it was done.
 - Signposts show their wood and words.
 - Fixed shops saying you can't afford everything.
 - Crafting workshops and some other objects now appear.
+- Choosing a craft skill no longer opens the examine window.
 
 ## 0.1.2 (2026-11-02)
 

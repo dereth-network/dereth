@@ -682,6 +682,7 @@ impl SkillTree {
                         data_enum: root,
                         ..Examination::default()
                     }));
+                    out.push(Request::OpenExaminationPanel);
                 }
             }
             if self.tree.is_some() {
@@ -952,6 +953,7 @@ impl Child for SkillTree {
                 data_enum: data,
                 ..Examination::default()
             }));
+            out.push(Request::OpenExaminationPanel);
         }
         if [
             name::TRAIN_BUTTON,

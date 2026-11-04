@@ -1291,6 +1291,7 @@ impl Shortcuts {
             _ => return,
         };
         out.push(Request::Examine(e));
+        out.push(Request::OpenExaminationPanel);
     }
 
     /// Something dropped: taken by the list, the slot under the pointer gets its shortcut (the

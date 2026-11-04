@@ -218,6 +218,7 @@ fn a_panel_is_laid_out_as_a_tree_and_a_skill_trained_through_its_question() {
         ..Examination::default()
     });
     assert!(out.contains(&asked), "{out:?}");
+    assert!(out.contains(&Request::OpenExaminationPanel), "{out:?}");
     w.tick(&[request_changed(EXAMINE_SKILL, 0xB)]);
     let ui = &w.ui;
     assert_eq!(ui.node(foot).expect("node").state, Token::of("untrained"));
