@@ -122,6 +122,7 @@ what they see, not how it was done.
 - Orbs throw from both hands.
 - A weapon you use goes back to the hand it was last in.
 - Swings come on time instead of a little late.
+- A special attack's critical now does a quarter more, not double.
 
 ## 0.1.2 (2026-11-03)
 

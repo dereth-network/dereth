@@ -8567,6 +8567,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.critical-size",
+        says: "A special's critical does a quarter more than its plain hit, not double. Our choice: \
+               fitted to 173 recorded criticals; other forms fit about as well.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-CRITICAL-SIZE"),
+        station: "yalain-testkit::cpu::play::specials::a_specials_critical_does_a_quarter_more_than_its_plain_hit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.specials.cut-by-a-transmute",
         says: "A transmute cuts short a skill's use, told or not; using an item or going into portal \
                space cuts nothing by itself.",

@@ -1476,13 +1476,33 @@ fn area_targets<S: Store>(
     out
 }
 
-/// A hitter as a blow of this hook is reckoned: with what the hook adds at its rating, doubled by
-/// a critical with the rest of the hit (2017, a skill of 351 criticals: 2.09 times its plain hit).
+/// A hitter as a blow of this hook is reckoned: with what the hook adds at its rating, a critical
+/// taking it with the rest of the hit (2017, a basic attack of 351 criticals: 2.09 times its plain
+/// hit; a special's: [`rules::SPECIAL_CRITICAL`]).
 pub(crate) fn hitting_with(me: rules::Hitter, h: &Hook, rating: f32) -> rules::Hitter {
     rules::Hitter {
         added: me.added + h.rated_add(rating),
         ..me
     }
+}
+
+/// What a special's hook does on a creature when it lands.
+fn hook_hit<S: Store>(
+    s: &mut Server<S>,
+    me: rules::Hitter,
+    h: &Hook,
+    (target, armor): (u64, i32),
+    o: Outcome,
+) -> i32 {
+    let base = rules::player_hit(&mut s.rng, me, armor, false) + combat::armor_taken(s, target);
+    #[allow(clippy::cast_precision_loss)]
+    let d = (base as f32 + h.add) * if h.mult > 0.0 { h.mult } else { 1.0 };
+    let d = if o == Outcome::Critical {
+        d * rules::SPECIAL_CRITICAL
+    } else {
+        d
+    };
+    dereth_primitives::num::to_i32(d.round()).max(1)
 }
 
 /// How one hook comes out on one creature: a hit, critical, miss or evade by the rules (a strike
@@ -1523,11 +1543,7 @@ fn roll_hook<S: Store>(
     };
     let hurts = u.ui_flags & ui_flag::NON_DAMAGING == 0 && h.flags & hook_flag::NON_DAMAGING == 0;
     let dmg = if o.landed() && hurts {
-        let base = rules::player_hit(&mut s.rng, me, armor, o == Outcome::Critical)
-            + combat::armor_taken(s, target);
-        #[allow(clippy::cast_precision_loss)]
-        let d = (base as f32 + h.add) * if h.mult > 0.0 { h.mult } else { 1.0 };
-        dereth_primitives::num::to_i32(d.round()).max(1)
+        hook_hit(s, me, h, (target, armor), o)
     } else {
         0
     };
@@ -1639,12 +1655,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
             o
         };
         let dmg = if o.landed() {
-            let hitting = hitting_with(me_hits, h, rating);
-            let base = rules::player_hit(&mut s.rng, hitting, armor, o == Outcome::Critical)
-                + combat::armor_taken(s, target);
-            #[allow(clippy::cast_precision_loss)]
-            let d = (base as f32 + h.add) * if h.mult > 0.0 { h.mult } else { 1.0 };
-            dereth_primitives::num::to_i32(d.round()).max(1)
+            hook_hit(s, hitting_with(me_hits, h, rating), h, (target, armor), o)
         } else {
             0
         };

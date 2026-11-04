@@ -218,6 +218,66 @@ fn a_specials_hook_adds_by_the_players_rating() {
     assert_eq!(with - without, 40, "{with} {without}");
 }
 
+/// A special's critical does a quarter more than its plain hit, not double, its hook's add with the
+/// rest.
+/// Behaviour: server.specials.critical-size
+#[test]
+fn a_specials_critical_does_a_quarter_more_than_its_plain_hit() {
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    const BOW_OF_KNOWN_DAMAGE: u32 = 0x4700_07A3;
+    let mut p = yalain_content::Props::default();
+    p.set("Weapon_Damage", yalain_content::Prop::Int(100))
+        .set("Weapon_Variance", yalain_content::Prop::Float(0.0));
+    h.server.catalog.insert(yalain_testkit::test_template(
+        BOW_OF_KNOWN_DAMAGE,
+        0x1067,
+        p,
+    ));
+    h.server
+        .catalog
+        .implements
+        .insert(BOW_OF_KNOWN_DAMAGE, yalain_world::skill_use::implement::BOW);
+    h.arm(b, me, BOW_OF_KNOWN_DAMAGE);
+    let u = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&DEADEYE)
+        .and_then(|d| d.usage.as_mut())
+        .expect("Deadeye");
+    for hook in &mut u.hooks {
+        hook.add_by_rating = vec![(1.0, 40.0), (100.0, 40.0)];
+    }
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        t.max_health = 10_000_000;
+        t.health = 10_000_000;
+    }
+    h.server.rng = yalain_world::rng::Rng::new(7);
+    let (mut plain, mut critical) = (None, None);
+    for _ in 0..1000 {
+        if plain.is_some() && critical.is_some() {
+            break;
+        }
+        let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+        h.run(120);
+        for m in h.world_messages(b, from) {
+            let ServerMessage::DoStory(e) = m else {
+                continue;
+            };
+            for k in &e.action.hooks {
+                if k.numbers[3] < 0 && k.numbers[0] == 0x4000_0008 {
+                    plain = Some(-k.numbers[3]);
+                } else if k.numbers[3] < 0 && k.numbers[0] == 0x4000_0009 {
+                    critical = Some(-k.numbers[3]);
+                }
+            }
+        }
+    }
+    let (plain, critical) = (plain.expect("a plain hit"), critical.expect("a critical"));
+    assert_eq!(critical, (plain * 5 + 2) / 4, "{plain}");
+}
+
 /// A bow the player came by costs what it says, not what a starting bow does.
 /// Behaviour: server.specials.vigor-of-what-is-held
 #[test]
