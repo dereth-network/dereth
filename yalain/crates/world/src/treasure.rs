@@ -393,8 +393,8 @@ pub enum Sort {
 /// piece of armor nearly always one, 16 to 34 in a hundred; a shield one, 9 to 22). Which: a family
 /// by how often 2017 showed it, none twice; in a family of five the tier of the level by the same
 /// bands as potions (2017: 256 of 268 of the weapons' effects), in any other one it reaches, evenly.
-/// Fit to the recorded profiles, so our choice; those 2017 showed in pairs, and those of a player's
-/// own skill, are left out: 69 of the 740 lines.
+/// Those 2017 showed in pairs come together as one draw. Fit to the recorded profiles, so our choice;
+/// those of a player's own skill are left out: 45 of the 740 lines.
 pub fn enchantments(
     rng: &mut Rng,
     sort: Sort,
@@ -431,6 +431,10 @@ pub fn enchantments(
         };
         if let Some(tier) = tier {
             out.push((f.when, *tier));
+            let other = t::PAIRS.iter().find(|(a, _)| *a == tier.state);
+            if let Some(paired) = other.and_then(|(_, b)| t::tier_of(*b)) {
+                out.push(paired);
+            }
         }
     }
     out.sort_by_key(|(when, _)| match when {
@@ -753,8 +757,13 @@ fn put_enchantments<S: yalain_store::Store>(
     let drawn = enchantments(&mut s.rng, sort, level);
     // Named for one of them (2017: of 109 weapons named for one of two or more, 74 for an effect on
     // a hit, 30 on itself, 5 on the wielder; no order or value of the effects says which).
-    if !drawn.is_empty() {
-        let named = drawn[s.rng.below(drawn.len())].1.state;
+    let namers: Vec<u32> = drawn
+        .iter()
+        .map(|(_, tier)| tier.state)
+        .filter(|state| !yalain_content::treasure_effects::UNNAMING.contains(state))
+        .collect();
+    if !namers.is_empty() {
+        let named = namers[s.rng.below(namers.len())];
         own.suffix = s
             .effect_table
             .get(named)

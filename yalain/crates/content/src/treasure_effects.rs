@@ -308,6 +308,34 @@ pub const WEAPON_FAMILIES: &[Family] = &[
         tiers: &[tier(45, 0x6F000574, 0x6F002607, 0.10, 0.00)],
     },
     Family {
+        when: When::Equipped,
+        weight: 7.0,
+        by_level: false,
+        tiers: &[
+            tier(37, 0x6F0024C8, 0x00000000, 1.00, 0.00),
+            tier(37, 0x6F0024CB, 0x00000000, 1.00, 0.00),
+            tier(37, 0x6F0024CE, 0x00000000, 1.00, 0.00),
+        ],
+    },
+    Family {
+        when: When::Hit,
+        weight: 3.0,
+        by_level: false,
+        tiers: &[tier(47, 0x6F002500, 0x6F002500, 0.10, 0.00)],
+    },
+    Family {
+        when: When::Equipped,
+        weight: 0.0,
+        by_level: false,
+        tiers: &[tier(0, 0x6F00266E, 0x00000000, 1.00, 0.00)],
+    },
+    Family {
+        when: When::Permanent,
+        weight: 0.0,
+        by_level: false,
+        tiers: &[tier(0, 0x6F0024F4, 0x00000000, 1.00, 0.70)],
+    },
+    Family {
         when: When::Hit,
         weight: 11.0,
         by_level: false,
@@ -678,6 +706,17 @@ pub const JEWELRY_FAMILIES: &[Family] = &[
         tiers: &[tier(44, 0x6F000664, 0x00000000, 1.00, 0.00)],
     },
 ];
+
+/// An enchantment that comes with another, and the other: one draw, showing two lines.
+pub const PAIRS: &[(u32, u32)] = &[
+    (0x6F0024C8, 0x6F00266E),
+    (0x6F0024CB, 0x6F00266E),
+    (0x6F0024CE, 0x6F00266E),
+    (0x6F002500, 0x6F0024F4),
+];
+
+/// Enchantments no item was named for.
+pub const UNNAMING: &[u32] = &[0x6F0024C8, 0x6F0024CB, 0x6F0024CE, 0x6F00266E, 0x6F002500];
 
 /// Every state a treasure item may carry or put on what it hits.
 pub fn states() -> impl Iterator<Item = u32> {

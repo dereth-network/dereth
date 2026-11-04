@@ -4582,6 +4582,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-paired-enchantments",
+        says: "A counter that lowers armor comes with the Armor Ward and Burning Edge's fire with its \
+               edge, each pair one draw from the level that reached it, showing two lines; neither \
+               half comes alone, and an item is named for neither the counter, the ward nor the \
+               fire. Our choice, a fit to the recorded items.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-PAIRS"),
+        station: "yalain-testkit::cpu::play::fights::a_paired_enchantment_comes_with_its_other_half_and_names_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.treasure-rarer-enchantments",
         says: "A treasure weapon may draw a slayer, an edge that narrows its span, a ward or counter \
                on who wields it and the strongest effects on a hit; a piece of armor a skill's boost \

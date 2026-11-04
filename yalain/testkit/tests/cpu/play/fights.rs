@@ -561,7 +561,10 @@ fn an_items_enchantments_follow_its_sort_and_level() {
     assert_eq!(most, Some(1), "none has two so low");
     let (high, most) = share(&mut rng, Sort::Weapon, 50);
     assert!((0.27..0.37).contains(&high), "{high}");
-    assert_eq!(most, Some(3));
+    assert!(
+        most >= Some(3) && most <= Some(5),
+        "three draws, two of them perhaps pairs"
+    );
     let (armor, _) = share(&mut rng, Sort::Armor, 50);
     assert!((0.29..0.39).contains(&armor), "{armor}");
     let (shield, _) = share(&mut rng, Sort::Shield, 10);
@@ -846,6 +849,104 @@ fn a_treasure_items_word_goes_by_its_sort_level_and_combat_delay() {
     assert!(odd
         .iter()
         .all(|x| w::WEAPON_WORDS.iter().any(|a| a.word == *x)));
+}
+
+/// An enchantment 2017 showed in a pair comes with its other half as one draw; neither half comes
+/// alone, and what no item was named for names none.
+/// Behaviour: server.loot.treasure-paired-enchantments
+#[test]
+fn a_paired_enchantment_comes_with_its_other_half_and_names_nothing() {
+    use yalain_content::treasure_effects::{self as t, When};
+    use yalain_world::treasure::{enchantments, Sort};
+    const WARD: u32 = 0x6F00_266E;
+    const FIRE: u32 = 0x6F00_2500;
+    const EDGE: u32 = 0x6F00_24F4;
+    let mut rng = yalain_world::rng::Rng::new(3);
+    let (mut warded, mut burning) = (0, 0);
+    for _ in 0..40_000 {
+        let drawn = enchantments(&mut rng, Sort::Weapon, 50);
+        let has = |s: u32| drawn.iter().any(|(_, x)| x.state == s);
+        for (a, b) in t::PAIRS {
+            assert!(!has(*a) || has(*b), "{a:x} without {b:x}");
+        }
+        assert_eq!(has(FIRE), has(EDGE), "the fire and the edge");
+        if has(WARD) {
+            let counters = t::PAIRS.iter().filter(|(_, b)| *b == WARD);
+            assert_eq!(counters.filter(|(a, _)| has(*a)).count(), 1, "one counter");
+            warded += 1;
+        }
+        burning += usize::from(has(FIRE));
+        for (when, x) in &drawn {
+            if x.state == EDGE {
+                assert_eq!(*when, When::Permanent);
+            }
+            if x.state == WARD {
+                assert_eq!(*when, When::Equipped);
+            }
+            if x.state == FIRE {
+                assert_eq!(*when, When::Hit);
+            }
+        }
+    }
+    assert!(warded > 0 && burning > 0, "{warded} {burning}");
+    assert!(enchantments(&mut rng, Sort::Weapon, 30)
+        .iter()
+        .all(|(_, x)| x.state != WARD));
+    // What no item was named for names none.
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    use yalain_content::{Prop, Props};
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    const TEMPLATE: u32 = 0x4700_7A01;
+    let mut props = Props::default();
+    props
+        .set("Weapon_Damage", Prop::Int(10))
+        .set("Weapon_Variance", Prop::Float(0.25));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(TEMPLATE, 0x200, props));
+    h.server.treasure.equipment.insert(0x200);
+    for state in t::states() {
+        h.server.effect_table.effects.insert(
+            state,
+            EffectDef {
+                state,
+                kind: Kind::Other,
+                duration: Scale::default(),
+                priority: Scale::default(),
+                fx: 0,
+                external_flags: 0,
+                internal_flags: 0,
+                enum_value: 0,
+                eq_class: 0,
+                name: Some((1, state)),
+            },
+        );
+    }
+    let mut seen = 0;
+    for _ in 0..30_000 {
+        let item = yalain_world::inventory::make_item(&mut h.server, TEMPLATE, 1, 9).expect("made");
+        yalain_world::treasure::endow(&mut h.server, item, 50, None);
+        let o = h.server.things.get(item).expect("made");
+        let carried: Vec<u32> = o
+            .enchantments
+            .iter()
+            .chain(&o.bonuses)
+            .map(|e| e.0)
+            .collect();
+        if carried.contains(&WARD) {
+            seen += 1;
+            let named = o.own.suffix;
+            assert!(
+                named.is_none_or(|n| !t::UNNAMING.contains(&n)),
+                "{named:x?}"
+            );
+            if carried.iter().all(|s| t::UNNAMING.contains(s)) {
+                assert_eq!(named, None, "with nothing that names it");
+            }
+        }
+    }
+    assert!(seen > 0);
 }
 
 /// Water's and Wounding's tiers that 2017 showed as the effect itself carry it, not the apply state
@@ -1171,7 +1272,9 @@ fn a_treasure_item_with_enchantments_is_named_for_one_of_them() {
         match t.own.suffix {
             None => {
                 plain += 1;
-                assert!(carried.is_empty());
+                assert!(carried.iter().all(
+                    |c| yalain_content::treasure_effects::UNNAMING.contains(&(c ^ 0x4B00_0000))
+                ));
             }
             Some(table) => {
                 let at = carried.iter().position(|c| *c == table);
