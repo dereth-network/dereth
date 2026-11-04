@@ -832,6 +832,27 @@ pub fn crafting(
     ))
 }
 
+/// The recipes' ingredient classes made the catalog's templates that derive from them.
+///
+/// # Errors
+/// The library does not read.
+pub fn resolve_ingredient_classes(
+    p: &Portal,
+    craft: &mut yalain_world::craft::Crafting,
+    catalog: &Catalog,
+) -> Result<(), String> {
+    let lib = library(p)?;
+    let templates: Vec<(u32, u32)> = catalog
+        .templates
+        .values()
+        .map(|t| (t.id, t.description.package))
+        .collect();
+    craft.resolve_classes(&templates, &|package, class| {
+        lib.derives_from(package, class)
+    });
+    Ok(())
+}
+
 /// The bodies of the catalog's templates whose looks give one.
 pub fn bodies(p: &Portal, catalog: &Catalog) -> BTreeMap<u32, [f32; 2]> {
     let visual = |did: u32| p.visual(did);

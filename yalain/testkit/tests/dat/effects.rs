@@ -96,7 +96,9 @@ fn the_recipes_read_as_the_data_defines_them() {
     )));
     assert!(o.actions.contains(&Action::Destroy {
         ordinal: 1,
-        quantity: 20
+        quantity: 20,
+        by_spinner: None,
+        spinners: None,
     }));
     assert!(o.actions.iter().any(|a| matches!(
         a,
@@ -152,6 +154,66 @@ fn a_creatures_body_is_its_looks_setups() {
         (body[0] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-3 && (body[1] - 1.995).abs() < 1e-3,
         "{body:?}"
     );
+}
+
+/// The Small Sword reads as the data defines it: a spinner from 1 to 100, needing the crafting
+/// workshop's effect; at item level 1 only its iron is asked for, 26 of it, used up by its action's
+/// table; coal comes in at 20 and steel at 35, in their tables' amounts.
+/// Behaviour: server.craft.spinner-recipes-read
+#[test]
+fn a_spinner_recipe_reads_with_its_ranges_tables_and_needed_effect() {
+    let p = Portal::open();
+    let c = p.crafting(&[0x6F00_0697], &[0x6F00_0F6F]);
+    let r = &c.recipes[&0x6F00_0F6F];
+    assert_eq!(r.spinner, Some((1, 100)));
+    assert_eq!(r.required_effect, Some(0x6F00_0EB2));
+    let at = |spinner: u32| -> Vec<(u32, u32)> {
+        r.ingredients_at(spinner)
+            .map(|i| (i.ordinal, c.required(i, spinner)))
+            .collect()
+    };
+    assert_eq!(at(1), [(2, 26)]);
+    assert_eq!(at(9), [(2, 100)]);
+    assert_eq!(at(10), [(2, 112), (4, c.required(&r.ingredients[3], 10))]);
+    assert_eq!(
+        at(20).iter().map(|x| x.0).collect::<Vec<_>>(),
+        [1, 2, 4],
+        "coal from 20"
+    );
+    assert_eq!(at(20)[0], (1, 240));
+    assert_eq!(at(35).len(), 4, "steel from 35");
+    assert_eq!(at(45).len(), 5, "flawless pyreal from 45");
+    let failed = r.outcome(1.0, 500.0).expect("a failure");
+    let used: Vec<(u32, u32)> = failed
+        .actions
+        .iter()
+        .filter_map(|a| c.destroyed(a, 1))
+        .collect();
+    assert_eq!(used, [(2, 26)], "only what level 1 asks for");
+    let used_at_20: Vec<(u32, u32)> = failed
+        .actions
+        .iter()
+        .filter_map(|a| c.destroyed(a, 20))
+        .collect();
+    assert_eq!(
+        used_at_20,
+        at(20),
+        "a failure uses up what the spinner asked for"
+    );
+    // Each check by the value it covers up to: failed, flawed, made, superior.
+    let makes = |o: &yalain_world::craft::Outcome| {
+        o.actions
+            .iter()
+            .any(|a| matches!(a, Action::Produce { .. }))
+    };
+    let share = |value: f32| {
+        let o = r.outcome(value, 500.0).expect("an outcome");
+        (makes(o), o.xp_mod)
+    };
+    assert_eq!(share(1.0), (false, 0.0), "failed");
+    assert_eq!(share(1.005), (true, 0.5), "flawed");
+    assert_eq!(share(1.5), (true, 1.0), "made");
+    assert_eq!(share(2.0), (true, 2.0), "superior");
 }
 
 /// Craft skills read with their tables, and a spinner recipe with its experience and difficulty

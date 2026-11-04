@@ -1219,6 +1219,24 @@ pub fn creature_effects() -> Vec<yalain_world::effect_defs::EffectDef> {
     ]
 }
 
+/// An effect that only lasts on its holder, doing nothing (a workshop's, say).
+#[must_use]
+pub fn plain_effect(state: u32) -> yalain_world::effect_defs::EffectDef {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    EffectDef {
+        state,
+        kind: Kind::Other,
+        duration: Scale::default(),
+        priority: Scale::default(),
+        fx: 0,
+        external_flags: 0,
+        internal_flags: 0,
+        enum_value: 0,
+        eq_class: 0,
+        name: None,
+    }
+}
+
 /// What the tests craft (see the constants above), as the September 2013 data defines it.
 #[must_use]
 pub fn test_crafting() -> yalain_world::craft::Crafting {
@@ -1236,7 +1254,7 @@ pub fn test_crafting() -> yalain_world::craft::Crafting {
             ordinal: 1,
             quantity: 20,
             items: vec![IRON],
-            classes: Vec::new(),
+            ..Ingredient::default()
         }],
         checks: vec![Check {
             upto: 2.0,
@@ -1258,6 +1276,8 @@ pub fn test_crafting() -> yalain_world::craft::Crafting {
                     Action::Destroy {
                         ordinal: 1,
                         quantity: 20,
+                        by_spinner: None,
+                        spinners: None,
                     },
                     Action::Text {
                         text: (0xE7E3_18D9, 0x2500_1AEF),

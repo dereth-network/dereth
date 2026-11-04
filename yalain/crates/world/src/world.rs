@@ -577,6 +577,7 @@ pub fn enter<S: Store>(
     }
     crate::effects::enter(s, net, world, clock);
     crate::craft::enter(s, net, world, clock);
+    crate::workshops::moved(s, net, world, clock);
     crate::quests::timers_at_entry(s, world, clock);
     // The items it holds: in its pack, and in its hands (held there, as it left them).
     let instance = s.players.get(&world).map_or(0, |p| p.instance);
@@ -1082,6 +1083,7 @@ fn moved<S: Store>(
     }
     crate::social::moved(s, net, world, clock);
     crate::mounts::moved(s, world, clock);
+    crate::workshops::moved(s, net, world, clock);
 }
 
 /// Keep an option the client sends. Returns whether the call was one the server keeps.

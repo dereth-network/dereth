@@ -298,6 +298,7 @@ impl<S: Store> Server<S> {
                     .is_some_and(crate::mining::is_craft_node)
             });
         let changed = take_placed(self, net, placed);
+        self.workshops = crate::workshops::Workshops::of(&self.content.objects, &self.catalog);
         r.note(table::PLACED, changed.is_some(), true);
         r.details.extend(changed);
 

@@ -1183,3 +1183,327 @@ fn a_quest_given_runs_the_step_waiting_on_it_and_one_withheld_runs_none() {
         }
     }
 }
+
+/// A recipe with an item-level spinner, as the final data writes them: coal from 20, iron from 1,
+/// each in the amount its own table gives at the value chosen, used up by the same tables.
+const LEVEL_RECIPE: u32 = 0x6F00_7001;
+const COAL: u32 = 0x4700_7001;
+const LEVEL_SWORD: u32 = 0x4700_7002;
+const COAL_TABLE: u32 = 0x6F00_7002;
+const IRON_TABLE: u32 = 0x6F00_7003;
+const FORGING: u32 = 0x6F00_7004;
+
+fn level_recipe(needs_workshop: bool) -> yalain_world::craft::RecipeDef {
+    use yalain_world::craft::{Action, Check, Ingredient, Outcome, RecipeDef};
+    RecipeDef {
+        did: LEVEL_RECIPE,
+        skill: TOOLS,
+        category: 10,
+        charges: -1,
+        animation: 0x4100_00A4,
+        cycles: 2,
+        spinner: Some((1, 100)),
+        required_effect: needs_workshop.then_some(FORGING),
+        ingredients: vec![
+            Ingredient {
+                ordinal: 1,
+                quantity: 1,
+                items: vec![COAL],
+                spinners: Some((20, 100)),
+                stack_table: Some(COAL_TABLE),
+                ..Ingredient::default()
+            },
+            Ingredient {
+                ordinal: 2,
+                quantity: 1,
+                items: vec![IRON],
+                spinners: Some((1, 100)),
+                stack_table: Some(IRON_TABLE),
+                ..Ingredient::default()
+            },
+        ],
+        checks: vec![Check {
+            upto: 2.0,
+            outcomes: vec![Outcome {
+                upto: 1000.0,
+                xp_mod: 1.0,
+                actions: vec![
+                    Action::Produce {
+                        template: LEVEL_SWORD,
+                        quantity: 1,
+                        ordinal: 10_001,
+                    },
+                    Action::Destroy {
+                        ordinal: 1,
+                        quantity: 1,
+                        by_spinner: Some(COAL_TABLE),
+                        spinners: Some((20, 100)),
+                    },
+                    Action::Destroy {
+                        ordinal: 2,
+                        quantity: 1,
+                        by_spinner: Some(IRON_TABLE),
+                        spinners: Some((1, 100)),
+                    },
+                ],
+            }],
+        }],
+        ..RecipeDef::default()
+    }
+}
+
+/// A player who knows the level recipe: `iron` iron and `coal` coal in the pack (their stacks,
+/// iron first).
+fn level_player(
+    needs_workshop: bool,
+    iron: u32,
+    coal: u32,
+) -> (Harness, usize, yalain_net::ConnId, u64, u64) {
+    use yalain_world::craft::LevelMap;
+    let (mut h, b, _, world) = in_world();
+    h.server
+        .crafting
+        .recipes
+        .insert(LEVEL_RECIPE, level_recipe(needs_workshop));
+    let table = |first: u32, values: &[u32]| LevelMap {
+        first,
+        values: values.to_vec(),
+    };
+    h.server
+        .crafting
+        .spinner_tables
+        .insert(COAL_TABLE, table(20, &[240, 400]));
+    h.server
+        .crafting
+        .spinner_tables
+        .insert(IRON_TABLE, table(1, &[26, 33, 41]));
+    for t in [IRON, COAL, LEVEL_SWORD] {
+        if h.server.catalog.get(t).is_none() {
+            h.server.catalog.insert(yalain_testkit::test_template(
+                t,
+                0x200,
+                yalain_content::Props::default(),
+            ));
+        }
+    }
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in the world")
+        .play
+        .recipes
+        .push(yalain_world::craft::new_recipe(LEVEL_RECIPE));
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, IRON, iron);
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, COAL, coal);
+    h.run(2);
+    let stack = |h: &Harness, t: u32| {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .find(|i| i.template == t)
+            .map_or(0, |i| i.id)
+    };
+    let (i, c) = (stack(&h, IRON), stack(&h, COAL));
+    (h, b, world, i, c)
+}
+
+fn held(h: &Harness, world: yalain_net::ConnId, template: u32) -> u32 {
+    h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .filter(|i| i.template == template)
+        .map(|i| i.quantity)
+        .sum()
+}
+
+/// The answers a craft's request came back with: (why, the recipe).
+fn craft_answers(h: &Harness, b: usize, from: usize) -> Vec<u32> {
+    calls_of(h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == function::EXECUTED)
+        .filter_map(|(_, v)| match v.get(1) {
+            Some(Value::Int(e)) => Some(*e),
+            _ => None,
+        })
+        .collect()
+}
+
+/// At item level 1 the recipe asks only for its iron, in the amount the table gives at 1; made,
+/// the iron goes by that table and the coal in the pack stays.
+/// Behaviour: server.craft.spinner-chooses-the-ingredients
+#[test]
+fn an_item_level_recipe_takes_only_the_ingredients_its_spinner_asks_for() {
+    let (mut h, b, world, iron, _) = level_player(false, 100, 500);
+    let from = execute_at(&mut h, b, LEVEL_RECIPE, &[(2, iron)], 1);
+    wait(&mut h, 6.0);
+    assert_eq!(craft_answers(&h, b, from), [0], "made");
+    assert_eq!(held(&h, world, IRON), 100 - 26, "the table's 26 at level 1");
+    assert_eq!(held(&h, world, COAL), 500, "not asked for at level 1");
+    assert_eq!(held(&h, world, LEVEL_SWORD), 1);
+}
+
+/// A higher item level asks for what its range now holds, each in its table's amount at that level.
+/// Behaviour: server.craft.spinner-sets-the-amounts-used
+#[test]
+fn a_higher_item_level_takes_more_ingredients_in_its_tables_amounts() {
+    let (mut h, b, world, iron, coal) = level_player(false, 100, 500);
+    let from = execute_at(&mut h, b, LEVEL_RECIPE, &[(1, coal), (2, iron)], 21);
+    wait(&mut h, 6.0);
+    assert_eq!(craft_answers(&h, b, from), [0], "made");
+    assert_eq!(held(&h, world, COAL), 500 - 400, "the coal table at 21");
+    assert_eq!(
+        held(&h, world, IRON),
+        100 - 41,
+        "the iron table past its end"
+    );
+}
+
+/// A slot the spinner asks for left empty, and a slot it does not ask for filled, are invalid
+/// ingredients; nothing is used up.
+/// Behaviour: server.craft.slots-must-match-the-spinner
+#[test]
+fn the_slots_filled_must_be_the_ones_the_spinner_asks_for() {
+    let (mut h, b, world, iron, coal) = level_player(false, 100, 500);
+    for (slots, spinner) in [
+        (vec![(2, iron)], 20),
+        (vec![(1, coal), (2, iron)], 1),
+        (vec![(1, coal)], 20),
+        // As many slots as it asks for, but not the one.
+        (vec![(1, coal)], 1),
+    ] {
+        let from = execute_at(&mut h, b, LEVEL_RECIPE, &slots, spinner);
+        h.run(4);
+        assert_eq!(
+            craft_answers(&h, b, from),
+            [error::INVALID_INGREDIENTS],
+            "{slots:?} at {spinner}"
+        );
+    }
+    assert_eq!((held(&h, world, IRON), held(&h, world, COAL)), (100, 500));
+}
+
+/// Too few of the amount the spinner asks for is refused with why, both as the ingredient goes in
+/// and at the making, though a stack of the recipe's fixed quantity would do.
+/// Behaviour: server.craft.required-amount-by-the-spinner
+#[test]
+fn too_few_for_the_spinners_amount_is_refused_with_why() {
+    let (mut h, b, world, iron, _) = level_player(false, 25, 0);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            function::ADD_INGREDIENT,
+            &[
+                Arg::Int(1),
+                Arg::LongInt(iron),
+                Arg::Int(2),
+                Arg::Int(LEVEL_RECIPE),
+            ],
+        ),
+    );
+    h.run(4);
+    let answers: Vec<_> = calls_of(&h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == function::INGREDIENT_ADDED)
+        .collect();
+    assert_eq!(answers[0].1[0], Value::Int(error::TOO_FEW));
+    let from = execute_at(&mut h, b, LEVEL_RECIPE, &[(2, iron)], 1);
+    h.run(4);
+    assert_eq!(craft_answers(&h, b, from), [error::TOO_FEW]);
+    assert_eq!(held(&h, world, IRON), 25);
+}
+
+/// A spinner outside the recipe's range makes nothing, even though it asks for nothing.
+/// Behaviour: server.craft.spinner-within-the-recipes-range
+#[test]
+fn a_spinner_outside_the_recipes_range_makes_nothing() {
+    let (mut h, b, world, _, _) = level_player(false, 100, 500);
+    let from = execute_at(&mut h, b, LEVEL_RECIPE, &[], 0);
+    wait(&mut h, 6.0);
+    assert_eq!(craft_answers(&h, b, from), [error::BAD_RECIPE]);
+    assert_eq!(held(&h, world, LEVEL_SWORD), 0);
+}
+
+/// A recipe that needs a workshop is refused without its record, with the answer alone, and made
+/// with it.
+/// Behaviour: server.craft.needs-its-workshop
+#[test]
+fn a_recipe_that_needs_a_workshop_is_refused_away_from_one() {
+    let (mut h, b, world, iron, _) = level_player(true, 100, 0);
+    let from = execute_at(&mut h, b, LEVEL_RECIPE, &[(2, iron)], 1);
+    wait(&mut h, 6.0);
+    assert_eq!(craft_answers(&h, b, from), [error::MISSING_EFFECT]);
+    assert_eq!(held(&h, world, IRON), 100);
+    h.server
+        .effect_table
+        .effects
+        .insert(FORGING, yalain_testkit::plain_effect(FORGING));
+    let (cell, origin) = (0x5766_0032, [131.1, 36.0, 190.1]);
+    h.server.workshops.place(
+        0x4000_0000_0000_0001,
+        yalain_world::presence::land_cell(cell, origin),
+        FORGING,
+    );
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &yalain_testkit::play::report(
+            cell,
+            auberean_primitives::Vec3::new(origin[0], origin[1], origin[2]),
+            0,
+            yalain_world::world::IDLE_MOTION,
+            0,
+        ),
+    );
+    h.run(4);
+    let from = execute_at(&mut h, b, LEVEL_RECIPE, &[(2, iron)], 1);
+    wait(&mut h, 6.0);
+    assert_eq!(craft_answers(&h, b, from), [0]);
+    assert_eq!(held(&h, world, IRON), 100 - 26);
+}
+
+/// A slot that takes a class takes every template the world makes of a package deriving from it,
+/// and no other.
+/// Behaviour: server.craft.ingredient-classes
+#[test]
+fn a_slot_that_takes_a_class_takes_the_templates_deriving_from_it() {
+    use yalain_world::craft::{Crafting, Ingredient, RecipeDef};
+    let mut c = Crafting::default();
+    c.recipes.insert(
+        1,
+        RecipeDef {
+            did: 1,
+            ingredients: vec![Ingredient {
+                ordinal: 1,
+                classes: vec![10],
+                ..Ingredient::default()
+            }],
+            ..RecipeDef::default()
+        },
+    );
+    c.resolve_classes(&[(100, 11), (101, 12), (102, 10)], &|package, class| {
+        package == class || (package == 11 && class == 10)
+    });
+    assert_eq!(c.recipes[&1].ingredients[0].items, [100, 102]);
+}
+
+/// The world holds what its recipes make and ask for, and the nodes surveying conjures: without
+/// them a slot holds nothing and a delving stone conjures nothing.
+/// Behaviour: server.craft.world-holds-what-crafting-needs
+#[test]
+fn crafting_asks_the_world_for_its_products_ingredients_and_conjured_nodes() {
+    let c = yalain_testkit::test_crafting();
+    let wanted = c.templates();
+    assert!(wanted.contains(&MINES_SWORD), "a product");
+    assert!(wanted.contains(&IRON), "an ingredient");
+    for node in yalain_world::mining::SUMMONED_NODES {
+        assert!(wanted.contains(&node), "{node:08X}");
+    }
+    assert_eq!(
+        yalain_world::mining::summoned_by("Eff_SummonMine_Silver_Delving"),
+        Some(0x4700_0C8E)
+    );
+}

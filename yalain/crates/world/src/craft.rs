@@ -10,11 +10,18 @@
 //!
 //! **An ingredient** the client puts into a recipe's slot is answered with the request's values
 //! and why it does not fit (0 when it does): the recipe unknown or the slot not one of its, the
-//! item not the player's, not one of the slot's items or of their classes, or too few of a stack.
-//! The client writes the reason.
+//! item not the player's, not one of the slot's items or of their classes, or too few of a stack
+//! for the spinner the player chose. The client writes the reason.
+//!
+//! **The spinner** (a recipe's item level) decides what a recipe takes: of a recipe with a spinner
+//! only the ingredients whose own range holds the value chosen are asked for, each in the amount
+//! its own table gives at that value, and the outcome uses up what its actions say at that value.
+//! A recipe without one takes all its ingredients, in their fixed amounts.
 //!
 //! **Making a recipe**: refused at once (only the answer, with why) when the player is not at
-//! peace, the recipe is unknown or still waiting, or a slot lacks what it takes. Else the player
+//! peace, the recipe is unknown or still waiting, its workshop is not at hand (the record a
+//! workshop puts on a player nearby, [`crate::workshops`]), the spinner is outside the recipe's
+//! range, the slots filled are not the ones the spinner asks for, or an item does not fit. Else the player
 //! plays the recipe's animation for its cycles, lets it go, and some seconds after the request the
 //! result: the check rolled against the recipe's difficulty and the player's craft skill, and the
 //! outcome's actions in order (items made in the pack, ingredients used up, an effect on the
@@ -117,6 +124,22 @@ pub mod error {
     pub const NOT_RESET: u32 = 40_024;
     pub const FAILED: u32 = 40_025;
     pub const PEACE_REQUIRED: u32 = 40_026;
+    /// The recipe's workshop is not at hand (its record is not on the player).
+    pub const MISSING_EFFECT: u32 = 40_041;
+}
+
+/// A recipe's and an ingredient's flags, as their definitions hold them.
+mod flag {
+    /// A recipe: it has a spinner.
+    pub const RECIPE_SPINNER: u32 = 0x80;
+    /// A recipe: it needs an effect on its maker.
+    pub const RECIPE_EFFECT: u32 = 0x2000;
+    /// An ingredient: its amount comes from a table by the spinner.
+    pub const INGREDIENT_STACK_TABLE: u32 = 0x2;
+    /// An ingredient: it is asked for at a range of the spinner.
+    pub const INGREDIENT_RANGE: u32 = 0x4;
+    /// An action: its amount comes from a table by the spinner.
+    pub const ACTION_TABLE: u32 = 0x2;
 }
 
 /// The script packages of the registry and its records, with their sizes in slots.
@@ -151,6 +174,21 @@ pub struct Ingredient {
     pub quantity: u32,
     pub items: Vec<u32>,
     pub classes: Vec<u32>,
+    /// The spinner values it is asked for at, when it has a range of its own.
+    pub spinners: Option<(u32, u32)>,
+    /// The table giving its amount by the spinner (a level table's saved state), in place of
+    /// `quantity`.
+    pub stack_table: Option<u32>,
+}
+
+impl Ingredient {
+    /// Is it asked for at a spinner value (a recipe with a spinner asks only for those whose own
+    /// range holds the value)?
+    #[must_use]
+    pub fn asked_at(&self, spinner: u32) -> bool {
+        self.spinners
+            .is_some_and(|(least, most)| (least..=most).contains(&spinner))
+    }
 }
 
 /// What an outcome does.
@@ -162,8 +200,14 @@ pub enum Action {
         quantity: u32,
         ordinal: u32,
     },
-    /// Use up so many of a slot's ingredient.
-    Destroy { ordinal: u32, quantity: u32 },
+    /// Use up so many of a slot's ingredient: by the spinner when it has a table, and only at the
+    /// spinner values it names (none: at any).
+    Destroy {
+        ordinal: u32,
+        quantity: u32,
+        by_spinner: Option<u32>,
+        spinners: Option<(u32, u32)>,
+    },
     /// Put an effect on the player.
     Effect { state: u32, spellcraft: f32 },
     /// Show a text of a kind.
@@ -278,9 +322,21 @@ pub struct RecipeDef {
     pub xp_map: Option<LevelMap>,
     /// The difficulty by the spinner chosen (none: the fixed `difficulty`).
     pub difficulty_map: Option<LevelMap>,
+    /// The spinner's least and greatest values, when the recipe has one.
+    pub spinner: Option<(u32, u32)>,
+    /// The effect a maker must hold (a workshop's), when it needs one.
+    pub required_effect: Option<u32>,
 }
 
 impl RecipeDef {
+    /// The ingredients a making asks for at a spinner value: of a recipe with a spinner those
+    /// whose range holds it, of any other all of them.
+    pub fn ingredients_at(&self, spinner: u32) -> impl Iterator<Item = &Ingredient> {
+        self.ingredients
+            .iter()
+            .filter(move |i| self.spinner.is_none() || i.asked_at(spinner))
+    }
+
     /// The craft experience a making pays before its outcome's share: by the spinner chosen when
     /// the recipe has a table for it, else its fixed amount.
     #[must_use]
@@ -407,9 +463,11 @@ impl Crafting {
                     .flat_map(|c| &c.outcomes)
                     .flat_map(|o| &o.actions)
                     .filter_map(|a| match a {
-                        Action::ItemEffect { by_spinner, .. } => *by_spinner,
+                        Action::ItemEffect { by_spinner, .. }
+                        | Action::Destroy { by_spinner, .. } => *by_spinner,
                         _ => None,
                     })
+                    .chain(r.ingredients.iter().filter_map(|i| i.stack_table))
                     .collect();
                 for table in tables {
                     if let Some(m) = graph(table).and_then(|m| LevelMap::from_state(lib, &m).ok()) {
@@ -420,6 +478,86 @@ impl Crafting {
             }
         }
         t
+    }
+
+    /// The templates crafting needs the world to make things of: what the recipes make and ask for,
+    /// and the nodes surveying conjures, whose materials recipes ask for in turn.
+    #[must_use]
+    pub fn templates(&self) -> Vec<u32> {
+        let made = self
+            .recipes
+            .values()
+            .flat_map(|r| &r.checks)
+            .flat_map(|c| &c.outcomes)
+            .flat_map(|o| &o.actions)
+            .filter_map(|a| match a {
+                Action::Produce { template, .. } => Some(*template),
+                _ => None,
+            });
+        let asked = self
+            .recipes
+            .values()
+            .flat_map(|r| &r.ingredients)
+            .flat_map(|i| i.items.iter().copied());
+        made.chain(asked)
+            .chain(crate::mining::SUMMONED_NODES)
+            .collect()
+    }
+
+    /// How many of an ingredient a making takes at a spinner value.
+    #[must_use]
+    pub fn required(&self, ingredient: &Ingredient, spinner: u32) -> u32 {
+        ingredient
+            .stack_table
+            .and_then(|table| self.spinner_tables.get(&table))
+            .map_or(ingredient.quantity, |t| t.at(spinner))
+    }
+
+    /// How many of a slot's ingredient an action uses up at a spinner value (none: it does nothing
+    /// at that value).
+    #[must_use]
+    pub fn destroyed(&self, action: &Action, spinner: u32) -> Option<(u32, u32)> {
+        let Action::Destroy {
+            ordinal,
+            quantity,
+            by_spinner,
+            spinners,
+        } = action
+        else {
+            return None;
+        };
+        if spinners.is_some_and(|(least, most)| !(least..=most).contains(&spinner)) {
+            return None;
+        }
+        let n = by_spinner
+            .and_then(|table| self.spinner_tables.get(&table))
+            .map_or(*quantity, |t| t.at(spinner));
+        Some((*ordinal, n))
+    }
+
+    /// An ingredient's classes made its templates: every template the world makes (with the script
+    /// package it is made of) that derives from one is one of the slot's items.
+    pub fn resolve_classes(
+        &mut self,
+        templates: &[(u32, u32)],
+        derives: &dyn Fn(u32, u32) -> bool,
+    ) {
+        for ing in self
+            .recipes
+            .values_mut()
+            .flat_map(|r| r.ingredients.iter_mut())
+            .filter(|i| !i.classes.is_empty())
+        {
+            let classes = std::mem::take(&mut ing.classes);
+            for &(template, package) in templates {
+                if !ing.items.contains(&template)
+                    && classes.iter().any(|class| derives(package, *class))
+                {
+                    ing.items.push(template);
+                }
+            }
+            ing.classes = classes;
+        }
     }
 }
 
@@ -448,11 +586,27 @@ impl RecipeDef {
         let mut ingredients: Vec<Ingredient> = nav
             .list(root, "m_ingredients")?
             .into_iter()
-            .map(|o| Ingredient {
-                ordinal: nav.field(o, "m_uiOrdinal").unwrap_or(0),
-                quantity: nav.field(o, "m_uiQuantity").unwrap_or(1),
-                items: keys(o, "m_hashItems"),
-                classes: keys(o, "m_hashItemClasses"),
+            .map(|o| {
+                let flags: u32 = nav.field(o, "m_flags").unwrap_or(0);
+                Ingredient {
+                    ordinal: nav.field(o, "m_uiOrdinal").unwrap_or(0),
+                    quantity: nav.field(o, "m_uiQuantity").unwrap_or(1),
+                    items: keys(o, "m_hashItems"),
+                    classes: keys(o, "m_hashItemClasses"),
+                    spinners: (flags & flag::INGREDIENT_RANGE != 0).then(|| {
+                        (
+                            nav.field(o, "m_minSpinnerVal").unwrap_or(0),
+                            nav.field(o, "m_maxSpinnerVal").unwrap_or(0),
+                        )
+                    }),
+                    stack_table: (flags & flag::INGREDIENT_STACK_TABLE != 0)
+                        .then(|| {
+                            nav.field(o, "m_stackMappingTable")
+                                .ok()
+                                .and_then(|r| nav.states_of_ref(r))
+                        })
+                        .flatten(),
+                }
             })
             .collect();
         ingredients.sort_by_key(|i| i.ordinal);
@@ -463,11 +617,15 @@ impl RecipeDef {
             .filter(|r| *r != 0 && *r != NULL)
             .and_then(|r| nav.entries(r).ok())
             .unwrap_or_default();
-        for (_, v) in entries {
+        for (k, v) in entries {
             let Some(o) = v.reference().and_then(|r| nav.object(r).ok()) else {
                 continue;
             };
-            let upto = nav.number(o, "m_fThresh").unwrap_or(2.0);
+            // The value it covers up to is its key; its own field reads nothing.
+            let upto = match k {
+                Item::Word(w) => f32::from_bits(w),
+                _ => 2.0,
+            };
             let mut outcomes = Vec::new();
             let rand = nav
                 .field(o, "m_hashRandEntries")
@@ -499,6 +657,7 @@ impl RecipeDef {
             checks.push(Check { upto, outcomes });
         }
         checks.sort_by(|a, b| a.upto.total_cmp(&b.upto));
+        let flags: u32 = word("m_flags").unwrap_or(0);
         Ok(Self {
             did,
             skill: word("m_didCraftSkill")?,
@@ -515,6 +674,19 @@ impl RecipeDef {
             checks,
             xp_map: None,
             difficulty_map: None,
+            spinner: (flags & flag::RECIPE_SPINNER != 0).then(|| {
+                (
+                    word("m_minSpinnerVal").unwrap_or(0),
+                    word("m_maxSpinnerVal").unwrap_or(0),
+                )
+            }),
+            required_effect: (flags & flag::RECIPE_EFFECT != 0)
+                .then(|| {
+                    nav.field(root, "m_requiredEffect")
+                        .ok()
+                        .and_then(|r| nav.states_of_ref(r))
+                })
+                .flatten(),
         })
     }
 
@@ -578,6 +750,11 @@ fn action(lib: &Library, nav: &Nav<'_>, a: &PackedObject) -> Action {
         "DestroyRecipeAction" => Action::Destroy {
             ordinal: w("m_uiOrdinal"),
             quantity: w("m_uiQuantity"),
+            by_spinner: (w("m_flags") & flag::ACTION_TABLE != 0)
+                .then(|| w("m_didMappingTable"))
+                .filter(|d| *d != 0 && *d != NULL),
+            spinners: Some((w("m_uiMinSpinnerVal"), w("m_uiMaxSpinnerVal")))
+                .filter(|(_, most)| *most != 0),
         },
         "PlayerEffectRecipeAction" => Action::Effect {
             state: nav
@@ -1132,28 +1309,14 @@ pub fn forget<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, r
     crate::world::keep_player(s, world);
 }
 
-/// Does an item of a template fit an ingredient slot (one of its templates, or of a class the
-/// template derives from)?
-fn fits<S: Store>(s: &Server<S>, ing: &Ingredient, template: u32) -> bool {
-    if ing.items.contains(&template) {
-        return true;
-    }
-    s.catalog.get(template).is_some_and(|t| {
-        ing.classes.iter().any(|c| {
-            t.props
-                .int("Item_Class")
-                .is_some_and(|x| x == i64::from(*c))
-        })
-    })
-}
-
-/// Why an item does not go into a recipe's slot (0: it does).
+/// Why an item does not go into a recipe's slot at a spinner value (0: it does).
 fn check_ingredient<S: Store>(
     s: &Server<S>,
     world: ConnId,
     recipe: u32,
     slot: u32,
     item: u64,
+    spinner: u32,
 ) -> u32 {
     let Some(p) = s.players.get(&world) else {
         return error::NOT_OWNED;
@@ -1172,11 +1335,36 @@ fn check_ingredient<S: Store>(
     let Some(held) = p.play.items.iter().find(|h| h.id == item) else {
         return error::NOT_OWNED;
     };
-    if !fits(s, ing, held.template) {
+    if !ing.items.contains(&held.template) {
         return error::MISSING_ITEM;
     }
-    if held.quantity.max(1) < ing.quantity {
+    if held.quantity.max(1) < s.crafting.required(ing, spinner) {
         return error::TOO_FEW;
+    }
+    0
+}
+
+/// Why a making's slots do not do for a recipe at a spinner value (0: they do): a slot filled that
+/// the spinner does not ask for, or one it asks for left empty, are invalid ingredients; else the
+/// first item that does not fit says why.
+fn check_slots<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    def: &RecipeDef,
+    spinner: u32,
+    slots: &[(u32, u64)],
+) -> u32 {
+    if slots.len() != def.ingredients_at(spinner).count() {
+        return error::INVALID_INGREDIENTS;
+    }
+    for ing in def.ingredients_at(spinner) {
+        let Some((slot, item)) = slots.iter().find(|(slot, _)| *slot == ing.ordinal) else {
+            return error::INVALID_INGREDIENTS;
+        };
+        let why = check_ingredient(s, world, def.did, *slot, *item, spinner);
+        if why != 0 {
+            return why;
+        }
     }
     0
 }
@@ -1193,7 +1381,7 @@ pub fn add_ingredient<S: Store>(
         s.unhandled.note("an ingredient that does not read");
         return;
     };
-    let err = check_ingredient(s, world, *recipe, *slot, *item);
+    let err = check_ingredient(s, world, *recipe, *slot, *item, *spinner);
     let m = session::call(
         function::INGREDIENT_ADDED,
         &[
@@ -1271,6 +1459,17 @@ fn word_long_pairs(bytes: &[u8]) -> Vec<(u32, u64)> {
         .collect()
 }
 
+/// The ingredients a craft's request names by slot, from its table.
+#[must_use]
+pub fn slots_in(g: &[(u32, Node)]) -> Vec<(u32, u64)> {
+    g.iter()
+        .find_map(|(_, n)| match n {
+            Node::Native { bytes, .. } => Some(word_long_pairs(bytes)),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
 /// The client asks to make a recipe with ingredients by slot.
 pub fn execute<S: Store>(
     s: &mut Server<S>,
@@ -1283,13 +1482,7 @@ pub fn execute<S: Store>(
         s.unhandled.note("a craft that does not read");
         return;
     };
-    let slots: Vec<(u32, u64)> = g
-        .iter()
-        .find_map(|(_, n)| match n {
-            Node::Native { bytes, .. } => Some(word_long_pairs(bytes)),
-            _ => None,
-        })
-        .unwrap_or_default();
+    let slots = slots_in(g);
     let recipe = *recipe;
     let now = net.game_time(clock.local);
     let refuse = |net: &mut ServerNet, err: u32| {
@@ -1319,14 +1512,21 @@ pub fn execute<S: Store>(
     {
         return refuse(net, error::WRONG_TARGET);
     }
-    for ing in &def.ingredients {
-        let ok = slots
-            .iter()
-            .find(|(slot, _)| *slot == ing.ordinal)
-            .is_some_and(|(slot, item)| check_ingredient(s, world, recipe, *slot, *item) == 0);
-        if !ok {
-            return refuse(net, error::INVALID_INGREDIENTS);
-        }
+    if def
+        .required_effect
+        .is_some_and(|effect| !p.play.effects.iter().any(|e| e.state == effect))
+    {
+        return refuse(net, error::MISSING_EFFECT);
+    }
+    if def
+        .spinner
+        .is_some_and(|(least, most)| !(least..=most).contains(spinner))
+    {
+        return refuse(net, error::BAD_RECIPE);
+    }
+    let why = check_slots(s, world, &def, *spinner, &slots);
+    if why != 0 {
+        return refuse(net, why);
     }
     // Making a recipe ends a protection, before its behavior.
     crate::effects::unprotect(s, net, world, |_, _| {});
@@ -1493,9 +1693,12 @@ fn result<S: Store>(
                 }
             }
             Action::ItemEffect { .. } => {}
-            Action::Destroy { ordinal, quantity } => {
-                if let Some((_, item)) = m.slots.iter().find(|(o, _)| o == ordinal) {
-                    used.push((*item, *quantity));
+            Action::Destroy { .. } => {
+                let Some((ordinal, quantity)) = s.crafting.destroyed(a, m.spinner) else {
+                    continue;
+                };
+                if let Some((_, item)) = m.slots.iter().find(|(o, _)| *o == ordinal) {
+                    used.push((*item, quantity));
                 }
             }
             Action::Effect { state, spellcraft } => effects.push((*state, *spellcraft)),

@@ -62,6 +62,7 @@ mod untraining;
 mod vaults;
 mod weapons;
 mod wearing;
+mod workshops;
 mod worn_effects;
 
 /// What a client was told of its experience: a chat-window text (its string id, with the

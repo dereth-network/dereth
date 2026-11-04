@@ -1590,10 +1590,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
                 yalain_content::quests::Trigger::Take(t) => Some(t),
                 _ => None,
             }))
-            .chain(actions.iter().filter_map(|a| match a {
-                yalain_world::craft::Action::Produce { template, .. } => Some(*template),
-                _ => None,
-            }))
+            .chain(craft.templates())
             // The placed objects' own (a chest's lock and contents, a door's).
             .chain(content.objects.iter().map(|o| o.template))
             .collect();
@@ -1616,6 +1613,15 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         }
         tracing::info!(weapons = weapons.len(), "the creatures' weapons read");
         catalog.bodies = data::bodies(portal, &catalog);
+        data::resolve_ingredient_classes(portal, &mut craft, &catalog)?;
+        // The effects workshops put on players nearby and the recipes need, read with the rest.
+        states.extend(craft.recipes.values().filter_map(|r| r.required_effect));
+        states.extend(
+            catalog
+                .templates
+                .values()
+                .filter_map(|t| t.props.word(yalain_world::workshops::EFFECT_PROPERTY)),
+        );
         for s in &skipped {
             tracing::warn!("not described: {s}");
         }

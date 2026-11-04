@@ -135,6 +135,7 @@ pub mod uploads;
 pub mod usable;
 pub mod walkers;
 pub mod walls;
+pub mod workshops;
 pub mod world;
 pub mod xp;
 
@@ -403,6 +404,8 @@ pub struct Server<S: Store> {
     pub story: yalain_content::StoryTable,
     /// The brokers (by template) and the consignments players put up with them.
     pub brokers: std::collections::BTreeMap<u32, market::Broker>,
+    /// The workshops standing in the world.
+    pub workshops: workshops::Workshops,
     pub market: market::Market,
     /// The pets players have summoned.
     pub pets: pets::Pets,
@@ -691,6 +694,7 @@ impl<S: Store> Server<S> {
             trades: trade::Trades::default(),
             story: yalain_content::StoryTable::default(),
             brokers: std::collections::BTreeMap::new(),
+            workshops: workshops::Workshops::default(),
             market: market::Market::default(),
             pets: pets::Pets::default(),
             plants: plants::Plants::default(),
@@ -739,6 +743,7 @@ impl<S: Store> Server<S> {
             .cloned()
             .collect();
         mining::place_veins(&mut self);
+        self.workshops = workshops::Workshops::of(&self.content.objects, &self.catalog);
         self.placed.loaded = Some(self.content.objects.clone());
         self.placed.veins = veins;
         self

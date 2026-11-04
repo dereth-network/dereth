@@ -58,6 +58,9 @@ what they see, not how it was done.
 - People no longer talk about the wrong item when they turn down a give.
 - Warders accept any item you no longer want.
 - Fixed recipes with limited uses never running out.
+- Item-level recipes can be made now.
+- Crafting Workshops work: stand near one to craft what needs it.
+- A failed craft no longer makes the item.
 
 ## 0.1.2 (2026-11-03)
 

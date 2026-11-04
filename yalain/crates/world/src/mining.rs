@@ -151,15 +151,24 @@ pub fn answers(skill: u32) -> Option<((u32, u32), (u32, u32))> {
     })
 }
 
+/// The nodes delving stones conjure: crystal, iron, silver, stone, wood.
+pub const SUMMONED_NODES: [u32; 5] = [
+    0x4700_0C8A,
+    0x4700_0C8C,
+    0x4700_0C8E,
+    0x4700_0C90,
+    0x4700_0C92,
+];
+
 /// The node a delving stone's summoning effect conjures.
 #[must_use]
 pub fn summoned_by(effect: &str) -> Option<u32> {
     Some(match effect {
-        "Eff_SummonMine_Crystal_Delving" => 0x4700_0C8A,
-        "Eff_SummonMine_Iron_Delving" => 0x4700_0C8C,
-        "Eff_SummonMine_Silver_Delving" => 0x4700_0C8E,
-        "Eff_SummonMine_Stone_Delving" => 0x4700_0C90,
-        "Eff_SummonMine_Wood_Delving" => 0x4700_0C92,
+        "Eff_SummonMine_Crystal_Delving" => SUMMONED_NODES[0],
+        "Eff_SummonMine_Iron_Delving" => SUMMONED_NODES[1],
+        "Eff_SummonMine_Silver_Delving" => SUMMONED_NODES[2],
+        "Eff_SummonMine_Stone_Delving" => SUMMONED_NODES[3],
+        "Eff_SummonMine_Wood_Delving" => SUMMONED_NODES[4],
         _ => return None,
     })
 }
