@@ -1495,9 +1495,18 @@ pub fn pet_hit(rng: &mut crate::rng::Rng, kind: &PetKind, level: i32, armor: i32
     dereth_primitives::num::to_i32(hit.round()).max(1)
 }
 
+/// Is a pet's strike told as a basic attack? By the skill, each always one way or the other, and
+/// nothing in its definition tells which (2017, pets on creatures, with the flag: 490 13,839, 491
+/// 13,413, 1098 376, 1023 288, 1845 18, 1846 15, 492 7, 1818 3; without it: 848 14,149, 865 13,271,
+/// 838 4,335, 847 415, 1024 26).
+#[must_use]
+pub const fn strikes_as_basic(skill: u32) -> bool {
+    matches!(skill, 490 | 491 | 492 | 1023 | 1098 | 1818 | 1845 | 1846)
+}
+
 /// A pet strikes a creature in reach: one story of the pet's with a result for each of its hits
-/// (told without the basic-attack flag, as a creature's special), the hits landing together as its
-/// blow reaches the creature.
+/// (with the basic-attack flag by its skill), the hits landing together as its blow reaches the
+/// creature.
 fn strike<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1522,7 +1531,11 @@ fn strike<S: Store>(
     };
     let mut st = crate::combat::story(s, crate::combat::Attacker::Thing(id), swing(rolls[0]));
     if let ServerMessage::DoStory(e) = &mut st {
-        e.action.bits = crate::missiles::SPECIAL;
+        e.action.bits = if strikes_as_basic(skill.skill) {
+            crate::combat::BASIC_SWING
+        } else {
+            crate::missiles::SPECIAL
+        };
         for r in rolls.iter().skip(1) {
             e.action.hooks.push(swing(*r).hook());
         }

@@ -6455,6 +6455,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.strike-flag-by-skill",
+        says: "A pet's strike carries the basic-attack flag by its skill.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PET-STRIKE-FLAG"),
+        station: "yalain-testkit::cpu::play::pets::a_pets_strike_carries_the_basic_flag_by_its_skill",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.strikes-land-late",
         says: "A creature's strike at a pet and a pet's at a creature take health when the blow \
                reaches the target after its story, as its skill shows over the time scale; one \

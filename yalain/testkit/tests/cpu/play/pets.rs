@@ -742,6 +742,58 @@ fn a_pets_strike_hurts_a_creature_when_its_blow_lands() {
     assert!((0.35..0.65).contains(&after), "{after}");
 }
 
+/// A pet's strike carries the basic-attack flag by its skill, whichever pet swings it.
+/// Behaviour: server.pets.strike-flag-by-skill
+#[test]
+fn a_pets_strike_carries_the_basic_flag_by_its_skill() {
+    for (skill, bits) in [
+        (490, 0x36),
+        (491, 0x36),
+        (1098, 0x36),
+        (848, 0x16),
+        (865, 0x16),
+    ] {
+        let mut h = Harness::new();
+        let (b, _, pet) = with_lasher(&mut h);
+        let beetle = beetle(&mut h);
+        h.server.skill_table.skills.insert(
+            skill,
+            yalain_world::skills::SkillDef {
+                id: skill,
+                usage: Some(yalain_world::skills::Usage {
+                    behavior_other: [0x4100_0077; 3],
+                    max_range: 2.0,
+                    hooks: vec![yalain_world::skills::Hook {
+                        flags: 0x2002,
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(pet)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.stats.skills = vec![(skill, 1)];
+        }
+        let from = h.bots[b].inbox.len();
+        pet_strike_seen(&mut h, b, pet, beetle);
+        let told = h
+            .world_messages(b, from)
+            .iter()
+            .find_map(|m| match m {
+                ServerMessage::DoStory(e) if e.action.attacker == pet => Some(e.action.clone()),
+                _ => None,
+            })
+            .expect("its story");
+        assert_eq!((told.skill, told.bits), (skill, bits));
+    }
+}
+
 /// A creature dead by the time a pet's blow reaches it is not hurt by it.
 /// Behaviour: server.pets.strikes-land-late
 #[test]
