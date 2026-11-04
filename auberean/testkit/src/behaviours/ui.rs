@@ -1002,6 +1002,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.list.a-row-taken-out-stands-nowhere",
+        says: "A row taken out of a list has no parent until it is put somewhere: it is not drawn                or pressed where it stood, and the rows after it move up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-LIST-ROW-OUT"),
+        station: "auberean-ui::cpu::lists::a_row_taken_out_of_a_list_stands_nowhere",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.list.a-smooth-list-glides-to-its-goal-over-its-movement-time",
         says: "A smooth list glides to a goal view: half way after half its movement time, there at the \
                end, the goal then forgotten.",

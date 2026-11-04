@@ -1087,8 +1087,8 @@ impl Ui {
         self.listbox_update_and_draw(list);
     }
 
-    /// Take the row at `index` out of the list (keeping the element): no longer selected or
-    /// under a dragged item.
+    /// Take the row at `index` out of the list (keeping the element, which stands nowhere until
+    /// it is put somewhere): no longer selected or under a dragged item.
     // D2-11554
     pub fn list_remove(&mut self, list: Handle, index: usize) -> Option<Handle> {
         let item = self.list_items(list).get(index).copied()?;
@@ -1101,6 +1101,10 @@ impl Ui {
             if l.drag_over == Some(item) {
                 l.drag_over = None;
             }
+            n.children.retain(|c| *c != item);
+        }
+        if let Some(n) = self.node_mut(item).filter(|n| n.parent == Some(list)) {
+            n.parent = None;
         }
         self.sync_selected_index(list);
         if !self.lb_test(list, bits::MULTI_OP) {

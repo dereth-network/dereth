@@ -92,6 +92,30 @@ fn click(u: &mut Ui, x: i32, y: i32) {
     u.pointer_release();
 }
 
+/// A row taken out of a list is no longer drawn or pressed where it stood, and the rows after it
+/// move up; put back, it is in the list again.
+///
+/// Behaviour: ui.list.a-row-taken-out-stands-nowhere
+#[test]
+fn a_row_taken_out_of_a_list_stands_nowhere() {
+    let (mut u, list, rows) = five_rows(vec![row(), window(vec![], vec![])]);
+    let on_top = u.screen_rect(rows[0]).unwrap();
+    let taken = u.list_remove(list, 0).expect("a row");
+    assert_eq!(taken, rows[0]);
+    assert_eq!(u.node(taken).and_then(|n| n.parent), None);
+    assert!(!u.node(list).unwrap().children.contains(&taken));
+    assert_eq!(
+        u.screen_rect(rows[1]).unwrap().y0,
+        on_top.y0,
+        "the next row in its place"
+    );
+    assert_eq!(u.hit(on_top.x0 + 5, on_top.y0 + 5), Some(rows[1]));
+    u.list_insert(list, taken, 0);
+    assert_eq!(u.node(taken).and_then(|n| n.parent), Some(list));
+    assert_eq!(u.list_index_of(list, taken), Some(0));
+    assert_eq!(u.screen_rect(taken).unwrap().y0, on_top.y0);
+}
+
 /// A list two rows tall over five rows: its down arrow scrolls it a row at a time (the rows move
 /// up by a row's height) until the last full view; the up arrow is ghosted at the top and the down
 /// arrow at the bottom.
