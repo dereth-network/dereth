@@ -294,6 +294,118 @@ fn a_specials_hook_adds_by_the_players_rating() {
     assert_eq!(with - without, 40, "{with} {without}");
 }
 
+/// The rating a skill's information caches.
+fn cached_rating(info: &[Value]) -> u32 {
+    match info.first().and_then(Value::root) {
+        Some(yalain_world::calls::Node::Script { slots, .. }) => slots[2].1,
+        other => panic!("the skill's information: {other:?}"),
+    }
+}
+
+/// An effect raising a skill raises its rating: the hook's add and the rating its information
+/// caches are its holder's with the effect, by whole points.
+/// Behaviour: server.skills.rating-with-effects
+#[test]
+fn an_effect_raising_a_skill_raises_what_its_hook_adds_and_the_rating_cached() {
+    use yalain_world::effect_defs::{numeric, EffectDef, Kind, Scale};
+    const RAISES: u32 = 0x6F00_0002;
+    // Each point of rating adds a point.
+    let used = |raised: bool| -> (i32, u32) {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        const BOW_OF_KNOWN_DAMAGE: u32 = 0x4700_07A3;
+        let mut p = yalain_content::Props::default();
+        p.set("Weapon_Damage", yalain_content::Prop::Int(100));
+        h.server.catalog.insert(yalain_testkit::test_template(
+            BOW_OF_KNOWN_DAMAGE,
+            0x1067,
+            p,
+        ));
+        h.server
+            .catalog
+            .implements
+            .insert(BOW_OF_KNOWN_DAMAGE, yalain_world::skill_use::implement::BOW);
+        h.arm(b, me, BOW_OF_KNOWN_DAMAGE);
+        let d = h
+            .server
+            .skill_table
+            .skills
+            .get_mut(&DEADEYE)
+            .expect("Deadeye");
+        d.cap = 50;
+        for hook in &mut d.usage.as_mut().expect("used").hooks {
+            hook.add_by_rating = vec![(0.0, 0.0), (1000.0, 1000.0)];
+        }
+        h.server.effect_table.effects.insert(
+            RAISES,
+            EffectDef {
+                state: RAISES,
+                kind: Kind::Numeric {
+                    flags: numeric::ADD,
+                    stats: vec![yalain_world::effects::SKILL_STAT | DEADEYE],
+                    magnitude: Scale(vec![(0.0, 6.82)]),
+                },
+                duration: Scale::default(),
+                priority: Scale::default(),
+                fx: 0,
+                external_flags: 0,
+                internal_flags: 0,
+                enum_value: 0,
+                eq_class: 0,
+                name: None,
+            },
+        );
+        if raised {
+            let cast = h.net.game_time(h.now);
+            let p = h.server.players.values_mut().next().expect("the player");
+            let eid = yalain_world::effects::next_eid(p);
+            p.play.effects.push(yalain_world::state::EffectState {
+                eid,
+                state: RAISES,
+                cast,
+                timeout: 1.0e9,
+                caster: 0,
+                spellcraft: 10.0,
+                pk: false,
+                acting: 0,
+                skill: 0,
+                item: 0,
+                flags: 0,
+                categories: 1,
+            });
+        }
+        if let Some(t) = h.server.things.get_mut(beetle) {
+            t.max_health = 10_000_000;
+            t.health = 10_000_000;
+        }
+        for _ in 0..50 {
+            let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+            h.run(120);
+            let plain = h.world_messages(b, from).iter().find_map(|m| match m {
+                ServerMessage::DoStory(e) => e
+                    .action
+                    .hooks
+                    .iter()
+                    .find(|k| k.numbers[0] == 0x4000_0008 && k.numbers[3] < 0)
+                    .map(|k| -k.numbers[3]),
+                _ => None,
+            });
+            if let Some(d) = plain {
+                let info = calls_of(&h, b, from)
+                    .into_iter()
+                    .find(|(f, _)| *f == SKILL_INFO)
+                    .expect("the skill's information");
+                return (d, cached_rating(&info.1));
+            }
+        }
+        panic!("no plain hit in 50 uses");
+    };
+    let (d0, r0) = used(false);
+    let (d1, r1) = used(true);
+    assert_eq!(r1, r0 + 6, "cached {r1} over {r0}");
+    assert_eq!(d1 - d0, 6, "hit {d1} over {d0}");
+}
+
 /// A special's critical does a quarter more than its plain hit, not double, its hook's add with the
 /// rest.
 /// Behaviour: server.specials.critical-size

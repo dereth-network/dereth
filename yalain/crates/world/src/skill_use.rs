@@ -777,7 +777,8 @@ pub fn aim_of<S: Store>(s: &Server<S>, world: ConnId, r: Request, u: &Usage) -> 
     }
 }
 
-/// A player's rating in a skill (the spellcraft of the skill's effects, what its hooks add by).
+/// A player's rating in a skill with its effects (the spellcraft of the skill's effects, what its
+/// hooks add by).
 pub(crate) fn rating_of<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> f32 {
     let Some(p) = s.players.get(&world) else {
         return 1.0;
@@ -785,8 +786,20 @@ pub(crate) fn rating_of<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> f
     let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
     let held = crate::skills::held(&starting, &p.play.skills);
     #[allow(clippy::cast_precision_loss)]
-    let r = s.skill_table.rating(&held, skill) as f32;
+    let r = effective_rating(s, p, &held, skill) as f32;
     r.max(1.0)
+}
+
+/// A player's rating in a skill it holds, with what its effects make of it.
+pub(crate) fn effective_rating<S: Store>(
+    s: &Server<S>,
+    p: &crate::world::Player,
+    held: &[crate::skills::Held],
+    skill: u32,
+) -> u32 {
+    s.skill_table.rating_with(held, skill, &|sk, rating| {
+        crate::effects::skill_rating(&s.effect_table, &p.play.effects, sk, rating)
+    })
 }
 
 /// Does a player carry an effect of one of these saved states?
@@ -2418,7 +2431,7 @@ fn skill_info<S: Store>(
     };
     let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
     let held = crate::skills::held(&starting, &p.play.skills);
-    let rating = s.skill_table.rating(&held, x.req.skill);
+    let rating = effective_rating(s, p, &held, x.req.skill);
     if let Some(mut h) = held.iter().find(|h| h.skill == x.req.skill).copied() {
         h.mask |= HAS_LAST_USED | mask;
         progress::private(

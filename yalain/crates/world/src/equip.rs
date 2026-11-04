@@ -487,7 +487,7 @@ pub fn arcane_lore_of<S: Store>(s: &Server<S>, p: &crate::world::Player) -> i32 
             let d = s.skill_table.skills.get(&h.skill)?;
             (d.category == crate::skills::ARCANE_LORE_CATEGORY).then(|| {
                 #[allow(clippy::cast_precision_loss)]
-                let rating = s.skill_table.rating(&skills, h.skill) as f32;
+                let rating = crate::skill_use::effective_rating(s, p, &skills, h.skill) as f32;
                 dereth_primitives::num::to_i32(rating * d.attribute_mod)
             })
         })

@@ -221,6 +221,8 @@ pub const VIGOR_COST_ADD: u32 = 0x4_0128;
 /// the usual pace, 0 for a hold).
 pub const ARMOR_RATING: u32 = 0x4_0125;
 pub const ATTACK_SPEED: u32 = 0x3_0129;
+/// The stats of skills: this with the skill's value.
+pub const SKILL_STAT: u32 = 0x80_0000;
 
 /// Lifestone protection: its saved state, how long it lasts, its record's flags and categories,
 /// its glow, and the text its end shows (type 8).
@@ -400,6 +402,34 @@ pub fn modifier(
         }
     }
     (add, mult)
+}
+
+/// What a holder's effects make of its rating in a skill: each change in turn, a whole number of
+/// points added or the rating multiplied, what is left never below nothing (2017: a change of 6.82
+/// raised a rating of 40 to 46).
+#[must_use]
+pub fn skill_rating(
+    table: &crate::effect_defs::EffectTable,
+    records: &[EffectState],
+    skill: u32,
+    rating: u32,
+) -> u32 {
+    let stat = SKILL_STAT | skill;
+    let mut out = i64::from(rating);
+    for e in applying(table, records) {
+        let Some(d) = table.get(e.state) else {
+            continue;
+        };
+        for (s, multiplies, v) in d.changes(e.spellcraft) {
+            if s == stat {
+                #[allow(clippy::cast_precision_loss)]
+                let then = if multiplies { out as f32 * v } else { v };
+                let then = i64::from(dereth_primitives::num::to_i32(then.trunc()));
+                out = if multiplies { then } else { out + then };
+            }
+        }
+    }
+    u32::try_from(out.max(0)).unwrap_or(rating)
 }
 
 /// A player's greatest health or vigor with its effects (the client counts them the same way).

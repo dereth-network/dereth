@@ -132,6 +132,7 @@ what they see, not how it was done.
 - Effects that lower what skills cost now work.
 - Weapons are fought in their own stances.
 - Items with no use are refused instead of being held as a sword.
+- Items that raise a skill now raise your rating in it.
 
 ## 0.1.2 (2026-11-03)
 

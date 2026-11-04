@@ -8508,6 +8508,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.rating-with-effects",
+        says: "A skill's rating counts its holder's effects on that skill, each change by whole \
+               points, its parents' as changed and its cap still holding, in what its hooks add, \
+               its effects' spellcraft and the rating its information caches.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-WITH-EFFECTS"),
+        station: "yalain-testkit::cpu::play::skills::a_skills_rating_counts_its_own_and_its_parents_effects_up_to_its_cap",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.recall-skills-read",
         says: "Portal Recall, the cities' recalls and Allegiance Recall read as the lifestone's recall: a \
                10 s power-up, only on their user, all its vigor, the 30 s wait; Portal Recall's \

@@ -127,6 +127,48 @@ fn raising_a_skill_spends_the_experience_to_its_tables_next_level() {
 
 /// A skill's level in its table: the highest level whose experience it holds (none still reaches
 /// level 1); a raise costs the experience to the next, none at the top.
+/// A rating with effects: a parent's counts, as changed, toward its child; the cap still holds.
+/// Behaviour: server.skills.rating-with-effects
+#[test]
+fn a_skills_rating_counts_its_own_and_its_parents_effects_up_to_its_cap() {
+    use yalain_world::skills::{mask, Held};
+    const PARENT: u32 = 16;
+    let mut t = table();
+    t.skills.insert(
+        PARENT,
+        SkillDef {
+            id: PARENT,
+            cap: 200,
+            table: TABLE,
+            ..SkillDef::default()
+        },
+    );
+    t.skills.get_mut(&SKILL).expect("the skill").parents = vec![(PARENT, 1)];
+    let held = |skill, granted| Held {
+        skill,
+        granted,
+        xp: 0,
+        mask: mask::TRAINED,
+        cost: 0,
+        children: 0,
+        dependents: 0,
+    };
+    let skills = [held(SKILL, 20), held(PARENT, 10)];
+    assert_eq!(t.rating(&skills, SKILL), 20 + 1 + 1);
+    // The parent's raised rating counts as a tenth, at most its 50.
+    let parent_raised = |sk: u32, r: u32| if sk == PARENT { r + 19 } else { r };
+    assert_eq!(t.rating_with(&skills, SKILL, &parent_raised), 20 + 3 + 1);
+    let own_raised = |sk: u32, r: u32| if sk == SKILL { r + 6 } else { r };
+    assert_eq!(t.rating_with(&skills, SKILL, &own_raised), 22 + 6);
+    let far = |sk: u32, r: u32| if sk == SKILL { r + 600 } else { r };
+    assert_eq!(t.rating_with(&skills, SKILL, &far), 50, "its cap");
+    // No effect, as without.
+    assert_eq!(
+        t.rating_with(&skills, SKILL, &|_, r| r),
+        t.rating(&skills, SKILL)
+    );
+}
+
 /// Behaviour: server.skills.advancement-table
 #[test]
 fn a_tables_level_and_raise_cost_follow_the_library() {

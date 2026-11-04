@@ -607,15 +607,35 @@ impl SkillTable {
     /// A held skill's rating (see the module's rules).
     #[must_use]
     pub fn rating(&self, skills: &[Held], skill: u32) -> u32 {
-        self.rating_at(skills, skill, 0)
+        self.rating_at(skills, skill, 0, &|_, raw| raw)
     }
 
-    fn rating_at(&self, skills: &[Held], skill: u32, depth: u32) -> u32 {
+    /// A held skill's rating with what its holder's effects make of each skill's own (`changed`,
+    /// given a skill and its rating, [`crate::effects::skill_rating`]): its parents' count as
+    /// changed, and the skill's cap still holds (2017: one character's skill at one experience,
+    /// rated 46 under an item's 6.82 and 40 without, 21 and 15 uses).
+    #[must_use]
+    pub fn rating_with(
+        &self,
+        skills: &[Held],
+        skill: u32,
+        changed: &dyn Fn(u32, u32) -> u32,
+    ) -> u32 {
+        self.rating_at(skills, skill, 0, changed)
+    }
+
+    fn rating_at(
+        &self,
+        skills: &[Held],
+        skill: u32,
+        depth: u32,
+        changed: &dyn Fn(u32, u32) -> u32,
+    ) -> u32 {
         let Some(h) = skills.iter().find(|h| h.skill == skill) else {
             return 0;
         };
         let Some(d) = self.skills.get(&skill) else {
-            return h.granted;
+            return changed(skill, h.granted);
         };
         let trained = |p: u32| {
             skills
@@ -626,7 +646,7 @@ impl SkillTable {
             d.parents
                 .iter()
                 .filter(|(p, _)| trained(*p))
-                .map(|(p, _)| self.rating_at(skills, *p, depth + 1).min(50))
+                .map(|(p, _)| self.rating_at(skills, *p, depth + 1, changed).min(50))
                 .sum()
         } else {
             0
@@ -637,7 +657,7 @@ impl SkillTable {
             .map_or(0, |t| table_level(t, h.xp));
         let bonus = parents / 10;
         let cap = if d.active { d.cap.min(50) } else { d.cap };
-        (h.granted + bonus + level).min(cap)
+        changed(skill, (h.granted + bonus + level).min(cap)).min(cap)
     }
 
     /// Why a player may not train a skill, if it may not: a hero skill only by a hero, paid in
