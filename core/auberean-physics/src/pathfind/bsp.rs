@@ -89,13 +89,6 @@ impl BspLeaf {
         false
     }
 
-    /// A leaf is not split in place (its parent replaces it).
-    // D2-13573
-    #[must_use]
-    pub fn find_and_split_node(&self) -> bool {
-        false
-    }
-
     /// A segment through the tree reaches this leaf: its node is listed.
     pub fn split_by_segment(&self, out: &mut Vec<u32>) -> bool {
         out.push(self.node_id);

@@ -126,16 +126,6 @@ impl StoryHookData {
         self.weapon = weapon;
     }
 
-    // D2-15840
-    pub fn set_target_health_change(&mut self, change: i32) {
-        self.target_health_change = change;
-    }
-
-    // D2-15841
-    pub fn set_attacker_health_change(&mut self, change: i32) {
-        self.attacker_health_change = change;
-    }
-
     pub fn set_target_pk_damage(&mut self, change: i32) {
         self.target_pk_damage = change;
     }
@@ -295,11 +285,6 @@ impl<B: Behavior> PhysicsStory<B> {
             b |= story_bits::BASIC_ATTACK;
         }
         b
-    }
-
-    // D2-15853
-    pub fn set_client_context(&mut self, context: u32) {
-        self.client_context = context;
     }
 
     // D2-15854

@@ -58,12 +58,6 @@ impl<'a> CachedRecords<'a> {
         }
     }
 
-    /// Let go of the character template; the next use finds it again.
-    // D2-15058
-    pub fn release_template(&self) {
-        self.templates.borrow_mut().remove(&self.template.0);
-    }
-
     fn get<T: Decode>(&self, cache: &Cache<T>, id: DataId) -> Option<Arc<T>> {
         if id.is_none() {
             return None;

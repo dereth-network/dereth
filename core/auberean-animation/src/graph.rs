@@ -20,7 +20,7 @@
 
 use std::sync::Arc;
 
-use auberean_assets::animation::{AnimMap, Animation, AnimationKind, GameHook, SliderTicks};
+use auberean_assets::animation::{Animation, AnimationKind, GameHook, SliderTicks};
 use auberean_primitives::DataId;
 use auberean_world::chargen::Random;
 
@@ -734,38 +734,5 @@ pub fn bone_count_matches(anims: &dyn Animations, id: DataId, bones: usize) -> b
     }
 }
 
-/// The records an animation map names, for the data cache to fetch with it: every animation it
-/// maps, in its table's order; none when the records asked for are animations themselves (kind
-/// `0x40000009`).
-// D2-14898
-#[must_use]
-pub fn map_sub_ids(map: &AnimMap, kind: u32) -> Vec<DataId> {
-    if kind == ANIMATION_RECORD {
-        return Vec::new();
-    }
-    map.entries.iter().map(|(_, id)| *id).collect()
-}
-
 /// The record kind of an animation.
 pub const ANIMATION_RECORD: u32 = 0x4000_0009;
-
-/// The animations of an animation map to keep loaded: each mapped animation, then everything
-/// under them.
-// D2-14900
-#[must_use]
-pub fn cache_list(anims: &dyn Animations, mapped: &[DataId]) -> Vec<DataId> {
-    let mut first: Vec<DataId> = Vec::new();
-    let mut under: Vec<DataId> = Vec::new();
-    for &id in mapped {
-        if anims.animation(id).is_some() {
-            first.push(id);
-            recursive_sub_ids(anims, id, &mut under);
-        }
-    }
-    first.extend(
-        under
-            .into_iter()
-            .filter(|&id| anims.animation(id).is_some()),
-    );
-    first
-}

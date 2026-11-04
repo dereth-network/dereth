@@ -74,7 +74,6 @@ impl ContactProperty {
         self.property.id
     }
 
-    // D2-15576
     #[must_use]
     pub fn is_begin(&self) -> bool {
         self.change == change::BEGIN
@@ -84,12 +83,6 @@ impl ContactProperty {
     #[must_use]
     pub fn is_end(&self) -> bool {
         self.change == change::END
-    }
-
-    // D2-15578
-    #[must_use]
-    pub fn is_changed(&self) -> bool {
-        self.change == change::CHANGED
     }
 
     // D2-15579
@@ -445,12 +438,6 @@ impl CollisionReport {
         self.object_properties.get(i)
     }
 
-    // D2-15551
-    #[must_use]
-    pub fn env_property(&self, i: usize) -> Option<&ContactProperty> {
-        self.env_properties.get(i)
-    }
-
     #[must_use]
     pub fn surface_property(&self, i: usize) -> Option<&ContactProperty> {
         self.surface_properties.get(i)
@@ -459,13 +446,6 @@ impl CollisionReport {
     #[must_use]
     pub fn water_property(&self, i: usize) -> Option<&ContactProperty> {
         self.water_properties.get(i)
-    }
-
-    /// How many surface properties were reported.
-    // D2-00414
-    #[must_use]
-    pub fn num_surface_properties(&self) -> usize {
-        self.surface_properties.len()
     }
 
     /// The first record of an object.

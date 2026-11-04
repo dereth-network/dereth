@@ -464,11 +464,6 @@ impl MotionInterp {
         self.motion_values(owner).max_forward
     }
 
-    // D2-07001
-    pub fn set_local_desired_velocity(&mut self, v: Vec3) {
-        self.local_desired_velocity = v;
-    }
-
     // D2-07002
     #[must_use]
     pub fn is_affected_by_gravity(&self, owner: &dyn Owner) -> bool {
@@ -1067,19 +1062,6 @@ impl MotionInterp {
     // D2-07033
     pub fn add_terrain_modifier(&mut self, terrain: u32, modifier: u32) {
         self.terrain_mods.insert(terrain, modifier);
-    }
-
-    /// Where interpolation last aimed and the ground's slope there, while interpolating.
-    // D2-07017
-    #[must_use]
-    pub fn interpolation_debug_values(&self) -> Option<(Vec3, Vec3)> {
-        self.interpolation.as_ref().and_then(Follower::debug_values)
-    }
-
-    // D2-07037
-    #[must_use]
-    pub const fn turn_to_direction(&self) -> Heading {
-        self.turn_to
     }
 
     // D2-07038

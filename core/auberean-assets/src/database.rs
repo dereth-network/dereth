@@ -28,7 +28,7 @@ use crate::entity::{Entity, EntityGroup};
 use crate::fx::FxTable;
 use crate::property::{Names, PropertyList, MASTER_PROPERTY_MAPPING, MASTER_PROPERTY_VALUE};
 use crate::strings::{EnumMap, StringTable};
-use crate::tables::{FileIdTable, IdMap};
+use crate::tables::IdMap;
 use crate::visual::{Appearance, VisualDesc};
 use crate::{decode, Context, Decode};
 
@@ -241,27 +241,6 @@ impl Database {
         }
     }
 
-    /// Whether this database runs a game (always, here: no world-building tool runs it).
-    // D2-12605
-    #[must_use]
-    pub fn is_runtime(&self) -> bool {
-        true
-    }
-
-    /// Whether this database serves a client.
-    // D2-12606
-    #[must_use]
-    pub fn is_client(&self) -> bool {
-        self.client
-    }
-
-    /// Whether this database serves a server.
-    // D2-12607
-    #[must_use]
-    pub fn is_server(&self) -> bool {
-        self.server
-    }
-
     /// Say whether the database serves a client and a server.
     pub fn set_roles(&mut self, client: bool, server: bool) {
         self.client = client;
@@ -306,13 +285,6 @@ impl Database {
     /// Throw away every cache (handles still out keep their records).
     pub fn destroy_object_caches(&self) {
         cache::destroy_all(&self.caches);
-    }
-
-    /// A file-id table record (the names of the music files, by id).
-    // D2-07827
-    #[must_use]
-    pub fn file_id_table(&self, id: u32) -> Option<Obj<FileIdTable>> {
-        self.get_typed(id, RecordType::FILE_ID_TABLE.0)
     }
 
     /// Whether whoever uses the database asks for records only as it needs them, never ahead in
@@ -506,21 +478,6 @@ impl Database {
         }
     }
 
-    /// Read every loaded record of a type (decoded as `T`) again, when the type has a name in
-    /// the enumeration of types.
-    // D2-12624, D2-12652
-    pub fn reload_cache<T: Decode + Send + Sync + 'static>(&self, kind: u32) -> bool {
-        if self.enumeration_name(ENUM_MAP_MAPPING, kind).is_none() {
-            return false;
-        }
-        for (id, ty) in cache::loaded(&self.caches, kind) {
-            if ty == TypeId::of::<T>() {
-                self.reload::<T>(id);
-            }
-        }
-        true
-    }
-
     /// The record id an enumeration value maps to (0 for none): the master id map names the
     /// mapping's id map, and that map names the record.
     // D2-12602, D2-12601, D2-12696, D2-12713
@@ -617,20 +574,6 @@ impl Database {
     #[must_use]
     pub fn enum_map_len(&self, map: u32) -> usize {
         self.chain(map).iter().map(|m| sorted(m).len()).sum()
-    }
-
-    /// Add a name to an enum map held in memory: refused when the name or the value is already
-    /// there (in the map or its bases).
-    // D2-14376
-    pub fn add_enum_mapping(&self, map: &mut EnumMap, name: &str, value: u32) -> bool {
-        let in_base_name = map.base != 0 && self.enum_map_value(map.base, name).is_some();
-        let in_base_value = map.base != 0 && self.enum_map_name(map.base, value).is_some();
-        if map.enum_of(name).is_some() || in_base_name || map.name(value).is_some() || in_base_value
-        {
-            return false;
-        }
-        map.names.push((value, name.to_owned()));
-        true
     }
 
     // ------------------------------------------------------------------ enumerations

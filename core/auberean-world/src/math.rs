@@ -82,7 +82,6 @@ impl Mat4 {
     }
 
     /// A point with its own last part through the matrix: each part the row's sum.
-    // D2-13307
     #[must_use]
     pub fn transform4(&self, v: [f32; 4]) -> [f32; 4] {
         let m = &self.0;

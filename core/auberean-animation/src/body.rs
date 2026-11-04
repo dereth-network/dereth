@@ -846,6 +846,7 @@ impl Body {
                 .skeleton
                 .as_ref()
                 .map_or_else(|| vec![None; n], |s| s.parents.clone());
+            // D2-12875
             let bone_types: Vec<u32> = part.setup.bones.iter().map(|b| b.id).collect();
             let mut acc = Pose::new(n);
             let sliders_now = self.sliders.clone();

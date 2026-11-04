@@ -312,16 +312,6 @@ impl Bank {
         }
     }
 
-    /// A key's handler gone.
-    // D2-16029
-    pub fn unlink(&mut self, key: u32) -> bool {
-        if key == 0 {
-            return false;
-        }
-        self.handlers.retain(|(k, _)| *k != key);
-        true
-    }
-
     /// A section's monitor (none taken while another has the section), and the section listed for
     /// it.
     // D2-16044

@@ -886,18 +886,6 @@ pub fn icon_is_valid(icon: &[IconLayer]) -> bool {
     picture
 }
 
-/// Whether two icons are the same as the client compares them: the same number of layers, and no
-/// pair of layers in order that differs in its number, its picture and its color all three (a
-/// pair differing in only one or two of them counts as the same).
-// D2-13886
-#[must_use]
-pub fn icons_match(a: &[IconLayer], b: &[IconLayer]) -> bool {
-    a.len() == b.len()
-        && a.iter().zip(b).all(|(x, y)| {
-            x.layer == y.layer || x.picture == y.picture || x.shift_color == y.shift_color
-        })
-}
-
 /// Layers added to an icon, in order. `false` when one was there already.
 // D2-13907
 pub fn apply_icon(icon: &mut Vec<IconLayer>, layers: &[IconLayer]) -> bool {

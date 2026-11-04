@@ -213,15 +213,6 @@ impl PropertyValue {
         }
     }
 
-    // D2-16152
-    #[must_use]
-    pub fn inq_long_integer(&self) -> Option<i64> {
-        match self {
-            Self::LongInteger(v) => Some(*v),
-            _ => None,
-        }
-    }
-
     // D2-16158
     #[must_use]
     pub fn inq_float(&self) -> Option<f32> {

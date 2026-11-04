@@ -56,13 +56,6 @@ impl Body {
             .find_map(|(i, p)| BoneTypes::new(&p.setup).find(kind).map(|b| (i, b)))
     }
 
-    /// Whether some part group has a bone of `kind`.
-    // D2-06449, D2-05995
-    #[must_use]
-    pub fn has_bone_type(&self, kind: u32) -> bool {
-        self.find_bone_type(kind).is_some()
-    }
-
     /// The transform, in the body's current pose, of the first bone of `kind` in the first part
     /// group that has one (the identity for a bone the pose does not reach).
     // D2-06640, D2-06586, D2-06448

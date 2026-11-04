@@ -174,17 +174,6 @@ impl RecordType {
         self == Self::LANDBLOCK
     }
 
-    /// The bytes a record's header takes: its id, and its category word when the type has one.
-    // D2-12691
-    #[must_use]
-    pub fn header_size(self) -> usize {
-        if self.is_categorized() {
-            8
-        } else {
-            4
-        }
-    }
-
     /// A short name: the extension without its dot, or a name for the types registered without
     /// one.
     #[must_use]

@@ -570,7 +570,7 @@ impl Body {
         self.min_impact
     }
 
-    // D2-05877, D2-06408, D2-05841
+    // D2-05877, D2-06408, D2-05841, D2-15853
     pub fn set_global_modifier(&mut self, modifier: u32) {
         self.minterp.global_mod = modifier;
     }

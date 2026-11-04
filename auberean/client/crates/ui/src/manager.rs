@@ -782,13 +782,4 @@ impl Ui {
     // -----------------------------------------------------------------------------------------
     // Depth
     // -----------------------------------------------------------------------------------------
-
-    /// Put a root in front of every other root (a window brought forward).
-    // D2-11230
-    pub fn make_topmost(&mut self, root: Handle) {
-        if !self.roots().contains(&root) {
-            return;
-        }
-        self.bring_root_to_front(root);
-    }
 }

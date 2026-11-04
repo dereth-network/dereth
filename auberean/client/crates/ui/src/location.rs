@@ -110,12 +110,4 @@ impl Ui {
         self.move_to(h, x0, y0);
         true
     }
-
-    /// The place an element starts in, for the character's kept places.
-    // D2-11310
-    pub fn set_default_location(&mut self, h: Handle, l: Location) {
-        if let Some(n) = self.node_mut(h) {
-            n.default_location = Some(l);
-        }
-    }
 }

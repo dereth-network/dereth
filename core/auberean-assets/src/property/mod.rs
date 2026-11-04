@@ -436,27 +436,11 @@ impl Property {
         names.enumeration_name(VALUE_TYPE_NAMES, self.value_type)
     }
 
-    /// The property as `name = value`, when both have text.
-    // D2-16084
-    #[must_use]
-    pub fn output_text(&self, list: &PropertyList, names: &dyn Names) -> Option<String> {
-        let name = list.name_of(self.id)?;
-        let desc = list.descriptor(self.id)?;
-        let value = self.value.as_text(desc, names)?;
-        Some(format!("{name} = {value}"))
-    }
-
     /// A string property's value as text.
     // D2-08369
     #[must_use]
     pub fn string_value(&self) -> Option<&str> {
         self.value.inq_string()
-    }
-
-    /// Set a string property's value.
-    // D2-08370
-    pub fn set_string_value(&mut self, s: &str) -> bool {
-        self.value.set(PropertyValue::String(s.to_owned()))
     }
 
     /// The records the property names: a file property's record, a reference's string tables.
@@ -743,13 +727,6 @@ impl PropertyCollection {
         self.group(group)?.get_optional(id)
     }
 
-    /// A copy of a group.
-    // D2-16112
-    #[must_use]
-    pub fn inq_group(&self, group: u32) -> Option<PropertyGroup> {
-        self.group(group).cloned()
-    }
-
     /// A copy of the group at a place.
     #[must_use]
     pub fn inq_group_at(&self, n: usize) -> Option<PropertyGroup> {
@@ -773,12 +750,6 @@ impl PropertyCollection {
     #[must_use]
     pub fn inq_by_name(&self, list: &PropertyList, name: &str) -> Option<Property> {
         self.inq(list, list.id_of(name)?)
-    }
-
-    // D2-16121
-    #[must_use]
-    pub fn inq_optional_by_name(&self, list: &PropertyList, name: &str) -> Option<Property> {
-        self.inq_optional(list, list.id_of(name)?)
     }
 
     // D2-16118

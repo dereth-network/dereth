@@ -67,13 +67,6 @@ pub fn day_for(sky: &SkyDesc, n: i64) -> Option<DataId> {
     Some(sky.days[last].day)
 }
 
-/// The day at place `index` in the sky's list, if the list is that long.
-// D2-07456
-#[must_use]
-pub fn day_by_index(sky: &SkyDesc, index: usize) -> Option<DataId> {
-    sky.days.get(index).map(|d| d.day)
-}
-
 /// An interval `share` of the way from the longest to the shortest: the shortest below a share of
 /// 0, the longest above a share of 1 (the client's own test lets a share of exactly 1 through to
 /// the sum, which gives the shortest).

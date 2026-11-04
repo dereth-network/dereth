@@ -99,18 +99,6 @@ pub fn is_player(id: u64) -> bool {
     kind(id) == IdKind::Player
 }
 
-// D2-16949
-#[must_use]
-pub fn is_interface(id: u64) -> bool {
-    kind(id) == IdKind::Interface
-}
-
-// D2-16950
-#[must_use]
-pub fn is_camera(id: u64) -> bool {
-    kind(id) == IdKind::Camera
-}
-
 // D2-16951
 #[must_use]
 pub fn is_temporary(id: u64) -> bool {

@@ -152,11 +152,6 @@ impl Body {
     pub const fn is_pushable(&self) -> bool {
         self.has(flags::PUSHABLE) && self.is_dynamic()
     }
-    // D2-06299
-    #[must_use]
-    pub const fn is_path_clipped(&self) -> bool {
-        self.has(flags::PATH_CLIPPED)
-    }
     // D2-06300
     #[must_use]
     pub const fn is_path_aligned(&self) -> bool {

@@ -1175,14 +1175,6 @@ impl GamePlay {
         out.push(Request::CharacterSelection);
     }
 
-    /// The please-wait dialog closed.
-    // D2-01924
-    pub fn close_wait_dialog(&mut self, id: u32, out: &mut Vec<Request>) {
-        if id == self.wait {
-            self.do_please_wait_cancel(out);
-        }
-    }
-
     /// A message of the scripts in a dialog of its own (written, or a string reference its text
     /// element writes), kept until it closes; `modal`, it goes up at once in place of the dialog
     /// up, which waits behind it.
