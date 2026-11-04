@@ -306,6 +306,7 @@ fn making_a_recipe_while_attacking_is_refused_with_the_answer_alone() {
     let iron = with_recipe_and_iron(&mut h, world, me, 20);
     if let Some(p) = h.server.players.get_mut(&world) {
         p.attacking = Some(yalain_world::combat::Run {
+            walking: false,
             target: 1,
             next_swing: f64::INFINITY,
             context: 0,

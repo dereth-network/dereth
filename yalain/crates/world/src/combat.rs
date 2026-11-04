@@ -12,9 +12,11 @@
 //! a bow shoots beyond a meter between the bodies and strikes within one, a stave strikes within ten
 //! meters and throws beyond nine; a thrown attack's story names the weapon, and its target tells how
 //! it came out as it arrives (after the throw's windup and its flight); a strike lands at its hit
-//! point. Out of range the run is told it is too far, and moving it cannot shoot, each a second
-//! apart; its combat mode comes with its first swing. A creature hurt to 80% or less shows it. A
-//! run that ends is answered with the player not attacking and at peace.
+//! point. Out of range a bow's or a stave's run is told it is too far, and moving it cannot shoot,
+//! each a second apart; its combat mode comes with its first swing. A run that walks and is out of
+//! reach has its one order to walk and is told nothing, swinging as soon as it arrives. A creature
+//! hurt to 80% or less shows it. A run that ends is answered with the player not attacking and at
+//! peace.
 //!
 //! **On another player.** A run may target another player where who may harm whom allows it
 //! ([`crate::kingdoms::may_harm`]): it begins, and each swing goes on, only while it does, else the
@@ -181,8 +183,8 @@ pub const PLAYER_REACH: f32 = 3.2;
 /// When a player's first swing comes after it asks to attack, in seconds.
 pub const FIRST_SWING: f64 = 0.23;
 
-/// When a too-far attack is tried again, in seconds.
-pub const RETRY_SECONDS: f64 = 1.0;
+/// How often a run walking to its target looks whether it has arrived, in seconds (a world step).
+pub const WALKING_CHECK: f64 = 0.2;
 
 /// Seconds between a creature's melee attacks (the start area's measured gaps: 1.24-1.42 s, 2.0
 /// for the dagger wielders).
@@ -208,6 +210,8 @@ pub struct Run {
     pub context: u32,
     /// Its combat mode has been sent (a run begun out of range sends it with its first swing).
     pub mode_sent: bool,
+    /// It has been ordered to walk to its target and has not arrived.
+    pub walking: bool,
 }
 
 /// Why a standing run cannot swing (the client writes the text): moving.
@@ -544,6 +548,7 @@ pub fn begin<S: Store>(
         next_swing: clock.local.0 + FIRST_SWING,
         context,
         mode_sent,
+        walking: false,
     });
     if !was {
         progress::private(net, world, &attack_state(true));
@@ -671,13 +676,20 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
-    let order = close_in(p, run.target, run.context);
+    // A run on its way has its order already: the client keeps following the target.
+    let order = (!run.walking).then(|| close_in(p, run.target, run.context));
     let id = p.character;
     let special = p.in_run.take();
-    to_all_seeing(s, net, id, &order);
-    // A special waiting for this swing takes it.
+    if let Some(order) = &order {
+        to_all_seeing(s, net, id, order);
+    }
+    // A special waiting for this swing takes it, and what it walks to is its own: the next swing
+    // orders the walk again.
     if let Some(r) = special {
         if crate::skill_use::slot(s, net, world, r, clock) {
+            if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
+                r.walking = false;
+            }
             return;
         }
     }
@@ -685,13 +697,16 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         return;
     };
     let far = crate::presence::distance(&p.position, &at).is_none_or(|d| d > PLAYER_REACH);
-    if far {
-        progress::private(net, world, &failed(error::TOO_FAR));
-        if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
-            r.next_swing = now + RETRY_SECONDS;
+    if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
+        r.walking = far;
+        if far {
+            r.next_swing = now + WALKING_CHECK;
+            return;
         }
-        return;
     }
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
     let my_level = crate::examine::level_of(&p.qualities);
     let (skill, behavior) = if autos.is_empty() {
         MELEE_SKILLS[s.rng.below(MELEE_SKILLS.len())]

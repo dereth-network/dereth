@@ -8778,6 +8778,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.weapons.walking-run-walks-silently",
+        says: "A run whose attacks walk, on a target out of reach, has one order to walk and is told \
+               nothing until it arrives, when it swings; it goes on until the player stops it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WALKING-RUN"),
+        station: "yalain-testkit::cpu::play::weapons::a_sword_run_out_of_reach_is_ordered_once_and_told_nothing_until_it_arrives",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.world-db.release-notes-from-the-change-log",
         says: "A world database release's notes are its change log's sections from after the \
                last release up to the release, newest first, with the archive's SHA-256; a \
