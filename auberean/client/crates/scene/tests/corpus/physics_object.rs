@@ -313,3 +313,34 @@ fn what_the_scripts_ask_of_a_body_is_carried_out() {
         .body_requests
         .is_empty());
 }
+
+/// The scripts stop the camera's effects as a played scene ends: what plays on the camera ends
+/// with the next frame.
+///
+/// Behaviour: desktop.camera.the-scripts-stop-the-cameras-effects
+#[test]
+fn the_scripts_stop_the_cameras_effects() {
+    let fx = auberean_assets::fx::CameraFx {
+        shake: Some(true),
+        period: Some(600.0),
+        ..auberean_assets::fx::CameraFx::default()
+    };
+    let (mut frames, mut stood) = (0, false);
+    let (_, scene, _) = played_in_frames(SCALED, 20.0, FRAME, &[], &mut |c, scene| {
+        let Some(player) = c.model.player.filter(|p| scene.body(*p).is_some()) else {
+            return;
+        };
+        frames += 1;
+        if frames == 10 {
+            let objects = auberean_scene::camera::NoObjects;
+            scene.camera.do_camera_fx(&objects, &fx, 1.0, player);
+        }
+        if frames == 20 {
+            stood = !scene.camera.effects.tracks.is_empty();
+            let scripts = c.scripts.as_mut().expect("the scripts run");
+            scripts.host.camera_fx_stops += 1;
+        }
+    });
+    assert!(stood, "it plays until asked");
+    assert!(scene.camera.effects.tracks.is_empty(), "the ask ended it");
+}

@@ -565,6 +565,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.camera.the-scripts-stop-the-cameras-effects",
+        says: "The player's scripts stopping the camera's effects, as a played scene ends, ends \
+               everything playing on the camera.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-CAMERA-FX-STOP"),
+        station: "auberean-scene::corpus::physics_object::the_scripts_stop_the_cameras_effects",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "desktop.camera.the-shakes-noise-is-the-clients",
         says: "The shake's noise is the client's own: fractional Brownian motion (half the weight \
                an octave, twice the frequency, three octaves) over the client's gradient noise \

@@ -2806,6 +2806,7 @@ impl<'w> Scene<'w> {
         }
         self.apply_body_states(client);
         self.carry_out_body_requests(client);
+        self.stop_camera_fx_asked(client);
         self.update_temporaries(client, ticks, anim, &mut heard);
         self.publish_readings(client);
         // What each figure finished and the hooks it fired, to its body's story.
@@ -3029,6 +3030,18 @@ impl<'w> Scene<'w> {
             return b.in_world.then_some(b.position);
         }
         self.table.find(id).and_then(|k| self.table.position(k))
+    }
+
+    /// The scripts asked every camera effect stopped since last asked.
+    // D2-10690, D2-10754
+    fn stop_camera_fx_asked(&mut self, client: &mut Client) {
+        let asked = client
+            .scripts
+            .as_mut()
+            .map_or(0, |s| std::mem::take(&mut s.host.camera_fx_stops));
+        if asked > 0 {
+            self.camera.stop_all_camera_fx();
+        }
     }
 
     /// What the objects' scripts set on their bodies (as they do when an object is made or one

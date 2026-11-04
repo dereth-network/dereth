@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Fixed camera shakes and flashes carrying on after a story scene.
 - Play in a web browser: the web page now offers Asheron's Call 2's worlds.
 - Web: friends, ignore lists and tells now work in the browser.
 - The client now updates on its own, apart from the launcher.
