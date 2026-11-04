@@ -469,6 +469,19 @@ pub static DIVERGENCES: &[Divergence] = &[
               and nothing opens without the player saying so.",
     },
     Divergence {
+        id: "CD-horizon-status-bars",
+        title: "Horizon's status bars in its own colors or the original game's",
+        change: "Under the Horizon interface, the health, stamina and mana bars of its parameter \
+                 bar, party list and fellowship window are green, gold and pink at first, and the \
+                 parameter bar's numbers are large. Its options page has a Status Bar Colors \
+                 drop-down, whose Classic choice draws the bars in the final client's red, amber \
+                 and blue, and a Large Status Bar Numbers box, which unticked draws the numbers \
+                 smaller, on the line of the bars' titles. The classic and modern interfaces have \
+                 neither option.",
+        why: "Horizon keeps its own look, and a player who wants the bars to read as they always \
+              did can have them.",
+    },
+    Divergence {
         id: "CD-network-channel-lines",
         title: "Dereth Network channel lines are drawn as channel lines",
         change: "A Dereth Network channel reaches every client as a tell from the channel, since \

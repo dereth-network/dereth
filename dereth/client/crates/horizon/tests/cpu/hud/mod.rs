@@ -9,3 +9,4 @@ mod nameplates;
 mod pad_mode;
 mod retail_ui;
 mod selection;
+mod status_bars;

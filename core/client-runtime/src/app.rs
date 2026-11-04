@@ -158,7 +158,7 @@ pub fn shell_error_text(result: i32, url: &str) -> String {
 /// file would be. `None` for a name no option has, or a value it cannot take.
 fn scripted_preference(setting: &str) -> Option<(&'static str, dereth_client_contract::PrefValue)> {
     use dereth_client_contract::options::{
-        background, classic, interface, landscape, performance, preferences, store,
+        background, classic, interface, landscape, performance, preferences, status_bars, store,
     };
     let (key, value) = setting.split_once('=')?;
     let key = key.trim();
@@ -182,6 +182,8 @@ fn scripted_preference(setting: &str) -> Option<(&'static str, dereth_client_con
             interface::INTERFACE,
             performance::PERFORMANCE_PANEL,
             background::SLOW_DOWN_IN_BACKGROUND,
+            status_bars::STATUS_BAR_COLORS,
+            status_bars::LARGE_STATUS_BAR_NUMBERS,
         ])
         .chain(classic::NAMES)
         .find(|n| n.eq_ignore_ascii_case(key))?;

@@ -10,7 +10,8 @@
 //! A few rows belong to one interface only, because they mean something only there
 //! ([`Shown`]): the classic interface's own mouse look, its stretched layout and its social
 //! window's pages; the modern interface's mouse turning, its side-by-side vitals, its chat font
-//! and its floating chat windows. A row for something the world's era does not have is left out ([`Needs`]).
+//! and its floating chat windows; Horizon's status bars' colours and numbers. A row for something
+//! the world's era does not have is left out ([`Needs`]).
 //! So is a row for something only some hosts do, where the host does not ([`Row::hosted`]): the
 //! render scale, which only the browser offers.
 
@@ -81,7 +82,8 @@ pub enum Shown {
 
 impl Shown {
     /// Whether the interface `face` shows the row. The Horizon interface shows the modern
-    /// interface's own rows: it plays with the modern key map, mouse and chat.
+    /// interface's own rows: it plays with the modern key map, mouse and chat. A row of Horizon's
+    /// alone shows on no other interface.
     #[must_use]
     pub const fn on(self, face: Interface) -> bool {
         matches!(
@@ -92,23 +94,8 @@ impl Shown {
                     Interface::Modern | Interface::Horizon
                 )
                 | (Self::Only(Interface::Classic), Interface::Classic)
-        ) || self.only_on_horizon(face)
-    }
-
-    /// A row of Horizon's alone, which only the optional high-fidelity presentation's boxes are.
-    #[cfg(feature = "hifi")]
-    const fn only_on_horizon(self, face: Interface) -> bool {
-        matches!(
-            (self, face),
-            (Self::Only(Interface::Horizon), Interface::Horizon)
+                | (Self::Only(Interface::Horizon), Interface::Horizon)
         )
-    }
-
-    /// A row of Horizon's alone: none in a build without the high-fidelity presentation.
-    #[cfg(not(feature = "hifi"))]
-    #[allow(clippy::unused_self)]
-    const fn only_on_horizon(self, _face: Interface) -> bool {
-        false
     }
 }
 
@@ -811,6 +798,22 @@ const CLIENT_SHARED: [Heading; 5] = [
                     "Field of View",
                     Value::Slider(crate::options::names::FIELD_OF_VIEW),
                     Float(90.0),
+                ),
+            ),
+            only(
+                Shown::Only(Interface::Horizon),
+                pref(
+                    crate::options::status_bars::COLORS_CAPTION,
+                    Value::Menu(crate::options::status_bars::STATUS_BAR_COLORS),
+                    Int(0),
+                ),
+            ),
+            only(
+                Shown::Only(Interface::Horizon),
+                pref(
+                    crate::options::status_bars::NUMBERS_CAPTION,
+                    Value::Check(crate::options::status_bars::LARGE_STATUS_BAR_NUMBERS),
+                    Bool(true),
                 ),
             ),
             pref(

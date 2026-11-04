@@ -515,13 +515,15 @@ fn dragging_the_volume_slider_updates_the_preference_store() {
 fn the_store_holds_the_thirty_four_attached_preferences_and_no_others() {
     let _ui = env();
     // ...and this client's own three options from another era, its interface, its performance
-    // panel, its background slow-down, the classic interface's six, the landscape detail texture
-    // and the renderer the next start comes up on beside them.
-    assert_eq!(store::len(), 48);
+    // panel, its background slow-down, Horizon's two status-bar options, the classic interface's
+    // six, the landscape detail texture and the renderer the next start comes up on beside them.
+    assert_eq!(store::len(), 50);
     assert!(store::is_registered("Render.LandscapeDetailTextures"));
     assert!(store::is_registered("Render.Renderer"));
     assert!(store::is_registered("Debug.PerformancePanel"));
     assert!(store::is_registered("Display.SlowDownInBackground"));
+    assert!(store::is_registered("Display.StatusBarColors"));
+    assert!(store::is_registered("Display.LargeStatusBarNumbers"));
     assert!(store::is_registered("Render.Ground") && store::is_registered("Render.Sky"));
     assert!(store::is_registered("Render.Objects") && store::is_registered("UI.Interface"));
     for p in dereth_ui_screens::options::preferences::UI_PREFERENCES {

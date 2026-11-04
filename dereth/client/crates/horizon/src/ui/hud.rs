@@ -11,10 +11,12 @@
 //! * the main menu at the bottom right.
 
 use crate::art::AcArt as _;
+use dereth_client_contract::options::status_bars;
 use dereth_client_contract::UiRequest;
 
 use crate::art::{Family, Sprite};
 use crate::draw::{with_alpha, Anchor, Argb, Rect, WHITE};
+use crate::ui::colours;
 use crate::ui::game::{BlipKind, ChatLine, GameState, Relation};
 use crate::ui::kit::{self, Ctx};
 use crate::ui::paint::{Align, Painter, TextStyle};
@@ -788,11 +790,29 @@ impl Hud {
         // The own gauge: the drained chunk, pale, behind the value in the gauge's colour.
         kit::own_gauge_layers(p, bar, &[(own.0, 0xB0E8_DCC8), (fill, own.1)]);
         let label_style = TextStyle::new(Family::Numerals, 12.0, 0xFFFF_FFFF).edge(0xFF33_2211);
-        p.text(&label_style, x + 6.0 * k, y + 8.0 * k, label);
-        let number = TextStyle::new(Family::BarNumbers, 20.0, 0xFFFF_FFFF).edge(0xFF33_2211);
+        let label_w = p.text(&label_style, x + 6.0 * k, y + 8.0 * k, label);
         let n = value.to_string();
+        let number_style =
+            |size: f32| TextStyle::new(Family::BarNumbers, size, 0xFFFF_FFFF).edge(0xFF33_2211);
+        if status_bars::large_numbers() {
+            let number = number_style(20.0);
+            let w = p.measure(&number, &n);
+            p.text(&number, x + 152.0 * k - w, y - 2.0 * k, &n);
+            return;
+        }
+        // Small, the number stands on the label's baseline, shrunk where it would reach the label.
+        let mut number = number_style(14.0);
+        let room = 146.0 * k - label_w - 6.0 * k;
         let w = p.measure(&number, &n);
-        p.text(&number, x + 152.0 * k - w, y - 2.0 * k, &n);
+        if w > room {
+            number = number_style((14.0 * room / w).floor().max(8.0));
+        }
+        let w = p.measure(&number, &n);
+        let base = |p: &Painter<'_>, s: &TextStyle| {
+            p.letter_band(s).map_or(p.line_height(s), |(_, base)| base)
+        };
+        let top = y + 8.0 * k + base(p, &label_style) - base(p, &number);
+        p.text(&number, x + 152.0 * k - w, top, &n);
     }
 
     fn parameter_bar(&mut self, p: &mut Painter<'_>, ctx: &mut Ctx<'_>, state: &GameState) {
@@ -817,11 +837,13 @@ impl Hud {
         let x0 = sw / 2.0 - total / 2.0;
         // Centred along the foot of the screen, under the hotbars.
         let y = sh - 30.0 * k;
-        // Health green, mana pink, stamina gold: the own gauge's neutral fill in each colour.
+        // Health green, mana pink, stamina gold, or retail's colours: the own gauge's neutral fill
+        // in each colour.
+        let [health, stamina, mana] = colours::vitals([0xFF78_D85A, 0xFFF0_C050, 0xFFF0_80D8]);
         let vitals = [
-            ("Health", state.health, 0xFF78_D85A),
-            ("Mana", state.mana, 0xFFF0_80D8),
-            ("Stamina", state.stamina, 0xFFF0_C050),
+            ("Health", state.health, health),
+            ("Mana", state.mana, mana),
+            ("Stamina", state.stamina, stamina),
         ];
         for (i, (label, v, colour)) in vitals.into_iter().enumerate() {
             let x = x0 + i as f32 * 164.0 * k;
@@ -2019,6 +2041,7 @@ impl Hud {
         let num = TextStyle::new(Family::Numerals, 12.0, 0xFFEE_E1C5).edge(0xFF00_0000);
         let hp_style = TextStyle::new(Family::BarNumbers, 16.0, 0xFFFF_FFFF).edge(0xFF33_2211);
         let badge = TextStyle::new(Family::Numerals, 10.0, 0xFF20_1000);
+        let [health, stamina, mana] = colours::vitals([0xFF6E_CB5C, 0xFFE8_B84A, 0xFFDF_6FB5]);
         for (i, (name, (hp, sp, mp), leader)) in rows.iter().enumerate() {
             let row = Rect::new(x, y, 320.0 * k, 46.0 * k);
             if ctx.over(&row) {
@@ -2042,11 +2065,11 @@ impl Hud {
                 }
             }
             let hpb = Rect::new(x + 22.0 * k, y + 24.0 * k, 120.0 * k, 10.0 * k);
-            kit::gauge(p, hpb, hp.ratio(), 0xFF6E_CB5C);
+            kit::gauge(p, hpb, hp.ratio(), health);
             let spb = Rect::new(x + 150.0 * k, y + 24.0 * k, 80.0 * k, 10.0 * k);
-            kit::gauge(p, spb, sp.ratio(), 0xFFE8_B84A);
+            kit::gauge(p, spb, sp.ratio(), stamina);
             let mpb = Rect::new(x + 238.0 * k, y + 24.0 * k, 80.0 * k, 10.0 * k);
-            kit::gauge(p, mpb, mp.ratio(), 0xFFDF_6FB5);
+            kit::gauge(p, mpb, mp.ratio(), mana);
             let n = hp.current.to_string();
             let nw = p.measure(&hp_style, &n);
             p.text(&hp_style, hpb.right() - nw, y + 30.0 * k, &n);

@@ -472,6 +472,29 @@ fn a_background_frame_is_paced_as_the_active_window_s_only_while_the_option_is_o
     store::clear();
 }
 
+/// `--set-at` sets Horizon's status-bar options in the words the profile keeps them in.
+///
+/// Behaviour: none (tooling: `--set-at`).
+#[test]
+fn set_at_takes_the_status_bar_options_in_the_profile_s_words() {
+    use dereth_client_contract::options::{status_bars, store};
+    use dereth_client_contract::PrefValue;
+    store::init();
+    assert_eq!(
+        scripted_preference("Display.StatusBarColors=Classic"),
+        Some((status_bars::STATUS_BAR_COLORS, PrefValue::Int(1)))
+    );
+    assert_eq!(
+        scripted_preference("display.largestatusbarnumbers=False"),
+        Some((
+            status_bars::LARGE_STATUS_BAR_NUMBERS,
+            PrefValue::Bool(false)
+        ))
+    );
+    assert_eq!(scripted_preference("Display.StatusBarColors=Pastel"), None);
+    store::clear();
+}
+
 /// A window that draws full screen at a share of its screen's pixels offers the render scale: the
 /// preferences, once read, hold it at the share the window starts at, whatever the profile says. A
 /// window that cannot leaves it out.

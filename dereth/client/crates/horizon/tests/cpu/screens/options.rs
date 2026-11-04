@@ -372,6 +372,51 @@ fn the_client_page_s_slow_down_in_the_background_box_turns_the_option_off_and_on
     store::clear();
 }
 
+/// The Client page has Status Bar Colors and Large Status Bar Numbers under Display, one after
+/// the other just before the Performance Panel; a choice from the first's list and a click on
+/// the second's box set the options at once.
+///
+/// Behaviour: hud.status-bars.horizon-s-page-has-the-two-options-under-display
+#[test]
+fn the_client_page_s_status_bar_rows_stand_before_the_performance_panel_and_set_the_options() {
+    use dereth_client_contract::options::{performance, status_bars};
+    store::init();
+    let state = in_world();
+    let mut h = options_on("Client", &state);
+    scroll_to(&mut h, &state, performance::CAPTION);
+    scroll_to(&mut h, &state, status_bars::COLORS_CAPTION);
+    let colors = control(&h, status_bars::COLORS_CAPTION);
+    let numbers = control(&h, status_bars::NUMBERS_CAPTION);
+    let panel = control(&h, performance::CAPTION);
+    let step = numbers.y - colors.y;
+    assert!(step > 0.0, "{colors:?} over {numbers:?}");
+    assert!(
+        (panel.y - numbers.y - step).abs() < 0.01,
+        "{numbers:?} just over {panel:?}"
+    );
+
+    let out = choose(&mut h, &state, status_bars::COLORS_CAPTION, 1);
+    assert_eq!(
+        out.requests,
+        [UiRequest::SetPreference(
+            status_bars::STATUS_BAR_COLORS,
+            PrefValue::Int(status_bars::Colors::Classic.value())
+        )]
+    );
+    assert_eq!(status_bars::Colors::chosen(), status_bars::Colors::Classic);
+    let r = control(&h, status_bars::NUMBERS_CAPTION);
+    let out = click_at(&mut h, &state, r.x + 10.0, r.y + r.h / 2.0);
+    assert_eq!(
+        out.requests,
+        [UiRequest::SetPreference(
+            status_bars::LARGE_STATUS_BAR_NUMBERS,
+            PrefValue::Bool(false)
+        )]
+    );
+    assert!(!status_bars::large_numbers());
+    store::clear();
+}
+
 /// Where the host offers the render scale, the Client page has it, and a share chosen from its
 /// list is the one drawn at once.
 ///

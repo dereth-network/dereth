@@ -10,6 +10,8 @@ pub const CAMERA_STIFFNESS: &str = "Camera.Stiffness";
 pub const PERFORMANCE_PANEL: &str = "Debug.PerformancePanel";
 /// `Display.FullScreen`.
 pub const DISPLAY_FULL_SCREEN: &str = "Display.FullScreen";
+/// `Display.LargeStatusBarNumbers`.
+pub const DISPLAY_LARGE_STATUS_BAR_NUMBERS: &str = "Display.LargeStatusBarNumbers";
 /// `Display.RefreshRate`.
 pub const DISPLAY_REFRESH_RATE: &str = "Display.RefreshRate";
 /// `Display.RenderScale`.
@@ -18,6 +20,8 @@ pub const DISPLAY_RENDER_SCALE: &str = "Display.RenderScale";
 pub const DISPLAY_RESOLUTION: &str = "Display.Resolution";
 /// `Display.SlowDownInBackground`.
 pub const DISPLAY_SLOW_DOWN_IN_BACKGROUND: &str = "Display.SlowDownInBackground";
+/// `Display.StatusBarColors`.
+pub const DISPLAY_STATUS_BAR_COLORS: &str = "Display.StatusBarColors";
 /// `Display.SyncToRefresh`.
 pub const DISPLAY_SYNC_TO_REFRESH: &str = "Display.SyncToRefresh";
 /// `Input.InvertMouseLookYAxis`.

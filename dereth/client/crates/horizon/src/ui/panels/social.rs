@@ -12,6 +12,7 @@ use dereth_primitives::ObjectId;
 use super::{WindowId, Windows};
 use crate::art::Family;
 use crate::draw::Rect;
+use crate::ui::colours;
 use crate::ui::game::{GameState, Relation};
 use crate::ui::kit::{self, Ctx};
 use crate::ui::paint::{Align, Painter, TextStyle};
@@ -150,10 +151,12 @@ impl Windows {
                 );
                 let gx = row.x + row.w * 0.52;
                 let gw = row.w * 0.44;
+                let [health, stamina, mana] =
+                    colours::vitals([0xFF6E_CB5C, 0xFFE8_B84A, 0xFFD8_6CC8]);
                 for (i, (cur, max, colour)) in [
-                    (m.current_health, m.max_health, 0xFF6E_CB5C),
-                    (m.current_stamina, m.max_stamina, 0xFFE8_B84A),
-                    (m.current_mana, m.max_mana, 0xFFD8_6CC8),
+                    (m.current_health, m.max_health, health),
+                    (m.current_stamina, m.max_stamina, stamina),
+                    (m.current_mana, m.max_mana, mana),
                 ]
                 .into_iter()
                 .enumerate()
