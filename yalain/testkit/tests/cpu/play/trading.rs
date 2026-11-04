@@ -177,6 +177,52 @@ fn both_accepting_moves_the_offered_item_to_the_front_of_the_others_pack() {
 /// When both have accepted and the other's pack has no room for what it would receive, both are
 /// told the trade failed for the other's want of room; nothing moves, and once the other has made
 /// room both must accept again and the item moves.
+/// With the pack itself full and room in a bag, a traded item goes to the front of the first bag
+/// with room, as any item arriving does, and no two items share a slot.
+/// Behaviour: server.trade.offered-accepted-exchanged
+#[test]
+fn an_item_traded_into_a_full_pack_goes_to_the_first_bag_with_room() {
+    let (mut h, (a, aid), (b, bid)) = two();
+    while pack(&h, bid).len() < 43 {
+        hold(&mut h, bid, COINS, 1);
+    }
+    let was_in_the_bag = pack(&h, bid)[42].0;
+    let bow = hold(&mut h, aid, BOW, 1);
+    opened(&mut h, (a, aid), (b, bid));
+    h.ask(a, function::OFFER, &[Arg::Int(1), Arg::LongInt(bow)], 10);
+    h.ask(a, function::ACCEPT, &[], 10);
+    let from = h.bots[b].inbox.len();
+    h.ask(b, function::ACCEPT, &[], 10);
+    let held = pack(&h, bid);
+    assert_eq!(held.len(), 44, "nothing lost");
+    let slots: Vec<u32> = held.iter().map(|x| x.1).collect();
+    assert_eq!(
+        slots,
+        (0..44).collect::<Vec<u32>>(),
+        "each in a slot of its own"
+    );
+    assert_eq!(held[42].0, bow, "at the front of the first bag");
+    assert_eq!(held[43].0, was_in_the_bag, "what was there moved up");
+    let t = h.server.things.get(bow).expect("in the world");
+    assert_eq!(t.container, Some((bid, 42)));
+    let (_, told) = h
+        .calls(b, from)
+        .into_iter()
+        .find(|(f, _)| *f == yalain_world::inventory::function::MOVE_DONE)
+        .expect("told of the move");
+    let Some(Value::Graph(g)) = told.first() else {
+        panic!("a move's description: {told:?}");
+    };
+    let Some((_, yalain_world::calls::Node::Script { slots, .. })) = g.first() else {
+        panic!("a move's description: {g:?}");
+    };
+    assert_eq!(
+        (slots[11].1, slots[24].1),
+        (42, 42),
+        "told the slot it went to"
+    );
+}
+
 /// Behaviour: server.trade.no-room-fails-the-trade
 #[test]
 fn a_pack_without_room_for_the_offer_fails_the_trade_and_nothing_moves() {

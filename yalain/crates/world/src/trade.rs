@@ -720,22 +720,24 @@ fn give<S: Store>(
         progress::private(net, gw, &m);
         new
     };
-    // Into the receiver's pack at its first slot, the rest moved down.
+    // Into the receiver's pack at its first slot, the rest moved down; into the first bag with room
+    // when the pack itself is full.
+    let mut slot = 0;
     if let Some(p) = s.players.get_mut(&rw) {
-        inventory::insert_at(&mut p.play.items, 0);
+        slot = inventory::room_for_one(&mut p.play.items);
         p.play.items.insert(
             0,
             Held {
                 id: moved,
                 template,
-                slot: 0,
+                slot,
                 location: 0,
                 quantity: n.min(held.quantity),
             },
         );
     }
     if let Some(x) = s.things.get_mut(moved) {
-        x.container = Some((receiver, 0));
+        x.container = Some((receiver, slot));
         x.at = None;
     }
     let m = Move {
@@ -749,8 +751,8 @@ fn give<S: Store>(
         actual_from_slot: i32::try_from(held.slot).unwrap_or(-1),
         target: receiver,
         actual_target: receiver,
-        target_slot: 0,
-        actual_target_slot: 0,
+        target_slot: i32::try_from(slot).unwrap_or(0),
+        actual_target_slot: i32::try_from(slot).unwrap_or(0),
         merge_slot: -1,
         all_taken: whole,
         trade: true,

@@ -105,6 +105,7 @@ what they see, not how it was done.
 - Large data requests can no longer stall the world.
 - A panic now stops the world cleanly, keeping everything saved before it.
 - Fixed collecting a consignment from anywhere.
+- Fixed a traded item sharing a slot when your pack is full.
 
 ## 0.1.2 (2026-11-03)
 
