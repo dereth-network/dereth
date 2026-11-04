@@ -3,7 +3,7 @@
 //! and change them.
 //!
 //! **In the world.** The right button held turns the camera; W, A, S, D fly it, E rises and Q
-//! sinks, the wheel changes its speed. A click on a marker selects its row; dragging it moves the
+//! sinks, the wheel changes its speed. A click on a marker or a body selects its row; dragging it moves the
 //! row over the ground, and the selected row's handles ([`gizmo`]) move it along east, north and
 //! up and turn it, by steps with Snap on (Shift for the other). R turns the selected row a step to the right (with Shift, to the left),
 //! Delete or Backspace takes it away, F flies to it, Escape lets it go. T sends the character
@@ -1166,6 +1166,56 @@ impl<'w> Editor<'w> {
         out
     }
 
+    /// The nearest row whose body the pointer's line of sight goes through.
+    fn body_at(&mut self, px: [f32; 2]) -> Option<String> {
+        let v = self.view();
+        let dir = v.ray(px);
+        let mut best: Option<(f32, String)> = None;
+        for (i, d) in self.near.clone() {
+            if d > NEAR {
+                break;
+            }
+            let Some(e) = self.session.entries().get(i).cloned() else {
+                continue;
+            };
+            if !self.shows(&e) {
+                continue;
+            }
+            let template = match &e.row.row {
+                Row::Object(o) => o.template,
+                Row::Camp(c) => match c.spawns.first() {
+                    Some((t, _)) => *t,
+                    None => continue,
+                },
+                _ => continue,
+            };
+            let Some((look, scale)) = self.look(template) else {
+                continue;
+            };
+            let Some((lo, hi)) = self.scene.look_box(look) else {
+                continue;
+            };
+            let g = entry_global(&e, &mut self.scene);
+            let q = rotation_of(&e.row.row);
+            let s = scale.max(0.01);
+            let to = view::unrotated(q, [v.eye[0] - g[0], v.eye[1] - g[1], v.eye[2] - g[2]]);
+            let along = view::unrotated(q, dir);
+            let from = [to[0] / s, to[1] / s, to[2] / s];
+            let along = [along[0] / s, along[1] / s, along[2] / s];
+            if let Some(t) = view::ray_box(from, along, lo, hi) {
+                if best.as_ref().is_none_or(|b| t < b.0) {
+                    best = Some((t, e.item.clone()));
+                }
+            }
+        }
+        best.map(|b| b.1)
+    }
+
+    /// The row a click at a pixel takes: the marker there, else the body.
+    fn pick(&mut self, px: [f32; 2]) -> Option<String> {
+        self.hit(px).or_else(|| self.body_at(px))
+    }
+
     /// The row whose marker is at a pixel, as a click there would find it.
     pub fn hovered_item(&mut self, px: [f32; 2]) -> Option<String> {
         self.near_at = None;
@@ -1234,7 +1284,7 @@ impl<'w> Editor<'w> {
         self.hovered = if over_panels || input.right_down || self.tool == Tool::Place {
             None
         } else {
-            self.hit(input.pointer)
+            self.pick(input.pointer)
                 .filter(|i| self.selected.as_deref() != Some(i))
         };
         if input.right_down && !over_panels {
@@ -1323,7 +1373,7 @@ impl<'w> Editor<'w> {
                 }
                 Tool::Select => {
                     if !self.take_handle(input.pointer) {
-                        match self.hit(input.pointer) {
+                        match self.pick(input.pointer) {
                             Some(item) => {
                                 self.select(Some(item.clone()));
                                 self.drag = Some(Drag {

@@ -501,3 +501,21 @@ fn another_blocks_rooms_rows_do_not_show_over_the_ground_they_fall_on() {
         assert_eq!(e.hovered_item(at), None);
     }
 }
+
+#[test]
+fn a_click_on_a_rows_body_selects_it_though_its_marker_is_elsewhere() {
+    let (mut e, item, g) = with_a_row("body");
+    e.select(None);
+    // The person's head, well above the marker a meter off the ground, and clear of its pixels.
+    let head = pixel(&e, [g[0], g[1], g[2] + 1.75]);
+    let marker = pixel(&e, [g[0], g[1], g[2] + 1.0]);
+    assert!(
+        (head[1] - marker[1]).abs() > athenaeum_editor::app::HIT,
+        "{head:?} {marker:?}"
+    );
+    click(&mut e, head, false);
+    assert_eq!(e.selected.as_deref(), Some(item.as_str()));
+    e.select(None);
+    click(&mut e, [head[0] + 300.0, head[1] - 200.0], false);
+    assert_eq!(e.selected, None, "clear of it, nothing");
+}

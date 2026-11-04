@@ -79,6 +79,9 @@ struct Posed {
 /// many of its objects are the world's own (the rows' bodies come after them).
 type Built = ((i32, i32), (i32, i32), u32, Frame, usize);
 
+/// The least and greatest corners of the box a look fills.
+type LookBox = ([f32; 3], [f32; 3]);
+
 /// The world a window shows, from the free camera.
 pub struct Scene<'w> {
     data: &'w WorldData,
@@ -96,6 +99,8 @@ pub struct Scene<'w> {
     pub time_of_day: f32,
     /// The blocks whose interior cells are read.
     cells_read: HashSet<u16>,
+    /// The box each look fills, for clicks on it.
+    boxes: HashMap<u32, Option<LookBox>>,
 }
 
 impl std::fmt::Debug for Scene<'_> {
@@ -126,6 +131,7 @@ impl<'w> Scene<'w> {
             fov: 70.0,
             time_of_day: 0.45,
             cells_read: HashSet::new(),
+            boxes: HashMap::new(),
         }
     }
 
@@ -274,6 +280,41 @@ impl<'w> Scene<'w> {
             self.looks.insert(look, posed);
         }
         self.looks.get(&look).is_some_and(Option::is_some)
+    }
+
+    /// The box a look fills when it stands at the origin unturned, at its own scale.
+    pub fn look_box(&mut self, look: u32) -> Option<LookBox> {
+        if let Some(known) = self.boxes.get(&look) {
+            return *known;
+        }
+        let found = if self.posed(look) {
+            let p = self.looks.get(&look).and_then(Option::as_ref);
+            p.and_then(|p| {
+                let place = Mat4::from_parts(Vec3::new(0.0, 0.0, 0.0), Quat::IDENTITY, p.scale);
+                let mut lo = [f32::MAX; 3];
+                let mut hi = [f32::MIN; 3];
+                let records = &self.data.records;
+                for b in self.drawer.batches(records, &p.figure, &p.poses, &place) {
+                    for v in b.vertices.iter() {
+                        let at = b.transform.transform4([
+                            v.position[0],
+                            v.position[1],
+                            v.position[2],
+                            1.0,
+                        ]);
+                        for (i, c) in at.into_iter().take(3).enumerate() {
+                            lo[i] = lo[i].min(c);
+                            hi[i] = hi[i].max(c);
+                        }
+                    }
+                }
+                (lo[0] <= hi[0]).then_some((lo, hi))
+            })
+        } else {
+            None
+        };
+        self.boxes.insert(look, found);
+        found
     }
 
     /// The frame from `view`, with `rows` standing in it; `inside` the block and interior cell the

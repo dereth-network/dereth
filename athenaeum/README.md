@@ -74,7 +74,7 @@ sessions, **D** the data files, **R** a rule, **A** a person. People and objects
 templates look, a camp's creature at its middle with its reach drawn round it, and a portal's way
 to where it leads.
 
-- Click a marker (or a row in the list on the left) to select it; its fields are on the right.
+- Click a marker, what a row looks like (or a row in the list on the left) to select it; its fields are on the right.
 - Fly into a building or a dungeon, or Find a row in one and click it, and the rooms are drawn
   around the camera as the client draws them. Placing and dragging go by the floor under the pointer,
   and a row keeps track of the room it is in.

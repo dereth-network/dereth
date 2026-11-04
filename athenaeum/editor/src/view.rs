@@ -225,3 +225,38 @@ pub fn local_in(lb: u16, g: [f32; 3]) -> [f32; 3] {
     let [bx, by] = lb.to_be_bytes().map(f32::from);
     [g[0] - bx * BLOCK, g[1] - by * BLOCK, g[2]]
 }
+
+/// How far along `dir` a line from `from` first meets a box; 0 from inside it.
+#[must_use]
+pub fn ray_box(from: [f32; 3], dir: [f32; 3], lo: [f32; 3], hi: [f32; 3]) -> Option<f32> {
+    let (mut near, mut far) = (0.0_f32, f32::MAX);
+    for i in 0..3 {
+        if dir[i].abs() < 1e-7 {
+            if from[i] < lo[i] || from[i] > hi[i] {
+                return None;
+            }
+            continue;
+        }
+        let (a, b) = ((lo[i] - from[i]) / dir[i], (hi[i] - from[i]) / dir[i]);
+        near = near.max(a.min(b));
+        far = far.min(a.max(b));
+        if near > far {
+            return None;
+        }
+    }
+    Some(near)
+}
+
+/// A point turned by the opposite of a rotation (scalar first).
+#[must_use]
+pub fn unrotated(q: [f32; 4], p: [f32; 3]) -> [f32; 3] {
+    let u = [-q[1], -q[2], -q[3]];
+    let t = cross(u, p);
+    let t = [2.0 * t[0], 2.0 * t[1], 2.0 * t[2]];
+    let c = cross(u, t);
+    [
+        p[0] + q[0] * t[0] + c[0],
+        p[1] + q[0] * t[1] + c[1],
+        p[2] + q[0] * t[2] + c[2],
+    ]
+}

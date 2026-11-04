@@ -299,3 +299,30 @@ fn a_place_is_typed_without_its_quotes() {
     assert_eq!(field_toml("to", " "), "");
     assert_eq!(field_toml("radius", "5.0"), "5.0");
 }
+
+#[test]
+fn a_line_meets_a_box_from_outside_and_inside_and_misses_it() {
+    use athenaeum_editor::view::ray_box;
+    let (lo, hi) = ([-1.0, -1.0, 0.0], [1.0, 1.0, 2.0]);
+    assert_eq!(
+        ray_box([-5.0, 0.0, 1.0], [1.0, 0.0, 0.0], lo, hi),
+        Some(4.0)
+    );
+    assert_eq!(ray_box([0.0, 0.0, 1.0], [1.0, 0.0, 0.0], lo, hi), Some(0.0));
+    assert_eq!(ray_box([-5.0, 3.0, 1.0], [1.0, 0.0, 0.0], lo, hi), None);
+    assert_eq!(
+        ray_box([5.0, 0.0, 1.0], [1.0, 0.0, 0.0], lo, hi),
+        None,
+        "behind"
+    );
+}
+
+#[test]
+fn turning_back_undoes_a_rows_heading() {
+    use athenaeum_editor::view::{heading_rotation, unrotated};
+    let east = unrotated(heading_rotation(90.0), [0.0, 1.0, 0.0]);
+    let back = unrotated(heading_rotation(0.0), [0.0, 1.0, 0.0]);
+    assert!((back[1] - 1.0).abs() < 1e-5);
+    assert!(east[1].abs() < 1e-5, "{east:?}");
+    assert!((east[0].abs() - 1.0).abs() < 1e-5, "{east:?}");
+}
