@@ -496,6 +496,18 @@ fn the_entry_takes_a_line_and_hands_it_to_the_command_line() {
         window: 0
     })));
     ui.set_modifiers(false, false);
+    ui.set_alt(true);
+    for (shift, ctrl) in [(false, false), (false, true), (true, false)] {
+        ui.set_modifiers(shift, ctrl);
+        let out = f.key(&mut ui, &mut p, key_id::UP);
+        assert!(
+            !out.iter()
+                .any(|r| matches!(r, Request::Chat(Ask::History { .. }))),
+            "Alt held asks for no list, with Shift, Ctrl or neither"
+        );
+    }
+    ui.set_alt(false);
+    ui.set_modifiers(false, false);
     let c = p
         .child_mut::<Toolbar>()
         .and_then(Toolbar::child_mut::<ChatUi>)

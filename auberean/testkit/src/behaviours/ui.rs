@@ -186,6 +186,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.chat.with-alt-held-the-chat-window-takes-none-of-its-keys",
+        says: "A chat window takes its keys (the arrows through the lines typed, the tells sent and \
+               the tells answered, the page keys, Home, End and Escape) only with Alt up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CCAMERA-CHAT-ALT"),
+        station: "auberean-interface::dat::screens::alt_reaches_the_interface_from_either_key_and_goes_with_the_window",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.craft.recipe-and-ingredient-names-wait-for-their-string-tables",
         says: "The ingredient panel gives its texts (the recipe's name, its cost and charges, its \
                ingredients' names, the craft button's label and tip) to their text elements as \

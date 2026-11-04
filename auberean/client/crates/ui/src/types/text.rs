@@ -262,6 +262,7 @@ impl TextState {
 pub struct Keyboard {
     pub shift: bool,
     pub ctrl: bool,
+    pub alt: bool,
     /// What was last cut or copied, for the host to put on the system's clipboard; and what the
     /// host last read from it, for pasting.
     pub copied: Option<String>,
@@ -364,6 +365,17 @@ impl Ui {
     #[must_use]
     pub fn ctrl_held(&self) -> bool {
         self.keyboard.ctrl
+    }
+
+    /// Alt as the host sees it.
+    pub fn set_alt(&mut self, alt: bool) {
+        self.keyboard.alt = alt;
+    }
+
+    /// Whether an Alt key is held, as the host last said.
+    #[must_use]
+    pub fn alt_held(&self) -> bool {
+        self.keyboard.alt
     }
 
     /// What the host read from the system's clipboard, for pasting.

@@ -871,9 +871,13 @@ impl ChatPane {
     /// An interface key for this window: with Ctrl alone the arrows go through the tells sent
     /// and Home and End go to the log's start and end; with Shift alone the arrows go through the
     /// tells answered; with neither the arrows go through the lines typed, the page keys page the
-    /// log and Escape stops typing at the next tick. Returns whether it used the key.
+    /// log and Escape stops typing at the next tick. With Alt held it uses none of them. Returns
+    /// whether it used the key.
     // D2-03115
     fn key_press(&mut self, ui: &mut Ui, k: u32, window: usize, out: &mut Vec<Request>) -> bool {
+        if ui.alt_held() {
+            return false;
+        }
         let (shift, ctrl) = ui.modifiers();
         let list = if ctrl && !shift {
             match k {

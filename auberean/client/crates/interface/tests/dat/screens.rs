@@ -887,6 +887,36 @@ fn the_chat_entry_taking_the_keys_stops_a_key_held() {
     );
 }
 
+/// Alt reaches the interface as Shift and Ctrl do, which is what keeps a chat window's keys from
+/// acting with it held; losing the window lets go of it.
+///
+/// Behaviour: ui.chat.with-alt-held-the-chat-window-takes-none-of-its-keys
+#[test]
+fn alt_reaches_the_interface_from_either_key_and_goes_with_the_window() {
+    let (mut s, retail) = into_the_world();
+    assert!(
+        until(&mut s, 2.0, |_| retail.borrow().vitals_shown().is_some()),
+        "in the world"
+    );
+    let key = |s: &mut Shell<'_, DoubleHost>, key, down| {
+        s.event(&Event::Key {
+            key,
+            down,
+            repeat: false,
+        });
+        step(s);
+    };
+    key(&mut s, Key::AltLeft, true);
+    assert!(retail.borrow().ui().alt_held(), "the left Alt is down");
+    key(&mut s, Key::AltLeft, false);
+    assert!(!retail.borrow().ui().alt_held(), "and up");
+    key(&mut s, Key::AltRight, true);
+    assert!(retail.borrow().ui().alt_held(), "the right Alt is down");
+    s.event(&Event::Focus(false));
+    step(&mut s);
+    assert!(!retail.borrow().ui().alt_held(), "gone with the window");
+}
+
 /// The chat window's scroll bars, each with its bar's height and its widget's, when the widget shows.
 fn chat_bars(retail: &Rc<RefCell<Retail>>) -> Vec<(i32, Option<i32>)> {
     fn walk(ui: &auberean_ui::Ui, h: auberean_ui::Handle, out: &mut Vec<(i32, Option<i32>)>) {

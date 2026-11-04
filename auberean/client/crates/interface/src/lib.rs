@@ -1643,6 +1643,7 @@ impl Retail {
         self.left_to_world = false;
         self.mods = (false, false);
         self.ui.set_modifiers(false, false);
+        self.ui.set_alt(false);
     }
 
     /// The left button pressed or let go, as the interface hears it: a press within the double
@@ -2037,11 +2038,12 @@ impl Interface for Retail {
                 took || pregame
             }
             Event::Key { key, down, .. } => {
-                // Shift and Ctrl as the text elements read them; Delete reaches the entry with the
+                // Shift, Ctrl and Alt as the interface reads them; Delete reaches the entry with the
                 // keyboard as the key it is.
                 match key {
                     Key::ShiftLeft | Key::ShiftRight => self.mods.0 = *down,
                     Key::ControlLeft | Key::ControlRight => self.mods.1 = *down,
+                    Key::AltLeft | Key::AltRight => self.ui.set_alt(*down),
                     _ => {}
                 }
                 self.ui.set_modifiers(self.mods.0, self.mods.1);
