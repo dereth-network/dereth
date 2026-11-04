@@ -69,6 +69,7 @@ not how it was done.
 - Resizing a chat window no longer loses its scroll bar.
 - Faces turned away from torches are no longer teal indoors.
 - `/cliprops` now shows the properties your surroundings give you.
+- `/loadui` no longer leaves the chat scrolled to the top.
 
 ## 0.1.2 (2026-11-02)
 

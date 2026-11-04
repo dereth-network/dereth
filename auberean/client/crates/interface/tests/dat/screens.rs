@@ -2395,6 +2395,87 @@ fn the_layout_commands_write_and_read_the_panels_places() {
     assert_eq!(names, [own, "mine.txt".to_owned()]);
 }
 
+/// A layout file that makes the chat window smaller leaves the log showing its newest lines, the
+/// command's own line among them.
+///
+/// Behaviour: desktop.interface.a-layout-file-leaves-the-log-at-its-newest-lines
+#[test]
+fn a_layout_file_leaves_the_log_at_its_newest_lines() {
+    let (mut s, retail) = into_the_world_running(script(), data_with_scripts());
+    assert!(
+        until(&mut s, 5.0, |s| s
+            .client
+            .as_ref()
+            .is_some_and(|c| c.model.player_object().is_some())),
+        "the player stands"
+    );
+    assert!(
+        until(&mut s, 2.0, |_| retail.borrow().vitals_shown().is_some()),
+        "in the world"
+    );
+    let folder = Folder::default();
+    folder.0.lock().unwrap().insert(
+        "small.txt".to_owned(),
+        b"<CHAT1> X:270 Y: 500 W: 400 H: 60\n".to_vec(),
+    );
+    use auberean_client_sdk::runtime::host::PanelNotice;
+    use auberean_client_sdk::script::native_object::{NativeObject, TextInfo};
+    use auberean_ui_game::chat::ChatUi;
+    use auberean_ui_game::toolbar::Toolbar;
+    let log = retail
+        .borrow()
+        .play()
+        .and_then(|p| p.child::<Toolbar>())
+        .and_then(Toolbar::child::<ChatUi>)
+        .and_then(|c| c.windows()[0].log())
+        .expect("the chat's log");
+    {
+        let mut r = retail.borrow_mut();
+        let ui = r.ui_mut();
+        for n in 0..12 {
+            ui.add_string(log, &format!("line {n}\n"));
+        }
+        ui.recalculate_glyph_list(log);
+    }
+    let local = folder.clone();
+    let c = s.client.as_mut().expect("in the world");
+    c.with_host(|h| h.set_local(Some(Box::new(local))));
+    c.notices.push(PanelNotice {
+        native: auberean_ui_game::gameplay::notice::LOAD_UI,
+        about: Some(PLAYER),
+        words: vec![1],
+        objects: vec![Some(NativeObject::TextInfo(TextInfo {
+            has_literal: 1,
+            literal: Some("small".encode_utf16().collect()),
+            ..TextInfo::default()
+        }))],
+        requests: vec![None],
+        effect_lines: Vec::new(),
+        listed: Vec::new(),
+    });
+    let height = |r: &Rc<RefCell<Retail>>| {
+        let r = r.borrow();
+        let chat = r.ui().find(Token::of("ChatWindow1")).expect("the chat");
+        r.ui().node(chat).expect("the chat").rect.height()
+    };
+    assert!(
+        until(&mut s, 2.0, |_| height(&retail) == 60),
+        "laid out: {}",
+        height(&retail)
+    );
+    step(&mut s);
+    let r = retail.borrow();
+    let ui = r.ui();
+    let t = ui.text_state(log).expect("the log's text");
+    let shows = ui.node(log).expect("the log").rect.height();
+    assert!(
+        t.paper_h > shows,
+        "more lines than show: {} {shows}",
+        t.paper_h
+    );
+    assert_eq!(t.view_y + shows, t.paper_h, "the newest lines show");
+}
+
 /// Enter starts a chat line: the host's input method is turned on over the part of the chat entry
 /// that shows, in the window's pixels; Enter again ends the line and turns it off.
 ///

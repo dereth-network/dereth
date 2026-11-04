@@ -2254,7 +2254,11 @@ impl Interface for Retail {
         self.gather.prepare(client, &notices);
         self.chat.prepare(client);
         let play = self.play().map(GamePlay::frame);
-        self.places.prepare(client, &mut self.ui, play);
+        if self.places.prepare(client, &mut self.ui, play) {
+            if let Some(c) = chat_of(&mut self.flow) {
+                c.show_newest_lines(&mut self.ui);
+            }
+        }
         // A line naming no command: the client's error line that says so.
         for _ in 0..self.chat.take_unknown() {
             let line = self

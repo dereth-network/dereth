@@ -785,6 +785,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.a-layout-file-leaves-the-log-at-its-newest-lines",
+        says: "A layout file that makes the chat window smaller leaves the log showing its newest \
+               lines, the command's own line among them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-LAYOUT-NEWEST-LINES"),
+        station: "auberean-interface::dat::screens::a_layout_file_leaves_the_log_at_its_newest_lines",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.a-ray-meets-triangles-as-the-clients-trace-finds-them",
         says: "A ray meets a list of triangles as the client's trace finds it: the nearest triangle \
                whose plane the ray reaches, as a share of the ray's length, with the triangle's normal; \

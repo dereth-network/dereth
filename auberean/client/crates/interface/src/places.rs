@@ -107,8 +107,9 @@ impl Places {
 
     /// What was asked, through the client: the table kept with the player's options and sent;
     /// the panels of the play screen (when it is up) put back where the options keep them; a
-    /// layout file written or read.
-    pub fn prepare(&mut self, client: &mut Client, ui: &mut Ui, frame: Option<FrameId>) {
+    /// layout file written or read. Whether a layout file moved the panels.
+    pub fn prepare(&mut self, client: &mut Client, ui: &mut Ui, frame: Option<FrameId>) -> bool {
+        let mut laid_out = false;
         if let Some(file) = self
             .save_layout
             .take()
@@ -123,6 +124,7 @@ impl Places {
         {
             if let Some(bytes) = client.read_player_file(&file) {
                 layout_file::read(ui, &String::from_utf8_lossy(&bytes));
+                laid_out = true;
             }
         }
         if let Some(t) = self.keep.take() {
@@ -130,9 +132,9 @@ impl Places {
             client.upload_ui_settings();
         }
         let Some(reloaded) = self.put_back.take() else {
-            return;
+            return laid_out;
         };
-        let Some(f) = frame else { return };
+        let Some(f) = frame else { return laid_out };
         let held = if reloaded {
             client.options().map(|o| o.ui_locations)
         } else {
@@ -141,5 +143,6 @@ impl Places {
         if let Some(t) = held.as_deref().and_then(UiLocations::read) {
             ui.frame_apply_locations(f, &kept(&t));
         }
+        laid_out
     }
 }

@@ -831,6 +831,15 @@ impl ChatPane {
         }
     }
 
+    /// The window's size changed under its log: the log shows its newest lines, unless locked.
+    fn show_newest_lines(&self, ui: &mut Ui) {
+        let Some(log) = self.log else { return };
+        if !self.temp_lock && !self.perm_lock {
+            ui.recalculate_glyph_list(log);
+            ui.scroll_to_end(log);
+        }
+    }
+
     /// A line from one of the lists, given back while the entry has the keyboard: a typed line
     /// into the entry, selected; a tell's name as a tell to them.
     // D2-03108, D2-03109, D2-03110
@@ -1097,6 +1106,14 @@ pub struct ChatUi {
 }
 
 impl ChatUi {
+    /// The windows were laid out anew from a layout file: each log shows its newest lines, unless
+    /// locked.
+    pub fn show_newest_lines(&self, ui: &mut Ui) {
+        for w in &self.windows {
+            w.show_newest_lines(ui);
+        }
+    }
+
     /// The chat panel under the toolbar's framework: the line of messages found, the clock and
     /// the interface keys heard, its windows made.
     // D2-02485
