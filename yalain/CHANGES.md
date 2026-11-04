@@ -119,6 +119,7 @@ what they see, not how it was done.
 - Looted bows and two-handed weapons take both hands and look right.
 - Skills cost vigor for whatever weapons and shield you hold.
 - Special attacks now do the damage their rating adds.
+- Orbs throw from both hands.
 
 ## 0.1.2 (2026-11-03)
 

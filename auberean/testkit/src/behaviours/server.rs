@@ -9269,6 +9269,23 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.weapons.two-throws",
+        says: "A skill that throws twice names each hand's weapon; each throw is drawn apart, with \
+               its own damage, and its target tells each as it arrives.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TWO-THROWS"),
+        station: "yalain-testkit::cpu::play::two_blows::a_skill_that_throws_twice_names_each_hands_weapon_and_tells_each_arrival",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.weapons.two-throws-read",
+        says: "The orbs' three basic attacks read with two thrown hooks, a hand each.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TWO-THROWS-READ"),
+        station: "yalain-testkit::dat::effects::the_skills_that_throw_twice_read_with_each_throws_hand",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.weapons.walking-run-walks-silently",
         says: "A run whose attacks walk, on a target out of reach, has one order to walk and is told \
                nothing until it arrives, when it swings; it goes on until the player stops it.",

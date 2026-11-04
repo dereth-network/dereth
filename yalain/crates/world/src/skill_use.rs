@@ -770,6 +770,15 @@ pub(crate) fn missile_hook(u: &Usage) -> Option<&Hook> {
         .find(|h| h.flags & hook_flag::PROJECTILE != 0 && h.missile != 0)
 }
 
+/// The hooks that throw a missile: their indexes among the skill's, and the hooks.
+pub(crate) fn throws_of(u: &Usage) -> Vec<(usize, &Hook)> {
+    u.hooks
+        .iter()
+        .enumerate()
+        .filter(|(_, h)| throws(h))
+        .collect()
+}
+
 /// The first hook that hurts its target.
 fn damaging_hook(u: &Usage) -> Option<(usize, &Hook)> {
     if u.ui_flags & ui_flag::NON_DAMAGING != 0 {

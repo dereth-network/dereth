@@ -839,6 +839,24 @@ fn a_things_hold_reads_from_its_template() {
     );
 }
 
+/// The orbs' three basic attacks read with two thrown hooks each, a hand each.
+/// Behaviour: server.weapons.two-throws-read
+#[test]
+fn the_skills_that_throw_twice_read_with_each_throws_hand() {
+    let t = Portal::open().skills();
+    for skill in [1883, 1884, 1885] {
+        let u = t.skills[&skill].usage.as_ref().expect("used");
+        let thrown: Vec<u32> = u
+            .hooks
+            .iter()
+            .filter(|h| h.missile != 0 && h.flags & 0x4 != 0)
+            .map(|h| h.flags & 0x3000)
+            .collect();
+        assert_eq!(thrown.len(), 2, "{skill}");
+        assert_ne!(thrown[0], thrown[1], "{skill}: a hand each");
+    }
+}
+
 /// A hook's damage by rating reads with all its points: a rating of 30 on the middle line.
 /// Behaviour: server.specials.hook-adds-by-rating
 #[test]

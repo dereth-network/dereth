@@ -14,7 +14,8 @@
 //! a bow shoots beyond a meter between the bodies and strikes within one, a stave strikes within ten
 //! meters and throws beyond nine; a thrown attack's story names the weapon, and its target tells how
 //! it came out as it arrives (after the throw's windup and its flight); a strike lands at its hit
-//! point. Out of range a bow's or a stave's run is told it is too far, and moving it cannot shoot,
+//! point. A skill that throws twice names each hand's weapon, each throw drawn apart with its own
+//! damage and its own arrival. Out of range a bow's or a stave's run is told it is too far, and moving it cannot shoot,
 //! each a second apart; its combat mode comes with its first swing. A run that walks and is out of
 //! reach has its one order to walk and is told nothing, swinging as soon as it arrives. A creature
 //! hurt to 80% or less shows it. A run that ends is answered with the player not attacking and at
@@ -260,6 +261,17 @@ pub fn windup_seconds(implement: Option<u32>) -> f64 {
     }
 }
 
+/// A skill that throws twice: when each throw leaves over the time scale, and its period (2017, each
+/// hook's arrivals fitted on the time scale: 39 swings of orbs; periods over 34 gaps).
+#[must_use]
+pub const fn two_throws(skill: u32) -> ([f64; 2], f64) {
+    match skill {
+        1884 => ([1.733, 2.083], 1.951),
+        1885 => ([1.637, 1.637], 3.317),
+        _ => ([1.406, 2.085], 3.995),
+    }
+}
+
 /// When a player's basic strike lands after its story, over the time scale: the median its skill
 /// showed from the story to its target's wound or death (2017: 6,161 strikes at creatures, 69 at
 /// once); of a skill that strikes twice its first blow (816, 817 and 818: 196, 180 and 206
@@ -334,10 +346,11 @@ pub struct Landing {
     pub skill: u32,
     pub outcome: Outcome,
     pub damage: i32,
-    /// Its result hook's index among the skill's hooks, and whether it is thrown (its target tells
-    /// it as it arrives).
+    /// Its result hook's index among the skill's hooks, whether it is thrown (its target tells it
+    /// as it arrives), and the animation hook its arrival names.
     pub index: u32,
     pub thrown: bool,
+    pub anim_hook: u32,
 }
 
 /// A thrown basic attack's arrival, told by its target: the attacker, the skill, a basic attack.
@@ -849,6 +862,7 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
                     damage: blow.damage,
                     index: u32::try_from(blow.hook).unwrap_or(0),
                     thrown: false,
+                    anim_hook: 1,
                 }),
             );
         }
@@ -930,6 +944,9 @@ fn stand_and_swing<S: Store>(
         }
     }
     let (skill, u) = usable[s.rng.below(usable.len())].clone();
+    if crate::skill_use::throws_of(&u).len() > 1 {
+        return throw_twice(s, net, world, run, (skill, &u), (at, level, armor), clock);
+    }
     let thrown = crate::skill_use::missile_hook(&u).cloned();
     let kind = kind_of(s, skill, thrown.is_some());
     let outcome = rules::roll_outcome(
@@ -994,6 +1011,7 @@ fn stand_and_swing<S: Store>(
         damage,
         index: u32::try_from(index).unwrap_or(0),
         thrown: thrown.is_some(),
+        anim_hook: 1,
     };
     let after = match &thrown {
         Some(h) => {
@@ -1014,6 +1032,104 @@ fn stand_and_swing<S: Store>(
     s.after(clock, after, crate::Timer::Landing(landing));
     if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
         r.next_swing = now + swing_seconds(implement, thrown.is_some()) / f64::from(ts);
+    }
+}
+
+/// A swing of a skill with two thrown hooks: its story names each hand's weapon, each throw's
+/// outcome and damage drawn apart, the target telling each as it arrives (2017: 39 swings, 18 both
+/// plain and the rest apart; each hook's weapon its hand's, 46 of 46).
+fn throw_twice<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    run: Run,
+    (skill, u): (u32, &crate::skills::Usage),
+    (at, level, armor): (yalain_store::StoredPosition, i32, i32),
+    clock: Clock,
+) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let (id, my_level) = (p.character, crate::examine::level_of(&p.qualities));
+    let hands = crate::skill_use::hands(s, id);
+    let kind = kind_of(s, skill, true);
+    let rating = crate::skill_use::rating_of(s, world, skill);
+    let ts = PLAYER_TIME_SCALE * s.rng.between(0.9, 1.1);
+    let (windups, period) = two_throws(skill);
+    let centre = s
+        .players
+        .get(&world)
+        .and_then(|p| crate::presence::distance(&p.position, &at))
+        .unwrap_or(0.0);
+    let mut hooks = crate::skill_use::story_hooks(u, run.target, 0, None);
+    let mut told_of = Vec::new();
+    for (n, (i, h)) in crate::skill_use::throws_of(u).into_iter().enumerate() {
+        let left = h.flags & crate::skill_use::hook_flag::LEFT_HAND != 0;
+        let weapon = if left { hands.left } else { hands.right }.map(|(w, _)| w);
+        let outcome = rules::roll_outcome(
+            &mut s.rng,
+            Direction::PlayerOnCreature,
+            kind,
+            my_level,
+            level,
+        );
+        let Some(p) = s.players.get(&world) else {
+            return;
+        };
+        let damage = if outcome.landed() {
+            let me = crate::skill_use::hitting_with(hitter_with(s, p, weapon), h, rating);
+            rules::player_hit(&mut s.rng, me, armor, outcome == Outcome::Critical)
+                + armor_taken(s, run.target)
+        } else {
+            0
+        };
+        // The first hook is the story's opening.
+        if let Some(k) = hooks.get_mut(i + 1) {
+            k.weapon = weapon.unwrap_or(0);
+        }
+        let speed = if h.missile_speed > 0.0 {
+            h.missile_speed
+        } else {
+            35.0
+        };
+        told_of.push((
+            Landing {
+                world,
+                target: run.target,
+                skill,
+                outcome,
+                damage,
+                index: u32::try_from(i).unwrap_or(0),
+                thrown: true,
+                anim_hook: h.anim_hook,
+            },
+            windups[n.min(1)] / f64::from(ts) + f64::from(centre / speed),
+        ));
+    }
+    let behavior = u.behavior_other[0];
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let mut told = ServerMessage::DoStory(player_event(
+        p,
+        PhysicsStory {
+            bits: BASIC_SWING,
+            attacker: id,
+            attacker_behavior: crate::skill_use::story_params(behavior, ts),
+            attack_context: 0,
+            skill,
+            hooks,
+        },
+    ));
+    if player_target(s, world, run.target).is_some() {
+        with_pk_damage(&mut told, run.target);
+    }
+    to_all_seeing(s, net, id, &told);
+    for (landing, after) in told_of {
+        s.after(clock, after, crate::Timer::Landing(landing));
+    }
+    if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
+        r.next_swing = clock.local.0 + period / f64::from(ts);
     }
 }
 
@@ -1062,7 +1178,7 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, l: Landing, clock
                 ..StoryHook::default()
             };
             h.numbers[0] = l.outcome.code().cast_signed();
-            h.numbers[1] = 1;
+            h.numbers[1] = l.anim_hook.cast_signed();
             h.numbers[2] = l.index.cast_signed();
             if hurts {
                 h.numbers[3] = -l.damage;

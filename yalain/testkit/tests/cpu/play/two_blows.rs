@@ -246,7 +246,12 @@ fn a_basic_attacks_hook_adds_by_the_players_rating() {
         let (mut h, b, me, beetle) = fighter(skill, im::HANDBLADE);
         let p = player_of(&mut h, me);
         p.play.skills.last_mut().expect("the skill").granted = granted;
-        h.server.skill_table.skills.get_mut(&816).expect("the skill").cap = 50;
+        h.server
+            .skill_table
+            .skills
+            .get_mut(&816)
+            .expect("the skill")
+            .cap = 50;
         let from = attack(&mut h, b, beetle);
         h.run(6000);
         let told = stories(&h, b, from, me);
@@ -517,4 +522,120 @@ fn a_players_combat_mode_comes_from_what_it_wields() {
         assert_eq!(mode_of(Some(right), left), mode, "{right:#x} {left:?}");
     }
     assert_eq!(mode_of(None, None), 0x4100_000A, "empty hands");
+}
+
+/// A skill that throws from both hands: stands, its two hooks throwing, the left's first.
+fn two_throws() -> (Harness, usize, u64, u64) {
+    let throw = |flags: u32, anim_hook: u32| Hook {
+        missile: 0x4700_00BE,
+        missile_speed: 35.0,
+        ..blow(flags, anim_hook)
+    };
+    let mut skill = basic(1884, im::ORB, vec![throw(0x1184, 1), throw(0x2184, 2)]);
+    if let Some(u) = skill.usage.as_mut() {
+        u.ui_flags = 0x14A0;
+        u.max_range = 40.0;
+    }
+    fighter(skill, im::ORB)
+}
+
+/// A skill that throws twice names each hand's weapon, and its target tells each throw as it
+/// arrives: the first with its animation hook 1, the second as a hook after the first with its
+/// animation hook 2, each with its own weapon's damage, drawn apart.
+/// Behaviour: server.weapons.two-throws
+#[test]
+fn a_skill_that_throws_twice_names_each_hands_weapon_and_tells_each_arrival() {
+    let (mut h, b, me, beetle) = two_throws();
+    let (right, left) = {
+        let p = player_of(&mut h, me);
+        let id = |t: u32| p.play.items.iter().find(|i| i.template == t).unwrap().id;
+        (id(RIGHT), id(LEFT))
+    };
+    let from = attack(&mut h, b, beetle);
+    h.run(4000);
+    let told = stories(&h, b, from, me);
+    assert!(told.len() >= 10, "{} swings", told.len());
+    for s in &told {
+        assert_eq!(s.skill, 1884);
+        assert_eq!(s.hooks.len(), 3);
+        assert_eq!(
+            (
+                s.hooks[1].bits,
+                s.hooks[1].weapon,
+                s.hooks[2].bits,
+                s.hooks[2].weapon
+            ),
+            (0x323, left, 0x723, right)
+        );
+    }
+    let arrivals = stories(&h, b, from, beetle);
+    let of = |index: i32| -> Vec<&auberean_protocol::types::StoryHook> {
+        arrivals
+            .iter()
+            .filter(|s| s.attacker == me)
+            .flat_map(|s| s.hooks.iter())
+            .filter(|k| k.numbers[2] == index)
+            .collect()
+    };
+    let (first, second) = (of(0), of(1));
+    assert!(
+        first.len() >= 10 && second.len() >= 10,
+        "{} {}",
+        first.len(),
+        second.len()
+    );
+    assert!(first
+        .iter()
+        .all(|k| k.bits & 0x400 == 0 && k.numbers[1] == 1));
+    assert!(second
+        .iter()
+        .all(|k| k.bits & 0x400 != 0 && k.numbers[1] == 2));
+    let plain = |v: &[&auberean_protocol::types::StoryHook]| -> Vec<i32> {
+        let mut d: Vec<i32> = v
+            .iter()
+            .filter(|k| k.numbers[0] == 0x4000_0008)
+            .map(|k| -k.numbers[3])
+            .collect();
+        d.sort_unstable();
+        d.dedup();
+        d
+    };
+    let (l, r) = (plain(&first), plain(&second));
+    assert_eq!((l.len(), r.len()), (1, 1), "{l:?} {r:?}");
+    assert_eq!(r[0] - l[0], 70, "the right hand's weapon does 70 more");
+    let apart = first
+        .iter()
+        .zip(&second)
+        .filter(|(a, b)| a.numbers[0] != b.numbers[0])
+        .count();
+    assert!(apart > 0, "drawn apart");
+}
+
+/// The second throw arrives after the first by its own windup, and the swings come at the skill's
+/// own pace.
+/// Behaviour: server.weapons.two-throws
+#[test]
+fn the_second_throw_arrives_after_the_first_and_swings_come_at_their_own_pace() {
+    use yalain_world::combat::two_throws as measured;
+    let (mut h, b, me, beetle) = two_throws();
+    let from = attack(&mut h, b, beetle);
+    let arrival = |h: &Harness, index: i32| {
+        stories(h, b, from, beetle)
+            .iter()
+            .filter(|s| s.attacker == me)
+            .any(|s| s.hooks.iter().any(|k| k.numbers[2] == index))
+    };
+    assert!(h.run_until(1000, |h| arrival(h, 0)), "the first arrives");
+    let first = h.now.0;
+    let told = stories(&h, b, from, me);
+    let scale = f64::from(told[0].attacker_behavior.time_scale);
+    assert!(h.run_until(400, |h| arrival(h, 1)), "the second arrives");
+    let ([w0, w1], period) = measured(1884);
+    let gap = h.now.0 - first;
+    assert!(
+        (gap - (w1 - w0) / scale).abs() < 0.12,
+        "{gap:.3}, not {:.3}",
+        (w1 - w0) / scale
+    );
+    assert!((period - 1.951).abs() < 1e-9);
 }
