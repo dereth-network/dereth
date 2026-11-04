@@ -744,3 +744,110 @@ fn messages_cut_short_and_bitten_panic_nothing() {
     }
     assert!(h.server.players.len() <= 1);
 }
+
+/// A client naming function after function it can't have keeps the list of what wasn't handled, and
+/// with it the server's memory and log, from growing without end.
+/// Behaviour: server.operator.the-list-of-what-is-not-handled-is-bounded
+#[test]
+fn a_client_naming_endless_unknown_calls_does_not_grow_the_servers_list_without_end() {
+    let mut u = yalain_world::Unhandled::default();
+    for i in 0..3 * yalain_world::unhandled::MOST_KINDS {
+        u.note(format!("a call of function {i:#x}"));
+    }
+    assert_eq!(u.counts().len(), yalain_world::unhandled::MOST_KINDS + 1);
+    assert_eq!(
+        u.count(yalain_world::unhandled::TOO_MANY),
+        2 * yalain_world::unhandled::MOST_KINDS as u64,
+        "those past the limit are still counted"
+    );
+    u.note("a call of function 0x0");
+    assert_eq!(
+        u.count("a call of function 0x0"),
+        2,
+        "a kind kept goes on counting"
+    );
+}
+
+/// A client past the limit has what is over dropped, unread: the others hear only what the limit
+/// let through, a player beside goes on being answered, and the flooder is heard again once it has
+/// slowed down.
+/// Behaviour: server.operator.a-flood-of-calls-is-dropped
+#[test]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn a_client_flooding_calls_has_what_is_over_dropped_and_others_go_on() {
+    use auberean_protocol::{queue, ServerMessage};
+    use yalain_testkit::play::server_call;
+    use yalain_world::call_limit::{BURST, PER_SECOND};
+    use yalain_world::requests::function::SAY;
+    let mut h = Harness::new();
+    let (flooder, id) = h.player_in_world("one", "Flo");
+    let (victim, vid) = h.player_in_world("two", "Vera");
+    h.run(10);
+    let word = |i: usize| {
+        let mut b = Builder::new();
+        b.native(
+            106,
+            auberean_script::native_object::NativeObject::TextInfo(
+                auberean_script::native_object::TextInfo {
+                    has_literal: 1,
+                    literal: Some(format!("word {i}").encode_utf16().collect()),
+                    ..Default::default()
+                },
+            ),
+        );
+        Arg::Object(b.graph())
+    };
+    let heard_from = |h: &Harness, b: usize, from: usize, who: u64| {
+        h.world_messages(b, from)
+            .iter()
+            .filter(|m| {
+                matches!(m, ServerMessage::CellObjectCall(c)
+                if c.object.id == who && c.call.function.0 == yalain_world::chat::function::SAYING)
+            })
+            .count()
+    };
+    let flood = 3 * BURST as usize;
+    let from = h.bots[victim].inbox.len();
+    for i in 0..flood {
+        h.bots[flooder].send(
+            true,
+            queue::WEENIE,
+            &server_call(SAY, &[Arg::Int(0), word(i)]),
+        );
+    }
+    h.run(4);
+    let heard = heard_from(&h, victim, from, id);
+    assert!(heard >= BURST as usize, "the burst goes through: {heard}");
+    assert!(heard < flood, "what is over is dropped: {heard}");
+    let dropped = h.server.call_limits.dropped(
+        *h.server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == id)
+            .expect("in")
+            .0,
+    );
+    assert_eq!(dropped as usize + heard, flood);
+    // The player beside it is answered as ever.
+    let from = h.bots[flooder].inbox.len();
+    h.bots[victim].send(
+        true,
+        queue::WEENIE,
+        &server_call(SAY, &[Arg::Int(0), word(0)]),
+    );
+    h.run(4);
+    assert_eq!(heard_from(&h, flooder, from, vid), 1, "the other is heard");
+    // Slowed down, it is heard again.
+    h.run_to(yalain_net::LocalTime(h.now.0 + 2.0));
+    let from = h.bots[victim].inbox.len();
+    let some = PER_SECOND as usize;
+    for i in 0..some {
+        h.bots[flooder].send(
+            true,
+            queue::WEENIE,
+            &server_call(SAY, &[Arg::Int(0), word(i)]),
+        );
+    }
+    h.run(4);
+    assert_eq!(heard_from(&h, victim, from, id), some, "heard again");
+}

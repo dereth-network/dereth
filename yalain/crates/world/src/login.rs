@@ -1113,6 +1113,7 @@ pub(crate) fn closed<S: Store>(
     why: CloseReason,
     clock: Clock,
 ) {
+    s.call_limits.closed(conn);
     if let Some(&login) = s.worlds.get(&conn) {
         tracing::info!(?conn, ?why, "world connection closed");
         // Its character lingers, and leaves as one whose client went away.

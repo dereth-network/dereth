@@ -107,6 +107,7 @@ what they see, not how it was done.
 - Fixed collecting a consignment from anywhere.
 - Fixed a traded item sharing a slot when your pack is full.
 - A character with no start place is refused instead of hanging at entry.
+- A client sending far too many game calls has the excess dropped.
 
 ## 0.1.2 (2026-11-03)
 

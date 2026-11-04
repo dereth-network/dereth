@@ -5497,6 +5497,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.a-flood-of-calls-is-dropped",
+        says: "A client sending game calls past 2,000 at once and 200 a second has what is \
+               over dropped unread, and the others go on as ever. No client of January 2017 \
+               comes within a tenth of that.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CALL-LIMIT"),
+        station: "yalain-testkit::cpu::play::lying_client::a_client_flooding_calls_has_what_is_over_dropped_and_others_go_on",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.a-panic-is-told-and-the-world-stops",
         says: "A panic in the world stops it: everyone in the world is told, and every \
                connection ends rather than timing out.",
@@ -6221,6 +6231,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-OPERATOR-TELEPORT"),
         station: "yalain-testkit::cpu::operator::characters::a_teleported_character_goes_through_portal_space_to_where_it_was_sent",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.the-list-of-what-is-not-handled-is-bounded",
+        says: "The list of what clients asked for and the server does not do keeps at most \
+               1,024 kinds; those past it are counted together, so a client naming endless \
+               calls grows neither the server's memory nor its log.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNHANDLED-BOUND"),
+        station: "yalain-testkit::cpu::play::lying_client::a_client_naming_endless_unknown_calls_does_not_grow_the_servers_list_without_end",
         tier: Tier::Cpu,
     },
     behaviour! {

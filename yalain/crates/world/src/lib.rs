@@ -57,6 +57,8 @@
 //!   deleted, carried between worlds, teleported), and the fixed form of the log lines a program
 //!   driving the console reads.
 //! - [`unhandled`]: what clients reached for that the server does not do yet, counted.
+//! - [`call_limit`]: how fast one connection may send game calls.
+//! - [`guard`]: a panic in the world stops it, whole.
 
 pub mod admin;
 pub mod admin_calls;
@@ -68,6 +70,7 @@ pub mod answers;
 pub mod arms;
 pub mod books;
 pub mod butchery;
+pub mod call_limit;
 pub mod calls;
 pub mod characters;
 pub mod chargen;
@@ -301,6 +304,8 @@ pub struct Server<S: Store> {
     /// The last visual stamp each content object's visual events used (made with 1).
     pub visuals: HashMap<u64, u16>,
     pub unhandled: Unhandled,
+    /// How fast each connection has been sending game calls.
+    pub call_limits: call_limit::CallLimits,
     /// The Dereth Network's commands said in chat since the host last took them: heard by
     /// nobody, answered by the world's friends service.
     pub network_commands: Vec<chat::NetworkCommand>,
@@ -662,6 +667,7 @@ impl<S: Store> Server<S> {
             players: HashMap::new(),
             shutdown: shutdown::Shutdown::No,
             panicked: None,
+            call_limits: call_limit::CallLimits::default(),
             saves: saves::Saves::default(),
             timers: Vec::new(),
             next_context: 0,

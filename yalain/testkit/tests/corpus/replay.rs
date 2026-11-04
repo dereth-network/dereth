@@ -715,3 +715,43 @@ fn every_kind_of_recorded_message_bitten_panics_nothing() {
     h.run_to(yalain_net::LocalTime(t));
     assert!(h.server.players.len() <= 1, "{me:#x} is one player");
 }
+
+/// Every recorded client's messages, by when each was sent, fall inside a limit a tenth of the
+/// server's: the limit is well above anything recorded.
+/// Behaviour: server.operator.a-flood-of-calls-is-dropped
+#[test]
+fn no_recorded_2017_client_comes_near_the_limit_on_calls() {
+    use yalain_net::LocalTime;
+    use yalain_world::call_limit::{Bucket, BURST, PER_SECOND};
+    let path = auberean_testkit::data::require_capture_index();
+    let con = open(&path);
+    let mut stmt = con
+        .prepare(
+            "SELECT m.session_id, m.t FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) \
+             WHERE m.status = 'ac2' AND m.dir = 'c2s' AND c.file LIKE '2017-%' \
+             ORDER BY m.session_id, m.t",
+        )
+        .expect("prepares");
+    let mut rows = stmt.query([]).expect("runs");
+    let (mut session, mut bucket, mut messages, mut sessions) = (None, None, 0u64, 0u64);
+    let mut refused = 0u64;
+    while let Some(r) = rows.next().expect("a row") {
+        let id: i64 = r.get(0).expect("a session");
+        let t = LocalTime(r.get(1).expect("a time"));
+        if session != Some(id) {
+            session = Some(id);
+            sessions += 1;
+            bucket = Some(Bucket::with(BURST / 10.0, PER_SECOND / 10.0, t));
+        }
+        messages += 1;
+        if !bucket.as_mut().expect("begun").allow(t) {
+            refused += 1;
+        }
+    }
+    println!(
+        "{messages} client messages of {sessions} connections; {refused} past a tenth of the limit"
+    );
+    assert!(sessions > 1000 && messages > 1_000_000);
+    assert_eq!(refused, 0);
+}

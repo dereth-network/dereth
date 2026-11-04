@@ -1017,6 +1017,9 @@ pub fn message<S: Store>(
     bytes: &[u8],
     clock: Clock,
 ) {
+    if !s.call_limits.allow(world, clock.local) {
+        return;
+    }
     let m = match ClientBlob::decode(q, bytes) {
         Ok(ClientBlob::Message(m)) => m,
         Ok(ClientBlob::Secure { queue, .. }) => {
