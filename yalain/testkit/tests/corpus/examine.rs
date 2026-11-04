@@ -629,6 +629,115 @@ fn inscriptions_are_shown_as_2017_showed_them() {
     assert_eq!(exact, seen);
 }
 
+/// A profile's greatest damage: the line a weapon's damage is shown on, its high variable.
+fn damage_in(bytes: &[u8], request_len: usize) -> Option<u32> {
+    let mut r = In::new(bytes.get(request_len..)?);
+    let n = r.u32().ok()?;
+    for _ in 0..n {
+        let ty = r.u32().ok()?;
+        r.u32().ok()?;
+        match ty {
+            0x4000_0001..=0x4000_0003 | 0x4000_000C => {
+                r.u32().ok()?;
+                r.u32().ok()?;
+            }
+            0x4000_0004 => {
+                r.u32().ok()?;
+                let t = TextInfo::unpack(&mut r).ok()?;
+                if t.string_id == profile::item_line::DAMAGE_VALUE {
+                    return t.variables.iter().find_map(|v| match v.value {
+                        VariableValue::Word(w) if v.id == profile::item_var::DAMAGE_HIGH => Some(w),
+                        _ => None,
+                    });
+                }
+            }
+            0x4000_0005 | 0x4000_0007 => {
+                r.u32().ok()?;
+            }
+            0x4000_0006 => {}
+            0x4000_0008 | 0x4000_000A => {
+                r.u32().ok()?;
+                r.u32().ok()?;
+                r.u32().ok()?;
+            }
+            0x4000_0009 => {
+                let k = r.u32().ok()?;
+                for _ in 0..k * 3 {
+                    r.u32().ok()?;
+                }
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// Most treasure weapons recorded below level 50, with no effects, have a greatest damage in the band
+/// this server draws theirs from.
+/// Behaviour: server.loot.treasure-numbers-by-level
+#[test]
+fn treasure_weapons_damage_falls_in_the_band_this_server_draws_from() {
+    use yalain_world::treasure::WEAPON_DAMAGE_SHARE;
+    let path = auberean_testkit::data::require_capture_index();
+    let con = open(&path);
+    let mut st = con
+        .prepare(
+            "SELECT m.raw FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.status = 'ac2' \
+             AND m.dir = 's2c' AND m.mtype = 65638",
+        )
+        .expect("prepares");
+    let mut rows = st.query([]).expect("runs");
+    let mut seen = std::collections::HashSet::new();
+    let (mut weapons, mut within) = (0usize, 0usize);
+    while let Some(r) = rows.next().expect("a row") {
+        let raw: Vec<u8> = r.get(0).expect("raw");
+        let Ok(ServerMessage::PlayerCall(c)) = ServerMessage::decode(&raw) else {
+            continue;
+        };
+        if c.function.0 != profile::EXAMINATION_PROFILE {
+            continue;
+        }
+        let v = calls::values(&c.args.map(|a| a.0).unwrap_or_default()).unwrap_or_default();
+        let Some(Node::Native { bytes, .. }) = v.first().and_then(Value::root) else {
+            continue;
+        };
+        let req = profile::read_request(bytes);
+        if req.kind != profile::request::OBJECT {
+            continue;
+        }
+        let strings = strings_in(bytes, 20);
+        let plain = !strings.iter().any(|x| {
+            [
+                profile::item_line::CRAFTED_BY,
+                profile::item_line::EFFECT_NAME,
+                profile::item_line::SHIELD_RATING,
+                profile::item_line::ARMOR_RATING,
+            ]
+            .contains(x)
+        });
+        let (Some(most), Some(level), true) = (
+            damage_in(bytes, 20),
+            stat_in(bytes, 20, profile::line::MINIMUM_LEVEL),
+            plain,
+        ) else {
+            continue;
+        };
+        if !(1..50).contains(&level) || !seen.insert(req.object) {
+            continue;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let share = most as f32 / yalain_world::made::damage(level) as f32;
+        weapons += 1;
+        within += usize::from(
+            (WEAPON_DAMAGE_SHARE.0 - 0.005..=WEAPON_DAMAGE_SHARE.1 + 0.005).contains(&share),
+        );
+    }
+    println!("treasure weapons within the band: {within} of {weapons}");
+    assert!(weapons > 500, "the recordings hold them: {weapons}");
+    assert!(within * 100 >= weapons * 90, "{within} of {weapons}");
+}
+
 /// A number the line after a label shows: the whole-number node, or the first variable of the
 /// next text.
 fn stat_in(bytes: &[u8], request_len: usize, label: u32) -> Option<u32> {

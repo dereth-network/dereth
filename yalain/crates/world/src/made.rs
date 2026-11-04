@@ -239,6 +239,18 @@ pub fn armor_rating(piece: Piece, quality: u32) -> i32 {
     dereth_primitives::num::to_i32(rating)
 }
 
+/// A piece of armor's rating at a quality before any rounding or floor.
+#[must_use]
+pub fn armor_rating_exactly(piece: Piece, quality: u32) -> f32 {
+    let chest = chest_rating(quality);
+    match piece {
+        Piece::Chest => chest,
+        Piece::Robe => chest * ROBE_SHARE,
+        Piece::Legs => chest / 2.0,
+        Piece::Small => chest / 4.0,
+    }
+}
+
 /// A weapon's greatest vigor cost at a level: its level's, by tens above 8; nothing below.
 #[must_use]
 pub const fn vigor(level: u32) -> i32 {

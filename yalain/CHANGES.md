@@ -98,6 +98,7 @@ what they see, not how it was done.
 - Inscriptions now show when an item is examined.
 - Dyeing now works on all armor.
 - A dyed item's icon now shows its color.
+- Loot weapons, shields and armor now have real stats for their level.
 
 ## 0.1.2 (2026-11-03)
 

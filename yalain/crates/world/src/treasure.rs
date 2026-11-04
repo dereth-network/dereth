@@ -15,6 +15,11 @@
 //! 50, 533 of 533 at 50; no Arcane Lore at a base of 51 or below, 0 of 1,616, and a share and a
 //! value growing with the base above it.)
 //!
+//! **Its numbers.** A template's damage and armor are placeholders, so a treasure weapon, shield or
+//! piece of armor gets its own by its item level (its least level, or its dropper's base from level
+//! 50 on), near what a made one has there: see [`numbers`]. The curves are fit to the recorded items,
+//! not known. It gets no enchantments.
+//!
 //! **A treasure potion** is drunk for one effect of its own: one of nine kinds (attack speed, damage
 //! reflected, health over time, health regained, greatest health, greatest vigor, run speed, vigor
 //! over time, vigor regained) at the tier of the dropper's level (up to 15, 16 to 29, 30 to 39, 40
@@ -171,6 +176,124 @@ pub const POTION_EFFECTS: [[u32; 5]; 9] = [
     ],
 ];
 
+/// A treasure weapon's damage, of a made weapon's at its level, at least and at most (2017: 689 of
+/// 727 weapons below level 50 with no effects at 0.84 to 0.97, the median 0.90).
+pub const WEAPON_DAMAGE_SHARE: (f32, f32) = (0.84, 0.97);
+
+/// How many of the 2017 treasure weapons had each combat delay, from 4; armor's, from 4; shields',
+/// from 5.
+const WEAPON_DELAYS: [f32; 16] = [
+    2.0, 17.0, 29.0, 41.0, 60.0, 58.0, 107.0, 113.0, 116.0, 108.0, 100.0, 86.0, 40.0, 44.0, 33.0,
+    19.0,
+];
+const ARMOR_DELAYS: [f32; 18] = [
+    1.0, 3.0, 5.0, 7.0, 5.0, 10.0, 13.0, 16.0, 13.0, 10.0, 8.0, 11.0, 4.0, 7.0, 5.0, 7.0, 2.0, 1.0,
+];
+const SHIELD_DELAYS: [f32; 7] = [14.0, 33.0, 40.0, 42.0, 31.0, 29.0, 12.0];
+
+/// A treasure weapon's vigor cost at a level: at least and at most (2017, of 973 weapons: 1 to level
+/// 7, 3 at 8 and 9, 4 or 5 to 20, 6 or 7 to 29, 10 to 12 to 39, 14 to 17 to 49, 16 to 19 at 50); above
+/// that it follows a made weapon's.
+#[must_use]
+pub const fn vigor_band(level: i32) -> (i32, i32) {
+    match level {
+        ..=7 => (1, 1),
+        8..=9 => (3, 3),
+        10..=20 => (4, 5),
+        21..=29 => (6, 7),
+        30..=39 => (10, 12),
+        40..=49 => (14, 17),
+        _ => {
+            let above = (level - 50) / 5;
+            (16 + above, 19 + above)
+        }
+    }
+}
+
+/// What a treasure shield's vigor cost takes of a weapon's (2017: 6 to 9 at level 50).
+const SHIELD_VIGOR_SHARE: f32 = 0.42;
+
+/// A treasure piece of armor's rating, of a made piece's at its level: it comes nearer with the level
+/// (2017: 0.8 at 10 to 1.0 at 49, of 130 pieces with no effects), give or take a tenth.
+#[must_use]
+pub fn armor_share(level: i32) -> f32 {
+    #[allow(clippy::cast_precision_loss)]
+    let l = level.clamp(0, MOST_LEVEL) as f32;
+    0.75 + 0.25 * l / 50.0
+}
+
+/// How often a treasure piece of armor or a shield has an enchantment slot; a robe has three, a
+/// weapon one (2017: 46 of 109 armor pieces but robes, 114 of 201 shields; 21 of 21 robes; 1,264 of
+/// 1,334 weapons).
+const ARMOR_SLOT_CHANCE: f32 = 0.5;
+
+/// What a treasure weapon, shield or piece of armor is, at its item level: its template's numbers are
+/// placeholders. None for any other item. Worth what its drop drew; it carries no name word.
+pub fn numbers(
+    rng: &mut Rng,
+    props: &yalain_content::Props,
+    level: i32,
+    value: u32,
+) -> Option<crate::made::Made> {
+    use crate::made::{self, Made, Piece};
+    let is_weapon = props.int("Weapon_Damage").is_some();
+    let is_armor = props.int("Item_ArmorLevel").is_some();
+    if !is_weapon && !is_armor {
+        return None;
+    }
+    let quality = level.max(1).cast_unsigned();
+    let drawn = |rng: &mut Rng, delays: &[f32], first: i32| {
+        first + i32::try_from(rng.weighted(delays.iter().copied()).unwrap_or(0)).unwrap_or(0)
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let rated = |rng: &mut Rng, exactly: f32| {
+        let draw = armor_share(level) + rng.between(-0.1, 0.1);
+        dereth_primitives::num::to_i32((exactly * draw).round()).max(1)
+    };
+    let mut own = Made {
+        value,
+        ..Made::default()
+    };
+    if is_weapon {
+        let (least, most) = WEAPON_DAMAGE_SHARE;
+        let share = rng.between(least, most);
+        let (low, high) = vigor_band(level);
+        let vigor =
+            low + i32::try_from(rng.below((high - low + 1).cast_unsigned() as usize)).unwrap_or(0);
+        let variance = props.float("Weapon_Variance").unwrap_or(0.0);
+        #[allow(clippy::cast_precision_loss)]
+        if is_armor {
+            let most = made::shield_damage(quality) as f32 * share;
+            own.damage = Some((dereth_primitives::num::to_i32(most.round()), variance));
+            own.armor = Some(rated(rng, made::shield_rating(quality) as f32));
+            own.delay = Some(drawn(rng, &SHIELD_DELAYS, 5));
+            own.vigor = Some(dereth_primitives::num::to_i32(
+                (vigor as f32 * SHIELD_VIGOR_SHARE).round(),
+            ));
+            own.slots = u32::from(rng.chance(ARMOR_SLOT_CHANCE));
+        } else {
+            let most = made::damage(quality) as f32 * share;
+            own.damage = Some((dereth_primitives::num::to_i32(most.round()), variance));
+            own.delay = Some(drawn(rng, &WEAPON_DELAYS, 4));
+            own.vigor = Some(vigor);
+            own.slots = 1;
+        }
+        return Some(own);
+    }
+    let places = props.word("Item_ValidInventoryLocations").unwrap_or(0);
+    let precluded = props.word("Item_PrecludedInventoryLocations").unwrap_or(0);
+    let piece = Piece::of(places, precluded);
+    own.armor = Some(rated(rng, made::armor_rating_exactly(piece, quality)));
+    own.delay = Some(drawn(rng, &ARMOR_DELAYS, 4));
+    if piece == Piece::Robe {
+        own.slots = 3;
+        own.covers = precluded;
+    } else {
+        own.slots = u32::from(rng.chance(ARMOR_SLOT_CHANCE));
+    }
+    Some(own)
+}
+
 /// The highest least level an item's own may be.
 pub const MOST_LEVEL: i32 = 50;
 
@@ -277,8 +400,14 @@ pub fn endow<S: yalain_store::Store>(
             .get(template)
             .is_some_and(|t| t.props.int("Usage_MinLevel").is_some());
         if !set {
-            own.min_level = Some(min_level(&mut s.rng, base));
+            let least = min_level(&mut s.rng, base);
+            own.min_level = Some(least);
             own.arcane_lore = arcane_lore(&mut s.rng, base);
+            let value = s.things.get(item).map_or(0, |t| t.value);
+            if let Some(t) = s.catalog.get(template) {
+                let props = t.props.clone();
+                own.made = numbers(&mut s.rng, &props, least.max(base), value);
+            }
         }
     } else if s.treasure.potions.contains(&package) {
         let (state, spellcraft) = potion_effect(&mut s.rng, level);

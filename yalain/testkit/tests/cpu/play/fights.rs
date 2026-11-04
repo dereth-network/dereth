@@ -365,6 +365,79 @@ fn equipment_a_creature_drops_carries_a_least_level_of_its_own_by_the_creatures_
     }
 }
 
+/// A treasure weapon, shield or piece of armor has numbers of its own by its level, where its template
+/// holds a placeholder: a weapon's damage near a made one's, its delay and vigor among the recorded;
+/// armor's rating; a robe's three slots; anything else nothing.
+/// Behaviour: server.loot.treasure-numbers-by-level
+#[test]
+fn a_treasure_items_numbers_follow_its_level() {
+    use yalain_content::{Prop, Props};
+    use yalain_world::rng::Rng;
+    use yalain_world::treasure::numbers;
+    let mut weapon = Props::default();
+    weapon
+        .set("Weapon_Damage", Prop::Int(10))
+        .set("Weapon_Variance", Prop::Float(0.25));
+    let mut robe = Props::default();
+    robe.set("Item_ArmorLevel", Prop::Int(10))
+        .set("Item_ValidInventoryLocations", Prop::Word(2))
+        .set("Item_PrecludedInventoryLocations", Prop::Word(8));
+    let mut shield = weapon.clone();
+    shield.set("Item_ArmorLevel", Prop::Int(10));
+    let mut rng = Rng::new(7);
+    assert_eq!(numbers(&mut rng, &Props::default(), 20, 9), None);
+    for _ in 0..500 {
+        let w = numbers(&mut rng, &weapon, 20, 9).expect("a weapon");
+        let (most, variance) = w.damage.expect("its damage");
+        assert!((88..=102).contains(&most), "at level 20: {most}");
+        assert!((variance - 0.25).abs() < f32::EPSILON);
+        assert!((4..=19).contains(&w.delay.expect("a delay")));
+        assert!((4..=5).contains(&w.vigor.expect("a vigor cost")));
+        assert_eq!((w.value, w.slots, w.armor), (9, 1, None));
+        let high = numbers(&mut rng, &weapon, 50, 9).expect("a weapon");
+        let (most, _) = high.damage.expect("its damage");
+        assert!((264..=306).contains(&most), "at level 50: {most}");
+        let r = numbers(&mut rng, &robe, 20, 9).expect("armor");
+        assert!((13..=25).contains(&r.armor.expect("a rating")), "{r:?}");
+        assert_eq!((r.damage, r.slots, r.covers), (None, 3, 8));
+        let sh = numbers(&mut rng, &shield, 20, 9).expect("a shield");
+        assert!(sh.armor.is_some() && sh.damage.is_some(), "{sh:?}");
+        assert!((5..=11).contains(&sh.delay.expect("a delay")));
+    }
+}
+
+/// A weapon drawn from a loot profile takes those numbers as it drops, worth what it drew, and a hit
+/// with it reads them.
+/// Behaviour: server.loot.treasure-numbers-by-level
+#[test]
+fn a_weapon_a_creature_drops_carries_its_levels_numbers() {
+    use yalain_content::{Prop, Props};
+    const SWORD: u32 = 0x4700_7003;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let mut props = Props::default();
+    props
+        .set("Weapon_Damage", Prop::Int(10))
+        .set("Weapon_Variance", Prop::Float(0.25));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(SWORD, 0x200, props));
+    h.server.treasure.equipment.insert(0x200);
+    let item = yalain_world::inventory::make_item(&mut h.server, SWORD, 1, 9).expect("made");
+    yalain_world::treasure::endow(&mut h.server, item, 20, None);
+    let t = h.server.things.get(item).expect("made");
+    let least = t.own.min_level.expect("its own least level");
+    assert!((20..=23).contains(&least), "{least}");
+    let m = t.own.made.expect("its numbers");
+    assert_eq!(m.value, 9);
+    let hit = yalain_world::combat::weapon_damage(&h.server, item).expect("a weapon");
+    assert!(
+        (88..=125).contains(&hit.most),
+        "not its template's 10: {}",
+        hit.most
+    );
+}
+
 /// Using the corpse opens it: the opener is told what it holds (the beetle's profile always
 /// leaves one item) and of the item; using the item takes it, and once the taking is through the
 /// move is answered and the item is the player's.

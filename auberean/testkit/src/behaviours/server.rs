@@ -4418,6 +4418,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-numbers-by-level",
+        says: "A treasure weapon, shield or piece of armor has its own damage, rating, delay, vigor \
+               cost and slots by its level, near what a made one has there, in place of its \
+               template's placeholders.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-NUMBERS"),
+        station: "yalain-testkit::cpu::play::fights::a_treasure_items_numbers_follow_its_level",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.treasure-own-properties",
         says: "An item drawn from a creature's loot profile is given what its dropper's level \
                gives it of its own: equipment whose template names no least level its own.",
