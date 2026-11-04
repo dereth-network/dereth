@@ -128,6 +128,12 @@ pub static DIVERGENCES: &[Divergence] = &[
                the original servers held.",
     },
     Divergence {
+        id: "CD2-screenshot-is-the-window",
+        says: "A screenshot is the window as it stands, interface included, saved at the window's \
+               size. The original drew the world again for it, in as many tiles as its two \
+               preferences asked (up to 10 by 10), and saved a JPEG in its own folder.",
+    },
+    Divergence {
         id: "CD2-script-sends-in-the-clear",
         says: "A script call the game marks for encryption goes to the server as a plain script \
                call, as every other does; the original client wrapped such calls under keys only \
