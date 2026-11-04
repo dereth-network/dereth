@@ -521,3 +521,24 @@ fn a_resized_window_is_the_displays_size() {
     let (size, _) = rendering_rows(&p);
     assert_eq!(size.get(), 1500 << 16 | 900, "full screen: not the size");
 }
+
+/// The client's data opened for a language reads that language's pictures: a signpost's.
+///
+/// Behaviour: draw.picture.a-picture-made-for-one-language-is-in-its-file
+#[test]
+fn the_data_opened_for_a_language_reads_its_pictures() {
+    use auberean_dat::locate::{install_dats, DatName};
+    use auberean_dat::DatFile;
+    let dir = auberean_dat::testing::require_target_install();
+    let listed = install_dats(&dir).expect("list the install");
+    let found: Vec<DatName> = listed.iter().map(|(n, _)| n.clone()).collect();
+    let open = |name: &DatName| {
+        let (_, p) = listed.iter().find(|(n, _)| n == name)?;
+        DatFile::open(p).ok()
+    };
+    let install = auberean_interface::data::Install { found, open: &open };
+    let (world, _, name) =
+        auberean_interface::data::open_data(&install, Some("English"), "").expect("opens");
+    assert_eq!(name, "English");
+    assert!(world.records.holds(0x4010_0001), "the signpost's picture");
+}

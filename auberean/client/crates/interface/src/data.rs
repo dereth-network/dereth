@@ -70,6 +70,9 @@ pub fn open_data(
         id = ENGLISH;
         name = "English".to_owned();
     }
+    if let Some(file) = install.file(&DatName::Local(name.clone())) {
+        world.records.use_language_file(file);
+    }
     let portal = Arc::new(install.file(&DatName::Portal).ok_or("no portal file")?);
     let mut files = vec![Arc::clone(&portal)];
     files.extend(install.file(&DatName::Local(name.clone())).map(Arc::new));

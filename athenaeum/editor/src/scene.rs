@@ -49,6 +49,9 @@ impl WorldData {
         let cell = open(&|n| *n == DatName::Cell(1)).ok_or("no cell file")?;
         let ctx = Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
         let records = WorldRecords::new(portal, cell, open(&|n| *n == DatName::HighRes), ctx);
+        if let Some(file) = open(&|n| *n == DatName::Local("English".to_owned())) {
+            records.use_language_file(file);
+        }
         let region = records.region().map_err(|e| format!("{e:?}"))?;
         Ok(Self { records, region })
     }

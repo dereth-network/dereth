@@ -8,7 +8,7 @@
 //! is missing until it comes.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use auberean_assets::entity::Entity;
 use auberean_assets::landblock::{Cell, Landblock, LandblockInfo, LightInfo};
@@ -38,11 +38,19 @@ pub const REGION_ID: u32 = 0x0F00_0000;
 /// its data cache.
 pub type CellReader = Arc<dyn Fn(u32, u32) -> Option<Vec<u8>> + Send + Sync>;
 
+/// Whether a record is a picture list or a picture made for one language: the upper parts of their
+/// id ranges, `0x40100000` and `0x41100000` up.
+const fn is_language_picture(id: u32) -> bool {
+    matches!(id >> 24, 0x40 | 0x41) && id & 0x00F0_0000 != 0
+}
+
 /// A world's data files and its decoded records.
 pub struct WorldRecords {
     portal: DatFile,
     cell: DatFile,
     highres: Option<DatFile>,
+    /// The language's file, for the pictures made for one language (a signpost's words).
+    language: OnceLock<DatFile>,
     ctx: Context,
     visuals: Mutex<HashMap<u32, Option<Arc<VisualDesc>>>>,
     setups: Mutex<HashMap<u32, Option<Arc<LoadedSetup>>>>,
@@ -119,6 +127,7 @@ impl WorldRecords {
             portal,
             cell,
             highres,
+            language: OnceLock::new(),
             ctx,
             visuals: Mutex::default(),
             setups: Mutex::default(),
@@ -133,6 +142,12 @@ impl WorldRecords {
     /// The ids the portal file holds from `lo` to `hi`.
     pub fn portal_ids(&self, lo: u32, hi: u32) -> impl Iterator<Item = u32> + '_ {
         self.portal.entries_in(lo, hi).map(|e| e.id)
+    }
+
+    /// The language's file: a picture made for one language is read from it from now on. The first
+    /// given stays.
+    pub fn use_language_file(&self, file: DatFile) {
+        let _ = self.language.set(file);
     }
 
     /// Read the cell file's records through `reader` from now on (`None`: from the file).
@@ -156,11 +171,14 @@ impl WorldRecords {
         }
     }
 
-    /// The bytes of portal record `id`: from the high-resolution file first for pictures, else the
-    /// portal file. Landblocks and cells are read by their own methods, since their ids overlap
-    /// the portal's.
+    /// The bytes of portal record `id`: a picture made for one language from the language's file;
+    /// from the high-resolution file first for other pictures, else the portal file. Landblocks
+    /// and cells are read by their own methods, since their ids overlap the portal's.
     #[must_use]
     pub fn bytes(&self, id: u32) -> Option<Vec<u8>> {
+        if is_language_picture(id) {
+            return self.language.get()?.read(id).ok();
+        }
         if (id >> 24) == 0x41 {
             if let Some(Ok(b)) = self.highres.as_ref().map(|h| h.read(id)) {
                 return Some(b);
@@ -172,6 +190,9 @@ impl WorldRecords {
     /// Whether the data holds portal record `id`, read from the files' directories alone.
     #[must_use]
     pub fn holds(&self, id: u32) -> bool {
+        if is_language_picture(id) {
+            return self.language.get().is_some_and(|l| l.entry(id).is_some());
+        }
         ((id >> 24) == 0x41 && self.highres.as_ref().is_some_and(|h| h.entry(id).is_some()))
             || self.portal.entry(id).is_some()
     }

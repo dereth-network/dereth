@@ -981,6 +981,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.picture.a-picture-made-for-one-language-is-in-its-file",
+        says: "A picture made for one language, a signpost's wood and words, is read from that                language's file.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-LANGUAGE-PICTURES"),
+        station: "auberean-draw::dat::pictures::a_picture_made_for_one_language_is_in_its_file",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.picture.a-texture-at-a-lower-detail-starts-at-a-smaller-level",
         says: "A texture at a lower detail starts at a smaller stored level: the levels texture \
                detail leaves out are its largest, the rest kept as stored.",

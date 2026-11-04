@@ -80,6 +80,7 @@ not how it was done.
 - Quests that change are marked in the journal.
 - Next-item keys now find held weapons too.
 - Tooltips no longer stay after their window closes.
+- Signposts show their wood and words.
 
 ## 0.1.2 (2026-11-02)
 
