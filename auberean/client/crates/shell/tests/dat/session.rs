@@ -3984,6 +3984,62 @@ fn the_ground_gives_a_body_its_terrain_type() {
     assert_ne!(motion, 0x8000_0001, "not the no-terrain value");
 }
 
+/// An object fades in as it enters the world. Fixture: a server double making one object.
+///
+/// Behaviour: desktop.bodies.an-object-fades-in-as-it-enters-the-world
+#[test]
+fn an_object_fades_in_as_it_enters_the_world() {
+    const CREATURE: u64 = 0x8130_1B05_CC00_018A;
+    const OPACITY: u32 = 0x4000_0015;
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: HALL_CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: HALL_AT.x + 3.0,
+                        y: HALL_AT.y,
+                        z: HALL_AT.z,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[creature], &[], 30.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.scene.figure(CREATURE).is_none() && s.host.time < 10.0 {
+        step(&mut s);
+    }
+    let until = s.host.time + 1.0;
+    while s.host.time < until {
+        step(&mut s);
+    }
+    let f = s.scene.figure(CREATURE).expect("its figure");
+    assert_eq!(f.sliders.desired(OPACITY), 1.0);
+}
+
 /// An effect with a decal lays it where its object stands: on the land outdoors, on its cell's
 /// ground inside, and it is drawn with the frame. Fixture: the server double asks the player's body
 /// for the effect at a set time, at the camp and in the hall.

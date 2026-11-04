@@ -168,6 +168,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.bodies.an-object-fades-in-as-it-enters-the-world",
+        says: "An object fades in over half a second as it enters the world.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-ENTER-FADE"),
+        station: "auberean-shell::dat::session::an_object_fades_in_as_it_enters_the_world",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.an-object-is-in-the-world-while-its-body-stands-there",
         says: "With the scene placing the bodies, an object's scripts are told it entered the \
                world when its body did (an object with no body, when its place's cell is \
