@@ -123,6 +123,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.bodies.a-frozen-body-and-figure-stand-still",
+        says: "What the scripts freeze stays: a body with its movement frozen does not move, and \
+               while its animation is frozen its figure does not advance.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-FROZEN"),
+        station: "auberean-scene::corpus::physics_object::a_frozen_body_and_figure_stand_still",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "desktop.bodies.a-held-object-takes-the-profile-its-qualities-give",
         says: "An object another holds takes the profile its own qualities give when its body is \
                made, as every object's body does: whether it slides along edges and ignores \

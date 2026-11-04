@@ -344,3 +344,53 @@ fn the_scripts_stop_the_cameras_effects() {
     assert!(stood, "it plays until asked");
     assert!(scene.camera.effects.tracks.is_empty(), "the ask ended it");
 }
+
+/// The server's scripts freeze a player: its body's movement and animation are frozen as they say,
+/// and while its animation is frozen its figure stands still, a slider under way waiting with it.
+/// Thawed, both go on.
+///
+/// Behaviour: desktop.bodies.a-frozen-body-and-figure-stand-still
+#[test]
+fn a_frozen_body_and_figure_stand_still() {
+    use auberean_physics::body::parent::FADE_SLIDER;
+    // Well after it came, when the world no longer waits for its cells.
+    let mut frames = 0;
+    let (mut started, mut frozen, mut thawed) = (None, None, None);
+    let (mut movement, mut animation, mut awake) = (false, false, false);
+    played_in_frames(SCALED, 20.0, FRAME, &[], &mut |c, scene| {
+        let Some(player) = c.model.player.filter(|p| scene.body(*p).is_some()) else {
+            return;
+        };
+        let fade = |scene: &Scene<'_>| scene.figure(player).map(|f| f.sliders.current(FADE_SLIDER));
+        frames += 1;
+        if frames == 300 {
+            let scripts = c.scripts.as_mut().expect("the scripts run");
+            scripts.host.frozen.insert(player, (true, true));
+        }
+        if frames == 301 {
+            let b = scene.body(player).expect("its body");
+            movement = b.is_movement_frozen();
+            animation = b.is_animation_frozen();
+            if let Some(f) = scene.figure_mut(player) {
+                f.sliders.do_slider(0, FADE_SLIDER, 0.0, 600.0);
+            }
+            started = fade(scene);
+        }
+        if frames == 331 {
+            frozen = fade(scene);
+            let scripts = c.scripts.as_mut().expect("the scripts run");
+            scripts.host.frozen.insert(player, (false, false));
+        }
+        if frames == 361 {
+            thawed = fade(scene);
+            awake = scene.body(player).is_some_and(|b| b.is_movement_active());
+        }
+    });
+    assert!(movement && animation, "the body takes the scripts' word");
+    let (Some(started), Some(frozen), Some(thawed)) = (started, frozen, thawed) else {
+        panic!("the player stayed in the world: {started:?} {frozen:?} {thawed:?}");
+    };
+    assert_eq!(started, frozen, "the slider waits while frozen");
+    assert_ne!(frozen, thawed, "and goes on once thawed");
+    assert!(awake, "thawed, the body's updates run again");
+}

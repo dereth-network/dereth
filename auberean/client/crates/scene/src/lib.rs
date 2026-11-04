@@ -2665,7 +2665,7 @@ impl<'w> Scene<'w> {
             client
                 .body
                 .follow(pos.cell.0, dv(pos.frame.origin), p.body.heading);
-            if let Some(step) = anim {
+            if let Some(step) = anim.filter(|_| !p.body.is_animation_frozen()) {
                 let (moved, turn, size) = figure_motion(&mut p.body, step);
                 p.figure.set_motion(moved, turn, size);
                 forward_behaviors(&p.body, &mut p.shown, &mut p.figure, &self.anims);
@@ -3057,6 +3057,18 @@ impl<'w> Scene<'w> {
         let Some(scripts) = client.scripts.as_ref() else {
             return;
         };
+        // D2-06029, D2-06030
+        for (id, (movement, animation)) in &scripts.host.frozen {
+            if let Some(b) = self.body_mut(*id) {
+                // A frozen body's updates stop; thawed, they run again, as the keys here don't
+                // wake a body the way its motion does.
+                if b.is_movement_frozen() && !*movement {
+                    b.set_movement_active(true);
+                }
+                b.set_movement_frozen(*movement);
+                b.set_animation_frozen(*animation);
+            }
+        }
         for (id, state) in &scripts.host.bodies {
             if !self.has_body(*id) {
                 continue;

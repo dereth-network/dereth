@@ -964,7 +964,8 @@ impl Others {
                         }
                     }
                 }
-                if let (Some(f), Some(step)) = (&mut b.figure, anim) {
+                let frozen = ob.body.is_animation_frozen();
+                if let (Some(f), Some(step)) = (&mut b.figure, anim.filter(|_| !frozen)) {
                     // Feet that match how the body moved over its last tick.
                     let (moved, turn, size) = crate::figure_motion(&mut ob.body, step);
                     f.set_motion(moved, turn, size);
