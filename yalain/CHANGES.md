@@ -35,6 +35,7 @@ what they see, not how it was done.
 - Hero-only quests, and quests that need another first, now go only to those who qualify.
 - A player typing admin commands no longer floods the log.
 - Quests that pay a share of your next level now pay it.
+- Completing quests now raises your quest rating.
 
 ## 0.1.2 (2026-11-03)
 

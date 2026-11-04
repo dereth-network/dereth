@@ -91,24 +91,27 @@ pub struct CompletionPay {
     pub most_at_level: Option<(f32, i32)>,
     /// It is paid whole, whatever its challenge against the player's level.
     pub flat: bool,
+    /// What it adds to the player's quest rating, every time, whatever the player's level.
+    pub points: u32,
 }
 
 impl CompletionPay {
     fn word(&self) -> String {
         let (most_share, most_level) = self.most_at_level.unwrap_or((0.0, 0));
         format!(
-            "{}:{}:{}:{most_share}:{most_level}:{}",
+            "{}:{}:{}:{most_share}:{most_level}:{}:{}",
             self.share,
             self.least,
             self.most,
-            u8::from(self.flat)
+            u8::from(self.flat),
+            self.points
         )
     }
 
     fn of_word(w: &str) -> Result<Self, String> {
         let c: Vec<&str> = w.split(':').collect();
-        let [share, least, most, most_share, most_level, flat] = c[..] else {
-            return Err(format!("a completion's pay has six parts, not {w}"));
+        let [share, least, most, most_share, most_level, flat, points] = c[..] else {
+            return Err(format!("a completion's pay has seven parts, not {w}"));
         };
         fn num<T: std::str::FromStr>(s: &str) -> Result<T, String> {
             s.parse().map_err(|_| format!("{s} is not a number"))
@@ -121,6 +124,7 @@ impl CompletionPay {
             most: num(most)?,
             most_at_level: (most_level != 0).then_some((most_share, most_level)),
             flat: flat == "1",
+            points: num(points)?,
         })
     }
 }

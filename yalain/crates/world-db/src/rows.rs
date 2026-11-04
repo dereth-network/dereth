@@ -249,6 +249,9 @@ pub struct Quest {
     pub xp_share: Option<f64>,
     /// The level at and above which that share pays no more.
     pub xp_share_level: Option<i32>,
+    /// What its completion adds to the player's quest rating; left out, as the quest's setup in the
+    /// install says.
+    pub qp: Option<u32>,
     pub cancellable: Option<bool>,
     /// Whether the quest is shown to its player; left out, a quest is shown when its definition
     /// has a description.
@@ -452,6 +455,8 @@ pub struct Scene {
 pub struct Shard {
     pub object: u64,
     pub scene: u32,
+    /// The quest it completes for the player as it comes out, if any.
+    pub quest: Option<u32>,
     pub prov: Prov,
 }
 
@@ -626,6 +631,7 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "xp",
             "xp_share",
             "xp_share_level",
+            "qp",
             "cancellable",
             "visible",
             "min_level",
@@ -713,7 +719,7 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "prov",
         ],
     ),
-    ("shard", &["object", "scene", "prov"]),
+    ("shard", &["object", "scene", "quest", "prov"]),
     (
         "weapon",
         &["name", "template", "two_share", "stance", "prov"],
@@ -1068,6 +1074,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             xp: f.int("xp").and_then(|v| u64::try_from(v).ok()),
             xp_share: f.float("xp_share"),
             xp_share_level: f.int("xp_share_level").and_then(|v| i32::try_from(v).ok()),
+            qp: f.int("qp").and_then(|v| u32::try_from(v).ok()),
             cancellable: f.bool("cancellable"),
             visible: f.bool("visible"),
             min_level: f.int("min_level").and_then(|v| i32::try_from(v).ok()),
@@ -1215,6 +1222,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
         "shard" => Row::Shard(Shard {
             object: f.id64("object")?,
             scene: f.req_id("scene")?,
+            quest: f.id("quest"),
             prov: f.req_prov()?,
         }),
         "weapon" => {

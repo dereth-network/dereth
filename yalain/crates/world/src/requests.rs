@@ -415,6 +415,7 @@ fn profile_bytes<S: Store>(
             examine::level_of(&q.qualities),
             crate::kingdoms::of(&q.qualities),
             v,
+            q.play.quest_rating,
         )
     } else if let Some(t) = s.things.get(req.object) {
         // What the world runs: a creature a camp keeps alive, a corpse, an item, a resource node,

@@ -248,7 +248,8 @@ fn a_quests_setup_says_who_it_is_for() {
     );
 }
 
-/// What a completion pays is its setup's: an amount; or a share, with its limits, paid whole.
+/// What a completion pays is its setup's: an amount; or a share, with its limits, paid whole; and
+/// the points it adds to a quest rating.
 /// Behaviour: server.quests.completion-pays-a-share
 #[test]
 fn a_quests_setup_says_what_its_completion_pays() {
@@ -273,7 +274,14 @@ fn a_quests_setup_says_what_its_completion_pays() {
             .expect("the quest")
     };
     assert_eq!(read(0x4000_0009).0, 100, "an amount: the Beetle Slayer");
-    assert_eq!(read(0x4000_0009).1, CompletionPay::default());
+    assert_eq!(
+        read(0x4000_0009).1,
+        CompletionPay {
+            points: 15,
+            ..CompletionPay::default()
+        },
+        "and its points"
+    );
     assert_eq!(
         read(0x4000_0223),
         (
@@ -300,6 +308,7 @@ fn a_quests_setup_says_what_its_completion_pays() {
                 share: 0.35,
                 least: 1_000_000,
                 most: 5_000_000,
+                points: 40_000,
                 ..CompletionPay::default()
             }
         ),

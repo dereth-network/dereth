@@ -527,6 +527,7 @@ fn kingdom_lines(p: &mut Profile, faction: u32) {
 /// its race and sex, its level, its kingdom (the neutral one for a player in none), its health
 /// and vigor, its kingdom points and quest rating.
 #[must_use]
+#[allow(clippy::too_many_arguments)]
 pub fn player(
     asked: u32,
     world_name: &str,
@@ -535,6 +536,7 @@ pub fn player(
     level: i32,
     kingdom: Option<u32>,
     v: Vitals,
+    quest_rating: u32,
 ) -> Profile {
     let mut p = Profile::new(asked);
     let name = || literal(world_name);
@@ -592,10 +594,10 @@ pub fn player(
         with_vars(
             line::TABLE,
             line::QUEST_RATING,
-            vec![number(var::QUEST_RATING, 0)],
+            vec![number(var::QUEST_RATING, quest_rating)],
         ),
     );
-    p.int(GENERAL, look::VALUE, 0);
+    p.int(GENERAL, look::VALUE, quest_rating.cast_signed());
     p.brk(GENERAL);
     p.brk(GENERAL);
     p

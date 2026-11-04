@@ -825,7 +825,10 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     last_waits: def.last_waits,
                     hero_only: def.hero_only,
                     required: def.required,
-                    pay: quest_pay(def.pay, q),
+                    pay: yalain_content::quests::CompletionPay {
+                        points: q.qp.unwrap_or(def.pay.points),
+                        ..quest_pay(def.pay, q)
+                    },
                 });
             }
             Row::Step(s) => {
@@ -949,6 +952,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             }
             Row::Shard(r) => {
                 t.story.shards.insert(r.object, r.scene);
+                if let Some(quest) = r.quest {
+                    t.story.shard_quests.insert(r.object, quest);
+                }
             }
             Row::Weapon(r) => {
                 if cx.template(l, "template", r.template) {

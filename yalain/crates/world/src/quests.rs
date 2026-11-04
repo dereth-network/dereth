@@ -1179,6 +1179,10 @@ pub fn completion_xp(xp: u64, challenge: i32, level: i32) -> u64 {
 /// a share's limit at a level is that share of what that level takes. A quest with no share
 /// pays its amount. Either is weighed by its challenge unless the quest says it is paid whole (2017:
 /// where weighing would change it, the quests that say so 2 of 2 whole, the others 6 of 6 weighed).
+/// A completion also adds the quest's points to the player's quest rating, whole and every time
+/// (2017: of 136 pairs of a player's profiles with what it completed between them known, 133 moved
+/// by exactly that, 60 of 60 in one session, the 3 others across time not recorded; of 14,336
+/// profiles, none lower than the one before; no use of the rating but the profile's line is known).
 #[must_use]
 pub fn completion_pay(levels: &LevelTable, def: &QuestDef, level: i32) -> u64 {
     let pay = &def.pay;
@@ -1246,7 +1250,16 @@ pub fn apply<S: Store>(
             .map_or(1, |p| crate::examine::level_of(&p.qualities));
         let paid = completion_pay(&s.levels, &def, level);
         if paid > 0 {
-            progress::award(s, net, world, paid, Award::Quest(def.name));
+            // A hidden quest's pay comes with no text (2017: the vaults' shard quests, 31 of 31).
+            let why = if is_hidden(&s.quests, &def) {
+                Award::Step
+            } else {
+                Award::Quest(def.name)
+            };
+            progress::award(s, net, world, paid, why);
+        }
+        if let Some(p) = s.players.get_mut(&world) {
+            p.play.quest_rating = p.play.quest_rating.saturating_add(def.pay.points);
         }
     }
     let Some(p) = s.players.get_mut(&world) else {

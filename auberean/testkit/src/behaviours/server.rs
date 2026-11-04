@@ -2271,6 +2271,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.player-quest-rating",
+        says: "A player's profile names the quest rating the quests it has completed added.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-RATING-SHOWN"),
+        station: "yalain-testkit::cpu::entry::examine::examining_a_player_names_its_quest_rating",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.portal-recall-line",
         says: "A portal examined says what may be recalled to it, as its flags say: recall and summon, \
                recall alone, or neither.",
@@ -6576,6 +6584,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.completion-adds-points",
+        says: "A quest's completion adds its points to its player's quest rating: whole, whatever its challenge against the player's level, and every time; a row may say otherwise than its setup.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-POINTS"),
+        station: "yalain-testkit::cpu::play::quests::a_completion_adds_its_points_to_the_rating_every_time_whatever_the_level",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.completion-paid-whole",
         says: "A quest whose setup says its challenge is ignored pays its completion whole, whatever \
                its challenge against the player's level.",
@@ -6701,6 +6717,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-HIDDEN-NEVER-TOLD"),
         station: "yalain-testkit::cpu::play::quests::a_hidden_quest_is_held_and_moved_on_but_never_told",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.hidden-pays-quietly",
+        says: "A hidden quest's completion pays with no text and no update told.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HIDDEN-PAY"),
+        station: "yalain-testkit::cpu::play::quests::a_hidden_quests_completion_pays_with_no_text",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -7316,6 +7340,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-STORY-SHARD"),
         station: "yalain-testkit::cpu::play::story::a_story_shard_bestows_its_scene_and_takes_the_player_on",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.story.shard-completes-its-quest",
+        says: "A vault's shard that has a quest completes it as the player comes out, before its use is answered, every time it is used.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SHARD-QUESTS"),
+        station: "yalain-testkit::cpu::play::story::a_vaults_shard_completes_its_quest_as_the_player_comes_out",
         tier: Tier::Cpu,
     },
     behaviour! {

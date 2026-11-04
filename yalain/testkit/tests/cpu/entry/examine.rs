@@ -122,6 +122,7 @@ fn examining_a_player_is_answered_with_its_profile_and_stopping_is_not_answered(
             pk_damage: 0,
             pk_vigor_loss: 0,
         },
+        0,
     );
     assert_eq!(bytes[..], want.packed(&request)[..]);
     let from = h.bots[a].inbox.len();
@@ -142,6 +143,46 @@ fn examining_a_player_is_answered_with_its_profile_and_stopping_is_not_answered(
     assert!(
         profile_nodes(&h, a, from).is_empty(),
         "stopping is not answered"
+    );
+}
+
+/// A player's profile names the quest rating its completed quests have added.
+/// Behaviour: server.examination.player-quest-rating
+#[test]
+fn examining_a_player_names_its_quest_rating() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (_, idb) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    h.server
+        .players
+        .values_mut()
+        .find(|p| p.character == idb)
+        .expect("in the world")
+        .play
+        .quest_rating = 104_295;
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(idb, 0x203)]),
+    );
+    h.run(30);
+    let got = profile_nodes(&h, a, from);
+    assert_eq!(got.len(), 1, "one profile");
+    let at = got[0]
+        .windows(4)
+        .position(|w| w == yalain_world::profile::var::QUEST_RATING.to_le_bytes())
+        .expect("the rating's variable");
+    assert_eq!(
+        got[0][at + 8..at + 12],
+        104_295u32.to_le_bytes(),
+        "its value in the line"
+    );
+    let shown = 104_295i32.to_le_bytes();
+    assert!(
+        got[0][at + 12..].windows(4).any(|w| w == shown),
+        "and on its own beside it"
     );
 }
 

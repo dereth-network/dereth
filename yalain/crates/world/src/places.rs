@@ -2106,6 +2106,28 @@ fn arrive<S: Store>(
         };
         p = q;
     }
+    let shard_quest = trip
+        .used
+        .as_ref()
+        .and_then(|u| s.story.shard_quests.get(&u.item).copied());
+    if let Some(quest) = shard_quest {
+        // A vault's shard completes its quest as the player comes out, before the use is answered
+        // (2017: 33 of 33).
+        s.players.insert(world, p);
+        crate::quests::apply(
+            s,
+            net,
+            world,
+            quest,
+            yalain_content::quests::Update::Complete,
+            0,
+            clock,
+        );
+        let Some(q) = s.players.remove(&world) else {
+            return;
+        };
+        p = q;
+    }
     if let Some(u) = trip.used.as_ref().filter(|u| u.target == 0) {
         // The portal's own effects, put on the player as it comes out, before the use is answered
         // (2017: 3 of 3 such portals' uses: quests given and moved on, and what they put on).

@@ -367,11 +367,122 @@ fn level_costs(costs: &[(i32, u64)]) -> LevelTable {
     LevelTable { levels }
 }
 
+fn conn_of(h: &Harness, me: u64) -> yalain_net::ConnId {
+    *h.server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0
+}
+
 fn paying(challenge: i32, pay: CompletionPay) -> QuestDef {
     QuestDef {
         pay,
         ..quest(HALL_QUEST, 0, challenge)
     }
+}
+
+/// A completion adds its quest's points to its player's quest rating: whole, whatever the quest's
+/// challenge against the player's level, and every time the quest is completed. Other updates add
+/// nothing, and the rating is kept with the character.
+/// Behaviour: server.quests.completion-adds-points
+#[test]
+fn a_completion_adds_its_points_to_the_rating_every_time_whatever_the_level() {
+    const QUEST: u32 = 0x4000_0033;
+    let mut h = Harness::new();
+    let def = QuestDef {
+        pay: CompletionPay {
+            points: 400,
+            ..CompletionPay::default()
+        },
+        ..quest(QUEST, 800, 8)
+    };
+    h.server.quests = QuestTable {
+        quests: vec![def],
+        steps: Vec::new(),
+    };
+    let (_, me) = h.player_in_world("one", "Elara");
+    let world = conn_of(&h, me);
+    yalain_world::quals::set_int(
+        &mut h.server.players.get_mut(&world).unwrap().qualities,
+        302,
+        60,
+    );
+    let rating = |h: &Harness| h.server.players[&world].play.quest_rating;
+    let run = |h: &mut Harness, up: Update| {
+        let clock = h.clock();
+        yalain_world::quests::apply(&mut h.server, &mut h.net, world, QUEST, up, 0, clock);
+    };
+    assert_eq!(rating(&h), 0, "a new character's");
+    run(&mut h, Update::Bestow);
+    run(&mut h, Update::Advance(2));
+    assert_eq!(rating(&h), 0, "only a completion adds");
+    for times in 1..=3 {
+        run(&mut h, Update::Complete);
+        assert_eq!(rating(&h), 400 * times, "every time, whatever the level");
+    }
+    let play = h.server.players[&world].play.clone();
+    let back = yalain_world::state::PlayState::from_bytes(&play.to_bytes()).expect("reads");
+    assert_eq!(back.quest_rating, 1200, "kept");
+    // Saved before there was a rating: none.
+    let mut old = play.to_bytes();
+    old.truncate(old.len() - 4);
+    old[..4].copy_from_slice(&14u32.to_le_bytes());
+    let older = yalain_world::state::PlayState::from_bytes(&old).expect("reads");
+    assert_eq!(older.quest_rating, 0, "an older save");
+}
+
+/// A hidden quest's completion pays what it pays with no text and no update told; a quest shown
+/// names itself in the text of its pay.
+/// Behaviour: server.quests.hidden-pays-quietly
+#[test]
+fn a_hidden_quests_completion_pays_with_no_text() {
+    const HIDDEN: u32 = 0x4000_0033;
+    const SHOWN: u32 = 0x4000_0035;
+    let mut h = Harness::new();
+    h.server.quests = QuestTable {
+        quests: vec![
+            QuestDef {
+                hidden: true,
+                ..quest(HIDDEN, 800, -999)
+            },
+            quest(SHOWN, 800, -999),
+        ],
+        steps: Vec::new(),
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let world = conn_of(&h, me);
+    let total = |h: &Harness| {
+        yalain_world::quals::long(&h.server.players[&world].qualities, 300).unwrap_or(0)
+    };
+    let run = |h: &mut Harness, q: u32| {
+        let from = h.bots[b].inbox.len();
+        let before = total(h);
+        let clock = h.clock();
+        yalain_world::quests::apply(
+            &mut h.server,
+            &mut h.net,
+            world,
+            q,
+            Update::Complete,
+            0,
+            clock,
+        );
+        h.run(3);
+        (total(h) - before, h.texts(b, from), h.functions(b, from))
+    };
+    let (paid, texts, calls) = run(&mut h, HIDDEN);
+    assert_eq!(paid, 800, "its pay");
+    assert!(texts.is_empty(), "no text: {texts:x?}");
+    assert!(
+        !calls.contains(&yalain_world::quests::UPDATE_QUEST),
+        "no update"
+    );
+    let (paid, texts, calls) = run(&mut h, SHOWN);
+    assert_eq!(paid, 800);
+    assert_eq!(texts.len(), 1, "a shown quest's pay is named");
+    assert!(calls.contains(&yalain_world::quests::UPDATE_QUEST));
 }
 
 /// A quest may pay a share of what its player's level takes to reach the next, rounded down: the

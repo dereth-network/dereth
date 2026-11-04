@@ -380,13 +380,14 @@ const SET_MONARCH_ONLY: u32 = 0x01A7_0057;
 
 /// The calls a quest's setup makes to say what its completion pays: an amount, or a share of what
 /// the player's level takes to reach the next, with what limits that, and whether the amount is
-/// paid whole whatever the quest's challenge.
+/// paid whole whatever the quest's challenge; and what it adds to the player's quest rating.
 const SET_XP: u32 = 0x01A7_0021;
 const SET_XP_SHARE: u32 = 0x01A7_00B4;
 const SET_XP_LEAST: u32 = 0x01A7_0099;
 const SET_XP_MOST: u32 = 0x01A7_0088;
 const SET_XP_MOST_AT_LEVEL: u32 = 0x01A7_006D;
 const SET_XP_FLAT: u32 = 0x01A7_0061;
+const SET_POINTS: u32 = 0x01A7_0024;
 
 /// What a quest's package sets up beyond its definition.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -500,6 +501,9 @@ fn read_setup(lib: &Library, start: usize, end: usize) -> Setup {
                             float.zip(literal.and_then(|v| i32::try_from(v).ok()));
                     }
                     SET_XP_FLAT => out.pay.flat = literal == Some(1),
+                    SET_POINTS => {
+                        out.pay.points = literal.and_then(|v| u32::try_from(v).ok()).unwrap_or(0);
+                    }
                     _ => {
                         if lib.function_name(FunctionId(id)).as_deref() == Some(SET_SOLUTIONS) {
                             out.once = literal == Some(1);

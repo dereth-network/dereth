@@ -1460,6 +1460,68 @@ fn a_quests_least_level_is_its_setups_unless_its_row_names_one() {
     assert_eq!(t.quests.quests[0].min_level, 3);
 }
 
+/// What a quest adds to a quest rating is its setup's, unless its row says, whatever else the row
+/// says of its pay; and it survives the tables' text.
+/// Behaviour: server.quests.completion-adds-points
+#[test]
+fn what_a_quest_adds_to_a_rating_is_its_setups_unless_its_row_says() {
+    use yalain_content::quests::{CompletionPay, QuestTable};
+    let install = Fake {
+        setup_pay: CompletionPay {
+            points: 400,
+            ..CompletionPay::default()
+        },
+        ..Fake::new()
+    };
+    let points = |extra: &str| {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "duration = 72000",
+            &format!("duration = 72000\n{extra}"),
+        );
+        let t = compile(&merge(&read(&files).unwrap()).unwrap(), &install).unwrap();
+        (t.quests.quests[0].pay.points, t.quests)
+    };
+    assert_eq!(points("xp = 1").0, 400, "left out: the setup's");
+    assert_eq!(points("qp = 50").0, 50, "the row's");
+    assert_eq!(points("qp = 0").0, 0, "a row may say none");
+    assert_eq!(
+        points("qp = 50\nxp_share = 0.005").0,
+        50,
+        "with a share of its own"
+    );
+    let (_, t) = points("qp = 50");
+    let back = QuestTable::from_text(&t.to_text()).expect("reads");
+    assert_eq!(back.quests[0].pay.points, 50, "through the text");
+}
+
+/// A shard's row may name the quest it completes, as the story's table keeps it.
+/// Behaviour: server.story.shard-completes-its-quest
+#[test]
+fn a_shards_row_names_the_quest_it_completes() {
+    let row = |quest: &str| {
+        let mut files = fixture();
+        files.insert(
+            "town/server/story.toml".into(),
+            format!(
+                "[[shard]]\nobject = 0x4002990000000059\nscene = 0x40000021\n{quest}prov = {{ from = \"authored\", by = \"t\", note = \"t\", confidence = \"low\" }}\n"
+            ),
+        );
+        let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+        (
+            t.story.shards.get(&0x4002_9900_0000_0059).copied(),
+            t.story.shard_quests.get(&0x4002_9900_0000_0059).copied(),
+        )
+    };
+    assert_eq!(row(""), (Some(0x4000_0021), None));
+    assert_eq!(
+        row("quest = 0x40000033\n"),
+        (Some(0x4000_0021), Some(0x4000_0033))
+    );
+}
+
 /// What a completion pays is the setup's, unless the row says: a row's amount is paid in place of
 /// the setup's share, and a row's share in place of all the setup says, paid whole, up to the row's
 /// level.
