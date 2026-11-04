@@ -186,6 +186,8 @@ const OWN_DYE: u32 = 0x10;
 const OWN_VALUE: u32 = 0x20;
 /// What a player inscribed on it.
 const OWN_INSCRIPTION: u32 = 0x40;
+/// The craft flags a recipe gave it.
+const OWN_CRAFT_FLAGS: u32 = 0x80;
 
 /// An item's durability as kept: none (never worn) is a value no durability takes.
 const UNWORN: u32 = u32::MAX;
@@ -373,6 +375,11 @@ impl ItemState {
                 OWN_INSCRIPTION
             } else {
                 0
+            }
+            | if own.craft_flags != 0 {
+                OWN_CRAFT_FLAGS
+            } else {
+                0
             };
         w32(out, has);
         if let Some(v) = own.min_level {
@@ -407,6 +414,9 @@ impl ItemState {
                 w32(out, u32::try_from(text.len()).unwrap_or(0));
                 out.extend_from_slice(text.as_bytes());
             }
+        }
+        if own.craft_flags != 0 {
+            w32(out, own.craft_flags);
         }
     }
 
@@ -474,6 +484,9 @@ impl ItemState {
             }
             if has & OWN_INSCRIPTION != 0 {
                 inscription = Some((r.text()?, r.text()?));
+            }
+            if has & OWN_CRAFT_FLAGS != 0 {
+                own.craft_flags = r.u32()?;
             }
         }
         Some(Self {

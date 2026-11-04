@@ -672,3 +672,48 @@ fn every_refining_recipe_reads_with_its_product() {
     assert_eq!(c.recipes[&0x6F00_1ABB].custom, Custom::Unknown);
     assert_eq!(c.recipes[&0x6F00_1081].custom, Custom::Spellbind);
 }
+
+/// The install's slots read what they ask: spellbinding's sword by the spinner, a level up to 50
+/// and an Arcane Lore from 51; an armor empowerment's refused flag, which the recipe itself adds;
+/// a recipe's cutoff.
+/// Behaviour: server.craft.slots-ask-level-and-lore
+#[test]
+fn the_installs_slots_read_their_level_lore_flags_and_cutoff() {
+    use yalain_world::craft::{error, Action, Limit};
+    let p = Portal::open();
+    let c = p.crafting(&[], &[0x6F00_1081, 0x6F00_030A, 0x6F00_106C]);
+    let slot = &c.recipes[&0x6F00_1081].ingredients[0];
+    assert_eq!(slot.level, Limit::ByTable(0x6F00_06B6));
+    assert_eq!(slot.lore, Limit::ByTable(0x6F00_0679));
+    assert_eq!(
+        c.level_or_lore_refused(slot, 20, 20, 0),
+        0,
+        "as 2017, level 20"
+    );
+    assert_eq!(
+        c.level_or_lore_refused(slot, 20, 23, 0),
+        error::ITEM_LEVEL_TOO_HIGH
+    );
+    assert_eq!(c.level_or_lore_refused(slot, 51, 90, 7), 0, "lore 7 at 51");
+    assert_eq!(
+        c.level_or_lore_refused(slot, 51, 1, 8),
+        error::ITEM_LORE_TOO_HIGH
+    );
+    let empower = &c.recipes[&0x6F00_030A];
+    assert_eq!(empower.ingredients[1].restricted_flags, 8);
+    assert!(empower
+        .checks
+        .iter()
+        .flat_map(|x| &x.outcomes)
+        .flat_map(|o| &o.actions)
+        .any(|a| matches!(
+            a,
+            Action::Flag {
+                ordinal: 2,
+                flags: 8,
+                ..
+            }
+        )));
+    assert_eq!(c.recipes[&0x6F00_106C].cutoff, Some(50));
+    assert_eq!(empower.cutoff, None);
+}

@@ -84,6 +84,7 @@ what they see, not how it was done.
 - An item being put down isn't lost if you leave or the server stops.
 - A craft makes nothing if its ingredients are gone by the end.
 - Hammers and crucibles now help when crafting.
+- Recipes now refuse items above their level or lore.
 
 ## 0.1.2 (2026-11-03)
 

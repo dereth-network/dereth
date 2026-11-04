@@ -1437,6 +1437,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.recipe-too-far-above-the-skill-refused",
+        says: "A recipe whose difficulty is further above the craft skill, with what effects add, than \
+               its cutoff is refused with the answer alone. Our choice: the client greys its button \
+               out, so no recording holds an answer; this one is the unknown-recipe refusal.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-CUTOFF"),
+        station: "yalain-testkit::cpu::play::crafting::a_recipe_past_its_cutoff_is_refused_until_effects_lift_the_skill",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.recipes-read-from-their-definitions",
         says: "Recipes and craft skills read from their saved states with the library's names: a \n               recipe's craft skill, animation and cycles, its ingredient slots, its checks and \n               their outcomes' actions (items made, ingredients used up, effects, texts), its \n               wait; a craft skill's cap.",
         since: RETAIL,
@@ -1491,6 +1501,26 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-SPINNER-AMOUNT"),
         station: "yalain-testkit::cpu::play::crafting::too_few_for_the_spinners_amount_is_refused_with_why",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.slots-ask-craft-flags",
+        says: "A slot's required and refused craft flags are tested against the item's: its template's \
+               and those a recipe gave it, which stay with it. A missing or barred flag 1, 2 or 4 \
+               answers its own refusal, any other 40009.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-SLOT-FLAGS"),
+        station: "yalain-testkit::cpu::play::crafting::an_item_a_recipe_flagged_is_refused_by_a_slot_that_bars_the_flag",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.slots-ask-level-and-lore",
+        says: "A slot asks by the spinner: an item's least level at most its level table's, refused \
+               2007, or from where its lore table starts an item's Arcane Lore at most that table's \
+               and no level, refused 2008. An item that takes Arcane Lore is judged by that alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-SLOT-LEVEL"),
+        station: "yalain-testkit::cpu::play::crafting::a_slot_refuses_an_item_above_its_level_or_lore_at_the_spinner",
         tier: Tier::Cpu,
     },
     behaviour! {

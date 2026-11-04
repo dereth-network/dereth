@@ -2642,3 +2642,264 @@ fn a_makings_check_counts_what_effects_add_to_the_craft_skill() {
         "never past the skill's cap"
     );
 }
+
+/// A slot that asks a level or an Arcane Lore by the spinner: a level, the same number at each.
+fn asking_slot(h: &mut Harness) -> yalain_world::craft::Ingredient {
+    use yalain_world::craft::{Ingredient, LevelMap, Limit};
+    const LEVELS: u32 = 0x6F00_0FF1;
+    const LORES: u32 = 0x6F00_0FF2;
+    let table = |values: Vec<u32>| LevelMap { first: 1, values };
+    h.server
+        .crafting
+        .spinner_tables
+        .insert(LEVELS, table((1..=60).collect()));
+    let mut lore = vec![0; 50];
+    lore.extend((1..=10).map(|n| n * 10));
+    h.server.crafting.spinner_tables.insert(LORES, table(lore));
+    Ingredient {
+        ordinal: 1,
+        quantity: 1,
+        items: vec![yalain_testkit::TEST_ITEM],
+        level: Limit::ByTable(LEVELS),
+        lore: Limit::ByTable(LORES),
+        ..Ingredient::default()
+    }
+}
+
+/// What a slot asks by the spinner: below the lore table's start an item's least level, at most
+/// the spinner; an item that takes Arcane Lore is refused there. Where the lore table starts, an
+/// item's lore, at most the table's, and no level at all.
+/// Behaviour: server.craft.slots-ask-level-and-lore
+#[test]
+fn a_slot_refuses_an_item_above_its_level_or_lore_at_the_spinner() {
+    use yalain_world::craft::error;
+    let mut h = Harness::new();
+    let slot = asking_slot(&mut h);
+    let c = &h.server.crafting;
+    // Level 20: only a level is asked.
+    assert_eq!(c.level_or_lore_refused(&slot, 20, 20, 0), 0);
+    assert_eq!(c.level_or_lore_refused(&slot, 20, 6, 0), 0);
+    assert_eq!(
+        c.level_or_lore_refused(&slot, 20, 21, 0),
+        error::ITEM_LEVEL_TOO_HIGH
+    );
+    assert_eq!(
+        c.level_or_lore_refused(&slot, 20, 1, 5),
+        error::ITEM_LORE_TOO_HIGH,
+        "an item taking lore, where no lore is asked"
+    );
+    // Level 51: lore 10 is asked and level isn't.
+    assert_eq!(c.level_or_lore_refused(&slot, 51, 1, 10), 0);
+    assert_eq!(
+        c.level_or_lore_refused(&slot, 51, 1, 11),
+        error::ITEM_LORE_TOO_HIGH
+    );
+    assert_eq!(
+        c.level_or_lore_refused(&slot, 51, 90, 0),
+        0,
+        "no level then"
+    );
+}
+
+/// A slot asking nothing passes any item.
+/// Behaviour: server.craft.slots-ask-level-and-lore
+#[test]
+fn a_slot_that_asks_no_level_or_lore_takes_any_item() {
+    let h = Harness::new();
+    let slot = yalain_world::craft::Ingredient::default();
+    let c = &h.server.crafting;
+    assert_eq!(c.level_or_lore_refused(&slot, 20, 90, 90), 0);
+}
+
+/// Putting an item in a slot and making a recipe both refuse one over the slot's level, its own
+/// least level counting ahead of its template's.
+/// Behaviour: server.craft.slots-ask-level-and-lore
+#[test]
+fn an_item_over_a_slots_level_is_refused_when_put_in_and_when_made() {
+    use yalain_world::craft::{error, RecipeDef};
+    const ASKS: u32 = 0x6F00_7012;
+    let (mut h, b, _me, world) = in_world();
+    let slot = asking_slot(&mut h);
+    let recipe = RecipeDef {
+        did: ASKS,
+        skill: TOOLS,
+        charges: -1,
+        animation: 0x4100_014B,
+        cycles: 3,
+        spinner: Some((1, 60)),
+        ingredients: vec![yalain_world::craft::Ingredient {
+            spinners: Some((1, 60)),
+            ..slot
+        }],
+        ..RecipeDef::default()
+    };
+    with_own_recipe(&mut h, world, recipe, 1, &[yalain_testkit::TEST_ITEM]);
+    let item = yalain_world::inventory::give(
+        &mut h.server,
+        &mut h.net,
+        world,
+        yalain_testkit::TEST_ITEM,
+        1,
+    )
+    .expect("given");
+    h.server.things.get_mut(item).expect("made").own.min_level = Some(30);
+    h.run(2);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            function::ADD_INGREDIENT,
+            &[
+                Arg::Int(20),
+                Arg::LongInt(item),
+                Arg::Int(1),
+                Arg::Int(ASKS),
+            ],
+        ),
+    );
+    h.run(4);
+    let added: Vec<_> = calls_of(&h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == function::INGREDIENT_ADDED)
+        .collect();
+    assert_eq!(added[0].1[0], Value::Int(error::ITEM_LEVEL_TOO_HIGH));
+    let from = execute_at(&mut h, b, ASKS, &[(1, item)], 20);
+    h.run(4);
+    assert_eq!(craft_answers(&h, b, from), [error::ITEM_LEVEL_TOO_HIGH]);
+}
+
+/// A craft flag a slot refuses: a recipe that gives its ingredient that flag can't take it again,
+/// and the flag stays across a logout.
+/// Behaviour: server.craft.slots-ask-craft-flags
+#[test]
+fn an_item_a_recipe_flagged_is_refused_by_a_slot_that_bars_the_flag() {
+    use auberean_protocol::login::CharacterRef;
+    use auberean_protocol::ClientMessage;
+    use yalain_world::craft::{error, Action, Check, Ingredient, Outcome, RecipeDef};
+    const ONCE: u32 = 0x6F00_7013;
+    let (mut h, b, me, world) = in_world();
+    let recipe = RecipeDef {
+        did: ONCE,
+        skill: TOOLS,
+        charges: -1,
+        animation: 0x4100_014B,
+        cycles: 3,
+        ingredients: vec![Ingredient {
+            ordinal: 2,
+            quantity: 1,
+            items: vec![yalain_testkit::TEST_ITEM],
+            restricted_flags: 8,
+            ..Ingredient::default()
+        }],
+        checks: vec![Check {
+            upto: 2.0,
+            outcomes: vec![Outcome {
+                upto: 1000.0,
+                xp_mod: 1.0,
+                actions: vec![Action::Flag {
+                    ordinal: 2,
+                    flags: 8,
+                    spinners: None,
+                }],
+            }],
+        }],
+        ..RecipeDef::default()
+    };
+    with_own_recipe(&mut h, world, recipe, 1, &[yalain_testkit::TEST_ITEM]);
+    let item = yalain_world::inventory::give(
+        &mut h.server,
+        &mut h.net,
+        world,
+        yalain_testkit::TEST_ITEM,
+        1,
+    )
+    .expect("given");
+    h.run(2);
+    let from = execute(&mut h, b, ONCE, &[(2, item)]);
+    h.run(4);
+    wait(&mut h, 9.0);
+    assert_eq!(craft_answers(&h, b, from), [0], "the first time");
+    let before = h.bots[b].inbox.len();
+    h.bots[b].send(
+        false,
+        queue::LOGON,
+        &ClientMessage::LogOff(CharacterRef { character: me }),
+    );
+    assert!(h.run_until(400, |h| h.bots[b].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+    h.enter_world(b, "one", me);
+    let from = execute(&mut h, b, ONCE, &[(2, item)]);
+    h.run(4);
+    assert_eq!(craft_answers(&h, b, from), [error::BARRED_BY_FLAGS]);
+}
+
+/// A recipe whose difficulty is further above the craft skill than its cutoff is refused with the
+/// answer alone, and what effects add to the skill counts.
+/// Behaviour: server.craft.recipe-too-far-above-the-skill-refused
+#[test]
+fn a_recipe_past_its_cutoff_is_refused_until_effects_lift_the_skill() {
+    use yalain_world::craft::{error, Check, Outcome, RecipeDef};
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    const BONUS_STAT: u32 = 129 << 16 | 22;
+    const HAMMER: u32 = 0x6F00_17EE;
+    const FAR: u32 = 0x6F00_7014;
+    let (mut h, b, me, world) = in_world();
+    for d in &mut h.server.crafting.skills {
+        if d.did == TOOLS {
+            d.bonus_stat = BONUS_STAT;
+            d.cap = 150;
+        }
+    }
+    h.server.effect_table.effects.insert(
+        HAMMER,
+        EffectDef {
+            kind: Kind::Numeric {
+                flags: yalain_world::effect_defs::numeric::ADD,
+                stats: vec![BONUS_STAT],
+                magnitude: Scale(vec![(1.0, 1.0), (50.0, 50.0)]),
+            },
+            ..yalain_testkit::plain_effect(HAMMER)
+        },
+    );
+    let recipe = RecipeDef {
+        did: FAR,
+        skill: TOOLS,
+        charges: -1,
+        animation: 0x4100_014B,
+        cycles: 3,
+        difficulty: 60,
+        cutoff: Some(50),
+        checks: vec![Check {
+            upto: 2.0,
+            outcomes: vec![Outcome {
+                upto: 1000.0,
+                xp_mod: 1.0,
+                actions: Vec::new(),
+            }],
+        }],
+        ..RecipeDef::default()
+    };
+    with_own_recipe(&mut h, world, recipe, 1, &[]);
+    let from = execute(&mut h, b, FAR, &[]);
+    h.run(4);
+    assert_eq!(craft_answers(&h, b, from), [error::BAD_RECIPE]);
+    let clock = h.clock();
+    effects::apply(
+        &mut h.server,
+        &mut h.net,
+        world,
+        HAMMER,
+        effects::Cast {
+            caster: me,
+            spellcraft: 9.0,
+            ..effects::Cast::default()
+        },
+        clock,
+    );
+    let from = execute(&mut h, b, FAR, &[]);
+    h.run(4);
+    wait(&mut h, 9.0);
+    assert_eq!(craft_answers(&h, b, from), [0], "exactly at the cutoff");
+}

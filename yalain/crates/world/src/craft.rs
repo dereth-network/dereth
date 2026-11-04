@@ -145,6 +145,17 @@ pub mod error {
     pub const PEACE_REQUIRED: u32 = 40_026;
     /// The recipe's workshop is not at hand (its record is not on the player).
     pub const MISSING_EFFECT: u32 = 40_041;
+    /// An item whose least level is above what its slot takes at the spinner.
+    pub const ITEM_LEVEL_TOO_HIGH: u32 = 2007;
+    /// An item whose Arcane Lore is above what its slot takes at the spinner, or a slot that asks
+    /// only a level, of an item that takes Arcane Lore.
+    pub const ITEM_LORE_TOO_HIGH: u32 = 2008;
+    /// An item its craft flags bar from a slot, none of the named ones.
+    pub const BARRED_BY_FLAGS: u32 = 40_009;
+    /// A craft flag a slot requires is missing: by the flag 1, 2 and 4.
+    pub const LACKS_FLAG: [(u32, u32); 3] = [(1, 40_030), (2, 40_034), (4, 40_032)];
+    /// A craft flag a slot refuses is there: by the flag 1, 2 and 4.
+    pub const HAS_FLAG: [(u32, u32); 3] = [(1, 40_031), (2, 40_035), (4, 40_033)];
 }
 
 /// A recipe's and an ingredient's flags, as their definitions hold them.
@@ -157,6 +168,14 @@ mod flag {
     pub const INGREDIENT_STACK_TABLE: u32 = 0x2;
     /// An ingredient: it is asked for at a range of the spinner.
     pub const INGREDIENT_RANGE: u32 = 0x4;
+    /// An ingredient: the highest item level it takes, fixed or by the spinner.
+    pub const INGREDIENT_LEVEL: u32 = 0x10;
+    pub const INGREDIENT_LEVEL_TABLE: u32 = 0x20;
+    /// An ingredient: the highest Arcane Lore it takes, fixed or by the spinner.
+    pub const INGREDIENT_LORE: u32 = 0x40;
+    pub const INGREDIENT_LORE_TABLE: u32 = 0x80;
+    /// A recipe: it can't be tried when its difficulty is too far above the craft skill.
+    pub const RECIPE_CUTOFF: u32 = 0x400;
     /// An action: its amount comes from a table by the spinner.
     pub const ACTION_TABLE: u32 = 0x2;
 }
@@ -201,6 +220,23 @@ pub struct Ingredient {
     /// The table giving its amount by the spinner (a level table's saved state), in place of
     /// `quantity`.
     pub stack_table: Option<u32>,
+    /// The highest item level it takes: a number, or a table by the spinner (a saved state).
+    pub level: Limit,
+    /// The highest Arcane Lore it takes, likewise.
+    pub lore: Limit,
+    /// The craft flags an item must have, and those it must not.
+    pub required_flags: u32,
+    pub restricted_flags: u32,
+}
+
+/// What a slot asks of an item's level or Arcane Lore.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Limit {
+    /// Nothing.
+    #[default]
+    None,
+    Fixed(i32),
+    ByTable(u32),
 }
 
 impl Ingredient {
@@ -258,6 +294,13 @@ pub enum Action {
     Harmonize { ordinal: u32, spinners: (u32, u32) },
     /// The recipe's own work on success, which its kind decides ([`Custom`]).
     Custom,
+    /// Add craft flags to an item of the making (a product or a slot's, by its ordinal), when the
+    /// spinner the player chose is within the action's.
+    Flag {
+        ordinal: u32,
+        flags: u32,
+        spinners: Option<(u32, u32)>,
+    },
     /// Marks on the product the client does not show.
     Other,
 }
@@ -425,6 +468,8 @@ pub struct RecipeDef {
     pub xp_map: Option<LevelMap>,
     /// The difficulty by the spinner chosen (none: the fixed `difficulty`).
     pub difficulty_map: Option<LevelMap>,
+    /// How far above the craft skill its difficulty may be for it to be tried at all (none: any).
+    pub cutoff: Option<i32>,
     /// The spinner's least and greatest values, when the recipe has one.
     pub spinner: Option<(u32, u32)>,
     /// The effect a maker must hold (a workshop's), when it needs one.
@@ -580,6 +625,12 @@ impl Crafting {
                         _ => None,
                     })
                     .chain(r.ingredients.iter().filter_map(|i| i.stack_table))
+                    .chain(r.ingredients.iter().flat_map(|i| {
+                        [i.level, i.lore].into_iter().filter_map(|l| match l {
+                            Limit::ByTable(table) => Some(table),
+                            _ => None,
+                        })
+                    }))
                     .collect();
                 for table in tables {
                     if let Some(m) = graph(table).and_then(|m| LevelMap::from_state(lib, &m).ok()) {
@@ -640,6 +691,52 @@ impl Crafting {
             .stack_table
             .and_then(|table| self.spinner_tables.get(&table))
             .map_or(ingredient.quantity, |t| t.at(spinner))
+    }
+
+    /// What a slot's limit comes to at a spinner value: none where its table holds nothing there.
+    fn limit_at(&self, limit: Limit, spinner: u32) -> Option<i32> {
+        let n = match limit {
+            Limit::None => return None,
+            Limit::Fixed(n) => n,
+            Limit::ByTable(table) => {
+                let at = self.spinner_tables.get(&table)?.at(spinner);
+                i32::try_from(at).unwrap_or(i32::MAX)
+            }
+        };
+        (n != 0 && n != -1).then_some(n)
+    }
+
+    /// Why an item of a least level and Arcane Lore does not do for a slot at a spinner value (0:
+    /// it does). A slot asking Arcane Lore there asks no level. An item that takes Arcane Lore is
+    /// judged by that alone, so a slot asking only a level refuses it; any other by its level.
+    #[must_use]
+    pub fn level_or_lore_refused(
+        &self,
+        ingredient: &Ingredient,
+        spinner: u32,
+        item_level: i64,
+        item_lore: i64,
+    ) -> u32 {
+        let lore = self.limit_at(ingredient.lore, spinner);
+        let level = if lore.is_some_and(|n| n > 0) {
+            None
+        } else {
+            self.limit_at(ingredient.level, spinner)
+        };
+        if lore.is_none() && level.is_none() {
+            return 0;
+        }
+        if item_lore > 0 {
+            if lore.is_some_and(|n| i64::from(n) >= item_lore) {
+                0
+            } else {
+                error::ITEM_LORE_TOO_HIGH
+            }
+        } else if level.is_none_or(|n| i64::from(n) >= item_level) {
+            0
+        } else {
+            error::ITEM_LEVEL_TOO_HIGH
+        }
     }
 
     /// How many of a slot's ingredient an action uses up at a spinner value (none: it does nothing
@@ -712,6 +809,25 @@ impl RecipeDef {
                 })
                 .collect()
         };
+        let limit = |o: &PackedObject,
+                     flags: u32,
+                     fixed: u32,
+                     by_table: u32,
+                     number: &str,
+                     table: &str|
+         -> Limit {
+            if flags & by_table != 0 {
+                nav.field(o, table)
+                    .ok()
+                    .and_then(|r| nav.states_of_ref(r))
+                    .map_or(Limit::None, Limit::ByTable)
+            } else if flags & fixed != 0 {
+                nav.field(o, number)
+                    .map_or(Limit::None, |n: u32| Limit::Fixed(n.cast_signed()))
+            } else {
+                Limit::None
+            }
+        };
         let mut ingredients: Vec<Ingredient> = nav
             .list(root, "m_ingredients")?
             .into_iter()
@@ -728,6 +844,24 @@ impl RecipeDef {
                             nav.field(o, "m_maxSpinnerVal").unwrap_or(0),
                         )
                     }),
+                    level: limit(
+                        o,
+                        flags,
+                        flag::INGREDIENT_LEVEL,
+                        flag::INGREDIENT_LEVEL_TABLE,
+                        "m_iLevel",
+                        "m_levelMappingTable",
+                    ),
+                    lore: limit(
+                        o,
+                        flags,
+                        flag::INGREDIENT_LORE,
+                        flag::INGREDIENT_LORE_TABLE,
+                        "m_iLore",
+                        "m_loreMappingTable",
+                    ),
+                    required_flags: nav.field(o, "m_requiredFlags").unwrap_or(0),
+                    restricted_flags: nav.field(o, "m_restrictedFlags").unwrap_or(0),
                     stack_table: (flags & flag::INGREDIENT_STACK_TABLE != 0)
                         .then(|| {
                             nav.field(o, "m_stackMappingTable")
@@ -807,6 +941,10 @@ impl RecipeDef {
             );
         Ok(Self {
             did,
+            cutoff: (flags & flag::RECIPE_CUTOFF != 0)
+                .then(|| word("m_difficultyMinusSkillCutoff").ok())
+                .flatten()
+                .map(u32::cast_signed),
             skill: word("m_didCraftSkill")?,
             category: word("m_craftSkillCategory")?,
             difficulty: word("m_uiDifficulty")?,
@@ -944,6 +1082,13 @@ fn action(lib: &Library, nav: &Nav<'_>, a: &PackedObject) -> Action {
             spinners: (w("m_uiMinSpinnerVal"), w("m_uiMaxSpinnerVal")),
         },
         "CustomSuccessRecipeAction" => Action::Custom,
+        // Type 1 adds; the data has no other.
+        "FlagRecipeAction" if w("m_type") == 1 => Action::Flag {
+            ordinal: w("m_uiOrdinal"),
+            flags: w("m_flags"),
+            spinners: Some((w("m_uiMinSpinnerVal"), w("m_uiMaxSpinnerVal")))
+                .filter(|(_, most)| *most != 0),
+        },
         _ => Action::Other,
     }
 }
@@ -1525,10 +1670,47 @@ fn check_ingredient<S: Store>(
     if !ing.items.contains(&held.template) {
         return error::MISSING_ITEM;
     }
+    let props = s.catalog.get(held.template).map(|t| &t.props);
+    let own = s.things.get(item).map(|t| t.own).unwrap_or_default();
+    let flags = own.craft_flags
+        | props
+            .and_then(|p| p.int("Item_CraftFlags"))
+            .and_then(|v| u32::try_from(v).ok())
+            .unwrap_or(0);
+    let why = flags_refused(ing, flags);
+    if why != 0 {
+        return why;
+    }
     if held.quantity.max(1) < s.crafting.required(ing, spinner) {
         return error::TOO_FEW;
     }
-    0
+    let number = |mine: Option<i32>, name: &str| {
+        mine.map(i64::from)
+            .or_else(|| props.and_then(|p| p.int(name)))
+            .unwrap_or(0)
+    };
+    s.crafting.level_or_lore_refused(
+        ing,
+        spinner,
+        number(own.min_level, "Usage_MinLevel"),
+        number(own.arcane_lore, "Usage_RequiredArcaneLore"),
+    )
+}
+
+/// Why an item's craft flags bar it from a slot (0: they don't).
+fn flags_refused(ing: &Ingredient, flags: u32) -> u32 {
+    if ing.required_flags & flags == ing.required_flags && ing.restricted_flags & flags == 0 {
+        return 0;
+    }
+    error::LACKS_FLAG
+        .iter()
+        .find(|(bit, _)| ing.required_flags & bit != 0 && flags & bit == 0)
+        .or_else(|| {
+            error::HAS_FLAG
+                .iter()
+                .find(|(bit, _)| ing.restricted_flags & bit != 0 && flags & bit != 0)
+        })
+        .map_or(error::BARRED_BY_FLAGS, |(_, code)| *code)
 }
 
 /// Why a making's slots do not do for a recipe at a spinner value (0: they do): a slot filled that
@@ -1730,6 +1912,13 @@ pub fn execute<S: Store>(
     {
         return refuse(net, error::BAD_RECIPE);
     }
+    // The client greys out a recipe this far above the player, so no recording shows an answer.
+    if def.cutoff.is_some_and(|cutoff| {
+        i64::from(def.difficulty_at(*spinner)) - i64::from(craft_level(s, world, def.skill))
+            > i64::from(cutoff)
+    }) {
+        return refuse(net, error::BAD_RECIPE);
+    }
     let why = check_slots(s, world, &def, *spinner, &slots);
     if why != 0 {
         return refuse(net, why);
@@ -1911,6 +2100,21 @@ fn result<S: Store>(
                 }
             }
             Action::ItemEffect { .. } | Action::Mutate { .. } | Action::Harmonize { .. } => {}
+            Action::Flag {
+                ordinal,
+                flags,
+                spinners,
+            } if spinners.is_none_or(|(least, most)| (least..=most).contains(&m.spinner)) => {
+                let item = made
+                    .iter()
+                    .find(|(o, _)| o == ordinal)
+                    .map(|(_, i)| *i)
+                    .or_else(|| m.slots.iter().find(|(o, _)| o == ordinal).map(|(_, i)| *i));
+                if let Some(t) = item.and_then(|i| s.things.get_mut(i)) {
+                    t.own.craft_flags |= flags;
+                }
+            }
+            Action::Flag { .. } => {}
             Action::Destroy { .. } => {
                 let Some((ordinal, quantity)) = s.crafting.destroyed(a, m.spinner) else {
                     continue;
