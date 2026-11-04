@@ -1236,15 +1236,16 @@ impl Renderer {
                 continue;
             }
             let stage = b.layer.stages.first().copied();
-            let tex = self.texture(stage.map_or(0, |s| s.texture), load);
-            let clamp = stage.is_some_and(|s| s.clamp_u || s.clamp_v);
-            let sampler = if clamp { &self.clamp } else { &self.wrap };
-            let texture_group = self.bind_three(&[
-                (&tex, sampler),
-                (&self.white, &self.wrap),
-                (&self.white, &self.wrap),
-            ]);
-            let draw_group = self.uniform_group(
+            let texture_group = self.texture_group(
+                [
+                    stage.map_or((0, false), |s| (s.texture, s.clamp_u || s.clamp_v)),
+                    (0, false),
+                    (0, false),
+                ],
+                load,
+            );
+            let draw_group = self.uniforms.take(
+                &self.device,
                 &self.draw_layout,
                 bytemuck::bytes_of(&Self::draw_uniforms(
                     &b.layer,
@@ -1254,10 +1255,10 @@ impl Renderer {
                     &PointLights::NONE,
                 )),
             );
-            let (verts, idx) = Self::mesh_buffers(b);
+            let (vertices, indices) = self.meshes.buffers(&self.device, &b.vertices, &b.indices);
             draws.push((
-                self.vertex_buffer(&verts),
-                self.index_buffer(&idx),
+                vertices,
+                indices,
                 u32::try_from(b.indices.len()).unwrap_or(0),
                 draw_group,
                 texture_group,
