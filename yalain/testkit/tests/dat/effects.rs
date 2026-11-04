@@ -895,3 +895,13 @@ fn the_buff_that_lowers_skills_costs_reads_with_its_stat() {
     assert!(!multiply);
     assert!((by + 22.449).abs() < 0.01, "{by}");
 }
+
+/// A weapon's three stances read from its template's qualities.
+/// Behaviour: server.weapons.mode-by-stance
+#[test]
+fn a_weapons_three_stances_read_from_its_template() {
+    let t = Portal::open().template(0x4700_051C);
+    assert_eq!(t.props.word("Weapon_SingleWeaponStance"), Some(0x4100_000A));
+    assert_eq!(t.props.word("Weapon_ShieldStance"), Some(0x4100_000B));
+    assert_eq!(t.props.word("Weapon_TwoWeaponStance"), Some(0x4100_000E));
+}

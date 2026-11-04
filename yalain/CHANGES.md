@@ -130,6 +130,7 @@ what they see, not how it was done.
 - A server stop now sends players to the disconnected screen.
 - Creatures attack on time instead of a little late.
 - Effects that lower what skills cost now work.
+- Weapons are fought in their own stances.
 
 ## 0.1.2 (2026-11-03)
 

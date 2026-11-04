@@ -9325,6 +9325,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.weapons.mode-by-stance",
+        says: "A player's combat mode is the stance its right hand's template names for what the \
+               left holds: alone, with a shield, or with a second weapon.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MODE-BY-STANCE"),
+        station: "yalain-testkit::cpu::play::holds::the_combat_mode_is_the_stance_the_right_hands_template_names_for_the_left",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.weapons.standing-run-refusals",
         says: "A run that stands is told it is too far beyond every basic attack's range, and that \
                it cannot shoot while moving, about a second apart, its combat mode coming with its \

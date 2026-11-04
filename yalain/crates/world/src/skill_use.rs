@@ -571,11 +571,23 @@ pub fn mode_of(right: Option<u32>, left: Option<u32>) -> u32 {
     }
 }
 
-/// The player's combat mode, by what it wields.
+/// The player's combat mode: the stance its right hand's template names for what the left holds, alone,
+/// with a shield or with a second weapon (2017: 11,460 of 11,460 basic swings not at peace, each kind of
+/// hands among them); [`mode_of`] for a template that names none.
 pub fn player_mode<S: Store>(s: &Server<S>, player: u64) -> u32 {
     let h = hands(s, player);
     let of = |hand: Option<(u64, u32)>| hand.and_then(|(_, t)| implement_of(&s.catalog, t));
-    mode_of(of(h.right), of(h.left))
+    let (right, left) = (of(h.right), of(h.left));
+    let quality = match (h.left, left) {
+        (None, _) => "Weapon_SingleWeaponStance",
+        (_, Some(implement::SHIELD)) => "Weapon_ShieldStance",
+        _ => "Weapon_TwoWeaponStance",
+    };
+    h.right
+        .and_then(|(_, t)| s.catalog.get(t))
+        .and_then(|t| t.props.word(quality))
+        .filter(|stance| *stance != 0)
+        .unwrap_or_else(|| mode_of(right, left))
 }
 
 /// Is a skill used with what the player wields? Each hand's implement must be among the skill's

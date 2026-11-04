@@ -362,6 +362,40 @@ fn hold(h: &mut Harness, world: yalain_net::ConnId, template: u32, location: u32
     id
 }
 
+/// A player's combat mode is the stance the right hand's template names for what the left holds; a
+/// stave that names the sword's stance is fought in that, not the stave's.
+/// Behaviour: server.weapons.mode-by-stance
+#[test]
+fn the_combat_mode_is_the_stance_the_right_hands_template_names_for_the_left() {
+    const WAND: u32 = 0x4700_7B06;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let mut wand = held(WAND, (192, 64, 0), Some((1, 2)), Some(0x4100_000A));
+    wand.props
+        .set("Weapon_ShieldStance", Prop::Word(0x4100_000B))
+        .set("Weapon_TwoWeaponStance", Prop::Word(0x4100_000E));
+    h.server.catalog.insert(wand);
+    let second = held(HANDBLADE, (192, 64, 0), Some((1, 2)), Some(0x4100_000F));
+    let shield = held(SHIELD, (128, 128, 0), Some((2, 1)), None);
+    h.server.catalog.insert(second);
+    h.server.catalog.insert(shield);
+    h.server.catalog.implements.insert(WAND, im::STAVE);
+    h.server.catalog.implements.insert(HANDBLADE, im::HANDBLADE);
+    h.server.catalog.implements.insert(SHIELD, im::SHIELD);
+    let (_, me) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("a player");
+    h.server.players.get_mut(&world).unwrap().play.items.clear();
+    hold(&mut h, world, WAND, PRIMARY_HAND);
+    let mode = |h: &Harness| yalain_world::skill_use::player_mode(&h.server, me);
+    assert_eq!(mode(&h), 0x4100_000A, "alone");
+    let other = hold(&mut h, world, HANDBLADE, OFF_HAND);
+    assert_eq!(mode(&h), 0x4100_000E, "with a second weapon");
+    let p = h.server.players.get_mut(&world).unwrap();
+    p.play.items.retain(|i| i.id != other);
+    hold(&mut h, world, SHIELD, OFF_HAND);
+    assert_eq!(mode(&h), 0x4100_000B, "with a shield");
+}
+
 /// A template that names no hand is held as a sword, not nowhere.
 /// Behaviour: server.weapons.hold-from-template
 #[test]

@@ -37,7 +37,7 @@ const NAME_QUALITIES: [(&str, u32); 2] = [("Name", 0x10B), ("Description", 0x102
 
 /// The properties of where an item goes and what it is held as, and the qualities that say the
 /// same.
-const PLACE_QUALITIES: [(&str, u32); 7] = [
+const PLACE_QUALITIES: [(&str, u32); 9] = [
     ("Item_ValidInventoryLocations", 0x113),
     ("Item_PreferredInventoryLocation", 0x11A),
     ("Item_PrecludedInventoryLocations", 0x11B),
@@ -45,6 +45,8 @@ const PLACE_QUALITIES: [(&str, u32); 7] = [
     ("Item_SecondaryParentingLocation", 0x115),
     ("Item_ImplementType", 0xFA0),
     ("Weapon_SingleWeaponStance", 0x25A),
+    ("Weapon_ShieldStance", 0x25B),
+    ("Weapon_TwoWeaponStance", 0x25C),
 ];
 
 impl Props {
