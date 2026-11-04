@@ -177,6 +177,15 @@ impl Settings {
         self.graphics.clone().unwrap_or_else(Graphics::first_run)
     }
 
+    /// The screen's brightness: the preference kept, or none, which leaves the picture as it stands.
+    #[must_use]
+    pub fn screen_brightness(&self) -> f32 {
+        self.graphics
+            .as_ref()
+            .and_then(|g| g.get(auberean_draw::quality::key::SCREEN_BRIGHTNESS))
+            .unwrap_or(0.0)
+    }
+
     /// Read settings from their text.
     #[must_use]
     pub fn read(text: &str) -> Self {

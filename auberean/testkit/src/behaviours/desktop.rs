@@ -1536,6 +1536,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.settings.the-screen-brightness-is-the-preference-kept",
+        says: "The brightness the screen takes is the preference kept; with none kept the picture \
+               stands as it is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SETTINGS-BRIGHTNESS"),
+        station: "auberean-shell::cpu::settings::the_screen_brightness_is_the_preference_kept",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.shell.a-behavior-that-locks-actions-holds-the-player",
         says: "A behavior asked with its actions locked holds the player's own movement, its turning and its jumping while it plays; they come back when it ends.",
         since: RETAIL,

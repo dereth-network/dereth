@@ -402,10 +402,13 @@ impl WebPlay {
     /// One frame. Answers whether the client goes on.
     pub fn frame(&mut self) -> bool {
         let world = self.world;
+        // A page is all the screen this client has, so the brightness always shows.
+        let brightness = self.shell.settings.screen_brightness();
         let out = self.shell.frame();
         let quit = out.quit;
         self.cursor.clone_from(&out.overlay.cursor);
         let mut load = |id: u32| auberean_draw::picture::load(&world.records, id);
+        self.present.set_brightness(Some(brightness));
         self.present.present(
             out.world,
             out.portal.map(|f| (f, out.portal_alpha)),

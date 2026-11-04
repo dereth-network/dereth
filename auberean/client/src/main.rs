@@ -845,13 +845,7 @@ impl App<'_> {
         let shot = self.shot_next.take();
         let world = self.world;
         let settings = &self.shell.settings;
-        let brightness = settings.full_screen.then(|| {
-            settings
-                .graphics
-                .as_ref()
-                .and_then(|g| g.get(auberean_draw::quality::key::SCREEN_BRIGHTNESS))
-                .unwrap_or(0.0)
-        });
+        let brightness = settings.full_screen.then(|| settings.screen_brightness());
         let began = Instant::now();
         let out = self.shell.frame();
         let shell_took = began.elapsed();

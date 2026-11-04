@@ -61,7 +61,7 @@ not how it was done.
 - The water's reflection now shows objects standing in the water, at the right detail.
 - Caves and halls are lit as in retail, without the harsh yellow walls.
 - Resizing the chat window now shows an outline until you let go.
-- Screen brightness now works in full screen.
+- Screen brightness now works in full screen and in the browser.
 - You can now restore a deleted character.
 - Character creation now has its proper lights, flames and framing.
 - Avatars in the hall pose when you point at them and act when chosen.

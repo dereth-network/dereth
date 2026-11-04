@@ -57,6 +57,19 @@ fn options_read_by_the_clients_names_and_kept() {
     assert_eq!(Settings::read(&again.write()), again, "stable");
 }
 
+/// The brightness the screen takes is the preference kept; with none kept the picture stands as it
+/// is.
+///
+/// Behaviour: desktop.settings.the-screen-brightness-is-the-preference-kept
+#[test]
+fn the_screen_brightness_is_the_preference_kept() {
+    assert_eq!(Settings::read("").screen_brightness(), 0.0, "none kept");
+    assert_eq!(
+        Settings::read("[Graphics]\nScreenBrightness=0.25\n").screen_brightness(),
+        0.25
+    );
+}
+
 /// The graphics preferences are read from their own section by the client's names: a choice by the
 /// name of its level or by its number, a yes-or-no as 1 or 0, a number within its range; settings
 /// without the section hold none. They are written back the same way, keeping the lines the
