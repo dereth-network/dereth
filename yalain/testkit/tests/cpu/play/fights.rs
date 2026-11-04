@@ -252,6 +252,10 @@ fn a_strike_lands_at_its_skills_own_time() {
     assert_eq!(hit_seconds(690, Some(SWORD)), 0.552);
     assert_eq!(hit_seconds(691, Some(SWORD)), 0.785);
     assert_eq!(hit_seconds(617, Some(STAVE)), 1.056);
+    assert_eq!(hit_seconds(816, Some(SWORD)), 0.777);
+    assert_eq!(hit_seconds(817, Some(SWORD)), 0.844);
+    assert_eq!(hit_seconds(818, Some(SWORD)), 0.780);
+    assert_eq!(hit_seconds(955, Some(SWORD)), 0.732);
     assert_eq!(hit_seconds(1, Some(BOW)), 0.572);
     assert_eq!(hit_seconds(1, Some(STAVE)), 0.817);
     assert_eq!(hit_seconds(1, Some(SWORD)), 0.713);

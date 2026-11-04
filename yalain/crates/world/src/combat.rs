@@ -247,8 +247,9 @@ pub fn windup_seconds(implement: Option<u32>) -> f64 {
 
 /// When a player's basic strike lands after its story, over the time scale: the median its skill
 /// showed from the story to its target's wound or death (2017: 6,161 strikes at creatures, 69 at
-/// once); by what is held for a skill seen too little: a bow's 0.572, a stave's 0.817; else the
-/// median of all strikes that walk, 0.713 (3,054).
+/// once); 816, 817 and 818 strike twice in retail's swing, and are timed at their first blow, as
+/// the one this server tells (196, 180 and 206 strikes); by what is held for a skill seen too
+/// little: a bow's 0.572, a stave's 0.817; else the median of all strikes that walk, 0.713 (3,054).
 #[must_use]
 pub fn hit_seconds(skill: u32, implement: Option<u32>) -> f64 {
     use crate::skill_use::implement as im;
@@ -280,8 +281,12 @@ pub fn hit_seconds(skill: u32, implement: Option<u32>) -> f64 {
         690 => 0.552,
         691 => 0.785,
         692 => 0.810,
+        816 => 0.777,
+        817 => 0.844,
+        818 => 0.780,
         953 => 0.688,
         954 => 0.794,
+        955 => 0.732,
         _ => match implement {
             Some(im::BOW) => 0.572,
             Some(im::STAVE) => 0.817,
