@@ -290,7 +290,7 @@ fn optional_count(c: &mut Call<'_>) -> Result<Status, Stop> {
 
 /// A property of a list (`fp[-2]` its index) into the property the reference at `fp[-3]` reaches;
 /// whether there was one (`fp[-4]`).
-fn give_property(c: &mut Call<'_>, p: Option<Property>) -> Result<Status, Stop> {
+pub fn give_property(c: &mut Call<'_>, p: Option<Property>) -> Result<Status, Stop> {
     let out = c.cx.at(-3)?;
     let target = reached(c, out)?;
     let found = p.is_some();

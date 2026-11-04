@@ -425,24 +425,7 @@ const BODY: u32 = 1;
 // D2-04770, D2-08196
 fn current_properties(c: &mut Call<'_>) -> Result<Status, Stop> {
     let id = receiver_object(c)?;
-    let collection = {
-        let h = host(c)?;
-        let made_from = h.model.object(id).map(|o| {
-            let body = o.qualities.data_ids.get(&BODY).copied().unwrap_or(0);
-            [o.visual.parent, body, o.weenie.entity_did]
-        });
-        h.cache.as_ref().filter(|d| !d.is_empty()).and_then(|d| {
-            let db = d.database();
-            made_from.map(|ids| {
-                let mut all = auberean_assets::property::PropertyCollection::default();
-                for e in ids.iter().filter_map(|e| db.entity(*e)) {
-                    all.groups
-                        .extend(e.total_properties(&|i| db.entity(i)).groups);
-                }
-                all
-            })
-        })
-    };
+    let collection = properties_of(c, id)?;
     let out = c.cx.at(-2)?;
     let found = collection.is_some();
     if let Some(col) = collection {
@@ -452,10 +435,44 @@ fn current_properties(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
+/// The properties of an object, as the entities it is made from give them.
+fn properties_of(
+    c: &mut Call<'_>,
+    id: u64,
+) -> Result<Option<auberean_assets::property::PropertyCollection>, Stop> {
+    let h = host(c)?;
+    let made_from = h.model.object(id).map(|o| {
+        let body = o.qualities.data_ids.get(&BODY).copied().unwrap_or(0);
+        [o.visual.parent, body, o.weenie.entity_did]
+    });
+    Ok(h.cache.as_ref().filter(|d| !d.is_empty()).and_then(|d| {
+        let db = d.database();
+        made_from.map(|ids| {
+            let mut all = auberean_assets::property::PropertyCollection::default();
+            for e in ids.iter().filter_map(|e| db.entity(*e)) {
+                all.groups
+                    .extend(e.total_properties(&|i| db.entity(i)).groups);
+            }
+            all
+        })
+    }))
+}
+
+/// The one property of an object named at `fp[-2]`, into the property the reference at `fp[-3]`
+/// reaches; whether it has it (`fp[-4]`).
+// D2-04771
+fn current_property(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let id = receiver_object(c)?;
+    let name = c.cx.at(-2)?;
+    let found = properties_of(c, id)?.and_then(|all| all.iter().find(|p| p.id == name).cloned());
+    auberean_glue::properties::give_property(c, found)
+}
+
 pub(crate) fn natives() -> impl Iterator<Item = (NativeId, NativeFn)> {
     const PHYSICS_OBJECT: u32 = 0x80;
-    let n: [(u32, NativeFn); 26] = [
+    let n: [(u32, NativeFn); 27] = [
         (0x4A, current_properties),
+        (0x4B, current_property),
         (0x03, set_velocity_scale),
         (0x04, get_velocity_scale),
         (0x05, set_acceleration_scale),
