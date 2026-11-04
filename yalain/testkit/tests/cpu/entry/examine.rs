@@ -978,6 +978,45 @@ fn an_item_lists_the_skills_and_arcane_lore_it_takes() {
     assert_eq!(got[0][20..], p.packed(&got[0][..20])[20..], "as built");
 }
 
+/// A stack with a value of its own shows what all its pieces are worth, as a sale of it pays.
+/// Behaviour: server.inventory.a-stack-pays-for-each-piece
+#[test]
+fn a_stack_with_its_own_value_shows_the_value_of_all_its_pieces() {
+    const STACK: u32 = 0x4700_7002;
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("a player");
+    let mut props = yalain_content::Props::default();
+    props.set("Item_MaxStackSize", yalain_content::Prop::Int(1000));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(STACK, 0x200, props));
+    let item =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, STACK, 3).expect("given");
+    h.server.things.get_mut(item).expect("made").value = 40;
+    h.run(2);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(item, 0x3FF)]),
+    );
+    h.run(10);
+    let got = profile_nodes(&h, a, from);
+    let view = profile::ItemView::of(
+        &h.server.catalog.get(STACK).expect("made").props,
+        3,
+        Some(120),
+    );
+    let mut request = Vec::new();
+    for w in [0x4000_0002u32, 0] {
+        request.extend(w.to_le_bytes());
+    }
+    request.extend(item.to_le_bytes());
+    request.extend(0x3FFu32.to_le_bytes());
+    assert_eq!(got, vec![profile::item(0x3FF, &view).packed(&request)]);
+}
+
 /// A treasure item keeps the value it was drawn across a logout: it is still named and valued as
 /// one on its next entry.
 /// Behaviour: server.world.treasure-value-kept-across-sessions

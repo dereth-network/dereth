@@ -3627,6 +3627,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.a-stack-pays-for-each-piece",
+        says: "Each piece of a stack with a value of its own brings that value, sold whole or \
+               piece by piece, and its profile shows the value of them all.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STACK-WORTH"),
+        station: "yalain-testkit::cpu::play::stack_numbers::a_stack_with_its_own_value_pays_the_same_whole_or_piece_by_piece",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.a-thing-never-takes-anothers-place",
         says: "A thing never takes the place of one the world has: an item a character \
                comes back with under an id the world already has is given a fresh id, each \

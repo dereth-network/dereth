@@ -10,9 +10,9 @@
 //! of its kind with room joins it. Asked while another action is under way, it is refused and
 //! nothing moves.
 //!
-//! **The money bag.** An item of the pack dragged to the money bag is sold for its value: the
-//! player is told how much gold was added, its money goes up, and the item is destroyed (part of a
-//! stack: the stack goes down). Asked while busy, it is refused with a text.
+//! **The money bag.** An item of the pack dragged to the money bag is sold for its value, for each
+//! piece sold: the player is told how much gold was added, its money goes up, and the item is
+//! destroyed (part of a stack: the stack goes down). Asked while busy, it is refused with a text.
 //!
 //! **Out of the money bag.** Coins dragged out of the money bag come into the pack as a stack of
 //! that many, and the money goes down by as many.
@@ -406,11 +406,13 @@ pub fn to_money_bag<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Con
     into_money_bag(s, net, world, h, quantity, &done);
 }
 
-/// What so many of an item bring into the money bag: a treasure item its own value, coins one each
-/// (2017: 3 of 3 coins dragged, 15 of 15 used), any other its template's for each one.
+/// What so many of an item bring into the money bag: each piece its own value when it has one,
+/// coins one each (2017: 3 of 3 coins dragged, 15 of 15 used), any other its template's. (No stack
+/// with a value of its own was recorded, 0 of 2,228 examined; each piece paying is this server's
+/// choice, so that selling a stack whole or piece by piece pays the same.)
 fn worth<S: Store>(s: &Server<S>, template: u32, own_value: u32, n: u32) -> u32 {
     if own_value > 0 {
-        own_value
+        own_value.saturating_mul(n)
     } else if template == COINS {
         n
     } else {

@@ -236,11 +236,11 @@ fn thing_vitals(t: &crate::things::Thing) -> Vitals {
 }
 
 /// What an item's profile shows: its class's facts for a starting weapon, else its template's;
-/// its own value when it has one (treasure), else its template's times its count; its icon; the
+/// its value, each piece's own when it has one (treasure) else its template's, times its count; its icon; the
 /// effects its template lists; who made it; whether its kind is destroyed on use; the skills it
 /// takes.
 fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::ItemView {
-    let own_value = (t.value > 0).then_some(t.value);
+    let own_value = (t.value > 0).then(|| t.value.saturating_mul(t.quantity.max(1)));
     let mut v = profile::starting_weapon(t.template).unwrap_or_else(|| {
         s.catalog
             .get(t.template)

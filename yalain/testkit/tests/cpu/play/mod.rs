@@ -55,6 +55,7 @@ mod resting;
 mod rules;
 mod skills;
 mod specials;
+mod stack_numbers;
 mod storms;
 mod story;
 mod summoned_portals;

@@ -93,6 +93,7 @@ what they see, not how it was done.
 - Stores and brokers now only deal with you when you're near them.
 - A hero's gift under way is no longer lost if you log off.
 - An item put down while its use plays no longer runs the use.
+- Fixed selling a valued stack one at a time paying too much.
 
 ## 0.1.2 (2026-11-03)
 
