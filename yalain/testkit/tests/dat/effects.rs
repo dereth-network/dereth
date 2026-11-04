@@ -777,3 +777,61 @@ fn the_installs_slots_read_their_level_lore_flags_and_cutoff() {
     assert_eq!(c.recipes[&0x6F00_106C].cutoff, Some(50));
     assert_eq!(empower.cutoff, None);
 }
+
+/// The install's things say how they are held: a looted bow takes both hands and hangs as a bow,
+/// a polearm too, a handblade from its own places in either hand, a shield in the off hand, a tool
+/// from the first place.
+/// Behaviour: server.weapons.hold-read
+#[test]
+fn a_things_hold_reads_from_its_template() {
+    use yalain_world::equip::{flags, hold_of};
+    let p = Portal::open();
+    let mut catalog = yalain_content::Catalog::default();
+    for t in [
+        0x4700_07A3,
+        0x4700_0730,
+        0x4700_071F,
+        0x4700_051B,
+        0x4700_06FD,
+        0x4700_0CC5,
+    ] {
+        catalog.insert(p.template(t));
+    }
+    let bow = hold_of(&catalog, 0x4700_07A3);
+    assert_eq!(
+        (
+            bow.primary,
+            bow.secondary,
+            bow.valid,
+            bow.taken,
+            bow.precluded,
+            bow.flags
+        ),
+        (2, 1, 64, 192, 128, flags::WIELDED)
+    );
+    let polearm = hold_of(&catalog, 0x4700_0730);
+    assert_eq!(
+        (polearm.primary, polearm.secondary, polearm.taken),
+        (1, 2, 192)
+    );
+    let blade = hold_of(&catalog, 0x4700_071F);
+    assert_eq!(
+        (blade.primary, blade.secondary, blade.valid, blade.taken),
+        (1, 0x11, 192, 64)
+    );
+    assert_eq!(
+        hold_of(&catalog, 0x4700_051B),
+        bow,
+        "the starting bow as a looted one"
+    );
+    let shield = hold_of(&catalog, 0x4700_06FD);
+    assert_eq!(
+        (shield.valid, shield.preferred, shield.taken, shield.flags),
+        (128, 128, 128, flags::WORN)
+    );
+    let tool = hold_of(&catalog, 0x4700_0CC5);
+    assert_eq!(
+        (tool.primary, tool.secondary, tool.taken, tool.flags),
+        (1, 1, 192, flags::WORN)
+    );
+}

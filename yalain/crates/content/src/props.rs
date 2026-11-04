@@ -35,11 +35,16 @@ const CHAIN_LIMIT: usize = 16;
 /// The properties of what an item is called, and the qualities that say the same.
 const NAME_QUALITIES: [(&str, u32); 2] = [("Name", 0x10B), ("Description", 0x102)];
 
-/// The properties of where an item goes, and the qualities that say the same.
-const PLACE_QUALITIES: [(&str, u32); 3] = [
+/// The properties of where an item goes and what it is held as, and the qualities that say the
+/// same.
+const PLACE_QUALITIES: [(&str, u32); 7] = [
     ("Item_ValidInventoryLocations", 0x113),
     ("Item_PreferredInventoryLocation", 0x11A),
     ("Item_PrecludedInventoryLocations", 0x11B),
+    ("Item_PrimaryParentingLocation", 0x114),
+    ("Item_SecondaryParentingLocation", 0x115),
+    ("Item_ImplementType", 0xFA0),
+    ("Weapon_SingleWeaponStance", 0x25A),
 ];
 
 impl Props {
@@ -86,9 +91,9 @@ impl Props {
         out
     }
 
-    /// The properties with where an item goes and what it is called taken from its qualities
-    /// record where its own properties do not say: some item templates (Initiate Moccasins among
-    /// them) keep those only there.
+    /// The properties with where an item goes, what it is held as and what it is called taken from
+    /// its qualities record where its own properties do not say: some item templates (Initiate
+    /// Moccasins among them) keep those only there.
     #[must_use]
     pub fn with_places_of(mut self, q: Option<&auberean_assets::script::Qualities>) -> Self {
         let Some(q) = q else { return self };

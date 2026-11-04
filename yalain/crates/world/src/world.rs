@@ -678,7 +678,8 @@ pub fn enter<S: Store>(
     let instance = s.players.get(&world).map_or(0, |p| p.instance);
     for id in crate::inventory::enter(s, world) {
         if let Some(t) = s.things.get(id) {
-            let m = ServerMessage::CreateObject(crate::inventory::held_create(t, instance));
+            let m =
+                ServerMessage::CreateObject(crate::inventory::held_create(&s.catalog, t, instance));
             send(net, world, BlobKind::UNORDERED, &m);
         }
         if let Some(p) = s.players.get_mut(&world) {

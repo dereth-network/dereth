@@ -9150,6 +9150,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.weapons.hold-from-template",
+        says: "A thing in a hand is held as its template says: the hands it may go to and prefers, \
+               those it rules out, where it hangs; a weapon answered as wielded, anything else as \
+               worn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HOLD-FROM-TEMPLATE"),
+        station: "yalain-testkit::cpu::play::holds::a_looted_bow_takes_both_hands_and_hangs_as_its_template_says",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.weapons.hold-read",
+        says: "How a thing is held reads from its template's qualities.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HOLD-READ"),
+        station: "yalain-testkit::dat::effects::a_things_hold_reads_from_its_template",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.weapons.implement-by-class",
         says: "What a player wields is known by its class: a weapon of a known class draws from \
                the basic attacks its kind allows in both hands; of no known class it swings the \

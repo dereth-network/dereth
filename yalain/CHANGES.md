@@ -116,6 +116,7 @@ what they see, not how it was done.
 - Totems now hold an enchantment and can be used on an item of their kind.
 - Fixed broker collections that could lose an item or what it holds.
 - Fixed a position far outside the land not being handled safely.
+- Looted bows and two-handed weapons take both hands and look right.
 
 ## 0.1.2 (2026-11-03)
 

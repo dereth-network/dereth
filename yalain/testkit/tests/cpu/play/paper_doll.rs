@@ -341,7 +341,7 @@ fn a_weapon_in_the_off_hand_stays_there_across_a_login() {
     let instance = p.instance;
     let hang = |item: u64| {
         let t = h.server.things.get(item).expect("the item");
-        yalain_world::inventory::held_create(t, instance)
+        yalain_world::inventory::held_create(&h.server.catalog, t, instance)
             .physics
             .parent
             .location

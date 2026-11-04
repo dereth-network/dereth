@@ -27,6 +27,7 @@ mod fights;
 mod focus;
 mod follow;
 mod gives;
+mod holds;
 mod integrity;
 mod interactions;
 mod items;

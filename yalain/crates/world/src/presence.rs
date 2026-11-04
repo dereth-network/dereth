@@ -181,7 +181,9 @@ pub fn held_seen<S: Store>(s: &Server<S>, p: &Player) -> Vec<(u64, ServerMessage
             let t = s.things.get(h.id)?;
             Some((
                 h.id,
-                ServerMessage::CreateObject(crate::inventory::held_create(t, p.instance)),
+                ServerMessage::CreateObject(crate::inventory::held_create(
+                    &s.catalog, t, p.instance,
+                )),
             ))
         })
         .collect()

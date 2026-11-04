@@ -560,7 +560,11 @@ pub fn item_create(t: &Thing) -> CreateObject {
 /// it; in its hand, also with the player as its wielder and hung from the hand the weapon is held
 /// in (the player's object of instance `player_instance`).
 #[must_use]
-pub fn held_create(t: &Thing, player_instance: u16) -> CreateObject {
+pub fn held_create(
+    catalog: &yalain_content::Catalog,
+    t: &Thing,
+    player_instance: u16,
+) -> CreateObject {
     let mut o = item_create(t);
     if let Some((player, _)) = t.wielded {
         o.weenie.mask |= WeenieDesc::OBJECT_BITS[1];
@@ -569,7 +573,7 @@ pub fn held_create(t: &Thing, player_instance: u16) -> CreateObject {
     // What is held in the hand hangs from it; what is worn on the body does not.
     if let Some((player, hand @ (crate::equip::PRIMARY_HAND | crate::equip::OFF_HAND))) = t.wielded
     {
-        let hold = crate::equip::hold_of(t.template);
+        let hold = crate::equip::hold_of(catalog, t.template);
         o.physics.bits |= PhysicsDesc::PARENT;
         o.physics.parent = ParentLink {
             parent: player,
@@ -624,7 +628,7 @@ pub fn worn(
                     taken: if off {
                         crate::equip::OFF_HAND
                     } else {
-                        crate::equip::hold_of(h.template).taken
+                        crate::equip::hold_of(catalog, h.template).taken
                     },
                     implement: crate::skill_use::implement_of(catalog, h.template).unwrap_or(0),
                     look: None,

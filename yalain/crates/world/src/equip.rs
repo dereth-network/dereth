@@ -6,8 +6,9 @@
 //! out. **Putting it away**: the item is contained in the pack again, the answer, the item
 //! detached, the weapon sheathed, the wielder cleared.
 //!
-//! The starting weapons' hands and slots are 2017's (a sword: the primary hand, one slot; a bow
-//! and a stave: both hands); any other item is wielded as a sword is.
+//! A thing's hands and slots are its template's: the places it may go and prefers, those it rules
+//! out, where it hangs (2017: 808 of 808 answers for a thing in a hand said what its template
+//! does); a template that does not say is wielded as a sword is.
 //!
 //! **Wearing** armor, clothing or jewelry (an item whose template names places on the body):
 //! the item goes to the place it prefers, or another of its places that is free, taking off
@@ -260,12 +261,14 @@ pub fn dressed(
     look
 }
 
-/// How a weapon is held: its two parenting places, the hand slots it takes and those it rules
-/// out, the answer's control flags.
+/// How a weapon is held: its two parenting places, the hands it may go to and prefers, the hand
+/// slots it takes in the hand it prefers and those it rules out, the answer's control flags.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Hold {
     pub primary: u32,
     pub secondary: u32,
+    pub valid: u32,
+    pub preferred: u32,
     pub taken: u32,
     pub precluded: u32,
     pub flags: u32,
@@ -275,30 +278,62 @@ pub struct Hold {
 pub const SWORD: Hold = Hold {
     primary: 1,
     secondary: 0x4000_0006,
+    valid: 192,
+    preferred: 64,
     taken: 64,
     precluded: 0,
-    flags: 206,
+    flags: flags::WIELDED,
 };
 
-/// How the starting weapons are held (the human's bow and stave take both hands).
+/// How a thing is held, as its template says: where it may go and hangs, what it rules out; a
+/// weapon (a template with a stance) answered as wielded, anything else (a shield, a tool) as
+/// worn; hung from the place 1 where it names none (2017: 808 of 808 answers). A template that
+/// names no places is held as the starting weapons are: the human's bow and stave in both hands,
+/// anything else as a sword.
 #[must_use]
-pub fn hold_of(template: u32) -> Hold {
-    match template {
-        0x4700_051B => Hold {
-            primary: 2,
-            secondary: 1,
-            taken: 192,
-            precluded: 128,
-            flags: 206,
+pub fn hold_of(catalog: &yalain_content::Catalog, template: u32) -> Hold {
+    let Some((props, valid)) = catalog.get(template).and_then(|t| {
+        t.props
+            .word("Item_ValidInventoryLocations")
+            .map(|v| (&t.props, v))
+    }) else {
+        return match template {
+            0x4700_051B => Hold {
+                primary: 2,
+                secondary: 1,
+                valid: 64,
+                taken: 192,
+                precluded: 128,
+                ..SWORD
+            },
+            0x4700_051D => Hold {
+                primary: 1,
+                secondary: 2,
+                valid: 64,
+                taken: 192,
+                precluded: 128,
+                ..SWORD
+            },
+            _ => SWORD,
+        };
+    };
+    let preferred = props
+        .word("Item_PreferredInventoryLocation")
+        .filter(|p| p & valid != 0)
+        .unwrap_or(valid.isolate_lowest_one());
+    let precluded = props.word("Item_PrecludedInventoryLocations").unwrap_or(0);
+    Hold {
+        primary: props.word("Item_PrimaryParentingLocation").unwrap_or(1),
+        secondary: props.word("Item_SecondaryParentingLocation").unwrap_or(1),
+        valid,
+        preferred,
+        taken: preferred | precluded,
+        precluded,
+        flags: if props.word("Weapon_SingleWeaponStance").is_some() {
+            flags::WIELDED
+        } else {
+            flags::WORN
         },
-        0x4700_051D => Hold {
-            primary: 1,
-            secondary: 2,
-            taken: 192,
-            precluded: 128,
-            flags: 206,
-        },
-        _ => SWORD,
     }
 }
 
@@ -497,7 +532,10 @@ pub fn use_held<S: Store>(
     let fit = s.catalog.get(h.template).and_then(|t| fit_of(&t.props));
     match (h.location, fit) {
         (0, Some(fit)) => wear(s, net, world, item, fit, None, flags::WORN, clock),
-        (0, None) => wield(s, net, world, item, PRIMARY_HAND, None, clock),
+        (0, None) => {
+            let hand = hold_of(&s.catalog, h.template).preferred;
+            wield(s, net, world, item, hand, None, clock);
+        }
         (at, _) if at & BODY_PLACES != 0 => {
             take_off(s, net, world, item, false);
         }
@@ -785,8 +823,8 @@ fn player_stamp<S: Store>(s: &mut Server<S>, world: ConnId) -> Option<(u64, Obje
     ))
 }
 
-/// Wield an item of the pack in a hand: by its use (the primary hand, whatever is in the hands put
-/// back at the pack's end first), or by a directive naming the hand (whatever is in the way put
+/// Wield an item of the pack in a hand: by its use (the hand it prefers, whatever is in the hands
+/// put back at the pack's end first), or by a directive naming the hand (whatever is in the way put
 /// back where the item was in the pack, the answer naming it).
 fn wield<S: Store>(
     s: &mut Server<S>,
@@ -800,11 +838,14 @@ fn wield<S: Store>(
     let Some(template) = s.things.get(item).map(|t| t.template) else {
         return;
     };
-    let mut hold = hold_of(template);
-    if location == OFF_HAND {
-        hold.taken = OFF_HAND;
-        hold.precluded = 0;
-    }
+    let mut hold = hold_of(&s.catalog, template);
+    // A hand it may not go to is its preferred one.
+    let location = if hold.valid & location == 0 {
+        hold.preferred
+    } else {
+        location
+    };
+    hold.taken = location | hold.precluded;
     if let Some(f) = directed {
         hold.flags = f;
     }
@@ -853,8 +894,8 @@ fn wield<S: Store>(
             item,
             player,
             fit: Fit {
-                valid: PRIMARY_HAND | if location == OFF_HAND { OFF_HAND } else { 0 },
-                preferred: PRIMARY_HAND,
+                valid: hold.valid,
+                preferred: hold.preferred,
                 primary: hold.primary,
                 secondary: hold.secondary,
                 ..Fit::default()
@@ -925,11 +966,9 @@ fn wield<S: Store>(
         t.wielded = Some((player, location));
     }
     let instance = s.players.get(&world).map_or(0, |p| p.instance);
-    if let Some(made) = s
-        .things
-        .get(item)
-        .map(|t| ServerMessage::CreateObject(crate::inventory::held_create(t, instance)))
-    {
+    if let Some(made) = s.things.get(item).map(|t| {
+        ServerMessage::CreateObject(crate::inventory::held_create(&s.catalog, t, instance))
+    }) {
         for (c, _) in watching.iter().filter(|(_, knows)| !*knows) {
             crate::presence::make_for(s, net, *c, item, &made);
         }
@@ -983,7 +1022,7 @@ fn put_away<S: Store>(
     let Some(template) = s.things.get(item).map(|t| t.template) else {
         return;
     };
-    let mut hold = hold_of(template);
+    let mut hold = hold_of(&s.catalog, template);
     let held_at = s
         .players
         .get(&world)
@@ -1139,10 +1178,10 @@ pub fn directive_equip<S: Store>(
     if let Some(why) = refused_item(s, world, &h, clock) {
         // Answered as the equipping it asked for, with the refusal for its status.
         let player = s.players.get(&world).map_or(0, |p| p.character);
-        let hold = hold_of(h.template);
+        let hold = hold_of(&s.catalog, h.template);
         let fit = fit.unwrap_or(Fit {
-            valid: PRIMARY_HAND,
-            preferred: PRIMARY_HAND,
+            valid: hold.valid,
+            preferred: hold.preferred,
             primary: hold.primary,
             secondary: hold.secondary,
             ..Fit::default()
