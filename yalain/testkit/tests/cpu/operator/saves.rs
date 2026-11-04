@@ -127,7 +127,7 @@ fn characters_due_together_are_kept_one_a_tick_at_the_operators_interval() {
         set_level(&mut h, id, 5);
     }
     let clock = h.clock();
-    assert_eq!(saves::save_world(&mut h.server, clock), 3);
+    assert_eq!(saves::save_world(&mut h.server, clock), Ok(3));
     for id in ids {
         assert_eq!(kept_level(&mut h, id), Some(5), "save-world keeps everyone");
         set_level(&mut h, id, 7);
@@ -170,7 +170,7 @@ fn time_in_the_world_is_kept_and_a_character_ages_past_the_networks_limit() {
     assert!(too_new_in_world(&h.server).contains("elara"));
     h.advance(100.0);
     let clock = h.clock();
-    save_world(&mut h.server, clock);
+    save_world(&mut h.server, clock).expect("kept");
     let kept = |h: &mut Harness| {
         let w = h
             .server
@@ -189,7 +189,7 @@ fn time_in_the_world_is_kept_and_a_character_ages_past_the_networks_limit() {
     assert!(!too_new(&mut h.server, me), "old enough");
     assert!(too_new_in_world(&h.server).is_empty());
     let clock = h.clock();
-    save_world(&mut h.server, clock);
+    save_world(&mut h.server, clock).expect("kept");
     let second = kept(&mut h);
     assert!(
         (699..=702).contains(&second),

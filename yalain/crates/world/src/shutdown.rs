@@ -230,11 +230,12 @@ pub(crate) fn ends<S: Store>(s: &mut Server<S>) {
 
 /// The server is stopping, at the countdown's end or at once: every character still in the world
 /// leaves it as one whose client went away does, and is kept, so nothing it did is lost. Returns
-/// how many left.
+/// how many left. What the store did not take stays held ([`crate::saves::write_out`] tries again).
 pub fn save_everyone<S: Store>(s: &mut Server<S>, net: &mut ServerNet) -> usize {
     let worlds = in_world(s);
     for world in &worlds {
         crate::world::leave(s, net, *world);
     }
+    let _ = crate::saves::write_out(s);
     worlds.len()
 }

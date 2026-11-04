@@ -913,6 +913,7 @@ impl<S: Store> Server<S> {
         trade::look(self, net, clock);
         market::look(self, net, clock);
         storms::look(self, net, clock);
+        saves::end_of_pass(self, net, clock);
     }
 
     /// Have something happen `seconds` from now.

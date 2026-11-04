@@ -5007,6 +5007,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.a-save-that-fails-is-held-and-tried-again",
+        says: "A save that fails loses nothing: what it was to keep stays held and is tried \
+               again every few seconds, a character that leaves or comes back meanwhile \
+               included, and a server stopping tries for a while longer before it says whom \
+               it lost.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SAVE-HELD"),
+        station: "yalain-testkit::cpu::operator::store_faults::a_character_leaving_while_saves_fail_is_kept_once_they_work",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.a-save-that-fails-is-told-to-everyone",
+        says: "Saves failing are told to the operator at once and every minute, shown in \
+               the status endpoint, and told to each player in the world and to one \
+               entering; their working again is told too.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SAVE-TOLD"),
+        station: "yalain-testkit::cpu::operator::store_faults::saves_failing_are_told_to_everyone_and_so_is_their_working_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.a-state-that-will-not-read-refuses-entry",
         says: "A character whose kept state cannot be read (the database fails, the state \
                is damaged, a newer build kept it) is refused its entry with the client's \
@@ -8154,6 +8175,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TRADE-CLOSE"),
         station: "yalain-testkit::cpu::play::trading::a_trade_is_closed_by_either_side_by_distance_and_by_leaving",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.trade.kept-whole-across-a-crash",
+        says: "A trade is one transaction with everything else a pass of the world did: a \
+               server dying at any point of its save leaves the trade done on both sides or \
+               on neither, and the database opens cleanly.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TRADE-WHOLE"),
+        station: "yalain-testkit::cpu::operator::store_faults::a_server_dying_at_any_point_of_a_trades_save_keeps_it_whole",
         tier: Tier::Cpu,
     },
     behaviour! {

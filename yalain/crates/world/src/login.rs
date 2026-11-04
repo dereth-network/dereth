@@ -550,9 +550,7 @@ pub(crate) fn send_lists<S: Store>(
             names.ids.push(c.id);
         }
         // Drawn wearing what it wore when it was last kept.
-        let items = s
-            .store
-            .world_state(c.id)
+        let items = crate::saves::state_of(s, c.id)
             .ok()
             .flatten()
             .and_then(|st| crate::state::PlayState::from_bytes(&st.play).ok())
@@ -790,9 +788,7 @@ fn restore<S: Store>(s: &mut Server<S>, net: &mut ServerNet, conn: ConnId, chara
         id = format_args!("{character:#x}"),
         "character restored"
     );
-    let items = s
-        .store
-        .world_state(c.id)
+    let items = crate::saves::state_of(s, c.id)
         .ok()
         .flatten()
         .and_then(|st| crate::state::PlayState::from_bytes(&st.play).ok())

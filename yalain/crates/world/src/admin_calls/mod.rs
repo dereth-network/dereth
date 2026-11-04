@@ -212,7 +212,7 @@ pub(crate) fn forget_kept<S: Store>(s: &mut Server<S>, character: u64) {
     if s.players.values().any(|p| p.character == character) {
         return;
     }
-    let Ok(Some(mut st)) = s.store.world_state(character) else {
+    let Ok(Some(mut st)) = crate::saves::state_of(s, character) else {
         return;
     };
     let Ok(mut play) = crate::state::PlayState::from_bytes(&st.play) else {
@@ -229,7 +229,7 @@ pub(crate) fn forget_kept<S: Store>(s: &mut Server<S>, character: u64) {
         }
     }
     st.play = play.to_bytes();
-    if let Err(e) = s.store.set_world_state(character, &st) {
+    if let Err(e) = crate::saves::put(s, character, st) {
         tracing::warn!(
             id = format_args!("{character:#x}"),
             "what its commands set was not forgotten: {e}"

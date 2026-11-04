@@ -423,7 +423,10 @@ pub fn profile_of<S: Store>(
         Some(p) => (p.race, p.sex, p.qualities.clone()),
         None => {
             let c = s.store.character(character).ok().flatten()?;
-            let q = s.store.world_state(character).ok().flatten()?.qualities;
+            let q = yalain_world::saves::state_of(s, character)
+                .ok()
+                .flatten()?
+                .qualities;
             (c.race, c.sex, q)
         }
     };

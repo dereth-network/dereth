@@ -66,6 +66,8 @@ what they see, not how it was done.
 - Fixed characters coming back stuck at 0 health after logging out dead.
 - Creature hits now take health as they land, so the hit shows before "killed you".
 - Fixed characters being wiped when their saved state couldn't be read: they're now refused entry.
+- A failed save now keeps your character and retries, and everyone is told.
+- A crash can no longer leave a trade, craft or sale half done.
 
 ## 0.1.2 (2026-11-03)
 

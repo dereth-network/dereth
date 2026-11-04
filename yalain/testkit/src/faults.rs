@@ -177,6 +177,15 @@ impl Store for FaultStore {
         self.inner.set_world_state(id, state)
     }
 
+    fn save_all(
+        &mut self,
+        states: &[(u64, &WorldState)],
+        records: &[(&str, &[u8])],
+    ) -> StoreResult<()> {
+        self.write()?;
+        self.inner.save_all(states, records)
+    }
+
     fn world_record(&mut self, name: &str) -> StoreResult<Option<Vec<u8>>> {
         self.read()?;
         if self.records_read_fail {

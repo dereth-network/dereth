@@ -37,6 +37,8 @@ pub struct Snapshot {
     pub connections: usize,
     /// The URL the WebSocket endpoint is reached at, while it serves one.
     pub websocket_url: Option<String>,
+    /// The world's saves are failing.
+    pub saves_failing: bool,
 }
 
 impl Snapshot {
@@ -45,6 +47,7 @@ impl Snapshot {
     pub fn json(&self) -> String {
         serde_json::json!({
             "world_name": self.world_name,
+            "saves_failing": self.saves_failing,
             "server": "yalain",
             "version": env!("CARGO_PKG_VERSION"),
             "game": "auberean",
@@ -213,6 +216,7 @@ mod tests {
         .expect("listens");
         e.set(Snapshot {
             websocket_url: None,
+            saves_failing: true,
             world_name: "Dawnsong".into(),
             uptime_seconds: 61,
             shutting_down: true,
@@ -239,6 +243,7 @@ mod tests {
             assert_eq!(v["logins"], 4);
             assert_eq!(v["max_logins"], 128);
             assert_eq!(v["connections"], 7);
+            assert_eq!(v["saves_failing"], true);
             assert_eq!(v["websocket_url"], serde_json::Value::Null);
         }
         assert!(get(e.addr(), "/nothing").starts_with("HTTP/1.1 404"));

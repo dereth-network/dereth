@@ -968,3 +968,44 @@ fn the_operators_moderation_is_kept_and_an_earlier_file_gains_it() {
         assert_eq!(store.gag(7).expect("reads"), None, "forgotten with it");
     }
 }
+
+/// Keeping several characters' states and records is all or nothing: a failure at the last of them
+/// leaves the first as it was. One the store no longer has is left out, and does not stop the rest.
+/// Behaviour: server.operator.a-save-that-fails-is-held-and-tried-again
+#[test]
+fn keeping_several_at_once_is_all_or_nothing() {
+    let file = TempFile(
+        std::env::temp_dir().join(format!("yalain-store-save-all-{}.db", std::process::id())),
+    );
+    let mut s = SqliteStore::open(&file.0).expect("opens");
+    let account = s.create_account("one", None, 0).expect("made");
+    for id in [7, 8] {
+        s.insert_character(&character(id, account.id, &format!("c{id}")))
+            .expect("kept");
+    }
+    let state = |n: u8| WorldState {
+        qualities: vec![n],
+        ..WorldState::default()
+    };
+    let (one, two) = (state(1), state(2));
+    s.save_all(&[(7, &one), (8, &one), (99, &one)], &[("r", &[1])])
+        .expect("kept, and the one it has not left out");
+    // The file refuses the last write of the next.
+    let other = rusqlite::Connection::open(&file.0).expect("opens");
+    other
+        .execute_batch(
+            "CREATE TRIGGER full BEFORE UPDATE ON world_record \
+             BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END",
+        )
+        .expect("made");
+    drop(other);
+    assert!(s.save_all(&[(7, &two), (8, &two)], &[("r", &[2])]).is_err());
+    for id in [7, 8] {
+        assert_eq!(
+            s.world_state(id).expect("reads").expect("kept").qualities,
+            [1]
+        );
+    }
+    assert_eq!(s.world_record("r").expect("reads"), Some(vec![1]));
+    assert!(s.world_state(99).expect("reads").is_none());
+}

@@ -225,6 +225,22 @@ impl Store for MemoryStore {
         Ok(())
     }
 
+    fn save_all(
+        &mut self,
+        states: &[(u64, &WorldState)],
+        records: &[(&str, &[u8])],
+    ) -> StoreResult<()> {
+        for (id, state) in states {
+            if self.characters.iter().any(|c| c.id == *id) {
+                self.worlds.insert(*id, (*state).clone());
+            }
+        }
+        for (name, value) in records {
+            self.records.insert((*name).to_string(), value.to_vec());
+        }
+        Ok(())
+    }
+
     fn world_record(&mut self, name: &str) -> StoreResult<Option<Vec<u8>>> {
         Ok(self.records.get(name).cloned())
     }

@@ -301,7 +301,7 @@ pub(crate) fn kept_for_entry<S: Store>(
     c: &yalain_store::Character,
 ) -> Result<(WorldState, crate::state::PlayState), u32> {
     let id = format_args!("{:#x}", c.id);
-    let st = match s.store.world_state(c.id) {
+    let st = match crate::saves::state_of(s, c.id) {
         Ok(st) => st.unwrap_or_default(),
         Err(e) => {
             tracing::error!(
@@ -403,7 +403,7 @@ pub fn enter<S: Store>(
     let new_character = st.play.is_empty() || first_entry;
     let conflict = crate::kingdoms::status_at(&s.content.conflict, position.cell);
     crate::kingdoms::entering(&mut st.qualities, conflict, new_character);
-    let _ = s.store.set_world_state(character, &st);
+    s.saves.hold(character, st.clone());
     let options = Options::from_packed(&st.options).map_err(|e| {
         tracing::error!(
             id = format_args!("{character:#x}"),
@@ -686,6 +686,9 @@ pub fn enter<S: Store>(
     if !s.cfg.motd.trim().is_empty() {
         crate::login::notice(net, world, &s.cfg.motd);
     }
+    if s.saves.failing() {
+        crate::login::notice(net, world, crate::saves::CANNOT_SAVE);
+    }
     tracing::info!(
         target: crate::answers::TARGET,
         "{}",
@@ -740,12 +743,7 @@ fn keep<S: Store>(s: &mut Server<S>, p: &Player) {
         places: p.places.clone(),
         play: play.to_bytes(),
     };
-    if let Err(e) = s.store.set_world_state(p.character, &st) {
-        tracing::warn!(
-            id = format_args!("{:#x}", p.character),
-            "the world state was not kept: {e}"
-        );
-    }
+    s.saves.hold(p.character, st);
 }
 
 /// Keep what the character on a world connection is in the world.

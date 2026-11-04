@@ -185,6 +185,9 @@ const MIGRATIONS: &[Migration] = &[tables, moderation, admin_flag, admin_groups]
 /// The schema version this build keeps its files at.
 pub const SCHEMA_VERSION: i64 = 4;
 
+/// How long a call waits for a lock another program holds on the file.
+const BUSY_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// How many backups of a file are kept (the newest), as Empyrean keeps.
 pub const KEEP_BACKUPS: usize = 3;
 
@@ -277,8 +280,9 @@ impl SqliteStore {
         db.pragma_update(None, "journal_mode", "WAL").map_err(err)?;
         db.pragma_update(None, "synchronous", "NORMAL")
             .map_err(err)?;
-        db.busy_timeout(std::time::Duration::from_secs(5))
-            .map_err(err)?;
+        // Saves are tried again, so one that finds the file locked gives way soon: the world's loop
+        // does not stand still behind it.
+        db.busy_timeout(BUSY_WAIT).map_err(err)?;
         upgrade(&db, Some(path))?;
         Ok(Self { db })
     }
@@ -893,6 +897,38 @@ impl Store for SqliteStore {
     fn set_world_state(&mut self, id: u64, s: &WorldState) -> StoreResult<()> {
         let tx = self.db.transaction().map_err(err)?;
         write_state(&tx, id, s)?;
+        tx.commit().map_err(err)
+    }
+
+    fn save_all(
+        &mut self,
+        states: &[(u64, &WorldState)],
+        records: &[(&str, &[u8])],
+    ) -> StoreResult<()> {
+        // Taken at once, so that a lock another program holds a moment is waited out.
+        let tx = self
+            .db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(err)?;
+        for (id, state) in states {
+            let held: i64 = tx
+                .query_row(
+                    "SELECT count(*) FROM character WHERE id = ?1",
+                    [*id as i64],
+                    |r| r.get(0),
+                )
+                .map_err(err)?;
+            if held > 0 {
+                write_state(&tx, *id, state)?;
+            }
+        }
+        for (name, value) in records {
+            tx.execute(
+                "INSERT INTO world_record (name, value) VALUES (?1, ?2) ON CONFLICT (name) DO UPDATE SET value = ?2",
+                params![name, value],
+            )
+            .map_err(err)?;
+        }
         tx.commit().map_err(err)
     }
 

@@ -469,9 +469,7 @@ pub fn keep<S: Store>(s: &mut Server<S>) {
         return;
     }
     let b = s.allegiances.to_bytes();
-    if let Err(e) = s.store.set_world_record(RECORD, &b) {
-        tracing::warn!("the allegiances were not kept: {e}");
-    }
+    s.saves.hold_record(RECORD, b);
 }
 
 /// What a profile says of a member: its name (as the world writes it), species, sex, level, and
@@ -505,9 +503,7 @@ pub fn facts<S: Store>(s: &mut Server<S>, id: u64) -> Facts {
     let Some(c) = s.store.character(id).ok().flatten() else {
         return Facts::default();
     };
-    let level = s
-        .store
-        .world_state(id)
+    let level = crate::saves::state_of(s, id)
         .ok()
         .flatten()
         .and_then(|w| quals::int(&w.qualities, progress::q::LEVEL))

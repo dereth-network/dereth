@@ -420,8 +420,20 @@ With `--status <ip>:<port>` (for example `--status 127.0.0.1:9100`), the server 
 - `GET /health`: `ok`, for a monitor or a health check;
 - `GET /status` (also `GET /v1/world`): the world as JSON: `world_name`, `server` (`yalain`),
   `version`, `game` (`auberean`), `uptime_seconds`, `state` (`online`, or `maintenance` while a
-  shutdown counts down), `players_online` (characters in the world), `logins`, `max_logins` and
-  `connections` and `websocket_url` (section 4.1; `null` with the endpoint off).
+  shutdown counts down), `players_online` (characters in the world), `logins`, `max_logins`,
+  `connections`, `saves_failing` (true while the database will not take saves: watch this one) and
+  `websocket_url` (section 4.1; `null` with the endpoint off).
+
+**If saves fail** (the disk is full, the file is read-only or another program has it locked), nothing is
+lost while the server runs: it holds what it could not write and tries again every five seconds. The log
+says `SAVES ARE FAILING` at once and every minute, `saves_failing` is true, and every player is told. Fix
+the cause and it catches up by itself. A server told to stop while saves fail tries for 30 seconds more,
+then names the characters it lost and exits with a failure, and no staged update is installed.
+
+**A character that will not read** is refused at the door and never written over; the log names it. The
+player reads the client's own words for why. Its rows in `world_state` and `play_state` stay as they were,
+for you to restore a backup or to look at. A world record that will not read (`consignments`,
+`allegiances`) is copied to `<name>.unreadable` in `world_record` before the world starts it empty.
 
 It has **no authentication**. Keep it on `127.0.0.1` or a private network, and do not open its
 port in the firewall. It is off by default. A web page on an origin in

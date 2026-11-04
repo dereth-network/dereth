@@ -1,15 +1,20 @@
 //! What the world does when its database fails. A character whose state cannot be read, whether the
 //! database will not answer, the state is damaged or a newer build kept it, is refused its entry
-//! with the client's own words and never saved over: "could not read" is never "new".
+//! with the client's own words and never saved over: "could not read" is never "new". A save that
+//! fails is held and tried again, and everyone is told. All a pass of the world did is kept whole, a
+//! trade's two sides among it, whatever instant the server dies at.
 
 use auberean_protocol::login::{CharacterRef, CharacterRefused, PlayCharacter};
 use auberean_protocol::text::NarrowString;
 use auberean_protocol::{queue, ClientMessage, ServerMessage};
+use auberean_script::args::Arg;
 use yalain_store::{SqliteStore, Store};
 use yalain_testkit::faults::FaultStore;
 use yalain_testkit::{test_rules, Harness};
 use yalain_world::market::{Consignment, Market, RECORD};
+use yalain_world::state::PlayState;
 use yalain_world::ServerConfig;
+use yalain_world::{saves, trade};
 
 const COINS: u32 = 0x4700_0538;
 
@@ -326,4 +331,264 @@ fn a_database_file_damaged_on_disk_refuses_the_entry_and_is_not_written() {
     assert!(world_of(&h, id).is_none(), "it did not enter");
     drop(h);
     assert_eq!(std::fs::read(&path).expect("reads"), file, "not written");
+}
+
+/// A character that leaves while saves fail is not lost: what it did reaches the store once they
+/// work.
+/// Behaviour: server.operator.a-save-that-fails-is-held-and-tried-again
+#[test]
+fn a_character_leaving_while_saves_fail_is_kept_once_they_work() {
+    let mut h = Harness::with(ServerConfig::default(), FaultStore::default(), test_rules());
+    let (b, id, coins) = logged_off_with_coins(&mut h);
+    assert_eq!(asks_to_enter(&mut h, b, id), None);
+    let world = world_of(&h, id).expect("in the world");
+    h.server.store.writes_fail = true;
+    let more =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, COINS, 7).expect("given");
+    h.run(2);
+    yalain_world::world::leave(&mut h.server, &mut h.net, world);
+    h.run(2);
+    assert_eq!(h.server.saves.unsaved(), vec![id]);
+    let st = |h: &mut Harness<FaultStore>| {
+        let st = h.server.store.inner.world_state(id).expect("reads");
+        let items = PlayState::from_bytes(&st.expect("kept").play)
+            .expect("reads")
+            .items;
+        items.iter().map(|x| x.id).collect::<Vec<u64>>()
+    };
+    assert!(!st(&mut h).contains(&more), "not in the store yet");
+    h.server.store.writes_fail = false;
+    h.run_to(yalain_net::LocalTime(h.now.0 + saves::RETRY_SECONDS + 1.0));
+    assert!(st(&mut h).contains(&more) && st(&mut h).contains(&coins));
+    assert!(!h.server.saves.failing());
+}
+
+/// A character back in the world while saves fail comes back with what it had when it left, not
+/// what the store last took.
+/// Behaviour: server.operator.a-save-that-fails-is-held-and-tried-again
+#[test]
+fn a_character_back_in_the_world_while_saves_fail_has_what_it_did() {
+    let mut h = Harness::with(ServerConfig::default(), FaultStore::default(), test_rules());
+    let (b, id, _) = logged_off_with_coins(&mut h);
+    assert_eq!(asks_to_enter(&mut h, b, id), None);
+    let world = world_of(&h, id).expect("in the world");
+    h.server.store.writes_fail = true;
+    let more =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, COINS, 7).expect("given");
+    h.run(2);
+    h.bots[b].send(
+        false,
+        queue::LOGON,
+        &ClientMessage::LogOff(CharacterRef { character: id }),
+    );
+    h.run_to(yalain_net::LocalTime(h.now.0 + 25.0));
+    assert!(world_of(&h, id).is_none(), "out of the world");
+    assert_eq!(asks_to_enter(&mut h, b, id), None);
+    let world = world_of(&h, id).expect("back");
+    assert!(h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .any(|x| x.id == more));
+}
+
+fn notices<S: Store>(h: &Harness<S>, b: usize, from: usize) -> Vec<String> {
+    h.world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::Notice(n) => n
+                .text
+                .literal
+                .as_ref()
+                .map(|t| String::from_utf16_lossy(&t.0).trim_end().to_owned()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Saves failing are told once to each player in the world and to one entering, tried again only
+/// every few seconds, and their working again is told too.
+/// Behaviour: server.operator.a-save-that-fails-is-told-to-everyone
+#[test]
+fn saves_failing_are_told_to_everyone_and_so_is_their_working_again() {
+    let mut h = Harness::with(ServerConfig::default(), FaultStore::default(), test_rules());
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let from = h.bots[a].inbox.len();
+    h.server.store.writes_fail = true;
+    let world = world_of(&h, ida).expect("in the world");
+    yalain_world::world::keep_player(&mut h.server, world);
+    h.run(4);
+    assert!(h.server.saves.failing());
+    assert_eq!(notices(&h, a, from), vec![saves::CANNOT_SAVE]);
+    let tried = h.server.store.failed_writes;
+    // One who was not there is told as it enters. (Its account and character are made first.)
+    h.server.store.writes_fail = false;
+    let b = h.at_character_list("two");
+    let idb = h.create_character(b, "two", "Torvald");
+    h.server.store.writes_fail = true;
+    yalain_world::world::keep_player(&mut h.server, world);
+    h.run_to(yalain_net::LocalTime(h.now.0 + 0.2));
+    let fromb = h.bots[b].inbox.len();
+    h.enter_world(b, "two", idb);
+    assert!(notices(&h, b, fromb).contains(&saves::CANNOT_SAVE.to_owned()));
+    // Tried again every few seconds, not every pass.
+    let at = h.now.0;
+    let before = h.server.store.failed_writes;
+    h.run_to(yalain_net::LocalTime(at + 3.0 * saves::RETRY_SECONDS));
+    let again = h.server.store.failed_writes - before;
+    assert!((2..=4).contains(&again), "{again} tries, after {tried}");
+    let (from, fromb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    h.server.store.writes_fail = false;
+    h.run_to(yalain_net::LocalTime(h.now.0 + saves::RETRY_SECONDS + 1.0));
+    assert!(!h.server.saves.failing());
+    assert_eq!(notices(&h, a, from), vec![saves::SAVING_AGAIN]);
+    assert_eq!(notices(&h, b, fromb), vec![saves::SAVING_AGAIN]);
+}
+
+/// A server stopping while saves fail still holds every character, for its last tries.
+/// Behaviour: server.operator.a-save-that-fails-is-held-and-tried-again
+#[test]
+fn a_world_stopped_while_saves_fail_holds_everyone_for_its_last_tries() {
+    let mut h = Harness::with(ServerConfig::default(), FaultStore::default(), test_rules());
+    let (_, id) = h.player_in_world("one", "Elara");
+    h.server.store.writes_fail = true;
+    yalain_world::shutdown::save_everyone(&mut h.server, &mut h.net);
+    assert!(h.server.players.is_empty());
+    assert_eq!(h.server.saves.unsaved(), vec![id]);
+    assert!(saves::write_out(&mut h.server).is_err());
+    assert_eq!(h.server.saves.unsaved(), vec![id], "held still");
+    h.server.store.writes_fail = false;
+    assert_eq!(saves::write_out(&mut h.server), Ok(()));
+    assert!(h.server.saves.unsaved().is_empty());
+}
+
+/// Two players in a trade on the server's real store; the trade open, each offering an item; each
+/// character and its offer.
+fn trading(h: &mut Harness<SqliteStore>) -> ((usize, u64, u64), (usize, u64, u64)) {
+    h.server.catalog = yalain_testkit::test_catalog();
+    h.server.catalog.insert(yalain_testkit::test_template(
+        COINS,
+        0x1067,
+        yalain_content::Props::default(),
+    ));
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (b, idb) = h.player_in_world("two", "Torvald");
+    let at = h.server.players[&world_of(h, ida).expect("in the world")].position;
+    let wb = world_of(h, idb).expect("in the world");
+    h.server
+        .players
+        .get_mut(&wb)
+        .expect("in the world")
+        .position = at;
+    let wa = world_of(h, ida).expect("in the world");
+    let bow = yalain_world::inventory::give(&mut h.server, &mut h.net, wa, COINS, 1).expect("made");
+    let gold =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, wb, COINS, 9).expect("made");
+    use trade::function as f;
+    h.ask(a, f::OPEN, &[Arg::LongInt(idb)], 10);
+    h.ask(b, f::OPEN, &[Arg::LongInt(ida)], 10);
+    h.ask(a, f::OFFER, &[Arg::Int(1), Arg::LongInt(bow)], 5);
+    h.ask(b, f::OFFER, &[Arg::Int(9), Arg::LongInt(gold)], 5);
+    ((a, ida, bow), (b, idb, gold))
+}
+
+/// The items a kept character holds, in a store.
+fn held_in(store: &mut SqliteStore, id: u64) -> Vec<u64> {
+    let st = store.world_state(id).expect("reads").expect("kept");
+    let play = PlayState::from_bytes(&st.play).expect("reads");
+    play.items.iter().map(|x| x.id).collect()
+}
+
+/// A trade is one transaction. The server's log cut off at every one of the pages the trade wrote
+/// (what a crash or a power cut can leave) opens cleanly and holds the trade done on both sides or
+/// on neither: never one item with two holders, never one with none.
+/// Behaviour: server.trade.kept-whole-across-a-crash
+#[test]
+fn a_server_dying_at_any_point_of_a_trades_save_keeps_it_whole() {
+    let dir = yalain_testkit::faults::TempDir::new("trade");
+    let path = dir.path().join("world.db");
+    let store = SqliteStore::open(&path).expect("opens");
+    let mut h = Harness::with(ServerConfig::default(), store, test_rules());
+    let ((a, ida, bow), (b, idb, gold)) = trading(&mut h);
+    h.ask(a, trade::function::ACCEPT, &[], 5);
+    // Only what the trade writes is in the log from here.
+    let other = rusqlite::Connection::open(&path).expect("opens");
+    other
+        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)")
+        .expect("all in the file");
+    drop(other);
+    h.ask(b, trade::function::ACCEPT, &[], 5);
+    assert!(held_in(&mut h.server.store, idb).contains(&bow));
+    let wal = std::fs::read(dir.path().join("world.db-wal")).expect("the log");
+    let main = std::fs::read(&path).expect("the file");
+    const HEADER: usize = 32;
+    const FRAME: usize = 24 + 4096;
+    let frames = wal.len().saturating_sub(HEADER) / FRAME;
+    assert!(frames >= 1, "the trade wrote {frames} pages");
+    let cut = yalain_testkit::faults::TempDir::new("trade-cut");
+    let mut seen = (false, false);
+    for n in 0..=frames {
+        // Whole pages, and a page torn in half.
+        for torn in [0, FRAME / 2] {
+            let at = (HEADER + n * FRAME + torn).min(wal.len());
+            let copy = cut.path().join(format!("cut-{n}-{torn}.db"));
+            std::fs::write(&copy, &main).expect("copied");
+            let log = cut.path().join(format!("cut-{n}-{torn}.db-wal"));
+            std::fs::write(&log, &wal[..at]).expect("copied");
+            let mut store = SqliteStore::open(&copy).expect("a crash's file opens");
+            let (ha, hb) = (held_in(&mut store, ida), held_in(&mut store, idb));
+            let done = hb.contains(&bow);
+            assert_eq!(
+                ha.contains(&bow),
+                !done,
+                "the bow has one holder, cut at {at}"
+            );
+            assert_eq!(
+                ha.contains(&gold),
+                done,
+                "the gold goes with it, cut at {at}"
+            );
+            assert_eq!(
+                hb.contains(&gold),
+                !done,
+                "the gold has one holder, cut at {at}"
+            );
+            seen = (seen.0 || !done, seen.1 || done);
+        }
+    }
+    assert_eq!(seen, (true, true), "the cuts fall before and after it");
+}
+
+/// Saves failing as a trade ends: both sides are held, and both reach the store together.
+/// Behaviour: server.trade.kept-whole-across-a-crash
+#[test]
+fn a_trade_ending_while_saves_fail_reaches_the_store_whole() {
+    let dir = yalain_testkit::faults::TempDir::new("trade-fail");
+    let path = dir.path().join("world.db");
+    let store = SqliteStore::open(&path).expect("opens");
+    let mut h = Harness::with(ServerConfig::default(), store, test_rules());
+    let ((a, ida, bow), (b, idb, gold)) = trading(&mut h);
+    // Another program has the write lock as the trade ends.
+    let other = rusqlite::Connection::open(&path).expect("opens");
+    other.execute_batch("BEGIN IMMEDIATE").expect("holds it");
+    h.ask(a, trade::function::ACCEPT, &[], 2);
+    h.ask(b, trade::function::ACCEPT, &[], 2);
+    assert!(h.server.saves.failing());
+    other.execute_batch("COMMIT").expect("lets go");
+    let before = (
+        held_in(&mut h.server.store, ida),
+        held_in(&mut h.server.store, idb),
+    );
+    assert!(
+        before.0.contains(&bow) && before.1.contains(&gold),
+        "neither side yet"
+    );
+    h.run_to(yalain_net::LocalTime(h.now.0 + saves::RETRY_SECONDS + 1.0));
+    assert!(!h.server.saves.failing());
+    let (ha, hb) = (
+        held_in(&mut h.server.store, ida),
+        held_in(&mut h.server.store, idb),
+    );
+    assert!(ha.contains(&gold) && !ha.contains(&bow));
+    assert!(hb.contains(&bow) && !hb.contains(&gold));
 }

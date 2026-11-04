@@ -329,6 +329,17 @@ pub trait Store {
     /// The database failed.
     fn set_world_state(&mut self, id: u64, state: &WorldState) -> StoreResult<()>;
 
+    /// Keep these characters' world states and these world records together: after a failure or a
+    /// crash, all of them or none. A state of a character the store no longer has is left out.
+    ///
+    /// # Errors
+    /// The database failed, and nothing was kept.
+    fn save_all(
+        &mut self,
+        states: &[(u64, &WorldState)],
+        records: &[(&str, &[u8])],
+    ) -> StoreResult<()>;
+
     /// A record the whole world keeps, by its name (the allegiances, the consignments); `None`
     /// before it was first kept.
     ///

@@ -409,7 +409,7 @@ pub fn make<S: Store>(s: &mut Server<S>, r: &Recipe, now: i64) -> Result<String,
             c.name
         ));
     }
-    let kept = s.store.world_state(c.id).map_err(|e| e.to_string())?;
+    let kept = crate::saves::state_of(s, c.id).map_err(|e| e.to_string())?;
     if kept.as_ref().is_some_and(|k| k.instances > 0) {
         return Err(format!(
             "{} has played: bring it up to the build instead, or delete it at once and make it again",
@@ -427,9 +427,7 @@ pub fn make<S: Store>(s: &mut Server<S>, r: &Recipe, now: i64) -> Result<String,
         }
     }
     build(s, &c, r, &mut st, now)?;
-    s.store
-        .set_world_state(c.id, &st)
-        .map_err(|e| e.to_string())?;
+    crate::saves::put(s, c.id, st).map_err(|e| e.to_string())?;
     Ok(format!("character {} given its build", c.name))
 }
 
@@ -494,7 +492,7 @@ fn in_world_or_entering<S: Store>(s: &Server<S>, id: u64) -> bool {
 /// will first enter with (where it was put, and what it was given, kept).
 fn state_out_of_world<S: Store>(s: &mut Server<S>, c: &Character) -> Result<WorldState, String> {
     Ok(
-        match s.store.world_state(c.id).map_err(|e| e.to_string())? {
+        match crate::saves::state_of(s, c.id).map_err(|e| e.to_string())? {
             Some(st) if !st.qualities.is_empty() => st,
             kept => {
                 let mut st = crate::world::first_state(s, c);
@@ -545,9 +543,7 @@ pub fn apply<S: Store>(s: &mut Server<S>, r: &Recipe, now: i64) -> Result<String
     }
     let mut st = state_out_of_world(s, &c)?;
     build(s, &c, r, &mut st, now)?;
-    s.store
-        .set_world_state(c.id, &st)
-        .map_err(|e| e.to_string())?;
+    crate::saves::put(s, c.id, st).map_err(|e| e.to_string())?;
     Ok(format!("{} brought up to its build", c.name))
 }
 
@@ -593,15 +589,11 @@ pub fn place<S: Store>(s: &mut Server<S>, who: &str, to: &Destination) -> Result
         }
         Destination::At(at) => (*at, format!("{:08X} {:?}", at.cell, at.origin)),
     };
-    let mut st = s
-        .store
-        .world_state(c.id)
+    let mut st = crate::saves::state_of(s, c.id)
         .map_err(|e| e.to_string())?
         .unwrap_or_default();
     st.position = Some(at);
-    s.store
-        .set_world_state(c.id, &st)
-        .map_err(|e| e.to_string())?;
+    crate::saves::put(s, c.id, st).map_err(|e| e.to_string())?;
     Ok(format!("{} enters at {said} next", c.name))
 }
 
@@ -637,7 +629,9 @@ pub fn delete_now<S: Store>(
         crate::admin::end_login(s, net, login, crate::admin::BOOTED, clock);
         booted = ", taken out of the world and booted first";
     }
+    crate::saves::write_out(s).map_err(|e| e.to_string())?;
     s.store.purge_character(c.id).map_err(|e| e.to_string())?;
+    s.saves.forget(c.id);
     // An account at its character list sees it gone at once.
     let mut selecting: Vec<ConnId> = s
         .sessions

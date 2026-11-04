@@ -222,9 +222,7 @@ fn keep<S: Store>(s: &mut Server<S>) {
         return;
     }
     let b = s.market.to_bytes();
-    if let Err(e) = s.store.set_world_record(RECORD, &b) {
-        tracing::warn!("the consignments were not kept: {e}");
-    }
+    s.saves.hold_record(RECORD, b);
 }
 
 fn call(f: u32, args: &[Arg]) -> ServerMessage {

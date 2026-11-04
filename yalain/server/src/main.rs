@@ -1297,8 +1297,11 @@ fn run<S: Store>(
         }
     }
     let world_ended = server.shutdown == yalain_world::shutdown::Shutdown::Done;
-    let kept = yalain_world::shutdown::save_everyone(&mut server, &mut net);
-    tracing::info!("stopping: {kept} characters in the world kept");
+    let left = yalain_world::shutdown::save_everyone(&mut server, &mut net);
+    let lost = save_at_stop(&mut server);
+    if lost.is_none() {
+        tracing::info!("stopping: {left} characters in the world kept");
+    }
     wire.send(&net.take_datagrams());
     wire.stop();
     friends.stop();
@@ -1315,11 +1318,54 @@ fn run<S: Store>(
     for (what, n) in server.unhandled.counts() {
         tracing::info!("not handled yet: {what} x{n}");
     }
+    if let Some(lost) = lost {
+        return Err(lost.into());
+    }
     Ok(Ended {
         auto,
         world_ended,
         typed,
     })
+}
+
+/// How many times, a second apart, a server stopping tries to save what saves have not taken.
+const STOP_SAVE_TRIES: u32 = 30;
+
+/// A server stopping saves what it holds, trying for a while. If it cannot, what it says went wrong
+/// and whom it has lost: this process is the last to hold them.
+fn save_at_stop<S: Store>(server: &mut Server<S>) -> Option<String> {
+    let mut last = None;
+    for attempt in 1..=STOP_SAVE_TRIES {
+        match yalain_world::saves::write_out(server) {
+            Ok(()) => return None,
+            Err(e) => {
+                tracing::error!(
+                    "stopping: the save failed (try {attempt} of {STOP_SAVE_TRIES}): {e}. Free the \
+                     database's disk or let go of its file, and it is taken."
+                );
+                last = Some(e);
+            }
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    let names: Vec<String> = server
+        .saves
+        .unsaved()
+        .into_iter()
+        .map(|id| {
+            server
+                .store
+                .character(id)
+                .ok()
+                .flatten()
+                .map_or_else(|| format!("{id:#x}"), |c| c.name)
+        })
+        .collect();
+    Some(format!(
+        "stopped without saving: {}. Lost since their last save: {}",
+        last.map_or_else(String::new, |e| e.to_string()),
+        names.join(", ")
+    ))
 }
 
 /// The status ping on the login port, as Empyrean's on its game port: on unless turned off, with
@@ -1372,6 +1418,7 @@ fn snapshot<S: Store>(
         logins: server.sessions.len(),
         max_logins: server.cfg.max_sessions,
         connections: net.connection_count(),
+        saves_failing: server.saves.failing(),
     }
 }
 
@@ -1407,10 +1454,9 @@ fn world_command<S: Store>(
             shutdown::stop_now(server, net, clock, message.as_deref());
             Ok("stopping now".to_owned())
         }
-        console::Command::SaveWorld => {
-            let n = yalain_world::saves::save_world(server, clock);
-            Ok(format!("saved: {n} characters in the world kept"))
-        }
+        console::Command::SaveWorld => yalain_world::saves::save_world(server, clock)
+            .map(|n| format!("saved: {n} characters in the world kept"))
+            .map_err(|e| format!("not saved: {e}; every character stays held and is tried again")),
         console::Command::Teleport(Ok((who, to))) => {
             characters::teleport(server, net, clock, &who, &to)
         }
