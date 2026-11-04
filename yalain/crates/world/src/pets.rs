@@ -1496,7 +1496,8 @@ pub fn pet_hit(rng: &mut crate::rng::Rng, kind: &PetKind, level: i32, armor: i32
 }
 
 /// A pet strikes a creature in reach: one story of the pet's with a result for each of its hits
-/// (told without the basic-attack flag, as a creature's special).
+/// (told without the basic-attack flag, as a creature's special), the hits landing together as its
+/// blow reaches the creature.
 fn strike<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1527,9 +1528,18 @@ fn strike<S: Store>(
         }
     }
     crate::combat::to_all_seeing(s, net, id, &st);
+    let lands = crate::combat::pet_strike_seconds(skill.skill) / f64::from(clock_free);
     for (outcome, damage) in rolls {
         if outcome.landed() {
-            struck_by_pet(s, net, target, id, damage, clock);
+            s.after(
+                clock,
+                lands,
+                crate::Timer::ThingStrikeLands {
+                    by: id,
+                    target,
+                    damage,
+                },
+            );
         }
     }
 }

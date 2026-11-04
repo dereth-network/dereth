@@ -596,6 +596,8 @@ fn a_pet_fights_back_only_in_a_mode_that_defends_itself() {
             None,
             clock,
         );
+        // Its blow reaches the pet.
+        h.run(20);
     };
     let landed = |h: &Harness| {
         h.server
@@ -631,6 +633,130 @@ fn a_pet_fights_back_only_in_a_mode_that_defends_itself() {
     }
     h.run(2);
     assert!(h.functions(b, from).contains(&function::REMOVE));
+}
+
+/// A creature's strike takes a pet's health as the blow reaches it, not with its story.
+/// Behaviour: server.pets.strikes-land-late
+#[test]
+fn a_creatures_strike_hurts_a_pet_when_its_blow_lands() {
+    let mut h = Harness::new();
+    let (_, _, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    let whole = h.server.things.get(pet).map_or(0, |t| t.health);
+    let mut landed_after = None;
+    for _ in 0..200 {
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(beetle)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.next_attack = 0.0;
+        }
+        let clock = h.clock();
+        yalain_world::combat::thing_strikes_thing(
+            &mut h.server,
+            &mut h.net,
+            beetle,
+            pet,
+            None,
+            clock,
+        );
+        assert_eq!(
+            h.server.things.get(pet).map_or(0, |t| t.health),
+            whole,
+            "not in the story's tick"
+        );
+        let at = h.now.0;
+        for _ in 0..30 {
+            h.step();
+            if h.server.things.get(pet).is_some_and(|t| t.health < whole) {
+                landed_after = Some(h.now.0 - at);
+                break;
+            }
+        }
+        if landed_after.is_some() {
+            break;
+        }
+    }
+    // 0.696 s over a time scale of 1.296 give or take a tenth.
+    let after = landed_after.expect("a strike landed");
+    assert!((0.45..0.65).contains(&after), "{after}");
+}
+
+/// The pet is ordered at a beetle: steps until its first story there is seen, and returns when.
+fn pet_strike_seen(h: &mut Harness, b: usize, pet: u64, beetle: u64) -> f64 {
+    let from = h.bots[b].inbox.len();
+    let told = |h: &Harness| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::DoStory(e) if e.action.attacker == pet
+                && e.action.hooks.iter().any(|k| k.target == beetle))
+        })
+    };
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    assert!(h.run_until(400, told), "the pet strikes");
+    h.now.0
+}
+
+/// A pet's strike takes a creature's health as its blow reaches it, not with its story.
+/// Behaviour: server.pets.strikes-land-late
+#[test]
+fn a_pets_strike_hurts_a_creature_when_its_blow_lands() {
+    let mut h = Harness::new();
+    let (b, _, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    let whole = h.server.things.get(beetle).map_or(0, |t| t.health);
+    let mut told = pet_strike_seen(&mut h, b, pet, beetle);
+    assert_eq!(
+        h.server.things.get(beetle).map_or(0, |t| t.health),
+        whole,
+        "not with its story"
+    );
+    let mut seen = h.bots[b].inbox.len();
+    let mut after = None;
+    for _ in 0..2000 {
+        h.step();
+        let another = h.world_messages(b, seen).iter().any(|m| {
+            matches!(m, ServerMessage::DoStory(e) if e.action.attacker == pet
+                && e.action.hooks.iter().any(|k| k.target == beetle))
+        });
+        seen = h.bots[b].inbox.len();
+        if h.server
+            .things
+            .get(beetle)
+            .is_some_and(|t| t.health < whole)
+        {
+            after = Some(h.now.0 - told);
+            break;
+        }
+        if another {
+            told = h.now.0;
+        }
+    }
+    // 0.717 s over a time scale of 1.296 give or take a tenth, a step or two of the wire aside.
+    let after = after.expect("a strike landed");
+    assert!((0.35..0.65).contains(&after), "{after}");
+}
+
+/// A creature dead by the time a pet's blow reaches it is not hurt by it.
+/// Behaviour: server.pets.strikes-land-late
+#[test]
+fn a_pets_strike_reaching_a_creature_dead_by_then_does_nothing() {
+    let mut h = Harness::new();
+    let (_, me, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    let clock = h.clock();
+    yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, beetle, me, 1_000_000, clock);
+    let hurt = h.server.things.get(beetle).map(|t| t.last_hurt);
+    assert!(hurt.is_some());
+    h.step();
+    let clock = h.clock();
+    yalain_world::combat::thing_strike_lands(&mut h.server, &mut h.net, pet, beetle, 5, clock);
+    assert_eq!(h.server.things.get(beetle).map(|t| t.last_hurt), hurt);
 }
 
 /// An owner's death takes its pets in its death tick: each taken off the list.

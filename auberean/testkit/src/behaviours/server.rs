@@ -6269,6 +6269,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.strikes-land-late",
+        says: "A creature's strike at a pet and a pet's at a creature take health when the blow \
+               reaches the target after its story, as its skill shows over the time scale; one \
+               dead by then is not hurt.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-LANDING"),
+        station: "yalain-testkit::cpu::play::pets::a_creatures_strike_hurts_a_pet_when_its_blow_lands",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.summoned",
         says: "A Ranger's Nature's Aid ends by telling it of its Lasher (name, the skill's icon, \
                class and flags) before the skill's information, and the Lasher appears in front of \

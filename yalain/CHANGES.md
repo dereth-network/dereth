@@ -86,6 +86,7 @@ what they see, not how it was done.
 - Hammers and crucibles now help when crafting.
 - Recipes now refuse items above their level or lore.
 - A sword no longer repeats 'too far' while walking to its target.
+- Pets and creatures hurt each other when the blow lands.
 
 ## 0.1.2 (2026-11-03)
 

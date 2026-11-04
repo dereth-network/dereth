@@ -1627,6 +1627,58 @@ pub fn thing_strikes_thing<S: Store>(
     );
     to_all_seeing(s, net, id, &st);
     if outcome.landed() {
-        crate::pets::struck(s, net, target, id, damage, clock);
+        s.after(
+            clock,
+            on_pet_seconds(skill.skill) / f64::from(ts),
+            crate::Timer::ThingStrikeLands {
+                by: id,
+                target,
+                damage,
+            },
+        );
+    }
+}
+
+/// When a creature's basic strike reaches a pet after its story, over the time scale (2017, to the
+/// pet's wound or death: its plain attack 0.697 s, 455 strikes, its strong one 0.686 s, 289; all of
+/// its basic strikes 0.696 s, 835, none at once).
+#[must_use]
+pub fn on_pet_seconds(skill: u32) -> f64 {
+    match skill {
+        1845 => 0.697,
+        1846 => 0.686,
+        _ => 0.696,
+    }
+}
+
+/// When a pet's strike reaches a creature after its story, over the time scale (2017, to the
+/// creature's wound or death: by skill, 305 to 3,747 strikes each; else the median of all that
+/// came without the basic-attack flag, 0.717 s, 5,596).
+#[must_use]
+pub fn pet_strike_seconds(skill: u32) -> f64 {
+    match skill {
+        490 => 0.544,
+        491 => 0.559,
+        838 => 0.743,
+        848 => 0.564,
+        865 => 0.739,
+        _ => 0.717,
+    }
+}
+
+/// A strike between things reaches its target: one dead or gone by now is not hurt by it.
+pub fn thing_strike_lands<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    by: u64,
+    target: u64,
+    damage: i32,
+    clock: Clock,
+) {
+    if s.things
+        .get(target)
+        .is_some_and(crate::things::Thing::alive)
+    {
+        crate::pets::struck(s, net, target, by, damage, clock);
     }
 }
