@@ -807,6 +807,24 @@ pub fn use_object<S: Store>(
     let lifestone = LIFESTONES.contains(&o.template);
     let person = talks_to(s, o);
     let broker = crate::market::broker(s, o.template).is_some();
+    // An object for monarchs alone is refused at once, wherever the player stands, whatever else it
+    // asks of the player (2017: the Allegiance Sign and the Binding Stone, 2 of 2, at 17.9 and
+    // 5.7 m, the stone's quest not held).
+    if s.catalog
+        .get(o.template)
+        .is_some_and(|t| crate::item_use::not_monarch(s, world, &t.props))
+    {
+        let distance = reach(&u.from, o.cell, o.origin).unwrap_or(0.0);
+        let no = use_refused(
+            &u,
+            0,
+            Some(USE_FLAGS_CANNOT_BE_USED),
+            distance,
+            crate::item_use::refusal::MONARCH_ONLY,
+        );
+        send(net, world, BlobKind::PRIVATE, &no);
+        return;
+    }
     // A portal its quest keeps the player out of is refused at once, wherever the player stands
     // (2017: 2 of 2, at 13.5 and 56.9 m; the generic portals kept by their placed instance's
     // quest, 21 of 21 requests answered in 0.09-0.46 s, at 2.9-76.0 m), whether or not where it

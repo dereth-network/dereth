@@ -146,6 +146,122 @@ fn examining_a_player_is_answered_with_its_profile_and_stopping_is_not_answered(
     );
 }
 
+/// A placed object for monarchs alone says so on its requirements tab, as 2017's Allegiance Sign's
+/// profile did word for word.
+/// Behaviour: server.examination.monarch-only-object
+#[test]
+fn an_object_for_monarchs_alone_says_so_when_examined() {
+    const SIGN: u64 = 0x400D_FA00_0000_0003;
+    const TEMPLATE: u32 = 0x4700_11C4;
+    let build = |template: u32, name: Option<(u32, u32)>| yalain_content::ContentObject {
+        object: Some(SIGN),
+        template,
+        description: yalain_content::Description {
+            package: 0x13C1,
+            look: 0x1F00_0ED5,
+            enter_fx: 0,
+            scale: None,
+            name: None,
+            numbers: [0; 6],
+            source: "authored for a test".into(),
+        },
+        cell: 0x0299_0109,
+        origin: [61.0, 241.0, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        kind: yalain_content::Kind::Static,
+        label: String::new(),
+        placed: "authored for a test".into(),
+        destination: None,
+        facts: yalain_content::Facts {
+            name,
+            description: Some((0x6C45_9364, 0x2500_1E91)),
+            ..yalain_content::Facts::default()
+        },
+        walks: None,
+        gate: None,
+    };
+    let mut h = Harness::new();
+    let mut props = yalain_content::Props::default();
+    props.set("Usage_MonarchOnly", yalain_content::Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(TEMPLATE, 0x13C1, props));
+    h.server.content = yalain_content::ContentPack {
+        objects: vec![build(TEMPLATE, Some((0xA860_7CEC, 0x2500_1E91)))],
+        ..yalain_content::ContentPack::default()
+    };
+    let (a, _) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(SIGN, 0x3FF)]),
+    );
+    h.run(30);
+    let got = profile_nodes(&h, a, from);
+    assert_eq!(got.len(), 1, "one profile");
+    let recorded: [u32; 49] = [
+        0x0000_000E,
+        0x4000_0004,
+        0x02,
+        0xBE5B_6513,
+        0xA860_7CEC,
+        0x2500_1E91,
+        0,
+        0x4000_0006,
+        0x02,
+        0x4000_0004,
+        0x02,
+        0x33BE_4035,
+        0x6C45_9364,
+        0x2500_1E91,
+        0,
+        0x4000_0006,
+        0x02,
+        0x4000_0006,
+        0x20,
+        0x4000_0004,
+        0x20,
+        0x33BE_4035,
+        0x4F39_B658,
+        0x2500_0011,
+        0,
+        0x4000_0006,
+        0x20,
+        0x4000_0007,
+        0x20,
+        0,
+        0x4000_0004,
+        0x20,
+        0x33BE_4035,
+        0x9D7D_54C6,
+        0x2500_0011,
+        0,
+        0x4000_0006,
+        0x20,
+        0x4000_0007,
+        0x20,
+        0,
+        0x4000_0007,
+        0x20,
+        0,
+        0x4000_0004,
+        0x20,
+        0xBE5B_6513,
+        0x8ADC_E384,
+        0x2500_0011,
+    ];
+    let got: Vec<u32> = got[0][20..]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
+        .collect();
+    assert_eq!(got[..recorded.len()], recorded[..]);
+    assert_eq!(got[recorded.len()..], [0, 0x4000_0006, 0x20, 0x22][..]);
+}
+
 /// A player's profile names the quest rating its completed quests have added.
 /// Behaviour: server.examination.player-quest-rating
 #[test]

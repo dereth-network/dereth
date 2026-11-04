@@ -36,6 +36,7 @@ what they see, not how it was done.
 - A player typing admin commands no longer floods the log.
 - Quests that pay a share of your next level now pay it.
 - Completing quests now raises your quest rating.
+- Objects meant for monarchs now refuse everyone else.
 
 ## 0.1.2 (2026-11-03)
 

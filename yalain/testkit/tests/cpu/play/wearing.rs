@@ -428,7 +428,8 @@ fn use_answers(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32, u32)> {
 }
 
 /// A chest piece that names a race other than the wearer's, a skill, a least level and a hidden
-/// quest is refused, each in turn as the one before is met: the race (10015), the skill (10013),
+/// quest is refused, each in turn as the one before is met: for monarchs alone (10038), before all
+/// of them, the race (10015), the skill (10013),
 /// the level (10009), the quest as mysterious (10043); each answered alone, with the use's flags
 /// and no effective target, the piece left in the pack. With all of them met it is worn.
 /// Behaviour: server.equip.requirements-refuse
@@ -503,6 +504,30 @@ fn a_chest_piece_whose_race_skill_level_or_quest_the_wearer_lacks_is_refused_in_
         assert_eq!(held(h, me, item).0, 0, "{what}: still in the pack");
     };
     refused(&mut h, fa, equip::refusal::WRONG_RACE, "the race first");
+    // For monarchs alone, before all that, and a monarch goes on to the rest.
+    let mut monarchs = h
+        .server
+        .catalog
+        .get(GUARDED)
+        .expect("in the catalog")
+        .clone();
+    monarchs.props.set("Usage_MonarchOnly", Prop::Bool(true));
+    h.server.catalog.insert(monarchs.clone());
+    let fa = h.bots[a].inbox.len();
+    use_it(&mut h, a, me, item);
+    refused(&mut h, fa, use_refusal::MONARCH_ONLY, "for monarchs");
+    h.server
+        .allegiances
+        .nodes
+        .insert(me, yalain_world::allegiance::Node::default());
+    let fa = h.bots[a].inbox.len();
+    use_it(&mut h, a, me, item);
+    refused(
+        &mut h,
+        fa,
+        equip::refusal::WRONG_RACE,
+        "a monarch: the race",
+    );
     let edit = |h: &mut Harness, f: &dyn Fn(&mut yalain_world::world::Player)| {
         f(h.server.players.get_mut(&world).unwrap());
     };

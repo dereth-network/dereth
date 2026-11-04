@@ -469,7 +469,29 @@ fn profile_bytes<S: Store>(
                         f,
                     )
                 } else {
-                    profile::npc(req.asked, named.unwrap_or_else(|| profile::item_name(f)), f)
+                    // An object for monarchs alone goes by its plain name (2017: 14 of 14).
+                    let monarchs = s
+                        .catalog
+                        .get(o.template)
+                        .is_some_and(|t| t.props.flag("Usage_MonarchOnly"));
+                    let plain = || {
+                        f.name.map_or_else(
+                            || profile::literal(""),
+                            |(sid, t)| profile::string(t, sid),
+                        )
+                    };
+                    let name = named.unwrap_or_else(|| {
+                        if monarchs {
+                            plain()
+                        } else {
+                            profile::item_name(f)
+                        }
+                    });
+                    let mut p = profile::npc(req.asked, name, f);
+                    if monarchs {
+                        profile::monarch_lines(&mut p);
+                    }
+                    p
                 }
             }
         }

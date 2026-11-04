@@ -1343,6 +1343,64 @@ fn a_walk_to_a_portal_the_player_moves_off_by_hand_is_refused_as_interrupted() {
     assert_eq!(teleported_to(&h, a, from, ida), None, "no trip");
 }
 
+/// A placed object for monarchs alone is refused at once wherever the player stands, with no walk,
+/// to a player in no allegiance and to a vassal: "Only monarchs can use that item." (10038), flags
+/// 828, the distance from where the player asked. A monarch is not refused.
+/// Behaviour: server.places.monarch-only
+#[test]
+fn an_object_for_monarchs_alone_is_refused_at_once_to_anyone_else() {
+    use yalain_world::allegiance::Node;
+    use yalain_world::item_use::refusal::MONARCH_ONLY;
+    const SIGN: u64 = 0x4002_9900_0000_0064;
+    const TEMPLATE: u32 = 0x4700_11C4;
+    let mut h = Harness::new();
+    let mut props = yalain_content::Props::default();
+    props.set("Usage_MonarchOnly", yalain_content::Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(TEMPLATE, 0x13C1, props));
+    h.server.content = ContentPack {
+        objects: vec![object(SIGN, TEMPLATE, [61.0, 290.0, -44.6], None)],
+        ..ContentPack::default()
+    };
+    let (a, ida) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let used = |h: &mut Harness| {
+        let from = h.bots[a].inbox.len();
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::USE, &[use_of(SIGN, ida)]),
+        );
+        h.run(3);
+        let walked = h
+            .world_messages(a, from)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::MoveTo(o) if o.sender.id == ida));
+        (use_answers(h, a, from), walked)
+    };
+    let (answers, walked) = used(&mut h);
+    assert_eq!(answers.len(), 1, "in no allegiance: answered at once");
+    assert_eq!((answers[0].0, answers[0].1), (MONARCH_ONLY, 828));
+    assert_eq!(MONARCH_ONLY, 10_038);
+    assert!(answers[0].2 > 40.0, "from where the player asked");
+    assert!(!walked, "no walk");
+    const PATRON: u64 = 0x2130_0000_0000_0FFF;
+    let node = |patron: u64| Node {
+        patron,
+        ..Node::default()
+    };
+    h.server.allegiances.nodes.insert(PATRON, node(0));
+    h.server.allegiances.nodes.insert(ida, node(PATRON));
+    let (answers, _) = used(&mut h);
+    assert_eq!(answers.len(), 1, "a vassal");
+    assert_eq!(answers[0].0, MONARCH_ONLY);
+    h.server.allegiances.nodes.remove(&PATRON);
+    h.server.allegiances.nodes.insert(ida, node(0));
+    let (answers, _) = used(&mut h);
+    assert!(answers.is_empty(), "a monarch is not refused");
+}
+
 /// A placed object of a kind that cannot be used (a forge, a road sign) is refused at once wherever
 /// the player stands, with no walk: "cannot use" (10001), flags 828, the distance from where the
 /// player asked.

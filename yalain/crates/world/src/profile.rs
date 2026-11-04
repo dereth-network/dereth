@@ -69,6 +69,8 @@ pub mod line {
     pub const LIFESTONE_RECALL: u32 = 0x0453_EA93;
     pub const REQUIREMENTS: u32 = 0x4F39_B658;
     pub const MINIMUM_LEVEL: u32 = 0x4ED2_0478;
+    pub const IN_AN_ALLEGIANCE: u32 = 0x9D7D_54C6;
+    pub const A_MONARCH: u32 = 0x8ADC_E384;
     /// The kingdoms' table, and the neutral kingdom's name.
     pub const KINGDOMS: u32 = 0x2500_000F;
     pub const NEUTRAL: u32 = 0x1268_95B3;
@@ -657,6 +659,32 @@ pub fn npc(asked: u32, name: TextInfo, f: &Facts) -> Profile {
     p.text(GENERAL, look::LABEL, desc);
     p.brk(GENERAL);
     p
+}
+
+/// What the requirements tab says of an object for monarchs alone.
+pub fn monarch_lines(p: &mut Profile) {
+    p.brk(REQUIREMENTS);
+    p.text(
+        REQUIREMENTS,
+        look::LABEL,
+        string(line::TABLE, line::REQUIREMENTS),
+    );
+    p.brk(REQUIREMENTS);
+    p.tab(REQUIREMENTS, 0);
+    p.text(
+        REQUIREMENTS,
+        look::LABEL,
+        string(line::TABLE, line::IN_AN_ALLEGIANCE),
+    );
+    p.brk(REQUIREMENTS);
+    p.tab(REQUIREMENTS, 0);
+    p.tab(REQUIREMENTS, 0);
+    p.text(
+        REQUIREMENTS,
+        look::VALUE,
+        string(line::TABLE, line::A_MONARCH),
+    );
+    p.brk(REQUIREMENTS);
 }
 
 /// An item's name composed of its template's name with no prefix or suffix.

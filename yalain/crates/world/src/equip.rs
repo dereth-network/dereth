@@ -365,6 +365,9 @@ fn refused<S: Store>(
     clock: Clock,
 ) -> Option<u32> {
     let p = s.players.get(&world)?;
+    if crate::item_use::not_monarch(s, world, props) {
+        return Some(crate::item_use::refusal::MONARCH_ONLY);
+    }
     if props
         .word("Usage_RequiredRace")
         .is_some_and(|races| races != 0 && races & p.race == 0)

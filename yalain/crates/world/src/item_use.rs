@@ -235,6 +235,8 @@ pub mod refusal {
     pub const LACKING_QUEST: u32 = 10_019;
     /// The player's quest is not where the item needs it.
     pub const WRONG_QUEST_STATUS: u32 = 10_020;
+    /// "Only monarchs can use that item."
+    pub const MONARCH_ONLY: u32 = 10_038;
     /// A take: the player's quest is not where the item needs it.
     pub const WRONG_QUEST_STATUS_TAKE: u32 = 10_021;
     /// A take: the player has never had the quest the item needs.
@@ -457,12 +459,25 @@ pub(crate) fn refuse<S: Store>(
     true
 }
 
-/// Why a player may not use an item of these properties now, if it may not: moving (an item that
-/// may not be used so), a mount's item with its hands full, a mount on or indoors, too far from
-/// the item's place, its quest (one the server knows) not where the item needs it, below the
-/// item's least level.
+/// Is this for monarchs alone, and the player none? A monarch is the head of an allegiance; a
+/// player in none is not one.
+#[must_use]
+pub fn not_monarch<S: Store>(s: &Server<S>, world: ConnId, props: &Props) -> bool {
+    props.flag("Usage_MonarchOnly")
+        && s.players
+            .get(&world)
+            .is_none_or(|p| s.allegiances.monarch(p.character) != Some(p.character))
+}
+
+/// Why a player may not use an item of these properties now, if it may not: for monarchs alone and
+/// the player none, moving (an item that may not be used so), a mount's item with its hands full,
+/// a mount on or indoors, too far from the item's place, its quest (one the server knows) not where
+/// the item needs it, below the item's least level.
 fn refused<S: Store>(s: &Server<S>, world: ConnId, props: &Props, clock: Clock) -> Option<u32> {
     let p = s.players.get(&world)?;
+    if not_monarch(s, world, props) {
+        return Some(refusal::MONARCH_ONLY);
+    }
     if not_while_moving(props) && crate::skill_use::moving(p) {
         return Some(refusal::MOVING);
     }

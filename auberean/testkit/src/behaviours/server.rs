@@ -2249,6 +2249,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.monarch-only-object",
+        says: "A placed object for monarchs alone says so on its requirements tab.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MONARCH-PROFILE"),
+        station: "yalain-testkit::cpu::entry::examine::an_object_for_monarchs_alone_says_so_when_examined",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.monster-profiles-as-2017",
         says: "A monster's profile, for a player who can attack it, is the one the 2017 servers \
                sent: its name and description, level and kingdom from its template, its health and \
@@ -3384,6 +3392,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EXAMINE"),
         station: "yalain-testkit::cpu::play::items::a_trophy_used_is_shown_then_answered",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.monarch-only",
+        says: "An item for monarchs alone, used or worn by anyone else, is refused with the monarchs' refusal and does nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MONARCH-ITEM"),
+        station: "yalain-testkit::cpu::play::items::an_item_for_monarchs_alone_is_refused_to_anyone_else",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -5867,6 +5883,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-DOOR-KEY"),
         station: "yalain-testkit::cpu::play::doors::a_locked_door_refuses_a_plain_use_and_opens_to_its_key_which_is_used_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.monarch-only",
+        says: "A placed object for monarchs alone is refused at once wherever the player stands, with no walk, to anyone but the head of an allegiance.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MONARCH-ONLY"),
+        station: "yalain-testkit::cpu::entry::places::an_object_for_monarchs_alone_is_refused_at_once_to_anyone_else",
         tier: Tier::Cpu,
     },
     behaviour! {
