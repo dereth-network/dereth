@@ -114,26 +114,33 @@ pub fn skin(
     for (i, p) in positions.iter().enumerate() {
         let inf = influences.get(i).copied().unwrap_or_default();
         let n = normals.get(i).copied().unwrap_or(Vec3::ZERO);
-        let (mut sp, mut sn) = (Vec3::ZERO, Vec3::ZERO);
-        let mut total = 0.0;
-        for k in 0..usize::from(inf.count) {
-            let w = inf.weights[k];
-            if w == 0.0 {
-                continue;
-            }
-            let m = palette
-                .get(usize::from(inf.bones[k]))
-                .unwrap_or(&Mat4::IDENTITY);
-            sp = add_scaled(sp, m.point(*p), w);
-            sn = add_scaled(sn, m.direction(n), w);
-            total += w;
-        }
-        if total == 0.0 {
-            sp = *p;
-            sn = n;
-        }
+        let (sp, sn) = skin_vertex(*p, n, &inf, palette);
         out_p.push(sp);
         out_n.push(sn);
     }
     (out_p, out_n)
+}
+
+/// One vertex's position and normal moved by its influences.
+#[must_use]
+pub fn skin_vertex(p: Vec3, n: Vec3, inf: &Influences, palette: &[Mat4]) -> (Vec3, Vec3) {
+    let (mut sp, mut sn) = (Vec3::ZERO, Vec3::ZERO);
+    let mut total = 0.0;
+    for k in 0..usize::from(inf.count) {
+        let w = inf.weights[k];
+        if w == 0.0 {
+            continue;
+        }
+        let m = palette
+            .get(usize::from(inf.bones[k]))
+            .unwrap_or(&Mat4::IDENTITY);
+        sp = add_scaled(sp, m.point(p), w);
+        sn = add_scaled(sn, m.direction(n), w);
+        total += w;
+    }
+    if total == 0.0 {
+        (p, n)
+    } else {
+        (sp, sn)
+    }
 }

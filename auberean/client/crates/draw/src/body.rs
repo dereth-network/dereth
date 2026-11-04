@@ -284,24 +284,27 @@ impl BodyDrawer {
                     continue;
                 };
                 let verts: Vec<MeshVertex> = match &m.influences {
-                    Some(inf) => {
-                        let pos: Vec<Vec3> = m.vertices.iter().map(|v| v3(v.position)).collect();
-                        let nrm: Vec<Vec3> = m.vertices.iter().map(|v| v3(v.normal)).collect();
-                        let (p, n) = auberean_animation::skin::skin(&pos, &nrm, inf, &pose.palette);
-                        m.vertices
-                            .iter()
-                            .zip(p.iter().zip(&n))
-                            .map(|(v, (p, n))| {
-                                let p = pose.world.point(*p);
-                                let n = normalize(pose.world.direction(*n));
-                                MeshVertex {
-                                    position: [p.x, p.y, p.z],
-                                    normal: [n.x, n.y, n.z],
-                                    ..*v
-                                }
-                            })
-                            .collect()
-                    }
+                    Some(inf) => m
+                        .vertices
+                        .iter()
+                        .enumerate()
+                        .map(|(k, v)| {
+                            let none = auberean_animation::skin::Influences::default();
+                            let (p, n) = auberean_animation::skin::skin_vertex(
+                                v3(v.position),
+                                v3(v.normal),
+                                inf.get(k).unwrap_or(&none),
+                                &pose.palette,
+                            );
+                            let p = pose.world.point(p);
+                            let n = normalize(pose.world.direction(n));
+                            MeshVertex {
+                                position: [p.x, p.y, p.z],
+                                normal: [n.x, n.y, n.z],
+                                ..*v
+                            }
+                        })
+                        .collect(),
                     None => {
                         let bone = pose
                             .bones
