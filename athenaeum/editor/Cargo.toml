@@ -13,6 +13,9 @@ autotests = false
 # Tier switch only: no code is gated on it. It selects the `live` test binary, which plays a world
 # on Yalain and Auberean as programs, with the end-of-retail install and the world database.
 live = []
+# Tier switch only: no code is gated on it. It selects the `dat` test binary, which needs the
+# end-of-retail install and the world database.
+retail-dats = []
 
 [build-dependencies]
 # Links the application icon (`assets/athenaeum.ico`) into the executable, where Explorer and the
@@ -74,6 +77,7 @@ path = "tests/cpu/main.rs"
 [[test]]
 name = "dat"
 path = "tests/dat/main.rs"
+required-features = ["retail-dats"]
 
 [[test]]
 name = "live"
