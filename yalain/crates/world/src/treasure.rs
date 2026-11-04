@@ -483,7 +483,20 @@ pub fn apply_numbers(own: &mut Own, def: &crate::effect_defs::EffectDef, spellcr
     }
 }
 
-/// A hit lands: each effect the striker's weapon puts on what it hits, by that effect's own chance.
+/// What a weapon's slayer does to a creature of a superclass at a spellcraft: nothing to any other
+/// (2017: a slayer cast at 30, one weapon, 182 harms of exactly 30 told over 180 landed hits on the
+/// superclass it names, basic and special alike, and 12 over 902 on any other). That it goes by
+/// spellcraft is our reading of the one weapon and the effect's number of 1.
+#[must_use]
+pub fn slayer_harm(classes: &[(u32, f32)], superclass: u32, spellcraft: f32) -> i32 {
+    classes
+        .iter()
+        .find(|(c, _)| *c == superclass)
+        .map_or(0, |(_, by)| dereth_primitives::num::to_i32(spellcraft * by))
+}
+
+/// A hit lands: each slayer of the striker's weapon harms what it hits if it names it, told as its
+/// own story; each effect the weapon puts on what it hits, by that effect's own chance.
 pub fn on_hit<S: yalain_store::Store>(
     s: &mut crate::Server<S>,
     net: &mut yalain_net::ServerNet,
@@ -504,6 +517,22 @@ pub fn on_hit<S: yalain_store::Store>(
         .map(|w| w.enchantments.clone())
         .unwrap_or_default();
     for (state, spellcraft) in list {
+        if let Some(crate::effect_defs::Kind::Slayer(classes)) =
+            s.effect_table.get(state).map(|d| &d.kind)
+        {
+            let superclass = s
+                .things
+                .get(target)
+                .and_then(|t| s.catalog.get(t.template))
+                .and_then(|t| {
+                    t.props
+                        .word(yalain_content::props::creature_property::SUPER_CLASS)
+                });
+            let harm = superclass.map_or(0, |c| slayer_harm(classes, c, spellcraft));
+            if harm > 0 {
+                crate::effects::creature_health(s, net, target, -harm, me, clock);
+            }
+        }
         let Some((t::When::Hit, tier)) = t::tier_of(state) else {
             continue;
         };

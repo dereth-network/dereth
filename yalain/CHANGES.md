@@ -133,6 +133,7 @@ what they see, not how it was done.
 - Weapons are fought in their own stances.
 - Items with no use are refused instead of being held as a sword.
 - Items that raise a skill now raise your rating in it.
+- Slayer weapons now do extra damage to what they name.
 
 ## 0.1.2 (2026-11-03)
 

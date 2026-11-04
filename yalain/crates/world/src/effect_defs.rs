@@ -160,6 +160,9 @@ pub enum Kind {
     },
     /// Several changes to qualities at once.
     Chained(Vec<EffectDef>),
+    /// A weapon's: its hits harm creatures of these superclasses by its spellcraft times the number
+    /// with each.
+    Slayer(Vec<(u32, f32)>),
     /// Moves a quest on: the quest and the update.
     Quest { quest: u32, update: u32 },
     /// The player learns a recipe.
@@ -358,6 +361,19 @@ impl EffectDef {
                     .into_iter()
                     .map(|c| Self::from_object(0, lib, nav, c))
                     .collect::<Result<_, _>>()?,
+            )
+        } else if is("SlayerEffect") {
+            let classes = nav
+                .field(o, "m_SlayerHash")
+                .and_then(|r| nav.entries(r))
+                .unwrap_or_default();
+            Kind::Slayer(
+                classes
+                    .into_iter()
+                    .filter_map(|(k, v)| {
+                        Some((Nav::word(k).ok()?, f32::from_bits(Nav::word(v).ok()?)))
+                    })
+                    .collect(),
             )
         } else if is("AIPetEffect") {
             // A pet effect is a numeric effect whose magnitude is its lifetime.

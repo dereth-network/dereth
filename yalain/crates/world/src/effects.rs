@@ -728,7 +728,7 @@ fn health_story(
 
 /// Change a creature's health by an amount: its story of it, then a hurt (which may kill it) or a
 /// heal (not past its greatest health).
-fn creature_health<S: Store>(
+pub(crate) fn creature_health<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     id: u64,

@@ -4593,6 +4593,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-slayer",
+        says: "A slayer harms what it names by its spellcraft as each hit lands, basic or special, \
+               told as its own story past the creature's armor, and does nothing to any other. \
+               Our choice that it goes by spellcraft: one weapon measured.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-SLAYER"),
+        station: "yalain-testkit::cpu::play::fights::a_slayer_harms_the_creatures_it_names_by_its_spellcraft_and_no_others",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.turned-into-money",
         says: "Turning a corpse's items into money moves each into the pack and destroys it \
                there, the money going up by its value, and the answer says what was earned; each \

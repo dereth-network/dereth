@@ -801,6 +801,101 @@ fn a_slayer_on_a_weapon_puts_nothing_on_what_it_hits() {
     assert_eq!(h.server.unhandled.counts().len(), before);
 }
 
+/// A slayer harms what it names by its spellcraft as each hit lands, told as a story of its own, and
+/// does nothing to any other creature.
+/// Behaviour: server.loot.treasure-slayer
+#[test]
+fn a_slayer_harms_the_creatures_it_names_by_its_spellcraft_and_no_others() {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    const SLAYER: u32 = 0x6F00_0003;
+    const NAMED: u32 = 25;
+    let told = |superclass: u32| -> (usize, usize) {
+        let mut h = Harness::new();
+        h.add_creatures(1);
+        h.server.levels = levels();
+        let (b, me) = h.player_in_world("one", "Elara");
+        scene_drawn(&mut h, b);
+        let weapon = h.arm(b, me, STARTER_SWORD);
+        h.server.effect_table.effects.insert(
+            SLAYER,
+            EffectDef {
+                state: SLAYER,
+                kind: Kind::Slayer(vec![(NAMED, 1.0)]),
+                duration: Scale::default(),
+                priority: Scale::default(),
+                fx: 0,
+                external_flags: 0,
+                internal_flags: 0,
+                enum_value: 0,
+                eq_class: 0,
+                name: None,
+            },
+        );
+        h.server
+            .things
+            .get_mut(weapon)
+            .expect("held")
+            .enchantments
+            .push((SLAYER, 30.0));
+        let beetle = creature_of(&h, b);
+        let template = h.server.things.get(beetle).expect("the beetle").template;
+        let mut t = h
+            .server
+            .catalog
+            .get(template)
+            .expect("its template")
+            .clone();
+        t.props.set(
+            yalain_content::props::creature_property::SUPER_CLASS,
+            yalain_content::Prop::Word(superclass),
+        );
+        h.server.catalog.insert(t);
+        {
+            let t = h.server.things.get_mut(beetle).expect("the beetle");
+            t.max_health = 1_000_000;
+            t.health = 1_000_000;
+            let c = t.creature.as_mut().expect("a creature");
+            c.stats.natural_damage = 0.0;
+        }
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+        );
+        let mut told = 0;
+        h.run_until(60_000, |h| {
+            told = h.world_messages(b, from).len();
+            h.server.things.get(beetle).expect("alive").health < 999_000
+        });
+        assert!(told > 0);
+        // The player's hits are told as its own stories; the slayer's harm as the creature's, at
+        // the creature. The creature's own blows at the player aren't counted.
+        let (mut hits, mut harms) = (0, 0);
+        for m in h.world_messages(b, from) {
+            let ServerMessage::DoStory(e) = m else {
+                continue;
+            };
+            for k in &e.action.hooks {
+                if k.target == beetle && k.numbers[3] < 0 {
+                    if e.sender.id == beetle {
+                        harms += 1;
+                    } else {
+                        hits += 1;
+                    }
+                }
+            }
+        }
+        (hits, harms)
+    };
+    let (hits, harms) = told(NAMED);
+    assert!(hits >= 5, "{hits} hits");
+    assert!(hits.abs_diff(harms) <= 1, "{harms} harms, {hits} hits");
+    let (hits, harms) = told(NAMED + 1);
+    assert!(hits >= 5, "{hits} hits");
+    assert_eq!(harms, 0);
+}
+
 /// What a weapon puts on what it hits comes on by its own chance as its hits land, and is named on
 /// its profile as an effect on a hit.
 /// Behaviour: server.loot.treasure-effect-on-hit
