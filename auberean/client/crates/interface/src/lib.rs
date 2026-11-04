@@ -131,6 +131,8 @@ pub struct Avatar {
 struct Shared {
     /// The player is in the world.
     in_world: bool,
+    /// How many times the player's body has come to be placed with its cells loaded.
+    arrivals: u32,
     /// The window's size (the play screen's display).
     window: (u32, u32),
     vitals: Option<[u32; 4]>,
@@ -204,6 +206,8 @@ impl FlowScreen<Shared> for ModeScreen {
 struct PlayScreen {
     play: GamePlay,
     logged_in: bool,
+    /// The arrivals the play screen has heard of.
+    arrivals: u32,
 }
 
 impl FlowScreen<Shared> for PlayScreen {
@@ -217,6 +221,12 @@ impl FlowScreen<Shared> for PlayScreen {
             self.logged_in = true;
             // D2-03994
             self.play.login_finished(ui, &mut data.out);
+        }
+        // The player arrived last frame, before what the scripts said this frame.
+        if data.arrivals != self.arrivals {
+            self.arrivals = data.arrivals;
+            // D2-01944
+            self.play.player_ready_to_enter_world(ui, &mut data.out);
         }
         let view = View {
             vitals: data.vitals,
@@ -497,6 +507,7 @@ fn make_play(ui: &mut Ui, data: &mut Shared) -> Option<Box<dyn FlowScreen<Shared
     Some(Box::new(PlayScreen {
         play,
         logged_in: false,
+        arrivals: 0,
     }))
 }
 
@@ -875,6 +886,7 @@ impl Retail {
     fn feed(&mut self, game: &Game<'_>) {
         let d = &mut self.flow.flow.data;
         d.in_world = game.phase == Phase::World;
+        d.arrivals = game.arrivals;
         d.window = game.size;
         d.lines.clear();
         d.line_infos.clear();

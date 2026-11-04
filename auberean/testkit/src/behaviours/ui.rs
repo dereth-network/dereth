@@ -1933,6 +1933,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.story.a-doors-scene-ends-when-the-player-has-arrived",
+        says: "A scene played on the way through a door stays over the screen until the player's \
+               body has been sent through and stands at the other side with its cells loaded; \
+               the door's scene ending does not end it. Then the story goes and the world shows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-DOOR-ARRIVAL"),
+        station: "auberean-interface::dat::screens::a_doors_scene_ends_when_the_player_has_arrived",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.story.a-subtitle-waits-for-its-string-table",
         says: "A story step's valid subtitle is given to its frame's text as a string reference: \
                when the data lacks the table its entry's text is in, the text waits until the \

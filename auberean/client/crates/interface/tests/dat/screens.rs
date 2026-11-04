@@ -2675,3 +2675,82 @@ fn the_tooltip_switch_as_read_reaches_the_screens() {
     step(&mut s);
     assert!(!retail.borrow().ui().tooltips_show());
 }
+
+/// A door plays its scene with the player's body standing where it is. The scene stays up when the
+/// door's scene ends and after it has played, until the player's body has been sent through and
+/// stands at the other side with its cells loaded: then the story goes and the world shows.
+///
+/// Behaviour: ui.story.a-doors-scene-ends-when-the-player-has-arrived
+#[test]
+fn a_doors_scene_ends_when_the_player_has_arrived() {
+    use auberean_client_sdk::protocol::physics::ObjectPosition;
+    use auberean_client_sdk::protocol::types::ObjectStamp;
+    use auberean_client_sdk::runtime::host::PanelNotice;
+    use auberean_client_sdk::script::native_object::NativeObject;
+    use auberean_client_sdk::script::story::SceneInfo;
+    const THROUGH: f64 = 20.0;
+    let put = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: HALL_CELL,
+        origin: HALL_AT,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 2,
+        force_position_stamp: 0,
+        teleport_stamp: 2,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let (mut s, retail) =
+        into_the_world_with(script_with(vec![s2c(THROUGH, 1, 1, WORLD | 7, &put)]));
+    assert!(
+        until(&mut s, 5.0, |s| s.scene.arrivals() == 1),
+        "arrived in the world"
+    );
+    let story = |r: &Rc<RefCell<Retail>>| {
+        r.borrow()
+            .play()
+            .expect("the play screen")
+            .story()
+            .is_some()
+    };
+    let portal_scene = |playing: u32| PanelNotice {
+        native: auberean_ui_game::gameplay::notice::PORTAL_SCENE,
+        about: Some(PLAYER),
+        words: vec![playing, 0],
+        objects: vec![Some(NativeObject::Scenes(vec![SceneInfo {
+            id: 1,
+            playable: 1,
+            ..SceneInfo::default()
+        }]))],
+        requests: vec![None],
+        effect_lines: Vec::new(),
+        listed: Vec::new(),
+    };
+    let client = s.client.as_mut().expect("in the world");
+    client.notices.push(portal_scene(1));
+    assert!(
+        until(&mut s, 1.0, |_| story(&retail)),
+        "the door's scene plays"
+    );
+    assert!(
+        !until(&mut s, 3.0, |_| !story(&retail)),
+        "waits for the player"
+    );
+    let client = s.client.as_mut().expect("in the world");
+    client.notices.push(portal_scene(0));
+    assert!(
+        !until(&mut s, 0.5, |_| !story(&retail)),
+        "its end alone does not end it"
+    );
+    assert_eq!(s.scene.arrivals(), 1, "not through yet");
+    assert!(
+        until(&mut s, 30.0, |_| !story(&retail)),
+        "the player arrived"
+    );
+    assert_eq!(s.scene.arrivals(), 2);
+}

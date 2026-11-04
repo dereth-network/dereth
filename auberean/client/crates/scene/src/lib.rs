@@ -369,6 +369,10 @@ pub struct Scene<'w> {
     pub entering: bool,
     /// The player's teleport stamp last seen.
     teleport_stamp: Option<u16>,
+    /// The player's body was placed with its cells loaded, last frame.
+    ready_to_enter: bool,
+    /// How many times the player's body has come to be placed with its cells loaded.
+    arrivals: u32,
     /// The effects of the objects drawn with the world.
     placed_effects: PlacedEffects,
     /// The particle systems every object's effects keep going.
@@ -1233,6 +1237,8 @@ impl<'w> Scene<'w> {
             in_session: false,
             entering: false,
             teleport_stamp: None,
+            ready_to_enter: false,
+            arrivals: 0,
             placed_effects: PlacedEffects::default(),
             systems: ParticleSystems::default(),
             objects: ObjectTable::default(),
@@ -1282,6 +1288,7 @@ impl<'w> Scene<'w> {
             }
             self.in_session = false;
             self.teleport_stamp = None;
+            self.ready_to_enter = false;
         } else {
             if !self.in_session {
                 self.portal.want(true, true, now);
@@ -1296,8 +1303,20 @@ impl<'w> Scene<'w> {
             let client_ready = self.player.is_some() && !teleported;
             self.portal
                 .want(!(server_ready && client_ready), false, now);
+            let ready = client_ready && !self.cells.blocking;
+            if ready && !self.ready_to_enter {
+                self.arrivals = self.arrivals.wrapping_add(1);
+            }
+            self.ready_to_enter = ready;
         }
         self.portal_look = self.portal.think(now);
+    }
+
+    /// How many times the player's body has come to be placed with its cells loaded: on entering
+    /// the world and after each teleport.
+    #[must_use]
+    pub const fn arrivals(&self) -> u32 {
+        self.arrivals
     }
 
     /// Show the world, or hide it (while the story plays): hidden, no world's frame is made.

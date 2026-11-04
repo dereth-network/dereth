@@ -909,10 +909,16 @@ fn the_clients_objects_wait_with_the_world_for_its_cells() {
             .is_some_and(|c| c.world.blocking_for_cells);
         if s.scene.cells_pending() && objects_wait {
             waited += 1;
+            assert_eq!(
+                s.scene.arrivals(),
+                0,
+                "not arrived while its cells are asked for"
+            );
         }
     }
     assert!(waited > 0, "the objects waited with the world");
     assert!(!s.scene.cells_pending());
+    assert_eq!(s.scene.arrivals(), 1, "arrived once they came");
     assert!(s
         .client
         .as_ref()

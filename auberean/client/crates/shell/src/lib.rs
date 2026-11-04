@@ -79,6 +79,7 @@ macro_rules! game {
             notices: &$s.notices,
             seen: &$s.scene.seen,
             world_pick: $s.world_pick,
+            arrivals: $s.scene.arrivals(),
             keys: &$s.keys,
             screens_sound: $s
                 .sound
