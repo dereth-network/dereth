@@ -623,13 +623,34 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.auras.damage-held-on-a-weapon",
+        says: "What an aura holds on a weapon's damage counts in its blows and shows in its \
+               examination: the greatest changed, rounded down, and the least following from it \
+               by the weapon's span.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-AURA-HELD-DAMAGE"),
+        station: "yalain-testkit::cpu::play::two_blows::a_swing_does_the_damage_an_aura_holds_on_its_weapon",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.auras.held-pulses-last-while-held",
         says: "What an aura holds on a thing in hand lasts while the aura is on and the thing in \
                hand, on a weapon or a shield as the aura names them. Our choice: no record of its \
-               own, so it ends with either at once and not at a pulse's three minutes.",
+               own, so it ends with either at once and not at a pulse's three minutes; of one \
+               effect from two auras, the stronger; a weapon's damage multiplied before it is \
+               added to.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-AURA-ON-HELD-LASTS"),
         station: "yalain-testkit::cpu::play::auras::an_aura_on_what_is_held_keeps_its_pulses_off_the_player",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.auras.held-reach-fellows",
+        says: "An aura for what is held holds on what its user's fellows within its range have in \
+               hand, as it does on its user's, and on nobody else's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-AURA-HELD-FELLOWS"),
+        station: "yalain-testkit::cpu::play::auras::an_aura_for_weapons_holds_on_a_fellows_weapon_within_its_range",
         tier: Tier::Cpu,
     },
     behaviour! {

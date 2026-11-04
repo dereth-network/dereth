@@ -1877,8 +1877,11 @@ fn pulses_on_held(a: &Aura) -> bool {
     a.targets & (aura_target::WEAPON | aura_target::SHIELD | aura_target::ITEM) != 0
 }
 
-/// The pulsed effects a player's auras hold on a thing in its hands, each with its aura's
-/// spellcraft: a weapon's or a shield's by what the aura names, anything held by an aura for items.
+/// The pulsed effects auras hold on a thing in a player's hands, each with its aura's spellcraft:
+/// a weapon's or a shield's by what the aura names, anything held by an aura for items, from the
+/// player's own auras and those of its fellows within the aura's range (2017: Human skills' auras
+/// named on 6 weapons of other races' players, in 8 captures). Of one effect from several auras,
+/// the strongest.
 #[must_use]
 pub fn on_held<S: Store>(s: &Server<S>, player: u64, item: u64, shield: bool) -> Vec<(u32, f32)> {
     let Some(p) = s.players.values().find(|p| p.character == player) else {
@@ -1895,14 +1898,49 @@ pub fn on_held<S: Store>(s: &Server<S>, player: u64, item: u64, shield: bool) ->
     } else {
         aura_target::WEAPON
     };
-    p.play
-        .effects
-        .iter()
-        .filter(|e| e.flags == AURA_FLAGS)
-        .filter_map(|e| Some((aura_def(s, e.state)?, e.spellcraft)))
-        .filter(|(a, _)| a.targets & (kind | aura_target::ITEM) != 0)
-        .flat_map(|(a, spellcraft)| a.pulsed.into_iter().map(move |state| (state, spellcraft)))
-        .collect()
+    let mut held: Vec<(u32, f32)> = Vec::new();
+    let fellows: Vec<&crate::world::Player> = s
+        .fellowships
+        .of(player)
+        .into_iter()
+        .flat_map(|i| s.fellowships.list[i].fellows.iter())
+        .filter(|f| f.id != player && p.scene_drawn && p.trip.is_none())
+        .filter_map(|f| s.players.values().find(|o| o.character == f.id))
+        .collect();
+    for from in std::iter::once(p).chain(fellows) {
+        let auras = from
+            .play
+            .effects
+            .iter()
+            .filter(|e| e.flags == AURA_FLAGS)
+            .filter_map(|e| Some((aura_def(s, e.state)?, e.spellcraft)))
+            .filter(|(a, _)| a.targets & (kind | aura_target::ITEM) != 0)
+            .filter(|(a, _)| {
+                from.character == player
+                    || crate::presence::distance(&p.position, &from.position)
+                        .is_some_and(|d| d <= a.range)
+            });
+        for (a, spellcraft) in auras {
+            for state in a.pulsed {
+                match held.iter_mut().find(|(st, _)| *st == state) {
+                    Some(h) => h.1 = h.1.max(spellcraft),
+                    None => held.push((state, spellcraft)),
+                }
+            }
+        }
+    }
+    held
+}
+
+/// The effects auras hold on a thing in the world: nothing unless a player has it in hand.
+#[must_use]
+pub fn on_thing<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> Vec<(u32, f32)> {
+    let Some((holder, _)) = t.wielded else {
+        return Vec::new();
+    };
+    let shield = crate::skill_use::implement_of(&s.catalog, t.template)
+        == Some(crate::skill_use::implement::SHIELD);
+    on_held(s, holder, t.id, shield)
 }
 
 /// What these effects on an item multiply a stat of it by.
@@ -1914,6 +1952,23 @@ pub fn held_multiplier<S: Store>(s: &Server<S>, held: &[(u32, f32)], stat: u32) 
         .filter(|(st, multiply, _)| *st == stat && *multiply)
         .map(|(_, _, by)| by)
         .product()
+}
+
+/// A weapon's greatest damage under these effects, rounded down: each multiplier, then what is added
+/// (2017: the shown span of 23 of 23 weapons plain and under one of them, the least following from
+/// the greatest by the weapon's variance; hits rolled that span, 44 wide where its plain span is 35).
+#[must_use]
+pub fn held_damage<S: Store>(s: &Server<S>, held: &[(u32, f32)], most: i32) -> i32 {
+    let added: f32 = held
+        .iter()
+        .filter_map(|(state, spellcraft)| Some((s.effect_table.get(*state)?, *spellcraft)))
+        .flat_map(|(d, spellcraft)| d.changes(spellcraft))
+        .filter(|(st, multiply, _)| *st == crate::made::stat::DAMAGE && !*multiply)
+        .map(|(_, _, by)| by)
+        .sum();
+    #[allow(clippy::cast_precision_loss)]
+    let whole = most as f32 * held_multiplier(s, held, crate::made::stat::DAMAGE) + added;
+    dereth_primitives::num::to_i32(whole.floor())
 }
 
 /// The players an aura's pulse reaches, when it reaches players: its user, and each of its fellows

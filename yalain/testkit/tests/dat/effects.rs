@@ -1096,3 +1096,38 @@ fn a_weapons_three_stances_read_from_its_template() {
     assert_eq!(t.props.word("Weapon_ShieldStance"), Some(0x4100_000B));
     assert_eq!(t.props.word("Weapon_TwoWeaponStance"), Some(0x4100_000E));
 }
+
+/// The auras that raise a weapon's damage read as the data defines them: Infected Caress holds on a
+/// weapon and adds 10 at 1, 80 at 50; Wound Twister on any item and multiplies by 1.03 at 1, 1.15 at
+/// 50.
+/// Behaviour: server.auras.damage-held-on-a-weapon
+#[test]
+fn the_auras_on_a_weapons_damage_read_as_the_data_defines_them() {
+    use yalain_world::effect_defs::aura_target;
+    use yalain_world::made::stat;
+    const CARESS: u32 = 0x6F00_00CD;
+    const TWISTER: u32 = 0x6F00_011C;
+    let p = Portal::open();
+    let t = p.effects(&[CARESS, TWISTER]);
+    let aura = |state: u32| match &t.get(state).expect("the aura").kind {
+        Kind::Aura(a) => a.clone(),
+        k => panic!("{k:?}"),
+    };
+    let (caress, twister) = (aura(CARESS), aura(TWISTER));
+    assert_eq!(caress.targets, aura_target::WEAPON);
+    assert_eq!(twister.targets, aura_target::ITEM);
+    let change = |state: u32, at: f32| {
+        let d = t.get(state).expect("the pulse");
+        d.changes(at)
+    };
+    assert_eq!(change(caress.pulsed[0], 1.0), [(stat::DAMAGE, false, 10.0)]);
+    assert_eq!(
+        change(caress.pulsed[0], 50.0),
+        [(stat::DAMAGE, false, 80.0)]
+    );
+    assert_eq!(change(twister.pulsed[0], 1.0), [(stat::DAMAGE, true, 1.03)]);
+    assert_eq!(
+        change(twister.pulsed[0], 50.0),
+        [(stat::DAMAGE, true, 1.15)]
+    );
+}

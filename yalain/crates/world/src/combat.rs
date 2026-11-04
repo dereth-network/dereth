@@ -1492,18 +1492,25 @@ pub fn creature_calms<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64)
     to_all_seeing(s, net, id, &m);
 }
 
-/// The damage of a weapon (a thing in the world): a made one's own, else as its template sets it.
+/// The damage of a weapon (a thing in the world): a made one's own, else as its template sets it,
+/// under what auras hold on it while it is in hand.
 #[must_use]
 pub fn weapon_damage<S: Store>(s: &Server<S>, weapon: u64) -> Option<rules::WeaponDamage> {
     let t = s.things.get(weapon)?;
-    if let Some((most, variance)) = t.own.made.and_then(|m| m.damage) {
-        return Some(rules::WeaponDamage { most, variance });
-    }
-    let props = &s.catalog.get(t.template)?.props;
-    let most = props.int("Weapon_Damage").filter(|d| *d > 0)?;
+    let own = if let Some((most, variance)) = t.own.made.and_then(|m| m.damage) {
+        rules::WeaponDamage { most, variance }
+    } else {
+        let props = &s.catalog.get(t.template)?.props;
+        let most = props.int("Weapon_Damage").filter(|d| *d > 0)?;
+        rules::WeaponDamage {
+            most: i32::try_from(most).unwrap_or(i32::MAX),
+            variance: props.float("Weapon_Variance").unwrap_or(0.0),
+        }
+    };
+    let held = crate::effects::on_thing(s, t);
     Some(rules::WeaponDamage {
-        most: i32::try_from(most).unwrap_or(i32::MAX),
-        variance: props.float("Weapon_Variance").unwrap_or(0.0),
+        most: crate::effects::held_damage(s, &held, own.most),
+        ..own
     })
 }
 

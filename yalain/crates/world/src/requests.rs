@@ -235,17 +235,15 @@ fn thing_vitals(t: &crate::things::Thing) -> Vitals {
     }
 }
 
-/// What its holder's auras hold on a thing in its hands: each listed with its spellcraft, its vigor
-/// cost lowered and a weapon's combat delay with it, rounded down (2017: 67 profiles of weapons and
-/// shields under Balance and Featherweight, 18 to 13, 18 to 11, 7 to 5; a weapon's delay under Swift
-/// Killer 18 to 14, 12 to 9, 10 to 8, a shield's 8 stays 8).
+/// What auras hold on a thing in its holder's hands: each listed with its spellcraft, its vigor cost
+/// lowered and a weapon's combat delay with it, rounded down, a weapon's damage raised (2017: 67
+/// profiles of weapons and shields under Balance and Featherweight, 18 to 13, 18 to 11, 7 to 5; a
+/// weapon's delay under Swift Killer 18 to 14, 12 to 9, 10 to 8, a shield's 8 stays 8; its damage
+/// under Infected Caress 180-240 to 231-308, under Wound Twister 43-54 to 49-62).
 fn enchanted_for_now<S: Store>(s: &Server<S>, t: &crate::things::Thing, v: &mut profile::ItemView) {
-    let Some((holder, _)) = t.wielded else {
-        return;
-    };
     let shield = crate::skill_use::implement_of(&s.catalog, t.template)
         == Some(crate::skill_use::implement::SHIELD);
-    let held = crate::effects::on_held(s, holder, t.id, shield);
+    let held = crate::effects::on_thing(s, t);
     if held.is_empty() {
         return;
     }
@@ -255,6 +253,7 @@ fn enchanted_for_now<S: Store>(s: &Server<S>, t: &crate::things::Thing, v: &mut 
         dereth_primitives::num::to_i32(lowered.floor())
     };
     if let Some(w) = &mut v.weapon {
+        w.0 = crate::effects::held_damage(s, &held, w.0);
         w.3 = by(crate::made::stat::VIGOR, w.3);
         if !shield {
             w.2 = by(crate::made::stat::COMBAT_DELAY, w.2);

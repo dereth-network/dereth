@@ -425,6 +425,67 @@ fn a_swing_does_its_weapons_damage_whatever_is_worn_first() {
     );
 }
 
+/// A swing rolls the damage an aura holds on its weapon, not the weapon's own.
+/// Behaviour: server.auras.damage-held-on-a-weapon
+#[test]
+fn a_swing_does_the_damage_an_aura_holds_on_its_weapon() {
+    use yalain_world::effect_defs::{aura_target, Aura, EffectDef, Kind, Scale};
+    const DAMAGE: u32 = 0x6F00_7791;
+    const AURA: u32 = 0x6F00_7792;
+    let (mut h, b, me, beetle) = fighter(basic(816, im::SWORD, vec![blow(0x2002, 1)]), im::SWORD);
+    let p = player_of(&mut h, me);
+    p.play.items.retain(|i| i.template == RIGHT);
+    let right = p.play.items[0].id;
+    h.server.things.get_mut(right).expect("the sword").wielded = Some((me, RIGHT_HAND));
+    let like = h
+        .server
+        .effect_table
+        .get(yalain_testkit::ESPIRIT_PULSE)
+        .cloned()
+        .expect("a pulse");
+    let adds = EffectDef {
+        state: DAMAGE,
+        kind: Kind::Numeric {
+            flags: 0,
+            stats: vec![yalain_world::made::stat::DAMAGE],
+            magnitude: Scale(vec![(1.0, 900.0), (50.0, 900.0)]),
+        },
+        ..like.clone()
+    };
+    let aura = EffectDef {
+        state: AURA,
+        kind: Kind::Aura(Aura {
+            pulsed: vec![DAMAGE],
+            targets: aura_target::WEAPON,
+            range: 300.0,
+        }),
+        ..like
+    };
+    h.server.effect_table.effects.insert(DAMAGE, adds);
+    h.server.effect_table.effects.insert(AURA, aura);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    let clock = h.clock();
+    yalain_world::effects::aura_on(&mut h.server, &mut h.net, world, AURA, 0, 50.0, clock);
+    let from = attack(&mut h, b, beetle);
+    h.run(2000);
+    let hits: Vec<i32> = stories(&h, b, from, me)
+        .iter()
+        .filter(|s| s.hooks[1].numbers[0] == 0x4000_0008)
+        .map(|s| -s.hooks[1].numbers[3])
+        .collect();
+    assert!(!hits.is_empty());
+    assert!(
+        hits.iter().all(|d| *d > 500),
+        "1,000 less the beetle's armor: {hits:?}"
+    );
+}
+
 /// A weapon known by its class fights as its kind: a bow that is no starting weapon stands and
 /// shoots. A weapon of no known class is held as it was: a sword's run with the plain swings.
 /// Behaviour: server.weapons.implement-by-class

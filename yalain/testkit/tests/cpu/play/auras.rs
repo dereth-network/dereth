@@ -663,3 +663,184 @@ fn a_weapons_examination_shows_what_an_aura_holds_on_it() {
     assert!(v.effects.iter().all(|e| e.when != When::Enchantment));
     assert_eq!(v.weapon.map(|w| (w.2, w.3)), Some((18, 18)));
 }
+
+/// An aura whose pulse changes a weapon's damage, its scale running to `at_50`; turned on for
+/// `user` at this spellcraft. Made up for the test.
+fn aura_on_damage(h: &mut Harness, user: u64, multiply: bool, at_50: f32, spellcraft: f32) -> u32 {
+    use yalain_world::effect_defs::{aura_target, numeric, Aura, EffectDef, Kind, Scale};
+    const DAMAGE: u32 = 0x6F00_7791;
+    const AURA: u32 = 0x6F00_7792;
+    let like: EffectDef = h
+        .server
+        .effect_table
+        .get(ESPIRIT_PULSE)
+        .cloned()
+        .expect("a pulse");
+    let changes = EffectDef {
+        state: DAMAGE,
+        kind: Kind::Numeric {
+            flags: if multiply { numeric::MULTIPLY } else { 0 },
+            stats: vec![yalain_world::made::stat::DAMAGE],
+            magnitude: Scale(vec![(1.0, at_50 / 8.0), (50.0, at_50)]),
+        },
+        name: Some((0xA860_7CEC, 0x2500_0708)),
+        ..like.clone()
+    };
+    let aura = EffectDef {
+        state: AURA,
+        kind: Kind::Aura(Aura {
+            pulsed: vec![DAMAGE],
+            targets: aura_target::WEAPON,
+            range: 300.0,
+        }),
+        ..like
+    };
+    for d in [changes, aura] {
+        h.server.effect_table.effects.insert(d.state, d);
+    }
+    let world = world_of(h, user);
+    let clock = h.clock();
+    effects::aura_on(&mut h.server, &mut h.net, world, AURA, 0, spellcraft, clock);
+    DAMAGE
+}
+
+fn world_of(h: &Harness, id: u64) -> yalain_net::ConnId {
+    *h.server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == id)
+        .expect("in the world")
+        .0
+}
+
+/// The blade given damage of its own: `most`, and a quarter of it its span.
+fn with_damage(h: &mut Harness, blade: u64, most: i32) {
+    h.server.things.get_mut(blade).expect("the weapon").own.made = Some(yalain_world::made::Made {
+        damage: Some((most, 0.25)),
+        delay: Some(18),
+        vigor: Some(18),
+        ..Default::default()
+    });
+}
+
+/// What a blow of the player's reckons and what its examination shows of the blade.
+fn reckoned(h: &Harness, me: u64, blade: u64) -> (i32, i32, i32) {
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .expect("in the world");
+    let w = yalain_world::combat::hitter(&h.server, p)
+        .weapon
+        .expect("a weapon");
+    let t = h.server.things.get(blade).expect("the weapon");
+    let shown = yalain_world::requests::item_view(&h.server, t)
+        .weapon
+        .expect("a weapon's numbers");
+    (w.most, w.least(), shown.0)
+}
+
+/// What an aura adds to a weapon's damage counts in its blows and shows in its examination, the
+/// least following from the greatest by the weapon's span, while the aura is on and it is in hand.
+/// Behaviour: server.auras.damage-held-on-a-weapon
+#[test]
+fn what_an_aura_adds_to_a_weapons_damage_counts_in_its_blows_and_its_examination() {
+    let mut h = Harness::new();
+    let (_, me, blade) = holding_a_blade(&mut h);
+    with_damage(&mut h, blade, 240);
+    assert_eq!(reckoned(&h, me, blade), (240, 180, 240));
+    aura_on_damage(&mut h, me, false, 80.0, 50.0);
+    assert_eq!(reckoned(&h, me, blade), (320, 240, 320), "80 at 50");
+    let p = player(&mut h, me);
+    p.play.effects.retain(|e| e.flags != AURA_FLAGS);
+    assert_eq!(
+        reckoned(&h, me, blade),
+        (240, 180, 240),
+        "off with the aura"
+    );
+    aura_on_damage(&mut h, me, false, 80.0, 50.0);
+    h.server.things.get_mut(blade).expect("the weapon").wielded = None;
+    assert_eq!(
+        yalain_world::combat::weapon_damage(&h.server, blade).map(|w| w.most),
+        Some(240),
+        "out of hand"
+    );
+}
+
+/// An aura that multiplies a weapon's damage does so, rounded down.
+/// Behaviour: server.auras.damage-held-on-a-weapon
+#[test]
+fn what_an_aura_multiplies_a_weapons_damage_by_counts_rounded_down() {
+    let mut h = Harness::new();
+    let (_, me, blade) = holding_a_blade(&mut h);
+    with_damage(&mut h, blade, 54);
+    aura_on_damage(&mut h, me, true, 1.15, 50.0);
+    assert_eq!(reckoned(&h, me, blade), (62, 46, 62), "54 at 1.15");
+}
+
+/// An aura for weapons holds on what a fellow within its range has in hand, in its blows and its
+/// examination; not on a stranger's, and not beyond its range.
+/// Behaviour: server.auras.held-reach-fellows
+#[test]
+fn an_aura_for_weapons_holds_on_a_fellows_weapon_within_its_range() {
+    let mut h = Harness::new();
+    let (_, me, blade) = holding_a_blade(&mut h);
+    with_damage(&mut h, blade, 240);
+    let (_, caster) = armed(&mut h, "two", "Babyfare");
+    let (_, stranger) = armed(&mut h, "three", "Cedric");
+    aura_on_damage(&mut h, caster, false, 80.0, 50.0);
+    fellows(&mut h, &[me, caster]);
+    assert_eq!(reckoned(&h, me, blade), (320, 240, 320), "a fellow's aura");
+    player(&mut h, caster).position.origin[0] += 400.0;
+    assert_eq!(reckoned(&h, me, blade), (240, 180, 240), "beyond its range");
+    player(&mut h, caster).position.origin[0] -= 400.0;
+    h.server.fellowships.list.clear();
+    fellows(&mut h, &[me, stranger]);
+    assert_eq!(reckoned(&h, me, blade), (240, 180, 240), "not a fellow");
+}
+
+/// Of the same effect from two auras on one weapon, the stronger holds, once.
+/// Behaviour: server.auras.held-pulses-last-while-held
+#[test]
+fn of_one_effect_from_two_auras_the_stronger_holds_once() {
+    let mut h = Harness::new();
+    let (_, me, blade) = holding_a_blade(&mut h);
+    with_damage(&mut h, blade, 240);
+    let (_, caster) = armed(&mut h, "two", "Babyfare");
+    fellows(&mut h, &[me, caster]);
+    aura_on_damage(&mut h, me, false, 80.0, 1.0);
+    aura_on_damage(&mut h, caster, false, 80.0, 50.0);
+    assert_eq!(effects::on_held(&h.server, me, blade, false).len(), 1);
+    assert_eq!(reckoned(&h, me, blade).0, 320, "80 at 50, not 10 at 1");
+}
+
+/// A weapon under both kinds of aura is multiplied first, what is added coming after.
+/// Behaviour: server.auras.held-pulses-last-while-held
+#[test]
+fn a_weapon_under_both_kinds_of_aura_is_multiplied_first() {
+    let mut h = Harness::new();
+    let (_, me, _) = holding_a_blade(&mut h);
+    let adds = aura_on_damage(&mut h, me, false, 80.0, 50.0);
+    let adding = h.server.effect_table.get(adds).cloned().expect("defined");
+    let multiplying = aura_on_damage(&mut h, me, true, 1.5, 50.0);
+    let times = h
+        .server
+        .effect_table
+        .get(multiplying)
+        .cloned()
+        .expect("defined");
+    // The helper names one effect; the two kinds under names of their own.
+    let (a, m) = (0x6F00_7793, 0x6F00_7794);
+    for (state, d) in [(a, adding), (m, times)] {
+        h.server
+            .effect_table
+            .effects
+            .insert(state, yalain_world::effect_defs::EffectDef { state, ..d });
+    }
+    assert_eq!(
+        effects::held_damage(&h.server, &[(a, 50.0), (m, 50.0)], 100),
+        230,
+        "100 x 1.5 + 80"
+    );
+}

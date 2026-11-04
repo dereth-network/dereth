@@ -152,6 +152,7 @@ what they see, not how it was done.
 - Balance and Featherweight now last as long as the aura, and show on the item.
 - Damage reflecting and absorbing effects now work, on players and creatures.
 - Protections like Extinguish Blaze and Cure Disease now keep their effects off.
+- Infected Caress and Wound Twister now raise weapon damage, on fellows' weapons too.
 
 ## 0.1.2 (2026-11-03)
 
