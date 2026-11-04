@@ -321,6 +321,13 @@ impl DataDownload {
         }
     }
 
+    /// The cache reset: the download back to idle, every batch and kept get let go.
+    // D2-05083
+    pub fn reset_cache(&mut self) {
+        self.download.reset_cache();
+        self.requests.flush_pending_requests();
+    }
+
     /// Run `f` on the cache's requests with the files and the records' caches, and `states` to
     /// name a saved state's records; then take what it asks sent and what its askers are told.
     fn with_requests<T>(

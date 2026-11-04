@@ -574,10 +574,11 @@ impl Client {
     }
 
     /// Close every connection: a goodbye on each, as the client says when it closes; nothing more
-    /// is sent.
+    /// is sent. The data cache is reset.
     // D2-05261
     pub fn disconnect(&mut self) {
         self.session.log_off();
+        self.download.reset_cache();
     }
 
     /// The entry's session ends, once an entry: the character logged off (none before the

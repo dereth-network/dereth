@@ -206,7 +206,7 @@ impl Download {
         Self::default()
     }
 
-    /// Back to idle (the cache reset).
+    /// Back to idle (the cache reset's part here; its requests are the runtime's to let go).
     // D2-05083
     pub fn reset_cache(&mut self) {
         self.state = DddState::Idle;

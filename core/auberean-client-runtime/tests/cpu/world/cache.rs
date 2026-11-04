@@ -387,3 +387,38 @@ fn each_asker_of_the_data_cache_has_a_number_of_its_own() {
     );
     assert_eq!(listeners::CELLS, u32::MAX - 2);
 }
+
+/// Leaving the server resets the data cache: a goodbye goes out, the download is idle whatever it
+/// was doing, and every batch and kept get is let go, so nobody waits for a record the server will
+/// not send.
+///
+/// Behaviour: data.download.leaving-the-server-resets-the-cache
+#[test]
+fn leaving_the_server_resets_the_data_cache() {
+    use auberean_dat::disk::download::DddState;
+    let mut c = client(false);
+    let to = Listener { to: 1, user: 5 };
+    let record = QualifiedId {
+        id: 0x2800_0001,
+        kind: RecordType::ID_MAP.0,
+    };
+    c.data_download_mut().get(GATHER_NONE, record, Some(to));
+    c.upkeep();
+    assert_eq!(
+        asked(&c),
+        vec![(record.kind, record.id)],
+        "it waits on the server"
+    );
+    c.data_download_mut().download.state = DddState::Patching;
+    assert_eq!(
+        c.data_download().requests.live_batches(),
+        1,
+        "one batch waits"
+    );
+    assert!(c.data_download().requests.live() > 0, "for its record");
+    c.disconnect();
+    let d = c.data_download();
+    assert_eq!(d.download.state, DddState::Idle);
+    assert_eq!(d.requests.live_batches(), 0, "the batch let go");
+    assert!(d.requests.pending().is_empty(), "no get kept");
+}

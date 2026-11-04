@@ -486,6 +486,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "data.download.leaving-the-server-resets-the-cache",
+        says: "Leaving the server resets the data cache: the download is idle whatever it was doing, \
+               and every batch and kept get is let go.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CACHE-RESET-ON-DISCONNECT"),
+        station: "auberean-client-runtime::cpu::world::cache::leaving_the_server_resets_the_data_cache",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.download.lists-a-servers-library-as-held",
         says: "Asked which data it holds, the client lists the iterations of a server's library for its \
                portal file beside those the file has had, every time, and no other file's list changes.",
