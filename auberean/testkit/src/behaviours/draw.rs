@@ -770,12 +770,28 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.mesh.the-waters-reflection-fades-an-object-at-its-own-edge",
+        says: "The water's reflection fades an object over the last 7.5% of its own reach there, 40% of \n               its visible distance, whatever the frame shows of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-REFLECT-EDGE"),
+        station: "auberean-draw::cpu::objects::degrade::the_waters_reflection_fades_an_object_at_its_own_edge",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.mesh.the-waters-reflection-reaches-40-percent-of-an-objects-distance",
         says: "The water's reflection shows an object out to 40% of its visible distance.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-REFLECTION-REACH"),
         station: "auberean-draw::cpu::objects::degrade::the_waters_reflection_reaches_40_percent_of_an_objects_distance",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.mesh.the-waters-reflection-sees-a-body-at-its-own-level-of-detail",
+        says: "With a water's reflection in the frame a body is drawn at the level of detail the \n               reflection's distances choose, 40% of the frame's, beside the frame's own.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-REFLECT-BODY"),
+        station: "auberean-draw::dat::volumes::the_waters_reflection_sees_a_body_at_its_own_level_of_detail",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "draw.particles.a-mist-stands-unseen-without-volumetric-fog",
@@ -1423,6 +1439,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-VOLUME-CONNECTIVITY"),
         station: "auberean-draw::cpu::objects::volume::triangles_meet_at_edges_run_the_other_way",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.water.an-object-under-the-water-reflects-only-past-it",
+        says: "An object standing under the water's plane shows in the reflection only past the water's \n               depth: the part above the water reflects, a wall wholly under it does not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-REFLECT-BELOW"),
+        station: "auberean-gpu::gpu::shores::an_object_under_the_water_reflects_only_past_it",
+        tier: Tier::Gpu,
     },
     behaviour! {
         id: "draw.water.the-foam-lies-over-the-waters-reflection",

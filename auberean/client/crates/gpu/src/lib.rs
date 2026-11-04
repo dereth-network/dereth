@@ -175,6 +175,8 @@ struct PassKey {
     depth_write: bool,
     cull: u32,
     target: Target,
+    /// The depth test turned over: it passes past what is marked.
+    past: bool,
 }
 
 /// What a draw writes in its picture.
@@ -750,10 +752,12 @@ impl Renderer {
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: DEPTH_FORMAT,
                     depth_write_enabled: Some(key.depth_write),
-                    depth_compare: Some(if key.depth_test {
-                        wgpu::CompareFunction::LessEqual
-                    } else {
+                    depth_compare: Some(if !key.depth_test {
                         wgpu::CompareFunction::Always
+                    } else if key.past {
+                        wgpu::CompareFunction::Greater
+                    } else {
+                        wgpu::CompareFunction::LessEqual
                     }),
                     stencil: wgpu::StencilState::default(),
                     bias: wgpu::DepthBiasState::default(),
@@ -793,6 +797,7 @@ impl Renderer {
             depth_write: true,
             cull: d3d::CULL_CW,
             target: Target::Frame,
+            past: false,
         };
         let blended = PassKey {
             src: d3d::BLEND_SRC_ALPHA,
@@ -801,6 +806,7 @@ impl Renderer {
             depth_write: false,
             cull: d3d::CULL_CW,
             target: Target::Frame,
+            past: false,
         };
         let base = self.pipeline(
             "vs_terrain",
@@ -833,6 +839,7 @@ impl Renderer {
                 depth_write: false,
                 cull: d3d::CULL_CW,
                 target: Target::Frame,
+                past: false,
             },
         );
         let fog = self.pipeline(
@@ -1312,6 +1319,7 @@ impl Renderer {
             depth_write: !sky && layer.depth_write,
             cull: layer.cull,
             target,
+            past: false,
         }
     }
 
@@ -1325,6 +1333,7 @@ impl Renderer {
             depth_write: false,
             cull: layer.cull,
             target,
+            past: false,
         }
     }
 
@@ -1348,6 +1357,7 @@ impl Renderer {
             depth_write: false,
             cull: d3d::CULL_NONE,
             target: Target::Frame,
+            past: false,
         };
         let flare = self.pipeline(
             "vs_screen",
@@ -1969,6 +1979,13 @@ impl Renderer {
             shown: bool,
             /// It is seen in the water's reflection.
             reflected: bool,
+            /// How the reflection draws it when that differs: nearer the edge of its reach there,
+            /// it is fainter.
+            faint: Option<(PassKey, wgpu::BindGroup)>,
+            /// It stands at or under the water, so the reflection shows it only past the water.
+            below: bool,
+            /// Its culling, for the water's depth laid in the reflection.
+            cull: u32,
         }
         enum Pipe {
             Terrain(&'static str),
@@ -2138,6 +2155,37 @@ impl Renderer {
                 );
                 let (vertices, indices) =
                     this.meshes.buffers(&this.device, &b.vertices, &b.indices);
+                let in_reflection = b.reflected(frame.camera.position);
+                let above = frame
+                    .reflection
+                    .is_none_or(|r| sky || b.step.is_some() || b.stands_above(r.height));
+                // The reflection reaches its own edge, fading there as the frame does at its own.
+                // D2-06658
+                let faint = frame.reflection.and_then(|_| {
+                    let a = b.reflected_alpha(frame.camera.position);
+                    if !in_reflection || (a - b.tint.a).abs() < 0.001 {
+                        return None;
+                    }
+                    let tint = auberean_world::color::Color { a, ..b.tint };
+                    let faded = b.layer.faded(a, b.far);
+                    let mut key = key;
+                    key.depth_write =
+                        Self::object_key(&b.layer, sky, writes).depth_write && faded.depth_write;
+                    this.mesh_pipeline(key);
+                    let mut u = Self::draw_uniforms(&b.layer, &b.transform, tint, sun, &b.points);
+                    u.params[1] = faded.alpha_ref.unwrap_or(-1.0);
+                    u.shade = uniforms.shade;
+                    Some((
+                        key,
+                        this.uniforms
+                            .take(&this.device, &this.draw_layout, bytemuck::bytes_of(&u)),
+                    ))
+                });
+                let below = in_reflection && !above;
+                if below {
+                    let key = faint.as_ref().map_or(key, |f| f.0);
+                    this.mesh_pipeline(PassKey { past: true, ..key });
+                }
                 draws.push(Draw {
                     pipeline: Pipe::Mesh(key),
                     vertices,
@@ -2148,10 +2196,10 @@ impl Renderer {
                     texture_group,
                     env,
                     shown: b.shown(),
-                    reflected: b.reflected(frame.camera.position)
-                        && frame
-                            .reflection
-                            .is_none_or(|r| sky || b.step.is_some() || b.stands_above(r.height)),
+                    reflected: in_reflection && above,
+                    faint,
+                    below,
+                    cull: b.layer.cull,
                 });
             }
         };
@@ -2222,6 +2270,9 @@ impl Renderer {
                 env: Env::Outside,
                 shown: true,
                 reflected: true,
+                faint: None,
+                below: false,
+                cull: d3d::CULL_NONE,
             });
         };
         let (near, far): (Vec<&TerrainBatch>, Vec<&TerrainBatch>) =
@@ -2446,6 +2497,32 @@ impl Renderer {
             load,
             target,
         );
+        // The water again, only to mark its depth in the reflection.
+        // D2-11030
+        let mut water_marks = Vec::new();
+        if reflection.is_some() {
+            objects(
+                opaque_first(water),
+                Env::Outside,
+                self,
+                &mut water_marks,
+                load,
+                target,
+            );
+            for d in &mut water_marks {
+                let key = PassKey {
+                    src: d3d::BLEND_ZERO,
+                    dst: d3d::BLEND_ONE,
+                    depth_test: true,
+                    depth_write: true,
+                    cull: d.cull,
+                    target,
+                    past: true,
+                };
+                self.mesh_pipeline(key);
+                d.pipeline = Pipe::Mesh(key);
+            }
+        }
         let mut foam_draws = Vec::new();
         objects(
             foam.iter().collect(),
@@ -2479,14 +2556,16 @@ impl Renderer {
                       shadows: bool,
                       reflecting: bool| {
             let run = |pass: &mut wgpu::RenderPass<'_>, d: &Draw| {
-                let pipeline = match &d.pipeline {
-                    Pipe::Terrain(n) => &this.terrain_pipelines[n],
-                    Pipe::Mesh(k) => &this.mesh_pipelines[k],
-                    Pipe::Water(k) => &this.water_pipelines[k],
+                let faint = d.faint.as_ref().filter(|_| reflecting);
+                let pipeline = match (&d.pipeline, faint) {
+                    (_, Some((k, _))) => &this.mesh_pipelines[k],
+                    (Pipe::Terrain(n), None) => &this.terrain_pipelines[n],
+                    (Pipe::Mesh(k), None) => &this.mesh_pipelines[k],
+                    (Pipe::Water(k), None) => &this.water_pipelines[k],
                 };
                 pass.set_pipeline(pipeline);
                 pass.set_bind_group(0, groups[d.env as usize], &[]);
-                pass.set_bind_group(1, &d.draw_group, &[]);
+                pass.set_bind_group(1, faint.map_or(&d.draw_group, |f| &f.1), &[]);
                 pass.set_bind_group(2, &d.texture_group, &[]);
                 pass.set_vertex_buffer(0, d.vertices.slice(..));
                 pass.set_index_buffer(d.indices.slice(..), d.index_format);
@@ -2673,6 +2752,74 @@ impl Renderer {
                     true,
                 );
             }
+            // Past the water: its depth marked alone, the farthest of it where it lies, into a
+            // depth emptied for it; then the objects standing at or under it, which show only
+            // beyond that, seen from the mirrored camera.
+            // D2-11030
+            let below: Vec<&Draw> = [&opaque_draws, &caster_draws, &translucent_draws]
+                .into_iter()
+                .flatten()
+                .filter(|d| d.below)
+                .collect();
+            if !below.is_empty() {
+                let view = refl_multi_view.as_ref().unwrap_or(&refl_view);
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("past the water"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view,
+                        depth_slice: None,
+                        resolve_target: refl_multi_view.as_ref().map(|_| &refl_view),
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &refl_depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                });
+                pass.set_blend_constant(wgpu::Color {
+                    r: FRAME_ALPHA,
+                    g: FRAME_ALPHA,
+                    b: FRAME_ALPHA,
+                    a: FRAME_ALPHA,
+                });
+                pass.set_bind_group(3, &shadow_group, &[]);
+                let groups = [&m_frame_group, &m_out_group, &m_sky_group];
+                let put = |pass: &mut wgpu::RenderPass<'_>, d: &Draw, key: PassKey, g| {
+                    pass.set_pipeline(&self.mesh_pipelines[&key]);
+                    pass.set_bind_group(0, groups[d.env as usize], &[]);
+                    pass.set_bind_group(1, g, &[]);
+                    pass.set_bind_group(2, &d.texture_group, &[]);
+                    pass.set_vertex_buffer(0, d.vertices.slice(..));
+                    pass.set_index_buffer(d.indices.slice(..), d.index_format);
+                    pass.draw_indexed(0..d.index_count, 0, 0..1);
+                };
+                for d in &water_marks {
+                    if let Pipe::Mesh(k) = d.pipeline {
+                        put(&mut pass, d, k, &d.draw_group);
+                    }
+                }
+                for d in below {
+                    let (key, group) = match (&d.faint, &d.pipeline) {
+                        (Some((k, g)), _) => (*k, g),
+                        (None, Pipe::Mesh(k)) => (*k, &d.draw_group),
+                        _ => continue,
+                    };
+                    put(&mut pass, d, PassKey { past: true, ..key }, group);
+                }
+            }
             // Over each water surface (its own material already drawn), the reflection where it
             // lies on the screen, its coordinates pushed by the ripples under it, blended by the
             // alpha the frame holds: half the reflection, half what is there.
@@ -2737,6 +2884,7 @@ impl Renderer {
                     depth_write: true,
                     cull: d3d::CULL_NONE,
                     target: Target::Frame,
+                    past: false,
                 };
                 if self.ripple_pipeline.is_none() {
                     self.ripple_pipeline =
@@ -2820,6 +2968,9 @@ impl Renderer {
                     env: Env::Outside,
                     shown: true,
                     reflected: true,
+                    faint: None,
+                    below: false,
+                    cull: b.layer.cull,
                 });
             }
         }

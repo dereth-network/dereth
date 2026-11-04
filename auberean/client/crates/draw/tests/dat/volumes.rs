@@ -6,6 +6,7 @@ use auberean_animation::body::Body as Figure;
 use auberean_animation::CachedRecords;
 use auberean_assets::property::{PropertyList, PropertyValue};
 use auberean_draw::body::BodyDrawer;
+use auberean_draw::scene::ObjectBatch;
 use auberean_draw::volume::{VolumeMaker, VolumeRoom};
 use auberean_physics::world::render::VOLUME_SHADOW_CAST;
 use auberean_primitives::{DataId, Vec3};
@@ -512,4 +513,59 @@ fn a_body_degrades_with_its_distance_from_the_camera() {
         ),
     );
     assert!(!far_off.is_empty(), "never with no camera");
+}
+
+/// With a water's reflection in the frame a body is drawn twice where the reflection's choice of
+/// level differs from the frame's (it takes the distances at 40%, so its detail falls sooner): one
+/// set for the frame alone, one for the reflection alone. Close to the camera both choose the same,
+/// and past its reach in the reflection only the frame shows it.
+///
+/// Behaviour: draw.mesh.the-waters-reflection-sees-a-body-at-its-own-level-of-detail
+#[test]
+fn the_waters_reflection_sees_a_body_at_its_own_level_of_detail() {
+    let r = &install().records;
+    let recs = CachedRecords::new(r);
+    let figure = Figure::assemble(&recs, HUMAN_MALE).expect("the human male");
+    let poses = figure.pose(&recs);
+    let at = |d: f32, reflecting: bool| {
+        let mut drawer = BodyDrawer::default();
+        drawer.eye = Some(Vec3::ZERO);
+        drawer.reflecting = reflecting;
+        drawer.next_body(false);
+        let place = Mat4::from_parts(
+            Vec3::new(0.0, d, 0.0),
+            auberean_primitives::Quat::IDENTITY,
+            Vec3::new(1.0, 1.0, 1.0),
+        );
+        drawer.batches(r, &figure, &poses, &place)
+    };
+    let triangles = |b: &[ObjectBatch], pick: &dyn Fn(&ObjectBatch) -> bool| -> usize {
+        b.iter().filter(|x| pick(x)).map(|x| x.indices.len()).sum()
+    };
+    let shown = |x: &ObjectBatch| x.shown();
+    let mirrored = |x: &ObjectBatch| x.reflected(Vec3::ZERO);
+    let visible = figure
+        .parts
+        .iter()
+        .map(|p| p.setup.detail[2].visible.max(20.0))
+        .fold(0.0_f32, f32::max);
+    // Near: both the same.
+    let near = at(1.0, true);
+    assert_eq!(triangles(&near, &shown), triangles(&near, &mirrored));
+    // Not in a frame without a reflection: one set.
+    let plain = at(visible * 0.3, false);
+    let both = at(visible * 0.3, true);
+    assert_eq!(triangles(&plain, &shown), triangles(&both, &shown));
+    let (frame, there) = (triangles(&both, &shown), triangles(&both, &mirrored));
+    println!("at 30% of its reach: {frame} indices in the frame, {there} in the reflection");
+    assert!(there < frame, "less detail in the reflection");
+    assert!(there > 0, "still in its reach");
+    // Past its reach there.
+    let far = at(visible * 0.5, true);
+    assert!(triangles(&far, &shown) > 0);
+    assert_eq!(
+        triangles(&far, &mirrored),
+        0,
+        "out of the reflection's reach"
+    );
 }

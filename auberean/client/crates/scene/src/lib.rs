@@ -3554,6 +3554,7 @@ impl<'w> Scene<'w> {
         // D2-03691
         auberean_draw::scene::fade_objects(&mut built.frame.objects, dv(eye), &self.near.fade(now));
         self.drawer.eye = Some(dv(eye));
+        self.drawer.reflecting = built.frame.reflection.is_some();
         self.drawer.moving_scale = self.adaptive_degrade.map_or(1.0, |bias| {
             auberean_draw::body::adaptive_scale(self.frame_rate.frames_per_second(), bias)
         });

@@ -299,3 +299,21 @@ fn the_players_body_turns_see_through_under_the_pointer() {
     fade.step(13.0, false);
     assert_eq!(fade.opacity, 1.0);
 }
+
+/// The water's reflection fades an object at the edge of its own reach, over the last 7.5% of 40%
+/// of its visible distance, whatever the frame shows of it there; an object with no visible distance
+/// keeps its opacity. What the frame has faded for its block stays faded.
+///
+/// Behaviour: draw.mesh.the-waters-reflection-fades-an-object-at-its-own-edge
+#[test]
+fn the_waters_reflection_fades_an_object_at_its_own_edge() {
+    let mut b = fade_batch(Vec3::new(0.0, 100.0, 0.0));
+    assert!((b.reflected_alpha(Vec3::ZERO) - 1.0).abs() < 1e-6);
+    // the reach there 120 m, its fade from 111 m
+    b.visible = Some(300.0);
+    assert!((b.reflected_alpha(Vec3::ZERO) - 1.0).abs() < 1e-6);
+    b.anchor = Some(Vec3::new(0.0, 115.5, 0.0));
+    assert!((b.reflected_alpha(Vec3::ZERO) - 0.5).abs() < 1e-4);
+    b.tint.a = 0.5;
+    assert!((b.reflected_alpha(Vec3::ZERO) - 0.25).abs() < 1e-4);
+}

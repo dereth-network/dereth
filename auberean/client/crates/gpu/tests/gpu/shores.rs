@@ -483,3 +483,94 @@ fn a_viewports_scene_covers_only_where_it_draws() {
     assert_eq!(a_none, 0);
     assert_eq!(alpha(5, 5), 0);
 }
+
+/// An object standing under the water's plane shows in the reflection only past the water: a wall
+/// standing from under the water to above it reflects its part above the water; a wall wholly under
+/// it reflects nothing.
+///
+/// Behaviour: draw.water.an-object-under-the-water-reflects-only-past-it
+#[test]
+fn an_object_under_the_water_reflects_only_past_it() {
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let camp = camp_layers(&mut builder);
+    let white = plain(
+        &camp.water.layer,
+        Color::WHITE,
+        (d3d::BLEND_ONE, d3d::BLEND_ZERO),
+    );
+    println!("the water's culling: {}", camp.water.layer.cull);
+    let wall = |z0: f32, z1: f32| {
+        let mut bar = flat(&camp.water, 0.0, 0.0, 1.0, white.clone());
+        bar.vertices = Arc::new(vec![
+            vertex([-80.0, 20.0, z0], [0.0, 0.0], 0.0),
+            vertex([80.0, 20.0, z0], [1.0, 0.0], 0.0),
+            vertex([-80.0, 20.0, z1], [0.0, 1.0], 1.0),
+            vertex([80.0, 20.0, z1], [1.0, 1.0], 1.0),
+        ]);
+        // it stands under the plane
+        bar.anchor = Some(Vec3::new(0.0, 20.0, -0.5));
+        bar
+    };
+    let mut frame = empty_frame(&mut builder);
+    frame.water = vec![flat(
+        &camp.water,
+        0.0,
+        -20.0,
+        140.0,
+        camp.water.layer.clone(),
+    )];
+    frame.reflection = Some(Reflection {
+        height: 0.0,
+        ripples: false,
+    });
+    // A black floor just under the water, so the frame itself sees nothing below it.
+    let black = plain(
+        &camp.water.layer,
+        Color::new(0.0, 0.0, 0.0, 1.0),
+        (d3d::BLEND_ONE, d3d::BLEND_ZERO),
+    );
+    let mut floor = flat(&camp.water, -0.01, -20.0, 140.0, black);
+    floor.anchor = Some(Vec3::new(0.0, 0.0, -0.01));
+    let mut bare = frame.clone();
+    bare.objects = vec![floor.clone()];
+    let mut out = frame.clone();
+    out.objects = vec![floor.clone(), wall(-4.0, 6.0)];
+    let mut under = frame.clone();
+    under.objects = vec![floor, wall(-6.0, -1.0)];
+    let mut device = renderer();
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let [none, past, hidden] = checked(&mut device, |d| {
+        [&bare, &out, &under].map(|f| {
+            d.render(
+                f,
+                u32::try_from(W).expect("a width"),
+                u32::try_from(H).expect("a height"),
+                &mut load,
+            )
+            .expect("read back")
+            .rgba
+        })
+    });
+    // The wall's reflection above the water lies on the water's near part (its foot's 20 m north;
+    // its top seen at about 5 m); the wall itself is drawn farther up the picture.
+    let mut rows = 0;
+    for row in 0..H {
+        let Some(d) = distance_at(row) else { continue };
+        if !(6.5..13.0).contains(&d) {
+            continue;
+        }
+        let at = |p: &[u8]| row_mean(p, 1, W / 4..3 * W / 4, row);
+        println!(
+            "row {row}: {d:.2} m: {:.1} bare, {:.1} past, {:.1} under",
+            at(&none),
+            at(&past),
+            at(&hidden)
+        );
+        assert!(at(&past) > at(&none) + 20.0, "row {row}: the reflection");
+        assert!((at(&hidden) - at(&none)).abs() < 2.0, "row {row}: nothing");
+        rows += 1;
+    }
+    assert!(rows > 3, "{rows} rows");
+}

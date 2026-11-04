@@ -177,6 +177,22 @@ pub struct Lod {
 }
 
 impl Lod {
+    /// A draw of a body, built afresh each frame: what the camera sees of it, what the reflection
+    /// does, or both.
+    #[must_use]
+    pub fn of_body(shown: bool, reflected: bool) -> Self {
+        Self {
+            distances: auberean_assets::setup::DetailDistances::default(),
+            scale: 1.0,
+            material_detail: 0,
+            last: 0,
+            level: 0,
+            materials: 0,
+            shown,
+            reflected,
+        }
+    }
+
     /// Whether this draw is the choice for an object at `distance`, in a picture taking its
     /// distances at `share`.
     fn is_choice(&self, distance: f32, share: f32) -> bool {
@@ -200,7 +216,7 @@ impl Lod {
 }
 
 /// How much of an object's distances the water's reflection sees it by.
-const REFLECTED_DISTANCE: f32 = 0.4;
+pub const REFLECTED_DISTANCE: f32 = 0.4;
 
 /// How much farther or nearer the camera may stand from a part before the frame is built again: the
 /// diagonal of the land cell the frame is built for, and a little.
@@ -497,6 +513,22 @@ impl ObjectBatch {
             },
             |l| l.reflected,
         )
+    }
+
+    /// How opaque the water's reflection draws it: it takes the distances at 40%, so it fades over
+    /// the last 7.5% of its reach there, as it does in the frame over the last of its own.
+    // D2-06658
+    #[must_use]
+    pub fn reflected_alpha(&self, eye: Vec3) -> f32 {
+        let Some(v) = self.visible else {
+            return self.tint.a;
+        };
+        let d = self.distance_from(eye);
+        let frame = crate::mesh::edge_opacity(v, d);
+        if frame <= 0.0 {
+            return 0.0;
+        }
+        (self.tint.a * crate::mesh::edge_opacity(v * REFLECTED_DISTANCE, d) / frame).clamp(0.0, 1.0)
     }
 
     /// Whether its object stands above `height`, as the objects the water's reflection shows do.

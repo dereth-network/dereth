@@ -19,6 +19,7 @@ use crate::material::{
     device_flags, draw_layers, instance_material_with, material_kind, DrawLayer,
 };
 use crate::mesh::{level_at, vertices, MeshVertex};
+use crate::scene::Lod;
 use crate::scene::ObjectBatch;
 
 struct Loaded {
@@ -45,6 +46,8 @@ pub struct BodyDrawer {
     /// Where the camera stands in the frame bodies are placed in, when they degrade with distance
     /// (not in a viewport of the interface).
     pub eye: Option<Vec3>,
+    /// The frame has a water's reflection, which sees each body by its distances at 40%.
+    pub reflecting: bool,
     /// What the distances of a body both mobile and dynamic are scaled by: 1, or
     /// [`adaptive_scale`] with the adaptive degrade on.
     pub moving_scale: f32,
@@ -109,6 +112,7 @@ impl Default for BodyDrawer {
             model_detail: 2,
             material_detail: 2,
             eye: None,
+            reflecting: false,
             moving_scale: 1.0,
             still_scale: 1.0,
             scale: 1.0,
@@ -256,6 +260,16 @@ impl BodyDrawer {
             let (t, material_detail) = degrade.map_or((1.0, self.material_detail), |g| {
                 (g.detail, g.material_detail)
             });
+            // What the reflection sees of the part, when it is near enough to be seen there.
+            let in_reflection = distance.filter(|_| self.reflecting).and_then(|d| {
+                crate::mesh::degrade_in(
+                    &part.setup.detail[model],
+                    d,
+                    self.scale,
+                    crate::scene::REFLECTED_DISTANCE,
+                    self.material_detail,
+                )
+            });
             for (i, setup_mesh) in part.setup.meshes.iter().enumerate() {
                 let mesh_id = part.look.mesh(*setup_mesh, &mut |id| {
                     self.mesh(records, id.0).map(|m| m.mesh.kind)
@@ -310,41 +324,59 @@ impl BodyDrawer {
                     }
                 };
                 let verts = Arc::new(verts);
-                for frag in &m.mesh.levels[level].fragments {
-                    let Some(mat) = usize::try_from(frag.material)
-                        .ok()
-                        .and_then(|k| m.mesh.materials.get(k))
-                    else {
-                        continue;
-                    };
-                    let indices = Arc::new(frag.indices.clone());
-                    for layer in
-                        self.part_material(records, &part.look, m.mesh.kind, mat.0, material_detail)
-                    {
-                        out.push(ObjectBatch {
-                            vertices: verts.clone(),
-                            indices: indices.clone(),
-                            transform: *place,
-                            layer,
-                            tint,
-                            points: crate::scene::PointLights::NONE,
-                            mesh_type: m.mesh.kind,
-                            shade: None,
-                            outside: false,
-                            cull: crate::scene::Cull::Never,
-                            mesh: mesh_id.0,
-                            casts_volume: false,
-                            caster: None,
-                            seen_through: false,
-                            kept_by: None,
-                            anchor: None,
-                            step: None,
-                            visible: degrade.map(|g| g.visible),
-                            block: None,
-                            far: distance.is_some_and(|d| d > 40.0),
-                            ground: None,
-                            lod: None,
-                        });
+                // The reflection takes the same level when its choice falls on it, else one of
+                // its own beside it.
+                let mirrored = in_reflection.and_then(|g| {
+                    level_at(&m.mesh, g.detail, self.model_detail).map(|l| (l, g.material_detail))
+                });
+                let lod = self
+                    .reflecting
+                    .then(|| Lod::of_body(true, mirrored == Some((level, material_detail))));
+                let mut choices = vec![(level, material_detail, lod)];
+                if let Some(c) = mirrored.filter(|c| *c != (level, material_detail)) {
+                    choices.push((c.0, c.1, Some(Lod::of_body(false, true))));
+                }
+                for (level, material_detail, lod) in choices {
+                    for frag in &m.mesh.levels[level].fragments {
+                        let Some(mat) = usize::try_from(frag.material)
+                            .ok()
+                            .and_then(|k| m.mesh.materials.get(k))
+                        else {
+                            continue;
+                        };
+                        let indices = Arc::new(frag.indices.clone());
+                        for layer in self.part_material(
+                            records,
+                            &part.look,
+                            m.mesh.kind,
+                            mat.0,
+                            material_detail,
+                        ) {
+                            out.push(ObjectBatch {
+                                vertices: verts.clone(),
+                                indices: indices.clone(),
+                                transform: *place,
+                                layer,
+                                tint,
+                                points: crate::scene::PointLights::NONE,
+                                mesh_type: m.mesh.kind,
+                                shade: None,
+                                outside: false,
+                                cull: crate::scene::Cull::Never,
+                                mesh: mesh_id.0,
+                                casts_volume: false,
+                                caster: None,
+                                seen_through: false,
+                                kept_by: None,
+                                anchor: None,
+                                step: None,
+                                visible: degrade.map(|g| g.visible),
+                                block: None,
+                                far: distance.is_some_and(|d| d > 40.0),
+                                ground: None,
+                                lod,
+                            });
+                        }
                     }
                 }
             }
