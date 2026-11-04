@@ -632,6 +632,67 @@ fn a_purchase_into_a_full_pack_is_refused_and_nothing_is_paid() {
 }
 
 /// A sale of a template the world can't make is refused: nothing is paid and nothing made.
+/// A sale bought for what its acquiring does, which the world can't do, is refused and nothing is
+/// paid; a sale whose acquiring only moves a quest is sold.
+/// Behaviour: server.store.a-sale-the-world-cannot-make-is-not-paid-for
+#[test]
+fn a_sale_whose_acquiring_the_world_cannot_do_is_refused_and_nothing_is_paid() {
+    let mut h = shop();
+    let (b, me) = in_store(&mut h);
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, 3100, 50);
+    }
+    let product = h.server.stores.sales_of(STORE)[0].product;
+    let buy = |h: &mut Harness| {
+        let from = h.bots[b].inbox.len();
+        let stock = yalain_world::store::STOCK_BASE | u64::from(STORE & 0xFFFF) << 8;
+        let mut g = Builder::new();
+        g.object(
+            0x1B76,
+            &[
+                Slot::Long(stock),
+                Slot::Ref(None),
+                Slot::Long(me),
+                Slot::Int(1),
+                Slot::Long(KEEPER),
+                Slot::Int(0),
+                Slot::Int(0),
+            ],
+        );
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(PURCHASE, &[Arg::Object(g.graph())]),
+        );
+        h.run(10);
+        let paid = h
+            .world_messages(b, from)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::UpdateInt(q) if q.quality == 3100));
+        let refused = calls_of(h, b, from)
+            .iter()
+            .any(|(f, v)| *f == REQUEST_DONE && v.contains(&Value::Int(45001)));
+        (paid, refused)
+    };
+    let effect = |h: &mut Harness, name: &str| {
+        let mut t = h
+            .server
+            .catalog
+            .get(product)
+            .cloned()
+            .expect("its template");
+        t.props.set(
+            "Item_AcquireEffect1",
+            yalain_content::Prop::Text(name.into()),
+        );
+        h.server.catalog.insert(t);
+    };
+    effect(&mut h, "Eff_SummonSomeone");
+    assert_eq!(buy(&mut h), (false, true), "refused, nothing paid");
+    effect(&mut h, "Eff_AdvanceQuestHuntPhase2");
+    assert_eq!(buy(&mut h), (true, false), "a quest's effect is sold");
+}
+
 /// Behaviour: server.store.a-sale-the-world-cannot-make-is-not-paid-for
 #[test]
 fn a_purchase_of_what_the_world_cannot_make_is_refused_and_nothing_is_paid() {

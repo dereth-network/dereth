@@ -1155,3 +1155,16 @@ fn the_templates_whose_taking_increments_a_quest_are_attunable() {
         );
     }
 }
+
+/// The three Contracts on sale are bought for what their acquiring does, which the world can't do;
+/// a template whose acquiring moves a quest is not.
+/// Behaviour: server.store.a-sale-the-world-cannot-make-is-not-paid-for
+#[test]
+fn the_contracts_are_bought_for_what_their_acquiring_does() {
+    use yalain_world::quests::acquiring_does_more_than_quests as more;
+    let p = Portal::open();
+    for did in [0x4700_18D1, 0x4700_18D2, 0x4700_18D3] {
+        assert!(more(&p.template(did).props), "{did:#x}");
+    }
+    assert!(!more(&p.template(0x4700_16C6).props), "a Lost Artifact");
+}

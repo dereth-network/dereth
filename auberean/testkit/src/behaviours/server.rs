@@ -9111,8 +9111,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.store.a-sale-the-world-cannot-make-is-not-paid-for",
-        says: "A sale whose template the world doesn't hold is refused, not found: nothing \
-               is paid and nothing made.",
+        says: "A sale whose template the world doesn't hold, or whose acquiring does something \
+               other than move a quest, which the world can't do, is refused, not found: nothing \
+               is paid and nothing made. Our choice.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-STORE-UNMAKEABLE"),
         station: "yalain-testkit::cpu::play::trade::a_purchase_of_what_the_world_cannot_make_is_refused_and_nothing_is_paid",

@@ -801,6 +801,15 @@ pub fn effect_named(name: &str, quest_id: impl Fn(&str) -> Option<u32>) -> Optio
 /// How many acquiring effects a template may name.
 const ACQUIRE_EFFECTS: u32 = 3;
 
+/// Does a template name an effect on being acquired that isn't a quest's? The world does none of
+/// those.
+#[must_use]
+pub fn acquiring_does_more_than_quests(props: &yalain_content::Props) -> bool {
+    (1..=ACQUIRE_EFFECTS)
+        .filter_map(|n| props.text(&format!("Item_AcquireEffect{n}")))
+        .any(|n| effect_named(n, |_| Some(0)).is_none())
+}
+
 /// An item came into a player's hands: the steps its taking triggers run, then the quest effects
 /// its template names on being acquired on each quest no step moved (2017: 38 of 54 acquirings
 /// moved their quest in the same second; 14 of the rest were past that phase, 2 a hidden quest's).

@@ -367,10 +367,14 @@ pub fn purchase<S: Store>(
         progress::private(net, world, &m);
         return;
     };
-    // What the world can't make isn't sold: nothing is paid for it.
-    if s.catalog.get(sale.product).is_none() {
+    // What the world can't make isn't sold: nothing is paid for it. Nor what is bought for what its
+    // acquiring does, when the world can't do that.
+    if s.catalog
+        .get(sale.product)
+        .is_none_or(|t| crate::quests::acquiring_does_more_than_quests(&t.props))
+    {
         s.unhandled.note(format!(
-            "a purchase of template {:08X}, not in the catalog",
+            "a purchase of template {:08X}, which the world can't make or carry out",
             sale.product
         ));
         let m =
