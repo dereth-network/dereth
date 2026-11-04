@@ -797,6 +797,7 @@ pub fn treasure(p: &Portal, catalog: &Catalog) -> Result<yalain_world::treasure:
         .collect();
     Ok(treasure::Kinds {
         equipment,
+        jewelry: catalog_packages_from(p, catalog, &treasure::JEWELRY)?,
         potions: catalog_packages_from(p, catalog, &treasure::POTIONS)?,
         potion_looks,
     })

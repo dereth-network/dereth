@@ -79,6 +79,18 @@ pub const SHIELD_COUNTS: [[f32; 4]; 6] = [
     [56.0, 14.0, 0.0, 0.0],
 ];
 
+/// How many of 2017's jewelry items first seen in a corpse had none and one, by the level of what
+/// dropped them: up to 9, 10 to 19, 20 to 29, 30 to 39, 40 to 49, 50 and up. A plain piece has no
+/// least level of its own.
+pub const JEWELRY_COUNTS: [[f32; 4]; 6] = [
+    [9.0, 1.0, 0.0, 0.0],
+    [14.0, 2.0, 0.0, 0.0],
+    [23.0, 5.0, 0.0, 0.0],
+    [24.0, 1.0, 0.0, 0.0],
+    [22.0, 4.0, 0.0, 0.0],
+    [24.0, 11.0, 0.0, 0.0],
+];
+
 /// The families a weapon item draws from.
 pub const WEAPON_FAMILIES: &[Family] = &[
     Family {
@@ -249,7 +261,7 @@ pub const WEAPON_FAMILIES: &[Family] = &[
     },
 ];
 
-/// The families a armor item draws from.
+/// The families an armor item draws from.
 pub const ARMOR_FAMILIES: &[Family] = &[Family {
     when: When::Permanent,
     weight: 182.0,
@@ -285,26 +297,106 @@ pub const SHIELD_FAMILIES: &[Family] = &[
     },
 ];
 
+/// The families a jewelry item draws from.
+pub const JEWELRY_FAMILIES: &[Family] = &[
+    Family {
+        when: When::Equipped,
+        weight: 19.0,
+        by_level: false,
+        tiers: &[tier(11, 0x6F00054B, 0x00000000, 1.00, 0.00)],
+    },
+    Family {
+        when: When::Equipped,
+        weight: 16.0,
+        by_level: false,
+        tiers: &[tier(6, 0x6F00054A, 0x00000000, 1.00, 0.00)],
+    },
+    Family {
+        when: When::Equipped,
+        weight: 12.0,
+        by_level: false,
+        tiers: &[tier(11, 0x6F00054C, 0x00000000, 1.00, 0.00)],
+    },
+    Family {
+        when: When::Equipped,
+        weight: 10.0,
+        by_level: false,
+        tiers: &[tier(8, 0x6F00054E, 0x00000000, 1.00, 0.00)],
+    },
+    Family {
+        when: When::Equipped,
+        weight: 8.0,
+        by_level: false,
+        tiers: &[tier(18, 0x6F00054D, 0x00000000, 1.00, 0.00)],
+    },
+    Family {
+        when: When::Equipped,
+        weight: 3.0,
+        by_level: false,
+        tiers: &[tier(43, 0x6F000554, 0x00000000, 1.00, 0.00)],
+    },
+    Family {
+        when: When::Equipped,
+        weight: 1.0,
+        by_level: false,
+        tiers: &[tier(50, 0x6F000550, 0x00000000, 1.00, 0.00)],
+    },
+    Family {
+        when: When::Equipped,
+        weight: 1.0,
+        by_level: false,
+        tiers: &[tier(42, 0x6F000552, 0x00000000, 1.00, 0.00)],
+    },
+    Family {
+        when: When::Equipped,
+        weight: 1.0,
+        by_level: false,
+        tiers: &[tier(50, 0x6F000555, 0x00000000, 1.00, 0.00)],
+    },
+    Family {
+        when: When::Equipped,
+        weight: 1.0,
+        by_level: false,
+        tiers: &[tier(50, 0x6F000556, 0x00000000, 1.00, 0.00)],
+    },
+    Family {
+        when: When::Equipped,
+        weight: 1.0,
+        by_level: false,
+        tiers: &[tier(44, 0x6F000664, 0x00000000, 1.00, 0.00)],
+    },
+];
+
 /// Every state a treasure item may carry or put on what it hits.
 pub fn states() -> impl Iterator<Item = u32> {
-    [WEAPON_FAMILIES, ARMOR_FAMILIES, SHIELD_FAMILIES]
-        .into_iter()
-        .flatten()
-        .flat_map(|f| f.tiers)
-        .flat_map(|t| [t.state, t.puts_on])
-        .filter(|s| *s != 0)
+    [
+        WEAPON_FAMILIES,
+        ARMOR_FAMILIES,
+        SHIELD_FAMILIES,
+        JEWELRY_FAMILIES,
+    ]
+    .into_iter()
+    .flatten()
+    .flat_map(|f| f.tiers)
+    .flat_map(|t| [t.state, t.puts_on])
+    .filter(|s| *s != 0)
 }
 
 /// The tier an item carrying this state has, among every family.
 #[must_use]
 pub fn tier_of(state: u32) -> Option<(When, Tier)> {
-    [WEAPON_FAMILIES, ARMOR_FAMILIES, SHIELD_FAMILIES]
-        .into_iter()
-        .flatten()
-        .find_map(|f| {
-            f.tiers
-                .iter()
-                .find(|t| t.state == state)
-                .map(|t| (f.when, *t))
-        })
+    [
+        WEAPON_FAMILIES,
+        ARMOR_FAMILIES,
+        SHIELD_FAMILIES,
+        JEWELRY_FAMILIES,
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(|f| {
+        f.tiers
+            .iter()
+            .find(|t| t.state == state)
+            .map(|t| (f.when, *t))
+    })
 }

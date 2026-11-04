@@ -4504,6 +4504,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-jewelry-enchantments",
+        says: "Treasure jewelry is plain with no least level, or carries one effect on its wearer \
+               and a least level: how often by its dropper's level, which by how often 2017 showed \
+               it. Our choice, a fit to the recorded items.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-JEWELRY"),
+        station: "yalain-testkit::cpu::play::fights::treasure_jewelry_is_plain_or_has_one_effect_and_a_least_level",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.treasure-look-drawn",
         says: "A treasure item of a template seen to draw its look draws values for its look's \
                appearance keys as it drops: a weapon's glow, a piece of armor's colors. They color it, \

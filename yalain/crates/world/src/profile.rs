@@ -1124,6 +1124,8 @@ pub struct ItemView {
     /// Armor's rating, combat delay and the places it is worn on.
     pub armor: Option<(i32, i32, u32)>,
     pub destroyed_on_use: bool,
+    /// It is treasure jewelry: its effects are worn.
+    pub jewelry: bool,
     pub min_level: i32,
     pub max_level: i32,
     /// The races that may use it (bits; 0 for all).
@@ -1674,8 +1676,8 @@ fn totem_lines(p: &mut Profile, v: &ItemView) {
 
 /// An item's effects on their tab, by when they apply: a heading with how many, then each
 /// effect's name, description and the spellcraft it is cast with when shown. A weapon's
-/// equipped and hit effects head the tab after a break, unindented; armor's are worn, after a
-/// break; anything else's are indented once, with no break.
+/// equipped and hit effects head the tab after a break, unindented; armor's and jewelry's are worn,
+/// after a break; anything else's are indented once, with no break.
 fn effect_lines(p: &mut Profile, v: &ItemView) {
     use item_line as l;
     let weapon = v.weapon.is_some();
@@ -1688,7 +1690,7 @@ fn effect_lines(p: &mut Profile, v: &ItemView) {
         }
         let (heading, indent, after_break) = match when {
             When::Used => (l::EFFECTS_USED, 1, false),
-            When::Equipped if armor && !weapon => (l::EFFECTS_WORN, 1, true),
+            When::Equipped if (armor || v.jewelry) && !weapon => (l::EFFECTS_WORN, 1, true),
             When::Equipped if weapon && !armor => (l::EFFECTS_WIELDED, 0, true),
             When::Equipped if armor => (l::EFFECTS_WIELDED, 1, true),
             When::Equipped => (l::EFFECTS_WIELDED, 1, false),

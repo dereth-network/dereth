@@ -124,6 +124,7 @@ what they see, not how it was done.
 - Swings come on time instead of a little late.
 - A special attack's critical now does a quarter more, not double.
 - Weapons' crit bonuses now work.
+- Treasure rings and talismans can carry enchantments.
 
 ## 0.1.2 (2026-11-03)
 

@@ -261,6 +261,7 @@ fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::Item
         v.durability = Some((i32::try_from(now).unwrap_or(i32::MAX), most));
     }
     v.destroyed_on_use |= s.destroyed_on_use.contains(&t.description.package);
+    v.jewelry = s.treasure.jewelry.contains(&t.description.package);
     // A treasure item's own least level and Arcane Lore, and a treasure potion's own effect and
     // name.
     if let Some(kind) = crate::craft::totem::noun(t.template) {

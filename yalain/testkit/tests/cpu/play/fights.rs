@@ -806,6 +806,81 @@ fn a_weapons_effect_on_a_hit_goes_on_what_it_hits() {
     assert_eq!(view.effects[0].when, yalain_world::profile::When::Hit);
 }
 
+/// Treasure jewelry is plain with no least level, or carries one effect on its wearer and a least
+/// level, as often as its dropper's level says; it shows what it carries as worn.
+/// Behaviour: server.loot.treasure-jewelry-enchantments
+#[test]
+fn treasure_jewelry_is_plain_or_has_one_effect_and_a_least_level() {
+    use yalain_content::treasure_effects::{tier_of, When};
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    const RING: u32 = 0x4700_7011;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    h.server.catalog.insert(yalain_testkit::test_template(
+        RING,
+        0x777,
+        yalain_content::Props::default(),
+    ));
+    h.server.treasure.jewelry.insert(0x777);
+    let mut share = |level: i32| {
+        let mut enchanted = 0;
+        for _ in 0..2000 {
+            let item = yalain_world::inventory::make_item(&mut h.server, RING, 1, 9).expect("made");
+            yalain_world::treasure::endow(&mut h.server, item, level, None);
+            let t = h.server.things.get(item).expect("made");
+            assert!(t.enchantments.is_empty(), "on the wearer");
+            assert_eq!(t.own.min_level.is_some(), !t.bonuses.is_empty());
+            if let Some((state, spellcraft)) = t.bonuses.first().copied() {
+                enchanted += 1;
+                assert_eq!(t.bonuses.len(), 1);
+                let (when, tier) = tier_of(state).expect("a known effect");
+                assert_eq!(when, When::Equipped);
+                let least = t.own.min_level.expect("a least level");
+                assert!(tier.least <= least.max(level), "{tier:?} at {least}");
+                #[allow(clippy::cast_precision_loss)]
+                let cast = (least.max(level) - 1) as f32;
+                assert_eq!(spellcraft, cast);
+            }
+        }
+        enchanted
+    };
+    assert_eq!(share(1), 0, "nothing reaches so low");
+    let low = share(14);
+    let high = share(50);
+    assert!((100..400).contains(&low), "{low}");
+    assert!((500..800).contains(&high), "{high}");
+    // What it carries it shows, with no numbers of its own.
+    let item = yalain_world::inventory::make_item(&mut h.server, RING, 1, 9).expect("made");
+    let state = yalain_content::treasure_effects::JEWELRY_FAMILIES[0].tiers[0].state;
+    h.server.effect_table.effects.insert(
+        state,
+        EffectDef {
+            state,
+            kind: Kind::Other,
+            duration: Scale::default(),
+            priority: Scale::default(),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 1,
+            enum_value: 2,
+            eq_class: 2,
+            name: Some((1, 2)),
+        },
+    );
+    let t = h.server.things.get_mut(item).expect("made");
+    t.bonuses.push((state, 20.0));
+    let t = h.server.things.get(item).expect("made");
+    let mut view = yalain_world::profile::ItemView::of(&yalain_content::Props::default(), 1, None);
+    yalain_world::made::show(&h.server, t, &mut view);
+    assert_eq!(view.effects.len(), 1);
+    assert_eq!(view.effects[0].when, yalain_world::profile::When::Equipped);
+    view.jewelry = true;
+    let bytes = yalain_world::profile::item(0x3FF, &view).packed(&[]);
+    let worn = yalain_world::profile::item_line::EFFECTS_WORN.to_le_bytes();
+    let worn = bytes.windows(4).any(|w| w == worn);
+    assert!(worn, "its heading says worn");
+}
+
 /// A weapon's effect that adds to the chance of a critical does: at 1, every hit it lands is
 /// critical; a weapon without it lands plain hits.
 /// Behaviour: server.combat.critical-by-weapon

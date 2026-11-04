@@ -23,6 +23,9 @@
 //! **Its enchantments.** It may draw some by its level: see [`enchantments`]. Each is cast at one
 //! below its item level. An effect on what it hits lands by that effect's own chance.
 //!
+//! **Treasure jewelry** is plain with no least level, or by its dropper's level has one enchantment
+//! on its wearer and a least level.
+//!
 //! **A treasure potion** is drunk for one effect of its own: one of nine kinds (attack speed, damage
 //! reflected, health over time, health regained, greatest health, greatest vigor, run speed, vigor
 //! over time, vigor regained) at the tier of the dropper's level (up to 15, 16 to 29, 30 to 39, 40
@@ -99,6 +102,8 @@ impl Own {
 /// are not.
 pub const EQUIPMENT: [&str; 3] = ["WeaponTemplate", "ClothingTemplate", "ShieldTemplate"];
 pub const INSTRUMENTS: [&str; 1] = ["LuteTemplate"];
+/// The script package of treasure jewelry.
+pub const JEWELRY: [&str; 1] = ["JewelryTemplate"];
 /// The script package of the treasure potions.
 pub const POTIONS: [&str; 1] = ["PotionMagic"];
 /// The script package of the Tesserae.
@@ -108,6 +113,7 @@ pub const TESSERAE: &str = "HeroSkillCreditToken";
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Kinds {
     pub equipment: std::collections::HashSet<u32>,
+    pub jewelry: std::collections::HashSet<u32>,
     pub potions: std::collections::HashSet<u32>,
     /// Each potion effect's name table and the strength of the color it gives its potion.
     pub potion_looks: std::collections::HashMap<u32, (u32, f32)>,
@@ -375,6 +381,7 @@ pub enum Sort {
     Weapon,
     Armor,
     Shield,
+    Jewelry,
 }
 
 /// What a treasure item draws of enchantments at an item level. How many goes by its sort and level
@@ -397,6 +404,7 @@ pub fn enchantments(
         Sort::Weapon => (&t::WEAPON_COUNTS, t::WEAPON_FAMILIES),
         Sort::Armor => (&t::ARMOR_COUNTS, t::ARMOR_FAMILIES),
         Sort::Shield => (&t::SHIELD_COUNTS, t::SHIELD_FAMILIES),
+        Sort::Jewelry => (&t::JEWELRY_COUNTS, t::JEWELRY_FAMILIES),
     };
     let how_many = rng
         .weighted(counts[count_band(level)].iter().copied())
@@ -635,6 +643,14 @@ pub fn endow<S: yalain_store::Store>(
                 }
             }
         }
+    } else if s.treasure.jewelry.contains(&package) {
+        // Enchanted or plain by its dropper, with a least level only if enchanted (2017: 73 of 73
+        // with a least level had one effect, 120 of 120 with none had none).
+        let least = min_level(&mut s.rng, base);
+        if put_enchantments(s, item, &mut own, Sort::Jewelry, least.max(base)) {
+            own.min_level = Some(least);
+            own.arcane_lore = arcane_lore(&mut s.rng, base);
+        }
     } else if s.treasure.potions.contains(&package) {
         let (state, spellcraft) = potion_effect(&mut s.rng, level);
         if let Some(&(table, color)) = s.treasure.potion_looks.get(&state) {
@@ -652,14 +668,15 @@ pub fn endow<S: yalain_store::Store>(
 }
 
 /// An item's enchantments drawn at its item level: kept with it, its numbers changed by those on it
-/// always, and a weapon's glow the first of them that has one (2017: 149 of 162 weapons).
+/// always, and a weapon's glow the first of them that has one (2017: 149 of 162 weapons). Returns
+/// whether it drew any.
 fn put_enchantments<S: yalain_store::Store>(
     s: &mut crate::Server<S>,
     item: u64,
     own: &mut Own,
     sort: Sort,
     level: i32,
-) {
+) -> bool {
     use yalain_content::treasure_effects::When;
     #[allow(clippy::cast_precision_loss)]
     let spellcraft = (level - 1).max(1) as f32;
@@ -691,4 +708,5 @@ fn put_enchantments<S: yalain_store::Store>(
             }
         }
     }
+    !drawn.is_empty()
 }
