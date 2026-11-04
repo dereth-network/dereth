@@ -524,6 +524,47 @@ fn every_call_with_values_chosen_to_hurt_panics_nothing_and_takes_nothing_of_ano
     assert_eq!(belongings(&h, them), before, "the other's own");
 }
 
+/// A call far bigger than any client sends is neither kept nor said to anyone.
+/// Behaviour: server.lying-client.a-call-too-big-is-dropped
+#[test]
+fn a_call_far_too_big_is_neither_kept_nor_said() {
+    use auberean_script::native_object::NativeObject;
+    let (mut h, (a, me), (b, _), _) = a_world();
+    let w = world_of(&h, me);
+    let big = |n: usize| {
+        let mut g = Builder::new();
+        g.native(0x76, NativeObject::Text(vec![u16::from(b'a'); n]));
+        Arg::Object(g.graph())
+    };
+    let from = h.bots[b].inbox.len();
+    let f = requests::function::SAY;
+    h.ask(a, f, &[Arg::Int(0), big(40_000), big(1)], 10);
+    assert_eq!(h.calls(b, from).len(), 0, "said to nobody");
+    // A shortcut holding as much is not kept.
+    let mut g = Builder::new();
+    let mut packed = 0x4000_0003u32.to_le_bytes().to_vec();
+    let n = 40_000u32;
+    packed.extend(n.to_le_bytes());
+    packed.resize(packed.len() + 80_000, b'a');
+    g.native(
+        yalain_world::uploads::kind::SHORTCUT.into(),
+        NativeObject::Packed {
+            ty: yalain_world::uploads::kind::SHORTCUT.into(),
+            bytes: packed,
+        },
+    );
+    let f = session::request::SHORTCUT;
+    h.ask(a, f, &[Arg::Object(g.graph()), Arg::Int(3)], 10);
+    assert!(
+        h.server.players[&w]
+            .options
+            .shortcuts
+            .iter()
+            .all(|x| x.len() < 1000),
+        "not kept"
+    );
+}
+
 /// Where the client says it stands: every kind of nonsense, through the world's own reading of it.
 /// Behaviour: server.lying-client.calls-hurt-nobody
 #[test]

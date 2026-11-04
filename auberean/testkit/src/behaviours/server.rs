@@ -4357,6 +4357,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.lying-client.a-call-too-big-is-dropped",
+        says: "A client's call over 64 KB is dropped: the largest of the 299,860 calls \
+               recorded in 2017 was 7,676 bytes.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LYING-BIG"),
+        station: "yalain-testkit::cpu::play::lying_client::a_call_far_too_big_is_neither_kept_nor_said",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.lying-client.calls-hurt-nobody",
         says: "Every call a client may make, of the shape it reads and with every value a \
                lie, from fixed seeds, panics nothing and takes nothing of another player.",

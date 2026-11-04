@@ -999,6 +999,10 @@ pub fn is_world_message(m: &ClientMessage) -> bool {
     )
 }
 
+/// The most a client's call may carry, in bytes. The largest of the 299,860 calls recorded in 2017
+/// was 7,676 bytes; a message may be 8 MB, and what a call says is kept, or said to everyone near.
+pub const MOST_CALL_BYTES: usize = 64 * 1024;
+
 /// A message from a player's client on its world connection.
 pub fn message<S: Store>(
     s: &mut Server<S>,
@@ -1070,6 +1074,10 @@ pub fn message<S: Store>(
         ClientMessage::ForceCreate(t) => {
             s.players.insert(world, p);
             return presence::force_create(s, net, world, t.0);
+        }
+        ClientMessage::ServerCall(call) if call.args.0.len() > MOST_CALL_BYTES => {
+            s.unhandled
+                .note(format!("a call of {} bytes", call.args.0.len()));
         }
         ClientMessage::ServerCall(call) => {
             if kept_call(&mut p, call.function.0, &call.args.0) {
