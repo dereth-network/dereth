@@ -3950,6 +3950,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.an-attunable-item-is-not-put-down",
+        says: "Asked to put down an item of an attunable template, the server answers at once \
+               that it is attuned, plays nothing, and the item stays in the pack.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ATTUNABLE-DROP"),
+        station: "yalain-testkit::cpu::play::drops::an_attunable_item_is_refused_at_once_and_stays_in_the_pack",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.an-item-a-camp-keeps-lies-again-after-its-taking",
         says: "A camp whose template is an item keeps it lying at its spot: once it is taken, a new \
                one lies there when the camp's period is over (quest items lying alone 20 s after \

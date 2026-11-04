@@ -972,3 +972,37 @@ fn an_item_picked_up_moves_the_quest_its_template_names() {
     assert!(p.play.items.iter().any(|i| i.id == item), "picked up");
     assert_eq!(yalain_world::quests::phase_of(&p.play.quests, QUEST), 2);
 }
+
+/// An attunable item stays with its owner: asked to put it down, the server refuses at once, plays
+/// nothing, and the item stays in the pack. So its taking can't be repeated to move a quest again.
+/// Behaviour: server.inventory.an-attunable-item-is-not-put-down
+#[test]
+fn an_attunable_item_is_refused_at_once_and_stays_in_the_pack() {
+    let (mut h, b, me, _w, item) = two_players_and_an_item();
+    let world = world_of(&h, me);
+    let template = h.server.things.get(item).expect("the item").template;
+    let mut t = h
+        .server
+        .catalog
+        .get(template)
+        .cloned()
+        .expect("its template");
+    t.props
+        .set("Item_IsAttunable", yalain_content::Prop::Bool(true));
+    h.server.catalog.insert(t);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &put_down(me, item, 0));
+    h.run(4);
+    let refused = answers(&h, b, from);
+    assert_eq!(refused.len(), 1, "answered at once");
+    assert_eq!(refused[0][40].1, status::ATTUNED);
+    assert!(
+        !h.world_messages(b, from).iter().any(|m| matches!(m,
+            ServerMessage::PlayBehavior(e) if e.action.behavior == look::PUTTING_DOWN)),
+        "nothing played"
+    );
+    h.run(steps(2.5));
+    let p = &h.server.players[&world];
+    assert!(p.play.items.iter().any(|i| i.id == item), "still held");
+    assert_eq!(answers(&h, b, from).len(), 1, "and nothing more");
+}

@@ -1131,3 +1131,27 @@ fn the_auras_on_a_weapons_damage_read_as_the_data_defines_them() {
         [(stat::DAMAGE, true, 1.15)]
     );
 }
+
+/// The templates a pickup's Increment names are attunable in the data: an Attuned Tessera, and a Lost
+/// Artifact.
+/// Behaviour: server.inventory.an-attunable-item-is-not-put-down
+#[test]
+fn the_templates_whose_taking_increments_a_quest_are_attunable() {
+    let p = Portal::open();
+    for did in [
+        0x4700_15B1,
+        0x4700_16C6,
+        0x4700_16CE,
+        0x4700_16D0,
+        0x4700_16D2,
+    ] {
+        let t = p.template(did);
+        assert!(t.props.flag("Item_IsAttunable"), "{did:#x}");
+        assert!(
+            t.props
+                .text("Item_AcquireEffect1")
+                .is_some_and(|e| e.starts_with("Eff_IncrementQuest")),
+            "{did:#x}"
+        );
+    }
+}

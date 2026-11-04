@@ -43,6 +43,8 @@ pub mod status {
     pub const ACTIONS_LOCKED: u32 = 1029;
     /// The item cannot be put there.
     pub const CANNOT_PLACE_IN_WORLD: u32 = 1033;
+    /// The item stays with its owner.
+    pub const ATTUNED: u32 = 1044;
 }
 
 /// How far above the player's feet the item is put, in meters.
@@ -208,6 +210,14 @@ fn put_down<S: Store>(
         refuse(net, world, &m, status::CANNOT_PLACE_IN_WORLD);
         return;
     };
+    // 2017: of drops of attunable templates, 12 of 12 refused so.
+    if s.catalog
+        .get(t.template)
+        .is_some_and(|d| d.props.flag("Item_IsAttunable"))
+    {
+        refuse(net, world, &m, status::ATTUNED);
+        return;
+    }
     if m.quantity < t.quantity {
         s.unhandled.note("putting down part of a stack");
         refuse(net, world, &m, status::CANNOT_PLACE_IN_WORLD);
