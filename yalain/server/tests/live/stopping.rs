@@ -9,8 +9,8 @@
 //! Fixture: the authored world, a database file in a scratch folder, read back after the server
 //! has gone.
 
-use std::io::Write as _;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
+use std::io::{Read as _, Write as _};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -325,7 +325,8 @@ fn wait_for(dir: &Path, server: &mut Running, text: &str, from: usize) -> usize 
 }
 
 /// A server taken for an older version counts down, stops, installs this build's version, passes
-/// the health check and restarts into it in the same process, answering a stop afterwards.
+/// the health check and restarts into it in the same process, answering a stop afterwards. Its
+/// status address is free for the health check and then for the new server, which answers there.
 /// Behaviour: server.update.running-server-restarts-into-the-release
 #[test]
 fn the_running_server_counts_down_installs_and_restarts_into_a_patch_release() {
@@ -336,6 +337,7 @@ fn the_running_server_counts_down_installs_and_restarts_into_a_patch_release() {
     let older = older(&version);
     let install = auberean_dat::testing::require_target_install();
     let login = free_ports();
+    let status = SocketAddr::from((Ipv4Addr::LOCALHOST, free_ports()));
     let log = std::fs::File::create(dir.join("server.log")).expect("the server's log");
     let child = Command::new(&exe)
         .arg("--dats")
@@ -344,6 +346,7 @@ fn the_running_server_counts_down_installs_and_restarts_into_a_patch_release() {
         .arg(dir.join("yalain.sqlite"))
         .args(["--login-port", &login.to_string()])
         .args(["--world-port", &(login + 2).to_string()])
+        .args(["--status", &status.to_string()])
         .arg("--world-db")
         .arg(authored::database_dir())
         .args(["--seconds", &crate::session::LIFE.to_string()])
@@ -412,6 +415,14 @@ fn the_running_server_counts_down_installs_and_restarts_into_a_patch_release() {
     wait_for(&dir, &mut server, "friends service listening on TCP", at);
 
     assert_eq!(server.0.id(), pid, "the same process on");
+    let mut asked = TcpStream::connect(status).expect("the new server listens at the address");
+    write!(asked, "GET /status HTTP/1.1\r\nHost: x\r\n\r\n").expect("asked");
+    let mut answer = String::new();
+    asked.read_to_string(&mut answer).expect("an answer");
+    assert!(
+        answer.contains(&format!("\"version\":\"{version}\"")),
+        "{answer}"
+    );
     assert_eq!(
         std::fs::read(dir.join("README.md")).expect("it"),
         b"new guide"

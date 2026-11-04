@@ -7810,7 +7810,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.update.running-server-restarts-into-the-release",
         says: "A running server taken for an older version counts down, stops, installs the  \
                release, passes its health check on the real install and restarts into it in the  \
-               same process.",
+               same process. Its status address is free for the health check and then for the new  \
+               server, which answers there.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-RESTART"),
         station: "yalain::live::stopping::the_running_server_counts_down_installs_and_restarts_into_a_patch_release",
@@ -7843,15 +7844,6 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-SOURCE"),
         station: "yalain::bin.yalain::update::tests::the_release_source_is_the_builds_repository_or_a_configured_mirror",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
-        id: "server.update.status-address-let-go",
-        says: "A stopped status endpoint lets its address go, so the server that follows an update \
-               can listen there.",
-        since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-SRV-UPDATE-STATUS-ADDRESS"),
-        station: "yalain::bin.yalain::status::tests::a_stopped_status_endpoint_lets_its_address_go",
         tier: Tier::Cpu,
     },
     behaviour! {

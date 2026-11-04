@@ -199,34 +199,6 @@ mod tests {
         text
     }
 
-    /// A stopped endpoint lets its address go, for the server that follows an update.
-    /// Behaviour: server.update.status-address-let-go
-    #[test]
-    fn a_stopped_status_endpoint_lets_its_address_go() {
-        // A port below every system's ephemeral range: one the system gave out would be free for
-        // any connection to take as soon as this one lets it go. It starts from this process's id,
-        // so that another run of this test on the machine isn't after the same one.
-        let first = 20_000 + std::process::id() % 12_000;
-        let e = (0..12_000)
-            .find_map(|n| {
-                let port = u16::try_from(20_000 + (first - 20_000 + n) % 12_000).expect("a port");
-                Endpoint::start(
-                    SocketAddr::from(([127, 0, 0, 1], port)),
-                    Snapshot::default(),
-                    Vec::new(),
-                )
-                .ok()
-            })
-            .expect("listens");
-        let at = e.addr();
-        assert!(TcpListener::bind(at).is_err(), "held while it runs");
-        e.stop();
-        let next =
-            Endpoint::start(at, Snapshot::default(), Vec::new()).expect("free for the next server");
-        assert!(get(next.addr(), "/health").ends_with("ok"));
-        next.stop();
-    }
-
     /// The status endpoint answers `/health` with ok, `/status` and `/v1/world` with the world's
     /// name, the server, its version and game, its uptime and state, the players in the world, the
     /// logins and connections as the loop last gave them, and anything else with not found.
