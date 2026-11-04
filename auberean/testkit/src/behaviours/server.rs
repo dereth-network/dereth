@@ -6796,8 +6796,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.quests.a-use-that-leads-on",
-        says: "A use of a person or an object whose step leads somewhere tells its update at \
-               once and takes the player after.",
+        says: "A use of a person or an object whose step leads somewhere tells its update and \
+               takes the player in the same instant.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-USE-LEADS-ON"),
         station: "yalain-testkit::cpu::play::quests::a_persons_step_that_leads_somewhere_tells_its_update_then_takes_the_player",

@@ -1581,8 +1581,8 @@ fn flash_and_go<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId,
 }
 
 /// A use of a person or an object has moved a quest whose step leads somewhere: the update is told
-/// at once, the player is taken 2.5 s later (2017: an obelisk search's 12 steps, 68 of 72 updates
-/// followed by the trip in 1.9 to 11.5 s, most in 2 to 6 s, each step always to the one place).
+/// and the player is taken in the same instant (2017: the one such trip recorded, the touch's text
+/// and portal space together, 0.18 s after the use, 1 of 1).
 pub(crate) fn sends_on<S: Store>(
     s: &mut Server<S>,
     world: ConnId,
@@ -1610,7 +1610,7 @@ pub(crate) fn sends_on<S: Store>(
     });
     s.after(
         clock,
-        OPENS_AFTER,
+        0.0,
         Timer::Trip {
             world,
             step: Step::Sent { by },

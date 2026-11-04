@@ -840,9 +840,9 @@ fn a_timed_quest_fails_when_its_time_runs_out() {
     );
 }
 
-/// A use of a person or an object whose step leads somewhere tells its update at once and takes the
-/// player after: first the update, then portal space, then the place. A step that does not lead
-/// on, and a use its step does not run for, take no one.
+/// A use of a person or an object whose step leads somewhere tells its update and takes the player
+/// in the same instant: first the update, then portal space, then the place. A step that does not
+/// lead on, and a use its step does not run for, take no one.
 /// Behaviour: server.quests.a-use-that-leads-on
 #[test]
 fn a_persons_step_that_leads_somewhere_tells_its_update_then_takes_the_player() {
@@ -874,7 +874,7 @@ fn a_persons_step_that_leads_somewhere_tells_its_update_then_takes_the_player() 
     let (b, me) = h.player_in_world("one", "Elara");
     let from = use_explorer(&mut h, b, me);
     assert_eq!(updates(&h, b, from), vec![0x1000_0000], "told at once");
-    let until = h.now.0 + 12.0;
+    let until = h.now.0 + 1.0;
     while h.now.0 < until {
         h.step();
     }
@@ -883,8 +883,12 @@ fn a_persons_step_that_leads_somewhere_tells_its_update_then_takes_the_player() 
     let went = calls.iter().position(|f| *f == ENTER_PORTAL_SPACE);
     assert!(
         told.is_some() && went.is_some() && told < went,
-        "the update, then portal space: {calls:08X?}"
+        "the update, then portal space, within a second: {calls:08X?}"
     );
+    let until = h.now.0 + 12.0;
+    while h.now.0 < until {
+        h.step();
+    }
     let p = h.server.players.values().next().expect("a player");
     assert_eq!(p.position.cell, THERE, "at the place");
     assert!(p.trip.is_none(), "the trip is over");
