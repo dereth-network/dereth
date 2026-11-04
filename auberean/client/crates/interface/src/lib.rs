@@ -106,6 +106,9 @@ pub const PREGAME: (u32, u32) = (1024, 768);
 /// The Delete key's code as a text element takes it.
 const DELETE_KEY: u16 = 0x2E;
 
+/// How many pictures are kept to be drawn on again.
+const RETIRED_PICTURES: usize = 6;
+
 /// The action the player's keys bind the right button to (looking with the mouse while held): an
 /// interface key.
 const MOUSE_LOOK_KEY: u32 = camera::action::INSTANT_MOUSE_LOOK;
@@ -562,6 +565,10 @@ pub struct Retail {
     front: Option<Arc<Canvas>>,
     drawn: Option<(u64, (i32, i32))>,
     canvases: u64,
+    /// The pictures last drawn, until no one holds them and they can be drawn on again.
+    retired: Vec<Arc<Canvas>>,
+    /// The layers elements are drawn into on their way to a picture.
+    layers: draw::Layers,
     /// What keys asked for, carried out at the next update.
     pending: Vec<Request>,
     /// The client's random numbers (creation's choices, the media's rolls), shared with the
@@ -684,6 +691,8 @@ impl Retail {
             front: None,
             drawn: None,
             canvases: 0,
+            retired: Vec::new(),
+            layers: draw::Layers::default(),
             pending: Vec::new(),
             random: auberean_world::chargen::Random::default(),
             creation: None,
@@ -1606,9 +1615,31 @@ impl Retail {
         let size = self.size();
         let scene_z = self.scene_depth();
         let view_z = self.view_depth();
+        // The pictures no one holds any more are drawn on again.
+        let (idle, held): (Vec<_>, Vec<_>) = std::mem::take(&mut self.retired)
+            .into_iter()
+            .partition(|c| Arc::strong_count(c) == 1);
+        self.retired = held;
+        let mut spare: Vec<Vec<u8>> = idle
+            .into_iter()
+            .filter_map(Arc::into_inner)
+            .map(|c| c.bgra)
+            .collect();
+        self.retired.extend(self.behind.take());
+        self.retired.extend(self.middle.take());
+        self.retired.extend(self.front.take());
+        self.retired.truncate(RETIRED_PICTURES);
+        let bytes = usize::try_from(w.max(0) * h.max(0)).unwrap_or(0) * 4;
         let mut picture = |keep: &dyn Fn(i32) -> bool| {
-            let mut s = Surface::new(w, h);
-            draw::draw_layers_where(&self.ui, &mut s, keep);
+            let mut s = match spare.pop().filter(|b| b.len() == bytes) {
+                Some(bgra) => Surface {
+                    width: w,
+                    height: h,
+                    bgra,
+                },
+                None => Surface::new(w, h),
+            };
+            draw::draw_layers_with(&self.ui, &mut s, keep, &mut self.layers);
             self.canvases += 1;
             Arc::new(Canvas {
                 width: size.0,
@@ -1617,8 +1648,6 @@ impl Retail {
                 revision: self.canvases,
             })
         };
-        self.behind = None;
-        self.middle = None;
         match (scene_z, view_z) {
             (Some(z), _) => {
                 self.behind = Some(picture(&|d| d > z));
