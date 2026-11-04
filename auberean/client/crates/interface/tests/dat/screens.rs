@@ -1558,9 +1558,9 @@ fn the_play_screen_runs_on_the_frameworks() {
 /// A man of the hall, standing ahead of the player and to its right.
 const MAN: u64 = 0x2130_0000_0000_0002;
 
-/// The script with a man standing in the hall near the player.
-fn with_a_man() -> Script {
-    let man = CreateObject {
+/// The man's creation.
+fn the_man() -> CreateObject {
+    CreateObject {
         id: MAN,
         visual: VisualDesc {
             bits: VisualDesc::DID,
@@ -1590,7 +1590,12 @@ fn with_a_man() -> Script {
             ..PhysicsDesc::default()
         },
         ..CreateObject::default()
-    };
+    }
+}
+
+/// The script with a man standing in the hall near the player, and these steps.
+fn with_a_man_and(mut extra: Vec<Step>) -> Script {
+    let man = the_man();
     // The double sends no object's qualities, so the man is not marked selectable: the player
     // is given the kind bits that let it select anything.
     let anything = ServerMessage::PlayerQualities(PlayerQualities(Qualities {
@@ -1601,10 +1606,92 @@ fn with_a_man() -> Script {
         ),
         ..Qualities::default()
     }));
-    script_with(vec![
+    let mut steps = vec![
         s2c(6.43, 1, 1, WORLD | 7, &ServerMessage::CreateObject(man)),
         s2c(6.44, 1, 1, WORLD | 8, &anything),
-    ])
+    ];
+    steps.append(&mut extra);
+    script_with(steps)
+}
+
+/// The script with a man standing in the hall near the player.
+fn with_a_man() -> Script {
+    with_a_man_and(Vec::new())
+}
+
+/// A body left behind when the player went elsewhere waits out of the world in the cell it stood
+/// in. Created again where the player now is, it stands there at once, without moving: a player
+/// who went through a portal first is seen by one who follows.
+///
+/// Behaviour: desktop.others.a-body-created-again-comes-back-into-the-world
+#[test]
+fn a_body_created_again_where_the_player_went_stands_there() {
+    use auberean_client_sdk::protocol::physics::ObjectPosition;
+    use auberean_client_sdk::protocol::types::ObjectStamp;
+    const THROUGH: f64 = 20.0;
+    const THERE_CELL: u32 = 0x75B9_002D;
+    let there = Vec3 {
+        x: 113.6,
+        y: 80.0,
+        z: 123.5,
+    };
+    let go = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: THERE_CELL,
+        origin: there,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 2,
+        force_position_stamp: 0,
+        teleport_stamp: 2,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let mut man = the_man();
+    man.physics.visual_ordering_stamp += 1;
+    man.physics.position.cell = THERE_CELL;
+    man.physics.position.frame.origin = Vec3 {
+        x: there.x + 1.5,
+        y: there.y + 3.0,
+        z: there.z,
+    };
+    let (mut s, _retail) = into_the_world_with(with_a_man_and(vec![
+        s2c(THROUGH, 1, 1, WORLD | 9, &go),
+        s2c(
+            THROUGH + 12.0,
+            1,
+            1,
+            WORLD | 10,
+            &ServerMessage::CreateObject(man),
+        ),
+    ]));
+    assert!(
+        until(&mut s, 5.0, |s| s.scene.body(MAN).is_some()),
+        "the man stands in the hall"
+    );
+    assert!(
+        until(&mut s, 30.0, |s| s.scene.lost_cell(MAN) != 0),
+        "left behind in the hall when the player went"
+    );
+    assert!(
+        until(&mut s, 30.0, |s| s.scene.lost_cell(MAN) == 0),
+        "back in the world"
+    );
+    let body = s.scene.body(MAN).expect("the man");
+    assert_eq!(body.position.cell.0, THERE_CELL);
+    assert!(
+        (body.position.frame.origin.x - (there.x + 1.5)).abs() < 0.01,
+        "{:?}",
+        body.position
+    );
+    assert!(
+        until(&mut s, 2.0, |s| s.scene.seen.body(MAN).is_some()),
+        "drawn"
+    );
 }
 
 /// Where a drawn body's chest shows in the window (the middle of its box, three quarters up),

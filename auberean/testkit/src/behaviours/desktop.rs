@@ -1201,6 +1201,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.others.a-body-created-again-comes-back-into-the-world",
+        says: "A body waiting out of the world in a cell not loaded, created again, stands where                its creation says at once, in the world when that cell is loaded and waiting in                that cell's list when it is not: a player already at the far end of a portal is                seen by one who follows without having to move.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-CREATED-AGAIN"),
+        station: "auberean-interface::dat::screens::a_body_created_again_where_the_player_went_stands_there",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.others.a-body-out-of-the-world-is-let-go-of-after-25-seconds",
         says: "A body that leaves the world (its cell no longer held) is to be destroyed 25 \
                seconds later, with what it holds; entering the world again first calls that off; \

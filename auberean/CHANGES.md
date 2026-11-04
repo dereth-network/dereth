@@ -97,6 +97,7 @@ not how it was done.
 - Jumps, landings and skids now make their sounds.
 - Fixed a weapon vanishing from the pack when swapped for another.
 - Portal space now has its sounds.
+- A player already through a portal now shows for the one who follows.
 
 ## 0.1.2 (2026-11-02)
 

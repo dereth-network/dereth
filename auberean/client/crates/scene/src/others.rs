@@ -341,6 +341,16 @@ impl OtherBody {
         }
     }
 
+    /// A creation says the body stands at `p`: there at once, and in the world again if it was
+    /// lost in a cell not loaded.
+    // D2-05660, D2-06368, D2-06268
+    pub fn put_by_creation(&mut self, p: Position) {
+        if self.away.take().is_some() {
+            self.body.in_world = true;
+        }
+        self.put(p);
+    }
+
     /// Put the body at `p` at once, with nothing left to follow and nothing to draw it moving
     /// from.
     // D2-06369
@@ -849,7 +859,7 @@ impl Others {
                         && c.position.cell != 0
                     {
                         let (at, _) = creation_place(o, &place);
-                        ob.put(at);
+                        ob.put_by_creation(at);
                         ob.stamps = (c.stamps[0], c.stamps[1]);
                     }
                 }
