@@ -2079,6 +2079,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.tooltip.a-tooltip-goes-with-the-window-its-owner-lies-in",
+        says: "A window hidden takes the tooltip of an element in it, the pointer unmoved.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TOOLTIP-HIDDEN-WINDOW"),
+        station: "auberean-ui::cpu::text::a_tooltip_goes_with_the_window_its_owner_lies_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.tooltip.a-tooltip-shows-once-the-pointer-rests-and-goes-when-it-leaves",
         says: "Once the pointer has rested a quarter of a second on an element that shows tooltips, \
                its tooltip template comes up in front of everything with the element's tip text, \

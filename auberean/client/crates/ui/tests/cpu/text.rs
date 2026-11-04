@@ -350,6 +350,64 @@ fn a_tooltip_shows_once_the_pointer_rests_and_goes_when_it_leaves() {
     );
 }
 
+/// A window hidden takes the tooltip of an element in it, the pointer unmoved.
+///
+/// Behaviour: ui.tooltip.a-tooltip-goes-with-the-window-its-owner-lies-in
+#[test]
+fn a_tooltip_goes_with_the_window_its_owner_lies_in() {
+    let owner = element(
+        "Owner",
+        "field",
+        [0, 0, 99, 99],
+        5,
+        vec![state(
+            "stateless",
+            0,
+            vec![
+                ("tooltips_on", V::Bool(true)),
+                ("tooltip_ID", V::Id(Token::of("Tip").0)),
+            ],
+            vec![],
+            vec![],
+        )],
+    );
+    let window = element(
+        "Window",
+        "field",
+        [100, 100, 199, 199],
+        5,
+        vec![state("stateless", 0, vec![], vec![], vec![owner])],
+    );
+    let tip = element(
+        "Tip",
+        "field",
+        [0, 0, 57, 27],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![("tooltip_text_ID", V::Id(Token::of("TipText").0))],
+            vec![],
+            vec![text("TipText", [4, 4, 53, 23], vec![])],
+        )],
+    );
+    let mut u = ui(vec![window, tip], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let o = u
+        .child_recursive(w, Token::of("Owner"))
+        .expect("in the window");
+    u.set_tooltip(o, "Hello");
+    u.use_time(0.0);
+    u.pointer_move(150, 150);
+    u.use_time(0.3);
+    assert!(u.tooltip().is_some(), "shown while the pointer rests");
+    u.set_visible(w, false);
+    assert!(u.tooltip().is_none(), "gone with the window");
+    u.use_time(5.0);
+    assert!(u.tooltip().is_none(), "and stays gone");
+}
+
 /// The test's records with string downloads: a reference to [`LACKING`] waits until the test
 /// says its tables came; an entry writes as `t<token>`, a literal as itself.
 struct Downloads {

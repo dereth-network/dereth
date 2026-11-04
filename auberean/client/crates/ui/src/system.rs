@@ -1101,7 +1101,7 @@ impl Ui {
         if let Some(n) = self.node_mut(h) {
             n.visible = v;
         }
-        self.changing_element_visibility(h);
+        self.changing_element_visibility();
         let after = parent_shown && v;
         if before == after || !self.node(h).is_some_and(|n| n.ready) {
             return;
@@ -1153,10 +1153,11 @@ impl Ui {
         }
     }
 
-    /// An element hidden while its tooltip would show drops the tooltip.
+    /// An element hidden while its tooltip would show drops the tooltip, also when it went with
+    /// an element it lies in.
     // D2-11205
-    fn changing_element_visibility(&mut self, h: Handle) {
-        if !self.shown(h) && self.mgr.tooltip_owner == Some(h) {
+    fn changing_element_visibility(&mut self) {
+        if self.mgr.tooltip_owner.is_some_and(|o| !self.shown(o)) {
             self.mgr.tooltip_owner = None;
             self.clear_tooltip();
         }
