@@ -2493,9 +2493,7 @@ impl Client {
         let auto = self
             .interface(function::GET_AUTO_TARGET, &[])
             .is_some_and(|(_, v)| v != 0);
-        let selected = self
-            .interface_long(function::GET_SELECTION)
-            .is_some_and(|(_, v)| v != 0);
+        let selected = self.has_something_selected().is_some_and(|v| v != 0);
         if auto && !selected {
             self.act(Action::Select { target: attacker });
         }

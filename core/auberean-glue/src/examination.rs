@@ -110,7 +110,6 @@ impl Node {
     }
 
     /// The 64-bit number of a 64-bit line, else 0.
-    // D2-12184
     #[must_use]
     pub fn long_int(&self) -> u64 {
         if self.kind == kind::LONG {

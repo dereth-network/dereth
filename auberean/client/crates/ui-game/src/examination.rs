@@ -514,6 +514,7 @@ impl Examination {
                 table,
                 Token::of("ID_Examination_Tab").raw(),
             )),
+            // D2-12184
             kind::LONG => Some(number(Value::Long(l.value as i64))),
             _ => None,
         }
