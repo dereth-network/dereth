@@ -496,6 +496,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.allegiance.a-stored-circle-has-an-end",
+        says: "A store edited by hand into a circle of oaths is walked once round: every member \
+               counted once, nothing hangs.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEGIANCE-CIRCLE"),
+        station: "yalain-testkit::cpu::play::allegiance::a_stored_circle_of_oaths_is_walked_once_round",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.allegiance.an-oath-sworn-and-taken",
         says: "Swearing to a player beside asks it; taking the oath tells the patron who swore and \
                its rank (a new monarch its allegiance's chat room), tells the vassal the chat \

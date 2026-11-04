@@ -43,7 +43,7 @@
 //! sent the whole allegiance, every member's node with its vassals and its patron, the tables of
 //! members by name and by id, and the file's name; the client writes the file.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use auberean_protocol::quality::VisualQuality;
 use auberean_protocol::types::ObjectStamp;
@@ -333,7 +333,19 @@ impl Allegiances {
         if !self.member(id) {
             return 0;
         }
-        let ranks: Vec<u32> = self.vassals(id).iter().map(|v| self.rank(*v)).collect();
+        self.rank_below(id, &mut BTreeSet::new())
+    }
+
+    /// A member's rank by its vassals' ranks, each counted once however a stored allegiance links
+    /// them.
+    fn rank_below(&self, id: u64, seen: &mut BTreeSet<u64>) -> u32 {
+        seen.insert(id);
+        let mut ranks = Vec::new();
+        for v in self.vassals(id) {
+            if seen.insert(v) {
+                ranks.push(self.rank_below(v, seen));
+            }
+        }
         let Some(&top) = ranks.iter().max() else {
             return 1;
         };
@@ -341,14 +353,19 @@ impl Allegiances {
         (if held >= 2 { top + 1 } else { top }).clamp(1, TOP_RANK)
     }
 
-    /// Every member under a member, itself first.
+    /// Every member under a member, itself first, each once however a stored allegiance links
+    /// them.
     #[must_use]
     pub fn tree(&self, id: u64) -> Vec<u64> {
         let mut out = vec![id];
+        let mut seen = BTreeSet::from([id]);
         let mut i = 0;
         while i < out.len() {
-            let v = self.vassals(out[i]);
-            out.extend(v);
+            for v in self.vassals(out[i]) {
+                if seen.insert(v) {
+                    out.push(v);
+                }
+            }
             i += 1;
         }
         out

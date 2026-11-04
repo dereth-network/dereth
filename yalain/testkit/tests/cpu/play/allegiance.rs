@@ -488,3 +488,27 @@ fn a_vassals_experience_is_pooled_and_paid_to_its_patron_up_to_the_levels_cap() 
     award(&mut h, vid, 1_000);
     assert_eq!(total(&h), 350);
 }
+
+/// A store edited by hand into a circle of oaths still has an end: every walk counts each member
+/// once, and none of them hangs.
+/// Behaviour: server.allegiance.a-stored-circle-has-an-end
+#[test]
+fn a_stored_circle_of_oaths_is_walked_once_round() {
+    use yalain_world::allegiance::{Allegiances, Node as Member};
+    let mut a = Allegiances::default();
+    for (id, patron) in [(1, 3), (2, 1), (3, 2), (4, 3)] {
+        a.nodes.insert(
+            id,
+            Member {
+                patron,
+                ..Member::default()
+            },
+        );
+    }
+    let mut members = a.tree(1);
+    members.sort_unstable();
+    assert_eq!(members, [1, 2, 3, 4]);
+    assert_eq!(a.size(1), 4);
+    assert!(a.rank(1) >= 1);
+    assert_eq!(a.monarch(1), None);
+}
