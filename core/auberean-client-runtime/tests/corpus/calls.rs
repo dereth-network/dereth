@@ -766,6 +766,40 @@ fn every_recorded_player_creation_puts_the_world_in_its_region() {
 /// The region record every world of the install starts from.
 const REGION_RECORD: u32 = 0x0F00_0000;
 
+/// The data names one region: its mapping has the one row and the portal file the one region
+/// record. A player's creation naming any other number changes nothing: the world stays in no
+/// region, or in the one it has, and the scene is not asked to take anything up.
+///
+/// Behaviour: model.world.a-region-the-data-does-not-name-is-not-taken-up
+#[test]
+fn a_region_the_data_does_not_name_is_not_taken_up() {
+    use auberean_client_runtime::world::REGION_MAPPING;
+    use auberean_protocol::login::PlayerObject;
+    let data = data().expect("the September 2013 install opens");
+    let mut c = client(&data);
+    {
+        let db = c.data_download().cache().database();
+        assert_eq!(db.data_id_by_enum(1, REGION_MAPPING), REGION_RECORD);
+        assert_eq!(db.data_id_by_enum(2, REGION_MAPPING), 0);
+    }
+    let portal = &data.files.files[0];
+    assert_eq!(portal.entries_in(0x0F00_0000, 0x0FFF_FFFF).count(), 1);
+    // Out of the world: taken at once however often it comes.
+    let enters = |c: &mut Client, region| {
+        c.take_message(
+            (3 << 56) | 0x2000_0000_0000_0000,
+            ServerMessage::PlayerObject(PlayerObject {
+                id: 0x2130_0000_0000_0001,
+                region,
+            }),
+        );
+        (c.world.region(), c.world.take_region_change())
+    };
+    assert_eq!(enters(&mut c, 2), (0, None));
+    assert_eq!(enters(&mut c, 1), (1, Some(REGION_RECORD)));
+    assert_eq!(enters(&mut c, 2), (1, None));
+}
+
 /// Records asked for, by type and id, each with when it was first asked.
 type Asks = std::collections::BTreeMap<(u32, u32), f64>;
 

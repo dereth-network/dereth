@@ -420,6 +420,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "model.world.a-region-the-data-does-not-name-is-not-taken-up",
+        says: "The installed data names one region. A player's creation naming another number \
+               changes nothing: the world stays as it was and the scene takes nothing up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-REGION-ONE-NAMED"),
+        station: "auberean-client-runtime::corpus::calls::a_region_the_data_does_not_name_is_not_taken_up",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "model.world.a-regions-number-puts-the-world-in-its-region",
         says: "A region's number puts the world in the region whose record the region mapping \
                names, taken up once; the same number again changes nothing, a number with no \
