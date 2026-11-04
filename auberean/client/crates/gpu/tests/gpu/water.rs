@@ -143,7 +143,7 @@ fn bar_over_water(builder: &mut SceneBuilder<'_>, ripples: bool) -> Frame {
     let light = builder.light(&camp, day.as_ref());
     let mut bar = bar;
     bar.anchor = Some(Vec3::new(0.0, 20.0, 2.0));
-    let mut frame = builder.parts_frame(&[], vec![bar], camera, light);
+    let mut frame = builder.parts_frame(&[], vec![bar], camera, light, None);
     frame.water = vec![water];
     frame.reflection = Some(Reflection {
         height: 0.0,

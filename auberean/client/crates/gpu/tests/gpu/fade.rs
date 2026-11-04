@@ -102,7 +102,7 @@ fn frame_of(objects: Vec<ObjectBatch>) -> Frame {
         far: 500.0,
         orthographic: None,
     };
-    let mut frame = builder.parts_frame(&[], Vec::new(), camera, DayLight::DEFAULT);
+    let mut frame = builder.parts_frame(&[], Vec::new(), camera, DayLight::DEFAULT, None);
     frame.objects = objects;
     frame
 }

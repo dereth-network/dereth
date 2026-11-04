@@ -109,7 +109,7 @@ fn frame_of(corners: [([f32; 3], [f32; 2]); 4], camera: Camera) -> Frame {
     quad.indices = Arc::new(vec![0, 1, 2, 1, 3, 2]);
     quad.transform = Mat4::IDENTITY;
     quad.layer = shown(&base.layer);
-    let mut frame = builder.parts_frame(&[], Vec::new(), camera, DayLight::DEFAULT);
+    let mut frame = builder.parts_frame(&[], Vec::new(), camera, DayLight::DEFAULT, None);
     frame.objects = vec![quad];
     frame
 }

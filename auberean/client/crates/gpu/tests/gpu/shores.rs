@@ -127,7 +127,7 @@ fn empty_frame(builder: &mut SceneBuilder<'_>) -> Frame {
     };
     let day = builder.day(&camp);
     let light = builder.light(&camp, day.as_ref());
-    builder.parts_frame(&[], Vec::new(), CAMERA, light)
+    builder.parts_frame(&[], Vec::new(), CAMERA, light, None)
 }
 
 /// Read the picture `texture` holds back as it stands, alpha and all.
