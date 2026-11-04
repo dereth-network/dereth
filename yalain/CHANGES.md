@@ -75,6 +75,7 @@ what they see, not how it was done.
 - Knives cut by their own yield and need the skill to use.
 - Refining now makes its material.
 - Dyeing now colors armor.
+- Fixed new items taking the ids of items players already held.
 
 ## 0.1.2 (2026-11-03)
 

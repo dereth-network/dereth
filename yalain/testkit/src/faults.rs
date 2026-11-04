@@ -128,6 +128,11 @@ impl Store for FaultStore {
         self.inner.next_character_number()
     }
 
+    fn reserve_thing_numbers(&mut self, n: u64) -> StoreResult<u64> {
+        self.write()?;
+        self.inner.reserve_thing_numbers(n)
+    }
+
     fn insert_character(&mut self, c: &Character) -> StoreResult<()> {
         self.write()?;
         self.inner.insert_character(c)

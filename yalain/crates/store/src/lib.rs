@@ -285,6 +285,13 @@ pub trait Store {
     /// The database failed.
     fn next_character_number(&mut self) -> StoreResult<u64>;
 
+    /// Set aside `n` numbers for the world's things, never to be given again: the first of them,
+    /// from 1. Kept before it returns.
+    ///
+    /// # Errors
+    /// The database failed.
+    fn reserve_thing_numbers(&mut self, n: u64) -> StoreResult<u64>;
+
     /// Keep a new character.
     ///
     /// # Errors

@@ -257,6 +257,15 @@ pub fn put<S: Store>(s: &mut Server<S>, character: u64, state: WorldState) -> St
     write_out(s)
 }
 
+/// Set more ids aside for the world's things when its block is running low.
+fn reserve_ids<S: Store>(s: &mut Server<S>) -> StoreResult<()> {
+    if s.things.low() {
+        let first = s.store.reserve_thing_numbers(crate::things::ID_BLOCK)?;
+        s.things.add_block(first, crate::things::ID_BLOCK);
+    }
+    Ok(())
+}
+
 /// Send what is held to the store, as one transaction. Held still if it failed.
 ///
 /// # Errors
@@ -285,7 +294,7 @@ pub(crate) fn end_of_pass<S: Store>(s: &mut Server<S>, net: &mut ServerNet, cloc
     if s.saves.failing.is_some_and(|f| now.0 < f.next_try.0) {
         return;
     }
-    match write_out(s) {
+    match reserve_ids(s).and_then(|()| write_out(s)) {
         Ok(()) => {
             if let Some(f) = s.saves.failing.take() {
                 tracing::warn!(

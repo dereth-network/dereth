@@ -629,8 +629,14 @@ pub enum Timer {
 
 impl<S: Store> Server<S> {
     #[must_use]
-    pub fn new(cfg: ServerConfig, store: S, rules: CharGenRules) -> Self {
+    pub fn new(cfg: ServerConfig, mut store: S, rules: CharGenRules) -> Self {
         let cfg_seed = cfg.seed;
+        // The first ids this run gives, set aside before any is given.
+        let mut things = things::Things::default();
+        match store.reserve_thing_numbers(things::ID_BLOCK) {
+            Ok(first) => things.add_block(first, things::ID_BLOCK),
+            Err(e) => tracing::error!("no ids could be set aside for the world's things: {e}"),
+        }
         Self {
             cfg,
             store,
@@ -668,7 +674,7 @@ impl<S: Store> Server<S> {
             talkers: None,
             greeted: HashMap::new(),
             chatter: HashMap::new(),
-            things: things::Things::starting_at(cfg_seed),
+            things,
             camps: Vec::new(),
             ground: None,
             walls: None,

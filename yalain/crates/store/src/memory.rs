@@ -12,6 +12,7 @@ pub struct MemoryStore {
     accounts: Vec<Account>,
     characters: Vec<Character>,
     next_character: u64,
+    things_reserved: u64,
     worlds: BTreeMap<u64, WorldState>,
     records: BTreeMap<String, Vec<u8>>,
     network: BTreeSet<u64>,
@@ -173,6 +174,12 @@ impl Store for MemoryStore {
     fn next_character_number(&mut self) -> StoreResult<u64> {
         self.next_character += 1;
         Ok(self.next_character)
+    }
+
+    fn reserve_thing_numbers(&mut self, n: u64) -> StoreResult<u64> {
+        let first = self.things_reserved + 1;
+        self.things_reserved += n;
+        Ok(first)
     }
 
     fn insert_character(&mut self, c: &Character) -> StoreResult<()> {

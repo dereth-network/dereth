@@ -6,6 +6,7 @@ mod admin_calls;
 mod admins;
 mod answers;
 mod characters;
+mod item_ids;
 mod moderation;
 mod reload;
 mod reload_camps;

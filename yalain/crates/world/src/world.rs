@@ -586,6 +586,7 @@ pub fn enter<S: Store>(
             }
         }
     }
+    let clashed = crate::inventory::fresh_ids_for_clashes(&mut s.things, &mut p.play, &c.name);
     // Whatever it wielded when it left, it still wields; the pack holds the rest.
     crate::inventory::close_up(&mut p.play.items);
     let mut pack: Vec<&crate::state::Held> =
@@ -688,6 +689,9 @@ pub fn enter<S: Store>(
     }
     if new_character {
         crate::inventory::give(s, net, world, crate::inventory::GUIDE_BOOK, 1);
+    }
+    if clashed {
+        keep_player(s, world);
     }
     crate::market::enter(s, net, world);
     presence::refresh(s, net, world);

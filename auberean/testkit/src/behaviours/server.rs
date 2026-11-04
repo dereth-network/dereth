@@ -3540,6 +3540,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.a-thing-never-takes-anothers-place",
+        says: "A thing never takes the place of one the world has: an item a character \
+               comes back with under an id the world already has is given a fresh id, each \
+               holder keeping its own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-IDS-CLASH"),
+        station: "yalain-testkit::cpu::operator::item_ids::two_characters_kept_with_one_id_each_keep_their_own_item",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.an-item-a-camp-keeps-lies-again-after-its-taking",
         says: "A camp whose template is an item keeps it lying at its spot: once it is taken, a new \
                one lies there when the camp's period is over (quest items lying alone 20 s after \
@@ -3598,6 +3608,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-INSCRIBE"),
         station: "yalain-testkit::cpu::play::own_requests::a_weapon_takes_an_inscription_and_a_mote_is_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.item-ids-never-given-twice",
+        says: "An id an item holds is never given again: the world's ids come in blocks the \
+               store sets aside before they are given, above every range a run before them \
+               used, whatever a character coming back holds.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-IDS"),
+        station: "yalain-testkit::cpu::operator::item_ids::a_restart_never_gives_a_new_thing_an_id_a_character_away_still_holds",
         tier: Tier::Cpu,
     },
     behaviour! {

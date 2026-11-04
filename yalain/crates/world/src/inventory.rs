@@ -1738,6 +1738,35 @@ pub fn reset_contents<S: Store>(s: &Server<S>, world: ConnId) -> ServerMessage {
     .expect("contents pack")
 }
 
+/// Items a character comes back with whose ids the world already has (saves made when an id could be
+/// given twice) are given fresh ones, so that each holder keeps its own. Returns whether any was.
+pub(crate) fn fresh_ids_for_clashes(
+    things: &mut crate::things::Things,
+    play: &mut crate::state::PlayState,
+    name: &str,
+) -> bool {
+    let mut any = false;
+    let mut seen = std::collections::HashSet::new();
+    for h in &mut play.items {
+        if seen.insert(h.id) && things.get(h.id).is_none() {
+            continue;
+        }
+        let new = things.new_id();
+        tracing::warn!(
+            "{name} came back with an item the world already has: {:#x} is now {new:#x}",
+            h.id
+        );
+        if let Some(k) = play.item_states.iter().find(|k| k.id == h.id).cloned() {
+            play.item_states
+                .push(crate::state::ItemState { id: new, ..k });
+        }
+        h.id = new;
+        seen.insert(new);
+        any = true;
+    }
+    any
+}
+
 /// The items a player holds become things again as it enters, in its pack, each with an instance
 /// stamp one more than when it was last kept. Returns them in slot order.
 pub fn enter<S: Store>(s: &mut Server<S>, world: ConnId) -> Vec<u64> {

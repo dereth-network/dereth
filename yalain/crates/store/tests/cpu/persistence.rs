@@ -1009,3 +1009,22 @@ fn keeping_several_at_once_is_all_or_nothing() {
     assert_eq!(s.world_record("r").expect("reads"), Some(vec![1]));
     assert!(s.world_state(99).expect("reads").is_none());
 }
+
+/// Numbers set aside for the world's things are never set aside again, the file reopened or not.
+/// Behaviour: server.inventory.item-ids-never-given-twice
+#[test]
+fn numbers_set_aside_for_things_outlive_reopening_the_database() {
+    let file = TempFile(std::env::temp_dir().join(format!(
+        "yalain-store-thing-numbers-{}.db",
+        std::process::id()
+    )));
+    let mut s = SqliteStore::open(&file.0).expect("opens");
+    assert_eq!(s.reserve_thing_numbers(100), Ok(1));
+    assert_eq!(s.reserve_thing_numbers(10), Ok(101));
+    drop(s);
+    let mut s = SqliteStore::open(&file.0).expect("opens");
+    assert_eq!(s.reserve_thing_numbers(1), Ok(111));
+    let mut m = MemoryStore::default();
+    assert_eq!(m.reserve_thing_numbers(100), Ok(1));
+    assert_eq!(m.reserve_thing_numbers(1), Ok(101));
+}

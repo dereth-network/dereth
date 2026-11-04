@@ -770,6 +770,22 @@ impl Store for SqliteStore {
             .map_err(err)
     }
 
+    fn reserve_thing_numbers(&mut self, n: u64) -> StoreResult<u64> {
+        let tx = self.db.transaction().map_err(err)?;
+        tx.execute(
+            "INSERT INTO counter (name, value) VALUES ('thing', ?1) ON CONFLICT (name) DO UPDATE SET value = value + ?1",
+            [n as i64],
+        )
+        .map_err(err)?;
+        let top: i64 = tx
+            .query_row("SELECT value FROM counter WHERE name = 'thing'", [], |r| {
+                r.get(0)
+            })
+            .map_err(err)?;
+        tx.commit().map_err(err)?;
+        Ok(top as u64 - n + 1)
+    }
+
     fn next_character_number(&mut self) -> StoreResult<u64> {
         let tx = self.db.transaction().map_err(err)?;
         tx.execute(
