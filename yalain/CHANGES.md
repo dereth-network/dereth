@@ -45,6 +45,7 @@ what they see, not how it was done.
 - Finishing a vault now pays its experience as you leave.
 - Tells to a linked character who isn't playing can reach their Discord, from this world too.
 - Friends on other worlds no longer show as leaving when you log in.
+- Linked characters now list their person's friends.
 
 ## 0.1.2 (2026-11-03)
 

@@ -16,7 +16,6 @@ use yalain_federation::{
 };
 use yalain_store::Store;
 
-use crate::names::{read_entry, Target};
 use crate::{secs, Service};
 
 /// The commands, one line each, as `@dn help` shows them.
@@ -91,7 +90,7 @@ impl Service {
                     LinkState::Greeting => "connecting",
                     LinkState::Down => "not connected",
                 };
-                let remote = self.remote_count(character);
+                let remote = f.remote_of(&*self, name).len();
                 let friends = match remote {
                     0 => "You have no friends on other worlds.".to_owned(),
                     1 => "You have 1 friend on other worlds.".to_owned(),
@@ -134,8 +133,8 @@ impl Service {
                     return vec!["You are not on the Dereth Network.".to_owned()];
                 }
                 let linked = f.is_linked(name);
-                let shown: Vec<Address> = self
-                    .remote_friends(name)
+                let shown: Vec<Address> = f
+                    .remote_of(&*self, name)
                     .into_iter()
                     .filter(|a| f.shown(name, a) == Some(true))
                     .collect();
@@ -214,7 +213,7 @@ impl Service {
         words: &[&str],
     ) -> Vec<String> {
         let Some((first, named)) = words.split_first() else {
-            let listed = self.remote_friends(name);
+            let listed = f.remote_of(&*self, name);
             if listed.is_empty() {
                 return vec![
                     "You have no friends on other worlds. Add one with @dn friends add Name@world."
@@ -286,16 +285,6 @@ impl Service {
             Ok(()) => Vec::new(),
             Err(why) => vec![why.to_owned()],
         }
-    }
-
-    /// How many friends on other worlds a character lists.
-    fn remote_count(&self, character: u64) -> usize {
-        self.lists.get(&character).map_or(0, |l| {
-            l.friends
-                .iter()
-                .filter(|e| matches!(read_entry(e), Target::Remote(_)))
-                .count()
-        })
     }
 }
 

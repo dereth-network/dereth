@@ -2,9 +2,9 @@
 //!
 //! | request | answered |
 //! |---|---|
-//! | `GetFriendsList` | every friend with its mode |
-//! | `FriendAdd` | this world's: the character must exist; another world's: the character and the world on the network. Kept (at most [`MAX_LISTED`]); the friend's state as an event first, then done |
-//! | `FriendDelete` | forgotten; not in the list says so |
+//! | `GetFriendsList` | every friend with its mode; held a moment for a character's first person view |
+//! | `FriendAdd` | this world's: the character must exist; another world's: the character and the world on the network. Kept (at most [`MAX_LISTED`]), or, for a linked character, listed by the hub; the friend's state as an event first, then done |
+//! | `FriendDelete` | forgotten, or for a person friend's row, its person friend removed at the hub; not in the list says so |
 //! | `GetIgnoredList` | every ignored name |
 //! | `IgnoredAdd`, `IgnoredDelete` | kept (at most [`MAX_LISTED`]) or forgotten |
 //! | `SetLoc` | the character's state; its friends in the world are told its new mode, when it changed |
@@ -23,7 +23,7 @@ use yalain_store::{NetworkList, Store};
 
 use crate::names::Target;
 use crate::{
-    secs, Adding, Service, StreamId, Waiting, ADD_WAIT, ALREADY_IN_LIST, FRIENDS_FULL,
+    secs, Adding, ListWait, Service, StreamId, Waiting, ADD_WAIT, ALREADY_IN_LIST, FRIENDS_FULL,
     FRIEND_REFUSED, IGNORED_FULL, MAX_LISTED, NOT_IN_LIST,
 };
 
@@ -72,8 +72,18 @@ impl Service {
         let fed_ref = fed.as_deref();
         match request {
             Request::GetFriendsList => {
-                let friends = self.friends_of(&h.name, fed_ref);
-                self.answer(stream, cx, Hr::OK, Answer::GetFriendsList { friends });
+                let due = !self.hidden.contains(&h.character)
+                    && fed_ref.is_some_and(|f| f.view_due(&h.name));
+                if due {
+                    self.lists_waiting.push(ListWait {
+                        stream,
+                        cx,
+                        name: h.name.to_lowercase(),
+                        until: self.now + ADD_WAIT,
+                    });
+                } else {
+                    self.give_list(stream, cx, &h.name, fed);
+                }
             }
             Request::GetIgnoredList => {
                 let ignored = self
@@ -178,8 +188,28 @@ impl Service {
         character: u64,
         user: &str,
         store: &mut impl Store,
-        fed: Option<&mut Federation>,
+        mut fed: Option<&mut Federation>,
     ) -> Option<Hr> {
+        let person_add = self.person_add(user, owner, fed.as_deref());
+        if let (Some(a), Some(f)) = (person_add, fed.as_deref_mut()) {
+            return match self.ask_person_friend(character, owner, &a, f) {
+                Ok(()) => {
+                    let key = (owner.to_lowercase(), a.key());
+                    self.assumed_offline.remove(&key);
+                    self.adding.insert(
+                        key,
+                        Adding {
+                            stream,
+                            cx,
+                            friend: a,
+                            until: self.now + ADD_WAIT,
+                        },
+                    );
+                    None
+                }
+                Err(hr) => Some(hr),
+            };
+        }
         let (entry, remote) = match self.list_friend(character, owner, user, store, fed.as_deref())
         {
             Ok(listed) => listed,
@@ -188,7 +218,6 @@ impl Service {
         // The friend's state first, then the answer, as the original service did. Another
         // world's friend is shown once, with the state its world gives: the client prints a line
         // for each state, so a guess followed by the truth would read as a false departure.
-        let mut fed = fed;
         if let (Some(a), Some(f)) = (&remote, fed.as_deref_mut()) {
             if f.friend_added(self, owner, a) {
                 let key = (owner.to_lowercase(), a.key());
@@ -208,6 +237,45 @@ impl Service {
         let (user, mode) = self.status_of(owner, &entry, fed.as_deref());
         self.event(stream, Event::FriendStat { user, mode });
         Some(Hr::OK)
+    }
+
+    /// The friend's address, when adding `user` is the hub's to do: another world's character, for
+    /// one whose friends are its person's.
+    fn person_add(&self, user: &str, owner: &str, fed: Option<&Federation>) -> Option<Address> {
+        match self.target(user) {
+            Target::Remote(a) if fed.is_some_and(|f| f.friends_are_persons(owner)) => Some(a),
+            _ => None,
+        }
+    }
+
+    /// Asks the hub to list a friend for a linked character. Refused here, the code to answer with;
+    /// the character has been told why if its client would not say.
+    fn ask_person_friend(
+        &mut self,
+        character: u64,
+        owner: &str,
+        friend: &Address,
+        f: &mut Federation,
+    ) -> Result<(), Hr> {
+        if self.lists_friend(character, owner, friend, f) {
+            return Err(ALREADY_IN_LIST);
+        }
+        if self.count(character, NetworkList::Friends) + f.person_friends(owner).len() >= MAX_LISTED
+        {
+            self.line(character, FRIENDS_FULL);
+            return Err(FRIEND_REFUSED);
+        }
+        f.befriend(secs(self.now), character, owner, friend)
+            .map_err(|why| {
+                self.line(character, why);
+                FRIEND_REFUSED
+            })
+    }
+
+    /// Whether a character lists a friend on another world, kept or through a person friend.
+    fn lists_friend(&self, character: u64, owner: &str, friend: &Address, f: &Federation) -> bool {
+        self.listed(character, NetworkList::Friends, &friend.to_string())
+            || f.person_handle(owner, friend).is_some()
     }
 
     /// Keeps a friend on a character's list, if it may be: the entry kept, and the friend's address
@@ -246,7 +314,8 @@ impl Service {
         if self.listed(character, NetworkList::Friends, &entry) {
             return Err(ALREADY_IN_LIST);
         }
-        if self.count(character, NetworkList::Friends) >= MAX_LISTED {
+        let persons = fed.map_or(0, |f| f.person_friends(owner).len());
+        if self.count(character, NetworkList::Friends) + persons >= MAX_LISTED {
             self.line(character, FRIENDS_FULL);
             return Err(FRIEND_REFUSED);
         }
@@ -258,7 +327,8 @@ impl Service {
     }
 
     /// `@dn friends add`: as the client's own add, with no request to answer. A friend on another
-    /// world being watched is shown when its world answers.
+    /// world being watched is shown when its world answers. For a linked character the hub lists the
+    /// friend, and the line comes with its answer.
     pub(crate) fn friend_said(
         &mut self,
         character: u64,
@@ -267,6 +337,14 @@ impl Service {
         store: &mut impl Store,
         f: &mut Federation,
     ) -> Vec<String> {
+        if let Some(a) = self.person_add(user, owner, Some(f)) {
+            return match self.ask_person_friend(character, owner, &a, f) {
+                Err(ALREADY_IN_LIST) => {
+                    vec!["That character is already in your friends list".to_owned()]
+                }
+                _ => Vec::new(),
+            };
+        }
         let (entry, remote) = match self.list_friend(character, owner, user, store, Some(f)) {
             Ok(listed) => listed,
             Err(Hr::NO_SUCH_USER) => return vec![Self::no_such_friend(self.target(user))],
@@ -389,6 +467,17 @@ impl Service {
             Target::Local(n) => (n, None),
             Target::Remote(a) => (a.to_string(), Some(a)),
         };
+        let mut fed = fed;
+        if let (Some(a), Some(f)) = (&remote, fed.as_deref_mut()) {
+            if f.person_handle(owner, a).is_some() {
+                f.unfriend_person(secs(self.now), character, owner, a);
+                return Hr::OK;
+            }
+            // A row that went in play: the client still shows it, and done takes it off the page.
+            if !self.listed(character, NetworkList::Friends, &entry) && f.take_gone_row(owner, a) {
+                return Hr::OK;
+            }
+        }
         if !self.listed(character, NetworkList::Friends, &entry) {
             return NOT_IN_LIST;
         }

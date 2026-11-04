@@ -1,12 +1,13 @@
 //! The link's half asks the service who is present and what each lists, and hands it what other
 //! worlds send.
 
-use auberean_friends::{Event, Mode};
+use auberean_friends::{Answer, Event, Mode};
 use dereth_network_protocol::Address;
 use yalain_federation::{Friends, Present, TellEnd, TellId};
+use yalain_store::NetworkList;
 
 use crate::names::{read_entry, world_entry, Target};
-use crate::Service;
+use crate::{KeptChange, Service, FRIEND_REFUSED};
 
 impl Friends for Service {
     // A hidden character is not present to the network: it is shown online to nobody, told nothing
@@ -122,5 +123,64 @@ impl Friends for Service {
 
     fn show_line(&mut self, character: u64, line: &str) {
         self.line(character, line);
+    }
+
+    fn kept_count(&self, character: &str) -> usize {
+        self.id_of(character)
+            .map_or(0, |id| self.count(id, NetworkList::Friends))
+    }
+
+    fn release_friend(&mut self, character: &str, friend: &Address) {
+        self.keep_in_memory(character, friend, false);
+    }
+
+    fn keep_friend(&mut self, character: &str, friend: &Address) {
+        self.keep_in_memory(character, friend, true);
+    }
+
+    fn befriend_answered(&mut self, character: &str, friend: &Address, refused: bool) -> bool {
+        let key = (character.to_lowercase(), friend.key());
+        if !self.adding.contains_key(&key) {
+            return false;
+        }
+        if refused {
+            if let Some(a) = self.adding.remove(&key) {
+                self.answer(a.stream, a.cx, FRIEND_REFUSED, Answer::FriendAdd);
+            }
+        }
+        true
+    }
+
+    fn person_view_came(&mut self, character: &str) {
+        let name = character.to_lowercase();
+        let now = self.now;
+        for l in self.lists_waiting.iter_mut().filter(|l| l.name == name) {
+            l.until = now;
+        }
+    }
+}
+
+impl Service {
+    /// Keeps a friend on another world on a character's list, or takes it off, here now and in the
+    /// store at the next pass: the link's half has no store to hand.
+    fn keep_in_memory(&mut self, character: &str, friend: &Address, on: bool) {
+        let Some(id) = self.id_of(character) else {
+            return;
+        };
+        let entry = friend.to_string();
+        let key = entry.to_lowercase();
+        let l = self.lists.entry(id).or_default();
+        if on {
+            if !l.friends.iter().any(|e| e.to_lowercase() == key) {
+                l.friends.push(entry.clone());
+            }
+        } else {
+            l.friends.retain(|e| e.to_lowercase() != key);
+        }
+        self.kept_changes.push(KeptChange {
+            character: id,
+            entry,
+            on,
+        });
     }
 }

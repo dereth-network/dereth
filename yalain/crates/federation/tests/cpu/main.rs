@@ -37,6 +37,12 @@ pub struct Service {
     pub in_world: Vec<String>,
     /// The network's lines shown, with the character each was for.
     pub lines: Vec<(u64, String)>,
+    /// The hub's answers to linked characters' adds: the friend, and whether it refused.
+    pub adds_answered: Vec<(Address, bool)>,
+    /// A client's own add waits on the hub's answer.
+    pub add_waits: bool,
+    /// The characters a person view came for.
+    pub views: Vec<String>,
 }
 
 impl Friends for Service {
@@ -88,6 +94,34 @@ impl Friends for Service {
 
     fn show_line(&mut self, character: u64, line: &str) {
         self.lines.push((character, line.to_owned()));
+    }
+
+    fn kept_count(&self, character: &str) -> usize {
+        self.lists
+            .get(&character.to_lowercase())
+            .map_or(0, Vec::len)
+    }
+
+    fn release_friend(&mut self, character: &str, friend: &Address) {
+        if let Some(l) = self.lists.get_mut(&character.to_lowercase()) {
+            l.retain(|f| !f.same(friend));
+        }
+    }
+
+    fn keep_friend(&mut self, character: &str, friend: &Address) {
+        self.lists
+            .entry(character.to_lowercase())
+            .or_default()
+            .push(friend.clone());
+    }
+
+    fn befriend_answered(&mut self, _: &str, friend: &Address, refused: bool) -> bool {
+        self.adds_answered.push((friend.clone(), refused));
+        self.add_waits
+    }
+
+    fn person_view_came(&mut self, character: &str) {
+        self.views.push(character.to_owned());
     }
 }
 

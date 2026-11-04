@@ -45,7 +45,7 @@ its players the friends service within the world.
   | `@dn`, `@dn status` | any player | the character's network status |
   | `@dn on`, `@dn off` | any player | on or off the network, at once |
   | `@dn friends` | any player | its friends on other worlds and their state |
-  | `@dn friends add <Name@world>`, `@dn friends remove <Name@world>` | any player | what the client's own add and delete do, with no request to answer: the world says so itself, and the client's friends page shows the change when it next asks for its list. For a linked character too: the friend stays its own, not a person friend |
+  | `@dn friends add <Name@world>`, `@dn friends remove <Name@world>` | any player | what the client's own add and delete do, with no request to answer: the world says so itself, and the client's friends page shows the change when it next asks for its list. For a linked character, a person friend (section 8) |
   | `@dn squelch <world>`, `@dn unsquelch <world>` | any player | a whole world, at most 50 ([03](03-world-behaviour.md) section 5). Kept beside the character's ignored names; the client's own squelch list does not show it |
   | `@dn channel ...` | any player | channels ([03](03-world-behaviour.md) section 4). A channel is a tell address: `/tell oldguard@channel, text` is the friends service's tell, a line from one reaches the client as a tell from that address, and squelching the address leaves the channel |
   | `@dn link`, `@dn unlink` | any player | the one-time link to the player's Discord account, and undoing it ([03](03-world-behaviour.md) section 9) |
@@ -181,7 +181,7 @@ and the chat line both read right. Offline is `0`. A friend on another world is 
 | `tell` to its character | shown as `UTellEv User=<the teller's address>`, after the text rules (section 6), when the character is present, on the network, ignores neither the teller nor the teller's world, the operator blocks neither, and the paces of [03](03-world-behaviour.md) section 8 allow. Answered at once: `delivered`; `afk` when the character is away or not to be disturbed, with the default text *Away from keyboard.* or *Not to be disturbed.*; `squelched` when ignored; `rate_limited` past a pace; `offline` for everything else, alike |
 | `tell.result` | answers the waiting `SendToUserEx` |
 | `person.result` | shown to the character that asked, if it is in the world, by [03](03-world-behaviour.md) section 9; a world's own quiet request shows nothing |
-| `person.friends` | says whether the character is linked: *This character is now linked to a Discord account.* when that changes while it is in the world. A view saying a character that never asked for its link is linked is answered with a quiet `person {op: "unlink"}`. The view's person friends are not listed: a linked character's friends stay the ones the world keeps for it, and none is carried to the hub. The view is watched while a character is present, so a character with no friends stream is not told, and its `@dn` does not say it is linked |
+| `person.friends` | says whether the character is linked: *This character is now linked to a Discord account.* when that changes while it is in the world. A view saying a character that never asked for its link is linked is answered with a quiet `person {op: "unlink"}`. The view's person friends are listed as section 8 says. The view is watched while a character is present, so a character with no friends stream is not told, and its `@dn` does not say it is linked |
 | `reach` | answered as [03](03-world-behaviour.md) section 1, *A person's Discord*, has it. For a teller of this world, by the squelch list the world keeps for the character, which it holds whether or not the character is in the world |
 | `channel.result` | shown to the character that asked |
 | `channel.invite` | shown as a tell from the inviter would be, by [03](03-world-behaviour.md) section 4 |
@@ -319,3 +319,46 @@ names.
 **The operator.** `@dn admin global` and its answers are [03](03-world-behaviour.md) section 6's, the
 room as the table above names it, with *Say @dn* for *Type @dn*. `dn` at the console and `@dn admin
 block` in game add *The Global room is carried in General. Rooms mirrored into Discord: none.*
+
+## 8. The friends of a linked character
+
+[03](03-world-behaviour.md) section 9 has the rules. This section says what differs on the final
+client, whose friends page can't be told of a row in play.
+
+**What the client does with what it is sent.**
+
+| the world sends | the chat window | the friends page |
+|---|---|---|
+| `FriendStat` for a name it holds | a line for the state | the row moves |
+| `FriendStat` for a name it doesn't hold | the same line | no row |
+| `FStart`, in play or after a reconnect | *Your friends:* | unchanged |
+| `GetFriendsListRes`, the only thing that rebuilds it | a line per friend, if the player asked | every row anew |
+| `FriendDeleteRes 0x0` | *`<name>` removed from your friends list.* | that row goes |
+
+The client asks for the list as the character enters, at `/friend status`, and after any `FriendAdd`
+answered `0x0`. So:
+
+- **Entering.** The list the client asks for as a character that asked for its link enters waits for
+  its first person view, at most 3 seconds, so that the page holds its person's friends from the start.
+- **A row a view adds in play** comes with the next list. The first state of its friend reaches the
+  chat window at once.
+- **A row a view takes away in play** stays on the page until the next list, shown offline, with the
+  client's line for that if it was shown online. Removing it there answers `FriendDelete` with `0x0`,
+  which takes it off the page, and the world has nothing more to do.
+- **`FriendAdd`** from a linked character, of another world's character, goes to the hub as `person
+  {op: "befriend"}`, and nothing is kept on the world. It is answered once the view names the friend
+  and its world says its state, one `FriendStat` and then `FriendAddRes 0x0`; with no such view within
+  3 seconds, as offline. The client then asks for the list, which holds the row. A refusal is
+  `0x80004005` with the world's line. With the link down, the character keeps the friend, as a
+  character nobody links does, and it is carried over at its next arrival.
+- **`@dn friends add`** from a linked character asks the same, and is told as the hub answers: *Bob@coldeve
+  has been added to your friends list.*, or the refusal's line.
+- **`FriendDelete`** of a row a person friend listed removes that person friend (`unfriend` by its
+  handle), which takes its other rows with the next view.
+- **At most 100 rows**, what the world keeps and what the view lists together. `/friend add` itself
+  refuses past 20 in the client's own count, as it does for any friends list; the page's Add and
+  `@dn friends add` don't.
+- **The line.** *Bob@coldeve is online as Bob@dreamweave.* follows the client's own line for that
+  friend, which can't be left out.
+- **What goes in the world's rows.** Only the characters of other worlds: a character of this world
+  is the character's own to add, by its name, kept as ever.

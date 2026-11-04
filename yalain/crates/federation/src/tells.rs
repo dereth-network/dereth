@@ -97,10 +97,7 @@ impl Federation {
             return None;
         }
         let on = self.on.get(&name.to_lowercase())?;
-        if on.name.eq_ignore_ascii_case(teller)
-            || !self.asked_link.contains(&on.id)
-            || friends.in_world(&on.name)
-        {
+        if !self.asked_link.contains(&on.id) || friends.in_world(&on.name) {
             return None;
         }
         self.own_address(&on.name)
@@ -157,7 +154,7 @@ impl Federation {
         }
         // Whether the teller lists the recipient: worlds of the first version let a character
         // take tells from its friends alone, and read it.
-        let friend = friends.remote_friends(&name).iter().any(|f| f.same(to));
+        let friend = self.remote_of(&*friends, &name).iter().any(|f| f.same(to));
         let id = self.fresh_id('t');
         self.pending.insert(
             id.clone(),

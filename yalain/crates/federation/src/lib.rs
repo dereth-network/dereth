@@ -16,8 +16,7 @@
 //! **Specified in** `docs/network/02-link-protocol.md` (the messages, the order of a link, who
 //! answers what, the rate limits), `03-world-behaviour.md` (the rules a world keeps: sections 1, 2,
 //! 3, 4, 5, 7, 8, 9 and 10) and `04-text-rules.md`. It carries `hello`, `welcome`, `world`, `watch`,
-//! `presence`, `tell`, `tell.result`, `error`, the channels', the persons' (all but a person's
-//! friends), `reach`, the directory's `listing`, `listing.result` and `listing.off`, and the rooms'
+//! `presence`, `tell`, `tell.result`, `error`, the channels', the persons', `reach`, the directory's `listing`, `listing.result` and `listing.off`, and the rooms'
 //! `rooms`, `rooms.global`, `room.join`, `room.say`, `room.line`, `room.result`, `say` and
 //! `say.result`.
 //!
@@ -41,8 +40,8 @@
 //!   the world composes and hands in at login, while it plays and at logout; it is taken out when
 //!   it goes off the network.
 //! - **Persons** (`persons`): `@dn link` and `@dn unlink` ask the hub on a character's behalf, the
-//!   person view says whether it is linked, and `reach` lets a tell to it, away, go on to its
-//!   person's Discord.
+//!   person view says whether it is linked and whom its person friends list, and `reach` lets a tell
+//!   to it, away, go on to its person's Discord.
 //! - **Channels** (`channels`): `@dn channel ...` asks the hub, and an invitation or a channel's
 //!   line is shown as a tell would be.
 //! - **Rooms** (`rooms`): the Global room in the chat room the hub, or else the world's settings,
@@ -217,6 +216,24 @@ pub trait Friends {
     /// stream or not.
     fn in_world(&self, name: &str) -> bool;
 
+    /// How many names a character keeps on its friends list, of any world.
+    fn kept_count(&self, character: &str) -> usize;
+
+    /// A friend a character kept is its person's now: it keeps it no longer. The link's half lists
+    /// it from here on, and nothing changes for the character.
+    fn release_friend(&mut self, character: &str, friend: &Address);
+
+    /// A friend the hub handed back to a character that was unlinked: it keeps it from now on.
+    fn keep_friend(&mut self, character: &str, friend: &Address);
+
+    /// The hub answered a linked character's add. Its client's own add, when one waits on it, is
+    /// answered if the hub `refused` it; true when one waited.
+    fn befriend_answered(&mut self, character: &str, friend: &Address, refused: bool) -> bool;
+
+    /// A person view came for a character: what its person friends list is known, so what waited
+    /// for it may go.
+    fn person_view_came(&mut self, character: &str);
+
     /// Show a character of this world one of the network's lines, if it is in the world.
     fn show_line(&mut self, character: u64, line: &str);
 }
@@ -335,10 +352,12 @@ struct Ask {
 /// What a request asks, which decides what its answer shows.
 #[derive(Debug, Clone)]
 enum AskKind {
-    /// A person request. Quiet: the world's own, whose answer shows nothing.
+    /// A person request. Quiet: the world's own, whose answer shows nothing. With the character's
+    /// name and the friend it names, when it names one.
     Person {
         op: PersonOp,
         quiet: bool,
+        target: Option<(String, Address)>,
     },
     Channel {
         op: ChannelOp,
@@ -413,6 +432,11 @@ pub struct Federation {
     /// What the person view last said of each present character on the network, by its name in
     /// small letters: whether it is linked.
     linked: HashMap<String, bool>,
+    /// What each present character's person friends list, by its name in small letters: never kept.
+    person_rows: HashMap<String, Vec<persons::PersonRow>>,
+    /// The friends listed through a person friend that went in play, by the character's name in small
+    /// letters: its client may show each until it next asks for its friends.
+    gone_rows: HashMap<String, BTreeSet<String>>,
     /// Person view requests: sent after the tells and answers, only while the link is up (a welcome
     /// sends them again).
     person_watches: VecDeque<Message>,
@@ -479,6 +503,8 @@ impl Federation {
             asks: HashMap::new(),
             asked_link: BTreeSet::new(),
             linked: HashMap::new(),
+            person_rows: HashMap::new(),
+            gone_rows: HashMap::new(),
             person_watches: VecDeque::new(),
             rooms: None,
             rooms_dirty: false,
@@ -962,9 +988,12 @@ impl Federation {
                 url.as_deref(),
                 expires_secs,
             ),
-            Message::PersonFriends { to, linked, .. } => {
-                self.on_person_view(friends, t, &to, linked);
-            }
+            Message::PersonFriends {
+                to,
+                linked,
+                persons,
+                ..
+            } => self.on_person_view(friends, t, &to, linked, &persons),
             Message::ChannelResult {
                 id,
                 outcome,

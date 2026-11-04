@@ -1,6 +1,6 @@
 //! `@dn link`, the person view, and the hub's question about a character away.
 
-use dereth_network_protocol::{Message, PersonOp, PersonOutcome, ReachMessage};
+use dereth_network_protocol::{Message, PersonFriend, PersonOp, PersonOutcome, ReachMessage};
 use yalain_federation::{
     Federation, Settings, ASKED_RECORD, NOT_ON, NOW_LINKED, TOO_QUICKLY, UNAVAILABLE,
 };
@@ -416,4 +416,447 @@ fn the_hubs_question_about_a_teller_of_this_world_is_answered_by_the_list_kept_f
     assert!(!ask(&mut w, "Nobody@dawnsong"), "no such");
     w.service.ignored.insert("ann".into(), vec!["cara".into()]);
     assert!(!ask(&mut w, "Cara@dawnsong"), "ignored");
+}
+
+/// `Ann` present, on the network, her link her own, the first view not yet come; `coldeve` and
+/// `frost` linked.
+fn linked_ann() -> (World, u64) {
+    let (mut w, id) = with_ann();
+    w.link(&[("coldeve", true), ("frost", true)]);
+    w.frames();
+    let t = w.t;
+    assert_eq!(w.fed.link_person(&mut w.store, t, id, "Ann"), None);
+    w.frames();
+    (w, id)
+}
+
+/// A view saying `Ann` is linked, her person friends as (handle, characters).
+fn person_view(persons: &[(&str, &[&str])]) -> Message {
+    Message::PersonFriends {
+        to: addr("Ann@dawnsong"),
+        linked: true,
+        alts: Default::default(),
+        persons: persons
+            .iter()
+            .map(|(h, cs)| PersonFriend {
+                handle: addr(h),
+                characters: cs.iter().map(|c| addr(c)).collect(),
+            })
+            .collect(),
+    }
+}
+
+fn watches(frames: &[Message]) -> Vec<(String, bool)> {
+    frames
+        .iter()
+        .filter_map(|m| match m {
+            Message::Watch { target, on, .. } => Some((target.to_string(), *on)),
+            _ => None,
+        })
+        .collect()
+}
+
+fn names(list: &[dereth_network_protocol::Address]) -> Vec<String> {
+    list.iter().map(ToString::to_string).collect()
+}
+
+/// A view lists what its person friends name as `Ann`'s friends on other worlds, watched, in the
+/// view's order, each once; not her own world's. One no longer named goes, and its watch stops, shown
+/// offline if it was shown online. Leaving, or going off the network, all go, and none was kept.
+/// Behaviour: server.network.person-friends-listed
+#[test]
+fn a_view_lists_what_its_person_friends_name_while_it_names_them() {
+    let (mut w, _) = linked_ann();
+    w.hub(&person_view(&[
+        ("Bob@coldeve", &["Bob@coldeve", "Rob@frost", "Dee@dawnsong"]),
+        ("Cal@frost", &["Cal@frost", "Rob@frost"]),
+    ]));
+    assert_eq!(
+        names(&w.fed.person_friends("Ann")),
+        ["Bob@coldeve", "Rob@frost", "Cal@frost"]
+    );
+    assert_eq!(w.service.views, ["Ann"], "the view is told");
+    assert!(
+        w.service.lists.get("ann").is_none_or(Vec::is_empty),
+        "not kept"
+    );
+    assert_eq!(
+        watches(&w.frames()),
+        [
+            ("Bob@coldeve".to_owned(), true),
+            ("Rob@frost".to_owned(), true),
+            ("Cal@frost".to_owned(), true),
+        ]
+    );
+    // The same view again changes nothing; a state for one of them reaches her.
+    w.hub(&person_view(&[
+        ("Bob@coldeve", &["Bob@coldeve", "Rob@frost", "Dee@dawnsong"]),
+        ("Cal@frost", &["Cal@frost", "Rob@frost"]),
+    ]));
+    assert!(watches(&w.frames()).is_empty());
+    w.hub(&Message::Presence {
+        to: addr("Ann@dawnsong"),
+        of: addr("Cal@frost"),
+        online: true,
+    });
+    assert_eq!(w.service.states.len(), 1);
+    w.service.states.clear();
+
+    w.hub(&person_view(&[(
+        "Bob@coldeve",
+        &["Bob@coldeve", "Rob@frost"],
+    )]));
+    assert_eq!(
+        names(&w.fed.person_friends("Ann")),
+        ["Bob@coldeve", "Rob@frost"]
+    );
+    assert_eq!(watches(&w.frames()), [("Cal@frost".to_owned(), false)]);
+    assert_eq!(
+        w.service.states,
+        [("Ann".to_owned(), addr("Cal@frost"), false, true)],
+        "shown online, so shown offline"
+    );
+    assert!(
+        w.fed.take_gone_row("Ann", &addr("Cal@frost")),
+        "its row may still show"
+    );
+    assert!(!w.fed.take_gone_row("Ann", &addr("Cal@frost")), "once");
+    assert!(
+        !w.fed.take_gone_row("Ann", &addr("Zed@frost")),
+        "never listed"
+    );
+
+    w.leave("Ann");
+    assert!(w.fed.person_friends("Ann").is_empty());
+    assert_eq!(
+        watches(&w.frames()),
+        [
+            ("Bob@coldeve".to_owned(), false),
+            ("Rob@frost".to_owned(), false)
+        ]
+    );
+    assert!(
+        !w.fed.take_gone_row("Ann", &addr("Bob@coldeve")),
+        "a new client asks anew"
+    );
+    w.enter("Ann", yalain_federation::State::Available);
+    w.frames();
+    w.hub(&person_view(&[("Bob@coldeve", &["Bob@coldeve"])]));
+    assert_eq!(names(&w.fed.person_friends("Ann")), ["Bob@coldeve"]);
+    w.set_on("Ann", false);
+    assert!(w.fed.person_friends("Ann").is_empty(), "off the network");
+    assert!(
+        w.fed.take_gone_row("Ann", &addr("Bob@coldeve")),
+        "she stays, and so does its row"
+    );
+}
+
+/// The first view saying a character is linked carries the friends it keeps on other worlds to its
+/// person, quietly, once. One the view then names as a handle is the person's and no longer kept, its
+/// watch going on; one named only as another's character stays kept, and is listed once. None is
+/// carried at a later view.
+/// Behaviour: server.network.person-friends-carried
+#[test]
+fn the_first_view_carries_kept_friends_and_a_handle_is_no_longer_kept() {
+    let (mut w, _) = linked_ann();
+    w.lists("Ann", "Bob@coldeve");
+    w.lists("Ann", "Rob@frost");
+    w.hub(&person_view(&[]));
+    let sent = w.frames();
+    let carried: Vec<_> = sent
+        .iter()
+        .filter_map(|m| match m {
+            Message::Person {
+                op: PersonOp::Carry,
+                targets,
+                ..
+            } => Some(names(targets)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(carried, [["Bob@coldeve", "Rob@frost"]]);
+    w.hub(&person_view(&[(
+        "Bob@coldeve",
+        &["Bob@coldeve", "Rob@frost"],
+    )]));
+    assert!(
+        !w.frames().iter().any(|m| matches!(
+            m,
+            Message::Person {
+                op: PersonOp::Carry,
+                ..
+            }
+        )),
+        "once"
+    );
+    assert_eq!(names(&w.fed.person_friends("Ann")), ["Bob@coldeve"]);
+    assert_eq!(
+        w.service.lists["ann"],
+        [addr("Rob@frost")],
+        "the other stays kept"
+    );
+    assert_eq!(
+        names(&w.fed.remote_of(&w.service, "Ann")),
+        ["Rob@frost", "Bob@coldeve"],
+        "each once"
+    );
+    // Arriving linked again, what it still keeps goes again.
+    w.leave("Ann");
+    w.enter("Ann", yalain_federation::State::Available);
+    w.frames();
+    w.hub(&person_view(&[("Bob@coldeve", &["Bob@coldeve"])]));
+    let carried: Vec<_> = w
+        .frames()
+        .iter()
+        .filter_map(|m| match m {
+            Message::Person {
+                op: PersonOp::Carry,
+                targets,
+                ..
+            } => Some(names(targets)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(carried, [["Rob@frost"]]);
+}
+
+/// A view listing no more than a character may: what it keeps and what its person friends list hold
+/// at most 100 together, and one past that is listed when a later view has room.
+/// Behaviour: server.network.person-friends-listed
+#[test]
+fn a_view_lists_no_more_than_a_character_may() {
+    let (mut w, _) = linked_ann();
+    for n in 0..99 {
+        w.service
+            .lists
+            .entry("ann".into())
+            .or_default()
+            .push(addr(&format!(
+                "Kept{}@frost",
+                (b'a' + (n % 26) as u8) as char
+            )));
+    }
+    w.hub(&person_view(&[(
+        "Bob@coldeve",
+        &["Bob@coldeve", "Rob@coldeve"],
+    )]));
+    assert_eq!(names(&w.fed.person_friends("Ann")), ["Bob@coldeve"]);
+}
+
+/// The view of a character nobody links hands back the friends it had: they are kept from then on, a
+/// row already listed stays with no new watch, and a new one is watched. A character that never asked
+/// for its link takes none.
+/// Behaviour: server.network.person-friends-carried
+#[test]
+fn a_view_after_an_unlink_hands_the_friends_back_to_be_kept() {
+    let (mut w, _) = linked_ann();
+    w.hub(&person_view(&[("Bob@coldeve", &["Bob@coldeve"])]));
+    w.frames();
+    let back = |handles: &[&str]| Message::PersonFriends {
+        to: addr("Ann@dawnsong"),
+        linked: false,
+        alts: Default::default(),
+        persons: handles
+            .iter()
+            .map(|h| PersonFriend {
+                handle: addr(h),
+                characters: vec![addr(h)],
+            })
+            .collect(),
+    };
+    w.hub(&back(&["Bob@coldeve", "Cal@frost"]));
+    assert!(w.fed.person_friends("Ann").is_empty());
+    assert_eq!(
+        w.service.lists["ann"],
+        [addr("Bob@coldeve"), addr("Cal@frost")]
+    );
+    assert_eq!(watches(&w.frames()), [("Cal@frost".to_owned(), true)]);
+
+    let mut never = World::new();
+    never.on_and_present("Ann");
+    never.link(&[("coldeve", true)]);
+    never.frames();
+    never.hub(&back(&["Bob@coldeve"]));
+    assert!(never.service.lists.get("ann").is_none_or(Vec::is_empty));
+    assert!(never.fed.person_friends("Ann").is_empty());
+}
+
+/// A character an old view's link says is linked, which never asked, lists none of its persons.
+/// Behaviour: server.network.person-friends-listed
+#[test]
+fn a_view_of_a_character_that_never_asked_lists_none_of_its_persons() {
+    let (mut w, _) = with_ann();
+    w.hub(&person_view(&[("Bob@coldeve", &["Bob@coldeve"])]));
+    assert!(w.fed.person_friends("Ann").is_empty());
+    assert!(w.frames().iter().any(|m| matches!(
+        m,
+        Message::Person {
+            op: PersonOp::Unlink,
+            ..
+        }
+    )));
+}
+
+/// A linked character's add asks the hub for `befriend`, within its pace, and the hub's answer is
+/// shown unless a client's own add waits on it, which writes its own; a refusal is always shown. A
+/// request the hub never answers ends a waiting add too.
+/// Behaviour: server.network.person-friend-added
+#[test]
+fn a_linked_characters_add_goes_to_the_hub_and_its_answer_is_shown() {
+    let (mut w, id) = linked_ann();
+    w.hub(&person_view(&[]));
+    assert!(w.fed.friends_are_persons("Ann"));
+    w.frames();
+    let t = w.t;
+    let bob = addr("Bob@coldeve");
+    w.fed.befriend(t, id, "Ann", &bob).expect("within its pace");
+    let sent = w.frames();
+    let [Message::Person {
+        op: PersonOp::Befriend,
+        target: Some(target),
+        id: asked,
+        ..
+    }] = sent.as_slice()
+    else {
+        panic!("{sent:?}");
+    };
+    assert!(target.same(&bob));
+    w.hub(&result(asked.clone(), PersonOutcome::Ok, None, None));
+    assert_eq!(
+        w.service.lines.last().map(|(_, l)| l.as_str()),
+        Some("Bob@coldeve has been added to your friends list.")
+    );
+    assert_eq!(w.service.adds_answered, [(bob.clone(), false)]);
+
+    w.service.lines.clear();
+    w.service.adds_answered.clear();
+    w.service.add_waits = true;
+    w.fed.befriend(t, id, "Ann", &bob).expect("within its pace");
+    let asked = id_of(&w.frames()[0]);
+    w.hub(&result(asked, PersonOutcome::Ok, None, None));
+    assert!(w.service.lines.is_empty(), "the client's own line");
+    w.fed.befriend(t, id, "Ann", &bob).expect("within its pace");
+    let asked = id_of(&w.frames()[0]);
+    w.hub(&result(asked, PersonOutcome::Refused, None, None));
+    assert_eq!(
+        w.service.lines.last().map(|(_, l)| l.as_str()),
+        Some(dereth_network_protocol::answers::FRIENDS_FULL)
+    );
+    assert_eq!(w.service.adds_answered.last(), Some(&(bob.clone(), true)));
+    w.fed.befriend(t, id, "Ann", &bob).expect("within its pace");
+    let asked = id_of(&w.frames()[0]);
+    w.hub(&result(asked, PersonOutcome::NotLinked, None, None));
+    assert_eq!(
+        w.service.lines.last().map(|(_, l)| l.as_str()),
+        Some("Link this character first: say @dn link.")
+    );
+
+    w.service.adds_answered.clear();
+    w.fed.befriend(t, id, "Ann", &bob).expect("within its pace");
+    w.frames();
+    w.advance(10_000.0);
+    let t = w.t;
+    assert_eq!(w.service.adds_answered, [(bob.clone(), true)]);
+    assert_eq!(
+        w.service.lines.last().map(|(_, l)| l.as_str()),
+        Some(UNAVAILABLE)
+    );
+
+    let mut n = 0;
+    while w.fed.befriend(t, id, "Ann", &bob).is_ok() {
+        n += 1;
+        assert!(n < 1_000, "held to a pace");
+    }
+    assert_eq!(w.fed.befriend(t, id, "Ann", &bob), Err(TOO_QUICKLY));
+}
+
+/// Removing a row a person friend listed removes that person friend at the hub, quietly and whatever
+/// the pace, by its handle; its watch stops, and its row goes at once. A later view takes the rest.
+/// Behaviour: server.network.person-friend-removed
+#[test]
+fn removing_a_row_a_person_friend_listed_removes_that_person_friend() {
+    let (mut w, id) = linked_ann();
+    w.hub(&person_view(&[(
+        "Bob@coldeve",
+        &["Bob@coldeve", "Rob@frost"],
+    )]));
+    w.frames();
+    let t = w.t;
+    while w.fed.befriend(t, id, "Ann", &addr("Zed@frost")).is_ok() {}
+    w.frames();
+    w.fed.unfriend_person(t, id, "Ann", &addr("Rob@frost"));
+    let sent = w.frames();
+    assert!(
+        sent.iter().any(|m| matches!(
+            m,
+            Message::Person { op: PersonOp::Unfriend, target: Some(h), .. } if h.same(&addr("Bob@coldeve"))
+        )),
+        "{sent:?}"
+    );
+    assert_eq!(watches(&sent), [("Rob@frost".to_owned(), false)]);
+    assert_eq!(names(&w.fed.person_friends("Ann")), ["Bob@coldeve"]);
+    let asked = sent
+        .iter()
+        .find(|m| {
+            matches!(
+                m,
+                Message::Person {
+                    op: PersonOp::Unfriend,
+                    ..
+                }
+            )
+        })
+        .map(id_of)
+        .expect("asked");
+    w.service.lines.clear();
+    w.hub(&result(asked, PersonOutcome::Ok, None, None));
+    assert!(w.service.lines.is_empty(), "quietly");
+}
+
+/// A character listed through a person friend, other than its handle, coming online is shown as its
+/// person; its first report is not news, and a handle has its own client's line alone.
+/// Behaviour: server.network.person-friends-listed
+#[test]
+fn a_character_of_a_person_friend_coming_online_is_shown_as_that_person() {
+    let (mut w, id) = linked_ann();
+    w.hub(&person_view(&[(
+        "Bob@coldeve",
+        &["Bob@coldeve", "Rob@frost", "Cal@frost"],
+    )]));
+    let say = |w: &mut World, of: &str, online: bool| {
+        w.hub(&Message::Presence {
+            to: addr("Ann@dawnsong"),
+            of: addr(of),
+            online,
+        });
+    };
+    w.service.lines.clear();
+    say(&mut w, "Cal@frost", true);
+    say(&mut w, "Rob@frost", false);
+    say(&mut w, "Bob@coldeve", false);
+    assert!(w.service.lines.is_empty(), "a first report is not news");
+    say(&mut w, "Rob@frost", true);
+    assert_eq!(
+        w.service.lines,
+        [(id, "Bob@coldeve is online as Rob@frost.".to_owned())]
+    );
+    w.service.lines.clear();
+    say(&mut w, "Bob@coldeve", true);
+    say(&mut w, "Rob@frost", false);
+    assert!(w.service.lines.is_empty());
+}
+
+/// A character that asked for its link is owed its first view while the link is up, until it comes;
+/// one that never asked has nothing to wait for.
+/// Behaviour: server.network.person-friends-listed
+#[test]
+fn a_character_that_asked_for_its_link_is_owed_a_view_until_it_comes() {
+    let (mut w, id) = with_ann();
+    assert!(!w.fed.view_due("Ann"), "never asked");
+    let t = w.t;
+    assert_eq!(w.fed.link_person(&mut w.store, t, id, "Ann"), None);
+    assert!(w.fed.view_due("Ann"));
+    assert!(!w.fed.view_due("Nobody"));
+    w.hub(&view("Ann@dawnsong", false));
+    assert!(!w.fed.view_due("Ann"));
 }

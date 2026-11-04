@@ -25,12 +25,15 @@ pub(crate) fn covers(key: &str, who: &str) -> bool {
 }
 
 impl Federation {
-    /// The friends a character lists on other worlds.
-    fn remote_of(&self, friends: &impl Friends, name: &str) -> Vec<Address> {
+    /// The friends a character lists on other worlds: those it keeps, and those its person friends
+    /// list.
+    #[must_use]
+    pub fn remote_of(&self, friends: &impl Friends, name: &str) -> Vec<Address> {
         friends
             .remote_friends(name)
             .into_iter()
             .filter(|f| f.world() != self.settings.slug && !f.is_channel())
+            .chain(self.person_friends(name))
             .collect()
     }
 
@@ -175,6 +178,7 @@ impl Federation {
         self.tell_watchers(friends, name, Some(false));
         self.watch_friends_of(friends, name, false);
         self.watch_person(name, false);
+        self.gone_rows.remove(&character);
     }
 
     /// Puts a character of this world on the network, or takes it off, at once: kept in the
@@ -234,6 +238,7 @@ impl Federation {
     pub fn renamed(&mut self, friends: &impl Friends, old: &str, new: &str) {
         let (from, to) = (old.to_lowercase(), new.to_lowercase());
         self.watchers.remove(&from);
+        self.gone_rows.remove(&from);
         let Some(mut on) = self.on.remove(&from) else {
             return;
         };
@@ -326,7 +331,7 @@ impl Federation {
     /// Keeps `owner` as a watcher of `name`, within the caps (a watcher the character lists is
     /// always kept).
     fn keep_watcher(&mut self, friends: &impl Friends, name: &str, owner: &Address) {
-        let listed = friends.remote_friends(name).iter().any(|f| f.same(owner));
+        let listed = self.remote_of(friends, name).iter().any(|f| f.same(owner));
         let m = self.watchers.entry(name.to_lowercase()).or_default();
         if m.contains_key(&owner.key()) {
             return;
@@ -462,6 +467,14 @@ impl Federation {
             status.online,
             status.shown.is_some(),
         );
+        // A character a person friend listed, other than its handle, comes online as its person.
+        if status.online && status.shown.is_some() {
+            let handle = self.person_handle(&present.name, &listed);
+            let id = self.on.get(&key.0).map(|o| o.id);
+            if let (Some(h), Some(id)) = (handle.filter(|h| !h.same(&listed)), id) {
+                friends.show_line(id, &format!("{h} is online as {listed}."));
+            }
+        }
     }
 
     /// Shows each state whose time has come its latest.

@@ -516,6 +516,20 @@ mod tests {
         }
 
         fn show_line(&mut self, _character: u64, _line: &str) {}
+
+        fn kept_count(&self, _: &str) -> usize {
+            0
+        }
+
+        fn release_friend(&mut self, _: &str, _: &Address) {}
+
+        fn keep_friend(&mut self, _: &str, _: &Address) {}
+
+        fn befriend_answered(&mut self, _: &str, _: &Address, _: bool) -> bool {
+            false
+        }
+
+        fn person_view_came(&mut self, _: &str) {}
     }
 
     #[test]

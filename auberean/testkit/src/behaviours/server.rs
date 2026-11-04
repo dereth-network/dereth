@@ -2624,6 +2624,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.friends.first-list-waits-for-the-view",
+        says: "A client's ask for its friends while the first person view of a character that asked \
+               for its link is due waits for it, at most three seconds, so the page holds its \
+               person's friends from the start: the page rebuilds only from a list it asks for. Any \
+               other ask waits for nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FRIENDS-FIRST-LIST"),
+        station: "yalain-friends::cpu::network::the_clients_first_ask_for_its_friends_waits_for_the_first_person_view",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.friends.first-state-offline-quiet",
         says: "A friend on another world first reported offline shows nothing: the client was told \
                so with its friends and prints a line for every state. A first report of online, and \
@@ -4342,6 +4353,51 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-OWN-ROOMS-MIRRORED"),
         station: "yalain-federation::cpu::rooms::the_worlds_own_rooms_the_hub_mirrors_are_joined_and_their_lines_go_to_discord",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.person-friend-added",
+        says: "A linked character's add on another world goes to the hub, within its pace, and \
+               nothing is kept here: the client's own add is answered when the view names the friend \
+               and its world says its state, or after three seconds, refused with the world's line; \
+               `@dn friends add` is told as the hub answers. With the link down it keeps the friend \
+               itself.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-FRIEND-ADDED"),
+        station: "yalain-friends::cpu::network::a_linked_characters_add_is_the_hubs_and_answered_when_the_view_names_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.person-friend-removed",
+        says: "Removing a row a person friend listed removes that person friend at the hub, by its \
+               handle, quietly and whatever the pace. A row that went in play is answered as removed \
+               while the client may still show it, until its next list.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-FRIEND-REMOVED"),
+        station: "yalain-friends::cpu::network::removing_a_row_is_answered_done_while_the_client_may_show_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.person-friends-carried",
+        says: "The first view saying a character is linked carries the friends it keeps on other \
+               worlds to its person, once and quietly; one the view names as a handle is taken off \
+               its kept list, the store too, and listed once. The first view after an unlink hands \
+               them back to be kept, unless the character never asked for its link.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-FRIENDS-CARRIED"),
+        station: "yalain-federation::cpu::persons::the_first_view_carries_kept_friends_and_a_handle_is_no_longer_kept",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.person-friends-listed",
+        says: "What a person view's person friends name is listed for a character while the view \
+               names it and the character is here and on the network: watched, in the view's order, \
+               each once, not its own world's, at most 100 with what it keeps, and never kept. A \
+               character of a person friend other than its handle coming online is shown as that \
+               person.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-FRIENDS-LISTED"),
+        station: "yalain-federation::cpu::persons::a_view_lists_what_its_person_friends_name_while_it_names_them",
         tier: Tier::Cpu,
     },
     behaviour! {

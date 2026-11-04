@@ -186,7 +186,7 @@ fn a_tell_that_reaches_no_player_in_the_world_is_kept_for_the_friends_service() 
     h.bots[a].send(true, queue::WEENIE, &tell("Nobody [F]"));
     h.run(30);
     assert_eq!(
-        h.server.unheard_tells.drain(..).collect::<Vec<_>>(),
+        std::mem::take(&mut h.server.unheard_tells),
         vec![chat::UnheardTell {
             character: ida,
             name: "Elara".into(),

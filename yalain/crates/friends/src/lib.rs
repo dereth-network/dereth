@@ -28,6 +28,12 @@
 //!   player with a stream has them, on the network or not.
 //! - **Other worlds' characters** need the character on the Dereth Network (`@dn on`, said in
 //!   chat) and the world linked; the link's half does the rest ([`Service::said`]).
+//! - **A linked character's friends on other worlds** are its person's, kept by the hub: an add goes
+//!   there and the link's half lists what its person friends name, beside what this service keeps.
+//!   The client's friends page holds what it was last given, and only a list it asks for rebuilds it.
+//!   So its first ask waits, a moment, for the character's first person view; a row a view adds in
+//!   play comes with the next list, and one that goes stays, offline, until then, its removal
+//!   answered as done.
 //! - **A hidden character** ([`Service::set_hidden`], a cloaked admin) is not there to anyone: its
 //!   friends here and on other worlds see it offline, a tell to it is answered as one to a
 //!   character offline is, and it stops watching its friends on other worlds, whose watches would
@@ -240,6 +246,25 @@ struct Adding {
     until: Duration,
 }
 
+/// A client's ask for its friends, held for the character's first person view.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ListWait {
+    stream: StreamId,
+    cx: Cx,
+    /// The character, in small letters.
+    name: String,
+    /// When it is answered if no view has come.
+    until: Duration,
+}
+
+/// A change to a character's kept list the link's half made, for the store.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct KeptChange {
+    character: u64,
+    entry: String,
+    on: bool,
+}
+
 /// The friends service.
 #[derive(Debug)]
 pub struct Service {
@@ -287,6 +312,10 @@ pub struct Service {
     hidden: HashSet<u64>,
     /// Those in the world with a suffix, by the name a client shows, in small letters.
     suffixed: HashMap<String, String>,
+    /// Clients' asks for their friends, waiting for a person view.
+    lists_waiting: Vec<ListWait>,
+    /// What the store has yet to hear of the kept lists.
+    kept_changes: Vec<KeptChange>,
 }
 
 /// The time as the link's half counts it.
@@ -347,6 +376,8 @@ impl Service {
             gagged: HashSet::new(),
             hidden: HashSet::new(),
             suffixed: HashMap::new(),
+            lists_waiting: Vec::new(),
+            kept_changes: Vec::new(),
         }
     }
 
@@ -471,6 +502,7 @@ impl Service {
             self.assumed_offline.insert(key.clone());
             self.added(&key, false);
         }
+        self.answer_lists(fed.as_deref_mut());
         let gone: Vec<String> = self
             .held
             .values()
@@ -492,6 +524,7 @@ impl Service {
             .values()
             .filter_map(|s| s.session.next_wake())
             .chain(self.adding.values().map(|a| a.until))
+            .chain(self.lists_waiting.iter().map(|l| l.until))
             .chain(self.held.values().map(|h| h.until))
             .min()
     }
@@ -653,11 +686,11 @@ impl Service {
         let Some(f) = fed else {
             return;
         };
-        let shown: Vec<dereth_network_protocol::Address> =
-            yalain_federation::Friends::remote_friends(self, name)
-                .into_iter()
-                .filter(|a| f.shown(name, a) == Some(true))
-                .collect();
+        let shown: Vec<dereth_network_protocol::Address> = f
+            .remote_of(&*self, name)
+            .into_iter()
+            .filter(|a| f.shown(name, a) == Some(true))
+            .collect();
         f.left(self, name);
         for friend in shown {
             yalain_federation::Friends::show_presence(self, name, &friend, false, true);
@@ -883,6 +916,9 @@ impl Service {
             self.assumed_offline.remove(&key);
             self.assumed_offline.insert((to.clone(), key.1));
         }
+        for l in self.lists_waiting.iter_mut().filter(|l| l.name == from) {
+            l.name.clone_from(&to);
+        }
         if let Some(f) = fed.as_deref_mut() {
             f.renamed(self, old, new);
         }
@@ -960,21 +996,66 @@ impl Service {
         }
     }
 
-    /// The friends a character lists, each with its state now.
-    fn friends_of(&self, name: &str, fed: Option<&Federation>) -> Vec<FriendStatus> {
-        let Some(&(id, _)) = self.ids.get(&name.to_lowercase()) else {
-            return Vec::new();
-        };
-        let Some(l) = self.lists.get(&id) else {
-            return Vec::new();
-        };
-        l.friends
-            .iter()
+    /// The friends a character lists, each with its state now: those it keeps, and those its person
+    /// friends list.
+    pub(crate) fn friends_of(&self, name: &str, fed: Option<&Federation>) -> Vec<FriendStatus> {
+        let kept = self
+            .id_of(name)
+            .and_then(|id| self.lists.get(&id))
+            .map(|l| l.friends.clone())
+            .unwrap_or_default();
+        let persons = fed.map_or_else(Vec::new, |f| f.person_friends(name));
+        kept.into_iter()
+            .chain(persons.iter().map(ToString::to_string))
             .map(|e| {
-                let (user, mode) = self.status_of(name, e, fed);
+                let (user, mode) = self.status_of(name, &e, fed);
                 FriendStatus::new(&user, mode)
             })
             .collect()
+    }
+
+    /// Answers the asks for friends whose time has come, or whose view has.
+    fn answer_lists(&mut self, mut fed: Option<&mut Federation>) {
+        let now = self.now;
+        let due: Vec<ListWait> = {
+            let (due, waiting) = std::mem::take(&mut self.lists_waiting)
+                .into_iter()
+                .partition(|l| l.until <= now);
+            self.lists_waiting = waiting;
+            due
+        };
+        for l in due {
+            self.give_list(l.stream, l.cx, &l.name, fed.as_deref_mut());
+        }
+    }
+
+    /// Answers a client's ask for its friends.
+    pub(crate) fn give_list(
+        &mut self,
+        stream: StreamId,
+        cx: Cx,
+        name: &str,
+        fed: Option<&mut Federation>,
+    ) {
+        let friends = self.friends_of(name, fed.as_deref());
+        if let Some(f) = fed {
+            f.list_given(name);
+        }
+        self.answer(
+            stream,
+            cx,
+            Hr::OK,
+            auberean_friends::Answer::GetFriendsList { friends },
+        );
+    }
+
+    /// Tells the store what the link's half changed in the kept lists.
+    fn store_kept_changes(&mut self, store: &mut impl Store) {
+        for c in std::mem::take(&mut self.kept_changes) {
+            if let Err(e) = store.set_listed(c.character, NetworkList::Friends, &c.entry, c.on) {
+                tracing::warn!("friends service: the store: {e}");
+            }
+        }
     }
 
     /// A listed name as the client is shown it, with its mode.
@@ -1028,6 +1109,7 @@ impl Service {
     /// Drains every stream with something for the host, handling what each says, until nothing
     /// is left.
     fn settle(&mut self, now: Duration, store: &mut impl Store, mut fed: Option<&mut Federation>) {
+        self.store_kept_changes(store);
         while let Some(id) = self.dirty.pop_first() {
             let Some(s) = self.streams.get_mut(&id) else {
                 continue;
@@ -1110,6 +1192,7 @@ impl Service {
         self.waiting
             .retain(|_, w| w.asked.is_none_or(|(stream, _, _)| stream != id));
         self.adding.retain(|_, a| a.stream != id);
+        self.lists_waiting.retain(|l| l.stream != id);
         let Some(account) = s.account else {
             return;
         };
