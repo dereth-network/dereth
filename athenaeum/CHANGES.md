@@ -12,6 +12,7 @@ see, not how it was done.
 - The editor asks before closing with changes not saved.
 - Clicks on a window over the world no longer reach the world.
 - Placing shows the row under the pointer first; R turns it and Shift+click keeps placing.
+- A selected row has handles to move it east, north and up and to turn it, with Snap for steps.
 - macOS: the editor opens at full size on Retina screens, Cmd works as Ctrl, and Backspace deletes.
 
 ## 0.1.1 (2026-11-02)

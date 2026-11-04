@@ -216,3 +216,59 @@ fn the_shortcuts_key_is_ctrl_and_on_a_mac_cmd_too() {
     );
     assert!(!athenaeum_editor::gui::command_key(M::SHIFT));
 }
+
+mod gizmo_math {
+    use athenaeum_editor::gizmo::*;
+
+    fn ray(origin: [f32; 3], dir: [f32; 3]) -> Ray {
+        let l = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
+        Ray {
+            origin,
+            dir: [dir[0] / l, dir[1] / l, dir[2] / l],
+        }
+    }
+
+    #[test]
+    fn a_handle_is_taken_within_its_grab_and_the_nearest_arrow_wins() {
+        let h = Handles {
+            origin: [100.0, 100.0],
+            arrows: vec![(Handle::X, [200.0, 100.0]), (Handle::Y, [100.0, 0.0])],
+            ring: vec![[170.0, 170.0], [180.0, 160.0]],
+        };
+        assert_eq!(handle_at(&h, [150.0, 104.0]), Some(Handle::X));
+        assert_eq!(handle_at(&h, [150.0, 110.0]), None);
+        assert_eq!(handle_at(&h, [175.0, 166.0]), Some(Handle::Turn));
+    }
+
+    #[test]
+    fn a_drag_along_an_arrow_moves_by_how_far_the_pointers_closest_point_moved() {
+        let o = [0.0, 0.0, 0.0];
+        let from = ray([1.0, 0.0, 10.0], [0.0, 0.1, -1.0]);
+        let to = ray([4.0, 0.0, 10.0], [0.0, 0.1, -1.0]);
+        assert!((drag_along(Handle::X, o, &from, &to).unwrap() - 3.0).abs() < 1e-4);
+        assert!(drag_along(Handle::Y, o, &from, &to).unwrap().abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_drag_on_the_ring_turns_by_the_angle_swept_the_short_way() {
+        let o = [0.0, 0.0, 5.0];
+        let down = [0.0, 0.0, -1.0];
+        let north = ray([0.0, 3.0, 20.0], down);
+        let east = ray([3.0, 0.0, 20.0], down);
+        assert!((drag_turn(o, &north, &east).unwrap() - 90.0).abs() < 1e-3);
+        let south_west = ray([-3.0, 0.1, 20.0], down);
+        assert!((drag_turn(o, &east, &south_west).unwrap() + 178.09).abs() < 0.05);
+    }
+
+    #[test]
+    fn snapping_goes_to_the_nearest_step_and_shift_does_the_other() {
+        assert_eq!(snapped(12.3, 5.0), 10.0);
+        assert_eq!(snapped(12.6, 5.0), 15.0);
+        assert_eq!(snapped(7.3, 0.0), 7.3);
+        let mut s = Snap::default();
+        assert!(!s.applies(false) && s.applies(true));
+        s.on = true;
+        assert!(s.applies(false) && !s.applies(true));
+        assert_eq!(s.turn_step(15.0), s.angle);
+    }
+}

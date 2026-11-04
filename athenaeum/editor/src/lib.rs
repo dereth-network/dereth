@@ -25,6 +25,7 @@
 
 pub mod app;
 pub mod characters;
+pub mod gizmo;
 pub mod gui;
 pub mod icon;
 pub mod live;

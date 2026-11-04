@@ -4,7 +4,8 @@
 //!
 //! **In the world.** The right button held turns the camera; W, A, S, D fly it, E rises and Q
 //! sinks, the wheel changes its speed. A click on a marker selects its row; dragging it moves the
-//! row over the ground. R turns the selected row a step to the right (with Shift, to the left),
+//! row over the ground, and the selected row's handles ([`gizmo`]) move it along east, north and
+//! up and turn it, by steps with Snap on (Shift for the other). R turns the selected row a step to the right (with Shift, to the left),
 //! Delete or Backspace takes it away, F flies to it, Escape lets it go. T sends the character
 //! playing on the editor's own Yalain to the camera. Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes
 //! (Cmd on macOS, as well).
@@ -32,6 +33,7 @@ use yalain_world_db::rows::{ObjectKind, Prov, Row, Source};
 use yalain_world_db::{layer, Problem};
 
 use crate::characters::Recipe;
+use crate::gizmo::{self, Handle, Ray, Snap};
 use crate::live::{self, Live, Programs};
 use crate::scene::{Scene, Standing};
 use crate::view::{self, View};
@@ -79,6 +81,19 @@ struct Drag {
     from: [f32; 2],
     moved: bool,
     to: Option<[f32; 3]>,
+}
+
+/// A handle of the selected row being dragged: what the row would become when it is let go.
+#[derive(Debug, Clone, PartialEq)]
+struct Grip {
+    item: String,
+    handle: Handle,
+    /// Where the row stood and which way it faced at the press, and the pointer's line then.
+    origin: [f32; 3],
+    heading: f32,
+    from: Ray,
+    at: [f32; 3],
+    facing: f32,
 }
 
 /// Which rows the list and the world show.
@@ -188,6 +203,10 @@ pub struct Editor<'w> {
     closing: bool,
     /// The window is to close now.
     pub close_now: bool,
+    /// The handle being dragged.
+    grip: Option<Grip>,
+    /// The steps moves and turns snap to.
+    pub snap: Snap,
     /// Where the row being placed would stand: the ground under the pointer.
     ghost: Option<[f32; 3]>,
     /// The way the row being placed faces, once R has turned it; until then it faces the camera.
@@ -350,6 +369,8 @@ impl<'w> Editor<'w> {
             adding: play::Adding::default(),
             closing: false,
             close_now: false,
+            grip: None,
+            snap: Snap::default(),
             ghost: None,
             place_heading: None,
         };
@@ -771,16 +792,12 @@ impl<'w> Editor<'w> {
             let Some((look, scale)) = self.look(template) else {
                 continue;
             };
-            let mut at = entry_global(&e, &mut self.scene);
-            if let Some(d) = self.drag.as_ref().filter(|d| d.item == e.item && d.moved) {
-                if let Some(to) = d.to {
-                    at = to;
-                }
-            }
+            let (held, facing) = self.held_as(&e.item);
+            let at = held.unwrap_or_else(|| entry_global(&e, &mut self.scene));
             out.push(Standing {
                 look,
                 at,
-                rotation: rotation_of(&e.row.row),
+                rotation: facing.map_or_else(|| rotation_of(&e.row.row), view::heading_rotation),
                 scale,
             });
         }
@@ -852,7 +869,8 @@ impl<'w> Editor<'w> {
                         self.session.redo();
                     }
                     KeyCode::KeyR if !input.ctrl => {
-                        let by = if input.shift { -TURN_STEP } else { TURN_STEP };
+                        let step = self.snap.turn_step(TURN_STEP);
+                        let by = if input.shift { -step } else { step };
                         if self.tool == Tool::Place {
                             self.place_heading = Some(self.placing_heading() + by);
                         } else {
@@ -870,8 +888,7 @@ impl<'w> Editor<'w> {
                     KeyCode::Escape => {
                         if self.tool == Tool::Place {
                             self.stop_placing();
-                        } else {
-                            self.drag = None;
+                        } else if self.grip.take().is_none() && self.drag.take().is_none() {
                             self.select(None);
                         }
                     }
@@ -905,18 +922,22 @@ impl<'w> Editor<'w> {
                         self.status = "no ground there".into();
                     }
                 }
-                Tool::Select => match self.hit(input.pointer) {
-                    Some(item) => {
-                        self.select(Some(item.clone()));
-                        self.drag = Some(Drag {
-                            item,
-                            from: input.pointer,
-                            moved: false,
-                            to: None,
-                        });
+                Tool::Select => {
+                    if !self.take_handle(input.pointer) {
+                        match self.hit(input.pointer) {
+                            Some(item) => {
+                                self.select(Some(item.clone()));
+                                self.drag = Some(Drag {
+                                    item,
+                                    from: input.pointer,
+                                    moved: false,
+                                    to: None,
+                                });
+                            }
+                            None => self.select(None),
+                        }
                     }
-                    None => self.select(None),
-                },
+                }
             }
         }
         if let Some(mut d) = self.drag.take() {
@@ -927,6 +948,9 @@ impl<'w> Editor<'w> {
                 }
                 if d.moved {
                     d.to = self.ground_at(input.pointer).or(d.to);
+                    if self.snap.applies(input.shift) {
+                        d.to = d.to.map(|t| self.snapped_on_ground(t));
+                    }
                 }
                 self.drag = Some(d);
             } else if d.moved {
@@ -934,6 +958,152 @@ impl<'w> Editor<'w> {
                     self.move_row(&d.item, to);
                 }
             }
+        }
+        self.hold_handle(input);
+    }
+
+    /// A row's handles' place and whether it can turn, when the row is selected.
+    fn selected_handles(&mut self) -> Option<(Entry, [f32; 3], bool)> {
+        let e = self.session.entry(self.selected.as_deref()?)?.clone();
+        if !self.shows(&e) {
+            return None;
+        }
+        let at = entry_global(&e, &mut self.scene);
+        let turns = matches!(e.row.row, Row::Object(_) | Row::Place(_));
+        Some((e, at, turns))
+    }
+
+    /// The pointer's line of sight through a pixel.
+    fn ray_at(&self, px: [f32; 2]) -> Ray {
+        let v = self.view();
+        Ray {
+            origin: v.eye,
+            dir: v.ray(px),
+        }
+    }
+
+    /// A press on a handle of the selected row takes it.
+    fn take_handle(&mut self, pointer: [f32; 2]) -> bool {
+        let Some((e, at, turns)) = self.selected_handles() else {
+            return false;
+        };
+        let v = self.view();
+        let Some(handle) =
+            gizmo::handles(&v, at, turns).and_then(|h| gizmo::handle_at(&h, pointer))
+        else {
+            return false;
+        };
+        let heading = heading_of(&e.row.row);
+        self.grip = Some(Grip {
+            item: e.item,
+            handle,
+            origin: at,
+            heading,
+            from: self.ray_at(pointer),
+            at,
+            facing: heading,
+        });
+        true
+    }
+
+    /// A handle held follows the pointer; let go, the row takes what it became.
+    fn hold_handle(&mut self, input: &ViewInput) {
+        let Some(mut g) = self.grip.take() else {
+            return;
+        };
+        if input.left_down {
+            let to = self.ray_at(input.pointer);
+            let snap = self.snap.applies(input.shift);
+            match g.handle {
+                Handle::Turn => {
+                    if let Some(by) = gizmo::drag_turn(g.origin, &g.from, &to) {
+                        let h = g.heading + by;
+                        let h = if snap {
+                            gizmo::snapped(h, self.snap.angle)
+                        } else {
+                            h
+                        };
+                        g.facing = h.rem_euclid(360.0);
+                    }
+                }
+                arrow => {
+                    if let (Some(by), Some(axis)) = (
+                        gizmo::drag_along(arrow, g.origin, &g.from, &to),
+                        arrow.axis(),
+                    ) {
+                        for i in 0..3 {
+                            g.at[i] = g.origin[i] + axis[i] * by;
+                            if snap && axis[i] != 0.0 {
+                                g.at[i] = gizmo::snapped(g.at[i], self.snap.grid);
+                            }
+                        }
+                    }
+                }
+            }
+            self.grip = Some(g);
+        } else if g.handle == Handle::Turn {
+            if (g.facing - g.heading).abs() > f32::EPSILON {
+                let r = self.session.turn(&g.item, g.facing);
+                self.report(r);
+            }
+        } else if g.at != g.origin {
+            self.move_row(&g.item, g.at);
+        }
+    }
+
+    /// A point of the ground at the nearest whole number of the grid, on the ground there.
+    fn snapped_on_ground(&mut self, g: [f32; 3]) -> [f32; 3] {
+        let (x, y) = (
+            gizmo::snapped(g[0], self.snap.grid),
+            gizmo::snapped(g[1], self.snap.grid),
+        );
+        [x, y, self.scene.ground(x, y).unwrap_or(g[2])]
+    }
+
+    /// What a row would become if what is held were let go: where it stands and which way it faces.
+    fn held_as(&self, item: &str) -> (Option<[f32; 3]>, Option<f32>) {
+        if let Some(g) = self.grip.as_ref().filter(|g| g.item == item) {
+            return (Some(g.at), Some(g.facing));
+        }
+        let at = self
+            .drag
+            .as_ref()
+            .filter(|d| d.item == item && d.moved)
+            .and_then(|d| d.to);
+        (at, None)
+    }
+
+    /// Draw the selected row's handles.
+    fn handles_mark(&mut self, painter: &egui::Painter) {
+        let Some((e, at, turns)) = self.selected_handles() else {
+            return;
+        };
+        let (held, _) = self.held_as(&e.item);
+        let v = self.view();
+        let Some(h) = gizmo::handles(&v, held.unwrap_or(at), turns) else {
+            return;
+        };
+        let s = self.scale;
+        let pt = |p: [f32; 2]| egui::pos2(p[0] / s, p[1] / s);
+        let taken = self.grip.as_ref().map(|g| g.handle);
+        let width = |k: Handle| if taken == Some(k) { 4.0 } else { 2.5 };
+        for (k, tip) in &h.arrows {
+            let color = match k {
+                Handle::X => egui::Color32::from_rgb(240, 80, 80),
+                Handle::Y => egui::Color32::from_rgb(90, 220, 90),
+                _ => egui::Color32::from_rgb(100, 140, 255),
+            };
+            painter.line_segment(
+                [pt(h.origin), pt(*tip)],
+                egui::Stroke::new(width(*k), color),
+            );
+            painter.circle_filled(pt(*tip), 4.0, color);
+        }
+        for w in h.ring.windows(2) {
+            painter.line_segment(
+                [pt(w[0]), pt(w[1])],
+                egui::Stroke::new(width(Handle::Turn), egui::Color32::from_rgb(255, 220, 90)),
+            );
         }
     }
 
@@ -954,12 +1124,7 @@ impl<'w> Editor<'w> {
                 continue;
             }
             let mut g = entry_global(&e, &mut self.scene);
-            let dragged = self
-                .drag
-                .as_ref()
-                .filter(|dr| dr.item == e.item && dr.moved)
-                .and_then(|dr| dr.to);
-            if let Some(to) = dragged {
+            if let (Some(to), _) = self.held_as(&e.item) {
                 g = to;
             }
             let selected = self.selected.as_deref() == Some(e.item.as_str());
@@ -1047,6 +1212,7 @@ impl<'w> Editor<'w> {
             }
         }
         self.ghost_mark(painter);
+        self.handles_mark(painter);
     }
 
     /// Mark the row being placed: a ring where it would stand, a line the way it faces, what to do.
@@ -1189,6 +1355,26 @@ impl<'w> Editor<'w> {
                         self.tool = Tool::Place;
                     }
                 }
+                ui.separator();
+                ui.checkbox(&mut self.snap.on, "Snap").on_hover_text(
+                    "moves and turns go by steps; Shift while dragging does the other",
+                );
+                egui::ComboBox::from_id_salt("snap grid")
+                    .selected_text(format!("{} m", self.snap.grid))
+                    .width(54.0)
+                    .show_ui(ui, |ui| {
+                        for g in [0.25, 0.5, 1.0, 2.0, 5.0, 10.0] {
+                            ui.selectable_value(&mut self.snap.grid, g, format!("{g} m"));
+                        }
+                    });
+                egui::ComboBox::from_id_salt("snap angle")
+                    .selected_text(format!("{}°", self.snap.angle))
+                    .width(44.0)
+                    .show_ui(ui, |ui| {
+                        for a in [5.0, 15.0, 30.0, 45.0, 90.0] {
+                            ui.selectable_value(&mut self.snap.angle, a, format!("{a}°"));
+                        }
+                    });
                 ui.separator();
                 if ui
                     .button("Check build")

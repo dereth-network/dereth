@@ -8,6 +8,7 @@
 use std::path::PathBuf;
 
 use athenaeum_editor::app::{Editor, Tool, ViewInput};
+use athenaeum_editor::gizmo::{self, Handle};
 use athenaeum_editor::live::Programs;
 use athenaeum_editor::scene::{Scene, WorldData};
 use athenaeum_editor::view;
@@ -199,4 +200,139 @@ fn escape_stops_placing_and_keeps_the_selection() {
     assert_eq!(e.selected, placed);
     key(&mut e, KeyCode::Escape, false);
     assert_eq!(e.selected, None, "a second one lets the row go");
+}
+
+/// A drag of the left button from one pixel to another, in the three frames a window gives it.
+fn drag(e: &mut Editor<'_>, from: [f32; 2], to: [f32; 2], shift: bool) {
+    let held = |pointer| ViewInput {
+        pointer,
+        left_down: true,
+        shift,
+        ..ViewInput::default()
+    };
+    frame(
+        e,
+        &ViewInput {
+            left_pressed: true,
+            ..held(from)
+        },
+    );
+    frame(e, &held(to));
+    frame(
+        e,
+        &ViewInput {
+            pointer: to,
+            left_released: true,
+            shift,
+            ..ViewInput::default()
+        },
+    );
+}
+
+/// An editor with a row placed in the town and selected: the row's item and place.
+fn with_a_row(name: &str) -> (Editor<'static>, String, [f32; 3]) {
+    let mut e = editor(name);
+    // Looking north-east, so the arrows lie apart on the screen.
+    e.camera.yaw = -0.6;
+    e.camera.position.x -= 20.0;
+    let g = ground(&mut e);
+    e.place_at(g, 0.0);
+    frame(&mut e, &ViewInput::default());
+    let item = e.selected.clone().expect("the placed row");
+    (e, item, g)
+}
+
+fn place_of(e: &Editor<'_>, item: &str) -> [f32; 3] {
+    let en = e.session.entry(item).expect("the row");
+    let at = en.at();
+    view::global(en.landblock(), [at.x, at.y, at.z.expect("a height")])
+}
+
+#[test]
+fn the_up_arrow_lifts_a_row_and_leaves_it_where_it_stands() {
+    let (mut e, item, g) = with_a_row("arrow-up");
+    let h = gizmo::handles(&e.view(), g, true).unwrap();
+    let tip = h.arrows.iter().find(|a| a.0 == Handle::Z).unwrap().1;
+    let mid = [(h.origin[0] + tip[0]) / 2.0, (h.origin[1] + tip[1]) / 2.0];
+    drag(&mut e, mid, [mid[0], mid[1] - 60.0], false);
+    let now = place_of(&e, &item);
+    assert!(now[2] > g[2] + 0.5, "{now:?} from {g:?}");
+    assert!((now[0] - g[0]).abs() < 0.01 && (now[1] - g[1]).abs() < 0.01);
+    assert_eq!(e.session.steps().0, 2, "the place and one move");
+}
+
+#[test]
+fn the_east_arrow_snaps_to_the_grid_and_shift_lets_it_go_free() {
+    let (mut e, item, g) = with_a_row("arrow-east");
+    e.snap.on = true;
+    e.snap.grid = 2.0;
+    let h = gizmo::handles(&e.view(), g, true).unwrap();
+    let tip = h.arrows.iter().find(|a| a.0 == Handle::X).unwrap().1;
+    let mid = [(h.origin[0] + tip[0]) / 2.0, (h.origin[1] + tip[1]) / 2.0];
+    drag(&mut e, mid, [mid[0] + 73.0, mid[1]], false);
+    let snapped = place_of(&e, &item);
+    assert!(snapped[0] > g[0], "{snapped:?}");
+    assert_eq!(snapped[0] % 2.0, 0.0, "{snapped:?}");
+    assert_eq!(snapped[1], g[1]);
+    assert_eq!(snapped[2], g[2]);
+    let h = gizmo::handles(&e.view(), snapped, true).unwrap();
+    let tip = h.arrows.iter().find(|a| a.0 == Handle::X).unwrap().1;
+    let mid = [(h.origin[0] + tip[0]) / 2.0, (h.origin[1] + tip[1]) / 2.0];
+    drag(&mut e, mid, [mid[0] + 37.0, mid[1]], true);
+    assert_ne!(place_of(&e, &item)[0] % 2.0, 0.0, "Shift goes free");
+}
+
+#[test]
+fn the_ring_turns_a_row_once_when_it_is_let_go_and_escape_drops_it() {
+    let (mut e, item, g) = with_a_row("ring");
+    let h = gizmo::handles(&e.view(), g, true).unwrap();
+    // Two points of the ring well clear of the arrows, the same way round from them.
+    let clear = |p: &[f32; 2]| {
+        h.arrows
+            .iter()
+            .map(|a| gizmo::segment_distance(*p, h.origin, a.1))
+            .fold(f32::MAX, f32::min)
+    };
+    let far = (0..h.ring.len())
+        .max_by(|a, b| clear(&h.ring[*a]).total_cmp(&clear(&h.ring[*b])))
+        .unwrap();
+    let on_ring = h.ring[far];
+    let on_to = h.ring[(far + 12) % (h.ring.len() - 1)];
+    let steps = e.session.steps().0;
+    let held = |pointer| ViewInput {
+        pointer,
+        left_down: true,
+        ..ViewInput::default()
+    };
+    frame(
+        &mut e,
+        &ViewInput {
+            left_pressed: true,
+            ..held(on_ring)
+        },
+    );
+    frame(&mut e, &held(on_to));
+    assert_eq!(e.session.steps().0, steps, "nothing until it is let go");
+    frame(
+        &mut e,
+        &ViewInput {
+            pressed: vec![KeyCode::Escape],
+            left_down: true,
+            ..held(on_to)
+        },
+    );
+    frame(&mut e, &ViewInput::default());
+    assert_eq!(e.session.steps().0, steps, "Escape dropped it");
+    assert_eq!(
+        e.selected.as_deref(),
+        Some(item.as_str()),
+        "and kept the row"
+    );
+    drag(&mut e, on_ring, on_to, false);
+    assert_eq!(e.session.steps().0, steps + 1);
+    assert!(
+        (heading(&e, &item) - 0.0).abs() > 30.0,
+        "{}",
+        heading(&e, &item)
+    );
 }
