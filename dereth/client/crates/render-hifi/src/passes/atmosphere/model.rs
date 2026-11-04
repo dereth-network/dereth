@@ -352,7 +352,14 @@ pub fn sun_illuminance(sky: &HifiSky) -> Vec3 {
     let tint = srgb_bytes_to_linear(sky.sun_color);
     let peak = tint.max_element().max(1e-3);
     let tint = Vec3::ONE.lerp(tint / peak, lerp(0.5, 0.7, twilight(sky)));
-    tint * EXPOSURE * Weather::of(&sky.day_group).exposure()
+    tint * EXPOSURE * Weather::of(&sky.day_group).exposure() * storm_exposure(sky)
+}
+
+/// How brightly a storm's sky is exposed against the rainy day's under it: heavier and darker,
+/// the more as the storm comes in.
+#[must_use]
+pub fn storm_exposure(sky: &HifiSky) -> f32 {
+    1.0 - 0.45 * sky.storm.clamp(0.0, 1.0)
 }
 
 /// How opaque the physical sky is drawn over the authored dome: the weather's share

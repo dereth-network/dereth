@@ -42,7 +42,12 @@ impl<S: Shell> App<S> {
                 set_here: ws.clock.is_adjusted(),
                 clock: self.timer.cur_time + ws.clock.time_zero_start_delta,
             });
-            r.weather = ws.weather.word().to_owned();
+            // A day's own storm is this session's roll: the report names it, so it replays.
+            r.weather = if crate::weather::storms(ws) {
+                crate::weather::Weather::Storm.word().to_owned()
+            } else {
+                ws.weather.word().to_owned()
+            };
         }
         r.weather_off = self
             .objects

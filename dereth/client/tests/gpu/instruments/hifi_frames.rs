@@ -957,6 +957,7 @@ fn capture_the_weather_in_motion() {
         };
         let asked = match asked {
             "rain" => Weather::Rain,
+            "storm" => Weather::Storm,
             "snow" => Weather::Snow,
             _ => Weather::Auto,
         };

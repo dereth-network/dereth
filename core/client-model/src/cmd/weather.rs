@@ -1,10 +1,10 @@
 //! `@weather`, this client's own command for the weather it draws (CD-039). Retail has none.
 //!
 //! The command chooses the kind of day the sky is drawn as, in place of the one the calendar
-//! gives: a clear day or a rainy one, and with the Horizon interface's Weather effect, whether its
-//! rain falls as rain or as snow. It changes only what this client draws, and nothing is sent.
-//! This module holds the command's words: what a typed line asks for, and the sentences it
-//! answers with.
+//! gives: a clear day, a rainy one or a stormy one, and with the Horizon interface's Weather
+//! effect, whether its rain falls as rain or as snow. It changes only what this client draws, and
+//! nothing is sent. This module holds the command's words: what a typed line asks for, and the
+//! sentences it answers with.
 
 /// The weather `@weather` asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -17,6 +17,9 @@ pub enum Weather {
     Clear,
     /// A rainy day, its rain falling as rain whatever the land.
     Rain,
+    /// A stormy day: a rainy one with lightning and a gale, its rain falling as the land says.
+    /// Only the Weather effect draws the storm: without it the day is a rainy one.
+    Storm,
     /// A rainy day, its rain falling as snow whatever the land. The game draws no snow of its
     /// own: without the Weather effect the day is a rainy one.
     Snow,
@@ -30,6 +33,7 @@ impl Weather {
             Self::Auto => "auto",
             Self::Clear => "clear",
             Self::Rain => "rain",
+            Self::Storm => "storm",
             Self::Snow => "snow",
         }
     }
@@ -45,14 +49,20 @@ pub enum WeatherCommand {
 }
 
 /// Every weather `@weather` takes, by its word.
-pub const WEATHERS: [Weather; 4] = [Weather::Clear, Weather::Rain, Weather::Snow, Weather::Auto];
+pub const WEATHERS: [Weather; 5] = [
+    Weather::Clear,
+    Weather::Rain,
+    Weather::Storm,
+    Weather::Snow,
+    Weather::Auto,
+];
 
 /// The word that returns to the day's own weather. `auto`, the word [`Weather::word`] gives it,
 /// is taken too.
 pub const RESET_WORD: &str = "reset";
 
 /// What `@weather` takes: the tail of every refusal.
-pub const USAGE: &str = "@weather takes clear, rain, snow or reset.";
+pub const USAGE: &str = "@weather takes clear, rain, storm, snow or reset.";
 
 /// The answer when there is no world, and so no sky, yet.
 pub const NO_WORLD: &str = "The weather can be shown and set once the world is loaded.";
@@ -105,10 +115,11 @@ mod tests {
 
     /// Behaviour: chat.commands.weather-is-answered-by-this-client-and-never-sent
     #[test]
-    fn clear_rain_snow_and_reset_set_the_weather_in_any_case() {
+    fn clear_rain_storm_snow_and_reset_set_the_weather_in_any_case() {
         for (word, weather) in [
             ("clear", Weather::Clear),
             ("RAIN", Weather::Rain),
+            ("Storm", Weather::Storm),
             ("Snow", Weather::Snow),
             ("reset", Weather::Auto),
             ("Reset", Weather::Auto),
@@ -147,6 +158,7 @@ mod tests {
             "@weather - Shows the current weather and if it is forced locally.\n",
             "@weather clear - Forces local weather to clear skies\n",
             "@weather rain - Forces local weather to rainfall\n",
+            "@weather storm - Forces local weather to a thunderstorm\n",
             "@weather snow - Forces local weather to snowfall\n",
             "@weather reset - Restore natural weather set by the world timeline.\n",
         );
@@ -178,6 +190,11 @@ mod tests {
         assert_eq!(
             describe(Weather::Snow, "clear"),
             "Current weather: snow (forced)"
+        );
+        assert_eq!(describe(Weather::Auto, "storm"), "Current weather: storm");
+        assert_eq!(
+            describe(Weather::Storm, "clear"),
+            "Current weather: storm (forced)"
         );
     }
 }

@@ -43,7 +43,9 @@ fn billow(q: vec3<f32>, fine: f32) -> f32 {
 fn extinction(p: vec3<f32>, h: f32, footprint: f32, full: bool) -> f32 {
     let lod = max(log2(footprint * abs(heavens.laying.y) * 256.0), 0.0);
     let uv = deck_uv(p.xy);
-    let cover = textureSampleLevel(deck, wrap_sampler, uv, lod).a * heavens.cloud.y;
+    // A storm closes retail's cover into a low, heavy deck, its own shapes still in it.
+    let retail = textureSampleLevel(deck, wrap_sampler, uv, lod).a;
+    let cover = mix(retail, 0.45 + 0.55 * retail, heavens.storm.x) * heavens.cloud.y;
     if (cover < 0.01) {
         return 0.0;
     }
@@ -151,6 +153,11 @@ fn fs_clouds(i: FullscreenOut) -> CloudOut {
     // The clouds' own color: retail's picture's, read whole from its smallest level. Retail's are
     // one color all over, white on a fair day and cream on a wet one.
     let albedo = srgb_to_linear(textureSampleLevel(deck, wrap_sampler, vec2<f32>(0.5), 16.0).rgb);
+    // A storm's cloud is dark and slate grey, the darker toward its base.
+    let storm = heavens.storm.x;
+    let slate = vec3<f32>(dot(albedo, vec3<f32>(0.2126, 0.7152, 0.0722))) * vec3<f32>(0.9, 0.96, 1.06);
+    let albedo_drawn = mix(albedo, slate, storm);
+    let flash = heavens.storm.y;
     var transmittance = 1.0;
     var light = vec3<f32>(0.0);
     for (var k = 0.0; k < steps; k += 1.0) {
@@ -187,7 +194,12 @@ fn fs_clouds(i: FullscreenOut) -> CloudOut {
         let sky = ambient * mix(1.0 - 0.15 * shade, 1.0 + 0.25 * shade, h);
         // Far off the clouds take the haze's light, as the land does, and hide what is behind
         // them as before: low down they meet the haze over the horizon with no gap.
-        let step_light = mix((direct + sky) * albedo, haze, 1.0 - exp(-t / fade));
+        let dark = mix(1.0, mix(0.25, 0.6, h), storm);
+        // Lightning lights the cloud from within, most about where it strikes.
+        let near = exp(-length(p.xy - heavens.storm.zw) / 2500.0);
+        let struck = vec3<f32>(0.78, 0.82, 1.0) * flash * (0.05 + 0.9 * near);
+        let step_light =
+            mix((direct + sky) * albedo_drawn * dark + struck, haze, 1.0 - exp(-t / fade));
         let a = 1.0 - exp(-sigma * dt);
         light += transmittance * a * step_light;
         transmittance *= 1.0 - a;

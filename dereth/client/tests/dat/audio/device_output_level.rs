@@ -127,6 +127,25 @@ fn the_startup_ui_sound_reaches_the_device_boundary_audibly() {
     );
 }
 
+/// **Each of a storm's six peals of thunder is audible at the device.** They are the UI table's
+/// thunder rows, the ones `/environ 118..123` play, which startup makes resident with the rest.
+#[test]
+fn every_peal_of_a_storms_thunder_reaches_the_device_audibly() {
+    let store = store();
+    for peal in 0..6 {
+        let mut a = audio();
+        let table = ui_table(&mut a, &store);
+        a.create_table_waves(&store, table);
+        a.play_thunder(table, peal, 1.0);
+        assert!(a.active_voices() > 0, "peal {peal} started a voice");
+        let p = submitted_peak(&a, 20);
+        assert!(
+            p >= AUDIBLE,
+            "peal {peal} reaches the endpoint at peak {p:.5}"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Station 2 — the resampler is not the thing that eats it.
 // ---------------------------------------------------------------------------------------------

@@ -2348,6 +2348,19 @@ impl SceneDraw {
         #[cfg(feature = "hifi")]
         {
             self.hifi.get_mut().now = now.0;
+            // A storm is drawn, and its thunder heard, only where the presentation draws the
+            // falling weather.
+            let drawn = self.weather_enabled().unwrap_or(false);
+            let sh = self.hifi.get_mut();
+            ws.weather_sound = sh.weather_sound;
+            let storms = drawn && sh.draws_weather() && dereth_client_runtime::weather::storms(ws);
+            for peal in sh.step_storm(storms, now.0) {
+                ws.pending_sound
+                    .push(dereth_client_runtime::audio::SoundTrigger::Thunder {
+                        peal: peal.which,
+                        volume: peal.volume,
+                    });
+            }
         }
         // Adaptive degrade runs **once per frame at the end of normal rendering**,
         // which is the last line of this function, and is next -- so the bias the

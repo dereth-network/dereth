@@ -48,6 +48,7 @@ pub mod focus;
 pub mod mixer;
 pub mod output;
 pub mod prefs;
+pub mod rain;
 pub mod table;
 pub mod testing;
 pub mod trigger;
@@ -72,6 +73,7 @@ pub use error::AudioError;
 pub use focus::Focus;
 pub use mixer::{StartOutcome, Voice, VoicePool, NUM_VOICES};
 pub use prefs::{Category, PrefScalar, PrefWrite, Prefs, SoundFeatures, VOLUME_SLIDER_RANGE};
+pub use rain::{WeatherBed, WeatherSound};
 pub use trigger::{SoundHook, UiSoundRef};
 pub use wave::{Sample, MIX_RATE};
 
@@ -121,6 +123,10 @@ pub struct Listener {
     /// Heading in degrees, normalized to `[0, 360)`.
     pub heading: f32,
 }
+
+/// The weather's sounds at a full Weather Sounds slider: by ear, half what they were first made
+/// at sat right beside the game's own sounds.
+pub const WEATHER_LEVEL: f32 = 0.5;
 
 /// The whole subsystem.
 ///
@@ -247,6 +253,57 @@ impl AudioSystem {
     #[must_use]
     pub fn mute_flag(&self) -> Arc<AtomicBool> {
         Arc::clone(&self.muted)
+    }
+
+    /// How loud the weather's own sounds play ([`rain`] and the storm's thunder): the Weather
+    /// Sounds volume at [`WEATHER_LEVEL`], or nothing while they are off, the output is muted, or
+    /// the window is inactive and sound plays only while it is active.
+    #[must_use]
+    pub fn weather_gain(&self) -> f32 {
+        let muted = self.muted.load(std::sync::atomic::Ordering::Relaxed);
+        if muted
+            || !self.prefs.weather_enabled
+            || !self.focus.may_start(self.prefs.only_when_active)
+        {
+            0.0
+        } else {
+            self.prefs.weather_volume * WEATHER_LEVEL
+        }
+    }
+
+    /// Play a sound type from `table_id` for the weather, from the centre at `volume` of the
+    /// Weather Sounds volume. **Not retail**: the storm's thunder, which no category of
+    /// retail's carries. No probability roll: a peal always sounds.
+    pub fn play_weather_from_table(
+        &mut self,
+        table_id: DataId,
+        stype: u32,
+        volume: f32,
+        assets: &dyn AudioAssets,
+    ) {
+        let gain = self.weather_gain();
+        if gain <= 0.0 {
+            return;
+        }
+        let Some(row) = self.pick_row(table_id, stype, assets) else {
+            return;
+        };
+        let Some(sample) = self.cache.find(row.sound_id).and_then(|r| r.sample.clone()) else {
+            return;
+        };
+        // Retail's volume-to-decibel steps, the weather's own volume standing for the category's.
+        let unit = Prefs {
+            ambient_volume: 1.0,
+            ..self.prefs
+        };
+        let Some(db) = attenuation(0.0, volume * gain, Category::Ambient, &unit) else {
+            return;
+        };
+        let priority = self
+            .cache
+            .find(row.sound_id)
+            .map_or(0.0, |r| r.data.priority);
+        self.pool.start(Arc::clone(&sample.frames), db, 0, priority);
     }
 
     /// Fill one interleaved stereo block at [`MIX_RATE`].
@@ -914,5 +971,24 @@ mod tests {
         let (mut s, _a) = system(Prefs::default());
         s.play_wave(WAVE, Vec3::new(95.0, 0.0, 0.0));
         assert_eq!(s.pool().active(), 0, "inaudible means dropped");
+    }
+
+    /// The weather's sounds follow the Weather Sounds row alone: its box and its slider, and
+    /// not retail's ambient ones.
+    #[test]
+    fn the_weather_plays_at_its_own_volume_and_not_the_ambient_one() {
+        let prefs = Prefs {
+            ambient_volume: 0.1,
+            ambient_enabled: false,
+            weather_volume: 0.6,
+            ..Prefs::default()
+        };
+        let mut s = AudioSystem::new(prefs, 1, 1);
+        assert_eq!(s.weather_gain(), 0.6 * WEATHER_LEVEL);
+        s.set_prefs(Prefs {
+            weather_enabled: false,
+            ..prefs
+        });
+        assert_eq!(s.weather_gain(), 0.0);
     }
 }

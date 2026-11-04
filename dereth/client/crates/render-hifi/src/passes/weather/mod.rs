@@ -34,6 +34,11 @@
 //!   is drawn over what its openings show, with the depth that was drawn there before the room
 //!   was, and the room itself, under its roof, stays dry.
 //!
+//! - **Storm.** On a rainy day this client rolls into a storm, or one asked for, the breeze
+//!   rises to a gusting gale that slants the rain hard across the sky, more and faster drops
+//!   fall, and lightning flashes through the cloud and strikes the land some way off, lighting
+//!   the world for a moment ([`storm`]).
+//!
 //! Nothing switches in one frame: the rain and the snow, and the weather and a dry day, ease
 //! into each other over a few seconds, and the land's share of snow must pass well over or
 //! under its mark before the form changes. Every motion is timed by the scene's clock and repeats
@@ -41,6 +46,7 @@
 //! changes.
 
 pub mod cover;
+pub mod storm;
 
 use crate::build::Build;
 use crate::build::Prebuilt;
@@ -59,8 +65,10 @@ const WEATHER_WGSL: &str = include_str!("weather.wgsl");
 
 /// A block's side, metres.
 const BLOCK: f32 = 192.0;
-/// The constant block's size, bytes.
-const CONSTANTS_SIZE: usize = 100 * 4;
+/// The constant block's size, bytes: the weather's own, the storm's and the bolt's points.
+const CONSTANTS_SIZE: usize = (100 + 4 + 4 * storm::BOLT_POINTS) * 4;
+/// Where the flag for the frame's normals, with each surface's class, sits in the constants.
+const CLASSES_AT: usize = 63;
 /// Where the flag for linear light in and out sits in the constants, in floats.
 const LINEAR_AT: usize = 51;
 /// The period of the world-fixed noise, metres: the shader's noise takes the render-space
@@ -308,15 +316,22 @@ pub struct Drift {
 }
 
 impl Drift {
-    /// Step `dt` seconds on, the wind blowing at `wind` metres a second east and north.
-    pub fn step(&mut self, dt: f32, wind: [f32; 2]) {
+    /// Step `dt` seconds on, the rain falling at `rain_speed` and the wind blowing at `wind`
+    /// metres a second east and north.
+    pub fn step(&mut self, dt: f32, wind: [f32; 2], rain_speed: f32) {
         let dt = f64::from(dt.max(0.0));
         let on = |v: f64, by: f64| (v + by).rem_euclid(LATTICE_PERIOD);
-        self.rain = on(self.rain, f64::from(RAIN_SPEED) * dt);
+        self.rain = on(self.rain, f64::from(rain_speed) * dt);
         self.snow = on(self.snow, f64::from(SNOW_SPEED) * dt);
         self.east = on(self.east, f64::from(wind[0]) * dt);
         self.north = on(self.north, f64::from(wind[1]) * dt);
     }
+}
+
+/// How fast the rain falls in a storm `storm` come in, metres a second.
+#[must_use]
+pub fn rain_speed(storm: f32) -> f32 {
+    RAIN_SPEED + (storm::STORM_RAIN_SPEED - RAIN_SPEED) * storm.clamp(0.0, 1.0)
 }
 
 /// The particles of each of the three lattices drawn at `level`, from the High level's `high`.
@@ -443,6 +458,8 @@ struct Gpu {
     target: Option<(wgpu::Texture, wgpu::TextureView, (u32, u32))>,
     /// The landscape field's height, normal and class views, and its parameters.
     field: Option<([wgpu::TextureView; 3], wgpu::Buffer)>,
+    /// Bound in place of the normals on a frame that is not re-shaded.
+    no_normals: wgpu::TextureView,
 }
 
 impl HifiPass for Weather {
@@ -464,7 +481,11 @@ impl HifiPass for Weather {
         self.cover.take_feed(&device, &queue, cx.frame);
         let (time, step) = self.clock.tick(cx.frame.time);
         self.time = time;
-        self.drift.step(step, wind(cx.frame.sky.time_of_day));
+        self.drift.step(
+            step,
+            storm::frame_wind(cx.frame),
+            rain_speed(cx.frame.sky.storm),
+        );
         self.fall.step(
             falls(cx.frame),
             snow_share(cx.frame),
@@ -589,6 +610,9 @@ impl HifiPass for Weather {
         for (i, v) in self.placement.constants(sheltered).iter().enumerate() {
             constants[at(72 + i)].copy_from_slice(&v.to_le_bytes());
         }
+        if cx.reshade.is_some() {
+            constants[at(CLASSES_AT)].copy_from_slice(&1.0f32.to_le_bytes());
+        }
         queue.write_buffer(&gpu.constants, 0, &constants);
         let hdr_input = match &hdr {
             Some(_) => Some(crate::reshade::hdr_copy(cx.seam, cx.resources, cx.encoder)?),
@@ -654,6 +678,12 @@ impl HifiPass for Weather {
                 wgpu::BindGroupEntry {
                     binding: 7,
                     resource: wgpu::BindingResource::TextureView(&cover_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: wgpu::BindingResource::TextureView(
+                        cx.reshade.map_or(&gpu.no_normals, |rt| &rt.normal),
+                    ),
                 },
             ],
         });
@@ -754,13 +784,13 @@ impl Weather {
         let d = self.drift;
         #[allow(clippy::cast_possible_truncation)] // within the lattices' period
         f.extend_from_slice(&[d.rain as f32, d.snow as f32, d.east as f32, d.north as f32]);
-        let w = wind(sky.time_of_day);
-        f.extend_from_slice(&[RAIN_SPEED, SNOW_SPEED, w[0], w[1]]);
+        let w = storm::frame_wind(frame);
+        f.extend_from_slice(&[rain_speed(sky.storm), SNOW_SPEED, w[0], w[1]]);
         // Where render space sits in the world, wrapped to the lattices' period.
         #[allow(clippy::cast_possible_truncation)] // the period, exact in either width
         let lattice = LATTICE_PERIOD as f32;
         let wrap = |v: f32| (-v).rem_euclid(lattice);
-        f.extend_from_slice(&[wrap(shift.x), wrap(shift.y), lattice, 0.0]);
+        f.extend_from_slice(&[wrap(shift.x), wrap(shift.y), lattice, sky.storm]);
         // The particles drawn: rain's lattices, then snow's, each only while it falls.
         let ends = |counts: [u32; 3], from: u32| {
             let a = from + counts[0];
@@ -768,8 +798,14 @@ impl Weather {
             [a, b, b + counts[2]]
         };
         let none = [0; 3];
+        // A storm's rain is twice as heavy.
+        let heavy = |n: u32| {
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // 1 to 2 times
+            let more = (n as f32 * (1.0 + sky.storm.clamp(0.0, 1.0))) as u32;
+            more
+        };
         let rain = if self.fall.snow() < 1.0 {
-            particles_at(level, RAIN_PARTICLES)
+            particles_at(level, RAIN_PARTICLES).map(heavy)
         } else {
             none
         };
@@ -788,8 +824,37 @@ impl Weather {
             f.extend_from_slice(&snow_ends.map(|n| n as f32));
             f.push(0.0);
         }
+        self.storm_constants(frame, &clip_from_render, &mut f);
         debug_assert_eq!(f.len() * 4, CONSTANTS_SIZE);
         self.constants = f.iter().flat_map(|v| v.to_le_bytes()).collect();
+    }
+
+    /// The storm's row and its bolt's points: x how far the storm has come in, y how brightly
+    /// lightning lights the world, z the bolt's points, w how brightly it is drawn; then each
+    /// point on screen (x, y in clip space over w), how far it is (z, metres), and 1 in w where
+    /// a line runs to it from the point before.
+    fn storm_constants(&self, frame: &HifiFrame, clip_from_render: &glam::Mat4, f: &mut Vec<f32>) {
+        let stroke = storm::frame_stroke(frame);
+        let flash = stroke.map_or(0.0, |s| s.flash);
+        let mut points = [0.0f32; 4 * storm::BOLT_POINTS];
+        let mut drawn = 0usize;
+        if let Some(s) = stroke.filter(|s| s.bolt) {
+            let eye = frame.camera.eye;
+            for (p, joined) in storm::bolt_path(&s, eye, storm::BOLT_TOP) {
+                let c = *clip_from_render * p.extend(1.0);
+                // A point behind the eye breaks the line rather than drawing it.
+                let ahead = c.w > 1.0;
+                let at = &mut points[drawn * 4..drawn * 4 + 4];
+                at[0] = if ahead { c.x / c.w } else { 0.0 };
+                at[1] = if ahead { c.y / c.w } else { 0.0 };
+                at[2] = if ahead { (p - eye).length() } else { -1.0 };
+                at[3] = if joined { 1.0 } else { 0.0 };
+                drawn += 1;
+            }
+        }
+        #[allow(clippy::cast_precision_loss)] // a few points
+        f.extend_from_slice(&[frame.sky.storm, flash, drawn as f32, flash]);
+        f.extend_from_slice(&points);
     }
 
     /// The landscape field over the resident window, rebuilt only when a block changes.
@@ -856,6 +921,7 @@ impl Gpu {
                     count: None,
                 },
                 tex(7, wgpu::TextureSampleType::Depth),
+                tex(8, wgpu::TextureSampleType::Float { filterable: false }),
             ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -935,6 +1001,22 @@ impl Gpu {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let no_normals = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("weather no normals"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: crate::derive::pipeline::NORMAL_FORMAT,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default());
         Self {
             format,
             layout,
@@ -943,6 +1025,7 @@ impl Gpu {
             constants,
             target: None,
             field: None,
+            no_normals,
         }
     }
 }

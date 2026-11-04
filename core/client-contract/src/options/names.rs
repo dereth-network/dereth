@@ -88,6 +88,10 @@ pub const SOUND_DISABLED: &str = "Sound.SoundDisabled";
 pub const SOUND_FEATURES: &str = "Sound.SoundFeatures";
 /// `Sound.SoundVolume`.
 pub const SOUND_VOLUME: &str = "Sound.SoundVolume";
+/// `Sound.WeatherSound`: this client's own, not retail's; `True` is on.
+pub const WEATHER_SOUND: &str = "Sound.WeatherSound";
+/// `Sound.WeatherSoundVolume`: this client's own, not retail's.
+pub const WEATHER_SOUND_VOLUME: &str = "Sound.WeatherSoundVolume";
 /// `UI.ChatFontFace`.
 pub const CHAT_FONT_FACE: &str = "UI.ChatFontFace";
 /// `UI.ChatFontSize`.

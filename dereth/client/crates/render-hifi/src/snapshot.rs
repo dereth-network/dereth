@@ -527,6 +527,9 @@ pub struct HifiSky {
     pub sees_outside: bool,
     /// The form of the falling weather the player asked for, if any.
     pub asked_fall: AskedFall,
+    /// How far a storm has come in over the day's rain, 0 none to 1 a full storm, eased by the
+    /// scene (see [`crate::passes::weather::storm`]).
+    pub storm: f32,
     /// The time of day, 0..1.
     pub time_of_day: f32,
     /// The in-game year.

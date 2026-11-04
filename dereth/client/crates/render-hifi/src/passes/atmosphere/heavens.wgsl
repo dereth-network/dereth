@@ -47,6 +47,9 @@ struct Heavens {
     // The clouds' shadow map: xy its center, render space; z how far it reaches each way from
     // it; w the clouds' base, render space. All 0 when the clouds cast no shadows.
     shadow: vec4<f32>,
+    // x how far a storm has come in, 0 to 1; y how brightly lightning lights the cloud; zw where
+    // it strikes, render space.
+    storm: vec4<f32>,
 };
 
 @group(0) @binding(3) var<uniform> heavens: Heavens;

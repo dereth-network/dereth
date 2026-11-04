@@ -95,7 +95,8 @@ impl Shown {
         ) || self.only_on_horizon(face)
     }
 
-    /// A row of Horizon's alone, which only the optional high-fidelity presentation's boxes are.
+    /// A row of Horizon's alone, which only the optional high-fidelity presentation's rows are:
+    /// its boxes and the weather's sound.
     #[cfg(feature = "hifi")]
     const fn only_on_horizon(self, face: Interface) -> bool {
         matches!(
@@ -755,6 +756,20 @@ const CLIENT_SHARED: [Heading; 5] = [
                     volume: crate::options::names::AMBIENT_SOUND_VOLUME,
                 },
                 Bool(true),
+            ),
+            only(
+                Shown::Only(Interface::Horizon),
+                noted(
+                    super::weather_sound::NOTE,
+                    pref(
+                        super::weather_sound::CAPTION,
+                        Value::Sound {
+                            on: crate::options::names::WEATHER_SOUND,
+                            volume: crate::options::names::WEATHER_SOUND_VOLUME,
+                        },
+                        Bool(true),
+                    ),
+                ),
             ),
             pref(
                 "Interface Sounds",

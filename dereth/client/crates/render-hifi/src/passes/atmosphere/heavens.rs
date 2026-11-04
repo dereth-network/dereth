@@ -40,8 +40,8 @@ pub(crate) const CLOUDS_WGSL: &str = include_str!("clouds.wgsl");
 /// The night layer, the stars, the moons, the sun, and the clouds laid over them.
 pub(crate) const CELESTIAL_WGSL: &str = include_str!("celestial.wgsl");
 
-/// The constant block's size, bytes: twenty vectors.
-pub const CONSTANTS_SIZE: usize = 20 * 16;
+/// The constant block's size, bytes: twenty-one vectors.
+pub const CONSTANTS_SIZE: usize = 21 * 16;
 /// The texels a side of the clouds' shadow map.
 pub const SHADOW_SIZE: u32 = 1024;
 /// How far from the eye each way the clouds' shadow map reaches, meters.
@@ -278,7 +278,7 @@ pub fn constants(
     ));
     // The low sun's warmth, as the sky model is tinted toward it.
     let warm = normalized(model::sun_illuminance(sky));
-    let mut rows = [Vec4::ZERO; 20];
+    let mut rows = [Vec4::ZERO; 21];
     // --- the clouds -----------------------------------------------------------------------
     if let (Some(deck), Some(lay)) = (
         plan.deck.as_ref(),
@@ -318,7 +318,8 @@ pub fn constants(
             * CLOUD_SUN
             * knobs.cloud_light
             * day
-            * model::Weather::of(&sky.day_group).exposure();
+            * model::Weather::of(&sky.day_group).exposure()
+            * model::storm_exposure(sky);
         rows[3] = sun_light.extend(1.0);
         // The light retail's own deck is drawn with at this hour, its own glow and the ambient
         // light, which the clouds take from all about them: their lavender by day, their purple at
@@ -326,7 +327,7 @@ pub fn constants(
         let lit = (Vec3::splat(bright) + srgb_byte_units(sky.ambient_color) * sky.ambient_level)
             .min(Vec3::ONE);
         // A wet day's clouds are heavier and grayer, as the sky model exposes its sky.
-        let weather = model::Weather::of(&sky.day_group).exposure();
+        let weather = model::Weather::of(&sky.day_group).exposure() * model::storm_exposure(sky);
         // By night and in the low sun that light is all they have, as on retail's deck; in the
         // high sun the sun's own light on them makes up part of it.
         let high = day * (1.0 - model::twilight(sky));
@@ -382,6 +383,10 @@ pub fn constants(
     if let Some(map) = shadow_map(frame, knobs, plan) {
         rows[19] = Vec4::new(map.center.x, map.center.y, map.reach, map.base);
     }
+    // --- the storm ------------------------------------------------------------------------
+    let stroke = crate::passes::weather::storm::frame_stroke(frame);
+    let at = cam.eye.truncate() + stroke.map_or(glam::Vec2::ZERO, |s| s.offset);
+    rows[20] = Vec4::new(sky.storm, stroke.map_or(0.0, |s| s.flash), at.x, at.y);
     let mut out = Vec::with_capacity(CONSTANTS_SIZE);
     for v in rows {
         for f in v.to_array() {

@@ -1714,6 +1714,7 @@ impl Shot {
         self.scene.weather = match report.weather.as_str() {
             "clear" => dereth_client_runtime::weather::Weather::Clear,
             "rain" => dereth_client_runtime::weather::Weather::Rain,
+            "storm" => dereth_client_runtime::weather::Weather::Storm,
             "snow" => dereth_client_runtime::weather::Weather::Snow,
             _ => dereth_client_runtime::weather::Weather::Auto,
         };

@@ -45,6 +45,17 @@ const FEED_BYTES_PER_FRAME: usize = 4 << 20;
 /// detail levels its objects last stood at.
 #[derive(Debug, Default)]
 pub(crate) struct Shadow {
+    /// How far a storm has come in, eased frame to frame, and where that stood this frame.
+    storm: dereth_render_hifi::passes::weather::storm::Ease,
+    storm_strength: f32,
+    /// The storm's thunder on its way.
+    thunder: dereth_render_hifi::passes::weather::storm::Thunder,
+    /// How the weather stands for its sound, eased as the Weather effect eases it, with the
+    /// clock it last stepped at.
+    fall: dereth_render_hifi::passes::weather::Fall,
+    fall_clock: Option<f64>,
+    /// What that asks of the weather's sound.
+    pub(super) weather_sound: dereth_audio::WeatherSound,
     applied: Option<(FidelityPreferences, bool)>,
     pub(super) now: f64,
     previous_view_projection: Option<glam::Mat4>,
@@ -775,6 +786,47 @@ pub(super) fn lamps_possible(gpu: &Gpu) -> bool {
     gpu.hifi_requested() && device_rays(gpu)
 }
 
+impl Shadow {
+    /// Step the storm to the scene's `now`, toward one when `storms` (the day storms and the
+    /// presentation draws its weather), and return the thunder heard now.
+    pub(super) fn step_storm(
+        &mut self,
+        storms: bool,
+        now: f64,
+    ) -> Vec<dereth_render_hifi::passes::weather::storm::Peal> {
+        self.storm_strength = self.storm.step(storms, now);
+        self.thunder.step(now, self.storm_strength)
+    }
+
+    /// Step the weather's sound to `frame`: the rain the Weather effect draws (none of its snow),
+    /// the storm, its gusts, and whether the viewer is indoors.
+    fn hear_weather(&mut self, frame: &HifiFrame) {
+        use dereth_render_hifi::passes::weather::{falls, snow_share, storm};
+        #[allow(clippy::cast_possible_truncation)] // a frame's step
+        let dt = self
+            .fall_clock
+            .map_or(0.0, |t| (self.now - t).max(0.0) as f32);
+        self.fall_clock = Some(self.now);
+        let drawn = self.draws_weather() && falls(frame);
+        self.fall
+            .step(drawn, snow_share(frame), frame.sky.asked_fall, dt);
+        self.weather_sound = dereth_audio::WeatherSound {
+            rain: self.fall.amount() * (1.0 - self.fall.snow()),
+            storm: self.storm_strength,
+            gust: storm::gust(self.now) * 0.5 + 0.5,
+            indoors: if frame.sky.outdoor { 0.0 } else { 1.0 },
+            gain: 0.0,
+        };
+    }
+
+    /// Whether the presentation draws the weather: it is in use, with the Weather effect on.
+    pub(super) fn draws_weather(&self) -> bool {
+        self.applied
+            .as_ref()
+            .is_some_and(|(prefs, rays)| settings(prefs, *rays).weather.is_on())
+    }
+}
+
 /// Hand the presentation the snapshot of the frame whose world was just drawn, `sh` being what
 /// the bridge remembers between frames. Nothing is built when no presentation is installed.
 pub(super) fn publish(draw: &SceneDraw, sh: &mut Shadow, ws: &WorldState, gpu: &mut Gpu) {
@@ -792,6 +844,7 @@ pub(super) fn publish(draw: &SceneDraw, sh: &mut Shadow, ws: &WorldState, gpu: &
     }
     let reuse = renderer(gpu).and_then(HifiRenderer::recycle_frame);
     let mut frame = snapshot(draw, ws, stamp, (width, height), sh, reuse);
+    sh.hear_weather(&frame);
     // The slots holding the retail pictures the pack's materials stand for, as they are now.
     frame.material_slots.clear();
     if frame.materials.is_some() {
@@ -964,8 +1017,10 @@ fn snapshot(
             dereth_client_runtime::weather::Weather::Rain => AskedFall::Rain,
             dereth_client_runtime::weather::Weather::Snow => AskedFall::Snow,
             dereth_client_runtime::weather::Weather::Auto
+            | dereth_client_runtime::weather::Weather::Storm
             | dereth_client_runtime::weather::Weather::Clear => AskedFall::Land,
         },
+        storm: sh.storm_strength,
         time_of_day: ws.clock.present_time_of_day,
         year: ws.clock.current_year,
         day: ws.clock.current_day,

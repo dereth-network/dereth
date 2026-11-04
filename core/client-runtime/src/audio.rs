@@ -96,6 +96,9 @@ pub struct Audio {
     stream: Option<Box<dyn std::any::Any>>,
     /// The endpoint's own rate, for the report line.
     device_rate: u32,
+    /// The weather's own sound, made at the endpoint's rate beside the mix; `None` until a device
+    /// plays.
+    weather: Option<Arc<Mutex<dereth_audio::WeatherBed>>>,
     /// World audio's own state. It lives here rather than on `App` so that the frame loop needs no
     /// field of its own; see [`world_use_time`].
     world: WorldAudio,
@@ -171,6 +174,7 @@ impl Audio {
             assets: DatAudioAssets::default(),
             stream: None,
             device_rate: 0,
+            weather: None,
             world: WorldAudio::new(),
             crt_seed,
             stats: AudioStats::default(),
@@ -201,6 +205,8 @@ impl Audio {
         let peak_output = Arc::clone(&self.stats.peak_output);
         let blocks_filled = Arc::clone(&self.stats.blocks_filled);
         let mut resampler = Resampler::new(MIX_RATE, rate, channels);
+        let weather = Arc::new(Mutex::new(dereth_audio::WeatherBed::new(rate)));
+        let bed = Arc::clone(&weather);
         // `f32` because `VoicePool::mix` produces `f32` and every modern endpoint accepts it; a
         // device that insists on `i16` or `u16` falls back to silence rather than to a second
         // conversion path nothing would exercise.
@@ -214,6 +220,11 @@ impl Audio {
                         underruns.fetch_add(1, Ordering::Relaxed);
                     }
                 });
+                // The weather at the endpoint's own rate, so it keeps its whole range. A frame
+                // that holds its lock for a moment costs this block its weather, never a wait.
+                if let Ok(mut b) = bed.try_lock() {
+                    b.add_to(out, channels);
+                }
                 blocks_filled.fetch_add(1, Ordering::Relaxed);
                 // The block the device is about to submit, measured after every gain, mute and
                 // rate conversion this file applies. The callback is the only writer; the frame
@@ -226,6 +237,7 @@ impl Audio {
             Ok(s) => {
                 self.stream = Some(s);
                 self.device_rate = rate;
+                self.weather = Some(weather);
             }
             Err(e) => tracing::warn!("{e}; running silent"),
         }
@@ -783,6 +795,8 @@ impl Audio {
             s.end_world();
         }
         self.world.last_scan = None;
+        // Its weather goes with it, gliding out.
+        self.set_weather_sound(dereth_audio::WeatherSound::default());
     }
 
     /// Update the listener transform used by spatial sounds.
@@ -881,7 +895,31 @@ impl Audio {
                 } => {
                     s.play_from_table_at_volume(table, stype, volume, at, &self.assets);
                 }
+                // Thunder plays from the UI table, which the frame resolves: see
+                // [`Self::play_thunder`].
+                SoundTrigger::Thunder { .. } => return,
             }
+            self.stats.sounds_started += 1;
+        }
+    }
+
+    /// What the weather asks of its sound this frame: how much rain, how far a storm has come in
+    /// and how hard it gusts, and whether the listener is indoors. At the Weather Sounds volume.
+    pub fn set_weather_sound(&mut self, mut w: dereth_audio::WeatherSound) {
+        w.gain = self.system.lock().map_or(0.0, |s| s.weather_gain());
+        if let Some(Ok(mut b)) = self.weather.as_ref().map(|b| b.lock()) {
+            b.set(w);
+        }
+    }
+
+    /// A storm's thunder: peal `peal` of the UI table `table`'s thunder rows, from the centre at
+    /// `volume` of the Weather Sounds volume.
+    pub fn play_thunder(&mut self, table: DataId, peal: u32, volume: f32) {
+        let Some(stype) = dereth_audio::trigger::environ_sound_type(118 + peal.min(5)) else {
+            return;
+        };
+        if let Ok(mut s) = self.system.lock() {
+            s.play_weather_from_table(table, stype, volume, &self.assets);
             self.stats.sounds_started += 1;
         }
     }
@@ -1009,6 +1047,8 @@ impl WorldAudio {
 
         // 1. Update the listener transform.
         audio.set_listener(world.listener());
+        // The weather's own sound, as the presentation last drew the weather.
+        audio.set_weather_sound(world.world_mut().weather_sound);
 
         // 2. The server's own sound path.
         self.server_sound_events(audio, world, objects, anim, store);
@@ -1022,6 +1062,17 @@ impl WorldAudio {
             // expose that moment, so the create happens here instead — the first firing of a given
             // hook is the one that pays for the decode, and nothing else changes.
             match t {
+                SoundTrigger::Thunder { peal, volume } => {
+                    // The UI table, which startup made resident with all its waves.
+                    let table =
+                        crate::assets::enum_did(store, UI_SOUND_TABLE_GROUP, UI_SOUND_TABLE_ENUM)
+                            .filter(|t| audio.assets().table(*t).is_some());
+                    match table {
+                        Some(table) => audio.play_thunder(table, peal, volume),
+                        None => self.stats.trigger_misses += 1,
+                    }
+                    continue;
+                }
                 SoundTrigger::Wave { id, .. } => {
                     if !audio.has_wave(id) {
                         audio.create_sound(store, id);
@@ -1404,6 +1455,10 @@ pub enum SoundTrigger {
         volume: f32,
         at: dereth_primitives::Vec3,
     },
+    /// A storm's thunder, which only this client hears: `peal` (0 to 5) of the UI table's six
+    /// thunder rows, the ones `/environ 118..123` play, at `volume` of the Weather Sounds volume,
+    /// from the centre.
+    Thunder { peal: u32, volume: f32 },
 }
 
 /// The client generator's seed from a wall-clock reading: `(long)time(NULL)`, a signed 32-bit

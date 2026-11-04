@@ -7,6 +7,10 @@
 //! inversion anywhere, so `Sound.SoundDisabled=True` means sound is **on**. That is part of the file
 //! format: inverting it here silently flips every existing `UserPreferences.ini`.
 //!
+//! **This client's own two.** [`WEATHER_SOUND_KEYS`] are not retail's (retail has no weather
+//! sound): an on/off and a volume for the synthesized rain, wind and thunder, read and written
+//! after the eight. The on/off reads naturally, `Sound.WeatherSound=True` is on.
+//!
 
 use std::collections::BTreeMap;
 
@@ -66,6 +70,11 @@ pub struct Prefs {
     pub interface_enabled: bool,
     /// `Sound.PlaySoundOnlyWhenActive` -> the focus preference. Default true.
     pub only_when_active: bool,
+    /// `Sound.WeatherSound` -> the weather sound's enable, this client's own. `True` == on.
+    pub weather_enabled: bool,
+    /// `Sound.WeatherSoundVolume` -> the weather sound's volume, this client's own. Default 1.0,
+    /// 0.0..1.0.
+    pub weather_volume: f32,
 }
 
 impl Default for Prefs {
@@ -80,6 +89,8 @@ impl Default for Prefs {
             ambient_enabled: true,
             interface_enabled: true,
             only_when_active: true,
+            weather_enabled: true,
+            weather_volume: 1.0,
         }
     }
 }
@@ -95,6 +106,9 @@ pub const SOUND_KEYS: [&str; 8] = [
     "Sound.InterfaceSoundDisabled",
     "Sound.PlaySoundOnlyWhenActive",
 ];
+
+/// This client's own two `Sound.*` keys, the weather sound's on/off and volume; not retail's.
+pub const WEATHER_SOUND_KEYS: [&str; 2] = ["Sound.WeatherSound", "Sound.WeatherSoundVolume"];
 
 /// The span the Options page's volume sliders cover: the client's Sound table registers `0.0 …
 /// 1.0` for all three volumes.
@@ -126,9 +140,11 @@ pub enum PrefScalar {
 pub enum PrefWrite {
     /// The field was written.
     Applied,
-    /// One of [`SOUND_KEYS`], but the value carried the wrong preference value type.
+    /// One of [`SOUND_KEYS`] or [`WEATHER_SOUND_KEYS`], but the value carried the wrong
+    /// preference value type.
     WrongType,
-    /// Not one of [`SOUND_KEYS`]. `Render.FieldOfView` lands here and that is correct.
+    /// Not one of [`SOUND_KEYS`] or [`WEATHER_SOUND_KEYS`]. `Render.FieldOfView` lands here and
+    /// that is correct.
     NotASoundPreference,
 }
 
@@ -197,6 +213,11 @@ impl Prefs {
             put!(interface_enabled, boolean)
         } else if name.eq_ignore_ascii_case(SOUND_KEYS[7]) {
             put!(only_when_active, boolean)
+        // This client's own two.
+        } else if name.eq_ignore_ascii_case(WEATHER_SOUND_KEYS[0]) {
+            put!(weather_enabled, boolean)
+        } else if name.eq_ignore_ascii_case(WEATHER_SOUND_KEYS[1]) {
+            put!(weather_volume, float)
         } else {
             PrefWrite::NotASoundPreference
         }
@@ -271,10 +292,17 @@ impl Prefs {
         if let Some(v) = get("Sound.PlaySoundOnlyWhenActive").and_then(parse_bool) {
             p.only_when_active = v;
         }
+        if let Some(v) = get("Sound.WeatherSound").and_then(parse_bool) {
+            p.weather_enabled = v;
+        }
+        if let Some(v) = get("Sound.WeatherSoundVolume").and_then(parse_f32) {
+            p.weather_volume = v;
+        }
         p
     }
 
-    /// Serialize the eight Sound preferences in registration order under `[Sound]`.
+    /// Serialize the eight Sound preferences in registration order under `[Sound]`, then this
+    /// client's two weather sound keys.
     /// Booleans use `True`/`False`, and volumes use the `f32` display format.
     /// The preference-name prefix is omitted from each key.
     #[must_use]
@@ -288,7 +316,8 @@ impl Prefs {
         format!(
             "[Sound]\nSoundVolume={}\nAmbientSoundVolume={}\nInterfaceSoundVolume={}\n\
              SoundFeatures={}\nSoundDisabled={}\nAmbientSoundDisabled={}\n\
-             InterfaceSoundDisabled={}\nPlaySoundOnlyWhenActive={}\n",
+             InterfaceSoundDisabled={}\nPlaySoundOnlyWhenActive={}\n\
+             WeatherSound={}\nWeatherSoundVolume={}\n",
             f(self.effect_volume),
             f(self.ambient_volume),
             f(self.interface_volume),
@@ -297,6 +326,8 @@ impl Prefs {
             b(self.ambient_enabled),
             b(self.interface_enabled),
             b(self.only_when_active),
+            b(self.weather_enabled),
+            f(self.weather_volume),
         )
     }
 }
@@ -305,7 +336,7 @@ impl Prefs {
 /// to `Default`, matching `Save`'s split-at-the-last-dot rule in reverse.
 fn parse_profile(text: &str) -> BTreeMap<String, String> {
     // ORDER-OK: a BTreeMap keyed by preference name and only ever looked up by name; the registry's
-    // own iteration order is not observable here because this crate reads only the eight Sound keys.
+    // own iteration order is not observable here because this crate reads only the Sound keys.
     let mut out = BTreeMap::new();
     let mut section = String::from("Default");
     for raw in text.lines() {
@@ -638,5 +669,100 @@ mod tests {
             hot > flat,
             "the cap is on the distance term, not on the category volume"
         );
+    }
+
+    /// This client's two weather keys are spelled out, are not among retail's eight, and default
+    /// to on at full volume.
+    #[test]
+    fn the_weather_keys_are_the_clients_own_and_default_on_at_full_volume() {
+        assert_eq!(
+            WEATHER_SOUND_KEYS,
+            ["Sound.WeatherSound", "Sound.WeatherSoundVolume"]
+        );
+        for k in WEATHER_SOUND_KEYS {
+            assert!(!SOUND_KEYS.contains(&k), "{k} is not retail's");
+        }
+        let d = Prefs::default();
+        assert!(d.weather_enabled);
+        assert_eq!(d.weather_volume, 1.0);
+    }
+
+    /// The weather keys round-trip, are written after the eight, and read naturally: `True` is on.
+    #[test]
+    fn the_weather_keys_round_trip_after_the_eight() {
+        let p = Prefs::from_ini("[Sound]\nWeatherSound=False\nWeatherSoundVolume=0.25\n");
+        assert!(!p.weather_enabled);
+        assert_eq!(p.weather_volume, 0.25);
+        assert!(Prefs::from_ini("[Sound]\nWeatherSound=True\n").weather_enabled);
+        let section = p.to_ini_section();
+        let last_retail = section
+            .find("PlaySoundOnlyWhenActive=")
+            .expect("the eighth key");
+        let weather = section
+            .find("WeatherSound=False\n")
+            .expect("the weather on/off");
+        assert!(weather > last_retail, "{section}");
+        assert!(section.ends_with("WeatherSoundVolume=0.25\n"), "{section}");
+        assert_eq!(Prefs::from_ini(&section), p);
+    }
+
+    /// A retail file has no weather keys; they keep their defaults.
+    #[test]
+    fn a_file_without_the_weather_keys_keeps_their_defaults() {
+        let p = Prefs::from_ini("[Sound]\nSoundVolume=0.5\nAmbientSoundDisabled=False\n");
+        assert!(p.weather_enabled);
+        assert_eq!(p.weather_volume, 1.0);
+    }
+
+    /// Each weather key writes its own field and nothing else, in any case, and rejects the
+    /// wrong type.
+    #[test]
+    fn each_weather_name_writes_exactly_its_own_field() {
+        for name in [
+            WEATHER_SOUND_KEYS[0].to_string(),
+            WEATHER_SOUND_KEYS[0].to_ascii_lowercase(),
+        ] {
+            let mut p = Prefs::default();
+            assert_eq!(
+                p.set_named(&name, PrefScalar::Bool(false)),
+                PrefWrite::Applied
+            );
+            assert_eq!(
+                p,
+                Prefs {
+                    weather_enabled: false,
+                    ..Prefs::default()
+                },
+                "{name}"
+            );
+        }
+        for name in [
+            WEATHER_SOUND_KEYS[1].to_string(),
+            WEATHER_SOUND_KEYS[1].to_ascii_uppercase(),
+        ] {
+            let mut p = Prefs::default();
+            assert_eq!(
+                p.set_named(&name, PrefScalar::Float(0.25)),
+                PrefWrite::Applied
+            );
+            assert_eq!(
+                p,
+                Prefs {
+                    weather_volume: 0.25,
+                    ..Prefs::default()
+                },
+                "{name}"
+            );
+        }
+        let mut p = Prefs::default();
+        assert_eq!(
+            p.set_named(WEATHER_SOUND_KEYS[0], PrefScalar::Float(1.0)),
+            PrefWrite::WrongType
+        );
+        assert_eq!(
+            p.set_named(WEATHER_SOUND_KEYS[1], PrefScalar::Bool(true)),
+            PrefWrite::WrongType
+        );
+        assert_eq!(p, Prefs::default());
     }
 }

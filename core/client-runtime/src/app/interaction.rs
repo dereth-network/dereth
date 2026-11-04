@@ -231,9 +231,9 @@ impl<S: Shell> App<S> {
         shell.control_notice(crate::shell::ControlNotice::TargetMode(
             self.interaction.target_mode() != crate::interaction::TargetMode::None,
         ));
-        // `UiRequest::SetPreference`'s consumer: the eight `Sound.*` names reach
-        // `AudioSystem::set_prefs`. Everything else falls through to the line below, which is the
-        // point of that line.
+        // `UiRequest::SetPreference`'s consumer: the eight `Sound.*` names, and this client's two
+        // weather sound ones, reach `AudioSystem::set_prefs`. Everything else falls through to the
+        // line below, which is the point of that line.
         let unowned = crate::audio::apply_preference_requests(self.audio.as_mut(), unowned);
         // `Display.FullScreen`. It sits before the render names because it is a `Display.*` and not
         // a `Render.*`, and neither of the two below claims it.

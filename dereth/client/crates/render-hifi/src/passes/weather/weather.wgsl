@@ -1,6 +1,7 @@
 // Weather: wet ground, puddles and splashes drawn over the replayed world by a full-screen pass,
 // and the falling rain and snow drawn over that as particles fixed in the world; all of it kept
-// off whatever stands under a roof.
+// off whatever stands under a roof. In a storm, lightning lights the world and its bolt is drawn
+// in the full-screen pass too.
 
 struct Weather {
     // Render space, height up, to clip space.
@@ -22,7 +23,8 @@ struct Weather {
     // x the quality; y how much of what falls is snow, 0 rain to 1 snow; z how much falls, 0 to
     // 1; w radians per pixel.
     params: vec4<f32>,
-    // x, y where the world fog begins and is full; z, w unused.
+    // x, y where the world fog begins and is full; z unused; w 1 when `normals` holds each
+    // surface's class.
     fogp: vec4<f32>,
     // x the period the time wraps over, seconds; y, z where render space's origin sits in the
     // world, wrapped to the noise's period; w that period, metres.
@@ -40,12 +42,18 @@ struct Weather {
     // (w), metres a second.
     motion: vec4<f32>,
     // x, y where render space's origin sits in the world, wrapped to the lattices' period; z that
-    // period, metres.
+    // period, metres; w how far a storm has come in, 0 to 1.
     lattice: vec4<f32>,
     // Where each of rain's three lattices ends in the instances drawn: x, y, z; w unused.
     rain_counts: vec4<f32>,
     // Where each of snow's ends, counted on from rain's last.
     snow_counts: vec4<f32>,
+    // x how far a storm has come in; y how brightly lightning lights the world; z the bolt's
+    // points; w how brightly the bolt is drawn.
+    storm: vec4<f32>,
+    // The bolt's points: xy on screen in clip space, z how far from the eye (under nought behind
+    // it), w 1 where a line runs to it from the point before.
+    bolt: array<vec4<f32>, 40>,
 };
 
 @group(0) @binding(0) var<uniform> W: Weather;
@@ -58,6 +66,8 @@ struct Weather {
 @group(0) @binding(5) var field_class: texture_2d<u32>;
 @group(0) @binding(6) var<uniform> field: TerrainFieldParams;
 @group(0) @binding(7) var shelter_depth: texture_depth_2d;
+// The frame's view-space normals, with each surface's class in alpha.
+@group(0) @binding(8) var normals: texture_2d<f32>;
 
 const PI: f32 = 3.14159265;
 
@@ -293,6 +303,15 @@ fn in_view(px: vec2<f32>) -> bool {
 
 fn depth_at(px: vec2<i32>) -> f32 {
     return textureLoad(depth, px, 0);
+}
+
+// Whether the frame drew the landscape at `px`: class 3, retail's pictures or an art pack's
+// ground, wherever the drawn ground lifts it off retail's triangles.
+fn landscape_at(px: vec2<f32>) -> bool {
+    let most = vec2<i32>(textureDimensions(normals)) - vec2<i32>(1);
+    let t = clamp(vec2<i32>(floor(px)), vec2<i32>(0), most);
+    let kind = textureLoad(normals, t, 0).w;
+    return kind > 2.95 && kind < 3.45;
 }
 
 fn point_at(px: vec2<i32>) -> vec3<f32> {
@@ -599,6 +618,36 @@ fn wet_ground(
     return vec4<f32>(c, puddle);
 }
 
+// --- lightning ---------------------------------------------------------------------------------
+
+// The colour of lightning's light.
+const LIGHTNING: vec3<f32> = vec3<f32>(0.78, 0.82, 1.0);
+
+// How brightly the bolt shows at pixel `px`, where the world drawn there is `scene` metres off:
+// its core a pixel or two wide, its glow wider, and none of it where the world stands nearer.
+fn bolt_at(px: vec2<f32>, scene: f32) -> f32 {
+    let n = i32(W.storm.z);
+    let scale = max(W.viewport.w / 1080.0, 0.5);
+    var best = 0.0;
+    for (var k = 1; k < n; k = k + 1) {
+        let a = W.bolt[k - 1];
+        let b = W.bolt[k];
+        if (b.w < 0.5 || a.z < 0.0 || b.z < 0.0) {
+            continue;
+        }
+        let pa = px_of(a.xy);
+        let ab = px_of(b.xy) - pa;
+        let h = clamp(dot(px - pa, ab) / max(dot(ab, ab), 1.0e-4), 0.0, 1.0);
+        if (mix(a.z, b.z, h) > scene) {
+            continue;
+        }
+        let d = length(px - (pa + ab * h)) / scale;
+        let core = 1.0 - smoothstep(0.7, 1.9, d);
+        best = max(best, core + 0.12 * exp(-d / 6.0));
+    }
+    return best;
+}
+
 // --- the frame --------------------------------------------------------------------------------
 
 @fragment
@@ -621,6 +670,9 @@ fn fs_weather(in: FullscreenOut) -> @location(0) vec4<f32> {
     let dir = normalize(near - W.eye.xyz);
     let sky = d >= 1.0;
     var dist = 1.0e5;
+    // How open to the sky the pixel's surface is, and how much it faces up: the flash lights both.
+    var open = 1.0;
+    var up = 1.0;
     // The light the air carries onto the splashes: the overcast sky's, from the fog and ambient.
     let air = mix(W.fog.rgb, W.ambient.rgb * W.ambient.w, 0.25);
     if (!sky) {
@@ -636,10 +688,16 @@ fn fs_weather(in: FullscreenOut) -> @location(0) vec4<f32> {
         var on_land = 0.0;
         if (field.origin_size.z >= 2.0 && field_class_at(p.xy) != 0u) {
             // On it, and facing up the way the ground does: the foot of a wall or a trunk, as
-            // close to the ground as it is, keeps its own normal.
-            let tol = 0.05 + dist * 0.0015;
-            let above = abs(p.z - plane_height(p.xy));
-            on_land = (1.0 - smoothstep(tol, tol * 3.0, above)) * smoothstep(0.35, 0.6, face.z);
+            // close to the ground as it is, keeps its own normal. The frame's classes say where
+            // it is; without them, its height off retail's triangles.
+            var land = 0.0;
+            if (W.fogp.w > 0.5) {
+                land = select(0.0, 1.0, landscape_at(in.position.xy));
+            } else {
+                let tol = 0.05 + dist * 0.0015;
+                land = 1.0 - smoothstep(tol, tol * 3.0, abs(p.z - plane_height(p.xy)));
+            }
+            on_land = land * smoothstep(0.35, 0.6, face.z);
         }
         g.on_land = on_land;
         g.n = normalize(mix(face, field_normal_at(p.xy), on_land));
@@ -651,6 +709,8 @@ fn fs_weather(in: FullscreenOut) -> @location(0) vec4<f32> {
         g.on_water = class_share(p.xy, 6u) * smoothstep(0.9, 0.99, g.n.z);
         // Under a roof or a porch the ground stays dry.
         g.open = 1.0 - shelter_share(p, 0.4);
+        open = g.open;
+        up = clamp(g.n.z * 0.5 + 0.5, 0.0, 1.0);
         if (W.debug.x > 1.5) {
             return vec4<f32>(encode(vec3<f32>(1.0 - g.open, on_land, 0.0)), raw.a);
         }
@@ -662,6 +722,20 @@ fn fs_weather(in: FullscreenOut) -> @location(0) vec4<f32> {
             }
             c = mix(c, wet.rgb, amount * (1.0 - snowfall));
         }
+    }
+    // Lightning lights the world for a moment: the sky most, and what lies open under it as it
+    // faces up; what stands under a roof catches a little of it.
+    let flash = W.storm.y * amount;
+    if (flash > 0.0) {
+        if (sky) {
+            c = c * (1.0 + 0.7 * flash) + LIGHTNING * 0.03 * flash;
+        } else {
+            let lift = flash * mix(0.2, 1.0, open) * mix(0.4, 1.0, up);
+            c = c * (1.0 + 1.1 * lift) + LIGHTNING * 0.01 * lift;
+        }
+    }
+    if (W.storm.z > 1.0) {
+        c = c + LIGHTNING * bolt_at(in.position.xy, dist) * W.storm.w * amount * 3.0;
     }
     return vec4<f32>(encode(c), raw.a);
 }
@@ -805,6 +879,9 @@ fn vs_fall(@builtin(vertex_index) v: u32, @builtin(instance_index) i: u32) -> Fa
     if (flake) {
         counts = W.snow_counts;
         strength = amount * snowfall;
+    } else {
+        // A storm's drops are heavier, and show the more.
+        strength = strength * (1.0 + 0.15 * W.lattice.w);
     }
     if (at >= counts.z || strength <= 0.0) {
         return out;
@@ -873,7 +950,9 @@ fn vs_fall(@builtin(vertex_index) v: u32, @builtin(instance_index) i: u32) -> Fa
     out.head = head;
     out.tail = tail;
     out.shape = vec4<f32>(drawn.x, alpha, dist, select(0.0, 1.0, flake));
-    out.light = vec4<f32>(encode(fall_light(flake)), select(0.2, 1.0, flake));
+    // Lightning lights the drops and flakes too.
+    let lit = fall_light(flake) * (1.0 - 0.4 * W.lattice.w) * (1.0 + 1.5 * W.storm.y);
+    out.light = vec4<f32>(encode(lit), select(0.2, 1.0, flake));
     return out;
 }
 

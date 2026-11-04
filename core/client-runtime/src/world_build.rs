@@ -94,6 +94,9 @@ impl WorldState {
             always_daylight: false,
             // The day's own until the player asks for another.
             weather: crate::weather::Weather::Auto,
+            // A new salt each session, so which rainy days storm differs from one to the next.
+            storm_seed: crate::weather::session_seed(),
+            weather_sound: dereth_audio::WeatherSound::default(),
             // Behind and a little above, looking slightly down: the client camera's own
             // defaults are explicitly not reproduced here (see [`crate::camera`]).
             camera_orbit: (0.0, -0.20),
