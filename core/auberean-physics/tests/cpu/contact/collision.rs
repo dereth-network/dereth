@@ -307,8 +307,8 @@ fn pushes_sum_and_walking_on_air_doubles() {
     assert_eq!(v, Vec3::new(0.0, 0.0, 6.0));
 }
 
-/// A contact property marked ended goes; one touched again with the same value is unchanged, with
-/// a new value of its kind changed.
+/// A contact property marked ended goes; one touched again with the same value, a vector's parts
+/// within a tolerance, is unchanged, with a new value of its kind changed.
 ///
 /// Behaviour: collision.contact.a-held-property-is-unchanged-or-changed
 #[test]
@@ -319,6 +319,9 @@ fn a_held_property_is_unchanged_or_changed() {
     assert_eq!(p.change, change::SAME);
     p.update_value(&vector(push::VELOCITY, 2.0, 0.0, 0.0));
     assert_eq!(p.change, change::CHANGED);
+    assert_eq!(p.vector(), Some(Vec3::new(2.0, 0.0, 0.0)));
+    p.update_value(&vector(push::VELOCITY, 2.0001, 0.0, 0.0));
+    assert_eq!(p.change, change::SAME, "within the tolerance");
     assert_eq!(p.vector(), Some(Vec3::new(2.0, 0.0, 0.0)));
     p.set_as_same();
     p.update_value(&Property {

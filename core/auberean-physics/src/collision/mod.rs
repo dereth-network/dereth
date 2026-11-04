@@ -36,13 +36,11 @@ pub mod change {
     pub const SAME: u32 = 3;
 }
 
-/// Two properties are the same: the same id, the same kind of value, equal values.
-// D2-16078
+/// Two properties are the same: the same id and type, and values the same, floats in a vector,
+/// color or position within a tolerance ([`Property::same`]).
 #[must_use]
 pub fn same_property(a: &Property, b: &Property) -> bool {
-    a.id == b.id
-        && std::mem::discriminant(&a.value) == std::mem::discriminant(&b.value)
-        && a.value == b.value
+    a.same(b)
 }
 
 /// One property of something a body touches, numbered, with how it changed.

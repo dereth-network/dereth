@@ -475,7 +475,6 @@ pub fn draw(ui: &Ui, frame: &mut Surface) {
 /// Draw only the top-level elements whose depth passes `keep`, deepest first. A scene shown in a
 /// viewport stands at the viewport's depth: a host draws the elements deeper than it, the scene,
 /// then the nearer ones. Each is drawn into a transparent layer of its own, then laid over.
-// D2-11219, D2-11163
 pub fn draw_where(ui: &Ui, frame: &mut Surface, keep: impl Fn(i32) -> bool) {
     let mut layer = Surface::new(frame.width, frame.height);
     let mut turned = None;
@@ -624,6 +623,7 @@ fn composite_over(dst: &mut Surface, layer: &Surface, area: Rect) {
 /// Draw the top-level elements whose depth passes `keep`, deepest first, into a picture that
 /// starts transparent and keeps how much each texel is covered: laid over a scene by its alpha, it
 /// gives what [`draw_where`] gives over that scene.
+// D2-11219, D2-11163
 pub fn draw_layers_where(ui: &Ui, out: &mut Surface, keep: impl Fn(i32) -> bool) {
     out.clear();
     let mut layer = Surface::new(out.width, out.height);

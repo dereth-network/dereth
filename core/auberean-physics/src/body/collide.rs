@@ -225,7 +225,6 @@ impl Body {
 
     /// The body's other updates: its detection spheres checked (when a host for them is given),
     /// then its collisions reported.
-    // D2-06253
     pub fn update_misc(
         &mut self,
         land: &Land,
@@ -278,6 +277,7 @@ impl Body {
 
     /// One tick as [`Body::update`], its detection spheres checked against the world it moves in
     /// ([`World::detection`], with `game` answering for the game objects).
+    // D2-06253
     pub fn update_in(
         &mut self,
         land: &Land,

@@ -534,7 +534,6 @@ impl Body {
 
     /// One physics tick of `dt` seconds. A body out of the world, frozen, not mobile or carried by
     /// a parent does not move (its movement updates stop), unless it flies as a missile.
-    // D2-06344, D2-06265, D2-06213, D2-06243, D2-05952, D2-06137, D2-05990
     pub fn tick(&mut self, land: &Land, dt: f32) {
         let mut world = std::mem::take(&mut self.world);
         let key = match self.own_key.filter(|k| world.handle(*k).is_some()) {
@@ -569,6 +568,7 @@ impl Body {
         self.step(land, world, key, objects, dt);
     }
 
+    // D2-06344, D2-06265, D2-06213, D2-06243, D2-05952, D2-06137, D2-05990
     fn step(
         &mut self,
         land: &Land,

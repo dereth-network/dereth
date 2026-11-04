@@ -20,9 +20,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.contact.a-held-property-is-unchanged-or-changed",
-        says: "A property of something touched, touched again with the same value, is reported \
-               unchanged; with a new value of the same kind it takes the value and is reported \
-               changed; a value of another kind is ignored.",
+        says: "A property of something touched, touched again with the same value (a vector's \
+               parts within a tolerance), is reported unchanged; with a new value of the same \
+               kind it takes the value and is reported changed; a value of another kind is \
+               ignored.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-COLL-PROPERTY"),
         station: "auberean-physics::cpu::contact::collision::a_held_property_is_unchanged_or_changed",
