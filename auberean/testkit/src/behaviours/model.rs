@@ -157,6 +157,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "model.events.of-two-visual-messages-held-under-one-stamp-the-heap-picks",
+        says: "Of two visual messages held under one stamp, the queue's heap decides which goes first, and \
+               the other is dropped: after a smaller stamp has passed through, the later of the two goes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-VISUAL-QUEUE-HEAP"),
+        station: "auberean-client-model::cpu::events::of_two_visual_messages_held_under_one_stamp_the_heap_picks_the_later",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "model.events.private-messages-in-stamp-order",
         says: "The player's private messages take effect in the order of their stamps, whatever \
                order they arrive in; one stamped at or before the last taken is dropped.",
@@ -192,6 +201,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MODEL-VISUAL-ORDER"),
         station: "auberean-client-model::cpu::events::visual_messages_take_effect_in_stamp_order_per_object",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "model.events.visual-stamps-held-across-the-wrap-go-round-the-circle",
+        says: "An object's visual messages are held and released by the circle of stamps: a stamp past \
+               the wrap waits behind those before the wrap, and the wanted stamp is never held up behind it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-VISUAL-QUEUE-CIRCLE"),
+        station: "auberean-client-model::cpu::events::visual_stamps_held_across_the_wrap_take_effect_round_the_circle",
         tier: Tier::Cpu,
     },
     behaviour! {

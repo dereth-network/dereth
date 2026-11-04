@@ -28,7 +28,7 @@
 //! is created again. A queue nothing more comes for stays blocked, and a missing message that comes
 //! late still lets everything after it through.
 
-use std::collections::{BTreeMap, BinaryHeap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use auberean_protocol::physics::CreateObject;
 use auberean_protocol::types::ObjectStamp;
@@ -219,41 +219,88 @@ impl PrivateStream {
     }
 }
 
+/// A held visual message and its visual stamp.
+#[derive(Debug)]
+struct Stamped {
+    stamp: u16,
+    item: Item,
+}
+
 /// An object's visual messages, ordered by their visual stamps; made empty at stamp 0 and never
 /// blocked, and dropped with whatever it still holds.
 // D2-05755, D2-05759
 #[derive(Debug, Default)]
 struct VisualQueue {
     current: u16,
-    /// Held messages by stamp, smallest first (ties in arrival order).
-    held: BinaryHeap<core::cmp::Reverse<(u16, u64)>>,
-    items: HashMap<u64, Item>,
-    seq: u64,
+    /// Held messages as a binary heap, the oldest stamp round the circle on top. The circle has no
+    /// first or last stamp, so what comes off when stamps span it, and which of two under one stamp
+    /// goes first, depends on the heap's shape: these steps keep it.
+    held: Vec<Stamped>,
     blocked_since: Option<f64>,
 }
 
 impl VisualQueue {
-    // D2-05756
+    // D2-05756, D2-05753
     fn push(&mut self, stamp: u16, item: Item) {
-        self.seq += 1;
-        self.held.push(core::cmp::Reverse((stamp, self.seq)));
-        self.items.insert(self.seq, item);
+        self.held.push(Stamped { stamp, item });
+        self.sift_up(self.held.len() - 1);
+    }
+
+    /// The message at `at` rises past each parent stamped newer than it.
+    // D2-05750
+    fn sift_up(&mut self, mut at: usize) {
+        while at > 0 {
+            let parent = (at - 1) / 2;
+            if !newer(self.held[parent].stamp, self.held[at].stamp) {
+                break;
+            }
+            self.held.swap(parent, at);
+            at = parent;
+        }
+    }
+
+    /// The top of the heap comes off: the last message takes its place, sinks along the older
+    /// child at each step (the right one when they are equal) to the bottom, and rises from there.
+    // D2-05754, D2-05751
+    fn pop(&mut self) -> Option<Stamped> {
+        if self.held.is_empty() {
+            return None;
+        }
+        let top = self.held.swap_remove(0);
+        let len = self.held.len();
+        let mut at = 0;
+        let mut right = 2;
+        while right < len {
+            let older = if newer(self.held[right].stamp, self.held[right - 1].stamp) {
+                right - 1
+            } else {
+                right
+            };
+            self.held.swap(at, older);
+            at = older;
+            right = at * 2 + 2;
+        }
+        if right == len {
+            self.held.swap(at, right - 1);
+            at = right - 1;
+        }
+        self.sift_up(at);
+        Some(top)
     }
 
     /// The next message whose stamp follows the current one; older ones are dropped.
     // D2-05757
     fn next(&mut self, now: f64, dropped: &mut u32) -> Option<Item> {
         loop {
-            let Some(core::cmp::Reverse((stamp, seq))) = self.held.peek().copied() else {
+            let Some(stamp) = self.held.first().map(|h| h.stamp) else {
                 self.blocked_since = None;
                 return None;
             };
             let want = self.current.wrapping_add(1);
             if stamp == want {
-                self.held.pop();
                 self.current = stamp;
                 self.blocked_since = None;
-                return self.items.remove(&seq);
+                return self.pop().map(|h| h.item);
             }
             if newer(stamp, want) {
                 if self.blocked_since.is_none() {
@@ -261,8 +308,7 @@ impl VisualQueue {
                 }
                 return None;
             }
-            self.held.pop();
-            self.items.remove(&seq);
+            self.pop();
             *dropped += 1;
         }
     }
@@ -284,7 +330,6 @@ impl VisualQueue {
     // D2-05758
     fn discard_all(&mut self) {
         self.held.clear();
-        self.items.clear();
         self.blocked_since = None;
     }
 }

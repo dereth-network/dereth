@@ -610,3 +610,87 @@ fn an_incarnation_exactly_half_the_circle_away_replaces_or_is_ignored_by_the_sma
     assert!(drain(&mut q).is_empty(), "an older creation is ignored");
     assert_eq!(q.stats().replaced, 0);
 }
+
+/// Brings a queue to stamp `at`, which a creation can only reach in steps of under half the circle.
+fn object_at_stamp(q: &mut EventQueue, id: u64, at: u16) {
+    q.receive(0.0, create_item(id, 1, at.wrapping_sub(0x7FFF)));
+    q.receive(0.0, create_item(id, 1, at));
+    drain(q);
+}
+
+/// Stamps held across the wrap of the circle take effect round it: 1 waits for 0xFFFF and 0, and
+/// 0xFFFF, the one wanted, is not held up behind it, so nothing is given up on.
+///
+/// Behaviour: model.events.visual-stamps-held-across-the-wrap-go-round-the-circle
+#[test]
+fn visual_stamps_held_across_the_wrap_take_effect_round_the_circle() {
+    let id = 0x8130_0000_0000_0002;
+    let mut q = EventQueue::new();
+    object_at_stamp(&mut q, id, 0xFFFE);
+    q.receive(0.1, fx(id, 1, 1, 0x1));
+    assert!(drain(&mut q).is_empty(), "1 waits for the stamps before it");
+    q.receive(0.2, fx(id, 1, 0xFFFF, 0xF));
+    assert_eq!(
+        drain(&mut q)
+            .iter()
+            .filter_map(effect_of)
+            .collect::<Vec<_>>(),
+        vec![0xF],
+        "the wanted stamp goes, with 1 still held"
+    );
+    q.receive(0.3, fx(id, 1, 0, 0x0));
+    assert_eq!(
+        drain(&mut q)
+            .iter()
+            .filter_map(effect_of)
+            .collect::<Vec<_>>(),
+        vec![0x0, 0x1],
+    );
+    q.receive(30.0, fx(id, 1, 2, 0x2));
+    assert_eq!(q.take_force_creates(), Vec::<u64>::new());
+    assert_eq!(q.stats().dropped, 0);
+}
+
+/// Messages held under one stamp come off in the order the queue's heap leaves them, not the order
+/// they came: the later of two goes and the earlier, by then older than the one wanted, is
+/// dropped.
+///
+/// Behaviour: model.events.of-two-visual-messages-held-under-one-stamp-the-heap-picks
+#[test]
+fn of_two_visual_messages_held_under_one_stamp_the_heap_picks_the_later() {
+    let id = 0x8130_0000_0000_0002;
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 1, 0));
+    drain(&mut q);
+    q.receive(0.1, fx(id, 1, 3, 0xA));
+    q.receive(0.1, fx(id, 1, 3, 0xB));
+    q.receive(0.1, fx(id, 1, 2, 0xC));
+    assert!(drain(&mut q).is_empty());
+    q.receive(0.1, fx(id, 1, 1, 0xD));
+    assert_eq!(
+        drain(&mut q)
+            .iter()
+            .filter_map(effect_of)
+            .collect::<Vec<_>>(),
+        vec![0xD, 0xC, 0xB],
+    );
+    assert_eq!(q.stats().dropped, 1);
+    // The sinking message goes to the right of two equal children: the later again.
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 1, 0));
+    drain(&mut q);
+    q.receive(0.1, fx(id, 1, 2, 0x2));
+    q.receive(0.1, fx(id, 1, 3, 0xA));
+    q.receive(0.1, fx(id, 1, 3, 0xB));
+    q.receive(0.1, fx(id, 1, 4, 0x4));
+    assert!(drain(&mut q).is_empty());
+    q.receive(0.1, fx(id, 1, 1, 0x1));
+    assert_eq!(
+        drain(&mut q)
+            .iter()
+            .filter_map(effect_of)
+            .collect::<Vec<_>>(),
+        vec![0x1, 0x2, 0xB, 0x4],
+    );
+    assert_eq!(q.stats().dropped, 1);
+}
