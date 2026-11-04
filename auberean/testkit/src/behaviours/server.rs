@@ -338,6 +338,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.quest-removal-takes-its-subquests",
+        says: "An admin's taking a quest off a player takes the subquests of its phases with it, done \
+               or not, and theirs, without a word, but for one another quest the player holds at a \
+               phase that lists it. Chosen: no recording holds the removal.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-QUEST-SUBS"),
+        station: "yalain-testkit::cpu::operator::admin_calls::a_quest_an_admin_takes_off_a_player_takes_its_subquests_too",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.admin.quest-removal-told-at-once",
         says: "An admin's taking a quest off a player tells its client at once with the update of the \
                removing kind, which the client's own handling takes off its list; a hidden quest goes \

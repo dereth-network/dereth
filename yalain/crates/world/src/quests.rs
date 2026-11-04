@@ -1334,7 +1334,7 @@ fn tell_record<S: Store>(
 
 /// A quest is taken off a player, its client told as it goes: whether the player held it. A quest
 /// its client was never told of (a hidden one, or one the world no longer defines) is taken off
-/// without a word.
+/// without a word. Its subquests go with it, as quietly.
 pub fn remove<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1350,7 +1350,35 @@ pub fn remove<S: Store>(
     };
     let before = p.play.quests.len();
     p.play.quests.retain(|st| st.quest != quest);
-    p.play.quests.len() != before
+    let held = p.play.quests.len() != before;
+    if held {
+        remove_subquests(s, world, quest);
+    }
+    held
+}
+
+/// A quest has been taken off a player: the subquests of its phases go too, and theirs, but for one
+/// another quest the player has at a phase that lists it still needs. Its client knew none of them.
+fn remove_subquests<S: Store>(s: &mut Server<S>, world: ConnId, quest: u32) {
+    let subs: Vec<u32> = s.quests.quest(quest).map_or_else(Vec::new, |d| {
+        d.subquests
+            .iter()
+            .flat_map(|p| p.quests.iter().copied())
+            .collect()
+    });
+    for sub in subs {
+        if parent_held(s, world, sub).is_some() {
+            continue;
+        }
+        let Some(p) = s.players.get_mut(&world) else {
+            return;
+        };
+        let before = p.play.quests.len();
+        p.play.quests.retain(|st| st.quest != sub);
+        if p.play.quests.len() != before {
+            remove_subquests(s, world, sub);
+        }
+    }
 }
 
 /// The quest, and its phase, that a quest is a subquest of for a player: one the player has under

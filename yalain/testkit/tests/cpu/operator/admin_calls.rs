@@ -1341,6 +1341,173 @@ fn quest_updates(h: &Harness, b: usize, from: usize) -> Vec<(u32, u32)> {
         .collect()
 }
 
+/// `/qst remove` of a quest takes off the subquests of its phases, done or not, and theirs, without
+/// a word; one another quest it holds still needs at that phase stays, as does any other quest.
+/// Behaviour: server.admin.quest-removal-takes-its-subquests
+#[test]
+fn a_quest_an_admin_takes_off_a_player_takes_its_subquests_too() {
+    use yalain_content::quests::{QuestDef, QuestTable, Step, Subquests, Trigger, Update};
+    use yalain_world::quests::{phase_of, status, update};
+    const USED: u32 = 0x4700_0001;
+    const PARENT: u32 = 0x4000_0100;
+    const SUB: u32 = 0x4000_0101;
+    const SUB_OF_SUB: u32 = 0x4000_0102;
+    const SHARED: u32 = 0x4000_0103;
+    const OTHER_PARENT: u32 = 0x4000_0104;
+    const DONE_SUB: u32 = 0x4000_0105;
+    const UNRELATED: u32 = 0x4000_0106;
+    let def = |id, subquests| QuestDef {
+        id,
+        name: (1, 0x2500_0001),
+        description: (2, 0x2500_0001),
+        icon: 0,
+        play_fx: false,
+        journals: Vec::new(),
+        challenge: 0,
+        duration: 0.0,
+        retry: 0.0,
+        xp: 0,
+        cancellable: false,
+        placed: "authored for a test".into(),
+        hidden: false,
+        effects: Vec::new(),
+        subquests,
+        min_level: 0,
+        fails_on_death: false,
+        once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
+        hero_only: false,
+        required: None,
+        pay: yalain_content::quests::CompletionPay::default(),
+    };
+    let at = |phase, quests: &[u32]| Subquests {
+        phase,
+        quests: quests.to_vec(),
+        any: false,
+    };
+    let mut h = Harness::new();
+    let (victim, victim_id) = h.player_in_world("one", "Elara");
+    let (me, _) = admin_in_world(&mut h, "two", "Cara");
+    h.server.quests = QuestTable {
+        quests: vec![
+            def(PARENT, vec![at(2, &[SUB, SHARED]), at(3, &[DONE_SUB])]),
+            def(SUB, vec![at(1, &[SUB_OF_SUB])]),
+            def(SUB_OF_SUB, Vec::new()),
+            def(SHARED, Vec::new()),
+            def(OTHER_PARENT, vec![at(1, &[SHARED])]),
+            def(DONE_SUB, Vec::new()),
+            def(UNRELATED, Vec::new()),
+        ],
+        steps: [(PARENT, 2u32), (PARENT, 3)]
+            .map(|(quest, to)| Step {
+                quest,
+                needs: to - 1,
+                trigger: Trigger::Use(USED),
+                tell: None,
+                update: Update::Advance(to),
+                xp: 0,
+                gives: Vec::new(),
+                counts: Vec::new(),
+                effects: Vec::new(),
+                text: None,
+                placed: "authored for a test".into(),
+                requires: Vec::new(),
+                takes: Vec::new(),
+                races: Vec::new(),
+                effects_last: false,
+                fellows: false,
+                to: None,
+            })
+            .to_vec(),
+    };
+    let world = h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == victim_id)
+        .map(|(w, _)| *w)
+        .expect("in the world");
+    let state = |quest, status, phase| yalain_world::state::QuestState {
+        quest,
+        status,
+        phase,
+        started: 0,
+        updated: 0,
+    };
+    let held = |h: &Harness| -> Vec<u32> {
+        let mut v: Vec<u32> = h.server.players[&world]
+            .play
+            .quests
+            .iter()
+            .map(|st| st.quest)
+            .collect();
+        v.sort_unstable();
+        v
+    };
+    {
+        let p = h.server.players.get_mut(&world).expect("in the world");
+        p.play.quests = vec![
+            state(PARENT, status::UNDERWAY, 1),
+            state(SUB_OF_SUB, status::UNDERWAY, 1),
+            state(OTHER_PARENT, status::UNDERWAY, 1),
+            state(UNRELATED, status::UNDERWAY, 1),
+        ];
+    }
+    for _ in 0..2 {
+        let clock = h.clock();
+        yalain_world::quests::triggered(
+            &mut h.server,
+            &mut h.net,
+            world,
+            Trigger::Use(USED),
+            None,
+            clock,
+        );
+    }
+    {
+        let p = h.server.players.get_mut(&world).expect("in the world");
+        assert_eq!(phase_of(&p.play.quests, PARENT), 3, "moved on");
+        for st in &mut p.play.quests {
+            if st.quest == DONE_SUB {
+                *st = state(DONE_SUB, status::COMPLETED, 0);
+            }
+        }
+    }
+    assert_eq!(
+        held(&h),
+        [
+            PARENT,
+            SUB,
+            SUB_OF_SUB,
+            SHARED,
+            OTHER_PARENT,
+            DONE_SUB,
+            UNRELATED
+        ],
+        "the world gave them"
+    );
+    let remove = |h: &mut Harness, quest: u32| {
+        send(
+            h,
+            me,
+            0x8201_0019,
+            &[Arg::LongInt(victim_id), Arg::Int(quest)],
+        );
+    };
+    h.run(10);
+    let from = h.bots[victim].inbox.len();
+    remove(&mut h, PARENT);
+    assert_eq!(
+        quest_updates(&h, victim, from),
+        [(update::REMOVE, PARENT)],
+        "its client never knew the rest"
+    );
+    assert_eq!(held(&h), [SHARED, OTHER_PARENT, UNRELATED]);
+    remove(&mut h, OTHER_PARENT);
+    assert_eq!(held(&h), [UNRELATED], "the shared one goes with its last");
+}
+
 /// `/qst remove` and `/qst retry` tell the player's client at once, as the update its own handling
 /// takes off the list; a quest its client never knew (a hidden one) goes without a word.
 /// Behaviour: server.admin.quest-removal-told-at-once
