@@ -204,9 +204,12 @@ mod tests {
     #[test]
     fn a_stopped_status_endpoint_lets_its_address_go() {
         // A port below every system's ephemeral range: one the system gave out would be free for
-        // any other test's connection to take as soon as this one lets it go.
-        let e = (20_000..32_000)
-            .find_map(|port| {
+        // any connection to take as soon as this one lets it go. It starts from this process's id,
+        // so that another run of this test on the machine isn't after the same one.
+        let first = 20_000 + std::process::id() % 12_000;
+        let e = (0..12_000)
+            .find_map(|n| {
+                let port = u16::try_from(20_000 + (first - 20_000 + n) % 12_000).expect("a port");
                 Endpoint::start(
                     SocketAddr::from(([127, 0, 0, 1], port)),
                     Snapshot::default(),
