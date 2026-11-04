@@ -8328,6 +8328,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.aua-gives-the-skyport-maintenance",
+        says: "Aua gives her maintenance quest, its shards and stibnite move it by their own effects, \
+               the alembic takes each, and she takes the infusion. Her lines say so; no recording \
+               shows it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-SKYPORT-MAINT"),
+        station: "yalain-testkit::corpus::world_db::aua_gives_her_quest_and_the_alembic_makes_the_infusion",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.cancel-a-quest",
         says: "A quest under way that may be cancelled is cancelled on request: one update of the \
                cancel kind with the quest's record, and the quest no longer under way.",
@@ -8379,6 +8389,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-XP"),
         station: "yalain-testkit::cpu::play::quests::a_completion_pays_its_experience_weighed_by_challenge_against_level",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.crafters-second-halves",
+        says: "A crafter's second half runs as its journal says: the person it names moves the quest \
+               on, the last item handed to that person brings what the crafter wants, and the crafter \
+               takes it. No recording shows it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-BESTOWAL-CHAINS"),
+        station: "yalain-testkit::corpus::world_db::a_crafters_second_half_runs_as_its_journal_says",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.done-once-from-setup",
@@ -8536,6 +8556,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.mine-ways-down",
+        says: "Each Ulkas mine's way down leads to its base, open to anyone, and each second way in \
+               leads where the first does, asking for the same toll. The portals' names say so; only \
+               the emerald mine's and the sapphire mine's ways down were recorded.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-MINE-WAYS-DOWN"),
+        station: "yalain-testkit::corpus::world_db::every_ulkas_mine_portal_leads_somewhere",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.monarch-only-is-read",
         says: "A quest's setup says whether it is for the monarch of an allegiance; one setup says so, and nothing yet holds a quest to it.",
         since: RETAIL,
@@ -8631,6 +8661,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.seskris-talismans",
+        says: "Seskri's quest moves by each talisman's own effect, she names what is left at each \
+               phase, and she takes the last. No recording shows a talisman.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-SCLAVUS-CABALS"),
+        station: "yalain-testkit::corpus::world_db::seskris_quest_moves_by_its_talismans_and_ends_with_the_last",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.step-effects-after-the-update",
         says: "A step whose effects come last (the Esper Warder's bestowal of three weapon recipes) tells the \
                quest's update first and then the recipes learned; other steps tell their effects first.",
@@ -8691,6 +8730,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WDB-ANTECHAMBER-2017"),
         station: "yalain-testkit::corpus::world_db::three_obelisks_touched_in_their_order_lead_on_and_a_wrong_touch_starts_over",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.the-rouge-mirra",
+        says: "The Rouge mirra goes as the three recorded mirras went: cleansed at the font, charged \
+               at Exelaris, handed to the golem.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-WDB-MIRRA-ROUGE"),
+        station: "yalain-testkit::corpus::world_db::the_rouge_mirra_goes_as_the_other_mirras",
         tier: Tier::Corpus,
     },
     behaviour! {
