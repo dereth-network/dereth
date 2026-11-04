@@ -303,6 +303,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "model.state.an-object-made-held-takes-its-position-stamp",
+        says: "An object made already held takes the position stamp its description gives: a let-go \
+               older than that changes nothing, and a later one lets it go.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-HELD-POSITION-STAMP"),
+        station: "auberean-client-model::cpu::model::an_object_made_held_takes_its_position_stamp",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "model.state.an-object-made-in-no-cell-is-not-placed",
         says: "An object hanging from nothing is placed where its creation puts it only when that \
                is in a cell: a creation that gives a place in no cell leaves it unplaced. It keeps a \

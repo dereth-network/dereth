@@ -262,9 +262,10 @@ impl Object {
     fn take_descriptions(&mut self) {
         let p = &self.physics;
         let parent = p.parent_id();
+        // D2-06366
+        self.position_stamp = p.stamp(0);
         if parent == 0 {
             let at = p.position();
-            self.position_stamp = p.stamp(0);
             if at.cell != 0 {
                 self.place = Some(Place {
                     cell: at.cell,
