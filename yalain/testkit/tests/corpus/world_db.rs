@@ -1503,13 +1503,13 @@ fn the_quests_other_quests_require_are_in_the_world() {
     }
 }
 
-/// **An obelisk search sends its seeker from stone to stone**: each giving and each stone's advance
-/// is followed by the trip 2017's seekers made, to the next stone and last to the explorer; the
-/// explorer's completion sends no one. The landings are the recordings' (each step's commonest, of
-/// 4 to 7 sessions).
+/// **An obelisk search leads its seeker from stone to stone by the portal beside each**: a giving
+/// and each stone's advance moves the quest and sends no one, and the portal beside it goes on to the
+/// next stone, last to the explorer, as 2017's seekers went (4 to 7 sessions each). A world older
+/// than these rows has nothing to play.
 /// Behaviour: server.quests.an-obelisk-search-leads-on
 #[test]
-fn an_obelisk_search_sends_its_seeker_from_stone_to_stone_as_the_recordings_show() {
+fn an_obelisk_search_moves_on_at_each_stone_and_the_portal_beside_it_goes_on() {
     let t = &compiled().tables;
     type Stop = (u32, u32, u32);
     const SEARCHES: [(u32, [Stop; 4]); 3] = [
@@ -1557,10 +1557,25 @@ fn an_obelisk_search_sends_its_seeker_from_stone_to_stone_as_the_recordings_show
                 phase,
                 "{quest:08X} moved on by {who:08X}"
             );
+            let at = t.content.objects[i].cell;
             let until = h.now.0 + 12.0;
             h.run_to(yalain_net::LocalTime(until));
             let p = h.server.players.values().next().expect("a player");
-            assert_eq!(p.position.cell, landing, "{who:08X}'s trip");
+            assert_eq!(p.position.cell, at, "{who:08X} sends no one");
+            let portal = t
+                .content
+                .objects
+                .iter()
+                .position(|o| {
+                    o.landblock() == t.content.objects[i].landblock()
+                        && o.destination.as_ref().is_some_and(|d| d.cell == landing)
+                })
+                .unwrap_or_else(|| panic!("a portal beside {who:08X} to {landing:08X}"));
+            use_person(&mut h, b, me, t, portal);
+            let until = h.now.0 + 12.0;
+            h.run_to(yalain_net::LocalTime(until));
+            let p = h.server.players.values().next().expect("a player");
+            assert_eq!(p.position.cell, landing, "the portal beside {who:08X}");
         }
         let explorer = stops[0].0;
         let i = t
@@ -1884,6 +1899,14 @@ fn a_posting_pays_the_share_the_guide_gives() {
 fn hand_in(h: &mut Harness, portal: &yalain_testkit::authored::Portal, item: u32, to: u32) {
     use yalain_content::quests::Trigger;
     let world = *h.server.players.keys().next().expect("a player");
+    let wanted = h
+        .server
+        .quests
+        .steps
+        .iter()
+        .find(|s| s.trigger == Trigger::Give(item, to) && s.wants.is_some())
+        .and_then(|s| s.wants)
+        .unwrap_or(1);
     if !h.server.players[&world]
         .play
         .items
@@ -1891,7 +1914,7 @@ fn hand_in(h: &mut Harness, portal: &yalain_testkit::authored::Portal, item: u32
         .any(|i| i.template == item)
     {
         h.server.catalog.insert(portal.template(item));
-        yalain_world::inventory::give(&mut h.server, &mut h.net, world, item, 1);
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, item, wanted);
         h.run(2);
     }
     let id = h.server.players[&world]
@@ -1911,7 +1934,7 @@ fn hand_in(h: &mut Harness, portal: &yalain_testkit::authored::Portal, item: u32
         yalain_world::gives::Given {
             item: id,
             template: item,
-            quantity: 1,
+            quantity: wanted,
             target: 0,
         },
         clock,
@@ -1921,6 +1944,116 @@ fn hand_in(h: &mut Harness, portal: &yalain_testkit::authored::Portal, item: u32
 
 /// A quest's status and phase, as its player holds it.
 fn quest_state(h: &Harness, quest: u32) -> Option<(u32, u32)> {
+    state_of(h, quest)
+}
+
+/// A player beside a person, offering it `count` of the `stack` it holds of an item: the lines it
+/// told, the stack's quantity left, and whether its pack still holds it.
+fn offered(
+    h: &mut Harness,
+    b: usize,
+    me: u64,
+    t: &Tables,
+    (who, item): (u32, u32),
+    (stack, count): (u32, u32),
+) -> (Vec<u32>, Option<u32>) {
+    use yalain_world::inventory::{move_graph, Move};
+    let i = t
+        .content
+        .objects
+        .iter()
+        .position(|o| o.template == who)
+        .unwrap_or_else(|| panic!("{who:08X} placed"));
+    let o = &t.content.objects[i];
+    let world = *h.server.players.keys().next().expect("a player");
+    {
+        let p = h.server.players.get_mut(&world).expect("a player");
+        p.position.cell = o.cell;
+        p.position.origin = [o.origin[0] + 1.0, o.origin[1], o.origin[2]];
+        let mine: Vec<u64> = p
+            .play
+            .items
+            .iter()
+            .filter(|x| x.template == item)
+            .map(|x| x.id)
+            .collect();
+        p.play.items.retain(|x| !mine.contains(&x.id));
+    }
+    let portal = yalain_testkit::authored::Portal::open();
+    h.server.catalog.insert(portal.template(item));
+    let id =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, item, stack).expect("made");
+    h.run(3);
+    let slot = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|x| x.id == id)
+        .map_or(0, |x| x.slot);
+    let slot = i32::try_from(slot).unwrap_or(0);
+    let target = yalain_world::presence::content_id(&t.content.objects, i);
+    let m = Move {
+        move_type: yalain_world::gives::GIVE,
+        merge: true,
+        unlock: true,
+        check_take: true,
+        all_taken: true,
+        grab: true,
+        contain: true,
+        auto_merge: true,
+        target,
+        actual_target: target,
+        merge_container: target,
+        from: me,
+        actual_from: me,
+        item: id,
+        split_item: id,
+        quantity: count,
+        quantity_left: count,
+        from_slot: slot,
+        actual_from_slot: slot,
+        ..Move::default()
+    };
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(yalain_world::drops::function::MOVE_ITEM, &[move_graph(&m)]),
+    );
+    h.run(150);
+    let told = h
+        .calls(b, from)
+        .into_iter()
+        .filter_map(|(_, v)| {
+            v.iter().find_map(|x| match x.root() {
+                Some(yalain_world::calls::Node::TextInfo(t)) => Some(t.string_id),
+                _ => None,
+            })
+        })
+        .collect();
+    let left = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|x| x.id == id)
+        .map(|x| x.quantity);
+    (told, left)
+}
+
+fn put_at_phase(h: &mut Harness, quest: u32, phase: u32) {
+    for p in h.server.players.values_mut() {
+        p.play.quests.retain(|q| q.quest != quest);
+        p.play.quests.push(yalain_world::state::QuestState {
+            quest,
+            status: yalain_world::quests::status::UNDERWAY,
+            phase,
+            started: 0,
+            updated: 0,
+        });
+    }
+}
+
+fn state_of(h: &Harness, quest: u32) -> Option<(u32, u32)> {
     h.server.players.values().next().and_then(|p| {
         p.play
             .quests
@@ -2243,4 +2376,137 @@ fn quests_no_recording_measured_add_what_their_pattern_or_a_guide_supports() {
 
 fn t_quest(name: &str) -> u32 {
     *quest_ids().get(name).expect("named")
+}
+
+/// **A hand-in that names a count wants that count**: Sparks takes 3 of each element, split off a
+/// bigger stack, says the install's line for any other number and hands it back; his quest is done
+/// with the second element and not the first, whichever comes first. Lupe, wanting her fins one at
+/// a time, refuses three plainly as 2017 heard and takes one; the Miller of Kehan, who names no
+/// count, takes 82 stones whole as 2017 did. A world older than these rows has nothing to play.
+/// Behaviour: server.gives.counted-hand-ins
+#[test]
+fn hand_ins_naming_a_count_want_it_and_the_wrong_number_has_its_line() {
+    use yalain_world::quests::status;
+    const SPARKS: u32 = 0x4700_32C5;
+    const BARIUM: u32 = 0x4700_08ED;
+    const STRONIUM: u32 = 0x4700_08EB;
+    const SHOUSHI: u32 = 0x8000_02E4;
+    const WRONG_NUMBER: u32 = 0x4F33_0AB6;
+    const DONE: u32 = 0x68A0_7C4D;
+    let t = &compiled().tables;
+
+    for (first, second) in [(BARIUM, STRONIUM), (STRONIUM, BARIUM)] {
+        let (mut h, b, me) = served(t);
+        set_level(&mut h, 60);
+        let at = t.content.objects.iter().position(|o| o.template == SPARKS);
+        use_person(&mut h, b, me, t, at.expect("placed"));
+        assert_eq!(state_of(&h, SHOUSHI), Some((status::UNDERWAY, 1)));
+        for (stack, count) in [(5, 2), (5, 5), (2, 2)] {
+            let (told, left) = offered(&mut h, b, me, t, (SPARKS, first), (stack, count));
+            assert!(
+                told.contains(&WRONG_NUMBER),
+                "{count} of {stack}: {told:08X?}"
+            );
+            assert_eq!(left, Some(stack), "{count} of {stack} comes back");
+        }
+        let (told, left) = offered(&mut h, b, me, t, (SPARKS, first), (5, 3));
+        assert!(!told.contains(&WRONG_NUMBER), "3 of 5: {told:08X?}");
+        assert!(
+            !told.contains(&DONE),
+            "one element is not the quest: {told:08X?}"
+        );
+        assert_eq!(left, Some(2), "the rest stays");
+        assert_eq!(state_of(&h, SHOUSHI), Some((status::UNDERWAY, 1)));
+        let (told, left) = offered(&mut h, b, me, t, (SPARKS, second), (3, 3));
+        assert!(told.contains(&DONE), "both are: {told:08X?}");
+        assert_eq!(left, None, "the whole stack of three leaves the pack");
+        assert_eq!(state_of(&h, SHOUSHI).map(|q| q.0), Some(status::COMPLETED));
+    }
+
+    // Lupe: three at once refused with her plain line, one at a time taken.
+    const LUPE: u32 = 0x4700_3353;
+    const FINS: u32 = 0x4700_1CC4;
+    const FIN_QUEST: u32 = 0x4000_027E;
+    const NOT_WANTED: u32 = 0x098E_5251;
+    let (mut h, b, me) = served(t);
+    put_at_phase(&mut h, FIN_QUEST, 1);
+    let (told, left) = offered(&mut h, b, me, t, (LUPE, FINS), (3, 3));
+    assert!(told.contains(&NOT_WANTED), "{told:08X?}");
+    assert_eq!(left, Some(3));
+    assert_eq!(state_of(&h, FIN_QUEST), Some((status::UNDERWAY, 1)));
+    let (_, left) = offered(&mut h, b, me, t, (LUPE, FINS), (3, 1));
+    assert_eq!(left, Some(2));
+    assert_eq!(state_of(&h, FIN_QUEST), Some((status::UNDERWAY, 2)));
+
+    // The Miller of Kehan names no count: 82 stones go whole, as 1 does.
+    const MILLER: u32 = 0x4700_2FBC;
+    const STONE: u32 = 0x4700_06C6;
+    const WINDMILL: u32 = 0x4000_00C7;
+    for (stack, count, left) in [(82, 82, None), (82, 1, Some(81))] {
+        let (mut h, b, me) = served(t);
+        put_at_phase(&mut h, WINDMILL, 2);
+        let (_, now) = offered(&mut h, b, me, t, (MILLER, STONE), (stack, count));
+        assert_eq!(now, left, "{count} of {stack}");
+        assert_eq!(state_of(&h, WINDMILL), Some((status::UNDERWAY, 3)));
+    }
+
+    // "I said 25 gold!" is for the wrong number of coins, and for nothing else given him.
+    const DRIZZLE: u32 = 0x4700_32C8;
+    const COIN: u32 = 0x4700_0538;
+    const SAID_25: u32 = 0x11EE_CD9A;
+    let (mut h, b, me) = served(t);
+    let (told, left) = offered(&mut h, b, me, t, (DRIZZLE, COIN), (30, 10));
+    assert!(told.contains(&SAID_25), "{told:08X?}");
+    assert_eq!(left, Some(30));
+    let (told, _) = offered(&mut h, b, me, t, (DRIZZLE, STONE), (1, 1));
+    assert!(!told.contains(&SAID_25), "{told:08X?}");
+}
+
+/// The rows that name a count, as their quests' journals and people say.
+/// Behaviour: server.gives.counted-hand-ins
+#[test]
+fn every_hand_in_that_names_a_count_wants_it() {
+    use yalain_content::quests::Trigger;
+    let t = &compiled().tables;
+    let wants = |quest: u32, item: u32| -> Vec<Option<u32>> {
+        t.quests
+            .steps
+            .iter()
+            .filter(|s| s.quest == quest && matches!(s.trigger, Trigger::Give(i, _) if i == item))
+            .map(|s| s.wants)
+            .collect()
+    };
+    let named = [
+        (0x4000_0179, 0x4700_08D2, 250),
+        (0x4000_0180, 0x4700_06C3, 20),
+        (0x8000_0343, 0x4700_1779, 10),
+        (0x8000_0359, 0x4700_1CAC, 4),
+        (0x8000_035E, 0x4700_1BAA, 5),
+        (0x8000_037B, 0x4700_11DE, 6),
+        (0x8000_033F, 0x4700_1CB7, 2),
+        (0x8000_0351, 0x4700_1CE1, 3),
+        (0x8000_0352, 0x4700_1CE2, 3),
+        (0x8000_02E5, 0x4700_0538, 25),
+        (0x8000_02E6, 0x4700_0538, 25),
+        (0x4000_032A, 0x4700_0538, 1000),
+        (0x8000_02F0, 0x4700_06C6, 300),
+        (0x8000_02FD, 0x4700_06CB, 200),
+    ];
+    for (quest, item, count) in named {
+        assert_eq!(wants(quest, item), vec![Some(count)], "{quest:08X}");
+    }
+    assert_eq!(
+        wants(0x4000_027E, 0x4700_1CC4),
+        vec![Some(1); 3],
+        "a fin a phase"
+    );
+    assert_eq!(
+        wants(0x4000_00C7, 0x4700_06C6),
+        vec![None],
+        "a pile of stone"
+    );
+    assert!(
+        wants(0x8000_02E4, 0x4700_08EB).is_empty(),
+        "Sparks's quest is done by its subquests"
+    );
 }

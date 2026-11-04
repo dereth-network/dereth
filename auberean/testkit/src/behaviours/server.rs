@@ -2931,6 +2931,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.counted-hand-ins",
+        says: "Every hand-in whose quest or person names a count wants exactly that count, and a person \
+               with a line for the wrong number says it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-HAND-IN-COUNTS-2017"),
+        station: "yalain-testkit::corpus::world_db::hand_ins_naming_a_count_want_it_and_the_wrong_number_has_its_line",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.gives.hero-transformation",
         says: "A give whose step makes a hero runs that step when the transformation is through, 25.59 \
                s after the answer: the player a hero, the quest completed, the hero's text; meanwhile \
@@ -6815,11 +6824,11 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.quests.an-obelisk-search-leads-on",
-        says: "Each giving and each stone's advance of an obelisk search sends its seeker \
-               where 2017's landed; its completion sends no one.",
+        says: "Each giving and each stone's advance of an obelisk search moves its quest and sends \
+               no one; the portal beside each stone takes the seeker on to the next.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-OBELISK-SEARCH"),
-        station: "yalain-testkit::corpus::world_db::an_obelisk_search_sends_its_seeker_from_stone_to_stone_as_the_recordings_show",
+        station: "yalain-testkit::corpus::world_db::an_obelisk_search_moves_on_at_each_stone_and_the_portal_beside_it_goes_on",
         tier: Tier::Corpus,
     },
     behaviour! {

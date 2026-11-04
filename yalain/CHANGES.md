@@ -51,6 +51,8 @@ what they see, not how it was done.
 - More people in the drudge towns give their quests.
 - Fixed people telling strong players they were too weak.
 - The Water Temple obelisks open in the right order.
+- Sparks's, Fraidy's and Elder Jrick's quests now take each item in turn.
+- Obelisk search stones no longer teleport you; the portal beside each one does.
 
 ## 0.1.2 (2026-11-03)
 
