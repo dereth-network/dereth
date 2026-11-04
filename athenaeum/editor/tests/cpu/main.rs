@@ -272,3 +272,21 @@ mod gizmo_math {
         assert_eq!(s.turn_step(15.0), s.angle);
     }
 }
+
+#[test]
+fn a_name_reads_without_the_games_marks() {
+    use athenaeum_editor::app::plain_name;
+    assert_eq!(plain_name("Frank the Trader[mn]"), "Frank the Trader");
+    assert_eq!(plain_name("Refining Workshop[E]"), "Refining Workshop");
+    assert_eq!(plain_name("Plain"), "Plain");
+}
+
+#[test]
+fn a_landblock_is_a_place_to_go_and_other_words_are_not() {
+    use athenaeum_editor::app::go_to_of;
+    assert_eq!(go_to_of("5766"), Some((0x5766, [80.0, 80.0])));
+    assert_eq!(go_to_of(" 5766:123,45 "), Some((0x5766, [123.0, 45.0])));
+    assert_eq!(go_to_of("frank"), None);
+    assert_eq!(go_to_of("576"), None);
+    assert_eq!(go_to_of("5766:12"), None);
+}

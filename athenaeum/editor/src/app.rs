@@ -46,6 +46,8 @@ pub const NEAR: f32 = 160.0;
 pub const MARKED: f32 = 400.0;
 /// How close to a marker a click selects it, pixels.
 pub const HIT: f32 = 12.0;
+/// How many rows the Find window lists.
+pub const FOUND: usize = 200;
 /// How far from a row its copy stands, meters.
 pub const DUPLICATE_AWAY: f32 = 2.0;
 /// The step R turns a row by, degrees.
@@ -205,6 +207,10 @@ pub struct Editor<'w> {
     closing: bool,
     /// The window is to close now.
     pub close_now: bool,
+    /// What the Find window looks for, and what it reads each row by, of a revision of the world.
+    finding_rows: Option<String>,
+    focus_find: bool,
+    row_index: Option<(u64, Vec<String>)>,
     /// The handle being dragged.
     grip: Option<Grip>,
     /// The steps moves and turns snap to.
@@ -371,6 +377,9 @@ impl<'w> Editor<'w> {
             adding: play::Adding::default(),
             closing: false,
             close_now: false,
+            finding_rows: None,
+            focus_find: false,
+            row_index: None,
             grip: None,
             snap: Snap::default(),
             ghost: None,
@@ -410,7 +419,7 @@ impl<'w> Editor<'w> {
         let install = self.install;
         self.labels
             .entry(template)
-            .or_insert_with(|| install.label(template))
+            .or_insert_with(|| plain_name(&install.label(template)))
             .clone()
     }
 
@@ -662,6 +671,7 @@ impl<'w> Editor<'w> {
     /// Open the template finder on `text`.
     pub fn find(&mut self, text: &str) {
         self.finding = Some(text.to_string());
+        self.focus_find = true;
     }
 
     /// The install's templates, for the finder.
@@ -716,6 +726,149 @@ impl<'w> Editor<'w> {
         }
     }
 
+    /// Open the Find window, or close it.
+    pub fn toggle_row_finder(&mut self) {
+        self.finding_rows = match self.finding_rows.take() {
+            Some(_) => None,
+            None => Some(String::new()),
+        };
+        self.focus_find = self.finding_rows.is_some();
+    }
+
+    /// What the Find window reads each row by: its item, kind, template and name, in small letters.
+    fn row_words(&mut self) -> Vec<String> {
+        let rev = self.session.revision();
+        if let Some((r, words)) = &self.row_index {
+            if *r == rev {
+                return words.clone();
+            }
+        }
+        let entries: Vec<Entry> = self.session.entries().to_vec();
+        let words: Vec<String> = entries
+            .iter()
+            .map(|e| {
+                let (template, more) = match &e.row.row {
+                    Row::Object(o) => (Some(o.template), o.to.clone().unwrap_or_default()),
+                    Row::Camp(c) => (c.spawns.first().map(|(t, _)| *t), String::new()),
+                    Row::Place(p) => (None, p.destination.clone().unwrap_or_default()),
+                    _ => (None, String::new()),
+                };
+                let name = template.map_or_else(String::new, |t| self.label(t));
+                let hex = template.map_or_else(String::new, |t| format!("0x{t:08x}"));
+                format!("{} {} {name} {hex} {more}", e.item, kind_word(&e.row.row)).to_lowercase()
+            })
+            .collect();
+        self.row_index = Some((rev, words.clone()));
+        words
+    }
+
+    /// The indexes of the rows whose words hold every word of `text`, the world's own first, at
+    /// most `limit`.
+    #[must_use]
+    pub fn rows_matching(&mut self, text: &str, limit: usize) -> Vec<usize> {
+        let want: Vec<String> = text.split_whitespace().map(str::to_lowercase).collect();
+        if want.is_empty() {
+            return Vec::new();
+        }
+        let words = self.row_words();
+        let hits = words
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| want.iter().all(|t| w.contains(t.as_str())))
+            .map(|(i, _)| i);
+        let entries = self.session.entries();
+        let (own, rest): (Vec<usize>, Vec<usize>) =
+            hits.partition(|i| entries[*i].layer != Layer::Base);
+        own.into_iter().chain(rest).take(limit).collect()
+    }
+
+    /// The camera over a landblock's point, a little above the ground, looking as it was.
+    pub fn go_to(&mut self, lb: u16, at: [f32; 2]) {
+        let g = view::global(lb, [at[0], at[1], 0.0]);
+        let z = self
+            .scene
+            .ground(g[0], g[1])
+            .unwrap_or(self.camera.position.z);
+        self.camera.position = Vec3::new(g[0], g[1], z + 20.0);
+    }
+
+    /// The Find window: any row of the world by its name, template, kind or key, and a landblock to
+    /// go to.
+    fn row_finder(&mut self, ctx: &egui::Context) {
+        let Some(mut text) = self.finding_rows.take() else {
+            return;
+        };
+        let mut open = true;
+        let mut pick = None;
+        let mut go = None;
+        egui::Window::new("Find")
+            .open(&mut open)
+            .default_size([420.0, 440.0])
+            .default_pos([340.0, 80.0])
+            .show(ctx, |ui| {
+                let field = ui.add(
+                    egui::TextEdit::singleline(&mut text)
+                        .hint_text(
+                            "a name, a template, a kind, a key, or a landblock (5766:123,45)",
+                        )
+                        .desired_width(400.0),
+                );
+                // Opened, it is typed in at once.
+                if std::mem::take(&mut self.focus_find) {
+                    field.request_focus();
+                }
+                if let Some((lb, at)) = go_to_of(&text) {
+                    if ui
+                        .button(format!("Go to {lb:04X} ({:.0}, {:.0})", at[0], at[1]))
+                        .clicked()
+                    {
+                        go = Some((lb, at));
+                    }
+                }
+                let found = self.rows_matching(&text, FOUND);
+                if found.is_empty() {
+                    if !text.trim().is_empty() {
+                        ui.label(egui::RichText::new("no row holds that").weak());
+                    }
+                    return;
+                }
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for i in &found {
+                        let Some(e) = self.session.entries().get(*i).cloned() else {
+                            continue;
+                        };
+                        let name = match &e.row.row {
+                            Row::Object(o) => self.label(o.template),
+                            Row::Camp(c) => c
+                                .spawns
+                                .first()
+                                .map(|(t, _)| self.label(*t))
+                                .unwrap_or_default(),
+                            _ => String::new(),
+                        };
+                        let line = egui::RichText::new(format!("{}  {name}", e.item))
+                            .color(color_of(&e.row.row));
+                        if ui.selectable_label(false, line).clicked() {
+                            pick = Some(e.item.clone());
+                        }
+                    }
+                    if found.len() >= FOUND {
+                        ui.label(egui::RichText::new("and more: type more").weak());
+                    }
+                });
+            });
+        if let Some(item) = pick {
+            self.select(Some(item.clone()));
+            self.fly_to(&item);
+        }
+        if let Some((lb, at)) = go {
+            self.go_to(lb, at);
+        }
+        if open {
+            self.finding_rows = Some(text);
+        }
+    }
+
     /// The finder: templates whose names hold what is typed.
     fn finder(&mut self, ctx: &egui::Context) {
         let Some(mut text) = self.finding.take() else {
@@ -726,10 +879,14 @@ impl<'w> Editor<'w> {
         egui::Window::new("Templates")
             .open(&mut open)
             .default_size([360.0, 420.0])
+            .default_pos([340.0, 80.0])
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label("name has");
-                    ui.add(egui::TextEdit::singleline(&mut text).desired_width(200.0));
+                    ui.label("name or id has");
+                    let field = ui.add(egui::TextEdit::singleline(&mut text).desired_width(200.0));
+                    if std::mem::take(&mut self.focus_find) {
+                        field.request_focus();
+                    }
                 });
                 let want = text.trim().to_lowercase();
                 if want.len() < 2 {
@@ -741,13 +898,17 @@ impl<'w> Editor<'w> {
                     let mut shown = 0;
                     for t in templates {
                         let name = self.label(t);
-                        if name.is_empty() || !name.to_lowercase().contains(&want) {
+                        let hex = format!("0x{t:08x}");
+                        if !name.to_lowercase().contains(&want) && !hex.contains(&want) {
                             continue;
                         }
-                        if ui
-                            .selectable_label(false, format!("0x{t:08X}  {name}"))
-                            .clicked()
-                        {
+                        // One with no look shows only as its marker in the world.
+                        let line = if self.look(t).is_some() {
+                            format!("0x{t:08X}  {name}")
+                        } else {
+                            format!("0x{t:08X}  {name}  (no look)")
+                        };
+                        if ui.selectable_label(false, line).clicked() {
                             chosen = Some(t);
                         }
                         shown += 1;
@@ -900,6 +1061,7 @@ impl<'w> Editor<'w> {
                         self.session.redo();
                     }
                     KeyCode::KeyD if input.ctrl => self.duplicate_selected(),
+                    KeyCode::KeyF if input.ctrl => self.toggle_row_finder(),
                     KeyCode::KeyR if !input.ctrl => {
                         let step = self.snap.turn_step(TURN_STEP);
                         let by = if input.shift { -step } else { step };
@@ -1373,6 +1535,7 @@ impl<'w> Editor<'w> {
                         .clicked()
                     {
                         self.finding = Some(self.finding.take().unwrap_or_default());
+                        self.focus_find = true;
                     }
                 }
                 let placing = self.tool == Tool::Place;
@@ -1386,6 +1549,14 @@ impl<'w> Editor<'w> {
                     } else {
                         self.tool = Tool::Place;
                     }
+                }
+                ui.separator();
+                if ui
+                    .button("Find rows")
+                    .on_hover_text("any row of the world, or a landblock to go to (Ctrl+F)")
+                    .clicked()
+                {
+                    self.toggle_row_finder();
                 }
                 ui.separator();
                 ui.checkbox(&mut self.snap.on, "Snap").on_hover_text(
@@ -1433,6 +1604,7 @@ impl<'w> Editor<'w> {
             .show(ui, |ui| self.inspector(ui));
         let ctx = ui.ctx().clone();
         self.finder(&ctx);
+        self.row_finder(&ctx);
         self.characters_window(&ctx);
         self.closing_window(&ctx);
     }
@@ -1858,6 +2030,42 @@ pub fn kept_camera(world: &std::path::Path) -> Option<FlyCamera> {
         c.speed = speed as usize;
     }
     Some(c)
+}
+
+/// A name as a person reads it: the game keeps grammar marks in it, as `Frank the Trader[mn]`.
+#[must_use]
+pub fn plain_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    let mut skipping = false;
+    for c in name.chars() {
+        match c {
+            '[' => skipping = true,
+            ']' => skipping = false,
+            c if !skipping => out.push(c),
+            _ => {}
+        }
+    }
+    out.trim().to_string()
+}
+
+/// Where a text of the Find window says to go: a landblock in hexadecimal, and a point in it
+/// (`5766`, `5766:123,45`).
+#[must_use]
+pub fn go_to_of(text: &str) -> Option<(u16, [f32; 2])> {
+    let t = text.trim();
+    let (block, at) = t.split_once(':').map_or((t, None), |(b, a)| (b, Some(a)));
+    if block.len() != 4 {
+        return None;
+    }
+    let lb = u16::from_str_radix(block, 16).ok()?;
+    let at = match at {
+        None => [80.0, 80.0],
+        Some(a) => {
+            let (x, y) = a.split_once(',')?;
+            [x.trim().parse().ok()?, y.trim().parse().ok()?]
+        }
+    };
+    Some((lb, at))
 }
 
 /// A data id written in hexadecimal (`0x47002224`, or without `0x`).

@@ -13,6 +13,8 @@ see, not how it was done.
 - Clicks on a window over the world no longer reach the world.
 - Placing shows the row under the pointer first; R turns it and Shift+click keeps placing.
 - A selected row has handles to move it east, north and up and to turn it, with Snap for steps.
+- Find rows (Ctrl+F) finds any row of the world and goes to a landblock.
+- Names read as people read them, without the game's grammar marks.
 - Duplicate copies the selected row beside it (Ctrl+D).
 - macOS: the editor opens at full size on Retina screens, Cmd works as Ctrl, and Backspace deletes.
 

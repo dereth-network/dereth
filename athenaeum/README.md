@@ -82,6 +82,8 @@ to where it leads.
   Backspace takes it away; F flies to it.
 - **Place**, with a kind and a template along the top, shows the new row under the pointer and puts
   it at the next click on the ground. R turns it first; Shift+click keeps placing; Esc stops.
+- Ctrl+F or **Find rows** finds any row of the world by its name, template, kind or key, nearest
+  or not, and goes to a landblock (`5766` or `5766:123,45`).
 - Ctrl+D or **Duplicate** copies the selected row beside it and selects the copy, whatever it is:
   a person with their name and place, a camp with its creatures, a portal with where it leads.
 - A row of the database is never written: changing one writes this world's own row of its key,

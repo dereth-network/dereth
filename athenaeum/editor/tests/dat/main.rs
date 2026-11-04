@@ -358,3 +358,25 @@ fn ctrl_d_copies_a_row_beside_it_and_selects_the_copy() {
     );
     assert_eq!(place_of(&e, &item), g, "the first stays");
 }
+
+#[test]
+fn find_goes_through_the_whole_world_with_the_worlds_own_first() {
+    let (mut e, item, _) = with_a_row("find");
+    let frank = e.rows_matching("frank trader", 10);
+    assert!(!frank.is_empty(), "the database's Frank");
+    let found = &e.session.entries()[frank[0]];
+    assert_eq!(found.item, "object n-2ee9@5766", "far or near");
+    let vendors = e.rows_matching("weapon vendor", 500);
+    assert_eq!(
+        e.session.entries()[vendors[0]].item,
+        item,
+        "this world's row comes first"
+    );
+    assert!(e.rows_matching("nothing holds this", 10).is_empty());
+    let by_id = e.rows_matching("0x470033d0", 10);
+    assert_eq!(
+        e.session.entries()[by_id[0]].item,
+        item,
+        "by its template too"
+    );
+}
