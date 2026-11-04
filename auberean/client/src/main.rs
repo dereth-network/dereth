@@ -72,6 +72,7 @@ mod friends;
 mod icon;
 mod keys;
 mod local;
+mod perf;
 mod script;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
@@ -110,6 +111,8 @@ struct Options {
     character: Option<String>,
     overlay: bool,
     script: Option<PathBuf>,
+    /// Where each frame's times and device work are written.
+    perf: Option<PathBuf>,
     shots: Option<PathBuf>,
     verbose: bool,
     no_window: Option<f64>,
@@ -134,7 +137,7 @@ struct Options {
 
 /// This program's own options, beside the September 2013 client's: each one's form (what it takes
 /// and keeps), long name, help and a switch's value.
-const OWN_OPTIONS: [(u32, &str, &str, i32); 12] = [
+const OWN_OPTIONS: [(u32, &str, &str, i32); 13] = [
     (
         0x11,
         "adminclient",
@@ -171,6 +174,12 @@ const OWN_OPTIONS: [(u32, &str, &str, i32); 12] = [
         0x32,
         "dev-script",
         "<file>: Play a script of input and screenshots.",
+        0,
+    ),
+    (
+        0x32,
+        "dev-perf",
+        "<file>: Write each frame's times and device work there.",
         0,
     ),
     (0x32, "shots", "<folder>: Where screenshots go.", 0),
@@ -237,6 +246,7 @@ impl Reader for Line {
             "dev-character" => self.o.character = Some(value.to_owned()),
             "dev-overlay" => self.o.overlay = true,
             "dev-script" => self.o.script = Some(PathBuf::from(value)),
+            "dev-perf" => self.o.perf = Some(PathBuf::from(value)),
             "shots" => self.o.shots = Some(PathBuf::from(value)),
             "verbose" => self.o.verbose = true,
             "no-sound" => self.o.no_sound = true,
@@ -648,6 +658,8 @@ struct App<'w> {
     shell: Shell<'w, Desktop>,
     world: &'w WorldData,
     present: Option<auberean_present::Presenter>,
+    /// Each frame's times and device work written out, when asked for.
+    perf: Option<perf::PerfLog>,
     /// How the game is shown now.
     shown: Presentation,
     /// The window's drawing area now.
@@ -840,7 +852,9 @@ impl App<'_> {
                 .and_then(|g| g.get(auberean_draw::quality::key::SCREEN_BRIGHTNESS))
                 .unwrap_or(0.0)
         });
+        let began = Instant::now();
         let out = self.shell.frame();
+        let shell_took = began.elapsed();
         let quit = out.quit;
         let cursor = out.overlay.cursor.clone();
         if let Some(p) = &mut self.present {
@@ -855,6 +869,10 @@ impl App<'_> {
                 &mut load,
                 shot.as_deref(),
             );
+            let work = p.work();
+            if let Some(log) = &mut self.perf {
+                log.frame(began, shell_took, self.shell.costs, work);
+            }
         }
         self.set_cursor(el, cursor.as_deref());
         if quit {
@@ -1079,8 +1097,13 @@ fn run() -> Result<(), String> {
         return no_window(shell, script, seconds);
     }
     let shown = shell.settings.presentation();
+    let perf = match &o.perf {
+        Some(f) => Some(perf::PerfLog::create(f).map_err(|e| format!("{}: {e}", f.display()))?),
+        None => None,
+    };
     let mut app = App {
         shell,
+        perf,
         world: &world,
         present: None,
         shown,

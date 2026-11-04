@@ -482,6 +482,7 @@ dependencies = [
  "dereth-primitives",
  "naga",
  "pollster",
+ "web-time",
  "wgpu",
 ]
 

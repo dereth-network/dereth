@@ -56,6 +56,9 @@ use wgpu::util::DeviceExt;
 
 mod cache;
 mod pool;
+mod work;
+
+pub use work::{Lap, Stages, Work};
 
 /// Why a frame could not be drawn.
 #[derive(Debug)]
@@ -242,6 +245,8 @@ pub struct Renderer {
     /// scene laid over the interface starts clear.
     pub backdrop: wgpu::Color,
     meshes: cache::MeshCache,
+    /// What the frames since it was last taken asked of the device.
+    work: std::cell::Cell<Work>,
     /// The sky objects' lens flares by their place in the day's list: each one's fade and
     /// whether its object was seen when last looked for; the look under way (the markers drawn at
     /// the objects, whose answers come back a frame or so later); the flares' and the markers'
@@ -664,6 +669,7 @@ impl Renderer {
             samples,
             backdrop: wgpu::Color::BLACK,
             meshes: cache::MeshCache::default(),
+            work: std::cell::Cell::default(),
             flares: HashMap::new(),
             flare_scan: None,
             flares_seen: info.backend != wgpu::Backend::BrowserWebGpu,
@@ -691,6 +697,34 @@ impl Renderer {
     #[must_use]
     pub fn queue(&self) -> &wgpu::Queue {
         &self.queue
+    }
+
+    /// What the frames since the last call asked of the device, and start counting again.
+    pub fn take_work(&self) -> Work {
+        self.work.take()
+    }
+
+    /// Add to what the frames ask of the device, for a host that draws more on it.
+    pub fn note_work(&self, add: impl FnOnce(&mut Work)) {
+        let mut w = self.work.get();
+        add(&mut w);
+        self.work.set(w);
+    }
+
+    /// A buffer of `bytes`, for the count.
+    fn note_buffer(&self, bytes: usize) {
+        self.note_work(|w| {
+            w.buffers += 1;
+            w.buffer_bytes += bytes as u64;
+        });
+    }
+
+    /// A drawing target of `samples` samples, for the count.
+    fn note_target(&self, width: u32, height: u32, samples: u32) {
+        self.note_work(|w| {
+            w.textures += 1;
+            w.texture_bytes += u64::from(width) * u64::from(height) * u64::from(samples) * 4;
+        });
     }
 
     fn upload(
@@ -1208,6 +1242,7 @@ impl Renderer {
         load: &mut dyn FnMut(u32) -> Option<Image>,
     ) -> wgpu::TextureView {
         self.build_shadow_pipelines();
+        self.note_target(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 1);
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("shadow map"),
             size: wgpu::Extent3d {
@@ -1305,6 +1340,7 @@ impl Renderer {
             pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint16);
             pass.draw_indexed(0..*count, 0, 0..1);
         }
+        self.note_work(|w| w.draws += u32::try_from(draws.len()).unwrap_or(0) + 1);
         pass.set_pipeline(lift);
         pass.set_bind_group(1, &identity, &[]);
         pass.set_bind_group(2, &blank, &[]);
@@ -1407,6 +1443,7 @@ impl Renderer {
     }
 
     fn vertex_buffer<T: Pod>(&self, data: &[T]) -> wgpu::Buffer {
+        self.note_buffer(std::mem::size_of_val(data));
         self.device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: None,
@@ -1416,6 +1453,7 @@ impl Renderer {
     }
 
     fn index_buffer<T: Pod>(&self, data: &[T]) -> wgpu::Buffer {
+        self.note_buffer(std::mem::size_of_val(data));
         self.device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: None,
@@ -1575,6 +1613,7 @@ impl Renderer {
     }
 
     fn bind_three(&self, stages: &[(&wgpu::TextureView, &wgpu::Sampler); 3]) -> wgpu::BindGroup {
+        self.note_work(|w| w.bind_groups += 1);
         let mut entries = Vec::with_capacity(6);
         for (k, (t, s)) in (0u32..).zip(stages.iter()) {
             entries.push(wgpu::BindGroupEntry {
@@ -1600,6 +1639,8 @@ impl Renderer {
     }
 
     fn uniform_group(&self, layout: &wgpu::BindGroupLayout, bytes: &[u8]) -> wgpu::BindGroup {
+        self.note_buffer(bytes.len());
+        self.note_work(|w| w.bind_groups += 1);
         let buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1793,6 +1834,11 @@ impl Renderer {
                 },
             ));
         }
+        self.note_target(
+            u32::try_from(BODY_SPOTS.0).unwrap_or(1),
+            u32::try_from(BODY_SPOTS.1).unwrap_or(1),
+            1,
+        );
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("the bodies' spots"),
             size: wgpu::Extent3d {
@@ -1815,13 +1861,7 @@ impl Renderer {
                 *slot = bits.map(f32::from_bits);
             }
         }
-        let vertices = self
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("the bodies' spots"),
-                contents: bytemuck::cast_slice(&at),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
+        let vertices = self.vertex_buffer(&at);
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("the bodies' spots"),
@@ -1865,6 +1905,7 @@ impl Renderer {
 
     /// The group the shadow map `view` is read through.
     fn shadow_group(&self, view: &wgpu::TextureView) -> wgpu::BindGroup {
+        self.note_work(|w| w.bind_groups += 1);
         self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: None,
             layout: &self.shadow_layout,
@@ -1943,6 +1984,7 @@ impl Renderer {
         load: &mut dyn FnMut(u32) -> Option<Image>,
         target: Target,
     ) -> wgpu::Texture {
+        let mut lap = Lap::start();
         self.take_textures(frame.textures);
         let cam = &frame.camera;
         let (h, p) = (cam.heading.to_radians(), cam.pitch.to_radians());
@@ -2025,6 +2067,11 @@ impl Renderer {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        let ms = lap.lap();
+        self.note_work(|w| {
+            w.frames += 1;
+            w.ms.setup += ms;
+        });
         // The sun's shadow map first: the near terrain is multiplied by it.
         let shadow_view = frame
             .shadow
@@ -2035,12 +2082,19 @@ impl Renderer {
             Some(view) => self.shadow_group(view),
             None => self.shadow_group(&self.white),
         };
+        let ms = lap.lap();
+        self.note_work(|w| w.ms.shadow += ms);
         let body_spots: std::cell::RefCell<HashMap<[u32; 3], usize>> =
             std::cell::RefCell::new(HashMap::new());
         let cloud_view = frame.clouds.map(|c| self.texture(c.picture, load));
 
         // The frame is drawn multisampled and resolved into the picture read back.
         let device = self.device.clone();
+        self.note_target(width, height, 1);
+        if self.samples > 1 {
+            self.note_target(width, height, self.samples);
+        }
+        self.note_target(width, height, self.samples);
         let picture = |label, samples, usage| {
             device.create_texture(&wgpu::TextureDescriptor {
                 label: Some(label),
@@ -2713,6 +2767,7 @@ impl Renderer {
                 pass.set_vertex_buffer(0, d.vertices.slice(..));
                 pass.set_index_buffer(d.indices.slice(..), d.index_format);
                 pass.draw_indexed(0..d.index_count, 0, 0..1);
+                this.note_work(|w| w.draws += 1);
             };
             for step in PASSES {
                 let draws: &[Draw] = match step {
@@ -2776,6 +2831,8 @@ impl Renderer {
                 }
             }
         };
+        let ms = lap.lap();
+        self.note_work(|w| w.ms.prepare += ms);
         // Each body reads the sun's share at its spot from one texel: the 25 of the shadow map
         // about it are read once a frame, where each of its vertices would read them.
         // D2-10925
@@ -2790,6 +2847,8 @@ impl Renderer {
                 &mut encoder,
             )
         };
+        let ms = lap.lap();
+        self.note_work(|w| w.ms.spots += ms);
         // The reflection: the same scene from the camera mirrored about the water plane (its
         // height mirrored, its pitch turned over): all the land it can see, what lies under the
         // water too, the objects standing above the plane, the sky round the mirrored camera.
@@ -2853,6 +2912,11 @@ impl Renderer {
                     view_formats: &[],
                 })
             };
+            self.note_target(REFLECTION_SIZE, REFLECTION_SIZE, 1);
+            if self.samples > 1 {
+                self.note_target(REFLECTION_SIZE, REFLECTION_SIZE, self.samples);
+            }
+            self.note_target(REFLECTION_SIZE, REFLECTION_SIZE, self.samples);
             let refl = refl_target(
                 "reflection",
                 1,
@@ -3000,6 +3064,11 @@ impl Renderer {
                         view_formats: &[],
                     })
                 };
+                self.note_target(REFLECTION_SIZE, REFLECTION_SIZE, 1);
+                if self.samples > 1 {
+                    self.note_target(REFLECTION_SIZE, REFLECTION_SIZE, self.samples);
+                }
+                self.note_target(REFLECTION_SIZE, REFLECTION_SIZE, self.samples);
                 let drawn = target(
                     "ripples",
                     1,
@@ -3120,6 +3189,8 @@ impl Renderer {
                 });
             }
         }
+        let ms = lap.lap();
+        self.note_work(|w| w.ms.reflection += ms);
         water_draws.extend(foam_draws);
         // The world's frame starts as the backdrop with the frame's alpha, a scene laid over the
         // interface clear. Seen from inside with a cell left out for the interior fog, the
@@ -3201,9 +3272,16 @@ impl Renderer {
             encoder.copy_buffer_to_buffer(&resolve, 0, &read, 0, n * 8);
             read
         });
+        let ms = lap.lap();
+        self.note_work(|w| w.ms.world += ms);
         // The draws' uniforms reach the device before the work that reads them.
         self.uniforms.write(&self.queue);
-        self.queue.submit([encoder.finish()]);
+        let commands = encoder.finish();
+        let ms = lap.lap();
+        self.note_work(|w| w.ms.finish += ms);
+        self.queue.submit([commands]);
+        let ms = lap.lap();
+        self.note_work(|w| w.ms.submit += ms);
         if let Some(buffer) = scan {
             let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
             let flag = Arc::clone(&done);
@@ -3216,7 +3294,12 @@ impl Renderer {
                 done,
             });
         }
-        self.meshes.end_frame();
+        let (hits, misses) = self.meshes.end_frame();
+        self.note_work(|w| {
+            w.mesh_hits += hits;
+            w.mesh_misses += misses;
+            w.written_bytes += self.uniforms.bytes_taken();
+        });
         color
     }
 

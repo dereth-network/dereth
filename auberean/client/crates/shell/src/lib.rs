@@ -144,7 +144,7 @@ pub struct Shell<'w, H: Host> {
     /// How the last session ended under the player, when the server ended it.
     ended: Option<SessionEnd>,
     /// Seconds the last frame spent moving the world, in the client, and framing the world.
-    pub costs: [f64; 3],
+    pub costs: [f64; 9],
     quit: bool,
     last: f64,
     frames: VecDeque<f64>,
@@ -268,7 +268,7 @@ impl<'w, H: Host> Shell<'w, H> {
             refusals: 0,
             stopped: None,
             ended: None,
-            costs: [0.0; 3],
+            costs: [0.0; 9],
             quit: false,
             last,
             frames: VecDeque::new(),
@@ -729,6 +729,7 @@ impl<'w, H: Host> Shell<'w, H> {
         }
         let local = LocalTime(1.0 + now);
         let stream_now = core::time::Duration::from_secs_f64(local.0);
+        let began = self.host.now();
         if let Some(c) = &mut self.client {
             while let Some((from, bytes)) = self.host.receive() {
                 c.handle_datagram(from, &bytes, local);
@@ -739,6 +740,8 @@ impl<'w, H: Host> Shell<'w, H> {
         if let Some(c) = &mut self.client {
             self.interface.prepare(c);
         }
+        self.costs[3] = self.host.now() - began;
+        let began = self.host.now();
         // The interface's requests.
         let mut requests = Vec::new();
         let phase = self.phase();
@@ -748,6 +751,7 @@ impl<'w, H: Host> Shell<'w, H> {
         for r in requests {
             self.request(r);
         }
+        self.costs[4] = self.host.now() - began;
         // The world's controls.
         let phase = self.phase();
         self.controls
@@ -813,6 +817,7 @@ impl<'w, H: Host> Shell<'w, H> {
         let t = self.host.now();
         self.scene.build_frames(now, phase == Phase::World);
         self.costs[2] = self.host.now() - t;
+        let t = self.host.now();
         let mut requests = Vec::new();
         let phase_now = self.phase();
         let game = game!(self, phase_now);
@@ -820,7 +825,11 @@ impl<'w, H: Host> Shell<'w, H> {
         for r in requests {
             self.request(r);
         }
+        self.costs[5] = self.host.now() - t;
+        let t = self.host.now();
         self.sound_frame(now, phase_now == Phase::World);
+        self.costs[6] = self.host.now() - t;
+        let t = self.host.now();
         // What to draw over the world.
         let mut overlay = std::mem::take(&mut self.overlay);
         overlay.quads.clear();
@@ -833,6 +842,7 @@ impl<'w, H: Host> Shell<'w, H> {
             dev::overlay(&mut overlay, &lines);
         }
         self.overlay = overlay;
+        self.costs[7] = self.host.now() - t;
         let quit = self.quit;
         if quit {
             // Closing, in the world or out of it: a goodbye on every connection, and the program
@@ -848,7 +858,9 @@ impl<'w, H: Host> Shell<'w, H> {
             self.carry_friends(stream_now);
             self.host.save_settings(&self.settings.write());
         }
+        let t = self.host.now();
         let views = self.scene.view_frames(&self.overlay.scenes, dt);
+        self.costs[8] = self.host.now() - t;
         let frames = self.scene.frames(now, phase == Phase::World);
         Output {
             world: frames.world,

@@ -27,6 +27,9 @@ struct Entry {
 pub(crate) struct MeshCache {
     entries: HashMap<(usize, usize), Entry>,
     frame: u64,
+    /// Lists asked for, and lists put on the device, since the last frame's end.
+    asked: u32,
+    misses: u32,
 }
 
 impl MeshCache {
@@ -42,7 +45,10 @@ impl MeshCache {
             Arc::as_ptr(indices) as usize,
         );
         let frame = self.frame;
+        self.asked += 1;
+        let misses = &mut self.misses;
         let e = self.entries.entry(key).or_insert_with(|| {
+            *misses += 1;
             let verts: Vec<MeshGpuVertex> = vertices.iter().map(MeshGpuVertex::of).collect();
             let mut idx: Vec<u16> = indices.to_vec();
             if idx.len() % 2 == 1 {
@@ -68,11 +74,16 @@ impl MeshCache {
         (e.vertex_buffer.clone(), e.index_buffer.clone())
     }
 
-    /// A frame is drawn: what no recent frame drew is let go.
-    pub(crate) fn end_frame(&mut self) {
+    /// A frame is drawn: what no recent frame drew is let go. How many lists it found on the
+    /// device and how many it had to put there.
+    pub(crate) fn end_frame(&mut self) -> (u32, u32) {
         let frame = self.frame;
         self.entries
             .retain(|_, e| frame.saturating_sub(e.used) < KEEP_FRAMES);
         self.frame += 1;
+        let counts = (self.asked - self.misses, self.misses);
+        self.asked = 0;
+        self.misses = 0;
+        counts
     }
 }

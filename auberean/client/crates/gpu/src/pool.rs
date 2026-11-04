@@ -85,6 +85,11 @@ impl UniformPool {
         chunk.groups[k].clone()
     }
 
+    /// The bytes of the slots taken this frame.
+    pub(crate) fn bytes_taken(&self) -> u64 {
+        (self.used * self.stride) as u64
+    }
+
     /// Write the slots taken this frame to the device, before the frame is submitted.
     pub(crate) fn write(&self, queue: &wgpu::Queue) {
         let mut left = self.used;

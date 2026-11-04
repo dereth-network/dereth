@@ -623,6 +623,7 @@ impl Presenter {
         load: &mut dyn FnMut(u32) -> Option<Image>,
         shot: Option<&Path>,
     ) {
+        let mut lap = auberean_gpu::Lap::start();
         let (w, h) = self.drawn;
         // A screen laid out at another size shows at its own proportions in the window's middle:
         // its viewports scale and move with it.
@@ -667,6 +668,7 @@ impl Presenter {
                 a,
             )
         });
+        lap.lap();
         let behind = overlay
             .behind
             .as_deref()
@@ -776,6 +778,10 @@ impl Presenter {
         let device = self.renderer.device();
         let buffer = (!verts.is_empty()).then(|| {
             use wgpu::util::DeviceExt;
+            self.renderer.note_work(|w| {
+                w.buffers += 1;
+                w.buffer_bytes += std::mem::size_of_val(verts.as_slice()) as u64;
+            });
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("overlay"),
                 contents: bytemuck::cast_slice(&verts),
@@ -889,6 +895,8 @@ impl Presenter {
                 }
             }
         }
+        let ms = lap.lap();
+        self.renderer.note_work(|w| w.ms.compose += ms);
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t)
             | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
@@ -897,6 +905,8 @@ impl Presenter {
                 None
             }
         };
+        let ms = lap.lap();
+        self.renderer.note_work(|w| w.ms.acquire += ms);
         if let Some(t) = &frame {
             let view = t
                 .texture
@@ -927,11 +937,17 @@ impl Presenter {
             pass.draw(0..3, 0..1);
         }
         self.renderer.queue().submit([encoder.finish()]);
+        let ms = lap.lap();
+        self.renderer.note_work(|w| w.ms.compose_submit += ms);
         if let Some(t) = frame {
             self.renderer.queue().present(t);
         }
+        let ms = lap.lap();
+        self.renderer.note_work(|w| w.ms.show += ms);
         // What the frames before this one used is given back once their work is done.
         let _ = self.renderer.device().poll(wgpu::PollType::Poll);
+        let ms = lap.lap();
+        self.renderer.note_work(|w| w.ms.reclaim += ms);
         if let Some(path) = shot {
             if let Err(e) = self.save(&composed, w, h, path) {
                 tracing::warn!("screenshot {}: {e}", path.display());
@@ -939,6 +955,11 @@ impl Presenter {
                 tracing::info!("screenshot {}", path.display());
             }
         }
+    }
+
+    /// What the frames since the last call asked of the device.
+    pub fn work(&self) -> auberean_gpu::Work {
+        self.renderer.take_work()
     }
 
     /// Save the composed picture as a PNG.
