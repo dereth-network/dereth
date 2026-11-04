@@ -1754,16 +1754,18 @@ pub fn transmute_all<S: Store>(
         let Some(t) = s.things.get(*item) else {
             continue;
         };
+        let count = t.quantity.max(1);
         let worth = if t.value > 0 {
             t.value
         } else {
             item_value(s, t.template)
-        };
+        }
+        .saturating_mul(count);
         let m = Move {
             move_type: move_type::TAKE,
             item: *item,
             split_item: *item,
-            quantity: 1,
+            quantity: count,
             from: corpse,
             actual_from: corpse,
             actual_from_slot: i32::try_from(slot).unwrap_or(0),

@@ -1053,6 +1053,21 @@ fn turning_a_corpses_items_into_money_keeps_an_item_worth_nothing() {
     assert!(!paid, "nothing paid");
 }
 
+/// A stack in a corpse turned into money pays for each of its pieces, as it would sold from the pack.
+/// Behaviour: server.inventory.a-stack-pays-for-each-piece
+#[test]
+fn turning_a_corpses_stack_into_money_pays_for_each_piece() {
+    let (mut h, b, me, _) = fight();
+    let corpse = open_corpse(&mut h, b, me);
+    let item = held_by(&h, corpse)[0];
+    if let Some(t) = h.server.things.get_mut(item) {
+        t.value = 7;
+        t.quantity = 3;
+    }
+    let v = transmute(&mut h, b, me, corpse);
+    assert_eq!(slot(&v, 4), 21, "earned");
+}
+
 /// A quest item is kept back however much it is worth, while the corpse's other items are turned
 /// into money: the answer's status 0, its error 1105.
 /// Behaviour: server.loot.quest-items-kept-from-money
