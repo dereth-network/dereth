@@ -1548,6 +1548,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.quests.a-quest-that-changed-is-marked-in-its-row",
+        says: "A quest that changes has its row's name and time marked in the changed look, the                others keeping theirs; the whole list read at the session's start marks nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-QUEST-CHANGED-MARK"),
+        station: "auberean-ui-game::dat::play::examination::a_quest_that_changed_is_marked_in_its_row",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.quests.a-quests-time-left-is-written-in-words-the-clock-keeps-current",
         says: "A quest's time left is written in the string table's words for how much is left: \
                above a month, months and days; above a day, days and hours; above sixty minutes, \

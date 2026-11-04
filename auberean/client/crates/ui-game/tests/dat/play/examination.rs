@@ -432,6 +432,66 @@ fn the_journal_keeps_quests_under_way_and_finished() {
     assert_eq!(ui.node(button).expect("made").state, Token::of("changed"));
 }
 
+/// A quest that changes has its row's name and time marked in the changed look; the others keep
+/// theirs. The whole list read at the session's start marks nothing.
+///
+/// Behaviour: ui.quests.a-quest-that-changed-is-marked-in-its-row
+#[test]
+fn a_quest_that_changed_is_marked_in_its_row() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let all = vec![
+        quest(1, status::UNDER_WAY, 20.0, "Changes"),
+        quest(2, status::UNDER_WAY, 10.0, "Stays"),
+    ];
+    let start = note(
+        notice::UPDATE_QUESTS,
+        vec![change::ALL, 0],
+        vec![None, Some(Record::Quests(all))],
+    );
+    tick(&mut ui, &mut p, &mut t, &[start]);
+    tick(&mut ui, &mut p, &mut t, &[]);
+    let underway = el(&ui, "UnderwayQuestListBox");
+    let looks = |ui: &Ui, name: &str| -> Vec<(String, Token)> {
+        ui.list_items(underway)
+            .iter()
+            .filter_map(|r| {
+                let n = ui.child_recursive(*r, Token::of("QuestName"))?;
+                let e = ui.child_recursive(*r, Token::of(name))?;
+                Some((ui.text(n).unwrap_or_default(), ui.node(e)?.state))
+            })
+            .collect()
+    };
+    let changed = Token::of("changed");
+    for field in ["QuestName", "QuestTime"] {
+        assert!(
+            looks(&ui, field).iter().all(|(_, s)| *s != changed),
+            "the list read marks no {field}"
+        );
+    }
+    let update = note(
+        notice::UPDATE_QUESTS,
+        vec![change::ONE, 0],
+        vec![
+            None,
+            Some(Record::Quest(quest(1, status::UNDER_WAY, 20.0, "Changes"))),
+        ],
+    );
+    tick(&mut ui, &mut p, &mut t, &[update]);
+    tick(&mut ui, &mut p, &mut t, &[]);
+    for field in ["QuestName", "QuestTime"] {
+        let rows = looks(&ui, field);
+        let state = |name: &str| rows.iter().find(|(n, _)| n == name).map(|(_, s)| *s);
+        assert_eq!(
+            state("Changes"),
+            Some(changed),
+            "the changed quest's {field}"
+        );
+        assert_ne!(state("Stays"), Some(changed), "the other quest's {field}");
+    }
+}
+
 /// The quest window's button opens it and stays on the toolbar: the window shown, the button takes
 /// its unchanged look (a change it showed is seen) and with it the face it showed before; pressed
 /// again it hides the window.
