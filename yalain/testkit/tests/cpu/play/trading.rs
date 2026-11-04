@@ -292,6 +292,19 @@ fn an_attuned_item_offered_fails_the_trade_and_nothing_moves() {
     for (x, from) in [(a, fa), (b, fb)] {
         let f = h.functions(x, from);
         assert_eq!(f.iter().filter(|c| **c == 0x820E_005E).count(), 1, "{f:x?}");
+        let calls = h.calls(x, from);
+        let moved = calls.iter().find(|(c, _)| *c == 0x820E_005E).expect("told");
+        let told = moved.1.iter().find_map(|v| match v.root() {
+            Some(yalain_world::calls::Node::Script { slots, .. }) => {
+                Some((slots[40].1, slots[20].1))
+            }
+            _ => None,
+        });
+        assert_eq!(
+            told,
+            Some((yalain_world::drops::status::ATTUNED, 1)),
+            "refused, as a trade's"
+        );
         assert!(f.contains(&function::RESET), "{f:x?}");
         let t = h.texts(x, from);
         assert_eq!(t.len(), 2, "{t:?}");

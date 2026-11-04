@@ -352,3 +352,54 @@ fn an_alchemists_basic_attacks_name_what_they_want_and_what_bars_them() {
         assert_eq!(usage(fiery_melee).required_effects, [DARK_SIDE, IMMOLATION]);
     }
 }
+
+/// A fresh character of any race holds basic attacks it may swing, wanting no effect and no skill it
+/// lacks; a fresh human, some for each of its starting weapons.
+/// Behaviour: server.weapons.basic-attacks-read-what-they-want
+#[test]
+fn a_new_characters_basic_attacks_want_nothing_it_lacks() {
+    use auberean_assets::script::ScriptState;
+    use auberean_script::graph::Graph;
+    let p = Portal::open();
+    let lib = p.library();
+    let skills = p.skills();
+    let bytes = p.dat.read(0x7000_0390).expect("character generation data");
+    let st: ScriptState = auberean_assets::decode(0x7000_0390, &bytes, &p.ctx).expect("reads");
+    let g = Graph::decode(&st.graph, &lib).expect("its graph reads");
+    let rules = yalain_world::start::StartRules::from_matrix(&lib, &g).expect("the rules read");
+    assert!(rules.skills.len() >= 3);
+    for (race, list) in &rules.skills {
+        let held: Vec<u32> = list.iter().map(|x| x.0).collect();
+        let usable: Vec<u32> = held
+            .iter()
+            .copied()
+            .filter(|k| {
+                let Some(d) = skills.skills.get(k) else {
+                    return false;
+                };
+                let Some(u) = d.usage.as_ref() else {
+                    return false;
+                };
+                d.auto_attack
+                    && u.required_effects.is_empty()
+                    && u.use_prereqs.iter().all(|(n, _)| held.contains(n))
+            })
+            .collect();
+        assert!(
+            !usable.is_empty(),
+            "race {race} starts with nothing to swing"
+        );
+        if *race == 1 {
+            use yalain_world::skill_use::implement as im;
+            for weapon in [im::SWORD, im::BOW, im::STAVE] {
+                assert!(
+                    usable.iter().any(|k| {
+                        let u = skills.skills[k].usage.as_ref().expect("used");
+                        u.implements_right.cast_unsigned() & weapon != 0
+                    }),
+                    "no human basic attack for {weapon:#x}"
+                );
+            }
+        }
+    }
+}
