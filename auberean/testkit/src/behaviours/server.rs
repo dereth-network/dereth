@@ -2729,6 +2729,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.replies-read",
+        says: "Plan B, Immolation and Taunt Force read as answering what comes at them, of any class and always; \
+               Plan B and Immolation with fire over time.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REPLIES-READ"),
+        station: "yalain-testkit::dat::effects::the_effects_that_answer_what_comes_at_them_read_as_the_data_defines_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.effects.reply-to-an-effect",
+        says: "What holds a reply answers a harmful effect from another with its effect on the sender, at the \
+               reply's spellcraft; a help, its own effect and an answer are not answered, so two holders can't \
+               go back and forth. Our choice: no recording holds one.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-REPLY-TO-AN-EFFECT"),
+        station: "yalain-testkit::cpu::play::watchers::a_holder_answers_a_harmful_effect_on_its_sender_and_an_answer_is_not_answered",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.self-cast-lists",
         says: "A skill used on oneself names its effects in its list for its user: Immolation's protection and \
                Bladeskin come on by using them. The plain Bladeskin's aura pulses no Blocker.",

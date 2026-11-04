@@ -84,6 +84,9 @@ pub mod numeric {
 /// An effect's internal flags: taken off at a resurrection.
 pub const REMOVED_ON_DEATH: u32 = 0x40_0000;
 
+/// An effect's internal flags: it does its target harm.
+pub const HARMFUL: u32 = 0x200_0000;
+
 /// An effect's internal flags: one its holder's client is shown (an item's effect without it is
 /// never put on its wearer).
 pub const CLIENT_VISIBLE: u32 = 0x1;
@@ -103,6 +106,12 @@ pub const CATEGORY_FLAGS: [(u32, u32); 5] = [
 mod counter_flag {
     pub const CONSTANT: u32 = 0x40;
     pub const VARIABLE: u32 = 0x80;
+}
+
+/// What a reply's external flags say of its chance: the same at any spellcraft, or along a line.
+mod reply_flag {
+    pub const CONSTANT: u32 = 0x10;
+    pub const VARIABLE: u32 = 0x20;
 }
 
 /// What the external flags of an effect that watches vitals change say: how much it absorbs and
@@ -254,6 +263,13 @@ pub enum Kind {
     /// Held by its wearer, it may answer an attack that reaches them: an effect put on the attacker,
     /// by a chance at its spellcraft.
     Counter { effect: u32, chance: Scale },
+    /// Held by its wearer, it may answer a harmful effect of these classes (none named: of any)
+    /// coming at them: an effect put on who sent it, by a chance at its spellcraft.
+    Reply {
+        effect: u32,
+        chance: Scale,
+        classes: Vec<u32>,
+    },
     /// Held by its wearer, it takes from an attack's harm and sends some back.
     Watcher(Box<Watcher>),
     /// Held by its wearer, it may keep off effects of these classes (none named: of any), by a
@@ -318,7 +334,7 @@ impl EffectDef {
             .flatten()
             .collect(),
             Kind::Aura(a) => a.pulsed.clone(),
-            Kind::Counter { effect, .. } => vec![*effect],
+            Kind::Counter { effect, .. } | Kind::Reply { effect, .. } => vec![*effect],
             _ => Vec::new(),
         }
     }
@@ -471,6 +487,25 @@ impl EffectDef {
                         ),
                     ])
                 },
+            }
+        } else if let Some(effect) = state_of("m_effGenerate").filter(|_| {
+            is("ReflectiveEffect") && flags & (reply_flag::CONSTANT | reply_flag::VARIABLE) != 0
+        }) {
+            let begin = number("m_fGenerateProbBegin");
+            Kind::Reply {
+                effect,
+                chance: if flags & reply_flag::VARIABLE == 0 {
+                    Scale(vec![(0.0, begin)])
+                } else {
+                    Scale(vec![
+                        (number("m_fGenerateSpellcraftBegin"), begin),
+                        (
+                            number("m_fGenerateSpellcraftEnd"),
+                            number("m_fGenerateProbEnd"),
+                        ),
+                    ])
+                },
+                classes: words("m_clsGenerateList"),
             }
         } else if is("ReflectiveVitalEffect")
             && flags

@@ -842,6 +842,7 @@ pub(crate) fn put_on<S: Store>(
         skill: 0,
         item,
         giver: None,
+        answers: false,
     };
     match def.kind {
         // What it does is the server's own (an antidote's cure, a portal): not made here.
@@ -850,6 +851,7 @@ pub(crate) fn put_on<S: Store>(
         | Kind::Aura(_)
         | Kind::Recall(_)
         | Kind::Counter { .. }
+        | Kind::Reply { .. }
         | Kind::Watcher(_)
         | Kind::Ward { .. } => {
             s.unhandled

@@ -955,3 +955,120 @@ fn the_weakest_practice_dummy_goes_by_the_same_line() {
     assert!(PRACTICE_DUMMIES.contains(&0x4700_2DAF));
     assert_eq!(practice_dummy_spellcraft(30), 30.0);
 }
+
+/// A record of a harmful effect that lasts, of no use but to be seen.
+fn lasting(state: u32, class: u32) -> EffectDef {
+    EffectDef {
+        kind: Kind::Other,
+        internal_flags: 0x1100_0003 | yalain_world::effect_defs::HARMFUL,
+        ..def(state, class, watcher(0.0, 0.0))
+    }
+}
+
+/// What holds a reply answers a harmful effect from another with its own effect on the sender, at
+/// the reply's spellcraft, and takes the effect too. Of a list only those of its classes are
+/// answered; a help, one's own effect and an effect from no one are not; and two holders can't go
+/// back and forth, an answer not being answered. Our choice: no recording holds one.
+/// Behaviour: server.effects.reply-to-an-effect
+#[test]
+fn a_holder_answers_a_harmful_effect_on_its_sender_and_an_answer_is_not_answered() {
+    const REPLY: u32 = 0x6F00_7410;
+    const ANSWER: u32 = 0x6F00_7411;
+    const HARM: u32 = 0x6F00_7412;
+    const HELP: u32 = 0x6F00_7413;
+    const OTHER_CLASS_HARM: u32 = 0x6F00_7414;
+    const LISTING: u32 = 0x6F00_7415;
+    const OTHER_REPLY: u32 = 0x6F00_7416;
+    let reply = |state: u32, classes: Vec<u32>| EffectDef {
+        kind: Kind::Reply {
+            effect: ANSWER,
+            chance: Scale(vec![(0.0, 1.0)]),
+            classes,
+        },
+        ..def(state, 20, watcher(0.0, 0.0))
+    };
+    let (mut h, _, me, id) = beside(1.0);
+    let table = &mut h.server.effect_table.effects;
+    table.insert(REPLY, reply(REPLY, vec![]));
+    table.insert(OTHER_REPLY, reply(OTHER_REPLY, vec![]));
+    table.insert(LISTING, reply(LISTING, vec![51]));
+    table.insert(ANSWER, lasting(ANSWER, 50));
+    table.insert(HARM, lasting(HARM, 51));
+    table.insert(OTHER_CLASS_HARM, lasting(OTHER_CLASS_HARM, 52));
+    table.insert(
+        HELP,
+        EffectDef {
+            internal_flags: 0x1100_0003,
+            ..lasting(HELP, 53)
+        },
+    );
+    let world = *h.server.players.keys().next().expect("in the world");
+    let put = |h: &mut Harness, on: On, state: u32, caster: u64, spellcraft: f32| {
+        let cast = Cast {
+            caster,
+            spellcraft,
+            ..Cast::default()
+        };
+        let clock = h.clock();
+        effects::apply_on(&mut h.server, &mut h.net, on, state, cast, clock)
+    };
+    let on_player = On::Player(world);
+    let on_creature = On::Creature(id);
+    let count = |h: &Harness, on: On, state: u32| {
+        effects::records_of(&h.server, on)
+            .iter()
+            .filter(|e| e.state == state)
+            .count()
+    };
+    // It holds the reply, its spellcraft its own; the player holds another.
+    assert!(put(&mut h, on_creature, REPLY, 0, 30.0));
+    // A help is not answered, nor one's own, nor one from no one.
+    assert!(put(&mut h, on_creature, HELP, me, 5.0));
+    assert_eq!(count(&h, on_player, ANSWER), 0, "a help");
+    assert!(put(&mut h, on_creature, HARM, id, 5.0));
+    assert_eq!(count(&h, on_creature, ANSWER), 0, "its own");
+    assert!(put(&mut h, on_creature, HARM, 0, 5.0));
+    assert_eq!(count(&h, on_creature, ANSWER), 0, "from no one");
+    // Harm from the player is taken, and answered once at the reply's spellcraft.
+    assert!(put(&mut h, on_creature, HARM, me, 5.0));
+    assert_eq!(count(&h, on_creature, HARM), 3);
+    let answers = effects::records_of(&h.server, on_player);
+    let a = answers
+        .iter()
+        .find(|e| e.state == ANSWER)
+        .expect("answered");
+    assert_eq!((a.caster, a.spellcraft), (id, 30.0));
+    assert_eq!(count(&h, on_player, ANSWER), 1);
+    // The sender holds a reply too: its answer isn't answered, nor that one in turn.
+    assert!(put(&mut h, on_player, OTHER_REPLY, 0, 30.0));
+    assert!(put(&mut h, on_creature, HARM, me, 5.0));
+    assert_eq!(count(&h, on_player, ANSWER), 2);
+    assert_eq!(count(&h, on_creature, ANSWER), 0, "no answer comes back");
+    // A list answers what it names.
+    let (mut h, _, me, id) = beside(1.0);
+    let table = &mut h.server.effect_table.effects;
+    table.insert(LISTING, reply(LISTING, vec![51]));
+    table.insert(ANSWER, lasting(ANSWER, 50));
+    table.insert(HARM, lasting(HARM, 51));
+    table.insert(OTHER_CLASS_HARM, lasting(OTHER_CLASS_HARM, 52));
+    let world = *h.server.players.keys().next().expect("in the world");
+    let (on_player, on_creature) = (On::Player(world), On::Creature(id));
+    assert!(put(&mut h, on_creature, LISTING, 0, 30.0));
+    assert!(put(&mut h, on_creature, OTHER_CLASS_HARM, me, 5.0));
+    assert_eq!(count(&h, on_player, ANSWER), 0, "not of its list");
+    assert!(put(&mut h, on_creature, HARM, me, 5.0));
+    assert_eq!(count(&h, on_player, ANSWER), 1, "of its list");
+    // What a ward keeps off is answered all the same.
+    const WARD: u32 = 0x6F00_7417;
+    let ward = EffectDef {
+        kind: Kind::Ward {
+            classes: vec![51],
+            chance: Scale(vec![(0.0, 1.0)]),
+        },
+        ..def(WARD, 21, watcher(0.0, 0.0))
+    };
+    h.server.effect_table.effects.insert(WARD, ward);
+    assert!(put(&mut h, on_creature, WARD, 0, 30.0));
+    assert!(!put(&mut h, on_creature, HARM, me, 5.0));
+    assert_eq!(count(&h, on_player, ANSWER), 2, "kept off, and answered");
+}

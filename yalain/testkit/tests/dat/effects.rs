@@ -877,6 +877,40 @@ fn immolation_and_bladeskin_put_their_effects_on_their_user() {
     assert!(!holds(&h, BURNS), "fire kept off");
 }
 
+/// Plan B, Immolation and Taunt Force answer what comes at them, of any class and always: Plan B and
+/// Immolation with fire over time. Taunt Force has no time to last and its Challenge does nothing
+/// here.
+/// Behaviour: server.effects.replies-read
+#[test]
+fn the_effects_that_answer_what_comes_at_them_read_as_the_data_defines_them() {
+    let p = Portal::open();
+    let t = p.effects(&[0x6F00_0027, 0x7000_1F51, 0x7000_1EDA]);
+    let reply = |s: u32| match &t.get(s).expect("read").kind {
+        Kind::Reply {
+            effect,
+            chance,
+            classes,
+        } => (*effect, chance.at(30.0), classes.is_empty()),
+        k => panic!("{s:08X}: {k:?}"),
+    };
+    assert_eq!(reply(0x6F00_0027), (0x6F00_10C7, Some(1.0), true));
+    assert_eq!(reply(0x7000_1F51), (0x7000_1F54, Some(1.0), true));
+    assert_eq!(reply(0x7000_1EDA), (0x7000_1EDB, Some(1.0), true));
+    assert!(t.get(0x6F00_0027).expect("read").lasts());
+    assert!(t.get(0x7000_1F51).expect("read").lasts());
+    assert!(!t.get(0x7000_1EDA).expect("read").lasts());
+    for burn in [0x6F00_10C7, 0x7000_1F54] {
+        assert!(matches!(
+            t.get(burn).expect("what it adds").kind,
+            Kind::VitalOverTime { .. }
+        ));
+    }
+    assert!(matches!(
+        t.get(0x7000_1EDB).expect("read").kind,
+        Kind::Other
+    ));
+}
+
 /// A recipe that binds its product names it by the product's ordinal over the whole spinner range
 /// (`0x6F000E9D`: each outcome makes `0x470008D4` and binds it, spinners 1 to 100).
 /// Behaviour: server.craft.recipe-binds-read

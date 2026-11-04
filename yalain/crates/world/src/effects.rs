@@ -328,6 +328,9 @@ pub struct Cast {
     pub skill: u32,
     pub item: u64,
     pub giver: Option<(u64, Option<(u32, u32)>)>,
+    /// It answers another effect, and so is not answered in turn: two holders can't go back and
+    /// forth.
+    pub answers: bool,
 }
 
 /// The class priority of a record.
@@ -489,7 +492,11 @@ pub fn apply_on<S: Store>(
             .note(format!("an effect {state:08X} the server does not know"));
         return false;
     };
-    if !present(s, on) || warded(s, on, &def) {
+    if !present(s, on) {
+        return false;
+    }
+    reply_to(s, net, on, &def, cast, clock);
+    if warded(s, on, &def) {
         return false;
     }
     match (&def.kind, on) {
@@ -567,11 +574,14 @@ pub fn apply_on<S: Store>(
             combine(s, net, on, &def, c, cast, clock);
             true
         }
-        (Kind::Other | Kind::Counter { .. } | Kind::Watcher(_) | Kind::Ward { .. }, _)
-            if !def.lasts() =>
-        {
-            false
-        }
+        (
+            Kind::Other
+            | Kind::Counter { .. }
+            | Kind::Reply { .. }
+            | Kind::Watcher(_)
+            | Kind::Ward { .. },
+            _,
+        ) if !def.lasts() => false,
         _ => {
             add_on(s, net, on, &def, cast, Shape::TIMED, clock);
             true
@@ -595,6 +605,57 @@ fn warded<S: Store>(s: &mut Server<S>, on: On, def: &EffectDef) -> bool {
         })
         .collect();
     chances.into_iter().any(|c| s.rng.chance(c))
+}
+
+/// A harmful effect comes at its target from another: each reply the target holds may answer, by its
+/// chance at its spellcraft, with its effect on who sent it, whether or not a ward keeps this one
+/// off. An answer isn't answered. No recording holds a holder of one: their lists and chances are
+/// the data's, and the rest our choice, the harmful alone being answered so that helping a holder
+/// costs nothing.
+fn reply_to<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    on: On,
+    def: &EffectDef,
+    cast: Cast,
+    clock: Clock,
+) {
+    if cast.answers || def.internal_flags & crate::effect_defs::HARMFUL == 0 {
+        return;
+    }
+    let holder = match on {
+        On::Player(world) => s.players.get(&world).map_or(0, |p| p.character),
+        On::Creature(id) => id,
+    };
+    if cast.caster == holder {
+        return;
+    }
+    let replies: Vec<(u32, f32, EffectState)> = applying(&s.effect_table, records_of(s, on))
+        .into_iter()
+        .filter_map(|r| match &s.effect_table.get(r.state)?.kind {
+            Kind::Reply {
+                effect,
+                chance,
+                classes,
+            } if classes.is_empty() || classes.contains(&def.eq_class) => {
+                Some((*effect, chance.at(r.spellcraft)?, *r))
+            }
+            _ => None,
+        })
+        .collect();
+    let source = conn_of(s, cast.caster).map_or(On::Creature(cast.caster), On::Player);
+    for (effect, chance, record) in replies {
+        if s.rng.chance(chance) {
+            let answer = Cast {
+                caster: holder,
+                spellcraft: record.spellcraft,
+                pk: matches!(on, On::Player(_)),
+                answers: true,
+                ..Cast::default()
+            };
+            apply_on(s, net, source, effect, answer, clock);
+        }
+    }
 }
 
 /// An attack has reached a player: each counter it holds may answer, by its chance at its

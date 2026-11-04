@@ -157,6 +157,7 @@ what they see, not how it was done.
 - Contracts can't be bought yet, so they no longer cost anything.
 - Alacrity, Quickening and other attack speed effects now speed up your attacks.
 - Practice dummies hurt whoever hits them.
+- Plan B and Immolation now burn whoever casts harmful effects on their holder.
 
 ## 0.1.2 (2026-11-03)
 
