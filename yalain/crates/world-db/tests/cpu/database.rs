@@ -1798,3 +1798,29 @@ fn a_reminder_may_name_a_phase_and_no_other_line_but_an_advance_may() {
         "{messages:?}"
     );
 }
+
+/// A step may wait on a quest being given, and reads back as written.
+/// Behaviour: server.quests.step-on-a-quest-given-row
+#[test]
+fn a_step_on_a_quest_given_compiles_and_reads_back_as_written() {
+    let mut files = fixture();
+    let quest = files["town/server/quests/40000088.toml"].clone();
+    files.insert(
+        "town/server/quests/40000088.toml".into(),
+        format!(
+            "{quest}\n[[step]]\nkey = \"on-given\"\nquest = 0x40000088\nneeds = 2\ntrigger = {{ given = 0x40000089 }}\nupdate = \"complete\"\nprov = {{ from = \"authored\", by = \"a test\", note = \"a test\" }}\n"
+        ),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(t
+        .quests
+        .steps
+        .iter()
+        .any(|s| s.trigger == yalain_content::quests::Trigger::Given(0x4000_0089)));
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+}

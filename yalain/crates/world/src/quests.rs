@@ -1408,6 +1408,7 @@ pub fn apply<S: Store>(
     crate::world::keep_player(s, world);
     if up == Update::Bestow {
         runs_out_after(s, world, &def, started, clock);
+        triggered(s, net, world, Trigger::Given(quest), None, clock);
     }
     if let Some((parent, at)) = parent {
         subquest_moved(s, net, world, parent, at, clock);

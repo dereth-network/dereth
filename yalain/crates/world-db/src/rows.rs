@@ -280,6 +280,7 @@ pub enum Trigger {
     Take(u32),
     Kill(u32),
     Done(u32),
+    Given(u32),
 }
 
 /// What a step requires of another quest: under way at a phase, done, or free to be given.
@@ -1864,7 +1865,7 @@ impl<'a> Fields<'a> {
         }
         self.typed(
             name,
-            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { arrive = T }, { take = T }, { kill = T }, { done = Q }",
+            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { arrive = T }, { take = T }, { kill = T }, { done = Q }, { given = Q }",
             |v| {
                 let t = v.as_table()?;
                 if let (2, Some(item), Some(on)) = (t.len(), t.get("use"), t.get("on")) {
@@ -1884,6 +1885,7 @@ impl<'a> Fields<'a> {
                     "take" => Some(Trigger::Take(tpl)),
                     "kill" => Some(Trigger::Kill(tpl)),
                     "done" => Some(Trigger::Done(tpl)),
+                    "given" => Some(Trigger::Given(tpl)),
                     _ => None,
                 }
             },

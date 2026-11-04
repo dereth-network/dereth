@@ -17,7 +17,7 @@
 //!   level, 4 only those near the killer) and whether its last phase waits for something other than
 //!   a kill to end it (0/1);
 //! - `step`: quest, the phase it needs (0: the quest not under way), the trigger (`use:TEMPLATE`,
-//!   `useon:ITEM:TARGET`, `give:ITEM:TARGET`, `arrive:TEMPLATE`, `take:TEMPLATE`, `kill:TEMPLATE`, `done:QUEST`), the giver's line
+//!   `useon:ITEM:TARGET`, `give:ITEM:TARGET`, `arrive:TEMPLATE`, `take:TEMPLATE`, `kill:TEMPLATE`, `done:QUEST`, `given:QUEST`), the giver's line
 //!   (`string:table`, `=` and literal text, or empty), the update (`bestow`, `advance:N`, `complete`), experience, items
 //!   given (templates joined by `,`), provenance; then, optionally, what else it requires (other
 //!   quests at a phase, done or free to be given: `QUEST:N`, `QUEST:done` or `QUEST:free`, joined by `,`), the items it takes from
@@ -186,6 +186,8 @@ pub enum Trigger {
     Kill(u32),
     /// Completing a quest.
     Done(u32),
+    /// Being given a quest, shown or hidden.
+    Given(u32),
 }
 
 /// The update a step makes.
@@ -442,6 +444,7 @@ impl QuestTable {
                 Trigger::Take(t) => format!("take:{t:08X}"),
                 Trigger::Kill(t) => format!("kill:{t:08X}"),
                 Trigger::Done(q) => format!("done:{q:08X}"),
+                Trigger::Given(q) => format!("given:{q:08X}"),
             };
             let update = match s.update {
                 Update::Bestow => "bestow".to_string(),
@@ -633,6 +636,7 @@ impl QuestTable {
                         "take" => Trigger::Take(hex(tpl).map_err(at)?),
                         "kill" => Trigger::Kill(hex(tpl).map_err(at)?),
                         "done" => Trigger::Done(hex(tpl).map_err(at)?),
+                        "given" => Trigger::Given(hex(tpl).map_err(at)?),
                         other => return Err(at(format!("a trigger of kind {other}"))),
                     };
                     let col = |i: usize| c.get(i).copied().unwrap_or("");

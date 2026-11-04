@@ -7228,6 +7228,23 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.step-on-a-quest-given",
+        says: "A quest given, a hidden one too, runs the step waiting on its giving; one withheld from a player \
+               without what it requires runs none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-GIVEN-2017"),
+        station: "yalain-testkit::cpu::play::crafting::a_quest_given_runs_the_step_waiting_on_it_and_one_withheld_runs_none",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.step-on-a-quest-given-row",
+        says: "A world database step may name a quest's giving as what moves it, and that reads back as written.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-GIVEN-ROW"),
+        station: "yalain-world-db::cpu::database::a_step_on_a_quest_given_compiles_and_reads_back_as_written",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.subquests-read",
         says: "A quest's phases read from the data the quests they are done by, and whether all of \
                them or one is needed.",

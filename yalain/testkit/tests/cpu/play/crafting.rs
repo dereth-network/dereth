@@ -1066,3 +1066,101 @@ fn a_recipe_asking_for_a_target_is_made_at_one_of_its_own_and_nowhere_else() {
     let r = p.play.recipes.iter().find(|r| r.recipe == AT_MINE).expect("held");
     assert_eq!(r.charges, 2, "the refusals spent nothing");
 }
+
+/// A hidden quest given starts the step waiting on its giving, as a shown one's update and a recipe
+/// after it; the hidden quest kept from a player without what it requires starts nothing.
+/// Behaviour: server.quests.step-on-a-quest-given
+#[test]
+fn a_quest_given_runs_the_step_waiting_on_it_and_one_withheld_runs_none() {
+    use yalain_content::quests::{QuestDef, QuestTable, Step, Trigger, Update};
+    use yalain_world::quests::{moves, status, Move, QuestEffect};
+    use yalain_world::state::QuestState;
+    const TOLL: u32 = 0x4000_0183;
+    const GUARD: u32 = 0x4000_0184;
+    const MINE: u32 = 0x4000_0185;
+    const UPDATE_QUEST: u32 = 0x8213_0024;
+    let def = |id, hidden, required| QuestDef {
+        id,
+        name: (0xA860_7CEC, 0x2500_17EE),
+        description: (0x6C45_9364, 0x2500_17EE),
+        icon: 0x4100_034B,
+        play_fx: true,
+        journals: Vec::new(),
+        challenge: -999,
+        duration: 0.0,
+        retry: 0.0,
+        xp: 0,
+        cancellable: false,
+        placed: "authored for a test".into(),
+        hidden,
+        effects: Vec::new(),
+        subquests: Vec::new(),
+        min_level: 0,
+        fails_on_death: false,
+        once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
+        hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
+        required,
+    };
+    for paid in [false, true] {
+        let (mut h, b, _me, world) = in_world();
+        h.server.quests = QuestTable {
+            quests: vec![
+                def(TOLL, true, None),
+                def(GUARD, true, Some((TOLL, status::UNDERWAY))),
+                def(MINE, false, None),
+            ],
+            steps: vec![Step {
+                quest: MINE,
+                needs: 0,
+                trigger: Trigger::Given(GUARD),
+                tell: None,
+                update: Update::Bestow,
+                xp: 0,
+                gives: Vec::new(),
+                counts: Vec::new(),
+                effects: vec![GRANT_MINES_RECIPE],
+                text: None,
+                placed: "authored for a test".into(),
+                requires: Vec::new(),
+                takes: Vec::new(),
+                races: Vec::new(),
+                effects_last: true,
+                wants: None,
+                fellows: false,
+                to: None,
+            }],
+            gives: Vec::new(),
+        };
+        if paid {
+            let p = h.server.players.get_mut(&world).expect("in the world");
+            p.play.quests.push(QuestState {
+                quest: TOLL,
+                status: status::UNDERWAY,
+                phase: 1,
+                started: 0,
+                updated: 0,
+            });
+        }
+        let from = h.bots[b].inbox.len();
+        let clock = h.clock();
+        let e = QuestEffect {
+            quest: GUARD,
+            act: Move::Bestow,
+        };
+        moves(&mut h.server, &mut h.net, world, e, true, clock);
+        h.run(2);
+        let order: Vec<u32> = calls_of(&h, b, from)
+            .into_iter()
+            .map(|(f, _)| f)
+            .filter(|f| *f == UPDATE_QUEST || *f == function::ADD_RECIPE)
+            .collect();
+        if paid {
+            assert_eq!(order, [UPDATE_QUEST, function::ADD_RECIPE], "only the shown one told");
+        } else {
+            assert!(order.is_empty(), "{order:?}");
+        }
+    }
+}

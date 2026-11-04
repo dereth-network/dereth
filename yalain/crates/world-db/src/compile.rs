@@ -841,6 +841,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     Trigger::Take(x) => (TableTrigger::Take(x), vec![x]),
                     Trigger::Kill(x) => (TableTrigger::Kill(x), vec![x]),
                     Trigger::Done(q) => (TableTrigger::Done(q), Vec::new()),
+                    Trigger::Given(q) => (TableTrigger::Given(q), Vec::new()),
                 };
                 let mut ok = true;
                 for tpl in named {
