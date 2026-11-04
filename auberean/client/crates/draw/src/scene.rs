@@ -88,8 +88,8 @@ pub struct TerrainBatch {
     pub layer: u8,
     /// Whether this is the far landscape (one picture added to the lit color).
     pub far: bool,
-    pub vertices: Vec<TerrainVertex>,
-    pub indices: Vec<u32>,
+    pub vertices: Arc<Vec<TerrainVertex>>,
+    pub indices: Arc<Vec<u32>>,
 }
 
 /// One drawn piece of a mesh: its vertices, one fragment's triangles, where it stands, and one
@@ -1270,7 +1270,7 @@ impl<'a> SceneBuilder<'a> {
             };
             out.push(ObjectBatch {
                 vertices: verts.clone(),
-                indices: Arc::new(frag.indices.clone()),
+                indices: frag.indices.clone(),
                 transform,
                 layer,
                 tint: Color::WHITE,
@@ -1464,7 +1464,7 @@ impl<'a> SceneBuilder<'a> {
                     Some(look) => self.looked_material(look, mesh.kind, mat.0, materials),
                     None => self.material_at(mat.0, materials),
                 };
-                let indices = Arc::new(frag.indices.clone());
+                let indices = frag.indices.clone();
                 for layer in layers {
                     out.push(ObjectBatch {
                         vertices: verts.clone(),
@@ -2061,8 +2061,8 @@ impl<'a> SceneBuilder<'a> {
         let reflection_land = near_land.into_values().next().map(|mut land| {
             if let Some(far) = terrain.values().find(|b| b.far) {
                 let base = u32::try_from(land.vertices.len()).unwrap_or(u32::MAX);
-                land.vertices.extend_from_slice(&far.vertices);
-                land.indices.extend(far.indices.iter().map(|i| i + base));
+                Arc::make_mut(&mut land.vertices).extend_from_slice(&far.vertices);
+                Arc::make_mut(&mut land.indices).extend(far.indices.iter().map(|i| i + base));
             }
             land
         });
@@ -2598,15 +2598,14 @@ impl<'a> SceneBuilder<'a> {
                         let (u, v) = ((i + cx) as f32 * t, (j + 1 - cy) as f32 * t);
                         #[allow(clippy::cast_precision_loss)]
                         let (fx, fy) = (cx as f32, cy as f32);
-                        batch.vertices.push(TerrainVertex {
+                        Arc::make_mut(&mut batch.vertices).push(TerrainVertex {
                             position: [p.x + offset.x, p.y + offset.y, p.z],
                             color: [c.r, c.g, c.b, 1.0],
                             uv: [u, v],
                             mask_uv: mask.map_or([0.0, 0.0], |(_, rot)| mask_uv(fx, fy, rot)),
                         });
                     }
-                    batch
-                        .indices
+                    Arc::make_mut(&mut batch.indices)
                         .extend(square_triangles(cut).iter().map(|&s| base + s));
                 }
             }
@@ -2652,7 +2651,7 @@ impl<'a> SceneBuilder<'a> {
                     lit,
                 );
                 let (x, y) = (p.x + offset.x, p.y + offset.y);
-                batch.vertices.push(TerrainVertex {
+                Arc::make_mut(&mut batch.vertices).push(TerrainVertex {
                     position: [x, y, p.z],
                     color: [c.r, c.g, c.b, 1.0],
                     uv: [x * scale, y * scale],
@@ -2664,7 +2663,7 @@ impl<'a> SceneBuilder<'a> {
         for i in 0..side - 1 {
             for j in 0..side - 1 {
                 let (sw, se, nw, ne) = (v(i, j), v(i + 1, j), v(i, j + 1), v(i + 1, j + 1));
-                batch.indices.extend([nw, sw, se, nw, se, ne]);
+                Arc::make_mut(&mut batch.indices).extend([nw, sw, se, nw, se, ne]);
             }
         }
         // Where the block next door has half the vertices along their shared edge, a triangle over
@@ -2676,22 +2675,19 @@ impl<'a> SceneBuilder<'a> {
         };
         let last = side - 1;
         let (bx, by) = (tb.x, tb.y);
+        let indices = Arc::make_mut(&mut batch.indices);
         for k in (0..last.saturating_sub(1)).step_by(2) {
             if coarser(bx + 1, by) {
-                batch
-                    .indices
-                    .extend([v(last, k), v(last, k + 2), v(last, k + 1)]);
+                indices.extend([v(last, k), v(last, k + 2), v(last, k + 1)]);
             }
             if coarser(bx, by - 1) {
-                batch.indices.extend([v(k, 0), v(k + 2, 0), v(k + 1, 0)]);
+                indices.extend([v(k, 0), v(k + 2, 0), v(k + 1, 0)]);
             }
             if coarser(bx, by + 1) {
-                batch
-                    .indices
-                    .extend([v(k + 2, last), v(k, last), v(k + 1, last)]);
+                indices.extend([v(k + 2, last), v(k, last), v(k + 1, last)]);
             }
             if coarser(bx - 1, by) {
-                batch.indices.extend([v(0, k + 2), v(0, k), v(0, k + 1)]);
+                indices.extend([v(0, k + 2), v(0, k), v(0, k + 1)]);
             }
         }
     }

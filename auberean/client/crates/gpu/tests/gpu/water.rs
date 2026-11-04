@@ -217,8 +217,13 @@ fn the_reflection_shows_the_land_under_the_water() {
         auberean_draw::scene::TerrainBatch {
             ground,
             far: true,
-            vertices: vec![v(-40.0, -0.1), v(40.0, -0.1), v(-40.0, -8.0), v(40.0, -8.0)],
-            indices: vec![0, 1, 2, 2, 1, 3, 0, 2, 1, 2, 3, 1],
+            vertices: Arc::new(vec![
+                v(-40.0, -0.1),
+                v(40.0, -0.1),
+                v(-40.0, -8.0),
+                v(40.0, -8.0),
+            ]),
+            indices: Arc::new(vec![0, 1, 2, 2, 1, 3, 0, 2, 1, 2, 3, 1]),
             ..auberean_draw::scene::TerrainBatch::default()
         }
     };

@@ -126,7 +126,7 @@ pub struct Fragment {
     /// Which of the mesh's materials draws it.
     pub material: u32,
     /// Triangle-list vertex indices, three a triangle.
-    pub indices: Vec<u16>,
+    pub indices: std::sync::Arc<Vec<u16>>,
 }
 
 /// One level of detail: when it is used, and its fragments.
@@ -152,7 +152,10 @@ impl DetailLevel {
                 indices.push(r.u16()?);
             }
             r.align()?;
-            Ok(Fragment { material, indices })
+            Ok(Fragment {
+                material,
+                indices: std::sync::Arc::new(indices),
+            })
         })?;
         Ok(Self {
             degrade,

@@ -946,6 +946,7 @@ impl Presenter {
         self.renderer.note_work(|w| w.ms.show += ms);
         // What the frames before this one used is given back once their work is done.
         let _ = self.renderer.device().poll(wgpu::PollType::Poll);
+        self.renderer.end_frame();
         let ms = lap.lap();
         self.renderer.note_work(|w| w.ms.reclaim += ms);
         if let Some(path) = shot {

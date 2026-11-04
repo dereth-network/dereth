@@ -344,7 +344,7 @@ impl BodyDrawer {
                         else {
                             continue;
                         };
-                        let indices = Arc::new(frag.indices.clone());
+                        let indices = frag.indices.clone();
                         for layer in self.part_material(
                             records,
                             &part.look,
