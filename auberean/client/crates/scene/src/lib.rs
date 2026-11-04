@@ -163,6 +163,8 @@ struct Player {
     placements: u32,
     /// How many times the server's throws of it have been taken.
     thrown: u32,
+    /// How many times the server's forcing of its place has been taken.
+    forced: u32,
     height: f32,
     /// Its setup's radius.
     radius: f32,
@@ -2326,6 +2328,7 @@ impl<'w> Scene<'w> {
             figure,
             placements: b.placements(),
             thrown: b.thrown().0,
+            forced: b.forced_moves(),
             height,
             radius,
             scale,
@@ -2419,6 +2422,10 @@ impl<'w> Scene<'w> {
             self.light_tick(client, now);
         }
         if let Some(p) = &mut self.player {
+            if client.body.forced_moves() != p.forced {
+                p.forced = client.body.forced_moves();
+                self.camera.player_forced_elsewhere();
+            }
             if client.body.placements() != p.placements {
                 p.placements = client.body.placements();
                 let b = &client.body;

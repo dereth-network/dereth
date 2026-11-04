@@ -1897,8 +1897,9 @@ impl Client {
     /// The server placed the player. A position with no newer stamp, or in no cell, is left. On a
     /// newer teleport the body goes there, facing the position's heading; on a newer forced position
     /// or with an impulse it goes there, facing as it faced, and an impulse then throws it. Any other
-    /// position of the player's own moves nothing. The position's time leaves the game clock alone:
-    /// only the server's time-sync sets it.
+    /// position of the player's own moves nothing. A newer forced position tells the host, whose
+    /// camera glides to the new place unless it is at the eyes. The position's time leaves the game
+    /// clock alone: only the server's time-sync sets it.
     // D2-06372
     fn server_moved_player(&mut self, p: &auberean_protocol::physics::ObjectPosition) {
         use auberean_protocol::physics::position_flags;
@@ -1914,6 +1915,7 @@ impl Client {
         self.body.teleport_stamp = p.teleport_stamp;
         if forced {
             self.body.force_position_stamp = p.force_position_stamp;
+            self.body.force_moved();
         }
         if teleported {
             let heading = (p.heading_motion >> 24) as f32 * 360.0 / 255.0;

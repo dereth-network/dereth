@@ -67,6 +67,7 @@ pub struct Body {
     placed: bool,
     placements: u32,
     impulses: u32,
+    forced_moves: u32,
     impulse: Vec3,
     times_jumped: u32,
     jumps_reported: u32,
@@ -127,6 +128,18 @@ impl Body {
     #[must_use]
     pub fn thrown(&self) -> (u32, Vec3) {
         (self.impulses, self.impulse)
+    }
+
+    /// The server forced the body's place with a newer stamp.
+    pub fn force_moved(&mut self) {
+        self.forced_moves = self.forced_moves.wrapping_add(1);
+    }
+
+    /// How many times the server has forced the body's place: a host with a camera turns it on
+    /// whenever this changes.
+    #[must_use]
+    pub fn forced_moves(&self) -> u32 {
+        self.forced_moves
     }
 
     /// Where the host's physics has the body now (its cell, its place in the cell's landblock and

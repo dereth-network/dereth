@@ -1486,6 +1486,15 @@ impl CameraControl {
         })
     }
 
+    /// The server forced the player's place: unless it is at the eyes, the camera glides to the
+    /// new place from where it stands.
+    // D2-06372, D2-10688
+    pub fn player_forced_elsewhere(&mut self) {
+        if !self.first_person() {
+            self.targeting.fake_transition();
+        }
+    }
+
     /// Whether the camera is at the eyes.
     // D2-11866
     #[must_use]

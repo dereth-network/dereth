@@ -1281,6 +1281,95 @@ fn a_position_of_the_players_own_with_an_impulse_throws_the_body() {
     );
 }
 
+/// The most the camera moves in a frame as a newer forced Position sends the player 4 m along, in
+/// the view asked for.
+fn camera_jump_on_a_forced_position(press: Option<auberean_scene::camera::Press>) -> f32 {
+    let forced = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: HALL_CELL,
+        origin: Vec3::new(HALL_AT.x + 4.0, HALL_AT.y, HALL_AT.z),
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1000,
+        force_position_stamp: 1,
+        teleport_stamp: 0,
+        velocity: Vec3::ZERO,
+    });
+    let script = script_then(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &[(12.0, forced)]);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 5.0 {
+        step(&mut s);
+    }
+    if let Some(p) = press {
+        s.scene.camera.press(p);
+    }
+    while s.host.time < 8.0 {
+        step(&mut s);
+    }
+    assert_eq!(
+        s.client.as_ref().map(|c| c.body.forced_moves()),
+        Some(0),
+        "not yet"
+    );
+    let taken = |s: &Shell<'_, DoubleHost>| {
+        s.client
+            .as_ref()
+            .is_some_and(|c| c.body.forced_moves() == 1)
+    };
+    let mut jump = 0.0f32;
+    let mut before: Option<Vec3> = None;
+    let mut after = 0;
+    while after < 30 {
+        assert!(s.host.time < 19.0, "the position never took effect");
+        let h = &mut s.host;
+        h.time += 1.0 / 60.0;
+        let t = LocalTime(1.0 + h.time);
+        for d in h.double.tick(t) {
+            h.inbox.push_back((d.from, d.bytes));
+        }
+        let now = s.frame().world.expect("the world is drawn").camera.position;
+        if let Some(b) = before.replace(now) {
+            let (dx, dy, dz) = (now.x - b.x, now.y - b.y, now.z - b.z);
+            jump = jump.max((dx * dx + dy * dy + dz * dz).sqrt());
+        }
+        if taken(&s) {
+            after += 1;
+        }
+    }
+    jump
+}
+
+/// A newer forced Position outside first person turns the camera's transition on, so the camera
+/// glides to the new place rather than jumping; at the eyes it goes with the body.
+///
+/// Behaviour: desktop.camera.a-forced-position-glides-outside-first-person
+#[test]
+fn a_forced_position_glides_the_camera_outside_first_person() {
+    use auberean_scene::camera::Press;
+    let behind = camera_jump_on_a_forced_position(None);
+    assert!(behind < 2.0, "it glides: {behind} m in the frame");
+    let eyes = camera_jump_on_a_forced_position(Some(Press::FirstPerson));
+    assert!(
+        eyes > 3.0,
+        "at the eyes it goes at once: {eyes} m in the frame"
+    );
+}
+
 /// Two men made beside the player, one of an entity template whose qualities record the data
 /// holds (it says he moves), the other of a template with no record, are each sent a place 2 m
 /// on: the first walks there, the second stays where he was made.

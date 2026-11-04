@@ -379,6 +379,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.camera.a-forced-position-glides-outside-first-person",
+        says: "A newer forced position of the player's own turns on the camera's transition unless \
+               the camera is at the eyes.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESK-FORCED-CAMERA"),
+        station: "auberean-shell::dat::session::a_forced_position_glides_the_camera_outside_first_person",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.camera.a-shake-moves-the-camera-by-the-clients-noise",
         says: "A shake under way moves the camera by the client's own noise (fractional Brownian \
                motion of three octaves over its gradient noise, sixty times the shake's seconds \
