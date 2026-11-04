@@ -561,7 +561,7 @@ impl RetailGround {
 }
 
 /// An open art pack: its models and their pictures, decoded.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ArtPack {
     /// The pack's name.
     pub name: String,
@@ -1053,6 +1053,17 @@ impl ArtPack {
             materials: retextured,
             problems,
         })
+    }
+
+    /// A pack with nothing in it, which replaces nothing: what the Reflective Water box draws
+    /// under when no pack is set, the world's ground laid with retail's own pictures alone.
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            name: "Reflective Water".to_owned(),
+            serial: next_serial(),
+            ..Self::default()
+        }
     }
 
     /// Whether the pack has a model for `id`.

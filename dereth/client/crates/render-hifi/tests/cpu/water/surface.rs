@@ -2,7 +2,9 @@
 //! are the same arithmetic wherever they are drawn)
 
 use dereth_render_hifi::passes::water::field::bed_depth;
-use dereth_render_hifi::passes::water::{layer_constants, ripples, shader_source};
+use dereth_render_hifi::passes::water::{
+    layer_constants, ripples, shader_source, sim_shader_source,
+};
 use dereth_render_hifi::snapshot::HifiWater;
 
 use crate::common::wgsl_eval::{Evaluator, Value};
@@ -124,57 +126,28 @@ fn the_ripples_hold_still_while_the_clock_does_and_drift_while_it_runs() {
 }
 
 #[test]
-fn the_rings_round_a_wading_body_spread_outward_with_the_clock_and_fade_within_a_few_meters() {
-    let shader = Evaluator::new(&shader_source());
-    let rise = |r: f32, clock: f32| {
+fn a_bodys_legs_push_the_water_deepest_under_it_and_only_where_they_stand_in_it() {
+    let shader = Evaluator::new(&sim_shader_source());
+    let v = |xs: &[f32]| Value::Vector(xs.iter().map(|x| Value::F32(*x)).collect());
+    // The water's level at nought; a body at the origin, its feet `feet` meters up, stirring fully.
+    let pushed = |x: f32, feet: f32| {
         shader
-            .call("ring_rise", &[Value::F32(r), Value::F32(clock)])
+            .call(
+                "pushed",
+                &[v(&[x, 0.0]), v(&[0.0, 0.0, feet, 1.0]), Value::F32(0.0)],
+            )
             .f32()
     };
-    // Where the rings' slope changes sign going out, millimeter by millimeter, from 1 m to 4 m.
-    let crossings = |clock: f32| -> Vec<f32> {
-        let mut out = Vec::new();
-        let mut last = rise(1.0, clock);
-        for k in 1..=3000u16 {
-            let r = 1.0 + f32::from(k) * 0.001;
-            let now = rise(r, clock);
-            if (now > 0.0) != (last > 0.0) {
-                out.push(r);
-            }
-            last = now;
-        }
-        out
-    };
-    let clock = 123.5;
-    let now = crossings(clock);
-    assert!(now.len() >= 8, "{now:?}");
-    // The same clock, the same rings; a twentieth of a second later every ring has spread
-    // outward by as far as rings 0.6 m apart, 0.8 a second, spread in it.
-    assert_eq!(now, crossings(clock));
-    let later = crossings(clock + 0.05);
-    for r in &now[..now.len() - 1] {
-        let moved = later
-            .iter()
-            .map(|q| q - r)
-            .filter(|d| *d > 0.0)
-            .fold(f32::MAX, f32::min);
-        assert!(
-            (moved - 0.024).abs() < 0.002,
-            "the ring at {r} m spread {moved} m"
-        );
-    }
-    // None at the legs or past a few meters, and less the farther out.
-    let most = |from: f32, to: f32| {
-        (0..=200u16)
-            .map(|k| rise(from + (to - from) * f32::from(k) / 200.0, clock).abs())
-            .fold(0.0f32, f32::max)
-    };
-    assert!(most(0.0, 0.2) == 0.0 && most(6.0, 9.0) == 0.0);
+    let wading = -0.4;
+    assert!(pushed(0.0, wading) > pushed(0.2, wading) && pushed(0.2, wading) > 0.0);
+    assert!(pushed(0.4, wading) == 0.0, "nothing past its legs");
     assert!(
-        most(0.6, 1.6) > 2.0 * most(3.0, 4.0),
-        "{} {}",
-        most(0.6, 1.6),
-        most(3.0, 4.0)
+        pushed(0.0, 0.3) == 0.0,
+        "nothing with its feet out of the water"
+    );
+    assert!(
+        pushed(0.0, -0.6) > pushed(0.0, -0.1),
+        "more the deeper it stands"
     );
 }
 

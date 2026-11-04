@@ -2,8 +2,8 @@
 //! world, near and far.
 //!
 //! The drawn ground lowers a bed under the water ([`field`]: the farther inside the water, the
-//! deeper, to the `water_depth` knob), and the art pack's ground lays it with the bed's
-//! material. Once the light per pixel has lit the world, this pass draws the water over it: for
+//! deeper, to the `water_depth` knob), and the ground lays it with the bed's material.
+//! Once the light per pixel has lit the world, this pass draws the water over it: for
 //! each pixel, where the line of sight passes under the water's surface (at retail's level, level
 //! up to the water's edge), the bed and anything standing in the water are seen through the
 //! water, bent by its ripples and faded into its own color with the depth passed through; the sky
@@ -11,17 +11,26 @@
 //! reaches the water. The water's own color is retail's water picture's, under the light the bed
 //! takes, so it keeps retail's hue by day and at dusk.
 //!
-//! Toward its edge the water thins to nothing over the `shore_soft` knob, so the shore is a soft
-//! change of depth and color with nothing laid along it. The ripples ([`ripples`]) drift with the
-//! game's clock alone: a held clock draws a still frame. They calm with distance, so far water is
-//! smooth and mirrors the sky without a repeat to see or a pixel to flicker.
+//! Toward its edge the water thins to nothing over the `shore_soft` knob, and foam gathers along
+//! it. The ripples ([`ripples`]) drift with the game's clock alone: a held clock draws a still
+//! frame. They calm with distance, so far water shows no repeat and no pixel to flicker; what they
+//! no longer draw is kept as roughness (the `water_far_rough` knob), so far water blurs what it
+//! mirrors rather than lying glassy. Over them run waves ([`waves`]) as large as the water is: the
+//! sea's swell and surf, a lake's chop by how far it reaches, hardly any on a river. Through shallow
+//! water the sun's light ripples over the bed. Near the eye the water is simulated ([`sim`]): a
+//! body moving through it stirs it, and its waves spread, cross, meet the shore and die away. The
+//! simulation steps in a compute shader, so a device without compute shaders (WebGL 2) draws the
+//! water without it.
 //!
 //! Only pixels change: collision, physics, what can be picked and everything the game reads keep
-//! retail's surface. Without an art pack's drawn ground, or with Retail Look, the pass does not
-//! run and retail's water is drawn as it always is.
+//! retail's surface. Without the drawn ground, which an art pack's ground or the Reflective Water
+//! box asks for, or with Retail Look, the pass does not run and retail's water is drawn as it
+//! always is.
 
 pub mod field;
 pub mod ripples;
+pub mod sim;
+pub mod waves;
 
 use glam::{Mat4, Vec3};
 
@@ -60,13 +69,19 @@ pub fn shader_source() -> String {
 }
 
 /// The floats of the shader's constants.
-pub const CONSTANT_FLOATS: usize =
-    16 * 3 + 16 * CASCADES + 4 * 8 + 4 * 5 + 4 * 2 + 4 * 4 + 4 * 3 + 4 + 4 * WADERS;
-/// The most bodies the water rings round as they stand in it.
-pub const WADERS: usize = 8;
-/// How far from the eye a body stands for the water to ring round it, meters: farther, its rings
-/// are finer than the pixels.
-const WADERS_WITHIN: f32 = 60.0;
+pub const CONSTANT_FLOATS: usize = 16 * 3
+    + 16 * CASCADES
+    + 4 * 8
+    + 4 * 5
+    + 4 * 2
+    + 4 * 4
+    + 4 * 3
+    + 4
+    + 4 * waves::COUNT
+    + 4 * 3
+    + 4 * 2;
+/// How far from the eye a body stands for it to stir the simulated water, meters.
+const STIRS_WITHIN: f32 = 30.0;
 /// Where the physical sky's share of the sky drawn sits in the atmosphere's constants, floats.
 const SKY_SHARE: usize = 90;
 
@@ -156,6 +171,10 @@ pub struct Water {
     hues: Option<(u64, [Vec3; 5])>,
     /// How many times they have been worked out.
     averaged: u64,
+    /// The simulated water near the eye.
+    sim: sim::Sim,
+    /// Which of the simulation's two pictures holds the water as it stands.
+    sim_current: usize,
 }
 
 /// The pass.
@@ -178,6 +197,21 @@ struct Gpu {
     no_sky: wgpu::TextureView,
     /// Cascades standing in for the sun's when none were drawn.
     no_shadow: wgpu::TextureView,
+    /// The simulated water, on a device that runs compute shaders.
+    sim: Option<SimGpu>,
+    /// Calm water standing in for the simulated water's picture where it is not simulated.
+    no_sim: wgpu::TextureView,
+}
+
+/// The simulated water on the device.
+#[derive(Debug)]
+struct SimGpu {
+    /// Its two pictures, each step reading one and writing the other.
+    pictures: [wgpu::TextureView; 2],
+    layout: wgpu::BindGroupLayout,
+    pipeline: wgpu::ComputePipeline,
+    /// Each step's constants, a step to a stride.
+    steps: wgpu::Buffer,
 }
 
 fn entry(binding: u32, ty: wgpu::BindingType) -> wgpu::BindGroupLayoutEntry {
@@ -202,7 +236,7 @@ fn texture(
 
 impl Gpu {
     #[allow(clippy::too_many_lines)]
-    fn new(device: &wgpu::Device, queue: &wgpu::Queue) -> Self {
+    fn new(device: &wgpu::Device, queue: &wgpu::Queue, compute: bool) -> Self {
         use wgpu::TextureSampleType as S;
         use wgpu::TextureViewDimension as D;
         let uniform = wgpu::BindingType::Buffer {
@@ -238,6 +272,7 @@ impl Gpu {
                     wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
                 ),
                 entry(14, texture(unfiltered, D::D2)),
+                entry(15, texture(S::Float { filterable: true }, D::D2)),
             ],
         });
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -368,6 +403,22 @@ impl Gpu {
                 dimension: Some(wgpu::TextureViewDimension::D2Array),
                 ..wgpu::TextureViewDescriptor::default()
             });
+        let no_sim = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("water, not simulated"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default());
         Self {
             layout,
             pipeline,
@@ -392,9 +443,115 @@ impl Gpu {
             }),
             no_sky,
             no_shadow,
+            sim: compute.then(|| SimGpu::new(device)),
+            no_sim,
         }
     }
 }
+
+/// The simulation's shader, for validation without a device: its own, with the shore's
+/// arithmetic and the water's vertical derivative worked out once.
+#[must_use]
+pub fn sim_shader_source() -> String {
+    let kernel = sim::kernel()
+        .iter()
+        .map(|v| format!("{v:e}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let n = sim::REACH + 1;
+    let constant = format!(
+        "const KERNEL: array<f32, {}> = array<f32, {}>({kernel});",
+        n * n,
+        n * n
+    );
+    [SHORE_WGSL, sim::SIM_WGSL, &constant].join("\n")
+}
+
+impl SimGpu {
+    fn new(device: &wgpu::Device) -> Self {
+        let picture = |label: &str| {
+            device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d {
+                        width: sim::SIDE,
+                        height: sim::SIDE,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba16Float,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::STORAGE_BINDING,
+                    view_formats: &[],
+                })
+                .create_view(&wgpu::TextureViewDescriptor::default())
+        };
+        let compute = |binding: u32, ty: wgpu::BindingType| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty,
+            count: None,
+        };
+        let unfiltered = wgpu::TextureSampleType::Float { filterable: false };
+        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("water simulation"),
+            entries: &[
+                compute(
+                    0,
+                    wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: wgpu::BufferSize::new(sim::STEP_BYTES as u64),
+                    },
+                ),
+                compute(1, texture(unfiltered, wgpu::TextureViewDimension::D2)),
+                compute(
+                    2,
+                    wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                ),
+                compute(3, texture(unfiltered, wgpu::TextureViewDimension::D2)),
+                compute(4, texture(unfiltered, wgpu::TextureViewDimension::D2)),
+            ],
+        });
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("water simulation"),
+            source: wgpu::ShaderSource::Wgsl(sim_shader_source().into()),
+        });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("water simulation"),
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
+        });
+        let pipeline = device.build_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("water simulation"),
+            layout: Some(&pipeline_layout),
+            module: &module,
+            entry_point: Some("cs_step"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
+        Self {
+            pictures: [picture("water simulation a"), picture("water simulation b")],
+            layout,
+            pipeline,
+            steps: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("water simulation steps"),
+                size: (sim::STEP_STRIDE * sim::MOST_STEPS) as u64,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+        }
+    }
+}
+
+/// The simulated square's corners where the water is not simulated: none, so none of it is drawn.
+pub const NO_SIM_AREA: [f32; 4] = [0.0; 4];
 
 /// What the constants are made from, apart from the frame.
 #[derive(Debug, Clone, Copy)]
@@ -407,11 +564,16 @@ pub struct Inputs {
     pub fogged: bool,
     /// The cascades' side in texels, when they hold this frame's shadow.
     pub cascades: Option<u32>,
+    /// The simulated square in render space, south-west and north-east corners.
+    pub sim_area: [f32; 4],
+    /// Where render space's origin lies in the world, wrapped to the simulated square's side.
+    pub sim_fold: glam::Vec2,
 }
 
 /// The shader's constants for `frame`, with `water` its look and `hues` retail's water under the
 /// frame's ordinary light.
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn constants(
     frame: &HifiFrame,
     water: &HifiWater,
@@ -506,7 +668,52 @@ pub fn constants(
         crate::passes::lighting::env_f32("DERETH_HIFI_WATER_VIEW", 0.0),
         0.0,
     ]);
-    // The bodies the water rings round, nearest the eye first: where they stand, render space.
+    // The water's own clock, seconds, kept short so the shader's arithmetic stays exact.
+    // LINT-OK: a wrapped clock.
+    #[allow(clippy::cast_possible_truncation)]
+    c.extend([(frame.time % 600.0) as f32, water.far_rough, 0.0, 0.0]);
+    for w in waves::constants(frame.time, global) {
+        c.extend(w);
+    }
+    let fold = waves::fold(global);
+    c.extend([
+        water.waves,
+        water.foam,
+        water.caustics,
+        waves::surf(frame.time),
+    ]);
+    let foam = as_drawn(frame, Vec3::splat(0.8));
+    c.extend([foam.x, foam.y, foam.z, 0.0]);
+    let beam = if sun_up {
+        crate::passes::lighting::DayLight::of(frame).sun
+    } else {
+        0.0
+    };
+    c.extend([fold.x, fold.y, beam, 0.0]);
+    // LINT-OK: the square's side, a few hundred cells.
+    #[allow(clippy::cast_precision_loss)]
+    let side = sim::SIDE as f32 * sim::CELL;
+    c.extend([1.0 / side, inputs.sim_fold.x, inputs.sim_fold.y, sim::CELL]);
+    c.extend(inputs.sim_area);
+    c
+}
+
+fn floats(values: &[f32]) -> Vec<u8> {
+    values.iter().flat_map(|f| f.to_le_bytes()).collect()
+}
+
+/// What the simulated water runs this frame: where its square lies and each step's constants,
+/// stirred by the bodies near the eye. `None` where it is not simulated, which leaves it calm.
+fn stir(
+    state: &mut sim::Sim,
+    frame: &HifiFrame,
+    water: &HifiWater,
+    simulated: bool,
+) -> Option<sim::Plan> {
+    if !simulated {
+        return None;
+    }
+    let eye = frame.camera.eye;
     let mut bodies: Vec<Vec3> = frame
         .drawn
         .as_ref()
@@ -514,35 +721,22 @@ pub fn constants(
             d.bodies
                 .iter()
                 .copied()
-                .filter(|b| (b.truncate() - cam.eye.truncate()).length() < WADERS_WITHIN)
+                .filter(|b| (b.truncate() - eye.truncate()).length() < STIRS_WITHIN)
                 .collect()
         })
         .unwrap_or_default();
     bodies.sort_by(|a, b| {
-        (a.truncate() - cam.eye.truncate())
+        (a.truncate() - eye.truncate())
             .length()
-            .total_cmp(&(b.truncate() - cam.eye.truncate()).length())
+            .total_cmp(&(b.truncate() - eye.truncate()).length())
     });
-    bodies.truncate(WADERS);
-    // The rings' own clock, seconds, kept short so the shader's arithmetic stays exact; and how
-    // many bodies, and how strongly the water rings.
-    // LINT-OK: a wrapped clock and a body count, both small.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
-    c.extend([
-        (frame.time % 600.0) as f32,
-        bodies.len() as f32,
-        water.rings,
-        0.0,
-    ]);
-    for i in 0..WADERS {
-        let b = bodies.get(i).copied().unwrap_or(Vec3::ZERO);
-        c.extend([b.x, b.y, b.z, 0.0]);
-    }
-    c
-}
-
-fn floats(values: &[f32]) -> Vec<u8> {
-    values.iter().flat_map(|f| f.to_le_bytes()).collect()
+    Some(state.plan(&sim::Disturbance {
+        clock: frame.time,
+        global: frame.drawn.as_ref().map_or(glam::Vec2::ZERO, |d| d.global),
+        eye,
+        bodies: &bodies,
+        stir: water.rings,
+    }))
 }
 
 impl HifiPass for Water {
@@ -577,14 +771,19 @@ impl HifiPass for Water {
             && f.drawn.as_ref().is_some_and(|d| d.knobs.water.is_some());
         if drawn && self.gpu.is_none() {
             let (device, queue) = (cx.device.clone(), cx.queue.clone());
-            self.pre_gpu.ask(cx.warm, move || Gpu::new(&device, &queue));
+            let compute = cx.caps.compute;
+            self.pre_gpu
+                .ask(cx.warm, move || Gpu::new(&device, &queue, compute));
         }
     }
 
     fn prepare(&mut self, cx: &mut PrepareCx<'_, '_>) -> Result<(), HifiError> {
         if self.gpu.is_none() {
             let built = self.pre_gpu.take();
-            self.gpu = Some(built.unwrap_or_else(|| Gpu::new(cx.seam.device(), cx.seam.queue())));
+            self.gpu =
+                Some(built.unwrap_or_else(|| {
+                    Gpu::new(cx.seam.device(), cx.seam.queue(), cx.caps.compute)
+                }));
         }
         Ok(())
     }
@@ -657,6 +856,58 @@ impl HifiPass for Water {
             }
         }
         .map(|h| as_drawn(cx.frame, h));
+        // The simulated water, stepped as far as the clock has run: each step reading one of its
+        // pictures and writing the other.
+        let plan = stir(&mut self.sim, cx.frame, &water, gpu.sim.is_some());
+        if let (Some(plan), Some(sim)) = (&plan, &gpu.sim) {
+            for (k, step) in plan.steps.iter().enumerate() {
+                queue.write_buffer(&sim.steps, (k * sim::STEP_STRIDE) as u64, step);
+            }
+            for k in 0..plan.steps.len() {
+                let (from, to) = (self.sim_current, 1 - self.sim_current);
+                let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("water simulation"),
+                    layout: &sim.layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                buffer: &sim.steps,
+                                offset: 0,
+                                size: wgpu::BufferSize::new(sim::STEP_BYTES as u64),
+                            }),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&sim.pictures[from]),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(&sim.pictures[to]),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(&heights),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::TextureView(&field),
+                        },
+                    ],
+                });
+                let mut pass = cx.encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("water simulation"),
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(&sim.pipeline);
+                // LINT-OK: a step's offset, a few hundred bytes in.
+                #[allow(clippy::cast_possible_truncation)]
+                pass.set_bind_group(0, &bind, &[(k * sim::STEP_STRIDE) as u32]);
+                pass.dispatch_workgroups(sim::SIDE / 16, sim::SIDE / 16, 1);
+                drop(pass);
+                self.sim_current = to;
+            }
+        }
         let values = constants(
             cx.frame,
             &water,
@@ -666,6 +917,8 @@ impl HifiPass for Water {
                 physical_sky,
                 fogged: !(cx.settings.sky.is_on() && cx.frame.sky.outdoor),
                 cascades: cascades.as_ref().map(|(size, _)| *size),
+                sim_area: plan.as_ref().map_or(NO_SIM_AREA, |p| p.area),
+                sim_fold: plan.as_ref().map_or(glam::Vec2::ZERO, |p| p.fold),
             },
         );
         queue.write_buffer(&gpu.constants, 0, &floats(&values));
@@ -739,6 +992,14 @@ impl HifiPass for Water {
                     binding: 14,
                     resource: wgpu::BindingResource::TextureView(&rt.normal),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 15,
+                    resource: wgpu::BindingResource::TextureView(
+                        gpu.sim
+                            .as_ref()
+                            .map_or(&gpu.no_sim, |sim| &sim.pictures[self.sim_current]),
+                    ),
+                },
             ],
         });
         let mut pass = cx.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -804,6 +1065,61 @@ mod tests {
     }
 
     #[test]
+    fn the_simulations_shader_parses_and_validates_with_its_step() {
+        let source = sim_shader_source();
+        let module = naga::front::wgsl::parse_str(&source)
+            .unwrap_or_else(|e| panic!("{}", e.emit_to_string(&source)));
+        naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .unwrap_or_else(|e| panic!("{e:?}"));
+        let entries: Vec<&str> = module
+            .entry_points
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect();
+        assert_eq!(entries, ["cs_step"]);
+    }
+
+    #[test]
+    fn without_compute_the_water_is_drawn_calm_and_never_simulated() {
+        let water = HifiWater::default();
+        let at = |time: f64| HifiFrame {
+            time,
+            ..HifiFrame::default()
+        };
+        let mut calm = pass();
+        assert!(stir(&mut calm.sim, &at(10.0), &water, false).is_none());
+        assert!(stir(&mut calm.sim, &at(10.5), &water, false).is_none());
+        assert_eq!(calm.sim, sim::Sim::default(), "the simulation never ran");
+        // Unsimulated, the square covers nothing, so the shader draws none of it.
+        let values = constants(
+            &at(10.5),
+            &water,
+            &[Vec3::ONE; 5],
+            &Inputs {
+                viewport: [0.0, 0.0, 1920.0, 1080.0],
+                physical_sky: 1.0,
+                fogged: false,
+                cascades: None,
+                sim_area: NO_SIM_AREA,
+                sim_fold: glam::Vec2::ZERO,
+            },
+        );
+        let [x0, y0, x1, y1] = values[CONSTANT_FLOATS - 4..] else {
+            unreachable!()
+        };
+        assert!(x1 <= x0 && y1 <= y0);
+        // With compute it steps as the clock runs.
+        let mut stirred = pass();
+        assert!(stir(&mut stirred.sim, &at(10.0), &water, true).is_some());
+        let plan = stir(&mut stirred.sim, &at(10.5), &water, true).expect("simulated");
+        assert_eq!(plan.steps.len(), sim::MOST_STEPS);
+    }
+
+    #[test]
     fn the_constants_fill_the_shaders_block_exactly() {
         let frame = HifiFrame::default();
         let values = constants(
@@ -815,6 +1131,8 @@ mod tests {
                 physical_sky: 1.0,
                 fogged: false,
                 cascades: Some(2048),
+                sim_area: NO_SIM_AREA,
+                sim_fold: glam::Vec2::ZERO,
             },
         );
         assert_eq!(values.len(), CONSTANT_FLOATS);

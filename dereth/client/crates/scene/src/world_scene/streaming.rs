@@ -218,6 +218,8 @@ impl SceneDraw {
             #[cfg(feature = "hifi")]
             art_pack,
             #[cfg(feature = "hifi")]
+            water_pack: None,
+            #[cfg(feature = "hifi")]
             retail_ground: None,
             #[cfg(feature = "hifi")]
             material_keys: Vec::new(),

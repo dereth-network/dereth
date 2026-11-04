@@ -1,7 +1,8 @@
-//! The water Better Lighting draws with an art pack's ground: it holds still while the game's
-//! clock is held, its ripples lying where the clock puts them; it is drawn only with the pack's
-//! ground (never with Retail Look), and its knob turns it off. Retail's water pictures' colors it is
-//! drawn with are worked out once for a ground, not again every frame.
+//! The water Better Lighting draws with an art pack's ground or its own box: it holds still while
+//! the game's clock is held, its ripples lying where the clock puts them; it is drawn only with the
+//! pack's ground or the Reflective Water box (never with Retail Look), and its knob turns it off.
+//! Retail's water pictures' colors it is drawn with are worked out once for a ground, not again
+//! every frame.
 //!
 //! The pack is made in the test: a flat ground of its own color for each dry terrain type and
 //! none for the water, so the water's own color is retail's water picture's.
@@ -118,6 +119,11 @@ fn over_holtburg() -> Station {
 /// `station` opened on a device of its own with `pack` and `boxes`, the ground the pack lays
 /// drawn and settled.
 fn opened(station: &Station, pack: &Arc<ArtPack>, boxes: &str) -> (Gpu, Shot) {
+    opened_with(station, Some(pack), boxes)
+}
+
+/// `station` opened on a device of its own, with `pack` if any and `boxes`, settled.
+fn opened_with(station: &Station, pack: Option<&Arc<ArtPack>>, boxes: &str) -> (Gpu, Shot) {
     let store = crate::common::dats();
     let cfg = DeviceConfig {
         width: SIZE.0,
@@ -135,9 +141,17 @@ fn opened(station: &Station, pack: &Arc<ArtPack>, boxes: &str) -> (Gpu, Shot) {
     );
     let gpu = &mut device;
     let mut shot = Shot::open(&store, gpu, station);
-    shot.scene
-        .set_art_pack(&store, gpu, Some(Arc::clone(pack)))
-        .expect("the blocks bake for the pack");
+    if let Some(pack) = pack {
+        shot.scene
+            .set_art_pack(&store, gpu, Some(Arc::clone(pack)))
+            .expect("the blocks bake for the pack");
+    }
+    set_boxes(&mut shot, gpu, boxes);
+    (device, shot)
+}
+
+/// `boxes` ticked on an open `shot`, the ground they ask for drawn and settled.
+fn set_boxes(shot: &mut Shot, gpu: &mut Gpu, boxes: &str) {
     shot.scene.draw.cfg.render.fidelity =
         FidelityPreferences::parse_switch(boxes).expect("the boxes parse");
     shot.poll(gpu);
@@ -153,7 +167,6 @@ fn opened(station: &Station, pack: &Arc<ArtPack>, boxes: &str) -> (Gpu, Shot) {
     }
     shot.step(gpu);
     assert!(gpu.hifi_failed().is_none(), "{:?}", gpu.hifi_failed());
-    (device, shot)
 }
 
 /// Where the frames go, in cargo's scratch folder, to look at when a test fails.
@@ -297,6 +310,51 @@ fn the_water_is_drawn_with_the_packs_ground_and_never_with_retail_look_or_its_kn
     shot.step_held(gpu);
     shot.step_held(gpu);
     assert!(!water_drawn(gpu), "no water is drawn with Retail Look");
+}
+
+/// The box alone draws the water, with no pack replacing anything, and changes at once.
+#[test]
+fn the_reflective_water_box_draws_the_water_with_no_art_pack() {
+    let _gpu = crate::common::gpu_lock();
+    let (mut device, mut shot) = opened_with(&holtburg_shore(), None, BOXES);
+    let gpu = &mut device;
+    shot.step_held(gpu);
+    assert!(!water_drawn(gpu), "no water without the box");
+    assert!(!shot.scene.drawn_ground_active());
+    let without = capture(gpu);
+    keep("box-off", &without);
+
+    let ticked = format!("{BOXES},Water=1");
+    set_boxes(&mut shot, gpu, &ticked);
+    shot.step_held(gpu);
+    assert!(water_drawn(gpu), "the box draws the water");
+    assert!(shot.scene.drawn_ground_active());
+    assert!(
+        shot.scene.draw.art_pack().is_none(),
+        "no pack was set for it"
+    );
+    let with = capture(gpu);
+    keep("box-on", &with);
+    let differ = changed_below_the_sky(&with, &without, 16);
+    assert!(
+        differ > 20_000,
+        "the water changed only {differ} pixels of the frame"
+    );
+
+    // Retail Look draws the game's own water, whatever the box says.
+    set_boxes(&mut shot, gpu, &format!("{ticked},RetailLook=1"));
+    shot.step_held(gpu);
+    assert!(!water_drawn(gpu), "no water is drawn with Retail Look");
+    assert!(!shot.scene.drawn_ground_active());
+
+    // Ticked again it comes back; unticked it goes.
+    set_boxes(&mut shot, gpu, &ticked);
+    shot.step_held(gpu);
+    assert!(water_drawn(gpu), "the box draws the water again");
+    set_boxes(&mut shot, gpu, BOXES);
+    shot.step_held(gpu);
+    assert!(!water_drawn(gpu), "unticked, no water");
+    assert!(!shot.scene.drawn_ground_active());
 }
 
 /// The water's pixels in `with`, drawn beside `without` (the same frame without the water): those

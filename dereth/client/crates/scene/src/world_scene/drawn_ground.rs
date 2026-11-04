@@ -760,13 +760,10 @@ impl super::SceneDraw {
         gpu: &super::Gpu,
     ) {
         let settings = super::hifi_bridge::settings(&self.cfg.render.fidelity, false);
-        let ground = self
-            .land
-            .art_pack
-            .as_ref()
-            .is_some_and(|p| !p.grounds.is_empty())
-            && self.land.retail_ground.is_some();
         let presented = gpu.hifi_requested() && gpu.hifi_supported() && gpu.hifi_failed().is_none();
+        let water = presented && super::hifi_bridge::reflective_water(&self.cfg.render.fidelity);
+        self.land.want_water(water, store);
+        let ground = self.land.ground_pack().is_some() && self.land.retail_ground.is_some();
         self.drawn.step(
             settings.art_pack && ground && presented,
             store,

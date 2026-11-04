@@ -386,7 +386,9 @@ pub struct HifiWater {
     pub ripple_strength: f32,
     /// How far from the eye the ripples have calmed, meters.
     pub calm: f32,
-    /// How strongly the water rings round a body standing in it: 0 not at all.
+    /// How rough the water stays where its ripples are too fine or far to draw: 0 a mirror.
+    pub far_rough: f32,
+    /// How strongly a body moving through the water stirs it: 0 not at all.
     pub rings: f32,
     /// How strongly the water reflects the sky and the land.
     pub reflection: f32,
@@ -400,6 +402,12 @@ pub struct HifiWater {
     pub bank_green: f32,
     /// The terrain type grown in over a muddy bank where no other lies beside it.
     pub bank_grass: u8,
+    /// How large the waves on lakes and the sea run: 0 only the ripples.
+    pub waves: f32,
+    /// How much foam the water gathers at its shore and on its crests: 0 none.
+    pub foam: f32,
+    /// How brightly the sun's light ripples over a shallow bed: 0 none.
+    pub caustics: f32,
 }
 
 impl Default for HifiWater {
@@ -413,6 +421,7 @@ impl Default for HifiWater {
             ripple_speed: 1.0,
             ripple_strength: 1.0,
             calm: 120.0,
+            far_rough: 1.0,
             rings: 1.0,
             reflection: 1.0,
             shore_soft: 1.5,
@@ -420,6 +429,9 @@ impl Default for HifiWater {
             bed: 11,
             bank_green: 0.7,
             bank_grass: 9,
+            waves: 1.0,
+            foam: 1.0,
+            caustics: 1.0,
         }
     }
 }

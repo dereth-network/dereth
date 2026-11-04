@@ -130,6 +130,8 @@ pub mod fidelity {
     pub const SKY: &str = "Fidelity.Sky";
     /// `Fidelity.Weather`: rain, snow and wet ground, when the day's own weather brings them.
     pub const WEATHER: &str = "Fidelity.Weather";
+    /// `Fidelity.Water`: the water drawn with reflections, with no art pack needed.
+    pub const WATER: &str = "Fidelity.Water";
     /// `Fidelity.RetailLook`: the original models are drawn where an art pack has replacements
     /// for them.
     pub const RETAIL_LOOK: &str = "Fidelity.RetailLook";
@@ -151,7 +153,7 @@ pub mod fidelity {
     /// over it. No box sets it.
     pub const ART_PACK: &str = "Fidelity.ArtPack";
 
-    /// Every name the profile and `--set-at` may set, the ten boxes first.
+    /// Every name the profile and `--set-at` may set, the eleven boxes first.
     pub const NAMES: &[&str] = &[
         LIGHTING,
         SHADOWS,
@@ -160,6 +162,7 @@ pub mod fidelity {
         LAMPS,
         SKY,
         WEATHER,
+        WATER,
         RETAIL_LOOK,
         NO_ANTI_ALIASING,
         NO_SLOPE_MATERIALS,

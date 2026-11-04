@@ -151,7 +151,9 @@ pub enum Knob {
     RippleStrength,
     /// How far from the eye the ripples calm.
     RippleCalm,
-    /// How strongly the water rings round a body standing in it.
+    /// How rough the water stays where its ripples are too fine to draw.
+    WaterFarRough,
+    /// How strongly a body moving through the water stirs it.
     WaterRings,
     /// How strongly the water reflects.
     WaterReflection,
@@ -165,6 +167,12 @@ pub enum Knob {
     BankGreen,
     /// The terrain type grown in over a muddy bank where no other lies beside it.
     BankGrass,
+    /// How large the waves on lakes and the sea run.
+    WaterWaves,
+    /// How much foam the water gathers at its shore and on its crests.
+    WaterFoam,
+    /// How brightly the sun's light ripples over a shallow bed.
+    WaterCaustics,
     /// A diagnostic view.
     View,
     /// How much an art pack's lit surfaces count in the outdoor exposure.
@@ -285,7 +293,7 @@ const fn switch(
 }
 
 /// How many knobs there are.
-pub const KNOB_COUNT: usize = 102;
+pub const KNOB_COUNT: usize = 106;
 
 /// Every knob, in [`Knob`]'s order.
 pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
@@ -357,14 +365,18 @@ pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
     num(Knob::RippleScale, "ripple_scale", 1.0, (0.2, 5.0), "", "water", "the ripples' size: 2 twice as large"),
     num(Knob::RippleSpeed, "ripple_speed", 1.0, (0.0, 4.0), "", "water", "how fast the ripples move: 0 holds them still"),
     num(Knob::RippleStrength, "ripple_strength", 1.0, (0.0, 3.0), "", "water", "how much the ripples bend the surface and break up its reflections"),
-    num(Knob::RippleCalm, "ripple_calm", 120.0, (10.0, 2000.0), "m", "water", "how far from the eye the ripples have calmed, so far water lies smooth and mirrors the sky"),
-    num(Knob::WaterRings, "water_rings", 1.0, (0.0, 3.0), "", "water", "how strongly the water rings round a body standing in it: 0 none"),
+    num(Knob::RippleCalm, "ripple_calm", 120.0, (10.0, 2000.0), "m", "water", "how far from the eye the ripples have calmed, so far water shows no repeat: past it they are kept only as roughness (water_far_rough)"),
+    num(Knob::WaterFarRough, "water_far_rough", 1.0, (0.0, 3.0), "", "water", "how rough the water stays where its ripples are too fine or far to draw: it blurs what far water mirrors, dulls its reflection seen low and spreads the sun's glint; 0 leaves far water a mirror"),
+    num(Knob::WaterRings, "water_rings", 1.0, (0.0, 3.0), "", "water", "how strongly a body moving through the water stirs it, the waves spreading from where it passed: 0 not at all"),
     num(Knob::WaterReflection, "water_reflection", 1.0, (0.0, 1.5), "", "water", "how strongly the water reflects the sky and the land"),
     num(Knob::ShoreSoft, "shore_soft", 1.5, (0.0, 8.0), "m", "water", "how far from its edge the water takes to come in: larger is a softer shore"),
     num(Knob::ShoreWet, "shore_wet", 0.35, (0.0, 1.0), "", "water", "how much darker the wet ground along the water is: where retail lays water above the water's edge, and a strip of any ground beside it"),
     num(Knob::WaterBed, "water_bed", 11.0, (0.0, 31.0), "type", "water", "the terrain type whose material the bed is drawn with away from the shore (the shallows keep the bank's own ground): 11 gray sand, 5 mud, 8 patchy dirt, 12 rocky sand"),
     num(Knob::BankGreen, "bank_green", 0.7, (0.0, 1.0), "", "water", "how much grass grows in over a muddy bank, in patches, more the farther from the water: 0 leaves retail's ring of mud"),
     num(Knob::BankGrass, "bank_grass", 9.0, (0.0, 31.0), "type", "water", "the terrain type grown in over a muddy bank where no other ground lies beside it: 9 patchy grassland, 1 grassland, 3 lush grass"),
+    num(Knob::WaterWaves, "water_waves", 1.0, (0.0, 3.0), "", "water", "how large the waves run: on the sea most, on a lake by how far it reaches, on a river hardly at all; 0 leaves only the ripples"),
+    num(Knob::WaterFoam, "water_foam", 1.0, (0.0, 3.0), "", "water", "how much foam the water gathers along its shore, in the surf rolling in from the sea and on the crests of its larger waves: 0 none"),
+    num(Knob::WaterCaustics, "water_caustics", 1.0, (0.0, 3.0), "", "water", "how brightly the sun's light, bent by the surface, ripples over a shallow bed: 0 none"),
     num(Knob::View, "view", 0.0, (0.0, 4.0), "", "views", "a diagnostic view: 1 the offset (red raised, blue lowered, 1 m full), 2 the pins (magenta pinned), 3 retail's slope (pale under 20 degrees, olive, yellow, orange to 48.4, magenta unwalkable), 4 walkable and unwalkable ground"),
     num(Knob::PackExposure, "pack_exposure", 1.0, (0.0, 1.0), "", "light", "how much an art pack's models' lit surfaces and its materials count, against the world's own surfaces, when the outdoor exposure is held to the ordinary picture"),
     num(Knob::LeafExposure, "leaf_exposure", 0.1, (0.0, 1.0), "", "light", "how much an art pack's leaves count there: their crowns' own shading darkens them where the old light knows nothing of it, and counted wholly a dense crown would raise the whole frame"),

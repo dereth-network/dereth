@@ -50,6 +50,10 @@
 //!   unless `DERETH_ART_PACK_WAYS` names others. `DERETH_HIFI_SIZE`, `DERETH_HIFI_RENDER_SCALE`,
 //!   `DERETH_ART_PACK_LAND_RADIUS`, `DERETH_ART_PACK_FIDELITY` and `DERETH_TERRAIN_KNOBS` still
 //!   say otherwise where they are set.
+//! - `DERETH_REPORT_WALK`: `walk` or `run`, the body moving forward through the frames stepped
+//!   before the report's frame is taken, so what follows a moving body (a wake) is drawn;
+//!   `run:60` moves it for that many frames and stands it still for the rest; `still` runs the
+//!   clock with the body standing.
 //!
 //! The places: the south edge of Holtburg at a standing eye's height; the block where the most
 //! common tree stands thickest; a block where the boulder is most common; a player's view from
@@ -764,12 +768,35 @@ fn capture_the_frame_a_report_describes() {
         if way == Way::Pack {
             settle_drawn_ground(&mut shot, gpu);
         }
-        for _ in 0..warm() {
-            shot.step(gpu);
+        // A body walking moves with the clock, which then runs a frame a step.
+        let mut tick = 0.0;
+        let mut moving = usize::MAX;
+        if let Some(walk) = env("DERETH_REPORT_WALK") {
+            let (gait, frames) = walk.split_once(':').unwrap_or((walk.as_str(), ""));
+            shot.input.forward = !gait.trim().eq_ignore_ascii_case("still");
+            shot.input.run = gait.trim().eq_ignore_ascii_case("run");
+            tick = shot.frame_seconds;
+            moving = frames.trim().parse().unwrap_or(usize::MAX);
+        }
+        for frame in 0..warm() {
+            if frame == moving {
+                shot.input.forward = false;
+                shot.input.run = false;
+            }
+            shot.step_by(gpu, tick);
             assert!(
                 gpu.hifi_settle(std::time::Duration::from_secs(60)),
                 "the presentation's pipelines were not built in a minute"
             );
+        }
+        if tick > 0.0 {
+            if let Some(c) = shot.scene.character.as_ref() {
+                eprintln!(
+                    "report {}: the body walked to {:?}",
+                    way.name(),
+                    c.render_frame().origin
+                );
+            }
         }
         shot.step(gpu);
         if let Some(e) = gpu.hifi_failed() {

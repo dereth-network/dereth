@@ -2621,6 +2621,10 @@ struct LandContext {
     /// has models for are baked apart from the rest ([`crate::art_pack::Looks`]).
     #[cfg(feature = "hifi")]
     art_pack: Option<Arc<crate::art_pack::ArtPack>>,
+    /// The empty pack the presentation draws while the Reflective Water box asks for the drawn
+    /// ground and no pack set lays one.
+    #[cfg(feature = "hifi")]
+    water_pack: Option<Arc<crate::art_pack::ArtPack>>,
     /// Retail's masks and pictures the art pack's ground is laid with, while the pack lays one
     /// over a ground drawn by blending pictures.
     #[cfg(feature = "hifi")]
@@ -2673,14 +2677,36 @@ impl LandContext {
         }
     }
 
+    /// The art pack the presentation draws: the one set, else the Reflective Water box's empty one.
+    fn drawn_pack(&self) -> Option<&Arc<crate::art_pack::ArtPack>> {
+        self.art_pack.as_ref().or(self.water_pack.as_ref())
+    }
+
+    /// The pack the ground is laid for: one with ground materials, or any while the Reflective
+    /// Water box asks for the ground.
+    fn ground_pack(&self) -> Option<&Arc<crate::art_pack::ArtPack>> {
+        self.drawn_pack()
+            .filter(|p| !p.grounds.is_empty() || self.water_pack.is_some())
+    }
+
+    /// Follow the Reflective Water box: a pack's own ground has the water already.
+    fn want_water(&mut self, wanted: bool, store: &RetailDatStore) {
+        let laid = self
+            .art_pack
+            .as_ref()
+            .is_some_and(|p| !p.grounds.is_empty());
+        let wanted = wanted && !laid;
+        if wanted != self.water_pack.is_some() {
+            self.water_pack = wanted.then(|| Arc::new(crate::art_pack::ArtPack::empty()));
+            self.refresh_retail_ground(store);
+        }
+    }
+
     /// Read retail's masks and the pictures the art pack's ground needs from the ground's files,
     /// or forget them when no pack lays a ground or the ground is not drawn by blending pictures.
     fn refresh_retail_ground(&mut self, store: &RetailDatStore) {
-        let pack = self
-            .art_pack
-            .as_ref()
-            .filter(|p| !p.grounds.is_empty() && self.pal_shift.is_none());
-        self.retail_ground = pack.map(|pack| {
+        let pack = self.ground_pack().filter(|_| self.pal_shift.is_none());
+        let retail_ground = pack.map(|pack| {
             let store = self.ground_store.as_ref().unwrap_or(store);
             let textures = TextureStore::new(store);
             Arc::new(crate::art_pack::RetailGround::of(
@@ -2697,6 +2723,7 @@ impl LandContext {
                 },
             ))
         });
+        self.retail_ground = retail_ground;
     }
 }
 

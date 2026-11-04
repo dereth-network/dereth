@@ -425,6 +425,7 @@ fn ground_knobs(k: &Knobs) -> HifiGroundKnobs {
             ripple_speed: k.get(Knob::RippleSpeed),
             ripple_strength: k.get(Knob::RippleStrength),
             calm: k.get(Knob::RippleCalm),
+            far_rough: k.get(Knob::WaterFarRough),
             rings: k.get(Knob::WaterRings),
             reflection: k.get(Knob::WaterReflection),
             shore_soft: k.get(Knob::ShoreSoft),
@@ -432,6 +433,9 @@ fn ground_knobs(k: &Knobs) -> HifiGroundKnobs {
             bed: ground(Knob::WaterBed),
             bank_green: k.get(Knob::BankGreen),
             bank_grass: ground(Knob::BankGrass),
+            waves: k.get(Knob::WaterWaves),
+            foam: k.get(Knob::WaterFoam),
+            caustics: k.get(Knob::WaterCaustics),
         }),
         // LINT-OK: a view number, 0 to 4.
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -671,6 +675,12 @@ pub(crate) fn settings(prefs: &FidelityPreferences, rays: bool) -> HifiSettings 
         slope_materials: lit && raw(FidelityFeature::NoSlopeMaterials) == 0,
         debug: DebugView::from_raw(raw(FidelityFeature::Debug)),
     }
+}
+
+/// Whether the Reflective Water box is in effect. Its water is drawn inside the better lighting,
+/// and the retail look draws the game's own.
+pub(crate) fn reflective_water(prefs: &FidelityPreferences) -> bool {
+    settings(prefs, false).art_pack && prefs.effective(FidelityFeature::Water) != 0
 }
 
 /// Whether the device traces rays, as the presentation would find it.
@@ -1053,7 +1063,7 @@ fn snapshot(
     }
 
     // --- the art pack ----------------------------------------------------------------------
-    frame.art_pack = match draw.land.art_pack.as_deref() {
+    frame.art_pack = match draw.land.drawn_pack().map(Arc::as_ref) {
         Some(pack) => {
             if sh
                 .pack
@@ -1121,7 +1131,7 @@ fn snapshot(
     frame.drawn = drawn_for_presentation(draw, ws, &mut sh.drawn_world, &mut sh.cover);
     // --- the art pack's ground ------------------------------------------------------------
     frame.ground = match (
-        draw.land.art_pack.as_deref(),
+        draw.land.ground_pack().map(Arc::as_ref),
         draw.land.retail_ground.as_deref(),
     ) {
         (Some(pack), Some(retail)) => {
@@ -1357,7 +1367,7 @@ mod tests {
 
     /// Whether the settings draw what the box `name` asks for: its effect, or for the retail
     /// look's box the original models in place of an art pack's.
-    fn drawn(s: &HifiSettings, name: &str) -> bool {
+    fn drawn(s: &HifiSettings, prefs: &FidelityPreferences, name: &str) -> bool {
         use dereth_client_contract::options::names::fidelity as n;
         match name {
             n::LIGHTING => s.lighting.is_on(),
@@ -1367,6 +1377,7 @@ mod tests {
             n::LAMPS => s.lamps.is_on(),
             n::SKY => s.sky.is_on(),
             n::WEATHER => s.weather.is_on(),
+            n::WATER => reflective_water(prefs),
             n::RETAIL_LOOK => s.lighting.is_on() && !s.art_pack,
             n::NO_ANTI_ALIASING => s.lighting.is_on() && !s.anti_aliasing,
             n::NO_SLOPE_MATERIALS => s.lighting.is_on() && !s.slope_materials,
@@ -1488,7 +1499,7 @@ mod tests {
                         .is_some_and(|i| ticked & (1 << i) != 0)
                 };
                 for o in &OPTIONS {
-                    let drawn = drawn(&s, o.name);
+                    let drawn = drawn(&s, &prefs, o.name);
                     let greyed = blocked(o.name, is, Some(rays)).is_some();
                     assert_eq!(
                         drawn,

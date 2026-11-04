@@ -10,8 +10,14 @@
 // a soft change of depth and color with nothing laid along it.
 //
 // The ripples are one small picture of wind ripples laid several times over the water, at
-// different sizes and turns, each drifting with the game's clock; they calm with distance, so far
-// water lies smooth and mirrors the sky.
+// different sizes and turns, each drifting with the game's clock; they calm with distance, and
+// what they no longer draw is kept as roughness, so far water mirrors the sky blurred. Over them
+// run waves as large as the water is: the sea's swell, a lake's chop by how far it reaches, hardly
+// any on a river; foam gathers along the shore, rolls in with the surf and caps the sea's highest
+// crests. Through shallow water the sun's light ripples over the bed. Near the eye the water is
+// simulated (`sim.wgsl`): what disturbs it, a body moving through it, spreads as waves, crosses and
+// meets the shore, and the water is drawn bent, mirroring and focusing the light by the simulated
+// surface as by the rest.
 
 struct Water {
     // Render space, height up, to clip space, at the frame's jitter.
@@ -58,13 +64,30 @@ struct Water {
     // The world size of one shadow texel in each cascade, meters.
     texel: vec4<f32>,
     // x 1 when the cascades hold this frame's shadow, y their size in texels; z a diagnostic
-    // view (1 the depth of water, 2 the reflection alone); w unused.
+    // view (1 the depth of water, 2 the reflection alone, 3 the simulated water: red its slope,
+    // green the square it covers, 4 the way to the shore: red east, green north, 5 the bodies'
+    // effect on it: red the shelter, green the waterline, blue the crests); w unused.
     shadow: vec4<f32>,
-    // x the rings' clock, seconds; y how many bodies stand in `waders`; z how strongly the water
-    // rings round them; w unused.
+    // x the water's clock, seconds, kept short so the shader's arithmetic stays exact; y how rough
+    // the water stays where its ripples are too fine to draw; zw unused.
     wake: vec4<f32>,
-    // The bodies near the eye the water rings round where they stand in it, render space.
-    waders: array<vec4<f32>, 8>,
+    // Each wave on lakes and the sea: xy its wave vector, radians a meter east and north; z its
+    // steepness; w its phase at render space's origin, radians. A lake's chop, then the sea's swell
+    // laid toward each of `HEADINGS` headings, four waves each.
+    swells: array<vec4<f32>, 36>,
+    // x how large the waves run; y how much foam gathers; z how brightly the light ripples over the
+    // bed; w how far the surf has rolled in, a share of its period.
+    surf: vec4<f32>,
+    // rgb a white foam as the ordinary picture draws it under the frame's light, linear; w unused.
+    foam: vec4<f32>,
+    // xy where render space's origin lies in the world, wrapped to the lattices' period; z the
+    // share of the sun's light that reaches the ground in its beam; w unused.
+    fold: vec4<f32>,
+    // x one over the simulated square's side, meters; yz where render space's origin lies in the
+    // world, wrapped to that side; w a simulated cell's side, meters.
+    sim: vec4<f32>,
+    // The simulated square in render space: xy its south-west corner, zw its north-east one.
+    sim_area: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> W: Water;
@@ -88,6 +111,9 @@ struct Water {
 @group(0) @binding(13) var shadow_cmp: sampler_comparison;
 // The world's normals, with each surface's material class in alpha.
 @group(0) @binding(14) var normals: texture_2d<f32>;
+// The simulated water near the eye, stored wrapped by the world's cells: red its height, meters;
+// blue how sheltered it is by a body standing in it; alpha the line where it meets a body's legs.
+@group(0) @binding(15) var sim_water: texture_2d<f32>;
 
 // The steepest slope the ripples' picture holds.
 const MOST_SLOPE: f32 = 0.6;
@@ -199,50 +225,276 @@ fn ripples(p: vec2<f32>, dist: f32, dp_dx: vec2<f32>, dp_dy: vec2<f32>, foot: f3
     return s * 0.35 * W.look2.x * calm * gust;
 }
 
-// The rings round a body standing in the water: how far apart they run, meters; how many a
-// second spread from it; how high they rise, meters; how far out they have faded to a third, and
-// past how far none are drawn.
-const RING_APART: f32 = 0.6;
-const RING_RATE: f32 = 0.8;
-const RING_HEIGHT: f32 = 0.06;
-const RING_FADE: f32 = 2.0;
-const RING_REACH: f32 = 6.0;
-
-// The slope east and north the rings round the bodies standing in the water give it at render
-// space `p`, at the water's level `level`: a few small rings spreading from each, fading within a
-// few meters, moving with the rings' clock (a held clock holds them still). Drawn only: nothing
-// stands or moves differently for them.
-fn rings(p: vec2<f32>, level: f32) -> vec2<f32> {
-    var s = vec2<f32>(0.0);
-    let count = i32(W.wake.y);
-    for (var k = 0; k < count; k = k + 1) {
-        let b = W.waders[k].xyz;
-        // Only a body standing in the water: its feet under the surface, not far under it.
-        if (b.z > level + 0.05 || b.z < level - 1.6) {
-            continue;
-        }
-        let d = p - b.xy;
-        let r = length(d);
-        if (r > RING_REACH || r < 1e-3) {
-            continue;
-        }
-        if (shore_distance(b.xy + W.global.xy, 0.0) <= 0.0) {
-            continue;
-        }
-        s = s + d / r * ring_rise(r, W.wake.x);
+// The slope the ripples left out at world `p` still give the surface, as `ripples` leaves them
+// out `dist` meters from the eye over `foot` meters of water: their spread, not drawn but taken as
+// roughness, so far water blurs what it mirrors and spreads the sun's glint rather than lying
+// glassy.
+fn ripples_lost(p: vec2<f32>, dist: f32, foot: f32) -> f32 {
+    if (W.wake.y <= 0.0 || W.look2.x <= 0.0) {
+        return 0.0;
     }
-    return s * W.wake.z;
+    let calm = 1.0 - smoothstep(W.look2.y * 0.15, W.look2.y, dist);
+    let gust = 0.55 + 0.9 * shore_noise(p + vec2<f32>(5.0, 11.0), 41.0);
+    var sum = 0.0;
+    for (var k = 0; k < 4; k = k + 1) {
+        let l = W.layers[k];
+        let lost = l.y * (1.0 - ripple_resolved(l.x, foot) * calm);
+        sum = sum + lost * lost;
+    }
+    // A layer's slopes spread about four tenths of the steepest the picture holds.
+    return sqrt(sum) * 0.35 * MOST_SLOPE * 0.4 * W.look2.x * gust * W.wake.y;
 }
 
-// How steeply the rings round a body standing in the water rise going out from it, `r` meters
-// out, `clock` seconds into the rings' clock: rings spreading from its legs outward, fading out
-// within a few meters.
-fn ring_rise(r: f32, clock: f32) -> f32 {
-    let wave = 6.2831853 / RING_APART;
-    let phase = wave * r - 6.2831853 * RING_RATE * clock;
-    let fade = exp(-r / RING_FADE) * smoothstep(0.25, 0.55, r)
-        * (1.0 - smoothstep(0.7 * RING_REACH, RING_REACH, r));
-    return RING_HEIGHT * (wave * cos(phase) - sin(phase) / RING_FADE) * fade;
+// --- the water's kinds and its waves ----------------------------------------------------------
+
+// The water's kinds at world `p`, shares of the cell's water corners blended across it: x running,
+// y fresh and standing, z the sea, shallow or deep, w the still sea.
+fn water_kinds(p: vec2<f32>) -> vec4<f32> {
+    let q = p / SHORE_CELL;
+    let c = vec2<i32>(floor(q));
+    let f = clamp(q - floor(q), vec2<f32>(0.0), vec2<f32>(1.0));
+    var sum = vec4<f32>(0.0);
+    for (var k = 0; k < 4; k = k + 1) {
+        let o = vec2<i32>(k & 1, k >> 1u);
+        let g = clamp(c + o, vec2<i32>(0), vec2<i32>(SHORE_SIDE - 1));
+        let t = (textureLoad(words, g, 0).r >> 2u) & 0x1Fu;
+        let w = select(1.0 - f.x, f.x, o.x == 1) * select(1.0 - f.y, f.y, o.y == 1) + 1e-4;
+        if (t == 16u) {
+            sum.x = sum.x + w;
+        } else if (t == 17u) {
+            sum.y = sum.y + w;
+        } else if (t == 18u || t == 20u) {
+            sum.z = sum.z + w;
+        } else if (t == 19u) {
+            sum.w = sum.w + w;
+        }
+    }
+    let n = sum.x + sum.y + sum.z + sum.w;
+    if (n <= 0.0) {
+        return vec4<f32>(0.0, 1.0, 0.0, 0.0);
+    }
+    return sum / n;
+}
+
+// The waves at render space `p`, as a pixel covering `foot` meters sees them, a lake's chop `chop`
+// strong and the sea's swell `sea` strong: the slope east and north they give the surface, and how
+// near the swell's crests meet there, 0..1.
+struct Swell {
+    slope: vec2<f32>,
+    crest: f32,
+};
+
+// One wave's slope east and north at `p`, `amount` strong, as a pixel covering `foot` meters sees
+// it; and how near its crest `p` lies, 0..1.
+fn one_wave(w: vec4<f32>, p: vec2<f32>, foot: f32, amount: f32) -> vec3<f32> {
+    let kk = max(length(w.xy), 1e-4);
+    let seen = ripple_resolved(6.2831853 / kk, foot);
+    let th = dot(w.xy, p) + w.w;
+    // Sharper crests than a sine, as the ripples have.
+    let e = exp(sin(th) - 1.0);
+    return vec3<f32>(w.xy * (w.z / kk * amount * seen * e * cos(th)), e * seen);
+}
+
+// The headings the sea's swell is laid toward, evenly round from east.
+const HEADINGS: i32 = 8;
+
+// The waves at render space `p`, as a pixel covering `foot` meters sees them, a lake's chop `chop`
+// strong and the sea's swell `sea` strong running toward `toward` (a unit heading): the swell of
+// the two headings either side of it, the nearer the more.
+fn swell(p: vec2<f32>, foot: f32, chop: f32, sea: f32, toward: vec2<f32>) -> Swell {
+    var out: Swell;
+    out.slope = vec2<f32>(0.0);
+    out.crest = 0.0;
+    if (chop > 0.0) {
+        for (var k = 0; k < 4; k = k + 1) {
+            out.slope = out.slope + one_wave(W.swells[k], p, foot, chop).xy;
+        }
+    }
+    if (sea <= 0.0) {
+        return out;
+    }
+    let turn = atan2(toward.y, toward.x) / (6.2831853 / f32(HEADINGS));
+    let f = turn - floor(turn);
+    let first = (i32(floor(turn)) % HEADINGS + HEADINGS) % HEADINGS;
+    var crests = 0.0;
+    var weight = 0.0;
+    for (var side = 0; side < 2; side = side + 1) {
+        // Of equal power across the turn, so the swell is as large between two headings as on one.
+        let share = select(cos(f * 1.5707963), sin(f * 1.5707963), side == 1);
+        if (share < 0.01) {
+            continue;
+        }
+        let h = (first + side) % HEADINGS;
+        for (var i = 0; i < 4; i = i + 1) {
+            let w = W.swells[4 + h * 4 + i];
+            let one = one_wave(w, p, foot, sea * share);
+            out.slope = out.slope + one.xy;
+            crests = crests + one.z * w.z * share;
+            weight = weight + w.z * share;
+        }
+    }
+    if (weight > 0.0) {
+        out.crest = crests / weight;
+    }
+    return out;
+}
+
+// How far inside the water world `p` lies, meters, drawn straight between the vertices.
+fn inside_roughly(p: vec2<f32>) -> f32 {
+    let q = p / SHORE_CELL;
+    let c = vec2<i32>(floor(q));
+    let f = clamp(q - vec2<f32>(c), vec2<f32>(0.0), vec2<f32>(1.0));
+    return mix(
+        mix(shore_texel(c).x, shore_texel(c + vec2<i32>(1, 0)).x, f.x),
+        mix(shore_texel(c + vec2<i32>(0, 1)).x, shore_texel(c + vec2<i32>(1, 1)).x, f.x),
+        f.y,
+    );
+}
+
+// Which way the shore lies from world `p`, a unit heading: down the water's distance from its
+// edge, taken a cell either way so it turns smoothly; out past where that distance reaches, the
+// way the wind blows.
+fn toward_shore(p: vec2<f32>) -> vec2<f32> {
+    let e = SHORE_CELL;
+    let g = vec2<f32>(
+        inside_roughly(p + vec2<f32>(e, 0.0)) - inside_roughly(p - vec2<f32>(e, 0.0)),
+        inside_roughly(p + vec2<f32>(0.0, e)) - inside_roughly(p - vec2<f32>(0.0, e)),
+    ) / (2.0 * e);
+    return normalize(-g + normalize(W.swells[0].xy) * 0.03);
+}
+
+// --- foam -------------------------------------------------------------------------------------
+
+// How far `p` lies from the nearest edge between the cells of a lattice `cell` meters a mesh,
+// in meshes: each mesh's point wanders with the clock, a whole number of times over the clock's
+// period, `wander` of a mesh at most.
+fn cell_edge(p: vec2<f32>, cell: f32, clock: f32, wander: f32, salt: i32) -> f32 {
+    let q = p / cell;
+    let i = vec2<i32>(floor(q));
+    let f = q - floor(q);
+    var f1 = 9.0;
+    var f2 = 9.0;
+    for (var j = -1; j <= 1; j = j + 1) {
+        for (var k = -1; k <= 1; k = k + 1) {
+            let c = i + vec2<i32>(k, j);
+            let h = vec2<f32>(shore_hash(c + vec2<i32>(salt, 0)), shore_hash(c + vec2<i32>(7, salt)));
+            let cycles = floor(vec2<f32>(90.0, 70.0) + h * vec2<f32>(60.0, 70.0));
+            let o = vec2<f32>(0.5) + wander * sin(6.2831853 * (clock / 600.0 * cycles + h));
+            let d = length(vec2<f32>(f32(k), f32(j)) + o - f);
+            if (d < f1) {
+                f2 = f1;
+                f1 = d;
+            } else if (d < f2) {
+                f2 = d;
+            }
+        }
+    }
+    return f2 - f1;
+}
+
+// The foam's look at `p` (world, wrapped), as a pixel covering `foot` meters sees it, sloshing a
+// little with the clock: 0..1, highest in its patches and along the walls between its bubbles;
+// detail finer than the pixel left at its mean.
+fn foam_texture(p: vec2<f32>, foot: f32, clock: f32) -> f32 {
+    let slosh = vec2<f32>(sin(clock * 6.2831853 / 30.0), cos(clock * 6.2831853 / 20.0)) * 0.25;
+    let patches = shore_noise(p + slosh, 0.5) * 0.6 + shore_noise(p + vec2<f32>(3.7, 41.2), 1.25) * 0.4;
+    // Small bubbles of two sizes, their walls showing in patches rather than as one even net.
+    let large = 1.0 - smoothstep(0.0, 0.4 + foot / 0.1, cell_edge(p - slosh * 0.5, 0.1, clock, 0.4, 41));
+    let small = 1.0 - smoothstep(0.0, 0.45 + foot / 0.05, cell_edge(p + slosh * 0.3, 0.05, clock, 0.4, 53));
+    let which = shore_noise(p + vec2<f32>(11.0, 2.0), 0.4);
+    let walls = mix(large, small, smoothstep(0.35, 0.65, which))
+        * smoothstep(0.25, 0.6, shore_noise(p - slosh + vec2<f32>(5.0, 9.0), 0.25));
+    let fine = shore_noise(p - slosh + vec2<f32>(17.3, 5.1), 0.2);
+    let seen = shore_resolved(0.2, foot);
+    return patches * 0.6 + mix(0.25, walls, seen) * 0.08 + mix(0.5, fine, seen) * 0.32;
+}
+
+// How much of a pixel whose foam texture is `v` is foam, `q` of the water foaming there: nought
+// at nought; a lace of bubbles' walls as it thickens; nearly solid at one.
+fn foam_cover(v: f32, q: f32) -> f32 {
+    let at = 0.78 - 0.5 * clamp(q, 0.0, 1.0);
+    return smoothstep(at, at + 0.24, v) * min(q * 3.0, 1.0);
+}
+
+// How far apart the surf's lines roll in, meters, and how far out from the shore it breaks.
+const SURF_APART: f32 = 4.5;
+const SURF_ZONE: f32 = 9.0;
+
+// How much of the water foams `inside` meters inside its edge, at world `p`, as a pixel covering
+// `foot` meters sees it, of kinds `kinds`, the sea's swell `sea` strong and its crests `crest`:
+// a rim along the shore, the surf's lines rolling in, and the caps of the sea's highest crests.
+fn foam_share(p: vec2<f32>, inside: f32, foot: f32, kinds: vec4<f32>, fetch: f32, sea: f32, crest: f32) -> f32 {
+    let seaish = kinds.z + 0.6 * kinds.w;
+    let shore = (kinds.x * 0.2 + kinds.y * 0.45 + kinds.z + kinds.w * 0.6)
+        * (1.0 - smoothstep(0.12, 0.45, foot));
+    let reach = (0.35 + 0.8 * seaish) * (0.6 + 0.8 * shore_noise(p + vec2<f32>(9.1, 2.3), 6.0));
+    let rim = 1.0 - smoothstep(0.0, max(reach, foot * 1.5), inside);
+    // The surf: lines rolling in to the shore, a sharp edge in front and foam trailing behind,
+    // wandering along the shore; on a lake only where it reaches far enough for waves.
+    let u = inside / SURF_APART + W.surf.w + (shore_noise(p, 13.0) - 0.5) * 0.8;
+    let f = fract(u);
+    let line = smoothstep(0.0, 0.04, f) * (1.0 - smoothstep(0.04, 0.3, f));
+    let zone = 1.0 - smoothstep(1.0, SURF_ZONE * (0.35 + 0.65 * seaish), inside);
+    let surf = line * zone * mix(1.0, 0.45, clamp(inside / SURF_ZONE, 0.0, 1.0))
+        * (seaish + 0.4 * kinds.y * fetch) * shore_resolved(SURF_APART * 0.5, foot);
+    let caps = smoothstep(0.8, 0.97, crest) * sea * 0.6;
+    return W.surf.y * (shore * max(rim * 0.75, surf * 0.6) + caps * 0.8);
+}
+
+// --- caustics ---------------------------------------------------------------------------------
+
+// One layer of the light's bright web over the bed at `p` (world, wrapped), `cell` meters a mesh,
+// as a pixel covering `foot` meters sees it: thin bright lines where the meshes meet, wavering as
+// the surface above them does.
+fn caustic_layer(p: vec2<f32>, cell: f32, clock: f32, foot: f32, salt: i32) -> f32 {
+    let bend = vec2<f32>(shore_noise(p + vec2<f32>(1.3, 0.0), cell * 1.7), shore_noise(p + vec2<f32>(0.0, 8.9), cell * 1.7)) - vec2<f32>(0.5);
+    let edge = cell_edge(p + bend * cell * 0.9, cell, clock, 0.38, salt);
+    let width = 0.035 + foot / cell;
+    let line = 1.0 - smoothstep(0.0, width * 2.0, edge);
+    return line * line * min(1.0, 0.07 / width);
+}
+
+// The light's web over the bed at `p`, 0..1 and more where two layers' lines cross.
+fn caustics(p: vec2<f32>, clock: f32, foot: f32) -> f32 {
+    return caustic_layer(p, 1.1, clock, foot, 13) * 0.75
+        + caustic_layer(p.yx + vec2<f32>(3.1, 7.7), 0.7, clock, foot, 29) * 0.5;
+}
+
+// --- the simulated water ------------------------------------------------------------------------
+
+// The simulated water's height at render space `q`, meters.
+fn sim_height(q: vec2<f32>) -> f32 {
+    return textureSampleLevel(sim_water, wrap_samp, (q + W.sim.yz) * W.sim.x, 0.0).r;
+}
+
+// The simulated water at render space `q`, as a pixel covering `foot` meters sees it: xy its slope
+// east and north, z how it curves (positive in a trough), w how much of it is drawn: none outside
+// its square, fading in over its edge, and none where its waves are finer than the pixel.
+fn sim_surface(q: vec2<f32>, foot: f32) -> vec4<f32> {
+    let a = W.sim_area;
+    let edge = min(min(q.x - a.x, q.y - a.y), min(a.z - q.x, a.w - q.y));
+    let shown = smoothstep(0.5, 2.0, edge) * (1.0 - smoothstep(0.12, 0.35, foot));
+    if (shown <= 0.0) {
+        return vec4<f32>(0.0);
+    }
+    let e = W.sim.w;
+    let h = sim_height(q);
+    let east = sim_height(q + vec2<f32>(e, 0.0));
+    let west = sim_height(q - vec2<f32>(e, 0.0));
+    let north = sim_height(q + vec2<f32>(0.0, e));
+    let south = sim_height(q - vec2<f32>(0.0, e));
+    let slope = vec2<f32>(east - west, north - south) / (2.0 * e);
+    let curve = (east + west + north + south - 4.0 * h) / (e * e);
+    return vec4<f32>(slope * shown, curve * shown, shown);
+}
+
+// How sheltered the water at render space `q` is by a body standing in it, and how near the line
+// where it meets the body's legs, as much of either as the simulated water is drawn there.
+fn sim_bodies(q: vec2<f32>, shown: f32) -> vec2<f32> {
+    if (shown <= 0.0) {
+        return vec2<f32>(0.0);
+    }
+    return textureSampleLevel(sim_water, wrap_samp, (q + W.sim.yz) * W.sim.x, 0.0).ba * shown;
 }
 
 // The sky toward `dir`: the physical sky where it is drawn, else a gradient from the horizon's
@@ -303,7 +555,8 @@ fn behind_picture(q: vec3<f32>, at: vec2<f32>) -> f32 {
 }
 
 // What the water reflects from `s` along `r`, `near` of the way to the eye as `sky_far` takes it:
-// the world on screen where the line meets it, else the sky.
+// the world on screen where the line meets it, else the sky; what it meets smeared `blur` pixels
+// upward, as rough water stretches a reflection (never down, into the water under it).
 //
 // The line is followed across the picture in even steps of a few pixels, out to the horizon or
 // the picture's edge, against the depth: so a far hill is met as surely as a near bank, whatever
@@ -311,7 +564,7 @@ fn behind_picture(q: vec3<f32>, at: vec2<f32>) -> f32 {
 // shows since the last, the meeting is found between the two by halving, and taken only where
 // the line truly meets that surface (not where a thing nearer the eye merely hides the line) and
 // the surface stands above the water: what lies under the water is not reflected in it.
-fn reflected(s: vec3<f32>, r: vec3<f32>, near: f32) -> vec3<f32> {
+fn reflected(s: vec3<f32>, r: vec3<f32>, near: f32, blur: f32) -> vec3<f32> {
     let v = W.viewport;
     var reach = W.eye.w;
     let c0 = W.clip_from_render * vec4<f32>(s, 1.0);
@@ -383,7 +636,8 @@ fn reflected(s: vec3<f32>, r: vec3<f32>, near: f32) -> vec3<f32> {
                 var world = vec3<f32>(0.0);
                 var covered = 0.0;
                 for (var j = 0; j < 9; j = j + 1) {
-                    let o = vec2<f32>(f32(j % 3) - 1.0, f32(j / 3) - 1.0) * 1.5;
+                    let row = f32(j / 3);
+                    let o = vec2<f32>((f32(j % 3) - 1.0) * 1.5, (row - 1.0) * 1.5 - row * blur);
                     let at = hit.xy + o;
                     if (textureLoad(depth, vec2<i32>(at), 0) < 1.0) {
                         world = world + textureSampleLevel(picture, clamp_samp, at / size, 0.0).rgb;
@@ -510,14 +764,7 @@ fn bed_at(p: vec2<f32>, foot: f32) -> f32 {
 // The bed at world `p`, roughly: the distance inside the water drawn straight between the
 // vertices, without the edge's wander. Enough to tell how far a line runs under the water.
 fn bed_roughly(p: vec2<f32>) -> f32 {
-    let q = p / SHORE_CELL;
-    let c = vec2<i32>(floor(q));
-    let f = clamp(q - vec2<f32>(c), vec2<f32>(0.0), vec2<f32>(1.0));
-    let inside = mix(
-        mix(shore_texel(c).x, shore_texel(c + vec2<i32>(1, 0)).x, f.x),
-        mix(shore_texel(c + vec2<i32>(0, 1)).x, shore_texel(c + vec2<i32>(1, 1)).x, f.x),
-        f.y,
-    );
+    let inside = inside_roughly(p);
     let r = retail_at(p);
     if (inside <= 0.0) {
         return max(r, level_at(p));
@@ -701,22 +948,39 @@ fn fs_water(in: FullscreenOut) -> @location(0) vec4<f32> {
     var through = water_through(s, dir, deep_here);
     through = mix(min(through, max(reach - t, 0.0)), through, smoothstep(20.0, 60.0, dist));
     let deep = through * -dir.z;
-    // The surface's slope: its ripples', as the pixel sees them.
+    // What water it is: the larger it reaches, and the more of it sea, the larger its waves.
+    let kinds = water_kinds(sw);
+    let fetch = smoothstep(8.0, 120.0, inside);
+    let chop = W.surf.x * smoothstep(0.3, 4.0, inside)
+        * max(kinds.x * 0.15 + kinds.y * mix(0.3, 1.0, fetch) + kinds.z + kinds.w * 0.5, fetch * 0.6);
+    let sea = W.surf.x * (kinds.z + kinds.w * 0.35) * smoothstep(1.0, 10.0, inside);
+    let waves = swell(s.xy, foot, chop, sea, toward_shore(sw));
+    // The simulated water near the eye: what the bodies have stirred.
+    let stirred = sim_surface(s.xy, foot);
+    let folded = s.xy + W.fold.xy;
+    // The surface's slope: its ripples', its waves' and the simulated water's, as the pixel sees
+    // them.
     let cap = dist * 0.01 + 0.01;
-    let slope = ripples(
+    // A body standing in the water shelters it from the wind's ripples and chop about its legs.
+    let bodies = sim_bodies(s.xy, stirred.w);
+    let slope = (ripples(
         sw,
         dist,
         dp_dx * min(1.0, cap / max(length(dp_dx), 1e-6)),
         dp_dy * min(1.0, cap / max(length(dp_dy), 1e-6)),
         foot,
-    ) + rings(s.xy, level) * (1.0 - smoothstep(0.08, 0.15, foot));
+    ) + waves.slope) * (1.0 - 0.65 * bodies.x) + stirred.xy;
     let n = normalize(vec3<f32>(-slope.x, -slope.y, 1.0));
     let v = -dir;
+    // The ripples too fine or far to draw, as roughness.
+    let lost = ripples_lost(sw, dist, foot) * (1.0 - 0.65 * bodies.x);
     // What lies under it, seen through it a little bent by the ripples, where what is bent to is
-    // under the water too.
+    // under the water too. The simulated water bends it as a real surface does: the bed seen a
+    // little to one side, as far as the water is deep, in the pixels it takes up there.
     var under = below;
     var under_px = ip;
-    let bend = slope * clamp(through, 0.0, 2.0) * W.viewport.w * 0.035;
+    let bend = slope * clamp(through, 0.0, 2.0) * W.viewport.w * 0.035
+        + stirred.xy * clamp(deep_here, 0.1, 1.5) * 1.2 / max(foot, 0.004);
     if (dot(bend, bend) > 0.25) {
         let q = px + bend;
         let qi = vec2<i32>(clamp(q, W.viewport.xy, W.viewport.xy + W.viewport.zw - vec2<f32>(1.0)));
@@ -725,6 +989,29 @@ fn fs_water(in: FullscreenOut) -> @location(0) vec4<f32> {
             under = textureLoad(picture, qi, 0).rgb;
             under_px = qi;
         }
+    }
+    // The sun's light, bent by the surface, gathered into a web over a shallow bed: where the
+    // line of sight meets the bed, moved back along the sun's light.
+    var sunlit = 1.0;
+    if (W.sun.w > 0.5) {
+        sunlit = sun_vis(s);
+    }
+    if (W.surf.z > 0.0 && W.sun.w > 0.5) {
+        let shallow = smoothstep(0.02, 0.2, deep_here) * (1.0 - smoothstep(0.4, 2.2, deep));
+        let amount = W.surf.z * shallow * sunlit * smoothstep(0.05, 0.3, W.sun.z) * W.fold.z
+            * (1.0 - smoothstep(0.35, 0.7, foot));
+        if (amount > 0.0) {
+            let bed_point = folded + dir.xy * through - W.sun.xy / max(W.sun.z, 0.25) * deep * 0.75;
+            let web = caustics(bed_point, W.wake.x, foot);
+            under = under * (1.0 + amount * (0.35 * web - 0.02));
+        }
+    }
+    // The simulated water's waves focus the sun's light on the bed under their troughs' far side
+    // and spread it under their crests: a crest's shadow and a bright line after it, as a wave
+    // passing over a shallow bed casts.
+    if (W.sun.w > 0.5 && stirred.w > 0.0) {
+        let focus = clamp(-stirred.z * clamp(deep_here, 0.0, 1.0) * 0.12, -0.4, 0.45);
+        under = under * (1.0 + focus * sunlit * W.fold.z * smoothstep(0.05, 0.3, W.sun.z));
     }
     // The water's own color: retail's water under the light the bed below takes, as the light
     // per pixel has lit the bed against the ordinary picture.
@@ -737,34 +1024,51 @@ fn fs_water(in: FullscreenOut) -> @location(0) vec4<f32> {
     let kept = exp(-extinction * (through + deep));
     var c = under * kept + body * (vec3<f32>(1.0) - kept);
     // The sky and the land reflected, by the Fresnel share: off a surface bent half as much as
-    // the ripples bend the light through it, so the reflections waver rather than break up; and
-    // only as the water deepens from its edge, so a film of water over the bank shows the wet
+    // the ripples bend the light through it, so the reflections waver rather than break up, and a
+    // little more by the simulated water, so a wave stirred near the eye shows in what it mirrors;
+    // and only as the water deepens from its edge, so a film of water over the bank shows the wet
     // ground rather than a pale rim of sky.
-    let nr = normalize(vec3<f32>(-slope.x * 0.5, -slope.y * 0.5, 1.0));
+    let mirrored = (slope - stirred.xy) * 0.5 + stirred.xy * 0.6;
+    let nr = normalize(vec3<f32>(-mirrored.x, -mirrored.y, 1.0));
     var r = reflect(-v, nr);
     r.z = max(r.z, 0.01);
     r = normalize(r);
-    let cos_v = clamp(dot(nr, v), 0.0, 1.0);
+    // Rough water seen low shows mostly the faces tilted toward the eye, which reflect less.
+    let cos_v = clamp(dot(nr, v) + lost * 0.4, 0.0, 1.0);
     let fresnel = (F0 + (1.0 - F0) * pow(1.0 - cos_v, 5.0)) * W.look2.z * REFLECTED
         * smoothstep(0.0, 0.3, max(deep_here, deep));
     // Reflected over the pixel's height, two lines half a pixel apart, so what a reflected line
     // meets or misses by a fraction of a pixel (a leaf, a trunk, a bank's edge) is shared between
     // them and holds still under the anti-aliasing's jitter.
+    // Rough water spreads them over as much again as its slopes tilt the line, each line's
+    // meeting smeared across its half.
     let spread = length(steady_ray(px + vec2<f32>(0.0, 1.0)) - dir) * 0.5;
-    let up = vec3<f32>(0.0, 0.0, spread);
+    let up = vec3<f32>(0.0, 0.0, spread + lost * 0.6);
+    let blur = min(lost * 0.6 / max(spread * 2.0, 1e-5), 12.0);
     let near = 1.0 - smoothstep(W.look2.y * 0.15, W.look2.y, dist);
-    let mirror = 0.5 * (reflected(s, normalize(r + up), near) + reflected(s, normalize(r - up), near));
+    // The lower line no flatter than half the mirrored one: held at the horizon, a whole band of
+    // far water would mirror the same foot of a far hill.
+    var low = r - up;
+    low.z = max(low.z, r.z * 0.5);
+    let mirror = 0.5 * (reflected(s, normalize(r + up), near, blur) + reflected(s, normalize(low), near, blur));
     c = mix(c, mirror, clamp(fresnel, 0.0, 1.0));
     // The sun's glint, where the sun reaches the surface.
     if (W.sun.w > 0.5) {
-        let rough = mix(0.06, 0.14, clamp(length(slope) * 4.0, 0.0, 1.0));
-        let g = glint(n, W.sun.xyz, v, rough) * fresnel * sun_vis(s);
+        // Spread wider by the ripples too fine to draw: a broad glitter far off, not a point.
+        let a = mix(0.06, 0.14, clamp(length(slope) * 4.0, 0.0, 1.0));
+        let rough = sqrt(sqrt(a * a * a * a + 0.15 * lost * lost));
+        let g = glint(n, W.sun.xyz, v, rough) * fresnel * sunlit;
         c = c + W.sun_light.rgb * min(g, 40.0);
     }
+    // The simulated water's crests, and the line where the water meets a body's legs, catch a
+    // little of the sky's light: enough to see them by, not a glow.
+    let crest = clamp(-stirred.z * 0.04, 0.0, 1.0);
+    c = c + sky_toward(vec3<f32>(0.0, 0.0, 1.0)) * (crest * 0.22 + bodies.y * 0.25);
     // In the authored fog, the water fades into what the fog left of the world behind it.
+    var fogged = 0.0;
     if (W.global.w > 0.5) {
-        let f = clamp((dist - W.fog.x) / max(W.fog.y - W.fog.x, 1e-3), 0.0, 1.0);
-        c = mix(c, below, f);
+        fogged = clamp((dist - W.fog.x) / max(W.fog.y - W.fog.x, 1e-3), 0.0, 1.0);
+        c = mix(c, below, fogged);
     }
     // Toward its edge the water thins to nothing: a soft change of depth and color.
     // The edge comes in over at least a pixel and a half of water, so far off it is drawn as
@@ -777,5 +1081,27 @@ fn fs_water(in: FullscreenOut) -> @location(0) vec4<f32> {
     if (view == 2u) {
         return vec4<f32>(mirror, 1.0);
     }
-    return vec4<f32>(mix(below, c, edge), 1.0);
+    if (view == 5u) {
+        return vec4<f32>(bodies, clamp(-stirred.z * 0.04, 0.0, 1.0), 1.0);
+    }
+    if (view == 4u) {
+        return vec4<f32>(toward_shore(sw) * 0.5 + vec2<f32>(0.5), 0.0, 1.0);
+    }
+    if (view == 3u) {
+        return vec4<f32>(length(stirred.xy) * 4.0, stirred.w * 0.5, 0.0, 1.0);
+    }
+    // The foam: along the shore, in the surf and on the sea's crests; white under the light the
+    // bed below takes, and laid over the water's thinning edge, nearly up to it.
+    var q = 0.0;
+    if (W.surf.y > 0.0) {
+        q = foam_share(folded, inside, foot, kinds, fetch, sea, waves.crest);
+    }
+    var out = mix(below, c, edge);
+    if (q > 0.0) {
+        let cover = foam_cover(foam_texture(folded, foot, W.wake.x), q)
+            * smoothstep(0.0, 0.2, inside) * (1.0 - fogged);
+        let white = W.foam.rgb * ratio;
+        out = mix(out, mix(white, vec3<f32>(dot(white, vec3<f32>(0.2126, 0.7152, 0.0722))), 0.6), cover * 0.45);
+    }
+    return vec4<f32>(out, 1.0);
 }
