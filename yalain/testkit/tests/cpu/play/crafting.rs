@@ -1546,7 +1546,309 @@ fn with_own_recipe(
     h.server.crafting.recipes.insert(def.did, def);
 }
 
+const STEEL_RECIPE: u32 = 0x6F00_10AA;
+const STEEL: u32 = 0x4700_0B40;
 const WOOD: u32 = 0x4700_06C5;
+
+/// Refining 100 of each of two materials, its craft skill paying `xp` a use.
+fn steel_recipe() -> yalain_world::craft::RecipeDef {
+    use yalain_world::craft::{Action, Check, Custom, Ingredient, Outcome, RecipeDef};
+    let destroy = |ordinal| Action::Destroy {
+        ordinal,
+        quantity: 100,
+        by_spinner: None,
+        spinners: None,
+    };
+    let slot = |ordinal, item| Ingredient {
+        ordinal,
+        quantity: 100,
+        items: vec![item],
+        ..Ingredient::default()
+    };
+    RecipeDef {
+        did: STEEL_RECIPE,
+        skill: TOOLS,
+        charges: -1,
+        animation: 0x4100_014B,
+        cycles: 3,
+        ingredients: vec![slot(1, IRON), slot(2, WOOD)],
+        custom: Custom::Refine { product: STEEL },
+        checks: vec![Check {
+            upto: 2.0,
+            outcomes: vec![Outcome {
+                upto: 1000.0,
+                xp_mod: 1.0,
+                actions: vec![Action::Custom, destroy(1), destroy(2)],
+            }],
+        }],
+        ..RecipeDef::default()
+    }
+}
+
+/// Run a refining with the materials in the pack: what the answer and the lines said, by the stack
+/// of the product it left.
+fn refine(h: &mut Harness, b: usize, world: yalain_net::ConnId) -> (u32, usize) {
+    let iron =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, IRON, 125).expect("iron");
+    let wood =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, WOOD, 300).expect("wood");
+    h.run(2);
+    let from = execute(h, b, STEEL_RECIPE, &[(1, iron), (2, wood)]);
+    h.run(4);
+    wait(h, 9.0);
+    let p = &h.server.players[&world];
+    let held = |t: u32| {
+        p.play
+            .items
+            .iter()
+            .find(|i| i.template == t)
+            .map(|i| i.quantity)
+    };
+    assert_eq!(held(IRON), Some(25), "the iron used up");
+    assert_eq!(held(WOOD), Some(200), "the wood used up");
+    (held(STEEL).unwrap_or(0), from)
+}
+
+/// Refining adds a third of what it takes to the player's stack of its product at the craft skill's
+/// lowest levels, says how many, uses up what its outcome says and pays what the skill pays a use.
+/// Behaviour: server.craft.refining-yields
+#[test]
+fn refining_adds_a_third_of_what_it_takes_to_the_players_stack_and_says_how_many() {
+    let (mut h, b, _me, world) = in_world();
+    for d in &mut h.server.crafting.skills {
+        if d.did == TOOLS {
+            d.usage_xp = Some(yalain_world::craft::LevelMap {
+                first: 1,
+                values: vec![2, 2, 2],
+            });
+        }
+    }
+    let mut steel_template =
+        yalain_testkit::test_template(STEEL, 0x200, yalain_content::Props::default());
+    steel_template.facts.name = Some((0xA860_7CEC, 0x2500_1B14));
+    h.server.catalog.insert(steel_template);
+    with_own_recipe(&mut h, world, steel_recipe(), 2, &[IRON, WOOD, STEEL]);
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, STEEL, 4);
+    let (steel, from) = refine(&mut h, b, world);
+    assert_eq!(steel, 38, "4 and 34 made (2017: 4 to 38, 28 to 62)");
+    let got = calls_of(&h, b, from);
+    let said = got.iter().any(|(f, v)| {
+        *f == 0x8205_0011
+            && v.iter().any(|x| match x {
+                Value::Graph(g) => g.iter().any(|(_, n)| match n {
+                    Node::TextInfo(t) => {
+                        t.string_id == yalain_world::craft::refined_text::TEXT.0
+                            && t.variables.iter().any(|x| {
+                                x.id == yalain_world::craft::refined_text::COUNT
+                                    && x.value
+                                        == auberean_script::native_object::VariableValue::Word(34)
+                            })
+                    }
+                    _ => false,
+                }),
+                _ => false,
+            })
+    });
+    assert!(said, "the line says how many: {got:x?}");
+    let done = got
+        .iter()
+        .find(|(f, _)| *f == function::EXECUTED)
+        .expect("the answer");
+    assert_eq!(
+        done.1,
+        vec![Value::Int(1), Value::Int(0), Value::Int(STEEL_RECIPE)]
+    );
+    let c = h.server.players[&world]
+        .play
+        .craft_skills
+        .iter()
+        .find(|c| c.skill == TOOLS)
+        .copied()
+        .expect("its craft skill");
+    assert_eq!(c.today, 2, "what the skill pays a use at its level");
+}
+
+/// What a refining yields grows with the craft skill to all it takes at the skill's cap, and what
+/// the player's effects add to the skill counts.
+/// Behaviour: server.craft.refining-grows-with-skill
+#[test]
+fn a_refining_yields_more_at_a_higher_craft_skill_and_with_what_effects_add_to_it() {
+    use yalain_world::craft::refining_yield;
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    assert_eq!(refining_yield(100, 2), 34);
+    assert_eq!(refining_yield(100, 1), 33);
+    assert_eq!(refining_yield(100, 150), 100);
+    assert_eq!(refining_yield(100, 500), 100, "no more past the cap");
+    assert!(refining_yield(100, 75) > 34 && refining_yield(100, 75) < 100);
+    assert_eq!(refining_yield(2500, 2), 845);
+
+    const BONUS_STAT: u32 = 129 << 16 | 22;
+    const CRUCIBLE: u32 = 0x6F00_17F3;
+    let (mut h, b, me, world) = in_world();
+    for d in &mut h.server.crafting.skills {
+        if d.did == TOOLS {
+            d.bonus_stat = BONUS_STAT;
+        }
+    }
+    h.server.effect_table.effects.insert(
+        CRUCIBLE,
+        EffectDef {
+            kind: Kind::Numeric {
+                flags: yalain_world::effect_defs::numeric::ADD,
+                stats: vec![BONUS_STAT],
+                magnitude: Scale(vec![(1.0, 1.0), (50.0, 50.0)]),
+            },
+            ..yalain_testkit::plain_effect(CRUCIBLE)
+        },
+    );
+    with_own_recipe(&mut h, world, steel_recipe(), 1, &[IRON, WOOD, STEEL]);
+    let clock = h.clock();
+    effects::apply(
+        &mut h.server,
+        &mut h.net,
+        world,
+        CRUCIBLE,
+        effects::Cast {
+            caster: me,
+            spellcraft: 75.0,
+            ..effects::Cast::default()
+        },
+        clock,
+    );
+    let (steel, _) = refine(&mut h, b, world);
+    assert!(
+        steel > refining_yield(100, 40),
+        "skill 1 and 50 from the effect yield more: {steel}"
+    );
+}
+
+/// A recipe that works out its own product names none the data holds: it answers that it failed
+/// with a line saying so, uses up nothing and pays nothing (2017: 9 of 9 card melds).
+/// Behaviour: server.craft.own-product-makes-nothing
+#[test]
+fn a_recipe_working_out_its_own_product_fails_and_uses_up_nothing() {
+    use yalain_world::craft::Custom;
+    let (mut h, b, _me, world) = in_world();
+    let def = yalain_world::craft::RecipeDef {
+        custom: Custom::Unknown,
+        ..steel_recipe()
+    };
+    with_own_recipe(&mut h, world, def, 2, &[IRON, WOOD, STEEL]);
+    let iron =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, IRON, 100).expect("iron");
+    let wood =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, WOOD, 100).expect("wood");
+    h.run(2);
+    let from = execute(&mut h, b, STEEL_RECIPE, &[(1, iron), (2, wood)]);
+    h.run(4);
+    wait(&mut h, 9.0);
+    let got = calls_of(&h, b, from);
+    let done = got
+        .iter()
+        .find(|(f, _)| *f == function::EXECUTED)
+        .expect("the answer");
+    assert_eq!(
+        done.1,
+        vec![
+            Value::Int(1),
+            Value::Int(error::FAILED),
+            Value::Int(STEEL_RECIPE)
+        ]
+    );
+    let p = &h.server.players[&world];
+    let held = |t: u32| {
+        p.play
+            .items
+            .iter()
+            .find(|i| i.template == t)
+            .map(|i| i.quantity)
+    };
+    assert_eq!(
+        (held(IRON), held(WOOD), held(STEEL)),
+        (Some(100), Some(100), None)
+    );
+    let c = p
+        .play
+        .craft_skills
+        .iter()
+        .find(|c| c.skill == TOOLS)
+        .expect("skill");
+    assert_eq!(c.today, 0, "it pays nothing");
+}
+
+/// Spellbinding makes a totem of the kind of the item taken apart.
+/// Behaviour: server.craft.spellbinding-makes-a-totem
+#[test]
+fn spellbinding_makes_a_totem_of_the_kind_of_the_item_it_takes_apart() {
+    use yalain_world::craft::{totem, Action, Custom};
+    let cases = [
+        (0x4700_207F_u32, true, false, totem::WEAPON),
+        (0x4700_0DC0, false, true, totem::ARMOR),
+        (0x4700_07E2, true, true, totem::SHIELD),
+    ];
+    for (source, weapon, armor, expected) in cases {
+        let (mut h, b, _me, world) = in_world();
+        let mut props = yalain_content::Props::default();
+        if weapon {
+            props.set("Weapon_Damage", yalain_content::Prop::Int(10));
+        }
+        if armor {
+            props.set("Item_ArmorLevel", yalain_content::Prop::Int(10));
+        }
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(source, 0x200, props));
+        let def = yalain_world::craft::RecipeDef {
+            custom: Custom::Spellbind,
+            ingredients: vec![yalain_world::craft::Ingredient {
+                ordinal: 1,
+                quantity: 1,
+                items: vec![source],
+                ..Default::default()
+            }],
+            checks: vec![yalain_world::craft::Check {
+                upto: 2.0,
+                outcomes: vec![yalain_world::craft::Outcome {
+                    upto: 1000.0,
+                    xp_mod: 1.0,
+                    actions: vec![
+                        Action::Custom,
+                        Action::Destroy {
+                            ordinal: 1,
+                            quantity: 1,
+                            by_spinner: None,
+                            spinners: None,
+                        },
+                    ],
+                }],
+            }],
+            ..steel_recipe()
+        };
+        with_own_recipe(
+            &mut h,
+            world,
+            def,
+            2,
+            &[totem::WEAPON, totem::ARMOR, totem::SHIELD],
+        );
+        let item = yalain_world::inventory::give(&mut h.server, &mut h.net, world, source, 1)
+            .expect("the item");
+        h.run(2);
+        execute(&mut h, b, STEEL_RECIPE, &[(1, item)]);
+        h.run(4);
+        wait(&mut h, 9.0);
+        let p = &h.server.players[&world];
+        assert!(
+            p.play.items.iter().any(|i| i.template == expected),
+            "a totem of its kind"
+        );
+        assert!(
+            !p.play.items.iter().any(|i| i.template == source),
+            "taken apart"
+        );
+    }
+}
+
 const LEVEL_TABLE: u32 = yalain_world::made::ITEM_LEVEL_TABLE;
 const PLAIN_QUALITY: u32 = 0x6F00_0EBC;
 const SWORD: u32 = 0x4700_07B0;
@@ -1878,7 +2180,7 @@ fn a_product_with_no_mutation_by_the_item_level_stays_its_template() {
 /// Behaviour: server.craft.made-item-own-effects
 #[test]
 fn a_made_items_permanent_effects_change_its_numbers_and_show_with_their_amounts() {
-    use yalain_world::craft::{item_effect, Action};
+    use yalain_world::craft::{item_effect, Action, Custom};
     use yalain_world::effect_defs::{numeric, EffectDef, Kind, Scale};
     use yalain_world::made::stat;
     use yalain_world::profile::{Amount, When};
@@ -1918,6 +2220,7 @@ fn a_made_items_permanent_effects_change_its_numbers_and_show_with_their_amounts
             });
         }
     }
+    def.custom = Custom::None;
     let mut props = props_of(&[("Weapon_Damage", 10)]);
     props.set("Weapon_Variance", yalain_content::Prop::Float(0.25));
     h.server
@@ -1963,6 +2266,137 @@ fn a_made_items_permanent_effects_change_its_numbers_and_show_with_their_amounts
     let d = h.server.effect_table.get(WEIGHTED).expect("weighted");
     let shown = yalain_world::made::effect_shown(d, When::Permanent, 20.0).expect("shown");
     assert_eq!(shown.amount, Some(Amount::Percent((1.05f32 - 1.0) * 100.0)));
+}
+
+/// Dyeing gives a piece of armor the plant's value in three of its appearance modifiers, in the pack
+/// and on its wearer at once; the plant is used up, the armor stays.
+/// Behaviour: server.craft.dyeing-colors-armor
+#[test]
+fn dyeing_gives_armor_the_plants_color_in_the_pack_and_on_its_wearer() {
+    use yalain_world::craft::{Action, Check, Custom, Ingredient, Outcome, RecipeDef};
+    use yalain_world::equip::DYE_KEYS;
+    const ARMOR: u32 = 0x4700_0B06;
+    const PLANT: u32 = 0x4700_1003;
+    const PILE: u32 = 0x2000_036A;
+    const WORN_FILE: u32 = 0x2000_036B;
+    const RECIPE: u32 = 0x6F00_56D0;
+    const LAPYAN: f32 = 0.573;
+    for worn in [false, true] {
+        let (mut h, b, _me, world) = in_world();
+        let mut armor = yalain_content::Props::default();
+        armor
+            .set("Item_PileAppearance", yalain_content::Prop::Word(PILE))
+            .set(
+                "Item_ValidInventoryLocations",
+                yalain_content::Prop::Word(2),
+            )
+            .set("Item_WornAppearanceRace1", yalain_content::Prop::Word(0xFF))
+            .set(
+                "Item_WornAppearanceSex1",
+                yalain_content::Prop::Word(0xFFFF),
+            )
+            .set(
+                "Item_WornAppearanceFile1",
+                yalain_content::Prop::Word(WORN_FILE),
+            );
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(ARMOR, 0x200, armor));
+        let mut plant = yalain_content::Props::default();
+        plant.set("Craft_DyePlant_Mod", yalain_content::Prop::Float(LAPYAN));
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(PLANT, 0x200, plant));
+        let slot = |ordinal, item| Ingredient {
+            ordinal,
+            quantity: 1,
+            items: vec![item],
+            ..Ingredient::default()
+        };
+        let def = RecipeDef {
+            did: RECIPE,
+            skill: TOOLS,
+            charges: -1,
+            animation: 0x4100_014B,
+            cycles: 3,
+            custom: Custom::Dye,
+            ingredients: vec![slot(1, ARMOR), slot(2, PLANT)],
+            checks: vec![Check {
+                upto: 2.0,
+                outcomes: vec![Outcome {
+                    upto: 1000.0,
+                    xp_mod: 1.0,
+                    actions: vec![
+                        Action::Custom,
+                        Action::Destroy {
+                            ordinal: 2,
+                            quantity: 1,
+                            by_spinner: None,
+                            spinners: None,
+                        },
+                    ],
+                }],
+            }],
+            ..RecipeDef::default()
+        };
+        with_own_recipe(&mut h, world, def, 2, &[]);
+        let item = yalain_world::inventory::give(&mut h.server, &mut h.net, world, ARMOR, 1)
+            .expect("the armor");
+        let dye = yalain_world::inventory::give(&mut h.server, &mut h.net, world, PLANT, 1)
+            .expect("the plant");
+        h.run(2);
+        if worn {
+            let me = h.server.players[&world].character;
+            h.bots[b].send(
+                true,
+                queue::WEENIE,
+                &server_call(
+                    yalain_world::requests::function::USE,
+                    &[yalain_testkit::play::use_of(item, me)],
+                ),
+            );
+            h.run(4);
+            wait(&mut h, 2.0);
+        }
+        execute(&mut h, b, RECIPE, &[(1, item), (2, dye)]);
+        h.run(4);
+        wait(&mut h, 9.0);
+        let t = h.server.things.get(item).expect("the armor stays");
+        assert_eq!(t.own.dye, Some((PILE, LAPYAN)));
+        let p = &h.server.players[&world];
+        assert!(
+            !p.play.items.iter().any(|i| i.template == PLANT),
+            "the plant used up"
+        );
+        let look = yalain_world::inventory::item_create(t);
+        let values = look
+            .visual
+            .global
+            .appearance
+            .entries
+            .iter()
+            .find(|(k, _)| *k == PILE)
+            .map(|(_, v)| v.clone())
+            .expect("its color in the pack");
+        for k in DYE_KEYS {
+            assert_eq!(values.get(k), Some(&LAPYAN), "key {k:X}");
+        }
+        if worn {
+            let on_me = p
+                .look
+                .global
+                .appearance
+                .entries
+                .iter()
+                .find(|(k, _)| *k == WORN_FILE)
+                .map(|(_, v)| v.clone())
+                .expect("worn");
+            for k in DYE_KEYS {
+                assert_eq!(on_me.get(k), Some(&LAPYAN), "worn key {k:X}");
+            }
+            assert_eq!(on_me.get(0x10), Some(&1.0), "shown");
+        }
+    }
 }
 
 /// A gathering tool's table gives the craft skill it asks and a yield of five above its level; its

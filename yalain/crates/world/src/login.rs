@@ -550,13 +550,19 @@ pub(crate) fn send_lists<S: Store>(
             names.ids.push(c.id);
         }
         // Drawn wearing what it wore when it was last kept.
-        let items = crate::saves::state_of(s, c.id)
+        let play = crate::saves::state_of(s, c.id)
             .ok()
             .flatten()
             .and_then(|st| crate::state::PlayState::from_bytes(&st.play).ok())
-            .map(|p| p.items)
             .unwrap_or_default();
-        let visual = crate::equip::dressed(&look_of(&c), &s.catalog, &items, c.race, c.sex);
+        let visual = crate::equip::dressed(
+            &look_of(&c),
+            &s.catalog,
+            &play.items,
+            &play.item_states,
+            c.race,
+            c.sex,
+        );
         list.characters.push(CharacterIdentity {
             id: c.id,
             name: WideString::from(c.name.as_str()),
@@ -788,13 +794,19 @@ fn restore<S: Store>(s: &mut Server<S>, net: &mut ServerNet, conn: ConnId, chara
         id = format_args!("{character:#x}"),
         "character restored"
     );
-    let items = crate::saves::state_of(s, c.id)
+    let play = crate::saves::state_of(s, c.id)
         .ok()
         .flatten()
         .and_then(|st| crate::state::PlayState::from_bytes(&st.play).ok())
-        .map(|p| p.items)
         .unwrap_or_default();
-    let visual = crate::equip::dressed(&look_of(&c), &s.catalog, &items, c.race, c.sex);
+    let visual = crate::equip::dressed(
+        &look_of(&c),
+        &s.catalog,
+        &play.items,
+        &play.item_states,
+        c.race,
+        c.sex,
+    );
     answer(
         net,
         CharacterCreated::OK,

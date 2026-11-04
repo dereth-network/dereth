@@ -1017,6 +1017,7 @@ fn a_made_items_own_numbers_are_kept_across_a_logout() {
         t.own.min_level = Some(20);
         t.value = 7;
         t.enchantments = vec![(0x6F00_0F2B, 20.0)];
+        t.own.dye = Some((0x2000_036A, 0.573));
     }
     let before = h.bots[a].inbox.len();
     h.bots[a].send(
@@ -1033,4 +1034,5 @@ fn a_made_items_own_numbers_are_kept_across_a_logout() {
     assert_eq!(t.own.min_level, Some(20));
     assert_eq!(t.value, 7);
     assert_eq!(t.enchantments, vec![(0x6F00_0F2B, 20.0)]);
+    assert_eq!(t.own.dye, Some((0x2000_036A, 0.573)));
 }

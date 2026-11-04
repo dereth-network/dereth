@@ -37,6 +37,8 @@ pub struct Own {
     pub effect: Option<OwnEffect>,
     /// What a recipe's item level gave it.
     pub made: Option<crate::made::Made>,
+    /// The color a dye gave it: the appearance it is in when it lies in a pack, and the dye's value.
+    pub dye: Option<(u32, f32)>,
 }
 
 /// A potion's own effect: its saved state and spellcraft, the table of its name (which holds the
@@ -57,6 +59,7 @@ impl Own {
             && self.arcane_lore.is_none()
             && self.effect.is_none()
             && self.made.is_none()
+            && self.dye.is_none()
     }
 }
 

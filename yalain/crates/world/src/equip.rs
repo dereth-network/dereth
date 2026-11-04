@@ -144,11 +144,29 @@ pub fn fit_of(props: &yalain_content::Props) -> Option<Fit> {
     })
 }
 
-/// The appearance an item of these properties gives a wearer of this race and sex (its template
-/// names one per race and sex), with the garment shown and the item's own appearance value (one
-/// its template sets).
+/// The appearance modifiers a dye sets to its value: an item's color (2017: 32 of 32 armor pieces
+/// dyed held the three at the plant's value when next made).
+pub const DYE_KEYS: [u32; 3] = [2, 14, 0x4100_0004];
+
+/// The dye a kept item carries.
 #[must_use]
-pub fn worn_look(props: &yalain_content::Props, race: u32, sex: u32) -> Option<(u32, Table<f32>)> {
+pub fn dye_kept(kept: &[crate::state::ItemState], item: u64) -> Option<f32> {
+    kept.iter()
+        .find(|k| k.id == item)
+        .and_then(|k| k.own.dye)
+        .map(|(_, v)| v)
+}
+
+/// The appearance an item of these properties gives a wearer of this race and sex (its template
+/// names one per race and sex), with the garment shown, the item's own appearance value (one its
+/// template sets) and the color a dye gave it.
+#[must_use]
+pub fn worn_look(
+    props: &yalain_content::Props,
+    race: u32,
+    sex: u32,
+    dye: Option<f32>,
+) -> Option<(u32, Table<f32>)> {
     let file = (1..=16).find_map(|n| {
         let file = props.word(&format!("Item_WornAppearanceFile{n}"))?;
         let r = props.word(&format!("Item_WornAppearanceRace{n}"))?;
@@ -163,6 +181,10 @@ pub fn worn_look(props: &yalain_content::Props, race: u32, sex: u32) -> Option<(
         if key != SHOWN {
             values.push((key, v));
         }
+    }
+    if let Some(d) = dye {
+        values.retain(|(k, _)| !DYE_KEYS.contains(k));
+        values.extend(DYE_KEYS.map(|k| (k, d)));
     }
     values.sort_by_key(|(k, _)| *k);
     Some((file, Table::from_inserted(SMALL, values)))
@@ -202,6 +224,7 @@ pub fn dressed(
     base: &VisualDesc,
     catalog: &yalain_content::Catalog,
     items: &[crate::state::Held],
+    kept: &[crate::state::ItemState],
     race: u32,
     sex: u32,
 ) -> VisualDesc {
@@ -214,7 +237,7 @@ pub fn dressed(
     for h in worn {
         if let Some((table, values)) = catalog
             .get(h.template)
-            .and_then(|t| worn_look(&t.props, race, sex))
+            .and_then(|t| worn_look(&t.props, race, sex, dye_kept(kept, h.id)))
         {
             put_on(&mut look, table, values);
         }
@@ -468,7 +491,7 @@ pub fn use_held<S: Store>(
 }
 
 /// The player's look sent to everyone who sees it (a rider's, on its mount).
-fn show_look<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+pub(crate) fn show_look<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     if s.players.get(&world).is_some_and(crate::mounts::mounted) {
         crate::mounts::look_changed(s, net, world);
         return;
@@ -540,8 +563,8 @@ fn wear<S: Store>(
     let look = s
         .things
         .get(item)
-        .and_then(|t| s.catalog.get(t.template))
-        .and_then(|t| worn_look(&t.props, race, sex));
+        .and_then(|t| s.catalog.get(t.template).map(|p| (p, t.own.dye)))
+        .and_then(|(t, dye)| worn_look(&t.props, race, sex, dye.map(|d| d.1)));
     // Its effects come on just before the answer.
     effects_on(s, net, world, item, clock);
     let binds_on_use = binds_on_use(s, item);
@@ -711,7 +734,7 @@ fn take_off_to<S: Store>(
     let look = s
         .catalog
         .get(h.template)
-        .and_then(|t| worn_look(&t.props, race, sex));
+        .and_then(|t| worn_look(&t.props, race, sex, None));
     if let Some(p) = s.players.get_mut(&world) {
         crate::inventory::insert_at(&mut p.play.items, slot);
         if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {

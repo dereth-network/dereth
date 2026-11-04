@@ -517,6 +517,16 @@ pub fn item_create(t: &Thing) -> CreateObject {
         parent: d.look,
         ..VisualDesc::default()
     };
+    if let Some((table, dye)) = t.own.dye {
+        crate::equip::put_on(
+            &mut visual,
+            table,
+            auberean_protocol::table::Table::from_inserted(
+                auberean_protocol::table::SMALL,
+                crate::equip::DYE_KEYS.map(|k| (k, dye)),
+            ),
+        );
+    }
     if let Some(e) = t.own.effect {
         let (table, key) = POTION_COLOR;
         crate::equip::put_on(
@@ -566,6 +576,7 @@ pub fn held_create(t: &Thing, player_instance: u16) -> CreateObject {
 pub fn worn(
     catalog: &yalain_content::Catalog,
     items: &[Held],
+    kept: &[crate::state::ItemState],
     race: u32,
     sex: u32,
 ) -> Vec<session::Worn> {
@@ -581,7 +592,9 @@ pub fn worn(
                     location: h.location,
                     taken: h.location | fit.precluded,
                     implement: 0,
-                    look: props.and_then(|p| crate::equip::worn_look(p, race, sex)),
+                    look: props.and_then(|p| {
+                        crate::equip::worn_look(p, race, sex, crate::equip::dye_kept(kept, h.id))
+                    }),
                 }
             } else {
                 session::Worn {

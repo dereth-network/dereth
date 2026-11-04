@@ -637,3 +637,38 @@ fn the_recalls_read_where_they_go() {
         (Some(30.0), 0x4100_000F)
     );
 }
+
+/// Every refining recipe the install holds reads with the template it yields, a stack of a material,
+/// each of the ten products by the recipes of its own (2017: Steel, the recipe recorded).
+/// Behaviour: server.craft.refined-products-in-the-install
+#[test]
+fn every_refining_recipe_reads_with_its_product() {
+    use yalain_world::craft::Custom;
+    let p = Portal::open();
+    let steel: Vec<u32> = (0x6F00_10AA..=0x6F00_10AD).collect();
+    let dramastic: Vec<u32> = (0x6F00_109E..=0x6F00_10A1).collect();
+    let bricks = [0x6F00_1FDF, 0x6F00_1FE1, 0x6F00_1FE3];
+    for (recipes, product) in [
+        (steel.as_slice(), 0x4700_0B40),
+        (dramastic.as_slice(), 0x4700_0B46),
+        (bricks.as_slice(), 0x4700_0655),
+    ] {
+        let c = p.crafting(&[], recipes);
+        for r in recipes {
+            assert_eq!(
+                c.recipes.get(r).map(|d| d.custom),
+                Some(Custom::Refine { product }),
+                "{r:08X}"
+            );
+        }
+        assert!(c.templates().contains(&product), "the catalog makes it");
+        assert!(
+            p.template(product).props.int("Item_MaxStackSize").is_some(),
+            "a stack"
+        );
+    }
+    // Card melds work out their own product; spellbinding makes a totem.
+    let c = p.crafting(&[], &[0x6F00_1ABB, 0x6F00_1081]);
+    assert_eq!(c.recipes[&0x6F00_1ABB].custom, Custom::Unknown);
+    assert_eq!(c.recipes[&0x6F00_1081].custom, Custom::Spellbind);
+}

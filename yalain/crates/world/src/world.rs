@@ -487,7 +487,14 @@ pub fn enter<S: Store>(
         other_stamp: 0,
     };
     // It is drawn wearing what it wears.
-    p.look = crate::equip::dressed(&look, &s.catalog, &p.play.items, c.race, c.sex);
+    p.look = crate::equip::dressed(
+        &look,
+        &s.catalog,
+        &p.play.items,
+        &p.play.item_states,
+        c.race,
+        c.sex,
+    );
     let at = player::placement(&position);
     let object = player::player_object(
         character,
@@ -585,7 +592,13 @@ pub fn enter<S: Store>(
         p.play.items.iter().filter(|h| h.location == 0).collect();
     pack.sort_by_key(|h| h.slot);
     let contents: Vec<u64> = pack.iter().map(|h| h.id).collect();
-    let worn = crate::inventory::worn(&s.catalog, &p.play.items, c.race, c.sex);
+    let worn = crate::inventory::worn(
+        &s.catalog,
+        &p.play.items,
+        &p.play.item_states,
+        c.race,
+        c.sex,
+    );
     let game_now = net.game_time(clock.local);
     s.game_now = game_now;
     // A skill's wait does not run while the character is away, nor a quest's time: its last use,

@@ -877,6 +877,114 @@ fn made_items_profiles_are_built_from_their_recipes_item_level_as_2017_built_the
     );
 }
 
+/// Every piece of armor dyed in the recordings holds its plant's value in the three modifiers the
+/// next time the recordings make it.
+/// Behaviour: server.craft.dyed-armor-as-2017
+#[test]
+fn armor_dyed_holds_its_plants_value_when_next_made() {
+    use auberean_protocol::ClientMessage;
+    use yalain_world::craft::{Crafting, Custom};
+    use yalain_world::equip::DYE_KEYS;
+    let path = auberean_testkit::data::require_capture_index();
+    let Some(inst) = installed() else {
+        println!("no September 2013 install here");
+        return;
+    };
+    let graph = |state: u32| -> Option<auberean_script::graph::Graph> {
+        let st: auberean_assets::script::ScriptState =
+            auberean_assets::decode(state, &inst.dat.read(state).ok()?, &inst.ctx).ok()?;
+        auberean_script::graph::Graph::decode(&st.graph, &inst.lib).ok()
+    };
+    let prop_name = |id: u32| {
+        inst.ctx
+            .properties()
+            .and_then(|l| l.names.name(id))
+            .map(str::to_string)
+    };
+    let con = open(&path);
+    let mut st = con
+        .prepare(
+            "SELECT m.raw, m.dir FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.status = 'ac2' \
+             AND m.mtype IN (65619, 65624, 65638) ORDER BY s.t_first + m.t, m.idx",
+        )
+        .expect("prepares");
+    let mut rows = st.query([]).expect("runs");
+    let mut dyeing: HashMap<u32, bool> = HashMap::new();
+    let mut template: HashMap<u64, u32> = HashMap::new();
+    let mut dyed: HashMap<u64, f32> = HashMap::new();
+    let mut making: Option<(u64, f32)> = None;
+    let (mut asked, mut held) = (0usize, 0usize);
+    while let Some(r) = rows.next().expect("a row") {
+        let raw: Vec<u8> = r.get(0).expect("raw");
+        let dir: String = r.get(1).expect("dir");
+        if dir == "c2s" {
+            let Ok(ClientMessage::ServerCall(c)) = ClientMessage::decode(&raw) else {
+                continue;
+            };
+            if c.function.0 != yalain_world::craft::function::EXECUTE {
+                continue;
+            }
+            let v = calls::values(&c.args.0).unwrap_or_default();
+            let [_, Value::Graph(g), _, Value::Int(recipe)] = v.as_slice() else {
+                continue;
+            };
+            let is_dyeing = *dyeing.entry(*recipe).or_insert_with(|| {
+                Crafting::read(&inst.lib, &[], &[*recipe], &[], &graph)
+                    .recipes
+                    .get(recipe)
+                    .is_some_and(|d| d.custom == Custom::Dye)
+            });
+            if !is_dyeing {
+                continue;
+            }
+            let slots = yalain_world::craft::slots_in(g);
+            let of = |o: u32| slots.iter().find(|(x, _)| *x == o).map(|(_, i)| *i);
+            let (Some(armor), Some(plant)) = (of(1), of(2)) else {
+                continue;
+            };
+            let Some(t) = template.get(&plant) else {
+                continue;
+            };
+            let props = yalain_content::Props::of(*t, &|id| entity(inst, id), &prop_name);
+            if let Some(value) = props.float("Craft_DyePlant_Mod") {
+                making = Some((armor, value));
+            }
+            continue;
+        }
+        let o = match ServerMessage::decode(&raw) {
+            Ok(ServerMessage::PlayerCall(c)) => {
+                // It takes the color with the answer.
+                if c.function.0 == yalain_world::craft::function::EXECUTED {
+                    if let Some((armor, value)) = making.take() {
+                        let v = calls::values(&c.args.map(|a| a.0).unwrap_or_default())
+                            .unwrap_or_default();
+                        if v.get(1) == Some(&Value::Int(0)) {
+                            dyed.insert(armor, value);
+                            asked += 1;
+                        }
+                    }
+                }
+                continue;
+            }
+            Ok(ServerMessage::CreateObject(o)) => o,
+            _ => continue,
+        };
+        template.insert(o.id, o.weenie.entity_did);
+        if let Some(value) = dyed.remove(&o.id) {
+            let holds = o.visual.global.appearance.entries.iter().any(|(_, t)| {
+                DYE_KEYS
+                    .iter()
+                    .all(|k| t.get(*k).is_some_and(|v| (v - value).abs() < 0.0001))
+            });
+            held += usize::from(holds);
+            assert!(holds, "{:x} after a dye of {value}", o.id);
+        }
+    }
+    println!("armor dyed: {asked}; held the plant's value at their next making: {held}");
+    assert!(held > 0 || asked == 0);
+}
+
 /// What a recorded dye plant profile shows: its lines' string ids in order, its countdown, the
 /// numbers of its lines' variables.
 fn plant_lines(bytes: &[u8], request_len: usize) -> Option<(Vec<u32>, Option<f64>)> {

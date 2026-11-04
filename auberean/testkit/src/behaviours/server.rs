@@ -1128,6 +1128,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.dyed-armor-as-2017",
+        says: "Every piece of armor dyed in the recordings holds its plant's value in the three modifiers when next made.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DYED-AS-2017"),
+        station: "yalain-testkit::corpus::examine::armor_dyed_holds_its_plants_value_when_next_made",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.craft.dyeing-colors-armor",
+        says: "Dyeing gives a piece of armor the plant's value in three of its appearance modifiers, in the pack and on its wearer at once; the plant is used up, the armor stays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DYEING"),
+        station: "yalain-testkit::cpu::play::crafting::dyeing_gives_armor_the_plants_color_in_the_pack_and_on_its_wearer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.ends-protection",
         says: "Making a recipe ends a protection first: its end's text, the protection taken away and its \
                glow stopped, before the recipe's animation.",
@@ -1355,6 +1371,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.own-product-makes-nothing",
+        says: "A recipe that works out its own product names none the data holds: it answers that it failed with a line saying so, uses up nothing and pays nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CARD-MELDS"),
+        station: "yalain-testkit::cpu::play::crafting::a_recipe_working_out_its_own_product_fails_and_uses_up_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.quest-mines",
         says: "A mine a quest works refuses a player without the quest under way; with it, the mine's \
                behavior plays some eight seconds, then the quest moves on and the use is answered \
@@ -1410,6 +1434,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.craft.refined-products-in-the-install",
+        says: "The refining recipes in the install each read as yielding their product's template, its name the recipe's own.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REFINED-PRODUCTS"),
+        station: "yalain-testkit::dat::effects::every_refining_recipe_reads_with_its_product",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.craft.refining-grows-with-skill",
+        says: "What a refining yields grows with the craft skill to all it takes at the skill's cap, and what the player's effects add to the skill counts.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-REFINING-SKILL"),
+        station: "yalain-testkit::cpu::play::crafting::a_refining_yields_more_at_a_higher_craft_skill_and_with_what_effects_add_to_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.refining-yields",
+        says: "Refining adds a third of what it takes to the player's stack of its product at the craft skill's lowest levels, says how many, uses up what its outcome says and pays what the skill pays a use.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REFINING-YIELD"),
+        station: "yalain-testkit::cpu::play::crafting::refining_adds_a_third_of_what_it_takes_to_the_players_stack_and_says_how_many",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.refused",
         says: "Making a recipe while not at peace (or one unknown, waiting, or short of its \
                ingredients) is refused at once with the answer alone, naming why.",
@@ -1432,6 +1480,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-SPINNER-SLOTS"),
         station: "yalain-testkit::cpu::play::crafting::the_slots_filled_must_be_the_ones_the_spinner_asks_for",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.spellbinding-makes-a-totem",
+        says: "Spellbinding makes a totem of the kind of the item taken apart.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPELLBINDING"),
+        station: "yalain-testkit::cpu::play::crafting::spellbinding_makes_a_totem_of_the_kind_of_the_item_it_takes_apart",
         tier: Tier::Cpu,
     },
     behaviour! {

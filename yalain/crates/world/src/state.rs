@@ -175,6 +175,8 @@ const OWN_ARCANE_LORE: u32 = 0x2;
 const OWN_EFFECT: u32 = 0x4;
 /// What a recipe's item level gave it, and its permanent effects after that.
 const OWN_MADE: u32 = 0x8;
+/// The color a dye gave it.
+const OWN_DYE: u32 = 0x10;
 
 /// An item's durability as kept: none (never worn) is a value no durability takes.
 const UNWORN: u32 = u32::MAX;
@@ -376,7 +378,8 @@ impl PlayState {
             } else {
                 0
             } | if own.effect.is_some() { OWN_EFFECT } else { 0 }
-                | if own.made.is_some() { OWN_MADE } else { 0 };
+                | if own.made.is_some() { OWN_MADE } else { 0 }
+                | if own.dye.is_some() { OWN_DYE } else { 0 };
             w32(&mut out, has);
             if let Some(v) = own.min_level {
                 w32(&mut out, v.cast_unsigned());
@@ -397,6 +400,10 @@ impl PlayState {
                     w32(&mut out, *state);
                     w32(&mut out, spellcraft.to_bits());
                 }
+            }
+            if let Some((table, value)) = own.dye {
+                w32(&mut out, table);
+                w32(&mut out, value.to_bits());
             }
         }
         w32(&mut out, self.hero_credits);
@@ -572,6 +579,9 @@ impl PlayState {
                         for _ in 0..r.u32().ok_or_else(bad)? {
                             enchantments.push((r.u32().ok_or_else(bad)?, r.f32().ok_or_else(bad)?));
                         }
+                    }
+                    if has & OWN_DYE != 0 {
+                        own.dye = Some((r.u32().ok_or_else(bad)?, r.f32().ok_or_else(bad)?));
                     }
                 }
                 s.item_states.push(ItemState {

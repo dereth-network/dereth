@@ -28,6 +28,25 @@
 //! player such as a quest moved on, a text), the cost paid, the recipe's wait and charges told, the
 //! answer; ingredients used up after the answer.
 //!
+//! **Refining** turns two materials into a third, in a workshop. The recipe holds what it takes
+//! and uses up; what it yields it does not hold: a third of the amount taken of each material,
+//! growing with the player's craft skill and what its effects add to that skill, such as a
+//! crucible's (2017: 100 of each gave 34, 2 of 2, both at level 2; how it grows is this server's
+//! own), added to the player's stack with a line saying how many. It pays what its craft skill's
+//! table pays for a use at its level (2 of 2).
+//!
+//! **Spellbinding** takes an item apart into a totem: a success makes a totem of the item's kind
+//! (2017: 13 of 13), the failures of its check nothing, and both use up what the outcome says. The
+//! totem holds nothing yet: treasure here carries no enchantment for it to take.
+//!
+//! **Dyeing** gives a piece of armor the color of a dye plant: three of its appearance modifiers
+//! take the plant's value, in the pack and on whoever wears it (2017: 32 of 32 by the armor's next
+//! making; the plant is used up, the armor stays).
+//!
+//! **Other recipes that work out their own product** (card melds and the like) name none the data
+//! holds: such a making answers that it failed, with a line saying so, uses up nothing and pays
+//! nothing (2017: 9 of 9 card melds).
+//!
 //! **Craft experience.** A recipe made pays experience in its craft skill: the recipe's table by
 //! the spinner chosen (else its own fixed amount), times the outcome's share. A part goes to the
 //! player's own pool of craft experience: a fifth for a recipe skill, a hundredth for a gathering
@@ -237,8 +256,80 @@ pub enum Action {
     },
     /// Make an item of the making one that can become harmonic.
     Harmonize { ordinal: u32, spinners: (u32, u32) },
+    /// The recipe's own work on success, which its kind decides ([`Custom`]).
+    Custom,
     /// Marks on the product the client does not show.
     Other,
+}
+
+/// What a recipe's own work on success does, by its kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Custom {
+    /// It has none.
+    #[default]
+    None,
+    /// Refining: it yields units of this template, by how much it took and the craft skill.
+    Refine { product: u32 },
+    /// Spellbinding: it makes a totem of the kind of the item in its first slot.
+    Spellbind,
+    /// Dyeing: the item in its first slot takes the color of the dye in its second.
+    Dye,
+    /// A product it works out for itself, which nothing here can: it makes nothing.
+    Unknown,
+}
+
+/// The totems spellbinding makes, by what the item taken apart is: a weapon, a shield, armor (2017:
+/// 11 weapons, 2 armor; the shield's by the totems seen in play, none made).
+pub mod totem {
+    pub const WEAPON: u32 = 0x4700_0CCB;
+    pub const SHIELD: u32 = 0x4700_0CC9;
+    pub const ARMOR: u32 = 0x4700_0CC7;
+}
+
+/// The script packages whose recipes bind an item's enchantments into a totem, and whose recipes
+/// work out a product for themselves.
+const SPELLBINDING: [&str; 2] = ["MinorSpellbindingRecipe", "MajorSpellbindingRecipe"];
+const OWN_PRODUCT: &str = "SecretRecipe";
+const DYEING: &str = "DyeingRecipe";
+
+/// "You fail to produce anything."
+pub const NOTHING_PRODUCED: (u32, u32) = (0x9CD4_94DC, 0x2500_000C);
+
+/// The refining recipes' script packages and the template each yields.
+const REFINED: [(&str, u32); 10] = [
+    ("SteelRefiningRecipe", 0x4700_0B40),
+    ("DramasticRefiningRecipe", 0x4700_0B46),
+    ("MoonglassRefiningRecipe", 0x4700_08FC),
+    ("RunewoodRefiningRecipe", 0x4700_08DA),
+    ("TukaliteRefiningRecipe", 0x4700_08D3),
+    ("TileRefiningRecipe", 0x4700_0657),
+    ("BlockRefiningRecipe", 0x4700_0658),
+    ("BoardRefiningRecipe", 0x4700_0659),
+    ("BrickRefiningRecipe", 0x4700_0655),
+    ("PlasterRefiningRecipe", 0x4700_0656),
+];
+
+/// A refining's greatest craft skill level, where it yields all it takes.
+const REFINING_CAP: u32 = 150;
+
+/// What a refining of this amount of each material yields at a craft skill level: a third of it at
+/// the first level (2017: 34 of 100 at level 2, 2 of 2), all of it at the skill's cap (this
+/// server's own: the recipes say only that it grows with the skill).
+#[must_use]
+pub fn refining_yield(amount: u32, level: u32) -> u32 {
+    let above = f64::from(level.clamp(1, REFINING_CAP) - 1) / f64::from(REFINING_CAP - 1);
+    let share = 1.0 / 3.0 + 2.0 / 3.0 * above;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let got = (f64::from(amount) * share).round() as u32;
+    got
+}
+
+/// "You successfully produce %1 units of %2.": its string, and its variables (how many, the
+/// product's name).
+pub mod refined_text {
+    pub const TEXT: (u32, u32) = (0xC13B_3213, 0x2500_000C);
+    pub const COUNT: u32 = 0x313C_55EA;
+    pub const PRODUCT: u32 = 0x9D06_6C50;
 }
 
 /// When an effect a making gives an item applies: always, for a while, on its use, on whoever
@@ -338,6 +429,8 @@ pub struct RecipeDef {
     pub spinner: Option<(u32, u32)>,
     /// The effect a maker must hold (a workshop's), when it needs one.
     pub required_effect: Option<u32>,
+    /// What its own work on success does.
+    pub custom: Custom,
 }
 
 impl RecipeDef {
@@ -518,7 +611,13 @@ impl Crafting {
             .values()
             .flat_map(|r| &r.ingredients)
             .flat_map(|i| i.items.iter().copied());
+        let refined = self.recipes.values().filter_map(|r| match r.custom {
+            Custom::Refine { product } => Some(product),
+            _ => None,
+        });
         made.chain(asked)
+            .chain(refined)
+            .chain([totem::WEAPON, totem::SHIELD, totem::ARMOR])
             .chain(crate::mining::SUMMONED_NODES)
             .collect()
     }
@@ -688,6 +787,24 @@ impl RecipeDef {
         }
         checks.sort_by(|a, b| a.upto.total_cmp(&b.upto));
         let flags: u32 = word("m_flags").unwrap_or(0);
+        let package = lib.package_name(root.package_id());
+        let custom = REFINED
+            .iter()
+            .find(|(name, _)| *name == package)
+            .map_or_else(
+                || {
+                    if SPELLBINDING.contains(&package.as_str()) {
+                        Custom::Spellbind
+                    } else if package == OWN_PRODUCT {
+                        Custom::Unknown
+                    } else if package == DYEING {
+                        Custom::Dye
+                    } else {
+                        Custom::None
+                    }
+                },
+                |(_, product)| Custom::Refine { product: *product },
+            );
         Ok(Self {
             did,
             skill: word("m_didCraftSkill")?,
@@ -717,6 +834,7 @@ impl RecipeDef {
                         .and_then(|r| nav.states_of_ref(r))
                 })
                 .flatten(),
+            custom,
         })
     }
 
@@ -825,6 +943,7 @@ fn action(lib: &Library, nav: &Nav<'_>, a: &PackedObject) -> Action {
             ordinal: w("m_uiOrdinal"),
             spinners: (w("m_uiMinSpinnerVal"), w("m_uiMaxSpinnerVal")),
         },
+        "CustomSuccessRecipeAction" => Action::Custom,
         _ => Action::Other,
     }
 }
@@ -1666,6 +1785,16 @@ fn result<S: Store>(
     let Some(def) = s.crafting.recipes.get(&m.recipe).cloned() else {
         return;
     };
+    if def.custom == Custom::Unknown {
+        let line = progress::text(NOTHING_PRODUCED);
+        progress::private(
+            net,
+            world,
+            &crate::chat::show_text(progress::TEXT_KIND, line),
+        );
+        progress::private(net, world, &executed(error::FAILED, m.recipe));
+        return;
+    }
     let level = s
         .players
         .get(&world)
@@ -1692,7 +1821,7 @@ fn result<S: Store>(
         clippy::cast_sign_loss,
         clippy::cast_precision_loss
     )]
-    let xp = (def.base_xp(m.spinner) as f64 * f64::from(outcome.xp_mod)).floor() as u64;
+    let mut xp = (def.base_xp(m.spinner) as f64 * f64::from(outcome.xp_mod)).floor() as u64;
     let mut used: Vec<(u64, u32)> = Vec::new();
     let mut effects: Vec<(u32, f32)> = Vec::new();
     let mut made: Vec<(u32, u64)> = Vec::new();
@@ -1756,6 +1885,19 @@ fn result<S: Store>(
                     binds.push(*ordinal);
                 }
             }
+            Action::Custom => match def.custom {
+                Custom::Refine { product } => {
+                    xp = xp.max(refine(s, net, world, &def, &outcome, m.spinner, product));
+                }
+                Custom::Spellbind => {
+                    let source = m.slots.first().map(|(_, item)| *item);
+                    if let Some(item) = source {
+                        spellbind(s, net, world, item);
+                    }
+                }
+                Custom::Dye => dye(s, net, world, &m.slots),
+                Custom::None | Custom::Unknown => {}
+            },
             Action::Other => {}
         }
     }
@@ -2046,6 +2188,124 @@ pub fn made_of(
         }
     }
     Some(own)
+}
+
+/// Dyeing: the armor in the first slot takes the value of the plant in the second; on a wearer it
+/// shows at once.
+fn dye<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, slots: &[(u32, u64)]) {
+    let of = |o: u32| slots.iter().find(|(x, _)| *x == o).map(|(_, i)| *i);
+    let (Some(armor), Some(plant)) = (of(1), of(2)) else {
+        return;
+    };
+    let props = |item: u64| {
+        s.things
+            .get(item)
+            .and_then(|t| s.catalog.get(t.template))
+            .map(|t| &t.props)
+    };
+    let Some(value) = props(plant).and_then(|p| p.float("Craft_DyePlant_Mod")) else {
+        return;
+    };
+    let Some(table) = props(armor).and_then(|p| p.word("Item_PileAppearance")) else {
+        return;
+    };
+    let look = s.players.get(&world).and_then(|p| {
+        p.play
+            .items
+            .iter()
+            .find(|h| h.id == armor && h.location & crate::equip::BODY_PLACES != 0)?;
+        let t = s.things.get(armor)?;
+        let tp = s.catalog.get(t.template)?;
+        crate::equip::worn_look(&tp.props, p.race, p.sex, Some(value))
+    });
+    if let Some(t) = s.things.get_mut(armor) {
+        t.own.dye = Some((table, value));
+    }
+    if let Some((file, values)) = look {
+        if let Some(p) = s.players.get_mut(&world) {
+            crate::equip::put_on(&mut p.look, file, values);
+        }
+        crate::equip::show_look(s, net, world);
+    }
+}
+
+/// Spellbinding: a totem of the kind of the item taken apart, in the pack, made by the player.
+fn spellbind<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, item: u64) {
+    let template = s.things.get(item).map(|t| t.template);
+    let props = template.and_then(|t| s.catalog.get(t)).map(|t| &t.props);
+    let is_weapon = props.is_some_and(|p| p.int("Weapon_Damage").is_some());
+    let is_armor = props.is_some_and(|p| p.int("Item_ArmorLevel").is_some());
+    let kind = match (is_weapon, is_armor) {
+        (true, true) => totem::SHIELD,
+        (true, false) => totem::WEAPON,
+        (false, _) => totem::ARMOR,
+    };
+    crate::inventory::give(s, net, world, kind, 1);
+}
+
+/// A refining: the units it yields go to the player's stack, a line says how many. What it pays:
+/// what the craft skill's table pays for a use at its level.
+fn refine<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    def: &RecipeDef,
+    outcome: &Outcome,
+    spinner: u32,
+    product: u32,
+) -> u64 {
+    let amount = outcome
+        .actions
+        .iter()
+        .filter_map(|a| s.crafting.destroyed(a, spinner))
+        .map(|(_, n)| n)
+        .max()
+        .unwrap_or(0);
+    let Some(c) = s
+        .players
+        .get(&world)
+        .and_then(|p| p.play.craft_skills.iter().find(|c| c.skill == def.skill))
+        .copied()
+    else {
+        return 0;
+    };
+    let bonus = s
+        .crafting
+        .skills
+        .iter()
+        .find(|d| d.did == def.skill)
+        .filter(|d| d.bonus_stat != 0)
+        .and_then(|d| {
+            let p = s.players.get(&world)?;
+            let (add, _) = crate::effects::modifier(&s.effect_table, &p.play.effects, d.bonus_stat);
+            Some(add)
+        })
+        .unwrap_or(0.0);
+    let got = refining_yield(
+        amount,
+        c.level + dereth_primitives::num::to_i32(bonus).max(0).cast_unsigned(),
+    );
+    let name = s.catalog.get(product).and_then(|t| t.facts.name);
+    crate::inventory::give_stacked(s, net, world, product, got);
+    if let Some(name) = name {
+        let line = progress::text_with(
+            refined_text::TEXT,
+            vec![
+                progress::word(refined_text::COUNT, 2, got),
+                progress::nested(refined_text::PRODUCT, progress::text(name)),
+            ],
+        );
+        progress::private(
+            net,
+            world,
+            &crate::chat::show_text(progress::TEXT_KIND, line),
+        );
+    }
+    s.crafting
+        .skills
+        .iter()
+        .find(|d| d.did == def.skill)
+        .map_or(0, |d| usage_xp(d, &c))
 }
 
 /// Use up so many of a held item: a whole stack leaves the pack, part of one shows its new
