@@ -1135,13 +1135,6 @@ impl CameraControl {
         }
     }
 
-    /// The direction the camera looks across its offset: straight back along it.
-    // D2-10685
-    #[must_use]
-    pub fn global_direction(&self) -> Vec3 {
-        scale(self.offset, -1.0)
-    }
-
     /// Whether first person has settled at the eyes: on, following the player itself, at its
     /// distance.
     // D2-10674
@@ -1444,9 +1437,9 @@ impl CameraControl {
     }
 
     /// Mouse motion in mouse look, in counts (x right, y toward the player), smoothed over the
-    /// newest ten samples: the camera turns about the player and tilts. With steering the
-    /// character turns by the degrees returned, so the camera stays behind it.
-    // D2-10722, D2-09639, D2-04866
+    /// newest ten samples: the camera turns about the player and tilts. With steering, and always
+    /// in first person, the character turns by the degrees returned, so the camera stays behind it.
+    // D2-10722, D2-09639, D2-04866, D2-10685
     pub fn mouse(&mut self, dx: f32, dy: f32) -> Steer {
         if !self.mouse_look {
             return Steer::default();
@@ -1473,7 +1466,7 @@ impl CameraControl {
             let (x, y) = (self.offset.x, self.offset.y);
             self.offset = Vec3::new(x * c - y * s, x * s + y * c, -pitch);
         }
-        if self.options.mouse_look_steers {
+        if self.options.mouse_look_steers || self.first_person {
             Steer { turn: -turn }
         } else {
             Steer::default()

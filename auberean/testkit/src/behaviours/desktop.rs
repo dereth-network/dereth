@@ -381,6 +381,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.camera.first-person-mouse-look-steers-whatever-the-option-says",
+        says: "In mouse look in first person the mouse steers the character even with the option \
+               that the mouse steers it switched off; the option speaks only for the third person \
+               view.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CSTREAM-FIRST-PERSON-STEERS"),
+        station: "auberean-scene::cpu::camera::first_person_mouse_look_steers_whatever_the_option_says",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.camera.held-keys-rotate-tilt-and-zoom-at-the-clients-rates",
         says: "Held keypad keys turn the chase camera a radian a second (five with Shift), tilt it \
                half a radian a second (one with Shift), and zoom it by 0.75 a second in and 1.5 \

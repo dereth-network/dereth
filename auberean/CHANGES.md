@@ -8,6 +8,7 @@ not how it was done.
 ## Unreleased
 
 - The client now updates on its own, apart from the launcher.
+- Fixed the mouse not steering in first person with steering turned off.
 - Options: the tooltip delay and on/off switch now work.
 - Fixed objects stalling when their message numbering wrapped around.
 - Your keys now wait while a story scene or emote holds your character.

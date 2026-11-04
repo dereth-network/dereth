@@ -230,6 +230,25 @@ fn the_keypad_views_toggle_as_the_client_does() {
     );
 }
 
+/// In first person the mouse always steers the character in mouse look: the option only speaks for
+/// the third person view.
+///
+/// Behaviour: desktop.camera.first-person-mouse-look-steers-whatever-the-option-says
+#[test]
+fn first_person_mouse_look_steers_whatever_the_option_says() {
+    let mut c = camera_with(Options {
+        mouse_look_steers: false,
+        ..Options::default()
+    });
+    c.press(Press::MouseLook);
+    assert_eq!(c.mouse(10.0, 0.0).turn, 0.0, "third person, the option off");
+    c.set_first_person(true);
+    assert!(
+        c.mouse(10.0, 0.0).turn != 0.0,
+        "first person, the option off"
+    );
+}
+
 /// In mouse look a mouse count turns the camera a degree times the sensitivity, smoothed over the
 /// newest ten counts weighted 1, 0.2, 0.04 and so on; moving the mouse toward the player tilts the
 /// view down (the camera up) unless the axis is inverted; with steering the character turns with
