@@ -4377,8 +4377,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.network.reach-answered",
         says: "The hub's question about a tell to a character away is true only for one of this \
                world's, away, on the network, that asked for its link, ignoring neither the teller \
-               nor its world, the operator blocking neither, within the pace of that world's tells \
-               to it; false for anything else, alike.",
+               nor its world, by the list kept for it, the operator blocking neither, within the \
+               pace of that world's tells to it; false for anything else, alike.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-REACH"),
         station: "yalain-federation::cpu::persons::the_hubs_question_about_a_character_away_is_true_only_as_a_shown_tell_would_be",
@@ -4432,6 +4432,18 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-NET-KEPT"),
         station: "yalain-store::cpu::persistence::an_earlier_database_gains_the_networks_setting_and_blocks_and_keeps_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.network.tell-away-linked",
+        says: "A tell within the world, by address or the game's own, to a character away, on the \
+               network and linked by itself goes to the hub under its own address, so it may reach \
+               its player's Discord, and the teller is answered as for one not logged in; every \
+               other stays the world's. Its reply comes as a tell from that address, shown as any \
+               tell and written as one of the world's own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TELL-AWAY-LINKED"),
+        station: "yalain-federation::cpu::tells::a_tell_within_the_world_to_an_away_linked_character_goes_to_the_hub",
         tier: Tier::Cpu,
     },
     behaviour! {

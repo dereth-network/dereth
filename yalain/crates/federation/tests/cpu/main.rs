@@ -61,6 +61,12 @@ impl Friends for Service {
             .is_some_and(|v| v.iter().any(|k| *k == who.key() || k == who.world()))
     }
 
+    fn ignores_here(&self, character: &str, who: &str) -> bool {
+        self.ignored
+            .get(&character.to_lowercase())
+            .is_some_and(|v| v.iter().any(|k| k.eq_ignore_ascii_case(who)))
+    }
+
     fn show_tell(&mut self, to: &str, from: &Address, text: &str) {
         self.tells
             .push((to.to_owned(), from.clone(), text.to_owned()));

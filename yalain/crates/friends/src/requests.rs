@@ -8,9 +8,11 @@
 //! | `GetIgnoredList` | every ignored name |
 //! | `IgnoredAdd`, `IgnoredDelete` | kept (at most [`MAX_LISTED`]) or forgotten |
 //! | `SetLoc` | the character's state; its friends in the world are told its new mode, when it changed |
-//! | `SendToUserEx` | this world's: shown to the character when present and not ignoring the teller; another world's: through the link, answered when it ends; from a gagged teller: denied, and it is told why |
+//! | `SendToUserEx` | this world's: shown to the character when present and not ignoring the teller; away and linked, through the link, as another world's; another world's: through the link, answered when it ends; from a gagged teller: denied, and it is told why |
 //!
 //! The stream answers the rest itself (the ticket's place, `Flags`, the reserved requests).
+
+use std::time::Duration;
 
 use auberean_friends::{Answer, Cx, Event, Extra, Hr, Mode, Request};
 use dereth_network_protocol::limits::{Bucket, Limits, MAX_SQUELCHED_WORLDS};
@@ -458,7 +460,15 @@ impl Service {
         }
         let hr = match self.target(user) {
             Target::NoSuchUser => Hr::NO_SUCH_USER,
-            Target::Local(n) => self.tell_here(teller, &n, text, extra, store),
+            Target::Local(n) => {
+                let away = fed
+                    .as_deref()
+                    .and_then(|f| f.away_linked(&*self, &teller.name, &n));
+                if let Some(a) = away {
+                    return self.tell_away(stream, cx, teller, &a, text, fed);
+                }
+                self.tell_here(teller, &n, text, extra, store)
+            }
             Target::Remote(a) | Target::Channel(a) => {
                 return self.tell_away(stream, cx, teller, &a, text, fed);
             }
@@ -539,9 +549,7 @@ impl Service {
         self.waiting.insert(
             tell,
             Waiting {
-                stream,
-                account: account.id,
-                cx,
+                asked: Some((stream, account.id, cx)),
                 teller: teller.character,
             },
         );
@@ -549,21 +557,58 @@ impl Service {
         f.tell(self, now, tell, &teller.name, to, text);
     }
 
+    /// The game's own tell (`character` named by `name`, its teller) reached no player in the world:
+    /// its teller has been told so. When its name is an away, linked character's, it goes on to the
+    /// hub, so that it may reach its player's Discord. Nobody waits on the answer, which shows only
+    /// its line, when it has one.
+    pub fn unheard_tell(
+        &mut self,
+        now: Duration,
+        character: u64,
+        name: &str,
+        tellee: &str,
+        text: &str,
+        fed: Option<&mut Federation>,
+    ) {
+        let Some(f) = fed else {
+            return;
+        };
+        self.now = now;
+        let Target::Local(n) = self.target(tellee) else {
+            return;
+        };
+        let Some(to) = f.away_linked(&*self, name, &n) else {
+            return;
+        };
+        let tell = self.fresh_tell();
+        self.waiting.insert(
+            tell,
+            Waiting {
+                asked: None,
+                teller: character,
+            },
+        );
+        f.tell(self, secs(now), tell, name, &to, text);
+    }
+
     /// A tell to another world ended: its request is answered, and its line shown.
     pub(crate) fn tell_done(&mut self, tell: u64, end: TellEnd) {
         let Some(w) = self.waiting.remove(&tell) else {
             return;
         };
-        let bound = self
-            .streams
-            .get(&w.stream)
-            .and_then(|s| s.account.as_ref())
-            .is_some_and(|a| a.id == w.account);
         if let Some(line) = end.line {
             self.line(w.teller, line);
         }
+        let Some((stream, account, cx)) = w.asked else {
+            return;
+        };
+        let bound = self
+            .streams
+            .get(&stream)
+            .and_then(|s| s.account.as_ref())
+            .is_some_and(|a| a.id == account);
         if bound {
-            self.answer(w.stream, w.cx, tell_code(end.ended), Answer::SendToUserEx);
+            self.answer(stream, cx, tell_code(end.ended), Answer::SendToUserEx);
         }
     }
 }

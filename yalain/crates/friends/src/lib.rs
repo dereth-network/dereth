@@ -220,12 +220,12 @@ impl Lists {
     }
 }
 
-/// A tell to another world, waiting for its end.
+/// A tell through the link, waiting for its end.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Waiting {
-    stream: StreamId,
-    account: u64,
-    cx: Cx,
+    /// The stream, its account and the request that asked; none for the game's own tell, whose
+    /// teller has been answered already.
+    asked: Option<(StreamId, u64, Cx)>,
     teller: u64,
 }
 
@@ -1107,7 +1107,8 @@ impl Service {
             return;
         };
         self.tickets.retain(|t| t.stream != id);
-        self.waiting.retain(|_, w| w.stream != id);
+        self.waiting
+            .retain(|_, w| w.asked.is_none_or(|(stream, _, _)| stream != id));
         self.adding.retain(|_, a| a.stream != id);
         let Some(account) = s.account else {
             return;

@@ -149,7 +149,7 @@ by its address.
 | `IgnoredAdd`, `IgnoredDelete` | keeps or forgets the name: a character of this world must exist; one listed already `0xc1121009`, one not listed `0xc1121401` | none: the receiving world applies its squelches ([03](03-world-behaviour.md) section 5) |
 | `Flags` | `FlagsRes`, echoing | none |
 | `SetLoc` | sets the character's state: away (2), available (1), not to be disturbed (4); `0x0` to each; friends present on the same world get `FriendStat` with the new mode only when it changed (the client asks for away twice for one `/afk`, and prints a line for each `FriendStat`) | none: the link's presence is online or not; another world learns of away only from a tell's answer |
-| `SendToUserEx` (own world) | to the named character when it is present: `UTellEv User=<the teller>`, with the client's extra data, and `0x0`; nothing shown when it ignores the teller, still `0x0`; a character not present `0xc1120011`; no such character `0xc1120012` | none |
+| `SendToUserEx` (own world) | to the named character when it is present: `UTellEv User=<the teller>`, with the client's extra data, and `0x0`; nothing shown when it ignores the teller, still `0x0`; a character not present `0xc1120011`; no such character `0xc1120012`. To a character away, on the network and linked by itself, from a teller on the network while the link is up: as another world's, below, so that it may reach the player's Discord; the teller sees the same `0xc1120011` | none, or as another world's |
 | `SendToUserEx` (another world) | checks the teller as [03](03-world-behaviour.md) section 1 does: on the network, the operator's blocks, the per-character pace. Then sends the tell, and answers when it ends, by section 4's table | `tell {id, from, to, text, friend}` |
 | `CallCreate`, `SendToRoomEx` | not implemented (`0x80004001`) | none |
 
@@ -182,7 +182,7 @@ and the chat line both read right. Offline is `0`. A friend on another world is 
 | `tell.result` | answers the waiting `SendToUserEx` |
 | `person.result` | shown to the character that asked, if it is in the world, by [03](03-world-behaviour.md) section 9; a world's own quiet request shows nothing |
 | `person.friends` | says whether the character is linked: *This character is now linked to a Discord account.* when that changes while it is in the world. A view saying a character that never asked for its link is linked is answered with a quiet `person {op: "unlink"}`. The view's person friends are not listed: a linked character's friends stay the ones the world keeps for it, and none is carried to the hub. The view is watched while a character is present, so a character with no friends stream is not told, and its `@dn` does not say it is linked |
-| `reach` | answered as [03](03-world-behaviour.md) section 1, *A person's Discord*, has it. A tell within the world never goes through the hub, so a teller of this world is answered false |
+| `reach` | answered as [03](03-world-behaviour.md) section 1, *A person's Discord*, has it. For a teller of this world, by the squelch list the world keeps for the character, which it holds whether or not the character is in the world |
 | `channel.result` | shown to the character that asked |
 | `channel.invite` | shown as a tell from the inviter would be, by [03](03-world-behaviour.md) section 4 |
 | `channel.line` | `UTellEv User=<the channel's address>`, its text the speaker's address, `: ` and the line, by [03](03-world-behaviour.md) section 4 |
@@ -210,6 +210,16 @@ reads the same network:
 A tell to a character of the same world that is away is shown and answered `0x0`, and the teller
 is shown *Cara is away: Away from keyboard.* (or *Not to be disturbed.*): the client's tell answer
 knows nothing of away, so the notice comes from the world.
+
+**A tell within the world to a character not in it.** The client sends a name without `@` over the
+game connection, and one with `@` as `SendToUserEx`. Either way, when the character is on the network
+and linked by itself, and the teller on the network with the link up, the tell also goes to the hub
+as `tell {from: Ann@thisworld, to: Cara@thisworld}`, so that it may reach Cara's player's Discord.
+The teller sees what any tell to that character shows: *Cara is unavailable.* from the game, *Cara is
+not logged in right now.* from the service. The world answers the hub `offline` and the hub asks
+`reach`. Cara's reply reaches the world as a tell from `Cara@thisworld`, and is shown as any tell,
+written as `Cara@` and the world's name; a tell from the world's own address from any other character
+is answered `offline`.
 
 ## 5. What the world keeps and limits
 

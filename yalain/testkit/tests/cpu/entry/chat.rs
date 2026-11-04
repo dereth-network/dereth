@@ -165,6 +165,51 @@ fn a_tell_reaches_the_named_player_and_the_teller_is_shown_it_or_told_the_name_i
     assert_eq!(refused.string_id, chat::strings::UNAVAILABLE);
 }
 
+/// A tell that reaches no player in the world is kept for the friends service, as told, with its
+/// teller; one that reached a player, or from a gagged teller, is not.
+/// Behaviour: server.network.tell-away-linked
+#[test]
+fn a_tell_that_reaches_no_player_in_the_world_is_kept_for_the_friends_service() {
+    let mut h = Harness::new();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (_, _) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let tell = |to: &str| {
+        server_call(
+            function::TELL,
+            &[Arg::Int(0), literal("Psst."), literal(to)],
+        )
+    };
+    h.bots[a].send(true, queue::WEENIE, &tell("Babyfare"));
+    h.run(30);
+    assert!(h.server.unheard_tells.is_empty());
+    h.bots[a].send(true, queue::WEENIE, &tell("Nobody [F]"));
+    h.run(30);
+    assert_eq!(
+        h.server.unheard_tells.drain(..).collect::<Vec<_>>(),
+        vec![chat::UnheardTell {
+            character: ida,
+            name: "Elara".into(),
+            tellee: "nobody".into(),
+            text: "Psst.".into(),
+        }]
+    );
+    let gag = yalain_world::admin::parse("gag elara")
+        .expect("a moderation command")
+        .expect("it reads");
+    let clock = h.clock();
+    yalain_world::admin::run(
+        &mut h.server,
+        &mut h.net,
+        clock,
+        &yalain_world::admin::Issuer::Console,
+        &gag,
+    );
+    h.bots[a].send(true, queue::WEENIE, &tell("Nobody"));
+    h.run(30);
+    assert!(h.server.unheard_tells.is_empty());
+}
+
 /// A tell finds a character by its name as a client shows it, suffix and grammar mark and all, or by
 /// its name alone; where one character's name is another's name and suffix, it goes to the first.
 /// Behaviour: server.chat.tell-finds-a-suffixed-name

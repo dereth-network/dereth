@@ -294,7 +294,7 @@ fn the_person_view_is_watched_while_a_character_is_present_on_the_network() {
 /// world's, away, on the network, that asked for its link, ignoring neither the teller nor its
 /// world, the operator blocking neither; a true takes one from the pace of that world's tells to it,
 /// and one past it is false. Anything else is false, alike: in the world, off the network, never
-/// asked, unknown, or a teller of this world.
+/// asked, or unknown.
 /// Behaviour: server.network.reach-answered
 #[test]
 fn the_hubs_question_about_a_character_away_is_true_only_as_a_shown_tell_would_be() {
@@ -343,10 +343,6 @@ fn the_hubs_question_about_a_character_away_is_true_only_as_a_shown_tell_would_b
         !ask(&mut w, "Bob@coldeve", "Ann@frost"),
         "not of this world"
     );
-    assert!(
-        !ask(&mut w, "Cara@dawnsong", "Ann@dawnsong"),
-        "of this world"
-    );
 
     w.service
         .ignored
@@ -379,4 +375,45 @@ fn the_hubs_question_about_a_character_away_is_true_only_as_a_shown_tell_would_b
         assert!(allowed < 1_000, "the pace holds at last");
     }
     assert!(allowed >= 1);
+}
+
+/// A teller of this world reaches an away, linked character too, unless the character ignores it on
+/// the list the world keeps for it; never a character telling itself, or one off the network.
+/// Behaviour: server.network.reach-answered
+#[test]
+fn the_hubs_question_about_a_teller_of_this_world_is_answered_by_the_list_kept_for_the_character() {
+    let mut w = World::new();
+    w.character("Ann");
+    w.character("Cara");
+    w.character("Dee");
+    w.link(&[("coldeve", true)]);
+    w.frames();
+    for name in ["Ann", "Cara"] {
+        w.set_on(name, true);
+    }
+    let t = w.t;
+    let id = w.ids["Ann"];
+    assert_eq!(w.fed.link_person(&mut w.store, t, id, "Ann"), None);
+    w.frames();
+    let ask = |w: &mut World, from: &str| -> bool {
+        w.frame(
+            &ReachMessage::Ask {
+                id: "h1".into(),
+                from: addr(from),
+                to: addr("Ann@dawnsong"),
+            }
+            .to_json(),
+        );
+        let frames = w.fed.take_frames(w.t);
+        match ReachMessage::from_json(frames.first().expect("an answer")).expect("reads") {
+            ReachMessage::Result { reachable, .. } => reachable,
+            other => panic!("{other:?}"),
+        }
+    };
+    assert!(ask(&mut w, "Cara@dawnsong"));
+    assert!(!ask(&mut w, "Ann@dawnsong"), "itself");
+    assert!(!ask(&mut w, "Dee@dawnsong"), "off the network");
+    assert!(!ask(&mut w, "Nobody@dawnsong"), "no such");
+    w.service.ignored.insert("ann".into(), vec!["cara".into()]);
+    assert!(!ask(&mut w, "Cara@dawnsong"), "ignored");
 }

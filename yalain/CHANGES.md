@@ -43,6 +43,7 @@ what they see, not how it was done.
 - Postings boards give one quest at a time, with a wait after each, and now pay experience.
 - People now turn you away when you're too low for their quests.
 - Finishing a vault now pays its experience as you leave.
+- Tells to a linked character who isn't playing can reach their Discord, from this world too.
 
 ## 0.1.2 (2026-11-03)
 

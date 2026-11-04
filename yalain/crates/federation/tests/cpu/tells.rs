@@ -4,7 +4,7 @@ use dereth_network_protocol::limits::Limits;
 use dereth_network_protocol::{Message, Outcome};
 use yalain_federation::{Ended, State, TellEnd, UNAVAILABLE};
 
-use crate::World;
+use crate::{addr, World};
 
 /// The tell a world sent: its id, sender, recipient, text and friend flag.
 fn sent_tell(frames: &[Message]) -> (String, String, String, String, bool) {
@@ -467,4 +467,115 @@ fn a_character_too_new_sends_no_tell_to_another_world() {
     w.fed.set_too_new(std::collections::HashSet::new());
     w.tell(2, "Ann", "Bob@coldeve", "hi");
     assert_eq!(w.frames().len(), 1, "now it goes");
+}
+
+/// A world with `Ann` present on the network, `Dee` away on it and linked by herself, `Cara` away
+/// on it and never linked, `Eve` away off it, `Gil` in the world and linked, the link up.
+fn with_away_linked() -> World {
+    let mut w = World::new();
+    w.on_and_present("Ann");
+    w.character("Cara");
+    w.set_on("Cara", true);
+    w.character("Dee");
+    w.set_on("Dee", true);
+    w.character("Eve");
+    w.on_and_present("Gil");
+    w.link(&[("coldeve", true)]);
+    let t = w.t;
+    for name in ["Dee", "Gil"] {
+        let id = w.ids[name];
+        assert_eq!(w.fed.link_person(&mut w.store, t, id, name), None);
+    }
+    w.frames();
+    w
+}
+
+/// A tell within the world to a character away, on the network and linked by itself goes to the hub
+/// under the character's own address, so it may reach its player's Discord, and ends as the hub
+/// answers it; from a teller on the network, while the link is up. Every other tell of this world's
+/// own stays the world's: to one never linked, off the network, in the world, unknown, or itself.
+/// Behaviour: server.network.tell-away-linked
+#[test]
+fn a_tell_within_the_world_to_an_away_linked_character_goes_to_the_hub() {
+    let mut w = with_away_linked();
+    assert_eq!(
+        w.fed.away_linked(&w.service, "ann", "DEE"),
+        Some(addr("Dee@dawnsong"))
+    );
+    w.tell(1, "Ann", "Dee@dawnsong", "you there?");
+    let (id, from, to, text, friend) = sent_tell(&w.frames());
+    assert_eq!(
+        (from.as_str(), to.as_str(), text.as_str(), friend),
+        ("Ann@dawnsong", "Dee@dawnsong", "you there?", false)
+    );
+    assert!(w.service.ended.is_empty(), "nothing ends before the answer");
+    w.hub(&Message::TellResult {
+        id,
+        outcome: Outcome::Offline,
+        message: None,
+    });
+    assert_eq!(ended(&w), vec![(1, Ended::Offline, None)]);
+
+    for (n, to) in ["Cara", "Eve", "Gil", "Nobody", "Ann"].iter().enumerate() {
+        assert_eq!(w.fed.away_linked(&w.service, "Ann", to), None, "{to}");
+        w.service.ended.clear();
+        w.tell(n as u64 + 2, "Ann", &format!("{to}@dawnsong"), "hi");
+        assert_eq!(
+            ended(&w),
+            vec![(n as u64 + 2, Ended::Offline, None)],
+            "{to}"
+        );
+        assert!(w.frames().is_empty(), "{to}");
+    }
+
+    let t = w.t;
+    let eve = w.ids["Eve"];
+    w.fed
+        .set_on(&mut w.store, &w.service, eve, "Eve", true)
+        .expect("kept");
+    w.fed
+        .set_on(&mut w.store, &w.service, eve, "Eve", false)
+        .expect("kept");
+    assert_eq!(
+        w.fed.away_linked(&w.service, "Eve", "Dee"),
+        None,
+        "a teller off the network"
+    );
+    w.frames();
+    w.fed.on_link_down(&mut w.service, t);
+    assert_eq!(
+        w.fed.away_linked(&w.service, "Ann", "Dee"),
+        None,
+        "the link down"
+    );
+}
+
+/// An away, linked character's reply from elsewhere reaches its world as a tell from its own
+/// address, and is shown and answered as any tell, unless the recipient ignores it. A tell from this
+/// world's own address that no reply can be, from a character in the world, never linked, off the
+/// network or unknown, is answered `offline`.
+/// Behaviour: server.network.tell-away-linked
+#[test]
+fn a_reply_from_an_away_linked_character_is_shown_as_any_tell() {
+    let mut w = with_away_linked();
+    w.told("a", "Dee@dawnsong", "Ann@dawnsong", "hello back");
+    assert_eq!(
+        w.service.tells,
+        vec![(
+            "Ann".to_owned(),
+            addr("Dee@dawnsong"),
+            "hello back".to_owned()
+        )]
+    );
+    assert_eq!(w.answers()[0].1, Outcome::Delivered);
+    w.service.tells.clear();
+    w.service.ignored.insert("ann".into(), vec!["dee".into()]);
+    w.told("b", "Dee@dawnsong", "Ann@dawnsong", "hello");
+    assert_eq!(w.answers()[0].1, Outcome::Squelched);
+    w.service.ignored.clear();
+    for from in ["Gil", "Cara", "Eve", "Nobody"] {
+        w.told("c", &format!("{from}@dawnsong"), "Ann@dawnsong", "hello");
+        assert_eq!(w.answers()[0].1, Outcome::Offline, "{from}");
+    }
+    assert!(w.service.tells.is_empty(), "{:?}", w.service.tells);
 }

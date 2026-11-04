@@ -7,8 +7,10 @@
 //!
 //! **Tell.** A tell reaches the player of that name (with or without its grammar mark, in any
 //! case) as the teller's tell, with the teller's world name; the teller is shown "You tell ...";
-//! a name no player in the world has is answered "... is unavailable". A player who ignores the
-//! teller on its friends service ([`Server::ignoring`]) never hears it.
+//! a name no player in the world has is answered "... is unavailable", and kept for the world's
+//! friends service ([`Server::unheard_tells`]), which sends it on when the name is an away, linked
+//! character's. A player who ignores the teller on its friends service ([`Server::ignoring`]) never
+//! hears it.
 //!
 //! **The Dereth Network's command.** A line said as `@dn ...`, aloud or into a room, is heard by
 //! nobody: it is kept for the world's friends service ([`Server::network_commands`]), which
@@ -353,6 +355,17 @@ pub fn show_text(kind: u32, text: TextInfo) -> ServerMessage {
     .expect("a string reference packs")
 }
 
+/// A tell that reached no player in the world.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnheardTell {
+    /// The teller's id and name.
+    pub character: u64,
+    pub name: String,
+    /// The name it was told to, in small letters, without its grammar mark.
+    pub tellee: String,
+    pub text: String,
+}
+
 /// A player tells another something.
 pub fn tell<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
     let (Some(Value::Int(flags)), Some(words), Some(tellee)) = (
@@ -373,6 +386,13 @@ pub fn tell<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: 
         tellee.literal.as_deref().unwrap_or_default(),
     ));
     let Some(target) = crate::presence::player_named_for(s, world, &wanted) else {
+        let unheard = UnheardTell {
+            character: teller.character,
+            name: teller.name.clone(),
+            tellee: wanted,
+            text: String::from_utf16_lossy(words.literal.as_deref().unwrap_or_default()),
+        };
+        s.unheard_tells.push(unheard);
         unavailable(net, world, tellee);
         return;
     };

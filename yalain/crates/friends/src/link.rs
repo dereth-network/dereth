@@ -57,12 +57,24 @@ impl Friends for Service {
         })
     }
 
+    fn ignores_here(&self, character: &str, who: &str) -> bool {
+        self.id_of(character)
+            .is_some_and(|id| self.ignores_local(id, who))
+    }
+
     fn show_tell(&mut self, to: &str, from: &Address, text: &str) {
+        // A character of this world answering from elsewhere is written as the world writes its
+        // own, so the client takes a reply to it as one within the world.
+        let user = if from.world() == self.config.slug {
+            self.written_local(from.name())
+        } else {
+            from.to_string()
+        };
         if let Some(stream) = self.here.get(&to.to_lowercase()).map(|h| h.stream) {
             self.event(
                 stream,
                 Event::UTellEv {
-                    user: from.to_string(),
+                    user,
                     text: text.to_owned(),
                     extra: None,
                 },

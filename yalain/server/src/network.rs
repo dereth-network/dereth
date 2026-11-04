@@ -501,6 +501,10 @@ mod tests {
             false
         }
 
+        fn ignores_here(&self, _: &str, _: &str) -> bool {
+            false
+        }
+
         fn show_tell(&mut self, _: &str, _: &Address, _: &str) {}
 
         fn show_presence(&mut self, _: &str, _: &Address, _: bool, _: bool) {}

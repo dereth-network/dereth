@@ -158,6 +158,16 @@ impl Friends {
                 yalain_world::login::notice(net, c.world, &lines.join("\n"));
             }
         }
+        for t in std::mem::take(&mut server.unheard_tells) {
+            self.service.unheard_tell(
+                now,
+                t.character,
+                &t.name,
+                &t.tellee,
+                &t.text,
+                fed.as_deref_mut(),
+            );
+        }
         self.rooms(now, server, net, fed.as_deref_mut());
         self.service
             .poll(now, &mut server.store, fed.as_deref_mut());
@@ -1059,6 +1069,66 @@ mod tests {
             words: words.into(),
             admin: false,
         });
+    }
+
+    /// A game tell the world could not deliver reaches the friends service in the same pass, and goes
+    /// on to the hub when its name is an away, linked character's.
+    /// Behaviour: server.network.tell-away-linked
+    #[test]
+    fn a_game_tell_that_reached_no_player_goes_on_through_the_host() {
+        let mut h = Harness::new();
+        let (_, elara) = h.player_in_world("one", "Elara");
+        h.run(10);
+        let (mut f, mut fed) = linked(&h, None);
+        let t = h.now.0;
+        fed.set_on(&mut h.server.store, &f.service, elara, "Elara", true)
+            .expect("kept");
+        let dee = h.server.store.next_character_number().expect("a number");
+        h.server
+            .store
+            .insert_character(&yalain_store::Character {
+                id: dee,
+                account: dee,
+                name: "Dee".into(),
+                race: 4,
+                sex: 0x2000,
+                class: 4,
+                implement: 8,
+                start_area: 0x4000_0005,
+                entity_did: 0x4700_110F,
+                physique: Vec::new(),
+                look: Vec::new(),
+                created_at: 0,
+                deleted_at: None,
+                last_played: 0,
+            })
+            .expect("kept");
+        fed.set_on(&mut h.server.store, &f.service, dee, "Dee", true)
+            .expect("kept");
+        assert_eq!(fed.link_person(&mut h.server.store, t, dee, "Dee"), None);
+        let _ = fed.take_frames(t);
+        h.server
+            .unheard_tells
+            .push(yalain_world::chat::UnheardTell {
+                character: elara,
+                name: "Elara".into(),
+                tellee: "Dee".into(),
+                text: "you there?".into(),
+            });
+        f.pump(at(&h), &mut h.server, &mut h.net, Some(&mut fed));
+        assert!(h.server.unheard_tells.is_empty(), "taken");
+        let sent: Vec<String> = fed
+            .take_frames(h.now.0)
+            .iter()
+            .filter_map(|f| dereth_network_protocol::Message::from_json(f).ok())
+            .filter_map(|m| match m {
+                dereth_network_protocol::Message::Tell { to, text, .. } => {
+                    Some(format!("{to}: {text}"))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(sent, ["Dee@dawnsong: you there?"]);
     }
 
     /// A line each way, through the world's own chat service: a line said in the room that carries

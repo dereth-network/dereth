@@ -5,6 +5,10 @@
 //! ends when the hub answers, with the line the teller is shown. A tell from another world is
 //! shown to a present character on the network, after its ignore list and the operator's blocks,
 //! within the pace that world is held to for it, and answered at once.
+//!
+//! A tell to an away, linked character of this world goes to the hub too, so that it may reach its
+//! player's Discord ([`Federation::away_linked`]); the hub's answer to it ends it as for any
+//! character not online. The player's reply comes back as a tell from that character's own address.
 
 use dereth_network_protocol::text::{sanitize_line, sanitize_name, MAX_TEXT_CHARS};
 use dereth_network_protocol::{Address, Message, Outcome};
@@ -83,8 +87,27 @@ fn refused(ended: Ended, line: Option<&str>) -> TellEnd {
 }
 
 impl Federation {
-    /// A present character's tell to another world's character, `tell` being the friends
-    /// service's mark for it. It ends through [`Friends::tell_ended`]: at once when it is refused
+    /// The address of the character of this world named `name`, when a tell to it from `teller`
+    /// goes to the hub: the link is up, the teller is on the network, and the character is not in
+    /// the world but is on the network and asked for its link, so the tell may reach its player's
+    /// Discord. `None` for any other, whose tell stays the world's own.
+    #[must_use]
+    pub fn away_linked(&self, friends: &impl Friends, teller: &str, name: &str) -> Option<Address> {
+        if !self.enabled() || self.link != LinkState::Up || !self.is_on(teller) {
+            return None;
+        }
+        let on = self.on.get(&name.to_lowercase())?;
+        if on.name.eq_ignore_ascii_case(teller)
+            || !self.asked_link.contains(&on.id)
+            || friends.in_world(&on.name)
+        {
+            return None;
+        }
+        self.own_address(&on.name)
+    }
+
+    /// A present character's tell to another world's character, or to an away, linked character of
+    /// this world, `tell` being the friends service's mark for it. It ends through [`Friends::tell_ended`]: at once when it is refused
     /// here, else when the hub answers, or when it is given up on ([`Federation::tick`]).
     ///
     /// Refused here: from a world off the network; from a character off the network; to a
@@ -107,7 +130,10 @@ impl Federation {
             friends.tell_ended(tell, refused(Ended::NotOn, Some(NOT_ON)));
             return;
         };
-        if to.world() == self.settings.slug || self.blocked(to) {
+        let own_world = to.world() == self.settings.slug;
+        if (own_world && self.away_linked(&*friends, &name, to.name()).is_none())
+            || self.blocked(to)
+        {
             friends.tell_ended(tell, refused(Ended::Offline, None));
             return;
         }
@@ -230,9 +256,17 @@ impl Federation {
             );
             return;
         }
-        // A tell from this world's own address speaks for a character the hub could only have
-        // heard of from this world: none of this world's characters answers from elsewhere.
-        if origin == self.settings.slug {
+        // A tell from this world's own address is a reply from elsewhere, or it is refused: its
+        // teller must be one of this world's characters not in the world, on the network and linked
+        // by itself, so that only its player can have answered, from their Discord.
+        let own_teller = origin == self.settings.slug;
+        if own_teller
+            && (friends.in_world(from.name())
+                || !self
+                    .on
+                    .get(&from.name().to_lowercase())
+                    .is_some_and(|o| self.asked_link.contains(&o.id)))
+        {
             self.answer(t, &origin, id, Outcome::Offline, None);
             return;
         }
@@ -255,7 +289,9 @@ impl Federation {
             self.answer(t, &origin, id, Outcome::Offline, None);
             return;
         }
-        if friends.ignores(&target.name, from) {
+        if friends.ignores(&target.name, from)
+            || (own_teller && friends.ignores_here(&target.name, from.name()))
+        {
             self.answer(t, &origin, id, Outcome::Squelched, None);
             return;
         }

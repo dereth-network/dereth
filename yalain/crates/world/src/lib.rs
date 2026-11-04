@@ -298,6 +298,8 @@ pub struct Server<S: Store> {
     /// The Dereth Network's commands said in chat since the host last took them: heard by
     /// nobody, answered by the world's friends service.
     pub network_commands: Vec<chat::NetworkCommand>,
+    /// The tells that reached no player in the world since the host last took them.
+    pub unheard_tells: Vec<chat::UnheardTell>,
     /// The characters renamed since the host last took them.
     pub renames: Vec<player::Renamed>,
     /// The lines said in the rooms every player has, kept for the world's link.
@@ -635,6 +637,7 @@ impl<S: Store> Server<S> {
             visuals: HashMap::new(),
             unhandled: Unhandled::default(),
             network_commands: Vec::new(),
+            unheard_tells: Vec::new(),
             renames: Vec::new(),
             room_lines: Vec::new(),
             ignoring: HashMap::new(),

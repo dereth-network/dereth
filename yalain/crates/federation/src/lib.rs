@@ -29,7 +29,8 @@
 //!   then is it online to other worlds, and only then can a tell be shown to it.
 //! - **Tells** ([`Federation::tell`]) go to the hub and end, once its answer comes, with the
 //!   outcome and the line the teller is shown ([`TellEnd`]). A tell from another world is shown
-//!   by the friends service ([`Friends::show_tell`]) and answered at once.
+//!   by the friends service ([`Friends::show_tell`]) and answered at once. A tell to an away,
+//!   linked character of this world goes the same way ([`Federation::away_linked`]).
 //! - **Presence.** While a character on the network is present, its world watches each friend
 //!   it lists on another linked world; the friend's world answers, and each change reaches the
 //!   character ([`Friends::show_presence`]). Another world's watch of one of this world's
@@ -195,8 +196,12 @@ pub trait Friends {
     /// whole world).
     fn ignores(&self, character: &str, who: &Address) -> bool;
 
-    /// Show a present character a tell from another world. The sender and the text have passed
-    /// the network's text rules.
+    /// Whether a character of this world ignores `who`, a character of this world (by name), whether
+    /// or not the character is present.
+    fn ignores_here(&self, character: &str, who: &str) -> bool;
+
+    /// Show a present character a tell from another world, or one its own world's character
+    /// answered from elsewhere. The sender and the text have passed the network's text rules.
     fn show_tell(&mut self, to: &str, from: &Address, text: &str);
 
     /// Show a present character the state of a friend on another world, named as it listed the

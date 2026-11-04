@@ -671,3 +671,179 @@ fn a_hidden_character_renamed_says_nothing_to_the_network() {
         "{sent:?}"
     );
 }
+
+/// A world with `Ann` present on the network, and `Dee` away, on the network and linked by herself.
+fn with_dee_away() -> (World, StreamId) {
+    let mut w = World::linked();
+    let dee = w.player("Dee");
+    w.on("Dee");
+    assert_eq!(w.said("Dee", "link"), Vec::<String>::new());
+    w.leave("Dee");
+    w.drop_stream(dee);
+    let ann = w.player("Ann");
+    w.on("Ann");
+    w.frames();
+    w.take(ann);
+    (w, ann)
+}
+
+/// A tell by address to an away, linked character of this world goes through the link and is
+/// answered as the hub says, not logged in, with no line of the world's; the link down, it stays the
+/// world's own, answered at once.
+/// Behaviour: server.network.tell-away-linked
+#[test]
+fn a_tell_by_address_to_an_away_linked_character_goes_through_the_link() {
+    let (mut w, ann) = with_dee_away();
+    let cx = w.request(
+        ann,
+        Request::SendToUserEx {
+            user: here("Dee"),
+            text: "you there?".into(),
+            extra: None,
+        },
+    );
+    assert!(w.take(ann).is_empty(), "answered when it ends");
+    let sent = w.frames();
+    let [Message::Tell {
+        id, from, to, text, ..
+    }] = sent.as_slice()
+    else {
+        panic!("{sent:?}");
+    };
+    assert_eq!(
+        (
+            from.to_string().as_str(),
+            to.to_string().as_str(),
+            text.as_str()
+        ),
+        ("Ann@dawnsong", "Dee@dawnsong", "you there?")
+    );
+    w.hub(&Message::TellResult {
+        id: id.clone(),
+        outcome: Outcome::Offline,
+        message: None,
+    });
+    assert_eq!(answer(&w.take(ann), cx).0, Hr::NOT_ONLINE);
+    assert!(w.lines_of("Ann").is_empty());
+
+    let t = w.now.as_secs_f64();
+    w.fed
+        .as_mut()
+        .expect("the link's half")
+        .on_link_down(&mut w.service, t);
+    w.flush();
+    w.take(ann);
+    let cx = w.request(
+        ann,
+        Request::SendToUserEx {
+            user: here("Dee"),
+            text: "you there?".into(),
+            extra: None,
+        },
+    );
+    assert_eq!(answer(&w.take(ann), cx).0, Hr::NOT_ONLINE);
+    assert!(w.frames().is_empty());
+}
+
+/// The game's own tell, which reached no player in the world and has been answered there, goes on to
+/// the hub when its name is an away, linked character's, and nobody waits on its end but for its
+/// line. Any other name goes nowhere.
+/// Behaviour: server.network.tell-away-linked
+#[test]
+fn the_games_own_tell_to_an_away_linked_character_goes_on_to_the_hub() {
+    let (mut w, ann) = with_dee_away();
+    let (_, id) = w.ids("Ann");
+    let now = w.now;
+    w.service
+        .unheard_tell(now, id, "Ann", "Nobody", "hi", w.fed.as_mut());
+    assert!(w.frames().is_empty());
+    w.service
+        .unheard_tell(now, id, "Ann", "dee", "you there?", w.fed.as_mut());
+    w.flush();
+    let sent = w.frames();
+    let [Message::Tell {
+        id: tell, to, text, ..
+    }] = sent.as_slice()
+    else {
+        panic!("{sent:?}");
+    };
+    assert_eq!(
+        (to.to_string().as_str(), text.as_str()),
+        ("Dee@dawnsong", "you there?")
+    );
+    w.hub(&Message::TellResult {
+        id: tell.clone(),
+        outcome: Outcome::Offline,
+        message: None,
+    });
+    assert!(w.take(ann).is_empty(), "no request waits on it");
+
+    let cap = Limits::DEFAULT.tells_per_character.burst as usize + 1;
+    for _ in 0..cap {
+        w.service
+            .unheard_tell(now, id, "Ann", "Dee", "and again", w.fed.as_mut());
+        w.flush();
+    }
+    assert_eq!(
+        w.lines_of("Ann").last().map(String::as_str),
+        Some(yalain_federation::TOO_QUICKLY),
+        "its line is still shown"
+    );
+}
+
+/// An away, linked character's reply from elsewhere reaches a present character as a tell written as
+/// the world writes its own, so the client's reply to it goes within the world.
+/// Behaviour: server.network.tell-away-linked
+#[test]
+fn a_reply_from_an_away_linked_character_is_written_as_one_of_the_worlds_own() {
+    let (mut w, ann) = with_dee_away();
+    w.hub(&Message::Tell {
+        id: "h1".into(),
+        from: addr("Dee@dawnsong"),
+        to: addr("Ann@dawnsong"),
+        text: "hello back".into(),
+        friend: false,
+    });
+    assert_eq!(
+        events(&w.take(ann)),
+        vec![Event::UTellEv {
+            user: here("Dee"),
+            text: "hello back".into(),
+            extra: None,
+        }]
+    );
+}
+
+/// The hub's question about a teller of this world is answered by the list the world keeps for the
+/// character away.
+/// Behaviour: server.network.reach-answered
+#[test]
+fn the_list_kept_for_a_character_away_decides_the_hubs_question_about_a_teller_of_this_world() {
+    let (mut w, ann) = with_dee_away();
+    let ask = |w: &mut World| -> bool {
+        let t = w.now.as_secs_f64();
+        let frame = dereth_network_protocol::ReachMessage::Ask {
+            id: "h1".into(),
+            from: addr("Ann@dawnsong"),
+            to: addr("Dee@dawnsong"),
+        }
+        .to_json();
+        let f = w.fed.as_mut().expect("the link's half");
+        f.on_frame(&mut w.service, t, &frame);
+        let frames = f.take_frames(t);
+        match dereth_network_protocol::ReachMessage::from_json(&frames[0]).expect("reads") {
+            dereth_network_protocol::ReachMessage::Result { reachable, .. } => reachable,
+            other => panic!("{other:?}"),
+        }
+    };
+    assert!(ask(&mut w));
+    let dee = w.stream("Dee");
+    w.enter("Dee");
+    let cx = w.request(dee, Request::IgnoredAdd { user: here("Ann") });
+    assert_eq!(answer(&w.take(dee), cx).0, Hr::OK);
+    w.leave("Dee");
+    w.drop_stream(dee);
+    w.take(ann);
+    w.frames();
+    assert!(!ask(&mut w));
+}

@@ -14,8 +14,8 @@
 //! - **Reach.** When the hub asks whether a character, away, would have been shown a tell, the world
 //!   answers true only for a character of its own, away, on the network, linked by itself, ignoring
 //!   neither the teller nor its world and blocking neither, within the pace of that world's tells
-//!   to it. A tell of this world's own never goes through the hub, so a teller of this world is
-//!   answered false.
+//!   to it. A teller of this world reaches it too, unless the character ignores it, by the list it
+//!   keeps here: the world always holds a character's lists, away or not.
 
 use std::collections::BTreeSet;
 
@@ -245,16 +245,21 @@ impl Federation {
     /// Whether `to`, one of this world's characters away, would have been shown a tell from `from`;
     /// a `true` takes one from the pace of tells from `from`'s world to `to`.
     fn reachable(&mut self, friends: &impl Friends, t: f64, from: &Address, to: &Address) -> bool {
-        if to.world() != self.settings.slug || from.world() == self.settings.slug {
+        if to.world() != self.settings.slug {
             return false;
         }
         let Some(on) = self.on.get(&to.name().to_lowercase()) else {
             return false;
         };
+        let own_teller = from.world() == self.settings.slug;
+        if own_teller && (from.same(to) || !self.is_on(from.name())) {
+            return false;
+        }
         let shown = self.asked_link.contains(&on.id)
             && !friends.in_world(to.name())
             && !self.blocked(from)
             && !friends.ignores(to.name(), from)
+            && !(own_teller && friends.ignores_here(to.name(), from.name()))
             && sanitize_name(&from.to_string()).is_ok();
         let rate = self.limits.tells_per_recipient;
         shown && self.may_receive(t, from.world(), &to.key(), rate)
