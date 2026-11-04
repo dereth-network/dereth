@@ -181,6 +181,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.element.a-body-with-a-figure-is-in-the-element-its-figure-stands-in",
+        says: "A body with a figure stays in its old element through the step that takes the figure \
+               to the new one, while the element it is going to leads.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-ELEMENT-FIGURE"),
+        station: "auberean-physics::cpu::motion::element::a_body_with_a_figure_is_in_the_element_its_figure_stands_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "motion.element.a-fall-toward-deep-water-asks-for-the-air-mode",
         says: "A body falling faster than 2 m/s toward water nearer than the ground and more than \
                2 m below its water line asks its animation for the air's mode (unless swimming is \
@@ -614,8 +623,8 @@ pub static ROWS: &[Behaviour] = &[
         says: "A teleport beginning stops a body following sent positions and unconstrains it, \
                drops its target, tells its watchers it teleported (status 3) and moves its \
                teleport stamp on; the server's leave-world with a newer position stamp makes a \
-               body that is not the player's let go of its holder and leave the world, and an \
-               older stamp does nothing.",
+               body that is not the player's let go of its holder and leave the world, which ends \
+               its tether, and an older stamp does nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-TELEPORT-LEAVE"),
         station: "auberean-physics::cpu::motion::moving::a_teleport_tells_watchers_and_a_newer_leave_world_takes_a_body_out",

@@ -280,6 +280,8 @@ pub struct Body {
     transient: u32,
     /// The element it is in, and the element and mode it is going to.
     element: u32,
+    /// It has a figure, whose word on the element it is in is taken.
+    element_follows_figure: bool,
     mode: ModeKey,
     /// Where it was two ticks back.
     pos_anim: Position,
@@ -382,7 +384,7 @@ pub fn heading_rotation(heading: f32) -> Quat {
 
 impl Body {
     /// A body standing at `position`, facing `heading`, at rest on the ground.
-    // D2-06352
+    // D2-06352, D2-06981
     #[must_use]
     pub fn new(config: BodyConfig, position: Position, heading: f32) -> Self {
         let mut minterp = MotionInterp::with_description(0, Arc::new(config.description()));
@@ -428,6 +430,7 @@ impl Body {
             state: flags::NEW,
             transient: transient::NEW,
             element: EARTH,
+            element_follows_figure: false,
             mode: ModeKey {
                 element: EARTH,
                 mode: PEACE,
@@ -886,10 +889,11 @@ impl Body {
 
     /// What the transition knows of the body before it moves: following another exactly (else
     /// sliding along edges when it does), touching the ground (its contact plane, with whether it
-    /// is water, the landscape or an interior's own) and on walkable ground, flying as a missile;
-    /// and the plane it slid along.
+    /// is water, the landscape or an interior's own) and on walkable ground, turning freely when
+    /// its setup lets it (it takes its end facing before it moves), flying as a missile; and the
+    /// plane it slid along.
     // D2-06046
-    fn object_info(&self, t: &mut Transition) -> u32 {
+    pub fn object_info(&self, t: &mut Transition) -> u32 {
         let mut state = 0;
         if !self.has(flags::SYNCHRONIZE) && self.does_edge_slide() {
             state |= ObjectInfoState::EDGE_SLIDE;
@@ -911,6 +915,9 @@ impl Body {
         }
         if let Some(n) = self.sliding_normal.filter(|_| self.has_sliding()) {
             t.init_sliding_normal(n);
+        }
+        if self.allows_free_heading() {
+            state |= ObjectInfoState::FREE_ROTATE;
         }
         if self.missile.is_some() {
             state |= ObjectInfoState::PATH_CLIPPED;

@@ -247,7 +247,12 @@ fn what_the_scripts_ask_of_a_body_is_carried_out() {
         "{v:?} for {ahead:?}"
     );
     assert!(!b.contact, "in the air");
-    assert_eq!(b.element(), auberean_animation::body::AIR);
+    assert_eq!(b.desired_element(), auberean_animation::body::AIR);
+    assert_eq!(
+        b.element(),
+        auberean_animation::body::EARTH,
+        "its figure is not there yet"
+    );
     let readings = &c.scripts.as_ref().expect("the scripts run").host.readings;
     assert!(
         (readings[&creature].velocity_scale - 1.7).abs() < 1e-6,

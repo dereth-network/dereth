@@ -892,6 +892,31 @@ pub(crate) fn body_parts() -> PartGroup {
     g
 }
 
+/// A body whose setup lets it turn freely (and one with no part group) goes into a move having
+/// taken its end facing; one whose setup does not turns along the way.
+///
+/// Behaviour: parts.body.a-body-that-turns-freely-takes-its-end-facing-first
+#[test]
+fn a_body_that_turns_freely_takes_its_end_facing_first() {
+    use dereth_physics::transition::{ObjectInfoState, Transition};
+    let free =
+        |b: &Body| b.object_info(&mut Transition::default()) & ObjectInfoState::FREE_ROTATE != 0;
+    assert!(free(&body(50.0, 50.0)));
+    let mut turning = body(50.0, 50.0);
+    turning.set_parts(body_parts());
+    assert!(free(&turning), "the setup turns freely");
+    let mut k = kit();
+    let mut setup = (*k.setups[&BODY].get()).clone();
+    setup.flags &= !0x4;
+    k.setups
+        .insert(BODY, Arc::new(LoadedSetup::new(Arc::new(setup))));
+    let mut g = PartGroup::default();
+    assert!(g.init_look(&k, &body_look(MAP)));
+    let mut stiff = body(50.0, 50.0);
+    stiff.set_parts(g);
+    assert!(!free(&stiff), "this setup does not");
+}
+
 /// A body put together from its look steps as its setup says, and a change to its step-down
 /// height is its setup's, reaching every body of that setup; asked to stand in another of its
 /// setup's poses it places its bones so and asks its figure to stand in it.

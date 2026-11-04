@@ -2688,6 +2688,7 @@ impl<'w> Scene<'w> {
                     step,
                 );
                 p.figure.advance(&self.anims, step);
+                p.body.figure_stands_in(p.figure.modes.element());
             }
             // What the figure finished and the hooks it fired go to its story; what it finished
             // goes nowhere else (the client's scripts make no waiting calls).

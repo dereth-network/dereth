@@ -106,19 +106,32 @@ impl Body {
         self.mode
     }
 
-    /// Goes to an element. The body is in it at once: no animation stands between. Another
-    /// element than the one it is in wakes its animation, asks its animation to go there (the
-    /// air's pose while it jumps or falls) and is news to the children it holds when next drawn.
+    /// Goes to an element. Another element than the one it is in wakes its animation and is news
+    /// to the children it holds when next drawn; another than the one it is going to asks its
+    /// animation to go there (the air's pose while it jumps or falls). A body with no figure is
+    /// there at once; one with a figure is there when its figure is ([`Body::figure_stands_in`]).
     // D2-05882, D2-06377
     pub fn do_element(&mut self, element: u32) {
         if element != self.element {
             self.set_animation_active(true);
             self.element_changed = true;
+        }
+        if element != self.mode.element {
             // Its animation goes there too.
             self.notices
                 .push(Notice::Animate(Animate::Element(element)));
         }
         self.mode.element = element;
+        if !self.element_follows_figure {
+            self.element = element;
+        }
+    }
+
+    /// The element its figure stands in: the body's own from here on, which lags the element it
+    /// is going to through the step of animation that takes it there.
+    // D2-15163
+    pub fn figure_stands_in(&mut self, element: u32) {
+        self.element_follows_figure = true;
         self.element = element;
     }
 

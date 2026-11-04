@@ -286,7 +286,6 @@ impl MotionInterp {
     }
 
     /// Starts on a body: facing where it faces, with a move-to manager.
-    // D2-06981
     pub fn init(&mut self, owner: &dyn Owner) {
         self.turn_to = owner.heading();
         self.move_to.get_or_insert_with(Mover::default);
@@ -550,12 +549,13 @@ impl MotionInterp {
         }
     }
 
-    /// Leaving the world: the move ends, the turn stops, interpolation stops.
+    /// Leaving the world: the move ends, the turn stops, interpolation stops, the tether lets go.
     // D2-07013
     pub fn handle_leave_world(&mut self, owner: &mut dyn Owner, now: f64) {
         self.interrupt_move_to(owner, now);
         self.stop_turn_to(&*owner);
         self.stop_interpolating();
+        self.unconstrain();
     }
 
     // D2-07014

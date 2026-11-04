@@ -54,6 +54,7 @@ pub fn cylinder_distance_squared(
 /// up from an outdoor place (nothing across, a rise from 0 to 1) it is just raised; else a line of
 /// sight through the cells' walls (`los`) carries it from the object's origin as far as it gets.
 /// The flag says whether nothing was in the way.
+// D2-06130
 #[must_use]
 pub fn offset_position(
     at: &Position,
@@ -189,7 +190,6 @@ impl Body {
     /// A place on the body: `rise` of its height up and `offset` (by its scale when `scaled`)
     /// from its origin, turned with it, kept from going through walls by `los` (see
     /// [`offset_position`]); with whether nothing was in the way.
-    // D2-06130
     pub fn object_offset_position(
         &self,
         rise: f32,

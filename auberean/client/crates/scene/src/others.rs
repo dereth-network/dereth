@@ -973,6 +973,7 @@ impl Others {
                     f.ground = crate::ground_of(&ob.body);
                     look(id, &ob.body, f, step);
                     f.advance(anims, step);
+                    ob.body.figure_stands_in(f.modes.element());
                     self.heard
                         .push((id, f.take_completions(), crate::take_triggers(f).0));
                 }
