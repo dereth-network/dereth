@@ -130,9 +130,18 @@ impl Body {
         t.sphere_path.init_sphere(spheres, scale);
         let r = self.set_position_ordered(land, world, key, s, &mut t, dice);
         if r == error::OK && s.flags & flags::PLACEMENT != 0 {
-            self.placement = Some(s.position);
+            self.set_placement_position(s.position);
         }
         r
+    }
+
+    /// Keeps `p` as the body's placement: the body turns at once to its heading, made to a 255th of
+    /// a turn.
+    // D2-06051
+    pub fn set_placement_position(&mut self, p: Position) {
+        self.placement = Some(p);
+        self.minterp
+            .turn_to(true, crate::geom::frame_heading(&p.frame));
     }
 
     /// Puts the body at `p`, taking a free spot nearby when `slide`.

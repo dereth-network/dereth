@@ -352,7 +352,6 @@ pub struct Body {
     /// Its entry in the world it ticks in ([`Body::tick_in`]).
     pub(crate) key: Option<BodyKey>,
     /// Where it was last put that is to count as its placement.
-    // D2-06051
     pub placement: Option<Position>,
     /// The part group its look puts together, once the host gives it one ([`rep`]).
     pub parts: Option<Box<crate::parts::PartGroup>>,
@@ -368,7 +367,17 @@ pub struct Body {
 #[must_use]
 pub fn heading_rotation(heading: f32) -> Quat {
     let half = -heading.to_radians() * 0.5;
-    Quat::new(math::cosf(half), 0.0, 0.0, math::sinf(half))
+    let mut f = Frame::default();
+    let mut q = Quat::new(math::cosf(half), 0.0, 0.0, math::sinf(half));
+    // Unit length as a frame keeps it: made unit length again, it stays as it is.
+    for _ in 0..4 {
+        dereth_physics::math::set_rotate_plain(&mut f, q);
+        if f.rotation == q {
+            break;
+        }
+        q = f.rotation;
+    }
+    q
 }
 
 impl Body {

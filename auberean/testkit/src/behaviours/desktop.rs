@@ -70,7 +70,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "desktop.bodies.a-body-goes-round-a-stone-in-the-way",
-        says: "A body run into a round stone a little to one side slides round it and goes on, never inside it, though the stone reaches a cell beyond its own and was made before its cell was read.",
+        says: "A body run into a round stone a little to one side holds a moment, slides round it and goes on where retail's does, never inside it, though the stone reaches a cell beyond its own and was made before its cell was read.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-STONE"),
         station: "auberean-shell::dat::session::a_body_goes_round_a_stone_in_the_way",

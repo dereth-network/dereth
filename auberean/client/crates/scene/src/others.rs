@@ -350,6 +350,7 @@ impl OtherBody {
         self.body.place(p, heading);
         self.body.velocity = dereth_primitives::Vec3::ZERO;
         self.body.turn_rate = 0.0;
+        self.body.set_placement_position(p);
     }
 
     /// A position the server sent for this object, `player` where the player is, `loaded` whether

@@ -641,6 +641,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.turn.a-headings-rotation-comes-through-a-move-unchanged",
+        says: "The rotation a heading gives a body is one a move leaves bit for bit, so a body \
+               pressed against something knows it did not move.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-ROTATION-KEPT"),
+        station: "auberean-physics::cpu::motion::steering::a_headings_rotation_comes_through_a_move_unchanged",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "motion.turn.a-motion-with-a-heading-moves-and-turns-to-it",
         says: "A motion asked of a body with a heading wakes its movement, asks the motion of its \
                interpreter and turns it to the heading (a turn-to made a 255th of a turn, not \
@@ -648,6 +657,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-DO-MOTION"),
         station: "auberean-physics::cpu::motion::moving::a_motion_with_a_heading_moves_and_turns_to_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "motion.turn.a-placed-body-turns-to-a-255th-of-a-turn",
+        says: "A body placed turns at once on its next tick to the placement's heading, fallen to \
+               a 255th of a turn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-PLACED-TURN"),
+        station: "auberean-physics::cpu::motion::steering::a_placed_body_turns_to_a_255th_of_a_turn",
         tier: Tier::Cpu,
     },
     behaviour! {

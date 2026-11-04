@@ -2444,6 +2444,7 @@ impl<'w> Scene<'w> {
                 let _ = p
                     .body
                     .set_position_simple(&self.land, &mut self.table, at, true);
+                p.body.set_placement_position(at);
                 // The camera is placed afresh there, not drawn from where it stood.
                 self.camera_stands = None;
             }

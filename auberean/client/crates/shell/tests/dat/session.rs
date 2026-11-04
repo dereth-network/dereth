@@ -4048,8 +4048,10 @@ fn an_object_fades_in_as_it_enters_the_world() {
 
 /// A body run into the teaching stone at the start, a little to one side, slides round it and goes
 /// on, never inside it, though the stone reaches a cell beyond its own and was made before its cell
-/// was read. Fixture: a server double making the stone at its place in the hall, the player facing
-/// it from where a new character starts.
+/// was read; it holds against the stone a moment first and passes where retail's body does, from
+/// the rotation of exactly a quarter turn a new character is made with. Fixture: a server double
+/// making the stone at its place in the hall, the player facing it from where a new character
+/// starts; the points are the places retail's reports gave on the same walk.
 ///
 /// Behaviour: desktop.bodies.a-body-goes-round-a-stone-in-the-way
 #[test]
@@ -4090,10 +4092,10 @@ fn a_body_goes_round_a_stone_in_the_way() {
         z: -44.606205,
     };
     let facing = Quat {
-        w: 0.7049,
+        w: std::f32::consts::FRAC_1_SQRT_2,
         x: 0.0,
         y: 0.0,
-        z: 0.7093,
+        z: std::f32::consts::FRAC_1_SQRT_2,
     };
     let script = script_until(HALL, at, facing, &[stone], &[], 60.0);
     let server =
@@ -4117,14 +4119,28 @@ fn a_body_goes_round_a_stone_in_the_way() {
     });
     let until = s.host.time + 7.0;
     let mut nearest = f32::MAX;
+    let mut retails = [
+        (52.7607, 240.1602, f32::MAX),
+        (45.6109, 240.1163, f32::MAX),
+        (45.5686, 239.7589, f32::MAX),
+        (45.4590, 239.4034, f32::MAX),
+        (42.7566, 238.5059, f32::MAX),
+        (31.7069, 238.4379, f32::MAX),
+    ];
     while s.host.time < until {
         step(&mut s);
         let o = s.scene.status.origin;
         let (dx, dy) = (o.x - STONE_AT.x, o.y - STONE_AT.y);
         nearest = nearest.min((dx * dx + dy * dy).sqrt());
+        for (x, y, closest) in &mut retails {
+            *closest = closest.min((o.x - *x).hypot(o.y - *y));
+        }
     }
     let o = s.scene.status.origin;
     assert!(nearest > 1.5, "never inside the stone: {nearest}");
+    for (x, y, closest) in retails {
+        assert!(closest < 0.01, "by retail's ({x}, {y}): {closest} off");
+    }
     assert!(o.x < STONE_AT.x - 5.0, "it went on past: {o:?}");
     assert!(o.y < STONE_AT.y - 1.5, "round its left: {o:?}");
 }
