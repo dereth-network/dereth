@@ -1362,7 +1362,9 @@ impl World {
     }
 
     /// The container arm of the same two lines: `TYPE_CONTAINER` (`0x200`) makes the client walk
-    /// the contained-items list and offer every child.
+    /// the contained-items list and offer every child. Whatever says it is in this container is
+    /// offered too: an object that arrived before its container is on no list, since a container
+    /// the client has not met has none.
     ///
     /// Returns how many objects were offered — the denominator for the count of changes.
     pub fn update_spell_components_under(&mut self, id: ObjectId) -> (usize, usize) {
@@ -1374,6 +1376,14 @@ impl World {
             .is_some_and(|w| w.inq_type() & item_type::CONTAINER != 0);
         if is_container {
             queue.extend(self.exhaustive_contained_items(id));
+            let unlisted: Vec<ObjectId> = self
+                .tables
+                .weenies
+                .iter()
+                .filter(|(c, w)| w.pwd.container_id == Some(id) && !queue.contains(c))
+                .map(|(c, _)| c)
+                .collect();
+            queue.extend(unlisted);
         }
         for c in queue {
             offered += 1;

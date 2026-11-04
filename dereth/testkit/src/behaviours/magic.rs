@@ -465,6 +465,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "spell-components.one-created-in-the-pack-is-counted-at-once",
+        says: "A spell component the server creates straight in the player's pack or a side pack                is on the component panels at once, with no move or new count after it. A later                change of its stack moves the count by the difference, and deleting it takes its                stack off, leaving the kind's row while another stack holds it. One created in a \
+               side pack the client has not met yet is counted when the pack arrives.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-O234-COMPONENTS"),
+        station: "dereth-testkit::cpu::magic::scenario_a_component_created_in_the_pack_is_counted_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "spell-components.the-pack-is-counted-as-the-player-fills-it",
         says: "The spell components the player is carrying are counted as they reach him: an item \
                moved into his pack is counted as the size of its stack, or as one when it carries no \

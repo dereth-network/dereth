@@ -1855,6 +1855,10 @@ impl ObjectStream {
                     script: DataId(m.script_id),
                 });
             }
+            // Received beside this stream: the teleport state reads the same events and takes
+            // this one up. It has nothing to say to the object tables, the player's own position
+            // arriving as a position event.
+            Opcode::EFFECTS_PLAYER_TELEPORT => {}
             // `stats.unhandled` says *how many*, not *which*, and "which" is the whole
             // question when chasing a dropped message. The ledger names the opcode once, in
             // the log, the first time it is dropped.
@@ -2975,6 +2979,33 @@ mod tests {
         assert!(objects.take_lock_answers().is_empty(), "drained");
         // Both are still sounds to play.
         assert_eq!(objects.take_sound_events().len(), 2);
+    }
+
+    /// A world on older files names the locked sound by those files' own number, and the travel
+    /// hears it as the same answer; the later number is another sound there.
+    /// Behaviour: plugins.nav.a-door-that-will-not-open-ends-the-journey-and-says-so
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn on_older_files_the_locked_sound_is_heard_by_those_files_number() {
+        let store = dereth_dat::testing::open_classic_store_or_fail();
+        let mut objects = ObjectStream::with_store(Arc::new(store));
+        let sound = |id: u32, sound_type: i32| {
+            ev(
+                Opcode::EFFECTS_SOUND_EVENT,
+                write_body(&EffectsSoundEvent {
+                    id: ObjectId(id),
+                    sound_type,
+                    volume: 1.0,
+                })
+                .expect("encode"),
+            )
+        };
+        objects.apply_event(&sound(0x7016_3024, 0x7F), LocalTime(1.0));
+        objects.apply_event(&sound(0x7016_3025, 0x94), LocalTime(1.1));
+        assert_eq!(objects.take_lock_answers(), vec![ObjectId(0x7016_3024)]);
     }
 
     /// A script or sound number arrives as a server sent it and finds the row with that number in
