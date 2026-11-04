@@ -1626,12 +1626,10 @@ impl Client {
 
     fn event(&mut self, e: Event) {
         match e {
-            Event::Message(r) => {
-                let Incoming::Message(m) = r.incoming else {
-                    return;
-                };
-                self.take_message(r.blob_id, *m);
-            }
+            Event::Message(r) => match r.incoming {
+                Incoming::Message(m) => self.take_message(r.blob_id, *m),
+                Incoming::Undecodable { .. } => self.take_unread(r.blob_id),
+            },
             Event::LoginFailed(error) => {
                 self.session_end.login_failed = true;
                 self.connect_failed(Some(error));
@@ -1688,6 +1686,15 @@ impl Client {
             }
         }
         self.queue.receive(self.now, Item { blob_id, message });
+        while let Some(item) = self.queue.pop() {
+            self.take_effect(&item);
+        }
+    }
+
+    /// A message that did not read came under `blob_id`: nothing of it takes effect, but what its
+    /// stamp was holding back does.
+    fn take_unread(&mut self, blob_id: u64) {
+        self.queue.receive_unread(self.now, blob_id);
         while let Some(item) = self.queue.pop() {
             self.take_effect(&item);
         }

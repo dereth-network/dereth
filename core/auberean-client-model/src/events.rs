@@ -19,7 +19,8 @@
 //! A visual message (type 2) is about an object and is ordered by the visual stamp it carries
 //! against that object's: the object's creation sets the start, an older stamp is dropped, a newer
 //! one waits for the stamps between. Unordered messages (type 3) take effect as they come. Any other type is
-//! dropped.
+//! dropped. A private message this client cannot read still counts for its stamp, so what comes
+//! after it is not held for it.
 //!
 //! **Objects not here yet.** A message about an object the client does not have, or about a newer
 //! incarnation of it (a higher instance stamp), waits in that object's queue; one about an older
@@ -156,18 +157,20 @@ pub fn subject(m: &ServerMessage) -> Option<ObjectStamp> {
 struct PrivateStream {
     started: bool,
     last: u32,
-    /// Held messages in stamp order; a stamp arriving again goes before the one already held.
-    held: VecDeque<(u32, Item)>,
+    /// Held messages in stamp order, nothing for one that did not read; a stamp arriving again
+    /// goes before the one already held.
+    held: VecDeque<(u32, Option<Item>)>,
     blocked_since: Option<f64>,
 }
 
 impl PrivateStream {
-    /// Take a message; what may now take effect goes to `out`, in order.
+    /// Take a message, or the stamp of one that did not read; what may now take effect goes to
+    /// `out`, in order.
     // D2-14307, D2-14308, D2-05618
     fn add(
         &mut self,
         stamp: u32,
-        item: Item,
+        item: Option<Item>,
         now: f64,
         out: &mut VecDeque<Item>,
         dropped: &mut u32,
@@ -179,7 +182,7 @@ impl PrivateStream {
         self.started = true;
         if stamp == self.last || stamp == self.last + 1 {
             self.last = stamp;
-            out.push_back(item);
+            out.extend(item);
             self.flush(now, out);
             return;
         }
@@ -200,34 +203,36 @@ impl PrivateStream {
     }
 
     // D2-14306
-    fn hold(&mut self, stamp: u32, item: Item) {
+    fn hold(&mut self, stamp: u32, item: Option<Item>) {
         let at = self.held.partition_point(|(s, _)| *s < stamp);
         self.held.insert(at, (stamp, item));
     }
 
-    /// The held message that follows the last one taken, if the first held does; if it does not,
-    /// the wait for it starts again from now.
+    /// The held message that follows the last one taken goes to `out`, if the first held does,
+    /// and the answer is whether one did; if not, the wait for it starts again from now.
     // D2-14303
-    fn next_ready(&mut self, now: f64) -> Option<Item> {
-        let &(first, _) = self.held.front()?;
+    fn next_ready(&mut self, now: f64, out: &mut VecDeque<Item>) -> bool {
+        let Some(&(first, _)) = self.held.front() else {
+            return false;
+        };
         if first == self.last || first == self.last + 1 {
             self.last = first;
-            let (_, item) = self.held.pop_front()?;
+            if let Some((_, item)) = self.held.pop_front() {
+                out.extend(item);
+            }
             if self.held.is_empty() {
                 self.blocked_since = None;
             }
-            Some(item)
+            true
         } else {
             self.blocked_since = Some(now);
-            None
+            false
         }
     }
 
     // D2-05630
     fn flush(&mut self, now: f64, out: &mut VecDeque<Item>) {
-        while let Some(item) = self.next_ready(now) {
-            out.push_back(item);
-        }
+        while self.next_ready(now, out) {}
     }
 }
 
@@ -430,6 +435,8 @@ pub struct EventQueue {
     bookies: HashMap<u64, Bookie>,
     player: Option<u64>,
     private: PrivateStream,
+    /// The stamps of private messages that did not read, waiting as those messages would have.
+    unread: Vec<u32>,
     ready: VecDeque<Item>,
     force: Vec<u64>,
     /// Objects the server had the client forget: they go at the next upkeep, so what came with
@@ -473,6 +480,7 @@ impl EventQueue {
             bookies: HashMap::new(),
             player: None,
             private: PrivateStream::default(),
+            unread: Vec::new(),
             ready: VecDeque::new(),
             force: Vec::new(),
             destroying: Vec::new(),
@@ -637,6 +645,7 @@ impl EventQueue {
         self.temporary_ends.clear();
         self.player = None;
         self.private = PrivateStream::default();
+        self.unread.clear();
     }
 
     /// A message as it came off its queue.
@@ -680,16 +689,43 @@ impl EventQueue {
                 };
                 let _ = p;
                 let stamp = u32::from(ordering_stamp(item.blob_id));
-                let mut out = VecDeque::new();
-                self.private
-                    .add(stamp, item, now, &mut out, &mut self.stats.dropped);
-                for i in out {
-                    self.post(now, i);
-                }
+                self.take_private(now, stamp, Some(item));
             }
             2 => self.visual(now, item),
             3 => self.post(now, item),
             _ => self.stats.dropped += 1,
+        }
+    }
+
+    /// A private message, or the stamp of one that did not read, comes to the private stream,
+    /// after the stamps that were waiting to; what that lets through takes effect.
+    // D2-03940
+    fn take_private(&mut self, now: f64, stamp: u32, item: Option<Item>) {
+        let mut out = VecDeque::new();
+        for s in std::mem::take(&mut self.unread) {
+            self.private
+                .add(s, None, now, &mut out, &mut self.stats.dropped);
+        }
+        self.private
+            .add(stamp, item, now, &mut out, &mut self.stats.dropped);
+        for i in out {
+            self.post(now, i);
+        }
+    }
+
+    /// A message this client cannot read came under `blob_id`. If it is private its stamp still
+    /// counts, so that the messages after it are not held for it: it waits as a private message
+    /// would for the player's object, and out of the world it counts for nothing.
+    // D2-05618, D2-03940
+    pub fn receive_unread(&mut self, now: f64, blob_id: u64) {
+        if ordering_type(blob_id) != 1 || self.state == WorldState::NotInWorld {
+            return;
+        }
+        let stamp = u32::from(ordering_stamp(blob_id));
+        if self.player.is_some_and(|p| self.bookies.contains_key(&p)) {
+            self.take_private(now, stamp, None);
+        } else {
+            self.unread.push(stamp);
         }
     }
 

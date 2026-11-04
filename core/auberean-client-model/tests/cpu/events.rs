@@ -1,9 +1,10 @@
 //! The event queue: what waits, and in what order messages take effect.
 
 use auberean_client_model::events::{newer, EventQueue, Item};
+use auberean_protocol::login::Empty;
 use auberean_protocol::ServerMessage;
 
-use crate::{create_item, fx, player_object, private_int, PLAYER};
+use crate::{create_item, fx, item, player_object, private_int, PLAYER};
 
 fn drain(q: &mut EventQueue) -> Vec<Item> {
     let mut v = Vec::new();
@@ -123,6 +124,96 @@ fn a_private_gap_is_given_up_one_stamp_per_five_minutes() {
         private_taken(&mut q),
         (5..=28).collect::<Vec<u32>>(),
         "stamp 4 given up, and all that was held follows"
+    );
+    assert_eq!(q.stats().dropped, 0);
+}
+
+/// The blob id of a private message under `stamp`.
+fn private_id(stamp: u16) -> u64 {
+    private_int(stamp, 0).blob_id
+}
+
+/// A private message that does not read counts for its stamp: what follows it takes effect at
+/// once, whichever order they come in, and nothing is held afterward.
+///
+/// Behaviour: model.events.a-private-message-that-does-not-read-holds-nothing-back
+#[test]
+fn a_private_message_that_does_not_read_holds_nothing_back() {
+    let mut q = in_the_world();
+    q.receive(1.0, private_int(1, 1));
+    q.receive_unread(1.0, private_id(2));
+    q.receive(1.0, private_int(3, 3));
+    assert_eq!(private_taken(&mut q), vec![1, 3], "it came in its place");
+    q.receive(2.0, private_int(5, 5));
+    assert!(
+        private_taken(&mut q).is_empty(),
+        "the stamp before it hasn't come"
+    );
+    q.receive_unread(2.0, private_id(4));
+    assert_eq!(
+        private_taken(&mut q),
+        vec![5],
+        "it came late, and let go of what it held"
+    );
+    q.receive(3.0, private_int(6, 6));
+    assert_eq!(private_taken(&mut q), vec![6]);
+    assert_eq!(q.stats().dropped, 0);
+    q.receive_unread(3.0, private_id(6));
+    q.receive(3.0, private_int(7, 7));
+    assert_eq!(
+        private_taken(&mut q),
+        vec![7],
+        "a repeat of one taken changes nothing"
+    );
+}
+
+/// Only a private message's stamp counts: one of another kind that does not read leaves the
+/// private stream as it was.
+///
+/// Behaviour: model.events.a-private-message-that-does-not-read-holds-nothing-back
+#[test]
+fn a_message_of_another_kind_that_does_not_read_counts_for_no_private_stamp() {
+    let mut q = in_the_world();
+    q.receive(1.0, private_int(1, 1));
+    q.receive_unread(1.0, item(3, 2, ServerMessage::DownloadEnds(Empty)).blob_id);
+    q.receive_unread(1.0, item(2, 2, ServerMessage::DownloadEnds(Empty)).blob_id);
+    q.receive(1.0, private_int(3, 3));
+    assert_eq!(private_taken(&mut q), vec![1], "stamp 2 is still missing");
+    q.receive(1.0, private_int(2, 2));
+    assert_eq!(private_taken(&mut q), vec![2, 3]);
+}
+
+/// While the player is being made, a private message that does not read waits as a readable one
+/// would; out of the world, and past leaving it, it counts for nothing.
+///
+/// Behaviour: model.events.a-private-message-that-does-not-read-holds-nothing-back
+#[test]
+fn a_private_message_that_does_not_read_waits_for_the_player_as_any_would() {
+    let mut q = EventQueue::new();
+    q.receive_unread(0.0, private_id(1));
+    q.start_entering();
+    q.receive_unread(0.0, private_id(2));
+    q.receive(0.0, private_int(1, 1));
+    q.receive(0.0, private_int(3, 3));
+    q.receive(0.0, player_object());
+    assert!(private_taken(&mut q).is_empty(), "no player's object yet");
+    q.receive(0.0, create_item(PLAYER, 1, 1));
+    assert_eq!(private_taken(&mut q), vec![1, 3]);
+
+    let mut q = EventQueue::new();
+    q.start_entering();
+    q.receive_unread(0.0, private_id(2));
+    q.leave_world();
+    q.start_entering();
+    q.receive(0.0, player_object());
+    q.receive(0.0, create_item(PLAYER, 1, 1));
+    drain(&mut q);
+    q.receive(0.0, private_int(1, 1));
+    q.receive(0.0, private_int(2, 2));
+    assert_eq!(
+        private_taken(&mut q),
+        vec![1, 2],
+        "the stamp left with the world"
     );
     assert_eq!(q.stats().dropped, 0);
 }

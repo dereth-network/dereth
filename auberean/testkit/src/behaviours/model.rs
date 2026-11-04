@@ -98,6 +98,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "model.events.a-private-message-that-does-not-read-holds-nothing-back",
+        says: "A private message the client cannot read counts for its stamp, so what the server \
+               sends after it takes effect at once rather than waiting out the give-up; it waits \
+               for the player's object as a readable one would, and leaves with the world.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CSTREAM-PRIVATE-UNREAD"),
+        station: "auberean-client-model::cpu::events::a_private_message_that_does_not_read_holds_nothing_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "model.events.a-queue-for-an-object-being-made-waits",
         says: "A queue of messages waiting for an object that is being made from its records is \
                never given up, however long it waits.",
