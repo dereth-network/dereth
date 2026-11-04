@@ -865,6 +865,12 @@ impl<'w, H: Host> Shell<'w, H> {
     /// longer in the world stopped, then the ambient sound's turn and the manager's with the
     /// listener at the camera.
     fn sound_frame(&mut self, now: f64, in_world: bool) {
+        for order in self.scene.take_portal_sounds() {
+            let records = &self.world.records;
+            self.sound.portal(order, &|value| {
+                records.data_id_by_enum(value, auberean_draw::portal::SOUND_MAPPING)
+            });
+        }
         for (object, s) in self.scene.take_sounds() {
             self.sound.effect(object, s);
         }

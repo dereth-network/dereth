@@ -1538,6 +1538,51 @@ fn a_behavior_that_locks_actions_holds_the_player_until_it_ends() {
     );
 }
 
+/// Portal space is heard: as the player starts entering the world its start sound plays and its two
+/// loops stay on while it lasts; as it goes, its stop sound plays and the loops stop.
+///
+/// Behaviour: desktop.sound.portal-space-is-heard
+#[test]
+fn portal_space_is_heard() {
+    const START: u32 = 0x2A00_0316;
+    const STOP: u32 = 0x2A00_0317;
+    const LOOPS: [u32; 2] = [0x2A00_0318, 0x2A00_0319];
+    let script = script();
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with_sound(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let heard = |s: &Shell<'_, DoubleHost>, id: u32| {
+        s.sound
+            .manager
+            .playing()
+            .iter()
+            .any(|&(_, playing, _)| playing == id)
+    };
+    while !s.scene.in_portal_space() && s.host.time < 10.0 {
+        step(&mut s);
+    }
+    assert!(s.scene.in_portal_space(), "entering the world");
+    step(&mut s);
+    assert!(heard(&s, START), "the start sound");
+    assert!(LOOPS.iter().all(|l| heard(&s, *l)), "both loops");
+    let mut stopped = false;
+    while s.host.time < 15.0 && !stopped {
+        step(&mut s);
+        stopped = heard(&s, STOP);
+    }
+    assert!(stopped, "the stop sound");
+    assert!(!LOOPS.iter().any(|l| heard(&s, *l)), "the loops stopped");
+    assert!(s.scene.in_portal_space(), "as it goes, not after");
+}
+
 /// A jump is heard: the body leaving the ground plays the jump effect's sound, and coming down
 /// plays the landing effect's.
 ///

@@ -1594,6 +1594,11 @@ impl<'w> Scene<'w> {
         out
     }
 
+    /// What portal space asked of the sound since last taken.
+    pub fn take_portal_sounds(&mut self) -> Vec<auberean_draw::portal::PassageSound> {
+        self.portal.take_sounds()
+    }
+
     /// Stops effect `effect` on object `object`, where its body next stands.
     // D2-06164
     pub fn stop_fx(&mut self, object: u64, effect: u32) {

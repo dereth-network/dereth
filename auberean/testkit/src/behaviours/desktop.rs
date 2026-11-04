@@ -1663,6 +1663,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.sound.portal-space-is-heard",
+        says: "As portal space starts its start sound plays and its two loops stay on while it \
+               lasts; as it goes, its stop sound plays and the loops stop.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SOUND-PORTAL-SPACE"),
+        station: "auberean-shell::dat::session::portal_space_is_heard",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.sound.the-radars-groove-level-reaches-the-music",
         says: "The groove level the radar works out from what is near sets the level the music's patterns follow.",
         since: RETAIL,

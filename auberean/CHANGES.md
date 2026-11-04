@@ -95,6 +95,7 @@ not how it was done.
 - Fixed Apply doing nothing after refusing a new resolution.
 - Jumps, landings and skids now make their sounds.
 - Fixed a weapon vanishing from the pack when swapped for another.
+- Portal space now has its sounds.
 
 ## 0.1.2 (2026-11-02)
 

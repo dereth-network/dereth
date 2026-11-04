@@ -22,6 +22,7 @@ use auberean_audio::space::Listener;
 use auberean_audio::{SoundFiles, SoundPlayer};
 use auberean_client_sdk::dat::DatFile;
 use auberean_draw::effects::FxSound;
+use auberean_draw::portal::PassageSound;
 use auberean_primitives::random::Random;
 use auberean_scene::seen::Seen;
 use auberean_scene::WorldData;
@@ -64,6 +65,8 @@ pub struct Sound {
     land_points: HashMap<(u8, u8), Arc<[LandPoint]>>,
     /// The rain's sounds.
     rain: RainSound,
+    /// The loops of portal space, while they play.
+    portal_loops: Vec<u32>,
     /// The loudest sample the device was handed since last read (as `f32` bits), and the blocks
     /// it was handed and of them those filled with silence because the game held the mixer.
     peak: Arc<AtomicU32>,
@@ -141,6 +144,7 @@ impl Sound {
             ambient_on: false,
             land_points: HashMap::new(),
             rain: RainSound::default(),
+            portal_loops: Vec::new(),
             peak,
             blocks,
             underruns,
@@ -286,6 +290,33 @@ impl Sound {
             Some(h) => self.manager.set_volume(h, amount),
         }
         self.rain.volume = amount;
+    }
+
+    /// Portal space started or stopped: started, its start sound and its two loops kept; stopped,
+    /// its stop sound and its loops stopped at once. All heard where the listener is.
+    // D2-11047, D2-11051
+    pub fn portal(&mut self, order: PassageSound, by_enum: &dyn Fn(u32) -> u32) {
+        use auberean_audio::request::PlayRequest;
+        use auberean_draw::portal::{LOOP_SOUNDS, START_SOUND, STOP_SOUND};
+        match order {
+            PassageSound::Start => {
+                self.manager
+                    .play(&self.files, &PlayRequest::new(by_enum(START_SOUND)));
+                for l in LOOP_SOUNDS {
+                    let handle = self
+                        .manager
+                        .play(&self.files, &PlayRequest::new(by_enum(l)));
+                    self.portal_loops.extend(handle);
+                }
+            }
+            PassageSound::Stop => {
+                self.manager
+                    .play(&self.files, &PlayRequest::new(by_enum(STOP_SOUND)));
+                for h in std::mem::take(&mut self.portal_loops) {
+                    self.manager.stop(h, 0.0);
+                }
+            }
+        }
     }
 
     /// Every sound object `object` makes stops: it left the world.
