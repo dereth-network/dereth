@@ -414,6 +414,22 @@ pub fn show<S: yalain_store::Store>(
     v.effects.extend(effects);
 }
 
+/// An item's combat delay: its own, else its template's, as examining it shows it.
+#[must_use]
+pub fn combat_delay(m: Option<&Made>, props: Option<&yalain_content::Props>) -> i32 {
+    let own = m.and_then(|m| m.delay);
+    let of_template = || {
+        let p = props?;
+        let number = if p.int("Weapon_Damage").is_some() {
+            p.int("Weapon_Speed")
+        } else {
+            p.int("Item_CombatDelay")
+        };
+        number.and_then(|d| i32::try_from(d).ok())
+    };
+    own.or_else(of_template).unwrap_or(0).max(0)
+}
+
 /// What a made item carries, on a view of its template.
 pub fn apply_to_view(m: &Made, facts: &yalain_content::Facts, v: &mut crate::profile::ItemView) {
     if m.prefix != 0 {

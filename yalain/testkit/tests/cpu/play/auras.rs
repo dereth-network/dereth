@@ -664,6 +664,21 @@ fn a_weapons_examination_shows_what_an_aura_holds_on_it() {
     assert_eq!(v.weapon.map(|w| (w.2, w.3)), Some((18, 18)));
 }
 
+/// What an aura holds on a weapon changes the delay its examination shows, not the time scale its
+/// holder swings at.
+/// Behaviour: server.weapons.time-scale-follows-delay
+#[test]
+fn an_aura_lowering_a_weapons_delay_does_not_quicken_its_holder() {
+    let mut h = Harness::new();
+    let (_, me, blade) = holding_a_blade(&mut h);
+    let world = *h.server.players.keys().next().expect("in the world");
+    aura_on_what_is_held(&mut h, me, yalain_world::effect_defs::aura_target::ITEM);
+    let t = h.server.things.get(blade).expect("the weapon");
+    let shown = yalain_world::requests::item_view(&h.server, t).weapon;
+    assert_eq!(shown.map(|w| w.2), Some(14));
+    assert_eq!(yalain_world::combat::delay_worn(&h.server, world), 18);
+}
+
 /// An aura whose pulse changes a weapon's damage, its scale running to `at_50`; turned on for
 /// `user` at this spellcraft. Made up for the test.
 fn aura_on_damage(h: &mut Harness, user: u64, multiply: bool, at_50: f32, spellcraft: f32) -> u32 {

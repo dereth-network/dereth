@@ -9858,6 +9858,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.weapons.time-scale-bounds-of-delay",
+        says: "A player's time scale before its effects stays between 1 and 1.13, whatever it wears. \
+               Our choice: no recording holds a set of under 46 or over 96 combat delay.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLAYER-DELAY-BOUNDS"),
+        station: "yalain-testkit::cpu::play::attack_speed::the_time_scale_of_delay_stays_within_what_was_seen",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.weapons.time-scale-follows-delay",
+        says: "A player's time scale before its effects falls with the combat delay of all it wears \
+               and wields, by each item's own number, and its swings with it: 1.23 less 0.0024 a \
+               point. What an aura holds on a weapon changes the number shown, not its holder's \
+               time scale.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLAYER-DELAY-PACE"),
+        station: "yalain-testkit::cpu::play::attack_speed::a_players_swings_slow_with_the_combat_delay_it_wears_and_wields",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.weapons.two-blows",
         says: "A basic attack with two blows tells a result for each: drawn apart, doing the \
                damage of the weapon in the hand its hook names, each landing at its own time; \

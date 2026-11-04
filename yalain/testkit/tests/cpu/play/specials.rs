@@ -265,7 +265,7 @@ fn a_special_goes_at_its_players_pace() {
                 _ => None,
             })
             .expect("the special's story");
-        assert!((1.6..=1.97).contains(&ts), "{ts} in a run: {run}");
+        assert!((1.72..=2.12).contains(&ts), "{ts} in a run: {run}");
     }
 }
 

@@ -169,7 +169,7 @@ fn a_bows_shots_go_at_its_players_pace() {
     }
     assert!(told.len() > 3, "{} shots", told.len());
     for (_, ts) in &told {
-        assert!((1.6..=1.97).contains(ts), "{ts}");
+        assert!((1.72..=2.12).contains(ts), "{ts}");
     }
     for w in told.windows(2) {
         let gap = w[1].0 - w[0].0;

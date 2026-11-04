@@ -360,7 +360,7 @@ fn skills_that_strike_or_throw_twice_go_at_their_players_pace() {
         }
         assert!(told.len() > 2, "{} swings", told.len());
         for (_, ts) in &told {
-            assert!((1.6..=1.97).contains(ts), "{ts}");
+            assert!((1.72..=2.12).contains(ts), "{ts}");
         }
         for w in told.windows(2) {
             let (gap, due) = (w[1].0 - w[0].0, next_swing_after(period, w[0].1));

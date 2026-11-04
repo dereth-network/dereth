@@ -172,7 +172,8 @@ pub mod hook {
 /// 0x200 (0).
 pub const SWING_BEHAVIOR_BITS: u32 = 0x605;
 
-/// A fresh human's swing time scale, about which each swing varies by a tenth, and a creature's.
+/// The time scale of the players periods were measured at (see [`time_scale_at_delay`] for one
+/// player's), and a creature's.
 pub const PLAYER_TIME_SCALE: f32 = 1.05;
 pub const CREATURE_TIME_SCALE: f32 = 1.296;
 
@@ -1602,9 +1603,43 @@ pub fn player_pace<S: Store>(s: &Server<S>, world: ConnId) -> f32 {
     ((1.0 + add) * mult).max(SLOWEST_ATTACKS)
 }
 
-/// The time scale of a player's next attack: a tenth about its pace's.
+/// The combat delay of all a player wears and wields: each item's own number, as examining it
+/// shows it without what is held on it for now (the same weapon showing 14 under Swift Killer
+/// was no quicker than at 18 without).
+#[must_use]
+pub fn delay_worn<S: Store>(s: &Server<S>, world: ConnId) -> i32 {
+    let Some(p) = s.players.get(&world) else {
+        return 0;
+    };
+    p.play
+        .items
+        .iter()
+        .filter(|h| h.location != 0)
+        .filter_map(|h| s.things.get(h.id))
+        .map(|t| {
+            let props = s.catalog.get(t.template).map(|x| &x.props);
+            crate::made::combat_delay(t.own.made.as_ref(), props)
+        })
+        .sum()
+}
+
+/// A player's time scale, before its effects, at the combat delay it wears and wields (2017: over
+/// 43 sets of what was worn and 12,755 swings, 1.2325 - 0.00244 a point, rms 0.012; 1.10 at delays
+/// of 50-59, 1.08 at 60-69, 1.05 at 70-79, 1.02 at 80-89; plain swings and all other skills alike;
+/// a first-level character's drum of 70 alone 1.057). The delays seen run from 46 to 96, and
+/// the bounds are ours: nothing outside what was seen, 1.13 down to 1.00.
+#[must_use]
+pub fn time_scale_at_delay(delay: i32) -> f32 {
+    #[allow(clippy::cast_precision_loss)]
+    let delay = delay.clamp(0, 1_000) as f32;
+    (1.23 - 0.0024 * delay).clamp(1.0, 1.13)
+}
+
+/// The time scale of a player's next attack: a tenth about what it wears and wields gives it, at
+/// its pace.
 pub fn player_time_scale<S: Store>(s: &mut Server<S>, world: ConnId) -> f32 {
-    player_pace(s, world) * PLAYER_TIME_SCALE * s.rng.between(0.9, 1.1)
+    let base = time_scale_at_delay(delay_worn(s, world));
+    player_pace(s, world) * base * s.rng.between(0.9, 1.1)
 }
 
 /// The damage a player's direct hit on a creature gains from the armor rating the creature's

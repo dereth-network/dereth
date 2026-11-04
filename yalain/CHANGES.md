@@ -162,6 +162,7 @@ what they see, not how it was done.
 - Fixed creatures stopping at nothing where another creature had stood.
 - Creatures now pass through scenery marked for them.
 - Creatures in a camp now each take their own spot.
+- Heavier armor and weapons now slow your attacks.
 
 ## 0.1.2 (2026-11-03)
 

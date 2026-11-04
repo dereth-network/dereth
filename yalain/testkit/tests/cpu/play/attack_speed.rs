@@ -5,7 +5,7 @@
 use auberean_protocol::types::PhysicsStory;
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
-use yalain_testkit::play::server_call;
+use yalain_testkit::play::{server_call, use_of};
 use yalain_testkit::{Harness, TEST_CREATURE};
 use yalain_world::combat::{self, hit_seconds, next_swing_after, swing_seconds};
 use yalain_world::effect_defs::{numeric, EffectDef, Kind, Scale};
@@ -24,7 +24,7 @@ const FIRST_STATE: u32 = 0x6F00_7500;
 
 /// Where a swing's time scale falls at a pace: a tenth about the time scale times it.
 fn band(pace: f32) -> std::ops::RangeInclusive<f32> {
-    let at = combat::PLAYER_TIME_SCALE * pace;
+    let at = combat::time_scale_at_delay(0) * pace;
     (at * 0.9 - 1e-3)..=(at * 1.1 + 1e-3)
 }
 
@@ -135,6 +135,8 @@ fn stories(h: &Harness, b: usize, from: usize, me: u64) -> Vec<PhysicsStory> {
 
 /// Each story of a run as it is told, for `steps` of the world: its time and time scale.
 fn swings(h: &mut Harness, b: usize, me: u64, beetle: u64, steps: u32) -> Vec<(f64, f32)> {
+    // A story of the last run still on its way is not of this one.
+    h.run(10);
     let from = h.bots[b].inbox.len();
     h.bots[b].send(
         true,
@@ -252,4 +254,109 @@ fn an_effect_slowing_a_players_attacks_slows_its_swings() {
     let (mut h, b, me, beetle) = with_a_sword();
     speeded(&mut h, 53, 0.5, true);
     assert_paced(&swings(&mut h, b, me, beetle, 2400), 0.5);
+}
+
+/// An item of a template, with a combat delay of its own or none, put on by its use.
+fn put_on(h: &mut Harness, b: usize, me: u64, template: u32, own: Option<i32>) -> u64 {
+    let item = h.arm(b, me, template);
+    if own.is_some() {
+        let t = h.server.things.get_mut(item).expect("made");
+        t.own.made = Some(yalain_world::made::Made {
+            delay: own,
+            ..Default::default()
+        });
+    }
+    item
+}
+
+/// Take off what is worn, by its use.
+fn use_it_off(h: &mut Harness, b: usize, me: u64, item: u64) {
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(yalain_world::requests::function::USE, &[use_of(item, me)]),
+    );
+    h.run(10);
+}
+
+/// The mean time scale of a run's swings, and that each falls within a tenth of what was asked.
+fn asserted_base(at: &[(f64, f32)], base: f32) -> f32 {
+    assert!(at.len() > 10, "{} swings", at.len());
+    for (t, ts) in at {
+        let near = (base * 0.9 - 1e-3)..=(base * 1.1 + 1e-3);
+        assert!(near.contains(ts), "{ts} at {t} about {base}");
+    }
+    #[allow(clippy::cast_precision_loss)]
+    let n = at.len() as f32;
+    at.iter().map(|x| x.1).sum::<f32>() / n
+}
+
+/// What a player wears and wields, by each item's combat delay, its own number or else its
+/// template's, sets where its swings' time scale falls, and so when the next comes; what is in its
+/// pack does not; taking it off brings it back.
+/// Behaviour: server.weapons.time-scale-follows-delay
+#[test]
+fn a_players_swings_slow_with_the_combat_delay_it_wears_and_wields() {
+    const COAT: u32 = 0x4700_75A0;
+    const HOOD: u32 = 0x4700_75A1;
+    const SPARE: u32 = 0x4700_75A2;
+    let (mut h, b, me, beetle) = with_a_sword();
+    let world = *h.server.players.keys().next().expect("in the world");
+    let piece = |h: &mut Harness, t: u32, place: u32, delay: i64| {
+        let mut p = yalain_content::Props::default();
+        p.set("Item_ArmorLevel", yalain_content::Prop::Int(10))
+            .set("Item_CombatDelay", yalain_content::Prop::Int(delay))
+            .set(
+                "Item_ValidInventoryLocations",
+                yalain_content::Prop::Word(place),
+            )
+            .set(
+                "Item_PreferredInventoryLocation",
+                yalain_content::Prop::Word(place),
+            );
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(t, 0x180, p));
+    };
+    piece(&mut h, COAT, 2, 500);
+    piece(&mut h, HOOD, 1, 62);
+    piece(&mut h, SPARE, 4, 500);
+    let plain = swings(&mut h, b, me, beetle, 600);
+    let bare = asserted_base(&plain, 1.13);
+    assert_eq!(combat::delay_worn(&h.server, world), 0);
+
+    // The coat's own 8 and not its template's 500; the hood's template's 62.
+    put_on(&mut h, b, me, COAT, Some(8));
+    let hood = put_on(&mut h, b, me, HOOD, None);
+    assert_eq!(combat::delay_worn(&h.server, world), 70);
+    let spare = h.arm(b, me, SPARE);
+    use_it_off(&mut h, b, me, spare);
+    assert_eq!(combat::delay_worn(&h.server, world), 70, "in the pack");
+    let dressed = swings(&mut h, b, me, beetle, 600);
+    let at = 1.23 - 0.0024 * 70.0;
+    let mean = asserted_base(&dressed, at);
+    assert!(mean < bare - 0.03, "{mean} against {bare}");
+    let gaps: Vec<f64> = dressed.windows(2).map(|w| w[1].0 - w[0].0).collect();
+    #[allow(clippy::cast_precision_loss)]
+    let gap = gaps.iter().sum::<f64>() / gaps.len() as f64;
+    let due = next_swing_after(swing_seconds(Some(im::SWORD), false), mean);
+    assert!((gap - due).abs() < 0.03, "{gap:.3} where {due:.3} was due");
+
+    use_it_off(&mut h, b, me, hood);
+    assert_eq!(combat::delay_worn(&h.server, world), 8);
+}
+
+/// Where the delays recorded end the time scale stays: nothing quicker than the lightest seen,
+/// nothing slower than the heaviest.
+/// Behaviour: server.weapons.time-scale-bounds-of-delay
+#[test]
+fn the_time_scale_of_delay_stays_within_what_was_seen() {
+    assert!((combat::time_scale_at_delay(70) - 1.062).abs() < 1e-3);
+    assert!((combat::time_scale_at_delay(50) - 1.11).abs() < 1e-3);
+    for bare in [-5, 0, 20, 40] {
+        assert!((combat::time_scale_at_delay(bare) - 1.13).abs() < 1e-6);
+    }
+    for heavy in [96, 200, 100_000] {
+        assert!((combat::time_scale_at_delay(heavy) - 1.0).abs() < 1e-6);
+    }
 }
