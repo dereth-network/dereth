@@ -1241,6 +1241,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.others.a-place-in-the-world-takes-an-item-out-of-its-pack",
+        says: "An object given a place in the world stands there and is drawn, in no container,                with or without word that it left the pack it was in: the server tells the player                who put an item down only its place.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-PUT-DOWN"),
+        station: "auberean-interface::dat::screens::an_item_given_a_place_in_the_world_is_drawn",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.others.a-still-body-is-solid-at-its-whole-scale",
         says: "An object that does not move is solid in the world at its whole scale, its look's \
                times its own (the scale its qualities give), as it is drawn.",

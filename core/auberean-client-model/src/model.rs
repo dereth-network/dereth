@@ -702,8 +702,10 @@ impl Model {
                         obj.reports.remove(0);
                     }
                     obj.reports.push(Place::of(p));
+                    // A place in the world says it is out of any pack, whatever was said of that.
                     obj.in_world = true;
                     obj.parent = None;
+                    obj.container = None;
                     if teleported {
                         fx.push(Effect::Teleported);
                     }

@@ -1822,6 +1822,66 @@ fn a_click_in_the_world_selects_what_lies_under_it() {
     assert!(none, "nothing is selected: {:?}", &asked()[before..]);
 }
 
+/// An item in the player's pack, then given a place in the world with nothing said of its leaving
+/// the pack (as the server tells a player who put it down): it stands there and is drawn.
+///
+/// Behaviour: desktop.others.a-place-in-the-world-takes-an-item-out-of-its-pack
+#[test]
+fn an_item_given_a_place_in_the_world_is_drawn() {
+    use auberean_client_sdk::protocol::physics::ObjectPosition;
+    use auberean_client_sdk::protocol::types::{ObjectStamp, WeenieDesc};
+    const ITEM: u64 = 0x8130_0000_0000_0042;
+    let mut weenie = WeenieDesc::default();
+    weenie.mask |= WeenieDesc::OBJECT_BITS[0];
+    weenie.objects[0] = PLAYER;
+    let item = CreateObject {
+        id: ITEM,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            ..PhysicsDesc::default()
+        },
+        weenie,
+    };
+    let there = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: ITEM,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: HALL_CELL,
+        origin: Vec3 {
+            x: HALL_AT.x + 1.0,
+            y: HALL_AT.y + 1.0,
+            z: HALL_AT.z,
+        },
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1,
+        force_position_stamp: 0,
+        teleport_stamp: 0,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let (mut s, _retail) = into_the_world_with(script_with(vec![
+        s2c(6.43, 1, 1, WORLD | 7, &ServerMessage::CreateObject(item)),
+        s2c(20.0, 1, 1, WORLD | 8, &there),
+    ]));
+    assert!(
+        s.host.time < 18.0 && s.scene.body(ITEM).is_none(),
+        "in the pack, no body"
+    );
+    assert!(
+        until(&mut s, 30.0, |s| s.scene.seen.body(ITEM).is_some()),
+        "drawn where it was put"
+    );
+}
+
 /// A man named in his description, selected, then renamed by the server (a visual update of his
 /// name quality, stamped next after his creation): the player's scripts tell the panels his radar
 /// look changed, the interface asks his name again and the panels hear the notice with the world
