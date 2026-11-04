@@ -1518,6 +1518,8 @@ fn check_slots<S: Store>(
     if slots.len() != def.ingredients_at(spinner).count() {
         return error::INVALID_INGREDIENTS;
     }
+    // One stack may fill two slots only with enough of it for both.
+    let mut wanted: Vec<(u64, u64)> = Vec::new();
     for ing in def.ingredients_at(spinner) {
         let Some((slot, item)) = slots.iter().find(|(slot, _)| *slot == ing.ordinal) else {
             return error::INVALID_INGREDIENTS;
@@ -1526,6 +1528,23 @@ fn check_slots<S: Store>(
         if why != 0 {
             return why;
         }
+        let need = u64::from(s.crafting.required(ing, spinner).max(1));
+        match wanted.iter_mut().find(|(i, _)| i == item) {
+            Some((_, n)) => *n += need,
+            None => wanted.push((*item, need)),
+        }
+    }
+    let held = |item: u64| {
+        s.players.get(&world).map_or(0, |p| {
+            p.play
+                .items
+                .iter()
+                .find(|h| h.id == item)
+                .map_or(0, |h| u64::from(h.quantity.max(1)))
+        })
+    };
+    if wanted.iter().any(|(item, n)| held(*item) < *n) {
+        return error::TOO_FEW;
     }
     0
 }
@@ -1793,6 +1812,12 @@ fn result<S: Store>(
             &crate::chat::show_text(progress::TEXT_KIND, line),
         );
         progress::private(net, world, &executed(error::FAILED, m.recipe));
+        return;
+    }
+    // An ingredient put down, traded or sold since the request: nothing is made of it.
+    let why = check_slots(s, world, &def, m.spinner, &m.slots);
+    if why != 0 {
+        progress::private(net, world, &executed(why, m.recipe));
         return;
     }
     let level = s

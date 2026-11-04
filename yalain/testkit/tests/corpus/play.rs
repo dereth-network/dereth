@@ -1471,9 +1471,14 @@ mod crafts {
                     wrong.push(format!("{c:x?}: asked for {asked:?}"));
                 }
             }
+            let items: BTreeSet<u64> = c.slots.iter().map(|(_, i)| *i).collect();
+            if items.len() < c.slots.len() {
+                count("one item named for two slots");
+            }
             // Stocked for it, its workshop's record on but where the recording had it off.
             let mut slots = Vec::new();
             let mut unknown = false;
+            let mut wanted_of: BTreeMap<u32, u32> = BTreeMap::new();
             for (ordinal, _) in &c.slots {
                 let Some(ing) = def.ingredients.iter().find(|i| i.ordinal == *ordinal) else {
                     unknown = true;
@@ -1489,10 +1494,17 @@ mod crafts {
                     unknown = true;
                     break;
                 };
+                // The slots of one template share a stack here, where the recording held an item for
+                // each: it holds enough for them all.
                 let need = tables
                     .required(ing, c.spinner)
                     .max(c.used.get(ordinal).copied().unwrap_or(0))
                     .max(1);
+                let need = {
+                    let wanted = wanted_of.entry(t).or_insert(0);
+                    *wanted += need;
+                    *wanted
+                };
                 let held = h.server.players[&world]
                     .play
                     .items

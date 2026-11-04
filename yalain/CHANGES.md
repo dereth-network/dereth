@@ -82,6 +82,7 @@ what they see, not how it was done.
 - Fixed a corpse's item being taken twice, and a stranger selling a corpse's items for money.
 - A trade no longer goes through once an offered item is put down or split.
 - An item being put down isn't lost if you leave or the server stops.
+- A craft makes nothing if its ingredients are gone by the end.
 
 ## 0.1.2 (2026-11-03)
 

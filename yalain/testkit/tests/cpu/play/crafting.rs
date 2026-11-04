@@ -2462,3 +2462,76 @@ fn a_tool_made_at_a_level_asks_its_craft_skill_and_yields_five_above_it() {
         );
     }
 }
+
+/// How many of a template the player holds, its stacks counted whole.
+fn units(h: &Harness, world: yalain_net::ConnId, template: u32) -> u32 {
+    h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .filter(|i| i.template == template)
+        .map(|i| i.quantity.max(1))
+        .sum()
+}
+
+/// An ingredient put down while the recipe is being made: nothing comes of it, and the player is
+/// told.
+/// Behaviour: server.craft.nothing-made-of-an-ingredient-gone
+#[test]
+fn an_ingredient_put_down_during_the_making_makes_nothing() {
+    use yalain_world::inventory::{move_graph, Move};
+    let (mut h, b, me, world) = in_world();
+    let iron = with_recipe_and_iron(&mut h, world, me, 20);
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    h.run(2);
+    let m = Move {
+        move_type: yalain_world::drops::DROP,
+        item: iron,
+        quantity: 20,
+        ..Move::default()
+    };
+    h.ask(
+        b,
+        yalain_world::drops::function::MOVE_ITEM,
+        &[move_graph(&m)],
+        2,
+    );
+    wait(&mut h, 12.0);
+    assert_eq!(units(&h, world, MINES_SWORD), 0, "no sword for no iron");
+    let answers: Vec<u32> = calls_of(&h, b, from)
+        .iter()
+        .filter(|(f, _)| *f == function::EXECUTED)
+        .filter_map(|(_, v)| match v.get(1) {
+            Some(Value::Int(e)) => Some(*e),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        answers.last().is_some_and(|e| *e != 0),
+        "told it did not go: {answers:?}"
+    );
+    assert!(h.server.players[&world].making.is_none());
+}
+
+/// One stack named for two slots of a recipe: it must hold enough for both.
+/// Behaviour: server.craft.nothing-made-of-an-ingredient-gone
+#[test]
+fn one_stack_in_two_slots_must_hold_enough_for_both() {
+    let (mut h, b, me, world) = in_world();
+    let iron = with_recipe_and_iron(&mut h, world, me, 20);
+    let mut recipe = h.server.crafting.recipes[&MINES_RECIPE].clone();
+    let mut second = recipe.ingredients[0].clone();
+    second.ordinal = 2;
+    recipe.ingredients.push(second);
+    h.server.crafting.recipes.insert(MINES_RECIPE, recipe);
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron), (2, iron)]);
+    h.run(4);
+    let answered = calls_of(&h, b, from)
+        .iter()
+        .find(|(f, _)| *f == function::EXECUTED)
+        .cloned()
+        .expect("answered");
+    assert_eq!(answered.1.get(1), Some(&Value::Int(error::TOO_FEW)));
+    assert!(h.server.players[&world].making.is_none());
+    assert_eq!(units(&h, world, IRON), 20, "nothing used");
+}

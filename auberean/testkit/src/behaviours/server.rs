@@ -1363,6 +1363,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.nothing-made-of-an-ingredient-gone",
+        says: "A recipe's ingredients are looked at again when the making ends: one put \
+               down, traded or sold meanwhile makes nothing, and one stack named for two \
+               slots must hold enough for both.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-GONE"),
+        station: "yalain-testkit::cpu::play::crafting::an_ingredient_put_down_during_the_making_makes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.outcome-quality-decides",
         says: "An outcome's quality decides a product's numbers: a flawed making's reads two levels below the spinner, an expert one's two above; its name stays the spinner's.",
         since: RETAIL,
