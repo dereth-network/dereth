@@ -194,13 +194,19 @@ pub(crate) const ON_GROUND: u32 = 0x4;
 /// Every creature acts.
 pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
     let now = clock.local.0;
-    let ids: Vec<u64> = s
-        .things
-        .by_id
-        .values()
-        .filter(|t| t.alive() && t.creature.is_some() && !s.pets.is_pet(t.id))
-        .map(|t| t.id)
-        .collect();
+    let mut ids = Vec::new();
+    s.fighting.clear();
+    for t in s.things.by_id.values() {
+        let Some(c) = t.creature.as_ref() else {
+            continue;
+        };
+        if t.alive() && !s.pets.is_pet(t.id) {
+            ids.push(t.id);
+            if c.mode == Mode::Chasing {
+                s.fighting.push(t.id);
+            }
+        }
+    }
     for id in ids {
         act(s, net, id, clock, now);
     }
@@ -229,13 +235,15 @@ pub fn notices<S: Store>(s: &Server<S>, at: &StoredPosition, radius: f32) -> Opt
 /// from where it stands: within reach of its target, shooting within range, or fixed where it is
 /// (2017: gaps between one creature's attacks don't fold on the step, a concentration of 0.06 or
 /// less over 15,575 melee gaps and 9,659 of missiles and magic; on a pet 0.03 over 20,994). Going
-/// toward its target stays on the step.
+/// toward its target stays on the step. Only those fighting at the last step are looked at: a
+/// creature's first attack comes long after it takes on a player, so none is due before the next
+/// step would list it.
 pub fn attacks_due<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
     let now = clock.local.0;
     let due: Vec<u64> = s
-        .things
-        .by_id
-        .values()
+        .fighting
+        .iter()
+        .filter_map(|id| s.things.get(*id))
         .filter(|t| t.alive() && !s.pets.is_pet(t.id) && attacks_from_here(s, t, now))
         .map(|t| t.id)
         .collect();

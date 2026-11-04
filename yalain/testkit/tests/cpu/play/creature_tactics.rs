@@ -760,6 +760,43 @@ fn a_creatures_strike_comes_when_it_is_due_not_at_the_worlds_next_step() {
     }
 }
 
+/// Between the world's steps only the creatures fighting are looked at for an attack due: none at
+/// rest, however many stand in the world, and the one that takes on a player from the next step,
+/// well before its first attack, until the step after its fight ends.
+/// Behaviour: server.creatures.attacks-due-looked-for-among-those-fighting
+#[test]
+fn only_creatures_fighting_are_looked_at_for_an_attack_due() {
+    let (mut h, b, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    hardy(&mut h, me);
+    assert!(
+        h.run_until(40, |h| h.server.fighting == [id]),
+        "the one fighting, from a step on"
+    );
+    let from = h.bots[b].inbox.len();
+    let struck = |h: &Harness| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::DoStory(e) if e.sender.id == id && e.action.attacker == id)
+        })
+    };
+    assert!(!struck(&h), "listed before its first attack");
+
+    // A hundred more at rest, far from anyone.
+    h.server.spawns.camps[0].spots = vec![(0x0299_0109, [-500.0, 240.0, -44.6])];
+    let now = h.now.0;
+    for _ in 0..100 {
+        assert!(yalain_world::spawn::spawn(&mut h.server, 0, now).is_some());
+    }
+    h.run(40);
+    let standing = h.server.things.by_id.values().filter(|t| t.alive()).count();
+    assert_eq!(standing, 101);
+    assert_eq!(h.server.fighting, [id], "of {standing}");
+    assert!(struck(&h), "and it strikes");
+
+    assert!(h.server.things.remove(id).is_some());
+    h.run(10);
+    assert_eq!(h.server.fighting, Vec::<u64>::new(), "none once it is gone");
+}
+
 /// A creature that redraws its target between the world's steps and turns to one out of its reach
 /// runs only on the step: it moves at no other time.
 /// Behaviour: server.creatures.attacks-when-due

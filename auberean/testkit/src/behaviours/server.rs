@@ -1826,6 +1826,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.attacks-due-looked-for-among-those-fighting",
+        says: "Between the world's steps only the creatures fighting are looked at for an attack \
+               due, however many stand in the world. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-ATTACKS-AMONG-FIGHTING"),
+        station: "yalain-testkit::cpu::play::creature_tactics::only_creatures_fighting_are_looked_at_for_an_attack_due",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.attacks-from-skill-definitions",
         says: "A creature's attacks are its skills as the data defines them: the behavior each \
                plays, whether it throws a missile, its kind, the damage it adds at the creature's \

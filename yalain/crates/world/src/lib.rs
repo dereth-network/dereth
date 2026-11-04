@@ -341,6 +341,8 @@ pub struct Server<S: Store> {
     /// The things the world has made, and each camp's state.
     pub things: things::Things,
     pub camps: Vec<spawn::CampState>,
+    /// The creatures fighting at the world's last step: those [`ai::attacks_due`] looks at.
+    pub fighting: Vec<u64>,
     /// The ground's height outdoors, when the host knows the land.
     pub ground: Option<Box<dyn Ground>>,
     /// The walls, floors and solid things creatures meet, when the host knows the world.
@@ -690,6 +692,7 @@ impl<S: Store> Server<S> {
             chatter: HashMap::new(),
             things,
             camps: Vec::new(),
+            fighting: Vec::new(),
             ground: None,
             walls: None,
             data: None,
