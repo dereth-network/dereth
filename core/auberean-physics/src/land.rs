@@ -68,7 +68,9 @@ pub fn cell_of(local: Vec3) -> Option<(usize, usize)> {
 /// A solid part placed in a block: its collision geometry and where it stands, the sphere
 /// around it in the block's frame, the box around what its object draws, in the object's frame
 /// and scaled, and the property collections of the entities its object is made from, innermost
-/// first.
+/// first. One whose properties make it something some mover passes through ([`Solid::marked`])
+/// is met as a placed object of the world, which asks; every other is solid to all, and its land
+/// cells answer for it.
 #[derive(Debug, Clone)]
 pub struct Solid {
     pub part: PhysicsPart,
@@ -77,6 +79,8 @@ pub struct Solid {
     pub bounds: Sphere,
     pub render_box: BBox,
     pub properties: Vec<Arc<auberean_assets::property::PropertyCollection>>,
+    /// Its properties make it something some mover passes through.
+    pub marked: bool,
 }
 
 /// Placed entities that collide through cylinders or spheres, each where it stands.
@@ -330,7 +334,7 @@ impl HostCell for LandCell {
             .iter()
             .map(|&i| &self.block.solids[i as usize]);
         let over = self.overhanging.iter().map(|(b, i)| &b.solids[*i as usize]);
-        for solid in own.chain(over) {
+        for solid in own.chain(over).filter(|s| !s.marked) {
             let r = collide::object_part_find_obj_collisions_scaled(
                 ctx,
                 t,

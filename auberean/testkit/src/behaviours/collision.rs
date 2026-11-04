@@ -502,6 +502,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "collision.solid.outdoor-tree-scenery-asks-what-a-mover-passes",
+        says: "Scenery placed outside is an object like any other whatever its shape: tree-shaped \
+               scenery marked as something some mover passes through lets those movers by and holds \
+               the others up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-OUTDOOR-TREES-ASK"),
+        station: "auberean-physics::dat::objects::outdoor_tree_scenery_lets_by_only_those_that_pass_through_its_mark",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "collision.solid.scenery-takes-its-entitys-properties",
         says: "What a landblock or cell places takes the properties of the entities it is made \
                from, the outdoor scenery's type added outside: scenery whose entity is of the \

@@ -45,6 +45,7 @@ mod props;
 pub use detect::GameObjects;
 pub(crate) use detection::PHYSICS_SHAPES;
 pub use detection::{split_ray, Detection, NoGameObjects};
+pub(crate) use props::group;
 pub use props::{entity_graphics_state, graphics, render};
 
 /// The physics type the client gives the entities placed outside.
@@ -994,17 +995,32 @@ impl World {
         }
     }
 
-    /// The placed entities of `cell`'s block that collide through cylinders or spheres, static and
-    /// solid: outside, the block's own, once the block is in `land`, each of the physics type the
-    /// client gives them; inside, every interior cell's, once the block's interior cells are.
+    /// The placed entities of `cell`'s block and those around it that collide as objects (through
+    /// cylinders or spheres, or through a tree when their properties make them something some mover
+    /// passes through), static and solid: outside, the block's own, once the block is in `land`,
+    /// each of the physics type the client gives them; inside, every interior cell's, once the
+    /// block's interior cells are.
     fn add_placed(&mut self, land: &Land, cell: CellId) {
         let block = cell.0 & 0xFFFF_0000;
         let lb = cell.landblock();
         let mut found: Vec<(Position, Arc<Shape>, bool)> = Vec::new();
-        if !self.placed_outside.contains(&block) {
-            if let Some(b) = land.block(lb.x(), lb.y()) {
-                self.placed_outside.insert(block);
-                found.extend(b.objects.iter().map(|(p, s)| (*p, Arc::clone(s), true)));
+        // The blocks around it too: what stands in them reaches over their edges.
+        for dx in -1i16..=1 {
+            for dy in -1i16..=1 {
+                let (Ok(x), Ok(y)) = (
+                    u8::try_from(i16::from(lb.x()) + dx),
+                    u8::try_from(i16::from(lb.y()) + dy),
+                ) else {
+                    continue;
+                };
+                let around = u32::from(x) << 24 | u32::from(y) << 16;
+                if self.placed_outside.contains(&around) {
+                    continue;
+                }
+                if let Some(b) = land.block(x, y) {
+                    self.placed_outside.insert(around);
+                    found.extend(b.objects.iter().map(|(p, s)| (*p, Arc::clone(s), true)));
+                }
             }
         }
         if !self.placed_inside.contains(&block) {

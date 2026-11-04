@@ -364,12 +364,31 @@ pub fn placed_entity(
         return None;
     }
     let mut shape = Shape::of(records, DataId(e.object?), trees)?;
-    if shape.has_physics_tree() || (shape.cylinders.is_empty() && shape.spheres.is_empty()) {
+    shape.properties.push(own_properties(e));
+    let by_tree = shape.has_physics_tree();
+    if (by_tree && !marks_ethereal(&shape.properties))
+        || (!by_tree && shape.cylinders.is_empty() && shape.spheres.is_empty())
+    {
         return None;
     }
     shape.scale = entity_scale(e, shape.scale);
-    shape.properties.push(own_properties(e));
     Some((Position::new(cell, entity_frame(e)), shape))
+}
+
+/// Whether any of these collections sets a bit of an object's physics type: the object is then
+/// something some mover passes through.
+fn marks_ethereal(collections: &[Arc<PropertyCollection>]) -> bool {
+    collections
+        .iter()
+        .flat_map(|c| c.groups.iter())
+        .filter(|g| g.group == crate::world::group::ETHEREAL)
+        .flat_map(|g| g.properties.iter())
+        .any(|p| {
+            matches!(
+                p.value,
+                auberean_assets::property::PropertyValue::Bool(true)
+            )
+        })
 }
 
 /// The solid parts of a placed entity of the world's records: one for each part of its look whose
@@ -405,6 +424,7 @@ pub fn placed_solids(
     .render_bounding_box();
     let mut properties = shape.properties.clone();
     properties.push(own_properties(e));
+    let marked = marks_ethereal(&properties);
     shape
         .trees
         .iter()
@@ -426,6 +446,7 @@ pub fn placed_solids(
                 ),
                 render_box,
                 properties: properties.clone(),
+                marked,
             })
         })
         .collect()

@@ -133,6 +133,7 @@ fn a_solid_over_a_block_edge_is_in_the_next_blocks_cells() {
         bounds: Sphere::new(Vec3::new(x, 90.0, GROUND_Z), r),
         render_box: BBox::default(),
         properties: Vec::new(),
+        marked: false,
     };
     let land = Land::new();
     let mut west = Block::flat(0x40, 0x40, GROUND_Z);

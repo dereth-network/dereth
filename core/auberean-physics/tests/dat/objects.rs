@@ -18,6 +18,7 @@ use auberean_physics::motion::params::MovementParameters;
 use auberean_physics::motion::MotionInput;
 use auberean_physics::object::Shape;
 use auberean_physics::parts::{PartArray, PartGroup};
+use auberean_physics::solid::Ethereality;
 use auberean_physics::world::{World, WorldObject};
 use auberean_primitives::DataId;
 use auberean_world::look::{Group, Look};
@@ -320,6 +321,59 @@ fn the_halls_dais_holds_a_body_where_the_client_holds_it() {
         across(climbed, top.frame.origin) < 0.3 && (climbed.z - -43.495).abs() < 0.001,
         "up on the top: {climbed:?}"
     );
+}
+
+/// How far east a body of these masks gets across the ground of block 0x7D93 from west of a tall
+/// tree-shaped wall marked for creatures to pass.
+fn east_of_the_marked_wall(w: &crate::common::World, masks: Ethereality) -> f32 {
+    let mut trees = Trees::default();
+    let land = Land::new();
+    land.add_block(&w.records, &w.region, &mut trees, 0x7D, 0x93);
+    let cell = land_cell_id(0x7D, 0x93, 2, 2);
+    let start = Position::new(
+        cell,
+        Frame::new(Vec3::new(69.8, 56.1, 127.49), Quat::IDENTITY),
+    );
+    let mut world = World::new();
+    world.set_property_list(
+        w.records
+            .get::<auberean_assets::property::PropertyList>(0x3400_0000)
+            .expect("the list"),
+    );
+    let mut b = body(w, start, 90.0);
+    let key = world.insert_body(&land, 0, &mut b);
+    world.set_ethereality(key, masks);
+    let leg = Vec3::new(0.09, 0.08, 0.0);
+    for _ in 0..100 {
+        b.contact = true;
+        b.on_walkable = true;
+        b.velocity = Vec3::ZERO;
+        b.move_through(&land, &mut world, leg, 90.0);
+    }
+    b.position.frame.origin.x
+}
+
+/// Tree-shaped scenery placed outside asks what a mover passes through: marked for creatures to
+/// pass, it lets a body of a creature's masks by and holds up one of a player's.
+///
+/// Behaviour: collision.solid.outdoor-tree-scenery-asks-what-a-mover-passes
+#[test]
+fn outdoor_tree_scenery_lets_by_only_those_that_pass_through_its_mark() {
+    let w = need_world!();
+    let creature = Ethereality {
+        physics_type: 0x40_0020,
+        movement: 0x4220_0010,
+        placement: 0x42A0_0090,
+    };
+    let player = Ethereality {
+        physics_type: 0x0480_0020,
+        movement: 0x3E20_0010,
+        placement: 0,
+    };
+    let through = east_of_the_marked_wall(w, creature);
+    let held = east_of_the_marked_wall(w, player);
+    assert!(through > 76.0, "through the wall: {through}");
+    assert!(held < 75.0, "held at the wall: {held}");
 }
 
 /// What the hall's cells place that collides only through its setup's cylinders is solid too: a
