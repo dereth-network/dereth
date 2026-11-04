@@ -8,7 +8,9 @@
 //!
 //! **Taking an item** (the client uses the item inside the open corpse): the player plays its
 //! taking behavior, the item leaves the corpse, and once the behavior is through (1.8 s) the item
-//! is contained by the player and the move is answered. **Turning a corpse's items into money**:
+//! is contained by the player and the move is answered: into a stack it can join where there is
+//! one, into a place of its own where the pack has room, and otherwise it stays where it is and the
+//! taker is told. **Turning a corpse's items into money**:
 //! each item is contained and moved, the money goes up by its value, the item is destroyed in the
 //! pack; then the answer with the money earned, each item's object destroyed, and the pack's
 //! contents again.
@@ -1667,10 +1669,12 @@ pub fn taken<S: Store>(
         .map(|c| c.contents.clone())
         .or_else(|| crate::usable::chests::contents(s, corpse))
         .is_some_and(|c| c.contains(&item));
-    let full = s
-        .players
-        .get(&world)
-        .is_some_and(|p| pack_full(&p.play.items));
+    let quantity = s.things.get(item).map_or(1, |t| t.quantity.max(1));
+    let stack = stack_for(s, world, item, quantity).filter(|_| there);
+    let full = stack.is_none()
+        && s.players
+            .get(&world)
+            .is_some_and(|p| pack_full(&p.play.items));
     if !there || full {
         let m = Move {
             move_type: move_type::TAKE,
@@ -1693,6 +1697,10 @@ pub fn taken<S: Store>(
     }
     if let Some(c) = s.things.get_mut(corpse).and_then(|t| t.corpse.as_mut()) {
         c.contents.retain(|x| *x != item);
+    }
+    if let Some((stack, _, had)) = stack {
+        joined_stack(s, net, world, item, corpse, from_slot, (stack, had), clock);
+        return;
     }
     let Some(slot) = hold(s, world, item) else {
         return;
@@ -1739,6 +1747,88 @@ pub fn taken<S: Store>(
     crate::world::keep_player(s, world);
 }
 
+/// A taken item joins a stack in the pack, which needs no place of its own: the move answered as a
+/// merge, the stack's new quantity shown and the item gone from all who knew it (2017: 162 of 773
+/// takes).
+#[allow(clippy::too_many_arguments)]
+fn joined_stack<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    item: u64,
+    from: u64,
+    from_slot: u32,
+    (stack, had): (u64, u32),
+    clock: Clock,
+) {
+    let Some(player) = s.players.get(&world).map(|p| p.character) else {
+        return;
+    };
+    let Some((instance, quantity, template, look)) = s.things.get(item).map(|t| {
+        (
+            t.instance,
+            t.quantity.max(1),
+            t.template,
+            t.description.look,
+        )
+    }) else {
+        return;
+    };
+    let m = Move {
+        move_type: move_type::TAKE,
+        item,
+        quantity,
+        from,
+        actual_from: from,
+        actual_from_slot: i32::try_from(from_slot).unwrap_or(0),
+        target: player,
+        actual_target: player,
+        merge_container: player,
+        merge: true,
+        merge_slot: -1,
+        split_quantity: quantity,
+        all_taken: true,
+        auto_merge: true,
+        contain: true,
+        grab: true,
+        unlock: true,
+        played_anim: true,
+        template,
+        look_entity: look,
+        ..Move::default()
+    };
+    progress::private(net, world, &move_done(&m));
+    let total = had + quantity;
+    if let Some(h) = s
+        .players
+        .get_mut(&world)
+        .and_then(|p| p.play.items.iter_mut().find(|h| h.id == stack))
+    {
+        h.quantity = total;
+    }
+    if let Some(t) = s.things.get_mut(stack) {
+        t.quantity = total;
+    }
+    let more = ServerMessage::UpdateIntVisual(VisualQuality {
+        object: visual(s, stack),
+        quality: crate::craft::QUANTITY,
+        value: i32::try_from(total).unwrap_or(i32::MAX),
+    });
+    progress::private(net, world, &more);
+    let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
+        id: item,
+        instance_stamp: instance,
+        other_stamp: 0,
+    }));
+    crate::presence::to_thing_knowers(s, net, item, BlobKind::UNORDERED, &gone);
+    s.things.remove(item);
+    for p in s.players.values_mut() {
+        p.known.remove(&item);
+    }
+    crate::quests::took(s, net, world, template, clock);
+    crate::world::keep_player(s, world);
+}
+
 /// A player turns everything in a corpse into money.
 pub fn transmute_all<S: Store>(
     s: &mut Server<S>,
@@ -1777,6 +1867,12 @@ pub fn transmute_all<S: Store>(
     let mut earned = 0u32;
     let mut done = Vec::new();
     let mut refused = Vec::new();
+    // Each item passes through the pack, which holds it no longer than this answer: it needs no
+    // room, and into a full pack its move says it ran past (2017: 6 of 6).
+    let past_room = s
+        .players
+        .get(&world)
+        .is_some_and(|p| pack_full(&p.play.items));
     for (slot, item) in contents.iter().enumerate() {
         // A quest item, or one worth nothing, is not turned into money: it stays in the corpse.
         let kept = s.things.get(*item).is_none_or(|t| {
@@ -1831,6 +1927,7 @@ pub fn transmute_all<S: Store>(
             no_move: true,
             quiet: true,
             overflow: true,
+            used_overflow: past_room,
             template: t.template,
             ..Move::default()
         };

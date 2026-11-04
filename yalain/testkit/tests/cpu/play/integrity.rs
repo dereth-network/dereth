@@ -33,13 +33,18 @@ fn beside(h: &mut Harness, who: u64, of: u64) {
 
 /// A corpse holding `n` test items, beside `me`; the corpse and its items.
 fn corpse(h: &mut Harness, me: u64, n: usize) -> (u64, Vec<u64>) {
+    corpse_of(h, me, TEST_ITEM, n)
+}
+
+/// A corpse holding `n` items of a template, beside `me`; the corpse and its items.
+fn corpse_of(h: &mut Harness, me: u64, template: u32, n: usize) -> (u64, Vec<u64>) {
     let t = h.server.catalog.get(TEST_ITEM).cloned().expect("template");
     let id = h.server.things.new_id();
     let mut c = Thing::of(id, &t, Kind::Corpse);
     c.at = Some(h.server.players[&world_of(h, me)].position);
     let items: Vec<u64> = (0..n)
         .map(|i| {
-            let item = inventory::make_item(&mut h.server, TEST_ITEM, 1, 0).expect("made");
+            let item = inventory::make_item(&mut h.server, template, 1, 0).expect("made");
             h.server.things.get_mut(item).expect("item").container =
                 Some((id, u32::try_from(i).unwrap_or(0)));
             item
@@ -242,6 +247,119 @@ fn an_item_taken_into_a_full_pack_stays_in_the_corpse() {
             })
     });
     assert!(refused, "told there is no room");
+}
+
+/// An item that stacks needs no place of its own: taken into a pack holding all its room it joins
+/// its stack, is gone from the corpse and from the world, and the pack holds no more items than it
+/// did. A stack with no room for it leaves it in the corpse.
+/// Behaviour: server.inventory.a-taken-item-joins-its-stack
+#[test]
+fn a_taken_item_joins_its_stack_even_in_a_full_pack() {
+    const GEM: u32 = 0x4700_7002;
+    let (mut h, (a, ida), _) = players();
+    let mut stacks = yalain_content::Props::default();
+    stacks.set("Item_MaxStackSize", yalain_content::Prop::Int(5));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(GEM, 0x1067, stacks));
+    let gems = hold(&mut h, ida, GEM, 3);
+    while inventory::fits_in_pack(&h.server.players[&world_of(&h, ida)].play.items, 1) {
+        hold(&mut h, ida, TEST_ITEM, 1);
+    }
+    let in_pack = h.server.players[&world_of(&h, ida)].play.items.len();
+    let (c, items) = corpse_of(&mut h, ida, GEM, 3);
+    h.ask(a, USE, &[use_of(c, ida)], 5);
+    let quantity = |h: &Harness| {
+        h.server.players[&world_of(h, ida)]
+            .play
+            .items
+            .iter()
+            .find(|x| x.id == gems)
+            .map_or(0, |x| x.quantity)
+    };
+    let contents = |h: &Harness| {
+        h.server
+            .things
+            .get(c)
+            .and_then(|t| t.corpse.as_ref())
+            .map_or(0, |x| x.contents.len())
+    };
+    for (n, item) in items.iter().take(2).enumerate() {
+        h.ask(a, USE, &[use_of(*item, ida)], 2);
+        h.run(steps(inventory::TAKING_SECONDS + 1.0));
+        assert_eq!(quantity(&h), 4 + u32::try_from(n).unwrap_or(0), "joined");
+        assert!(h.server.things.get(*item).is_none(), "gone from the world");
+        assert_eq!(contents(&h), 2 - n, "gone from the corpse");
+    }
+    let from = h.bots[a].inbox.len();
+    h.ask(a, USE, &[use_of(items[2], ida)], 2);
+    h.run(steps(inventory::TAKING_SECONDS + 1.0));
+    assert_eq!(quantity(&h), 5, "at its limit");
+    assert_eq!(contents(&h), 1, "left where it was");
+    assert!(
+        h.server.things.get(items[2]).is_some(),
+        "still in the world"
+    );
+    assert_eq!(
+        h.server.players[&world_of(&h, ida)].play.items.len(),
+        in_pack,
+        "no more items held"
+    );
+    let refused = h.calls(a, from).iter().any(|(f, v)| {
+        *f == inventory::function::MOVE_DONE
+            && v.iter().any(|x| match x.root() {
+                Some(yalain_world::calls::Node::Script { slots, .. }) => {
+                    slots[40].1 == yalain_world::pack::status::CONTAINER_FULL
+                }
+                _ => false,
+            })
+    });
+    assert!(refused, "told there is no room");
+}
+
+/// A corpse turned into money by a player whose pack holds all its room still turns: each item only
+/// passes through, its move says it ran past the room, and the pack ends as it was.
+/// Behaviour: server.inventory.money-from-a-corpse-past-a-full-pack
+#[test]
+fn a_corpse_turned_into_money_with_a_full_pack_says_it_ran_past_the_room() {
+    let (mut h, (a, ida), _) = players();
+    let mut props = yalain_content::Props::default();
+    props.set("Item_Value", yalain_content::Prop::Int(25));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(TEST_ITEM, 0x1067, props));
+    while inventory::fits_in_pack(&h.server.players[&world_of(&h, ida)].play.items, 1) {
+        hold(&mut h, ida, TEST_ITEM, 1);
+    }
+    let in_pack = h.server.players[&world_of(&h, ida)].play.items.len();
+    let (c, _) = corpse(&mut h, ida, 2);
+    h.ask(a, USE, &[use_of(c, ida)], 5);
+    let from = h.bots[a].inbox.len();
+    h.ask(
+        a,
+        inventory::function::TRANSMUTE_ALL,
+        &[transmute_request(c)],
+        5,
+    );
+    assert_eq!(money(&h, ida), 50);
+    let moves: Vec<(u32, u32)> = h
+        .calls(a, from)
+        .iter()
+        .filter(|(f, _)| *f == inventory::function::MOVE_DONE)
+        .filter_map(|(_, v)| {
+            v.iter().find_map(|x| match x.root() {
+                Some(yalain_world::calls::Node::Script { slots, .. }) => {
+                    Some((slots[43].1, slots[34].1))
+                }
+                _ => None,
+            })
+        })
+        .collect();
+    assert_eq!(moves, [(1, 1), (1, 1)], "may, and did");
+    assert_eq!(
+        h.server.players[&world_of(&h, ida)].play.items.len(),
+        in_pack
+    );
 }
 
 /// An offered item that is gone by the time both have accepted: the trade does not go through for

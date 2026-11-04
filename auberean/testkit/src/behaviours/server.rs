@@ -3830,6 +3830,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.a-taken-item-joins-its-stack",
+        says: "An item taken from a corpse that can join a stack in the pack joins it and is gone; it \
+               needs no place of its own, so a pack holding all its room takes it too.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TAKE-JOINS-STACK"),
+        station: "yalain-testkit::cpu::play::integrity::a_taken_item_joins_its_stack_even_in_a_full_pack",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.a-thing-never-takes-anothers-place",
         says: "A thing never takes the place of one the world has: an item a character \
                comes back with under an id the world already has is given a fresh id, each \
@@ -4028,6 +4037,15 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-MONEY-OPEN"),
         station: "yalain-testkit::cpu::play::integrity::a_corpse_the_player_has_not_open_is_not_turned_into_money",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.money-from-a-corpse-past-a-full-pack",
+        says: "A corpse is turned into money whatever the pack holds; each item's move may run past \
+               the room, and says it did when the pack holds all its room.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TRANSMUTE-PAST-ROOM"),
+        station: "yalain-testkit::cpu::play::integrity::a_corpse_turned_into_money_with_a_full_pack_says_it_ran_past_the_room",
         tier: Tier::Cpu,
     },
     behaviour! {

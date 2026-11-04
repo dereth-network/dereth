@@ -147,6 +147,7 @@ what they see, not how it was done.
 - An admin's /generate now makes at most a hundred.
 - Counters on weapons now answer attacks, and wards keep their effects off.
 - A skill's rating falls at no vigor, for skills that say so.
+- Items taken from corpses and chests now join a stack, even in a full pack.
 
 ## 0.1.2 (2026-11-03)
 
