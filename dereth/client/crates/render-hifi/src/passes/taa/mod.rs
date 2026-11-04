@@ -194,9 +194,7 @@ pub fn jittered_frames(
     let mut map = HashMap::with_capacity(offsets.len());
     for recorded in offsets {
         let base = chain.frame(recorded).unwrap_or(recorded);
-        if let Some(shifted) =
-            cx.derived_frame_block(base, "jitter", |b| jitter_block(b, shift))
-        {
+        if let Some(shifted) = cx.derived_frame_block(base, "jitter", |b| jitter_block(b, shift)) {
             map.insert(recorded, shifted);
         }
     }

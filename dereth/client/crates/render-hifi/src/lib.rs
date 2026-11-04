@@ -1269,11 +1269,7 @@ impl FrameSidecar for HifiRenderer {
                     .filter(|(_, wanted)| **wanted)
                     .filter_map(|((_, p), _)| p.replay_filter())
                     .collect();
-                self.jittered_frames = passes::taa::jittered_frames(
-                    cx,
-                    &mut Chain(filters),
-                    shift,
-                );
+                self.jittered_frames = passes::taa::jittered_frames(cx, &mut Chain(filters), shift);
             }
         }
         timing::add_ms(&mut self.cpu_prepare, "jittered blocks", watch.ms());
