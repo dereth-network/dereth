@@ -161,6 +161,10 @@ impl Portal {
     fn visual(&self, id: u32) -> Option<VisualDesc> {
         self.visuals.get(id, || self.decoded(id))
     }
+
+    fn appearance(&self, id: u32) -> Option<auberean_assets::visual::Appearance> {
+        self.decoded(id)
+    }
 }
 
 /// Each race and sex's body look, read from its body entity.
@@ -362,6 +366,14 @@ pub fn catalog(
         let icon = icon_layers(p, description.look);
         if !icon.is_empty() {
             c.icons.insert(t, icon);
+        }
+        let tables = yalain_world::equip::dye_table(&props)
+            .into_iter()
+            .chain([yalain_world::inventory::POTION_COLOR.0]);
+        for table in tables {
+            c.icon_tables
+                .entry(table)
+                .or_insert_with(|| yalain_content::icon_tables(table, &|did| p.appearance(did)));
         }
         c.insert(Template {
             id: t,
@@ -1202,6 +1214,26 @@ mod tests {
         assert!(meshes.iter().all(|n| *n == 1), "{meshes:?}");
         let materials = heads(&p.dat, &portal_reads, 0x3000_0000, 0x30FF_FFFF, |_| true);
         assert!(materials.is_empty(), "{materials:?}");
+    }
+
+    /// The catalog reads what an item's appearance table does to its icon: a recorded armor piece at
+    /// its recorded value shows its recorded color.
+    /// Behaviour: server.examination.an-items-icon-takes-its-appearance
+    #[test]
+    fn the_catalog_holds_what_an_items_appearance_table_does_to_its_icon() {
+        const ARMOR: u32 = 0x4700_0DC5;
+        const TABLE: u32 = 0x2000_0075;
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new()).expect("a context");
+        let (c, _) = catalog(&p, &SpawnTable::default(), &LootTable::default(), &[ARMOR])
+            .expect("the catalog");
+        let mut icon = c.icons[&ARMOR].clone();
+        assert_eq!(icon[1][2], 0xFFFF_FFFF, "its template's");
+        yalain_content::apply_icon_value(&mut icon, &c.icon_tables[&TABLE], 2, 0.31);
+        assert_eq!(icon[1][2], 0xFF91_1D1D);
+        assert!(c
+            .icon_tables
+            .contains_key(&yalain_world::inventory::POTION_COLOR.0));
     }
 
     /// The files served to clients are the ones the start read, not opened again; and a record the

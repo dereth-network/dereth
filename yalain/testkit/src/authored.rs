@@ -476,6 +476,13 @@ impl Portal {
             if !icon.is_empty() {
                 catalog.icons.insert(id, icon);
             }
+            if let Some(table) = yalain_world::equip::dye_table(&t.props) {
+                catalog.icon_tables.entry(table).or_insert_with(|| {
+                    yalain_content::icon_tables(table, &|did| {
+                        auberean_assets::decode(did, &self.dat.read(did).ok()?, &self.ctx).ok()
+                    })
+                });
+            }
             catalog.insert(t);
         }
         catalog

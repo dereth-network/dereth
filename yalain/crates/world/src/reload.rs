@@ -214,6 +214,7 @@ impl<S: Store> Server<S> {
         catalog.templates.extend(t.catalog.templates);
         catalog.profiles.extend(t.catalog.profiles);
         catalog.icons.extend(t.catalog.icons);
+        catalog.icon_tables.extend(t.catalog.icon_tables);
         catalog.bodies.extend(t.catalog.bodies);
         let changed = catalog != self.catalog;
         r.note(table::TEMPLATES, changed, true);

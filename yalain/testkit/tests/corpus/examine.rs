@@ -980,7 +980,7 @@ fn made_items_profiles_are_built_from_their_recipes_item_level_as_2017_built_the
 }
 
 /// Every piece of armor dyed in the recordings holds its plant's value in the three modifiers the
-/// next time the recordings make it.
+/// next time the recordings make it, and its icon shows that value from the dye on.
 /// Behaviour: server.craft.dyed-armor-as-2017
 #[test]
 fn armor_dyed_holds_its_plants_value_when_next_made() {
@@ -1017,6 +1017,10 @@ fn armor_dyed_holds_its_plants_value_when_next_made() {
     let mut dyed: HashMap<u64, f32> = HashMap::new();
     let mut making: Option<(u64, f32)> = None;
     let (mut asked, mut held) = (0usize, 0usize);
+    // Since its dye, before it was next made: its look, and the value.
+    let mut looks: HashMap<u64, u32> = HashMap::new();
+    let mut since: HashMap<u64, f32> = HashMap::new();
+    let (mut examined, mut colored, mut tabled) = (0usize, 0usize, 0usize);
     while let Some(r) = rows.next().expect("a row") {
         let raw: Vec<u8> = r.get(0).expect("raw");
         let dir: String = r.get(1).expect("dir");
@@ -1059,13 +1063,46 @@ fn armor_dyed_holds_its_plants_value_when_next_made() {
                 // It takes the color with the answer.
                 if c.function.0 == yalain_world::craft::function::EXECUTED {
                     if let Some((armor, value)) = making.take() {
-                        let v = calls::values(&c.args.map(|a| a.0).unwrap_or_default())
+                        let v = calls::values(&c.args.clone().map(|a| a.0).unwrap_or_default())
                             .unwrap_or_default();
                         if v.get(1) == Some(&Value::Int(0)) {
                             dyed.insert(armor, value);
+                            since.insert(armor, value);
                             asked += 1;
                         }
                     }
+                }
+                if c.function.0 == profile::EXAMINATION_PROFILE {
+                    let v = calls::values(&c.args.clone().map(|a| a.0).unwrap_or_default())
+                        .unwrap_or_default();
+                    let Some(Node::Native { bytes, .. }) = v.first().and_then(Value::root) else {
+                        continue;
+                    };
+                    let object = profile::read_request(bytes).object;
+                    let (Some(value), Some(look), Some(t), Some(theirs)) = (
+                        since.get(&object),
+                        looks.get(&object),
+                        template.get(&object),
+                        icon_in(bytes, 20),
+                    ) else {
+                        continue;
+                    };
+                    let props = yalain_content::Props::of(*t, &|id| entity(inst, id), &prop_name)
+                        .with_worn_of(*t);
+                    let Some(table) = yalain_world::equip::dye_table(&props) else {
+                        continue;
+                    };
+                    let tables = yalain_content::icon_tables(table, &|did| {
+                        auberean_assets::decode(did, &inst.dat.read(did).ok()?, &inst.ctx).ok()
+                    });
+                    let mut mine = yalain_content::icon_layers(*look, &|did| {
+                        auberean_assets::decode(did, &inst.dat.read(did).ok()?, &inst.ctx).ok()
+                    });
+                    for key in DYE_KEYS {
+                        yalain_content::apply_icon_value(&mut mine, &tables, key, *value);
+                    }
+                    examined += 1;
+                    colored += usize::from(mine == theirs);
                 }
                 continue;
             }
@@ -1073,6 +1110,8 @@ fn armor_dyed_holds_its_plants_value_when_next_made() {
             _ => continue,
         };
         template.insert(o.id, o.weenie.entity_did);
+        looks.insert(o.id, o.visual.parent);
+        since.remove(&o.id);
         if let Some(value) = dyed.remove(&o.id) {
             let holds = o.visual.global.appearance.entries.iter().any(|(_, t)| {
                 DYE_KEYS
@@ -1080,10 +1119,26 @@ fn armor_dyed_holds_its_plants_value_when_next_made() {
                     .all(|k| t.get(*k).is_some_and(|v| (v - value).abs() < 0.0001))
             });
             held += usize::from(holds);
+            let props =
+                yalain_content::Props::of(o.weenie.entity_did, &|id| entity(inst, id), &prop_name)
+                    .with_worn_of(o.weenie.entity_did);
+            let table = yalain_world::equip::dye_table(&props);
+            tabled += usize::from(
+                o.visual
+                    .global
+                    .appearance
+                    .entries
+                    .iter()
+                    .any(|(t, _)| Some(*t) == table),
+            );
             assert!(holds, "{:x} after a dye of {value}", o.id);
         }
     }
     println!("armor dyed: {asked}; held the plant's value at their next making: {held}");
+    println!("in the table the server writes: {tabled}");
+    println!("examined since their dye, before their next making: {colored} of {examined}");
+    assert_eq!(tabled, held, "a dye's table");
+    assert_eq!(colored, examined, "a dyed item's icon is its plant's");
     assert!(held > 0 || asked == 0);
 }
 
@@ -1297,4 +1352,133 @@ fn numbers_in_any(bytes: &[u8], request_len: usize) -> Option<BTreeMap<u32, u32>
         }
     }
     Some(out)
+}
+
+/// Every recorded profile's icon is its look's icon with what its item's appearance values give it,
+/// through their tables and those tables' base tables. The residue measured on 2026-11-04 is 6 of
+/// 8,038: five pieces of armor examined after a dye, their last making from before it (the dye's
+/// own test holds those).
+/// Behaviour: server.examination.an-items-icon-takes-its-appearance
+#[test]
+fn an_items_icon_takes_what_its_appearance_gives_as_2017() {
+    let path = auberean_testkit::data::require_capture_index();
+    let Some(inst) = installed() else {
+        println!("no September 2013 install here");
+        return;
+    };
+    let con = open(&path);
+    let mut st = con
+        .prepare(
+            "SELECT m.session_id, m.raw FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.status = 'ac2' \
+             AND m.dir = 's2c' AND m.mtype IN (65624, 65638) ORDER BY m.session_id, m.idx",
+        )
+        .expect("prepares");
+    let mut rows = st.query([]).expect("runs");
+    // Each object's look and its appearance values, by table.
+    type Values = Vec<(u32, Vec<(u32, f32)>)>;
+    let mut made: HashMap<u64, (u32, Values)> = HashMap::new();
+    let mut tables: HashMap<u32, Vec<yalain_content::IconTable>> = HashMap::new();
+    let mut session = -1;
+    let (mut seen, mut built, mut changed) = (0usize, 0usize, 0usize);
+    while let Some(r) = rows.next().expect("a row") {
+        let sid: i64 = r.get(0).expect("session");
+        if sid != session {
+            made.clear();
+            session = sid;
+        }
+        let raw: Vec<u8> = r.get(1).expect("raw");
+        let Ok(m) = ServerMessage::decode(&raw) else {
+            continue;
+        };
+        let call = match m {
+            ServerMessage::CreateObject(o) => {
+                let values = o
+                    .visual
+                    .global
+                    .appearance
+                    .entries
+                    .iter()
+                    .map(|(t, k)| (*t, k.entries.clone()))
+                    .collect();
+                made.insert(o.id, (o.visual.parent, values));
+                continue;
+            }
+            ServerMessage::PlayerCall(c) if c.function.0 == profile::EXAMINATION_PROFILE => c,
+            _ => continue,
+        };
+        let v = calls::values(&call.args.map(|a| a.0).unwrap_or_default()).unwrap_or_default();
+        let Some(Node::Native { bytes, .. }) = v.first().and_then(Value::root) else {
+            continue;
+        };
+        let req = profile::read_request(bytes);
+        if req.kind != profile::request::OBJECT {
+            continue;
+        }
+        let (Some((look, values)), Some(theirs)) = (made.get(&req.object), icon_in(bytes, 20))
+        else {
+            continue;
+        };
+        let visual =
+            |did: u32| auberean_assets::decode(did, &inst.dat.read(did).ok()?, &inst.ctx).ok();
+        let plain = yalain_content::icon_layers(*look, &visual);
+        let mut mine = plain.clone();
+        for (table, keys) in values {
+            let t = tables.entry(*table).or_insert_with(|| {
+                yalain_content::icon_tables(*table, &|did| {
+                    auberean_assets::decode(did, &inst.dat.read(did).ok()?, &inst.ctx).ok()
+                })
+            });
+            for (key, value) in keys {
+                yalain_content::apply_icon_value(&mut mine, t, *key, *value);
+            }
+        }
+        seen += 1;
+        built += usize::from(mine == theirs);
+        changed += usize::from(plain != theirs);
+    }
+    println!("icons built: {built} of {seen}; other than their look's own: {changed}");
+    assert!(
+        changed > 2_000,
+        "the recordings hold changed icons: {changed}"
+    );
+    assert!(seen - built <= 6, "icons built: {built} of {seen}");
+}
+
+fn icon_in(bytes: &[u8], request_len: usize) -> Option<Vec<[u32; 3]>> {
+    let mut r = In::new(bytes.get(request_len..)?);
+    let n = r.u32().ok()?;
+    for _ in 0..n {
+        let ty = r.u32().ok()?;
+        r.u32().ok()?;
+        match ty {
+            0x4000_0001..=0x4000_0003 | 0x4000_000C => {
+                r.u32().ok()?;
+                r.u32().ok()?;
+            }
+            0x4000_0004 => {
+                r.u32().ok()?;
+                TextInfo::unpack(&mut r).ok()?;
+            }
+            0x4000_0005 | 0x4000_0007 => {
+                r.u32().ok()?;
+            }
+            0x4000_0006 => {}
+            0x4000_0008 | 0x4000_000A => {
+                r.u32().ok()?;
+                r.u32().ok()?;
+                r.u32().ok()?;
+            }
+            0x4000_0009 => {
+                let k = r.u32().ok()?;
+                let mut out = Vec::new();
+                for _ in 0..k {
+                    out.push([r.u32().ok()?, r.u32().ok()?, r.u32().ok()?]);
+                }
+                return Some(out);
+            }
+            _ => return None,
+        }
+    }
+    None
 }

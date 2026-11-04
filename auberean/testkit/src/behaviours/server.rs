@@ -2596,6 +2596,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.an-items-icon-takes-its-appearance",
+        says: "An item's icon is its look's with what its appearance values give it through their \
+               appearance tables, base tables first: a dye's color, a potion's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ICON-APPEARANCE"),
+        station: "yalain-testkit::cpu::entry::examine::a_dyed_items_icon_takes_its_dyes_color",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.destroyed-on-use-by-kind",
         says: "Keys, glyphs, potions and the other kinds whose class makes them so say they are \
                destroyed on use, even when their template does not.",

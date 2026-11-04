@@ -470,13 +470,22 @@ fn sale_profile(b: &mut Builder, c: &Consignment, name: (u32, u32), icon: &[[u32
     me
 }
 
-fn name_and_icon<S: Store>(s: &Server<S>, template: u32) -> ((u32, u32), Vec<[u32; 3]>) {
+fn name_and_icon<S: Store>(s: &Server<S>, c: &Consignment) -> ((u32, u32), Vec<[u32; 3]>) {
     let name = s
         .catalog
-        .get(template)
+        .get(c.template)
         .and_then(|t| t.facts.name)
         .unwrap_or((0, 0));
-    let icon = s.catalog.icons.get(&template).cloned().unwrap_or_default();
+    let icon = s.things.get(c.item).map_or_else(
+        || {
+            s.catalog
+                .icons
+                .get(&c.template)
+                .cloned()
+                .unwrap_or_default()
+        },
+        |t| inventory::icon_of(s, t),
+    );
     (name, icon)
 }
 
@@ -515,7 +524,7 @@ fn consignments_list<S: Store>(s: &Server<S>, b: &mut Builder, owner: u64, keepe
     b.native(REF_LIST, list(Elem::Ref, Vec::new()));
     let mut refs = Vec::new();
     for c in &mine {
-        let (name, icon) = name_and_icon(s, c.template);
+        let (name, icon) = name_and_icon(s, c);
         refs.push(Item::Ref(consignment(b, c, name, &icon)));
     }
     b.replace_native(list_id, list(Elem::Ref, refs));
@@ -591,7 +600,7 @@ pub fn enter_store<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
     b.native(REF_LIST, list(Elem::Ref, Vec::new()));
     let mut refs = Vec::new();
     for c in &sales {
-        let (name, icon) = name_and_icon(s, c.template);
+        let (name, icon) = name_and_icon(s, c);
         refs.push(Item::Ref(sale_profile(&mut b, c, name, &icon)));
     }
     b.replace_native(l, list(Elem::Ref, refs));

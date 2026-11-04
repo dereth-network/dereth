@@ -1663,6 +1663,9 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         for (id, icon) in held.icons {
             catalog.icons.entry(id).or_insert(icon);
         }
+        for (id, tables) in held.icon_tables {
+            catalog.icon_tables.entry(id).or_insert(tables);
+        }
         tracing::info!(weapons = weapons.len(), "the creatures' weapons read");
         catalog.bodies = data::bodies(portal, &catalog);
         data::resolve_ingredient_classes(portal, &mut craft, &catalog)?;

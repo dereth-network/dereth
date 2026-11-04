@@ -630,6 +630,32 @@ pub fn make_item<S: Store>(
     Some(id)
 }
 
+/// The icon an item is shown with: its template's, with what its dye or its potion's color does to
+/// it (2017: 8,032 of 8,038 profiles' icons so, from their items' appearance values).
+#[must_use]
+pub fn icon_of<S: Store>(s: &Server<S>, t: &Thing) -> Vec<[u32; 3]> {
+    let mut icon = s
+        .catalog
+        .icons
+        .get(&t.template)
+        .cloned()
+        .unwrap_or_default();
+    let mut apply = |table: u32, key: u32, value: f32| {
+        if let Some(tables) = s.catalog.icon_tables.get(&table) {
+            yalain_content::apply_icon_value(&mut icon, tables, key, value);
+        }
+    };
+    if let Some((table, dye)) = t.own.dye {
+        for key in crate::equip::DYE_KEYS {
+            apply(table, key, dye);
+        }
+    }
+    if let Some(e) = t.own.effect {
+        apply(POTION_COLOR.0, POTION_COLOR.1, e.color);
+    }
+    icon
+}
+
 /// What one piece of an item is worth: its own value, else its template's.
 fn piece_worth<S: Store>(s: &Server<S>, t: &Thing) -> u32 {
     if t.value > 0 {

@@ -248,8 +248,8 @@ fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::Item
                 profile::ItemView::of(&tp.props, t.quantity, own_value)
             })
     });
-    if let Some(icon) = s.catalog.icons.get(&t.template) {
-        v.icon.clone_from(icon);
+    if s.catalog.icons.contains_key(&t.template) {
+        v.icon = crate::inventory::icon_of(s, t);
     }
     if let Some(e) = s.item_effects.get(&t.template) {
         v.effects.clone_from(e);

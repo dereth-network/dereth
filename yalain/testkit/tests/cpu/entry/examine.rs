@@ -1081,6 +1081,98 @@ fn an_item_in_another_players_pack_answers_only_once_offered() {
     assert_eq!(ask(&mut h), 1, "offered to it");
 }
 
+/// A dyed item's profile shows its icon with what its dye gives it through its appearance table,
+/// and a potion's its color through the potions' table.
+/// Behaviour: server.examination.an-items-icon-takes-its-appearance
+#[test]
+fn a_dyed_items_icon_takes_its_dyes_color() {
+    const TABLE: u32 = 0x2000_7001;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    h.server.catalog.icons.insert(
+        yalain_testkit::TEST_ITEM,
+        vec![
+            [1000, 0x4100_0001, 0xFFFF_FFFF],
+            [2000, 0x4100_0002, 0xFFFF_FFFF],
+        ],
+    );
+    let steps = |key: u32| {
+        vec![yalain_content::IconTable {
+            keys: vec![(
+                key,
+                vec![
+                    (0.0, vec![[2000, 0, 0xFF00_0001]]),
+                    (0.1, vec![[2000, 0, 0xFF00_0002]]),
+                    (0.2, vec![[2000, 0, 0xFF00_0003]]),
+                ],
+            )],
+        }]
+    };
+    let (potions, key) = yalain_world::inventory::POTION_COLOR;
+    h.server.catalog.icon_tables.insert(TABLE, steps(2));
+    h.server.catalog.icon_tables.insert(potions, steps(key));
+    let (a, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("a player");
+    let item = yalain_world::inventory::give(
+        &mut h.server,
+        &mut h.net,
+        world,
+        yalain_testkit::TEST_ITEM,
+        1,
+    )
+    .expect("given");
+    h.server.things.get_mut(item).expect("made").own.dye = Some((TABLE, 0.15));
+    h.run(2);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(item, 0x3FF)]),
+    );
+    h.run(10);
+    let got = profile_nodes(&h, a, from);
+    let t = h.server.things.get(item).expect("held");
+    let icon = yalain_world::inventory::icon_of(&h.server, t);
+    assert_eq!(
+        icon,
+        [
+            [1000, 0x4100_0001, 0xFFFF_FFFF],
+            [2000, 0x4100_0002, 0xFF00_0002]
+        ],
+        "the color of the step its dye falls in"
+    );
+    let mut view = profile::ItemView::of(
+        &h.server
+            .catalog
+            .get(yalain_testkit::TEST_ITEM)
+            .expect("made")
+            .props,
+        1,
+        None,
+    );
+    view.icon = icon;
+    let mut request = Vec::new();
+    for w in [0x4000_0002u32, 0] {
+        request.extend(w.to_le_bytes());
+    }
+    request.extend(item.to_le_bytes());
+    request.extend(0x3FFu32.to_le_bytes());
+    assert_eq!(got, vec![profile::item(0x3FF, &view).packed(&request)]);
+    let t = h.server.things.get_mut(item).expect("held");
+    t.own.dye = None;
+    t.own.effect = Some(yalain_world::treasure::OwnEffect {
+        state: 0,
+        spellcraft: 0.0,
+        table: 0,
+        color: 0.25,
+    });
+    let t = h.server.things.get(item).expect("held");
+    assert_eq!(
+        yalain_world::inventory::icon_of(&h.server, t)[1],
+        [2000, 0x4100_0002, 0xFF00_0003]
+    );
+}
+
 /// A stack with a value of its own shows what all its pieces are worth, as a sale of it pays.
 /// Behaviour: server.inventory.a-stack-pays-for-each-piece
 #[test]
