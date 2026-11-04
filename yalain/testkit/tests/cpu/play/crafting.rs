@@ -989,7 +989,11 @@ fn a_recipe_learned_has_its_charges_and_granted_again_has_them_all_again() {
         .insert(CHARGED, charged(CHARGED, 2, Vec::new()));
     let charges = |h: &Harness| {
         let p = h.server.players.get(&world).expect("in the world");
-        p.play.recipes.iter().find(|r| r.recipe == CHARGED).map(|r| r.charges)
+        p.play
+            .recipes
+            .iter()
+            .find(|r| r.recipe == CHARGED)
+            .map(|r| r.charges)
     };
     let clock = h.clock();
     yalain_world::craft::learn(&mut h.server, &mut h.net, world, CHARGED, clock);
@@ -1009,8 +1013,14 @@ fn a_recipe_learned_has_its_charges_and_granted_again_has_them_all_again() {
     h.run(2);
     assert_eq!(charges(&h), Some(2));
     let got = calls_of(&h, b, from);
-    assert!(got.iter().any(|(f, _)| *f == function::UPDATE_RECIPE), "told");
-    assert!(!got.iter().any(|(f, _)| *f == function::ADD_RECIPE), "known");
+    assert!(
+        got.iter().any(|(f, _)| *f == function::UPDATE_RECIPE),
+        "told"
+    );
+    assert!(
+        !got.iter().any(|(f, _)| *f == function::ADD_RECIPE),
+        "known"
+    );
 }
 
 /// A recipe that asks for a target is made only at an object of a template it names: at nothing, or
@@ -1063,7 +1073,12 @@ fn a_recipe_asking_for_a_target_is_made_at_one_of_its_own_and_nowhere_else() {
     wait(&mut h, 8.0);
     assert_eq!(answer(&h, b, from), Some(0));
     let p = h.server.players.get(&world).expect("in the world");
-    let r = p.play.recipes.iter().find(|r| r.recipe == AT_MINE).expect("held");
+    let r = p
+        .play
+        .recipes
+        .iter()
+        .find(|r| r.recipe == AT_MINE)
+        .expect("held");
     assert_eq!(r.charges, 2, "the refusals spent nothing");
 }
 
@@ -1158,7 +1173,11 @@ fn a_quest_given_runs_the_step_waiting_on_it_and_one_withheld_runs_none() {
             .filter(|f| *f == UPDATE_QUEST || *f == function::ADD_RECIPE)
             .collect();
         if paid {
-            assert_eq!(order, [UPDATE_QUEST, function::ADD_RECIPE], "only the shown one told");
+            assert_eq!(
+                order,
+                [UPDATE_QUEST, function::ADD_RECIPE],
+                "only the shown one told"
+            );
         } else {
             assert!(order.is_empty(), "{order:?}");
         }

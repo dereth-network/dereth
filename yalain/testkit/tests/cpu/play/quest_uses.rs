@@ -820,3 +820,45 @@ fn a_last_phase_done_by_subquests_is_the_quest_done_and_its_person_says_its_comp
         }
     }
 }
+
+/// A person whose quests follow one another gives the next as soon as the last is done, in their
+/// order, with no two hours' wait between them.
+/// Behaviour: server.quests.chain-has-no-person-wait
+#[test]
+fn a_person_whose_quests_follow_one_another_gives_the_next_at_once() {
+    const RYVENNA: u32 = 0x4700_2FD7;
+    const CHAIN: [u32; 3] = [0x4000_02F7, 0x4000_02F3, 0x4000_02F1];
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![object(0x8130_0000_0000_0801, RYVENNA, [61.0, 241.0, -44.6])],
+        ..ContentPack::default()
+    };
+    h.server.quests = QuestTable {
+        quests: CHAIN.iter().map(|q| quest(*q, 0x2500_2929, 1)).collect(),
+        steps: CHAIN
+            .iter()
+            .enumerate()
+            .map(|(i, q)| Step {
+                requires: if i == 0 {
+                    Vec::new()
+                } else {
+                    vec![(CHAIN[i - 1], Need::Done)]
+                },
+                ..step(*q, 0, Trigger::Use(RYVENNA), Update::Bestow)
+            })
+            .collect(),
+        gives: Vec::new(),
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let person = 0x8130_0000_0000_0801;
+    holding(&mut h, &[(CHAIN[0], status::COMPLETED, 0)], 60);
+    let from = use_it(&mut h, b, me, person);
+    let given = updates(&h, b, from);
+    assert_eq!(given.len(), 1, "the next one, a minute after the last");
+    assert_eq!((given[0].0, given[0].1.id), (0x1000_0000, CHAIN[1]));
+    holding(&mut h, &[], 0);
+    let from = use_it(&mut h, b, me, person);
+    let given = updates(&h, b, from);
+    assert_eq!(given.len(), 1, "the first of them, none done");
+    assert_eq!(given[0].1.id, CHAIN[0]);
+}

@@ -967,12 +967,30 @@ fn givings<S: Store>(s: &Server<S>, trigger: Trigger) -> Vec<u32> {
     out
 }
 
+/// Do a person's quests follow one another, each given once the one before it is done? (2017: two
+/// characters did one person's 33 in one order, with 19 and 17 of the 32 gaps under [`PERSON_WAIT`];
+/// the next was given 3.7 s after the last was done, 1 of 1.)
+fn in_a_chain<S: Store>(s: &Server<S>, quests: &[u32]) -> bool {
+    s.quests.steps.iter().any(|st| {
+        st.needs == 0
+            && st.update == Update::Bestow
+            && quests.contains(&st.quest)
+            && st
+                .requires
+                .iter()
+                .any(|(q, need)| *need == Need::Done && quests.contains(q))
+    })
+}
+
 /// Has a person who gives several quests, none of them with a wait of its own and none under way
-/// for the player, given the player one of them less than [`PERSON_WAIT`] ago?
+/// for the player and not in a chain, given the player one of them less than [`PERSON_WAIT`] ago?
 fn person_waits<S: Store>(s: &Server<S>, world: ConnId, quests: &[u32], now_unix: i64) -> bool {
     let Some(p) = s.players.get(&world) else {
         return false;
     };
+    if in_a_chain(s, quests) {
+        return false;
+    }
     let no_wait = quests
         .iter()
         .all(|q| s.quests.quest(*q).is_some_and(|d| d.retry <= 0.0));

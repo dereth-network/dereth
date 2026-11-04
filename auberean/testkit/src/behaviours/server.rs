@@ -6933,6 +6933,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.chain-has-no-person-wait",
+        says: "A person whose quests follow one another gives the next as soon as the last is done, with no two \
+               hours' wait between them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-CHAIN-2017"),
+        station: "yalain-testkit::cpu::play::quest_uses::a_person_whose_quests_follow_one_another_gives_the_next_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.completion-adds-points",
         says: "A quest's completion adds its points to its player's quest rating: whole, whatever its challenge against the player's level, and every time; a row may say otherwise than its setup.",
         since: RETAIL,
