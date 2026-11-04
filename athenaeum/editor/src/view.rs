@@ -260,3 +260,10 @@ pub fn unrotated(q: [f32; 4], p: [f32; 3]) -> [f32; 3] {
         p[2] + q[0] * t[2] + c[2],
     ]
 }
+
+/// Whether a triangle is level enough to stand on, whichever way round it is wound.
+#[must_use]
+pub fn is_level(t: &[[f32; 3]; 3]) -> bool {
+    let n = norm(cross(sub(t[1], t[0]), sub(t[2], t[0])));
+    n[2].abs() > 0.5
+}

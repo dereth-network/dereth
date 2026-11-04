@@ -84,7 +84,8 @@ to where it leads.
 - Drag a marker to move its row over the ground; R turns it (Shift+R the other way); Delete or
   Backspace takes it away; F flies to it.
 - **Place**, with a kind and a template along the top, shows the new row under the pointer and puts
-  it at the next click on the ground. R turns it first; Shift+click keeps placing; Esc stops.
+  it at the next click: on the ground, or on the stones, platforms, buildings and objects
+  standing there. R turns it first; Shift+click keeps placing; Esc stops.
 - Shift+click adds a row to the selection. Then dragging, the handles, R, Duplicate and Delete take
   them all together, keeping how they stand to each other, and one Undo takes it back.
 - An object's **Lead to a place** list makes it a portal: this world's places first, then the

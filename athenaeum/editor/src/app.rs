@@ -46,6 +46,8 @@ pub const NEAR: f32 = 160.0;
 pub const MARKED: f32 = 400.0;
 /// How close to a marker a click selects it, pixels.
 pub const HIT: f32 = 12.0;
+/// How far a look finds what the world has built, meters.
+pub const BUILT_REACH: f32 = 400.0;
 /// How many rows the Find window lists.
 pub const FOUND: usize = 200;
 /// How far from a row its copy stands, meters.
@@ -1321,6 +1323,21 @@ impl<'w> Editor<'w> {
         [g[0], g[1], z]
     }
 
+    /// What a row at a point of the world's grid would stand on, looking down from a little over
+    /// it: a platform under it or the ground, a floor among rooms.
+    #[must_use]
+    pub fn surface_under(&mut self, g: [f32; 3]) -> [f32; 3] {
+        let from = [g[0], g[1], g[2] + 1.0];
+        if let Some((lb, low)) = self.inside {
+            let at = view::local_in(lb, from);
+            return self
+                .scene
+                .floor_seen(lb, low, at, [0.0, 0.0, -1.0])
+                .map_or(g, |(_, on)| view::global(lb, on));
+        }
+        self.surface_met(from, [0.0, 0.0, -1.0]).unwrap_or(g)
+    }
+
     /// The floor or ground under the camera, on the world's grid.
     #[must_use]
     pub fn under_camera(&mut self) -> [f32; 3] {
@@ -1332,7 +1349,8 @@ impl<'w> Editor<'w> {
             }
             return [p.x, p.y, p.z];
         }
-        [p.x, p.y, self.scene.ground(p.x, p.y).unwrap_or(p.z)]
+        self.surface_met([p.x, p.y, p.z], [0.0, 0.0, -1.0])
+            .unwrap_or([p.x, p.y, self.scene.ground(p.x, p.y).unwrap_or(p.z)])
     }
 
     /// Where a player enters: on the ground under the camera, facing as it faces.
@@ -1399,11 +1417,16 @@ impl<'w> Editor<'w> {
         out
     }
 
-    /// The nearest row whose body the pointer's line of sight goes through.
-    fn body_at(&mut self, px: [f32; 2]) -> Option<String> {
-        let v = self.view();
-        let dir = v.ray(px);
-        let mut best: Option<(f32, String)> = None;
+    /// The nearest row whose body a look meets: how far along, the row, and whether that face is level
+    /// enough to stand on. `settling`: for something to stand on, so only what stands
+    /// still, and not what is selected.
+    fn body_met(
+        &mut self,
+        from: [f32; 3],
+        dir: [f32; 3],
+        settling: bool,
+    ) -> Option<(f32, String, bool)> {
+        let mut best: Option<(f32, String, bool)> = None;
         for (i, d) in self.near.clone() {
             if d > NEAR {
                 break;
@@ -1411,11 +1434,13 @@ impl<'w> Editor<'w> {
             let Some(e) = self.session.entries().get(i).cloned() else {
                 continue;
             };
-            if !self.shows(&e) {
+            if !self.shows(&e) || (settling && self.is_selected(&e.item)) {
                 continue;
             }
             let template = match &e.row.row {
+                Row::Object(o) if settling && o.kind == ObjectKind::Npc => continue,
                 Row::Object(o) => o.template,
+                Row::Camp(_) if settling => continue,
                 Row::Camp(c) => match c.spawns.first() {
                     Some((t, _)) => *t,
                     None => continue,
@@ -1425,23 +1450,26 @@ impl<'w> Editor<'w> {
             let Some((look, scale)) = self.look(template) else {
                 continue;
             };
-            let Some((lo, hi)) = self.scene.look_box(look) else {
-                continue;
-            };
             let g = entry_global(&e, &mut self.scene);
             let q = rotation_of(&e.row.row);
             let s = scale.max(0.01);
-            let to = view::unrotated(q, [v.eye[0] - g[0], v.eye[1] - g[1], v.eye[2] - g[2]]);
+            let to = view::unrotated(q, [from[0] - g[0], from[1] - g[1], from[2] - g[2]]);
             let along = view::unrotated(q, dir);
-            let from = [to[0] / s, to[1] / s, to[2] / s];
+            let start = [to[0] / s, to[1] / s, to[2] / s];
             let along = [along[0] / s, along[1] / s, along[2] / s];
-            if let Some(t) = view::ray_box(from, along, lo, hi) {
+            if let Some((t, level)) = self.scene.look_met(look, start, along) {
                 if best.as_ref().is_none_or(|b| t < b.0) {
-                    best = Some((t, e.item.clone()));
+                    best = Some((t, e.item.clone(), level));
                 }
             }
         }
-        best.map(|b| b.1)
+        best
+    }
+
+    /// The nearest row whose body the pointer's line of sight goes through.
+    fn body_at(&mut self, px: [f32; 2]) -> Option<String> {
+        let v = self.view();
+        self.body_met(v.eye, v.ray(px), false).map(|b| b.1)
     }
 
     /// The row a click at a pixel takes: the marker there, else the body.
@@ -1489,8 +1517,60 @@ impl<'w> Editor<'w> {
             let (_, on) = self.scene.floor_seen(lb, low, from, dir)?;
             return Some(view::global(lb, on));
         }
+        self.surface_met(v.eye, dir)
+    }
+
+    /// What a look outdoors first meets to stand on: the ground, or what the world has built on it.
+    /// A look that meets a wall gets what is at the wall's foot.
+    fn surface_met(&mut self, from: [f32; 3], dir: [f32; 3]) -> Option<[f32; 3]> {
+        let at = |t: f32| {
+            [
+                from[0] + dir[0] * t,
+                from[1] + dir[1] * t,
+                from[2] + dir[2] * t,
+            ]
+        };
         let scene = &mut self.scene;
-        view::hit_ground(v.eye, dir, 2000.0, 2.0, &mut |x, y| scene.ground(x, y))
+        let ground = view::hit_ground(from, dir, 2000.0, 2.0, &mut |x, y| scene.ground(x, y));
+        let ground_t = ground.map(|g| {
+            ((g[0] - from[0]).powi(2) + (g[1] - from[1]).powi(2) + (g[2] - from[2]).powi(2)).sqrt()
+        });
+        let reach = ground_t.unwrap_or(BUILT_REACH).min(BUILT_REACH);
+        let built = self.scene.built_met(from, dir, reach);
+        let body = self
+            .body_met(from, dir, true)
+            .filter(|b| b.0 <= reach)
+            .map(|b| (b.0, b.2));
+        let met = match (built, body) {
+            (Some(a), Some(b)) => Some(if a.0 <= b.0 { a } else { b }),
+            (a, b) => a.or(b),
+        };
+        let Some((t, level)) = met else {
+            return ground;
+        };
+        let p = at(t);
+        if level {
+            return Some(p);
+        }
+        // Back off the wall, and straight down to what is under it.
+        let off = [
+            p[0] - dir[0] * 0.05,
+            p[1] - dir[1] * 0.05,
+            p[2] - dir[2] * 0.05,
+        ];
+        let below = self.scene.ground(off[0], off[1]).unwrap_or(off[2] - 1000.0);
+        let drop = (off[2] - below).max(0.0);
+        let down = [0.0, 0.0, -1.0];
+        let top = self
+            .body_met(off, down, true)
+            .filter(|b| b.2 && b.0 <= drop)
+            .map(|b| b.0);
+        match (self.scene.built_met(off, down, drop), top) {
+            (Some((d, true)), Some(t)) => Some([off[0], off[1], off[2] - d.min(t)]),
+            (Some((d, true)), None) => Some([off[0], off[1], off[2] - d]),
+            (_, Some(t)) => Some([off[0], off[1], off[2] - t]),
+            _ => Some([off[0], off[1], below]),
+        }
     }
 
     /// The name of the row under the pointer, to show beside it.
@@ -1768,12 +1848,11 @@ impl<'w> Editor<'w> {
             gizmo::snapped(g[0], self.snap.grid),
             gizmo::snapped(g[1], self.snap.grid),
         );
-        let z = if self.inside.is_some() {
-            g[2]
-        } else {
-            self.scene.ground(x, y).unwrap_or(g[2])
-        };
-        [x, y, z]
+        if self.inside.is_some() {
+            return [x, y, g[2]];
+        }
+        // On what it was over, at the height it was: a platform stays under it.
+        self.surface_under([x, y, g[2]])
     }
 
     /// What a row would become if what is held were let go: where it stands and which way it faces.
@@ -2533,7 +2612,8 @@ impl<'w> Editor<'w> {
                 .on_hover_text("stand it on the ground or floor under it")
                 .clicked()
             {
-                let g = self.standing_at(e.landblock(), x, y);
+                let g = view::global(e.landblock(), [x, y, z]);
+                let g = self.surface_under(g);
                 self.move_row(&item, g);
             }
             if ui

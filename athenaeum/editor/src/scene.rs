@@ -79,8 +79,13 @@ struct Posed {
 /// many of its objects are the world's own (the rows' bodies come after them).
 type Built = ((i32, i32), (i32, i32), u32, Frame, usize);
 
-/// The least and greatest corners of the box a look fills.
-type LookBox = ([f32; 3], [f32; 3]);
+/// What a look is made of: the corners of the box it fills, and its triangles.
+#[derive(Debug)]
+struct LookShape {
+    lo: [f32; 3],
+    hi: [f32; 3],
+    triangles: Vec<[[f32; 3]; 3]>,
+}
 
 /// The world a window shows, from the free camera.
 pub struct Scene<'w> {
@@ -99,8 +104,8 @@ pub struct Scene<'w> {
     pub time_of_day: f32,
     /// The blocks whose interior cells are read.
     cells_read: HashSet<u16>,
-    /// The box each look fills, for clicks on it.
-    boxes: HashMap<u32, Option<LookBox>>,
+    /// What each look is made of, for clicks on it and for standing on it.
+    shapes: HashMap<u32, Option<std::sync::Arc<LookShape>>>,
 }
 
 impl std::fmt::Debug for Scene<'_> {
@@ -131,17 +136,12 @@ impl<'w> Scene<'w> {
             fov: 70.0,
             time_of_day: 0.45,
             cells_read: HashSet::new(),
-            boxes: HashMap::new(),
+            shapes: HashMap::new(),
         }
     }
 
-    /// The ground's height under a point of the world's grid, `None` off the world.
-    pub fn ground(&mut self, x: f32, y: f32) -> Option<f32> {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let (bx, by) = (
-            (x / BLOCK).floor().clamp(0.0, 255.0) as u8,
-            (y / BLOCK).floor().clamp(0.0, 255.0) as u8,
-        );
+    /// A block's ground and what stands on it, read when first asked for.
+    fn read_block(&mut self, bx: u8, by: u8) {
         if self.loaded.insert((bx, by)) {
             self.land.add_block(
                 &self.data.records,
@@ -151,6 +151,92 @@ impl<'w> Scene<'w> {
                 by,
             );
         }
+    }
+
+    /// Where a look from `from` along `dir` (on the world's grid, within `reach` meters) first meets
+    /// what the world builds outdoors, its stones, platforms and buildings: how far along, and
+    /// whether that much of it is level enough to stand on.
+    pub fn built_met(&mut self, from: [f32; 3], dir: [f32; 3], reach: f32) -> Option<(f32, bool)> {
+        let block_of = |v: f32| (v / BLOCK).floor();
+        let (cx, cy) = (block_of(from[0]), block_of(from[1]));
+        let span = (reach / BLOCK).ceil();
+        let mut best: Option<(f32, bool)> = None;
+        let mut take = |t: f32, up: f32| {
+            if best.is_none_or(|b| t < b.0) {
+                best = Some((t, up > 0.5));
+            }
+        };
+        let v = |p: [f32; 3]| dereth_primitives::Vec3::new(p[0], p[1], p[2]);
+        let mut by = cy - span;
+        while by <= cy + span {
+            let mut bx = cx - span;
+            while bx <= cx + span {
+                if (0.0..=255.0).contains(&bx) && (0.0..=255.0).contains(&by) {
+                    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                    let (x, y) = (bx as u8, by as u8);
+                    self.read_block(x, y);
+                    if let Some(block) = self.land.block(x, y) {
+                        let start = [from[0] - bx * BLOCK, from[1] - by * BLOCK, from[2]];
+                        let end = [
+                            start[0] + dir[0] * reach,
+                            start[1] + dir[1] * reach,
+                            start[2] + dir[2] * reach,
+                        ];
+                        for solid in &block.solids {
+                            let Some(tree) = solid.part.physics_bsp.as_ref() else {
+                                continue;
+                            };
+                            let frame = &solid.part.pos.frame;
+                            let k = |a: f32, b: f32| if b == 0.0 { a } else { a / b };
+                            let inward = |p: [f32; 3]| {
+                                let l = dereth_physics::math::globaltolocal(frame, v(p));
+                                dereth_primitives::Vec3::new(
+                                    k(l.x, solid.scale.x),
+                                    k(l.y, solid.scale.y),
+                                    k(l.z, solid.scale.z),
+                                )
+                            };
+                            let (a, b) = (inward(start), inward(end));
+                            let turn = dereth_physics::math::l2g(frame.rotation);
+                            for poly in &tree.polygons {
+                                let corners: Vec<[f32; 3]> =
+                                    poly.vertices.iter().map(|p| [p.x, p.y, p.z]).collect();
+                                let along = [b.x - a.x, b.y - a.y, b.z - a.z];
+                                let hit =
+                                    crate::view::ray_polygon([a.x, a.y, a.z], along, &corners);
+                                if let Some(t) = hit.filter(|t| *t <= 1.0) {
+                                    let n = dereth_physics::math::localtoglobalvec(
+                                        turn,
+                                        poly.plane.normal,
+                                    );
+                                    take(t * reach, n.z.abs());
+                                }
+                            }
+                        }
+                        for (pos, shape) in &block.objects {
+                            if let Some((t, n)) =
+                                shape.check_ray_facing(&pos.frame, v(start), v(end))
+                            {
+                                take(t * reach, n.z.abs());
+                            }
+                        }
+                    }
+                }
+                bx += 1.0;
+            }
+            by += 1.0;
+        }
+        best
+    }
+
+    /// The ground's height under a point of the world's grid, `None` off the world.
+    pub fn ground(&mut self, x: f32, y: f32) -> Option<f32> {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let (bx, by) = (
+            (x / BLOCK).floor().clamp(0.0, 255.0) as u8,
+            (y / BLOCK).floor().clamp(0.0, 255.0) as u8,
+        );
+        self.read_block(bx, by);
         let local =
             dereth_primitives::Vec3::new(x - f32::from(bx) * BLOCK, y - f32::from(by) * BLOCK, 0.0);
         self.land
@@ -282,39 +368,68 @@ impl<'w> Scene<'w> {
         self.looks.get(&look).is_some_and(Option::is_some)
     }
 
-    /// The box a look fills when it stands at the origin unturned, at its own scale.
-    pub fn look_box(&mut self, look: u32) -> Option<LookBox> {
-        if let Some(known) = self.boxes.get(&look) {
-            return *known;
+    /// What a look is made of when it stands at the origin unturned, at its own scale: the box it
+    /// fills, and its triangles.
+    fn look_shape(&mut self, look: u32) -> Option<std::sync::Arc<LookShape>> {
+        if let Some(known) = self.shapes.get(&look) {
+            return known.clone();
         }
         let found = if self.posed(look) {
             let p = self.looks.get(&look).and_then(Option::as_ref);
             p.and_then(|p| {
                 let place = Mat4::from_parts(Vec3::new(0.0, 0.0, 0.0), Quat::IDENTITY, p.scale);
-                let mut lo = [f32::MAX; 3];
-                let mut hi = [f32::MIN; 3];
+                let mut shape = LookShape {
+                    lo: [f32::MAX; 3],
+                    hi: [f32::MIN; 3],
+                    triangles: Vec::new(),
+                };
                 let records = &self.data.records;
                 for b in self.drawer.batches(records, &p.figure, &p.poses, &place) {
-                    for v in b.vertices.iter() {
-                        let at = b.transform.transform4([
+                    let at = |i: u16| -> Option<[f32; 3]> {
+                        let v = b.vertices.get(usize::from(i))?;
+                        let q = b.transform.transform4([
                             v.position[0],
                             v.position[1],
                             v.position[2],
                             1.0,
                         ]);
-                        for (i, c) in at.into_iter().take(3).enumerate() {
-                            lo[i] = lo[i].min(c);
-                            hi[i] = hi[i].max(c);
+                        Some([q[0], q[1], q[2]])
+                    };
+                    for t in b.indices.as_chunks::<3>().0 {
+                        if let (Some(a), Some(c), Some(d)) = (at(t[0]), at(t[1]), at(t[2])) {
+                            for q in [a, c, d] {
+                                for ((lo, hi), v) in shape.lo.iter_mut().zip(&mut shape.hi).zip(q) {
+                                    *lo = lo.min(v);
+                                    *hi = hi.max(v);
+                                }
+                            }
+                            shape.triangles.push([a, c, d]);
                         }
                     }
                 }
-                (lo[0] <= hi[0]).then_some((lo, hi))
+                (shape.lo[0] <= shape.hi[0]).then(|| std::sync::Arc::new(shape))
             })
         } else {
             None
         };
-        self.boxes.insert(look, found);
+        self.shapes.insert(look, found.clone());
         found
+    }
+
+    /// Where a line from `from` along `along`, in a look's own space, first meets what it draws: how
+    /// far along, and whether that face is level enough to stand on.
+    pub fn look_met(&mut self, look: u32, from: [f32; 3], along: [f32; 3]) -> Option<(f32, bool)> {
+        let shape = self.look_shape(look)?;
+        crate::view::ray_box(from, along, shape.lo, shape.hi)?;
+        let mut best: Option<(f32, bool)> = None;
+        for t in &shape.triangles {
+            if let Some(d) = crate::view::ray_polygon(from, along, t) {
+                if best.is_none_or(|b| d < b.0) {
+                    best = Some((d, crate::view::is_level(t)));
+                }
+            }
+        }
+        best
     }
 
     /// The frame from `view`, with `rows` standing in it; `inside` the block and interior cell the

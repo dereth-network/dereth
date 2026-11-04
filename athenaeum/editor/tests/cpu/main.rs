@@ -335,3 +335,16 @@ fn a_camps_creatures_are_written_as_its_field_reads() {
         "[{ template = 0x47001000, weight = 2 }, { template = 0x47001001, weight = 1 }]"
     );
 }
+
+#[test]
+fn a_floor_is_level_either_way_round_and_a_wall_is_not() {
+    use athenaeum_editor::view::is_level;
+    let floor = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+    assert!(is_level(&floor));
+    assert!(is_level(&[floor[1], floor[0], floor[2]]));
+    assert!(!is_level(&[
+        [0.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0]
+    ]));
+}

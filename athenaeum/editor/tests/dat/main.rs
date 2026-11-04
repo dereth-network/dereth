@@ -721,3 +721,109 @@ fn under_the_camera_in_a_room_is_its_floor() {
         "{g:?}"
     );
 }
+
+/// A point of the town whose stones or boards stand over the ground.
+fn on_something_built(e: &mut Editor<'_>) -> [f32; 3] {
+    for x in (2..158).step_by(4) {
+        for y in (2..158).step_by(4) {
+            #[allow(clippy::cast_precision_loss)]
+            let g = view::global(TOWN, [x as f32, y as f32, 0.0]);
+            let z = e.scene.ground(g[0], g[1]).expect("the town has ground");
+            let over = e.surface_under([g[0], g[1], z + 3.0]);
+            if over[2] > z + 0.3 && over[2] < z + 3.0 {
+                return over;
+            }
+        }
+    }
+    panic!("nothing built to stand on in the town");
+}
+
+#[test]
+fn placing_lands_on_what_the_world_has_built_and_not_the_ground_under_it() {
+    let mut e = editor("platform");
+    let top = on_something_built(&mut e);
+    let under = e.scene.ground(top[0], top[1]).unwrap();
+    assert!(top[2] > under + 0.3, "{top:?} over {under}");
+    // Looking down at it from just over it, under whatever else stands higher there.
+    e.camera.position = Vec3::new(top[0], top[1] - 0.2, top[2] + 1.5);
+    e.camera.pitch = -1.4;
+    let px = pixel(&e, top);
+    e.tool = Tool::Place;
+    frame(
+        &mut e,
+        &ViewInput {
+            pointer: px,
+            ..ViewInput::default()
+        },
+    );
+    let ghost = e.ghost().expect("something under the pointer");
+    assert!(
+        (ghost[2] - top[2]).abs() < 0.25,
+        "{ghost:?} against {top:?}"
+    );
+    click(&mut e, px, false);
+    let item = e.selected.clone().expect("the row");
+    assert!((place_of(&e, &item)[2] - top[2]).abs() < 0.25);
+}
+
+#[test]
+fn a_look_at_a_wall_takes_what_is_at_its_foot_and_open_ground_stays_the_ground() {
+    let mut e = editor("wall-foot");
+    let g = ground(&mut e);
+    let at = e.surface_under([g[0], g[1], g[2] + 1.0]);
+    assert!(
+        (at[2] - g[2]).abs() < 0.01,
+        "open ground: {at:?} against {g:?}"
+    );
+}
+
+#[test]
+fn a_drag_with_snap_on_stays_on_the_platform() {
+    let mut e = editor("platform-snap");
+    let top = on_something_built(&mut e);
+    e.snap.on = true;
+    e.snap.grid = 0.25;
+    let snapped = e.surface_under([
+        (top[0] / 0.25).round() * 0.25,
+        (top[1] / 0.25).round() * 0.25,
+        top[2],
+    ]);
+    assert!(
+        (snapped[2] - top[2]).abs() < 0.25,
+        "{snapped:?} against {top:?}"
+    );
+}
+
+#[test]
+fn a_row_lands_on_a_placed_objects_top_and_a_person_is_not_stood_on() {
+    let (mut e, person, g) = with_a_row("on-a-box");
+    // A person is not something to stand on.
+    e.select(None);
+    frame(&mut e, &ViewInput::default());
+    let over = e.surface_under([g[0], g[1], g[2] + 1.5]);
+    assert!((over[2] - g[2]).abs() < 0.01, "{over:?}");
+    assert!(e.session.entry(&person).is_some());
+    // A workshop placed beside it is.
+    let h = view::global(TOWN, [OPEN[0] + 6.0, OPEN[1], 0.0]);
+    let h = [h[0], h[1], e.scene.ground(h[0], h[1]).expect("ground")];
+    e.new_kind = NewKind::Static;
+    e.template = "0x47000CD2".into();
+    e.place_at(h, 0.0);
+    frame(&mut e, &ViewInput::default());
+    e.select(None);
+    frame(&mut e, &ViewInput::default());
+    let top = e.surface_under([h[0], h[1], h[2] + 30.0]);
+    assert!(top[2] > h[2] + 0.2, "{top:?} over {h:?}");
+    // And what it is selected, it does not stand on itself.
+    let item = e
+        .session
+        .entries()
+        .iter()
+        .rev()
+        .find(|x| x.item.starts_with("object static-"))
+        .map(|x| x.item.clone())
+        .expect("the workshop");
+    e.select(Some(item));
+    let under = e.surface_under([h[0], h[1], h[2] + 30.0]);
+    assert!(under[2] < top[2], "{under:?} under {top:?}");
+}
