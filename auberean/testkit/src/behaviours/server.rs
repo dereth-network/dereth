@@ -3746,6 +3746,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.inscribing-only-what-the-player-holds",
+        says: "An item the player does not hold is refused an inscription with the text any \
+               other item is, and takes no words.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-INSCRIBE-HELD"),
+        station: "yalain-testkit::cpu::play::own_requests::an_item_the_player_does_not_hold_takes_no_inscription",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.inscription-kept-across-sessions",
         says: "An inscription stays with its item across a logout, with who wrote it.",
         since: RETAIL,

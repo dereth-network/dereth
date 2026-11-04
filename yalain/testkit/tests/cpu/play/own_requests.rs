@@ -236,6 +236,39 @@ fn a_weapon_takes_an_inscription_and_a_mote_is_refused() {
         .is_none());
 }
 
+/// An item the player does not hold is refused with the same text, and takes no words: a client
+/// naming another player's item, or one lying in the world.
+/// Behaviour: server.inventory.inscribing-only-what-the-player-holds
+#[test]
+fn an_item_the_player_does_not_hold_takes_no_inscription() {
+    let mut h = world_of_items();
+    let (_, _, owner) = player(&mut h, "one");
+    let (b, _, _) = player(&mut h, "two");
+    let sword = give(&mut h, owner, SWORD);
+    let lying = yalain_world::inventory::make_item(&mut h.server, SWORD, 1, 0).expect("made");
+    h.server.things.get_mut(lying).expect("made").at = Some(h.server.players[&owner].position);
+    let words = |s: &str| yalain_world::chat::text_arg(yalain_world::profile::literal(s));
+    for item in [sword, lying] {
+        let from = h.bots[b].inbox.len();
+        h.ask(
+            b,
+            function::INSCRIBE,
+            &[words("Mine now"), Arg::LongInt(item)],
+            3,
+        );
+        assert_eq!(
+            h.texts(b, from),
+            [(text::SHOWN_AS, text::CANNOT_INSCRIBE.0)]
+        );
+        assert!(h
+            .server
+            .things
+            .get(item)
+            .and_then(|t| t.inscription.clone())
+            .is_none());
+    }
+}
+
 /// An inscription stays with its item across a logout, with who wrote it.
 /// Behaviour: server.inventory.inscription-kept-across-sessions
 #[test]
