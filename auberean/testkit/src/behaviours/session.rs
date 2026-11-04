@@ -400,6 +400,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.time.a-position-of-the-players-own-with-an-impulse-throws-it",
+        says: "A position of the player's own with an impulse and a newer stamp puts its body \
+               there, facing as it faced unless the position teleports it, then throws it at the \
+               position's velocity.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-PLAYER-IMPULSE"),
+        station: "auberean-client-runtime::cpu::world::clock::a_position_of_the_players_own_with_an_impulse_throws_it_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.time.a-thread-is-never-answered-an-earlier-elapsed-time",
         says: "The elapsed time a thread is answered never goes back: a reading earlier than the \
                last answer answers the last again, unless the last was not above zero.",

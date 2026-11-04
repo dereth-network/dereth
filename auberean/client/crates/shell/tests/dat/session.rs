@@ -1225,6 +1225,62 @@ fn a_creation_again_puts_the_body_and_a_new_incarnation_replaces_it() {
     );
 }
 
+/// A position of the player's own with an impulse throws the body from where it puts it: it leaves
+/// the floor going up, and rises.
+///
+/// Behaviour: desktop.player.an-impulse-of-the-servers-throws-the-body
+#[test]
+fn a_position_of_the_players_own_with_an_impulse_throws_the_body() {
+    use auberean_client_sdk::protocol::physics::position_flags;
+    let thrown = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: HALL_CELL,
+        origin: HALL_AT,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: position_flags::IMPULSE,
+        position_stamp: 1000,
+        force_position_stamp: 0,
+        teleport_stamp: 0,
+        velocity: Vec3::new(0.0, 0.0, 6.0),
+    });
+    let script = script_then(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &[(5.0, thrown)]);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let taken =
+        |s: &Shell<'_, DoubleHost>| s.client.as_ref().is_some_and(|c| c.body.thrown().0 == 1);
+    while !taken(&s) {
+        assert!(s.host.time < 30.0, "the position never took effect");
+        step(&mut s);
+    }
+    step(&mut s);
+    let (from, going) = s.scene.player_motion().expect("the player's body");
+    assert!(going.z > 0.0, "going up: {going:?}");
+    for _ in 0..5 {
+        step(&mut s);
+    }
+    let (now, _) = s.scene.player_motion().expect("the player's body");
+    assert!(
+        now.frame.origin.z > from.frame.origin.z,
+        "rose: {} to {}",
+        from.frame.origin.z,
+        now.frame.origin.z
+    );
+}
+
 /// Two men made beside the player, one of an entity template whose qualities record the data
 /// holds (it says he moves), the other of a template with no record, are each sent a place 2 m
 /// on: the first walks there, the second stays where he was made.

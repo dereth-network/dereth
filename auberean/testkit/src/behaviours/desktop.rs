@@ -1337,6 +1337,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.player.an-impulse-of-the-servers-throws-the-body",
+        says: "A position of the player's own with an impulse throws the body the host moves: it \
+               leaves the ground at the position's velocity.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESK-PLAYER-IMPULSE"),
+        station: "auberean-shell::dat::session::a_position_of_the_players_own_with_an_impulse_throws_the_body",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.preferences.a-value-set-for-the-run-comes-before-the-files",
         says: "A preference set for the run (from the command line) is read before the file's; a \
                number only when the whole value reads as one; an empty value or an unnamed \

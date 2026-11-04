@@ -9,6 +9,7 @@ not how it was done.
 
 - Play in a web browser: the web page now offers Asheron's Call 2's worlds.
 - The client now updates on its own, apart from the launcher.
+- A server's impulse now throws the player's body.
 - Fixed fireballs and exploding arrows flying through the creatures they were shot at.
 - Fixed door scenes never ending, which left the player stuck.
 - Fixed your character not facing where the camera looks in mouse look.

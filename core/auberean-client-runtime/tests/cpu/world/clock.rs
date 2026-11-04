@@ -92,6 +92,7 @@ fn a_players_position_leaves_the_game_clock_alone() {
             },
             time,
             cell: CELL,
+            position_stamp: teleport_stamp,
             teleport_stamp,
             ..ObjectPosition::default()
         })
@@ -132,7 +133,9 @@ fn a_position_of_the_players_own_moves_it_by_its_stamps() {
     const POSTED: u64 = 0x0300_0000_0000_0000;
     let mut c = client();
     c.model.player = Some(PLAYER);
-    let at_x = |x: f32, byte: u32, teleport_stamp, force_position_stamp| {
+    let mut stamp = 0u16;
+    let mut at_x = |x: f32, byte: u32, teleport_stamp, force_position_stamp| {
+        stamp += 1;
         ServerMessage::Position(ObjectPosition {
             sender: ObjectStamp {
                 id: PLAYER,
@@ -143,6 +146,7 @@ fn a_position_of_the_players_own_moves_it_by_its_stamps() {
             heading_motion: byte << 24,
             teleport_stamp,
             force_position_stamp,
+            position_stamp: stamp,
             ..ObjectPosition::default()
         })
     };
@@ -176,4 +180,66 @@ fn a_position_of_the_players_own_moves_it_by_its_stamps() {
         (5.0, 128.0 * 360.0 / 255.0),
         "a teleport takes its heading"
     );
+}
+
+/// A position of the player's own with an impulse puts the body there facing as it faced and throws
+/// it, once: the same position again, with no newer stamp, neither moves nor throws it. One with a
+/// newer teleport takes its heading too.
+///
+/// Behaviour: session.time.a-position-of-the-players-own-with-an-impulse-throws-it
+#[test]
+fn a_position_of_the_players_own_with_an_impulse_throws_it_once() {
+    use auberean_primitives::Vec3;
+    use auberean_protocol::physics::{position_flags, CreateObject, ObjectPosition};
+    use auberean_protocol::types::ObjectStamp;
+    use auberean_protocol::ServerMessage;
+    const PLAYER: u64 = 0x5000_0001;
+    const POSTED: u64 = 0x0300_0000_0000_0000;
+    let mut c = client();
+    c.model.player = Some(PLAYER);
+    let at = |x: f32, flags: u32, stamp: u16, teleport_stamp: u16| {
+        ServerMessage::Position(ObjectPosition {
+            sender: ObjectStamp {
+                id: PLAYER,
+                ..ObjectStamp::default()
+            },
+            cell: 0x0298_0109,
+            origin: Vec3::new(x, 0.0, 0.0),
+            heading_motion: 128 << 24,
+            flags,
+            position_stamp: stamp,
+            teleport_stamp,
+            velocity: Vec3::new(0.0, 0.0, 9.0),
+            ..ObjectPosition::default()
+        })
+    };
+    c.take_message(
+        POSTED,
+        ServerMessage::CreateObject(CreateObject {
+            id: PLAYER,
+            ..CreateObject::default()
+        }),
+    );
+    c.take_message(POSTED | 1, at(1.0, 0, 1, 1));
+    c.body.heading = 90.0;
+    let placed = c.body.placements();
+    assert_eq!(c.body.thrown().0, 0);
+    c.take_message(POSTED | 2, at(2.0, position_flags::IMPULSE, 2, 1));
+    assert_eq!(
+        (c.body.origin.x, c.body.heading),
+        (2.0, 90.0),
+        "there, facing as it faced"
+    );
+    assert_eq!(c.body.placements(), placed + 1, "placed by it");
+    assert_eq!(c.body.thrown(), (1, Vec3::new(0.0, 0.0, 9.0)));
+    c.take_message(POSTED | 3, at(3.0, position_flags::IMPULSE, 2, 1));
+    assert_eq!(c.body.origin.x, 2.0, "no newer stamp: not moved");
+    assert_eq!(c.body.thrown().0, 1, "no newer stamp: not thrown");
+    c.take_message(POSTED | 4, at(4.0, position_flags::IMPULSE, 3, 2));
+    assert_eq!(
+        (c.body.origin.x, c.body.heading),
+        (4.0, 128.0 * 360.0 / 255.0),
+        "a teleport takes its heading"
+    );
+    assert_eq!(c.body.thrown().0, 2);
 }

@@ -56,6 +56,8 @@ pub struct Body {
     pub instance_stamp: u16,
     pub teleport_stamp: u16,
     pub force_position_stamp: u16,
+    /// The stamp of the last position of the player's own the server sent.
+    pub position_stamp: u16,
     /// The stamp of the last move the server ordered the body to make.
     pub move_to_stamp: u16,
     /// Movement frozen by the server's scripts.
@@ -64,6 +66,8 @@ pub struct Body {
     pub driven: bool,
     placed: bool,
     placements: u32,
+    impulses: u32,
+    impulse: Vec3,
     times_jumped: u32,
     jumps_reported: u32,
     jump_velocity: Vec3,
@@ -110,6 +114,19 @@ impl Body {
     #[must_use]
     pub fn placements(&self) -> u32 {
         self.placements
+    }
+
+    /// The server threw the body: it leaves the ground at this velocity.
+    pub fn throw(&mut self, velocity: Vec3) {
+        self.impulse = velocity;
+        self.impulses = self.impulses.wrapping_add(1);
+    }
+
+    /// How many times the server has thrown the body, and the last velocity: a host that moves the
+    /// body with its own physics applies it whenever the count changes.
+    #[must_use]
+    pub fn thrown(&self) -> (u32, Vec3) {
+        (self.impulses, self.impulse)
     }
 
     /// Where the host's physics has the body now (its cell, its place in the cell's landblock and

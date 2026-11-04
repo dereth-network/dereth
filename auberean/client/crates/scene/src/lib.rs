@@ -161,6 +161,8 @@ struct Player {
     body: Body,
     figure: Figure,
     placements: u32,
+    /// How many times the server's throws of it have been taken.
+    thrown: u32,
     height: f32,
     /// Its setup's radius.
     radius: f32,
@@ -1487,6 +1489,14 @@ impl<'w> Scene<'w> {
         self.player.is_some()
     }
 
+    /// The player's body: where it is and how fast it moves (nothing before it is made).
+    #[must_use]
+    pub fn player_motion(&self) -> Option<(Position, dereth_primitives::Vec3)> {
+        self.player
+            .as_ref()
+            .map(|p| (p.body.position, p.body.velocity))
+    }
+
     /// The player's figure: what it plays and the element it is in.
     #[must_use]
     pub fn player_figure(&self) -> Option<&Figure> {
@@ -2307,6 +2317,7 @@ impl<'w> Scene<'w> {
             body,
             figure,
             placements: b.placements(),
+            thrown: b.thrown().0,
             height,
             radius,
             scale,
@@ -2451,6 +2462,14 @@ impl<'w> Scene<'w> {
                 p.body.set_placement_position(at);
                 // The camera is placed afresh there, not drawn from where it stood.
                 self.camera_stands = None;
+            }
+        }
+        // A throw of the server's comes after the place it came with.
+        if let Some(p) = self.player.as_mut().filter(|p| !p.settle) {
+            let (count, velocity) = client.body.thrown();
+            if count != p.thrown {
+                p.thrown = count;
+                auberean_physics::motion::Owner::apply_impulse(&mut p.body, pv(velocity));
             }
         }
         // The camera's options for the player's head; its selections turn it (as the option to

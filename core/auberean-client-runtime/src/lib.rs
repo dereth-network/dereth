@@ -1743,6 +1743,7 @@ impl Client {
         if let ServerMessage::CreateObject(c) = &item.message {
             if Some(c.id) == self.model.player {
                 self.body.instance_stamp = c.physics.instance_stamp;
+                self.body.position_stamp = c.physics.stamps[0];
                 if c.physics.bits & auberean_protocol::types::PhysicsDesc::POSITION != 0 {
                     let pos = c.physics.position;
                     self.body
@@ -1885,22 +1886,35 @@ impl Client {
         }
     }
 
-    /// The server placed the player: on a newer teleport the body goes there, facing the position's
-    /// heading; on a newer forced position it goes there, facing as it faced. Any other position of
-    /// the player's own moves nothing. The position's time leaves the game clock alone: only the
-    /// server's time-sync sets it.
+    /// The server placed the player. A position with no newer stamp, or in no cell, is left. On a
+    /// newer teleport the body goes there, facing the position's heading; on a newer forced position
+    /// or with an impulse it goes there, facing as it faced, and an impulse then throws it. Any other
+    /// position of the player's own moves nothing. The position's time leaves the game clock alone:
+    /// only the server's time-sync sets it.
     // D2-06372
     fn server_moved_player(&mut self, p: &auberean_protocol::physics::ObjectPosition) {
-        let teleported =
-            motion::is_newer(self.body.teleport_stamp, p.teleport_stamp) || !self.body.placed();
+        use auberean_protocol::physics::position_flags;
+        let first = !self.body.placed();
+        if !first && (p.cell == 0 || !motion::is_newer(self.body.position_stamp, p.position_stamp))
+        {
+            return;
+        }
+        let teleported = motion::is_newer(self.body.teleport_stamp, p.teleport_stamp) || first;
         let forced = motion::is_newer(self.body.force_position_stamp, p.force_position_stamp);
+        let impulse = p.flags & position_flags::IMPULSE != 0;
+        self.body.position_stamp = p.position_stamp;
         self.body.teleport_stamp = p.teleport_stamp;
-        self.body.force_position_stamp = p.force_position_stamp;
+        if forced {
+            self.body.force_position_stamp = p.force_position_stamp;
+        }
         if teleported {
             let heading = (p.heading_motion >> 24) as f32 * 360.0 / 255.0;
             self.body.place(p.cell, p.origin, heading);
-        } else if forced {
+        } else if forced || impulse {
             self.body.place(p.cell, p.origin, self.body.heading);
+        }
+        if impulse {
+            self.body.throw(p.velocity);
         }
     }
 
