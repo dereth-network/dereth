@@ -871,6 +871,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         Update::Bestow => TableUpdate::Bestow,
                         Update::Advance => TableUpdate::Advance(s.phase.unwrap_or(0)),
                         Update::Complete => TableUpdate::Complete,
+                        Update::Fail => TableUpdate::Fail,
                     },
                     xp: s.xp.unwrap_or(0),
                     gives: s.gives.clone(),

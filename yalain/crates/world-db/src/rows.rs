@@ -296,6 +296,7 @@ pub enum Update {
     Bestow,
     Advance,
     Complete,
+    Fail,
 }
 
 /// `[[step]]`: what moves a quest on.
@@ -1089,6 +1090,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 "bestow" => Update::Bestow,
                 "advance" => Update::Advance,
                 "complete" => Update::Complete,
+                "fail" => Update::Fail,
                 other => {
                     f.bad(
                         "update",

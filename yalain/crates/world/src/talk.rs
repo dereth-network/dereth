@@ -220,6 +220,7 @@ pub const fn update_of(u: Update) -> (TalkUpdate, Option<u32>) {
         Update::Bestow => (TalkUpdate::Bestow, None),
         Update::Advance(p) => (TalkUpdate::Advance, Some(p)),
         Update::Complete => (TalkUpdate::Complete, None),
+        Update::Fail => (TalkUpdate::Fail, None),
     }
 }
 
@@ -319,7 +320,11 @@ pub fn at_use<S: Store>(
     let reminders: Vec<Line> = lines
         .iter()
         .filter(|l| {
-            l.role == Some(Role::Remind) && l.quest.is_some_and(|q| quests::phase_of(&held, q) > 0)
+            l.role == Some(Role::Remind)
+                && l.quest.is_some_and(|q| {
+                    let at = quests::phase_of(&held, q);
+                    at > 0 && l.phase.is_none_or(|p| p == at)
+                })
         })
         .cloned()
         .collect();

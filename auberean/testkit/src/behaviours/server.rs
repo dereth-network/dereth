@@ -6671,6 +6671,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-last-phases-subquests-finish-the-quest",
+        says: "A quest's last phase done by subquests is the quest done, with the move that finishes the last of them, and that person says the quest's completion.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LAST-SUBQUESTS"),
+        station: "yalain-testkit::cpu::play::quest_uses::a_last_phase_done_by_subquests_is_the_quest_done_and_its_person_says_its_completion",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-person-gives-and-takes-back-kill-quests",
         says: "A sample of kill quests the January 2017 recordings hold from giving to end, played \
                through the database's rows and the creatures' death effects, sends only updates \
@@ -6715,6 +6723,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-REQUIRED"),
         station: "yalain-testkit::cpu::play::kill_quests::a_kill_or_a_step_gives_a_quest_only_with_the_quest_it_requires_at_its_status",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-step-may-fail-its-quest",
+        says: "A step may fail a quest under way, told as a failure; a quest with no wait may be given again by the next use.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-STEP-FAIL"),
+        station: "yalain-testkit::cpu::play::quests::a_step_may_fail_its_quest_and_it_may_then_be_given_again",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -7621,6 +7637,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-STORY-START"),
         station: "yalain-testkit::cpu::play::story::a_new_character_is_given_the_starting_scenes_as_it_first_enters",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.talk.a-reminder-may-name-its-phase",
+        says: "A reminder naming a phase is said at that phase of its quest only.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REMIND-PHASE"),
+        station: "yalain-testkit::cpu::play::quest_uses::a_reminder_naming_a_phase_is_said_only_at_that_phase",
         tier: Tier::Cpu,
     },
     behaviour! {

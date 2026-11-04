@@ -1582,3 +1582,60 @@ fn what_a_quest_pays_is_its_setups_unless_its_row_says() {
         "kept in the text form"
     );
 }
+
+#[test]
+fn a_step_that_fails_a_quest_must_need_it_under_way() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "needs = 2\ntrigger = { arrive = 0x4700115B }\nupdate = \"complete\"\nxp = 40\ngives = [0x470020B9]\n",
+        "needs = 2\ntrigger = { arrive = 0x4700115B }\nupdate = \"fail\"\n",
+    );
+    assert_eq!(check(&files), Vec::new(), "from a phase, a step may");
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(t.quests.steps.iter().any(|s| s.update == Update::Fail));
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "needs = 0\ntrigger = { use = 0x470033D0 }\ntell = { table = 0x25002881, string = 0x2824FD4C }\nupdate = \"bestow\"",
+        "needs = 0\ntrigger = { use = 0x470033D0 }\nupdate = \"fail\"",
+    );
+    let messages: Vec<String> = check(&files).iter().map(ToString::to_string).collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("only a quest under way fails")),
+        "{messages:?}"
+    );
+}
+
+#[test]
+fn a_reminder_may_name_a_phase_and_no_other_line_but_an_advance_may() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/talk/470033D0.toml",
+        "role = \"near\"",
+        "role = \"remind\"\nphase = 2",
+    );
+    assert_eq!(check(&files), Vec::new());
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/talk/470033D0.toml",
+        "role = \"near\"",
+        "role = \"too-soon\"\nphase = 2",
+    );
+    let messages: Vec<String> = check(&files).iter().map(ToString::to_string).collect();
+    assert!(
+        messages.iter().any(|m| m.contains("names a phase")),
+        "{messages:?}"
+    );
+}

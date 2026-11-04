@@ -956,3 +956,31 @@ fn a_step_that_requires_a_quest_free_waits_for_that_quests_wait() {
     let from = use_explorer(&mut h, b, me);
     assert_eq!(updates(&h, b, from), vec![0x1000_0000], "its wait is over");
 }
+
+/// A step may fail its quest: a quest under way fails, told as a failure, and with no wait of its
+/// own is given again by the next use.
+/// Behaviour: server.quests.a-step-may-fail-its-quest
+#[test]
+fn a_step_may_fail_its_quest_and_it_may_then_be_given_again() {
+    let mut h = explorer_world(
+        vec![quest(HALL_QUEST, 0, -999)],
+        vec![
+            step(
+                HALL_QUEST,
+                0,
+                Trigger::Use(EXPLORER_TEMPLATE),
+                Update::Bestow,
+            ),
+            step(HALL_QUEST, 1, Trigger::Use(EXPLORER_TEMPLATE), Update::Fail),
+        ],
+    );
+    let (b, me) = h.player_in_world("one", "Elara");
+    let from = use_explorer(&mut h, b, me);
+    assert_eq!(updates(&h, b, from), vec![0x1000_0000]);
+    let from = use_explorer(&mut h, b, me);
+    assert_eq!(updates(&h, b, from), vec![0x4000_0000], "failed and told");
+    assert_eq!(held(&h, HALL_QUEST), Some((status::FAILED, 0)));
+    let from = use_explorer(&mut h, b, me);
+    assert_eq!(updates(&h, b, from), vec![0x1000_0000], "given again");
+    assert_eq!(held(&h, HALL_QUEST), Some((status::UNDERWAY, 1)));
+}

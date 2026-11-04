@@ -188,6 +188,8 @@ pub enum Update {
     Bestow,
     Advance(u32),
     Complete,
+    /// Fails it, from any phase but none.
+    Fail,
 }
 
 /// What a step requires of another quest.
@@ -385,6 +387,7 @@ impl QuestTable {
                 Update::Bestow => "bestow".to_string(),
                 Update::Advance(n) => format!("advance:{n}"),
                 Update::Complete => "complete".to_string(),
+                Update::Fail => "fail".to_string(),
             };
             let gives = s
                 .gives
@@ -589,6 +592,7 @@ impl QuestTable {
                         Some(("advance", k)) => Update::Advance(num(k).map_err(at)?),
                         None if c[5] == "bestow" => Update::Bestow,
                         None if c[5] == "complete" => Update::Complete,
+                        None if c[5] == "fail" => Update::Fail,
                         _ => return Err(at(format!("an update {}", c[5]))),
                     };
                     t.steps.push(Step {

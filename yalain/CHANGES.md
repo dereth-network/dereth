@@ -46,6 +46,7 @@ what they see, not how it was done.
 - Tells to a linked character who isn't playing can reach their Discord, from this world too.
 - Friends on other worlds no longer show as leaving when you log in.
 - Linked characters now list their person's friends.
+- Fixed a last set of quest errands not finishing the quest.
 
 ## 0.1.2 (2026-11-03)
 

@@ -1052,7 +1052,11 @@ fn run_with<S: Store>(
         if let Some(i) = crate::presence::content_by_id(&s.content.objects, teller) {
             let template = s.content.objects[i].template;
             let speaker = crate::talk::content_speaker(s, i);
-            for l in crate::talk::with_update(s, template, Some(i), step.quest, step.update) {
+            // The move that finishes a quest's last subquests is said as that quest's completion
+            // (2017: the last element handed over, 1 of 1).
+            let said = finishes_parent(s, world, step)
+                .map_or((step.quest, step.update), |q| (q, Update::Complete));
+            for l in crate::talk::with_update(s, template, Some(i), said.0, said.1) {
                 if step.tell.as_ref() != Some(&l.words) {
                     crate::talk::say(s, net, world, &speaker, &l.words, l.how);
                 }
@@ -1235,6 +1239,10 @@ pub fn apply<S: Store>(
         Update::Bestow => update::BESTOW,
         Update::Advance(n) => update::ADVANCE | n,
         Update::Complete => update::COMPLETE,
+        Update::Fail => {
+            fail(s, net, world, quest, clock);
+            return;
+        }
     };
     // A subquest of a quest the player has at the phase it belongs to: its move is told as that
     // quest's.
@@ -1301,6 +1309,8 @@ pub fn apply<S: Store>(
             st.updated = clock.unix;
             update::COMPLETE
         }
+        // Gone by above.
+        Update::Fail => return,
     };
     let started = st.started;
     let phase = st.phase;
@@ -1433,10 +1443,28 @@ fn give_subquests<S: Store>(
     }
 }
 
+/// The quest a step's completion of its subquest would finish: the quest held at its last phase,
+/// which that phase's subquests done with this one finish.
+fn finishes_parent<S: Store>(s: &Server<S>, world: ConnId, step: &Step) -> Option<u32> {
+    if step.update != Update::Complete {
+        return None;
+    }
+    let (parent, at) = parent_held(s, world, step.quest)?;
+    let def = s.quests.quest(parent)?;
+    let subs = s.quests.subquests(parent, at)?;
+    let last = usize::try_from(at).unwrap_or(usize::MAX) >= def.journals.len();
+    let held = &s.players.get(&world)?.play.quests;
+    let mut others = subs
+        .quests
+        .iter()
+        .map(|q| *q == step.quest || done(held, *q));
+    (last && (subs.any || others.all(|d| d))).then_some(parent)
+}
+
 /// A subquest of a quest's phase has moved: once all of the phase's subquests are done (one,
 /// where one is enough) the quest moves on to its next phase; until then its record is told again,
 /// its phase kept (2017: the third doctrine recorded moved the quest to its second phase, the first
-/// two told with the phase kept, 9 of 9).
+/// two told with the phase kept, 9 of 9). From a last phase it is done.
 fn subquest_moved<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1463,6 +1491,12 @@ fn subquest_moved<S: Store>(
     let next = usize::try_from(phase).unwrap_or(usize::MAX) < def.journals.len();
     if through && next {
         apply(s, net, world, quest, Update::Advance(phase + 1), 0, clock);
+        return;
+    }
+    // A last phase done by its subquests is the quest done: of 2017's completions of such quests,
+    // each came with the move that finished the last of them.
+    if through {
+        apply(s, net, world, quest, Update::Complete, 0, clock);
         return;
     }
     if let Some(st) = p.play.quests.iter_mut().find(|q| q.quest == quest) {

@@ -229,6 +229,9 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                 if matches!(r.update, Update::Advance) && r.phase.is_none() {
                     problems.push(at("phase: an advance names the phase it moves to".into()));
                 }
+                if matches!(r.update, Update::Fail) && r.needs == 0 {
+                    problems.push(at("needs: only a quest under way fails".into()));
+                }
                 if let Some(why) = r.to.as_deref().and_then(|to| place_ref(to, &l.pack)) {
                     problems.push(at(format!("to: {why}")));
                 }
@@ -287,8 +290,11 @@ fn check_talk(
             out("object: a placed person is named key@XXYY".into());
         }
     }
-    if r.phase.is_some() && r.update != Some(yalain_content::talk::TalkUpdate::Advance) {
-        out("phase: only an advance names a phase".into());
+    if r.phase.is_some()
+        && r.update != Some(yalain_content::talk::TalkUpdate::Advance)
+        && r.role != Some(yalain_content::talk::Role::Remind)
+    {
+        out("phase: only an advance or a reminder names a phase".into());
     }
 }
 

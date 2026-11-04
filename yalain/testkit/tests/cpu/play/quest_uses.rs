@@ -8,7 +8,7 @@ use auberean_script::args::Arg;
 use auberean_script::native_object::{QuestInfo, TextInfo, VariableValue};
 use auberean_script::wire::In;
 use yalain_content::quests::{Need, QuestDef, QuestTable, Step, Subquests, Trigger, Update};
-use yalain_content::talk::{How, Line, Role, TalkTable, When};
+use yalain_content::talk::{How, Line, Role, TalkTable, TalkUpdate, When};
 use yalain_content::{ContentObject, ContentPack, Description, Facts, Kind, Words};
 use yalain_testkit::play::server_call;
 use yalain_testkit::Harness;
@@ -716,4 +716,93 @@ fn a_person_with_several_quests_gives_one_at_a_time_and_none_until_its_wait_is_o
         .map(|(k, r)| (*k, r.id))
         .collect();
     assert_eq!(got, vec![(0x3000_0000, FIRST), (0x1000_0000, NEXT)]);
+}
+
+/// A reminder naming a phase is said at that phase of its quest, and one naming none at any.
+/// Behaviour: server.talk.a-reminder-may-name-its-phase
+#[test]
+fn a_reminder_naming_a_phase_is_said_only_at_that_phase() {
+    const WHO: u32 = 0x4700_3101;
+    const QUEST: u32 = 0x4000_0101;
+    const FIRST: u32 = 0x0000_0101;
+    const SECOND: u32 = 0x0000_0102;
+    let mut h = Harness::new();
+    let phased = |string, phase| Line {
+        phase: Some(phase),
+        ..line(WHO, string, Role::Remind, How::Tell, Some(QUEST))
+    };
+    h.server.talk = TalkTable {
+        lines: vec![phased(FIRST, 1), phased(SECOND, 2)],
+    };
+    let (_b, _me) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("a player");
+    for (phase, want) in [(1, Some(FIRST)), (2, Some(SECOND)), (3, None)] {
+        for p in h.server.players.values_mut() {
+            p.play.quests = vec![QuestState {
+                quest: QUEST,
+                status: status::UNDERWAY,
+                phase,
+                started: 0,
+                updated: 0,
+            }];
+        }
+        let said = yalain_world::talk::at_use(&mut h.server, world, WHO, None);
+        assert_eq!(
+            said.map(|l| l.words),
+            want.map(|s| Words::Ref(s, 0x2500_13B2)),
+            "phase {phase}"
+        );
+    }
+}
+
+/// A quest's last phase done by subquests is the quest done, with the move that finishes the last
+/// of them; that person says the quest's completion, not the subquest's line, and the others' moves
+/// are told with the phase kept.
+/// Behaviour: server.quests.a-last-phases-subquests-finish-the-quest
+#[test]
+fn a_last_phase_done_by_subquests_is_the_quest_done_and_its_person_says_its_completion() {
+    const OWN: u32 = 0x0000_0201;
+    const DONE: u32 = 0x0000_0202;
+    let mut h = doctrines_world();
+    h.server.quests.quests[0].journals.truncate(1);
+    let says = |who, quest, string| Line {
+        update: Some(TalkUpdate::Complete),
+        ..line(who, string, Role::Complete, How::Tell, Some(quest))
+    };
+    let mut lines = Vec::new();
+    for ((q, _), stone) in STONE_QUESTS.iter().zip(STONES) {
+        lines.push(says(stone, *q, OWN));
+        lines.push(says(stone, DOCTRINES, DONE));
+    }
+    h.server.talk = TalkTable { lines };
+    let (b, me) = h.player_in_world("one", "Elara");
+    use_it(&mut h, b, me, 0x8130_0000_0000_0401);
+    let told = |h: &Harness, from| {
+        calls_of(h, b, from)
+            .iter()
+            .filter(|(f, _)| *f == HEAR_TELL)
+            .count()
+    };
+    for (i, id) in (0x8130_0000_0000_0402_u64..).take(3).enumerate() {
+        let from = use_it(&mut h, b, me, id);
+        let kinds: Vec<u32> = updates(&h, b, from).iter().map(|(k, _)| *k).collect();
+        let st = h
+            .server
+            .players
+            .values()
+            .next()
+            .expect("a player")
+            .play
+            .quests[0];
+        assert_eq!(told(&h, from), 1, "stone {i} says one line");
+        let line = if i < 2 { OWN } else { DONE };
+        assert!(texts(&h, b, from).contains(&(HEAR_TELL, line)), "stone {i}");
+        if i < 2 {
+            assert_eq!(kinds, vec![0x2000_0000], "stone {i}: the phase kept");
+            assert_eq!(st.status, status::UNDERWAY, "stone {i}");
+        } else {
+            assert_eq!(kinds, vec![0x3000_0000], "the last: done");
+            assert_eq!(st.status, status::COMPLETED);
+        }
+    }
 }
