@@ -489,6 +489,78 @@ fn a_pet_takes_on_what_its_owner_attacks_and_the_creature_fights_the_pet() {
     );
 }
 
+/// A creature's strike at a pet comes when it is due, not at the world's next step: each gap is the
+/// strike's own, within the harness's step.
+/// Behaviour: server.creatures.attacks-when-due
+#[test]
+fn a_creatures_strike_at_a_pet_comes_when_it_is_due_not_at_the_worlds_next_step() {
+    let mut h = Harness::new();
+    let (b, me, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    let at = h
+        .server
+        .things
+        .get(beetle)
+        .and_then(|t| t.at)
+        .expect("placed");
+    // The owner just beyond what the beetle notices, so it stays on the pet.
+    let conn = conn_of(&h, me);
+    if let Some(p) = h.server.players.get_mut(&conn) {
+        p.position = at;
+        p.position.origin[0] += 2.0;
+    }
+    if let Some(t) = h.server.things.get_mut(pet) {
+        t.at = Some(at);
+        t.max_health = 10_000_000;
+        t.health = 10_000_000;
+    }
+    let now = h.now.0;
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(beetle)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.mode = yalain_world::things::Mode::Chasing;
+        c.target = Some(pet);
+        c.next_attack = now;
+        c.stats.movement.perception = 1.0;
+    }
+    let from = h.bots[b].inbox.len();
+    let mut seen: Vec<(f64, u32)> = Vec::new();
+    let mut told = 0;
+    for _ in 0..1500 {
+        h.step();
+        assert_eq!(target_of(&h, beetle), Some(pet), "it stays on the pet");
+        let strikes: Vec<u32> = h
+            .world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e)
+                    if e.action.attacker == beetle
+                        && e.action.hooks.iter().any(|k| k.target == pet) =>
+                {
+                    Some(e.action.skill)
+                }
+                _ => None,
+            })
+            .collect();
+        if strikes.len() > told {
+            seen.push((h.now.0, *strikes.last().expect("told")));
+            told = strikes.len();
+        }
+    }
+    assert!(seen.len() > 10, "{} strikes", seen.len());
+    for pair in seen.windows(2) {
+        let gap = pair[1].0 - pair[0].0;
+        let due = yalain_world::combat::strike_gap(pair[0].1);
+        assert!(
+            (gap - due).abs() <= 0.051 + 0.001,
+            "a gap of {gap:.3} where {due:.3} was due"
+        );
+    }
+}
+
 /// A pet ordered to attack goes after the target, with no answer; a target more than 32 m from
 /// the owner is refused with its text and no pet goes.
 /// Behaviour: server.pets.attack-order

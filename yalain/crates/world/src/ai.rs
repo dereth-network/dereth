@@ -228,8 +228,8 @@ pub fn notices<S: Store>(s: &Server<S>, at: &StoredPosition, radius: f32) -> Opt
 /// A creature's attack comes when it is due, not at the world's next step, for one that attacks
 /// from where it stands: within reach of its target, shooting within range, or fixed where it is
 /// (2017: gaps between one creature's attacks don't fold on the step, a concentration of 0.06 or
-/// less over 15,575 melee gaps and 9,659 of missiles and magic). Going toward its target stays on
-/// the step.
+/// less over 15,575 melee gaps and 9,659 of missiles and magic; on a pet 0.03 over 20,994). Going
+/// toward its target stays on the step.
 pub fn attacks_due<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
     let now = clock.local.0;
     let due: Vec<u64> = s
@@ -256,8 +256,8 @@ pub fn attacks_due<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Cloc
     }
 }
 
-/// Is a creature fighting a player, its attack due, attacking from where it stands: within reach,
-/// shooting within range, or fixed where it is?
+/// Is a creature fighting a player or a pet, its attack due, attacking from where it stands: within
+/// reach, shooting within range, or fixed where it is?
 fn attacks_from_here<S: Store>(s: &Server<S>, t: &crate::things::Thing, now: f64) -> bool {
     let Some(c) = t.creature.as_ref() else {
         return false;
@@ -268,6 +268,15 @@ fn attacks_from_here<S: Store>(s: &Server<S>, t: &crate::things::Thing, now: f64
     let (Some(at), Some(target)) = (t.at, c.target) else {
         return false;
     };
+    if s.pets.is_pet(target) {
+        return s
+            .things
+            .get(target)
+            .filter(|p| p.alive())
+            .and_then(|p| p.at)
+            .and_then(|p| presence::distance(&at, &p))
+            .is_some_and(|d| d <= MELEE_REACH);
+    }
     let Some(p) = s.players.values().find(|p| p.character == target) else {
         return false;
     };
