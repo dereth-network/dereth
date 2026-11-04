@@ -7968,6 +7968,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.an-item-acquired-moves-its-quest",
+        says: "An item coming into a player's hands moves the quest its template names on being \
+               acquired, from the phase before and no other, after any step on its taking and in the \
+               place of its move.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ACQUIRE-EFFECTS"),
+        station: "yalain-testkit::cpu::play::kill_quests::an_item_acquired_moves_the_quest_its_template_names",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.an-obelisk-search-leads-on",
         says: "Each giving and each stone's advance of an obelisk search moves its quest and sends \
                no one; the portal beside each stone takes the seeker on to the next.",

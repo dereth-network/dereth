@@ -1327,14 +1327,7 @@ pub fn picked_up<S: Store>(
         to_knowers(s, net, item, &held);
         to_knowers(s, net, item, &leave);
     }
-    crate::quests::triggered(
-        s,
-        net,
-        world,
-        yalain_content::quests::Trigger::Take(template),
-        None,
-        clock,
-    );
+    crate::quests::took(s, net, world, template, clock);
     crate::world::keep_player(s, world);
 }
 
@@ -1742,14 +1735,7 @@ pub fn taken<S: Store>(
         value: player,
     });
     to_knowers(s, net, item, &held);
-    crate::quests::triggered(
-        s,
-        net,
-        world,
-        yalain_content::quests::Trigger::Take(template),
-        None,
-        clock,
-    );
+    crate::quests::took(s, net, world, template, clock);
     crate::world::keep_player(s, world);
 }
 

@@ -27,7 +27,7 @@ fn string_arg(s: &str) -> Arg {
     Arg::Object(b.graph())
 }
 
-fn quest(phases: u32) -> QuestDef {
+pub(super) fn quest(phases: u32) -> QuestDef {
     QuestDef {
         id: QUEST,
         name: (0xA860_7CEC, 0x2500_17EE),
@@ -655,4 +655,108 @@ fn an_effects_name_says_what_it_does_to_which_quest() {
     assert_eq!(of("Eff_SpawnHelpers"), None);
     assert_eq!(of("Eff_IncrementQuestNobody"), None);
     assert_eq!(of("Eff_AdvanceQuestHunt"), None);
+}
+
+/// An item acquired moves the quest its template names on being acquired, from the phase before and
+/// no other; a step on its taking runs first, in the effect's place.
+/// Behaviour: server.quests.an-item-acquired-moves-its-quest
+#[test]
+fn an_item_acquired_moves_the_quest_its_template_names() {
+    const ITEM: u32 = 0x4700_FFF1;
+    let (mut h, b, me) = world(quest(5));
+    let mut props = yalain_content::Props::default();
+    props.set(
+        "Item_AcquireEffect1",
+        yalain_content::Prop::Text("Eff_AdvanceQuestHuntPhase3".into()),
+    );
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(ITEM, 0x3A1, props));
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    let take = |h: &mut Harness| {
+        let clock = h.clock();
+        yalain_world::quests::took(&mut h.server, &mut h.net, world, ITEM, clock);
+        h.run(2);
+    };
+    take(&mut h);
+    assert_eq!(phase(&h, me), 0, "not given by an advance");
+    holds(&mut h, me, status::UNDERWAY, 1);
+    take(&mut h);
+    assert_eq!(phase(&h, me), 1, "not from a phase but the one before");
+    holds(&mut h, me, status::UNDERWAY, 2);
+    let from = h.bots[b].inbox.len();
+    take(&mut h);
+    assert_eq!(phase(&h, me), 3);
+    assert_eq!(updates(&h, b, from), vec![(0, update::ADVANCE | 3)]);
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.server.quests.steps.push(Step {
+        quest: QUEST,
+        needs: 1,
+        trigger: Trigger::Take(ITEM),
+        tell: None,
+        update: Update::Advance(2),
+        xp: 0,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: Vec::new(),
+        races: Vec::new(),
+        effects_last: false,
+        wants: None,
+        fellows: false,
+        to: None,
+    });
+    let from = h.bots[b].inbox.len();
+    take(&mut h);
+    assert_eq!(phase(&h, me), 2, "the step, and not the effect after it");
+    assert_eq!(updates(&h, b, from), vec![(0, update::ADVANCE | 2)]);
+    // What a person gives at a use comes to hand as well.
+    const OTHER: u32 = 0x4000_0124;
+    const PERSON: u32 = 0x4700_FFF2;
+    h.server.quests.quests.push(QuestDef {
+        id: OTHER,
+        ..quest(5)
+    });
+    h.server.quests.steps.push(Step {
+        quest: OTHER,
+        needs: 0,
+        trigger: Trigger::Use(PERSON),
+        tell: None,
+        update: Update::Bestow,
+        xp: 0,
+        gives: vec![ITEM],
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: Vec::new(),
+        races: Vec::new(),
+        effects_last: false,
+        wants: None,
+        fellows: false,
+        to: None,
+    });
+    h.server.quests.steps.retain(|st| st.quest != QUEST);
+    holds(&mut h, me, status::UNDERWAY, 2);
+    let clock = h.clock();
+    yalain_world::quests::triggered(
+        &mut h.server,
+        &mut h.net,
+        world,
+        Trigger::Use(PERSON),
+        None,
+        clock,
+    );
+    h.run(2);
+    assert_eq!(phase(&h, me), 3, "by what the person gave");
 }

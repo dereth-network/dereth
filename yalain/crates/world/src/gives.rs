@@ -447,7 +447,7 @@ fn takes<S: Store>(
         progress::private(net, world, &crate::chat::show_text(2, progress::text(text)));
     }
     for item in &row.gives {
-        crate::quests::triggered(s, net, world, Trigger::Take(*item), None, clock);
+        crate::quests::took(s, net, world, *item, clock);
     }
 }
 

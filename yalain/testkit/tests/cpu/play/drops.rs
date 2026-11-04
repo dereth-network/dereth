@@ -928,3 +928,47 @@ fn an_item_put_down_from_far_off_the_land_lands_on_its_edge() {
             .all(|i| i.id != item));
     }));
 }
+
+/// An item picked up moves the quest its template names on being acquired.
+/// Behaviour: server.quests.an-item-acquired-moves-its-quest
+#[test]
+fn an_item_picked_up_moves_the_quest_its_template_names() {
+    const QUEST: u32 = 0x4000_0123;
+    let (mut h, b, me, _w, item) = two_players_and_an_item();
+    let world = world_of(&h, me);
+    let template = h.server.things.get(item).expect("the item").template;
+    let mut t = h
+        .server
+        .catalog
+        .get(template)
+        .cloned()
+        .expect("its template");
+    t.props.set(
+        "Item_AcquireEffect1",
+        yalain_content::Prop::Text("Eff_AdvanceQuestHuntPhase2".into()),
+    );
+    h.server.catalog.insert(t);
+    h.server.quest_ids.insert("QuestHunt".into(), QUEST);
+    h.server.quests.quests.push(super::kill_quests::quest(3));
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("there")
+        .play
+        .quests
+        .push(yalain_world::state::QuestState {
+            quest: QUEST,
+            status: yalain_world::quests::status::UNDERWAY,
+            phase: 1,
+            started: 0,
+            updated: 0,
+        });
+    h.bots[b].send(true, queue::WEENIE, &put_down(me, item, 0));
+    h.run(steps(2.5));
+    h.bots[b].send(true, queue::WEENIE, &use_item(item, me));
+    h.run(4);
+    h.run(steps(1.9));
+    let p = &h.server.players[&world];
+    assert!(p.play.items.iter().any(|i| i.id == item), "picked up");
+    assert_eq!(yalain_world::quests::phase_of(&p.play.quests, QUEST), 2);
+}

@@ -800,14 +800,7 @@ pub fn took_all<S: Store>(
         if let Some(c) = s.things.get_mut(container).and_then(|t| t.corpse.as_mut()) {
             c.contents.retain(|x| *x != item);
         }
-        crate::quests::triggered(
-            s,
-            net,
-            world,
-            yalain_content::quests::Trigger::Take(template),
-            None,
-            clock,
-        );
+        crate::quests::took(s, net, world, template, clock);
     }
     let done = take_all_done(0, last_error, container, &taken, &left, player);
     progress::private(net, world, &done);

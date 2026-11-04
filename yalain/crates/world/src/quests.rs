@@ -732,7 +732,7 @@ fn run_triggered<S: Store>(
             kept = true;
         }
         for template in received {
-            triggered(s, net, world, Trigger::Take(template), None, clock);
+            took(s, net, world, template, clock);
         }
     }
 }
@@ -795,6 +795,32 @@ pub fn effect_named(name: &str, quest_id: impl Fn(&str) -> Option<u32>) -> Optio
             quest: id(rest).or_else(|| id(base))?,
             act,
         }),
+    }
+}
+
+/// How many acquiring effects a template may name.
+const ACQUIRE_EFFECTS: u32 = 3;
+
+/// An item came into a player's hands: the steps its taking triggers run, then the quest effects
+/// its template names on being acquired on each quest no step moved (2017: 38 of 54 acquirings
+/// moved their quest in the same second; 14 of the rest were past that phase, 2 a hidden quest's).
+/// Nothing is said of a quest the effect could not move.
+pub fn took<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    template: u32,
+    clock: Clock,
+) {
+    let moved = moved_by(s, net, world, Trigger::Take(template), clock);
+    let named: Vec<QuestEffect> = s.catalog.get(template).map_or_else(Vec::new, |t| {
+        (1..=ACQUIRE_EFFECTS)
+            .filter_map(|n| t.props.text(&format!("Item_AcquireEffect{n}")))
+            .filter_map(|n| effect_named(n, |q| s.quest_ids.get(q).copied()))
+            .collect()
+    });
+    for e in named.iter().filter(|e| !moved.contains(&e.quest)) {
+        moves(s, net, world, *e, false, clock);
     }
 }
 
@@ -1185,6 +1211,7 @@ fn run_with<S: Store>(
             }
             None => {
                 crate::inventory::give(s, net, world, *g, n);
+                received.push(*g);
             }
         }
     }
