@@ -95,6 +95,7 @@ what they see, not how it was done.
 - An item put down while its use plays no longer runs the use.
 - Fixed selling a valued stack one at a time paying too much.
 - Items with different stats no longer merge into one stack.
+- Inscriptions now show when an item is examined.
 
 ## 0.1.2 (2026-11-03)
 

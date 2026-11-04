@@ -978,6 +978,61 @@ fn an_item_lists_the_skills_and_arcane_lore_it_takes() {
     assert_eq!(got[0][20..], p.packed(&got[0][..20])[20..], "as built");
 }
 
+/// An inscribed item's profile ends with who wrote on it and the words, on their own tab; one asked
+/// without that tab leaves them out and still notes the tab.
+/// Behaviour: server.examination.an-inscription-is-shown
+#[test]
+fn an_inscribed_item_shows_who_wrote_it_and_the_words_when_examined() {
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("a player");
+    let item = yalain_world::inventory::give(
+        &mut h.server,
+        &mut h.net,
+        world,
+        yalain_testkit::TEST_ITEM,
+        1,
+    )
+    .expect("given");
+    h.server.things.get_mut(item).expect("made").inscription =
+        Some(("Sharp".to_owned(), "Elara [F]".to_owned()));
+    h.run(2);
+    let ask = |h: &mut Harness, asked: u32| {
+        let from = h.bots[a].inbox.len();
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::EXAMINE, &[about(item, asked)]),
+        );
+        h.run(10);
+        profile_nodes(h, a, from).pop().expect("answered")
+    };
+    let mut lines = profile::Profile::new(0x3FF);
+    profile::inscription_lines(&mut lines, "Sharp", "Elara [F]");
+    let lines = lines.packed(&[]);
+    let want = &lines[4..lines.len() - 4];
+    let all = ask(&mut h, 0x3FF);
+    assert!(
+        all[..all.len() - 4].ends_with(want),
+        "the profile ends with the lines"
+    );
+    assert_ne!(
+        u32::from_le_bytes(all[all.len() - 4..].try_into().expect("a word")) & 0x80,
+        0
+    );
+    let without = ask(&mut h, 0x203);
+    assert!(
+        !without.windows(want.len()).any(|w| w == want),
+        "not asked for"
+    );
+    assert_ne!(
+        u32::from_le_bytes(without[without.len() - 4..].try_into().expect("a word")) & 0x80,
+        0,
+        "the tab is still noted"
+    );
+}
+
 /// An item in another player's pack answers no examination until the other side knows of it, as
 /// an offer in a trade makes it known.
 /// Behaviour: server.selection.examining-what-another-holds

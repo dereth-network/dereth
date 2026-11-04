@@ -297,7 +297,10 @@ fn an_inscription_is_kept_across_a_logout() {
         .and_then(|t| t.inscription.clone())
         .expect("still inscribed");
     assert_eq!(said, "Sharp");
-    assert!(!by.is_empty());
+    assert!(
+        by.starts_with("One ["),
+        "its writer's name in the world: {by}"
+    );
 }
 
 /// Asked, the server lists one line for each skill the player trained, none for those it was given.

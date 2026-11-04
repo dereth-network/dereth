@@ -527,6 +527,108 @@ fn item_profiles_are_built_from_their_templates_as_2017_built_them() {
     );
 }
 
+/// The offset of the line break opening an inscription's lines in a profile, its words and who
+/// wrote them.
+fn inscription_in(bytes: &[u8], request_len: usize) -> Option<(usize, String, String)> {
+    fn text_of(t: &TextInfo) -> Option<String> {
+        t.literal.as_ref().map(|l| String::from_utf16_lossy(l))
+    }
+    let rest = bytes.get(request_len..)?;
+    let mut r = In::new(rest);
+    let n = r.u32().ok()?;
+    let mut start = None;
+    let mut literals = Vec::new();
+    for _ in 0..n {
+        let at = rest.len() - r.remaining();
+        let ty = r.u32().ok()?;
+        let order = r.u32().ok()?;
+        if order == profile::INSCRIPTION && start.is_none() {
+            start = Some(at);
+        }
+        match ty {
+            0x4000_0001..=0x4000_0003 | 0x4000_000C => {
+                r.u32().ok()?;
+                r.u32().ok()?;
+            }
+            0x4000_0004 => {
+                r.u32().ok()?;
+                let t = TextInfo::unpack(&mut r).ok()?;
+                if order == profile::INSCRIPTION {
+                    literals.extend(text_of(&t));
+                }
+            }
+            0x4000_0005 | 0x4000_0007 => {
+                r.u32().ok()?;
+            }
+            0x4000_0006 => {}
+            0x4000_0008 | 0x4000_000A => {
+                r.u32().ok()?;
+                r.u32().ok()?;
+                r.u32().ok()?;
+            }
+            0x4000_0009 => {
+                let k = r.u32().ok()?;
+                for _ in 0..k * 3 {
+                    r.u32().ok()?;
+                }
+            }
+            _ => return None,
+        }
+    }
+    let [by, said] = literals.as_slice() else {
+        return None;
+    };
+    Some((request_len + start?, said.clone(), by.clone()))
+}
+
+/// Every recorded profile holding an inscription ends with the lines this server builds from the
+/// words and who wrote them, and that writer goes by its name in the world.
+/// Behaviour: server.examination.an-inscription-is-shown
+#[test]
+fn inscriptions_are_shown_as_2017_showed_them() {
+    let path = auberean_testkit::data::require_capture_index();
+    let con = open(&path);
+    let mut st = con
+        .prepare(
+            "SELECT m.raw FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.status = 'ac2' \
+             AND m.dir = 's2c' AND m.mtype = 65638",
+        )
+        .expect("prepares");
+    let mut rows = st.query([]).expect("runs");
+    let (mut seen, mut exact) = (0, 0);
+    while let Some(r) = rows.next().expect("a row") {
+        let raw: Vec<u8> = r.get(0).expect("raw");
+        let Ok(ServerMessage::PlayerCall(c)) = ServerMessage::decode(&raw) else {
+            continue;
+        };
+        if c.function.0 != profile::EXAMINATION_PROFILE {
+            continue;
+        }
+        let v = calls::values(&c.args.map(|a| a.0).unwrap_or_default()).unwrap_or_default();
+        let Some(Node::Native { bytes, .. }) = v.first().and_then(Value::root) else {
+            continue;
+        };
+        if profile::read_request(bytes).kind != profile::request::OBJECT {
+            continue;
+        }
+        let Some((start, said, by)) = inscription_in(bytes, 20) else {
+            continue;
+        };
+        seen += 1;
+        let mut lines = profile::Profile::new(0x3FF);
+        profile::inscription_lines(&mut lines, &said, &by);
+        let lines = lines.packed(&[]);
+        let shape = &lines[4..lines.len() - 4];
+        if bytes[start..bytes.len() - 4] == *shape && by.ends_with(']') {
+            exact += 1;
+        }
+    }
+    println!("{exact} of {seen} recorded inscriptions as this server shows them");
+    assert!(seen >= 400, "the recordings hold them: {seen}");
+    assert_eq!(exact, seen);
+}
+
 /// A number the line after a label shows: the whole-number node, or the first variable of the
 /// next text.
 fn stat_in(bytes: &[u8], request_len: usize, label: u32) -> Option<u32> {

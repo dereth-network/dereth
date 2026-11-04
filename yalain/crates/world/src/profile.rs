@@ -813,6 +813,8 @@ pub fn chance_to_hit(attacker: i32, target: i32) -> u32 {
 /// The strings of item profiles (in the general table unless said).
 pub mod item_line {
     pub const VALUE_LABEL: u32 = 0x2F3E_4575;
+    /// "Inscription by: ", and the player.
+    pub const INSCRIPTION_BY: u32 = 0x8BB1_ECE2;
     pub const VALUE: u32 = 0xA828_186C;
     pub const WEAPON_STATS: u32 = 0xA4CC_8C3D;
     pub const SHIELD_STATS: u32 = 0x06C6_0F68;
@@ -881,6 +883,8 @@ pub mod item_line {
 /// The variables of item lines.
 pub mod item_var {
     pub const VALUE: u32 = 0x0D06_6558;
+    /// The player who inscribed it.
+    pub const INSCRIBER: u32 = 0x77D6_A489;
     pub const DAMAGE_LOW: u32 = 0x9B26_7000;
     pub const DAMAGE_HIGH: u32 = 0x9B06_C000;
     pub const COUNT: u32 = 0x073E_ACEA;
@@ -1025,6 +1029,9 @@ pub fn item_effects(
 /// The tab of an item's stats.
 pub const STATS: u32 = 8;
 
+/// The tab an item's inscription is on.
+pub const INSCRIPTION: u32 = 0x80;
+
 /// The script classes whose start-up makes their items destroyed on use (`true`) or not
 /// (`false`): an item is destroyed on use when the nearest of these its class derives from says
 /// so. Keys, glyphs, potions, saddles, totems and some trophies are; coins and two trophies are
@@ -1122,6 +1129,8 @@ pub struct ItemView {
     pub durability: Option<(i32, i32)>,
     /// Its effects, in the order listed.
     pub effects: Vec<ItemEffect>,
+    /// What a player inscribed on it, and the player's name.
+    pub inscription: Option<(String, String)>,
     /// Its enchantment slots.
     pub slots: u32,
     /// It can be made harmonic.
@@ -1275,8 +1284,28 @@ fn race_list(races: &[u32]) -> TextInfo {
     }
 }
 
+/// An inscription's lines, on their own tab: who wrote it, then its words (2017: 493 of 493 profiles
+/// holding one, on 23 items).
+pub fn inscription_lines(p: &mut Profile, said: &str, by: &str) {
+    p.brk(INSCRIPTION);
+    p.text(
+        INSCRIPTION,
+        look::LABEL,
+        with_vars(
+            line::TABLE,
+            item_line::INSCRIPTION_BY,
+            vec![nested(item_var::INSCRIBER, literal(by))],
+        ),
+    );
+    p.text(INSCRIPTION, look::VALUE, literal(by));
+    p.brk(INSCRIPTION);
+    p.tab(INSCRIPTION, 0);
+    p.text(INSCRIPTION, look::LABEL, literal(said));
+    p.brk(INSCRIPTION);
+}
+
 /// An item's profile: its icon (or picture), its name, its value, its description; a weapon's or
-/// armor's stats; what using it does to it, and what it takes to use.
+/// armor's stats; what using it does to it, and what it takes to use; what is inscribed on it.
 #[must_use]
 pub fn item(asked: u32, v: &ItemView) -> Profile {
     use item_line as l;
@@ -1586,6 +1615,9 @@ pub fn item(asked: u32, v: &ItemView) -> Profile {
         p.tab(REQUIREMENTS, 0);
         p.text(REQUIREMENTS, look::BINDS, string(line::TABLE, l::BINDS));
         p.brk(REQUIREMENTS);
+    }
+    if let Some((said, by)) = &v.inscription {
+        inscription_lines(&mut p, said, by);
     }
     p
 }

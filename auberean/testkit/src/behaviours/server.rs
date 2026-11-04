@@ -2587,6 +2587,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.an-inscription-is-shown",
+        says: "An inscribed item's profile shows, on a tab of its own, who wrote on it by its \
+               name in the world, and the words.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-INSCRIPTION-SHOWN"),
+        station: "yalain-testkit::cpu::entry::examine::an_inscribed_item_shows_who_wrote_it_and_the_words_when_examined",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.destroyed-on-use-by-kind",
         says: "Keys, glyphs, potions and the other kinds whose class makes them so say they are \
                destroyed on use, even when their template does not.",

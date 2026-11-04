@@ -237,8 +237,8 @@ fn thing_vitals(t: &crate::things::Thing) -> Vitals {
 
 /// What an item's profile shows: its class's facts for a starting weapon, else its template's;
 /// its value, each piece's own when it has one (treasure) else its template's, times its count; its icon; the
-/// effects its template lists; who made it; whether its kind is destroyed on use; the skills it
-/// takes.
+/// effects its template lists; who made it and what is inscribed on it; whether its kind is
+/// destroyed on use; the skills it takes.
 fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::ItemView {
     let own_value = (t.value > 0).then(|| t.value.saturating_mul(t.quantity.max(1)));
     let mut v = profile::starting_weapon(t.template).unwrap_or_else(|| {
@@ -255,6 +255,7 @@ fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::Item
         v.effects.clone_from(e);
     }
     v.crafter.clone_from(&t.crafter);
+    v.inscription.clone_from(&t.inscription);
     // A worn item shows its durability now.
     if let (Some(now), Some((_, most))) = (t.durability, v.durability) {
         v.durability = Some((i32::try_from(now).unwrap_or(i32::MAX), most));

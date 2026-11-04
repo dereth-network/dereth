@@ -112,7 +112,7 @@ pub fn inscribe<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId,
         return;
     };
     let held = p.play.items.iter().any(|h| h.id == *item);
-    let name = p.name.clone();
+    let name = crate::player::world_name(&p.name, p.sex);
     let said = if held && inscribable(s, template) {
         let mut literal = String::from_utf16_lossy(words.literal.as_deref().unwrap_or_default());
         if let Some((cut, _)) = literal.char_indices().nth(MAX_INSCRIPTION) {
