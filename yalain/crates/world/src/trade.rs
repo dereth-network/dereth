@@ -548,6 +548,10 @@ pub fn accept<S: Store>(
     let t = s.trades.list[i].clone();
     both(s, net, &t, &call(function::ACCEPTED, &[Arg::LongInt(me)]));
     if t.master_accepted && t.slave_accepted {
+        // What is no longer there to give is taken back, and each must look and accept again.
+        if offers_gone(s, net, i) {
+            return;
+        }
         if let Some(why) = no_room(s, &t) {
             clear_acceptance(&mut s.trades.list[i]);
             both(s, net, &t, &call(function::FAILED, &[Arg::Int(why)]));
@@ -555,6 +559,41 @@ pub fn accept<S: Store>(
         }
         complete(s, net, i, clock);
     }
+}
+
+/// Take back what a side offered and no longer holds in its pack as many of (put down, sold, split
+/// off, merged away since it was offered), told to both as a side taking it back is. Whether any was.
+fn offers_gone<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize) -> bool {
+    let t = s.trades.list[i].clone();
+    let mut any = false;
+    for (who, items) in [(t.master, &t.master_items), (t.slave, &t.slave_items)] {
+        let Some(world) = world_of(s, who) else {
+            continue;
+        };
+        for (item, n) in items {
+            let held = s.players.get(&world).is_some_and(|p| {
+                p.play
+                    .items
+                    .iter()
+                    .any(|h| h.id == *item && h.location == 0 && h.quantity.max(1) >= *n)
+            });
+            if held {
+                continue;
+            }
+            any = true;
+            s.trades.list[i].items_mut(who).retain(|(x, _)| x != item);
+            both(
+                s,
+                net,
+                &t,
+                &call(function::REVOKED, &[Arg::LongInt(*item), Arg::LongInt(who)]),
+            );
+        }
+    }
+    if any {
+        clear_acceptance(&mut s.trades.list[i]);
+    }
+    any
 }
 
 /// Whether a side has no room for what it would receive (each item offered arrives as one item in
@@ -660,6 +699,10 @@ fn give<S: Store>(
         }
         item
     } else {
+        let value = s.things.get(item).map_or(0, |x| x.value);
+        let Some(new) = inventory::make_item(s, template, n, value) else {
+            return;
+        };
         let left = held.quantity - n;
         if let Some(p) = s.players.get_mut(&gw) {
             if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {
@@ -676,10 +719,6 @@ fn give<S: Store>(
             value: i32::try_from(left).unwrap_or(i32::MAX),
         });
         progress::private(net, gw, &m);
-        let value = s.things.get(item).map_or(0, |x| x.value);
-        let Some(new) = inventory::make_item(s, template, n, value) else {
-            return;
-        };
         new
     };
     // Into the receiver's pack at its first slot, the rest moved down.

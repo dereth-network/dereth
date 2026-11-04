@@ -8418,6 +8418,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.trade.an-offer-no-longer-held-moves-nothing",
+        says: "An offer no longer held in full when both have accepted (put down, sold, \
+               split off) is taken back, told to both, and both must accept again: nothing \
+               moves, and neither side gives anything for it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TRADE-STALE"),
+        station: "yalain-testkit::cpu::play::integrity::an_offer_dropped_after_accepting_moves_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.trade.asked-and-opened",
         says: "Asking a player beside for a trade tells both of it, each with the other's name; \
                the other asking back opens it for both.",

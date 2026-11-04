@@ -207,3 +207,90 @@ fn an_item_taken_into_a_full_pack_stays_in_the_corpse() {
     });
     assert!(refused, "told there is no room");
 }
+
+/// An offered item that is gone by the time both have accepted: the trade does not go through for
+/// the other side alone.
+/// Behaviour: server.trade.an-offer-no-longer-held-moves-nothing
+#[test]
+fn an_offer_dropped_after_accepting_moves_nothing() {
+    use yalain_world::trade::function as tf;
+    let (mut h, (a, ida), (b, idb)) = players();
+    let bow = hold(&mut h, ida, TEST_ITEM, 1);
+    let gold = hold(&mut h, idb, TEST_ITEM, 100);
+    h.ask(a, tf::OPEN, &[Arg::LongInt(idb)], 10);
+    h.ask(b, tf::OPEN, &[Arg::LongInt(ida)], 10);
+    h.ask(a, tf::OFFER, &[Arg::Int(1), Arg::LongInt(bow)], 5);
+    h.ask(b, tf::OFFER, &[Arg::Int(100), Arg::LongInt(gold)], 5);
+    h.ask(a, tf::ACCEPT, &[], 5);
+    // A puts its offer down; its acceptance stands.
+    let wa = world_of(&h, ida);
+    let m = inventory::Move {
+        move_type: yalain_world::drops::DROP,
+        item: bow,
+        quantity: 1,
+        ..inventory::Move::default()
+    };
+    h.ask(
+        a,
+        yalain_world::drops::function::MOVE_ITEM,
+        &[inventory::move_graph(&m)],
+        steps(3.0),
+    );
+    let _ = wa;
+    h.ask(b, tf::ACCEPT, &[], 5);
+    assert_eq!(
+        holds(&h, ida, gold),
+        0,
+        "A gets nothing for what it no longer offers"
+    );
+    assert_eq!(holds(&h, idb, gold), 1, "B keeps its gold");
+    let open = &h.server.trades.list[0];
+    assert!(open.master_items.is_empty(), "the offer is gone");
+    assert!(
+        !open.master_accepted && !open.slave_accepted,
+        "both must accept again"
+    );
+    assert_eq!(open.slave_items, vec![(gold, 100)], "the other's stands");
+}
+
+/// Part of a stack offered, the stack then split so that less is left: the other is not given less
+/// than it accepted.
+/// Behaviour: server.trade.an-offer-no-longer-held-moves-nothing
+#[test]
+fn an_offer_split_after_accepting_moves_nothing() {
+    use yalain_world::trade::function as tf;
+    let (mut h, (a, ida), (b, idb)) = players();
+    let mut props = yalain_content::Props::default();
+    props.set("Item_MaxStackSize", yalain_content::Prop::Int(1000));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(0x4700_7001, 0x1067, props));
+    let gems = hold(&mut h, ida, 0x4700_7001, 100);
+    let gold = hold(&mut h, idb, TEST_ITEM, 1);
+    h.ask(a, tf::OPEN, &[Arg::LongInt(idb)], 10);
+    h.ask(b, tf::OPEN, &[Arg::LongInt(ida)], 10);
+    h.ask(a, tf::OFFER, &[Arg::Int(100), Arg::LongInt(gems)], 5);
+    h.ask(b, tf::OFFER, &[Arg::Int(1), Arg::LongInt(gold)], 5);
+    h.ask(a, tf::ACCEPT, &[], 5);
+    let m = inventory::Move {
+        item: gems,
+        quantity: 99,
+        target: ida,
+        from: ida,
+        target_slot: 5,
+        ..inventory::Move::default()
+    };
+    h.ask(
+        a,
+        yalain_world::pack::function::REORGANIZE,
+        &[inventory::move_graph(&m)],
+        5,
+    );
+    h.ask(b, tf::ACCEPT, &[], 5);
+    assert_eq!(
+        holds(&h, ida, gold),
+        0,
+        "A gets nothing for what it split off"
+    );
+    assert_eq!(holds(&h, idb, gold), 1);
+}
