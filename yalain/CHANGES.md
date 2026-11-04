@@ -165,6 +165,7 @@ what they see, not how it was done.
 - Heavier armor and weapons now slow your attacks.
 - Sinew Snap now plays at its proper speed.
 - Alchemists' attacks now change with the dark side and Immolation.
+- Attuned items can no longer be traded.
 
 ## 0.1.2 (2026-11-03)
 

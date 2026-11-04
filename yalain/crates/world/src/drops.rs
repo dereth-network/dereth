@@ -210,11 +210,7 @@ fn put_down<S: Store>(
         refuse(net, world, &m, status::CANNOT_PLACE_IN_WORLD);
         return;
     };
-    // 2017: of drops of attunable templates, 12 of 12 refused so.
-    if s.catalog
-        .get(t.template)
-        .is_some_and(|d| d.props.flag("Item_IsAttunable"))
-    {
+    if crate::inventory::attunable(&s.catalog, t.template) {
         refuse(net, world, &m, status::ATTUNED);
         return;
     }

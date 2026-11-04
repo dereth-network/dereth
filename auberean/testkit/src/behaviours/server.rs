@@ -9464,6 +9464,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.trade.an-attuned-item-is-refused",
+        says: "An item bound to its holder among a trade's offers stops the trade once both accept: \
+               its move refused, the trade reset, nothing moved, the trade still open.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TRADE-ATTUNED"),
+        station: "yalain-testkit::cpu::play::trading::an_attuned_item_offered_fails_the_trade_and_nothing_moves",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.trade.an-offer-no-longer-held-moves-nothing",
         says: "An offer no longer held in full when both have accepted (put down, sold, \
                split off) is taken back, told to both, and both must accept again: nothing \

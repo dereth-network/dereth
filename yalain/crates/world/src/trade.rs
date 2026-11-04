@@ -16,6 +16,10 @@
 //! receive, both are told the trade failed, naming which side (the asker's want of room first);
 //! nothing moves, the acceptances are cleared and the trade stays open.
 //!
+//! **An attuned item**: when both have accepted and either side offers an item bound to its holder,
+//! both are told items are traded, its move refused, the trade reset and the trouble; nothing
+//! moves, and the trade stays open with nothing offered.
+//!
 //! **Both accepted**: both are told items are traded; each item moves into the other's pack at its
 //! first slot (a part of a stack as a new item, the rest staying), the move told to both and the
 //! item contained for its receiver; the trade is reset and both told it is finished. The trade
@@ -89,6 +93,7 @@ pub mod text {
     pub const TABLE: u32 = 0x2500_05E5;
     pub const TRADING: (u32, u32) = (0x2CAF_D828, TABLE);
     pub const FINISHED: (u32, u32) = (0x5EF2_06B9, TABLE);
+    pub const PROBLEM: (u32, u32) = (0xAF5F_E73E, TABLE);
     pub const FIGHTING: (u32, u32) = (0x0F4F_EB12, TABLE);
     pub const WAIT: (u32, u32) = (0x7A18_4D8F, TABLE);
     pub const ALREADY: (u32, u32) = (0xFD48_9ED8, TABLE);
@@ -636,6 +641,9 @@ fn complete<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, _clock: 
         &t,
         &crate::chat::show_text(NOTICE, progress::text(text::TRADING)),
     );
+    if refuse_attuned(s, net, i, &t) {
+        return;
+    }
     for (giver, items) in [
         (t.master, t.master_items.clone()),
         (t.slave, t.slave_items.clone()),
@@ -661,6 +669,56 @@ fn complete<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, _clock: 
             crate::world::keep_player(s, w);
         }
     }
+}
+
+/// An attuned item among the offers stops the trade: its move refused, the first of them alone
+/// told, the trade reset and nothing moved (2017: 5 trades, both sides, the master's offers first;
+/// a second item in one of them told nothing). Returns whether it did.
+fn refuse_attuned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, t: &Trade) -> bool {
+    let first = [(t.master, &t.master_items), (t.slave, &t.slave_items)]
+        .into_iter()
+        .flat_map(|(giver, items)| items.iter().map(move |(item, n)| (giver, *item, *n)))
+        .find(|(_, item, _)| {
+            s.things
+                .get(*item)
+                .is_some_and(|x| inventory::attunable(&s.catalog, x.template))
+        });
+    let Some((giver, item, n)) = first else {
+        return false;
+    };
+    let m = Move {
+        move_type: MOVE_TYPE,
+        item,
+        quantity: n,
+        from: giver,
+        from_slot: -1,
+        actual_from_slot: -1,
+        target: t.other(giver),
+        merge_slot: -1,
+        all_taken: true,
+        trade: true,
+        no_move: true,
+        no_anim: true,
+        contain: true,
+        grab: true,
+        unlock: true,
+        check_take: true,
+        status: crate::drops::status::ATTUNED,
+        ..Move::default()
+    };
+    both(s, net, t, &inventory::move_done(&m));
+    let tr = &mut s.trades.list[i];
+    tr.master_items.clear();
+    tr.slave_items.clear();
+    clear_acceptance(tr);
+    both(s, net, t, &call(function::RESET, &[]));
+    both(
+        s,
+        net,
+        t,
+        &crate::chat::show_text(REFUSED, progress::text(text::PROBLEM)),
+    );
+    true
 }
 
 /// One item (or a part of a stack) from one pack to the front of the other.

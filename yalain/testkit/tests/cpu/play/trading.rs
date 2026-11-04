@@ -268,6 +268,54 @@ fn a_pack_without_room_for_the_offer_fails_the_trade_and_nothing_moves() {
     );
 }
 
+/// An attuned item offered stops the trade once both accept: both told items are traded, its move
+/// refused, the trade reset and the trouble; nothing moves, the rest of the offers with it; the
+/// trade stays open, and what may be traded then goes.
+/// Behaviour: server.trade.an-attuned-item-is-refused
+#[test]
+fn an_attuned_item_offered_fails_the_trade_and_nothing_moves() {
+    const BOUND: u32 = 0x4700_7A40;
+    let (mut h, (a, aid), (b, bid)) = two();
+    let mut props = yalain_content::Props::default();
+    props.set("Item_IsAttunable", yalain_content::Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(BOUND, 0x200, props));
+    let bow = hold(&mut h, aid, BOW, 1);
+    let bound = hold(&mut h, aid, BOUND, 1);
+    opened(&mut h, (a, aid), (b, bid));
+    h.ask(a, function::OFFER, &[Arg::Int(1), Arg::LongInt(bow)], 10);
+    h.ask(a, function::OFFER, &[Arg::Int(1), Arg::LongInt(bound)], 10);
+    let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    h.ask(a, function::ACCEPT, &[], 10);
+    h.ask(b, function::ACCEPT, &[], 10);
+    for (x, from) in [(a, fa), (b, fb)] {
+        let f = h.functions(x, from);
+        assert_eq!(f.iter().filter(|c| **c == 0x820E_005E).count(), 1, "{f:x?}");
+        assert!(f.contains(&function::RESET), "{f:x?}");
+        let t = h.texts(x, from);
+        assert_eq!(t.len(), 2, "{t:?}");
+        assert_eq!(t[0], (8, yalain_world::trade::text::TRADING.0));
+        assert_eq!(t[1], (1, yalain_world::trade::text::PROBLEM.0));
+    }
+    let held = pack(&h, aid);
+    assert!(held.iter().any(|x| x.0 == bow), "nothing moved");
+    assert!(held.iter().any(|x| x.0 == bound), "nothing moved");
+    assert!(pack(&h, bid).iter().all(|x| x.0 != bow && x.0 != bound));
+    let t = &h.server.trades.list[0];
+    assert!(t.open, "still open");
+    assert!(t.master_items.is_empty() && t.slave_items.is_empty());
+    // The bow alone goes.
+    h.ask(a, function::OFFER, &[Arg::Int(1), Arg::LongInt(bow)], 10);
+    h.ask(a, function::ACCEPT, &[], 10);
+    h.ask(b, function::ACCEPT, &[], 10);
+    assert!(pack(&h, bid).iter().any(|x| x.0 == bow), "the bow went");
+    assert!(
+        pack(&h, aid).iter().any(|x| x.0 == bound),
+        "the other stayed"
+    );
+}
+
 /// Part of a stack offered moves as a new item; the rest stays with the giver.
 /// Behaviour: server.trade.offered-accepted-exchanged
 #[test]
