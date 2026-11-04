@@ -731,3 +731,70 @@ fn quest_givers_give_a_quest_and_move_it_on_in_order() {
     h.run(10);
     assert_eq!(updates(&h, b), vec![0x1000_0000, 0x2000_0002], "moved on");
 }
+
+/// A purchase of more than a stack, or from beyond the storekeeper's reach, finds no such sale, and
+/// nothing is paid or made.
+/// Behaviour: server.store.purchase-within-a-stack-and-in-reach
+#[test]
+fn a_purchase_of_too_many_or_from_afar_is_refused() {
+    let mut h = shop();
+    h.server.stores.sales[0].cost = 0.0;
+    let (b, me) = in_store(&mut h);
+    let stock = yalain_world::store::stock_id(&h.server.stores.sales[0]);
+    let w = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    let items = |h: &Harness| h.server.players[&w].play.items.len();
+    let ask = |h: &mut Harness, quantity: u32| {
+        let mut g = Builder::new();
+        g.object(
+            0x1B76,
+            &[
+                Slot::Long(stock),
+                Slot::Ref(None),
+                Slot::Long(me),
+                Slot::Int(quantity),
+                Slot::Long(KEEPER),
+                Slot::Int(0),
+                Slot::Int(0),
+            ],
+        );
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(PURCHASE, &[Arg::Object(g.graph())]),
+        );
+        h.run(10);
+        calls_of(h, b, from)
+            .into_iter()
+            .filter(|(f, _)| *f == REQUEST_DONE)
+            .filter_map(|(_, v)| match v.first() {
+                Some(Value::Int(e)) => Some(*e),
+                _ => None,
+            })
+            .collect::<Vec<u32>>()
+    };
+    let before = items(&h);
+    assert_eq!(ask(&mut h, u32::MAX), [45001], "more than a stack");
+    assert_eq!(items(&h), before);
+    let at = h.server.players[&w].position;
+    h.server
+        .players
+        .get_mut(&w)
+        .expect("in the world")
+        .position
+        .origin[0] += 100.0;
+    assert_eq!(ask(&mut h, 1), [45001], "from afar");
+    assert_eq!(items(&h), before);
+    h.server.players.get_mut(&w).expect("in the world").position = at;
+    assert!(
+        ask(&mut h, 1).is_empty() || items(&h) > before,
+        "in reach it goes"
+    );
+    assert_eq!(items(&h), before + 1);
+}

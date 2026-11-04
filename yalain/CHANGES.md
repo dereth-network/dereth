@@ -90,6 +90,7 @@ what they see, not how it was done.
 - Hand-in lines now say 'the item' as retail does.
 - A crash just after coming back no longer strips what your items carry.
 - Coins out of the money bag now need room in your pack.
+- Stores and brokers now only deal with you when you're near them.
 
 ## 0.1.2 (2026-11-03)
 

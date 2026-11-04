@@ -552,6 +552,18 @@ fn broker_of<S: Store>(s: &Server<S>, keeper: u64) -> Option<Broker> {
     broker(s, s.content.objects[i].template)
 }
 
+/// Is a player near enough to a keeper of a store or a broker to deal with it?
+#[must_use]
+pub fn near<S: Store>(s: &Server<S>, world: ConnId, keeper: u64) -> bool {
+    let Some(p) = s.players.get(&world) else {
+        return false;
+    };
+    crate::presence::content_by_id(&s.content.objects, keeper)
+        .map(|i| &s.content.objects[i])
+        .and_then(|o| crate::places::reach(&p.position, o.cell, o.origin))
+        .is_some_and(|d| d <= STAY_NEAR)
+}
+
 /// A store chosen from a catalog: its player sales.
 pub fn enter_store<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
     if !ensure(s) {
@@ -563,6 +575,9 @@ pub fn enter_store<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
     let Some(br) = broker_of(s, keeper) else {
         return;
     };
+    if !near(s, world, keeper) {
+        return;
+    }
     let sales: Vec<Consignment> = s
         .market
         .list
@@ -613,6 +628,9 @@ pub fn enter_consignment<S: Store>(
     let Some(br) = broker_of(s, keeper) else {
         return;
     };
+    if !near(s, world, keeper) {
+        return;
+    }
     let Some(me) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
@@ -646,6 +664,9 @@ pub fn sell<S: Store>(
     let Some(br) = broker_of(s, keeper) else {
         return;
     };
+    if !near(s, world, keeper) {
+        return;
+    }
     let Some(p) = s.players.get(&world) else {
         return;
     };
@@ -853,6 +874,26 @@ pub fn purchase<S: Store>(
     };
     let c = s.market.list[i];
     let left = c.offered.saturating_sub(c.sold);
+    if !near(s, world, keeper) {
+        let m = call(
+            store::function::REQUEST_DONE,
+            &[Arg::Int(store::error::NOT_FOUND)],
+        );
+        progress::private(net, world, &m);
+        return true;
+    }
+    let full = s
+        .players
+        .get(&world)
+        .is_none_or(|p| !inventory::fits_in_pack(&p.play.items, 1));
+    if full {
+        let m = call(
+            store::function::REQUEST_DONE,
+            &[Arg::Int(store::error::NO_ROOM)],
+        );
+        progress::private(net, world, &m);
+        return true;
+    }
     if left == 0 {
         progress::private(
             net,

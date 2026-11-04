@@ -367,6 +367,21 @@ pub fn purchase<S: Store>(
         return;
     };
     let quantity = quantity.max(1);
+    // Of the sale's stack at most, in reach of the storekeeper (2017: 23 purchases of 1 to 300).
+    let most = s
+        .catalog
+        .get(sale.product)
+        .and_then(|t| t.props.int("Item_MaxStackSize"))
+        .and_then(|n| u32::try_from(n).ok())
+        .unwrap_or(1)
+        .max(sale.stack)
+        .max(1);
+    if quantity > most || !crate::market::near(s, world, keeper) {
+        let m =
+            session::call(function::REQUEST_DONE, &[Arg::Int(error::NOT_FOUND)]).expect("packs");
+        progress::private(net, world, &m);
+        return;
+    }
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let price = (sale.cost * quantity as f32).ceil() as u32;
     let Some(p) = s.players.get_mut(&world) else {

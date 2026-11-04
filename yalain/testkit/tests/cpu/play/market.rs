@@ -410,3 +410,82 @@ fn a_sold_item_is_not_made_again_for_its_broker_at_a_restart() {
     assert_eq!(h.server.market.list.len(), 1, "its price still to collect");
     assert!(h.server.things.get(item).is_none());
 }
+
+/// A broker's dealings from beyond its reach do nothing; a sale bought into a full pack is refused
+/// for want of room and neither paid nor moved.
+/// Behaviour: server.market.dealings-in-reach-and-with-room
+#[test]
+fn a_brokers_dealings_need_reach_and_room() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    money(&mut h, ida, 1_000);
+    money(&mut h, idb, 5_000);
+    let wa = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == ida)
+        .expect("in")
+        .0;
+    let wb = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == idb)
+        .expect("in")
+        .0;
+    let gem = yalain_world::inventory::make_item(&mut h.server, GEM, 8, 0).expect("made");
+    h.server
+        .players
+        .get_mut(&wa)
+        .expect("in")
+        .play
+        .items
+        .push(yalain_world::state::Held {
+            id: gem,
+            template: GEM,
+            slot: 0,
+            location: 0,
+            quantity: 8,
+        });
+    let sell = [
+        Arg::Int(STORE),
+        Arg::Int(100),
+        Arg::Int(8),
+        Arg::LongInt(gem),
+        Arg::LongInt(BROKER),
+    ];
+    let at = h.server.players[&wa].position;
+    h.server.players.get_mut(&wa).expect("in").position.origin[0] += 100.0;
+    h.ask(a, function::SELL, &sell, 10);
+    assert!(h.server.market.list.is_empty(), "not from afar");
+    h.server.players.get_mut(&wa).expect("in").position = at;
+    h.ask(a, function::SELL, &sell, 10);
+    assert_eq!(h.server.market.list.len(), 1, "in reach");
+    // A full pack buys nothing.
+    let room = yalain_world::inventory::PACK_ROOM as usize;
+    while h.server.players[&wb].play.items.len() < room {
+        yalain_world::inventory::give(&mut h.server, &mut h.net, wb, GEM, 1);
+    }
+    let mut g = Builder::new();
+    g.object(
+        0x1B76,
+        &[
+            Slot::Long(gem),
+            Slot::Ref(None),
+            Slot::Long(idb),
+            Slot::Int(8),
+            Slot::Long(BROKER),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    h.ask(b, PURCHASE, &[Arg::Object(g.graph())], 10);
+    let p = &h.server.players[&wb];
+    assert_eq!(p.play.items.len(), room);
+    assert_eq!(yalain_world::store::money(&p.qualities), 5_000, "not paid");
+    assert_eq!(h.server.market.list[0].sold, 0, "not sold");
+}

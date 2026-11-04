@@ -4428,6 +4428,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.dealings-in-reach-and-with-room",
+        says: "A broker's store, consignments and sales answer only a player in reach; a \
+               sale bought into a full pack is refused for want of room and neither paid \
+               nor moved.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-LIMITS"),
+        station: "yalain-testkit::cpu::play::market::a_brokers_dealings_need_reach_and_room",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.mounts.dismount",
         says: "A rider asking to dismount is told it is not mounted and shown its own look and \
                speed again, the mount's glow stopped and its parting one played; a follow under way \
@@ -8381,6 +8391,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-STORE-BUY"),
         station: "yalain-testkit::cpu::play::trade::a_purchase_takes_its_price_and_makes_the_item_in_the_pack",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.store.purchase-within-a-stack-and-in-reach",
+        says: "A purchase of more than a stack, or from beyond the storekeeper's reach, \
+               finds no such sale (2017: 23 purchases of 1 to 300, each a stack or less).",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STORE-LIMITS"),
+        station: "yalain-testkit::cpu::play::trade::a_purchase_of_too_many_or_from_afar_is_refused",
         tier: Tier::Cpu,
     },
     behaviour! {
