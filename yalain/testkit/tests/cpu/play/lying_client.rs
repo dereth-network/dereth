@@ -152,6 +152,11 @@ fn a_move(d: &mut Dice, ids: &[u64], word: fn(&mut Dice) -> u32) -> Arg {
     })
 }
 
+/// Any byte.
+fn byte(d: &mut Dice) -> u8 {
+    d.next().to_le_bytes()[0]
+}
+
 /// A word chosen to hurt.
 fn hurting_word(d: &mut Dice) -> u32 {
     match d.below(8) {
@@ -162,7 +167,11 @@ fn hurting_word(d: &mut Dice) -> u32 {
         4 => 0x8000_0000,
         5 => 100,
         6 => 1000,
-        _ => d.next() as u32,
+        _ => {
+            #[allow(clippy::cast_possible_truncation)]
+            let w = d.next() as u32;
+            w
+        }
     }
 }
 
@@ -547,7 +556,7 @@ fn a_call_far_too_big_is_neither_kept_nor_said() {
     packed.extend(n.to_le_bytes());
     packed.resize(packed.len() + 80_000, b'a');
     g.native(
-        yalain_world::uploads::kind::SHORTCUT.into(),
+        yalain_world::uploads::kind::SHORTCUT,
         NativeObject::Packed {
             ty: yalain_world::uploads::kind::SHORTCUT.into(),
             bytes: packed,
@@ -563,6 +572,56 @@ fn a_call_far_too_big_is_neither_kept_nor_said() {
             .all(|x| x.len() < 1000),
         "not kept"
     );
+}
+
+/// Datagrams bitten on their way to the server, and rubbish from nowhere: the transport refuses what
+/// does not read, and nothing panics.
+/// Behaviour: server.lying-client.messages-cut-and-bitten-do-no-harm
+#[test]
+fn datagrams_bitten_on_the_way_panic_nothing() {
+    let mut h = Harness::new();
+    let (a, me) = h.player_in_world("one", "Liar");
+    let mut d = Dice(0x5EED_6000);
+    for n in 0..6000 {
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(requests::function::SET_SELECTION, &[Arg::LongInt(me)]),
+        );
+        h.run(1);
+        for packet in h.wire.take() {
+            let to_server = yalain_net::Port::ALL
+                .into_iter()
+                .find(|p| yalain_testkit::port_addr(*p) == packet.to);
+            let Some(port) = to_server else {
+                h.wire.send(packet.from, packet.to, packet.bytes);
+                continue;
+            };
+            let mut bytes = packet.bytes;
+            if n % 2 == 0 {
+                match d.below(3) {
+                    0 => {
+                        let cut = d.below(bytes.len() + 1);
+                        bytes.truncate(cut);
+                    }
+                    1 => {
+                        let at = d.below(bytes.len().max(1));
+                        if let Some(b) = bytes.get_mut(at) {
+                            *b ^= 1 << d.below(8);
+                        }
+                    }
+                    _ => {
+                        bytes.clear();
+                        for _ in 0..d.below(600) {
+                            bytes.push(byte(&mut d));
+                        }
+                    }
+                }
+            }
+            let now = h.now;
+            h.net.on_datagram(port, packet.from, &bytes, now);
+        }
+    }
 }
 
 /// Where the client says it stands: every kind of nonsense, through the world's own reading of it.
@@ -611,8 +670,8 @@ fn a_place_reported_as_nonsense_panics_nothing() {
         let m = yalain_testkit::play::report(
             cells[d.below(cells.len())],
             origin,
-            d.next() as u8,
-            d.next() as u32,
+            byte(&mut d),
+            hurting_word(&mut d),
             w,
         );
         h.bots[a].send(true, queue::WEENIE, &m);
@@ -665,7 +724,7 @@ fn messages_cut_short_and_bitten_panic_nothing() {
             2 => {
                 let extra = d.below(64);
                 for _ in 0..extra {
-                    bytes.push(d.next() as u8);
+                    bytes.push(byte(&mut d));
                 }
             }
             _ => {
