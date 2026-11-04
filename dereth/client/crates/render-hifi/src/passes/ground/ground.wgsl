@@ -52,7 +52,8 @@ struct Params {
     // materials' heights move their edge, w 1 to show the layers' materials as flat colours.
     tune: vec4<f32>,
     // x how strongly the retail ground's broad patches lay out the materials, y the share of that
-    // they keep far off; zw unused.
+    // they keep far off; z how deep a road's joints reach, meters; w how strongly its relief
+    // bends the light.
     tune2: vec4<f32>,
     // While the presentation draws the ground itself: x 1 when the world's terrain words are
     // bound, for the ground past the cells laid out here; yz where render space's origin lies in
@@ -335,6 +336,8 @@ fn broad_at(g: u32, cell_uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, dist: f32,
 // (negative on land), and the ground of the nearest landscape vertex that is not water.
 var<private> pixel_inside: f32 = -1000.0;
 var<private> pixel_land: u32 = 1u;
+// The way to the eye from the pixel.
+var<private> pixel_eye: vec3<f32> = vec3<f32>(0.0, 0.0, 1.0);
 
 // How far from the water a bank is taken to reach, meters.
 const BANK_REACH: f32 = 40.0;
@@ -357,6 +360,35 @@ fn ground_at(ground: u32, pos: vec2<f32>, cell_uv: vec2<f32>, dx: vec2<f32>, dy:
         return l;
     }
     return plain_ground(ground, pos, cell_uv, dx, dy, dist, cell_m);
+}
+
+// The road's own ground, after the 32 terrain types.
+const ROAD_GROUND: u32 = 32u;
+// How many steps a road's depth is searched in, and where the search fades out, metres from the eye.
+const ROAD_STEPS: i32 = 12;
+const ROAD_DEPTH_NEAR: f32 = 10.0;
+const ROAD_DEPTH_FAR: f32 = 30.0;
+
+// Where the line of sight meets a road's relief, from `uv` where it crosses the road's middle:
+// `per_m` the picture's repeats a metre.
+fn road_seen(uv: vec2<f32>, layer: i32, gx: vec2<f32>, gy: vec2<f32>, per_m: f32, dist: f32) -> vec2<f32> {
+    let depth = params.tune2.z * (1.0 - smoothstep(ROAD_DEPTH_NEAR, ROAD_DEPTH_FAR, dist));
+    if (depth <= 0.0) {
+        return uv;
+    }
+    // The picture's rows run south, and the line runs away from the eye as it sinks.
+    let along = vec2<f32>(pixel_eye.x, -pixel_eye.y) / max(pixel_eye.z, 0.3) * depth * per_m;
+    let step = 1.0 / f32(ROAD_STEPS);
+    var t = 0.0;
+    var left = 1.0 - textureSampleGrad(albedo_tex, wrap_samp, uv + along * 0.5, layer, gx, gy).a;
+    for (var k = 0; k < ROAD_STEPS; k = k + 1) {
+        if (t >= left) {
+            break;
+        }
+        t = t + step;
+        left = 1.0 - textureSampleGrad(albedo_tex, wrap_samp, uv + along * (0.5 - t), layer, gx, gy).a;
+    }
+    return uv + along * (0.5 - t);
 }
 
 // The ground `g` laid as its material lays it.
@@ -384,9 +416,14 @@ fn plain_ground(g: u32, pos: vec2<f32>, cell_uv: vec2<f32>, dx: vec2<f32>, dy: v
     if (a.y > 0.5) {
         // Retail's own picture, its repeats square with the cell.
         let k = a.z;
-        let uv = cell_uv * k;
         let gx = vec2<f32>(dx.x, -dx.y) / cell_m * k;
         let gy = vec2<f32>(dy.x, -dy.y) / cell_m * k;
+        var uv = cell_uv * k;
+        // A road's relief shows at the level depth mapping asks; off, it lies level.
+        let road = g == ROAD_GROUND;
+        if (road) {
+            uv = road_seen(uv, layer, gx, gy, k / cell_m, dist);
+        }
         let c = textureSampleGrad(albedo_tex, wrap_samp, uv, layer, gx, gy);
         let nm = textureSampleGrad(normal_tex, wrap_samp, uv, layer, gx, gy);
         let s = textureSampleGrad(surface_tex, wrap_samp, uv, layer, gx, gy);
@@ -395,6 +432,13 @@ fn plain_ground(g: u32, pos: vec2<f32>, cell_uv: vec2<f32>, dx: vec2<f32>, dy: v
         l.tilt = (nm.xy * 2.0 - vec2<f32>(1.0)) * a.w;
         l.roughness = s.x;
         l.occlusion = s.y / occlusion_mean(uv, layer);
+        if (road) {
+            let relief = params.tune2.w;
+            // Its joints don't decide where it meets the grass: only a little of them shows there.
+            l.height = 0.5 + (l.height - 0.5) * 0.2 * step(0.001, relief);
+            l.tilt = l.tilt * relief;
+            l.occlusion = mix(1.0, l.occlusion, step(0.001, relief));
+        }
         return l;
     }
     // North up the pictures: their rows run down, toward the south.
@@ -844,6 +888,7 @@ fn fs_ground(@builtin(position) p: vec4<f32>) -> Out {
     at.dist = dist;
     at.cell_m = cell_m;
     at.near = near;
+    pixel_eye = normalize(params.eye.xyz - world);
     if (params.water.x > 0.5) {
         pixel_inside = shore_distance(world.xy + params.drawn.yz, foot);
         pixel_land = land_beside(at.gt);

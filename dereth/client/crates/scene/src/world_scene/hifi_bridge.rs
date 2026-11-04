@@ -107,11 +107,17 @@ fn materials_for_presentation(pack: &crate::art_pack::ArtPack) -> HifiMaterials 
             .materials
             .iter()
             .map(|m| HifiTextureMaterial {
-                albedo: picture(&m.albedo),
+                albedo: m.albedo.as_ref().map(picture),
                 normal: picture(&m.normal),
                 surface: picture(&m.surface),
+                grit: m.grit.and_then(|g| u32::try_from(g).ok()),
+                grit_repeat: m.grit_repeat,
+                damp_floors: m.damp_floors,
+                slime: m.slime,
+                ice: m.ice,
             })
             .collect(),
+        grits: pack.grits.iter().map(picture).collect(),
     }
 }
 
@@ -669,6 +675,14 @@ pub(crate) fn settings(prefs: &FidelityPreferences, rays: bool) -> HifiSettings 
         // And the scree and rock an art pack's ground lays on steep slopes, until they are
         // turned off.
         slope_materials: lit && raw(FidelityFeature::NoSlopeMaterials) == 0,
+        // And the damp and slime on a room's surfaces, until they are turned off.
+        damp: lit && raw(FidelityFeature::NoDamp) == 0,
+        // And a pack's relief on the world's own pictures, at the level asked for.
+        depth_mapping: if lit {
+            u8::try_from(raw(FidelityFeature::DepthMapping)).unwrap_or(0)
+        } else {
+            0
+        },
         debug: DebugView::from_raw(raw(FidelityFeature::Debug)),
     }
 }
@@ -1370,6 +1384,7 @@ mod tests {
             n::RETAIL_LOOK => s.lighting.is_on() && !s.art_pack,
             n::NO_ANTI_ALIASING => s.lighting.is_on() && !s.anti_aliasing,
             n::NO_SLOPE_MATERIALS => s.lighting.is_on() && !s.slope_materials,
+            n::NO_DAMP => s.depth_mapping > 0 && !s.damp,
             _ => unreachable!("{name}"),
         }
     }
@@ -1451,6 +1466,8 @@ mod tests {
             !on.slope_materials,
             "the slope materials' box is ticked too"
         );
+        assert!(!on.damp, "the damp's box is ticked too");
+        assert_eq!(on.depth_mapping, 0, "the Depth Mapping menu is no box");
         assert_eq!(on.debug, DebugView::Off);
         // The art pack is drawn with the better lighting, until the retail look is asked for.
         let lit = settings(&boxes(0b1), true);
@@ -1468,6 +1485,12 @@ mod tests {
         assert_eq!(settings(&rig, true).debug, DebugView::Census);
         rig.interface = false;
         assert!(!settings(&rig, true).any_effective());
+        // Depth mapping at the level asked for, inside the better lighting, with its damp.
+        let deep = FidelityPreferences::parse_switch("Lighting=1,DepthMapping=2").unwrap();
+        assert_eq!(settings(&deep, true).depth_mapping, 2);
+        assert!(settings(&deep, true).damp);
+        let unlit = FidelityPreferences::parse_switch("DepthMapping=3").unwrap();
+        assert_eq!(settings(&unlit, true).depth_mapping, 0);
     }
 
     /// Every combination of the boxes, with and without ray queries: a box draws exactly when

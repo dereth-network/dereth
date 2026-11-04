@@ -14,6 +14,17 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Better Lighting: a Depth Mapping menu, Off to High, gives walls, floors and roofs the relief an art pack has for them: bump and normal maps, parallax, self-shadows and a damp shine in dungeons. In rooms and dungeons the relief casts its small shadows away from the room's own lights.
+- Depth Mapping: roads have relief, their stones standing above sunken joints.
+- No Damp and Slime turns off the wet sheen Depth Mapping lays on dungeon walls and floors, and the slime in the Olthoi's lairs.
+- Art packs: a material for a retail picture may keep drawing the player's own retail picture (`keep_retail_picture = true`), adding only its relief; its base color stays, for a client that draws none.
+- Art packs: a material for a retail picture may name a height picture, so that near the viewer its crevices sink into the surface and shade themselves from the light.
+- Art packs: a material for a retail picture may be damp, so that in a room it catches the light of the room's lamps and candles; a damp map says where it is wet, and it may be wet on floors too.
+- Art packs: a damp material may carry a film of slime in a room, in pools and runs that glint as you move.
+- Art packs: a material for a retail picture may name a grit, a small picture shared by many materials that adds fine bumps, speckle and roughness at real size.
+- Art packs: a material for a retail picture may be glacier ice: opaque and deep blue, with light bent through it, with or without Depth Mapping.
+- Better Lighting: an art pack's glassy ground mirrors the sky.
+
 ## 0.4.12 (2026-11-03)
 
 - Launcher: you can add a world by its address in Auberean's realm too.

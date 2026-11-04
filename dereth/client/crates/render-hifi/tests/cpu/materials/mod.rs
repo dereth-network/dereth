@@ -114,6 +114,7 @@ fn with_materials() -> HifiFrame {
         materials: Some(Arc::new(HifiMaterials {
             serial: 1,
             materials: vec![HifiTextureMaterial::default()],
+            grits: Vec::new(),
         })),
         material_slots: vec![(WALL, 0)],
         ..HifiFrame::default()
@@ -121,13 +122,69 @@ fn with_materials() -> HifiFrame {
 }
 
 #[test]
+fn depth_mapping_low_has_no_depth_and_each_level_up_reaches_deeper() {
+    use dereth_render_hifi::derive::material::level_constants;
+    assert_eq!(level_constants(0)[0], 0.0);
+    assert_eq!(level_constants(1)[0], 0.0);
+    assert!(level_constants(2)[0] > 0.0);
+    assert!(level_constants(3)[0] > level_constants(2)[0]);
+    assert_eq!(level_constants(9), level_constants(3));
+    // The grit, none with depth mapping off, and more at each level up.
+    assert_eq!(level_constants(0)[3], 0.0);
+    assert!(level_constants(1)[3] > 0.0);
+    assert!(level_constants(2)[3] > level_constants(1)[3]);
+    assert!(level_constants(3)[3] > level_constants(2)[3]);
+}
+
+#[test]
+fn the_rooms_lights_are_held_as_many_as_the_shader_reads_with_how_far_each_reaches() {
+    use dereth_render_hifi::derive::material::ROOM_LIGHTS;
+    use dereth_render_hifi::materials::rooms_constants;
+    use dereth_render_hifi::snapshot::HifiLight;
+    let floats = |bytes: Vec<u8>| -> Vec<f32> {
+        bytes
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b))
+            .collect()
+    };
+    let lamp = HifiLight {
+        position: glam::Vec3::new(1.0, 2.0, 3.0),
+        color: [1.0, 1.0, 1.0],
+        intensity: 2.0,
+        ..HifiLight::default()
+    };
+    let one = floats(rooms_constants(&[(lamp, 9.0)], true));
+    assert_eq!(one.len(), 4 + ROOM_LIGHTS * 8);
+    assert_eq!(one[0], 1.0);
+    assert_eq!(&one[4..8], &[1.0, 2.0, 3.0, 9.0]);
+    assert!((one[4 + ROOM_LIGHTS * 4] - 2.0).abs() < 1e-5);
+    let many = floats(rooms_constants(&vec![(lamp, 9.0); ROOM_LIGHTS + 5], true));
+    assert_eq!(many.len(), one.len());
+    assert_eq!(many[0], ROOM_LIGHTS as f32);
+}
+
+#[test]
 fn the_retail_look_draws_no_material() {
     let lit = HifiSettings {
         lighting: Level::Low,
         art_pack: true,
+        depth_mapping: 3,
         ..HifiSettings::default()
     };
     assert!(drawn(&lit, &with_materials()));
+    // Relief alone is drawn only with depth mapping on.
+    let flat = HifiSettings {
+        depth_mapping: 0,
+        ..lit
+    };
+    assert_eq!(
+        drawn(&flat, &with_materials()),
+        with_materials()
+            .materials
+            .is_some_and(|m| m.materials.iter().any(|m| m.albedo.is_some()))
+    );
     // The retail look asked for: the scene hands the presentation no art pack to draw.
     let retail_look = HifiSettings {
         art_pack: false,
@@ -188,8 +245,11 @@ fn every_material_shader_keeps_each_stages_alpha_test_and_ends_in_the_materials_
             assert!(!body.contains("return hifi_out("), "{m:?}: {stage}");
         }
         // The material's color is sampled where the retail picture was: the first stage's
-        // texture, with its own sampler and coordinates.
-        assert!(text.contains("(g_tex0, g_samp0, i.uv0"));
+        // texture, where the view meets the material's height.
+        assert!(text.contains("hifi_mat_sample(g_tex0, i)"));
+        // The eye is found from the view's translation, which each of its first three columns
+        // holds in its last part; its last column holds none.
+        assert!(text.contains("v[0].xyz * v[0].w"));
         let module = naga::front::wgsl::parse_str(&text)
             .unwrap_or_else(|e| panic!("{m:?}: {}", e.emit_to_string(&text)));
         naga::valid::Validator::new(
@@ -220,14 +280,20 @@ fn shader() -> Evaluator {
 fn a_flat_texel_of_the_normal_picture_leaves_the_normal_and_a_tilted_one_tilts_it_its_way() {
     let s = shader();
     let flat = s
-        .call("hifi_mat_bend", &[Value::vector(&[0.5, 0.5, 0.0, 1.0])])
+        .call(
+            "hifi_mat_bend",
+            &[Value::vector(&[0.5, 0.5, 0.0, 1.0]), Value::F32(1.0)],
+        )
         .floats();
     for (got, want) in flat.iter().zip([0.0, 0.0, 1.0]) {
         assert!((got - want).abs() < 0.01, "{flat:?}");
     }
     // Leaning toward the picture's right and up it.
     let leaning = s
-        .call("hifi_mat_bend", &[Value::vector(&[0.75, 0.75, 0.0, 1.0])])
+        .call(
+            "hifi_mat_bend",
+            &[Value::vector(&[0.75, 0.75, 0.0, 1.0]), Value::F32(1.0)],
+        )
         .floats();
     assert!(
         leaning[0] > 0.45 && leaning[1] > 0.45 && leaning[2] > 0.6,
@@ -235,6 +301,14 @@ fn a_flat_texel_of_the_normal_picture_leaves_the_normal_and_a_tilted_one_tilts_i
     );
     let len = leaning.iter().map(|v| v * v).sum::<f32>().sqrt();
     assert!((len - 1.0).abs() < 1e-4, "{len}");
+    // At half strength it leans half as far.
+    let half = s
+        .call(
+            "hifi_mat_bend",
+            &[Value::vector(&[0.75, 0.75, 0.0, 1.0]), Value::F32(0.5)],
+        )
+        .floats();
+    assert!((half[0] - leaning[0] * 0.5).abs() < 0.01, "{half:?}");
 }
 
 #[test]

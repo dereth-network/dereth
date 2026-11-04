@@ -913,6 +913,7 @@ impl LightingGpu {
                 tex_entry(7, float, d2),
                 tex_entry(8, float, d2),
                 tex_entry(9, float, d2),
+                tex_entry(10, float, d2),
             ],
         });
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1573,12 +1574,13 @@ impl HifiPass for Lighting {
                 frame,
                 cx.depth,
                 &rt.normal,
+                &rt.hdr,
                 size,
                 viewport,
                 cx.timer,
             )
         };
-        let room_view = room_light.unwrap_or(no_lamps);
+        let (room_view, slime_view) = room_light.unwrap_or((no_lamps, no_lamps));
         // The Remastered sky's clouds' shadows, while its clouds cast them this frame.
         let cloud_map = frame
             .sky_knobs
@@ -1794,6 +1796,10 @@ impl HifiPass for Lighting {
                     wgpu::BindGroupEntry {
                         binding: 9,
                         resource: wgpu::BindingResource::TextureView(cloud_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 10,
+                        resource: wgpu::BindingResource::TextureView(slime_view),
                     },
                 ],
             })

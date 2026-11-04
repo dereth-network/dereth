@@ -7,6 +7,7 @@
 pub mod background;
 pub mod classic;
 pub mod config;
+pub mod depth_mapping;
 pub mod fidelity;
 pub mod interface;
 pub mod landscape;

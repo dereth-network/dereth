@@ -61,6 +61,10 @@ pub const PERIOD_METRES: f32 = 1536.0;
 pub const DETAIL_REPEATS: u32 = 4;
 /// About how much coarser the variation far off repeats than the material.
 pub const MACRO_SPREAD: f32 = 3.3;
+/// What each depth mapping level does to a road: how far below the surface its joints reach, in
+/// meters, and how strongly its relief bends the light.
+const ROAD_RELIEF: [[f32; 2]; 4] = [[0.0, 0.0], [0.0, 0.7], [0.018, 0.85], [0.035, 1.0]];
+
 /// The share of the retail ground's broad patches kept far off, where retail's own picture
 /// still shows them.
 pub const BROAD_FAR_SHARE: f32 = 1.0;
@@ -310,10 +314,11 @@ pub fn ground_table(ground: &HifiGround) -> Vec<f32> {
 /// materials' heights move the edges between them, each from the environment where it is set
 /// (`DERETH_HIFI_GROUND_DETAIL`, `DERETH_HIFI_GROUND_VARIATION`, `DERETH_HIFI_GROUND_HEIGHTS`),
 /// and the layers view (`DERETH_HIFI_GROUND_LAYERS=1`); then how strongly the retail ground's
-/// broad patches lay out the materials (`DERETH_HIFI_GROUND_BROAD`), and the share of that they
-/// keep far off (`DERETH_HIFI_GROUND_BROAD_FAR`).
-fn tune() -> [f32; 8] {
+/// broad patches lay out the materials (`DERETH_HIFI_GROUND_BROAD`), the share of that they keep
+/// far off (`DERETH_HIFI_GROUND_BROAD_FAR`), and the road's relief at the depth mapping level.
+fn tune(depth_mapping: u8) -> [f32; 8] {
     use crate::passes::lighting::env_f32;
+    let road = ROAD_RELIEF[usize::from(depth_mapping).min(ROAD_RELIEF.len() - 1)];
     [
         env_f32("DERETH_HIFI_GROUND_DETAIL", 1.0),
         env_f32("DERETH_HIFI_GROUND_VARIATION", 1.0),
@@ -321,8 +326,8 @@ fn tune() -> [f32; 8] {
         env_f32("DERETH_HIFI_GROUND_LAYERS", 0.0),
         env_f32("DERETH_HIFI_GROUND_BROAD", 1.0),
         env_f32("DERETH_HIFI_GROUND_BROAD_FAR", BROAD_FAR_SHARE),
-        0.0,
-        0.0,
+        road[0],
+        road[1],
     ]
 }
 
@@ -366,7 +371,7 @@ fn params(
         let (cx, cy) = window.first_cell();
         p.extend([cx as f32, cy as f32, 0.0, 0.0]);
     }
-    p.extend(tune());
+    p.extend(tune(settings.depth_mapping));
     // The drawn ground: where render space lies in the world, and the scree and rock laid by its
     // slope, unless they are turned off.
     match frame.drawn.as_ref() {

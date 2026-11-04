@@ -1,5 +1,6 @@
 //! A pack's materials for retail pictures, their pictures packed for drawing: the base color in
-//! BC7, its normal in BC5 the same size, and its roughness and occlusion in BC5 at half that.
+//! BC7, unless the material keeps the retail picture, its normal in BC5 the same size, and its
+//! roughness, occlusion, height and dampness in BC7 at half that.
 //!
 //! The base color is held as the retail picture is held: in the display's encoding and read as
 //! stored, so the stages a retail surface is drawn with compute with it exactly as they compute
@@ -14,15 +15,27 @@ use super::images::{self, BlockFormat, Image};
 /// One material drawn in place of retail pictures, its pictures packed for drawing.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextureMaterial {
-    /// The retail pictures (texture records) it is drawn in place of.
+    /// The retail pictures (texture records) it is drawn for.
     pub textures: Vec<DataId>,
-    /// The base color with the retail picture's alpha, read as stored (see the module).
-    pub albedo: Image,
+    /// The base color with the retail picture's alpha, read as stored (see the module); none for
+    /// a material that keeps the retail picture.
+    pub albedo: Option<Image>,
     /// The normal's parts along the picture's width and up it (-1..1 as 0..1), in red and green,
     /// bent by the material's normal scale; the base color's size.
     pub normal: Image,
-    /// The roughness and the ambient occlusion, in red and green, half the base color's size.
+    /// The roughness, the ambient occlusion, the height and how damp it is, in red, green, blue and
+    /// alpha, half the base color's size.
     pub surface: Image,
+    /// Which of the pack's grit pictures ([`super::ArtPack::grits`]) lies over it, if any.
+    pub grit: Option<usize>,
+    /// How many times the grit repeats across one repeat of the retail picture.
+    pub grit_repeat: [f32; 2],
+    /// Whether it is wet on floors too, not only on walls.
+    pub damp_floors: bool,
+    /// Whether a film of slime lies on it where it is damp.
+    pub slime: bool,
+    /// Whether it is glacier ice: deep blue, opaque, with light bent through it.
+    pub ice: bool,
     /// Who made it, with what, and under which license.
     pub credit: Credit,
 }
@@ -33,25 +46,34 @@ const DEFAULTS: [u8; 4] = [128, 128, 230, 255];
 
 /// The files of one material, as read.
 pub(super) struct MaterialFiles {
-    base: Vec<u8>,
+    base: Option<Vec<u8>>,
     normal: Option<Vec<u8>>,
     roughness: Option<Vec<u8>>,
     occlusion: Option<Vec<u8>>,
+    height: Option<Vec<u8>>,
+    damp_map: Option<Vec<u8>>,
 }
 
 impl MaterialFiles {
-    /// The files `entry` names, read through `read`.
+    /// The files `entry` names, read through `read`: its base color only where it does not keep
+    /// the retail picture.
     pub(super) fn read(
         entry: &ManifestMaterial,
         read: &mut dyn FnMut(&str) -> Result<Vec<u8>, String>,
     ) -> Result<Self, String> {
-        let base = read(&entry.base_color)?;
+        let base = if entry.keep_retail_picture {
+            None
+        } else {
+            Some(read(&entry.base_color)?)
+        };
         let mut channel = |path: &Option<String>| path.as_deref().map(&mut *read).transpose();
         Ok(Self {
             base,
             normal: channel(&entry.normal)?,
             roughness: channel(&entry.roughness)?,
             occlusion: channel(&entry.occlusion)?,
+            height: channel(&entry.height)?,
+            damp_map: channel(&entry.damp_map)?,
         })
     }
 }
@@ -61,21 +83,44 @@ fn bent(v: u8, scale: f32) -> f32 {
     (f32::from(v) / 255.0 * 2.0 - 1.0) * scale
 }
 
-/// The material `entry` drawn with `pictures`: its base color, normal and surface, as
-/// [`material`] makes them.
-pub(super) fn with_pictures(entry: &ManifestMaterial, pictures: [Image; 3]) -> TextureMaterial {
-    let [albedo, normal, surface] = pictures;
+/// The material `entry` drawn with these pictures, as [`material`] makes them.
+pub(super) fn with_pictures(
+    entry: &ManifestMaterial,
+    albedo: Option<Image>,
+    normal: Image,
+    surface: Image,
+) -> TextureMaterial {
     TextureMaterial {
         textures: entry.textures.clone(),
         albedo,
         normal,
         surface,
+        grit: None,
+        grit_repeat: entry.grit_repeat,
+        damp_floors: entry.damp_floors,
+        slime: entry.slime,
+        ice: entry.ice,
         credit: entry.credit.clone(),
     }
 }
 
-/// The material `entry` from its `files`: every picture brought to the base color's size, made
-/// whole blocks of four, with its levels, and compressed.
+/// A grit picture from its file, with its levels, in BC7: its smaller levels average to no bend and
+/// no speckle, so it fades with distance rather than shimmers.
+pub(super) fn grit(bytes: &[u8], path: &str) -> Result<Image, String> {
+    let (w, h, rgba) = images::decode_png(bytes).map_err(|e| format!("{path}: {e}"))?;
+    if w == 0 || h == 0 {
+        return Err(format!("{path}: an empty picture"));
+    }
+    let (w, h, rgba) = images::to_whole_blocks(w, h, rgba);
+    Ok(images::compressed(
+        images::with_levels(w, h, rgba, false, None),
+        BlockFormat::Bc7,
+    ))
+}
+
+/// The material `entry` from its `files`: every picture brought to the base color's size (the
+/// first of its other pictures' where it keeps the retail picture), made whole blocks of four,
+/// with its levels, and compressed.
 pub(super) fn material(
     entry: &ManifestMaterial,
     files: &MaterialFiles,
@@ -83,11 +128,24 @@ pub(super) fn material(
     let picture = |bytes: &[u8], path: &str| -> Result<(u32, u32, Vec<u8>), String> {
         images::decode_png(bytes).map_err(|e| format!("{path}: {e}"))
     };
-    let (w, h, base) = picture(&files.base, &entry.base_color)?;
+    let sized = [
+        (&files.base, Some(entry.base_color.as_str())),
+        (&files.normal, entry.normal.as_deref()),
+        (&files.roughness, entry.roughness.as_deref()),
+        (&files.occlusion, entry.occlusion.as_deref()),
+        (&files.height, entry.height.as_deref()),
+    ]
+    .into_iter()
+    .find_map(|(bytes, path)| Some((bytes.as_ref()?, path?)));
+    let Some((bytes, path)) = sized else {
+        return Err("keeps the retail picture and names no picture of its own".to_owned());
+    };
+    let (w, h, first) = picture(bytes, path)?;
     if w == 0 || h == 0 {
-        return Err(format!("{}: an empty picture", entry.base_color));
+        return Err(format!("{path}: an empty picture"));
     }
-    let (w, h, base) = images::to_whole_blocks(w, h, base);
+    let (w, h, first) = images::to_whole_blocks(w, h, first);
+    let base = files.base.is_some().then_some(first);
     let channel =
         |bytes: &Option<Vec<u8>>, path: &Option<String>| -> Result<Option<Vec<u8>>, String> {
             let (Some(bytes), Some(path)) = (bytes, path) else {
@@ -99,11 +157,16 @@ pub(super) fn material(
     let normal = channel(&files.normal, &entry.normal)?;
     let roughness = channel(&files.roughness, &entry.roughness)?;
     let occlusion = channel(&files.occlusion, &entry.occlusion)?;
+    let height = channel(&files.height, &entry.height)?;
+    let damp_map = channel(&files.damp_map, &entry.damp_map)?;
     let texels = (w as usize) * (h as usize);
     let at = |p: &Option<Vec<u8>>, i: usize, c: usize, default: u8| {
         p.as_ref().map_or(default, |p| p[i * 4 + c])
     };
     let scale = entry.normal_scale;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    // LINT-OK: 0..1 brought to 0..255 and rounded.
+    let damp = (entry.damp * 255.0 + 0.5) as u8;
     let mut bends = Vec::with_capacity(texels * 4);
     let mut surface = Vec::with_capacity(texels * 4);
     for i in 0..texels {
@@ -118,31 +181,31 @@ pub(super) fn material(
         surface.extend([
             at(&roughness, i, 0, DEFAULTS[2]),
             at(&occlusion, i, 0, DEFAULTS[3]),
-            0,
-            255,
+            at(&height, i, 0, 255),
+            // LINT-OK: two bytes multiplied, brought back to a byte.
+            u8::try_from(u32::from(damp) * u32::from(at(&damp_map, i, 0, 255)) / 255)
+                .unwrap_or(255),
         ]);
     }
     let (hw, hh) = ((w / 2).max(1), (h / 2).max(1));
     let surface = images::stretched(w, h, &surface, hw, hh);
-    let albedo = Image {
+    let albedo = base.map(|base| Image {
         srgb: false,
         ..images::compressed(
             images::with_levels(w, h, base, true, None),
             BlockFormat::Bc7,
         )
-    };
+    });
     Ok(with_pictures(
         entry,
-        [
-            albedo,
-            images::compressed(
-                images::with_levels(w, h, bends, false, None),
-                BlockFormat::Bc5,
-            ),
-            images::compressed(
-                images::with_levels(hw, hh, surface, false, None),
-                BlockFormat::Bc5,
-            ),
-        ],
+        albedo,
+        images::compressed(
+            images::with_levels(w, h, bends, false, None),
+            BlockFormat::Bc5,
+        ),
+        images::compressed(
+            images::with_levels(hw, hh, surface, false, None),
+            BlockFormat::Bc7,
+        ),
     ))
 }

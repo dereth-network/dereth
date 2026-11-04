@@ -122,6 +122,9 @@ impl MaterialClass {
     }
 }
 
+/// The overridable constant set for a draw that does not blend.
+pub const SOLID_CONSTANT: &str = "HIFI_SOLID";
+
 /// The pixel stages of the ordinary source, by entry point.
 pub const PIXEL_STAGES: [&str; 5] = [
     "ps_modulate",
@@ -323,6 +326,8 @@ pub fn prelude(format: VertexFormat) -> String {
         "
 // ---- the re-shaded output ----------------------------------------------------------------
 
+override HIFI_SOLID: bool = false;
+
 struct HifiOut {{
     // Linear light, unclamped; the alpha is the ordinary stage's, for the ordinary blend.
     @location(0) colour: vec4<f32>,
@@ -446,7 +451,7 @@ fn hifi_out(c: vec4<f32>, i: VsOut, material: f32) -> HifiOut {{
     // Fog and brightness as the ordinary stage applies them, then the result as linear light,
     // not clamped: the ordinary stage's clamp is the resolve's.
     let shown = mix(g_frame.fog_color.rgb, c.rgb, i.fog) * gamma_scale();
-    o.colour = vec4<f32>(hifi_linear_rgb(shown), c.a);
+    o.colour = vec4<f32>(hifi_linear_rgb(shown), select(c.a, 1.0, HIFI_SOLID));
     let n = hifi_view_normal(i);
     if (material == {foliage}) {{
         o.normal = vec4<f32>(hifi_canopy_normal(i, n), hifi_foliage_code(i));

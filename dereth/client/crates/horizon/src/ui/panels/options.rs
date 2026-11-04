@@ -1402,19 +1402,26 @@ fn sheet_lines(page: PageId, state: &GameState) -> Vec<Line> {
     out
 }
 
-/// The preference of `row` when it is one of the experimental effects' boxes.
+/// The preference of `row` when it is one of the experimental effects' boxes, or their Depth
+/// Mapping menu.
 #[cfg(feature = "hifi")]
 fn effect_box(row: &Row) -> Option<&'static str> {
+    use dereth_client_contract::options::depth_mapping;
     match row.value {
         Value::Check(name) if fidelity::find(name).is_some() => Some(name),
+        Value::Menu(name) if depth_mapping::is_depth_mapping(name) => Some(name),
         _ => None,
     }
 }
 
-/// Whether the box `name` is ticked.
+/// Whether the box `name` is ticked, or the menu `name` is off its first choice.
 #[cfg(feature = "hifi")]
 fn ticked(name: &str) -> bool {
-    matches!(store::inq_value(name), Some(PrefValue::Bool(true)))
+    match store::inq_value(name) {
+        Some(PrefValue::Bool(on)) => on,
+        Some(PrefValue::Int(choice)) => choice != 0,
+        _ => false,
+    }
 }
 
 /// Why the effect `name` draws nothing however it is ticked: what it needs is off, or the

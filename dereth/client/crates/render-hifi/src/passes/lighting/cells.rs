@@ -129,6 +129,15 @@ impl Gpu {
             ),
             entry(3, buf(wgpu::BufferBindingType::Uniform)),
             entry(4, buf(wgpu::BufferBindingType::Storage { read_only: true })),
+            entry(10, tex(float, d2)),
+            entry(
+                11,
+                wgpu::BindingType::StorageTexture {
+                    access: wgpu::StorageTextureAccess::WriteOnly,
+                    format: OUT,
+                    view_dimension: d2,
+                },
+            ),
         ];
         if traced {
             entries.extend([
@@ -204,6 +213,8 @@ pub struct CellLight {
     pre_traced: crate::build::Prebuilt<Gpu>,
     pre_plain: crate::build::Prebuilt<Gpu>,
     target: Option<((u32, u32), wgpu::Texture, wgpu::TextureView)>,
+    /// What a film of slime shines (rgb) and how thick it lies (alpha), at the same size.
+    slime: Option<(wgpu::Texture, wgpu::TextureView)>,
     /// How many lights the last frame walked.
     walked: usize,
 }
@@ -255,10 +266,11 @@ impl CellLight {
         frame: &HifiFrame,
         depth: &wgpu::TextureView,
         normals: &wgpu::TextureView,
+        picture: &wgpu::TextureView,
         size: (u32, u32),
         viewport: [f32; 4],
         timer: &mut crate::timing::GpuTimer,
-    ) -> Option<&wgpu::TextureView> {
+    ) -> Option<(&wgpu::TextureView, &wgpu::TextureView)> {
         let lights = burned_lights(frame);
         self.walked = lights.len();
         let traced = scene.is_some();
@@ -272,24 +284,31 @@ impl CellLight {
         }
         let gpu = self.gpu.as_ref()?;
         if self.target.as_ref().is_none_or(|t| t.0 != size) {
-            let t = device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("high-fidelity room light"),
-                size: wgpu::Extent3d {
-                    width: size.0.max(1),
-                    height: size.1.max(1),
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: OUT,
-                usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            });
-            let v = t.create_view(&wgpu::TextureViewDescriptor::default());
+            let make = |label| {
+                let t = device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d {
+                        width: size.0.max(1),
+                        height: size.1.max(1),
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: OUT,
+                    usage: wgpu::TextureUsages::STORAGE_BINDING
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                });
+                let v = t.create_view(&wgpu::TextureViewDescriptor::default());
+                (t, v)
+            };
+            let (t, v) = make("high-fidelity room light");
             self.target = Some((size, t, v));
+            self.slime = Some(make("high-fidelity room slime"));
         }
         let (_, _, out) = self.target.as_ref()?;
+        let (_, slime) = self.slime.as_ref()?;
         let mut lb: Vec<f32> = Vec::with_capacity(lights.len() * 8);
         for l in &lights {
             lb.extend([l.position.x, l.position.y, l.position.z, reach(l)]);
@@ -303,7 +322,9 @@ impl CellLight {
         p.extend(viewport);
         #[allow(clippy::cast_precision_loss)] // at most a hundred and twenty-eight
         p.extend([cam.eye.x, cam.eye.y, cam.eye.z, lights.len() as f32]);
-        p.extend([f32::from(u8::from(traced)), STOP_SHORT, 0.0, 0.0]);
+        #[allow(clippy::cast_possible_truncation)] // ten minutes' worth, well inside the type
+        let time = frame.time.rem_euclid(600.0) as f32;
+        p.extend([f32::from(u8::from(traced)), STOP_SHORT, time, 0.0]);
         queue.write_buffer(&gpu.params, 0, &floats(&p));
         let mut entries = vec![
             wgpu::BindGroupEntry {
@@ -325,6 +346,14 @@ impl CellLight {
             wgpu::BindGroupEntry {
                 binding: 4,
                 resource: gpu.lights.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 10,
+                resource: wgpu::BindingResource::TextureView(picture),
+            },
+            wgpu::BindGroupEntry {
+                binding: 11,
+                resource: wgpu::BindingResource::TextureView(slime),
             },
         ];
         if let Some(scene) = scene {
@@ -364,6 +393,6 @@ impl CellLight {
         pass.set_bind_group(0, &bind, &[]);
         pass.dispatch_workgroups(size.0.div_ceil(8), size.1.div_ceil(8), 1);
         drop(pass);
-        Some(out)
+        Some((out, slime))
     }
 }

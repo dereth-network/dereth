@@ -1,6 +1,6 @@
 //! The Client page of the settings ends, in a build with the experimental rendering effects, with
-//! their ten boxes under a heading of their own: a box whose prerequisite is off is greyed and
-//! cannot be ticked, and the rest tick as any other.
+//! their eleven boxes and their Depth Mapping menu under a heading of their own: a box whose
+//! prerequisite is off is greyed and cannot be ticked, and the rest tick as any other.
 //!
 //! Behaviour: none (experimental Horizon interface)
 #![cfg_attr(not(feature = "hifi"), allow(unused_imports, dead_code))]
@@ -159,6 +159,39 @@ fn the_effects_boxes_end_the_client_page_greyed_until_what_they_need_is_ticked()
         sets(&asked, names::AMBIENT_OCCLUSION),
         Some(PrefValue::Bool(false))
     );
+}
+
+/// The Depth Mapping menu is on the page, Off, and the damp's box stays greyed until it is off Off.
+#[test]
+#[cfg(feature = "hifi")]
+fn the_damp_box_is_greyed_until_depth_mapping_is_chosen() {
+    let (mut h, state) = client_page(Availability {
+        built: true,
+        wgpu: true,
+        widened: true,
+        supported: true,
+        rays: Some(true),
+        active: false,
+        failed: None,
+        wgpu_next: None,
+    });
+    assert!(show(
+        &mut h,
+        &state,
+        dereth_client_contract::options::depth_mapping::CAPTION
+    ));
+    assert_eq!(
+        store::inq_value(names::DEPTH_MAPPING),
+        Some(PrefValue::Int(0))
+    );
+    let asked = tick(&mut h, &state, caption(names::LIGHTING));
+    assert_eq!(sets(&asked, names::LIGHTING), Some(PrefValue::Bool(true)));
+    let asked = tick(&mut h, &state, caption(names::NO_DAMP));
+    assert_eq!(sets(&asked, names::NO_DAMP), None, "greyed: {asked:?}");
+    assert!(store::set_value(names::DEPTH_MAPPING, PrefValue::Int(2)));
+    h.frame(&state);
+    let asked = tick(&mut h, &state, caption(names::NO_DAMP));
+    assert_eq!(sets(&asked, names::NO_DAMP), Some(PrefValue::Bool(true)));
 }
 
 #[test]

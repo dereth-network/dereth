@@ -89,13 +89,29 @@
 //!                                                  # width, green up it
 //! roughness = "materials/0x0500287C_roughness.png" # red
 //! occlusion = "materials/0x0500287C_occlusion.png" # red
+//! height = "materials/0x0500287C_height.png"       # red; white is the surface, black its deepest
 //! normal_scale = 1.0         # how strongly the normal picture bends the normal
+//! keep_retail_picture = true # draw the player's own retail picture, not base_color
+//! damp = 0.8                 # 0 to 1: how wet it looks in a room, darker and catching the light
+//! damp_map = "materials/0x0500287C_damp.png"       # red: white as wet as damp says, black dry
+//! damp_floors = true         # wet on floors too, not only on walls
+//! slime = true               # a film lies on it in a room where it is damp, in pools and runs
+//! ice = true                 # glacier ice: deep blue, opaque, with light bent through it
+//! grit = "grit/stone.png"    # a small picture of fine surface many materials share: its bend
+//!                            # in red and green, its speckle in blue, its roughness in alpha
+//! grit_repeat = [4, 3]       # how often the grit repeats across one repeat of the retail
+//!                            # picture, along its width and up it; [1, 1] unless named
 //! author = "..."
 //! tool = "..."
 //! license = "..."
 //! ```
 //!
-//! Only `texture`, `base_color` and the credit are required.
+//! Only `texture`, `base_color` and the credit are required. A material that names
+//! `keep_retail_picture = true` keeps drawing the retail picture, in whichever form the player's
+//! files hold it, and adds only what its other pictures say of the surface: its relief, its grit
+//! and how damp it is. Its `base_color` is then a flat colour for a reader that draws no relief,
+//! and is neither read nor drawn here. The keys after `occlusion` are all optional, and a reader
+//! of this format that does not know them draws the material without them.
 //!
 //! This module reads the manifest only. The models and their pictures are read by whatever
 //! draws them.
@@ -134,8 +150,29 @@ pub struct ManifestMaterial {
     pub roughness: Option<String>,
     /// The ambient occlusion picture, in its red.
     pub occlusion: Option<String>,
+    /// The height picture, in its red: white is the surface, black its deepest.
+    pub height: Option<String>,
     /// How strongly the normal picture bends the normal.
     pub normal_scale: f32,
+    /// Whether the retail picture is drawn in place of [`Self::base_color`], which is then only
+    /// a flat colour for a reader that draws no relief.
+    pub keep_retail_picture: bool,
+    /// How wet it looks in a room, from 0 to 1.
+    pub damp: f32,
+    /// A picture of where it is wet, in its red: white as wet as [`Self::damp`] says, black dry.
+    pub damp_map: Option<String>,
+    /// Whether it is wet on floors too, not only on walls.
+    pub damp_floors: bool,
+    /// Whether a film of slime lies on it where it is damp.
+    pub slime: bool,
+    /// Whether it is glacier ice: deep blue, opaque, with light bent through it.
+    pub ice: bool,
+    /// A small picture of fine surface many materials may share, laid over its own: its bend in
+    /// red and green, its speckle in blue and its roughness in alpha, each about a half.
+    pub grit: Option<String>,
+    /// How many times the grit repeats across one repeat of the retail picture, along its width
+    /// and up it.
+    pub grit_repeat: [f32; 2],
     /// Who made it, with what, and under which license.
     pub credit: Credit,
 }
@@ -247,7 +284,8 @@ impl ArtPackManifest {
     /// out; or a ground material is: a ground that is not a terrain type or the road, a ground
     /// two materials claim, no base color, or a size that is not a positive number; or a
     /// material for retail pictures is: a picture that is not a texture record, a picture two
-    /// materials claim, no base color, or a picture path outside the pack.
+    /// materials claim, no base color, a picture path outside the pack, or a damp, a grit repeat
+    /// or a switch out of range.
     pub fn parse(text: &str) -> Result<Self, ManifestError> {
         let table: toml::Table = match text.parse() {
             Ok(t) => t,
@@ -534,13 +572,50 @@ fn material(t: &toml::Table) -> Result<ManifestMaterial, ManifestError> {
         Some(toml::Value::Integer(i)) if *i >= 0 => *i as f32,
         Some(v) => return fail(format!("normal_scale {v} is not a number from 0")),
     };
+    let flag = |key: &str| match t.get(key) {
+        None => Ok(false),
+        Some(toml::Value::Boolean(b)) => Ok(*b),
+        Some(v) => fail(format!("{key} {v} is not true or false")),
+    };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    // A share, well inside both types' range.
+    let damp = match t.get("damp") {
+        None => 0.0,
+        Some(toml::Value::Float(f)) if (0.0..=1.0).contains(f) => *f as f32,
+        Some(toml::Value::Integer(i)) if (0..=1).contains(i) => *i as f32,
+        Some(v) => return fail(format!("damp {v} is not a number from 0 to 1")),
+    };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    // A count of repeats, well inside both types' range.
+    let part = |v: &toml::Value| match v {
+        toml::Value::Float(f) if f.is_finite() && *f > 0.0 => Some(*f as f32),
+        toml::Value::Integer(i) if *i > 0 => Some(*i as f32),
+        _ => None,
+    };
+    let grit_repeat = match t.get("grit_repeat") {
+        None => [1.0, 1.0],
+        Some(toml::Value::Array(a)) if a.len() == 2 => match (part(&a[0]), part(&a[1])) {
+            (Some(u), Some(v)) => [u, v],
+            _ => return fail("grit_repeat is not two numbers above 0"),
+        },
+        Some(_) => return fail("grit_repeat is not two numbers above 0"),
+    };
     Ok(ManifestMaterial {
         textures,
         base_color,
         normal: picture("normal")?,
         roughness: picture("roughness")?,
         occlusion: picture("occlusion")?,
+        height: picture("height")?,
         normal_scale,
+        keep_retail_picture: flag("keep_retail_picture")?,
+        damp,
+        damp_map: picture("damp_map")?,
+        damp_floors: flag("damp_floors")?,
+        slime: flag("slime")?,
+        ice: flag("ice")?,
+        grit: picture("grit")?,
+        grit_repeat,
         credit: Credit {
             author: text(t, "author")?.to_owned(),
             tool: text(t, "tool")?.to_owned(),
@@ -1056,5 +1131,81 @@ license = \"CC0-1.0\"
             let e = ArtPackManifest::parse(&text).expect_err(why);
             assert!(e.0.contains(why), "{why}: {}", e.0);
         }
+    }
+
+    /// A material for a retail picture, its base color named and the given `lines` after it.
+    fn wall_with(lines: &str) -> String {
+        format!(
+            "[pack]\nname = \"x\"\nformat = 1\n[[material]]\ntexture = \"0x05000001\"\n\
+             base_color = \"b.png\"\nnormal = \"n.png\"\n{lines}\nauthor = \"a\"\ntool = \"t\"\n\
+             license = \"CC0-1.0\"\n"
+        )
+    }
+
+    #[test]
+    fn a_material_may_keep_the_retail_picture_and_its_base_color_is_only_a_fallback() {
+        let pack = ArtPackManifest::parse(&wall_with(
+            "keep_retail_picture = true\nheight = \"h.png\"\ndamp = 0.8",
+        ))
+        .expect("reads");
+        let m = pack.material(DataId(0x0500_0001)).expect("named");
+        assert!(m.keep_retail_picture);
+        assert_eq!(
+            m.base_color, "b.png",
+            "still named, for a reader without relief"
+        );
+        assert_eq!(m.height.as_deref(), Some("h.png"));
+        assert!((m.damp - 0.8).abs() < 1e-6);
+        let plain = ArtPackManifest::parse(&wall_with("")).expect("reads");
+        let m = plain.material(DataId(0x0500_0001)).expect("named");
+        assert!(!m.keep_retail_picture && m.height.is_none() && m.damp == 0.0);
+        assert!(!m.slime && !m.ice);
+        // The base color is required all the same.
+        let bare = wall_with("keep_retail_picture = true").replace("base_color = \"b.png\"\n", "");
+        let e = ArtPackManifest::parse(&bare).expect_err("no base_color");
+        assert!(e.0.contains("no base_color"), "{}", e.0);
+        for bad in [
+            "keep_retail_picture = 1",
+            "damp = 2",
+            "slime = \"yes\"",
+            "ice = 0",
+            "height = \"../h.png\"",
+        ] {
+            assert!(ArtPackManifest::parse(&wall_with(bad)).is_err(), "{bad}");
+        }
+        let film = ArtPackManifest::parse(&wall_with("slime = true\nice = true")).expect("reads");
+        let m = film.material(DataId(0x0500_0001)).expect("named");
+        assert!(m.slime && m.ice);
+    }
+
+    #[test]
+    fn a_material_may_say_where_it_is_wet_and_be_wet_on_floors() {
+        let pack = ArtPackManifest::parse(&wall_with("damp_map = \"w.png\"\ndamp_floors = true"))
+            .expect("reads");
+        let m = pack.material(DataId(0x0500_0001)).expect("named");
+        assert_eq!(
+            (m.damp_map.as_deref(), m.damp_floors),
+            (Some("w.png"), true)
+        );
+        let plain = ArtPackManifest::parse(&wall_with("")).expect("reads");
+        let m = plain.material(DataId(0x0500_0001)).expect("named");
+        assert_eq!((m.damp_map.as_deref(), m.damp_floors), (None, false));
+        assert!(ArtPackManifest::parse(&wall_with("damp_floors = 1")).is_err());
+        assert!(ArtPackManifest::parse(&wall_with("damp_map = \"../w.png\"")).is_err());
+    }
+
+    #[test]
+    fn a_material_may_name_a_grit_and_how_often_it_repeats() {
+        let pack = ArtPackManifest::parse(&wall_with("grit = \"g.png\"\ngrit_repeat = [3, 4.5]"))
+            .expect("reads");
+        let m = pack.material(DataId(0x0500_0001)).expect("named");
+        assert_eq!(m.grit.as_deref(), Some("g.png"));
+        assert_eq!(m.grit_repeat, [3.0, 4.5]);
+        let plain = ArtPackManifest::parse(&wall_with("")).expect("reads");
+        let m = plain.material(DataId(0x0500_0001)).expect("named");
+        assert_eq!((m.grit.as_deref(), m.grit_repeat), (None, [1.0, 1.0]));
+        assert!(ArtPackManifest::parse(&wall_with("grit_repeat = [0, 1]")).is_err());
+        assert!(ArtPackManifest::parse(&wall_with("grit_repeat = [1]")).is_err());
+        assert!(ArtPackManifest::parse(&wall_with("grit = \"../g.png\"")).is_err());
     }
 }

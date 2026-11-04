@@ -22,8 +22,10 @@
 //!   (`model:color:0.5:-:tree/bark.png`), so a path holding a `:` is still told apart;
 //! - a ground material's three pictures: `ground` and the paths of its base color, normal,
 //!   height, roughness and occlusion, empty where it names none;
-//! - a material's three: `material`, the paths of its base color, normal, roughness and
-//!   occlusion, and its normal scale.
+//! - a material's three, or two where it keeps the retail picture: `material`, the paths of its
+//!   base color (empty for the two), normal, roughness, occlusion and height, its normal scale,
+//!   how damp it is and the path of its damp map where it names one;
+//! - a grit picture: `grit` and its path.
 //!
 //! No path a manifest names holds a `:`. A pictures record holds a count, then each picture: its
 //! width and height, whether it holds color (1) or data (0), its blocks (0 for four bytes a
@@ -265,19 +267,36 @@ pub fn ground_key(entry: &ManifestGround) -> String {
     )
 }
 
-/// What a packed pack keeps a material's three pictures under: the paths of the pictures they
-/// are made from, and the normal scale its normal picture is bent by.
+/// What a packed pack keeps a material's three pictures under, or two where it keeps the retail
+/// picture: the paths of the pictures they are made from (no base color for the two), the normal
+/// scale its normal picture is bent by and how damp it is.
 #[must_use]
 pub fn material_key(entry: &ManifestMaterial) -> String {
     let path = |p: &Option<String>| p.clone().unwrap_or_default();
-    format!(
-        "material:{}:{}:{}:{}:{}",
-        entry.base_color,
+    let base = if entry.keep_retail_picture {
+        ""
+    } else {
+        entry.base_color.as_str()
+    };
+    let key = format!(
+        "material:{base}:{}:{}:{}:{}:{}:{}",
         path(&entry.normal),
         path(&entry.roughness),
         path(&entry.occlusion),
+        path(&entry.height),
         entry.normal_scale,
-    )
+        entry.damp,
+    );
+    match &entry.damp_map {
+        Some(map) => format!("{key}:{map}"),
+        None => key,
+    }
+}
+
+/// What a packed pack keeps a grit picture under, whichever materials share it.
+#[must_use]
+pub fn grit_key(path: &str) -> String {
+    format!("grit:{path}")
 }
 
 /// The number a pictures record gives a picture's blocks.
@@ -495,6 +514,14 @@ impl PackedFile {
     /// # Errors
     /// The pack holds no such pictures, or it is damaged ([`Self::damage`]).
     pub fn three(&self, key: &str) -> Result<[Image; 3], String> {
+        self.pictures(key)
+    }
+
+    /// The two pictures of a material that keeps the retail picture ([`material_key`]).
+    ///
+    /// # Errors
+    /// The pack holds no such pictures, or it is damaged ([`Self::damage`]).
+    pub fn two(&self, key: &str) -> Result<[Image; 2], String> {
         self.pictures(key)
     }
 
@@ -805,6 +832,19 @@ author = "a"
 tool = "t"
 license = "CC0-1.0"
 [[material]]
+texture = "0x05002753"
+base_color = "m/fallback.png"
+keep_retail_picture = true
+normal = "m/wall_n.png"
+height = "m/wall.png"
+damp = 0.5
+damp_map = "m/wall.png"
+grit = "m/wall_n.png"
+grit_repeat = [3, 4]
+author = "a"
+tool = "t"
+license = "CC0-1.0"
+[[material]]
 texture = "0x05001CB4"
 base_color = "m/missing.png"
 author = "a"
@@ -874,13 +914,14 @@ license = "CC0-1.0"
         let files = files();
         let folder = ArtPack::open(MANIFEST, &mut reader(&files)).expect("the folder opens");
         // The pack exercises what it is meant to: a picture drawn as color and as data is two
-        // pictures, and the far level's two more; four grounds and three materials; and what
-        // will not read left out.
+        // pictures, and the far level's two more; four grounds and four materials, one keeping
+        // the retail picture, whose fallback colour is not in the folder; and what will not read
+        // left out.
         assert_eq!(folder.images.len(), 4);
         assert!(folder.images.iter().all(|i| i.format.is_some()));
         assert!(folder.images[2].srgb && !folder.images[3].srgb);
         assert_eq!(folder.grounds.len(), 4);
-        assert_eq!(folder.materials.len(), 3);
+        assert_eq!(folder.materials.len(), 4);
         assert_eq!(folder.problems.len(), 2, "{:?}", folder.problems);
         let packed = packed();
         let file =
@@ -907,6 +948,16 @@ license = "CC0-1.0"
         assert_eq!(opened.images, folder.images);
         assert_eq!(opened.grounds, folder.grounds);
         assert_eq!(opened.materials, folder.materials);
+        // A grit picture is kept once, and its material names it.
+        assert_eq!(folder.grits.len(), 1);
+        assert_eq!(opened.grits, folder.grits);
+        let gritty = folder.materials.iter().find(|m| m.grit.is_some());
+        let gritty = gritty.expect("one has grit");
+        assert_eq!(gritty.grit_repeat, [3.0, 4.0]);
+        // It keeps the retail picture: its two pictures are packed, its fallback colour is not.
+        assert!(gritty.albedo.is_none());
+        let kept = opened.materials.iter().find(|m| m.grit.is_some());
+        assert!(kept.is_some_and(|m| m.albedo.is_none() && m.surface == gritty.surface));
         // What the folder left out, the packed pack leaves out too.
         assert_eq!(opened.problems.len(), 2, "{:?}", opened.problems);
         assert!(

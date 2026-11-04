@@ -87,6 +87,8 @@ struct Light {
 // The share of the sun's light the clouds overhead let through to the world under each texel,
 // over the world round the eye, while the Remastered sky's clouds cast shadows.
 @group(0) @binding(9) var cloud_shadow: texture_2d<f32>;
+// What a film of slime on a room's surface shines (rgb) and how thick it lies (alpha).
+@group(0) @binding(10) var room_slime: texture_2d<f32>;
 
 // The share of the sun's light the clouds let through to the point `world`: their shadow map
 // read where the sun's line from the point meets their base, between its four nearest texels,
@@ -355,6 +357,12 @@ fn room_gain(raw: f32) -> f32 {
     return min(raw, 1.0) + over / (1.0 + over / 0.4);
 }
 
+// How strongly a damp room's surface shines.
+const ROOM_SHINE: f32 = 2.5;
+
+// The brightest a damp room's surface shines.
+const ROOM_SHINE_MOST: f32 = 0.06;
+
 // A room's surface lit by its own lights per pixel: the light burned into its vertices, which the
 // color was drawn with, gives way to the same lights worked out here, by the brightness of the
 // two in the display's encoding. Close to a torch the surface is brighter than its vertices held,
@@ -390,6 +398,41 @@ fn room_reflects(c: vec3<f32>, kind: f32) -> vec4<f32> {
     }
     let own = srgb_to_linear(min(linear_to_srgb(max(c, vec3<f32>(0.0))) / drawn, vec3<f32>(1.0)));
     return vec4<f32>(own, 1.0);
+}
+
+// What a damp room's surface shines of its lights: how damp it is the color's alpha holds past 1
+// (see the material variant), the highlight the room's pass worked out, in those lights' color.
+fn room_shine(c: vec4<f32>, kind: f32, px: vec2<i32>) -> vec3<f32> {
+    let damp = clamp(c.a - 1.0, 0.0, 1.0);
+    if (damp <= 0.0 || c.a > 2.01 || params.indoor.y < 0.5 || params.indoor.z > 0.5) {
+        return vec3<f32>(0.0);
+    }
+    let here = textureLoad(room_light, px, 0);
+    if (here.w <= 0.0) {
+        return vec3<f32>(0.0);
+    }
+    let tint = here.rgb / max(luminance(here.rgb), 1e-3);
+    // Close by a light it levels off, a glint on the surface and never a pale wash over it.
+    let lit = smoothstep(0.02, 0.2, burned_drawn(kind));
+    let shine = here.w * damp * lit * ROOM_SHINE * clamp(luminance(c.rgb) * 12.0, 0.35, 1.0);
+    return tint * shine / (1.0 + shine / ROOM_SHINE_MOST);
+}
+
+// A film of slime over `shown`, the room's surface as lit: deeper in colour under it, as a wet
+// surface is, with what it shines on top, levelled off so that it stays a glint.
+const SLIME_DARK: f32 = 0.82;
+const SLIME_RICH: f32 = 1.25;
+const SLIME_MOST: f32 = 0.5;
+fn slimed(shown: vec3<f32>, kind: f32, px: vec2<i32>) -> vec3<f32> {
+    let film = textureLoad(room_slime, px, 0);
+    if (film.a <= 0.0 || params.indoor.y < 0.5 || params.indoor.z > 0.5) {
+        return shown;
+    }
+    let grey = vec3<f32>(luminance(shown));
+    let under = mix(shown, mix(grey, shown, SLIME_RICH) * SLIME_DARK, film.a);
+    // What the burn says of the place keeps a light behind a wall from shining here.
+    let shine = film.rgb * mix(0.3, 1.0, smoothstep(0.02, 0.2, burned_drawn(kind)));
+    return max(under, vec3<f32>(0.0)) + shine / (1.0 + shine / SLIME_MOST);
 }
 
 // The roughness of an art pack model's surface and whether it is a metal (x and y), from the
@@ -443,6 +486,12 @@ fn leaf_sun(kind: f32, open: f32, shadow: f32, leaf: vec4<f32>) -> f32 {
     return kept + (1.0 - kept) * shadow;
 }
 
+// The roughness under which an art pack's ground starts to mirror the sky.
+const GROUND_GLASSY: f32 = 0.12;
+
+// How strongly a glassy ground mirrors the sky.
+const GROUND_MIRROR: f32 = 2.0;
+
 // The sun's specular reflection off a surface of roughness `rough`, without its Fresnel term:
 // the microfacet distribution and visibility of a physically based surface, times the cosine.
 fn sun_specular(n: vec3<f32>, l: vec3<f32>, v: vec3<f32>, rough: f32) -> f32 {
@@ -489,7 +538,8 @@ fn fs_relight(@builtin(position) p: vec4<f32>) -> Out {
     // A room's own surface takes its lights per pixel while the viewer is in a room; seen from
     // outdoors, it keeps the light it was drawn with, as below.
     if (kind > 1.5 && kind < 2.5 && params.indoor.w > 0.5) {
-        return out(vec4<f32>(room_lit(c.rgb, kind, px), c.a), room_reflects(c.rgb, kind));
+        let shown = slimed(room_lit(c.rgb, kind, px) + room_shine(c, kind, px), kind, px);
+        return out(vec4<f32>(shown, min(c.a, 1.0)), room_reflects(c.rgb, kind));
     }
     // A lit thing drawn without the sun among its lights while the sun is up, or anywhere in a
     // frame that shows nothing of the outdoors, stands indoors: in a building's or a dungeon's
@@ -662,6 +712,16 @@ fn fs_relight(@builtin(position) p: vec4<f32>) -> Out {
         let sun_lin = pow(params.sun_legacy.rgb, vec3<f32>(2.2)) * params.sun_legacy.w;
         let specular = fresnel * sun_specular(n, params.sun_dir.xyz, v, ground) * shadow;
         relit = relit + specular * sun_lin * (1.0 - f);
+        // A glassy ground mirrors the sky too, as its normal turns it: more of it at a low angle.
+        let gloss = 1.0 - smoothstep(GROUND_GLASSY, GROUND_GLASSY * 3.0, ground);
+        if (gloss > 0.0) {
+            let r = reflect(-v, n);
+            let facing = pow(1.0 - max(dot(v, n), 0.0), 5.0);
+            let amb = pow(params.amb_legacy.rgb, vec3<f32>(2.2)) * params.amb_legacy.w;
+            let above = amb * vec3<f32>(0.85, 0.95, 1.15) + vec3<f32>(params.scatter.x);
+            let mirrored = above * (0.55 + 1.3 * clamp(r.z, 0.0, 1.0));
+            relit = relit + mirrored * gloss * (0.05 + 0.95 * facing) * GROUND_MIRROR * (1.0 - f);
+        }
     }
     relit = relit + albedo * point_light(world, n, baked) * (1.0 - f);
     let refl = select(min(lit / legacy_lin, vec3<f32>(2.0)) * (1.0 - f), vec3<f32>(0.0), baked);

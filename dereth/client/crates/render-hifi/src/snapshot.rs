@@ -248,19 +248,31 @@ pub struct HifiMaterials {
     pub serial: u64,
     /// The materials, by the index [`HifiFrame::material_slots`] names them with.
     pub materials: Vec<HifiTextureMaterial>,
+    /// The grit pictures the materials share.
+    pub grits: Vec<HifiPackImage>,
 }
 
-/// One material drawn in place of a retail picture, on the retail surface's own coordinates.
+/// One material drawn for a retail picture, on the retail surface's own coordinates.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HifiTextureMaterial {
     /// The base color with the retail picture's alpha, read as the retail picture is: in the
     /// display's encoding, as stored, so the surface's stages compute with it exactly as they
-    /// compute with the retail picture.
-    pub albedo: HifiPackImage,
+    /// compute with the retail picture. With none, the retail picture is drawn.
+    pub albedo: Option<HifiPackImage>,
     /// The normal's parts along the picture's width and up it (-1..1 as 0..1), in red and green.
     pub normal: HifiPackImage,
     /// The roughness and the ambient occlusion, in red and green.
     pub surface: HifiPackImage,
+    /// Which of [`HifiMaterials::grits`] lies over it, if any.
+    pub grit: Option<u32>,
+    /// How many times the grit repeats across one repeat of the retail picture.
+    pub grit_repeat: [f32; 2],
+    /// Whether it is wet on floors too, not only on walls.
+    pub damp_floors: bool,
+    /// Whether a film of slime lies on it where it is damp.
+    pub slime: bool,
+    /// Whether it is glacier ice: deep blue, opaque, with light bent through it.
+    pub ice: bool,
 }
 
 /// The landscape the presentation draws itself.

@@ -531,8 +531,15 @@ impl RetailGround {
             }
             let roughness = if water { 100 } else { 220 };
             let texels = (size as usize) * (size as usize);
-            let flat = [128, 128, 0, 255].repeat(texels);
-            let surface = [roughness, 255, 0, 255].repeat(texels);
+            let road = grounds.iter().all(|g| u32::from(*g) == ROAD_TERRAIN_TYPE);
+            let (flat, surface) = if road {
+                road_relief(size, &mut albedo, roughness)
+            } else {
+                (
+                    [128, 128, 0, 255].repeat(texels),
+                    [roughness, 255, 0, 255].repeat(texels),
+                )
+            };
             let [albedo, normal, surface] = ground_pictures(size, albedo, flat, &surface);
             Some(RetailPicture {
                 grounds,
@@ -560,6 +567,80 @@ impl RetailGround {
     }
 }
 
+/// How far out a road's stones are told from its broad patches, texels of a 512 picture.
+const ROAD_RELIEF_REACH: usize = 18;
+/// How steeply a road's stones bend the light.
+const ROAD_RELIEF_BEND: f32 = 5.0;
+
+/// A road's relief, worked out from its own `albedo` (`size` a side), which keeps its colour:
+/// its height written into the alpha, the bright stones standing above the dark joints; and the
+/// normal and surface pictures it gives, the joints in shade.
+fn road_relief(size: u32, albedo: &mut [u8], roughness: u8) -> (Vec<u8>, Vec<u8>) {
+    let n = size as usize;
+    let light: Vec<f32> = albedo
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|t| {
+            (0.2126 * f32::from(t[0]) + 0.7152 * f32::from(t[1]) + 0.0722 * f32::from(t[2])) / 255.0
+        })
+        .collect();
+    let reach = (ROAD_RELIEF_REACH * n / 512).max(2);
+    // The stones' tops lie nearly level, a little of their grain left: it is the joints that sink.
+    let height: Vec<f32> = wrapped_blur(&light, n, 2 * n / 512 + 1)
+        .iter()
+        .zip(&wrapped_blur(&light, n, reach))
+        .map(|(fine, broad)| {
+            let d = (fine - broad) * 6.0;
+            let t = ((d + 0.7) / 0.6).clamp(0.0, 1.0);
+            let joint = t * t * (3.0 - 2.0 * t);
+            (joint * 1.7 - 1.0 + (d * 0.15).clamp(-0.15, 0.15)).clamp(-1.0, 1.0)
+        })
+        .collect();
+    let at = |x: usize, y: usize| height[(y % n) * n + x % n];
+    let mut normal = Vec::with_capacity(n * n * 4);
+    let mut surface = Vec::with_capacity(n * n * 4);
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
+    // LINT-OK: each brought to 0..255 and rounded; a picture's side, far inside f32.
+    for y in 0..n {
+        for x in 0..n {
+            let h = at(x, y);
+            // Toward the east, and north: up the picture, against its rows.
+            let east = (at(x + n - 1, y) - at(x + 1, y)) * ROAD_RELIEF_BEND * (n as f32 / 512.0);
+            let north = (at(x, y + 1) - at(x, y + n - 1)) * ROAD_RELIEF_BEND * (n as f32 / 512.0);
+            let byte = |v: f32| ((v.clamp(-0.98, 0.98) * 0.5 + 0.5) * 255.0 + 0.5) as u8;
+            normal.extend([byte(east), byte(north), 0, 255]);
+            let shade = 0.62 + 0.38 * (h * 0.5 + 0.5);
+            surface.extend([roughness, (shade * 255.0 + 0.5) as u8, 0, 255]);
+            albedo[(y * n + x) * 4 + 3] = ((h * 0.5 + 0.5) * 255.0 + 0.5) as u8;
+        }
+    }
+    (normal, surface)
+}
+
+/// `v`, a picture `n` a side, averaged over `reach` texels each way, its edges wrapping round.
+fn wrapped_blur(v: &[f32], n: usize, reach: usize) -> Vec<f32> {
+    #[allow(clippy::cast_precision_loss)] // a few texels
+    let share = 1.0 / (2 * reach + 1) as f32;
+    let along = |from: &[f32], step: usize, row: usize| -> Vec<f32> {
+        let mut out = vec![0.0; n * n];
+        for r in 0..n {
+            let at = |i: usize| from[(r * row + (i % n) * step) % (n * n)];
+            let mut sum: f32 = (0..=2 * reach).map(|i| at(i + n * 4 - reach)).sum();
+            for i in 0..n {
+                out[(r * row + i * step) % (n * n)] = sum * share;
+                sum += at(i + reach + 1) - at(i + n * 4 - reach);
+            }
+        }
+        out
+    };
+    along(&along(v, 1, n), n, 1)
+}
+
 /// An open art pack: its models and their pictures, decoded.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ArtPack {
@@ -577,6 +658,8 @@ pub struct ArtPack {
     pub grounds: Vec<PackGround>,
     /// The materials for retail pictures that read.
     pub materials: Vec<TextureMaterial>,
+    /// The grit pictures the materials share.
+    pub grits: Vec<Image>,
     /// What would not read, a line each.
     pub problems: Vec<String>,
 }
@@ -1007,23 +1090,35 @@ impl ArtPack {
             }
             Pictures::Packed(file) => {
                 images::par_map(manifest.materials.iter().collect(), &|entry| {
-                    let made = file.three(&packed::material_key(entry));
-                    (entry, made.map(|p| materials::with_pictures(entry, p)))
+                    let key = packed::material_key(entry);
+                    let made = if entry.keep_retail_picture {
+                        file.two(&key)
+                            .map(|[n, s]| materials::with_pictures(entry, None, n, s))
+                    } else {
+                        file.three(&key)
+                            .map(|[a, n, s]| materials::with_pictures(entry, Some(a), n, s))
+                    };
+                    (entry, made)
                 })
             }
         };
         if let Some(r) = recording.as_deref_mut() {
             for (entry, m) in &made {
                 if let Ok(m) = m {
-                    let made = vec![m.albedo.clone(), m.normal.clone(), m.surface.clone()];
+                    let mut made: Vec<Image> = m.albedo.iter().cloned().collect();
+                    made.extend([m.normal.clone(), m.surface.clone()]);
                     r.pictures.insert(packed::material_key(entry), made);
                 }
             }
         }
         let mut retextured: Vec<TextureMaterial> = Vec::with_capacity(made.len());
+        let mut named = Vec::with_capacity(made.len());
         for (entry, m) in made {
             match m {
-                Ok(m) => retextured.push(m),
+                Ok(m) => {
+                    retextured.push(m);
+                    named.push(entry);
+                }
                 Err(e) => problems.push(format!(
                     "material {}: {e}",
                     entry
@@ -1034,6 +1129,37 @@ impl ArtPack {
                         .join(", ")
                 )),
             }
+        }
+        // The grit pictures, one each however many materials share it.
+        let mut grits: Vec<Image> = Vec::new();
+        let mut grit_at: BTreeMap<&str, Option<usize>> = BTreeMap::new();
+        for (m, entry) in retextured.iter_mut().zip(named) {
+            let Some(path) = entry.grit.as_deref() else {
+                continue;
+            };
+            let at = *grit_at.entry(path).or_insert_with(|| {
+                let made = match pictures {
+                    Pictures::Made => reader
+                        .for_picture(path)
+                        .and_then(|bytes| materials::grit(&bytes, path)),
+                    Pictures::Packed(file) => file.picture(&packed::grit_key(path)),
+                };
+                match made {
+                    Ok(image) => {
+                        if let Some(r) = recording.as_deref_mut() {
+                            r.pictures
+                                .insert(packed::grit_key(path), vec![image.clone()]);
+                        }
+                        grits.push(image);
+                        Some(grits.len() - 1)
+                    }
+                    Err(e) => {
+                        problems.push(format!("grit {path}: {e}"));
+                        None
+                    }
+                }
+            });
+            m.grit = at;
         }
         // A packed pack is named by the hash of the folder it was packed from.
         let hash = match pictures {
@@ -1051,6 +1177,7 @@ impl ArtPack {
             images,
             grounds,
             materials: retextured,
+            grits,
             problems,
         })
     }
@@ -1101,6 +1228,33 @@ impl ArtPack {
 mod tests {
     //! Behaviour: none (experimental hi-fi art packs)
     use super::*;
+
+    #[test]
+    fn a_road_stands_up_from_its_own_picture_and_keeps_its_colour() {
+        // A pale stone with a dark joint across it, every 16 texels.
+        let n = 64usize;
+        let mut albedo = Vec::with_capacity(n * n * 4);
+        for y in 0..n {
+            for _ in 0..n {
+                let v = if y % 16 < 2 { 40 } else { 200 };
+                albedo.extend([v, v, v, 128]);
+            }
+        }
+        let colour: Vec<u8> = albedo.chunks(4).map(|t| t[0]).collect();
+        let (normal, surface) = road_relief(64, &mut albedo, 220);
+        assert_eq!(colour, albedo.chunks(4).map(|t| t[0]).collect::<Vec<u8>>());
+        let at = |y: usize| (y * n) * 4;
+        // The joint lies below the stone, in shade, and the light bends at its edge alone.
+        assert!(albedo[at(1) + 3] < albedo[at(9) + 3]);
+        assert!(surface[at(1) + 1] < surface[at(9) + 1]);
+        assert!(normal[at(2) + 1].abs_diff(128) > 4, "{}", normal[at(2) + 1]);
+        // A picture with nothing in it stays level.
+        let mut plain = [90u8, 90, 90, 128].repeat(n * n);
+        let (normal, _) = road_relief(64, &mut plain, 220);
+        assert!(normal
+            .chunks(4)
+            .all(|t| t[0].abs_diff(128) < 2 && t[1].abs_diff(128) < 2));
+    }
 
     #[test]
     fn the_art_pack_answers_first_then_the_classic_look_then_the_world() {
@@ -1276,6 +1430,61 @@ file = "rock/missing.gltf"
     }
 
     #[test]
+    fn a_material_that_keeps_the_retail_picture_neither_reads_nor_draws_its_base_color() {
+        let mut files = HashMap::new();
+        files.insert(
+            "m/wall_n.png".to_owned(),
+            png_of(8, 8, &[160, 128, 230, 255].repeat(64)),
+        );
+        let manifest = r#"
+[pack]
+name = "Relief"
+format = 1
+[[material]]
+texture = "0x0500287C"
+base_color = "m/fallback.png"
+keep_retail_picture = true
+normal = "m/wall_n.png"
+damp = 1
+author = "a"
+tool = "t"
+license = "CC0-1.0"
+"#;
+        // The fallback colour is not in the folder: it is never read.
+        let pack = ArtPack::open(manifest, &mut |path| {
+            files
+                .get(path)
+                .cloned()
+                .ok_or_else(|| format!("{path}: missing"))
+        })
+        .expect("the pack opens");
+        assert_eq!(pack.materials.len(), 1, "{:?}", pack.problems);
+        let wall = &pack.materials[0];
+        assert!(wall.albedo.is_none());
+        // Sized by the picture it has.
+        assert_eq!((wall.normal.width, wall.surface.width), (8, 4));
+        // Without the key the base color is read, and drawn.
+        let plain = manifest.replace("keep_retail_picture = true\n", "");
+        let pack = ArtPack::open(&plain, &mut |path| {
+            files
+                .get(path)
+                .cloned()
+                .ok_or_else(|| format!("{path}: missing"))
+        })
+        .expect("the pack opens");
+        assert!(pack.materials.is_empty());
+        assert!(
+            pack.problems[0].contains("m/fallback.png"),
+            "{:?}",
+            pack.problems
+        );
+        // Keeping the retail picture with no picture of its own leaves nothing to draw.
+        let nothing = manifest.replace("normal = \"m/wall_n.png\"\n", "");
+        let pack = ArtPack::open(&nothing, &mut |_| Err("missing".to_owned())).expect("opens");
+        assert!(pack.materials.is_empty() && pack.problems.len() == 1);
+    }
+
+    #[test]
     fn a_material_for_a_retail_picture_keeps_its_alpha_and_is_read_as_the_retail_picture_is() {
         let mut files = HashMap::new();
         // An eight by eight picture whose left half is cut away (alpha 0), as a retail cut-out
@@ -1295,6 +1504,10 @@ file = "rock/missing.gltf"
             "m/wall_r.png".to_owned(),
             png_of(8, 8, &[50, 0, 0, 255].repeat(64)),
         );
+        files.insert(
+            "m/wall_h.png".to_owned(),
+            png_of(8, 8, &[77, 0, 0, 255].repeat(64)),
+        );
         // A picture whose sides are not whole blocks is stretched to them.
         files.insert(
             "m/floor.png".to_owned(),
@@ -1309,7 +1522,9 @@ texture = ["0x0500287C", "0x0500287D"]
 base_color = "m/wall.png"
 normal = "m/wall_n.png"
 roughness = "m/wall_r.png"
+height = "m/wall_h.png"
 normal_scale = 2.0
+damp = 0.5
 author = "a"
 tool = "t"
 license = "CC0-1.0"
@@ -1344,14 +1559,11 @@ license = "CC0-1.0"
         assert_eq!(pack.material_of(DataId(0x0500_1CB4)), None);
         let wall = &pack.materials[0];
         // Read as stored, as the retail picture is, and compressed in blocks.
-        assert!(!wall.albedo.srgb);
-        assert_eq!(wall.albedo.format, Some(images::BlockFormat::Bc7));
-        let texels = dereth_render::block_codec::decode(
-            images::BlockFormat::Bc7,
-            8,
-            8,
-            &wall.albedo.levels[0],
-        );
+        let albedo = wall.albedo.as_ref().expect("a base color");
+        assert!(!albedo.srgb);
+        assert_eq!(albedo.format, Some(images::BlockFormat::Bc7));
+        let texels =
+            dereth_render::block_codec::decode(images::BlockFormat::Bc7, 8, 8, &albedo.levels[0]);
         // The cut-away half keeps its alpha, the rest its color.
         for y in 0..8 {
             for x in 0..8 {
@@ -1373,21 +1585,26 @@ license = "CC0-1.0"
         );
         let x = f32::from(normal[0]) / 255.0 * 2.0 - 1.0;
         assert!((x - 0.5).abs() < 0.04, "{x}");
-        // The roughness and occlusion at half the size; occlusion none where it names none.
+        // The roughness, occlusion, height and dampness at half the size; occlusion none where it
+        // names none.
         assert_eq!((wall.surface.width, wall.surface.height), (4, 4));
         let surface = dereth_render::block_codec::decode(
-            images::BlockFormat::Bc5,
+            images::BlockFormat::Bc7,
             4,
             4,
             &wall.surface.levels[0],
         );
         assert!(
-            surface[0].abs_diff(50) <= 3 && surface[1] > 250,
+            surface[0].abs_diff(50) <= 3
+                && surface[1] > 250
+                && surface[2].abs_diff(77) <= 3
+                && surface[3].abs_diff(128) <= 3,
             "{:?}",
             &surface[..4]
         );
         let floor = &pack.materials[1];
-        assert_eq!((floor.albedo.width, floor.albedo.height), (8, 8));
+        let floor_color = floor.albedo.as_ref().expect("a base color");
+        assert_eq!((floor_color.width, floor_color.height), (8, 8));
     }
 
     #[test]
@@ -1591,6 +1808,7 @@ license = "CC0-1.0"
             images: Vec::new(),
             grounds: Vec::new(),
             materials: Vec::new(),
+            grits: Vec::new(),
             problems: Vec::new(),
         };
         let one = images::with_levels(4, 4, vec![9; 64], true, None);

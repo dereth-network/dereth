@@ -170,6 +170,11 @@ pub struct HifiSettings {
     /// Scree and rock laid by slope over an art pack's ground, as its knobs lay them (asked for
     /// with `lighting` on, whose light the ground is laid for).
     pub slope_materials: bool,
+    /// The damp and slime on a room's surfaces (asked for with `lighting` on).
+    pub damp: bool,
+    /// How much of an art pack's relief reaches the world's own pictures: 0 none, to 3 all of it
+    /// (asked for with `lighting` on).
+    pub depth_mapping: u8,
     /// A diagnostic view.
     pub debug: DebugView,
 }
@@ -470,7 +475,12 @@ impl HifiRenderer {
             .filter(|_| materials::drawn(&self.settings, frame));
         self.materials.clear();
         if let Some(m) = materials {
-            self.materials.upload(cx, m);
+            self.materials.upload(cx, m, self.settings.depth_mapping);
+            let lights: Vec<_> = passes::lighting::cells::burned_lights(frame)
+                .into_iter()
+                .map(|l| (*l, passes::lighting::cells::reach(l)))
+                .collect();
+            self.materials.rooms(cx, &lights, self.settings.damp);
         }
         let build = Self::ask_derived(
             cx,
@@ -513,6 +523,7 @@ impl HifiRenderer {
                     cx.tables(),
                     &frame.material_slots,
                     plan.reshaded(),
+                    self.settings.depth_mapping,
                     &mut self.pipelines,
                 );
                 self.pipelines.pump(&build);

@@ -201,7 +201,7 @@ license = "CC0-1.0"
         // One picture changed: the file is stale, and says which.
         assert_eq!(
             seen[2],
-            Freshness::Stale(vec!["changed: material:m/wall.png::::1".to_owned()])
+            Freshness::Stale(vec!["changed: material:m/wall.png:::::1:0".to_owned()])
         );
     }
 }

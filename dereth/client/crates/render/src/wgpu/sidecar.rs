@@ -141,13 +141,14 @@ pub enum DrawAction<'p> {
     /// Replay it with its recorded pipeline and another per-frame constant block offset.
     Frame(u32),
     /// Replay it with another pipeline, whose layout is the recorded one with a fifth group of
-    /// its own, `texture` bound in place of the first stage's texture and `extra` as the fifth
-    /// group, for this draw alone: the next draw finds the groups as the recording has them.
+    /// its own, `texture`, if any, bound in place of the first stage's texture and `extra` as the
+    /// fifth group, for this draw alone: the next draw finds the groups as the recording has them.
     Retextured {
         /// The pipeline.
         pipeline: &'p wgpu::RenderPipeline,
-        /// The first stage's texture, in the recorded texture group's layout.
-        texture: &'p wgpu::BindGroup,
+        /// The first stage's texture, in the recorded texture group's layout; the recorded one
+        /// with none.
+        texture: Option<&'p wgpu::BindGroup>,
         /// The fifth group.
         extra: &'p wgpu::BindGroup,
     },
@@ -386,6 +387,20 @@ pub fn build_derived_pipeline(
     key: &PipelineKey,
     targets: &[Option<wgpu::ColorTargetState>],
 ) -> wgpu::RenderPipeline {
+    build_derived_pipeline_with_constants(device, layout, module, fragment, key, targets, &[])
+}
+
+/// [`build_derived_pipeline`] with the fragment stage's overridable `constants` set.
+#[must_use]
+pub fn build_derived_pipeline_with_constants(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    module: &wgpu::ShaderModule,
+    fragment: &str,
+    key: &PipelineKey,
+    targets: &[Option<wgpu::ColorTargetState>],
+    constants: &[(&str, f64)],
+) -> wgpu::RenderPipeline {
     use dereth_render_cpu::pso::{CullFace, FrontFace, FRONT_FACE};
     let (attributes, stride) = SidecarContext::legacy_vertex_layout(key);
     device.render_pipeline_alone(&wgpu::RenderPipelineDescriptor {
@@ -425,7 +440,10 @@ pub fn build_derived_pipeline(
         fragment: Some(wgpu::FragmentState {
             module,
             entry_point: Some(fragment),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants,
+                ..Default::default()
+            },
             targets,
         }),
         multiview_mask: None,
@@ -765,7 +783,10 @@ impl Replayer<'_> {
                                 pass.set_pipeline(p);
                                 current = Some(Bound::other(p));
                             }
-                            for (group, b) in [(1usize, texture), (4, extra)] {
+                            for (group, b) in [(1usize, texture), (4, Some(extra))] {
+                                let Some(b) = b else {
+                                    continue;
+                                };
                                 if bound[group] != Some(std::ptr::from_ref(b)) {
                                     #[allow(clippy::cast_possible_truncation)] // 1 or 4
                                     pass.set_bind_group(group as u32, b, &[]);
