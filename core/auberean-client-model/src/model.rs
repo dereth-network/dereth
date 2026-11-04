@@ -561,13 +561,19 @@ impl Model {
                 self.characters = Some(l.clone());
                 fx.push(Effect::Characters);
             }
-            // A character made: it joins the end of the list, unless the list has it already.
+            // A character made: it joins the end of the list, unless the list has it already; one
+            // the list has, brought back, takes the answer's grey.
             // D2-01899, D2-13110, D2-03990
             S::CharacterCreated(c) if c.response == CharacterCreated::OK => {
                 self.answer_creation(c);
                 if let Some(list) = self.characters.as_mut() {
-                    if list.characters.iter().all(|i| i.id != c.identity.id) {
-                        list.characters.push(c.identity.clone());
+                    match u32::try_from(crate::characters::which_slot(list, c.identity.id)) {
+                        Ok(slot) => crate::characters::set_greyed_out_for(
+                            list,
+                            slot,
+                            c.identity.seconds_greyed_out,
+                        ),
+                        Err(_) => list.characters.push(c.identity.clone()),
                     }
                 }
                 fx.push(Effect::Characters);

@@ -720,6 +720,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.characters.deleted-brought-back",
+        says: "A deleted character asked back, while it is listed, is answered as a made \
+               character with its grey gone (the January 2017 server's answer to the sealed \
+               request); one not deleted, or another account's, is refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHARACTER-RESTORE"),
+        station: "yalain-testkit::cpu::entry::character_select::a_deleted_character_asked_back_loses_its_grey",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.characters.deleted-greyed-for-an-hour",
         says: "Deleting a character is answered with its id, then the lists again: it is gone \
                from the list by name and greyed out in the list with looks, counting down an hour, \

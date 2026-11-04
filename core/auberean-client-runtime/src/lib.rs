@@ -87,6 +87,7 @@ use auberean_dat::DatFile;
 use auberean_primitives::Vec3;
 use auberean_protocol::login::{
     CharacterRef, CreateCharacter, DataRequest, DeleteCharacter, Empty, PlayCharacter,
+    RestoreCharacter,
 };
 use auberean_protocol::physics::{HeadDirection, Target};
 use auberean_protocol::script::{ScriptArgs, ServerCall};
@@ -619,6 +620,15 @@ impl Client {
                 self.send(ClientMessage::DeleteCharacter(DeleteCharacter {
                     account,
                     character,
+                }));
+            }
+            Action::RestoreCharacter { character, name } => {
+                // D2-05343
+                let account = NarrowString(self.account.clone());
+                self.send(ClientMessage::RestoreCharacter(RestoreCharacter {
+                    character,
+                    name: WideString::from(name.as_str()),
+                    account,
                 }));
             }
             Action::Chat(bytes) => self.send(ClientMessage::Chat(

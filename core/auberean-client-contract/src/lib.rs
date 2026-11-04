@@ -21,6 +21,8 @@ pub enum Action {
     CreateCharacter(NewCharacter),
     /// Delete a character.
     DeleteCharacter { character: u64 },
+    /// Bring back a deleted character still greyed out.
+    RestoreCharacter { character: u64, name: String },
     /// A chat service packet (the chat service's own bytes).
     Chat(Vec<u8>),
     /// A call into the server's scripts, its arguments packed, sent as it is.

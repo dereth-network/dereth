@@ -110,6 +110,12 @@ pub static DIVERGENCES: &[Divergence] = &[
                memory.",
     },
     Divergence {
+        id: "CD2-restore-sent-in-the-clear",
+        says: "Bringing back a deleted character goes to the server as a plain message on the \
+               login queue; the original client sealed it on a queue of its own under keys only \
+               the original servers held.",
+    },
+    Divergence {
         id: "CD2-script-sends-in-the-clear",
         says: "A script call the game marks for encryption goes to the server as a plain script \
                call, as every other does; the original client wrapped such calls under keys only \

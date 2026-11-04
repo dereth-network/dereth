@@ -78,6 +78,30 @@ impl Field for DeleteCharacter {
     }
 }
 
+/// The client: bring back this deleted character of this account, while it is still greyed out.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RestoreCharacter {
+    pub character: u64,
+    pub name: WideString,
+    pub account: NarrowString,
+}
+
+impl Field for RestoreCharacter {
+    // D2-05343
+    fn read(r: &mut Reader<'_>) -> Result<Self> {
+        Ok(Self {
+            character: r.u64()?,
+            name: WideString::read(r)?,
+            account: NarrowString::read(r)?,
+        })
+    }
+    fn write(&self, w: &mut Writer) {
+        w.u64(self.character);
+        self.name.write(w);
+        self.account.write(w);
+    }
+}
+
 /// The client: create a character with these choices. A default one is a fresh result: no name,
 /// every number 0, no physique.
 // D2-11931

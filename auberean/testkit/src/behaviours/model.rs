@@ -9,6 +9,15 @@ use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "model.characters.a-character-brought-back-loses-its-grey",
+        says: "The answer that a deleted character is made again takes its grey off in the list, \
+               where it stays one row.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-CHARACTER-BROUGHT-BACK"),
+        station: "auberean-client-model::cpu::characters::a_character_brought_back_loses_its_grey",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "model.characters.a-deletion-is-told-and-the-list-waits-for-the-server",
         says: "A character deleted is told on, and the account's list is left as it is: the list \
                the server sends after the deletion shows the character gone.",

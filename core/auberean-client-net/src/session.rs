@@ -532,7 +532,7 @@ impl Session {
     /// Send a message on its queue, stamped from its counter. It goes out at the next
     /// [`Self::tick`]. Returns whether it was queued: it is not when there is no connection to
     /// send it on.
-    // D2-05338
+    // D2-05338, D2-05336
     pub fn send(&mut self, m: &ClientMessage) -> bool {
         let q = queue_of(m);
         let Some(queue) = Queue::from_wire(q) else {

@@ -748,6 +748,69 @@ fn delete<S: Store>(
     send_lists(s, net, conn, clock);
 }
 
+/// Bring back a deleted character of this account: it is answered as a made character is, its
+/// grey gone. The answer says so by itself: no lists follow it.
+fn restore<S: Store>(s: &mut Server<S>, net: &mut ServerNet, conn: ConnId, character: u64) {
+    let Some(account) = s.sessions.get(&conn).map(|x| x.account.id) else {
+        return;
+    };
+    let answer = |net: &mut ServerNet, response: u32, identity: CharacterIdentity| {
+        let m = ServerMessage::CharacterCreated(CharacterCreated {
+            response,
+            identity,
+            result: 0,
+        });
+        send(net, conn, queue::EVENT, BlobKind::LOGIN, &m);
+    };
+    let found = s.store.character(character).ok().flatten();
+    let Some(c) = found.filter(|c| c.account == account && c.deleted_at.is_some()) else {
+        s.unhandled
+            .note("restoring a character not on the account or not deleted");
+        return answer(net, CORRUPT, CharacterIdentity::default());
+    };
+    let active = s
+        .store
+        .characters(account)
+        .unwrap_or_default()
+        .iter()
+        .filter(|ch| ch.deleted_at.is_none())
+        .count();
+    if active >= s.cfg.slots as usize {
+        return answer(
+            net,
+            CharacterCreated::NO_FREE_SLOT,
+            CharacterIdentity::default(),
+        );
+    }
+    if s.store.set_deleted(character, None).is_err() {
+        return answer(net, DATABASE_DOWN, CharacterIdentity::default());
+    }
+    tracing::info!(
+        ?conn,
+        id = format_args!("{character:#x}"),
+        "character restored"
+    );
+    let items = s
+        .store
+        .world_state(c.id)
+        .ok()
+        .flatten()
+        .and_then(|st| crate::state::PlayState::from_bytes(&st.play).ok())
+        .map(|p| p.items)
+        .unwrap_or_default();
+    let visual = crate::equip::dressed(&look_of(&c), &s.catalog, &items, c.race, c.sex);
+    answer(
+        net,
+        CharacterCreated::OK,
+        CharacterIdentity {
+            id: c.id,
+            name: WideString::from(c.name.as_str()),
+            seconds_greyed_out: 0,
+            visual,
+        },
+    );
+}
+
 fn refuse(net: &mut ServerNet, conn: ConnId, reason: u32) {
     send(
         net,
@@ -935,6 +998,7 @@ pub(crate) fn message<S: Store>(
         ClientMessage::DataRequest(r) => crate::download::answer(s, net, conn, r),
         ClientMessage::CreateCharacter(c) => create(s, net, conn, &c, clock),
         ClientMessage::DeleteCharacter(d) => delete(s, net, conn, d.character, clock),
+        ClientMessage::RestoreCharacter(r) => restore(s, net, conn, r.character),
         ClientMessage::PlayCharacter(p) => enter(s, net, conn, p.character, clock),
         ClientMessage::LogOff(_) => log_off(s, net, conn, clock),
         ClientMessage::DownloadEnds(_) => {

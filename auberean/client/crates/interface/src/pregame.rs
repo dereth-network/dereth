@@ -602,8 +602,8 @@ impl Retail {
                 P::Quit => requests.push(Request::Quit),
                 P::Sound(id) => requests.push(crate::sounds::screens(id)),
                 P::Silence => requests.push(crate::sounds::screens_silence()),
-                r @ P::Restore { .. } => {
-                    tracing::debug!(?r, "not carried out yet");
+                P::Restore { character, name } => {
+                    requests.push(Request::Act(Action::RestoreCharacter { character, name }));
                 }
             }
         }
