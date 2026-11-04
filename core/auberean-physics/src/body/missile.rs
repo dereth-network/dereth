@@ -116,8 +116,16 @@ impl ObjectTable {
         );
     }
 
-    /// Notes an object that does not move, standing at `at`, `height` tall at scale `scale`.
-    pub fn note_still(&mut self, id: u64, at: Position, height: f32, scale: Vec3) {
+    /// Notes an object that does not move, standing at `at`, `height` tall at scale `scale`, a
+    /// player or creature or not.
+    pub fn note_still(
+        &mut self,
+        id: u64,
+        at: Position,
+        height: f32,
+        scale: Vec3,
+        player_or_creature: bool,
+    ) {
         self.seen.insert(
             id,
             (
@@ -127,7 +135,7 @@ impl ObjectTable {
                     velocity: Vec3::ZERO,
                     dynamic: false,
                     guided: false,
-                    player_or_creature: false,
+                    player_or_creature,
                 },
                 height,
                 scale,

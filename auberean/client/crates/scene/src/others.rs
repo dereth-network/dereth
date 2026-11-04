@@ -610,21 +610,23 @@ impl Others {
     }
 
     /// Notes every body in the world in `table`, as the bodies' guidance sees the others: where it
-    /// is and how it moves, or, for an object that does not move, where it stands.
-    pub fn note_objects(&self, table: &mut ObjectTable) {
+    /// is and how it moves, or, for an object that does not move, where it stands; and whether its
+    /// game object is a player or a creature, as `player_or_creature` answers.
+    pub fn note_objects(
+        &self,
+        table: &mut ObjectTable,
+        mut player_or_creature: impl FnMut(u64) -> bool,
+    ) {
         for (id, b) in &self.bodies {
             let Some(ob) = b.body.as_ref().filter(|ob| ob.in_world()) else {
                 continue;
             };
+            let asked = player_or_creature(*id);
             if b.shape.is_some() {
                 let s = ob.body.total_scale(None);
-                table.note_still(*id, ob.body.position, ob.body.height(), s);
+                table.note_still(*id, ob.body.position, ob.body.height(), s, asked);
             } else {
-                table.note(
-                    *id,
-                    &ob.body,
-                    auberean_client_sdk::model::ids::is_player(*id),
-                );
+                table.note(*id, &ob.body, asked);
             }
         }
     }

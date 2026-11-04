@@ -68,7 +68,7 @@ use auberean_draw::particles::camera_axes;
 use auberean_draw::portal::{Look as PortalLook, Passage};
 use auberean_draw::scene::{Frame, SceneBuilder, Spot};
 use auberean_draw::systems::ParticleSystems;
-use auberean_physics::body::missile::ObjectTable;
+use auberean_physics::body::missile::{ObjectTable, Objects};
 use auberean_physics::body::{
     setup_spheres, Animate, AnimationClock, Body, BodyConfig, Notice, Ticker, JUMP_BEHAVIOR, TICK,
 };
@@ -798,6 +798,16 @@ fn first_person_hidden(records: &WorldRecords) -> Vec<u32> {
         .iter()
         .filter_map(|name| maps.iter().find_map(|m| m.enum_of(name)))
         .collect()
+}
+
+/// Whether object `id`'s game object is a player or a creature, what a missile that goes off on a
+/// miss goes off on. An object the client knows nothing of is neither, and neither is any without
+/// the client's scripts, whose records say what an object is.
+fn is_player_or_creature(client: &mut Client, id: u64) -> bool {
+    use auberean_client_sdk::runtime::repository::{is_creature, is_player};
+    client
+        .with_host(|h| is_player(h, id) || is_creature(h, id))
+        .unwrap_or(false)
 }
 
 /// The objects the camera reads this frame: the player (drawn `alpha` of the way through its
@@ -1656,6 +1666,13 @@ impl<'w> Scene<'w> {
         }
     }
 
+    /// Whether the bodies' guidance took object `id` for a player or a creature this frame; `None`
+    /// for one it does not see.
+    #[must_use]
+    pub fn noted_player_or_creature(&self, id: u64) -> Option<bool> {
+        self.objects.object(id).map(|o| o.player_or_creature)
+    }
+
     /// The objects the client made itself that the scene has, by id.
     #[must_use]
     pub fn made_objects(&self) -> Vec<u64> {
@@ -2457,9 +2474,11 @@ impl<'w> Scene<'w> {
         // The others as the bodies' guidance sees them this frame.
         self.objects.clear();
         if let Some(p) = &self.player {
-            self.objects.note(p.id, &p.body, true);
+            let asked = is_player_or_creature(client, p.id);
+            self.objects.note(p.id, &p.body, asked);
         }
-        self.others.note_objects(&mut self.objects);
+        self.others
+            .note_objects(&mut self.objects, |id| is_player_or_creature(client, id));
         self.start_movement_actions(client, &intent.started);
         self.keep_move_target();
         self.key_behaviors(&intent.behaviors);

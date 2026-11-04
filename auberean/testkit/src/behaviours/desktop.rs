@@ -585,6 +585,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.combat.a-missile-that-goes-off-on-a-miss-stops-on-the-creature-it-meets",
+        says: "A missile that goes off on a miss goes off on the creature it meets, as the \
+               object's kind says, rather than flying on through it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-COMBAT-ON-A-MISS"),
+        station: "auberean-scene::corpus::combat::a_missile_that_goes_off_on_a_miss_stops_on_the_creature_it_meets",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "desktop.combat.a-missile-that-strikes-sticks-or-fades",
         says: "A missile let go of flies from where it was placed, never pulled back to the hand \
                that held it; one that strikes a moving object it can stick in sticks there, held \

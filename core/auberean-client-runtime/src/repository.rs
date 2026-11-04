@@ -699,12 +699,21 @@ pub fn is_mobile(h: &mut ClientHost, id: u64) -> bool {
     answer(h, &BOOL, id, 8).unwrap_or(1) != 0
 }
 
-/// Whether an object is a creature: every bit of 4F (hexadecimal) set in its kind (number 14
-/// hexadecimal, 0 when it has none).
+/// An object's kind: its number 14 (hexadecimal), 0 when it has none.
+fn kind_bits(h: &mut ClientHost, id: u64) -> u32 {
+    answer(h, &INT, id, 0x14).unwrap_or(0).cast_unsigned()
+}
+
+/// Whether an object is a player: every bit of 1F (hexadecimal) set in its kind.
+// D2-08058
+pub fn is_player(h: &mut ClientHost, id: u64) -> bool {
+    kind_bits(h, id) & 0x1F == 0x1F
+}
+
+/// Whether an object is a creature: every bit of 4F (hexadecimal) set in its kind.
 // D2-08059
 pub fn is_creature(h: &mut ClientHost, id: u64) -> bool {
-    let kind = answer(h, &INT, id, 0x14).unwrap_or(0).cast_unsigned();
-    kind & 0x4F == 0x4F
+    kind_bits(h, id) & 0x4F == 0x4F
 }
 
 /// Whether an object is of a kind a detection reports: the report's 64-bit mask against the

@@ -1172,7 +1172,7 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "script.model.an-objects-kind-mobility-and-detection-words",
         says: "An object's physics record is its data id 1 (none: 0); it moves unless its \
-               mobile flag says not; it is a creature when its kind holds every creature bit; a \
+               mobile flag says not; it is a player or a creature when its kind holds every bit of that kind; a \
                detection reports it when the report's mask meets its two detection words, low \
                word first.",
         since: RETAIL,

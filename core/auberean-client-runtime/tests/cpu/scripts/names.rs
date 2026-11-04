@@ -31,14 +31,15 @@ fn an_objects_name_is_its_name_quality_or_a_literal_saying_none() {
     );
 }
 
-/// An object moves unless its mobile flag says not; it is a creature when its kind holds every
-/// creature bit; a detection reports it when the report's mask meets its two detection words.
+/// An object moves unless its mobile flag says not; it is a player or a creature when its kind
+/// holds every bit of that kind; a detection reports it when the report's mask meets its two
+/// detection words.
 ///
 /// Behaviour: script.model.an-objects-kind-mobility-and-detection-words
 #[test]
 fn an_objects_kind_mobility_and_detection_words_answer_as_held() {
     use auberean_client_runtime::repository::{
-        detection_type_match, is_creature, is_mobile, phys_obj_id, BOOL, DATA_ID, INT,
+        detection_type_match, is_creature, is_mobile, is_player, phys_obj_id, BOOL, DATA_ID, INT,
     };
     let mut b = Bench::new();
     assert_eq!(phys_obj_id(&mut b.host, ITEM), 0);
@@ -47,6 +48,7 @@ fn an_objects_kind_mobility_and_detection_words_answer_as_held() {
     assert_eq!(phys_obj_id(&mut b.host, ITEM), 0x0200_0123);
     assert!(is_mobile(&mut b.host, ITEM), "none held: it moves");
     assert!(!is_creature(&mut b.host, ITEM));
+    assert!(!is_player(&mut b.host, ITEM));
     assert!(!detection_type_match(&mut b.host, ITEM, u64::MAX));
     let o = b.host.model.object_mut(ITEM).unwrap();
     set(&BOOL, o, 8, 0);
@@ -55,12 +57,27 @@ fn an_objects_kind_mobility_and_detection_words_answer_as_held() {
     set(&INT, o, 11, 0x2);
     assert!(!is_mobile(&mut b.host, ITEM));
     assert!(!is_creature(&mut b.host, ITEM), "one creature bit short");
+    assert!(!is_player(&mut b.host, ITEM));
     assert!(detection_type_match(&mut b.host, ITEM, 0x4));
     assert!(detection_type_match(&mut b.host, ITEM, 0x2 << 32));
     assert!(!detection_type_match(&mut b.host, ITEM, 0x2 | 0x4 << 32));
     let o = b.host.model.object_mut(ITEM).unwrap();
     set(&INT, o, 0x14, 0xFF);
     assert!(is_creature(&mut b.host, ITEM));
+    assert!(is_player(&mut b.host, ITEM));
+    // The kinds the recorded sessions' objects have: a player's, a creature's, an item's.
+    let o = b.host.model.object_mut(ITEM).unwrap();
+    set(&INT, o, 0x14, 0x1F);
+    assert!(is_player(&mut b.host, ITEM));
+    assert!(!is_creature(&mut b.host, ITEM), "a player's kind");
+    let o = b.host.model.object_mut(ITEM).unwrap();
+    set(&INT, o, 0x14, 0x1_004F);
+    assert!(is_creature(&mut b.host, ITEM));
+    assert!(!is_player(&mut b.host, ITEM), "a creature's kind");
+    let o = b.host.model.object_mut(ITEM).unwrap();
+    set(&INT, o, 0x14, 0x7_0081);
+    assert!(!is_creature(&mut b.host, ITEM), "an item's kind");
+    assert!(!is_player(&mut b.host, ITEM), "an item's kind");
 }
 
 /// An object described again with a body: not drawn when its no-draw flag is set; drawn again

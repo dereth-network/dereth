@@ -17,6 +17,8 @@ use auberean_scene::story::StoryTally;
 use auberean_scene::{movement, Intent, Scene, WorldData};
 use auberean_testkit::captures;
 
+/// A frame of the combat replays: a thirtieth of a second.
+const FRAME_30: f64 = 1.0 / 30.0;
 /// The client's entering the world.
 const PLAY_CHARACTER: u32 = 0x1002B;
 /// The client's reports of where the player stands.
@@ -1082,4 +1084,72 @@ fn a_held_object_takes_the_profile_its_qualities_give() {
         held += 1;
     }
     assert!(held >= 1, "a held item");
+}
+
+/// Seven minutes of a 2017 session in which a missile that goes off on a miss is shot at
+/// creatures: each stops on the creature it meets, as the object's kind says, rather than flying
+/// on through it to whatever lies behind. Every body is taken for a player or a creature by its
+/// kind: the player's own, a creature's, and not an item's.
+///
+/// Behaviour: desktop.combat.a-missile-that-goes-off-on-a-miss-stops-on-the-creature-it-meets
+#[test]
+fn a_missile_that_goes_off_on_a_miss_stops_on_the_creature_it_meets() {
+    use auberean_client_sdk::runtime::repository::{answer, is_creature, INT};
+    let (mut players, mut creatures, mut neither) = (0u64, 0u64, 0u64);
+    // Each missile by its id, a later one taking a used id starting over: what it was aimed at,
+    // what it struck, and whether that is a creature.
+    let mut flown: Vec<(u64, u64, Option<u64>, bool)> = Vec::new();
+    let mut flying: HashMap<u64, usize> = HashMap::new();
+    played_in_frames("9f6f8d17804be3b5:2", 420.0, FRAME_30, &[], &mut |c, s| {
+        let ids: Vec<u64> = c.model.objects().map(|o| o.id).collect();
+        for id in ids {
+            let Some(noted) = s.noted_player_or_creature(id) else {
+                continue;
+            };
+            let kind = c.with_host(|h| answer(h, &INT, id, 0x14)).flatten();
+            match kind.map(|k| k & 0xFF) {
+                Some(0x1F) => {
+                    assert!(noted, "{id:x}: a player's kind");
+                    players += 1;
+                }
+                Some(0x4F) => {
+                    assert!(noted, "{id:x}: a creature's kind");
+                    creatures += 1;
+                }
+                _ => {
+                    assert!(!noted, "{id:x}: {kind:x?}, neither");
+                    neither += 1;
+                }
+            }
+        }
+        let made = s.made_objects();
+        flying.retain(|id, _| made.contains(id));
+        for id in made {
+            let Some(b) = s.body(id) else { continue };
+            let Some(g) = b.missile.as_deref().filter(|g| g.params.detonates_on_miss) else {
+                continue;
+            };
+            let at = *flying.entry(id).or_insert_with(|| {
+                flown.push((id, g.targeting.target, None, false));
+                flown.len() - 1
+            });
+            if !g.activated && flown[at].2.is_none() {
+                let creature = b
+                    .struck
+                    .is_some_and(|o| c.with_host(|h| is_creature(h, o)) == Some(true));
+                flown[at].2 = b.struck;
+                flown[at].3 = creature;
+            }
+        }
+    });
+    eprintln!("{flown:x?}");
+    assert!(flown.len() >= 10, "missiles flown: {flown:x?}");
+    assert!(
+        players > 0 && creatures > 0 && neither > 0,
+        "{players} players, {creatures} creatures, {neither} neither"
+    );
+    for (id, target, struck, creature) in &flown {
+        assert_eq!(*struck, Some(*target), "{id:x} went off on its target");
+        assert!(creature, "{id:x} struck a creature");
+    }
 }
