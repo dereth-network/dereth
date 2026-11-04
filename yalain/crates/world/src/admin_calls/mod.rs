@@ -412,12 +412,7 @@ impl<S: Store> Cx<'_, S> {
 
     /// A player in the world by name.
     pub fn player_named(&self, name: &str) -> Option<ConnId> {
-        let name = crate::chat::bare_name(name);
-        self.s
-            .players
-            .iter()
-            .find(|(_, p)| p.name.to_lowercase() == name)
-            .map(|(w, _)| *w)
+        crate::presence::player_named(self.s, &crate::chat::bare_name(name), |_, _| true)
     }
 
     /// A character's name by world connection.

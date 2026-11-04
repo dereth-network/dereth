@@ -842,6 +842,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.chat.tell-finds-a-suffixed-name",
+        says: "A tell finds a character by its name alone or by its name and suffix as a client shows \
+               it, with or without the grammar mark; where one character's name is another's name and \
+               suffix, the first hears it. Chosen: no recording holds an admin's suffix.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TELL-SUFFIX"),
+        station: "yalain-testkit::cpu::entry::chat::a_tell_finds_a_character_by_its_name_with_or_without_its_suffix",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.chat.two-players-talk-in-a-channel-over-real-sockets",
         says: "Over real sockets, a line one player of our client writes to the general channel \
                goes to the server's chat service, comes back to it as the channel's line with its \

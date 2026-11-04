@@ -323,7 +323,8 @@ pub fn text_arg(t: TextInfo) -> Arg {
     Arg::Object(b.graph())
 }
 
-/// A name as a player types it: the name alone, without the grammar mark, in lower case.
+/// A name as a player types it, without the grammar mark, in lower case: a character's name, or its
+/// name and suffix as a client shows it ([`crate::presence::player_named_for`] reads either).
 #[must_use]
 pub fn bare_name(typed: &str) -> String {
     typed

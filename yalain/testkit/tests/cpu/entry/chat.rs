@@ -165,6 +165,66 @@ fn a_tell_reaches_the_named_player_and_the_teller_is_shown_it_or_told_the_name_i
     assert_eq!(refused.string_id, chat::strings::UNAVAILABLE);
 }
 
+/// A tell finds a character by its name as a client shows it, suffix and grammar mark and all, or by
+/// its name alone; where one character's name is another's name and suffix, it goes to the first.
+/// Behaviour: server.chat.tell-finds-a-suffixed-name
+#[test]
+fn a_tell_finds_a_character_by_its_name_with_or_without_its_suffix() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (b, idb) = h.player_in_world("two", "Babyfare");
+    let (c, _) = h.player_in_world("three", "Babyfare Bold");
+    h.run(10);
+    let suffix = |h: &mut Harness, id: u64, words: &str| {
+        let p = h
+            .server
+            .players
+            .values_mut()
+            .find(|p| p.character == id)
+            .expect("in the world");
+        words.clone_into(&mut p.play.suffix);
+    };
+    let told = |h: &mut Harness, name: &str, who: usize| {
+        let from = h.bots[who].inbox.len();
+        let tell = server_call(
+            function::TELL,
+            &[Arg::Int(0), literal("Psst."), literal(name)],
+        );
+        h.bots[a].send(true, queue::WEENIE, &tell);
+        h.run(30);
+        calls_of(h, who, from, chat::function::HEAR_TELL).len()
+    };
+    suffix(&mut h, idb, "the Grand");
+    assert_eq!(told(&mut h, "Babyfare the Grand [F]", b), 1, "as shown");
+    assert_eq!(told(&mut h, "babyfare the grand", b), 1, "without its mark");
+    assert_eq!(told(&mut h, "Babyfare", b), 1, "its name alone");
+    assert_eq!(
+        told(&mut h, "Babyfare the", b),
+        0,
+        "part of a suffix is no name"
+    );
+    h.server
+        .players
+        .values_mut()
+        .find(|p| p.character == idb)
+        .expect("in the world")
+        .admin
+        .cloaked = true;
+    assert_eq!(told(&mut h, "Babyfare the Grand", b), 0, "one it can't see");
+    h.server
+        .players
+        .values_mut()
+        .find(|p| p.character == idb)
+        .expect("in the world")
+        .admin
+        .cloaked = false;
+    suffix(&mut h, idb, "Bold");
+    assert_eq!(told(&mut h, "Babyfare Bold", c), 1, "the name itself first");
+    assert_eq!(told(&mut h, "Babyfare Bold", b), 0, "not the suffixed one");
+    suffix(&mut h, idb, "");
+    assert_eq!(told(&mut h, "Babyfare Bold", c), 1, "a suffix gone");
+}
+
 /// An emote plays its behavior on the emoter for it and every client that knows it, carrying the
 /// emote's id and a context, with the table's extra settings.
 /// Behaviour: server.chat.emote-plays-its-behavior

@@ -2263,6 +2263,21 @@ fn a_server_tell_reaches_a_player_by_name() {
         &[text("Elara"), text("Hello there")],
     );
     assert_eq!(h.bots[victim].notices(from), ["Hello there"]);
+    h.server
+        .players
+        .values_mut()
+        .find(|p| p.name == "Elara")
+        .expect("in the world")
+        .play
+        .suffix = "the Bold".to_owned();
+    let from = h.bots[victim].inbox.len();
+    send(
+        &mut h,
+        me,
+        SERVER_TELL,
+        &[text("Elara the Bold [Fv]"), text("And again")],
+    );
+    assert_eq!(h.bots[victim].notices(from), ["And again"], "as shown");
     let said = h.bots[me].inbox.len();
     send(&mut h, me, SERVER_TELL, &[text("Nobody"), text("Hello")]);
     assert_eq!(answers(&h, me, said), ["Nobody is not in the world."]);

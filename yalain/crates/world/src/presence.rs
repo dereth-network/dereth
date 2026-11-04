@@ -324,10 +324,24 @@ pub fn player_for<S: Store>(s: &Server<S>, viewer: ConnId, id: u64) -> Option<Co
 #[must_use]
 pub fn player_named_for<S: Store>(s: &Server<S>, viewer: ConnId, name: &str) -> Option<ConnId> {
     let me = s.players.get(&viewer)?;
-    s.players
-        .iter()
-        .find(|(w, q)| q.name.to_lowercase() == name && (**w == viewer || sees(me, q)))
-        .map(|(w, _)| *w)
+    player_named(s, name, |w, q| w == viewer || sees(me, q))
+}
+
+/// The player of a lowercase name among those `may` lets through. A name with spaces may be one
+/// player's name or another's with its suffix, the name as a client shows it: its own name wins.
+pub(crate) fn player_named<S: Store>(
+    s: &Server<S>,
+    name: &str,
+    may: impl Fn(ConnId, &Player) -> bool,
+) -> Option<ConnId> {
+    let among = |answers: &dyn Fn(&Player) -> bool| {
+        s.players
+            .iter()
+            .find(|(w, q)| answers(q) && may(**w, q))
+            .map(|(w, _)| *w)
+    };
+    among(&|q| q.name.to_lowercase() == name)
+        .or_else(|| among(&|q| !q.play.suffix.is_empty() && q.shown_name().to_lowercase() == name))
 }
 
 /// The characters in the world that are cloaked admins: the friends service and the network are not
