@@ -430,6 +430,11 @@ says `SAVES ARE FAILING` at once and every minute, `saves_failing` is true, and 
 the cause and it catches up by itself. A server told to stop while saves fail tries for 30 seconds more,
 then names the characters it lost and exits with a failure, and no staged update is installed.
 
+**If the world panics** (a bug in the server), it stops. The log says `THE WORLD PANICKED`, with the place
+and the calls above it; every player is told. What finished before the panic is written, and nothing after:
+each character goes back to its last save, and the server exits with a failure, so a service with
+`Restart=on-failure` comes back by itself. A staged update isn't installed. Please report the log's lines.
+
 **A character that will not read** is refused at the door and never written over; the log names it. The
 player reads the client's own words for why. Its rows in `world_state` and `play_state` stay as they were,
 for you to restore a backup or to look at. A world record that will not read (`consignments`,

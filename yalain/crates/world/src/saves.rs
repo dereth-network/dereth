@@ -20,6 +20,9 @@
 //! the store). Nothing is lost unless the server itself dies before saves work again. So everyone
 //! says so: the operator reads an error line at once and every [`REMIND_SECONDS`], `/status` shows it,
 //! and each player in the world, or entering it, is told [`CANNOT_SAVE`], then [`SAVING_AGAIN`].
+//!
+//! **A piece of work that panics.** What it held is put back as it was ([`Saves::take_back`]), so
+//! only whole pieces reach the store ([`crate::guard`]).
 
 use std::collections::{BTreeMap, HashMap};
 
@@ -66,7 +69,16 @@ pub struct Saves {
     held: BTreeMap<u64, WorldState>,
     /// World records not yet in the store.
     held_records: BTreeMap<String, Vec<u8>>,
+    /// What the piece of work under way replaced in what is held, oldest first.
+    replaced: Vec<Replaced>,
     failing: Option<Failing>,
+}
+
+/// What a piece of work replaced in what is held.
+#[derive(Debug)]
+enum Replaced {
+    State(u64, Option<WorldState>),
+    Record(String, Option<Vec<u8>>),
 }
 
 impl Saves {
@@ -77,17 +89,45 @@ impl Saves {
 
     /// A character's state as it now stands, to go to the store at the end of this pass.
     pub(crate) fn hold(&mut self, character: u64, state: WorldState) {
-        self.held.insert(character, state);
+        let was = self.held.insert(character, state);
+        self.replaced.push(Replaced::State(character, was));
     }
 
     /// A world record as it now stands, to go to the store at the end of this pass.
     pub(crate) fn hold_record(&mut self, name: &str, value: Vec<u8>) {
-        self.held_records.insert(name.to_owned(), value);
+        let was = self.held_records.insert(name.to_owned(), value);
+        self.replaced.push(Replaced::Record(name.to_owned(), was));
     }
 
     /// A character is gone from the store: nothing more of it is to be kept.
     pub(crate) fn forget(&mut self, character: u64) {
-        self.held.remove(&character);
+        let was = self.held.remove(&character);
+        self.replaced.push(Replaced::State(character, was));
+    }
+
+    /// A piece of the world's work begins: everything before it is whole.
+    pub fn piece_begins(&mut self) {
+        self.replaced.clear();
+    }
+
+    /// The piece of work under way panicked: what it held, half done, is put back as it was.
+    pub(crate) fn take_back(&mut self) {
+        for r in self.replaced.drain(..).rev() {
+            match r {
+                Replaced::State(id, Some(st)) => {
+                    self.held.insert(id, st);
+                }
+                Replaced::State(id, None) => {
+                    self.held.remove(&id);
+                }
+                Replaced::Record(name, Some(value)) => {
+                    self.held_records.insert(name, value);
+                }
+                Replaced::Record(name, None) => {
+                    self.held_records.remove(&name);
+                }
+            }
+        }
     }
 
     /// Are saves failing?
@@ -287,6 +327,7 @@ pub fn write_out<S: Store>(s: &mut Server<S>) -> StoreResult<()> {
     s.store.save_all(&states, &records)?;
     s.saves.held.clear();
     s.saves.held_records.clear();
+    s.saves.replaced.clear();
     Ok(())
 }
 

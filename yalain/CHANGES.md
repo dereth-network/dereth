@@ -103,6 +103,7 @@ what they see, not how it was done.
 - Looted weapons fight as their kind, and your stance follows your weapon.
 - Armor no longer takes your weapon's place in a fight.
 - Large data requests can no longer stall the world.
+- A panic now stops the world cleanly, keeping everything saved before it.
 
 ## 0.1.2 (2026-11-03)
 

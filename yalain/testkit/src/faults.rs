@@ -23,6 +23,11 @@ pub struct FaultStore {
     pub records_read_fail: bool,
     /// Writes of world state that failed.
     pub failed_writes: u32,
+    /// Noting when this character last played panics: it comes as its leaving ends, after its state
+    /// is kept, so it stands for any bug partway through a piece of the world's work.
+    pub last_played_panics: Option<u64>,
+    /// Asking whether a name is taken panics: a bug in one event, whatever came before it in its pass.
+    pub name_taken_panics: bool,
 }
 
 impl FaultStore {
@@ -119,6 +124,7 @@ impl Store for FaultStore {
     }
 
     fn name_taken(&mut self, name: &str) -> StoreResult<bool> {
+        assert!(!self.name_taken_panics, "a bug in an event");
         self.read()?;
         self.inner.name_taken(name)
     }
@@ -153,6 +159,10 @@ impl Store for FaultStore {
     }
 
     fn set_last_played(&mut self, id: u64, at: i64) -> StoreResult<()> {
+        assert!(
+            self.last_played_panics != Some(id),
+            "a bug in the middle of a leaving"
+        );
         self.write()?;
         self.inner.set_last_played(id, at)
     }

@@ -329,6 +329,11 @@ fn start_logging(verbose: bool) {
         })
         .with_ansi(false)
         .init();
+    // A panic's place and its calls go where the operator reads, whichever thread it is on.
+    std::panic::set_hook(Box::new(|info| {
+        let calls = std::backtrace::Backtrace::force_capture();
+        tracing::error!("panic: {info}\n{calls}");
+    }));
 }
 
 /// What [`read_options`] had to say about the file.
@@ -1070,243 +1075,260 @@ fn run<S: Store>(
             ask,
         ),
     };
-    loop {
-        if o.seconds
-            .is_some_and(|s| started.elapsed().as_secs_f64() >= s)
-        {
-            break;
-        }
-        if interrupt.raised() {
-            tracing::info!("stopping at the system's word");
-            break;
-        }
-        if console_ended {
-            break;
-        }
+    // A panic anywhere in the loop ends it the same way: see `yalain_world::guard`.
+    let run_loop = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         loop {
-            let line = match typed.try_recv() {
-                Ok(line) => line,
-                Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    if console_open {
-                        console_open = false;
-                        if o.stop_at_console_end {
-                            tracing::info!("stopping: the console's input ended");
-                            console_ended = true;
-                        } else {
-                            tracing::info!(
+            if o.seconds
+                .is_some_and(|s| started.elapsed().as_secs_f64() >= s)
+            {
+                break;
+            }
+            if interrupt.raised() {
+                tracing::info!("stopping at the system's word");
+                break;
+            }
+            if console_ended {
+                break;
+            }
+            loop {
+                let line = match typed.try_recv() {
+                    Ok(line) => line,
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        if console_open {
+                            console_open = false;
+                            if o.stop_at_console_end {
+                                tracing::info!("stopping: the console's input ended");
+                                console_ended = true;
+                            } else {
+                                tracing::info!(
                                 "the console's input ended: no more commands are read, and the \
                                  world goes on"
                             );
-                        }
-                    }
-                    break;
-                }
-            };
-            let Some(c) = console::parse(&line) else {
-                continue;
-            };
-            let name = c.name();
-            match c {
-                console::Command::Help => console::answer(&name, &Ok(console::HELP.to_owned())),
-                c @ (console::Command::Shutdown(_)
-                | console::Command::CancelShutdown
-                | console::Command::StopNow(_)
-                | console::Command::SaveWorld
-                | console::Command::Teleport(Ok(_))
-                | console::Command::Place(Ok(_))
-                | console::Command::MakeCharacter(Ok(_))
-                | console::Command::ApplyBuild(Ok(_))
-                | console::Command::DeleteCharacter(Ok(_))
-                | console::Command::ForceLogoff(Ok(_))
-                | console::Command::ExportCharacter(Ok(_))
-                | console::Command::ImportCharacter(Ok(_))
-                | console::Command::Admin(Ok(_))) => pending.push(c),
-                // The moderation commands answer in Empyrean's words, under their own word.
-                console::Command::Admin(Err(usage)) => console::answer(
-                    &line
-                        .split_whitespace()
-                        .next()
-                        .unwrap_or_default()
-                        .to_ascii_lowercase(),
-                    &Err(usage),
-                ),
-                console::Command::Teleport(Err(usage))
-                | console::Command::Place(Err(usage))
-                | console::Command::MakeCharacter(Err(usage))
-                | console::Command::ApplyBuild(Err(usage))
-                | console::Command::DeleteCharacter(Err(usage))
-                | console::Command::ForceLogoff(Err(usage))
-                | console::Command::ExportCharacter(Err(usage))
-                | console::Command::ImportCharacter(Err(usage)) => {
-                    console::answer(&name, &Err(usage));
-                }
-                console::Command::SetShutdownInterval(None) => console::answer(
-                    &name,
-                    &Err("set-shutdown-interval takes seconds, 0 to 99999".into()),
-                ),
-                console::Command::SetShutdownInterval(Some(n)) => {
-                    console::answer(
-                        &name,
-                        &Ok(format!(
-                            "the shutdown interval is {n} seconds (it was {})",
-                            server.cfg.shutdown_seconds
-                        )),
-                    );
-                    server.cfg.shutdown_seconds = n;
-                }
-                console::Command::Reload if reloading.is_some() => {
-                    console::answer(&name, &Err("a reload is already running".into()));
-                }
-                console::Command::Reload => {
-                    tracing::info!("reloading the world database");
-                    let dats = o.dats.clone().unwrap_or_default();
-                    let (db, base) = (o.world_db.clone(), o.world_base.clone());
-                    let banned = o.banned_names.clone();
-                    reloading = Some(console::start(move || {
-                        reload_world(&dats, &db, base.as_deref(), banned.as_deref())
-                    }));
-                }
-                // The network's lines, as its own console has them.
-                console::Command::Network(words) => {
-                    let words: Vec<&str> = words.iter().map(String::as_str).collect();
-                    match &mut network {
-                        Some(n) => {
-                            let t = local().0;
-                            for line in
-                                n.console(&mut server.store, &mut friends.service, t, &words)
-                            {
-                                tracing::info!("{line}");
                             }
                         }
-                        None => tracing::info!("This world is not on the Dereth Network."),
+                        break;
                     }
-                }
-                console::Command::Hero(None) => console::answer(
-                    &name,
-                    &Err("hero <name> makes a character a hero, hero <name> off no longer".into()),
-                ),
-                console::Command::Hero(Some((who, on))) => console::answer(
-                    &name,
-                    &yalain_world::focus::set_hero(&mut server, &mut net, &who, on)
-                        .map_err(|e| format!("hero: {e}")),
-                ),
-                console::Command::Unknown(c) => {
-                    console::answer(
+                };
+                let Some(c) = console::parse(&line) else {
+                    continue;
+                };
+                let name = c.name();
+                match c {
+                    console::Command::Help => console::answer(&name, &Ok(console::HELP.to_owned())),
+                    c @ (console::Command::Shutdown(_)
+                    | console::Command::CancelShutdown
+                    | console::Command::StopNow(_)
+                    | console::Command::SaveWorld
+                    | console::Command::Teleport(Ok(_))
+                    | console::Command::Place(Ok(_))
+                    | console::Command::MakeCharacter(Ok(_))
+                    | console::Command::ApplyBuild(Ok(_))
+                    | console::Command::DeleteCharacter(Ok(_))
+                    | console::Command::ForceLogoff(Ok(_))
+                    | console::Command::ExportCharacter(Ok(_))
+                    | console::Command::ImportCharacter(Ok(_))
+                    | console::Command::Admin(Ok(_))) => pending.push(c),
+                    // The moderation commands answer in Empyrean's words, under their own word.
+                    console::Command::Admin(Err(usage)) => console::answer(
+                        &line
+                            .split_whitespace()
+                            .next()
+                            .unwrap_or_default()
+                            .to_ascii_lowercase(),
+                        &Err(usage),
+                    ),
+                    console::Command::Teleport(Err(usage))
+                    | console::Command::Place(Err(usage))
+                    | console::Command::MakeCharacter(Err(usage))
+                    | console::Command::ApplyBuild(Err(usage))
+                    | console::Command::DeleteCharacter(Err(usage))
+                    | console::Command::ForceLogoff(Err(usage))
+                    | console::Command::ExportCharacter(Err(usage))
+                    | console::Command::ImportCharacter(Err(usage)) => {
+                        console::answer(&name, &Err(usage));
+                    }
+                    console::Command::SetShutdownInterval(None) => console::answer(
                         &name,
-                        &Err(format!("{c}: not a command ({})", console::HELP)),
-                    );
-                }
-            }
-        }
-        if let Some(done) = reloading.as_ref().and_then(console::Job::poll) {
-            reloading = None;
-            match done {
-                Ok((dir, tables)) => {
-                    let clock = Clock {
-                        local: local(),
-                        unix: unix_now(),
-                    };
-                    let r = server.reload(&mut net, clock, tables);
-                    console::answer(
-                        "reload",
-                        &Ok(format!("world database {}: {}", dir.display(), r.summary())),
-                    );
-                    for line in &r.details {
-                        tracing::info!("{line}");
+                        &Err("set-shutdown-interval takes seconds, 0 to 99999".into()),
+                    ),
+                    console::Command::SetShutdownInterval(Some(n)) => {
+                        console::answer(
+                            &name,
+                            &Ok(format!(
+                                "the shutdown interval is {n} seconds (it was {})",
+                                server.cfg.shutdown_seconds
+                            )),
+                        );
+                        server.cfg.shutdown_seconds = n;
+                    }
+                    console::Command::Reload if reloading.is_some() => {
+                        console::answer(&name, &Err("a reload is already running".into()));
+                    }
+                    console::Command::Reload => {
+                        tracing::info!("reloading the world database");
+                        let dats = o.dats.clone().unwrap_or_default();
+                        let (db, base) = (o.world_db.clone(), o.world_base.clone());
+                        let banned = o.banned_names.clone();
+                        reloading = Some(console::start(move || {
+                            reload_world(&dats, &db, base.as_deref(), banned.as_deref())
+                        }));
+                    }
+                    // The network's lines, as its own console has them.
+                    console::Command::Network(words) => {
+                        let words: Vec<&str> = words.iter().map(String::as_str).collect();
+                        match &mut network {
+                            Some(n) => {
+                                let t = local().0;
+                                for line in
+                                    n.console(&mut server.store, &mut friends.service, t, &words)
+                                {
+                                    tracing::info!("{line}");
+                                }
+                            }
+                            None => tracing::info!("This world is not on the Dereth Network."),
+                        }
+                    }
+                    console::Command::Hero(None) => console::answer(
+                        &name,
+                        &Err(
+                            "hero <name> makes a character a hero, hero <name> off no longer"
+                                .into(),
+                        ),
+                    ),
+                    console::Command::Hero(Some((who, on))) => console::answer(
+                        &name,
+                        &yalain_world::focus::set_hero(&mut server, &mut net, &who, on)
+                            .map_err(|e| format!("hero: {e}")),
+                    ),
+                    console::Command::Unknown(c) => {
+                        console::answer(
+                            &name,
+                            &Err(format!("{c}: not a command ({})", console::HELP)),
+                        );
                     }
                 }
-                Err(e) => console::answer(
-                    "reload",
-                    &Err(format!(
-                        "the world database did not compile; the world is unchanged: {e}"
-                    )),
-                ),
+            }
+            if let Some(done) = reloading.as_ref().and_then(console::Job::poll) {
+                reloading = None;
+                match done {
+                    Ok((dir, tables)) => {
+                        let clock = Clock {
+                            local: local(),
+                            unix: unix_now(),
+                        };
+                        let r = server.reload(&mut net, clock, tables);
+                        console::answer(
+                            "reload",
+                            &Ok(format!("world database {}: {}", dir.display(), r.summary())),
+                        );
+                        for line in &r.details {
+                            tracing::info!("{line}");
+                        }
+                    }
+                    Err(e) => console::answer(
+                        "reload",
+                        &Err(format!(
+                            "the world database did not compile; the world is unchanged: {e}"
+                        )),
+                    ),
+                }
+            }
+            let now = local();
+            // The status ping is answered on the login port before the transport reads anything.
+            let mut pinged = Vec::new();
+            let seconds = started.elapsed().as_secs();
+            let got = wire.receive(|port, from, bytes| {
+                if port == yalain_net::Port::LOGIN_EVEN
+                    && yalain_net::status_ping::is_status_ping(bytes)
+                {
+                    if let Some(reply) = ping.answer(from, bytes, seconds) {
+                        pinged.push(yalain_net::Datagram {
+                            from: port,
+                            to: from,
+                            bytes: reply,
+                        });
+                    }
+                    return;
+                }
+                net.on_datagram(port, from, bytes, now);
+            });
+            wire.send(&pinged);
+            let clock = Clock {
+                local: now,
+                unix: unix_now(),
+            };
+            for c in pending.drain(..) {
+                server.saves.piece_begins();
+                world_command(&mut server, &mut net, clock, c);
+            }
+            for a in asks.try_iter() {
+                update::answer(a, &mut server, &mut net, clock);
+            }
+            server.pump(&mut net, clock);
+            if let Some(r) = &mut reporter {
+                let state = if server.shutdown == yalain_world::shutdown::Shutdown::No {
+                    hub::State::Online
+                } else {
+                    hub::State::Maintenance
+                };
+                r.now(
+                    state,
+                    u32::try_from(server.players.len()).unwrap_or(u32::MAX),
+                );
+            }
+            if let Some(s) = &status {
+                s.set(snapshot(&server, &net, started, websocket_url.as_ref()));
+            }
+            ping.facts.state = if server.shutdown == yalain_world::shutdown::Shutdown::No {
+                yalain_net::status_ping::WorldState::Open
+            } else {
+                yalain_net::status_ping::WorldState::ShuttingDown
+            };
+            ping.facts.players = u16::try_from(server.players.len()).unwrap_or(u16::MAX);
+            if let Some(n) = &mut network {
+                n.directory(&mut server, now.0);
+                n.pump(&mut friends.service, now.0);
+                for (who, line) in n.verification(&mut net, now.0) {
+                    friends::show_operator(&server, &mut net, who, &line);
+                }
+            }
+            let talked = friends.pump(
+                Duration::from_secs_f64(now.0),
+                &mut server,
+                &mut net,
+                network.as_mut().map(|n| &mut n.federation),
+            );
+            net.tick(now);
+            let out = net.take_datagrams();
+            wire.send(&out);
+            if server.shutdown == yalain_world::shutdown::Shutdown::Done {
+                break;
+            }
+            // Everything has started and the world has run a pass: the health check has its answer.
+            if let Some(report) = &o.update_trial {
+                update::report_ready(report);
+                break;
+            }
+            if got == 0 && out.is_empty() && !talked {
+                std::thread::sleep(Duration::from_millis(1));
             }
         }
-        let now = local();
-        // The status ping is answered on the login port before the transport reads anything.
-        let mut pinged = Vec::new();
-        let seconds = started.elapsed().as_secs();
-        let got = wire.receive(|port, from, bytes| {
-            if port == yalain_net::Port::LOGIN_EVEN
-                && yalain_net::status_ping::is_status_ping(bytes)
-            {
-                if let Some(reply) = ping.answer(from, bytes, seconds) {
-                    pinged.push(yalain_net::Datagram {
-                        from: port,
-                        to: from,
-                        bytes: reply,
-                    });
-                }
-                return;
-            }
-            net.on_datagram(port, from, bytes, now);
-        });
-        wire.send(&pinged);
+    }));
+    let panicked = run_loop
+        .err()
+        .map(|p| yalain_world::guard::words(p.as_ref()));
+    if let Some(what) = &panicked {
         let clock = Clock {
-            local: now,
+            local: local(),
             unix: unix_now(),
         };
-        for c in pending.drain(..) {
-            world_command(&mut server, &mut net, clock, c);
-        }
-        for a in asks.try_iter() {
-            update::answer(a, &mut server, &mut net, clock);
-        }
-        server.pump(&mut net, clock);
-        if let Some(r) = &mut reporter {
-            let state = if server.shutdown == yalain_world::shutdown::Shutdown::No {
-                hub::State::Online
-            } else {
-                hub::State::Maintenance
-            };
-            r.now(
-                state,
-                u32::try_from(server.players.len()).unwrap_or(u32::MAX),
-            );
-        }
-        if let Some(s) = &status {
-            s.set(snapshot(&server, &net, started, websocket_url.as_ref()));
-        }
-        ping.facts.state = if server.shutdown == yalain_world::shutdown::Shutdown::No {
-            yalain_net::status_ping::WorldState::Open
-        } else {
-            yalain_net::status_ping::WorldState::ShuttingDown
-        };
-        ping.facts.players = u16::try_from(server.players.len()).unwrap_or(u16::MAX);
-        if let Some(n) = &mut network {
-            n.directory(&mut server, now.0);
-            n.pump(&mut friends.service, now.0);
-            for (who, line) in n.verification(&mut net, now.0) {
-                friends::show_operator(&server, &mut net, who, &line);
-            }
-        }
-        let talked = friends.pump(
-            Duration::from_secs_f64(now.0),
-            &mut server,
-            &mut net,
-            network.as_mut().map(|n| &mut n.federation),
-        );
-        net.tick(now);
-        let out = net.take_datagrams();
-        wire.send(&out);
-        if server.shutdown == yalain_world::shutdown::Shutdown::Done {
-            break;
-        }
-        // Everything has started and the world has run a pass: the health check has its answer.
-        if let Some(report) = &o.update_trial {
-            update::report_ready(report);
-            break;
-        }
-        if got == 0 && out.is_empty() && !talked {
-            std::thread::sleep(Duration::from_millis(1));
-        }
+        yalain_world::guard::stopped(&mut server, &mut net, clock, what);
     }
     let world_ended = server.shutdown == yalain_world::shutdown::Shutdown::Done;
     let left = yalain_world::shutdown::save_everyone(&mut server, &mut net);
     let lost = save_at_stop(&mut server);
-    if lost.is_none() {
+    if lost.is_none() && panicked.is_none() {
         tracing::info!("stopping: {left} characters in the world kept");
     }
     wire.send(&net.take_datagrams());
@@ -1327,6 +1349,9 @@ fn run<S: Store>(
     }
     if let Some(lost) = lost {
         return Err(lost.into());
+    }
+    if let Some(what) = panicked {
+        return Err(format!("the world panicked: {what}").into());
     }
     Ok(Ended {
         auto,

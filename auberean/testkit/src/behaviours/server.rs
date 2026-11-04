@@ -5487,6 +5487,34 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.a-panic-is-told-and-the-world-stops",
+        says: "A panic in the world stops it: everyone in the world is told, and every \
+               connection ends rather than timing out.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PANIC-STOPS"),
+        station: "yalain-testkit::cpu::operator::store_faults::a_panic_tells_everyone_and_ends_their_connections",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.a-panic-keeps-what-whole-events-kept",
+        says: "A panic in the world takes nothing that whole events kept: all a pass had \
+               kept before it, and all that saves failing were holding, is written as the \
+               server stops.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PANIC-WHOLE"),
+        station: "yalain-testkit::cpu::operator::store_faults::a_panic_while_saves_fail_still_writes_what_was_held",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.a-panic-saves-nothing-half-done",
+        says: "What the piece of work that panicked had kept is dropped, and no one's \
+               memory is saved after it: each character goes back to its last save, whole.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PANIC-HALF"),
+        station: "yalain-testkit::cpu::operator::store_faults::what_a_panicking_piece_kept_never_reaches_the_store",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.a-record-that-will-not-read-is-not-written-over",
         says: "The world's records (the consignments, the allegiances) are never started \
                empty by a read that failed: nothing is done with them until the store \

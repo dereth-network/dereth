@@ -86,6 +86,7 @@ pub mod focus;
 pub mod follow;
 pub mod gives;
 pub mod graph;
+pub mod guard;
 pub mod inventory;
 pub mod item_use;
 pub mod kingdoms;
@@ -289,6 +290,8 @@ pub struct Server<S: Store> {
     pub players: HashMap<ConnId, Player>,
     /// Whether the world is shutting down.
     pub shutdown: shutdown::Shutdown,
+    /// What panicked, once something has: the world's memory is not saved after that.
+    pub panicked: Option<String>,
     /// When each character in the world was last kept.
     pub saves: saves::Saves,
     /// What is to happen later, by when.
@@ -658,6 +661,7 @@ impl<S: Store> Server<S> {
             worlds: HashMap::new(),
             players: HashMap::new(),
             shutdown: shutdown::Shutdown::No,
+            panicked: None,
             saves: saves::Saves::default(),
             timers: Vec::new(),
             next_context: 0,
@@ -778,6 +782,7 @@ impl<S: Store> Server<S> {
     pub fn pump(&mut self, net: &mut ServerNet, clock: Clock) {
         self.saves.now = clock.local;
         while let Some(ev) = net.poll_event() {
+            self.saves.piece_begins();
             self.handle(net, ev, clock);
         }
         self.tick(net, clock);
@@ -788,6 +793,7 @@ impl<S: Store> Server<S> {
         self.game_now = net.game_time(clock.local);
         while let Some(i) = self.timers.iter().position(|(at, _)| at.0 <= clock.local.0) {
             let (_, t) = self.timers.remove(i);
+            self.saves.piece_begins();
             match t {
                 Timer::Trip { world, step } => places::step(self, net, world, step, clock),
                 Timer::Take { world, item } => inventory::taken(self, net, world, item, clock),
@@ -929,16 +935,23 @@ impl<S: Store> Server<S> {
         let due = self
             .last_step
             .is_none_or(|t| clock.local.0 - t.0 >= spawn::STEP_SECONDS);
+        self.saves.piece_begins();
         if due {
             self.last_step = Some(clock.local);
             spawn::step(self, net, clock);
         }
+        self.saves.piece_begins();
         saves::tick(self, clock);
         admin::tick(self, net, clock);
+        self.saves.piece_begins();
         fellowship::tick(self, net, clock.local);
+        self.saves.piece_begins();
         trade::look(self, net, clock);
+        self.saves.piece_begins();
         market::look(self, net, clock);
+        self.saves.piece_begins();
         storms::look(self, net, clock);
+        self.saves.piece_begins();
         saves::end_of_pass(self, net, clock);
     }
 

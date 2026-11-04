@@ -2,7 +2,8 @@
 //! database will not answer, the state is damaged or a newer build kept it, is refused its entry
 //! with the client's own words and never saved over: "could not read" is never "new". A save that
 //! fails is held and tried again, and everyone is told. All a pass of the world did is kept whole, a
-//! trade's two sides among it, whatever instant the server dies at.
+//! trade's two sides among it, whatever instant the server dies at. A panic stops the world: what
+//! whole events kept is written, and nothing half done or since.
 
 use auberean_protocol::login::{CharacterRef, CharacterRefused, PlayCharacter};
 use auberean_protocol::text::NarrowString;
@@ -14,7 +15,7 @@ use yalain_testkit::{test_rules, Harness};
 use yalain_world::market::{Consignment, Market, RECORD};
 use yalain_world::state::PlayState;
 use yalain_world::ServerConfig;
-use yalain_world::{saves, trade};
+use yalain_world::{guard, saves, trade};
 
 const COINS: u32 = 0x4700_0538;
 
@@ -591,4 +592,198 @@ fn a_trade_ending_while_saves_fail_reaches_the_store_whole() {
     );
     assert!(ha.contains(&gold) && !ha.contains(&bow));
     assert!(hb.contains(&bow) && !hb.contains(&gold));
+}
+
+/// One client's character in the world with coins, kept, and the connection it's in the world on.
+fn in_world_with_coins<S: Store>(h: &mut Harness<S>) -> (usize, u64, u64, yalain_net::ConnId) {
+    let (b, id, coins) = logged_off_with_coins(h);
+    assert_eq!(asks_to_enter(h, b, id), None);
+    let world = world_of(h, id).expect("in the world");
+    h.run(2);
+    (b, id, coins, world)
+}
+
+fn items_kept(h: &mut Harness<FaultStore>, id: u64) -> Vec<u64> {
+    let st = h.server.store.inner.world_state(id).expect("reads");
+    let play = PlayState::from_bytes(&st.expect("kept").play).expect("reads");
+    play.items.iter().map(|x| x.id).collect()
+}
+
+/// A character's log-off runs into a bug as its leaving ends, after it is kept; the world's stop
+/// follows, as the server's loop does it.
+fn a_log_off_panics(h: &mut Harness<FaultStore>, b: usize, id: u64) {
+    h.server.store.last_played_panics = Some(id);
+    h.bots[b].send(
+        false,
+        queue::LOGON,
+        &ClientMessage::LogOff(CharacterRef { character: id }),
+    );
+    let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        for _ in 0..4000 {
+            h.step();
+        }
+    }));
+    let panic = got.expect_err("the bug was reached");
+    h.server.store.last_played_panics = None;
+    let clock = h.clock();
+    let what = guard::words(panic.as_ref());
+    guard::stopped(&mut h.server, &mut h.net, clock, &what);
+}
+
+/// A panic takes nothing that whole events kept: what saves failing were holding is still held, and
+/// reaches the store when the stop writes it out. Without the guard the process dies with it.
+/// Behaviour: server.operator.a-panic-keeps-what-whole-events-kept
+#[test]
+fn a_panic_while_saves_fail_still_writes_what_was_held() {
+    let mut h = Harness::with(ServerConfig::default(), FaultStore::default(), test_rules());
+    let (b, id, _, world) = in_world_with_coins(&mut h);
+    h.server.store.writes_fail = true;
+    let more =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, COINS, 7).expect("given");
+    h.run(2);
+    assert!(h.server.saves.failing());
+    a_log_off_panics(&mut h, b, id);
+    assert!(!items_kept(&mut h, id).contains(&more), "not yet written");
+    h.server.store.writes_fail = false;
+    saves::write_out(&mut h.server).expect("writes");
+    assert!(
+        items_kept(&mut h, id).contains(&more),
+        "written by the stop"
+    );
+    assert!(h.server.saves.unsaved().is_empty());
+}
+
+/// What the piece of work that panicked had kept is dropped, whole pieces before it are not, and
+/// no one's memory is saved after it: each character goes back to its last save.
+/// Behaviour: server.operator.a-panic-saves-nothing-half-done
+#[test]
+fn what_a_panicking_piece_kept_never_reaches_the_store() {
+    let mut h = Harness::with(ServerConfig::default(), FaultStore::default(), test_rules());
+    let (b, id, _, world) = in_world_with_coins(&mut h);
+    let (_, other) = h.player_in_world("two", "Bram");
+    let other_world = world_of(&h, other).expect("in the world");
+    h.run(2);
+    let at = h
+        .server
+        .store
+        .inner
+        .world_state(id)
+        .expect("reads")
+        .expect("kept");
+    let other_at = h
+        .server
+        .store
+        .inner
+        .world_state(other)
+        .expect("reads")
+        .expect("kept");
+    // Memory no save has taken: the one whose log-off panics, and someone beside it.
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in the world")
+        .position
+        .origin[0] += 5.0;
+    h.server
+        .players
+        .get_mut(&other_world)
+        .expect("in the world")
+        .position
+        .origin[0] += 5.0;
+    a_log_off_panics(&mut h, b, id);
+    assert!(
+        h.server.saves.unsaved().is_empty(),
+        "the leaving's own keep is taken back: {:?}",
+        h.server.saves.unsaved()
+    );
+    assert_eq!(
+        yalain_world::shutdown::save_everyone(&mut h.server, &mut h.net),
+        0,
+        "no one is saved from memory"
+    );
+    saves::write_out(&mut h.server).expect("writes");
+    let kept = h
+        .server
+        .store
+        .inner
+        .world_state(id)
+        .expect("reads")
+        .expect("kept");
+    assert_eq!(kept.position, at.position, "as it was last kept");
+    let kept = h
+        .server
+        .store
+        .inner
+        .world_state(other)
+        .expect("reads")
+        .expect("kept");
+    assert_eq!(kept.position, other_at.position, "as it was last kept");
+}
+
+/// Everyone in the world reads why, and every connection ends rather than timing out.
+/// Behaviour: server.operator.a-panic-is-told-and-the-world-stops
+#[test]
+fn a_panic_tells_everyone_and_ends_their_connections() {
+    let mut h = Harness::with(ServerConfig::default(), FaultStore::default(), test_rules());
+    let (b, id, _, _) = in_world_with_coins(&mut h);
+    let (c, _) = h.player_in_world("two", "Bram");
+    h.run(2);
+    let from = h.bots[c].inbox.len();
+    let open = h.net.connection_count();
+    assert!(open >= 2, "{open} connections");
+    a_log_off_panics(&mut h, b, id);
+    assert_eq!(h.net.connection_count(), 0, "every connection is ended");
+    assert!(h.server.panicked.is_some());
+    h.run(4);
+    assert_eq!(notices(&h, c, from), vec![guard::STOPPING.to_owned()]);
+}
+
+/// An event that was whole is kept though the next in its pass panics.
+/// Behaviour: server.operator.a-panic-keeps-what-whole-events-kept
+#[test]
+fn a_whole_event_in_the_pass_of_a_panic_is_still_kept() {
+    let mut h = Harness::with(ServerConfig::default(), FaultStore::default(), test_rules());
+    let (a, id, _, _) = in_world_with_coins(&mut h);
+    let c = h.at_character_list("two");
+    h.run(2);
+    assert!(h.server.saves.unsaved().is_empty());
+    let mut b = yalain_world::graph::Builder::new();
+    let text =
+        auberean_script::native_object::NativeObject::Text("/loadui".encode_utf16().collect());
+    let kind = auberean_script::native_object::native_type::WP_STRING;
+    b.native(u16::try_from(kind).expect("a native type"), text);
+    let alias = Arg::Object(b.graph());
+    let call = yalain_testkit::play::server_call(
+        yalain_world::personal::function::SET_ALIAS,
+        &[Arg::Int(1), alias.clone(), alias],
+    );
+    h.bots[a].send(true, queue::WEENIE, &call);
+    h.server.store.name_taken_panics = true;
+    let got = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        h.create_character(c, "two", "Bram");
+    }));
+    let panic = got.expect_err("the bug was reached");
+    let clock = h.clock();
+    let what = guard::words(panic.as_ref());
+    guard::stopped(&mut h.server, &mut h.net, clock, &what);
+    assert_eq!(h.server.saves.unsaved(), vec![id], "the first event's keep");
+}
+
+/// A timer's work that was whole is kept though the next timer in its pass panics.
+/// Behaviour: server.operator.a-panic-keeps-what-whole-events-kept
+#[test]
+fn a_whole_timer_in_the_pass_of_a_panic_is_still_kept() {
+    let mut h = Harness::with(ServerConfig::default(), FaultStore::default(), test_rules());
+    let (a, first, _, _) = in_world_with_coins(&mut h);
+    let (b, second) = h.player_in_world("two", "Bram");
+    h.run(2);
+    assert!(h.server.saves.unsaved().is_empty());
+    let off = |id| ClientMessage::LogOff(CharacterRef { character: id });
+    h.bots[a].send(false, queue::LOGON, &off(first));
+    a_log_off_panics(&mut h, b, second);
+    assert_eq!(
+        h.server.saves.unsaved(),
+        vec![first],
+        "the first leaving's keep"
+    );
 }
