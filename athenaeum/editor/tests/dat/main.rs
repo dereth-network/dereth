@@ -678,3 +678,46 @@ fn a_camps_creatures_change_by_template_and_weight() {
     };
     assert_eq!(c.spawns, vec![(first, 3), (0x4700_100C, 1)]);
 }
+
+#[test]
+fn a_row_of_a_room_keeps_its_block_and_room_when_its_numbers_change_from_outdoors() {
+    let mut e = in_the_hall("numbers");
+    let px = [800.0, 700.0];
+    e.tool = Tool::Place;
+    frame(
+        &mut e,
+        &ViewInput {
+            pointer: px,
+            ..ViewInput::default()
+        },
+    );
+    click(&mut e, px, false);
+    let item = e.selected.clone().expect("the row");
+    let Row::Object(o) = &e.session.entry(&item).unwrap().row.row else {
+        panic!("an object")
+    };
+    let room = o.cell.expect("a room");
+    let at = e.session.entry(&item).unwrap().at();
+    // Out of the rooms, as the inspector's numbers would write it.
+    e.go_to(TOWN, OPEN);
+    frame(&mut e, &ViewInput::default());
+    assert_eq!(e.inside(), None);
+    e.session
+        .move_to(&item, HALL, [at.x + 1.0, at.y, at.z.unwrap()])
+        .unwrap();
+    let Row::Object(o) = &e.session.entry(&item).unwrap().row.row else {
+        panic!("an object")
+    };
+    assert_eq!(o.cell, Some(room));
+    assert_eq!(e.session.entry(&item).unwrap().landblock(), HALL);
+}
+
+#[test]
+fn under_the_camera_in_a_room_is_its_floor() {
+    let mut e = in_the_hall("under");
+    let g = e.under_camera();
+    assert!(
+        g[2] < IN_THE_HALL[2] && g[2] > IN_THE_HALL[2] - 5.0,
+        "{g:?}"
+    );
+}

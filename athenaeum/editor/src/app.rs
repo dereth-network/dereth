@@ -691,6 +691,7 @@ impl<'w> Editor<'w> {
             }
             return;
         }
+        self.home = None;
         let back = 9.0;
         // Back along the way the camera looks now, level.
         self.camera.position = Vec3::new(g[0] + sy * back, g[1] - cy * back, g[2] + 5.0);
@@ -1318,6 +1319,20 @@ impl<'w> Editor<'w> {
         }
         let z = self.scene.ground(g[0], g[1]).unwrap_or(0.0);
         [g[0], g[1], z]
+    }
+
+    /// The floor or ground under the camera, on the world's grid.
+    #[must_use]
+    pub fn under_camera(&mut self) -> [f32; 3] {
+        let p = self.camera.position;
+        if let Some((lb, low)) = self.inside {
+            let eye = view::local_in(lb, [p.x, p.y, p.z]);
+            if let Some((_, on)) = self.scene.floor_seen(lb, low, eye, [0.0, 0.0, -1.0]) {
+                return view::global(lb, on);
+            }
+            return [p.x, p.y, p.z];
+        }
+        [p.x, p.y, self.scene.ground(p.x, p.y).unwrap_or(p.z)]
     }
 
     /// Where a player enters: on the ground under the camera, facing as it faces.
@@ -2472,8 +2487,14 @@ impl<'w> Editor<'w> {
         });
         if moved {
             self.held = None;
-            let g = view::global(e.landblock(), [x, y, z]);
-            self.move_row(&item, g);
+            // Numbers typed are the row's own: its block, and any room it is in, stay.
+            let r = self.session.move_to(&item, e.landblock(), [x, y, z]);
+            if let Some(moved) = self.report(r) {
+                self.status = format!("moved {moved}");
+                let also = std::mem::take(&mut self.also);
+                self.select(Some(moved));
+                self.also = also;
+            }
         } else if dragging {
             self.held = Some((item.clone(), [x, y, z, h]));
         }
@@ -2509,23 +2530,19 @@ impl<'w> Editor<'w> {
         ui.horizontal(|ui| {
             if ui
                 .button("Ground")
-                .on_hover_text("stand it on the ground under it")
+                .on_hover_text("stand it on the ground or floor under it")
                 .clicked()
             {
-                let g = view::global(e.landblock(), [x, y, 0.0]);
-                if let Some(gz) = self.scene.ground(g[0], g[1]) {
-                    self.move_row(&item, [g[0], g[1], gz]);
-                }
+                let g = self.standing_at(e.landblock(), x, y);
+                self.move_row(&item, g);
             }
             if ui
                 .button("Here")
                 .on_hover_text("move it under the camera")
                 .clicked()
             {
-                let p = self.camera.position;
-                if let Some(gz) = self.scene.ground(p.x, p.y) {
-                    self.move_row(&item, [p.x, p.y, gz]);
-                }
+                let g = self.under_camera();
+                self.move_row(&item, g);
             }
             if ui.button("Fly to").clicked() {
                 self.fly_to(&item);
