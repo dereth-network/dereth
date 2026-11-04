@@ -70,6 +70,7 @@ what they see, not how it was done.
 - A crash can no longer leave a trade, craft or sale half done.
 - Resurrecting now takes off the buffs a death ends, and keeps auras on.
 - A melee hit lands when the swing connects, not when it starts.
+- A player left dead for ten minutes is sent back to their lifestone.
 
 ## 0.1.2 (2026-11-03)
 

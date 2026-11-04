@@ -2141,6 +2141,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.death.sent-back-after-ten-minutes",
+        says: "A player that sits dead with its box up and asks for nothing is resurrected ten \
+               minutes after it was told it was dead, by the usual trip. This rests on one \
+               recording: the others all asked sooner.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SENT-BACK"),
+        station: "yalain-testkit::cpu::play::dying::a_player_left_dead_ten_minutes_is_sent_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.death.stops-where-it-falls",
         says: "A creature that dies is told once more where it fell, standing still, after its \
                death behavior.",

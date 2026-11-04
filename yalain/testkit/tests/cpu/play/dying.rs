@@ -974,3 +974,68 @@ fn a_character_coming_back_at_its_entry_loses_what_a_death_ends() {
     assert_eq!(told, vec![effect_fn::REMOVE, effect_fn::ADD]);
     assert_eq!(records_held(&h), vec![courage], "not {dash}");
 }
+
+/// A player that sits dead with its box up and asks for nothing is sent back ten minutes after it
+/// was told it was dead, as if it had asked: not before, then alive at its lifestone, protected.
+/// Behaviour: server.death.sent-back-after-ten-minutes
+#[test]
+fn a_player_left_dead_ten_minutes_is_sent_back() {
+    let mut h = Harness::new();
+    let (b, _) = dead_with_its_box_up(&mut h);
+    let from = h.bots[b].inbox.len();
+    wait(&mut h, 595.0);
+    assert!(
+        h.server.players.values().all(|p| p.dying.is_some()),
+        "still dead"
+    );
+    assert!(calls_of(&h, b, from).iter().all(|(f, _)| *f != DEATH_STATE));
+    wait(&mut h, 8.0);
+    let calls = calls_of(&h, b, from);
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|(f, _)| *f == DEATH_STATE)
+            .map(|(_, v)| v.clone())
+            .collect::<Vec<_>>(),
+        vec![vec![Value::Int(0)]],
+        "alive again"
+    );
+    assert_eq!(
+        calls.iter().filter(|(f, _)| *f == ADD_EFFECT).count(),
+        1,
+        "protected"
+    );
+    let p = h.server.players.values().next().expect("the player");
+    assert!(p.dying.is_none());
+    assert_eq!(p.position.cell, a_lifestone().cell, "at its lifestone");
+}
+
+/// A player that asked and died again is not sent back by its first death's ten minutes: the second
+/// death has its own.
+/// Behaviour: server.death.sent-back-after-ten-minutes
+#[test]
+fn a_second_death_is_not_cut_short_by_the_firsts_ten_minutes() {
+    let mut h = Harness::new();
+    let (b, _) = dead_with_its_box_up(&mut h);
+    let world = *h.server.players.keys().next().expect("the player");
+    let first = h.server.players[&world]
+        .dying
+        .and_then(|d| d.corpse)
+        .expect("its corpse");
+    h.bots[b].send(true, queue::WEENIE, &server_call(RESURRECT, &[]));
+    wait(&mut h, 2.0);
+    assert!(h.server.players[&world].dying.is_none());
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, None, clock);
+    wait(&mut h, 11.0);
+    let second = h.server.players[&world]
+        .dying
+        .and_then(|d| d.corpse)
+        .expect("a new corpse");
+    assert_ne!(first, second);
+    let clock = h.clock();
+    yalain_world::death::sent_back(&mut h.server, &mut h.net, world, first, clock);
+    assert!(h.server.players[&world].trip.is_none(), "the first's: no");
+    yalain_world::death::sent_back(&mut h.server, &mut h.net, world, second, clock);
+    assert!(h.server.players[&world].trip.is_some(), "its own: yes");
+}

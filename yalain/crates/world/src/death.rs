@@ -32,6 +32,9 @@
 //!
 //! **A character that leaves the world dead** comes back as it next enters, with no box and nothing
 //! to ask for ([`back_after_entry`]).
+//!
+//! **A player left dead** with its box up is resurrected ten minutes after it was told it was dead,
+//! as if it had asked ([`sent_back`]). This rests on one recording.
 
 use auberean_protocol::physics::{CreateObject, Leave, ObjectEvent, ObjectOnly, Slide, Word};
 use auberean_protocol::quality::VisualQuality;
@@ -857,6 +860,11 @@ pub const PLAYER_CORPSE_ROTS: f64 = 60.0;
 pub const VITAE_LOST: f32 = 5.0;
 pub const RETURNS_WITH: f32 = 0.75;
 
+/// How long a player may sit dead with its box up, in seconds, before the server resurrects it as if
+/// it had asked (2017: one recording, 599.99 s after it was told it was dead, with no request; the
+/// longest wait of the 227 that asked was 251.3 s).
+pub const SENT_BACK_AFTER: f64 = 600.0;
+
 /// How long after its description a character that left the world dead comes back (2017: 1.43 s,
 /// 1 of 1).
 pub const BACK_AFTER_ENTRY: f64 = 1.43;
@@ -1192,6 +1200,29 @@ pub fn player_corpse<S: Store>(
     let block = s.things.get(id).map(corpse_block).unwrap_or_default();
     for m in block {
         to_all_seeing(s, net, id, &m);
+    }
+    s.after(
+        clock,
+        SENT_BACK_AFTER,
+        Timer::SentBack { world, corpse: id },
+    );
+}
+
+/// Ten minutes after a player's client was told it was dead: still dead of the same death, it is
+/// resurrected as if it had asked.
+pub fn sent_back<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    corpse: u64,
+    clock: Clock,
+) {
+    let waiting = s
+        .players
+        .get(&world)
+        .is_some_and(|p| p.trip.is_none() && p.dying.is_some_and(|d| d.corpse == Some(corpse)));
+    if waiting {
+        resurrect(s, net, world, clock);
     }
 }
 

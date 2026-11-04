@@ -481,6 +481,8 @@ pub enum Timer {
     PlayerCorpse { world: ConnId },
     /// A character that left the world dead comes back.
     BackAfterEntry { world: ConnId },
+    /// A player left dead since this corpse of its is sent back.
+    SentBack { world: ConnId, corpse: u64 },
     /// A player's lifestone protection runs out.
     ProtectionEnds { world: ConnId, eid: u32 },
     /// The next step of a player's use of a skill (the use's number).
@@ -804,6 +806,9 @@ impl<S: Store> Server<S> {
                 } => combat::creature_strike_lands(self, net, creature, target, damage, clock),
                 Timer::PlayerCorpse { world } => death::player_corpse(self, net, world, clock),
                 Timer::BackAfterEntry { world } => death::back_after_entry(self, net, world, clock),
+                Timer::SentBack { world, corpse } => {
+                    death::sent_back(self, net, world, corpse, clock);
+                }
                 Timer::ProtectionEnds { world, eid } => effects::runs_out(self, net, world, eid),
                 Timer::Skill { world, id, step } => {
                     skill_use::step(self, net, world, id, step, clock);
