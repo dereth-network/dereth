@@ -8,7 +8,7 @@
 //! With a weapon whose attacks walk the player (a sword's): each swing a movement order toward the
 //! target (the client closes in), then the story: the attacker, its swing's behavior and time
 //! scale, the skill, and the result on the target (a hit or a critical with the damage, or an
-//! evade). With a bow or a stave the player stands: each swing stops it and turns it to the target;
+//! evade), the damage done as the strike lands. With a bow or a stave the player stands: each swing stops it and turns it to the target;
 //! a bow shoots beyond a meter between the bodies and strikes within one, a stave strikes within ten
 //! meters and throws beyond nine; a thrown attack's story names the weapon, and its target tells how
 //! it came out as it arrives (after the throw's windup and its flight); a strike lands at its hit
@@ -19,8 +19,8 @@
 //! **On another player.** A run may target another player where who may harm whom allows it
 //! ([`crate::kingdoms::may_harm`]): it begins, and each swing goes on, only while it does, else the
 //! basic attacks fail with the reason and the run ends. Its stories are a run's on a creature, each
-//! hit's hook also giving the health it takes as PK damage; the target loses that health, and with
-//! none left dies at the attacker's hand.
+//! hit's hook also giving the health it takes as PK damage; as the strike lands the target loses that
+//! health, and with none left dies at the attacker's hand.
 //!
 //! **A creature's attack.** In reach of its target, a creature strikes as often as its attacks
 //! allow, with one of its melee skills; the player's health goes down by the damage, and shows it
@@ -241,14 +241,48 @@ pub fn windup_seconds(implement: Option<u32>) -> f64 {
     }
 }
 
-/// When a basic strike lands after its story, over the time scale (2017: a bow's 0.572, a stave's
-/// 0.817).
+/// When a player's basic strike lands after its story, over the time scale: the median its skill
+/// showed from the story to its target's wound or death (2017: 6,161 strikes at creatures, 69 at
+/// once); by what is held for a skill seen too little: a bow's 0.572, a stave's 0.817; else the
+/// median of all strikes that walk, 0.713 (3,054).
 #[must_use]
-pub fn hit_seconds(implement: Option<u32>) -> f64 {
-    if implement == Some(crate::skill_use::implement::BOW) {
-        0.572
-    } else {
-        0.817
+pub fn hit_seconds(skill: u32, implement: Option<u32>) -> f64 {
+    use crate::skill_use::implement as im;
+    match skill {
+        62 => 0.857,
+        63 => 0.811,
+        64 => 0.803,
+        122 => 0.568,
+        123 => 0.680,
+        124 => 0.688,
+        125 => 0.677,
+        126 => 0.686,
+        194 | 195 => 0.568,
+        197 => 0.591,
+        198 => 0.582,
+        250 => 0.704,
+        251 => 0.767,
+        252 => 0.746,
+        308 => 0.704,
+        309 => 0.806,
+        310 => 0.823,
+        311 => 0.768,
+        312 => 0.661,
+        616 => 0.747,
+        617 => 1.056,
+        618 => 0.675,
+        688 => 0.742,
+        689 => 0.570,
+        690 => 0.552,
+        691 => 0.785,
+        692 => 0.810,
+        953 => 0.688,
+        954 => 0.794,
+        _ => match implement {
+            Some(im::BOW) => 0.572,
+            Some(im::STAVE) => 0.817,
+            _ => 0.713,
+        },
     }
 }
 
@@ -703,17 +737,26 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
     if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
         r.next_swing = now + swing_seconds(None, false) / f64::from(ts);
     }
-    if let Some(o) = other {
-        if outcome.landed() {
-            hurt_player(s, net, o, id, damage, clock);
-        }
-        return;
-    }
     if outcome.landed() {
-        hurt_creature(s, net, run.target, id, damage, clock);
+        let implement = crate::skill_use::wielded(s, id)
+            .first()
+            .and_then(|(_, t)| crate::skill_use::implement_of(*t));
+        s.after(
+            clock,
+            hit_seconds(skill, implement) / f64::from(ts),
+            crate::Timer::Landing(Landing {
+                world,
+                target: run.target,
+                skill,
+                outcome,
+                damage,
+                index: 0,
+                thrown: false,
+            }),
+        );
     }
-    // A creature struck goes after the one who struck it.
-    if s.things.get(run.target).is_some_and(|t| t.alive()) {
+    // A creature swung at goes after the one who swung.
+    if other.is_none() && s.things.get(run.target).is_some_and(|t| t.alive()) {
         crate::ai::go_after(s, net, run.target, id, clock);
     }
 }
@@ -861,7 +904,7 @@ fn stand_and_swing<S: Store>(
             };
             windup_seconds(implement) / f64::from(ts) + f64::from(centre / speed)
         }
-        None => hit_seconds(implement) / f64::from(ts),
+        None => hit_seconds(skill, implement) / f64::from(ts),
     };
     s.after(clock, after, crate::Timer::Landing(landing));
     if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
@@ -887,7 +930,11 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, l: Landing, clock
     };
     let other = player_target(s, l.world, l.target);
     let alive = match other {
-        Some(o) => s.players.get(&o).map(|q| q.dying.is_none() && !is_dead(q)),
+        // One gone into portal space by now is not hurt by it, as with a creature's strike.
+        Some(o) => s
+            .players
+            .get(&o)
+            .map(|q| q.dying.is_none() && q.trip.is_none() && !is_dead(q)),
         None => s.things.get(l.target).map(crate::things::Thing::alive),
     };
     let Some(alive) = alive else {

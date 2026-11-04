@@ -69,6 +69,7 @@ what they see, not how it was done.
 - A failed save now keeps your character and retries, and everyone is told.
 - A crash can no longer leave a trade, craft or sale half done.
 - Resurrecting now takes off the buffs a death ends, and keeps auras on.
+- A melee hit lands when the swing connects, not when it starts.
 
 ## 0.1.2 (2026-11-03)
 

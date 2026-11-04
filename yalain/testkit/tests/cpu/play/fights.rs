@@ -186,6 +186,77 @@ fn an_attack_run_swings_until_the_creature_dies_and_pays_its_experience() {
     let _ = beetle;
 }
 
+/// A player's swing at a creature is told first; the creature loses the health as the strike
+/// lands, its skill's time over its time scale later, and only then does it fall.
+/// Behaviour: server.combat.strike-lands
+#[test]
+fn a_players_swing_hurts_a_creature_as_it_lands_by_its_skill() {
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    h.arm(b, me, STARTER_SWORD);
+    let beetle = creature_of(&h, b);
+    let thing = h.server.things.get_mut(beetle).expect("the beetle");
+    thing.health = 1;
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    let hit = |m: &ServerMessage| {
+        matches!(m, ServerMessage::DoStory(e) if e.action.attacker == me
+            && e.action.hooks.iter().any(|k| k.target == beetle && k.bits & 0x800 != 0))
+    };
+    assert!(
+        h.run_until(4000, |h| h.world_messages(b, from).iter().any(hit)),
+        "a hit is told"
+    );
+    let told = h.now.0;
+    let (skill, scale) = h
+        .world_messages(b, from)
+        .iter()
+        .find_map(|m| match m {
+            ServerMessage::DoStory(e) if hit(m) => {
+                Some((e.action.skill, e.action.attacker_behavior.time_scale))
+            }
+            _ => None,
+        })
+        .expect("its story");
+    let sword = Some(yalain_world::skill_use::implement::SWORD);
+    let lands = yalain_world::combat::hit_seconds(skill, sword) / f64::from(scale);
+    let alive = |h: &Harness| h.server.things.get(beetle).is_some_and(|t| t.health > 0);
+    assert!(alive(&h), "not hurt as it is told");
+    let dead = |m: &ServerMessage| {
+        matches!(m, ServerMessage::UpdateBoolVisual(q)
+            if q.object.id == beetle && q.quality == 279 && q.value == 1)
+    };
+    assert!(
+        h.run_until(100, |h| h.world_messages(b, from).iter().any(dead)),
+        "it lands"
+    );
+    let gap = h.now.0 - told;
+    assert!(
+        (gap - lands).abs() < 0.12,
+        "it landed {gap:.3} s after its story, not {lands:.3} s"
+    );
+}
+
+/// A strike lands at its own skill's time; a skill seen too little by what is held.
+/// Behaviour: server.combat.strike-lands
+#[test]
+fn a_strike_lands_at_its_skills_own_time() {
+    use yalain_world::combat::hit_seconds;
+    use yalain_world::skill_use::implement::{BOW, STAVE, SWORD};
+    assert_eq!(hit_seconds(690, Some(SWORD)), 0.552);
+    assert_eq!(hit_seconds(691, Some(SWORD)), 0.785);
+    assert_eq!(hit_seconds(617, Some(STAVE)), 1.056);
+    assert_eq!(hit_seconds(1, Some(BOW)), 0.572);
+    assert_eq!(hit_seconds(1, Some(STAVE)), 0.817);
+    assert_eq!(hit_seconds(1, Some(SWORD)), 0.713);
+}
+
 /// A practice target (a creature that never fights back, as the halls' Straw Drudges) is attacked
 /// like any other: the run is answered and swings at it, and it does not strike back.
 /// Behaviour: server.combat.practice-targets-are-struck

@@ -997,6 +997,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.strike-lands",
+        says: "A player's swing at a creature is told by its story first; the creature loses the \
+               health as the strike lands, a time its skill sets over the story's time scale, and \
+               falls only then.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SWING-LANDS"),
+        station: "yalain-testkit::cpu::play::fights::a_players_swing_hurts_a_creature_as_it_lands_by_its_skill",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combinations.link-found",
         says: "A combination that finds the effect type it looks for on its target plays its \
                private effect for its caster, takes the found effect off, and adds its own \
@@ -2115,7 +2125,7 @@ pub static ROWS: &[Behaviour] = &[
                the records of effects a death ends are taken off, before the protection is added. \
                A worn item's record and those of other effects stay. A death itself takes nothing \
                off. Everyone who sees the player sees it set standing, what was taken off stop \
-               showing, and it glow. One recording shows the coming back; all others are requests.",
+               showing, and it glow.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-RESURRECTION-ENDS-EFFECTS"),
         station: "yalain-testkit::cpu::play::dying::a_resurrection_takes_off_what_a_death_ends_and_keeps_the_rest",
@@ -6782,6 +6792,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PVP-SPECIAL-REFUSED"),
         station: "yalain-testkit::cpu::play::player_fights::a_special_at_another_player_the_rule_forbids_is_refused_with_its_reason",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.player-fights.strike-lands",
+        says: "A strike at another player lands at the time one at a creature does, hurting it \
+               then, and the kill text follows the health. A player gone into portal space by \
+               then is not hurt. Our choice: no recording shows a player's health falling to \
+               another player's basic attack, so the time is the one measured at creatures and \
+               the rest follows creatures' blows.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PVP-STRIKE-LANDS"),
+        station: "yalain-testkit::cpu::play::player_fights::a_strike_at_another_player_hurts_it_as_it_lands_and_the_kill_text_comes_after",
         tier: Tier::Cpu,
     },
     behaviour! {
