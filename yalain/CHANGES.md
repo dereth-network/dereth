@@ -155,6 +155,7 @@ what they see, not how it was done.
 - Infected Caress and Wound Twister now raise weapon damage, on fellows' weapons too.
 - Attunable items can no longer be dropped.
 - Contracts can't be bought yet, so they no longer cost anything.
+- Alacrity, Quickening and other attack speed effects now speed up your attacks.
 
 ## 0.1.2 (2026-11-03)
 

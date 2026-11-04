@@ -10,7 +10,7 @@ use auberean_script::args::Arg;
 use yalain_content::{Prop, Props};
 use yalain_testkit::play::server_call;
 use yalain_testkit::{Harness, TEST_CREATURE};
-use yalain_world::combat::{function, second_blow_seconds, two_blow_seconds};
+use yalain_world::combat::{function, next_swing_after, second_blow_seconds, two_blow_seconds};
 use yalain_world::skill_use::implement as im;
 use yalain_world::skills::{Hook, SkillDef, Usage};
 use yalain_world::state::SkillState;
@@ -326,15 +326,49 @@ fn a_skill_that_strikes_twice_swings_at_its_own_pace() {
             told.push(h.now.0);
         }
     }
-    let scales: Vec<f64> = stories(&h, b, from, me)
+    let scales: Vec<f32> = stories(&h, b, from, me)
         .iter()
-        .map(|s| f64::from(s.attacker_behavior.time_scale))
+        .map(|s| s.attacker_behavior.time_scale)
         .collect();
     assert!(told.len() >= 3);
     for (i, w) in told.windows(2).enumerate() {
-        let due = two_blow_seconds(816) / scales[i];
+        let due = next_swing_after(two_blow_seconds(816), scales[i]);
         let gap = w[1] - w[0];
         assert!(gap > due - 0.12 && gap < due + 0.12, "{gap} not {due}");
+    }
+}
+
+/// A skill that strikes twice goes at its player's pace, and so does a skill that throws twice.
+/// Behaviour: server.weapons.attack-speed-effects
+#[test]
+fn skills_that_strike_or_throw_twice_go_at_their_players_pace() {
+    let fixtures = [
+        (two_blows(0x2002, 0x1002), two_blow_seconds(816)),
+        (two_throws(), yalain_world::combat::two_throws(1884).1),
+    ];
+    for ((mut h, b, me, beetle), period) in fixtures {
+        super::attack_speed::speeded(&mut h, 27, 1.7, true);
+        let from = attack(&mut h, b, beetle);
+        let mut told = Vec::new();
+        for _ in 0..600 {
+            h.step();
+            let swings = stories(&h, b, from, me);
+            if swings.len() > told.len() {
+                let s = swings.last().expect("told");
+                told.push((h.now.0, s.attacker_behavior.time_scale));
+            }
+        }
+        assert!(told.len() > 2, "{} swings", told.len());
+        for (_, ts) in &told {
+            assert!((1.6..=1.97).contains(ts), "{ts}");
+        }
+        for w in told.windows(2) {
+            let (gap, due) = (w[1].0 - w[0].0, next_swing_after(period, w[0].1));
+            assert!(
+                (gap - due).abs() <= 0.052,
+                "{gap:.3} where {due:.3} was due"
+            );
+        }
     }
 }
 
@@ -700,8 +734,8 @@ fn the_second_throw_arrives_after_the_first_and_swings_come_at_their_own_pace() 
     assert!((period - 1.951).abs() < 1e-9);
 }
 
-/// A swing comes as soon as it is due, not at the world's next step: each gap is its period over
-/// the time scale, within the harness's own step.
+/// A swing comes as soon as it is due, not at the world's next step: each gap is what its period
+/// and time scale give, within the harness's own step.
 /// Behaviour: server.weapons.swing-when-due
 #[test]
 fn a_swing_comes_when_it_is_due_not_at_the_worlds_next_step() {
@@ -713,13 +747,13 @@ fn a_swing_comes_when_it_is_due_not_at_the_worlds_next_step() {
         let told = stories(&h, b, from, me);
         if told.len() > at.len() {
             let scale = told.last().expect("told").attacker_behavior.time_scale;
-            at.push((h.now.0, f64::from(scale)));
+            at.push((h.now.0, scale));
         }
     }
     assert!(at.len() > 10, "{} swings", at.len());
     for pair in at.windows(2) {
         let gap = pair[1].0 - pair[0].0;
-        let due = two_blow_seconds(816) / pair[0].1;
+        let due = next_swing_after(two_blow_seconds(816), pair[0].1);
         assert!(
             (gap - due).abs() <= 0.051 + 0.001,
             "a gap of {gap:.3} where {due:.3} was due"

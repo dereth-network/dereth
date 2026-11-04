@@ -1042,11 +1042,6 @@ fn check<S: Store>(
     Ok(u)
 }
 
-/// The time scale of a player's swings this use.
-fn time_scale<S: Store>(s: &mut Server<S>) -> f32 {
-    combat::PLAYER_TIME_SCALE * s.rng.between(0.9, 1.1)
-}
-
 /// A use begins: refused, or under way.
 pub fn starts<S: Store>(
     s: &mut Server<S>,
@@ -1066,7 +1061,7 @@ pub fn starts<S: Store>(
         }
     };
     let began = net.game_time(clock.local);
-    let ts = time_scale(s);
+    let ts = combat::player_time_scale(s, world);
     let aim = aim_of(s, world, r, &u);
     let spellcraft = rating_of(s, world, r.skill);
     let Some(p) = s.players.get(&world) else {
@@ -1289,7 +1284,7 @@ pub fn slot<S: Store>(
         }
     };
     let began = net.game_time(clock.local);
-    let ts = time_scale(s);
+    let ts = combat::player_time_scale(s, world);
     let aim = aim_of(s, world, r, &u);
     let spellcraft = rating_of(s, world, r.skill);
     let Some(p) = s.players.get_mut(&world) else {

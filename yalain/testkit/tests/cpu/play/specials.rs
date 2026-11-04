@@ -236,6 +236,39 @@ fn deadeye_from_rest_shoots_and_ends_with_the_skills_information() {
     assert!(h.server.players.values().all(|p| p.using.is_none()));
 }
 
+/// A special goes at its player's pace, from rest and inside a run.
+/// Behaviour: server.weapons.attack-speed-effects
+#[test]
+fn a_special_goes_at_its_players_pace() {
+    for run in [false, true] {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        h.arm(b, me, BOW);
+        super::attack_speed::speeded(&mut h, 27, 1.7, true);
+        if run {
+            h.bots[b].send(
+                true,
+                queue::WEENIE,
+                &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+            );
+            h.run(30);
+        }
+        let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+        h.run(80);
+        let ts = h
+            .world_messages(b, from)
+            .iter()
+            .find_map(|m| match m {
+                ServerMessage::DoStory(e) if e.sender.id == me && e.action.skill == DEADEYE => {
+                    Some(e.action.attacker_behavior.time_scale)
+                }
+                _ => None,
+            })
+            .expect("the special's story");
+        assert!((1.6..=1.97).contains(&ts), "{ts} in a run: {run}");
+    }
+}
+
 /// A special's hook that adds by rating adds at the player's rating in it: Deadeye with a hook of
 /// points does that much more than without.
 /// Behaviour: server.specials.hook-adds-by-rating

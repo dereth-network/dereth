@@ -9,7 +9,8 @@ use auberean_script::args::Arg;
 use yalain_testkit::play::{report, server_call};
 use yalain_testkit::{Harness, TEST_CREATURE};
 use yalain_world::calls::{self, Value};
-use yalain_world::combat::function;
+use yalain_world::combat::{function, next_swing_after, swing_seconds};
+use yalain_world::skill_use::implement as im;
 
 const BOW: u32 = 0x4700_051B;
 const STAVE: u32 = 0x4700_051D;
@@ -147,6 +148,37 @@ fn a_bow_shoots_from_afar_and_its_target_tells_each_arrival() {
     assert!(arrivals
         .iter()
         .all(|a| a.bits == 0x32 && a.attacker == me && [0xB81, 0x381].contains(&a.hooks[0].bits)));
+}
+
+/// A bow's shots go at its player's pace, and the next comes that much sooner.
+/// Behaviour: server.weapons.attack-speed-effects
+#[test]
+fn a_bows_shots_go_at_its_players_pace() {
+    let (mut h, b, me, beetle) = beetle_at(6.0);
+    h.arm(b, me, BOW);
+    super::attack_speed::speeded(&mut h, 27, 1.7, true);
+    let from = attack(&mut h, b, beetle);
+    let mut told = Vec::new();
+    for _ in 0..400 {
+        h.step();
+        let shots = stories(&h, b, from, me);
+        if shots.len() > told.len() {
+            let s = shots.last().expect("told");
+            told.push((h.now.0, s.attacker_behavior.time_scale));
+        }
+    }
+    assert!(told.len() > 3, "{} shots", told.len());
+    for (_, ts) in &told {
+        assert!((1.6..=1.97).contains(ts), "{ts}");
+    }
+    for w in told.windows(2) {
+        let gap = w[1].0 - w[0].0;
+        let due = next_swing_after(swing_seconds(Some(im::BOW), true), w[0].1);
+        assert!(
+            (gap - due).abs() <= 0.052,
+            "{gap:.3} where {due:.3} was due"
+        );
+    }
 }
 
 /// With a bow and a target within a meter between the bodies, the run strikes with the bow (skills

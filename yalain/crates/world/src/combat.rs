@@ -253,6 +253,18 @@ pub fn two_blow_seconds(skill: u32) -> f64 {
     }
 }
 
+/// Seconds from a swing's story to the player's next one, given its period and time scale: the
+/// animation runs over the time scale and the pause after it does not, the period being measured
+/// at the plain time scale. 2017 fits gaps of one skill as a pause of 0.10 to 0.17 s (the 0.123 s
+/// after a special inside a run) plus a part over the time scale, inside one state of effects as
+/// across them; and the same weapon's gaps were 1.50 s at time scale 1.06, 1.20 s at 1.37, 0.97 s
+/// at 1.74.
+#[must_use]
+pub fn next_swing_after(period: f64, ts: f32) -> f64 {
+    use crate::skill_use::NEXT_SWING_AFTER as PAUSE;
+    PAUSE + (period - PAUSE * f64::from(PLAYER_TIME_SCALE)) / f64::from(ts)
+}
+
 /// When a thrown basic attack leaves (over the time scale), and its speed, by the weapon: a bow's
 /// arrow 0.831 s and its hook's speed (2017: 0.839 s at 35.1 m/s fitted over 67 shots at still
 /// targets); a stave's 0.817 s (161).
@@ -833,7 +845,7 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
             back: harm.back,
         });
     }
-    let ts = PLAYER_TIME_SCALE * s.rng.between(0.9, 1.1);
+    let ts = player_time_scale(s, world);
     let mut st = story(
         s,
         Attacker::Player(world),
@@ -860,7 +872,7 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         } else {
             swing_seconds(None, false)
         };
-        r.next_swing = now + period / f64::from(ts);
+        r.next_swing = now + next_swing_after(period, ts);
     }
     for (nth, blow) in blows.iter().enumerate() {
         if blow.outcome.landed() {
@@ -997,7 +1009,7 @@ fn stand_and_swing<S: Store>(
     } else {
         crate::effects::Harm::plain(damage)
     };
-    let ts = PLAYER_TIME_SCALE * s.rng.between(0.9, 1.1);
+    let ts = player_time_scale(s, world);
     let behavior = u.behavior_other[0];
     let hooks = crate::skill_use::story_hooks(&u, run.target, weapon, Some((outcome, harm)));
     let index = hooks.len().saturating_sub(2);
@@ -1055,7 +1067,7 @@ fn stand_and_swing<S: Store>(
     };
     s.after(clock, after, crate::Timer::Landing(landing));
     if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
-        r.next_swing = now + swing_seconds(implement, thrown.is_some()) / f64::from(ts);
+        r.next_swing = now + next_swing_after(swing_seconds(implement, thrown.is_some()), ts);
     }
 }
 
@@ -1078,7 +1090,7 @@ fn throw_twice<S: Store>(
     let hands = crate::skill_use::hands(s, id);
     let kind = kind_of(s, skill, true);
     let rating = crate::skill_use::rating_of(s, world, skill);
-    let ts = PLAYER_TIME_SCALE * s.rng.between(0.9, 1.1);
+    let ts = player_time_scale(s, world);
     let (windups, period) = two_throws(skill);
     let centre = s
         .players
@@ -1154,7 +1166,7 @@ fn throw_twice<S: Store>(
         s.after(clock, after, crate::Timer::Landing(landing));
     }
     if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
-        r.next_swing = clock.local.0 + period / f64::from(ts);
+        r.next_swing = clock.local.0 + next_swing_after(period, ts);
     }
 }
 
@@ -1571,6 +1583,28 @@ pub fn attack_pace<S: Store>(s: &Server<S>, id: u64) -> f32 {
     let (add, mult) = crate::effects::creature_modifier(s, id, crate::effects::ATTACK_SPEED);
     let speed = ((1.0 + add) * mult).max(0.0);
     (1.0 - c.stats.speed_resistance * (1.0 - speed)).max(SLOWEST_ATTACKS)
+}
+
+/// The pace of a player's attacks under its effects, swung and used alike: its effects' attack
+/// speed, never below a fifth. 2017's players told their attacks at the time scale times this
+/// (the same session's plain swings against Alacrity at 1.3: 1.30, 1.31, 1.32; Quickening's 1.7
+/// over Alacrity in its class 1.70; a Fate Card's 0.3 added on top of them; a hold's 0.21-0.23).
+#[must_use]
+pub fn player_pace<S: Store>(s: &Server<S>, world: ConnId) -> f32 {
+    let Some(p) = s.players.get(&world) else {
+        return 1.0;
+    };
+    let (add, mult) = crate::effects::modifier(
+        &s.effect_table,
+        &p.play.effects,
+        crate::effects::ATTACK_SPEED,
+    );
+    ((1.0 + add) * mult).max(SLOWEST_ATTACKS)
+}
+
+/// The time scale of a player's next attack: a tenth about its pace's.
+pub fn player_time_scale<S: Store>(s: &mut Server<S>, world: ConnId) -> f32 {
+    player_pace(s, world) * PLAYER_TIME_SCALE * s.rng.between(0.9, 1.1)
 }
 
 /// The damage a player's direct hit on a creature gains from the armor rating the creature's

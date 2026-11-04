@@ -9608,6 +9608,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.weapons.attack-speed-effects",
+        says: "A player's attack speed effects, its class's top one and what adds on top, set the time \
+               scale of its swings, shots and specials, and so when they land and when the next \
+               comes, the pause after each unchanged; a hold brings them to a fifth.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLAYER-ATTACK-PACE"),
+        station: "yalain-testkit::cpu::play::attack_speed::a_players_attack_speed_effects_quicken_its_swings",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.weapons.attack-speed-slows",
+        says: "An effect slowing a player's attacks slows them by its whole size, as one quickening them \
+               does. Our choice: no recording holds a swing of a slowed player.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLAYER-ATTACK-SLOW"),
+        station: "yalain-testkit::cpu::play::attack_speed::an_effect_slowing_a_players_attacks_slows_its_swings",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.weapons.basic-attacks-read-from-their-definitions",
         says: "A player's basic attacks are the used skills with weights to be drawn by; each read \n               with its ranges and the implements it is used with.",
         since: RETAIL,
