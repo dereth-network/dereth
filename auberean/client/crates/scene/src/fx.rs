@@ -35,6 +35,16 @@ impl Rig for FigureRig<'_, '_> {
     fn water_height(&self) -> Option<f32> {
         self.water
     }
+    fn holding_bone(&self, kind: u32) -> Option<Mat4> {
+        let figure = self.figure?;
+        figure
+            .holding_location(self.anims, kind)
+            .map(|(_, _, bone)| bone)
+            .or_else(|| figure.first_bone_matrix(self.anims))
+    }
+    fn has_figure(&self) -> bool {
+        self.figure.is_some()
+    }
 }
 
 /// One body's effects, and those asked of it not yet played: an effect and its strength, or none
@@ -106,8 +116,20 @@ impl BodyFx {
             None => {
                 let h = block_of_global(at);
                 self.home = Some(h);
-                self.fx
-                    .start(systems, records, h, &place_in(at, heading, h), scale, now);
+                let rig = FigureRig {
+                    figure: figure.as_deref(),
+                    anims,
+                    water,
+                };
+                self.fx.start_on(
+                    systems,
+                    records,
+                    h,
+                    &place_in(at, heading, h),
+                    scale,
+                    now,
+                    &rig,
+                );
                 h
             }
         };
@@ -142,7 +164,13 @@ impl BodyFx {
         }
         self.fx.use_time(records, now);
         self.fx.let_go_of_spent_lights(now);
-        self.fx.think(systems, home, &place, scale, light, now);
+        let rig = FigureRig {
+            figure: figure.as_deref(),
+            anims,
+            water,
+        };
+        self.fx
+            .think_on(systems, home, &place, scale, light, now, &rig);
         let asked = self.fx.take_appearance();
         self.sounds.extend(self.fx.take_sounds());
         let sliders = self.fx.take_sliders();

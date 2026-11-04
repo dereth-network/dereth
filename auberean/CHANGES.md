@@ -71,6 +71,7 @@ not how it was done.
 - `/cliprops` now shows the properties your surroundings give you.
 - `/loadui` no longer leaves the chat scrolled to the top.
 - Blood and other effect decals now show on the ground.
+- Fixed the logging-out swirl sitting at the ankles.
 
 ## 0.1.2 (2026-11-02)
 

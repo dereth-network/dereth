@@ -487,6 +487,12 @@ impl Rig for FarBones {
     fn water_height(&self) -> Option<f32> {
         None
     }
+    fn holding_bone(&self, _kind: u32) -> Option<Mat4> {
+        None
+    }
+    fn has_figure(&self) -> bool {
+        true
+    }
 }
 
 /// Effect `0x40000002` of effect table `0x1E000057` (a creature's step) fires and forgets two
@@ -1158,4 +1164,166 @@ fn an_effect_lays_the_decal_its_entry_names() {
     let mut fx = ObjectEffects::of_look(&human).expect("its effects");
     let _ = fx.do_fx(&off, r, LAYS, 1.0, &spot, FxWho::default(), &NoRig);
     assert!(fx.take_decals().is_empty(), "the preference off");
+}
+
+/// A figure of one bone (`0x8100_0005`) at a height that can change.
+struct OneBone(std::cell::Cell<f32>);
+
+impl auberean_draw::effects::Rig for OneBone {
+    fn holding_location(&self, _kind: u32) -> Option<Mat4> {
+        Some(Mat4::translation(Vec3::new(0.0, 0.0, 2.0)))
+    }
+    fn bone(&self, kind: u32) -> Option<Mat4> {
+        (kind == 0x8100_0005).then(|| Mat4::translation(Vec3::new(0.0, 0.0, self.0.get())))
+    }
+    fn water_height(&self) -> Option<f32> {
+        None
+    }
+    fn holding_bone(&self, _kind: u32) -> Option<Mat4> {
+        Some(Mat4::translation(Vec3::new(0.0, 0.0, self.0.get())))
+    }
+    fn has_figure(&self) -> bool {
+        true
+    }
+}
+
+/// Every particle's height drawn at `now`, lowest and highest.
+fn heights(systems: &ParticleSystems, now: f64) -> Option<(f32, f32)> {
+    let axes = (
+        Vec3::new(1.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(0.0, 0.0, 1.0),
+    );
+    let zs: Vec<f32> = systems
+        .batches((0, 0), 1000.0, now, Vec3::new(0.0, -5.0, 0.0), axes)
+        .iter()
+        .flat_map(|b| b.vertices.iter().map(|v| v.position[2]))
+        .collect();
+    let lo = zs.iter().copied().reduce(f32::min)?;
+    let hi = zs.iter().copied().reduce(f32::max)?;
+    Some((lo, hi))
+}
+
+/// The glow as a body arrives or leaves (`0x4100_0010`) names a system for each of the figure's
+/// bones: a figure with only one of them gets the entries of that one and no others, and they
+/// stand at that bone and go with it as it moves, not at the object's feet.
+///
+/// Behaviour: draw.effects.a-carried-system-stands-on-the-bone-its-entry-names
+#[test]
+fn a_carried_system_stands_on_the_bone_its_entry_names() {
+    use auberean_draw::effects::{stored_fx_data, CarriedOn, FxSpot, FxWho};
+    const GLOW: u32 = 0x4100_0010;
+    const BONE: u32 = 0x8100_0005;
+    let r = &install().records;
+    let unit = Vec3::new(1.0, 1.0, 1.0);
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let systems = ParticleSystems::default();
+    let rig = OneBone(std::cell::Cell::new(50.0));
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let spot = FxSpot {
+        home: (0, 0),
+        place: Mat4::IDENTITY,
+        scale: unit,
+        now: 0.0,
+    };
+    let (took, _) = fx.do_fx(&systems, r, GLOW, 1.0, &spot, FxWho::default(), &rig);
+    assert!(took);
+    let named = stored_fx_data(r, 0x1E00_0057, GLOW)
+        .iter()
+        .filter(|d| d.default.bone == Some(BONE))
+        .count();
+    assert!(named > 0);
+    assert_eq!(fx.systems().len(), named, "only the bone the figure has");
+    assert!(fx.systems().iter().all(|c| c.on == CarriedOn::Bone(BONE)));
+    let mut t = 0.0;
+    while t < 0.5 {
+        t += 0.05;
+        fx.think_on(
+            &systems,
+            (0, 0),
+            &Mat4::IDENTITY,
+            unit,
+            Color::WHITE,
+            t,
+            &rig,
+        );
+    }
+    let (lo, hi) = heights(&systems, t).expect("it glows");
+    assert!(lo > 40.0 && hi < 60.0, "at the bone: {lo} to {hi}");
+    rig.0.set(-50.0);
+    while t < 1.0 {
+        t += 0.05;
+        fx.think_on(
+            &systems,
+            (0, 0),
+            &Mat4::IDENTITY,
+            unit,
+            Color::WHITE,
+            t,
+            &rig,
+        );
+    }
+    let (lo, _) = heights(&systems, t).expect("it glows");
+    assert!(lo < -40.0, "it went with the bone: {lo}");
+}
+
+/// A system an entry keeps going at a holding location stands at that location, on the bone the
+/// location is on, not at the object's feet.
+///
+/// Behaviour: draw.effects.a-carried-system-stands-at-the-holding-location-its-entry-names
+#[test]
+fn a_carried_system_stands_at_the_holding_location_its_entry_names() {
+    use auberean_assets::fx::FxTable;
+    use auberean_draw::effects::{CarriedOn, FxSpot, FxWho};
+    let r = &install().records;
+    let unit = Vec3::new(1.0, 1.0, 1.0);
+    let table = r.get::<FxTable>(0x1E00_0057).expect("the shared table");
+    let (effect, kind) = table
+        .effects
+        .iter()
+        .find_map(|(fx, list)| {
+            let [only] = list.as_slice() else { return None };
+            let n = &only.default;
+            let keeps = n.particles.as_ref().is_some_and(|p| !p.is_empty())
+                && n.fire_and_forget != Some(true)
+                && n.bone.unwrap_or(0) == 0;
+            let kind = n.holding_location.filter(|k| *k != 0)?;
+            keeps.then_some((*fx, kind))
+        })
+        .expect("an effect that keeps a system at a holding location");
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let systems = ParticleSystems::default();
+    let rig = OneBone(std::cell::Cell::new(50.0));
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let spot = FxSpot {
+        home: (0, 0),
+        place: Mat4::IDENTITY,
+        scale: unit,
+        now: 0.0,
+    };
+    let (took, _) = fx.do_fx(&systems, r, effect, 1.0, &spot, FxWho::default(), &rig);
+    assert!(took, "{effect:#x}");
+    assert_eq!(fx.systems().len(), 1);
+    let carried = &fx.systems()[0];
+    assert_eq!(carried.on, CarriedOn::HoldingLocation(kind));
+    assert_eq!(
+        carried.offset.point(Vec3::ZERO),
+        Vec3::new(0.0, 0.0, 2.0),
+        "the location's own place"
+    );
+    let mut t = 0.0;
+    while t < 0.5 {
+        t += 0.05;
+        fx.think_on(
+            &systems,
+            (0, 0),
+            &Mat4::IDENTITY,
+            unit,
+            Color::WHITE,
+            t,
+            &rig,
+        );
+    }
+    let (lo, hi) = heights(&systems, t).expect("it shows");
+    assert!(lo > 40.0 && hi < 65.0, "on the bone: {lo} to {hi}");
 }

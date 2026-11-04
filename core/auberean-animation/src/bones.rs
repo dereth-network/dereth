@@ -69,12 +69,17 @@ impl Body {
     #[must_use]
     pub fn bone_type_matrix(&self, records: &dyn BodyRecords, kind: u32) -> Option<Mat4> {
         let (group, bone) = self.find_bone_type(kind)?;
-        let pose = self.pose(records);
         Some(
-            pose.get(group)
-                .and_then(|p| p.bones.get(bone as usize))
-                .copied()
+            self.pose_of_bone(records, group, bone as usize)
                 .unwrap_or(Mat4::IDENTITY),
         )
+    }
+
+    /// The transform, in the body's current pose, of the first part group's first bone, when it
+    /// has one.
+    // D2-06662
+    #[must_use]
+    pub fn first_bone_matrix(&self, records: &dyn BodyRecords) -> Option<Mat4> {
+        self.pose_of_bone(records, 0, 0)
     }
 }

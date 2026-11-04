@@ -119,6 +119,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.effects.a-carried-system-stands-at-the-holding-location-its-entry-names",
+        says: "A particle system an effect's entry keeps going at a holding location stands at that location, on that location's bone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-CARRIED-LOCATION"),
+        station: "auberean-draw::dat::effects::a_carried_system_stands_at_the_holding_location_its_entry_names",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.effects.a-carried-system-stands-on-the-bone-its-entry-names",
+        says: "A particle system an effect's entry keeps going on a bone stands on that bone and goes with it; a figure without that bone gets no system.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-CARRIED-BONE"),
+        station: "auberean-draw::dat::effects::a_carried_system_stands_on_the_bone_its_entry_names",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.effects.a-fired-system-stands-at-its-effects-holding-location-or-bone",
         says: "A particle system an effect fires and forgets is set going at the effect's holding \
                location (that location's own place on the object), else at its bone (at its offset \

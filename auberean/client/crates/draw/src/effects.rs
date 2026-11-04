@@ -301,6 +301,12 @@ pub trait Rig {
     fn holding_location(&self, kind: u32) -> Option<Mat4>;
     fn bone(&self, kind: u32) -> Option<Mat4>;
     fn water_height(&self) -> Option<f32>;
+    /// The bone a system carried at a holding location of `kind` follows: the location's own, or
+    /// the first bone when the object has no such location; none with no bones at all.
+    fn holding_bone(&self, kind: u32) -> Option<Mat4>;
+    /// Whether the object has a figure whose bones can be asked for. Without one, what an entry
+    /// sets on a bone stands at the object.
+    fn has_figure(&self) -> bool;
 }
 
 /// An object with no holding locations, no bones and no water.
@@ -316,6 +322,12 @@ impl Rig for NoRig {
     }
     fn water_height(&self) -> Option<f32> {
         None
+    }
+    fn holding_bone(&self, _kind: u32) -> Option<Mat4> {
+        None
+    }
+    fn has_figure(&self) -> bool {
+        false
     }
 }
 
@@ -335,6 +347,17 @@ pub enum AppearanceFx {
     Remove { table: u32, key: u32 },
 }
 
+/// What part of an object's figure a carried system follows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CarriedOn {
+    /// The object itself.
+    Object,
+    /// The first bone of a kind.
+    Bone(u32),
+    /// The bone a holding location of a kind is on.
+    HoldingLocation(u32),
+}
+
 /// A particle system an object carries: where it stands on the object and the system.
 #[derive(Clone, Debug)]
 pub struct CarriedSystem {
@@ -342,8 +365,10 @@ pub struct CarriedSystem {
     pub id: u32,
     /// The system's record.
     pub desc: u32,
-    /// Its place on the object: the effect's offset.
+    /// Its place on what it stands on: the effect's offset, or the holding location's own.
     pub offset: Mat4,
+    /// The part of the figure it follows as the figure moves.
+    pub on: CarriedOn,
     /// Whether the object's turn is taken off it.
     pub remove_rotation: bool,
     pub system: SystemRef,
@@ -681,6 +706,23 @@ impl ObjectEffects {
         scale: Vec3,
         now: f64,
     ) {
+        self.start_on(systems, records, home, place, scale, now, &NoRig);
+    }
+
+    /// [`ObjectEffects::start`] on a figure: what its startup effects set on a bone or holding
+    /// location stands there.
+    // D2-06529
+    #[allow(clippy::too_many_arguments)]
+    pub fn start_on(
+        &mut self,
+        systems: &ParticleSystems,
+        records: &WorldRecords,
+        home: (i32, i32),
+        place: &Mat4,
+        scale: Vec3,
+        now: f64,
+        rig: &dyn Rig,
+    ) {
         let at = Spot {
             home,
             place: *place,
@@ -690,7 +732,7 @@ impl ObjectEffects {
         // The table takes the effects the look's appearance lists as the object starts.
         self.table = ObjectFxTable::of_group_with(records, &self.group);
         for (effect, strength) in self.startup.clone() {
-            self.startup_fx(systems, records, effect, strength, &at, false);
+            self.startup_fx(systems, records, effect, strength, &at, false, rig);
         }
         self.object_end(systems, records, home, place, scale, now);
     }
@@ -716,7 +758,7 @@ impl ObjectEffects {
             now,
         };
         for (effect, strength) in self.startup.clone() {
-            self.startup_fx(systems, records, effect, strength, &at, true);
+            self.startup_fx(systems, records, effect, strength, &at, true, &NoRig);
         }
     }
 
@@ -724,6 +766,7 @@ impl ObjectEffects {
     /// each entry's particle systems set going and its appearance laid over the object; for the
     /// `rest`, each entry's repulsors.
     // D2-06933
+    #[allow(clippy::too_many_arguments)]
     fn startup_fx(
         &mut self,
         systems: &ParticleSystems,
@@ -732,6 +775,7 @@ impl ObjectEffects {
         strength: f32,
         at: &Spot,
         rest: bool,
+        rig: &dyn Rig,
     ) {
         let list = self.table.fx_data(records, effect);
         if list.is_empty() {
@@ -767,7 +811,7 @@ impl ObjectEffects {
                 continue;
             }
             if node.particles.as_ref().is_some_and(|p| !p.is_empty()) {
-                if let Some(id) = self.particle_fx(systems, records, &node, at) {
+                if let Some(id) = self.particle_fx(systems, records, &node, at, rig) {
                     if let Some(s) = self.states.get_mut(&effect) {
                         s.systems.push(id);
                     }
@@ -919,42 +963,64 @@ impl ObjectEffects {
         self.repulsors.len()
     }
 
-    /// Set going an effect's particle system at the object, raised by the effect's offset: the id
-    /// the object knows it by when it runs until stopped.
-    // D2-06901
+    /// Set going an effect's particle system on the object: on the bone its entry names, raised by
+    /// its offset (none when the figure has no such bone); else at the holding location it names,
+    /// on that location's bone; else at the object, raised by its offset. The id the object knows
+    /// it by when it runs until stopped.
+    // D2-06901, D2-06484, D2-06525
     fn particle_fx(
         &mut self,
         systems: &ParticleSystems,
         records: &WorldRecords,
         node: &FxNode,
         at: &Spot,
+        rig: &dyn Rig,
     ) -> Option<u32> {
         let desc = particle_id(node, &systems.dice())?;
-        let offset = node.bone_offset.unwrap_or(Vec3::ZERO);
+        let lifted = || {
+            let o = node.bone_offset.unwrap_or(Vec3::ZERO);
+            if o.x.is_nan() || o.y.is_nan() || o.z.is_nan() {
+                Mat4::IDENTITY
+            } else {
+                Mat4::translation(o)
+            }
+        };
+        let (offset, on) = match (
+            node.bone.filter(|k| *k != 0),
+            node.holding_location.filter(|k| *k != 0),
+        ) {
+            (Some(kind), _) if rig.has_figure() => {
+                rig.bone(kind)?;
+                (lifted(), CarriedOn::Bone(kind))
+            }
+            (None, Some(kind)) if rig.has_figure() => (
+                rig.holding_location(kind).unwrap_or(Mat4::IDENTITY),
+                CarriedOn::HoldingLocation(kind),
+            ),
+            _ => (lifted(), CarriedOn::Object),
+        };
         let remove_rotation = node.remove_rotation.unwrap_or(false);
-        let id = self.create_system(systems, records, desc, offset, remove_rotation, at);
+        let id = self.create_system(systems, records, desc, offset, on, remove_rotation, at, rig);
         id.filter(|_| particle_is_looping(records, desc))
     }
 
-    /// A system of record `desc` set going on the object at `offset`: one already going that may
-    /// be shared, else a new one, which other objects may share when this one is placed with the
-    /// world.
+    /// A system of record `desc` set going on the object at `offset` on what it stands `on`: one
+    /// already going that may be shared, else a new one, which other objects may share when this
+    /// one is placed with the world.
     // D2-06483, D2-06662
+    #[allow(clippy::too_many_arguments)]
     fn create_system(
         &mut self,
         systems: &ParticleSystems,
         records: &WorldRecords,
         desc: u32,
-        offset: Vec3,
+        offset: Mat4,
+        on: CarriedOn,
         remove_rotation: bool,
         at: &Spot,
+        rig: &dyn Rig,
     ) -> Option<u32> {
-        let offset = if offset.x.is_nan() || offset.y.is_nan() || offset.z.is_nan() {
-            Mat4::IDENTITY
-        } else {
-            Mat4::translation(offset)
-        };
-        let place = carried_place(&offset, remove_rotation, &at.place);
+        let place = carried_place(&offset, on, remove_rotation, &at.place, rig);
         let system = systems.create(records, desc, true, at.home, place, at.scale, at.now)?;
         systems.set_can_be_shared(&system, self.shared);
         let id = self.next_id;
@@ -963,6 +1029,7 @@ impl ObjectEffects {
             id,
             desc,
             offset,
+            on,
             remove_rotation,
             system,
         });
@@ -1078,7 +1145,7 @@ impl ObjectEffects {
             if node.particles.as_ref().is_some_and(|p| !p.is_empty()) {
                 if node.fire_and_forget == Some(true) {
                     self.fire_particle_fx(systems, records, &node, &spot, rig);
-                } else if let Some(id) = self.particle_fx(systems, records, &node, &spot) {
+                } else if let Some(id) = self.particle_fx(systems, records, &node, &spot, rig) {
                     state.systems.push(id);
                     looping = true;
                 }
@@ -1272,8 +1339,24 @@ impl ObjectEffects {
         light: Color,
         now: f64,
     ) {
+        self.think_on(systems, home, place, scale, light, now, &NoRig);
+    }
+
+    /// [`ObjectEffects::think`] on a figure: each system on a bone stands where that bone is now.
+    // D2-06649
+    #[allow(clippy::too_many_arguments)]
+    pub fn think_on(
+        &mut self,
+        systems: &ParticleSystems,
+        home: (i32, i32),
+        place: &Mat4,
+        scale: Vec3,
+        light: Color,
+        now: f64,
+        rig: &dyn Rig,
+    ) {
         for c in &self.systems {
-            let at = carried_place(&c.offset, c.remove_rotation, place);
+            let at = carried_place(&c.offset, c.on, c.remove_rotation, place, rig);
             systems.queue(&c.system, home, at, scale, light, now);
         }
         self.systems
@@ -1306,16 +1389,29 @@ struct Spot {
     now: f64,
 }
 
-/// Where a carried system stands: its offset on the object (with no scale), then the object's
-/// place. An effect that asks for its bone's turn to be taken off keeps only the offset's
-/// translation; an offset with no bone has no turn.
-fn carried_place(offset: &Mat4, remove_rotation: bool, place: &Mat4) -> Mat4 {
-    let offset = if remove_rotation {
-        Mat4::translation(offset.point(Vec3::ZERO))
-    } else {
-        *offset
+/// Where a carried system stands: its offset, then the bone it follows as the figure stands now
+/// (with no scale), then the object's place. An effect that asks for its bone's turn to be taken
+/// off keeps only where that puts it on the object.
+// D2-06649
+fn carried_place(
+    offset: &Mat4,
+    on: CarriedOn,
+    remove_rotation: bool,
+    place: &Mat4,
+    rig: &dyn Rig,
+) -> Mat4 {
+    let bone = match on {
+        CarriedOn::Object => None,
+        CarriedOn::Bone(kind) => rig.bone(kind),
+        CarriedOn::HoldingLocation(kind) => rig.holding_bone(kind),
     };
-    offset.then(place)
+    let on_object = bone.map_or(*offset, |b| offset.then(&b));
+    let on_object = if remove_rotation {
+        Mat4::translation(on_object.point(Vec3::ZERO))
+    } else {
+        on_object
+    };
+    on_object.then(place)
 }
 
 /// How long an object an effect makes or retargets lasts when its entry doesn't say, seconds.

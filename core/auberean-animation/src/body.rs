@@ -868,6 +868,19 @@ impl Body {
         }
     }
 
+    /// One bone's transform in the body's current pose, with no copy of a pose already worked out.
+    pub(crate) fn pose_of_bone(
+        &self,
+        records: &dyn BodyRecords,
+        group: usize,
+        bone: usize,
+    ) -> Option<Mat4> {
+        if self.poses.len() == self.parts.len() {
+            return self.poses.get(group)?.bones.get(bone).copied();
+        }
+        self.pose(records).get(group)?.bones.get(bone).copied()
+    }
+
     /// Each part group's pose at the behaviors' current times: the one the last step blended, or
     /// for a body that has not stepped, every bone at its default pose.
     #[must_use]
