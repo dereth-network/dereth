@@ -110,6 +110,7 @@ not how it was done.
 - Shards now swing the camera up and around before their story.
 - The start hall now plays its own music.
 - Fixed sky flashing before you arrive through a door with a scene.
+- Fixed pack drags failing when the mouse moved fast.
 
 ## 0.1.2 (2026-11-02)
 

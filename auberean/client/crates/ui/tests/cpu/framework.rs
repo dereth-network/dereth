@@ -289,6 +289,23 @@ fn drag_layout() -> Vec<auberean_assets::ui::Element> {
     vec![window]
 }
 
+/// A press on an item followed by one long move, the pointer leaving the item in a single step,
+/// drags that item: what the press was on, not what the pointer has come to.
+///
+/// Behaviour: ui.drag.one-long-move-drags-what-the-press-was-on
+#[test]
+fn one_long_move_drags_what_the_press_was_on() {
+    let mut u = ui(drag_layout(), vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let bag = u.child(w, Token::of("Bag")).unwrap();
+    u.pointer_move(15, 15);
+    u.pointer_press();
+    u.pointer_move(120, 30);
+    assert!(u.dragged().is_some(), "dragging");
+    assert_eq!(u.drag_owner(), Some(bag));
+}
+
 /// An item held and moved far enough is dragged out of its container as a copy that follows the
 /// pointer, carrying what the item was given; dropped on a container it is taken in, dropped on
 /// anything else it comes back. The copy dropped is kept, hidden, for the listeners that read

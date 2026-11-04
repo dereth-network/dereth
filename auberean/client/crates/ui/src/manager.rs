@@ -460,8 +460,9 @@ impl Ui {
     // -----------------------------------------------------------------------------------------
 
     /// The pointer moved to `(x, y)`: whoever listens for the move hears it (an element moving or
-    /// resizing with the pointer), and the elements under it are worked out again. Returns
-    /// whether the pointer is over the interface.
+    /// resizing with the pointer); a press becomes a drag of what it was on, however far this move
+    /// went; then the elements under it are worked out again. Returns whether the pointer is over
+    /// the interface.
     // D2-11206
     pub fn pointer_move(&mut self, x: i32, y: i32) -> bool {
         self.mgr.x = x;
@@ -469,8 +470,8 @@ impl Ui {
         self.broadcast_global(global::MOUSE_MOVE, 0);
         self.drag_follows_pointer();
         self.mgr.moved = true;
-        self.update_mouse();
         self.check_drag_and_drop();
+        self.update_mouse();
         self.top().is_some()
     }
 

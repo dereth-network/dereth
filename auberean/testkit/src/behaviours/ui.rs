@@ -445,6 +445,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.drag.one-long-move-drags-what-the-press-was-on",
+        says: "A press on an item followed by one long move, the pointer leaving the item in a single step, drags that item: what the press was on, not what the pointer has come to.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-DRAG-LONG-MOVE"),
+        station: "auberean-ui::cpu::framework::one_long_move_drags_what_the_press_was_on",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.drag.the-dragged-copy-shows-in-its-items-size",
         says: "The copy dragged with the pointer is shown in the size of the item it was copied from, its corner at the pointer: on a screen larger than its layout's, a copy that grows with the screen shows nothing past that size.",
         since: RETAIL,
