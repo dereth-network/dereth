@@ -610,3 +610,286 @@ fn a_creature_standing_in_something_is_put_where_it_fits_and_walks_on() {
     let next = w.step(DIGGER, 1.0, &s.at, [0.0, 0.5]).expect("placed");
     assert!(next.moved > 0.1, "it walks on: {next:?}");
 }
+
+/// A dungeon's room and a place on the other side of its rock: their cells are joined by doorways,
+/// and no way short enough leads from one to the other, so a search goes on to its limit.
+const IN_THE_ROOM: StoredPosition = StoredPosition {
+    cell: 0x03E9_0226,
+    origin: [-105.5, 17.4, 27.4],
+    rotation: [1.0, 0.0, 0.0, 0.0],
+};
+const BEYOND_THE_ROCK: StoredPosition = StoredPosition {
+    cell: 0x03E9_019D,
+    origin: [-105.8, -4.4, 8.4],
+    rotation: [1.0, 0.0, 0.0, 0.0],
+};
+
+/// Two places a long way apart on foot, near on a straight line: a search that finds its way, late.
+const A_LONG_WAY_FROM: StoredPosition = StoredPosition {
+    cell: 0x9AB5_0120,
+    origin: [-13.6, 19.5, 110.8],
+    rotation: [1.0, 0.0, 0.0, 0.0],
+};
+const A_LONG_WAY_TO: StoredPosition = StoredPosition {
+    cell: 0x9AB5_0123,
+    origin: [-31.309_17, 20.552_551, 103.896_774],
+    rotation: [1.0, 0.0, 0.0, 0.0],
+};
+
+/// `n` creatures going after a player where no way leads: the harness, their ids.
+fn held_after_a_player(n: u32) -> (Harness, Vec<u64>) {
+    let mut h = Harness::new();
+    h.add_creatures(n);
+    let (_, player) = h.player_in_world("one", "Elara");
+    let mut w = walls();
+    let _ = w.joined(&IN_THE_ROOM, &IN_THE_ROOM);
+    h.server.walls = Some(w);
+    for p in h.server.players.values_mut() {
+        p.position = BEYOND_THE_ROCK;
+    }
+    let ids: Vec<u64> = h
+        .server
+        .things
+        .by_id
+        .values()
+        .filter(|t| t.template == TEST_CREATURE)
+        .map(|t| t.id)
+        .collect();
+    assert_eq!(ids.len(), n as usize);
+    let clock = h.clock();
+    for (i, id) in ids.iter().enumerate() {
+        #[allow(clippy::cast_precision_loss)]
+        let place = StoredPosition {
+            origin: [
+                IN_THE_ROOM.origin[0] + (i % 3) as f32 * 0.2,
+                IN_THE_ROOM.origin[1] + (i % 4) as f32 * 0.2,
+                IN_THE_ROOM.origin[2],
+            ],
+            ..IN_THE_ROOM
+        };
+        if let Some(t) = h.server.things.get_mut(*id) {
+            t.at = Some(place);
+            if let Some(c) = t.creature.as_mut() {
+                c.home = place;
+                c.stats.movement.perception = 400.0;
+            }
+        }
+        yalain_world::ai::go_after(&mut h.server, &mut h.net, *id, player, clock);
+    }
+    (h, ids)
+}
+
+fn searched_nowhere(h: &Harness, id: u64) -> bool {
+    h.server
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .is_some_and(|c| c.way.none_found.is_some())
+}
+
+fn search_moves(h: &Harness) -> u64 {
+    h.server.walls.as_ref().map_or(0, |w| w.search_moves)
+}
+
+/// The moves a turn of a search can take past what it was given: one lattice point's links.
+const ONE_POINT_MOVES: u64 = 27;
+
+/// However many creatures are held up, a pass of the world spends no more than its budget on their
+/// searches, and that budget is reached: what would stall a world goes on over later passes.
+/// Behaviour: server.creatures.way-searches-share-a-budget
+#[test]
+fn a_pass_of_the_world_spends_no_more_than_its_budget_on_way_searches() {
+    let (mut h, _) = held_after_a_player(30);
+    let mut most = 0;
+    for _ in 0..200 {
+        let before = search_moves(&h);
+        h.step();
+        most = most.max(search_moves(&h) - before);
+    }
+    let budget = yalain_world::walls::PASS_MOVES;
+    assert!(most <= budget + ONE_POINT_MOVES, "{most} moves in a pass");
+    assert!(most >= budget, "the budget was reached: {most} moves");
+}
+
+/// Each of a crowd of held creatures gets its answer, the last within the passes all their searches
+/// take at the budget, though the player they are after keeps moving and so the first answered ask
+/// again: those waiting take turns, and a new search goes behind them.
+/// Behaviour: server.creatures.way-searches-share-a-budget
+#[test]
+fn every_held_creature_is_answered_however_many_are_waiting_and_asking_again() {
+    let (mut h, ids) = held_after_a_player(30);
+    let mut answered = std::collections::BTreeSet::new();
+    let mut taken = None;
+    for step in 0..4000u32 {
+        h.step();
+        // A meter back and forth every second: enough that no answer holds for long.
+        if step % 20 == 0 {
+            let side = if step % 40 == 0 { 1.0 } else { 0.0 };
+            for p in h.server.players.values_mut() {
+                p.position.origin[0] = BEYOND_THE_ROCK.origin[0] + side;
+            }
+        }
+        answered.extend(ids.iter().copied().filter(|id| searched_nowhere(&h, *id)));
+        if answered.len() == ids.len() {
+            taken = Some(step);
+            break;
+        }
+    }
+    let taken = taken.unwrap_or_else(|| panic!("{} of {} answered", answered.len(), ids.len()));
+    // No search takes more than this; all of them at the budget, a pass every five steps.
+    let most_of_all = 30 * 6_000 / yalain_world::walls::PASS_MOVES;
+    assert!(
+        u64::from(taken) <= most_of_all * 5,
+        "answered by step {taken}"
+    );
+}
+
+/// Creatures all asking again the moment they are answered, more than the budget can serve, are
+/// answered in turn: none is kept out by the others' asking.
+/// Behaviour: server.creatures.way-searches-share-a-budget
+#[test]
+fn creatures_asking_again_at_once_are_answered_in_turn() {
+    let mut w = walls();
+    let mut answers = [0u32; 12];
+    for _ in 0..200 {
+        w.new_pass();
+        for (id, n) in answers.iter_mut().enumerate() {
+            let asked = w.ask(
+                id as u64,
+                DIGGER,
+                1.0,
+                &IN_THE_ROOM,
+                &BEYOND_THE_ROCK,
+                2.0,
+                false,
+            );
+            *n += u32::from(asked != yalain_world::walls::Asked::Waiting);
+        }
+    }
+    let (few, many) = (
+        answers.iter().min().copied().unwrap_or(0),
+        answers.iter().max().copied().unwrap_or(0),
+    );
+    assert!(few >= 1, "each is answered: {answers:?}");
+    assert!(many - few <= 1, "in turn: {answers:?}");
+}
+
+/// A short search behind many long ones has its turn among them: it does not wait for them to end.
+/// Behaviour: server.creatures.way-searches-share-a-budget
+#[test]
+fn a_short_search_behind_long_ones_does_not_wait_for_them_to_end() {
+    let mut w = walls();
+    let long =
+        |w: &mut Walls, id: u64| w.ask(id, DIGGER, 1.0, &IN_THE_ROOM, &BEYOND_THE_ROCK, 2.0, false);
+    // Somewhere it can walk straight to.
+    let near = [[1.0, 0.0], [-1.0, 0.0], [0.0, 1.0], [0.0, -1.0]]
+        .iter()
+        .filter_map(|d: &[f32; 2]| w.step(DIGGER, 1.0, &IN_THE_ROOM, [d[0] * 3.0, d[1] * 3.0]))
+        .find(|s| s.moved > 2.5)
+        .expect("room to walk")
+        .at;
+    use yalain_world::walls::Asked;
+    w.new_pass();
+    for id in 0..10 {
+        assert_eq!(long(&mut w, id), Asked::Waiting);
+    }
+    // The pass's budget is spent: this one waits too, and its turn comes.
+    let short = |w: &mut Walls| w.ask(10, DIGGER, 1.0, &IN_THE_ROOM, &near, 0.5, false);
+    assert_eq!(short(&mut w), Asked::Waiting);
+    let mut passes = 0;
+    while short(&mut w) == Asked::Waiting {
+        w.new_pass();
+        passes += 1;
+        assert!(passes <= 3, "its turn comes within a few passes");
+    }
+    for id in 0..10 {
+        assert_eq!(long(&mut w, id), Asked::Waiting, "the long ones go on");
+    }
+}
+
+/// A creature whose search found no way does not search again while it and its goal stay where they
+/// were, since the answer would be the same; when the goal moves it does.
+/// Behaviour: server.creatures.way-searches-share-a-budget
+#[test]
+fn a_creature_with_no_way_searches_again_only_when_it_or_its_goal_moves() {
+    let (mut h, ids) = held_after_a_player(1);
+    let searches = |h: &Harness| h.server.walls.as_ref().map_or(0, |w| w.searches);
+    for _ in 0..400 {
+        h.step();
+        if searched_nowhere(&h, ids[0]) {
+            break;
+        }
+    }
+    assert!(searched_nowhere(&h, ids[0]), "it finds no way");
+    h.run(20);
+    let found = searches(&h);
+    h.run(200);
+    assert_eq!(searches(&h), found, "ten seconds on, no search more");
+    for p in h.server.players.values_mut() {
+        p.position.origin[0] += 1.0;
+    }
+    h.run(30);
+    assert!(searches(&h) > found, "the goal moved: it searches again");
+}
+
+/// A way searched in turns over many passes is the way searched at once.
+/// Behaviour: server.creatures.way-searches-share-a-budget
+#[test]
+fn a_way_searched_in_turns_is_the_way_searched_at_once() {
+    let (from, goal) = (A_LONG_WAY_FROM, A_LONG_WAY_TO);
+    let mut w = walls();
+    let at_once = w.way(DIGGER, 1.0, &from, &goal, 2.0).expect("a way");
+    assert!(w.search_moves > 512, "a long search: {}", w.search_moves);
+    let mut passes = 0;
+    let in_turns = loop {
+        w.new_pass();
+        passes += 1;
+        match w.ask(1, DIGGER, 1.0, &from, &goal, 2.0, false) {
+            yalain_world::walls::Asked::Waiting => {
+                assert!(passes < 100, "it is answered");
+            }
+            yalain_world::walls::Asked::Way(places) => break places,
+            yalain_world::walls::Asked::NoWay => panic!("a way leads there"),
+        }
+    };
+    assert_eq!(in_turns, at_once);
+    assert!(passes > 1, "it took turns");
+}
+
+/// A walk at rest takes no way that needs a long search: it can do without one.
+/// Behaviour: server.creatures.way-searches-share-a-budget
+#[test]
+fn a_walk_at_rest_gives_up_on_a_way_that_takes_a_long_search() {
+    let (from, goal) = (A_LONG_WAY_FROM, A_LONG_WAY_TO);
+    let mut w = walls();
+    let most = yalain_world::walls::REST_WALK_MOVES;
+    assert!(w.way(DIGGER, 1.0, &from, &goal, 2.0).is_some());
+    let long = w.search_moves;
+    assert!(long > most, "the search takes {long} moves");
+    let before = w.search_moves;
+    assert_eq!(w.way_within(DIGGER, 1.0, &from, &goal, 2.0, most), None);
+    assert!(w.search_moves - before <= most + ONE_POINT_MOVES);
+}
+
+/// A creature held up on a way it was told asks again with care: that search tries a walk's short
+/// legs, which take more moves, where the first took a search's longer ones.
+/// Behaviour: server.creatures.way-searches-share-a-budget
+#[test]
+fn a_careful_search_tries_a_walks_short_legs() {
+    let (from, goal) = (A_LONG_WAY_FROM, A_LONG_WAY_TO);
+    let mut w = walls();
+    let mut moves_of = |careful: bool| {
+        let before = w.search_moves;
+        for _ in 0..100 {
+            w.new_pass();
+            let asked = w.ask(1, DIGGER, 1.0, &from, &goal, 2.0, careful);
+            if asked != yalain_world::walls::Asked::Waiting {
+                assert!(matches!(asked, yalain_world::walls::Asked::Way(_)));
+                return w.search_moves - before;
+            }
+        }
+        panic!("it is answered");
+    };
+    let (quick, careful) = (moves_of(false), moves_of(true));
+    assert!(careful > quick * 2, "{careful} moves against {quick}");
+}

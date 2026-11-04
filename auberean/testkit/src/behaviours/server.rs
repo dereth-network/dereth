@@ -2277,6 +2277,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.way-searches-share-a-budget",
+        says: "However many creatures are held up, a pass of the world spends a fixed number of moves \
+               on searching for ways around; the searches left over go on at later passes in turn, \
+               so each creature held up is answered. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WAY-SEARCH-BUDGET"),
+        station: "yalain-testkit::dat::walls::a_pass_of_the_world_spends_no_more_than_its_budget_on_way_searches",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.creatures.weapon-drawn-slider",
         says: "A creature drawing or putting away its weapons moves its drawn slider, as a player \
                does.",

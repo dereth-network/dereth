@@ -89,6 +89,7 @@ use yalain_store::{Store, StoredPosition};
 
 use crate::things::Mode;
 use crate::usable::doors::Passage;
+use crate::walls::Asked;
 use crate::{presence, Clock, Server};
 
 /// How fast a creature of scale 1 runs, and how fast it walks when it wanders, in meters a second
@@ -196,6 +197,9 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
     let now = clock.local.0;
     let mut ids = Vec::new();
     s.fighting.clear();
+    if let Some(w) = s.walls.as_mut() {
+        w.new_pass();
+    }
     for t in s.things.by_id.values() {
         let Some(c) = t.creature.as_ref() else {
             continue;
@@ -1053,7 +1057,14 @@ fn wander<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Cloc
     });
     // Where the walls are known, only a point it can walk to, by the way it will walk.
     let (goal, way) = match (goal.filter(|_| go), s.walls.as_mut()) {
-        (Some(g), Some(w)) => match w.way(template, scale, &from, &g, ARRIVED) {
+        (Some(g), Some(w)) => match w.way_within(
+            template,
+            scale,
+            &from,
+            &g,
+            ARRIVED,
+            crate::walls::REST_WALK_MOVES,
+        ) {
             Some(places) => (Some(g), places),
             None => (None, Vec::new()),
         },
@@ -1067,7 +1078,7 @@ fn wander<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Cloc
                 to: goal.filter(|_| !way.is_empty()),
                 places: way,
                 next_search: now,
-                no_way: false,
+                ..Way::default()
             };
         }
     }
@@ -1362,6 +1373,9 @@ pub struct Way {
     /// At its last step nothing led where it goes: its search found no way, or a closed door it
     /// cannot open stood in its way.
     pub no_way: bool,
+    /// Where it stood and where it was going when its last search found no way: searching again
+    /// from there to there would find none either.
+    pub none_found: Option<(StoredPosition, StoredPosition)>,
 }
 
 /// How far a goal may move from where a creature's way leads before the way is dropped, in meters.
@@ -1373,15 +1387,20 @@ pub const WAY_PLACE: f32 = 0.4;
 /// How often a creature held up with no way found searches again, in seconds.
 pub const SEARCH_EVERY: f64 = 1.0;
 
+/// How far a creature or its goal must move before a search that found no way is worth trying
+/// again, in meters.
+pub const NO_WAY_KEPT: f32 = 0.5;
+
 fn flat_gap(a: &StoredPosition, b: &StoredPosition) -> f32 {
     let (dx, dy, _) = offset(a, b);
     (dx * dx + dy * dy).sqrt()
 }
 
 /// A step of up to `go` meters through the walls toward a goal: along the creature's way to it
-/// when it has one, else straight; held up, it searches for a way around (at most once a
-/// [`SEARCH_EVERY`]) and steps along it. None when the walls cannot place the creature (its place
-/// was never read).
+/// when it has one, else straight; held up, it asks for a way around (at most once a
+/// [`SEARCH_EVERY`], and not again while it and its goal stay where a search found none) and steps
+/// along it, standing until it has an answer. None when the walls cannot place the creature (its
+/// place was never read).
 #[allow(clippy::too_many_arguments)]
 fn walk_through<S: Store>(
     s: &mut Server<S>,
@@ -1416,19 +1435,40 @@ fn walk_through<S: Store>(
     }
     let mut stepped = stride_to(s, id, at, way.places.first().unwrap_or(goal), go)?;
     let held = stepped.1 < go * BLOCKED_SHARE;
-    if held && now >= way.next_search {
-        way.next_search = now + SEARCH_EVERY;
+    // Held up on the way it found: a search's longer legs took it where a walk cannot go.
+    let careful = held && !way.places.is_empty();
+    let mut waiting = false;
+    if held
+        && way.none_found.is_some_and(|(from, to)| {
+            flat_gap(&from, at) <= NO_WAY_KEPT && flat_gap(&to, goal) <= NO_WAY_KEPT
+        })
+    {
+        way.no_way = true;
+    } else if held && now >= way.next_search {
         let close = short.max(ARRIVED);
-        let found = s
+        match s
             .walls
             .as_mut()
-            .and_then(|w| w.way(template, scale, at, goal, close));
-        way.no_way = true;
-        if let Some(places) = found.filter(|p| !p.is_empty()) {
-            way.no_way = false;
-            way.places = places;
-            way.to = Some(*goal);
-            stepped = stride_to(s, id, at, &way.places[0], go)?;
+            .map(|w| w.ask(id, template, scale, at, goal, close, careful))
+        {
+            // It stands while it waits, so the way it is told starts where it is.
+            Some(Asked::Waiting) => {
+                waiting = true;
+                stepped = (*at, 0.0, stepped.2);
+            }
+            Some(Asked::Way(places)) if !places.is_empty() => {
+                way.next_search = now + SEARCH_EVERY;
+                way.no_way = false;
+                way.none_found = None;
+                way.places = places;
+                way.to = Some(*goal);
+                stepped = stride_to(s, id, at, &way.places[0], go)?;
+            }
+            _ => {
+                way.next_search = now + SEARCH_EVERY;
+                way.no_way = true;
+                way.none_found = Some((*at, *goal));
+            }
         }
     }
     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
@@ -1438,10 +1478,10 @@ fn walk_through<S: Store>(
     if moved < 0.01 {
         // Stopped where it is: it stands facing the goal (no running in place).
         face(s, net, id, goal, clock);
-        return Some(Step::Blocked);
+        return Some(if waiting { Step::Moved } else { Step::Blocked });
     }
     place(s, net, id, next, h, motion, clock);
-    Some(if moved < go * BLOCKED_SHARE {
+    Some(if moved < go * BLOCKED_SHARE && !waiting {
         Step::Blocked
     } else {
         Step::Moved

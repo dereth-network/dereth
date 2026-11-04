@@ -11,6 +11,10 @@
 //! - **A way** to a goal is searched over a meter's lattice of the ground, each link a step the
 //!   transition lets the body take (A*, the straight line its estimate). Inside, a goal in no cell
 //!   joined to the creature's by doorways is out of reach at once.
+//! - **Searches share a budget.** A pass of the world spends at most [`PASS_MOVES`] moves on
+//!   searches, however many creatures are held up. A search the pass cannot finish goes on where it
+//!   stopped at a later one: the searches waiting take turns, and a new one goes behind them, so
+//!   each is answered in the end.
 //!
 //! - **What a world places** stands among the walls as it stands in a client's world: its look's
 //!   shape at its own scale, solid or not as its description says ([`Standing`]). What moves, comes
@@ -242,6 +246,26 @@ const ANY_WALKER: (f32, f32) = (0.4, 1.8);
 /// what it meets that the transition can send it back.
 const LEG: f32 = 0.125;
 
+/// The longest leg of a step a search tries, in meters. A search only asks where a link ends, and
+/// takes none that ends off its lattice point, so it needs fewer moves than a walk.
+const SEARCH_LEG: f32 = 0.5;
+
+/// The most moves a pass of the world spends on way searches.
+pub const PASS_MOVES: u64 = 2_000;
+
+/// The most moves a waiting search takes in one turn, and the most a new one takes when it is asked
+/// for, which is enough to answer most at once.
+const TURN_MOVES: u64 = 256;
+
+/// The most moves a search for a walk at rest takes; a walk that needs more is not worth waiting for.
+pub const REST_WALK_MOVES: u64 = 512;
+
+/// How many passes a search stays when nobody asks about it.
+const FORGOTTEN_AFTER: u64 = 8;
+
+/// How far a goal may move from what a search under way was asked before it is dropped, in meters.
+const GOAL_KEPT: f32 = 20.0;
+
 /// The spacing of the lattice a way is searched over, in meters.
 const LATTICE: f32 = 1.0;
 
@@ -288,6 +312,15 @@ pub struct Walls {
     /// What the world places, by the block whose reading stands it, each with its entry once it
     /// stands.
     standing: BTreeMap<(u8, u8), Vec<Kept>>,
+    /// The searches under way, in turn.
+    searching: VecDeque<Search>,
+    /// How many passes there have been, and the moves left of this one's budget.
+    pass: u64,
+    moves_left: u64,
+    /// The work done so far: moves through the transition, those of them searches', and searches.
+    pub moves: u64,
+    pub search_moves: u64,
+    pub searches: u64,
 }
 
 impl std::fmt::Debug for Walls {
@@ -344,6 +377,12 @@ impl Walls {
             walkers: HashMap::new(),
             bodies: HashMap::new(),
             standing: BTreeMap::new(),
+            searching: VecDeque::new(),
+            pass: 0,
+            moves_left: PASS_MOVES,
+            moves: 0,
+            search_moves: 0,
+            searches: 0,
         }
     }
 
@@ -513,17 +552,18 @@ impl Walls {
         from: &StoredPosition,
         d: [f32; 2],
     ) -> Option<Stepped> {
-        self.step_as(template, scale, from, d, true)
+        self.step_as(template, scale, from, d, None)
     }
 
-    /// A step, the body put where it fits first only when `fit` says it may be.
+    /// A step: a walk's, or a search's in legs of the length given, which never puts the body where
+    /// it fits.
     fn step_as(
         &mut self,
         template: u32,
         scale: f32,
         from: &StoredPosition,
         d: [f32; 2],
-        fit: bool,
+        searching: Option<f32>,
     ) -> Option<Stepped> {
         self.need(from.cell);
         let (x, y) = block_of(from.cell);
@@ -564,17 +604,22 @@ impl Walls {
         let start = position(from, heading);
         let length = (d[0] * d[0] + d[1] * d[1]).sqrt();
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let legs = (length / LEG).ceil().max(1.0) as u32;
+        let legs = (length / searching.unwrap_or(LEG)).ceil().max(1.0) as u32;
         #[allow(clippy::cast_precision_loss)]
         let share = 1.0 / legs as f32;
         let leg = Vec3::new(d[0] * share, d[1] * share, 0.0);
         let mut end = start;
         for i in 0..legs {
+            self.moves += 1;
+            self.search_moves += u64::from(searching.is_some());
             if let Some(next) = take_step(body, &self.land, &mut self.world, end, leg, heading) {
                 end = next;
                 continue;
             }
-            if i == 0 && fit && !can_set_out(body, &self.land, &mut self.world, start, heading) {
+            if i == 0
+                && searching.is_none()
+                && !can_set_out(body, &self.land, &mut self.world, start, heading)
+            {
                 // It stands in something: it is put where it fits nearest, and steps from there.
                 body.place(start, heading);
                 let ok = body.set_position_simple(&self.land, &mut self.world, start, true);
@@ -601,42 +646,6 @@ impl Walls {
     }
 }
 
-impl Walls {
-    /// Where a body walking straight from `from` toward `goal` a lattice spacing at a time ends,
-    /// when it gets within `close` of it on the ground without being held up.
-    fn straight(
-        &mut self,
-        template: u32,
-        scale: f32,
-        from: &StoredPosition,
-        goal: &StoredPosition,
-        close: f32,
-    ) -> Option<StoredPosition> {
-        let g = position(goal, 0.0);
-        let mut at = *from;
-        for _ in 0..64 {
-            let o = auberean_physics::geom::offset(&position(&at, 0.0), &g);
-            let left = (o.x * o.x + o.y * o.y).sqrt();
-            if left <= close {
-                return Some(at);
-            }
-            let go = left.min(LATTICE);
-            let s = self.step_as(
-                template,
-                scale,
-                &at,
-                [o.x / left * go, o.y / left * go],
-                false,
-            )?;
-            if s.moved < go * 0.9 {
-                return None;
-            }
-            at = s.at;
-        }
-        None
-    }
-}
-
 /// A lattice point: its x and y in lattice spacings, its height in two-meter bands.
 type Point = (i32, i32, i32);
 
@@ -648,11 +657,239 @@ struct Reached {
     from: Option<Point>,
 }
 
+/// The way's own last point, reached by a step straight to the goal.
+const AT_GOAL: Point = (i32::MIN, i32::MIN, i32::MIN);
+
+/// How far a search has got.
+enum Stage {
+    /// Walking straight at the goal: where the body is, and how many links it has taken.
+    Straight { at: StoredPosition, links: u32 },
+    /// Over the lattice.
+    Lattice(Box<Lattice>),
+    /// Finished, with its way if it found one.
+    Done(Option<Vec<StoredPosition>>),
+}
+
+/// A search over the lattice, between turns.
+struct Lattice {
+    reached: HashMap<Point, Reached>,
+    /// The open points by cost plus estimate (in millimeters, for ordering).
+    open: std::collections::BinaryHeap<std::cmp::Reverse<(u64, Point)>>,
+    closed: BTreeSet<Point>,
+    longest: f32,
+}
+
+/// A way being searched for, by whom and from where to where.
+struct Search {
+    id: u64,
+    template: u32,
+    scale: f32,
+    from: StoredPosition,
+    goal: StoredPosition,
+    close: f32,
+    /// The length of its legs.
+    leg: f32,
+    /// The goal in the frame of `from`'s block.
+    g: [f32; 3],
+    stage: Stage,
+    /// The pass somebody last asked about it.
+    asked: u64,
+}
+
+/// A place's point in the frame of `from`'s block.
+fn local_to(from: &StoredPosition, p: &StoredPosition) -> [f32; 3] {
+    let o = auberean_physics::geom::offset(&position(from, 0.0), &position(p, 0.0));
+    [
+        from.origin[0] + o.x,
+        from.origin[1] + o.y,
+        from.origin[2] + o.z,
+    ]
+}
+
+fn point_of(p: [f32; 3]) -> Point {
+    (
+        dereth_primitives::num::floor_to_i32(p[0] / LATTICE + 0.5),
+        dereth_primitives::num::floor_to_i32(p[1] / LATTICE + 0.5),
+        dereth_primitives::num::floor_to_i32(p[2] / 2.0 + 0.5),
+    )
+}
+
+fn millimeters(v: f32) -> u64 {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let m = (v.max(0.0) * 1000.0) as u64;
+    m
+}
+
+impl Search {
+    fn new(
+        id: u64,
+        template: u32,
+        scale: f32,
+        from: &StoredPosition,
+        goal: &StoredPosition,
+        close: f32,
+    ) -> Self {
+        Self {
+            id,
+            template,
+            scale,
+            from: *from,
+            goal: *goal,
+            close,
+            leg: SEARCH_LEG,
+            g: local_to(from, goal),
+            stage: Stage::Straight {
+                at: *from,
+                links: 0,
+            },
+            asked: 0,
+        }
+    }
+
+    /// The ground distance from a point to the goal.
+    fn gap(&self, p: [f32; 3]) -> f32 {
+        ((p[0] - self.g[0]).powi(2) + (p[1] - self.g[1]).powi(2)).sqrt()
+    }
+
+    /// The search over the lattice, once walking straight has failed.
+    fn lattice(&self) -> Lattice {
+        let start = point_of(self.from.origin);
+        let mut reached = HashMap::new();
+        reached.insert(
+            start,
+            Reached {
+                at: self.from,
+                cost: 0.0,
+                from: None,
+            },
+        );
+        let mut open = std::collections::BinaryHeap::new();
+        open.push(std::cmp::Reverse((
+            millimeters(self.gap(self.from.origin)),
+            start,
+        )));
+        Lattice {
+            reached,
+            open,
+            closed: BTreeSet::new(),
+            longest: LONGEST_WAY.0 * self.gap(self.from.origin) + LONGEST_WAY.1,
+        }
+    }
+}
+
+/// What asking for a way gives.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Asked {
+    /// The places to walk through in turn, the last within reach of the goal.
+    Way(Vec<StoredPosition>),
+    /// None leads there.
+    NoWay,
+    /// No answer yet: ask again.
+    Waiting,
+}
+
 impl Walls {
+    /// A pass of the world begins: its budget is whole, and the searches waiting take their turns
+    /// from it. Those nobody has asked about lately are dropped.
+    pub fn new_pass(&mut self) {
+        self.pass += 1;
+        self.moves_left = PASS_MOVES;
+        let pass = self.pass;
+        self.searching
+            .retain(|s| pass.saturating_sub(s.asked) <= FORGOTTEN_AFTER);
+        let mut finished = 0;
+        while self.moves_left > 0 && finished < self.searching.len() {
+            let Some(mut s) = self.searching.pop_front() else {
+                break;
+            };
+            if matches!(s.stage, Stage::Done(_)) {
+                finished += 1;
+            } else {
+                finished = 0;
+                self.take_turn(&mut s, TURN_MOVES);
+            }
+            self.searching.push_back(s);
+        }
+    }
+
+    /// Ask for a way for the creature `id`, of `template` and `scale`, from `from` to within `close`
+    /// meters of `goal` on the ground; `careful` when the last way found could not be walked, which
+    /// tries a walk's short legs. A search it has under way goes on, whatever has moved since, unless
+    /// the goal has gone far from what it asked.
+    #[allow(clippy::too_many_arguments)]
+    pub fn ask(
+        &mut self,
+        id: u64,
+        template: u32,
+        scale: f32,
+        from: &StoredPosition,
+        goal: &StoredPosition,
+        close: f32,
+        careful: bool,
+    ) -> Asked {
+        if let Some(i) = self.searching.iter().position(|s| s.id == id) {
+            let kept = flat(
+                &position(&self.searching[i].goal, 0.0),
+                &position(goal, 0.0),
+            ) <= GOAL_KEPT
+                && self.searching[i].template == template;
+            if kept {
+                self.searching[i].asked = self.pass;
+                if !matches!(self.searching[i].stage, Stage::Done(_)) {
+                    return Asked::Waiting;
+                }
+                return match self.searching.remove(i).map(|s| s.stage) {
+                    Some(Stage::Done(Some(way))) => Asked::Way(way),
+                    _ => Asked::NoWay,
+                };
+            }
+            self.searching.remove(i);
+        }
+        if !self.joined(from, goal) {
+            return Asked::NoWay;
+        }
+        self.searches += 1;
+        let mut s = Search::new(id, template, scale, from, goal, close);
+        s.asked = self.pass;
+        if careful {
+            s.leg = LEG;
+        }
+        self.take_turn(&mut s, TURN_MOVES);
+        if let Stage::Done(way) = s.stage {
+            return way.map_or(Asked::NoWay, Asked::Way);
+        }
+        self.searching.push_back(s);
+        Asked::Waiting
+    }
+
+    /// A way like [`Walls::way`], for what can do without one: it gives up beyond `most` moves or
+    /// what is left of the pass's budget.
+    pub fn way_within(
+        &mut self,
+        template: u32,
+        scale: f32,
+        from: &StoredPosition,
+        goal: &StoredPosition,
+        close: f32,
+        most: u64,
+    ) -> Option<Vec<StoredPosition>> {
+        if !self.joined(from, goal) {
+            return None;
+        }
+        self.searches += 1;
+        let mut s = Search::new(0, template, scale, from, goal, close);
+        self.take_turn(&mut s, most);
+        match s.stage {
+            Stage::Done(way) => way,
+            _ => None,
+        }
+    }
+
     /// A way for a creature of `template` and `scale` from `from` to within `close` meters of
-    /// `goal` (on the ground): the places to walk through in turn, the last within `close` of the
-    /// goal; none when the cells are not joined or the search finds no way within
-    /// [`MOST_POINTS`] lattice points. Each link of the way is a step the walls let the body take.
+    /// `goal` (on the ground), searched to the end at once: the places to walk through in turn, the
+    /// last within `close` of the goal; none when the cells are not joined or the search finds no
+    /// way within [`MOST_POINTS`] lattice points. Each link of the way is a step the walls let the
+    /// body take.
     pub fn way(
         &mut self,
         template: u32,
@@ -664,139 +901,167 @@ impl Walls {
         if !self.joined(from, goal) {
             return None;
         }
-        if let Some(end) = self.straight(template, scale, from, goal, close) {
-            return Some(vec![end]);
+        self.searches += 1;
+        let mut s = Search::new(0, template, scale, from, goal, close);
+        self.run_search(&mut s, u64::MAX);
+        match s.stage {
+            Stage::Done(way) => way,
+            _ => None,
         }
-        let origin = position(from, 0.0);
-        // A place's point in the frame of `from`'s block.
-        let local = |p: &StoredPosition| {
-            let o = auberean_physics::geom::offset(&origin, &position(p, 0.0));
-            [
-                from.origin[0] + o.x,
-                from.origin[1] + o.y,
-                from.origin[2] + o.z,
-            ]
+    }
+
+    /// A search goes on for up to `most` moves, or what is left of the pass's budget, and the budget
+    /// is charged what it took.
+    fn take_turn(&mut self, s: &mut Search, most: u64) {
+        let spent = self.run_search(s, most.min(self.moves_left));
+        self.moves_left = self.moves_left.saturating_sub(spent);
+    }
+
+    /// A search goes on until it is done or has taken `most` moves, stopping only between lattice
+    /// points; the moves it took.
+    fn run_search(&mut self, s: &mut Search, most: u64) -> u64 {
+        let began = self.search_moves;
+        while self.search_moves - began < most {
+            match std::mem::replace(&mut s.stage, Stage::Done(None)) {
+                Stage::Straight { at, links } => s.stage = self.walk_straight(s, at, links),
+                Stage::Lattice(mut l) => {
+                    s.stage = match self.open_a_point(s, &mut l) {
+                        Some(end) => Stage::Done(end),
+                        None => Stage::Lattice(l),
+                    };
+                }
+                Stage::Done(way) => {
+                    s.stage = Stage::Done(way);
+                    break;
+                }
+            }
+        }
+        self.search_moves - began
+    }
+
+    /// One lattice spacing straight at the goal: how far the search has got after it.
+    fn walk_straight(&mut self, s: &Search, at: StoredPosition, links: u32) -> Stage {
+        let g = position(&s.goal, 0.0);
+        let o = auberean_physics::geom::offset(&position(&at, 0.0), &g);
+        let left = (o.x * o.x + o.y * o.y).sqrt();
+        if left <= s.close {
+            return Stage::Done(Some(vec![at]));
+        }
+        let go = left.min(LATTICE);
+        if links < 64 {
+            let d = [o.x / left * go, o.y / left * go];
+            if let Some(step) = self.step_as(s.template, s.scale, &at, d, Some(s.leg)) {
+                if step.moved >= go * 0.9 {
+                    return Stage::Straight {
+                        at: step.at,
+                        links: links + 1,
+                    };
+                }
+            }
+        }
+        Stage::Lattice(Box::new(s.lattice()))
+    }
+
+    /// Open the search's best point: its way (or that there is none) when that ends the search.
+    #[allow(clippy::option_option)]
+    fn open_a_point(&mut self, s: &Search, l: &mut Lattice) -> Option<Option<Vec<StoredPosition>>> {
+        let Some(std::cmp::Reverse((_, k))) = l.open.pop() else {
+            return Some(None);
         };
-        let g = local(goal);
-        let gap = |p: [f32; 3]| ((p[0] - g[0]).powi(2) + (p[1] - g[1]).powi(2)).sqrt();
-        let key = |p: [f32; 3]| {
-            (
-                dereth_primitives::num::floor_to_i32(p[0] / LATTICE + 0.5),
-                dereth_primitives::num::floor_to_i32(p[1] / LATTICE + 0.5),
-                dereth_primitives::num::floor_to_i32(p[2] / 2.0 + 0.5),
-            )
+        if !l.closed.insert(k) {
+            return None;
+        }
+        if l.closed.len() > MOST_POINTS {
+            return Some(None);
+        }
+        let (here, cost) = {
+            let r = &l.reached[&k];
+            (r.at, r.cost)
         };
-        let start = key(from.origin);
-        let longest = LONGEST_WAY.0 * gap(from.origin) + LONGEST_WAY.1;
-        let mut reached: HashMap<Point, Reached> = HashMap::new();
-        reached.insert(
-            start,
-            Reached {
-                at: *from,
-                cost: 0.0,
-                from: None,
-            },
-        );
-        // The open points by cost plus estimate (in millimeters, for ordering).
-        let mut open: std::collections::BinaryHeap<std::cmp::Reverse<(u64, Point)>> =
-            std::collections::BinaryHeap::new();
-        let mm = |v: f32| -> u64 {
-            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-            let m = (v.max(0.0) * 1000.0) as u64;
-            m
-        };
-        open.push(std::cmp::Reverse((mm(gap(from.origin)), start)));
-        let mut closed: BTreeSet<Point> = BTreeSet::new();
-        let mut end = None;
-        while let Some(std::cmp::Reverse((_, k))) = open.pop() {
-            if !closed.insert(k) {
+        let p = local_to(&s.from, &here);
+        let left = s.gap(p);
+        if left <= s.close {
+            return Some(Some(way_to(&l.reached, k)));
+        }
+        // Near the goal, a step straight to it.
+        if left <= LATTICE * 1.5 {
+            let d = [s.g[0] - p[0], s.g[1] - p[1]];
+            if let Some(step) = self.step_as(s.template, s.scale, &here, d, Some(s.leg)) {
+                if s.gap(local_to(&s.from, &step.at)) <= s.close {
+                    l.reached.insert(
+                        AT_GOAL,
+                        Reached {
+                            at: step.at,
+                            cost: cost + left,
+                            from: Some(k),
+                        },
+                    );
+                    return Some(Some(way_to(&l.reached, AT_GOAL)));
+                }
+            }
+        }
+        for (dx, dy) in [
+            (1, 0),
+            (-1, 0),
+            (0, 1),
+            (0, -1),
+            (1, 1),
+            (1, -1),
+            (-1, 1),
+            (-1, -1),
+        ] {
+            // A point already opened at this height needs no link to it tried.
+            if l.closed.contains(&(k.0 + dx, k.1 + dy, k.2)) {
                 continue;
             }
-            if closed.len() > MOST_POINTS {
-                break;
-            }
-            let (here, cost) = {
-                let r = &reached[&k];
-                (r.at, r.cost)
+            #[allow(clippy::cast_precision_loss)]
+            let target = [(k.0 + dx) as f32 * LATTICE, (k.1 + dy) as f32 * LATTICE];
+            let d = [target[0] - p[0], target[1] - p[1]];
+            let length = (d[0] * d[0] + d[1] * d[1]).sqrt();
+            let Some(step) = self.step_as(s.template, s.scale, &here, d, Some(s.leg)) else {
+                continue;
             };
-            let p = local(&here);
-            let left = gap(p);
-            if left <= close {
-                end = Some(k);
-                break;
+            let q = local_to(&s.from, &step.at);
+            if ((q[0] - target[0]).powi(2) + (q[1] - target[1]).powi(2)).sqrt() > ON_POINT {
+                continue;
             }
-            // Near the goal, a step straight to it.
-            if left <= LATTICE * 1.5 {
-                let d = [g[0] - p[0], g[1] - p[1]];
-                if let Some(s) = self.step_as(template, scale, &here, d, false) {
-                    if gap(local(&s.at)) <= close {
-                        let gk = (i32::MIN, i32::MIN, i32::MIN);
-                        reached.insert(
-                            gk,
-                            Reached {
-                                at: s.at,
-                                cost: cost + left,
-                                from: Some(k),
-                            },
-                        );
-                        end = Some(gk);
-                        break;
-                    }
-                }
+            let nk = point_of(q);
+            if l.closed.contains(&nk) {
+                continue;
             }
-            for (dx, dy) in [
-                (1, 0),
-                (-1, 0),
-                (0, 1),
-                (0, -1),
-                (1, 1),
-                (1, -1),
-                (-1, 1),
-                (-1, -1),
-            ] {
-                #[allow(clippy::cast_precision_loss)]
-                let target = [(k.0 + dx) as f32 * LATTICE, (k.1 + dy) as f32 * LATTICE];
-                let d = [target[0] - p[0], target[1] - p[1]];
-                let length = (d[0] * d[0] + d[1] * d[1]).sqrt();
-                let Some(s) = self.step_as(template, scale, &here, d, false) else {
-                    continue;
-                };
-                let q = local(&s.at);
-                if ((q[0] - target[0]).powi(2) + (q[1] - target[1]).powi(2)).sqrt() > ON_POINT {
-                    continue;
-                }
-                let nk = key(q);
-                if closed.contains(&nk) {
-                    continue;
-                }
-                let c = cost + length;
-                if c + gap(q) > longest || reached.get(&nk).is_some_and(|r| r.cost <= c) {
-                    continue;
-                }
-                reached.insert(
-                    nk,
-                    Reached {
-                        at: s.at,
-                        cost: c,
-                        from: Some(k),
-                    },
-                );
-                open.push(std::cmp::Reverse((mm(c + gap(q)), nk)));
+            let c = cost + length;
+            if c + s.gap(q) > l.longest || l.reached.get(&nk).is_some_and(|r| r.cost <= c) {
+                continue;
             }
+            l.reached.insert(
+                nk,
+                Reached {
+                    at: step.at,
+                    cost: c,
+                    from: Some(k),
+                },
+            );
+            l.open
+                .push(std::cmp::Reverse((millimeters(c + s.gap(q)), nk)));
         }
-        let mut k = end?;
-        let mut way = Vec::new();
-        while let Some(r) = reached.get(&k) {
-            way.push(r.at);
-            match r.from {
-                Some(f) => k = f,
-                None => break,
-            }
-        }
-        way.pop();
-        way.reverse();
-        Some(way)
+        None
     }
+}
+
+/// The places from a search's start to a point it reached, in order.
+fn way_to(reached: &HashMap<Point, Reached>, end: Point) -> Vec<StoredPosition> {
+    let mut k = end;
+    let mut way = Vec::new();
+    while let Some(r) = reached.get(&k) {
+        way.push(r.at);
+        match r.from {
+            Some(f) => k = f,
+            None => break,
+        }
+    }
+    way.pop();
+    way.reverse();
+    way
 }
 
 /// The ground distance between two places of one block, or of neighbors.
