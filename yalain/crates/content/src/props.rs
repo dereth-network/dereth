@@ -138,6 +138,23 @@ impl Props {
         self
     }
 
+    /// With the quest that keeps an item from being taken, for a template whose class names it in code.
+    #[must_use]
+    pub fn with_take_gate_of(mut self, template: u32) -> Self {
+        if let Some((_, quest, status)) = crate::take_gates::TAKE_GATES
+            .iter()
+            .find(|(t, ..)| *t == template)
+        {
+            self.values
+                .insert("Usage_RequiredQuest_ForTaking".into(), Prop::Word(*quest));
+            self.values.insert(
+                "Usage_RequiredQuestStatus_ForTaking".into(),
+                Prop::Word(*status),
+            );
+        }
+        self
+    }
+
     /// Set a value (for content made by hand).
     pub fn set(&mut self, name: &str, v: Prop) -> &mut Self {
         self.values.insert(name.to_string(), v);

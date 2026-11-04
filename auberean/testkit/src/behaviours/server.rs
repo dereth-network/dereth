@@ -1054,6 +1054,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.content.take-gates-of-classes",
+        says: "The items whose classes name a quest for taking them read with it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TAKE-GATES"),
+        station: "yalain-testkit::dat::skills::an_item_whose_class_names_a_quest_for_taking_reads_with_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.craft.butchery-finds-nothing",
         says: "A cut that draws its profile's share of nothing gathers no material and pays no experience; \
                the use is answered empty at the result and the corpse may be butchered again.",
@@ -4063,6 +4071,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-USE-LAST-HAND"),
         station: "yalain-testkit::cpu::play::paper_doll::a_weapon_last_in_the_off_hand_goes_back_there_by_its_use",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.use-refused-by-the-quest-for-taking",
+        says: "An item in the pack that its quest keeps from the player is refused when used, as a \
+               take would be; with the quest where it asks, the use goes on to what the item does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-USE-TAKE-QUEST"),
+        station: "yalain-testkit::cpu::play::chests::an_item_in_the_pack_its_quest_keeps_is_refused_by_its_use",
         tier: Tier::Cpu,
     },
     behaviour! {

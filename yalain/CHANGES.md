@@ -140,6 +140,7 @@ what they see, not how it was done.
 - Fixed specials that strike with the left hand doing the right hand's damage.
 - Heroes' skills can now go past 50.
 - Balance and Featherweight now lower what skills cost.
+- Quest items your quest doesn't allow can't be used or taken.
 
 ## 0.1.2 (2026-11-03)
 

@@ -196,7 +196,8 @@ impl Portal {
             facts: facts(id, &|e| self.entity(e), &self.fact_ids()),
             props: Props::of(id, &|e| self.entity(e), &name)
                 .with_places_of(self.qualities(yalain_content::qualities_id(id)).as_ref())
-                .with_worn_of(id),
+                .with_worn_of(id)
+                .with_take_gate_of(id),
         }
     }
 

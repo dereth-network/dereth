@@ -418,6 +418,13 @@ fn use_thing<S: Store>(
     }
 }
 
+/// Is this item in the player's pack, neither worn nor wielded?
+fn in_the_pack<S: Store>(s: &Server<S>, world: ConnId, item: u64) -> bool {
+    s.players
+        .get(&world)
+        .is_some_and(|p| p.play.items.iter().any(|h| h.id == item && h.location == 0))
+}
+
 /// Why taking an item of a template is refused, if its quest keeps the player from it.
 fn take_refused<S: Store>(
     s: &Server<S>,
@@ -901,6 +908,16 @@ fn use_held<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: 
     let Some(item) = s.things.get(u.item).map(|t| t.template) else {
         return;
     };
+    // An item in the pack that its quest keeps from the player is used no more than taken (2017, pack
+    // uses refused 10042, 10021: 13 of 15 of items whose classes name a quest for taking, 8 of 8 of
+    // 10042).
+    if u.target == 0 && in_the_pack(s, world, u.item) {
+        if let Some(why) = take_refused(s, world, item, clock) {
+            let no = use_refused(&u, 0, Some(USE_FLAGS_PACK), 0.0, why);
+            send(net, world, BlobKind::PRIVATE, &no);
+            return;
+        }
+    }
     if crate::usable::doors::door(s, u.target).is_some() {
         crate::usable::doors::key_used(s, net, world, u, clock);
         return;

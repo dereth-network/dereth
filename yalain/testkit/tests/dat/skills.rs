@@ -285,3 +285,22 @@ fn a_special_after_rend_armor_does_what_it_took_from_the_creature() {
     assert!(after.iter().all(|d| (269..=347).contains(d)), "{after:?}");
     assert!(alone.iter().all(|d| (119..=197).contains(d)), "{alone:?}");
 }
+
+/// The items whose classes name a quest for taking them read with it: a piece of the Broth, for its
+/// own quest at the step it asks; a thing with no such quest reads none.
+/// Behaviour: server.content.take-gates-of-classes
+#[test]
+fn an_item_whose_class_names_a_quest_for_taking_reads_with_it() {
+    let p = Portal::open();
+    let t = p.template(0x4700_0609);
+    assert_eq!(
+        t.props.word("Usage_RequiredQuest_ForTaking"),
+        Some(0x4000_0024)
+    );
+    assert_eq!(
+        t.props.word("Usage_RequiredQuestStatus_ForTaking"),
+        Some(0x1000_0002)
+    );
+    let medallion = p.template(0x4700_08CF);
+    assert_eq!(medallion.props.word("Usage_RequiredQuest_ForTaking"), None);
+}
