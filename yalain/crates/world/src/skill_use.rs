@@ -2121,7 +2121,7 @@ fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock
 
 /// A skill's target effects put on a creature or another player it landed on, cast by the player
 /// at its rating.
-fn put_target_effects<S: Store>(
+pub(crate) fn put_target_effects<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     me: u64,

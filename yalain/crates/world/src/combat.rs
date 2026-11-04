@@ -1290,6 +1290,9 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, mut l: Landing, c
         if alive {
             crate::effects::harm_back(s, net, me, l.target, l.back, clock);
         }
+        if alive && l.outcome.landed() && s.players.get(&o).is_some_and(|q| !is_dead(q)) {
+            attack_effects(s, net, &l, On::Player(o), me, clock);
+        }
         return;
     }
     if hurts {
@@ -1298,12 +1301,44 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, mut l: Landing, c
     if alive {
         crate::effects::harm_back(s, net, me, l.target, l.back, clock);
     }
+    if alive
+        && l.outcome.landed()
+        && s.things
+            .get(l.target)
+            .is_some_and(crate::things::Thing::alive)
+    {
+        attack_effects(s, net, &l, On::Creature(l.target), me, clock);
+    }
     if s.things
         .get(l.target)
         .is_some_and(crate::things::Thing::alive)
     {
         crate::ai::go_after(s, net, l.target, me, clock);
     }
+}
+
+/// A basic attack that names target effects puts them on what it landed on, at its user's rating
+/// in it, as a special's do.
+fn attack_effects<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    l: &Landing,
+    on: On,
+    me: u64,
+    clock: Clock,
+) {
+    let Some(u) = s
+        .skill_table
+        .skills
+        .get(&l.skill)
+        .and_then(|d| d.usage.as_ref())
+        .filter(|u| !u.target_effects.is_empty())
+        .cloned()
+    else {
+        return;
+    };
+    let rating = crate::skill_use::rating_of(s, l.world, l.skill);
+    crate::skill_use::put_target_effects(s, net, me, &u, on, rating, clock);
 }
 
 /// Who a story is from.

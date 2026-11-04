@@ -990,6 +990,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.a-basic-attacks-target-effects-land",
+        says: "A basic attack that names target effects puts them on what it lands on, at its user's \
+               rating in it, as a special's do. Our choice: of the players' basic attacks one names \
+               any, and it has no story in view.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-BASIC-TARGET-EFFECTS"),
+        station: "yalain-testkit::cpu::play::creature_effects::a_basic_attack_that_names_a_target_effect_lands_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combat.attack-run-to-the-death",
         says: "Asked once to attack, the server answers that the player is attacking and swings \
                for it, each swing a story from the player with a hit or an evade on the target, \

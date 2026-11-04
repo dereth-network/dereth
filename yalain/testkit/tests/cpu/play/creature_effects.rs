@@ -157,6 +157,47 @@ fn a_debuff_on_a_creature_shows_until_it_runs_out_and_changes_its_numbers() {
     );
 }
 
+/// A basic attack that names a target effect puts it on what it lands on, as a special's does; one
+/// that names none puts nothing.
+/// Behaviour: server.combat.a-basic-attacks-target-effects-land
+#[test]
+fn a_basic_attack_that_names_a_target_effect_lands_it() {
+    for (named, expected) in [(vec![VACUUM_EFFECT], true), (Vec::new(), false)] {
+        let (mut h, b, me, beetles) = beside_beetles(1);
+        let beetle = beetles[0];
+        place(&mut h, me, beetle, 1.0, 0.0);
+        h.arm(b, me, SWORD);
+        for d in h.server.skill_table.skills.values_mut() {
+            if d.auto_attack {
+                d.usage
+                    .as_mut()
+                    .expect("used")
+                    .target_effects
+                    .clone_from(&named);
+            }
+        }
+        if let Some(t) = h.server.things.get_mut(beetle) {
+            t.health = 1_000_000;
+            t.creature.as_mut().expect("a creature").stats.fights = false;
+        }
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(0x8204_0008, &[Arg::LongInt(beetle)]),
+        );
+        h.run(400);
+        let on = effects::records_of(&h.server, On::Creature(beetle))
+            .iter()
+            .any(|e| e.state == VACUUM_EFFECT);
+        assert_eq!(on, expected, "{named:x?}");
+        let hit = h.world_messages(b, 0).iter().any(|m| {
+            matches!(m, ServerMessage::DoStory(e) if e.action.attacker == me
+                && e.action.hooks.iter().any(|k| k.target == beetle))
+        });
+        assert!(hit, "the run swung");
+    }
+}
+
 /// The same debuff landed again while the first runs is a second record: the appearance is not
 /// shown again, and it stops only as the later one runs out.
 /// Behaviour: server.effects.creature-debuffs-stack

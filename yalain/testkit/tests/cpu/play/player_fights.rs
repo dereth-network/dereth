@@ -259,6 +259,29 @@ fn a_hit_on_another_player_takes_its_health_and_tells_it_as_pk_damage() {
     assert_eq!(health_of(&h, idb), (health + hits[0].numbers[3]).max(0));
 }
 
+/// A basic attack that names a target effect puts it on the player it lands on, too.
+/// Behaviour: server.combat.a-basic-attacks-target-effects-land
+#[test]
+fn a_basic_attack_that_names_a_target_effect_lands_it_on_another_player() {
+    let (mut h, (a, _), (_, idb)) = two_players(Conflict::KingdomVsKingdom);
+    for d in h.server.skill_table.skills.values_mut() {
+        if d.auto_attack {
+            d.usage.as_mut().expect("used").target_effects = vec![yalain_testkit::VACUUM_EFFECT];
+        }
+    }
+    attack(&mut h, a, idb);
+    let on = |h: &Harness| {
+        h.server.players.values().any(|p| {
+            p.character == idb
+                && p.play
+                    .effects
+                    .iter()
+                    .any(|e| e.state == yalain_testkit::VACUUM_EFFECT)
+        })
+    };
+    assert!(h.run_until(4000, on), "it lands with a hit");
+}
+
 /// A strike at another player is told first; the target loses the health as the strike lands, as
 /// long after the story as one at a creature, and with none left dies only then, so its client has
 /// written the hit before it writes the kill.
