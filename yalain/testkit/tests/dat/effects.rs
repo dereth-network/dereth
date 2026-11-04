@@ -487,12 +487,14 @@ fn a_forager_s_food_reads_as_a_drink_that_heals_health_and_vigor() {
         item_use::behavior_of(FOOD, &food.props),
         Some(item_use::DRINK)
     );
-    let lib = auberean_script::library::Library::from_record(
-        &p.dat
-            .read(auberean_script::library::RECORD)
-            .expect("the library"),
-    )
-    .expect("reads");
+    let lib = p
+        .dat
+        .read_checked(
+            auberean_script::library::RECORD,
+            auberean_script::library::Library::from_record,
+        )
+        .expect("reads")
+        .value;
     assert!(!yalain_world::profile::destroyed_on_use_kind(
         food.description.package,
         |n| lib.package_id(n),

@@ -193,8 +193,10 @@ mod scripts {
                 .find(|(n, _)| *n == DatName::Portal)
                 .expect("a portal file");
             let dat = Arc::new(DatFile::open(&path).expect("the portal file"));
-            let lib = Library::from_record(&dat.read(RECORD).expect("the library"))
-                .expect("the library reads");
+            let lib = dat
+                .read_checked(RECORD, Library::from_record)
+                .expect("the library reads")
+                .value;
             let natives = auberean_glue::natives(&lib);
             let program = Arc::new(Program::link(lib, natives).expect("the library links"));
             let mut vm = Vm::new(Arc::clone(&program));

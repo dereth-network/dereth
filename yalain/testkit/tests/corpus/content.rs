@@ -39,7 +39,7 @@ fn installed() -> Option<&'static Install> {
             .find(|(n, _)| *n == DatName::Portal)?;
         let dat = DatFile::open(&path).ok()?;
         let ctx = Context::from_portal(&dat).ok()?;
-        let lib = Library::from_record(&dat.read(RECORD).ok()?).ok()?;
+        let lib = dat.read_checked(RECORD, Library::from_record).ok()?.value;
         Some(Install { dat, ctx, lib })
     })
     .as_ref()

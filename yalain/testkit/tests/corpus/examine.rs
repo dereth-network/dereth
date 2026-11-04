@@ -53,10 +53,13 @@ fn installed() -> Option<&'static Install> {
             group: id(FACT_NAMES[6]),
             min_level: id(FACT_NAMES[7]),
         };
-        let lib = auberean_script::library::Library::from_record(
-            &dat.read(auberean_script::library::RECORD).ok()?,
-        )
-        .ok()?;
+        let lib = dat
+            .read_checked(
+                auberean_script::library::RECORD,
+                auberean_script::library::Library::from_record,
+            )
+            .ok()?
+            .value;
         Some(Install { dat, ctx, ids, lib })
     })
     .as_ref()

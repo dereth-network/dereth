@@ -857,12 +857,13 @@ fn a_kill_sends_the_updates_recorded_kills_were_sent() {
                 .1,
         )
         .expect("opens");
-        auberean_script::library::Library::from_record(
-            &portal
-                .read(auberean_script::library::RECORD)
-                .expect("the library's record"),
-        )
-        .expect("the library reads")
+        portal
+            .read_checked(
+                auberean_script::library::RECORD,
+                auberean_script::library::Library::from_record,
+            )
+            .expect("the library reads")
+            .value
     };
     let lib = &lib;
     let t = &compiled().tables;
@@ -1126,12 +1127,13 @@ fn a_person_gives_a_kill_quest_and_takes_it_back_as_the_recordings_show() {
             .1,
     )
     .expect("opens");
-    let lib = auberean_script::library::Library::from_record(
-        &portal
-            .read(auberean_script::library::RECORD)
-            .expect("the library's record"),
-    )
-    .expect("the library reads");
+    let lib = portal
+        .read_checked(
+            auberean_script::library::RECORD,
+            auberean_script::library::Library::from_record,
+        )
+        .expect("the library reads")
+        .value;
     let index = auberean_testkit::data::require_capture_index();
     let mut recorded: Vec<Said> = Vec::new();
     captures::messages(&index, &[carrier::TO_PLAYER], &[2017], |m| {
