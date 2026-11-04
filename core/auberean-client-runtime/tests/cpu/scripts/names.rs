@@ -3,7 +3,27 @@
 use auberean_client_runtime::repository::{name, plural_name, set, STRING_INFO};
 use auberean_script::native_object::TextInfo;
 
+use auberean_script::Host as _;
+
 use crate::common::{Bench, ITEM};
+
+/// The scripts ask the client's table of file names, which its data cache starts and no file of
+/// names fills: an id is 0, a name empty, and the type asked about is registered.
+///
+/// Behaviour: data.file-names.the-scripts-ask-the-clients-table
+#[test]
+fn the_scripts_ask_the_clients_table_of_file_names() {
+    const WAVE: u32 = 0x0A;
+    let mut b = Bench::new();
+    assert!(b.host.file_names.is_active());
+    assert!(!b.host.file_names.uses_folders());
+    assert!(!b.host.file_names.ids_may_be_made());
+    assert!(b.host.file_names.is_read_only());
+    assert!(!b.host.file_names.table().is_type_registered(WAVE));
+    assert_eq!(b.host.data_id_by_name("thunder.wav", WAVE), 0);
+    assert!(b.host.file_names.table().is_type_registered(WAVE));
+    assert_eq!(b.host.file_name_by_id(0x0A00_0001), Vec::<u16>::new());
+}
 
 /// An object's name and plural name are its name qualities; without them, a literal that says
 /// it has none.

@@ -630,6 +630,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "data.file-names.the-scripts-ask-the-clients-table",
+        says: "A script's question about a file's id or name goes to the client's table of file names, \
+               started with its data cache, which answers from nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FILE-NAMES-TABLE"),
+        station: "auberean-client-runtime::cpu::scripts::names::the_scripts_ask_the_clients_table_of_file_names",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.file-names.types-registered-with-their-names-and-folders",
         says: "A type is registered under the enum maps' name for it (the two mapping types under names \
                of their own, others UNKNOWN before the data cache starts), with its folders when its \

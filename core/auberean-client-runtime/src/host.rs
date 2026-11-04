@@ -26,9 +26,10 @@ use std::any::Any;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
+use auberean_assets::names::FileNames;
 use auberean_assets::script::Qualities as Record;
 use auberean_client_model::Model;
-use auberean_dat::DatFile;
+use auberean_dat::{DatFile, MasterMap};
 use auberean_script::bridge::{object_process, receive, Outcome};
 use auberean_script::graph::SavedState;
 use auberean_script::library::Library;
@@ -197,6 +198,21 @@ pub struct ClientHost {
     /// The client's one data cache: the data files' records, decoded once and kept (opened the
     /// first time one is asked for), shared with the data cache's requests.
     pub(crate) cache: Option<crate::cache::DataCache>,
+    /// The client's table of every record's file name, which the scripts ask.
+    pub file_names: FileNames,
+    /// Where the record types' folders would be, for that table.
+    master: MasterMap,
+}
+
+/// The table as the client starts it with its data cache: folders off, ids not to be made, only
+/// read. No install has the file of names, so it stays empty.
+fn started_file_names(master: &MasterMap) -> FileNames {
+    let mut names = FileNames::new();
+    names.set_uses_folders(false);
+    names.set_ids_may_be_made(false);
+    names.init(4, 0, master);
+    names.verify_types();
+    names
 }
 
 /// The host's files, by bare names only: any other name is refused, as is every file when the
@@ -269,6 +285,24 @@ impl Host for ClientHost {
 
     fn data_id_by_enum(&mut self, value: u32, mapping: u32) -> u32 {
         self.text.data_id_by_enum(value, mapping)
+    }
+
+    fn data_id_by_name(&mut self, name: &str, record_type: u32) -> u32 {
+        let db = self
+            .cache
+            .as_ref()
+            .filter(|c| !c.is_empty())
+            .map(crate::cache::DataCache::database);
+        self.file_names.id(name, record_type, db, &self.master)
+    }
+
+    fn file_name_by_id(&mut self, id: u32) -> Vec<u16> {
+        let db = self
+            .cache
+            .as_ref()
+            .filter(|c| !c.is_empty())
+            .map(crate::cache::DataCache::database);
+        self.file_names.file_name_of_wide(id, db, &self.master)
     }
 
     fn text(&mut self) -> Option<&mut dyn auberean_text::Source> {
@@ -627,7 +661,11 @@ pub fn is_panel_notice(lib: &Library, id: u32) -> bool {
 /// A host over a portal file and a linked program.
 #[must_use]
 pub fn new_host(portal: Arc<DatFile>, program: Arc<Program>) -> ClientHost {
+    let mut master = MasterMap::default();
+    master.init();
     ClientHost {
+        file_names: started_file_names(&master),
+        master,
         states: StateCache::new(Arc::clone(&portal)),
         program,
         portal,
