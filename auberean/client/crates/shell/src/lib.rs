@@ -688,6 +688,7 @@ impl<'w, H: Host> Shell<'w, H> {
                     about: s.about,
                     text,
                     info: Some(auberean_client_sdk::runtime::text::from_script(&s.text)),
+                    notices_before: s.notices_before,
                 });
             }
         }

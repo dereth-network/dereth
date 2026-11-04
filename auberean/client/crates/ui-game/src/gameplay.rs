@@ -200,6 +200,9 @@ pub struct View<'a> {
     /// windows add it to their logs as a reference, written once the string tables it reads have
     /// come.
     pub line_infos: &'a [Option<auberean_text::StringInfo>],
+    /// How many of `lines` were written before the scripts said the options changed, if they did
+    /// this frame: the chat windows take those by what they show now.
+    pub lines_before_options: usize,
     /// The chat's part of the player's options, as last read, and a new player's (the options
     /// window's chat page's defaults).
     pub chat: Option<&'a crate::chat::ChatSettings>,

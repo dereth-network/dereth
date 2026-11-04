@@ -209,6 +209,8 @@ pub struct Shown {
     pub about: Option<u64>,
     pub text: String,
     pub info: Option<auberean_client_sdk::text::StringInfo>,
+    /// How many of the frame's notices the scripts had sent when they wrote it.
+    pub notices_before: usize,
 }
 
 /// A line the player heard: a saying, a tell, a text for the chat window.

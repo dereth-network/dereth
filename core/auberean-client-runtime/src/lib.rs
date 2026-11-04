@@ -2034,7 +2034,15 @@ impl Client {
         for (w, seconds) in std::mem::take(&mut scripts.host.sleeps) {
             self.waiting.push((self.now + seconds, w));
         }
-        self.shown.append(&mut scripts.host.shown);
+        let sent = self.notices.len();
+        self.shown.extend(
+            std::mem::take(&mut scripts.host.shown)
+                .into_iter()
+                .map(|mut s| {
+                    s.notices_before += sent;
+                    s
+                }),
+        );
         let noticed = std::mem::take(&mut scripts.host.panel_notices);
         self.store_stale |= self.store.noticed(&noticed);
         Self::inventory_noticed(

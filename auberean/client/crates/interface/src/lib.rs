@@ -141,6 +141,8 @@ struct Shared {
     lines: Vec<(u32, String)>,
     /// For each of `lines`, the string reference it was written from, when it came as one.
     line_infos: Vec<Option<auberean_client_sdk::text::StringInfo>>,
+    /// How many of `lines` came before the scripts said the options changed, if they did.
+    lines_before_options: usize,
     /// The chat's part of the player's options, as last read, and a new player's.
     chat: Option<ChatSettings>,
     chat_defaults: Option<ChatSettings>,
@@ -234,6 +236,7 @@ impl FlowScreen<Shared> for PlayScreen {
             place: data.place.as_deref(),
             lines: &data.lines,
             line_infos: &data.line_infos,
+            lines_before_options: data.lines_before_options,
             chat: data.chat.as_ref(),
             chat_defaults: data.chat_defaults.as_ref(),
             shortcuts: data.shortcuts.as_ref(),
@@ -912,10 +915,23 @@ impl Retail {
             d.lines.push((chat_panel::text_type::ERROR, e));
             d.line_infos.push(None);
         }
+        let own_lines = d.lines.len();
         for s in game.shown {
             d.lines.push((s.kind, s.text.clone()));
             d.line_infos.push(s.info.clone());
         }
+        let player_id = game.client.and_then(|c| c.model.player);
+        let options_said = game.notices.iter().position(|n| {
+            (n.native == chat_panel::notice::RELOAD_CHAT_SETTINGS
+                || n.native == gameplay::notice::RELOAD_OPTIONS)
+                && (n.about.is_none() || n.about == player_id)
+        });
+        d.lines_before_options = own_lines
+            + game
+                .shown
+                .iter()
+                .take_while(|s| options_said.is_none_or(|at| s.notices_before <= at))
+                .count();
         d.chat = self.chat.settings().cloned();
         if d.chat_defaults.is_none() {
             d.chat_defaults = Some(chat::defaults());
@@ -950,7 +966,6 @@ impl Retail {
                 span: h.span,
                 since_heard: h.since_heard,
             });
-        let player_id = game.client.and_then(|c| c.model.player);
         // An object's radar look (and with it its name) changed: the gathered world reads them
         // again before the next frame, so the panels hear it then, with the world that has them.
         let held = std::mem::take(&mut self.held_looks);

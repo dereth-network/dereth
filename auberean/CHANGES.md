@@ -105,6 +105,7 @@ not how it was done.
 - Ingredient rows no longer linger when the item level drops.
 - Items you put down now show on the ground for you.
 - Much higher frame rates in towns and outdoors.
+- Fixed "You just entered a peace area" showing when a new character enters.
 
 ## 0.1.2 (2026-11-02)
 

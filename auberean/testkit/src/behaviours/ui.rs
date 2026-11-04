@@ -118,6 +118,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.chat.a-line-before-the-first-options-is-not-shown",
+        says: "A line the scripts write before they set the options is taken by what the windows show then: the place's status told to a new character right after its description never appears, as the windows show nothing until the options are set; the lines after the options do.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHAT-LINE-BEFORE-OPTIONS"),
+        station: "auberean-ui-game::dat::play::chat::a_line_before_the_first_options_is_not_shown",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.chat.a-line-waits-in-the-log-for-its-string-tables",
         says: "A chat line that came as a string reference whose table the data lacks waits in the \
                log until the table has come, then shows as written from it; the lines after it \

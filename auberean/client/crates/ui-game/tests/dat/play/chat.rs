@@ -395,6 +395,74 @@ fn the_lines_written_with_the_options_show_by_those_options() {
     );
 }
 
+/// A line the scripts write before they set the options is taken by what the windows show then:
+/// as a new character enters, the place's status comes right after the character's description,
+/// the windows show nothing yet, and it never appears; the lines after the options do.
+///
+/// Behaviour: ui.chat.a-line-before-the-first-options-is-not-shown
+#[test]
+fn a_line_before_the_first_options_is_not_shown() {
+    let entering = vec![
+        (
+            t::STANDARD,
+            "You just entered a peace area (no player-vs.-player fighting allowed here).
+"
+            .to_owned(),
+        ),
+        (
+            t::STANDARD,
+            "Trade channel entered.
+"
+            .to_owned(),
+        ),
+    ];
+    let options = Notice {
+        native: auberean_ui_game::gameplay::notice::RELOAD_OPTIONS,
+        ..Notice::default()
+    };
+    let settings = defaults(1);
+    let enter = |ui: &mut Ui, p: &mut GamePlay, lines: &[(u32, String)], before: usize| {
+        ui.use_time(0.05);
+        let mut out = Vec::new();
+        let view = View {
+            lines,
+            lines_before_options: before,
+            chat: Some(&settings),
+            ..View::default()
+        };
+        p.tick(ui, &view, std::slice::from_ref(&options), &mut out);
+        ui.use_time(0.1);
+        let view = View {
+            chat: Some(&settings),
+            ..View::default()
+        };
+        p.tick(ui, &view, &[], &mut out);
+    };
+
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    enter(&mut ui, &mut p, &entering, 1);
+    assert_eq!(
+        chat(&p).windows()[0].lines(&ui),
+        ["Trade channel entered.", ""],
+        "only the line after the options"
+    );
+
+    // Written after the options, the same line shows.
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    enter(&mut ui, &mut p, &entering, 0);
+    assert_eq!(
+        chat(&p).windows()[0].lines(&ui),
+        [
+            "You just entered a peace area (no player-vs.-player fighting allowed here).",
+            "Trade channel entered.",
+            "",
+        ],
+        "both after the options"
+    );
+}
+
 /// A line that came as a string reference whose table the data lacks waits in the log until the
 /// table has come, then shows as written from it; the lines after it wait behind it.
 ///

@@ -1107,6 +1107,8 @@ pub struct ChatUi {
     /// The lines that came after the scripts said the options changed, before the windows read
     /// them again: each window takes them by what it shows once it has.
     held: Vec<Line>,
+    /// A reload still waited as the last frame ended.
+    waiting: bool,
 }
 
 impl ChatUi {
@@ -1140,6 +1142,7 @@ impl ChatUi {
             reload_chat: None,
             reload_options: None,
             held: Vec::new(),
+            waiting: false,
         };
         me.init(ui);
         me
@@ -1685,17 +1688,33 @@ impl Child for ChatUi {
     /// its options, then the lines about the services it could not reach), and the windows read
     /// the options as the scripts left them: a line that comes while the options wait to be read
     /// again is held until they have been, and each window then takes it by what it shows.
+    ///
+    /// A line written before those options were set is taken at once, by what the windows show
+    /// now: as a character enters, that is nothing yet.
     fn update(&mut self, ui: &mut Ui, view: &View<'_>, out: &mut Vec<Request>) {
+        let before = if self.waiting {
+            0
+        } else {
+            view.lines_before_options
+        };
         for (i, (kind, text)) in view.lines.iter().enumerate() {
             self.display_string_info(*kind, text);
-            self.held.push(Line {
+            let line = Line {
                 kind: *kind,
                 text: text.clone(),
                 info: view.line_infos.get(i).cloned().flatten(),
-            });
+            };
+            if i < before {
+                for w in &mut self.windows {
+                    w.display_string_info(&line);
+                }
+            } else {
+                self.held.push(line);
+            }
         }
         self.reload(ui, view);
-        if self.reload_chat.is_none() && self.reload_options.is_none() {
+        self.waiting = self.reload_chat.is_some() || self.reload_options.is_some();
+        if !self.waiting {
             for line in std::mem::take(&mut self.held) {
                 for w in &mut self.windows {
                     w.display_string_info(&line);

@@ -105,6 +105,9 @@ pub struct Shown {
     pub about: Option<u64>,
     pub kind: u32,
     pub text: TextInfo,
+    /// The notices the panels had been sent when it was written: panels hear both as they come,
+    /// so what a notice changes applies only to the lines after it.
+    pub notices_before: usize,
 }
 
 /// The engine side of the scripts: the saved states, the model, and what the scripts did to it.
@@ -1813,7 +1816,13 @@ fn display_string_info(c: &mut Call<'_>) -> Result<Status, Stop> {
     let h = host(c)?;
     let about = h.links.get(&about).copied();
     *h.notices.entry(native).or_default() += 1;
-    h.shown.push(Shown { about, kind, text });
+    let notices_before = h.panel_notices.len();
+    h.shown.push(Shown {
+        about,
+        kind,
+        text,
+        notices_before,
+    });
     c.write(-5, 1, tag::MIXED)?;
     Ok(Status::Success)
 }
