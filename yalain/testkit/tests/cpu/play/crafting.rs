@@ -2535,3 +2535,110 @@ fn one_stack_in_two_slots_must_hold_enough_for_both() {
     assert!(h.server.players[&world].making.is_none());
     assert_eq!(units(&h, world, IRON), 20, "nothing used");
 }
+
+/// What an effect on the player adds to its craft skill counts in a making's check, up to the
+/// skill's cap: a recipe far beyond the player never succeeds until its hammer's effect is on.
+/// Behaviour: server.craft.check-counts-what-effects-add
+#[test]
+fn a_makings_check_counts_what_effects_add_to_the_craft_skill() {
+    use yalain_world::craft::{craft_level, Action, Check, Outcome, RecipeDef};
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    const BONUS_STAT: u32 = 129 << 16 | 22;
+    const HAMMER: u32 = 0x6F00_17EE;
+    const HARD: u32 = 0x6F00_7011;
+    let (mut h, b, me, world) = in_world();
+    for d in &mut h.server.crafting.skills {
+        if d.did == TOOLS {
+            d.bonus_stat = BONUS_STAT;
+            d.cap = 150;
+        }
+    }
+    h.server.effect_table.effects.insert(
+        HAMMER,
+        EffectDef {
+            kind: Kind::Numeric {
+                flags: yalain_world::effect_defs::numeric::ADD,
+                stats: vec![BONUS_STAT],
+                magnitude: Scale(vec![(1.0, 1.0), (500.0, 500.0)]),
+            },
+            ..yalain_testkit::plain_effect(HAMMER)
+        },
+    );
+    let recipe = RecipeDef {
+        did: HARD,
+        skill: TOOLS,
+        charges: -1,
+        animation: 0x4100_014B,
+        cycles: 3,
+        difficulty: 100,
+        checks: vec![
+            Check {
+                upto: 1.0,
+                outcomes: vec![Outcome {
+                    upto: 1000.0,
+                    xp_mod: 1.0,
+                    actions: Vec::new(),
+                }],
+            },
+            Check {
+                upto: 2.0,
+                outcomes: vec![Outcome {
+                    upto: 1000.0,
+                    xp_mod: 1.0,
+                    actions: vec![Action::Produce {
+                        template: STEEL,
+                        quantity: 1,
+                        ordinal: 10_001,
+                    }],
+                }],
+            },
+        ],
+        ..RecipeDef::default()
+    };
+    with_own_recipe(&mut h, world, recipe, 1, &[STEEL]);
+    let made = |h: &mut Harness, tries: usize| {
+        let before = held(h, world, STEEL);
+        for _ in 0..tries {
+            execute(h, b, HARD, &[]);
+            h.run(4);
+            wait(h, 9.0);
+        }
+        held(h, world, STEEL) - before
+    };
+    assert_eq!(craft_level(&h.server, world, TOOLS), 1);
+    assert_eq!(made(&mut h, 20), 0, "99 under the recipe never succeeds");
+
+    let clock = h.clock();
+    effects::apply(
+        &mut h.server,
+        &mut h.net,
+        world,
+        HAMMER,
+        effects::Cast {
+            caster: me,
+            spellcraft: 99.0,
+            ..effects::Cast::default()
+        },
+        clock,
+    );
+    assert_eq!(craft_level(&h.server, world, TOOLS), 100);
+    assert!(made(&mut h, 20) > 0, "level with the recipe, it succeeds");
+
+    effects::apply(
+        &mut h.server,
+        &mut h.net,
+        world,
+        HAMMER,
+        effects::Cast {
+            caster: me,
+            spellcraft: 400.0,
+            ..effects::Cast::default()
+        },
+        clock,
+    );
+    assert_eq!(
+        craft_level(&h.server, world, TOOLS),
+        150,
+        "never past the skill's cap"
+    );
+}

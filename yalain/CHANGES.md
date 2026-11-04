@@ -83,6 +83,7 @@ what they see, not how it was done.
 - A trade no longer goes through once an offered item is put down or split.
 - An item being put down isn't lost if you leave or the server stops.
 - A craft makes nothing if its ingredients are gone by the end.
+- Hammers and crucibles now help when crafting.
 
 ## 0.1.2 (2026-11-03)
 

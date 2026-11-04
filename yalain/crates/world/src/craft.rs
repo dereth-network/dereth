@@ -1152,6 +1152,32 @@ pub fn success_chance(margin: i32) -> f32 {
     }
 }
 
+/// A player's level in a craft skill as a making reads it: its own, with what the effects on it
+/// add (a hammer's, a crucible's), never past the skill's cap.
+#[must_use]
+pub fn craft_level<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> u32 {
+    let Some(p) = s.players.get(&world) else {
+        return 1;
+    };
+    let raw = p
+        .play
+        .craft_skills
+        .iter()
+        .find(|c| c.skill == skill)
+        .map_or(1, |c| c.level);
+    let Some(d) = s.crafting.skills.iter().find(|d| d.did == skill) else {
+        return raw;
+    };
+    if d.bonus_stat == 0 {
+        return raw;
+    }
+    let (add, mult) = crate::effects::modifier(&s.effect_table, &p.play.effects, d.bonus_stat);
+    let lifted = (i64::from(raw) + i64::from(dereth_primitives::num::to_i32(add))) as f32 * mult;
+    u32::try_from(dereth_primitives::num::to_i32(lifted).max(0))
+        .unwrap_or(raw)
+        .min(d.cap.max(raw))
+}
+
 /// The record of a craft skill held, as the registry packs it.
 fn skill_slots(c: &CraftSkillState) -> [Slot; 4] {
     [
@@ -1820,11 +1846,7 @@ fn result<S: Store>(
         progress::private(net, world, &executed(why, m.recipe));
         return;
     }
-    let level = s
-        .players
-        .get(&world)
-        .and_then(|p| p.play.craft_skills.iter().find(|c| c.skill == def.skill))
-        .map_or(1, |c| c.level);
+    let level = craft_level(s, world, def.skill);
     let chance = success_chance(
         i32::try_from(level).unwrap_or(0)
             - i32::try_from(def.difficulty_at(m.spinner)).unwrap_or(0),
@@ -2294,22 +2316,7 @@ fn refine<S: Store>(
     else {
         return 0;
     };
-    let bonus = s
-        .crafting
-        .skills
-        .iter()
-        .find(|d| d.did == def.skill)
-        .filter(|d| d.bonus_stat != 0)
-        .and_then(|d| {
-            let p = s.players.get(&world)?;
-            let (add, _) = crate::effects::modifier(&s.effect_table, &p.play.effects, d.bonus_stat);
-            Some(add)
-        })
-        .unwrap_or(0.0);
-    let got = refining_yield(
-        amount,
-        c.level + dereth_primitives::num::to_i32(bonus).max(0).cast_unsigned(),
-    );
+    let got = refining_yield(amount, craft_level(s, world, def.skill));
     let name = s.catalog.get(product).and_then(|t| t.facts.name);
     crate::inventory::give_stacked(s, net, world, product, got);
     if let Some(name) = name {

@@ -1109,6 +1109,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.check-counts-what-effects-add",
+        says: "A making's check reads the craft skill with what the effects on the player add (a \
+               hammer's, a crucible's), never past the skill's cap.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-CHECK-EFFECTS"),
+        station: "yalain-testkit::cpu::play::crafting::a_makings_check_counts_what_effects_add_to_the_craft_skill",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.day-starts-over",
         says: "When a player's day of craft experience is over, every craft skill earns nothing today \
                again, the client is told all its craft skills, and the next day ends 22 hours later.",
