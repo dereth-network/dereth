@@ -8,7 +8,9 @@ use std::collections::BTreeMap;
 use auberean_assets::ui::UiScene;
 use auberean_client_sdk::protocol::types::CharacterIdentity;
 use auberean_primitives::{DataId, Vec3};
-use auberean_scene::view::{scene_camera, ViewCamera, ViewFigure, ViewLight, ViewScene};
+use auberean_scene::view::{
+    figure_box, scene_camera, ViewCamera, ViewFigure, ViewLight, ViewScene,
+};
 use auberean_world::chargen::{self, Avatar, Choice, Random};
 use auberean_world::look::{Desc, Look};
 use auberean_world::math::Mat4;
@@ -33,9 +35,6 @@ const ON_ARM: Vec3 = Vec3 {
 };
 /// The hall's floor, which the figures stand on.
 const LANDMESH: &str = "CHARGEN_LANDMESH";
-/// How much taller a figure's drawn box is than its setup's height (measured on the retail body
-/// page: the head's top and the feet against the camera's framing).
-const BOX_OVER_HEIGHT: f32 = 1.22;
 /// The modes the figures stand in: in the hall, and being shaped.
 const HALL_MODE: u32 = 0x4100_0006;
 const SHAPING_MODE: u32 = 0x4100_0008;
@@ -271,10 +270,8 @@ pub fn shaping_scene(
     let scene: UiScene = records.get(scene_id)?;
     let fov = scene_camera(&scene, CAMERA).map_or(65.0, |c| c.fov_y);
     let desc = creation.look(records, race, sex)?;
-    let look = Look::of(records, &desc).ok()?;
-    let setup = records.setup(look.root_group()?.setup)?;
-    // The figure's drawn box stands about a fifth above its setup's height.
-    let mut h = setup.height * look.scale.z * BOX_OVER_HEIGHT;
+    let (low, high) = figure_box(records, &desc)?;
+    let mut h = high.z - low.z;
     match race {
         chargen::HUMAN => h *= 0.95,
         chargen::TUMEROK => h *= 0.84,

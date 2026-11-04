@@ -196,7 +196,7 @@ fn a_scenes_own_lights_light_its_draws_in_place_of_the_sun() {
         ..DayLight::DEFAULT
     };
     let all = BlockLights::of_scene(lights);
-    let lit = builder.parts_frame(&parts, Vec::new(), camera, dark, Some(&all));
+    let lit = builder.parts_frame(&parts, Vec::new(), camera, dark, Some((&all, false)));
     assert!(!lit.objects.is_empty());
     let mut shone = 0;
     for b in &lit.objects {

@@ -2216,18 +2216,18 @@ impl<'a> SceneBuilder<'a> {
         bodies: Vec<ObjectBatch>,
         camera: Camera,
         light: DayLight,
-        lights: Option<&BlockLights>,
+        lights: Option<(&BlockLights, bool)>,
     ) -> Frame {
         let mut counts = Counts::default();
         let mut objects = Vec::new();
         let outside = Outside::of(&light);
-        let mut order = lights.map(BlockLights::scene);
+        let mut order = lights.map(|(l, _)| l.scene());
         for part in parts {
             let mut batches =
                 self.part_batches(part, &Mat4::IDENTITY, 0.0, Color::WHITE, &mut counts);
-            if let (Some(lights), Some(order)) = (lights, order.as_mut()) {
+            if let (Some((lights, sun)), Some(order)) = (lights, order.as_mut()) {
                 let at = part.transform.point(Vec3::ZERO);
-                interior::light_view_draw(&mut batches, at, lights, order, &outside);
+                interior::light_view_draw(&mut batches, at, lights, order, &outside, sun);
             }
             objects.extend(batches);
         }

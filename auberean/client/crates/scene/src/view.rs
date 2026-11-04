@@ -25,6 +25,8 @@ use auberean_world::records::WorldRecords;
 use auberean_world::sky::DayLight;
 use dereth_primitives::num::math as fm;
 
+/// The light of an appearance scene the screen stands behind the camera, shining along its view.
+const CAMERA_LIGHT: &str = "Light_1";
 /// The entity kinds of an interface scene: a camera, a light.
 pub const CAMERA_KIND: u32 = 0x4000_0005;
 pub const LIGHT_KIND: u32 = 0x4000_0006;
@@ -220,6 +222,8 @@ struct KeptScene {
     scene: u32,
     parts: Vec<Part>,
     lights: BlockLights,
+    /// Its lights but the one a screen turns into a light from behind the camera.
+    other_lights: BlockLights,
     fog: Option<(Color, f32, f32)>,
     figures: Vec<Kept>,
 }
@@ -318,6 +322,7 @@ impl Views {
         if fresh {
             let mut parts = Vec::new();
             let mut lights = Vec::new();
+            let mut other_lights = Vec::new();
             let mut fog = None;
             if let Some(s) = (scene != 0)
                 .then(|| records.get::<UiScene>(scene))
@@ -332,6 +337,9 @@ impl Views {
                         let none = PropertyCollection::default();
                         let properties = e.properties.as_ref().unwrap_or(&none);
                         let (light, _, _) = Light::of_properties(0, at, properties);
+                        if e.name.as_deref() != Some(CAMERA_LIGHT) {
+                            other_lights.push(light.clone());
+                        }
                         lights.push(light);
                     } else {
                         parts.extend(entity_parts(records, e));
@@ -344,6 +352,7 @@ impl Views {
                     scene,
                     parts,
                     lights: BlockLights::of_scene(lights),
+                    other_lights: BlockLights::of_scene(other_lights),
                     fog,
                     figures: Vec::new(),
                 },
@@ -431,30 +440,28 @@ impl Views {
                 let hit = pick(&v.camera, v.rect, p, &bodies, &stand);
                 picked.push((i, hit));
             }
-            let light = match v.light {
+            let (light, lit_by) = match v.light {
                 ViewLight::Camera => {
                     let (f, _, _) = v.camera.axes();
-                    DayLight {
+                    let light = DayLight {
                         ambient_brightness: 0.1,
                         ambient_color: Color::WHITE,
                         direct_brightness: 0.6,
                         direct_color: Color::WHITE,
                         light_direction: math::normalize(math::add(f, Vec3::new(0.0, 0.0, -0.5))),
-                        fog_min: 0.0,
-                        fog_max: 0.0,
-                        ..DayLight::DEFAULT
-                    }
+                        ..with_fog(kept.fog)
+                    };
+                    let others = !kept.other_lights.lights.is_empty();
+                    (light, others.then_some((&kept.other_lights, true)))
                 }
-                ViewLight::Scene if kept.lights.lights.is_empty() => default_light(),
-                ViewLight::Scene => lit_by_its_lights(kept.fog),
+                ViewLight::Scene if kept.lights.lights.is_empty() => (default_light(), None),
+                ViewLight::Scene => (with_fog(kept.fog), Some((&kept.lights, false))),
             };
-            let lit_by = (matches!(v.light, ViewLight::Scene) && !kept.lights.lights.is_empty())
-                .then_some(&kept.lights);
-            if let Some(lights) = lit_by {
+            if let Some((lights, sun)) = lit_by {
                 let outside = Outside::of(&light);
                 let mut order = lights.scene();
                 for ((_, batches), (at, _)) in bodies.iter_mut().zip(&stand) {
-                    light_view_draw(batches, *at, lights, &mut order, &outside);
+                    light_view_draw(batches, *at, lights, &mut order, &outside, sun);
                 }
             }
             let camera = v.camera.drawn();
@@ -470,8 +477,8 @@ impl Views {
     }
 }
 
-/// The day of a scene lit by its own lights: no sun and no ambient light, its own fog.
-fn lit_by_its_lights(fog: Option<(Color, f32, f32)>) -> DayLight {
+/// The day of a scene lit by its own lights alone: no sun and no ambient light, its own fog.
+fn with_fog(fog: Option<(Color, f32, f32)>) -> DayLight {
     let (fog_color, fog_min, fog_max) = fog.unwrap_or((Color::WHITE, 0.0, 0.0));
     DayLight {
         ambient_brightness: 0.0,

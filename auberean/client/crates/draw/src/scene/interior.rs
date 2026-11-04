@@ -1082,7 +1082,8 @@ fn reach_of(batches: &[ObjectBatch]) -> Option<f32> {
 }
 
 /// Light `batches`, one draw of an interface scene standing at `at`, by the lights it keeps there
-/// among the scene's, in place of the sun.
+/// among the scene's: in place of the sun, or beside it (`sun`) when the scene has a directional
+/// light of its own.
 // D2-10629, D2-10630
 pub fn light_view_draw(
     batches: &mut [ObjectBatch],
@@ -1090,6 +1091,7 @@ pub fn light_view_draw(
     lights: &BlockLights,
     order: &mut SceneLights,
     outside: &Outside,
+    sun: bool,
 ) {
     let Some(radius) = reach_of(batches) else {
         return;
@@ -1100,11 +1102,17 @@ pub fn light_view_draw(
         .filter(|&&k| lights.lights[k].kind != LightKind::Directional)
         .count();
     for b in batches.iter_mut() {
-        let points = program_points(b, device);
-        b.points = PointLights::inside(
-            &lights.device_lights(&kept, outside, points),
-            &Mat4::IDENTITY,
-        );
+        let (points, with_sun) = if sun {
+            outdoor_points(b, device)
+        } else {
+            (program_points(b, device), false)
+        };
+        let device = lights.device_lights(&kept, outside, points);
+        b.points = if with_sun {
+            PointLights::outdoors(&device, &Mat4::IDENTITY)
+        } else {
+            PointLights::inside(&device, &Mat4::IDENTITY)
+        };
     }
 }
 
