@@ -465,3 +465,45 @@ fn a_dead_player_asks_and_comes_back() {
         .any(|n| n.native == DEATH && n.words.first() == Some(&0));
     assert!(back, "told it lives again");
 }
+
+/// A person hands over an item the client has not been told of yet: the move's answer comes first,
+/// so the client's own line for it says "the item", not its name, as retail's does.
+/// Behaviour: server.gives.a-gift-is-answered-before-its-object
+#[test]
+fn a_gift_from_a_person_is_called_the_item_by_the_clients_line() {
+    use auberean_script::native_object::VariableValue;
+    const RECEIVED: u32 = 0x4CF8_CDB5;
+    const ITEM: u32 = 0xD0DC_9036;
+    let mut s = InProcess::new();
+    ok(play::character_list(&mut s));
+    let me = ok(play::create(&mut s, "Aubrey"));
+    ok(play::enter(&mut s, me));
+    ok(play::see(&mut s, &[authored::GUARD]));
+    let guard = play::find(s.client_ref(), authored::GUARD).expect("the guard");
+    let world = *s.h.server.players.keys().next().expect("the player");
+    yalain_world::inventory::give_from(
+        &mut s.h.server,
+        &mut s.h.net,
+        world,
+        authored::SWORD,
+        1,
+        guard.id,
+    );
+    play::wait(&mut s, 1.0);
+    let lines = &s.client_ref().shown;
+    let ids: Vec<(u32, u32)> = lines.iter().map(|l| (l.kind, l.text.string_id)).collect();
+    let line = lines
+        .iter()
+        .find(|l| l.text.string_id == RECEIVED)
+        .unwrap_or_else(|| panic!("its line for what it received: {ids:x?}"));
+    let named: Vec<u32> = line
+        .text
+        .variables
+        .iter()
+        .filter_map(|v| match &v.value {
+            VariableValue::Nested(t) => Some(t.string_id),
+            _ => None,
+        })
+        .collect();
+    assert!(named.contains(&ITEM), "{named:x?}");
+}

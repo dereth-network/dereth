@@ -1183,10 +1183,11 @@ fn arrive<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u
         m.target_slot = i32::try_from(slot).unwrap_or(0);
         m.actual_target_slot = i32::try_from(slot).unwrap_or(0);
         m.template = t.template;
+        // The answer first: its client has no such item yet, and calls it "the item".
+        progress::private(net, world, &move_done(&m));
         let create = ServerMessage::CreateObject(item_create(t));
         net.send(world, queue::EVENT, BlobKind::UNORDERED, create.encode());
     }
-    progress::private(net, world, &move_done(&m));
     knows(s, world, id);
     crate::world::keep_player(s, world);
 }

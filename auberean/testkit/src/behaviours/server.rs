@@ -3299,6 +3299,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.a-gift-is-answered-before-its-object",
+        says: "An item made in a player's pack is answered before its object is sent, so the \
+               client's own line for it calls it the item.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIFT-ORDER"),
+        station: "yalain-testkit::dat::session::a_gift_from_a_person_is_called_the_item_by_the_clients_line",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.gives.a-line-for-an-item",
         says: "A line a person says at a give naming an item is said of that item and no other, before \
                its plain refusal, and a line for taking an item is not said as one is refused.",
