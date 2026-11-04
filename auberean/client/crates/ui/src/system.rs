@@ -588,9 +588,7 @@ impl Ui {
         if m.top == Some(h) {
             m.top = None;
         }
-        if m.tooltip_owner == Some(h) {
-            m.tooltip_owner = None;
-        }
+        let tip_owner = m.tooltip_owner == Some(h);
         if m.resizing == Some(h) {
             m.resizing = None;
         }
@@ -610,6 +608,11 @@ impl Ui {
             self.mgr.drag_owner = None;
         }
         self.delete_listener_from_queues(crate::listener::Listener::Element(h));
+        // Its tooltip goes with it, the pointer unmoved.
+        if tip_owner {
+            self.mgr.tooltip_owner = None;
+            self.clear_tooltip();
+        }
     }
 
     /// Take a root off the screen: it stays made, but nothing draws it or reaches it.

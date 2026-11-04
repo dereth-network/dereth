@@ -56,6 +56,7 @@ not how it was done.
 - You can now restore a deleted character.
 - Character creation now has its proper lights, flames and framing.
 - Avatars in the hall pose when you point at them and act when chosen.
+- Fixed a tooltip staying up after its screen closed.
 
 ## 0.1.2 (2026-11-02)
 

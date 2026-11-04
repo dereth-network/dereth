@@ -266,6 +266,15 @@ fn a_tooltip_shows_once_the_pointer_rests_and_goes_when_it_leaves() {
     );
     u.pointer_move(350, 350);
     assert!(u.tooltip().is_none(), "gone once the pointer leaves");
+
+    u.pointer_move(150, 150);
+    u.use_time(0.7);
+    assert!(u.tooltip().is_some(), "shown again");
+    u.remove(o);
+    assert!(
+        u.tooltip().is_none(),
+        "gone with its element, the pointer unmoved"
+    );
 }
 
 /// The test's records with string downloads: a reference to [`LACKING`] waits until the test
