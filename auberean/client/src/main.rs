@@ -730,10 +730,19 @@ impl App<'_> {
         }
         let shot = self.shot_next.take();
         let world = self.world;
+        let settings = &self.shell.settings;
+        let brightness = settings.full_screen.then(|| {
+            settings
+                .graphics
+                .as_ref()
+                .and_then(|g| g.get(auberean_draw::quality::key::SCREEN_BRIGHTNESS))
+                .unwrap_or(0.0)
+        });
         let out = self.shell.frame();
         let quit = out.quit;
         let cursor = out.overlay.cursor.clone();
         if let Some(p) = &mut self.present {
+            p.set_brightness(brightness);
             let mut load = |id: u32| auberean_draw::picture::load(&world.records, id);
             p.present(
                 out.world,

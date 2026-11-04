@@ -377,6 +377,22 @@ const PRESETS: [[f32; 20]; 5] = [
 /// The highest overall quality.
 pub const HIGHEST: u32 = 5;
 
+/// The screen's brightness as a table of each color's 256 levels on 16 bits, for a full screen: a
+/// level 0 to 255 goes to 255 times itself, plus twice the brightness of that (rounded toward zero),
+/// held to the 16 bits; the brightness is held to -0.2 to 1.
+// D2-09813
+#[must_use]
+pub fn brightness_ramp(brightness: f32) -> [u16; 256] {
+    let b = f64::from(brightness.clamp(-0.2, 1.0));
+    let mut ramp = [0; 256];
+    for (level, out) in (0_i32..).zip(ramp.iter_mut()) {
+        let x = level * 255;
+        let add = dereth_primitives::num::to_i32_f64(f64::from(x) * b * 2.0);
+        *out = u16::try_from((x + add).clamp(0, 0xFFFF)).unwrap_or(u16::MAX);
+    }
+    ramp
+}
+
 /// The overall quality's key in the graphics section, and its name in the preferences file.
 pub const OVERALL: u32 = 0x4000_0073;
 pub const OVERALL_NAME: &str = "OverallGraphicsQuality";

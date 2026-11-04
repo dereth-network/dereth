@@ -64,6 +64,19 @@ fn vs_quad(@location(0) pos: vec2<f32>, @location(1) uv: vec2<f32>, @location(2)
     return o;
 }
 
+@group(1) @binding(0) var ramp: texture_2d<f32>;
+
+@fragment
+fn fs_ramp(i: VOut) -> @location(0) vec4<f32> {
+    let c = vec3<i32>(round(textureSample(tex, samp, i.uv).rgb * 255.0));
+    return vec4(
+        textureLoad(ramp, vec2(c.r, 0), 0).r,
+        textureLoad(ramp, vec2(c.g, 0), 0).r,
+        textureLoad(ramp, vec2(c.b, 0), 0).r,
+        1.0,
+    );
+}
+
 @fragment
 fn fs_quad(i: VOut) -> @location(0) vec4<f32> {
     return textureSample(tex, samp, i.uv) * i.color;
@@ -93,6 +106,10 @@ pub struct Presenter {
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     to_window: wgpu::RenderPipeline,
+    /// Into the window through the brightness's table of levels.
+    to_window_ramped: wgpu::RenderPipeline,
+    /// The brightness shown and its table of levels, while it changes the picture.
+    ramp: Option<(f32, wgpu::BindGroup)>,
     world: wgpu::RenderPipeline,
     quads: wgpu::RenderPipeline,
     /// A picture of the world's laid over by its rectangle's alpha alone (portal space).
@@ -264,6 +281,36 @@ impl Presenter {
             attributes: &ATTRS,
         };
         let to_window = pipeline("vs_full", "fs_opaque", config.format, None, &[]);
+        let ramped_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[Some(&layout), Some(&layout)],
+            immediate_size: 0,
+        });
+        let to_window_ramped = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("fs_ramp"),
+            layout: Some(&ramped_layout),
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vs_full"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &module,
+                entry_point: Some("fs_ramp"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
         let world = pipeline("vs_full", "fs_opaque", COMPOSED, None, &[]);
         let quads = pipeline(
             "vs_quad",
@@ -301,6 +348,8 @@ impl Presenter {
             layout,
             sampler,
             to_window,
+            to_window_ramped,
+            ramp: None,
             world,
             quads,
             laid,
@@ -456,6 +505,29 @@ impl Presenter {
             });
         self.composed = Some((t.clone(), w, h));
         t
+    }
+
+    /// The screen's brightness, which shows only in a full screen and not in a screenshot: `None`
+    /// in a window. No brightness leaves the picture as it stands.
+    // D2-10524
+    pub fn set_brightness(&mut self, brightness: Option<f32>) {
+        let b = brightness.filter(|b| *b != 0.0);
+        if b == self.ramp.as_ref().map(|(at, _)| *at) {
+            return;
+        }
+        self.ramp = b.map(|b| {
+            // 16 bits to 8, in every channel of the table's texel.
+            let texels = auberean_draw::quality::brightness_ramp(b)
+                .map(|level| [u8::try_from((u32::from(level) + 128) / 257).unwrap_or(u8::MAX); 4]);
+            let view = upload(
+                self.renderer.device(),
+                self.renderer.queue(),
+                256,
+                1,
+                texels.as_flattened(),
+            );
+            (b, self.bind(&view))
+        });
     }
 
     /// Draw a frame: the world (when there is one), portal space laid over it (with how much of
@@ -766,7 +838,12 @@ impl Presenter {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_pipeline(&self.to_window);
+            if let Some((_, ramp)) = &self.ramp {
+                pass.set_pipeline(&self.to_window_ramped);
+                pass.set_bind_group(1, ramp, &[]);
+            } else {
+                pass.set_pipeline(&self.to_window);
+            }
             pass.set_bind_group(0, &composed_group, &[]);
             pass.draw(0..3, 0..1);
         }

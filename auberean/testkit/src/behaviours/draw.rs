@@ -1024,6 +1024,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.quality.the-screen-brightness-sets-each-levels-ramp",
+        says: "In a full screen the brightness preference, held to -0.2 to 1, takes a color's \
+               level i to 255 i (1 + 2 b), held to 16 bits; in a window it changes nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-BRIGHTNESS"),
+        station: "auberean-draw::cpu::options::quality::the_screen_brightness_sets_each_levels_ramp",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.rain.a-streak-falls-from-80-m-at-150-m-a-second",
         says: "A rain streak starts 80 m over its landing and falls at 150 m a second.",
         since: RETAIL,

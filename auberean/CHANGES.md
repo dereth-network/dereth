@@ -52,6 +52,7 @@ not how it was done.
 - The water's reflection now shows objects standing in the water, at the right detail.
 - Caves and halls are lit as in retail, without the harsh yellow walls.
 - Resizing the chat window now shows an outline until you let go.
+- Screen brightness now works in full screen.
 
 ## 0.1.2 (2026-11-02)
 
