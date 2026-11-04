@@ -144,6 +144,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.chat.each-error-line-plays-the-warning-sound",
+        says: "An error line stands in the line of messages with its warning sound, once per line: two error lines as a character enters play it twice.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHAT-WARNING-SOUND"),
+        station: "auberean-ui-game::dat::play::chat::each_error_line_plays_the_warning_sound",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.chat.each-window-shows-the-kinds-its-filter-holds-in-their-colors",
         says: "The chat panel makes four windows, the first shown and the others hidden; once the chat options are read the first entry holds the prompt and a devoted window's entry its channel's name; each window shows the kinds of text its filter holds, each line whole in its kind's color; an error line also stands in the line of messages at the screen's top for the six seconds its row says.",
         since: RETAIL,

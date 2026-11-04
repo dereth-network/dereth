@@ -39,6 +39,9 @@ const FIRST: u32 = t::ERROR
     | t::REGION_CHANNEL
     | t::FACTION_CHANNEL;
 
+/// The sound of the line of messages' rows.
+const WARNING_SOUND: u32 = 0x2A00_02DF;
+
 /// What a new options profile gives the chat (each kind its own color, the small font).
 fn defaults(revision: u64) -> ChatSettings {
     let colors = [
@@ -461,6 +464,47 @@ fn a_line_before_the_first_options_is_not_shown() {
         ],
         "both after the options"
     );
+}
+
+/// An error line stands in the line of messages with its warning sound, once per line: two error
+/// lines as a character enters play it twice.
+///
+/// Behaviour: ui.chat.each-error-line-plays-the-warning-sound
+#[test]
+fn each_error_line_plays_the_warning_sound() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut f = Frame::new();
+    f.tick(&mut ui, &mut p, &[], &[]);
+    ui.take_sounds();
+    let lines = vec![
+        (
+            t::ERROR,
+            "Cannot connect to GUN server.
+"
+            .to_owned(),
+        ),
+        (
+            t::ERROR,
+            "Could not be logged in.
+"
+            .to_owned(),
+        ),
+        (
+            t::STANDARD,
+            "Trade channel entered.
+"
+            .to_owned(),
+        ),
+    ];
+    f.tick(&mut ui, &mut p, &lines, &[]);
+    f.tick(&mut ui, &mut p, &[], &[]);
+    let warnings = ui
+        .take_sounds()
+        .iter()
+        .filter(|s| s.sound == WARNING_SOUND)
+        .count();
+    assert_eq!(warnings, 2);
 }
 
 /// A line that came as a string reference whose table the data lacks waits in the log until the
