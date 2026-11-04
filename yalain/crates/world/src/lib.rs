@@ -339,6 +339,8 @@ pub struct Server<S: Store> {
     pub walls: Option<walls::Walls>,
     /// The data files a client's requests for records are served from, when the host has them.
     pub data: Option<Box<dyn download::DataFiles>>,
+    /// What answering requests for records has cost, and the answers made ahead of time.
+    pub downloads: download::Downloads,
     pub rng: rng::Rng,
     /// The dice of the players' regeneration steps, apart from the world's.
     pub regen_rng: rng::Rng,
@@ -681,6 +683,7 @@ impl<S: Store> Server<S> {
             ground: None,
             walls: None,
             data: None,
+            downloads: download::Downloads::default(),
             rng: rng::Rng::new(cfg_seed),
             regen_rng: rng::Rng::new(cfg_seed ^ 0x7265_6765_6E00),
             levels: levels::LevelTable::default(),
@@ -968,7 +971,10 @@ impl<S: Store> Server<S> {
                     login::message(self, net, conn, queue, &bytes, clock);
                 }
             }
-            NetEvent::Closed { conn, why } => login::closed(self, net, conn, why, clock),
+            NetEvent::Closed { conn, why } => {
+                self.downloads.closed(conn);
+                login::closed(self, net, conn, why, clock);
+            }
         }
     }
 }

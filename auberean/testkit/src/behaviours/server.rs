@@ -2125,6 +2125,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.data.answers-never-hold-up-the-world",
+        says: "Answering requests for data records never holds up the world: a very long \
+               record is compressed once before the world runs, what else answers compress \
+               has a budget for each connection and for the world, and a connection has \
+               only so much waiting to be sent.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DATA-ANSWERS"),
+        station: "yalain-testkit::cpu::entry::data_download::a_very_long_record_is_compressed_once_before_the_world_runs",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.data.landblock-brings-its-information",
         says: "A landblock sent to a client that asked for it brings its landblock information \
                right after it, unasked, from the same file.",

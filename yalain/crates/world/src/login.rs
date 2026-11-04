@@ -1037,7 +1037,7 @@ pub(crate) fn message<S: Store>(
             );
             send_lists(s, net, conn, clock);
         }
-        ClientMessage::DataRequest(r) => crate::download::answer(s, net, conn, r),
+        ClientMessage::DataRequest(r) => crate::download::answer(s, net, conn, r, clock),
         ClientMessage::CreateCharacter(c) => create(s, net, conn, &c, clock),
         ClientMessage::DeleteCharacter(d) => delete(s, net, conn, d.character, clock),
         ClientMessage::RestoreCharacter(r) => restore(s, net, conn, r.character),

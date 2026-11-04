@@ -451,6 +451,12 @@ impl ServerNet {
         self.conns.get(&conn).map(|c| c.ep.stats)
     }
 
+    /// How many fragments of a connection's large messages are waiting to be sent.
+    #[must_use]
+    pub fn large_waiting(&self, conn: ConnId) -> usize {
+        self.conns.get(&conn).map_or(0, |c| c.ep.pace.waiting())
+    }
+
     /// How many connections are open (handshakes included).
     #[must_use]
     pub fn connection_count(&self) -> usize {

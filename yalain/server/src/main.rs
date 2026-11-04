@@ -962,6 +962,7 @@ fn run<S: Store>(
     server.skill_table = play.skills;
     server.effect_table = play.effects;
     server.item_effects = play.item_effects;
+    yalain_world::download::prepare(&mut server);
     server.mounts = play.mounts;
     server.interactions = play.interactions;
     server.plants.looks = play.plant_looks;
