@@ -293,6 +293,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.credits.ctrl-and-alt-held-open-the-other-credits",
+        says: "Credits pressed with Ctrl and Alt held and Shift not shows the other set of the \
+               credits' picture and text fields; otherwise the usual set.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CREDITS-ALT"),
+        station: "auberean-interface::dat::screens::ctrl_and_alt_held_open_the_other_credits",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.credits.the-text-scrolls-up-and-the-credits-end-by-themselves",
         says: "The credits scroll their text up from under the screen's foot until the last line \
                has gone over its top (about four minutes: the field's duration for a screen and a \

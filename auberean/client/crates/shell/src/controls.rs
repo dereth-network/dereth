@@ -371,14 +371,6 @@ impl Controls {
             .fold(0, |m, v| m | v.value)
     }
 
-    /// Shift, Ctrl and Alt held, by the modifier actions in force.
-    // D2-03448
-    #[must_use]
-    pub fn modifiers_down(&self, keys: &Keys) -> (bool, bool, bool) {
-        let m = self.modifier_bitfield(keys);
-        (m & 1 != 0, m & 2 != 0, m & 4 != 0)
-    }
-
     /// An action begun: a movement action noted as begun (it interrupts a move to a place); a
     /// behavior asked of the player; a camera action that switches the view, pressed; an interface
     /// action, the interface's.

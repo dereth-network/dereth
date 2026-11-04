@@ -131,7 +131,8 @@ pub(crate) fn make_keyboard(ui: &mut Ui, data: &mut Shared) -> Option<Box<dyn Fl
 
 // D2-01790
 pub(crate) fn make_credits(ui: &mut Ui, data: &mut Shared) -> Option<Box<dyn FlowScreen<Shared>>> {
-    let s = Credits::open(ui, false)?;
+    let (shift, ctrl) = ui.modifiers();
+    let s = Credits::open(ui, ctrl && ui.alt_held() && !shift)?;
     PreScreen::made(Box::new(s), data)
 }
 

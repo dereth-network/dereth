@@ -251,7 +251,6 @@ fn the_modifiers_held_choose_an_actions_values() {
     key(&mut c, &keys, Key::ShiftRight, true);
     key(&mut c, &keys, Key::W, true);
     assert_eq!(c.modifier_bitfield(&keys), 1);
-    assert_eq!(c.modifiers_down(&keys), (true, false, false));
     assert_eq!(c.intent(&keys).forward, 0.339);
     key(&mut c, &keys, Key::ShiftRight, false);
     assert_eq!(c.intent(&keys).forward, 1.0);

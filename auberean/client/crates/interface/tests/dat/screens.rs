@@ -2754,3 +2754,53 @@ fn a_doors_scene_ends_when_the_player_has_arrived() {
     );
     assert_eq!(s.scene.arrivals(), 2);
 }
+
+/// Credits pressed with Ctrl and Alt held and Shift not shows the other set of the credits' fields;
+/// with Shift held as well, or either let go, the usual set.
+///
+/// Behaviour: ui.credits.ctrl-and-alt-held-open-the-other-credits
+#[test]
+fn ctrl_and_alt_held_open_the_other_credits() {
+    let (mut s, retail) = shell_over(script(), data_with_scripts(), |r| r);
+    past_the_intro(&mut s, &retail);
+    assert!(
+        until(&mut s, 5.0, |_| retail.borrow().screen() == "select"),
+        "select: {}",
+        retail.borrow().screen()
+    );
+    let hold = |s: &mut Shell<'_, DoubleHost>, keys: &[Key], down| {
+        for key in keys {
+            s.event(&Event::Key {
+                key: *key,
+                down,
+                repeat: false,
+            });
+            step(s);
+        }
+    };
+    for (keys, other) in [
+        (&[Key::ControlLeft, Key::AltLeft][..], true),
+        (&[Key::ControlLeft, Key::AltLeft, Key::ShiftLeft][..], false),
+        (&[Key::AltLeft][..], false),
+        (&[Key::ControlLeft][..], false),
+        (&[][..], false),
+    ] {
+        let credits = middle(&retail, "CreditsButton");
+        hold(&mut s, keys, true);
+        click(&mut s, credits);
+        assert!(
+            until(&mut s, 1.0, |_| retail.borrow().screen() == "credits"),
+            "the credits: {}",
+            retail.borrow().screen()
+        );
+        assert_eq!(shows(&retail, "AltTextField"), other, "{keys:?}");
+        assert_eq!(shows(&retail, "TextField"), !other, "{keys:?}");
+        hold(&mut s, keys, false);
+        press(&mut s, Key::Escape);
+        assert!(
+            until(&mut s, 1.0, |_| retail.borrow().screen() == "select"),
+            "back: {}",
+            retail.borrow().screen()
+        );
+    }
+}
