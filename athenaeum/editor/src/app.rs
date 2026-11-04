@@ -217,6 +217,11 @@ pub struct Editor<'w> {
     grip: Option<Grip>,
     /// The steps moves and turns snap to.
     pub snap: Snap,
+    /// The block whose rooms the camera was last put among: a dungeon's rooms run on over other
+    /// blocks' ground, so where the camera is doesn't say whose they are.
+    home: Option<u16>,
+    /// The block and interior cell the camera is in.
+    inside: Option<(u16, u16)>,
     /// Where the row being placed would stand: the ground under the pointer.
     ghost: Option<[f32; 3]>,
     /// The way the row being placed faces, once R has turned it; until then it faces the camera.
@@ -316,6 +321,17 @@ fn field_text(row: &Row, field: &str) -> String {
     }
 }
 
+/// Whether a row stands in an interior cell.
+fn is_indoors(row: &Row) -> bool {
+    let cell = match row {
+        Row::Object(o) => o.cell,
+        Row::Camp(c) => c.cell,
+        Row::Place(p) => p.cell,
+        _ => None,
+    };
+    cell.is_some_and(|c| c & 0xFFFF >= 0x100)
+}
+
 /// What is typed in the inspector as the TOML of its field: a field of words needs no quotes typed.
 #[must_use]
 pub fn field_toml(field: &str, typed: &str) -> String {
@@ -397,6 +413,8 @@ impl<'w> Editor<'w> {
             hovered: None,
             grip: None,
             snap: Snap::default(),
+            home: None,
+            inside: None,
             ghost: None,
             place_heading: None,
         };
@@ -442,6 +460,20 @@ impl<'w> Editor<'w> {
         if self.shown.only_world && e.layer == Layer::Base {
             return false;
         }
+        // A dungeon's rooms lie over other blocks' ground: a row in one shows among them, or over
+        // its own block's ground, and not where it merely falls on the grid.
+        if is_indoors(&e.row.row) {
+            let lb = e.landblock();
+            let among = self.home == Some(lb) || self.inside.is_some_and(|(b, _)| b == lb);
+            if !among {
+                let at = e.at();
+                let (under, _) = view::local(view::global(lb, [at.x, at.y, 0.0]));
+                let (camera_over, _) = view::local(self.view().eye);
+                if under != lb || camera_over != lb {
+                    return false;
+                }
+            }
+        }
         match &e.row.row {
             Row::Object(o) if o.kind == ObjectKind::Npc => self.shown.people,
             Row::Object(_) => self.shown.objects,
@@ -449,6 +481,45 @@ impl<'w> Editor<'w> {
             Row::Place(_) => self.shown.places,
             _ => false,
         }
+    }
+
+    /// The block and interior cell the camera is in, if it is in one.
+    #[must_use]
+    pub const fn inside(&self) -> Option<(u16, u16)> {
+        self.inside
+    }
+
+    /// Put the camera among the rooms of a block, if a point of its frame is in one.
+    pub fn enter_block(&mut self, lb: u16, at: [f32; 3]) -> bool {
+        if self.scene.cell_holding(lb, at).is_some() {
+            self.home = Some(lb);
+            self.near_at = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Work out which interior cell the camera is in: of the block it was put among, else of the
+    /// block under it.
+    fn find_inside(&mut self) {
+        let eye = self.view().eye;
+        let (under, _) = view::local(eye);
+        let blocks = self.home.into_iter().chain(std::iter::once(under));
+        let mut inside = None;
+        for lb in blocks.collect::<Vec<u16>>() {
+            let at = view::local_in(lb, eye);
+            if let Some(cell) = self.scene.cell_holding(lb, at) {
+                #[allow(clippy::cast_possible_truncation)]
+                let low = cell as u16;
+                inside = Some((lb, low));
+                break;
+            }
+        }
+        if inside != self.inside {
+            self.near_at = None;
+        }
+        self.inside = inside;
     }
 
     /// The rows near the camera, nearest first, worked out again when the camera or the world
@@ -490,8 +561,28 @@ impl<'w> Editor<'w> {
             return;
         };
         let g = entry_global(&e, &mut self.scene);
-        let back = 9.0;
         let (sy, cy) = (math::sinf(self.camera.yaw), math::cosf(self.camera.yaw));
+        if is_indoors(&e.row.row) {
+            // Among its rooms: a little back from it if that is in a room, else over it.
+            let lb = e.landblock();
+            let back = [g[0] + sy * 3.0, g[1] - cy * 3.0, g[2] + 1.8];
+            let over = [g[0], g[1], g[2] + 1.8];
+            let held = |s: &mut Self, p: [f32; 3]| s.enter_block(lb, view::local_in(lb, p));
+            let at = if held(self, back) {
+                back
+            } else {
+                held(self, over);
+                over
+            };
+            self.camera.position = Vec3::new(at[0], at[1], at[2]);
+            let (dx, dy, dz) = (g[0] - at[0], g[1] - at[1], g[2] + 1.0 - at[2]);
+            if math::hypotf(dx, dy) > 0.1 {
+                self.camera.yaw = math::atan2f(-dx, dy);
+                self.camera.pitch = math::atan2f(dz, math::hypotf(dx, dy)).clamp(-1.5, 1.5);
+            }
+            return;
+        }
+        let back = 9.0;
         // Back along the way the camera looks now, level.
         self.camera.position = Vec3::new(g[0] + sy * back, g[1] - cy * back, g[2] + 5.0);
         let (dx, dy, dz) = (
@@ -527,18 +618,37 @@ impl<'w> Editor<'w> {
             self.status = format!("{:?} is not a template id (0x47...)", self.template);
             return;
         }
-        let (lb, at) = view::local(g);
-        let r = self.session.place(&NewRow {
-            kind: self.new_kind,
-            template: template.unwrap_or(0),
-            landblock: lb,
-            at,
-            heading,
-        });
+        let (lb, cell, at) = self.where_is(g);
+        let r = self.session.place_in(
+            &NewRow {
+                kind: self.new_kind,
+                template: template.unwrap_or(0),
+                landblock: lb,
+                at,
+                heading,
+            },
+            cell,
+        );
         if let Some(item) = self.report(r) {
             self.status = format!("placed {item}");
             self.select(Some(item));
         }
+    }
+
+    /// A point of the world's grid as a row would hold it: among the rooms the camera is in, their
+    /// block and the room it falls in; else the block under it, and no cell of its own.
+    fn where_is(&mut self, g: [f32; 3]) -> (u16, Option<u32>, [f32; 3]) {
+        if let Some((lb, low)) = self.inside {
+            let at = view::local_in(lb, g);
+            // A floor's point lies on the room's edge: a little above it is in the room.
+            let room = self
+                .scene
+                .cell_holding(lb, [at[0], at[1], at[2] + 0.2])
+                .unwrap_or((u32::from(lb) << 16) | u32::from(low));
+            return (lb, Some(room), at);
+        }
+        let (lb, at) = view::local(g);
+        (lb, None, at)
     }
 
     /// The way the row being placed faces: toward the camera until R turns it.
@@ -577,8 +687,15 @@ impl<'w> Editor<'w> {
 
     /// Move a row to a point of the world's grid.
     pub fn move_row(&mut self, item: &str, g: [f32; 3]) {
-        let (lb, at) = view::local(g);
-        let r = self.session.move_to(item, lb, at);
+        let (lb, cell, at) = self.where_is(g);
+        // Out from among rooms, a row stands in the land cell under it again.
+        let indoors = self
+            .session
+            .entry(item)
+            .is_some_and(|e| is_indoors(&e.row.row));
+        let cell = cell
+            .or_else(|| indoors.then(|| yalain_world_db::compile::outdoor_cell(lb, at[0], at[1])));
+        let r = self.session.move_into(item, lb, at, cell);
         if let Some(moved) = self.report(r) {
             self.status = format!("moved {moved}");
             self.select(Some(moved));
@@ -813,6 +930,7 @@ impl<'w> Editor<'w> {
             .ground(g[0], g[1])
             .unwrap_or(self.camera.position.z);
         self.camera.position = Vec3::new(g[0], g[1], z + 20.0);
+        self.home = None;
     }
 
     /// The Find window: any row of the world by its name, template, kind or key, and a landblock to
@@ -968,9 +1086,37 @@ impl<'w> Editor<'w> {
         }
     }
 
+    /// Where a row put down at a block's point stands: on the floor under it among the rooms the
+    /// camera is in, else on the ground.
+    #[must_use]
+    pub fn standing_at(&mut self, lb: u16, x: f32, y: f32) -> [f32; 3] {
+        let g = view::global(lb, [x, y, 0.0]);
+        if let Some((home, low)) = self.inside.filter(|(home, _)| *home == lb) {
+            let z = self.camera.position.z;
+            let from = view::local_in(home, [g[0], g[1], z]);
+            if let Some((_, on)) = self.scene.floor_seen(home, low, from, [0.0, 0.0, -1.0]) {
+                return view::global(home, on);
+            }
+        }
+        let z = self.scene.ground(g[0], g[1]).unwrap_or(0.0);
+        [g[0], g[1], z]
+    }
+
     /// Where a player enters: on the ground under the camera, facing as it faces.
     pub fn entry_point(&mut self) -> live::Entry {
         let p = self.camera.position;
+        if let Some((lb, low)) = self.inside {
+            // On the floor under the camera when there is one in sight of it.
+            let eye = view::local_in(lb, [p.x, p.y, p.z]);
+            let down = self.scene.floor_seen(lb, low, eye, [0.0, 0.0, -1.0]);
+            let cell = down.map_or((u32::from(lb) << 16) | u32::from(low), |d| d.0);
+            let at = down.map_or(eye, |d| d.1);
+            return live::Entry {
+                cell,
+                at: [at[0], at[1], at[2] + 0.5],
+                heading: self.view().heading(),
+            };
+        }
         let z = self.scene.ground(p.x, p.y).unwrap_or(p.z);
         let (lb, at) = view::local([p.x, p.y, z]);
         let v = self.view();
@@ -1020,6 +1166,13 @@ impl<'w> Editor<'w> {
         out
     }
 
+    /// The row whose marker is at a pixel, as a click there would find it.
+    pub fn hovered_item(&mut self, px: [f32; 2]) -> Option<String> {
+        self.near_at = None;
+        self.near();
+        self.hit(px)
+    }
+
     /// The marker nearest a pixel, within [`HIT`].
     fn hit(&mut self, px: [f32; 2]) -> Option<String> {
         let v = self.view();
@@ -1048,6 +1201,11 @@ impl<'w> Editor<'w> {
     fn ground_at(&mut self, px: [f32; 2]) -> Option<[f32; 3]> {
         let v = self.view();
         let dir = v.ray(px);
+        if let Some((lb, low)) = self.inside {
+            let from = view::local_in(lb, v.eye);
+            let (_, on) = self.scene.floor_seen(lb, low, from, dir)?;
+            return Some(view::global(lb, on));
+        }
         let scene = &mut self.scene;
         view::hit_ground(v.eye, dir, 2000.0, 2.0, &mut |x, y| scene.ground(x, y))
     }
@@ -1071,6 +1229,7 @@ impl<'w> Editor<'w> {
 
     /// The world's input this frame: the camera, selecting, dragging, placing, the keys.
     pub fn world_input(&mut self, input: &ViewInput, over_panels: bool, typing: bool, dt: f32) {
+        self.find_inside();
         self.near();
         self.hovered = if over_panels || input.right_down || self.tool == Tool::Place {
             None
@@ -1297,7 +1456,12 @@ impl<'w> Editor<'w> {
             gizmo::snapped(g[0], self.snap.grid),
             gizmo::snapped(g[1], self.snap.grid),
         );
-        [x, y, self.scene.ground(x, y).unwrap_or(g[2])]
+        let z = if self.inside.is_some() {
+            g[2]
+        } else {
+            self.scene.ground(x, y).unwrap_or(g[2])
+        };
+        [x, y, z]
     }
 
     /// What a row would become if what is held were let go: where it stands and which way it faces.
@@ -1525,10 +1689,12 @@ impl<'w> Editor<'w> {
 
     /// The world's frame from the camera, with the rows near it standing in it.
     pub fn frame(&mut self) -> &auberean_draw::scene::Frame {
+        self.find_inside();
         self.near();
         let rows = self.standing();
         let v = self.view();
-        self.scene.frame(&v, &rows)
+        let inside = self.inside;
+        self.scene.frame(&v, &rows, inside)
     }
 
     /// The panels.
@@ -1728,13 +1894,27 @@ impl<'w> Editor<'w> {
         let (lb, at) = view::local([p.x, p.y, p.z]);
         let (undo, redo) = self.session.steps();
         ui.horizontal_wrapped(|ui| {
-            ui.label(format!(
-                "{lb:04X} ({:.1}, {:.1}, {:.1})  {:.0} m/s",
-                at[0],
-                at[1],
-                at[2],
-                self.camera.meters_per_second()
-            ));
+            match self.inside {
+                Some((home, low)) => {
+                    let at = view::local_in(home, [p.x, p.y, p.z]);
+                    ui.label(format!(
+                        "in room {home:04X}{low:04X} ({:.1}, {:.1}, {:.1})  {:.0} m/s",
+                        at[0],
+                        at[1],
+                        at[2],
+                        self.camera.meters_per_second()
+                    ));
+                }
+                None => {
+                    ui.label(format!(
+                        "{lb:04X} ({:.1}, {:.1}, {:.1})  {:.0} m/s",
+                        at[0],
+                        at[1],
+                        at[2],
+                        self.camera.meters_per_second()
+                    ));
+                }
+            }
             ui.separator();
             ui.label(format!(
                 "{} rows{}  ·  undo {undo}, redo {redo}",

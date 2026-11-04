@@ -238,6 +238,7 @@ impl App<'_> {
                     e.camera.position = Vec3::new(g[0], g[1], g[2]);
                     e.camera.yaw = yaw.to_radians();
                     e.camera.pitch = pitch.to_radians();
+                    e.enter_block(lb, at);
                 }
                 Step::Fly(item) => e.fly_to(&item),
                 Step::Select(item) => e.select(item),
@@ -249,14 +250,12 @@ impl App<'_> {
                         _ => NewKind::Person,
                     };
                     e.template = template;
-                    let g = view::global(lb, [x, y, 0.0]);
-                    let z = e.scene.ground(g[0], g[1]).unwrap_or(0.0);
-                    e.place_at([g[0], g[1], z], h);
+                    let g = e.standing_at(lb, x, y);
+                    e.place_at(g, h);
                 }
                 Step::Move(item, lb, x, y) => {
-                    let g = view::global(lb, [x, y, 0.0]);
-                    let z = e.scene.ground(g[0], g[1]).unwrap_or(0.0);
-                    e.move_row(&item, [g[0], g[1], z]);
+                    let g = e.standing_at(lb, x, y);
+                    e.move_row(&item, g);
                 }
                 Step::Turn(item, h) => {
                     if let Err(err) = e.session.turn(&item, h) {

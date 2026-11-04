@@ -248,6 +248,7 @@ dependencies = [
  "bytemuck",
  "dereth-builder",
  "dereth-pack",
+ "dereth-physics",
  "dereth-primitives",
  "egui",
  "embed-resource",

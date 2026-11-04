@@ -34,6 +34,8 @@ auberean-assets.workspace = true
 auberean-dat = { workspace = true, features = ["fs"] }
 auberean-animation.workspace = true
 auberean-physics.workspace = true
+# The interior cells' trees and polygons: which room a point is in, and the floor under a look.
+dereth-physics.workspace = true
 auberean-primitives.workspace = true
 auberean-draw.workspace = true
 auberean-gpu.workspace = true

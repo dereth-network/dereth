@@ -192,3 +192,36 @@ pub fn hit_ground(
 pub fn heading_rotation(degrees: f32) -> [f32; 4] {
     yalain_world_db::compile::heading_rotation(degrees)
 }
+
+/// How far along `dir` from `from` a line first meets a flat polygon of these corners: in lengths of
+/// `dir`, ahead of `from`, from either side.
+#[must_use]
+pub fn ray_polygon(from: [f32; 3], dir: [f32; 3], corners: &[[f32; 3]]) -> Option<f32> {
+    let &[first, ref rest @ ..] = corners else {
+        return None;
+    };
+    rest.windows(2)
+        .filter_map(|w| {
+            let (a, b) = (sub(w[0], first), sub(w[1], first));
+            let p = cross(dir, b);
+            let det = dot(a, p);
+            if det.abs() < 1e-7 {
+                return None;
+            }
+            let to = sub(from, first);
+            let u = dot(to, p) / det;
+            let q = cross(to, a);
+            let v = dot(dir, q) / det;
+            let t = dot(b, q) / det;
+            (u >= 0.0 && v >= 0.0 && u + v <= 1.0 && t > 0.0).then_some(t)
+        })
+        .min_by(f32::total_cmp)
+}
+
+/// A point of the world's grid as a point of landblock `lb`, however far from its middle: a
+/// dungeon's rooms run on past their block's own ground.
+#[must_use]
+pub fn local_in(lb: u16, g: [f32; 3]) -> [f32; 3] {
+    let [bx, by] = lb.to_be_bytes().map(f32::from);
+    [g[0] - bx * BLOCK, g[1] - by * BLOCK, g[2]]
+}

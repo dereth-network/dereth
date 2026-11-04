@@ -95,6 +95,10 @@ fn pixel(e: &Editor<'_>, g: [f32; 3]) -> [f32; 2] {
     e.view().project(g).expect("the camera sees it")
 }
 
+fn pixel_or_none(e: &Editor<'_>, g: [f32; 3]) -> Option<[f32; 2]> {
+    e.view().project(g)
+}
+
 /// A click of the left button at a pixel: pressed one frame, let go the next.
 fn click(e: &mut Editor<'_>, at: [f32; 2], shift: bool) {
     frame(
@@ -394,4 +398,106 @@ fn a_row_an_undo_took_away_is_let_go() {
     );
     frame(&mut e, &ViewInput::default());
     assert_eq!(e.selected, None);
+}
+
+/// A room of the shelter's hall, whose rooms run on past their block's own ground, and a point in it.
+const HALL: u16 = 0x0298;
+const IN_THE_HALL: [f32; 3] = [52.16, 238.5, -42.5];
+
+fn in_the_hall(name: &str) -> Editor<'static> {
+    let mut e = editor(name);
+    let g = view::global(HALL, IN_THE_HALL);
+    e.camera.position = Vec3::new(g[0], g[1], g[2]);
+    e.camera.pitch = -0.5;
+    assert!(e.enter_block(HALL, IN_THE_HALL), "the point is in a room");
+    let _ = e.frame();
+    e
+}
+
+#[test]
+fn a_camera_among_a_dungeons_rooms_is_in_one_though_the_ground_under_it_is_another_blocks() {
+    let e = in_the_hall("rooms");
+    let (lb, low) = e.inside().expect("in a room");
+    assert_eq!(lb, HALL);
+    assert!(low >= 0x100, "{low:04X}");
+    assert_eq!(
+        view::local(view::global(HALL, IN_THE_HALL)).0,
+        0x0299,
+        "not the block under it"
+    );
+}
+
+#[test]
+fn a_row_placed_on_a_rooms_floor_names_the_room_and_its_block() {
+    let mut e = in_the_hall("place-room");
+    let px = [800.0, 700.0];
+    e.tool = Tool::Place;
+    frame(
+        &mut e,
+        &ViewInput {
+            pointer: px,
+            ..ViewInput::default()
+        },
+    );
+    let ghost = e.ghost().expect("a floor under the pointer");
+    assert!(ghost[2] < IN_THE_HALL[2], "below the camera: {ghost:?}");
+    click(&mut e, px, false);
+    let item = e.selected.clone().expect("the row");
+    assert!(item.ends_with("@0298"), "{item}");
+    let en = e.session.entry(&item).unwrap().clone();
+    let Row::Object(o) = &en.row.row else {
+        panic!("an object")
+    };
+    let cell = o.cell.expect("a room");
+    assert_eq!(cell >> 16, 0x0298);
+    assert!(cell & 0xFFFF >= 0x100, "{cell:08X}");
+    assert!(
+        e.session.problems().is_empty(),
+        "{:?}",
+        e.session.problems()
+    );
+}
+
+#[test]
+fn a_row_in_a_room_is_dragged_over_the_floor_and_keeps_its_block() {
+    let mut e = in_the_hall("drag-room");
+    let px = [800.0, 700.0];
+    e.tool = Tool::Place;
+    frame(
+        &mut e,
+        &ViewInput {
+            pointer: px,
+            ..ViewInput::default()
+        },
+    );
+    click(&mut e, px, false);
+    let item = e.selected.clone().expect("the row");
+    let g = place_of(&e, &item);
+    let on = pixel(&e, [g[0], g[1], g[2] + 1.0]);
+    // Clear of its handles: the marker is a meter up, the drag ends on the floor nearer the camera.
+    e.select(None);
+    drag(&mut e, on, [on[0] + 60.0, on[1] + 60.0], false);
+    let moved = e.selected.clone().expect("still the row");
+    assert_eq!(moved, item, "the same block, so the same item");
+    let now = place_of(&e, &item);
+    assert!(
+        ((now[0] - g[0]).powi(2) + (now[1] - g[1]).powi(2)).sqrt() > 0.1,
+        "{now:?}"
+    );
+    assert!((now[2] - g[2]).abs() < 2.0, "still on that floor: {now:?}");
+}
+
+#[test]
+fn another_blocks_rooms_rows_do_not_show_over_the_ground_they_fall_on() {
+    let mut e = editor("other-rooms");
+    let hall_row = e.rows_matching("shelter guard", 50);
+    assert!(!hall_row.is_empty());
+    // Over the block whose ground the hall's rows fall on, the camera is not among them.
+    let g = view::global(0x0299, [52.0, 78.0, 40.0]);
+    e.camera.position = Vec3::new(g[0], g[1], g[2]);
+    frame(&mut e, &ViewInput::default());
+    let at = pixel_or_none(&e, view::global(HALL, [52.16, 240.0, -43.5]));
+    if let Some(at) = at {
+        assert_eq!(e.hovered_item(at), None);
+    }
 }

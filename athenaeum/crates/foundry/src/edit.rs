@@ -507,6 +507,15 @@ impl Session {
     /// # Errors
     /// The target's file for it is not TOML.
     pub fn place(&mut self, new: &NewRow) -> Result<String, String> {
+        self.place_in(new, None)
+    }
+
+    /// Place a new row in a cell of its landblock named in full (an interior cell, say; a row with
+    /// none stands in the land cell under it). Answers its item.
+    ///
+    /// # Errors
+    /// The target's file for it is not TOML.
+    pub fn place_in(&mut self, new: &NewRow, cell: Option<u32>) -> Result<String, String> {
         let lb = new.landblock;
         let at = At {
             x: new.at[0],
@@ -529,7 +538,7 @@ impl Session {
                     },
                     id: None,
                     template: new.template,
-                    cell: None,
+                    cell,
                     at,
                     rotation: None,
                     heading: Some(new.heading.rem_euclid(360.0)),
@@ -567,7 +576,7 @@ impl Session {
                 let (radius, population, regen) = NEW_CAMP;
                 let c = Camp {
                     key: key.clone(),
-                    cell: None,
+                    cell,
                     at,
                     radius,
                     spots: Vec::new(),
@@ -598,7 +607,7 @@ impl Session {
                 let key = self.free_key("place", |k| ItemKey::Place { key: k.into() });
                 let pl = Place {
                     key: key.clone(),
-                    cell: Some(outdoor_cell(lb, at.x, at.y)),
+                    cell: cell.or_else(|| Some(outdoor_cell(lb, at.x, at.y))),
                     at,
                     rotation: None,
                     heading: Some(new.heading.rem_euclid(360.0)),
@@ -786,6 +795,22 @@ impl Session {
     /// # Errors
     /// No such row, a row of another pack, or a file that is not TOML.
     pub fn move_to(&mut self, item: &str, landblock: u16, at: [f32; 3]) -> Result<String, String> {
+        self.move_into(item, landblock, at, None)
+    }
+
+    /// Move a row to `at` in `landblock`, in a cell named in full: indoors and out, or from room to
+    /// room. With none, a land cell follows the point and an interior cell is kept. Answers its
+    /// item, which names the new landblock when it moved into another.
+    ///
+    /// # Errors
+    /// No such row, a row of another pack, or a file that is not TOML.
+    pub fn move_into(
+        &mut self,
+        item: &str,
+        landblock: u16,
+        at: [f32; 3],
+        cell: Option<u32>,
+    ) -> Result<String, String> {
         let (e, mut table) = self.editable(item)?;
         let point = At {
             x: at[0],
@@ -800,7 +825,9 @@ impl Session {
                 .is_none_or(|c| c & 0xFFFF < 0x100)
         };
         let is_place = matches!(e.row.row, Row::Place(_));
-        if outdoor(&table) && (is_place || table.contains_key("cell")) {
+        if let Some(cell) = cell {
+            table.insert("cell", Item::Value(rowtoml::hex(cell)));
+        } else if outdoor(&table) && (is_place || table.contains_key("cell")) {
             table.insert(
                 "cell",
                 Item::Value(rowtoml::hex(outdoor_cell(landblock, at[0], at[1]))),

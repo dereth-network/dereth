@@ -12,13 +12,14 @@ use auberean_assets::Context;
 use auberean_dat::locate::{install_dats, DatName};
 use auberean_dat::DatFile;
 use auberean_draw::body::BodyDrawer;
-use auberean_draw::scene::{Frame, SceneBuilder, Spot};
+use auberean_draw::scene::{inside_light, Frame, SceneBuilder, Spot};
+use auberean_physics::interior::add_block_cells;
 use auberean_physics::land::Land;
 use auberean_physics::mesh::Trees;
 use auberean_primitives::{DataId, Quat, Vec3};
 use auberean_world::math::Mat4;
 use auberean_world::records::{RegionSet, WorldRecords};
-use dereth_primitives::LandblockId;
+use dereth_primitives::{CellId, LandblockId};
 
 use crate::view::{View, BLOCK};
 
@@ -93,6 +94,8 @@ pub struct Scene<'w> {
     pub fov: f32,
     /// The moment of the day, 0 to 1 (midnight to midnight).
     pub time_of_day: f32,
+    /// The blocks whose interior cells are read.
+    cells_read: HashSet<u16>,
 }
 
 impl std::fmt::Debug for Scene<'_> {
@@ -122,6 +125,7 @@ impl<'w> Scene<'w> {
             looks: HashMap::new(),
             fov: 70.0,
             time_of_day: 0.45,
+            cells_read: HashSet::new(),
         }
     }
 
@@ -146,6 +150,103 @@ impl<'w> Scene<'w> {
         self.land
             .ground(LandblockId::new(bx, by), local)
             .map(|(z, _)| z)
+    }
+
+    /// The interior cells of a block, read when first asked for.
+    fn read_cells(&mut self, lb: u16) {
+        if self.cells_read.insert(lb) {
+            let [x, y] = lb.to_be_bytes();
+            add_block_cells(&self.land, &self.data.records, &mut self.trees, x, y);
+        }
+    }
+
+    /// The interior cell of block `lb` a point of that block's frame lies in, named in full.
+    pub fn cell_holding(&mut self, lb: u16, at: [f32; 3]) -> Option<u32> {
+        self.read_cells(lb);
+        let point = dereth_primitives::Vec3::new(at[0], at[1], at[2]);
+        self.land
+            .interior_cells_of(u32::from(lb) << 16)
+            .into_iter()
+            .find(|id| {
+                self.land.cell(*id).is_some_and(|g| {
+                    let local = dereth_physics::math::globaltolocal(&g.frame, point);
+                    g.cell_bsp
+                        .as_ref()
+                        .is_some_and(|t| t.point_inside_cell_bsp(local))
+                })
+            })
+            .map(|id| id.0)
+    }
+
+    /// Where a look from `from` along `dir` (of block `lb`'s frame) first meets a floor of a room
+    /// seen from cell `low`, and that room's id. A look that meets a wall first gets the floor at
+    /// the wall's foot; a look that meets nothing, nothing.
+    pub fn floor_seen(
+        &mut self,
+        lb: u16,
+        low: u16,
+        from: [f32; 3],
+        dir: [f32; 3],
+    ) -> Option<(u32, [f32; 3])> {
+        let (cell, at, floor) = self.first_met(lb, low, from, dir)?;
+        if floor {
+            return Some((cell, at));
+        }
+        // A little back toward the eye, off the wall, and straight down.
+        let off = [
+            at[0] - dir[0] * 0.05,
+            at[1] - dir[1] * 0.05,
+            at[2] - dir[2] * 0.05,
+        ];
+        let (cell, at, floor) = self.first_met(lb, low, off, [0.0, 0.0, -1.0])?;
+        floor.then_some((cell, at))
+    }
+
+    /// The room and point a look first meets, and whether that is level enough to stand on.
+    fn first_met(
+        &mut self,
+        lb: u16,
+        low: u16,
+        from: [f32; 3],
+        dir: [f32; 3],
+    ) -> Option<(u32, [f32; 3], bool)> {
+        self.read_cells(lb);
+        let home = (u32::from(lb) << 16) | u32::from(low);
+        let here = self.land.cell(CellId(home))?;
+        let mut best: Option<(f32, u32, bool)> = None;
+        for id in std::iter::once(CellId(home)).chain(here.stab_list.iter().copied()) {
+            let Some(g) = self.land.cell(id) else {
+                continue;
+            };
+            let v = |p: [f32; 3]| dereth_primitives::Vec3::new(p[0], p[1], p[2]);
+            let start = dereth_physics::math::globaltolocal(&g.frame, v(from));
+            let end = dereth_physics::math::globaltolocal(
+                &g.frame,
+                v([from[0] + dir[0], from[1] + dir[1], from[2] + dir[2]]),
+            );
+            let along = [end.x - start.x, end.y - start.y, end.z - start.z];
+            for polygon in &g.physics_polygons {
+                let corners: Vec<[f32; 3]> =
+                    polygon.vertices.iter().map(|p| [p.x, p.y, p.z]).collect();
+                let begin = [start.x, start.y, start.z];
+                if let Some(t) = crate::view::ray_polygon(begin, along, &corners) {
+                    if best.is_none_or(|b| t < b.0) {
+                        // Level enough to stand on, whichever way round the polygon was wound.
+                        best = Some((t, id.0, polygon.plane.normal.z.abs() > 0.5));
+                    }
+                }
+            }
+        }
+        let (t, cell, floor) = best?;
+        Some((
+            cell,
+            [
+                from[0] + dir[0] * t,
+                from[1] + dir[1] * t,
+                from[2] + dir[2] * t,
+            ],
+            floor,
+        ))
     }
 
     fn posed(&mut self, look: u32) -> bool {
@@ -175,10 +276,17 @@ impl<'w> Scene<'w> {
         self.looks.get(&look).is_some_and(Option::is_some)
     }
 
-    /// The frame from `view`, with `rows` standing in it.
-    pub fn frame(&mut self, view: &View, rows: &[Standing]) -> &Frame {
+    /// The frame from `view`, with `rows` standing in it; `inside` the block and interior cell the
+    /// camera is in, if it is in one.
+    pub fn frame(&mut self, view: &View, rows: &[Standing], inside: Option<(u16, u16)>) -> &Frame {
         let floor = dereth_primitives::num::floor_to_i32;
-        let block = (floor(view.eye[0] / BLOCK), floor(view.eye[1] / BLOCK));
+        let block = match inside {
+            Some((lb, _)) => {
+                let [x, y] = lb.to_be_bytes();
+                (i32::from(x), i32::from(y))
+            }
+            None => (floor(view.eye[0] / BLOCK), floor(view.eye[1] / BLOCK)),
+        };
         #[allow(clippy::cast_precision_loss)]
         let origin = [block.0 as f32 * BLOCK, block.1 as f32 * BLOCK];
         let eye = Vec3::new(
@@ -186,7 +294,10 @@ impl<'w> Scene<'w> {
             view.eye[1] - origin[1],
             view.eye[2],
         );
-        let cell = (floor(eye.x / 24.0), floor(eye.y / 24.0));
+        let cell = match inside {
+            Some((_, low)) => (-1, i32::from(low)),
+            None => (floor(eye.x / 24.0), floor(eye.y / 24.0)),
+        };
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let moment = (self.time_of_day * 1000.0) as u32;
         let stale = self
@@ -202,7 +313,15 @@ impl<'w> Scene<'w> {
                 time_of_day: self.time_of_day,
                 day: None,
             };
-            let frame = self.builder.frame(&spot, self.fov);
+            let frame = match inside {
+                Some((_, low)) => {
+                    let (mut f, outside) = self.builder.inside_frame(&spot, self.fov, block, low);
+                    let lights = self.builder.block_lights(block);
+                    inside_light(&mut f.light, lights.as_deref(), eye, &outside);
+                    f
+                }
+                None => self.builder.frame(&spot, self.fov),
+            };
             let n = frame.objects.len();
             self.built = Some((block, cell, moment, frame, n));
         }

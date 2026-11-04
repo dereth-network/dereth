@@ -193,6 +193,28 @@ fn moving_a_base_row_into_another_landblock_takes_it_away_where_it_was() {
 }
 
 #[test]
+fn a_row_placed_in_a_room_names_it_and_moves_from_room_to_room_and_out() {
+    let mut s = session();
+    let room = (u32::from(LB) << 16) | 0x0105;
+    let item = s.place_in(&person([1.0, 2.0, 3.0]), Some(room)).unwrap();
+    clean(&s);
+    let cell = |s: &Session, i: &str| match &s.entry(i).unwrap().row.row {
+        Row::Object(o) => o.cell,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(cell(&s, &item), Some(room));
+    let next = room + 1;
+    s.move_into(&item, LB, [4.0, 2.0, 3.0], Some(next)).unwrap();
+    assert_eq!(cell(&s, &item), Some(next), "to the next room");
+    s.move_to(&item, LB, [5.0, 2.0, 3.0]).unwrap();
+    assert_eq!(cell(&s, &item), Some(next), "a plain move keeps the room");
+    let land = (u32::from(LB) << 16) | 0x0001;
+    s.move_into(&item, LB, [6.0, 2.0, 3.0], Some(land)).unwrap();
+    assert_eq!(cell(&s, &item), Some(land), "and out");
+    clean(&s);
+}
+
+#[test]
 fn a_copy_of_a_row_has_a_key_of_its_own_and_the_rest_as_it_was() {
     let mut s = session();
     let first = s.place(&person([1.0, 2.0, 3.0])).unwrap();

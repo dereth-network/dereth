@@ -15,6 +15,7 @@ see, not how it was done.
 - A selected row has handles to move it east, north and up and to turn it, with Snap for steps.
 - Find rows (Ctrl+F) finds any row of the world and goes to a landblock.
 - Names read as people read them, without the game's grammar marks.
+- The editor now goes indoors: rooms and dungeons are drawn, and rows are placed on their floors.
 - Duplicate copies the selected row beside it (Ctrl+D).
 - macOS: the editor opens at full size on Retina screens, Cmd works as Ctrl, and Backspace deletes.
 
