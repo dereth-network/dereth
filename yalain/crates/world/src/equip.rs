@@ -288,14 +288,15 @@ pub const SWORD: Hold = Hold {
 /// How a thing is held, as its template says: where it may go and hangs, what it rules out; a
 /// weapon (a template with a stance) answered as wielded, anything else (a shield, a tool) as
 /// worn; hung from the place 1 where it names none (2017: 808 of 808 answers). A template that
-/// names no places is held as the starting weapons are: the human's bow and stave in both hands,
+/// names no hand is held as the starting weapons are: the human's bow and stave in both hands,
 /// anything else as a sword.
 #[must_use]
 pub fn hold_of(catalog: &yalain_content::Catalog, template: u32) -> Hold {
     let Some((props, valid)) = catalog.get(template).and_then(|t| {
         t.props
             .word("Item_ValidInventoryLocations")
-            .map(|v| (&t.props, v))
+            .map(|v| (&t.props, v & (PRIMARY_HAND | OFF_HAND)))
+            .filter(|(_, v)| *v != 0)
     }) else {
         return match template {
             0x4700_051B => Hold {
@@ -952,8 +953,9 @@ fn wield<S: Store>(
             net.send(*c, queue::EVENT, BlobKind::VISUAL, m.clone());
         }
     }
-    // It hangs from its primary place in its preferred hand, else from its secondary.
-    let hang = if location == PRIMARY_HAND {
+    // It hangs from its primary place in its preferred hand, else from its secondary (2017: 504 of
+    // 504 and 63 of 63).
+    let hang = if location == hold.preferred {
         hold.primary
     } else {
         hold.secondary
@@ -1048,6 +1050,7 @@ fn put_away<S: Store>(
     } else {
         PRIMARY_HAND
     };
+    hold.taken = location | hold.precluded;
     let Some((player, stamp)) = player_stamp(s, world) else {
         return;
     };

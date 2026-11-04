@@ -577,7 +577,7 @@ pub fn held_create(
         o.physics.bits |= PhysicsDesc::PARENT;
         o.physics.parent = ParentLink {
             parent: player,
-            location: if hand == crate::equip::PRIMARY_HAND {
+            location: if hand == hold.preferred {
                 hold.primary
             } else {
                 hold.secondary
@@ -628,7 +628,8 @@ pub fn worn(
                     taken: if off {
                         crate::equip::OFF_HAND
                     } else {
-                        crate::equip::hold_of(catalog, h.template).taken
+                        crate::equip::PRIMARY_HAND
+                            | crate::equip::hold_of(catalog, h.template).precluded
                     },
                     implement: crate::skill_use::implement_of(catalog, h.template).unwrap_or(0),
                     look: None,

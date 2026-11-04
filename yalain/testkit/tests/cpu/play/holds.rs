@@ -185,6 +185,16 @@ fn a_shield_and_a_tool_are_answered_as_worn() {
     let (_, d, f) = a.last().expect("an answer");
     assert_eq!((d[7], d[14], d[12]), (OFF_HAND, OFF_HAND, flags::WORN));
     assert_eq!((f[1], f[2], f[3], f[5]), (2, 1, 128, 128));
+    let p = &h.server.players[&world];
+    let made = yalain_world::inventory::held_create(
+        &h.server.catalog,
+        h.server.things.get(shield).expect("the shield"),
+        p.instance,
+    );
+    assert_eq!(
+        made.physics.parent.location, 2,
+        "its first place: its own hand"
+    );
     let tool = id_of(&h, world, TOOL);
     let from = h.bots[b].inbox.len();
     use_it(&mut h, b, me, tool);
@@ -345,4 +355,13 @@ fn hold(h: &mut Harness, world: yalain_net::ConnId, template: u32, location: u32
         quantity: 1,
     });
     id
+}
+
+/// A template that names no hand is held as a sword, not nowhere.
+/// Behaviour: server.weapons.hold-from-template
+#[test]
+fn a_template_that_names_no_hand_is_held_as_a_sword() {
+    let mut catalog = yalain_content::Catalog::default();
+    catalog.insert(held(TOOL, (0, 0, 0), None, None));
+    assert_eq!(equip::hold_of(&catalog, TOOL), equip::SWORD);
 }
