@@ -1529,7 +1529,7 @@ fn roll_hook<S: Store>(
     } else {
         Kind::Melee
     };
-    let o = rules::roll_basic(&mut s.rng, kind, me.level, level, me.critical);
+    let o = rules::roll_special(&mut s.rng, kind, me.level, level, me.critical);
     let o = if kind == Kind::Melee && o == Outcome::Miss {
         Outcome::Evade
     } else {
@@ -1635,7 +1635,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         } else {
             Kind::Melee
         };
-        let o = rules::roll_basic(&mut s.rng, kind, my_level, level, me_hits.critical);
+        let o = rules::roll_special(&mut s.rng, kind, my_level, level, me_hits.critical);
         // Strikes of specials are evaded, never missed.
         let o = if kind == Kind::Melee && o == Outcome::Miss {
             Outcome::Evade

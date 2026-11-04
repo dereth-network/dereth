@@ -9,7 +9,8 @@
 //! Below the lowest level 2017 shows for a kind, the player's term holds at that level. An attack
 //! that does not land is evaded, or for a ranged attack missed in the measured share; nothing is
 //! blocked (2017's results are hits, criticals, misses and evades). A landed attack is critical in
-//! the measured share of landed attacks.
+//! the measured share of landed attacks, a basic attack with what its weapon adds, a special by that
+//! alone.
 //!
 //! **How much** a creature's hit does: its natural damage times a uniform roll across its natural
 //! variance, times what the player's armor lets through (the measured share for the band of the
@@ -110,7 +111,8 @@ const fn two(a: f64, b: f64, critical: f64, miss: f64) -> Fit {
 
 /// The measured fits, by direction and kind (attacks: a player's melee 26,005 from level 11 up,
 /// missile 26,742 and magic 20,891 from level 1; a creature's melee 20,342, missile 16,029, magic
-/// 9,893).
+/// 9,893). A player's critical is its basic attacks' with a weapon that adds nothing (melee 1,389
+/// hits, missile 5,665, magic 2,080).
 #[must_use]
 pub const fn fit(dir: Direction, kind: Kind) -> Fit {
     match (dir, kind) {
@@ -119,7 +121,7 @@ pub const fn fit(dir: Direction, kind: Kind) -> Fit {
             b: 0.739,
             c: 0.504,
             floor: 11,
-            critical: 0.048,
+            critical: 0.051,
             miss: 0.0,
         },
         (Direction::PlayerOnCreature, Kind::Missile) => Fit {
@@ -127,7 +129,7 @@ pub const fn fit(dir: Direction, kind: Kind) -> Fit {
             b: 0.291,
             c: 0.298,
             floor: 1,
-            critical: 0.042,
+            critical: 0.055,
             miss: 0.248,
         },
         (Direction::PlayerOnCreature, Kind::Magic) => Fit {
@@ -135,7 +137,7 @@ pub const fn fit(dir: Direction, kind: Kind) -> Fit {
             b: 0.628,
             c: 0.230,
             floor: 1,
-            critical: 0.058,
+            critical: 0.043,
             miss: 0.028,
         },
         (Direction::CreatureOnPlayer, Kind::Melee) => two(0.180, 0.274, 0.023, 0.0),
@@ -181,6 +183,19 @@ pub fn roll_basic(
     let dir = Direction::PlayerOnCreature;
     let critical = fit(dir, kind).critical + bonus;
     roll_with_critical(rng, dir, kind, (attacker_level, defender_level), critical)
+}
+
+/// A player's special: its outcome, critical only by what its weapon adds (2017: 6 of the 5,397
+/// specials that landed with a weapon that adds nothing, against basic attacks' 0.043-0.055).
+pub fn roll_special(
+    rng: &mut Rng,
+    kind: Kind,
+    attacker_level: i32,
+    defender_level: i32,
+    bonus: f64,
+) -> Outcome {
+    let dir = Direction::PlayerOnCreature;
+    roll_with_critical(rng, dir, kind, (attacker_level, defender_level), bonus)
 }
 
 /// An attack's outcome at a chance of a critical among those that land.

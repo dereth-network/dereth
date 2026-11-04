@@ -100,6 +100,82 @@ fn vigor_sent(h: &Harness, b: usize, from: usize) -> Vec<i32> {
         .collect()
 }
 
+/// A special is critical only by what its weapon adds: never from a weapon that adds nothing, every
+/// time from one that adds it all.
+/// Behaviour: server.specials.critical-by-weapon-only
+#[test]
+fn a_specials_critical_comes_only_from_its_weapon() {
+    use yalain_world::combat::CRITICAL_BONUS;
+    use yalain_world::effect_defs::{numeric, EffectDef, Kind, Scale};
+    use yalain_world::rules::Outcome;
+    const BONUS: u32 = 0x6F00_0001;
+    let results = |bonus: bool| -> Vec<u32> {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        let bow = h.arm(b, me, BOW);
+        h.server.effect_table.effects.insert(
+            BONUS,
+            EffectDef {
+                state: BONUS,
+                kind: Kind::Numeric {
+                    flags: numeric::ADD,
+                    stats: vec![CRITICAL_BONUS],
+                    magnitude: Scale(vec![(0.0, 1.0)]),
+                },
+                duration: Scale::default(),
+                priority: Scale::default(),
+                fx: 0,
+                external_flags: 0,
+                internal_flags: 0,
+                enum_value: 0,
+                eq_class: 0,
+                name: None,
+            },
+        );
+        if bonus {
+            h.server
+                .things
+                .get_mut(bow)
+                .expect("held")
+                .enchantments
+                .push((BONUS, 9.0));
+        }
+        let t = h.server.things.get_mut(beetle).expect("the beetle");
+        t.max_health = 100_000_000;
+        t.health = 100_000_000;
+        let mut out = Vec::new();
+        for use_id in 0..120 {
+            let from = use_skill(&mut h, b, 1000 + use_id, DEADEYE, beetle);
+            h.run(600);
+            for m in h.world_messages(b, from) {
+                if let ServerMessage::DoStory(e) = m {
+                    for k in &e.action.hooks {
+                        if k.target == beetle && k.numbers[3] < 0 {
+                            out.push(k.numbers[0].cast_unsigned());
+                        }
+                    }
+                }
+            }
+            for p in h.server.players.values_mut() {
+                yalain_world::quals::set_int(&mut p.qualities, VIGOR, 100);
+            }
+        }
+        out
+    };
+    let plain = results(false);
+    assert!(plain.len() > 30, "{}", plain.len());
+    assert!(
+        plain.iter().all(|r| *r == Outcome::Hit.code()),
+        "{plain:x?}"
+    );
+    let with = results(true);
+    assert!(with.len() > 30, "{}", with.len());
+    assert!(
+        with.iter().all(|r| *r == Outcome::Critical.code()),
+        "{with:x?}"
+    );
+}
+
 /// Deadeye from rest with the starting bow: the player attacking, in the bow's combat mode,
 /// turned to its target; its vigor paid (32 and the bow's 4); the special's story from the player
 /// with the use's number, the skill and its missile naming the bow; the beetle tells how the
@@ -238,7 +314,34 @@ fn a_specials_critical_does_a_quarter_more_than_its_plain_hit() {
         .catalog
         .implements
         .insert(BOW_OF_KNOWN_DAMAGE, yalain_world::skill_use::implement::BOW);
-    h.arm(b, me, BOW_OF_KNOWN_DAMAGE);
+    let bow = h.arm(b, me, BOW_OF_KNOWN_DAMAGE);
+    // A special is critical only by its weapon's bonus: this one, half the time.
+    const BONUS: u32 = 0x6F00_0001;
+    h.server.effect_table.effects.insert(
+        BONUS,
+        yalain_world::effect_defs::EffectDef {
+            state: BONUS,
+            kind: yalain_world::effect_defs::Kind::Numeric {
+                flags: yalain_world::effect_defs::numeric::ADD,
+                stats: vec![yalain_world::combat::CRITICAL_BONUS],
+                magnitude: yalain_world::effect_defs::Scale(vec![(0.0, 0.5)]),
+            },
+            duration: yalain_world::effect_defs::Scale::default(),
+            priority: yalain_world::effect_defs::Scale::default(),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0,
+            enum_value: 0,
+            eq_class: 0,
+            name: None,
+        },
+    );
+    h.server
+        .things
+        .get_mut(bow)
+        .expect("held")
+        .enchantments
+        .push((BONUS, 9.0));
     let u = h
         .server
         .skill_table

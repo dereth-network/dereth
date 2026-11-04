@@ -8576,6 +8576,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.critical-by-weapon-only",
+        says: "A special is critical only by what its weapon adds to the chance.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-CRITICAL"),
+        station: "yalain-testkit::cpu::play::specials::a_specials_critical_comes_only_from_its_weapon",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.specials.critical-size",
         says: "A special's critical does a quarter more than its plain hit, not double. Our choice: \
                fitted to 173 recorded criticals; other forms fit about as well.",

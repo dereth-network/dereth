@@ -157,6 +157,26 @@ fn a_weapons_critical_bonus_adds_to_the_chance_among_hits_that_land() {
     assert!((n0 - n1).abs() / n0 < 0.02, "{n0} {n1}");
 }
 
+/// A special is critical only by what its weapon adds: never with a weapon that adds nothing, and at
+/// that share with one that adds.
+/// Behaviour: server.specials.critical-by-weapon-only
+#[test]
+fn a_special_is_critical_only_by_its_weapons_bonus() {
+    let mut rng = yalain_world::rng::Rng::new(9);
+    let mut share = |bonus: f64| {
+        let (mut landed, mut critical) = (0.0, 0.0);
+        for _ in 0..80_000 {
+            let o = rules::roll_special(&mut rng, Kind::Missile, 20, 20, bonus);
+            landed += f64::from(u8::from(o.landed()));
+            critical += f64::from(u8::from(o == rules::Outcome::Critical));
+        }
+        assert!(landed > 10_000.0, "{landed}");
+        critical / landed
+    };
+    assert!(share(0.0).abs() < f64::EPSILON);
+    assert!((share(0.03) - 0.03).abs() < 0.006);
+}
+
 /// A player's hit with a weapon is a whole number drawn evenly across the weapon's damage (the
 /// starting drum's 9 at a variance of a third: 6 to 9), with what its effects add, less the creature's
 /// armor level, at least 1; a critical doubles it.
