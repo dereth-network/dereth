@@ -533,7 +533,7 @@ pub fn use_held<S: Store>(
     match (h.location, fit) {
         (0, Some(fit)) => wear(s, net, world, item, fit, None, flags::WORN, clock),
         (0, None) => {
-            let hand = hold_of(&s.catalog, h.template).preferred;
+            let hand = hand_of_use(s, item, h.template);
             wield(s, net, world, item, hand, None, clock);
         }
         (at, _) if at & BODY_PLACES != 0 => {
@@ -823,9 +823,21 @@ fn player_stamp<S: Store>(s: &mut Server<S>, world: ConnId) -> Option<(u64, Obje
     ))
 }
 
-/// Wield an item of the pack in a hand: by its use (the hand it prefers, whatever is in the hands
-/// put back at the pack's end first), or by a directive naming the hand (whatever is in the way put
-/// back where the item was in the pack, the answer naming it).
+/// The hand a use puts a thing in: the one it was last held in, else the one it prefers, whatever
+/// the other hand holds (2017, 213 uses of one-handed weapons: 58 of 58 last in the off hand went
+/// there, 138 of 138 last in the primary hand went there, 17 of 17 never seen held to the primary
+/// hand; so a second weapon reaches the off hand by a directive, not by a use).
+fn hand_of_use<S: Store>(s: &Server<S>, item: u64, template: u32) -> u32 {
+    let hold = hold_of(&s.catalog, template);
+    s.things
+        .get(item)
+        .map(|t| t.own.hand)
+        .filter(|hand| hold.valid & hand != 0)
+        .unwrap_or(hold.preferred)
+}
+
+/// Wield an item of the pack in a hand, by its use or by a directive naming the hand: whatever is in
+/// the way put back where the item was in the pack, the answer naming it (2017: 380 of 380).
 fn wield<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -859,7 +871,7 @@ fn wield<S: Store>(
                 .items
                 .iter()
                 .filter(|h| h.location != 0 && h.location & BODY_PLACES == 0)
-                .filter(|h| directed.is_none() || h.location & wanted != 0)
+                .filter(|h| h.location & wanted != 0)
                 .map(|h| (h.id, h.location))
                 .collect()
         })
@@ -871,10 +883,8 @@ fn wield<S: Store>(
         .map_or(0, |h| h.slot);
     let mut blocking = (0, 0);
     for (w, at) in wielded {
-        put_away(s, net, world, w, true, directed.map(|_| (from_slot, 1.0)));
-        if directed.is_some() {
-            blocking = (w, at & !hold.precluded);
-        }
+        put_away(s, net, world, w, true, Some((from_slot, 1.0)));
+        blocking = (w, at & !hold.precluded);
     }
     let Some((player, stamp)) = player_stamp(s, world) else {
         return;
@@ -964,6 +974,7 @@ fn wield<S: Store>(
     }
     if let Some(t) = s.things.get_mut(item) {
         t.wielded = Some((player, location));
+        t.own.hand = location;
     }
     let instance = s.players.get(&world).map_or(0, |p| p.instance);
     if let Some(made) = s.things.get(item).map(|t| {
@@ -1133,6 +1144,7 @@ fn put_away<S: Store>(
     if let Some(t) = s.things.get_mut(item) {
         t.wielded = None;
         t.container = Some((player, slot));
+        t.own.hand = location;
     }
     crate::world::keep_player(s, world);
 }

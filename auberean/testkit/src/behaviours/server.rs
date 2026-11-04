@@ -4030,8 +4030,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.use-goes-to-the-hand-last-held",
+        says: "A use puts a one-handed weapon in the hand it was last held in, else the primary \
+               hand, putting away only what is in that hand and naming it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-USE-LAST-HAND"),
+        station: "yalain-testkit::cpu::play::paper_doll::a_weapon_last_in_the_off_hand_goes_back_there_by_its_use",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.wield-keeps-the-packs-order",
-        says: "Wielding answers with the item's place in the pack as the client keeps it (the pack's order, closed up behind anything taken out), before the weapon is drawn and the item moves; whatever was in hand goes back to the pack's end first.",
+        says: "Wielding answers with the item's place in the pack as the client keeps it (the pack's order, closed up behind anything taken out), before the weapon is drawn and the item moves; whatever is in the way goes back where the item was first.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-WIELD-ORDER"),
         station: "yalain-testkit::cpu::play::specials::wielding_names_the_items_place_and_the_pack_closes_up",

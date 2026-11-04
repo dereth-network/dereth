@@ -120,6 +120,7 @@ what they see, not how it was done.
 - Skills cost vigor for whatever weapons and shield you hold.
 - Special attacks now do the damage their rating adds.
 - Orbs throw from both hands.
+- A weapon you use goes back to the hand it was last in.
 
 ## 0.1.2 (2026-11-03)
 

@@ -51,6 +51,8 @@ pub struct Own {
     pub craft_flags: u32,
     /// What it drew of its look as it dropped.
     pub look: Option<Look>,
+    /// The hand it was last held in (0: never): where its use puts it.
+    pub hand: u32,
 }
 
 /// What a treasure item drew of its look: the appearance table, and each key's value (no key, 0,
@@ -89,6 +91,7 @@ impl Own {
             && self.dye.is_none()
             && self.craft_flags == 0
             && self.look.is_none()
+            && self.hand == 0
     }
 }
 

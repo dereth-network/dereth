@@ -560,7 +560,7 @@ fn vigor_spent_to_nothing_by_a_recall_comes_back_at_rest() {
 }
 
 /// Wielding names the item's place in the pack as the client keeps it (the pack's order, closed
-/// up behind anything taken out), and whatever was in hand goes back to the pack's end first.
+/// up behind anything taken out), and whatever was in hand goes back where it was first.
 /// Behaviour: server.inventory.wield-keeps-the-packs-order
 #[test]
 fn wielding_names_the_items_place_and_the_pack_closes_up() {
