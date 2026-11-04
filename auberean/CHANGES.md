@@ -78,6 +78,7 @@ not how it was done.
 - Fixed the options scroll thumb vanishing after closing a section.
 - Options: the Rendering section now works: resolution, full screen, sync and antialiasing.
 - Quests that change are marked in the journal.
+- Next-item keys now find held weapons too.
 
 ## 0.1.2 (2026-11-02)
 

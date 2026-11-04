@@ -219,9 +219,9 @@ fn select(w: &World, k: u32) -> Vec<u64> {
 /// each stands (along the ground, and a fifth more for each meter up or down), then by id: the
 /// next after the selection, the previous before it, round again past the last; the nearest; a
 /// foe is one the player may attack that is no fellow's; an item is passed over by the creature
-/// keys, and what a body holds (with no place of its own) by every key; the player's own key
-/// selects it, and again the last selection; the last attacker's key the last to attack the
-/// player; Escape selects nothing.
+/// keys; what a body holds is found by the item keys, at the body; the player's own key selects
+/// it, and again the last selection; the last attacker's key the last to attack the player; Escape
+/// selects nothing.
 ///
 /// Behaviour: ui.selection.the-selection-keys-pick-by-kind-and-distance
 #[test]
@@ -234,8 +234,7 @@ fn the_selection_keys_pick_by_kind_and_distance() {
     let far = thing(12, kind::CREATURE, 0.0, -6.0);
     let item = thing(13, kind::ITEM[0], 0.0, 1.0);
     let out_of_range = thing(14, kind::CREATURE, 80.0, 0.0);
-    let mut held = thing(15, kind::ITEM[0], 0.0, 0.5);
-    held.held = true;
+    let held = thing(15, kind::ITEM[0], 0.0, 0.5);
     let mut w = world(vec![far, item, mid, near, out_of_range, held]);
 
     assert_eq!(select(&w, key::NEAREST_CREATURE), vec![10]);
@@ -263,8 +262,8 @@ fn the_selection_keys_pick_by_kind_and_distance() {
     );
     assert_eq!(
         select(&w, key::NEAREST_ITEM),
-        vec![13],
-        "not the nearer one a body holds"
+        vec![15],
+        "what a body holds counts too, at the body"
     );
     assert_eq!(
         select(&w, key::NEAREST_FOE),

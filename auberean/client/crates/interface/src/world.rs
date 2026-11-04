@@ -370,7 +370,6 @@ impl Gather {
                 fellow: f.fellow,
                 attackable: f.attackable,
                 owner_fellow: f.owner_fellow,
-                held: o.parent.is_some(),
             });
         }
         self.names.retain(|id, (_, _, download)| {

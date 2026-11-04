@@ -149,9 +149,6 @@ pub struct Thing {
     pub body: Option<Body>,
     /// Its animation has faded it out of sight: no marks are put on it.
     pub faded: bool,
-    /// It hangs from another body (a wielded weapon): it is seen and picked where that body holds
-    /// it, and has no place of its own in the world.
-    pub held: bool,
     /// What the player's scripts answer of it: it is in the player's fellowship; the player may
     /// attack it on its own; its owner is in the fellowship.
     pub fellow: bool,

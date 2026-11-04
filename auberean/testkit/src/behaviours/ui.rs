@@ -1684,7 +1684,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "ui.selection.the-selection-keys-pick-by-kind-and-distance",
-        says: "The selection keys pick by kind among the objects within the radar's range (indoors the shorter), ordered by distance along the ground plus a fifth more per meter up or down, then by id: the next past the selection, the previous before it, round again past either end, the nearest; a foe may be attacked and is no fellow; what a body holds is never found, having no place of its own; the player's own key selects it and then the last selection; the last attacker's key selects the last to attack the player; Escape selects nothing.",
+        says: "The selection keys pick by kind among the objects within the radar's range (indoors the shorter), ordered by distance along the ground plus a fifth more per meter up or down, then by id: the next past the selection, the previous before it, round again past either end, the nearest; a foe may be attacked and is no fellow; what a body holds is found by the item keys, at the body; the player's own key selects it and then the last selection; the last attacker's key selects the last to attack the player; Escape selects nothing.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-SELECTION-KEYS"),
         station: "auberean-ui-game::dat::play::selection::the_selection_keys_pick_by_kind_and_distance",
