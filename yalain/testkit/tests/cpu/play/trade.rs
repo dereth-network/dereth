@@ -631,6 +631,50 @@ fn a_purchase_into_a_full_pack_is_refused_and_nothing_is_paid() {
     );
 }
 
+/// A sale of a template the world can't make is refused: nothing is paid and nothing made.
+/// Behaviour: server.store.a-sale-the-world-cannot-make-is-not-paid-for
+#[test]
+fn a_purchase_of_what_the_world_cannot_make_is_refused_and_nothing_is_paid() {
+    let mut h = shop();
+    let (b, me) = in_store(&mut h);
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, 3100, 50);
+    }
+    h.server.catalog = yalain_content::Catalog::default();
+    let from = h.bots[b].inbox.len();
+    let stock = yalain_world::store::STOCK_BASE | u64::from(STORE & 0xFFFF) << 8;
+    let mut g = Builder::new();
+    g.object(
+        0x1B76,
+        &[
+            Slot::Long(stock),
+            Slot::Ref(None),
+            Slot::Long(me),
+            Slot::Int(1),
+            Slot::Long(KEEPER),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(PURCHASE, &[Arg::Object(g.graph())]),
+    );
+    h.run(10);
+    let sent = calls_of(&h, b, from);
+    assert!(sent
+        .iter()
+        .any(|(f, v)| *f == REQUEST_DONE && v.contains(&Value::Int(45001))));
+    let msgs = h.world_messages(b, from);
+    assert!(
+        !msgs
+            .iter()
+            .any(|m| matches!(m, ServerMessage::UpdateInt(q) if q.quality == 3100)),
+        "nothing paid"
+    );
+}
+
 fn quests() -> QuestTable {
     let step = |needs, template, update| Step {
         quest: QUEST,

@@ -8635,6 +8635,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.store.a-sale-the-world-cannot-make-is-not-paid-for",
+        says: "A sale whose template the world doesn't hold is refused, not found: nothing \
+               is paid and nothing made.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STORE-UNMAKEABLE"),
+        station: "yalain-testkit::cpu::play::trade::a_purchase_of_what_the_world_cannot_make_is_refused_and_nothing_is_paid",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.store.greeting-and-store",
         says: "Using a storekeeper in reach is answered, then the storekeeper greets the player \
                by name and opens its store on its first page.",

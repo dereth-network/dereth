@@ -367,6 +367,17 @@ pub fn purchase<S: Store>(
         progress::private(net, world, &m);
         return;
     };
+    // What the world can't make isn't sold: nothing is paid for it.
+    if s.catalog.get(sale.product).is_none() {
+        s.unhandled.note(format!(
+            "a purchase of template {:08X}, not in the catalog",
+            sale.product
+        ));
+        let m =
+            session::call(function::REQUEST_DONE, &[Arg::Int(error::NOT_FOUND)]).expect("packs");
+        progress::private(net, world, &m);
+        return;
+    }
     let quantity = quantity.max(1);
     // Of the sale's stack at most, in reach of the storekeeper (2017: 23 purchases of 1 to 300).
     let most = s
