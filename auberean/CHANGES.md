@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Enter World on the character screen now shows its swirling portal.
 - Chat now says "the item" when someone hands you something.
 - Names near the screen's edge now run off it instead of sliding back in.
 - The first start from a cold disk is faster.

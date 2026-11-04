@@ -20,6 +20,8 @@ use dereth_primitives::num::math;
 
 /// Character select's scene: the pillar, under the camera named below.
 pub const SELECT_SCENE: u32 = 0x2100_0001;
+/// The portal's scene behind the enter button.
+pub const PORTAL_SCENE: u32 = 0x2100_0008;
 /// The avatar hall's scene.
 pub const HALL_SCENE: u32 = 0x2100_000B;
 /// The camera every one of these scenes is seen by.
@@ -193,6 +195,26 @@ pub fn select_scene(
         figures,
         pick: None,
         behaviors: Vec::new(),
+        under: false,
+    })
+}
+
+/// The portal behind the enter button: its scene alone, under the screen's backdrop, which has a
+/// hole for it. It runs from when the screen comes up, with or without a character to enter.
+// D2-01820
+#[must_use]
+pub fn portal_scene(records: &WorldRecords, rect: auberean_ui::Rect) -> Option<ViewScene> {
+    let scene: UiScene = records.get(PORTAL_SCENE)?;
+    let camera = scene_camera(&scene, CAMERA)?;
+    Some(ViewScene {
+        rect: rect_of(rect),
+        scene: PORTAL_SCENE,
+        camera,
+        light: ViewLight::Scene,
+        figures: Vec::new(),
+        pick: None,
+        behaviors: Vec::new(),
+        under: true,
     })
 }
 
@@ -259,6 +281,7 @@ pub fn hall_scene(
             figures,
             pick: None,
             behaviors: Vec::new(),
+            under: false,
         },
         who,
     ))
@@ -328,5 +351,6 @@ pub fn shaping_scene(
         }],
         pick: None,
         behaviors: Vec::new(),
+        under: false,
     })
 }

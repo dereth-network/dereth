@@ -628,6 +628,10 @@ impl Retail {
         let now = self.ui.now();
         let mut scene = None;
         if let Some(s) = self.pre::<CharacterSelect>() {
+            let portal = s.viewports().1.and_then(|v| self.ui.screen_rect(v));
+            if let Some(v) = portal.and_then(|r| hall::portal_scene(records, r)) {
+                overlay.scenes.push(v);
+            }
             let list = game.client.and_then(|c| c.model.characters.as_ref());
             let rect = s.viewports().0.and_then(|v| self.ui.screen_rect(v));
             if let (Some(l), Some(r)) = (list, rect) {

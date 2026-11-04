@@ -668,7 +668,7 @@ impl Presenter {
             (a[0], a[1], a[2] / s.0.max(1) as f32)
         });
         // Each viewport's scene into a clear picture of the viewport's size.
-        let view_pictures: Vec<([f32; 4], wgpu::TextureView)> = views
+        let view_pictures: Vec<([f32; 4], bool, wgpu::TextureView)> = views
             .iter()
             .filter_map(|v| {
                 let [l, t, r, b] = [
@@ -683,6 +683,7 @@ impl Presenter {
                     let tex = self.renderer.draw_laid_over(&v.frame, vw, vh, load);
                     (
                         [l, t, r, b],
+                        v.under,
                         tex.create_view(&wgpu::TextureViewDescriptor::default()),
                     )
                 })
@@ -760,7 +761,7 @@ impl Presenter {
         }
         // The viewports' pictures as rectangles after the overlay's.
         let view_start = u32::try_from(verts.len()).unwrap_or(u32::MAX);
-        for (rect, _) in &view_pictures {
+        for (rect, _, _) in &view_pictures {
             let nx = |x: f32| x / fw * 2.0 - 1.0;
             let ny = |y: f32| 1.0 - y / fh * 2.0;
             let [l, t, r, b] = *rect;
@@ -806,7 +807,7 @@ impl Presenter {
         let portal_group = portal_view.as_ref().map(|(v, _)| self.bind(v));
         let view_groups: Vec<wgpu::BindGroup> = view_pictures
             .iter()
-            .map(|(_, v)| self.bind_with(v, &self.nearest))
+            .map(|(_, _, v)| self.bind_with(v, &self.nearest))
             .collect();
         let buffer = (!verts.is_empty()).then(|| self.overlay_buffer(&verts));
         let world_group = world_view.as_ref().map(|v| self.bind(v));
@@ -855,6 +856,19 @@ impl Presenter {
             let set_area = |pass: &mut wgpu::RenderPass<'_>, a: [f32; 4]| {
                 pass.set_viewport(a[0], a[1], a[2], a[3], 0.0, 1.0);
             };
+            let draw_views = |pass: &mut wgpu::RenderPass<'_>, under: bool| {
+                let Some(b) = &buffer else { return };
+                pass.set_pipeline(&self.quads);
+                pass.set_vertex_buffer(0, b.slice(..));
+                for (k, g) in view_groups.iter().enumerate() {
+                    if view_pictures[k].1 == under {
+                        let start = view_start + u32::try_from(k * 6).unwrap_or(0);
+                        pass.set_bind_group(0, g, &[]);
+                        pass.draw(start..start + 6, 0..1);
+                    }
+                }
+            };
+            draw_views(&mut pass, true);
             if let Some(g) = &behind_group {
                 set_area(&mut pass, screen);
                 pass.set_pipeline(&self.canvas);
@@ -890,15 +904,7 @@ impl Presenter {
                 pass.draw(0..3, 0..1);
                 set_area(&mut pass, whole);
             }
-            if let (Some(b), false) = (&buffer, view_groups.is_empty()) {
-                pass.set_pipeline(&self.quads);
-                pass.set_vertex_buffer(0, b.slice(..));
-                for (k, g) in view_groups.iter().enumerate() {
-                    let start = view_start + u32::try_from(k * 6).unwrap_or(0);
-                    pass.set_bind_group(0, g, &[]);
-                    pass.draw(start..start + 6, 0..1);
-                }
-            }
+            draw_views(&mut pass, false);
             if let Some(g) = &front_group {
                 set_area(&mut pass, screen);
                 pass.set_pipeline(&self.canvas);

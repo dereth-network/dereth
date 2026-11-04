@@ -1001,6 +1001,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.the-character-screen-runs-the-portal-under-its-backdrop",
+        says: "The character screen runs the portal's scene in its viewport, under the backdrop, from when it comes up, with or without a character to enter.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-SELECT-PORTAL"),
+        station: "auberean-interface::dat::screens::the_character_screen_runs_the_portal_under_its_backdrop",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.the-input-method-writes-over-the-chat-entry-while-it-takes-the-keys",
         says: "An editable entry that takes the keyboard turns the platform's input method on over \
                the part of it that shows, unless it is marked to keep it off; the host is told \

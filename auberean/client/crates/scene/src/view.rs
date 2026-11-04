@@ -208,6 +208,8 @@ pub struct ViewScene {
     pub pick: Option<(f32, f32)>,
     /// Behaviors figures are to begin this frame: the figure's place in `figures`, the behavior.
     pub behaviors: Vec<(usize, u32)>,
+    /// Drawn under the interface's picture behind the scenes, showing where that has no picture.
+    pub under: bool,
 }
 
 /// A viewport's frame: where it goes in the window, and what it shows.
@@ -215,6 +217,8 @@ pub struct ViewScene {
 pub struct ViewFrame {
     pub rect: [f32; 4],
     pub frame: Frame,
+    /// Drawn under the interface's picture behind the scenes.
+    pub under: bool,
 }
 
 struct Kept {
@@ -532,6 +536,7 @@ impl Views {
             out.push(ViewFrame {
                 rect: v.rect,
                 frame,
+                under: v.under,
             });
         }
         self.picked = picked;

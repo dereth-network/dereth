@@ -2388,6 +2388,31 @@ fn every_panel_is_drawn_in_front_of_the_world() {
     );
 }
 
+/// The character screen runs the portal's scene in its viewport, under the backdrop, from when it
+/// comes up, with or without a character to enter.
+///
+/// Behaviour: desktop.interface.the-character-screen-runs-the-portal-under-its-backdrop
+#[test]
+fn the_character_screen_runs_the_portal_under_its_backdrop() {
+    let (_, client_data, _) = data();
+    let (mut s, retail) = shell_over(script(), client_data, |r| r);
+    past_the_intro(&mut s, &retail);
+    assert!(
+        until(&mut s, 30.0, |_| shows(&retail, "PortalViewport")),
+        "the screen comes up"
+    );
+    step(&mut s);
+    let out = s.frame();
+    let portal = out
+        .overlay
+        .scenes
+        .iter()
+        .find(|v| v.scene == auberean_interface::hall::PORTAL_SCENE)
+        .expect("the portal's scene");
+    assert!(portal.under);
+    assert_eq!(portal.rect, [790.0, 144.0, 936.0, 290.0]);
+}
+
 /// The inventory's paper doll shows the player's figure as the player looks, standing still in
 /// its first pose in the paper doll's scene, seen straight on by the scene's camera: the camera
 /// sees the figure's drawn height (the box around its parts as read, times its scale; less for the
