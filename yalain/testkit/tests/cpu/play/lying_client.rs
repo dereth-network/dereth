@@ -533,6 +533,85 @@ fn every_call_with_values_chosen_to_hurt_panics_nothing_and_takes_nothing_of_ano
     assert_eq!(belongings(&h, them), before, "the other's own");
 }
 
+/// Every call from places no player should be, whether reported or kept from before.
+/// Behaviour: server.lying-client.calls-hurt-nobody
+#[test]
+fn every_call_from_a_place_off_the_land_takes_nothing_of_another() {
+    let (done, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let cells = [
+            0x0299_0009u32,
+            0x0299_0109,
+            0xFFFF_0041,
+            0x0000_0001,
+            0xFFFF_FFFF,
+        ];
+        let coords = [
+            0.0,
+            -1.0,
+            159.999,
+            160.0,
+            40_960.0,
+            -40_960.0,
+            1.0e10,
+            -1.0e10,
+            1.0e30,
+            f32::MAX,
+            f32::MIN,
+            f32::INFINITY,
+            f32::NAN,
+        ];
+        let (mut h, (a, me), (_, them), ids) = a_world();
+        let before = belongings(&h, them);
+        let mut d = Dice(0x5EED_5000);
+        for f in calls().into_iter().cycle().take(4000) {
+            let w = world_of(&h, me);
+            if d.below(4) == 0 {
+                let origin = [
+                    coords[d.below(coords.len())],
+                    coords[d.below(coords.len())],
+                    coords[d.below(coords.len())],
+                ];
+                let cell = cells[d.below(cells.len())];
+                if let Some(p) = h.server.players.get_mut(&w) {
+                    p.position.cell = cell;
+                    p.position.origin = origin;
+                }
+                // What it holds is put down from there, as a client asks.
+                if let Some(held) = h.server.players[&w].play.items.first().copied() {
+                    let m = Move {
+                        move_type: drops::DROP,
+                        item: held.id,
+                        split_item: held.id,
+                        from: me,
+                        actual_from: me,
+                        quantity: held.quantity.max(1),
+                        quantity_left: held.quantity.max(1),
+                        ..Move::default()
+                    };
+                    let call = server_call(drops::function::MOVE_ITEM, &[move_graph(&m)]);
+                    h.bots[a].send(true, queue::WEENIE, &call);
+                }
+            }
+            let args: Vec<Arg> = shape(f).iter().map(|k| of_kind(&mut d, &ids, *k)).collect();
+            h.bots[a].send(true, queue::WEENIE, &server_call(f, &args));
+            h.run(1);
+            if d.below(20) == 0 {
+                let t = h.now.0 + 2.0;
+                h.run_to(yalain_net::LocalTime(t));
+            }
+        }
+        let t = h.now.0 + 30.0;
+        h.run_to(yalain_net::LocalTime(t));
+        let _ = done.send(belongings(&h, them) == before);
+    });
+    assert_eq!(
+        ended.recv_timeout(std::time::Duration::from_secs(120)),
+        Ok(true),
+        "the other's own"
+    );
+}
+
 /// A call far bigger than any client sends is neither kept nor said to anyone.
 /// Behaviour: server.lying-client.a-call-too-big-is-dropped
 #[test]
