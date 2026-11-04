@@ -313,7 +313,7 @@ impl DataPatch {
     fn list_arrived(&mut self, ui: &mut Ui, data: &mut Data, out: &mut Vec<Request>) {
         self.received = self.expected;
         self.refresh(ui);
-        // D2-01734
+        // D2-01734, D2-01735
         let start = std::mem::take(&mut data.start_character);
         if !start.is_empty() {
             let set = data.characters.as_ref();

@@ -77,7 +77,7 @@ pub struct Footprint {
 
 impl Footprint {
     /// The boxes, then the cylinders, each counted.
-    // D2-13657
+    // D2-13656, D2-13657
     pub fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             boxes: r.list(BBOX_SIZE, Bounds::read)?,

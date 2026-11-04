@@ -310,6 +310,7 @@ impl Section {
                     lines: r.list(8, |r| Ok((r.u32()?, r.u32()?)))?,
                 })
             })?),
+            // D2-16571, D2-08017
             259 => Self::Frames(r.list(16, |r| {
                 Ok(Frame {
                     name: r.narrow_string()?,
