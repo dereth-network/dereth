@@ -1534,6 +1534,12 @@ mod crafts {
                 continue;
             }
             h.run(1);
+            // What is taken apart held an enchantment: the recording doesn't always say which.
+            if def.custom == yalain_world::craft::Custom::Spellbind {
+                if let Some(t) = slots.first().and_then(|(_, i)| h.server.things.get_mut(*i)) {
+                    t.enchantments = vec![(0x6F00_0394, 1.0)];
+                }
+            }
             {
                 let p = h.server.players.get_mut(&world).expect("in the world");
                 p.play.recipes.retain(|r| r.recipe != c.recipe);

@@ -902,6 +902,14 @@ fn use_held<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: 
         crate::usable::doors::key_used(s, net, world, u, clock);
         return;
     }
+    // A totem used on an item in the pack.
+    if s.things
+        .get(u.item)
+        .is_some_and(|t| crate::craft::totem::noun(t.template).is_some())
+    {
+        crate::craft::use_totem(s, net, world, &u);
+        return;
+    }
     if crate::usable::chests::chest(s, u.target).is_some() {
         crate::usable::chests::key_used(s, net, world, u, clock);
         return;

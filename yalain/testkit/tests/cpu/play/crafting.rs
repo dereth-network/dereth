@@ -1834,20 +1834,228 @@ fn spellbinding_makes_a_totem_of_the_kind_of_the_item_it_takes_apart() {
         );
         let item = yalain_world::inventory::give(&mut h.server, &mut h.net, world, source, 1)
             .expect("the item");
+        h.server.things.get_mut(item).expect("made").enchantments = vec![(ENCHANTMENT, 12.0)];
+        h.server.things.get_mut(item).expect("made").own.min_level = Some(13);
+        h.server.things.get_mut(item).expect("made").own.arcane_lore = Some(4);
         h.run(2);
         execute(&mut h, b, STEEL_RECIPE, &[(1, item)]);
         h.run(4);
         wait(&mut h, 9.0);
         let p = &h.server.players[&world];
-        assert!(
-            p.play.items.iter().any(|i| i.template == expected),
-            "a totem of its kind"
-        );
+        let made = p
+            .play
+            .items
+            .iter()
+            .find(|i| i.template == expected)
+            .expect("a totem of its kind")
+            .id;
         assert!(
             !p.play.items.iter().any(|i| i.template == source),
             "taken apart"
         );
+        let t = h.server.things.get(made).expect("the totem");
+        assert_eq!(t.enchantments, vec![(ENCHANTMENT, 12.0)], "what it took");
+        assert_eq!((t.own.min_level, t.own.arcane_lore), (Some(13), Some(4)));
     }
+}
+
+/// An enchantment on an item some tests take apart.
+const ENCHANTMENT: u32 = 0x6F00_0394;
+
+/// A recipe taking an item apart into a totem, known to the player; returns the item.
+fn spellbinding_ready(h: &mut Harness, world: yalain_net::ConnId, source: u32) -> u64 {
+    use yalain_world::craft::{totem, Action, Custom};
+    let mut props = yalain_content::Props::default();
+    props.set("Weapon_Damage", yalain_content::Prop::Int(10));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(source, 0x200, props));
+    let def = yalain_world::craft::RecipeDef {
+        custom: Custom::Spellbind,
+        ingredients: vec![yalain_world::craft::Ingredient {
+            ordinal: 1,
+            quantity: 1,
+            items: vec![source],
+            ..Default::default()
+        }],
+        checks: vec![yalain_world::craft::Check {
+            upto: 2.0,
+            outcomes: vec![yalain_world::craft::Outcome {
+                upto: 1000.0,
+                xp_mod: 1.0,
+                actions: vec![
+                    Action::Custom,
+                    Action::Destroy {
+                        ordinal: 1,
+                        quantity: 1,
+                        by_spinner: None,
+                        spinners: None,
+                    },
+                ],
+            }],
+        }],
+        ..steel_recipe()
+    };
+    with_own_recipe(
+        h,
+        world,
+        def,
+        2,
+        &[totem::WEAPON, totem::ARMOR, totem::SHIELD],
+    );
+    let item = yalain_world::inventory::give(&mut h.server, &mut h.net, world, source, 1)
+        .expect("the item");
+    h.run(2);
+    item
+}
+
+/// An item with no enchantment is not taken apart: nothing is lost and nothing made.
+/// Behaviour: server.craft.spellbinding-takes-an-enchantment
+#[test]
+fn spellbinding_refuses_an_item_with_no_enchantment() {
+    let (mut h, b, _me, world) = in_world();
+    let item = spellbinding_ready(&mut h, world, 0x4700_207F);
+    execute(&mut h, b, STEEL_RECIPE, &[(1, item)]);
+    h.run(4);
+    wait(&mut h, 9.0);
+    let p = &h.server.players[&world];
+    assert!(p.play.items.iter().any(|i| i.id == item), "still held");
+    assert!(
+        !p.play
+            .items
+            .iter()
+            .any(|i| yalain_world::craft::totem::noun(i.template).is_some()),
+        "no totem"
+    );
+}
+
+/// A totem used on an item of its kind that has a free slot and what it asks puts its enchantment on
+/// it and is gone; on anything else it is refused and nothing changes.
+/// Behaviour: server.craft.totem-enchants-an-item
+#[test]
+fn a_totem_used_on_an_item_of_its_kind_enchants_it_and_is_gone() {
+    use yalain_world::craft::totem;
+    use yalain_world::made::Made;
+    const SWORD_TEMPLATE: u32 = 0x4700_207F;
+    const ROBE_TEMPLATE: u32 = 0x4700_0DC0;
+    let (mut h, b, me, world) = in_world();
+    let mut weapon = yalain_content::Props::default();
+    weapon.set("Weapon_Damage", yalain_content::Prop::Int(10));
+    let mut armor = yalain_content::Props::default();
+    armor.set("Item_ArmorLevel", yalain_content::Prop::Int(10));
+    for (t, p) in [(SWORD_TEMPLATE, weapon), (ROBE_TEMPLATE, armor)] {
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(t, 0x200, p));
+    }
+    h.server.catalog.insert(yalain_testkit::test_template(
+        totem::WEAPON,
+        0x200,
+        yalain_content::Props::default(),
+    ));
+    let give = |h: &mut Harness, t: u32| {
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, t, 1).expect("given")
+    };
+    let totem_item = give(&mut h, totem::WEAPON);
+    {
+        let t = h.server.things.get_mut(totem_item).expect("made");
+        t.enchantments = vec![(ENCHANTMENT, 12.0)];
+        t.own.min_level = Some(10);
+        t.own.made = Some(Made::default());
+    }
+    let sword = give(&mut h, SWORD_TEMPLATE);
+    let low_sword = give(&mut h, SWORD_TEMPLATE);
+    let full_sword = give(&mut h, SWORD_TEMPLATE);
+    let robe = give(&mut h, ROBE_TEMPLATE);
+    let set = |h: &mut Harness, id: u64, level: i32, slots: u32| {
+        let t = h.server.things.get_mut(id).expect("made");
+        t.own.min_level = Some(level);
+        t.own.made = Some(Made {
+            slots,
+            ..Made::default()
+        });
+    };
+    set(&mut h, sword, 12, 1);
+    set(&mut h, low_sword, 9, 1);
+    set(&mut h, full_sword, 12, 0);
+    set(&mut h, robe, 12, 1);
+    let try_it = |h: &mut Harness, target: u64| {
+        use yalain_world::graph::{Builder, Slot};
+        let mut g = Builder::new();
+        g.object(
+            0x245,
+            &[
+                Slot::Ref(None),
+                Slot::Ref(None),
+                Slot::Long(totem_item),
+                Slot::Ref(None),
+                Slot::Int(0),
+                Slot::Long(me),
+                Slot::Int((-1.0f32).to_bits()),
+                Slot::Long(target),
+                Slot::Int(0),
+                Slot::Long(0),
+                Slot::Int(0),
+                Slot::Ref(None),
+                Slot::Int(0),
+                Slot::Int(316),
+                Slot::Int(0),
+                Slot::Int(0),
+            ],
+        );
+        let call = yalain_testkit::play::server_call(
+            yalain_world::requests::function::USE,
+            &[auberean_script::args::Arg::Object(g.graph())],
+        );
+        h.bots[b].send(true, auberean_protocol::queue::WEENIE, &call);
+        h.run(6);
+    };
+    let has_totem = |h: &Harness| {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|i| i.id == totem_item)
+    };
+    for refused in [0, low_sword, full_sword, robe] {
+        try_it(&mut h, refused);
+        assert!(has_totem(&h), "refused: {refused:x}");
+        if refused != 0 {
+            assert!(h
+                .server
+                .things
+                .get(refused)
+                .expect("held")
+                .enchantments
+                .is_empty());
+        }
+    }
+    try_it(&mut h, sword);
+    assert!(!has_totem(&h), "the totem is gone");
+    let t = h.server.things.get(sword).expect("held");
+    assert_eq!(t.enchantments, vec![(ENCHANTMENT, 12.0)]);
+    assert_eq!(t.own.made.expect("made").slots, 0, "it took a slot");
+}
+
+/// A totem's profile says what it goes on and the least its target must have, in place of the
+/// least it asks of who wears it.
+/// Behaviour: server.craft.totem-enchants-an-item
+#[test]
+fn a_totems_profile_says_what_it_goes_on() {
+    use yalain_world::craft::totem;
+    use yalain_world::profile::{item, item_line, TotemView};
+    let view = yalain_world::profile::ItemView {
+        totem: Some(TotemView {
+            kind: totem::noun(totem::WEAPON).expect("a word"),
+            least_level: Some(45),
+            least_lore: None,
+        }),
+        ..yalain_world::profile::ItemView::default()
+    };
+    let bytes = item(0x3FF, &view).packed(&[]);
+    let has = |id: u32| bytes.windows(4).any(|w| w == id.to_le_bytes());
+    assert!(has(item_line::TOTEM_IMBUED) && has(item_line::TOTEM_LEVEL));
+    assert!(!has(item_line::TOTEM_LORE));
 }
 
 const LEVEL_TABLE: u32 = yalain_world::made::ITEM_LEVEL_TABLE;

@@ -111,6 +111,7 @@ what they see, not how it was done.
 - Gathering no longer pushes a stack past its limit.
 - Loot now comes in its own colors and glow.
 - Loot weapons, armor and shields can now carry enchantments.
+- Totems now hold an enchantment and can be used on an item of their kind.
 
 ## 0.1.2 (2026-11-03)
 

@@ -263,11 +263,21 @@ fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::Item
     v.destroyed_on_use |= s.destroyed_on_use.contains(&t.description.package);
     // A treasure item's own least level and Arcane Lore, and a treasure potion's own effect and
     // name.
-    if let Some(l) = t.own.min_level {
-        v.min_level = l;
-    }
-    if let Some(l) = t.own.arcane_lore {
-        v.arcane_lore = l;
+    if let Some(kind) = crate::craft::totem::noun(t.template) {
+        // A totem's own least level and Arcane Lore are its target's.
+        v.totem = Some(profile::TotemView {
+            kind,
+            least_level: t.own.min_level,
+            least_lore: t.own.arcane_lore,
+        });
+        v.destroyed_on_use = true;
+    } else {
+        if let Some(l) = t.own.min_level {
+            v.min_level = l;
+        }
+        if let Some(l) = t.own.arcane_lore {
+            v.arcane_lore = l;
+        }
     }
     if let Some(e) = t.own.effect {
         let shown = s

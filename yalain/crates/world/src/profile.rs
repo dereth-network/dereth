@@ -834,6 +834,12 @@ pub mod item_line {
     pub const HARMONIC: u32 = 0xA0CE_495E;
     /// "This item will bind itself to the first player that uses it in combat. ..."
     pub const BINDS: u32 = 0x1BB0_CDB6;
+    /// "{The} {totem} has been imbued by a spellbinder and can be used to enchant {a} {kind}."
+    pub const TOTEM_IMBUED: u32 = 0xD937_4C67;
+    /// "The target item must have a minimum level of at least {}."
+    pub const TOTEM_LEVEL: u32 = 0xFAC7_2EC9;
+    /// "The target item must have an arcane lore of at least {}."
+    pub const TOTEM_LORE: u32 = 0xB873_5FB6;
     /// "Permanent Enchantment Effect(s):"
     pub const EFFECTS_PERMANENT: u32 = 0xF397_0BCA;
     /// "Amount: ", and its value.
@@ -882,6 +888,10 @@ pub mod item_line {
 
 /// The variables of item lines.
 pub mod item_var {
+    /// What a totem's enchantment goes on.
+    pub const TOTEM_KIND: u32 = 0x9352_2CD0;
+    /// The least a totem's target may have.
+    pub const LEAST: u32 = 0xA516_8800;
     pub const VALUE: u32 = 0x0D06_6558;
     /// The player who inscribed it.
     pub const INSCRIBER: u32 = 0x77D6_A489;
@@ -1146,6 +1156,16 @@ pub struct ItemView {
     /// Its own effects change its damage, its vigor cost: those lines are drawn as enchanted.
     pub damage_changed: bool,
     pub vigor_changed: bool,
+    /// It is a totem: what it goes on, and the least level and Arcane Lore its target must have.
+    pub totem: Option<TotemView>,
+}
+
+/// What a totem says of what it may enchant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TotemView {
+    pub kind: u32,
+    pub least_level: Option<i32>,
+    pub least_lore: Option<i32>,
 }
 
 impl ItemView {
@@ -1479,6 +1499,7 @@ pub fn item(asked: u32, v: &ItemView) -> Profile {
             }
         }
     }
+    totem_lines(&mut p, v);
     effect_lines(&mut p, v);
     if v.destroyed_on_use {
         p.brk(REQUIREMENTS);
@@ -1620,6 +1641,35 @@ pub fn item(asked: u32, v: &ItemView) -> Profile {
         inscription_lines(&mut p, said, by);
     }
     p
+}
+
+/// What a totem says of what it may enchant: the line naming it, each least its target must have.
+fn totem_lines(p: &mut Profile, v: &ItemView) {
+    use item_line as l;
+    let Some(t) = v.totem else {
+        return;
+    };
+    let mut vars = vec![nested(item_var::TOTEM_KIND, string(line::TABLE, t.kind))];
+    if let Some(name) = &v.name {
+        vars.push(nested(item_var::RACE, name.clone()));
+    }
+    p.text(
+        STATS,
+        look::LABEL,
+        with_vars(line::TABLE, l::TOTEM_IMBUED, vars),
+    );
+    p.brk(STATS);
+    for (id, least) in [
+        (l::TOTEM_LEVEL, t.least_level),
+        (l::TOTEM_LORE, t.least_lore),
+    ] {
+        if let Some(least) = least {
+            let least = number(item_var::LEAST, least.max(0).cast_unsigned());
+            p.text(STATS, look::LABEL, with_vars(line::TABLE, id, vec![least]));
+            p.brk(STATS);
+        }
+    }
+    p.brk(STATS);
 }
 
 /// An item's effects on their tab, by when they apply: a heading with how many, then each

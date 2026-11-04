@@ -37,7 +37,9 @@
 //!
 //! **Spellbinding** takes an item apart into a totem: a success makes a totem of the item's kind
 //! (2017: 13 of 13), the failures of its check nothing, and both use up what the outcome says. The
-//! totem holds nothing yet: treasure here carries no enchantment for it to take.
+//! totem holds the item's first enchantment, and asks of what it goes on the item's own least level
+//! and Arcane Lore (2017: 41 totems, one enchantment each). An item with none is refused. Which
+//! enchantment of several is our choice.
 //!
 //! **Dyeing** gives a piece of armor the color of a dye plant: three of its appearance modifiers
 //! take the plant's value, in the pack and on whoever wears it (2017: 32 of 32 by the armor's next
@@ -327,6 +329,17 @@ pub mod totem {
     pub const WEAPON: u32 = 0x4700_0CCB;
     pub const SHIELD: u32 = 0x4700_0CC9;
     pub const ARMOR: u32 = 0x4700_0CC7;
+
+    /// What a totem of a template says it goes on: the word for it. None for any other template.
+    #[must_use]
+    pub const fn noun(template: u32) -> Option<u32> {
+        match template {
+            WEAPON => Some(0xEE40_CD5E),
+            SHIELD => Some(0x3B28_4FFE),
+            ARMOR => Some(0xCED7_169A),
+            _ => None,
+        }
+    }
 }
 
 /// The script packages whose recipes bind an item's enchantments into a totem, and whose recipes
@@ -1726,6 +1739,13 @@ fn check_slots<S: Store>(
     if slots.len() != def.ingredients_at(spinner).count() {
         return error::INVALID_INGREDIENTS;
     }
+    // Spellbinding takes an enchantment: an item with none is refused.
+    if def.custom == Custom::Spellbind {
+        let holds = slots.first().and_then(|(_, item)| s.things.get(*item));
+        if holds.is_none_or(|t| t.enchantments.is_empty() && t.bonuses.is_empty()) {
+            return error::INVALID_INGREDIENTS;
+        }
+    }
     // One stack may fill two slots only with enough of it for both.
     let mut wanted: Vec<(u64, u64)> = Vec::new();
     for ing in def.ingredients_at(spinner) {
@@ -2486,16 +2506,153 @@ fn dye<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, slots: &
 
 /// Spellbinding: a totem of the kind of the item taken apart, in the pack, made by the player.
 fn spellbind<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, item: u64) {
+    let Some(kind) = totem_of(s, item) else {
+        return;
+    };
+    let Some(source) = s.things.get(item) else {
+        return;
+    };
+    let on_itself = source.enchantments.first().copied();
+    let on_wearer = source.bonuses.first().copied();
+    let (least_level, lore) = (source.own.min_level, source.own.arcane_lore);
+    let Some(id) = crate::inventory::give_made(s, net, world, kind, 1) else {
+        return;
+    };
+    if let Some(t) = s.things.get_mut(id) {
+        t.own.min_level = least_level;
+        t.own.arcane_lore = lore;
+        t.own.made = Some(crate::made::Made::default());
+        t.enchantments.extend(on_itself);
+        if on_itself.is_none() {
+            t.bonuses.extend(on_wearer);
+        }
+    }
+    crate::world::keep_player(s, world);
+}
+
+/// The totem an item taken apart makes, by what it is.
+fn totem_of<S: Store>(s: &Server<S>, item: u64) -> Option<u32> {
     let template = s.things.get(item).map(|t| t.template);
     let props = template.and_then(|t| s.catalog.get(t)).map(|t| &t.props);
     let is_weapon = props.is_some_and(|p| p.int("Weapon_Damage").is_some());
     let is_armor = props.is_some_and(|p| p.int("Item_ArmorLevel").is_some());
-    let kind = match (is_weapon, is_armor) {
+    Some(match (is_weapon, is_armor) {
         (true, true) => totem::SHIELD,
         (true, false) => totem::WEAPON,
         (false, _) => totem::ARMOR,
+    })
+}
+
+/// A totem used on an item: refused if the item isn't one it goes on, or lacks what it asks; else
+/// the item holds its enchantment, in a slot it had free, in place of a weaker of the same class,
+/// and the totem is gone (2017: 2 uses, each answered as spent; asked with no target, 4 of 4 went
+/// unanswered). What it refuses, and how it answers, are our choice.
+pub fn use_totem<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    u: &crate::places::Use,
+) {
+    use crate::item_use::flags;
+    let held = |id: u64| {
+        s.players
+            .get(&world)
+            .is_some_and(|p| p.play.items.iter().any(|h| h.id == id))
     };
-    crate::inventory::give(s, net, world, kind, 1);
+    if !held(u.item) || u.target == 0 {
+        return;
+    }
+    let answer = if held(u.target) && enchant_from_totem(s, u.item, u.target) {
+        use_up(s, net, world, u.item, 1);
+        crate::places::use_answer_on(u, flags::PLAYED | flags::SPENT, 0.0, 0)
+    } else {
+        crate::places::use_answer_on(u, flags::PLAYED, 0.0, error::INVALID_INGREDIENTS)
+    };
+    progress::private(net, world, &answer);
+    crate::world::keep_player(s, world);
+}
+
+/// Put a totem's enchantment on an item, if the item may take it. Returns whether it did.
+fn enchant_from_totem<S: Store>(s: &mut Server<S>, from: u64, on: u64) -> bool {
+    let Some(t) = s.things.get(from) else {
+        return false;
+    };
+    let (ask_level, ask_lore) = (t.own.min_level.unwrap_or(0), t.own.arcane_lore.unwrap_or(0));
+    let totem_template = t.template;
+    let on_wearer = t.bonuses.first().copied();
+    let Some((state, spellcraft)) = t.enchantments.first().copied().or(on_wearer) else {
+        return false;
+    };
+    let Some(target) = s.things.get(on) else {
+        return false;
+    };
+    if totem_of(s, on) != Some(totem_template) || totem::noun(target.template).is_some() {
+        return false;
+    }
+    let of_template = |name: &str| {
+        s.catalog
+            .get(target.template)
+            .and_then(|t| t.props.int(name))
+            .and_then(|v| i32::try_from(v).ok())
+    };
+    let level = target
+        .own
+        .min_level
+        .or_else(|| of_template("Usage_MinLevel"))
+        .unwrap_or(0);
+    let lore = target.own.arcane_lore.unwrap_or(0);
+    let Some(slots) = target.own.made.map(|m| m.slots) else {
+        return false;
+    };
+    if level < ask_level || lore < ask_lore || slots == 0 {
+        return false;
+    }
+    // One of the same class: the stronger stays.
+    let def = s.effect_table.get(state).cloned();
+    let strength = |d: &crate::effect_defs::EffectDef, at: f32| d.priority.at(at).unwrap_or(0.0);
+    let holds: Vec<(u32, f32)> = target
+        .enchantments
+        .iter()
+        .chain(&target.bonuses)
+        .copied()
+        .collect();
+    let mut replaced = None;
+    if let Some(new) = &def {
+        for (old_state, at) in holds {
+            let Some(old) = s.effect_table.get(old_state) else {
+                continue;
+            };
+            if old.eq_class != 0 && old.eq_class == new.eq_class {
+                if strength(old, at) >= strength(new, spellcraft) {
+                    return false;
+                }
+                replaced = Some(old_state);
+            }
+        }
+    }
+    let on_itself = on_wearer.is_none_or(|(w, _)| w != state);
+    let Some(item) = s.things.get_mut(on) else {
+        return false;
+    };
+    if let Some(old) = replaced {
+        item.enchantments.retain(|(x, _)| *x != old);
+        item.bonuses.retain(|(x, _)| *x != old);
+    } else if let Some(m) = item.own.made.as_mut() {
+        m.slots -= 1;
+    }
+    if on_itself {
+        item.enchantments.push((state, spellcraft));
+    } else {
+        item.bonuses.push((state, spellcraft));
+    }
+    let permanent = !matches!(
+        yalain_content::treasure_effects::tier_of(state),
+        Some((yalain_content::treasure_effects::When::Hit, _))
+    );
+    if let (true, Some(d)) = (permanent && on_itself, def) {
+        crate::treasure::apply_numbers(&mut item.own, &d, spellcraft);
+    }
+    true
 }
 
 /// A refining: the units it yields go to the player's stack, a line says how many. What it pays:

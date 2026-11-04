@@ -1540,6 +1540,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.spellbinding-takes-an-enchantment",
+        says: "An item with no enchantment is not taken apart into a totem, and nothing is lost. \
+               Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPELLBINDING-EMPTY"),
+        station: "yalain-testkit::cpu::play::crafting::spellbinding_refuses_an_item_with_no_enchantment",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.spinner-chooses-the-ingredients",
         says: "A recipe with an item-level spinner asks only for the ingredients whose own range holds the value chosen.",
         since: RETAIL,
@@ -1630,6 +1639,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TOOL-WEAR-KEPT"),
         station: "yalain-testkit::cpu::play::butchery::a_worn_knife_keeps_its_durability_across_a_logout",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.totem-enchants-an-item",
+        says: "A totem used on an item of its kind that has a free slot and the level and lore it \
+               asks puts its enchantment on the item and is gone; on anything else it is refused. \
+               Our choice beyond its being used up, which 2 recorded uses show.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TOTEM-USE"),
+        station: "yalain-testkit::cpu::play::crafting::a_totem_used_on_an_item_of_its_kind_enchants_it_and_is_gone",
         tier: Tier::Cpu,
     },
     behaviour! {
