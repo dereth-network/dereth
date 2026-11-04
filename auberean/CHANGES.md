@@ -82,6 +82,7 @@ not how it was done.
 - Tooltips no longer stay after their window closes.
 - Signposts show their wood and words.
 - Fixed shops saying you can't afford everything.
+- Crafting workshops and some other objects now appear.
 
 ## 0.1.2 (2026-11-02)
 

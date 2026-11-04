@@ -658,8 +658,10 @@ pub(crate) fn motion_values(md: &MotionDesc, element: u32, mode: u32) -> Option<
 
 /// What a body of `look` put together as `figure` is for physics: the collision spheres and step
 /// heights of its setup, its scale, and its motion description's values on the ground and in the
-/// air in the figure's mode; and its setup's height.
-pub(crate) fn body_config(
+/// air in the figure's mode, the defaults when it lists none for that mode (a building's mode is
+/// its own); and its setup's height.
+#[must_use]
+pub fn body_config(
     records: &WorldRecords,
     look: &auberean_animation::look::Look,
     figure: &Figure,
@@ -671,9 +673,13 @@ pub(crate) fn body_config(
     } else {
         look.motion_desc.0
     };
-    let md: MotionDesc = records.get(motion)?;
-    let ground = motion_values(&md, EARTH, figure.mode)?;
-    let air = motion_values(&md, AIR, figure.mode).unwrap_or(ground);
+    let md: Option<MotionDesc> = records.get(motion);
+    let values = |element| {
+        md.as_ref()
+            .and_then(|md| motion_values(md, element, figure.mode))
+    };
+    let ground = values(EARTH).unwrap_or_else(auberean_physics::motion::values::default_values);
+    let air = values(AIR).unwrap_or(ground);
     Some((
         BodyConfig {
             spheres: setup_spheres(&setup),

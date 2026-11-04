@@ -228,6 +228,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.every-look-that-makes-a-figure-makes-a-body",
+        says: "Every look of the data that puts a figure together makes a body to stand in the                world, those whose mode their motion description does not list among them: a                town's crafting workshop is drawn and named.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-BODY-MODE-UNLISTED"),
+        station: "auberean-scene::corpus::looks::every_look_that_makes_a_figure_makes_a_body",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "desktop.bodies.recorded-heads-turn-to-the-servers-directions",
         says: "In a recorded 2017 session, every other body near the player has its look sliders at \
                the direction the server last sent for it two thirds of a second after it came.",
