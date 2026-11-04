@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use auberean_assets::entity::Entity;
+use auberean_assets::fx::FxTable;
 use auberean_assets::landblock::{Cell, Landblock, LandblockInfo, LightInfo};
 use auberean_assets::region::{
     DayDesc, FogDesc, GameTime, Landscape, Region, SceneDesc, SkyDesc, SurfaceDesc, TerrainDesc,
@@ -57,6 +58,7 @@ pub struct WorldRecords {
     entities: Mutex<HashMap<u32, Option<Arc<Entity>>>>,
     scenes: Mutex<HashMap<u32, Option<Arc<Scene>>>>,
     appearances: Mutex<HashMap<u32, Option<Arc<Appearance>>>>,
+    fx_tables: Mutex<HashMap<u32, Option<Arc<FxTable>>>>,
     /// Whether each mesh asked about is weighted to bones.
     weighted: Mutex<HashMap<u32, bool>>,
     /// The client's reading of the cell file's records, when it gave one.
@@ -134,6 +136,7 @@ impl WorldRecords {
             entities: Mutex::default(),
             scenes: Mutex::default(),
             appearances: Mutex::default(),
+            fx_tables: Mutex::default(),
             weighted: Mutex::default(),
             cells: RwLock::new(None),
         }
@@ -195,6 +198,19 @@ impl WorldRecords {
         }
         ((id >> 24) == 0x41 && self.highres.as_ref().is_some_and(|h| h.entry(id).is_some()))
             || self.portal.entry(id).is_some()
+    }
+
+    /// Effect table `id`, read once: the bodies' effects look in it every frame.
+    #[must_use]
+    pub fn fx_table(&self, id: u32) -> Option<Arc<FxTable>> {
+        let mut tables = self
+            .fx_tables
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        tables
+            .entry(id)
+            .or_insert_with(|| self.get::<FxTable>(id).map(Arc::new))
+            .clone()
     }
 
     /// Record `id` decoded as `T`, or `None` when it is missing or does not decode.

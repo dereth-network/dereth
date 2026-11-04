@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use auberean_assets::entity::Entity;
-use auberean_assets::fx::{AppearanceKey, FxData, FxNode, FxTable, Particles};
+use auberean_assets::fx::{AppearanceKey, FxData, FxNode, Particles};
 use auberean_primitives::random::Random;
 use auberean_primitives::{DataId, Vec3};
 use auberean_world::color::Color;
@@ -95,7 +95,7 @@ fn collect(records: &WorldRecords, table: u32, effect: u32, depth: usize, out: &
     if depth > MAX_DEPTH {
         return;
     }
-    let Some(t) = records.get::<FxTable>(table) else {
+    let Some(t) = records.fx_table(table) else {
         return;
     };
     if let Some((_, list)) = t.effects.iter().find(|(id, _)| *id == effect) {
