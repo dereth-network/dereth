@@ -36,7 +36,7 @@ pub(crate) fn walls() -> Walls {
     if let Some(list) = records.get::<auberean_assets::property::PropertyList>(0x3400_0000) {
         world.set_property_list(list);
     }
-    let digger = digger_walker(&records);
+    let digger = walker_of(&records, DIGGER);
     let mut w = Walls::new(
         std::sync::Arc::new(Land::new()),
         world,
@@ -49,14 +49,12 @@ pub(crate) fn walls() -> Walls {
 /// The Drudge Digger's template.
 pub(crate) const DIGGER: u32 = 0x4700_23B3;
 
-fn digger_walker(records: &WorldRecords) -> Walker {
-    let describe = yalain_content::describe(
-        DIGGER,
-        &|id| records.get::<auberean_assets::entity::Entity>(id),
-        &|_| None,
-    )
-    .expect("the Digger's description");
-    yalain_world::walls::walker(records, describe.look).expect("the Digger's body")
+/// The body a template gives, passing through what its description says.
+fn walker_of(records: &WorldRecords, template: u32) -> Walker {
+    let description = yalain_testkit::authored::Portal::open()
+        .template(template)
+        .description;
+    yalain_world::walls::walker(records, &description).expect("the body")
 }
 
 /// Is a place inside the interior cell it names?
@@ -324,6 +322,11 @@ fn what_a_world_places_holds_a_creature_up_at_the_size_it_stands() {
 const BARREL: u32 = 0x4700_26C4;
 /// A template with one large sphere for a body.
 const LARGE: u32 = 0x4700_2229;
+/// The creature recorded going through marked scenery, and one recorded held up at scenery.
+const PASSER: u32 = 0x4700_23B9;
+const HELD: u32 = 0x4700_29A5;
+/// A chest the world places.
+const CHEST: u32 = 0x4700_0F30;
 
 /// Walks a creature at a barrel of `scale` from `sides` sides in strides of `stride` meters, from
 /// 4 m off the place it stands to as far beyond it, and returns the farthest any stride put it back
@@ -375,14 +378,7 @@ fn a_creature_held_up_at_what_a_world_places_is_not_put_back() {
 /// Behaviour: server.creatures.held-up-not-put-back
 #[test]
 fn a_body_held_where_a_placement_would_refuse_it_stays_where_it_is() {
-    let records = records();
-    let describe = yalain_content::describe(
-        LARGE,
-        &|id| records.get::<auberean_assets::entity::Entity>(id),
-        &|_| None,
-    )
-    .expect("the description");
-    let body = yalain_world::walls::walker(&records, describe.look).expect("the body");
+    let body = walker_of(&records(), LARGE);
     let mut w = walls();
     w.walkers.insert(LARGE, body);
     let (cx, cy, z) = (96.6244, 141.5138, 190.505);
@@ -492,6 +488,82 @@ fn where_a_creature_stopped_holds_no_other_up() {
         other.origin,
         stopped.origin
     );
+}
+
+/// Takes a creature of `template` in strides of a meter straight from `from` toward `(x, y)`, up
+/// to 30 strides, and tells how near it got on the ground.
+fn left_of_a_walk(w: &mut Walls, template: u32, from: StoredPosition, x: f32, y: f32) -> f32 {
+    let mut at = from;
+    let left = |at: &StoredPosition| {
+        let (dx, dy) = (x - at.origin[0], y - at.origin[1]);
+        (dx * dx + dy * dy).sqrt()
+    };
+    for _ in 0..30 {
+        let len = left(&at);
+        if len < 0.2 {
+            break;
+        }
+        let go = len.min(1.0);
+        let d = [(x - at.origin[0]) / len * go, (y - at.origin[1]) / len * go];
+        at = w.step(template, 1.0, &at, d).expect("placed").at;
+    }
+    left(&at)
+}
+
+/// A creature goes through what the world marks for creatures to pass, along the very way a
+/// recorded one went: its template's description names that mark among what it passes through.
+/// Behaviour: server.creatures.pass-what-creatures-pass
+#[test]
+fn a_creature_goes_through_scenery_marked_for_creatures_to_pass() {
+    let records = records();
+    let mut w = walls();
+    w.walkers.insert(PASSER, walker_of(&records, PASSER));
+    let from = StoredPosition {
+        cell: yalain_world::spawn::outdoor(0x7D93, 69.8, 56.1).0,
+        origin: [69.8, 56.1, 127.49],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let left = left_of_a_walk(&mut w, PASSER, from, 78.8, 63.9);
+    assert!(left < 0.5, "it went through, {left} m short");
+}
+
+/// A creature's body passes no more than its description says: what is not marked holds it up,
+/// scenery and what a world places alike, a chest among them.
+/// Behaviour: server.creatures.pass-what-creatures-pass
+#[test]
+fn a_creature_is_still_held_up_by_what_is_not_marked() {
+    let records = records();
+    let mut w = walls();
+    w.walkers.insert(HELD, walker_of(&records, HELD));
+    let from = StoredPosition {
+        cell: yalain_world::spawn::outdoor(0x6868, 15.75, 80.3).0,
+        origin: [15.75, 80.3, 94.25],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let left = left_of_a_walk(&mut w, HELD, from, 15.75, 85.3);
+    assert!(left > 0.5, "held up at the scenery, {left} m short");
+
+    let chest = yalain_testkit::authored::Portal::open().template(CHEST);
+    let mut w = walls();
+    w.set_standing(vec![Standing {
+        id: 0x4000_0000_0000_0001,
+        template: CHEST,
+        look: chest.description.look,
+        scale: 1.0,
+        at: StoredPosition {
+            cell: yalain_world::spawn::outdoor(0x6FA9, 45.24, 94.51).0,
+            origin: [45.24, 94.51, 85.26],
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        },
+        ethereality: yalain_world::walls::ethereality_of(&chest.description),
+    }]);
+    let from = StoredPosition {
+        cell: yalain_world::spawn::outdoor(0x6FA9, 45.24, 90.51).0,
+        origin: [45.24, 90.51, 85.26],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let left = left_of_a_walk(&mut w, DIGGER, from, 45.24, 94.51);
+    assert!(left > 0.5, "held up at the chest, {left} m short");
 }
 
 /// A creature running straight at what it cannot climb stands where it met it, step after step;

@@ -2122,6 +2122,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.pass-what-creatures-pass",
+        says: "A creature's body passes through what its description says, as the client's objects \
+               do: scenery marked for creatures to pass and any new mover's type, and no more.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-MASK"),
+        station: "yalain-testkit::dat::walls::a_creature_goes_through_scenery_marked_for_creatures_to_pass",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.creatures.patrol-returns-to-nearest-waypoint",
         says: "A creature on a route that gives up a fight runs back to the route's nearest \
                waypoint, not to where its camp made it, and carries on along the route from there.",

@@ -1068,12 +1068,7 @@ fn walkers(
     catalog
         .templates
         .values()
-        .filter_map(|t| {
-            Some((
-                t.id,
-                yalain_world::walls::walker(records, t.description.look)?,
-            ))
-        })
+        .filter_map(|t| Some((t.id, yalain_world::walls::walker(records, &t.description)?)))
         .collect()
 }
 

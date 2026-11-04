@@ -154,17 +154,34 @@ impl Blocks for RecordBlocks {
             },
         );
         world.set_scale(key, whole);
-        world.set_ethereality(key, row.ethereality);
         let lookup = |id: u32| self.records.entity(DataId(id));
         world.apply_entity_properties(key, row.template, &lookup);
+        // The description has the last word on what it is, whatever its entities' properties said.
+        world.set_ethereality(key, row.ethereality);
         // Filed again by the box of its whole size.
         world.place(land, key, at);
         Some(key)
     }
 }
 
+/// What a thing's description says it is and passes through.
+#[must_use]
+pub fn ethereality_of(description: &yalain_content::Description) -> Ethereality {
+    let w = crate::player::weenie_with_numbers(
+        auberean_protocol::types::WeenieDesc::default(),
+        description.numbers,
+    );
+    Ethereality::of_numbers(|bit| {
+        auberean_protocol::types::WeenieDesc::NUMBER_BITS
+            .iter()
+            .position(|b| *b == bit)
+            .filter(|_| w.mask & bit != 0)
+            .map(|i| w.numbers[i])
+    })
+}
+
 /// A body as the walls meet it: its setup's collision spheres and step heights, at its look's
-/// scale.
+/// scale, and what it is and passes through.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Walker {
     /// Center (x, y, z) and radius of each sphere, unscaled.
@@ -172,6 +189,9 @@ pub struct Walker {
     pub step_up: f32,
     pub step_down: f32,
     pub scale: f32,
+    /// What its description says it is and passes through; none for a body known by its size
+    /// alone, which passes through what any new mover does.
+    pub ethereality: Option<Ethereality>,
 }
 
 impl Walker {
@@ -186,16 +206,18 @@ impl Walker {
             step_up: (height * 0.25).max(0.2),
             step_down: (height * 0.25).max(0.2),
             scale: 1.0,
+            ethereality: None,
         }
     }
 }
 
-/// The body a look gives: its setup's first two collision spheres and its step heights, at the
-/// look's scale; none for a look with no setup or a setup with no spheres.
+/// The body a description gives: its look's setup's first two collision spheres and its step
+/// heights, at the look's scale, passing through what the description says; none for a look with no
+/// setup or a setup with no spheres.
 #[must_use]
-pub fn walker(records: &WorldRecords, look: u32) -> Option<Walker> {
+pub fn walker(records: &WorldRecords, description: &yalain_content::Description) -> Option<Walker> {
     let visual = |did: u32| records.visual(DataId(did)).map(|v| (*v).clone());
-    let (setup, scale) = yalain_content::look_setup(look, &visual)?;
+    let (setup, scale) = yalain_content::look_setup(description.look, &visual)?;
     let s = records.setup(DataId(setup))?;
     let spheres: Vec<[f32; 4]> = s
         .spheres
@@ -208,6 +230,7 @@ pub fn walker(records: &WorldRecords, look: u32) -> Option<Walker> {
         step_up: s.step_up_height,
         step_down: s.step_down_height,
         scale,
+        ethereality: Some(ethereality_of(description)),
     })
 }
 
@@ -515,6 +538,7 @@ impl Walls {
         let heading = math::atan2f(d[0], d[1]).to_degrees().rem_euclid(360.0);
         let key = (template, scale.to_bits());
         let walker = self.walkers.get(&template).cloned();
+        let (land, world) = (&self.land, &mut self.world);
         let body = self.bodies.entry(key).or_insert_with(|| {
             let w = walker.unwrap_or_else(|| Walker::of_size(ANY_WALKER.0, ANY_WALKER.1));
             let config = BodyConfig {
@@ -531,6 +555,10 @@ impl Walls {
             };
             let mut b = Body::new(config, position(from, heading), heading);
             b.is_player = false;
+            let entry = world.insert_body(land, 0, &mut b);
+            if let Some(e) = w.ethereality {
+                world.set_ethereality(entry, e);
+            }
             b
         });
         let start = position(from, heading);

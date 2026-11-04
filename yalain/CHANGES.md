@@ -160,6 +160,7 @@ what they see, not how it was done.
 - Plan B and Immolation now burn whoever casts harmful effects on their holder.
 - Fixed creatures jumping back when something held them up.
 - Fixed creatures stopping at nothing where another creature had stood.
+- Creatures now pass through scenery marked for them.
 
 ## 0.1.2 (2026-11-03)
 

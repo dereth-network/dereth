@@ -1036,29 +1036,17 @@ pub fn walls_standing<S: Store>(s: &Server<S>) -> Vec<walls::Standing> {
         .filter(|(i, _)| {
             usable::doors::door(s, presence::content_id(&s.content.objects, *i)).is_none()
         })
-        .map(|(i, o)| {
-            let w = player::weenie_with_numbers(
-                auberean_protocol::types::WeenieDesc::default(),
-                o.description.numbers,
-            );
-            walls::Standing {
-                id: presence::content_id(&s.content.objects, i),
-                template: o.template,
-                look: o.description.look,
-                scale: o.description.scale.unwrap_or(1.0),
-                at: yalain_store::StoredPosition {
-                    cell: o.cell,
-                    origin: o.origin,
-                    rotation: o.rotation,
-                },
-                ethereality: auberean_physics::solid::Ethereality::of_numbers(|bit| {
-                    auberean_protocol::types::WeenieDesc::NUMBER_BITS
-                        .iter()
-                        .position(|b| *b == bit)
-                        .filter(|_| w.mask & bit != 0)
-                        .map(|i| w.numbers[i])
-                }),
-            }
+        .map(|(i, o)| walls::Standing {
+            id: presence::content_id(&s.content.objects, i),
+            template: o.template,
+            look: o.description.look,
+            scale: o.description.scale.unwrap_or(1.0),
+            at: yalain_store::StoredPosition {
+                cell: o.cell,
+                origin: o.origin,
+                rotation: o.rotation,
+            },
+            ethereality: walls::ethereality_of(&o.description),
         })
         .collect()
 }
