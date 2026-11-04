@@ -15,6 +15,7 @@
 //! turning this frame), and the body's instance, teleport, forced-position and move-to stamps.
 
 use auberean_client_contract::Motion;
+use auberean_physics::geom::Heading;
 use auberean_primitives::Vec3;
 use auberean_protocol::physics::ClientPosition;
 use dereth_primitives::num::math;
@@ -221,7 +222,7 @@ impl Body {
             || (self.origin.x - last.origin.x).abs() >= EPSILON
             || (self.origin.y - last.origin.y).abs() >= EPSILON
             || (self.origin.z - last.origin.z).abs() >= EPSILON;
-        moved || (self.heading - last.heading).abs() >= EPSILON
+        moved || !Heading::new(self.heading).equals(Heading::new(last.heading))
     }
 
     /// The report, as sent now; the body remembers it.

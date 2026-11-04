@@ -208,6 +208,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.position.a-turn-under-the-heading-tolerance-is-not-reported",
+        says: "A turn smaller than 0.0002 radians, the way round through north included, is no                reason to send a report.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-POSITION-TOLERANCE"),
+        station: "auberean-client-runtime::cpu::world::reports::a_turn_under_the_heading_tolerance_is_not_reported",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.position.recorded-reports-carry-the-stamp-of-the-last-move-ordered",
         says: "The recorded 2017 players' position reports carry the stamp of the last move the \
                server ordered their bodies to make, as this client's do when fed the same messages.",
