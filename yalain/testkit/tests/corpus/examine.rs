@@ -1554,6 +1554,82 @@ fn an_items_icon_takes_what_its_appearance_gives_as_2017() {
     assert!(seen - built <= 6, "icons built: {built} of {seen}");
 }
 
+/// Of the treasure weapons the 2017 servers showed, by level band: how many have an enchantment, as
+/// the counts this server draws from say.
+/// Behaviour: server.loot.treasure-enchantments
+#[test]
+fn treasure_weapons_enchantments_follow_the_counts_this_server_draws_from() {
+    use yalain_content::treasure_effects::WEAPON_COUNTS;
+    let path = auberean_testkit::data::require_capture_index();
+    let con = open(&path);
+    let mut st = con
+        .prepare(
+            "SELECT m.raw FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.status = 'ac2' \
+             AND m.dir = 's2c' AND m.mtype = 65638",
+        )
+        .expect("prepares");
+    let mut rows = st.query([]).expect("runs");
+    let mut seen = std::collections::HashSet::new();
+    let mut bands = [[0usize; 2]; 6];
+    while let Some(r) = rows.next().expect("a row") {
+        let raw: Vec<u8> = r.get(0).expect("raw");
+        let Ok(ServerMessage::PlayerCall(c)) = ServerMessage::decode(&raw) else {
+            continue;
+        };
+        if c.function.0 != profile::EXAMINATION_PROFILE {
+            continue;
+        }
+        let v = calls::values(&c.args.map(|a| a.0).unwrap_or_default()).unwrap_or_default();
+        let Some(Node::Native { bytes, .. }) = v.first().and_then(Value::root) else {
+            continue;
+        };
+        let req = profile::read_request(bytes);
+        if req.kind != profile::request::OBJECT {
+            continue;
+        }
+        let strings = strings_in(bytes, 20);
+        let weapon = !strings.iter().any(|x| {
+            [
+                profile::item_line::CRAFTED_BY,
+                profile::item_line::SHIELD_RATING,
+                profile::item_line::ARMOR_RATING,
+            ]
+            .contains(x)
+        });
+        let (Some(_), Some(level), true) = (
+            damage_in(bytes, 20),
+            stat_in(bytes, 20, profile::line::MINIMUM_LEVEL),
+            weapon,
+        ) else {
+            continue;
+        };
+        if !seen.insert(req.object) {
+            continue;
+        }
+        let band = match level {
+            ..=9 => 0,
+            10..=19 => 1,
+            20..=29 => 2,
+            30..=39 => 3,
+            40..=49 => 4,
+            _ => 5,
+        };
+        bands[band][0] += 1;
+        bands[band][1] += usize::from(strings.contains(&profile::item_line::EFFECT_NAME));
+    }
+    println!("weapons with an enchantment by band: {bands:?}");
+    for (band, [all, some]) in bands.iter().enumerate() {
+        assert!(*all > 50, "{bands:?}");
+        let c = WEAPON_COUNTS[band];
+        #[allow(clippy::cast_precision_loss)]
+        let theirs = *some as f32 / *all as f32;
+        let ours = (c[1] + c[2] + c[3]) / (c[0] + c[1] + c[2] + c[3]);
+        // Items with no value of their own count here and not in the counts, so a tenth either way.
+        assert!((theirs - ours).abs() < 0.1, "{band}: {theirs} {ours}");
+    }
+}
+
 /// Treasure items of the templates known to draw their look, as the 2017 servers made them in
 /// corpses: the same table and keys, the values within what each key draws.
 /// Behaviour: server.loot.treasure-look-drawn

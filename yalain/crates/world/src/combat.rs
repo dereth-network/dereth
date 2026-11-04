@@ -1028,6 +1028,9 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, l: Landing, clock
         return;
     };
     let hurts = alive && l.outcome.landed() && l.damage > 0;
+    if hurts && other.is_none() {
+        crate::treasure::on_hit(s, net, l.world, l.target, clock);
+    }
     if l.thrown {
         let hooks = if alive {
             let extra = if l.index > 0 {

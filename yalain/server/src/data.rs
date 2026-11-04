@@ -1262,6 +1262,25 @@ mod tests {
             .contains_key(&yalain_world::inventory::POTION_COLOR.0));
     }
 
+    /// Every enchantment treasure may carry, and what it puts on what it hits, reads from the data
+    /// files, and what an item shows of it has a name.
+    /// Behaviour: server.loot.treasure-enchantments
+    #[test]
+    fn the_enchantments_treasure_draws_read_from_the_data_files() {
+        use yalain_content::treasure_effects::{states, tier_of};
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new()).expect("a context");
+        let wanted: Vec<u32> = states().collect();
+        let table = effect_table(&p, &wanted).expect("the table");
+        for s in &wanted {
+            let d = table.get(*s);
+            assert!(d.is_some(), "{s:08x} reads");
+            if tier_of(*s).is_some() {
+                assert!(d.is_some_and(|d| d.name.is_some()), "{s:08x} has a name");
+            }
+        }
+    }
+
     /// The files served to clients are the ones the start read, not opened again; and a record the
     /// tables ask for again is not read again.
     /// Behaviour: server.operator.start-shares-the-open-files

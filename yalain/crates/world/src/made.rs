@@ -39,6 +39,9 @@ pub mod stat {
     pub const DAMAGE: u32 = 0x4_0258;
     pub const SPAN: u32 = 0x3_03E8;
     pub const VIGOR: u32 = 0x4_0261;
+    pub const COMBAT_DELAY: u32 = 0x4_0259;
+    pub const ARMOR: u32 = 0x4_0262;
+    pub const LEAST_LEVEL: u32 = 0x4_02BC;
 }
 
 /// The tables through which a mutation makes a tool: a gathering tool's, reading the craft skill it
@@ -399,8 +402,16 @@ pub fn show<S: yalain_store::Store>(
             .filter_map(|(state, sc)| effect_shown(s.effect_table.get(*state)?, when, *sc))
             .collect()
     };
-    let mut effects = of(&t.enchantments, When::Permanent);
+    let on_hit = |(state, _): &(u32, f32)| {
+        matches!(
+            yalain_content::treasure_effects::tier_of(*state),
+            Some((yalain_content::treasure_effects::When::Hit, _))
+        )
+    };
+    let (hits, kept): (Vec<_>, Vec<_>) = t.enchantments.iter().copied().partition(on_hit);
+    let mut effects = of(&kept, When::Permanent);
     effects.extend(of(&t.bonuses, When::Equipped));
+    effects.extend(of(&hits, When::Hit));
     v.effects.extend(effects);
 }
 

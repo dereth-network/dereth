@@ -4447,6 +4447,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-effect-on-hit",
+        says: "What a treasure weapon puts on what it hits comes on by that effect's own chance as \
+               its hits land. Our choice where a hit reads it; the chance is the effect's.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-ON-HIT"),
+        station: "yalain-testkit::cpu::play::fights::a_weapons_effect_on_a_hit_goes_on_what_it_hits",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.treasure-enchantments",
+        says: "A treasure weapon, shield or piece of armor may draw enchantments: how many by its \
+               sort and level, each family by how often 2017 showed it, a family of five at the tier \
+               of its level. One on the item itself changes its numbers; a weapon glows as its \
+               first says. Our choice, a fit to the recorded items.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-ENCHANT"),
+        station: "yalain-testkit::cpu::play::fights::an_items_enchantments_follow_its_sort_and_level",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.treasure-look-drawn",
         says: "A treasure item of a template seen to draw its look draws values for its look's \
                appearance keys as it drops: a weapon's glow, a piece of armor's colors. They color it, \

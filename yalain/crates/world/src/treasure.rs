@@ -18,7 +18,10 @@
 //! **Its numbers.** A template's damage and armor are placeholders, so a treasure weapon, shield or
 //! piece of armor gets its own by its item level (its least level, or its dropper's base from level
 //! 50 on), near what a made one has there: see [`numbers`]. The curves are fit to the recorded items,
-//! not known. It gets no enchantments.
+//! not known.
+//!
+//! **Its enchantments.** It may draw some by its level: see [`enchantments`]. Each is cast at one
+//! below its item level. An effect on what it hits lands by that effect's own chance.
 //!
 //! **A treasure potion** is drunk for one effect of its own: one of nine kinds (attack speed, damage
 //! reflected, health over time, health regained, greatest health, greatest vigor, run speed, vigor
@@ -351,6 +354,155 @@ pub fn draw_look(rng: &mut Rng, template: u32) -> Option<Look> {
     })
 }
 
+/// The band of level the counts of an item's enchantments go by.
+const fn count_band(level: i32) -> usize {
+    match level {
+        ..=9 => 0,
+        10..=19 => 1,
+        20..=29 => 2,
+        30..=39 => 3,
+        40..=49 => 4,
+        _ => 5,
+    }
+}
+
+/// The sorts of item that draw enchantments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sort {
+    Weapon,
+    Armor,
+    Shield,
+}
+
+/// What a treasure item draws of enchantments at an item level. How many goes by its sort and level
+/// band (2017: a weapon had one 16 in a hundred up to level 9, 32 at 50; two or more only from 20; a
+/// piece of armor nearly always one, 16 to 34 in a hundred; a shield one, 9 to 22). Which: a family
+/// by how often 2017 showed it, none twice; in a family of five the tier of the level by the same
+/// bands as potions (2017: 256 of 268 of the weapons' effects), in any other one it reaches, evenly.
+/// Fit to the recorded profiles, so our choice; a fifth of the effects 2017 showed, the rarest, are
+/// left out.
+pub fn enchantments(
+    rng: &mut Rng,
+    sort: Sort,
+    level: i32,
+) -> Vec<(
+    yalain_content::treasure_effects::When,
+    yalain_content::treasure_effects::Tier,
+)> {
+    use yalain_content::treasure_effects as t;
+    let (counts, families) = match sort {
+        Sort::Weapon => (&t::WEAPON_COUNTS, t::WEAPON_FAMILIES),
+        Sort::Armor => (&t::ARMOR_COUNTS, t::ARMOR_FAMILIES),
+        Sort::Shield => (&t::SHIELD_COUNTS, t::SHIELD_FAMILIES),
+    };
+    let how_many = rng
+        .weighted(counts[count_band(level)].iter().copied())
+        .unwrap_or(0);
+    let mut open: Vec<&t::Family> = families
+        .iter()
+        .filter(|f| f.tiers.iter().any(|x| x.least <= level))
+        .collect();
+    let mut out = Vec::new();
+    for _ in 0..how_many {
+        let Some(i) = rng.weighted(open.iter().map(|f| f.weight)) else {
+            break;
+        };
+        let f = open.swap_remove(i);
+        let reached: Vec<&t::Tier> = f.tiers.iter().filter(|x| x.least <= level).collect();
+        let tier = if f.by_level {
+            reached.last().copied()
+        } else {
+            reached.get(rng.below(reached.len())).copied()
+        };
+        if let Some(tier) = tier {
+            out.push((f.when, *tier));
+        }
+    }
+    out.sort_by_key(|(when, _)| match when {
+        t::When::Permanent => 0,
+        t::When::Equipped => 1,
+        t::When::Hit => 2,
+    });
+    out
+}
+
+/// What a permanent effect does to an item's numbers (2017: a combat delay reduced to 1 and no
+/// lower; the rest by what the effect says). A weapon's own effects change its numbers as they do a
+/// made one's.
+pub fn apply_numbers(own: &mut Own, def: &crate::effect_defs::EffectDef, spellcraft: f32) {
+    use crate::made::stat;
+    let Some(m) = own.made.as_mut() else {
+        return;
+    };
+    for (which, multiply, by) in def.changes(spellcraft) {
+        if multiply {
+            continue;
+        }
+        let by = dereth_primitives::num::to_i32(by.round());
+        match which {
+            stat::DAMAGE => {
+                if let Some(d) = m.damage.as_mut() {
+                    d.0 = (d.0 + by).max(1);
+                    m.damage_changed = true;
+                }
+            }
+            stat::VIGOR => {
+                if let Some(v) = m.vigor.as_mut() {
+                    *v = (*v + by).max(1);
+                    m.vigor_changed = true;
+                }
+            }
+            stat::COMBAT_DELAY => m.delay = m.delay.map(|d| (d + by).max(1)),
+            stat::ARMOR => m.armor = m.armor.map(|a| (a + by).max(1)),
+            stat::LEAST_LEVEL => own.min_level = own.min_level.map(|l| (l + by).max(1)),
+            _ => {}
+        }
+    }
+}
+
+/// A hit lands: each effect the striker's weapon puts on what it hits, by that effect's own chance.
+pub fn on_hit<S: yalain_store::Store>(
+    s: &mut crate::Server<S>,
+    net: &mut yalain_net::ServerNet,
+    world: yalain_net::ConnId,
+    target: u64,
+    clock: crate::Clock,
+) {
+    use yalain_content::treasure_effects as t;
+    let Some(me) = s.players.get(&world).map(|p| p.character) else {
+        return;
+    };
+    let Some(weapon) = crate::skill_use::wielded(s, me).first().map(|(i, _)| *i) else {
+        return;
+    };
+    let list = s
+        .things
+        .get(weapon)
+        .map(|w| w.enchantments.clone())
+        .unwrap_or_default();
+    for (state, spellcraft) in list {
+        let Some((t::When::Hit, tier)) = t::tier_of(state) else {
+            continue;
+        };
+        if s.rng.chance(tier.chance) {
+            crate::effects::apply_on(
+                s,
+                net,
+                crate::effects::On::Creature(target),
+                tier.puts_on,
+                crate::effects::Cast {
+                    caster: me,
+                    spellcraft,
+                    pk: true,
+                    item: weapon,
+                    ..crate::effects::Cast::default()
+                },
+                clock,
+            );
+        }
+    }
+}
+
 /// The highest least level an item's own may be.
 pub const MOST_LEVEL: i32 = 50;
 
@@ -464,7 +616,20 @@ pub fn endow<S: yalain_store::Store>(
             let value = s.things.get(item).map_or(0, |t| t.value);
             if let Some(t) = s.catalog.get(template) {
                 let props = t.props.clone();
-                own.made = numbers(&mut s.rng, &props, least.max(base), value);
+                let item_level = least.max(base);
+                own.made = numbers(&mut s.rng, &props, item_level, value);
+                let sort = match (
+                    props.int("Weapon_Damage").is_some(),
+                    props.int("Item_ArmorLevel").is_some(),
+                ) {
+                    (true, true) => Some(Sort::Shield),
+                    (true, false) => Some(Sort::Weapon),
+                    (false, true) => Some(Sort::Armor),
+                    (false, false) => None,
+                };
+                if let Some(sort) = sort {
+                    put_enchantments(s, item, &mut own, sort, item_level);
+                }
             }
         }
     } else if s.treasure.potions.contains(&package) {
@@ -480,5 +645,47 @@ pub fn endow<S: yalain_store::Store>(
     }
     if let Some(t) = s.things.get_mut(item) {
         t.own = own;
+    }
+}
+
+/// An item's enchantments drawn at its item level: kept with it, its numbers changed by those on it
+/// always, and a weapon's glow the first of them that has one (2017: 149 of 162 weapons).
+fn put_enchantments<S: yalain_store::Store>(
+    s: &mut crate::Server<S>,
+    item: u64,
+    own: &mut Own,
+    sort: Sort,
+    level: i32,
+) {
+    use yalain_content::treasure_effects::When;
+    #[allow(clippy::cast_precision_loss)]
+    let spellcraft = (level - 1).max(1) as f32;
+    let drawn = enchantments(&mut s.rng, sort, level);
+    let mut glow = None;
+    for (when, tier) in &drawn {
+        if *when == When::Permanent {
+            if let Some(d) = s.effect_table.get(tier.state) {
+                apply_numbers(own, d, spellcraft);
+            }
+        }
+        if glow.is_none() && tier.glow > 0.0 {
+            glow = Some(tier.glow);
+        }
+    }
+    if let (Some(glow), Some(look)) = (glow, own.look.as_mut()) {
+        for (key, value) in &mut look.values {
+            if *key == yalain_content::treasure_looks::GLOW {
+                *value = glow;
+            }
+        }
+    }
+    if let Some(t) = s.things.get_mut(item) {
+        for (when, tier) in &drawn {
+            if *when == When::Equipped {
+                t.bonuses.push((tier.state, spellcraft));
+            } else {
+                t.enchantments.push((tier.state, spellcraft));
+            }
+        }
     }
 }

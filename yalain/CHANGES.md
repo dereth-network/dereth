@@ -110,6 +110,7 @@ what they see, not how it was done.
 - A client sending far too many game calls has the excess dropped.
 - Gathering no longer pushes a stack past its limit.
 - Loot now comes in its own colors and glow.
+- Loot weapons, armor and shields can now carry enchantments.
 
 ## 0.1.2 (2026-11-03)
 

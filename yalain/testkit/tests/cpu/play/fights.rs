@@ -542,6 +542,270 @@ fn a_piece_of_armor_draws_its_colors_within_their_keys_and_wears_them() {
     }
 }
 
+/// How many enchantments an item draws goes by its sort and its level; a family of five gives the
+/// tier of the level, and no family comes twice.
+/// Behaviour: server.loot.treasure-enchantments
+#[test]
+fn an_items_enchantments_follow_its_sort_and_level() {
+    use yalain_content::treasure_effects::{self as t, When};
+    use yalain_world::treasure::{enchantments, Sort};
+    let mut rng = yalain_world::rng::Rng::new(11);
+    let share = |rng: &mut yalain_world::rng::Rng, sort: Sort, level: i32| {
+        let draws: Vec<_> = (0..4000).map(|_| enchantments(rng, sort, level)).collect();
+        let some = draws.iter().filter(|d| !d.is_empty()).count();
+        #[allow(clippy::cast_precision_loss)]
+        (some as f32 / 4000.0, draws.iter().map(Vec::len).max())
+    };
+    let (low, most) = share(&mut rng, Sort::Weapon, 5);
+    assert!((0.12..0.21).contains(&low), "{low}");
+    assert_eq!(most, Some(1), "none has two so low");
+    let (high, most) = share(&mut rng, Sort::Weapon, 50);
+    assert!((0.27..0.37).contains(&high), "{high}");
+    assert_eq!(most, Some(3));
+    let (armor, _) = share(&mut rng, Sort::Armor, 50);
+    assert!((0.29..0.39).contains(&armor), "{armor}");
+    let (shield, _) = share(&mut rng, Sort::Shield, 10);
+    assert!((0.04..0.14).contains(&shield), "{shield}");
+    let tiered: Vec<&t::Family> = t::WEAPON_FAMILIES.iter().filter(|f| f.by_level).collect();
+    assert!(tiered.iter().all(|f| f.tiers.len() == 5));
+    let (mut at_ten, mut at_47) = (0, 0);
+    for _ in 0..4000 {
+        for (when, tier) in enchantments(&mut rng, Sort::Weapon, 10) {
+            if let Some(f) = tiered.iter().find(|f| f.tiers.contains(&tier)) {
+                assert_eq!(tier, f.tiers[0], "the first tier at level 10");
+                assert_eq!(when, f.when);
+                at_ten += 1;
+            }
+        }
+        let drawn = enchantments(&mut rng, Sort::Weapon, 47);
+        for (i, (_, tier)) in drawn.iter().enumerate() {
+            let f = t::WEAPON_FAMILIES
+                .iter()
+                .position(|f| f.tiers.contains(tier))
+                .expect("a family");
+            for (_, other) in &drawn[i + 1..] {
+                assert!(
+                    !t::WEAPON_FAMILIES[f].tiers.contains(other),
+                    "no family twice"
+                );
+            }
+            if let Some(f) = tiered.iter().find(|f| f.tiers.contains(tier)) {
+                assert_eq!(*tier, f.tiers[4], "the last tier at level 47");
+                at_47 += 1;
+            }
+        }
+    }
+    assert!(at_ten > 100 && at_47 > 100, "{at_ten} {at_47}");
+    assert_eq!(
+        When::Hit,
+        t::tier_of(t::WEAPON_FAMILIES[0].tiers[0].state)
+            .expect("known")
+            .0
+    );
+}
+
+/// A weapon that draws an enchantment glows as that enchantment says, and carries it to be cast at
+/// one below its level; one on itself changes what it shows.
+/// Behaviour: server.loot.treasure-enchantments
+#[test]
+fn a_weapon_with_an_enchantment_glows_as_it_says() {
+    use yalain_content::treasure_effects::{tier_of, When};
+    use yalain_content::treasure_looks::{GLOW, TREASURE_LOOKS};
+    use yalain_content::{Prop, Props};
+    let (template, ..) = *TREASURE_LOOKS
+        .iter()
+        .find(|(_, _, k)| k[0].0 == GLOW)
+        .expect("a weapon's row");
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let mut props = Props::default();
+    props
+        .set("Weapon_Damage", Prop::Int(10))
+        .set("Weapon_Variance", Prop::Float(0.25));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(template, 0x200, props));
+    h.server.treasure.equipment.insert(0x200);
+    let (mut plain, mut enchanted) = (0, 0);
+    for _ in 0..600 {
+        let item = yalain_world::inventory::make_item(&mut h.server, template, 1, 9).expect("made");
+        yalain_world::treasure::endow(&mut h.server, item, 50, None);
+        let t = h.server.things.get(item).expect("made");
+        let glow = t
+            .own
+            .look
+            .and_then(|l| l.keys().find(|(k, _)| *k == GLOW))
+            .expect("a glow")
+            .1;
+        let of_it: Vec<_> = t
+            .enchantments
+            .iter()
+            .chain(&t.bonuses)
+            .map(|(state, sc)| {
+                assert_eq!(*sc, 49.0, "one below its level");
+                tier_of(*state).expect("a known effect")
+            })
+            .collect();
+        for (when, tier) in &of_it {
+            let on_wearer = t.bonuses.contains(&(tier.state, 49.0));
+            assert_eq!(*when == When::Equipped, on_wearer);
+        }
+        let first = t
+            .enchantments
+            .iter()
+            .chain(&t.bonuses)
+            .filter_map(|(state, _)| tier_of(*state))
+            .map(|(when, tier)| (when != When::Permanent, tier.glow))
+            .filter(|(_, g)| *g > 0.0)
+            .min_by_key(|(later, _)| *later)
+            .map(|(_, g)| g);
+        if let Some(first) = first {
+            enchanted += 1;
+            assert_eq!(glow, first, "the first that gives one");
+        } else {
+            plain += 1;
+            assert!(glow <= yalain_world::treasure::GLOW_DRAW, "{glow}");
+        }
+    }
+    assert!(plain > 300 && enchanted > 60, "{plain} {enchanted}");
+}
+
+/// An effect on the item itself changes the numbers it says: a combat delay no lower than 1.
+/// Behaviour: server.loot.treasure-enchantments
+#[test]
+fn a_permanent_enchantment_changes_the_items_numbers() {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    use yalain_world::made::{stat, Made};
+    use yalain_world::treasure::{apply_numbers, Own};
+    let def = |which: u32, by: f32| EffectDef {
+        state: 1,
+        kind: Kind::Numeric {
+            flags: 0,
+            stats: vec![which],
+            magnitude: Scale(vec![(0.0, by)]),
+        },
+        duration: Scale::default(),
+        priority: Scale::default(),
+        fx: 0,
+        external_flags: 0,
+        internal_flags: 0,
+        enum_value: 0,
+        eq_class: 0,
+        name: None,
+    };
+    let mut own = Own {
+        min_level: Some(20),
+        made: Some(Made {
+            damage: Some((100, 0.25)),
+            armor: Some(10),
+            delay: Some(11),
+            vigor: Some(15),
+            ..Made::default()
+        }),
+        ..Own::default()
+    };
+    apply_numbers(&mut own, &def(stat::COMBAT_DELAY, -10.0), 20.0);
+    apply_numbers(&mut own, &def(stat::COMBAT_DELAY, -10.0), 20.0);
+    apply_numbers(&mut own, &def(stat::VIGOR, -4.0), 20.0);
+    apply_numbers(&mut own, &def(stat::ARMOR, 3.0), 20.0);
+    apply_numbers(&mut own, &def(stat::DAMAGE, 2.0), 20.0);
+    apply_numbers(&mut own, &def(stat::LEAST_LEVEL, -1.0), 20.0);
+    let m = own.made.expect("made");
+    assert_eq!(m.delay, Some(1));
+    assert_eq!(m.vigor, Some(11));
+    assert_eq!(m.armor, Some(13));
+    assert_eq!(m.damage, Some((102, 0.25)));
+    assert_eq!(own.min_level, Some(19));
+}
+
+/// What a weapon puts on what it hits comes on by its own chance as its hits land, and is named on
+/// its profile as an effect on a hit.
+/// Behaviour: server.loot.treasure-effect-on-hit
+#[test]
+fn a_weapons_effect_on_a_hit_goes_on_what_it_hits() {
+    use yalain_content::treasure_effects::WEAPON_FAMILIES;
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    let tier = WEAPON_FAMILIES
+        .iter()
+        .find(|f| f.when == yalain_content::treasure_effects::When::Hit)
+        .expect("a family on a hit")
+        .tiers[0];
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    h.server.levels = levels();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let weapon = h.arm(b, me, STARTER_SWORD);
+    h.server.effect_table.effects.insert(
+        tier.puts_on,
+        EffectDef {
+            state: tier.puts_on,
+            kind: Kind::Other,
+            duration: Scale(vec![(0.0, 600.0)]),
+            priority: Scale::default(),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0,
+            enum_value: 1,
+            eq_class: 1,
+            name: None,
+        },
+    );
+    h.server
+        .things
+        .get_mut(weapon)
+        .expect("held")
+        .enchantments
+        .push((tier.state, 9.0));
+    let beetle = creature_of(&h, b);
+    {
+        let t = h.server.things.get_mut(beetle).expect("the beetle");
+        t.max_health = 1_000_000;
+        t.health = 1_000_000;
+        t.creature
+            .as_mut()
+            .expect("a creature")
+            .stats
+            .natural_damage = 0.0;
+    }
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    let on = |h: &Harness| {
+        h.server
+            .creature_effects
+            .on
+            .get(&beetle)
+            .is_some_and(|v| v.iter().any(|e| e.state == tier.puts_on))
+    };
+    assert!(h.run_until(60_000, on), "it comes on at last");
+    // Named on its profile among what it does on a hit.
+    h.server.effect_table.effects.insert(
+        tier.state,
+        EffectDef {
+            state: tier.state,
+            kind: Kind::Other,
+            duration: Scale::default(),
+            priority: Scale::default(),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 1,
+            enum_value: 2,
+            eq_class: 2,
+            name: Some((1, 2)),
+        },
+    );
+    let t = h.server.things.get_mut(weapon).expect("held");
+    t.own.made = Some(yalain_world::made::Made::default());
+    let t = h.server.things.get(weapon).expect("held");
+    let mut view = yalain_world::profile::ItemView::of(&yalain_content::Props::default(), 1, None);
+    yalain_world::made::show(&h.server, t, &mut view);
+    assert_eq!(view.effects.len(), 1);
+    assert_eq!(view.effects[0].when, yalain_world::profile::When::Hit);
+}
+
 /// Using the corpse opens it: the opener is told what it holds (the beetle's profile always
 /// leaves one item) and of the item; using the item takes it, and once the taking is through the
 /// move is answered and the item is the player's.

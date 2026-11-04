@@ -1741,6 +1741,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         states.extend(worn_effects.values().flatten().map(|e| e.state));
         // The treasure potions' effects, put on when they are drunk.
         states.extend(yalain_world::treasure::POTION_EFFECTS.iter().flatten());
+        // What treasure weapons, armor and shields carry and put on what they hit.
+        states.extend(yalain_content::treasure_effects::states());
         mounts.note_items(&item_uses);
         let effects = data::effect_table(portal, &states)?;
         tracing::info!(
