@@ -4002,6 +4002,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.units-gathered-stay-within-a-stacks-limit",
+        says: "Units gathered fill a player's plain stacks to their template's limit, and the rest \
+               make new stacks, none past it, and none lost. Our choice which fills first.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STACK-LIMIT"),
+        station: "yalain-testkit::cpu::play::stack_numbers::units_gathered_fill_a_stack_to_its_limit_and_the_rest_make_new_stacks",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.wield-keeps-the-packs-order",
         says: "Wielding answers with the item's place in the pack as the client keeps it (the pack's order, closed up behind anything taken out), before the weapon is drawn and the item moves; whatever was in hand goes back to the pack's end first.",
         since: RETAIL,

@@ -108,6 +108,7 @@ what they see, not how it was done.
 - Fixed a traded item sharing a slot when your pack is full.
 - A character with no start place is refused instead of hanging at entry.
 - A client sending far too many game calls has the excess dropped.
+- Gathering no longer pushes a stack past its limit.
 
 ## 0.1.2 (2026-11-03)
 

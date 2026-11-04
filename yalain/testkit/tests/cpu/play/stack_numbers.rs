@@ -182,6 +182,29 @@ fn units_gathered_do_not_join_a_stack_with_its_own_value() {
     assert!(quantities(&h, world).contains(&(plain, 10)), "and it grows");
 }
 
+/// Units gathered fill a stack to its template's limit and the rest make new stacks, none past the
+/// limit, and not a unit is lost.
+/// Behaviour: server.inventory.units-gathered-stay-within-a-stacks-limit
+#[test]
+fn units_gathered_fill_a_stack_to_its_limit_and_the_rest_make_new_stacks() {
+    let (mut h, _, _, world) = player();
+    inventory::give_stacked(&mut h.server, &mut h.net, world, STACKING, 995);
+    let first = quantities(&h, world)[0].0;
+    inventory::give_stacked(&mut h.server, &mut h.net, world, STACKING, 10);
+    let q = quantities(&h, world);
+    assert!(q.contains(&(first, 1000)), "{q:?}");
+    assert_eq!(q.iter().map(|x| x.1).sum::<u32>(), 1005, "{q:?}");
+    assert_eq!(q.len(), 2, "{q:?}");
+    inventory::give_stacked(&mut h.server, &mut h.net, world, STACKING, 2500);
+    let q = quantities(&h, world);
+    assert_eq!(q.iter().map(|x| x.1).sum::<u32>(), 3505, "{q:?}");
+    assert!(q.iter().all(|x| x.1 <= 1000), "{q:?}");
+    assert_eq!(q.len(), 4, "the full ones are left as they are: {q:?}");
+    for (id, n) in q {
+        assert_eq!(h.server.things.get(id).expect("made").quantity, n);
+    }
+}
+
 /// Part of a stack split off in the pack holds all the stack held, and the pieces together pay what
 /// they did.
 /// Behaviour: server.inventory.a-part-split-off-holds-the-stacks-numbers

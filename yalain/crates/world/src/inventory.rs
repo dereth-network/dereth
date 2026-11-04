@@ -895,8 +895,9 @@ pub fn give_made<S: Store>(
     Some(id)
 }
 
-/// Add so many units of a template to a player's plain stack of it (its new quantity shown), else
-/// make a stack of them in the pack.
+/// Add so many units of a template to a player's plain stacks of it, each filled to the limit its
+/// template sets (its new quantity shown), and make stacks of the rest in the pack, none past that
+/// limit (2017: 0 of 1,419 stacks seen above it, 25 at it). Which stack fills first is our choice.
 pub fn give_stacked<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -904,36 +905,54 @@ pub fn give_stacked<S: Store>(
     template: u32,
     n: u32,
 ) {
-    let plain = s.players.get(&world).and_then(|p| {
-        p.play
-            .items
-            .iter()
-            .find(|h| {
-                h.template == template
-                    && h.location == 0
-                    && s.things.get(h.id).is_some_and(|t| is_plain(s, t))
-            })
-            .map(|h| h.id)
-    });
-    let stack = plain.and_then(|id| {
-        let p = s.players.get_mut(&world)?;
-        let h = p.play.items.iter_mut().find(|h| h.id == id)?;
-        h.quantity = h.quantity.max(1) + n;
-        Some((id, h.quantity))
-    });
-    let Some((id, quantity)) = stack else {
-        give(s, net, world, template, n);
-        return;
-    };
-    if let Some(t) = s.things.get_mut(id) {
-        t.quantity = quantity;
+    let most = s
+        .catalog
+        .get(template)
+        .and_then(|t| t.props.int("Item_MaxStackSize"))
+        .and_then(|m| u32::try_from(m).ok())
+        .filter(|m| *m > 0)
+        .unwrap_or(u32::MAX);
+    let mut left = n;
+    while left > 0 {
+        let plain = s.players.get(&world).and_then(|p| {
+            p.play
+                .items
+                .iter()
+                .find(|h| {
+                    h.template == template
+                        && h.location == 0
+                        && h.quantity.max(1) < most
+                        && s.things.get(h.id).is_some_and(|t| is_plain(s, t))
+                })
+                .map(|h| h.id)
+        });
+        let stack = plain.and_then(|id| {
+            let p = s.players.get_mut(&world)?;
+            let h = p.play.items.iter_mut().find(|h| h.id == id)?;
+            let had = h.quantity.max(1);
+            let taken = left.min(most - had);
+            h.quantity = had + taken;
+            left -= taken;
+            Some((id, h.quantity))
+        });
+        let Some((id, quantity)) = stack else {
+            break;
+        };
+        if let Some(t) = s.things.get_mut(id) {
+            t.quantity = quantity;
+        }
+        let m = ServerMessage::UpdateIntVisual(VisualQuality {
+            object: visual(s, id),
+            quality: crate::craft::QUANTITY,
+            value: i32::try_from(quantity).unwrap_or(i32::MAX),
+        });
+        progress::private(net, world, &m);
     }
-    let m = ServerMessage::UpdateIntVisual(VisualQuality {
-        object: visual(s, id),
-        quality: crate::craft::QUANTITY,
-        value: i32::try_from(quantity).unwrap_or(i32::MAX),
-    });
-    progress::private(net, world, &m);
+    while left > 0 {
+        let part = left.min(most);
+        give(s, net, world, template, part);
+        left -= part;
+    }
     crate::world::keep_player(s, world);
 }
 
