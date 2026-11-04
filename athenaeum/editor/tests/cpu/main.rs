@@ -290,3 +290,12 @@ fn a_landblock_is_a_place_to_go_and_other_words_are_not() {
     assert_eq!(go_to_of("576"), None);
     assert_eq!(go_to_of("5766:12"), None);
 }
+
+#[test]
+fn a_place_is_typed_without_its_quotes() {
+    use athenaeum_editor::app::field_toml;
+    assert_eq!(field_toml("to", "inn"), "\"inn\"");
+    assert_eq!(field_toml("to", "\"inn\""), "\"inn\"");
+    assert_eq!(field_toml("to", " "), "");
+    assert_eq!(field_toml("radius", "5.0"), "5.0");
+}

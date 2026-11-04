@@ -211,6 +211,8 @@ pub struct Editor<'w> {
     finding_rows: Option<String>,
     focus_find: bool,
     row_index: Option<(u64, Vec<String>)>,
+    /// The row under the pointer.
+    hovered: Option<String>,
     /// The handle being dragged.
     grip: Option<Grip>,
     /// The steps moves and turns snap to.
@@ -314,6 +316,18 @@ fn field_text(row: &Row, field: &str) -> String {
     }
 }
 
+/// What is typed in the inspector as the TOML of its field: a field of words needs no quotes typed.
+#[must_use]
+pub fn field_toml(field: &str, typed: &str) -> String {
+    let t = typed.trim();
+    let words = matches!(field, "to" | "destination");
+    if words && !t.is_empty() && !t.starts_with('"') {
+        format!("\"{t}\"")
+    } else {
+        t.to_string()
+    }
+}
+
 /// The fields the inspector lets a person change, by kind.
 fn editable(row: &Row) -> &'static [&'static str] {
     match row {
@@ -380,6 +394,7 @@ impl<'w> Editor<'w> {
             finding_rows: None,
             focus_find: false,
             row_index: None,
+            hovered: None,
             grip: None,
             snap: Snap::default(),
             ghost: None,
@@ -441,6 +456,14 @@ impl<'w> Editor<'w> {
     fn near(&mut self) {
         let eye = self.view().eye;
         let rev = self.session.revision();
+        // A row an undo took away is let go.
+        if self
+            .selected
+            .as_deref()
+            .is_some_and(|i| self.session.entry(i).is_none())
+        {
+            self.select(None);
+        }
         if let Some((at, r)) = self.near_at {
             let d = math::hypotf(at[0] - eye[0], at[1] - eye[1]);
             if r == rev && d < 8.0 {
@@ -1029,9 +1052,32 @@ impl<'w> Editor<'w> {
         view::hit_ground(v.eye, dir, 2000.0, 2.0, &mut |x, y| scene.ground(x, y))
     }
 
+    /// The name of the row under the pointer, to show beside it.
+    fn hover_name(&mut self, item: &str) -> String {
+        let Some(e) = self.session.entry(item).cloned() else {
+            return String::new();
+        };
+        let name = match &e.row.row {
+            Row::Object(o) => self.label(o.template),
+            Row::Camp(c) => c
+                .spawns
+                .first()
+                .map(|(t, _)| format!("camp of {}", self.label(*t)))
+                .unwrap_or_default(),
+            _ => String::new(),
+        };
+        format!("{}  {name}", kind_word(&e.row.row))
+    }
+
     /// The world's input this frame: the camera, selecting, dragging, placing, the keys.
     pub fn world_input(&mut self, input: &ViewInput, over_panels: bool, typing: bool, dt: f32) {
         self.near();
+        self.hovered = if over_panels || input.right_down || self.tool == Tool::Place {
+            None
+        } else {
+            self.hit(input.pointer)
+                .filter(|i| self.selected.as_deref() != Some(i))
+        };
         if input.right_down && !over_panels {
             self.camera.look(input.motion.0, input.motion.1);
         }
@@ -1225,10 +1271,10 @@ impl<'w> Editor<'w> {
                         gizmo::drag_along(arrow, g.origin, &g.from, &to),
                         arrow.axis(),
                     ) {
-                        for i in 0..3 {
-                            g.at[i] = g.origin[i] + axis[i] * by;
-                            if snap && axis[i] != 0.0 {
-                                g.at[i] = gizmo::snapped(g.at[i], self.snap.grid);
+                        for ((at, from), along) in g.at.iter_mut().zip(g.origin).zip(axis) {
+                            *at = from + along * by;
+                            if snap && along != 0.0 {
+                                *at = gizmo::snapped(*at, self.snap.grid);
                             }
                         }
                     }
@@ -1407,6 +1453,21 @@ impl<'w> Editor<'w> {
         }
         self.ghost_mark(painter);
         self.handles_mark(painter);
+        if let Some(item) = self.hovered.clone() {
+            let name = self.hover_name(&item);
+            if let Some(e) = self.session.entry(&item).cloned() {
+                let g = entry_global(&e, &mut self.scene);
+                if let Some(p) = v.project([g[0], g[1], g[2] + 1.0]) {
+                    painter.text(
+                        pt(p) + egui::vec2(10.0, -8.0),
+                        egui::Align2::LEFT_BOTTOM,
+                        name,
+                        egui::FontId::proportional(13.0),
+                        egui::Color32::WHITE,
+                    );
+                }
+            }
+        }
     }
 
     /// Mark the row being placed: a ring where it would stand, a line the way it faces, what to do.
@@ -1967,7 +2028,7 @@ impl<'w> Editor<'w> {
                 }
             });
         if let Some((field, value)) = set {
-            match self.session.set(&item, &field, &value) {
+            match self.session.set(&item, &field, &field_toml(&field, &value)) {
                 Ok(_) => self.status = format!("{item}: {field} set"),
                 Err(err) => {
                     self.status = err;

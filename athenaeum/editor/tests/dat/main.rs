@@ -380,3 +380,18 @@ fn find_goes_through_the_whole_world_with_the_worlds_own_first() {
         "by its template too"
     );
 }
+
+#[test]
+fn a_row_an_undo_took_away_is_let_go() {
+    let (mut e, _, _) = with_a_row("undo-selected");
+    frame(
+        &mut e,
+        &ViewInput {
+            pressed: vec![KeyCode::KeyZ],
+            ctrl: true,
+            ..ViewInput::default()
+        },
+    );
+    frame(&mut e, &ViewInput::default());
+    assert_eq!(e.selected, None);
+}
