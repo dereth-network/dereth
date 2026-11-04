@@ -5487,6 +5487,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.a-character-with-no-start-place-is-refused",
+        says: "A character the world has no start place for, a row no client's creation can \
+               make since every race it can make has places in each of its start areas, is \
+               refused with the client's own reason and its client goes on at the list.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NO-START-PLACE"),
+        station: "yalain-testkit::cpu::operator::store_faults::a_character_with_no_start_place_is_refused_and_its_client_can_go_on",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.a-panic-is-told-and-the-world-stops",
         says: "A panic in the world stops it: everyone in the world is told, and every \
                connection ends rather than timing out.",

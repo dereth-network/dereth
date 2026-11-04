@@ -787,3 +787,37 @@ fn a_whole_timer_in_the_pass_of_a_panic_is_still_kept() {
         "the first leaving's keep"
     );
 }
+
+/// A character the world has no start place for (a row a client's creation can't make) is refused
+/// at the door and stays at its list; it doesn't hang its client.
+/// Behaviour: server.operator.a-character-with-no-start-place-is-refused
+#[test]
+fn a_character_with_no_start_place_is_refused_and_its_client_can_go_on() {
+    let mut h = Harness::with(ServerConfig::default(), FaultStore::default(), test_rules());
+    let (b, id, _) = logged_off_with_coins(&mut h);
+    let mut c = h
+        .server
+        .store
+        .inner
+        .character(id)
+        .expect("reads")
+        .expect("made");
+    c.id = id + 1;
+    c.name = "Raceless".to_owned();
+    c.race = 0;
+    h.server.store.inner.insert_character(&c).expect("written");
+    assert_eq!(
+        asks_to_enter(&mut h, b, c.id),
+        Some(CharacterRefused::COULD_NOT_PLACE)
+    );
+    assert!(world_of(&h, c.id).is_none(), "it did not enter");
+    assert!(h
+        .server
+        .store
+        .inner
+        .world_state(c.id)
+        .expect("reads")
+        .is_none_or(|st| st.position.is_none()));
+    assert_eq!(asks_to_enter(&mut h, b, id), None, "another enters");
+    assert!(world_of(&h, id).is_some());
+}

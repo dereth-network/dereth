@@ -384,9 +384,13 @@ pub fn enter<S: Store>(
         st.position = fresh.position;
     }
     let Some(position) = st.position else {
-        s.unhandled
-            .note("a character with no start area for its race");
-        return Ok(());
+        tracing::error!(
+            id = format_args!("{character:#x}"),
+            race = c.race,
+            "this character has no place to start: its race has no start area in this world's data, \
+             so it may not enter"
+        );
+        return Err(CharacterRefused::COULD_NOT_PLACE);
     };
     // One that left the world dead enters where it returns to, and comes back a moment later.
     let dead = crate::examine::Vitals::of_qualities(&st.qualities).is_some_and(|v| v.health == 0);

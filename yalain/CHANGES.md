@@ -106,6 +106,7 @@ what they see, not how it was done.
 - A panic now stops the world cleanly, keeping everything saved before it.
 - Fixed collecting a consignment from anywhere.
 - Fixed a traded item sharing a slot when your pack is full.
+- A character with no start place is refused instead of hanging at entry.
 
 ## 0.1.2 (2026-11-03)
 

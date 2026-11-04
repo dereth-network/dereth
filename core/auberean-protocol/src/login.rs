@@ -287,6 +287,8 @@ impl CharacterRefused {
     pub const OLD_CHARACTER: u32 = 15;
     /// "This character is corrupt. Contact tech support for help."
     pub const CORRUPT_CHARACTER: u32 = 16;
+    /// The server found no place for the character.
+    pub const COULD_NOT_PLACE: u32 = 18;
     /// The server has no room.
     pub const SERVER_FULL: u32 = 19;
     /// The character was booted from the world (the reason a boot ends a login with).

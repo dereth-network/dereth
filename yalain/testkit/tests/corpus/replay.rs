@@ -188,8 +188,9 @@ fn replay(con: &Connection, session: i64) -> Option<Outcome> {
             id: c.id,
             account: account.id,
             name: c.name.text(),
-            race: 0,
-            sex: 0,
+            // A list names no race: any real one enters, as the recorded characters did.
+            race: 1,
+            sex: yalain_world::chargen::MALE,
             class: 0,
             implement: 0,
             start_area: 0,
@@ -298,6 +299,9 @@ fn replay(con: &Connection, session: i64) -> Option<Outcome> {
             }
         }
     }
+
+    // A log-off last in the recording: its character's leaving takes this long.
+    h.run_to(yalain_net::LocalTime(h.now.0 + 25.0));
 
     let forward: HashMap<u64, u64> = ids.clone();
     let map = move |id: u64| forward.get(&id).copied().unwrap_or(id);
