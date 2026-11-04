@@ -333,9 +333,8 @@ fn a_skill_that_strikes_twice_swings_at_its_own_pace() {
     assert!(told.len() >= 3);
     for (i, w) in told.windows(2).enumerate() {
         let due = two_blow_seconds(816) / scales[i];
-        // The world looks for swings due every 0.3 s.
         let gap = w[1] - w[0];
-        assert!(gap > due - 0.12 && gap < due + 0.42, "{gap} not {due}");
+        assert!(gap > due - 0.12 && gap < due + 0.12, "{gap} not {due}");
     }
 }
 
@@ -638,4 +637,31 @@ fn the_second_throw_arrives_after_the_first_and_swings_come_at_their_own_pace() 
         (w1 - w0) / scale
     );
     assert!((period - 1.951).abs() < 1e-9);
+}
+
+/// A swing comes as soon as it is due, not at the world's next step: each gap is its period over
+/// the time scale, within the harness's own step.
+/// Behaviour: server.weapons.swing-when-due
+#[test]
+fn a_swing_comes_when_it_is_due_not_at_the_worlds_next_step() {
+    let (mut h, b, me, beetle) = two_blows(0x2002, 0x1002);
+    let from = attack(&mut h, b, beetle);
+    let mut at = Vec::new();
+    for _ in 0..1500 {
+        h.step();
+        let told = stories(&h, b, from, me);
+        if told.len() > at.len() {
+            let scale = told.last().expect("told").attacker_behavior.time_scale;
+            at.push((h.now.0, f64::from(scale)));
+        }
+    }
+    assert!(at.len() > 10, "{} swings", at.len());
+    for pair in at.windows(2) {
+        let gap = pair[1].0 - pair[0].0;
+        let due = two_blow_seconds(816) / pair[0].1;
+        assert!(
+            (gap - due).abs() <= 0.051 + 0.001,
+            "a gap of {gap:.3} where {due:.3} was due"
+        );
+    }
 }

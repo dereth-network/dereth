@@ -947,6 +947,10 @@ impl<S: Store> Server<S> {
             spawn::step(self, net, clock);
         }
         self.saves.piece_begins();
+        // A swing comes when it is due, not at the world's next step (2017: 1,880 of 2,881 sword
+        // swings within 0.15 of 1.64 s over the time scale, less than a world step either side).
+        combat::swing_all(self, net, clock);
+        self.saves.piece_begins();
         saves::tick(self, clock);
         admin::tick(self, net, clock);
         self.saves.piece_begins();

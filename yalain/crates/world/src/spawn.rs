@@ -114,7 +114,6 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
     crate::reload::retire_rested(s, net);
     crate::walkers::step(s, net, clock);
     crate::pets::step(s, net, clock);
-    crate::combat::swing_all(s, net, clock);
     crate::death::expire_corpses(s, net, now);
     crate::mining::expire(s, net, now);
     crate::regen::step(s, net, now);

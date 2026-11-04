@@ -121,6 +121,7 @@ what they see, not how it was done.
 - Special attacks now do the damage their rating adds.
 - Orbs throw from both hands.
 - A weapon you use goes back to the hand it was last in.
+- Swings come on time instead of a little late.
 
 ## 0.1.2 (2026-11-03)
 

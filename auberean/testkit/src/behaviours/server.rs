@@ -9260,6 +9260,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.weapons.swing-when-due",
+        says: "A player's swing comes as soon as it is due, not at the world's next step.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SWING-WHEN-DUE"),
+        station: "yalain-testkit::cpu::play::two_blows::a_swing_comes_when_it_is_due_not_at_the_worlds_next_step",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.weapons.two-blows",
         says: "A basic attack with two blows tells a result for each: drawn apart, doing the \
                damage of the weapon in the hand its hook names, each landing at its own time; \
