@@ -208,6 +208,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.position.a-report-says-where-the-body-is-turning-to",
+        says: "While the player's body turns toward a heading its position report says that \
+               heading, and it goes on reporting until the body faces it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-POSITION-TURNING"),
+        station: "auberean-client-runtime::cpu::world::reports::a_report_says_where_the_body_is_turning_to",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.position.a-turn-under-the-heading-tolerance-is-not-reported",
         says: "A turn smaller than 0.0002 radians, the way round through north included, is no                reason to send a report.",
         since: RETAIL,

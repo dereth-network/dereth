@@ -68,6 +68,8 @@ pub struct Body {
     /// The host's physics has not yet found room for the body where the server put it: it is out
     /// of the world, and nothing is reported of it.
     pub out_of_world: bool,
+    /// Where the body is turning to, when it is turning.
+    turning_to: Option<f32>,
     placed: bool,
     placements: u32,
     impulses: u32,
@@ -154,6 +156,13 @@ impl Body {
         self.heading = heading;
     }
 
+    /// Where the host's physics has the body turning to, if it is: the next report says that in
+    /// place of where it faces now.
+    // D2-07037
+    pub fn turning_to(&mut self, heading: Option<f32>) {
+        self.turning_to = heading;
+    }
+
     /// Whether the body has a place yet.
     #[must_use]
     pub fn placed(&self) -> bool {
@@ -229,6 +238,7 @@ impl Body {
     // D2-15433, D2-09636, D2-13126
     pub fn report(&mut self, now: f64, game_time: f64) -> ClientPosition {
         let m = self.motion();
+        let heading = self.turning_to.unwrap_or(self.heading);
         let mut flags = 0;
         if self.asked.active {
             flags |= MOVING;
@@ -242,7 +252,7 @@ impl Body {
         self.last = Some(Reported {
             cell: self.cell,
             origin: self.origin,
-            heading: self.heading,
+            heading,
             motion: m,
         });
         self.last_time = now;
@@ -250,7 +260,7 @@ impl Body {
             time: game_time,
             cell: self.cell,
             origin: self.origin,
-            heading_motion: heading_byte(self.heading) << 24
+            heading_motion: heading_byte(heading) << 24
                 | motion_byte(m[0]) << 16
                 | motion_byte(m[1]) << 8
                 | motion_byte(m[2]),

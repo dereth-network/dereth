@@ -2668,6 +2668,12 @@ impl<'w> Scene<'w> {
             client
                 .body
                 .follow(pos.cell.0, dv(pos.frame.origin), p.body.heading);
+            client.body.turning_to(
+                p.body
+                    .minterp
+                    .turning_to
+                    .then(|| p.body.minterp.turn_to.degrees()),
+            );
             if let Some(step) = anim.filter(|_| !p.body.is_animation_frozen()) {
                 let (moved, turn, size) = figure_motion(&mut p.body, step);
                 p.figure.set_motion(moved, turn, size);

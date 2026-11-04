@@ -114,6 +114,30 @@ fn a_turn_under_the_heading_tolerance_is_not_reported() {
     assert!(!turned(359.999, 0.0), "over north");
 }
 
+/// While the body turns toward a heading the report says that heading, not where it faces yet, and
+/// the check that follows compares where it faces with what was said, so it keeps reporting until
+/// the body gets there.
+///
+/// Behaviour: session.position.a-report-says-where-the-body-is-turning-to
+#[test]
+fn a_report_says_where_the_body_is_turning_to() {
+    let mut b = placed();
+    let here = Vec3 {
+        x: 100.0,
+        y: 100.0,
+        z: 50.0,
+    };
+    b.follow(0x7574_0031, here, 90.0);
+    b.turning_to(Some(180.0));
+    let r = b.report(0.0, 0.0);
+    assert_eq!(r.heading_motion >> 24, heading_byte(180.0));
+    assert!(b.should_report(1.0), "still facing 90");
+    b.follow(0x7574_0031, here, 180.0);
+    b.turning_to(None);
+    assert!(!b.should_report(2.0), "there");
+    assert_eq!(b.report(3.0, 0.0).heading_motion >> 24, heading_byte(180.0));
+}
+
 /// A report carries the heading in its top byte (255 to a full turn), the asked motion as bytes
 /// (sideways, forward, up; 127 for none), the moving flag while the player moves or turns, and the
 /// body's stamps.
