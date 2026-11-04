@@ -241,6 +241,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.effect-stamps-follow-the-object",
+        says: "An effect an admin shows or ends on a player or a creature carries that object's next \
+               visual stamp, of its own incarnation, to every client that knows it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-EFFECT-STAMPS"),
+        station: "yalain-testkit::cpu::operator::admin_calls::an_effect_an_admin_shows_follows_the_objects_own_stamps",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.admin.effect-typed-takes-effect",
+        says: "An effect typed on oneself, and ending it, reach the admin's own client, which neither \
+               drops them as old nor holds them back.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-EFFECT-TYPED"),
+        station: "yalain-testkit::dat::admin::an_effect_typed_on_oneself_reaches_the_admins_own_client",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.admin.ethereality-override",
         says: "An ethereality override changes an admin's movement ethereality, told to every client that \
                knows it; it stands through a change of area until lifted, and normal puts the admin's own \

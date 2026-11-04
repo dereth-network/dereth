@@ -1037,7 +1037,7 @@ pub(crate) fn story<S: Store>(s: &mut Server<S>, who: Attacker, sw: Swing) -> Se
 }
 
 /// The next visual stamp of a player or a thing.
-fn stamp_of<S: Store>(s: &mut Server<S>, id: u64) -> Option<ObjectStamp> {
+pub(crate) fn stamp_of<S: Store>(s: &mut Server<S>, id: u64) -> Option<ObjectStamp> {
     if let Some(p) = s.players.values_mut().find(|p| p.character == id) {
         p.visual = p.visual.wrapping_add(1);
         return Some(ObjectStamp {

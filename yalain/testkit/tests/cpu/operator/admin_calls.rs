@@ -2425,3 +2425,86 @@ fn refused_admin_lines_log_one_line_a_stay_however_many_come() {
         "one for another character"
     );
 }
+
+/// An effect an admin shows or ends on a player or a creature carries that object's next visual
+/// stamp, of its own incarnation, for every client that knows it: a stamp of its own would be dropped
+/// or would hold back what follows. What the server sends of the object next follows on.
+/// Behaviour: server.admin.effect-stamps-follow-the-object
+#[test]
+fn an_effect_an_admin_shows_follows_the_objects_own_stamps() {
+    const DO_FX: u32 = 0x8201_0032;
+    const STOP_FX: u32 = 0x8201_0040;
+    const FX: u32 = 0x4100_0010;
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (me, id) = admin_in_world(&mut h, "one", "Elara");
+    let (other, _) = h.player_in_world("two", "Babyfare");
+    h.run(20);
+    let sent = |h: &Harness, b: usize, about: u64| {
+        h.bots[b]
+            .messages(true)
+            .into_iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoFx(e) if e.sender.id == about => Some((e.sender, e.action.fx)),
+                ServerMessage::StopFx(e) if e.sender.id == about => Some((e.sender, e.action.0)),
+                _ => None,
+            })
+            .next_back()
+    };
+    let player = |h: &Harness| {
+        let p = h.server.players.values().find(|p| p.character == id);
+        let p = p.expect("in the world");
+        (p.instance, p.visual)
+    };
+    for (f, args) in [
+        (
+            DO_FX,
+            vec![
+                Arg::LongInt(id),
+                Arg::Int(FX),
+                Arg::Float(1.0_f32.to_bits()),
+            ],
+        ),
+        (STOP_FX, vec![Arg::LongInt(id), Arg::Int(FX)]),
+    ] {
+        let (instance, visual) = player(&h);
+        send(&mut h, me, f, &args);
+        for b in [me, other] {
+            let (stamp, fx) = sent(&h, b, id).expect("told");
+            assert_eq!(fx, FX);
+            assert_eq!(stamp.instance_stamp, instance);
+            assert_eq!(stamp.other_stamp, visual.wrapping_add(1));
+        }
+        assert_eq!(player(&h), (instance, visual.wrapping_add(1)));
+    }
+
+    let creature = h
+        .server
+        .things
+        .placed()
+        .find(|t| t.kind == yalain_world::things::Kind::Creature)
+        .map(|t| t.id)
+        .expect("a creature");
+    let of = |h: &Harness| {
+        let t = h.server.things.get(creature).expect("there");
+        (t.instance, t.visual)
+    };
+    for (f, args) in [
+        (
+            DO_FX,
+            vec![
+                Arg::LongInt(creature),
+                Arg::Int(FX),
+                Arg::Float(1.0_f32.to_bits()),
+            ],
+        ),
+        (STOP_FX, vec![Arg::LongInt(creature), Arg::Int(FX)]),
+    ] {
+        let (instance, visual) = of(&h);
+        send(&mut h, me, f, &args);
+        let (stamp, _) = sent(&h, me, creature).expect("told");
+        assert_eq!(stamp.instance_stamp, instance);
+        assert_eq!(stamp.other_stamp, visual.wrapping_add(1));
+        assert_eq!(of(&h).1, visual.wrapping_add(1));
+    }
+}

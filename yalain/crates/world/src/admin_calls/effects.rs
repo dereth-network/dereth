@@ -1,6 +1,7 @@
 //! An admin's commands over effects and what is shown on an object.
 
 use auberean_protocol::physics::{Fx, Word};
+use auberean_protocol::types::ObjectStamp;
 use auberean_protocol::ServerMessage;
 use yalain_store::Store;
 
@@ -106,6 +107,12 @@ fn dispel<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
     }
 }
 
+/// The next visual stamp of whatever an effect is shown on: a player's and a thing's are their own,
+/// and a client drops a message whose stamp doesn't follow the object's.
+fn stamp<S: Store>(cx: &mut Cx<'_, S>, id: u64) -> ObjectStamp {
+    crate::combat::stamp_of(cx.s, id).unwrap_or_else(|| places::object_stamp(cx.s, id))
+}
+
 fn do_fx<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
     let id = if a.long(0).unwrap_or(0) == 0 {
         cx.me()
@@ -114,7 +121,7 @@ fn do_fx<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
     };
     let fx = a.int(1).unwrap_or(0);
     let scalar = a.float(2).unwrap_or(1.0);
-    let sender = places::object_stamp(cx.s, id);
+    let sender = stamp(cx, id);
     let m = ServerMessage::DoFx(auberean_protocol::physics::ObjectEvent {
         sender,
         action: Fx { fx, scalar },
@@ -130,7 +137,7 @@ fn stop_fx<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
         a.long(0).unwrap_or(0)
     };
     let fx = a.int(1).unwrap_or(0);
-    let sender = places::object_stamp(cx.s, id);
+    let sender = stamp(cx, id);
     let m = ServerMessage::StopFx(auberean_protocol::physics::ObjectEvent {
         sender,
         action: Word(fx),

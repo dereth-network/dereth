@@ -225,3 +225,22 @@ fn our_client_on_an_admins_account_is_not_sent_the_library() {
     );
     assert!(s.h.server.storing_library.is_empty());
 }
+
+/// An effect typed on oneself takes effect in one's own client, and ending it too: its visual stamp
+/// follows the player's, so the client neither drops it as old nor holds it for stamps that never
+/// come.
+/// Behaviour: server.admin.effect-typed-takes-effect
+#[test]
+fn an_effect_typed_on_oneself_reaches_the_admins_own_client() {
+    let mut s = admin_session();
+    for line in ["/dofx levelup", "/stopfx levelup"] {
+        let before = s.client_ref().queue.stats();
+        typed(&mut s, line);
+        assert_eq!(s.client_ref().queue.stats(), before, "{line}");
+    }
+    let lines = shown(&s).join("\n");
+    assert!(lines.contains("shown on"), "{lines}");
+    assert!(lines.contains("stopped on"), "{lines}");
+    let stops = s.client_ref().script_stops();
+    assert!(stops.is_empty(), "{stops:#?}");
+}
