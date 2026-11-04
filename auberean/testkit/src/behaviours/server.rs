@@ -9503,6 +9503,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.weapons.off-hand-takes-no-stamp",
+        says: "A weapon going to or from the off hand takes no stamp of its holder's, as only the \
+               primary hand's moves the slider that carries one, so what the holder does next is \
+               the next stamp a client sees.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-OFF-HAND-STAMP"),
+        station: "yalain-testkit::cpu::play::paper_doll::a_weapon_in_the_off_hand_takes_no_stamp_on_or_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.weapons.standing-run-refusals",
         says: "A run that stands is told it is too far beyond every basic attack's range, and that \
                it cannot shoot while moving, about a second apart, its combat mode coming with its \

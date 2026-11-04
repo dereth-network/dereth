@@ -303,6 +303,55 @@ fn a_ring_for_another_race_dragged_to_the_doll_is_refused_and_stays_in_the_pack(
     assert_eq!(slot_of(&h, world, ring), (0, at), "still in the pack");
 }
 
+/// Only the primary hand's weapon takes a stamp, as only it moves the slider that carries one: the
+/// client waits for each stamp in turn, so one taken and not sent stops what it plays after.
+/// Behaviour: server.weapons.off-hand-takes-no-stamp
+#[test]
+fn a_weapon_in_the_off_hand_takes_no_stamp_on_or_off() {
+    let (mut h, b, me, world, [_, _, sword]) = player();
+    let visual = |h: &Harness| h.server.players[&world].visual;
+    let before = visual(&h);
+    let at = slot_of(&h, world, sword).1;
+    h.ask(
+        b,
+        function::DIRECTIVE_EQUIP,
+        &[directive(sword, me, equip::OFF_HAND, 0, at)],
+        3,
+    );
+    assert_eq!(slot_of(&h, world, sword).0, equip::OFF_HAND);
+    assert_eq!(visual(&h), before, "on");
+    h.ask(
+        b,
+        function::DIRECTIVE_UNEQUIP,
+        &[directive(sword, me, equip::OFF_HAND, 1, 0)],
+        3,
+    );
+    assert_eq!(slot_of(&h, world, sword).0, 0);
+    assert_eq!(visual(&h), before, "off");
+    let at = slot_of(&h, world, sword).1;
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        function::DIRECTIVE_EQUIP,
+        &[directive(sword, me, equip::PRIMARY_HAND, 0, at)],
+        3,
+    );
+    let told: Vec<u16> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::MoveSlider(e) => Some(e.sender.other_stamp),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        told,
+        [before.wrapping_add(1)],
+        "the primary hand's slider is the next"
+    );
+    assert_eq!(visual(&h), before.wrapping_add(1));
+}
+
 /// A weapon in the off hand is listed there at entry, taking that hand alone, its fellow in the
 /// primary hand; and it hangs from its secondary place.
 /// Behaviour: server.inventory.off-hand-listed-at-entry

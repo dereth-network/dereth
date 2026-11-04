@@ -910,7 +910,7 @@ fn wield<S: Store>(
         put_away(s, net, world, w, true, Some((from_slot, 1.0)));
         blocking = (w, at & !hold.precluded);
     }
-    let Some((player, stamp)) = player_stamp(s, world) else {
+    let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
     let slot = s
@@ -950,8 +950,12 @@ fn wield<S: Store>(
     if binds_on_use(s, item) {
         progress::private(net, world, &binds_warning());
     }
-    // The weapon drawn: only for the primary hand.
+    // The weapon drawn: only for the primary hand, and only it takes a stamp: the client waits for
+    // each stamp in turn before it plays what comes after.
     if location == PRIMARY_HAND {
+        let Some((_, stamp)) = player_stamp(s, world) else {
+            return;
+        };
         let drawn = ServerMessage::MoveSlider(ObjectEvent {
             sender: stamp,
             action: Slide {
@@ -1073,7 +1077,7 @@ fn put_away<S: Store>(
         PRIMARY_HAND
     };
     hold.taken = location | hold.precluded;
-    let Some((player, stamp)) = player_stamp(s, world) else {
+    let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
     // Back at the pack's end, where the client puts it, or at the slot named.
@@ -1125,6 +1129,9 @@ fn put_away<S: Store>(
     effects::stop_fx(s, net, world, &stopped);
     // The weapon slider: only for the primary hand.
     if location == PRIMARY_HAND {
+        let Some((_, stamp)) = player_stamp(s, world) else {
+            return;
+        };
         let sheathed = ServerMessage::MoveSlider(ObjectEvent {
             sender: stamp,
             action: Slide {

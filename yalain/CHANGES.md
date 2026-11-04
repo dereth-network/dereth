@@ -143,6 +143,7 @@ what they see, not how it was done.
 - Quest items your quest doesn't allow can't be used or taken.
 - A full pack now stops crafting, butchering and mining.
 - Picking up a quest item now moves its quest on.
+- Fixed a weapon in the off hand stopping your stance and swings from showing.
 
 ## 0.1.2 (2026-11-03)
 
