@@ -3003,7 +3003,7 @@ impl<'w> Scene<'w> {
     /// location `location` (everything it holds for 0), and of what those hold in turn, as an
     /// effect that starts or stops a streak does.
     // D2-06197, D2-06198
-    pub fn start_streak(&mut self, object: u64, location: u32, on: bool) {
+    fn start_streak(&mut self, object: u64, location: u32, on: bool) {
         let own = match &mut self.player {
             Some(p) if p.id == object => p.effects.as_mut(),
             _ => self
@@ -3093,7 +3093,7 @@ impl<'w> Scene<'w> {
 
     /// The physics body of object `id`: the player's, another's, a held object's or one the client
     /// made itself.
-    fn body_mut(&mut self, id: u64) -> Option<&mut Body> {
+    pub fn body_mut(&mut self, id: u64) -> Option<&mut Body> {
         match &mut self.player {
             Some(p) if p.id == id => Some(&mut p.body),
             _ => {
@@ -3462,6 +3462,12 @@ impl<'w> Scene<'w> {
                     if let Some(f) = self.fx_of(from) {
                         f.fx.terrain = terrain;
                     }
+                    continue;
+                }
+                // A missile's own streak, and what it holds, as it starts and stops flying.
+                // D2-06197, D2-06198
+                if matches!(n, Notice::StreakOn | Notice::StreakOff) {
+                    self.start_streak(from, 0, n == Notice::StreakOn);
                     continue;
                 }
                 let Some(n) = self.temporary_notice_or(from, n, now) else {

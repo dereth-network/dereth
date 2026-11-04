@@ -2043,9 +2043,9 @@ fn a_held_streak_runs_the_blade_at_its_size() {
     assert!((two / one - 2.0).abs() < 0.01, "{two} for {one}");
 }
 
-/// A body's own streak is drawn where the body is: a sword lying on the hall's floor, its streak
-/// turned on, draws its ribbon where it lies from the next frame; turned off, the ribbon fades
-/// over the streak's trail time (a fifth of a second) and is gone.
+/// A body's own streak is drawn where the body is: a sword lying on the hall's floor, its body
+/// asking its streak on as a missile does, draws its ribbon where it lies from the next frame;
+/// asked off, the ribbon fades over the streak's trail time (a fifth of a second) and is gone.
 ///
 /// Behaviour: draw.streak.a-bodys-own-streak-is-drawn-where-it-is
 #[test]
@@ -2121,12 +2121,15 @@ fn a_bodys_own_streak_is_drawn_where_it_is() {
         (n, nearest)
     };
     assert_eq!(ribbons(&mut s).0, 0, "off, none");
-    s.scene.start_streak(SWORD, 0, true);
+    // As a missile asks when it starts flying.
+    let body = s.scene.body_mut(SWORD).expect("its body");
+    body.notices.push(auberean_physics::body::Notice::StreakOn);
     step(&mut s);
     let (on, nearest) = ribbons(&mut s);
     assert!(on >= 1, "on, its ribbon: {on}");
     assert!(nearest < 1.5, "where it lies: {nearest} m off");
-    s.scene.start_streak(SWORD, 0, false);
+    let body = s.scene.body_mut(SWORD).expect("its body");
+    body.notices.push(auberean_physics::body::Notice::StreakOff);
     for _ in 0..30 {
         step(&mut s);
     }
