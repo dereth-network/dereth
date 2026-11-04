@@ -393,8 +393,8 @@ pub enum Sort {
 /// piece of armor nearly always one, 16 to 34 in a hundred; a shield one, 9 to 22). Which: a family
 /// by how often 2017 showed it, none twice; in a family of five the tier of the level by the same
 /// bands as potions (2017: 256 of 268 of the weapons' effects), in any other one it reaches, evenly.
-/// Fit to the recorded profiles, so our choice; a fifth of the effects 2017 showed, the rarest, are
-/// left out.
+/// Fit to the recorded profiles, so our choice; those 2017 showed in pairs, and those of a player's
+/// own skill, are left out: 69 of the 740 lines.
 pub fn enchantments(
     rng: &mut Rng,
     sort: Sort,
@@ -449,12 +449,20 @@ pub fn apply_numbers(own: &mut Own, def: &crate::effect_defs::EffectDef, spellcr
     let Some(m) = own.made.as_mut() else {
         return;
     };
-    for (which, multiply, by) in def.changes(spellcraft) {
+    for (which, multiply, change) in def.changes(spellcraft) {
         if multiply {
             continue;
         }
-        let by = dereth_primitives::num::to_i32(by.round());
+        let by = dereth_primitives::num::to_i32(change.round());
         match which {
+            // A weapon's span narrows by its share (2017: of weapons with such an edge, each 0.03 to
+            // 0.09 under the plain ones of its template, within the effect's own scale).
+            stat::SPAN => {
+                if let Some(d) = m.damage.as_mut() {
+                    d.1 = (d.1 + change).max(0.0);
+                    m.damage_changed = true;
+                }
+            }
             stat::DAMAGE => {
                 if let Some(d) = m.damage.as_mut() {
                     d.0 = (d.0 + by).max(1);
@@ -499,7 +507,7 @@ pub fn on_hit<S: yalain_store::Store>(
         let Some((t::When::Hit, tier)) = t::tier_of(state) else {
             continue;
         };
-        if s.rng.chance(tier.chance) {
+        if tier.puts_on != 0 && s.rng.chance(tier.chance) {
             crate::effects::apply_on(
                 s,
                 net,

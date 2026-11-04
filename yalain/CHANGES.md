@@ -123,9 +123,10 @@ what they see, not how it was done.
 - A weapon you use goes back to the hand it was last in.
 - Swings come on time instead of a little late.
 - A special attack's critical now does a quarter more, not double.
-- Weapons' crit bonuses now work.
+- Weapons' crit bonuses now work, and specials only crit with one.
 - Treasure rings and talismans can carry enchantments.
 - Enchanted loot is named for one of its effects.
+- Loot can now have slayers, wards and skill boosts.
 
 ## 0.1.2 (2026-11-03)
 

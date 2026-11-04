@@ -716,6 +716,89 @@ fn a_permanent_enchantment_changes_the_items_numbers() {
     assert_eq!(m.armor, Some(13));
     assert_eq!(m.damage, Some((102, 0.25)));
     assert_eq!(own.min_level, Some(19));
+    apply_numbers(&mut own, &def(stat::SPAN, -0.0625), 20.0);
+    assert_eq!(own.made.and_then(|m| m.damage), Some((102, 0.1875)));
+}
+
+/// The rarer enchantments are drawn: a slayer and an edge on a weapon, a ward on who wields it, a
+/// skill's boost on who wears a piece of armor; each only from the level that reaches it, and rarely.
+/// Behaviour: server.loot.treasure-rarer-enchantments
+#[test]
+fn the_rarer_enchantments_are_drawn_rarely_and_from_their_levels() {
+    use yalain_content::treasure_effects::{self as t, When};
+    use yalain_world::treasure::{enchantments, Sort};
+    let mut rng = yalain_world::rng::Rng::new(3);
+    let family = |families: &'static [t::Family], least: i32, when: When| {
+        families
+            .iter()
+            .find(|f| f.when == when && f.tiers[0].least == least && !f.by_level)
+            .expect("a family")
+    };
+    let slayers = family(t::WEAPON_FAMILIES, 17, When::Hit);
+    let wards = family(t::WEAPON_FAMILIES, 50, When::Equipped);
+    let boosts = family(t::ARMOR_FAMILIES, 0, When::Equipped);
+    assert!(slayers.tiers.len() > 20 && boosts.tiers.len() > 100);
+    assert!(slayers.tiers.iter().all(|x| x.puts_on == 0), "names a kind");
+    let mut count = |sort: Sort, level: i32, of: &t::Family| {
+        (0..20_000)
+            .flat_map(|_| enchantments(&mut rng, sort, level))
+            .filter(|(_, tier)| of.tiers.contains(tier))
+            .count()
+    };
+    assert_eq!(count(Sort::Weapon, 16, slayers), 0, "not yet");
+    let some = count(Sort::Weapon, 20, slayers);
+    assert!((30..400).contains(&some), "{some}");
+    assert_eq!(count(Sort::Weapon, 49, wards), 0, "not yet");
+    let some = count(Sort::Weapon, 50, wards);
+    assert!((100..800).contains(&some), "{some}");
+    let some = count(Sort::Armor, 50, boosts);
+    assert!((500..1500).contains(&some), "{some}");
+}
+
+/// A weapon's effect that puts nothing on what it hits, a slayer's, goes on nothing and asks for
+/// nothing the server doesn't know.
+/// Behaviour: server.loot.treasure-rarer-enchantments
+#[test]
+fn a_slayer_on_a_weapon_puts_nothing_on_what_it_hits() {
+    use yalain_content::treasure_effects::{When, WEAPON_FAMILIES};
+    let slayer = WEAPON_FAMILIES
+        .iter()
+        .flat_map(|f| f.tiers.iter().map(move |x| (f.when, *x)))
+        .find(|(when, x)| *when == When::Hit && x.puts_on == 0)
+        .expect("one")
+        .1;
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    h.server.levels = levels();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let weapon = h.arm(b, me, STARTER_SWORD);
+    h.server
+        .things
+        .get_mut(weapon)
+        .expect("held")
+        .enchantments
+        .push((slayer.state, 9.0));
+    let beetle = creature_of(&h, b);
+    {
+        let t = h.server.things.get_mut(beetle).expect("the beetle");
+        t.max_health = 1_000_000;
+        t.health = 1_000_000;
+        t.creature
+            .as_mut()
+            .expect("a creature")
+            .stats
+            .natural_damage = 0.0;
+    }
+    let before = h.server.unhandled.counts().len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    h.run(2000);
+    assert!(h.server.things.get(beetle).expect("alive").health < 1_000_000);
+    assert_eq!(h.server.unhandled.counts().len(), before);
 }
 
 /// What a weapon puts on what it hits comes on by its own chance as its hits land, and is named on

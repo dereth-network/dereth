@@ -4563,6 +4563,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-rarer-enchantments",
+        says: "A treasure weapon may draw a slayer, an edge that narrows its span, a ward or counter \
+               on who wields it and the strongest effects on a hit; a piece of armor a skill's boost \
+               on who wears it. Each by how often 2017 showed it, from the level that reached it. \
+               Our choice, a fit to the recorded items.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-RARER"),
+        station: "yalain-testkit::cpu::play::fights::the_rarer_enchantments_are_drawn_rarely_and_from_their_levels",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.turned-into-money",
         says: "Turning a corpse's items into money moves each into the pack and destroys it \
                there, the money going up by its value, and the answer says what was earned; each \
