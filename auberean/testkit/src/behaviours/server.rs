@@ -3680,6 +3680,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.conservation",
+        says: "Over random scripts of takes, trades, drops, stacks moved, money moved, \
+               deaths, log-offs, stops and crashes, every item is held exactly once across \
+               every record, and what players have is what they were given, less at a stop \
+               only what lay on the ground or in a corpse.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CONSERVATION"),
+        station: "yalain-testkit::cpu::play::conservation::every_item_is_held_once_and_nothing_is_made_or_lost_over_random_scripts",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.inscribing-an-item",
         says: "A weapon, armor, a shield, jewelry or a tool takes an inscription and the player is \
                told it is inscribed; any other item is refused with a text.",

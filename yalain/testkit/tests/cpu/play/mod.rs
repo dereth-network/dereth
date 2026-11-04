@@ -10,6 +10,7 @@ mod books;
 mod butchery;
 mod chests;
 mod combinations;
+mod conservation;
 mod crafting;
 mod creature_effects;
 mod creature_tactics;
