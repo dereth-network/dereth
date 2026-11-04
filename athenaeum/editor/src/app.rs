@@ -46,6 +46,8 @@ pub const NEAR: f32 = 160.0;
 pub const MARKED: f32 = 400.0;
 /// How close to a marker a click selects it, pixels.
 pub const HIT: f32 = 12.0;
+/// How far from a row its copy stands, meters.
+pub const DUPLICATE_AWAY: f32 = 2.0;
 /// The step R turns a row by, degrees.
 pub const TURN_STEP: f32 = 15.0;
 
@@ -564,6 +566,35 @@ impl<'w> Editor<'w> {
         self.report(r);
     }
 
+    /// Copy the selected row a little to the camera's right, and select the copy.
+    pub fn duplicate_selected(&mut self) {
+        let Some(item) = self.selected.clone() else {
+            return;
+        };
+        let Some(e) = self.session.entry(&item).cloned() else {
+            return;
+        };
+        let g = entry_global(&e, &mut self.scene);
+        let (sy, cy) = (math::sinf(self.camera.yaw), math::cosf(self.camera.yaw));
+        let (x, y) = (g[0] + cy * DUPLICATE_AWAY, g[1] + sy * DUPLICATE_AWAY);
+        // On the ground there, as far above it as the row stands above the ground here.
+        let height = self.scene.ground(g[0], g[1]).map_or(0.0, |z| g[2] - z);
+        let z = self.scene.ground(x, y).map_or(g[2], |z| z + height);
+        let (x, y, z) = if self.snap.on {
+            let [x, y, _] = self.snapped_on_ground([x, y, z]);
+            let z = self.scene.ground(x, y).map_or(z, |z| z + height);
+            (x, y, z)
+        } else {
+            (x, y, z)
+        };
+        let (lb, at) = view::local([x, y, z]);
+        let r = self.session.duplicate(&item, lb, at);
+        if let Some(copy) = self.report(r) {
+            self.status = format!("copied {item} as {copy}");
+            self.select(Some(copy));
+        }
+    }
+
     /// Take the selected row away.
     pub fn delete_selected(&mut self) {
         if let Some(item) = self.selected.clone() {
@@ -868,6 +899,7 @@ impl<'w> Editor<'w> {
                     KeyCode::KeyY if input.ctrl => {
                         self.session.redo();
                     }
+                    KeyCode::KeyD if input.ctrl => self.duplicate_selected(),
                     KeyCode::KeyR if !input.ctrl => {
                         let step = self.snap.turn_step(TURN_STEP);
                         let by = if input.shift { -step } else { step };
@@ -1785,13 +1817,22 @@ impl<'w> Editor<'w> {
             }
         }
         ui.separator();
-        if ui
-            .add_enabled(e.layer != Layer::Other, egui::Button::new("Take away"))
-            .on_hover_text("Delete")
-            .clicked()
-        {
-            self.delete_selected();
-        }
+        ui.horizontal(|ui| {
+            if ui
+                .button("Duplicate")
+                .on_hover_text("a copy beside it, selected (Ctrl+D)")
+                .clicked()
+            {
+                self.duplicate_selected();
+            }
+            if ui
+                .add_enabled(e.layer != Layer::Other, egui::Button::new("Take away"))
+                .on_hover_text("Delete")
+                .clicked()
+            {
+                self.delete_selected();
+            }
+        });
     }
 }
 

@@ -336,3 +336,25 @@ fn the_ring_turns_a_row_once_when_it_is_let_go_and_escape_drops_it() {
         heading(&e, &item)
     );
 }
+
+#[test]
+fn ctrl_d_copies_a_row_beside_it_and_selects_the_copy() {
+    let (mut e, item, g) = with_a_row("duplicate");
+    frame(
+        &mut e,
+        &ViewInput {
+            pressed: vec![KeyCode::KeyD],
+            ctrl: true,
+            ..ViewInput::default()
+        },
+    );
+    let copy = e.selected.clone().expect("the copy");
+    assert_ne!(copy, item);
+    let now = place_of(&e, &copy);
+    let far = ((now[0] - g[0]).powi(2) + (now[1] - g[1]).powi(2)).sqrt();
+    assert!(
+        (far - athenaeum_editor::app::DUPLICATE_AWAY).abs() < 0.01,
+        "{far}"
+    );
+    assert_eq!(place_of(&e, &item), g, "the first stays");
+}

@@ -193,6 +193,50 @@ fn moving_a_base_row_into_another_landblock_takes_it_away_where_it_was() {
 }
 
 #[test]
+fn a_copy_of_a_row_has_a_key_of_its_own_and_the_rest_as_it_was() {
+    let mut s = session();
+    let first = s.place(&person([1.0, 2.0, 3.0])).unwrap();
+    s.set(
+        &first,
+        "name",
+        "{ table = 0x25001B44, string = 0x8FE5C6EE }",
+    )
+    .unwrap();
+    let copy = s.duplicate(&first, LB, [4.0, 5.0, 6.0]).unwrap();
+    assert_ne!(copy, first);
+    clean(&s);
+    let at = s.entry(&copy).unwrap().at();
+    assert_eq!((at.x, at.y, at.z), (4.0, 5.0, Some(6.0)));
+    let Row::Object(o) = &s.entry(&copy).unwrap().row.row else {
+        panic!("an object")
+    };
+    assert_eq!(o.template, KEEPER);
+    assert_eq!(o.name.map(|n| n.string), Some(0x8FE5_C6EE));
+    assert_eq!(o.heading, Some(90.0));
+    let at = s.entry(&first).unwrap().at();
+    assert_eq!(at.x, 1.0, "the first stays where it stood");
+    s.undo();
+    assert!(s.entry(&copy).is_none(), "one step undoes it");
+    assert!(s.entry(&first).is_some());
+}
+
+#[test]
+fn a_copy_of_a_base_row_is_a_new_row_and_the_base_row_stays() {
+    let mut s = session();
+    let base_row = s
+        .entries()
+        .iter()
+        .find(|e| e.layer == Layer::Base && matches!(e.row.row, Row::Object(_)))
+        .map(|e| e.item.clone())
+        .expect("a row of the base");
+    let copy = s.duplicate(&base_row, LB, [9.0, 9.0, 1.0]).unwrap();
+    clean(&s);
+    assert_eq!(s.entry(&copy).unwrap().layer, Layer::Target);
+    assert_eq!(s.entry(&copy).unwrap().was, None);
+    assert_eq!(s.entry(&base_row).unwrap().layer, Layer::Base);
+}
+
+#[test]
 fn turning_a_row_writes_a_heading_in_place_of_its_rotation() {
     let mut s = session();
     s.turn("object n-334c@77B8", 405.0).unwrap();

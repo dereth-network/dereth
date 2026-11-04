@@ -851,6 +851,88 @@ impl Session {
         Ok(named(&key).to_string())
     }
 
+    /// Copy a row to `at` in `landblock`, with a key of its own and all else as it is. Answers the
+    /// copy's item. The copy is always a new row of the target, whichever pack the row is from; an
+    /// object's world-wide id stays with the row it was given to.
+    ///
+    /// # Errors
+    /// No such row, or a file that is not TOML.
+    pub fn duplicate(
+        &mut self,
+        item: &str,
+        landblock: u16,
+        at: [f32; 3],
+    ) -> Result<String, String> {
+        let e = self.entry(item).ok_or_else(|| not_found(item))?.clone();
+        // Another pack's row is read, and only copied.
+        let mut table = if e.layer == Layer::Other {
+            let doc = self.doc(&e.row.file)?;
+            find_row(&doc, e.row.row.kind(), &key_of(&e.row.row))
+                .cloned()
+                .ok_or_else(|| format!("{item}: not found in {}", e.row.file))?
+        } else {
+            self.editable(item)?.1
+        };
+        let word = word_of(&e.row.row);
+        let (key, new) = match e.row.row {
+            Row::Camp(_) => {
+                let named = |k: &str| ItemKey::Camp {
+                    key: k.into(),
+                    landblock,
+                };
+                let key = self.free_key(word, named);
+                let i = named(&key);
+                (key, i)
+            }
+            Row::Place(_) => {
+                let named = |k: &str| ItemKey::Place { key: k.into() };
+                let key = self.free_key(word, named);
+                let i = named(&key);
+                (key, i)
+            }
+            _ => {
+                let named = |k: &str| ItemKey::Object {
+                    key: k.into(),
+                    landblock,
+                };
+                let key = self.free_key(word, named);
+                let i = named(&key);
+                (key, i)
+            }
+        };
+        table.insert("key", Item::Value(Value::from(key.as_str())));
+        table.remove("id");
+        table.insert(
+            "at",
+            Item::Value(rowtoml::point(At {
+                x: at[0],
+                y: at[1],
+                z: Some(at[2]),
+            })),
+        );
+        // A land cell follows the point; an interior cell is kept.
+        let interior = table
+            .get("cell")
+            .and_then(Item::as_integer)
+            .is_some_and(|c| c & 0xFFFF >= 0x100);
+        let is_place = matches!(e.row.row, Row::Place(_));
+        if !interior && (is_place || table.contains_key("cell")) {
+            table.insert(
+                "cell",
+                Item::Value(rowtoml::hex(outdoor_cell(landblock, at[0], at[1]))),
+            );
+        }
+        let file = if is_place {
+            self.places_file()
+        } else {
+            self.landblock_file(landblock)
+        };
+        let mut doc = self.doc(&file)?;
+        push_row(&mut doc, e.row.row.kind(), table);
+        self.commit(vec![(file, Some(doc.to_string()))]);
+        Ok(new.to_string())
+    }
+
     /// Take a row away: the target's own is deleted, the base's is removed by item.
     ///
     /// # Errors

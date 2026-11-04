@@ -82,6 +82,8 @@ to where it leads.
   Backspace takes it away; F flies to it.
 - **Place**, with a kind and a template along the top, shows the new row under the pointer and puts
   it at the next click on the ground. R turns it first; Shift+click keeps placing; Esc stops.
+- Ctrl+D or **Duplicate** copies the selected row beside it and selects the copy, whatever it is:
+  a person with their name and place, a camp with its creatures, a portal with where it leads.
 - A row of the database is never written: changing one writes this world's own row of its key,
   shown as changed, with what it was and **Put back**; taking one away writes a `[[remove]]`.
 - Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes (Cmd on macOS, as well). The world's problems are listed along the bottom as
