@@ -1745,6 +1745,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.armor-debuff-in-a-special",
+        says: "What a landed special's effect takes from a creature's armor counts in the next hit \
+               of a special, on the whole server with the install's own skills.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-AFTER-ARMOR-TAKEN"),
+        station: "yalain-testkit::dat::skills::a_special_after_rend_armor_does_what_it_took_from_the_creature",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.creatures.armor-debuffs",
         says: "A player's hits on a creature whose armor rating an effect has lowered do a point more \
                for each point taken.",

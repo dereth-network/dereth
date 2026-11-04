@@ -124,3 +124,164 @@ fn the_recall_skills_read_as_the_lifestones() {
         );
     }
 }
+
+/// What a landed special's effect takes from a creature's armor counts in the next hit, on the whole
+/// server with the install's own skills: Rend Armor at rating 50 takes 150, and Expose at rating 40
+/// then does the weapon's roll plus its 60, less the 173 of armor and with the 150 back, within 269
+/// to 347 for a weapon of 232 to 310; 119 to 197 with no Rend Armor before it (2017, that weapon and
+/// armor with one such effect held: a median 288).
+/// Behaviour: server.creatures.armor-debuff-in-a-special
+#[test]
+fn a_special_after_rend_armor_does_what_it_took_from_the_creature() {
+    use auberean_protocol::{queue, ServerMessage};
+    use auberean_script::args::Arg;
+    use yalain_content::{Prop, Props};
+    use yalain_testkit::play::server_call;
+    use yalain_testkit::{Harness, TEST_CREATURE};
+    use yalain_world::skill_use::function;
+    use yalain_world::state::SkillState;
+    const REND_ARMOR: u32 = 766;
+    const EXPOSE: u32 = 757;
+    const WEAPON: u32 = 0x4700_07A3;
+    let portal = Portal::open();
+    let skills = portal.skills();
+    let mut states: Vec<u32> = [REND_ARMOR, EXPOSE]
+        .iter()
+        .flat_map(|k| {
+            skills.skills[k]
+                .usage
+                .as_ref()
+                .expect("used")
+                .target_effects
+                .clone()
+        })
+        .collect();
+    states.sort_unstable();
+    let effects = portal.effects(&states);
+    let fights = |rend_first: bool| -> Vec<i32> {
+        let mut out = Vec::new();
+        for seed in 1..40u64 {
+            let mut h = Harness::new();
+            h.add_creatures(1);
+            h.server.skill_table = skills.clone();
+            h.server.effect_table = effects.clone();
+            h.server.rng = yalain_world::rng::Rng::new(seed);
+            let (b, me) = h.player_in_world("one", "Elara");
+            h.bots[b].send(
+                true,
+                queue::WEENIE,
+                &auberean_protocol::ClientMessage::SceneRenderingComplete(
+                    auberean_protocol::login::Empty,
+                ),
+            );
+            h.run(5);
+            let mut p = Props::default();
+            p.set("Weapon_Damage", Prop::Int(310))
+                .set("Weapon_Variance", Prop::Float(0.25));
+            h.server
+                .catalog
+                .insert(yalain_testkit::test_template(WEAPON, 0x1067, p));
+            h.server
+                .catalog
+                .implements
+                .insert(WEAPON, yalain_world::skill_use::implement::BOW);
+            h.arm(b, me, WEAPON);
+            for (skill, rating) in [(REND_ARMOR, 50), (EXPOSE, 40)] {
+                let d = h
+                    .server
+                    .skill_table
+                    .skills
+                    .get_mut(&skill)
+                    .expect("a skill");
+                d.parents.clear();
+                d.prereqs.clear();
+                let u = d.usage.as_mut().expect("used");
+                u.implements_right = -1;
+                u.implements_left = -1;
+                u.vigor_add = 0.0;
+                u.vigor_mult = 0.0;
+                u.min_vigor = 0.0;
+                u.min_range = -1.0;
+                u.max_range = 1000.0;
+                u.ui_flags &= !yalain_world::skill_use::ui_flag::MOVE_TO;
+                let p = h.server.players.values_mut().next().expect("in the world");
+                p.play.skills.push(SkillState {
+                    skill,
+                    // Its experience's level, none reaching 1, comes on top.
+                    granted: rating - 1,
+                    mask: 1,
+                    cost: 0,
+                    children: 0,
+                    dependents: 0,
+                    spent: 0,
+                });
+            }
+            let foe = h
+                .world_messages(b, 0)
+                .iter()
+                .find_map(|m| match m {
+                    ServerMessage::CreateObject(o) if o.weenie.entity_did == TEST_CREATURE => {
+                        Some(o.id)
+                    }
+                    _ => None,
+                })
+                .expect("the camp's creature");
+            {
+                let t = h.server.things.get_mut(foe).expect("the creature");
+                t.max_health = 10_000_000;
+                t.health = 10_000_000;
+                let c = t.creature.as_mut().expect("a creature");
+                c.stats.armor = 173;
+                c.stats.fights = false;
+            }
+            let hit = |h: &mut Harness, id: u32, skill: u32| -> Option<i32> {
+                let from = h.bots[b].inbox.len();
+                h.bots[b].send(
+                    true,
+                    queue::WEENIE,
+                    &server_call(
+                        function::USE,
+                        &[Arg::Int(id), Arg::Int(skill), Arg::LongInt(foe)],
+                    ),
+                );
+                h.run(240);
+                h.world_messages(b, from).iter().find_map(|m| {
+                    let ServerMessage::DoStory(e) = m else {
+                        return None;
+                    };
+                    e.action.hooks.iter().find_map(|k| {
+                        (e.action.skill == skill && k.numbers[0] == 0x4000_0008 && k.numbers[3] < 0)
+                            .then_some(-k.numbers[3])
+                    })
+                })
+            };
+            if rend_first {
+                let mut landed = false;
+                for id in 10..30 {
+                    if hit(&mut h, id, REND_ARMOR).is_some() {
+                        landed = true;
+                        break;
+                    }
+                }
+                assert!(landed, "Rend Armor landed");
+                assert_eq!(yalain_world::combat::armor_taken(&h.server, foe), 150);
+            } else {
+                assert_eq!(yalain_world::combat::armor_taken(&h.server, foe), 0);
+            }
+            if let Some(d) = hit(&mut h, 40, EXPOSE) {
+                out.push(d);
+            }
+        }
+        out
+    };
+    let after = fights(true);
+    let alone = fights(false);
+    assert!(
+        after.len() >= 10 && alone.len() >= 10,
+        "{} {}",
+        after.len(),
+        alone.len()
+    );
+    assert!(after.iter().all(|d| (269..=347).contains(d)), "{after:?}");
+    assert!(alone.iter().all(|d| (119..=197).contains(d)), "{alone:?}");
+}
