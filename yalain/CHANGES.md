@@ -166,6 +166,8 @@ what they see, not how it was done.
 - Sinew Snap now plays at its proper speed.
 - Alchemists' attacks now change with the dark side and Immolation.
 - Attuned items can no longer be traded.
+- World: the Ulkas mines' quests, journal hand-ins and a jeweler's gems now run.
+- World: 620 more creatures, as many as recordings show alive in each camp.
 
 ## 0.1.2 (2026-11-03)
 

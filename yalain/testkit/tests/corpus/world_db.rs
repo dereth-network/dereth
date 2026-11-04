@@ -2179,9 +2179,8 @@ fn people_give_the_quests_2017_recorded_and_say_their_lines_for_them() {
 #[test]
 fn no_placed_person_with_anything_else_to_say_says_its_under_level_line_to_anyone() {
     const TOO_LOW: u32 = 0x68F4_92A3;
-    const NOTHING_ELSE: [u32; 4] = [0x4700_30E7, 0x4700_3156, 0x4700_3159, 0x4700_315B];
     let t = &compiled().tables;
-    let mut plain: Vec<u32> = t
+    let plain: Vec<u32> = t
         .talk
         .lines
         .iter()
@@ -2192,8 +2191,7 @@ fn no_placed_person_with_anything_else_to_say_says_its_under_level_line_to_anyon
         })
         .map(|l| l.who)
         .collect();
-    plain.sort_unstable();
-    assert_eq!(plain, NOTHING_ELSE, "{plain:08X?}");
+    assert!(plain.is_empty(), "{plain:08X?}");
 }
 
 /// **Lahry sends no one**: of the 40 recorded trips from beside him, 31 used the portal five meters
@@ -2756,7 +2754,7 @@ fn a_miners_toll_is_a_hidden_quest_its_portals_ask_for() {
             0x4700_31B0,
             0x4700_0B10,
             0x4000_0186,
-            &[0x40BA_8700_0000_0013, 0x40BA_8700_0000_0014][..],
+            &[0x40BA_8700_0000_0013][..],
             0xF2AE_9DAA,
         ),
         (
