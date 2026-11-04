@@ -33,7 +33,9 @@
 //! **How.** A tell reaches the player, naming the speaker; a saying is heard by every client that
 //! knows the speaker; an emote is text in the player's chat window, which names the speaker
 //! itself; a broadcast reaches every player in the speaker's landblock and the eight around it
-//! (indoors, its own landblock), known to their clients or not. A string's lines take the player's name as their variable; literal text goes as it is.
+//! (indoors, its own landblock), known to their clients or not. A string's lines take the player's
+//! name as their variable, except a broadcast said of itself, which names no one; literal text goes
+//! as it is.
 
 use auberean_protocol::script::{ClientCall, FunctionId, ObjectCall, ScriptArgs};
 use auberean_protocol::types::ObjectStamp;
@@ -168,31 +170,11 @@ pub fn say<S: Store>(
             progress::private(net, world, &chat::show_text(EMOTE_TEXT, text));
         }
         How::Broadcast => {
-            let Some(at) = speaker_cell(s, speaker.id) else {
-                return;
-            };
-            for (conn, p) in &s.players {
-                if !hears_broadcast(at, p.position.cell) {
-                    continue;
-                }
-                let text = match words {
-                    Words::Ref(string, table) => progress::text((*string, *table)),
-                    Words::Literal(_) => text_for(words, ""),
-                };
-                let Ok(args) =
-                    ScriptArgs::from_values(&[Arg::Int(BROADCAST_KIND), chat::text_arg(text)])
-                else {
-                    continue;
-                };
-                let m = ServerMessage::CellObjectCall(ObjectCall {
-                    object: speaker.stamp,
-                    call: ClientCall {
-                        function: FunctionId(BROADCAST),
-                        args: Some(args),
-                    },
-                });
-                net.send(*conn, queue::EVENT, BlobKind::UNORDERED, m.encode());
-            }
+            let named = s
+                .players
+                .get(&world)
+                .map(|p| crate::player::world_name(&p.name, p.sex));
+            broadcast(s, net, speaker, words, named.as_deref());
         }
         How::Say => {
             for (conn, p) in &s.players {
@@ -212,6 +194,41 @@ pub fn say<S: Store>(
                 });
                 net.send(*conn, queue::EVENT, BlobKind::UNORDERED, m.encode());
             }
+        }
+    }
+}
+
+/// A speaker's line reaches everyone who hears a broadcast from it, known to their clients or not.
+/// A line a player's act brought on names that player as its variable; one said of itself names no
+/// one.
+fn broadcast<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    speaker: &Speaker,
+    words: &Words,
+    named: Option<&str>,
+) {
+    let Some(at) = speaker_cell(s, speaker.id) else {
+        return;
+    };
+    let text = match (words, named) {
+        (Words::Ref(string, table), None) => progress::text((*string, *table)),
+        (_, name) => text_for(words, name.unwrap_or_default()),
+    };
+    let Ok(args) = ScriptArgs::from_values(&[Arg::Int(BROADCAST_KIND), chat::text_arg(text)])
+    else {
+        return;
+    };
+    let m = ServerMessage::CellObjectCall(ObjectCall {
+        object: speaker.stamp,
+        call: ClientCall {
+            function: FunctionId(BROADCAST),
+            args: Some(args),
+        },
+    });
+    for (conn, p) in &s.players {
+        if hears_broadcast(at, p.position.cell) {
+            net.send(*conn, queue::EVENT, BlobKind::UNORDERED, m.encode());
         }
     }
 }
@@ -619,7 +636,11 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
         }
         if let Some(line) = pick(s, &pool) {
             let speaker = content_speaker(s, i);
-            say(s, net, world, &speaker, &line.words, line.how);
+            if line.how == How::Broadcast {
+                broadcast(s, net, &speaker, &line.words, None);
+            } else {
+                say(s, net, world, &speaker, &line.words, line.how);
+            }
         }
     }
 }

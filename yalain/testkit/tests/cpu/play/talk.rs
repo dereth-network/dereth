@@ -516,6 +516,80 @@ fn an_idle_broadcast_reaches_the_speakers_landblock_and_the_eight_around_it_ever
     assert!(far.is_empty(), "two landblocks off hears none");
     assert_eq!(same[0].first(), Some(&Value::Int(BROADCAST_KIND)));
     assert_eq!(first_text(&same[0]).map(|t| t.0), Some(0x0820_4D9C));
+    assert!(names_in(&same[0]).is_empty(), "it names no one");
+}
+
+/// The literal words held by the variables of a call's first text.
+fn names_in(values: &[Value]) -> Vec<String> {
+    use auberean_script::native_object::VariableValue;
+    values
+        .iter()
+        .find_map(|x| match x.root() {
+            Some(Node::TextInfo(t)) => Some(t.variables.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|v| match &v.value {
+            VariableValue::Nested(t) => t.literal.as_ref().map(|l| String::from_utf16_lossy(l)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A broadcast a player's act brought on names that player, to everyone who hears it.
+/// Behaviour: server.talk.broadcast-names-the-player
+#[test]
+fn a_broadcast_a_player_brought_on_names_that_player_to_all_who_hear_it() {
+    use yalain_world::talk::{content_speaker, say, BROADCAST};
+    let mut brought = line(words(0x9C2D_B3BC), Role::Accept, When::Give, true);
+    brought.how = How::Broadcast;
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![person([30.0, 30.0, 0.0])],
+        ..ContentPack::default()
+    };
+    let (a, me) = h.player_in_world("one", "Elara");
+    let (other, _) = h.player_in_world("two", "Kestrel");
+    let cell = h.server.content.objects[0].cell;
+    for p in h.server.players.values_mut() {
+        p.position.cell = cell;
+    }
+    let from = (h.bots[a].inbox.len(), h.bots[other].inbox.len());
+    let world = h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(w, _)| *w)
+        .expect("in the world");
+    let named = h.server.players.get(&world).map_or_else(String::new, |p| {
+        yalain_world::player::world_name(&p.name, p.sex)
+    });
+    let speaker = content_speaker(&h.server, 0);
+    say(
+        &h.server,
+        &mut h.net,
+        world,
+        &speaker,
+        &brought.words,
+        brought.how,
+    );
+    h.run(3);
+    for (b, from) in [(a, from.0), (other, from.1)] {
+        let heard: Vec<Vec<Value>> = h
+            .world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::CellObjectCall(c) if c.call.function.0 == BROADCAST => {
+                    c.call.args.as_ref().and_then(|x| calls::values(&x.0).ok())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(heard.len(), 1);
+        assert_eq!(names_in(&heard[0]), [named.as_str()]);
+    }
 }
 
 /// A person who sends whoever uses it says its line as it does.

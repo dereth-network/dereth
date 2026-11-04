@@ -2655,8 +2655,17 @@ fn gives_2017_kept_with_no_quest_moved_have_their_rows() {
     assert_eq!(row.map(|r| r.effects), Some(vec![0x6F00_1DEF]));
     let row = yalain_world::quests::give_for(&h.server, world, COIN, 0x4700_327C, 50);
     assert_eq!(row.map(|r| r.effects), Some(vec![0x6F00_1ED0]));
-    // The carcass's seven lines, in the order they came.
-    assert_eq!(taking(&mut h, t, 0x4700_33D6, 0x4700_1BA1).len(), 7);
+    // The carcass's lines, in the order they came: eight once the world holds the call that names
+    // the giver, seven in a release before it.
+    let lines = taking(&mut h, t, 0x4700_33D6, 0x4700_1BA1);
+    assert!(lines.len() == 8 || lines.len() == 7, "{lines:x?}");
+    if lines.len() == 8 {
+        assert_eq!(
+            lines[6], 0x9C2D_B3BC,
+            "after the emote, before the last tell"
+        );
+        assert_eq!(lines[7], 0x014A_A529);
+    }
     // A count not the one asked is refused with the person's own words for it.
     assert!(yalain_world::quests::give_for(&h.server, world, COIN, 0x4700_327C, 49).is_none());
     assert_eq!(refusing(&mut h, t, 0x4700_327C, COIN), Some(0xF961_FDEF));

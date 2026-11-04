@@ -8419,6 +8419,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.talk.broadcast-names-the-player",
+        says: "A broadcast a player's act brought on carries that player's name as its variable, \
+               the same to everyone who hears it; one said of itself carries none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BROADCAST-NAMES"),
+        station: "yalain-testkit::cpu::play::talk::a_broadcast_a_player_brought_on_names_that_player_to_all_who_hear_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.talk.fighting-and-dying",
         says: "A creature with lines for a fight says one as it goes after a player, and one with \
                lines for its death says one as it dies, each the way its line is said.",
