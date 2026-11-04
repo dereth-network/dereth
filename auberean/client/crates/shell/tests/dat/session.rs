@@ -3836,6 +3836,108 @@ fn a_behavior_that_destroys_its_object_takes_a_server_object_away() {
     assert!((2.5..4.0).contains(&after), "three seconds on: {after}");
 }
 
+/// A behavior that fades its object's children fades what the body holds as it starts, and brings
+/// it back as it ends. Fixture: a server double asking at set times, the player holding a sword.
+///
+/// Behaviour: desktop.bodies.a-behavior-that-fades-children-fades-what-the-body-holds
+#[test]
+fn a_behavior_that_fades_children_fades_what_the_body_holds() {
+    use auberean_client_sdk::protocol::physics::{ObjectEvent, Release};
+    use auberean_client_sdk::protocol::types::{BehaviorParams, ParentLink};
+    const SWORD: u64 = 0x8130_1B05_CC00_0077;
+    const HOLD: u32 = 0x4100_0125;
+    const OPACITY: u32 = 0x4000_0015;
+    /// Flag 0x100 is the seventh of the flags followed by a word.
+    const FADES_WORD: usize = 6;
+    let sword = CreateObject {
+        id: SWORD,
+        visual: VisualDesc {
+            bits: VisualDesc::PARENT,
+            parent: 0x1F00_0056,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::PARENT,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            parent: ParentLink {
+                parent: PLAYER,
+                location: 1,
+                stamp: 1,
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let mut fades = BehaviorParams {
+        bits: BehaviorParams::BEHAVIOR | BehaviorParams::WORD_BITS[FADES_WORD],
+        behavior: HOLD,
+        ..BehaviorParams::default()
+    };
+    fades.words[FADES_WORD] = 1;
+    let again = fades.clone();
+    let sender = |other_stamp: u16| ObjectStamp {
+        id: PLAYER,
+        instance_stamp: 1,
+        other_stamp,
+    };
+    let later = [
+        (
+            9.0,
+            ServerMessage::PlayBehavior(ObjectEvent {
+                sender: sender(1),
+                action: fades,
+            }),
+        ),
+        (
+            12.0,
+            ServerMessage::LetGoBehavior(ObjectEvent {
+                sender: sender(2),
+                action: Release {
+                    behavior: HOLD,
+                    params: BehaviorParams::default(),
+                },
+            }),
+        ),
+        (
+            16.0,
+            ServerMessage::PlayBehavior(ObjectEvent {
+                sender: sender(3),
+                action: again,
+            }),
+        ),
+    ];
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[sword], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let asked = |s: &Shell<'_, DoubleHost>| {
+        s.scene
+            .figure(SWORD)
+            .map(|f| f.sliders.desired(OPACITY))
+            .expect("the sword")
+    };
+    while s.host.time < 8.0 {
+        step(&mut s);
+    }
+    while asked(&s) != 1.0 && s.host.time < 14.0 {
+        step(&mut s);
+    }
+    assert_eq!(asked(&s), 1.0, "back as the first ends");
+    while asked(&s) != 0.0 && s.host.time < 20.0 {
+        step(&mut s);
+    }
+    assert_eq!(asked(&s), 0.0, "faded as the second starts");
+}
+
 /// An effect with a decal lays it where its object stands: on the land outdoors, on its cell's
 /// ground inside, and it is drawn with the frame. Fixture: the server double asks the player's body
 /// for the effect at a set time, at the camp and in the hall.

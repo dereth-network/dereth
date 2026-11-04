@@ -3121,6 +3121,28 @@ impl<'w> Scene<'w> {
                     self.camera
                         .set_targeted_camera(&objects, target, words, time, ramp);
                 }
+                // What it holds fades to the opacity asked over the time asked.
+                // D2-06232
+                Event::ChildrenOpacity { opacity, time } => {
+                    let children: Vec<u64> = self
+                        .held
+                        .holders()
+                        .into_iter()
+                        .filter(|(_, holder)| *holder == id)
+                        .map(|(child, _)| child)
+                        .chain(self.temporaries.held_by(id))
+                        .collect();
+                    for child in children {
+                        if let Some(f) = self.figure_mut(child) {
+                            f.sliders.do_slider(
+                                0,
+                                auberean_physics::body::parent::FADE_SLIDER,
+                                opacity,
+                                time,
+                            );
+                        }
+                    }
+                }
                 // Hidden at once, and it goes three seconds on. (The objects the client made see
                 // to their own.)
                 // D2-06097, D2-05707

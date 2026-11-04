@@ -17,6 +17,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.bodies.a-behavior-that-fades-children-fades-what-the-body-holds",
+        says: "A behavior that fades its object's children fades what the body holds as it starts, and brings it back as it ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-CHILDREN-FADE"),
+        station: "auberean-shell::dat::session::a_behavior_that_fades_children_fades_what_the_body_holds",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.a-behavior-that-locks-actions-holds-the-players-keys",
         says: "While a behavior that locks the player's actions plays, the body stops at once and what \
                the keys ask of it waits; a behavior a key names plays and stops on the player's figure.",
