@@ -2239,7 +2239,7 @@ impl GameView for HudView<'_> {
             let body = match req {
                 1 | 2 | 8 => u32::try_from(skill)
                     .ok()
-                    .and_then(&skill_name)
+                    .and_then(skill_name)
                     .unwrap_or_default(),
                 3 | 4 => u32::try_from(skill)
                     .ok()
@@ -2322,7 +2322,7 @@ impl GameView for HudView<'_> {
         };
         use dereth_client_contract::panels::examination as ex;
         let activation_skill = paired(0x73, 0xB0, &|id| {
-            u32::try_from(id).ok().and_then(&skill_name)
+            u32::try_from(id).ok().and_then(skill_name)
         });
         let activation_attribute = paired(0x102, 0x101, &|id| {
             u32::try_from(id)
@@ -2368,7 +2368,7 @@ impl GameView for HudView<'_> {
             } else {
                 am::inq::int(p, am::property::CREATURE_TYPE)
                     .filter(|v| *v != 0)
-                    .and_then(&creature_name)
+                    .and_then(creature_name)
             };
             if let Some(t) = tail {
                 // The space is added only when the gender resolved.
@@ -2531,18 +2531,18 @@ impl GameView for HudView<'_> {
             has_allowed_wielder: am::inq::boolean(p, 0x55) == Some(true),
             craftsman_name: am::inq::string(p, 0x19),
             account_requirements: am::inq::int(p, 0x1A),
-            heritage_specific_armor: am::inq::int(p, 0x144).and_then(&heritage_name),
+            heritage_specific_armor: am::inq::int(p, 0x144).and_then(heritage_name),
             wield_requirements,
 
             use_requires_level: am::inq::int(p, 0x171),
             use_requires_skill: am::inq::int(p, 0x16E).filter(|v| *v != 0).and_then(|s| {
                 // the level must be present **and** non-zero or the line is skipped.
                 let lvl = am::inq::int(p, 0x16F).filter(|v| *v != 0)?;
-                Some((u32::try_from(s).ok().and_then(&skill_name), lvl))
+                Some((u32::try_from(s).ok().and_then(skill_name), lvl))
             }),
             use_requires_skill_spec: am::inq::int(p, 0x170)
                 .filter(|v| *v != 0)
-                .map(|s| u32::try_from(s).ok().and_then(&skill_name)),
+                .map(|s| u32::try_from(s).ok().and_then(skill_name)),
 
             item_level,
             cloak_weave_proc: am::inq::int(p, 0x160),
@@ -2551,7 +2551,7 @@ impl GameView for HudView<'_> {
             allegiance_rank_limit: am::inq::int(p, 0x6E),
             heritage_group: am::inq::int(p, 0xBC)
                 .filter(|v| *v != 0)
-                .and_then(&heritage_name),
+                .and_then(heritage_name),
             activation_skill,
             activation_attribute,
             activation_attribute_2nd,
