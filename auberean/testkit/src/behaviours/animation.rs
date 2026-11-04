@@ -41,6 +41,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "animation.body.a-new-behavior-table-leaves-an-action-lock-set",
+        says: "A behavior table the look changes to while a behavior locks the player's actions drops \
+               that behavior and asks nothing of the lock; the next locking behavior's end lets go.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ACTION-LOCK-NEW-TABLE"),
+        station: "auberean-animation::dat::bodies::a_new_behavior_table_leaves_an_action_lock_set",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "animation.body.a-slider-just-past-still-moves-at-once",
         says: "A locomotion slider standing just past still (under 0.05 m/s) toward the side the \
                body moves is moved there in 0.05 s; from still, or across a change of more than \

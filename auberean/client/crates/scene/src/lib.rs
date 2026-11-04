@@ -738,11 +738,7 @@ pub(crate) fn takes_look(
         .as_mut()
         .is_some_and(|f| f.compare_and_modify(anims, look));
     if !kept {
-        let is_player = figure.as_ref().is_some_and(|f| f.is_player);
         *figure = Figure::from_look(anims, look);
-        if let Some(f) = figure.as_mut() {
-            f.is_player = is_player;
-        }
     }
     *effects = fx::BodyFx::again(effects.take(), look, id);
 }
