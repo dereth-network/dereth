@@ -9,13 +9,14 @@
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
 
+use auberean_assets::landblock::Landblock;
 use auberean_assets::property::{PropertyCollection, PropertyList, PropertyValue};
 use auberean_world::land::LandConstants;
 use auberean_world::math::over_polygon;
 use auberean_world::property::BlockProperties;
 use auberean_world::records::{RegionSet, WorldRecords};
 use auberean_world::scenery::on_road;
-use auberean_world::terrain::{vertex_materials, VertexMaterials};
+use auberean_world::terrain::{vertex_materials, LandSource as TerrainSource, VertexMaterials};
 use dereth_physics::cell::{Cell, CellArray, CellInfo, HostCell};
 use dereth_physics::geom::{Plane, Polygon, Sphere};
 use dereth_physics::globals::LAND_HEIGHT_TABLE_LEN;
@@ -798,8 +799,22 @@ impl Land {
         x: u8,
         y: u8,
     ) -> bool {
+        self.add_block_near(records, region, trees, &mut NearBlocks::default(), x, y)
+    }
+
+    /// As [`Land::add_block`], for one of many blocks read in turn along the world's columns:
+    /// a block's landblock is read once for it and the blocks around it.
+    pub fn add_block_near(
+        &self,
+        records: &WorldRecords,
+        region: &RegionSet,
+        trees: &mut Trees,
+        near: &mut NearBlocks,
+        x: u8,
+        y: u8,
+    ) -> bool {
         self.properties_or(|| region.properties.clone());
-        let Some(block) = build(records, region, trees, x, y) else {
+        let Some(block) = build_near(records, region, trees, near, x, y) else {
             return false;
         };
         self.insert(block);
@@ -931,8 +946,43 @@ pub(crate) fn solids_hit_in_cell(
         .collect()
 }
 
+/// The landblocks read for the blocks being built: those of the column being built and the
+/// columns beside it. A block needs its own and the eight around it.
+#[derive(Debug, Default)]
+pub struct NearBlocks {
+    kept: HashMap<(i32, i32), Option<Landblock>>,
+    column: Option<i32>,
+}
+
+impl NearBlocks {
+    fn read(&mut self, records: &WorldRecords, x: i32, y: i32) {
+        self.kept
+            .entry((x, y))
+            .or_insert_with(|| records.landblock(x, y));
+    }
+
+    /// How many blocks' landblocks it holds or knows the world lacks.
+    #[must_use]
+    pub fn kept(&self) -> usize {
+        self.kept.len()
+    }
+
+    /// Now building in column `x`: forget what is further from it than the columns beside it.
+    fn at_column(&mut self, x: i32) {
+        if self.column != Some(x) {
+            self.kept.retain(|k, _| (k.0 - x).abs() <= 1);
+            self.column = Some(x);
+        }
+    }
+}
+
+impl TerrainSource for NearBlocks {
+    fn landblock(&self, x: i32, y: i32) -> Option<&Landblock> {
+        self.kept.get(&(x, y))?.as_ref()
+    }
+}
+
 /// Build block `(x, y)`.
-// D2-03759, D2-03687, D2-03635, D2-03764
 pub fn build(
     records: &WorldRecords,
     region: &RegionSet,
@@ -940,8 +990,29 @@ pub fn build(
     x: u8,
     y: u8,
 ) -> Option<Block> {
+    build_near(records, region, trees, &mut NearBlocks::default(), x, y)
+}
+
+/// Build block `(x, y)`, its landblock and those around it read through `near`.
+// D2-03759, D2-03687, D2-03635, D2-03764
+pub fn build_near(
+    records: &WorldRecords,
+    region: &RegionSet,
+    trees: &mut Trees,
+    near: &mut NearBlocks,
+    x: u8,
+    y: u8,
+) -> Option<Block> {
     let (bx, by) = (i32::from(x), i32::from(y));
-    let lb = records.landblock(bx, by)?;
+    near.at_column(bx);
+    near.read(records, bx, by);
+    TerrainSource::landblock(near, bx, by)?;
+    for dx in -1..=1 {
+        for dy in -1..=1 {
+            near.read(records, bx + dx, by + dy);
+        }
+    }
+    let lb = TerrainSource::landblock(near, bx, by)?;
     let land = &region.land;
     let holes: Vec<bool> = lb
         .vertices
@@ -991,21 +1062,12 @@ pub fn build(
         .and_then(|w| w.block(land, bx, by, lowest));
     let water_material = water_block.as_ref().map_or(0, |w| w.physics_material.0);
     let water = water_block.map(|w| w.height);
-    let mut around = HashMap::new();
-    for dx in -1..=1 {
-        for dy in -1..=1 {
-            if let Some(n) = records.landblock(bx + dx, by + dy) {
-                around.insert((bx + dx, by + dy), n);
-            }
-        }
-    }
-    let materials = vertex_materials(land, region.surfaces(), &around, bx, by).map(|vertices| {
-        GroundMaterials {
+    let materials =
+        vertex_materials(land, region.surfaces(), &*near, bx, by).map(|vertices| GroundMaterials {
             vertices,
             words: lb.vertices.clone(),
             land: Arc::new(land.clone()),
-        }
-    });
+        });
     Some(Block {
         x,
         y,
@@ -1024,10 +1086,8 @@ pub fn build(
 /// Register solid `i` in every land cell its bounds reach: those of its own block in the cells'
 /// lists, those of the blocks around it as overhangs.
 fn register(cell_solids: &mut [Vec<u32>], overhangs: &mut Vec<Overhang>, bounds: &Sphere, i: u32) {
-    #[allow(clippy::cast_possible_truncation)]
-    let cell = |v: f32| (v / CELL_LENGTH).floor() as i32;
-    #[allow(clippy::cast_possible_wrap, clippy::cast_possible_truncation)]
-    let side = CELLS_PER_SIDE as i32;
+    let cell = |v: f32| dereth_primitives::num::floor_to_i32(v / CELL_LENGTH);
+    let side = i32::try_from(CELLS_PER_SIDE).unwrap_or(i32::MAX);
     let (x0, x1) = (
         cell(bounds.center.x - bounds.radius),
         cell(bounds.center.x + bounds.radius),

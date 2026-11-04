@@ -33,8 +33,6 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::data;
-use auberean_dat::locate::{install_dats, DatName};
-use auberean_dat::DatFile;
 use yalain_world_db::compile::{compile, Tables};
 use yalain_world_db::install::DatInstall;
 use yalain_world_db::release::{self, PINNED_TAG, PINNED_ZIP_SHA256};
@@ -458,7 +456,6 @@ fn safe(path: &str) -> bool {
 /// The database does not read, check or merge, the install does not open, or a row names what
 /// the install lacks.
 pub fn compile_dir(
-    dats: &Path,
     p: &data::Portal,
     db_dir: &Path,
     base_dir: Option<&Path>,
@@ -491,26 +488,24 @@ pub fn compile_dir(
         Some(base) => layer::merge_over(base, &db),
     }
     .map_err(|p| report(&p))?;
-    let found = install_dats(dats).map_err(|e| format!("{}: {e}", dats.display()))?;
-    let open = |want: &dyn Fn(&DatName) -> bool| -> Option<DatFile> {
-        found
-            .iter()
-            .find(|(n, _)| want(n))
-            .and_then(|(_, p)| DatFile::open(p).ok())
-    };
-    let local = open(&|n| matches!(n, DatName::Local(l) if l.eq_ignore_ascii_case("english")));
-    let states: Vec<u32> = p
-        .dat
-        .entries_in(0x6F00_0000, 0x6FFF_FFFF)
-        .map(|e| e.id)
-        .collect();
     let mut install = DatInstall::new(
         Box::new(|id| p.dat.read(id).ok()),
         p.ctx.clone(),
         data::library(p)?,
-        states,
-    )?;
-    if let Some(local) = &local {
+        Vec::new(),
+    )?
+    .with_quest_states(Box::new(|| {
+        data::saved_states(p).map_or_else(
+            |_| Vec::new(),
+            |states| {
+                states
+                    .iter()
+                    .filter_map(|s| Some((s.id, s.quest?)))
+                    .collect()
+            },
+        )
+    }));
+    if let Some(local) = p.english() {
         install = install.with_text(Box::new(move |id| local.read(id).ok()));
     }
     let tables = compile(&merged, &install).map_err(|p| {
@@ -549,7 +544,7 @@ fn compile_cmd(args: &[String]) -> Result<(), String> {
     };
     let dir = database_dir(db.as_deref().unwrap_or("pinned"))?;
     let portal = data::Portal::open(&dats)?;
-    let t = compile_dir(&dats, &portal, &dir, base.as_deref())?;
+    let t = compile_dir(&portal, &dir, base.as_deref())?;
     std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     for (name, text) in [
         ("content.tsv", t.content.to_text()),

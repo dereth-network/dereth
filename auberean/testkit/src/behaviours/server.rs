@@ -5163,12 +5163,41 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.start-reads-each-landblock-once",
+        says: "Blocks built one after another along the world's columns read each landblock once \
+               for themselves and the blocks around them, and come out as blocks built alone; \
+               only the columns beside the one being built stay in memory.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-START-LANDBLOCK-ONCE"),
+        station: "auberean-physics::dat::objects::blocks_built_from_the_landblocks_kept_near_them_are_as_those_built_alone",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.operator.start-reads-the-ground-once",
+        says: "Reading the ground at start reads each landblock and each mesh it needs once, the \
+               head of a mesh aside, and reads no material just to know it is in the data.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-START-GROUND-ONCE"),
+        station: "yalain::bin.yalain::data::tests::the_ground_reads_each_landblock_and_mesh_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.start-reads-the-saved-states-once",
         says: "The tables a start reads from every saved state read them from the file once between \
                them; the second table to ask reads almost nothing.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-START-STATES-ONCE"),
         station: "yalain::bin.yalain::data::tests::the_mounts_and_the_item_uses_read_the_saved_states_once_between_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.operator.start-shares-the-open-files",
+        says: "A start opens each of the install's files once: the files it serves clients are \
+               the ones it read, and a record a table has read is not read again when another \
+               asks.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-START-FILES-ONCE"),
+        station: "yalain::bin.yalain::data::tests::the_files_served_are_the_files_the_start_read_and_a_record_is_read_once",
         tier: Tier::Cpu,
     },
     behaviour! {

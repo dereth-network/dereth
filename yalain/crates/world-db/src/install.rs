@@ -30,6 +30,11 @@ pub const QUEST_NAMES: u32 = 0x2300_0090;
 /// A record reader: a record's bytes by id.
 pub type Records<'a> = Box<dyn Fn(u32) -> Option<Vec<u8>> + 'a>;
 
+/// What finds the saved states that define quests, for a caller that has read them all anyway:
+/// each with its quest ([`quest_of_state`]), ascending by state. Asked when a row first names no
+/// state.
+pub type QuestStates<'a> = Box<dyn Fn() -> Vec<(u32, u32)> + 'a>;
+
 /// An install, read from its portal file's records (and its language file's, for labels).
 #[allow(missing_debug_implementations)]
 pub struct DatInstall<'a> {
@@ -39,6 +44,7 @@ pub struct DatInstall<'a> {
     lib: &'a Library,
     profiles: BTreeMap<u32, String>,
     states: Vec<u32>,
+    found: Option<QuestStates<'a>>,
     quests: OnceCell<HashMap<u32, u32>>,
     quest_names: OnceCell<HashMap<String, u32>>,
     strings: RefCell<HashMap<u32, Option<StringTable>>>,
@@ -71,12 +77,20 @@ impl<'a> DatInstall<'a> {
             lib,
             profiles: names.names.into_iter().collect(),
             states,
+            found: None,
             quests: OnceCell::new(),
             quest_names: OnceCell::new(),
             strings: RefCell::new(HashMap::new()),
             entities: RefCell::new(HashMap::new()),
             qualities: RefCell::new(HashMap::new()),
         })
+    }
+
+    /// Take the quests' saved states from `found` rather than searching the states one by one.
+    #[must_use]
+    pub fn with_quest_states(mut self, found: QuestStates<'a>) -> Self {
+        self.found = Some(found);
+        self
     }
 
     /// Read labels from a language file's records.
@@ -125,23 +139,30 @@ impl<'a> DatInstall<'a> {
 
     fn quest_states(&self) -> &HashMap<u32, u32> {
         self.quests.get_or_init(|| {
+            let found = self.found.as_ref().map_or_else(
+                || {
+                    let quest = |&id: &u32| Some((id, quest_of_state(self.lib, &self.graph(id)?)?));
+                    self.states.iter().filter_map(quest).collect()
+                },
+                |found| found(),
+            );
             let mut out = HashMap::new();
-            for &id in &self.states {
-                let Some(g) = self.graph(id) else { continue };
-                let nav = Nav::new(self.lib, &g);
-                let Some(root) = g.root().and_then(|r| nav.object(r)) else {
-                    continue;
-                };
-                if nav.field(root, "m_questPhaseInfo").is_none() {
-                    continue;
-                }
-                if let Some(q) = nav.field(root, "mEnum") {
-                    out.entry(q).or_insert(id);
-                }
+            for (state, quest) in found {
+                out.entry(quest).or_insert(state);
             }
             out
         })
     }
+}
+
+/// The quest a saved state defines, when it defines one: the enumeration value of a state with
+/// quest phases.
+#[must_use]
+pub fn quest_of_state(lib: &Library, g: &Graph) -> Option<u32> {
+    let nav = Nav::new(lib, g);
+    let root = g.root().and_then(|r| nav.object(r))?;
+    nav.field(root, "m_questPhaseInfo")?;
+    nav.field(root, "mEnum")
 }
 
 impl Install for DatInstall<'_> {

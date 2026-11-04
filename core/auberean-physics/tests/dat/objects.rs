@@ -12,7 +12,7 @@ use auberean_assets::entity::Entity;
 use auberean_physics::body::flags;
 use auberean_physics::body::profile::{Profile, ProfileQualities};
 use auberean_physics::interior::add_block_cells;
-use auberean_physics::land::{build, land_cell_id, Land, Solid};
+use auberean_physics::land::{build, build_near, land_cell_id, Land, NearBlocks, Solid};
 use auberean_physics::mesh::Trees;
 use auberean_physics::motion::params::MovementParameters;
 use auberean_physics::motion::MotionInput;
@@ -793,4 +793,39 @@ fn the_worlds_records_keep_one_loaded_setup() {
         (read.step_down_height, read.spheres.len()),
         (before + 1.0, 0)
     );
+}
+
+/// Blocks built along the columns from the landblocks kept near them come out as those built
+/// alone, and what is kept is only the columns beside the one being built.
+///
+/// Behaviour: server.operator.start-reads-each-landblock-once
+#[test]
+fn blocks_built_from_the_landblocks_kept_near_them_are_as_those_built_alone() {
+    let w = need_world!();
+    let (mut alone, mut along) = (Trees::default(), Trees::default());
+    let mut near = NearBlocks::default();
+    for (x, y) in [(0x75, 0xB9), (0x75, 0xBA), (0x76, 0xB9)] {
+        let a = build(&w.records, &w.region, &mut alone, x, y).expect("a block");
+        let b = build_near(&w.records, &w.region, &mut along, &mut near, x, y).expect("a block");
+        assert_eq!(a.geometry.vertices.len(), b.geometry.vertices.len());
+        let heights = |k: &auberean_physics::land::Block| -> Vec<u32> {
+            k.geometry.vertices.iter().map(|v| v.z.to_bits()).collect()
+        };
+        assert_eq!(heights(&a), heights(&b));
+        assert_eq!(a.solids.len(), b.solids.len());
+        assert_eq!(a.objects.len(), b.objects.len());
+        let materials = |k: &auberean_physics::land::Block, i: usize, j: usize| {
+            k.materials.as_ref().map(|m| m.vertices.ground[9 * i + j])
+        };
+        for (i, j) in [(0, 0), (4, 4), (8, 8)] {
+            assert_eq!(materials(&a, i, j), materials(&b, i, j));
+        }
+    }
+    assert_eq!(
+        near.kept(),
+        11,
+        "the columns beside the last built: 4, 4 and 3 blocks"
+    );
+    build_near(&w.records, &w.region, &mut along, &mut near, 0x80, 0xB9).expect("a block");
+    assert_eq!(near.kept(), 9, "a far column forgets the others");
 }

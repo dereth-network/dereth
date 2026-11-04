@@ -761,6 +761,8 @@ struct Play {
     loot: LootTable,
     ground: data::LandGround,
     walls: yalain_world::walls::Walls,
+    /// The files a client's requests for records are served from.
+    files: yalain_world::download::InstallFiles,
     levels: yalain_world::levels::LevelTable,
     skills: yalain_world::skills::SkillTable,
     effects: yalain_world::effect_defs::EffectTable,
@@ -931,7 +933,7 @@ fn run<S: Store>(
         .with_play(play.catalog, play.spawns, play.loot);
     server.ground = Some(Box::new(play.ground));
     server.walls = Some(play.walls);
-    let files = data::install_files(&o.dats.clone().unwrap_or_default())?;
+    let files = play.files;
     if o.serve_admin_library {
         use yalain_world::admin_library::{AdminLibrary, RECORD};
         use yalain_world::download::DataFiles as _;
@@ -1465,23 +1467,18 @@ fn make_character<S: Store>(server: &mut Server<S>, path: &Path, now: i64) {
 
 /// Compile the world database (a folder, or `pinned`) against the install: its folder and tables.
 fn compile_world(
-    dats: &Path,
     portal: &data::Portal,
     world_db: &str,
     base: Option<&Path>,
 ) -> Result<(PathBuf, Tables), String> {
     world::database_dir(world_db).and_then(|d| {
-        let t = world::compile_dir(dats, portal, &d, base)?;
+        let t = world::compile_dir(portal, &d, base)?;
         Ok((d, t))
     })
 }
 
 /// The world's objects and what it plays, from its database compiled and the install.
-fn load_play(
-    dats: &Path,
-    portal: &data::Portal,
-    compiled: Tables,
-) -> Result<(ContentPack, Play), String> {
+fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Play), String> {
     let Tables {
         content,
         spawns,
@@ -1630,7 +1627,7 @@ fn load_play(
         );
         let brokers = data::brokers(portal, &content);
         tracing::info!(brokers = brokers.len(), "the market's brokers read");
-        let (ground, walls) = data::land_ground(dats, &spawns, &catalog)?;
+        let (ground, walls) = data::land_ground(portal, &spawns, &catalog)?;
         tracing::info!("the ground under the camps, and the interior cells: {ground:?}; {walls:?}");
         let levels = data::level_table(portal)?;
         tracing::info!(levels = levels.levels.len(), "the level table read");
@@ -1726,6 +1723,7 @@ fn load_play(
             "the effects item profiles list read"
         );
         Ok(Play {
+            files: data::install_files(portal),
             catalog,
             spawns,
             loot,
@@ -1781,11 +1779,11 @@ fn reload_world(
     let names = banned_names.map(read_banned_names).transpose()?;
     // A portal file of its own: this reload is the only reader of it, on its own thread.
     let portal = data::Portal::open(dats)?;
-    let (dir, compiled) = compile_world(dats, &portal, world_db, base)?;
+    let (dir, compiled) = compile_world(&portal, world_db, base)?;
     for w in &compiled.warnings {
         tracing::warn!("{w}");
     }
-    let (content, p) = load_play(dats, &portal, compiled)?;
+    let (content, p) = load_play(&portal, compiled)?;
     let tables = WorldTables {
         content,
         catalog: p.catalog,
@@ -1896,7 +1894,7 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let compiled = match compile_world(&dats, &portal, &o.world_db, o.world_base.as_deref()) {
+    let compiled = match compile_world(&portal, &o.world_db, o.world_base.as_deref()) {
         Ok((d, t)) => {
             for w in &t.warnings {
                 tracing::warn!("{w}");
@@ -1917,7 +1915,7 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let play = load_play(&dats, &portal, compiled);
+    let play = load_play(&portal, compiled);
     drop(portal);
     let (content, play) = match play {
         Ok(p) => p,

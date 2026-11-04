@@ -164,6 +164,13 @@ impl WorldRecords {
         self.portal.read(id).ok()
     }
 
+    /// Whether the data holds portal record `id`, read from the files' directories alone.
+    #[must_use]
+    pub fn holds(&self, id: u32) -> bool {
+        ((id >> 24) == 0x41 && self.highres.as_ref().is_some_and(|h| h.entry(id).is_some()))
+            || self.portal.entry(id).is_some()
+    }
+
     /// Record `id` decoded as `T`, or `None` when it is missing or does not decode.
     #[must_use]
     pub fn get<T: Decode>(&self, id: u32) -> Option<T> {
@@ -378,7 +385,7 @@ impl LookRecords for WorldRecords {
 impl PlaceRecords for WorldRecords {
     /// A mesh's kind: the word after its id.
     fn mesh_kind(&self, id: DataId) -> Option<u32> {
-        let b = self.bytes(id.0)?;
+        let b = self.portal.read_start(id.0).ok()?;
         Some(u32::from_le_bytes(b.get(4..8)?.try_into().ok()?))
     }
 
@@ -386,11 +393,15 @@ impl PlaceRecords for WorldRecords {
     /// counted materials, names matrices. Kept once asked.
     // D2-05477
     fn mesh_weighted(&self, id: DataId) -> bool {
-        let read = || {
-            let b = self.bytes(id.0)?;
+        let format = |b: &[u8]| {
             let word = |at: usize| Some(u32::from_le_bytes(b.get(at..at + 4)?.try_into().ok()?));
             let materials = usize::try_from(word(8)?).ok()?;
-            let format = word(materials.checked_mul(4)?.checked_add(12)?)?;
+            word(materials.checked_mul(4)?.checked_add(12)?)
+        };
+        // A mesh's first block holds the word, unless it counts more materials than fit.
+        let read = || {
+            let format = format(&self.portal.read_start(id.0).ok()?)
+                .or_else(|| format(&self.bytes(id.0)?))?;
             Some(auberean_assets::mesh::matrix_count(format) != 0)
         };
         let lock = || match self.weighted.lock() {

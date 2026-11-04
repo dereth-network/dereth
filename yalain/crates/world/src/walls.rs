@@ -22,6 +22,9 @@ use auberean_physics::land::Land;
 use auberean_physics::mesh::Trees;
 use auberean_physics::world::World;
 use auberean_physics::{Body, BodyConfig};
+use auberean_primitives::DataId;
+use auberean_world::look::LookRecords as _;
+use auberean_world::place::PlaceRecords as _;
 use auberean_world::records::{RegionSet, WorldRecords};
 use dereth_physics::geom::Sphere;
 use dereth_primitives::num::math;
@@ -117,9 +120,9 @@ impl Walker {
 /// look's scale; none for a look with no setup or a setup with no spheres.
 #[must_use]
 pub fn walker(records: &WorldRecords, look: u32) -> Option<Walker> {
-    let visual = |did: u32| records.get::<auberean_assets::visual::VisualDesc>(did);
+    let visual = |did: u32| records.visual(DataId(did)).map(|v| (*v).clone());
     let (setup, scale) = yalain_content::look_setup(look, &visual)?;
-    let s: auberean_assets::setup::Setup = records.get(setup)?;
+    let s = records.setup(DataId(setup))?;
     let spheres: Vec<[f32; 4]> = s
         .spheres
         .iter()

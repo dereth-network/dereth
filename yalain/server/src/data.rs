@@ -2,12 +2,13 @@
 //! data, the levels, skills and vitae costs, the templates the world makes things of, the ground;
 //! and the files it serves clients' requests for records from.
 
-use std::cell::OnceCell;
-use std::collections::BTreeMap;
-use std::path::Path;
+use std::cell::{OnceCell, RefCell};
+use std::collections::{BTreeMap, HashMap};
+use std::path::{Path, PathBuf};
 
 use auberean_assets::entity::Entity;
 use auberean_assets::script::{Qualities, ScriptState};
+use auberean_assets::visual::VisualDesc;
 use auberean_assets::Context;
 use auberean_dat::locate::{install_dats, DatName};
 use auberean_dat::DatFile;
@@ -19,31 +20,52 @@ use yalain_world::{CharGenRules, StartRules};
 
 /// The install's files a client's requests for records are served from: its portal file, its
 /// first cell file and its English file (each absent when it does not open).
-///
-/// # Errors
-/// The install folder does not read.
-pub fn install_files(dats: &Path) -> Result<yalain_world::download::InstallFiles, String> {
-    let files = install_dats(dats).map_err(|e| format!("{}: {e}", dats.display()))?;
-    let open = |want: &dyn Fn(&DatName) -> bool| {
-        files
-            .iter()
-            .find(|(n, _)| want(n))
-            .and_then(|(_, p)| DatFile::open(p).ok())
-    };
-    Ok(yalain_world::download::InstallFiles {
-        portal: open(&|n| *n == DatName::Portal),
-        cell: open(&|n| *n == DatName::Cell(1)),
-        english: open(&|n| matches!(n, DatName::Local(l) if l.eq_ignore_ascii_case("english"))),
-    })
+#[must_use]
+pub fn install_files(p: &Portal) -> yalain_world::download::InstallFiles {
+    yalain_world::download::InstallFiles {
+        portal: Some(p.dat.clone()),
+        cell: p.cell().cloned(),
+        english: p.english().cloned(),
+    }
 }
 
 /// The character generation data's saved state.
 pub const MATRIX: u32 = 0x7000_0390;
 
-/// The install's portal file, its decoding context and its script library.
+/// The records a start has read, each decoded once however many tables ask.
+struct Kept<T>(RefCell<HashMap<u32, Option<T>>>);
+
+impl<T> Default for Kept<T> {
+    fn default() -> Self {
+        Self(RefCell::default())
+    }
+}
+
+impl<T: Clone> Kept<T> {
+    fn get(&self, id: u32, read: impl FnOnce() -> Option<T>) -> Option<T> {
+        if let Some(v) = self.0.borrow().get(&id) {
+            return v.clone();
+        }
+        let v = read();
+        self.0.borrow_mut().insert(id, v.clone());
+        v
+    }
+}
+
+/// The install's portal file, its decoding context and its script library; and the other files of
+/// the install, which what needs them shares.
 pub struct Portal {
     pub dat: DatFile,
     pub ctx: Context,
+    /// What the install holds, for the files opened when they are first asked for.
+    files: Vec<(DatName, PathBuf)>,
+    cell: OnceCell<Option<DatFile>>,
+    english: OnceCell<Option<DatFile>>,
+    entities: Kept<Entity>,
+    qualities: Kept<Qualities>,
+    visuals: Kept<VisualDesc>,
+    /// What a body takes of each setup: its radius and its height.
+    bodies: Kept<(f32, f32)>,
     /// Read at its first use and shared by everything the start reads with it after that: it is a
     /// large record, and every table of the start needs its field names.
     library: OnceCell<Library>,
@@ -52,13 +74,14 @@ pub struct Portal {
     saved_states: OnceCell<Vec<SavedState>>,
 }
 
-/// What the tables the start reads need of a saved state: its record, its package, and the value of
-/// the enumeration it fills, when it fills one.
+/// What the tables the start reads need of a saved state: its record, its package, the value of
+/// the enumeration it fills, when it fills one, and the quest it defines, when it defines one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SavedState {
     pub id: u32,
     pub package: u32,
     pub value: Option<u32>,
+    pub quest: Option<u32>,
 }
 
 impl Portal {
@@ -68,28 +91,75 @@ impl Portal {
     /// The install has none, or it does not open.
     pub fn open(dats: &Path) -> Result<Self, String> {
         let files = install_dats(dats).map_err(|e| format!("{}: {e}", dats.display()))?;
-        let (_, portal) = files
-            .into_iter()
+        let portal = files
+            .iter()
             .find(|(n, _)| *n == DatName::Portal)
+            .map(|(_, p)| p)
             .ok_or_else(|| format!("no portal data file in {}", dats.display()))?;
-        let dat = DatFile::open(&portal).map_err(|e| e.to_string())?;
+        let dat = DatFile::open(portal).map_err(|e| e.to_string())?;
+        Self::over(dat, files)
+    }
+
+    /// The portal file already opened, with the install's other files as `files` lists them.
+    fn over(dat: DatFile, files: Vec<(DatName, PathBuf)>) -> Result<Self, String> {
         let ctx = Context::from_portal(&dat).map_err(|e| e.to_string())?;
         Ok(Self {
             dat,
             ctx,
+            files,
+            cell: OnceCell::new(),
+            english: OnceCell::new(),
+            entities: Kept::default(),
+            qualities: Kept::default(),
+            visuals: Kept::default(),
+            bodies: Kept::default(),
             library: OnceCell::new(),
             saved_states: OnceCell::new(),
         })
     }
 
-    fn entity(&self, id: u32) -> Option<Entity> {
+    fn open_other(&self, want: &dyn Fn(&DatName) -> bool) -> Option<DatFile> {
+        self.files
+            .iter()
+            .find(|(n, _)| want(n))
+            .and_then(|(_, p)| DatFile::open(p).ok())
+    }
+
+    /// The install's first cell file, when it opens.
+    #[must_use]
+    pub fn cell(&self) -> Option<&DatFile> {
+        self.cell
+            .get_or_init(|| self.open_other(&|n| *n == DatName::Cell(1)))
+            .as_ref()
+    }
+
+    /// The install's English file, when it opens.
+    #[must_use]
+    pub fn english(&self) -> Option<&DatFile> {
+        self.english
+            .get_or_init(|| {
+                self.open_other(
+                    &|n| matches!(n, DatName::Local(l) if l.eq_ignore_ascii_case("english")),
+                )
+            })
+            .as_ref()
+    }
+
+    fn decoded<T: auberean_assets::Decode>(&self, id: u32) -> Option<T> {
         let bytes = self.dat.read(id).ok()?;
         auberean_assets::decode(id, &bytes, &self.ctx).ok()
     }
 
+    fn entity(&self, id: u32) -> Option<Entity> {
+        self.entities.get(id, || self.decoded(id))
+    }
+
     fn qualities(&self, id: u32) -> Option<Qualities> {
-        let bytes = self.dat.read(id).ok()?;
-        auberean_assets::decode(id, &bytes, &self.ctx).ok()
+        self.qualities.get(id, || self.decoded(id))
+    }
+
+    fn visual(&self, id: u32) -> Option<VisualDesc> {
+        self.visuals.get(id, || self.decoded(id))
     }
 }
 
@@ -391,13 +461,18 @@ pub fn saved_states(p: &Portal) -> Result<&[SavedState], String> {
         .filter_map(|id| {
             let st: ScriptState =
                 auberean_assets::decode(id, &p.dat.read(id).ok()?, &p.ctx).ok()?;
-            let value = Graph::decode(&st.graph, lib)
-                .ok()
-                .and_then(|g| yalain_world::effect_defs::EffectDef::enum_value_of(lib, &g));
+            let graph = Graph::decode(&st.graph, lib).ok();
+            let value = graph
+                .as_ref()
+                .and_then(|g| yalain_world::effect_defs::EffectDef::enum_value_of(lib, g));
+            let quest = graph
+                .as_ref()
+                .and_then(|g| yalain_world_db::install::quest_of_state(lib, g));
             Some(SavedState {
                 id,
                 package: st.package,
                 value,
+                quest,
             })
         })
         .collect();
@@ -759,11 +834,12 @@ pub fn crafting(
 
 /// The bodies of the catalog's templates whose looks give one.
 pub fn bodies(p: &Portal, catalog: &Catalog) -> BTreeMap<u32, [f32; 2]> {
-    let visual = |did: u32| auberean_assets::decode(did, &p.dat.read(did).ok()?, &p.ctx).ok();
+    let visual = |did: u32| p.visual(did);
     let setup = |did: u32| {
-        let s: auberean_assets::setup::Setup =
-            auberean_assets::decode(did, &p.dat.read(did).ok()?, &p.ctx).ok()?;
-        Some((s.radius, s.height))
+        p.bodies.get(did, || {
+            let s: auberean_assets::setup::Setup = p.decoded(did)?;
+            Some((s.radius, s.height))
+        })
     };
     catalog
         .templates
@@ -810,9 +886,7 @@ pub fn brokers(
 
 /// The icon a look gives (its visual descriptions' icon layers).
 pub fn icon_layers(p: &Portal, look: u32) -> Vec<[u32; 3]> {
-    yalain_content::icon_layers(look, &|did| {
-        auberean_assets::decode(did, &p.dat.read(did).ok()?, &p.ctx).ok()
-    })
+    yalain_content::icon_layers(look, &|did| p.visual(did))
 }
 
 /// The ground outdoors, from the land of the blocks the camps stand in and their neighbors; and
@@ -858,23 +932,17 @@ impl yalain_world::Ground for LandGround {
 /// # Errors
 /// The install's world records do not open.
 pub fn land_ground(
-    dats: &Path,
+    p: &Portal,
     spawns: &SpawnTable,
     catalog: &Catalog,
 ) -> Result<(LandGround, yalain_world::walls::Walls), String> {
-    let files = install_dats(dats).map_err(|e| format!("{}: {e}", dats.display()))?;
-    let open = |want: DatName| -> Result<DatFile, String> {
-        let p = files
-            .iter()
-            .find(|(n, _)| *n == want)
-            .map(|(_, p)| p.clone())
-            .ok_or_else(|| format!("no {want:?} file in {}", dats.display()))?;
-        DatFile::open(&p).map_err(|e| e.to_string())
-    };
-    let portal = open(DatName::Portal)?;
-    let cell = open(DatName::Cell(1))?;
-    let ctx = Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
-    let records = auberean_world::records::WorldRecords::new(portal, cell, None, ctx);
+    let cell = p.cell().ok_or("no first cell file in the install")?;
+    let records = auberean_world::records::WorldRecords::new(
+        p.dat.clone(),
+        cell.clone(),
+        None,
+        p.ctx.clone(),
+    );
     let region = records.region().map_err(|e| format!("{e:?}"))?;
     let land = auberean_physics::land::Land::new();
     let mut trees = auberean_physics::mesh::Trees::default();
@@ -892,12 +960,14 @@ pub fn land_ground(
             }
         }
     }
+    let mut near = auberean_physics::land::NearBlocks::default();
     let mut n = 0;
     for (x, y) in blocks {
-        if land.add_block(&records, &region, &mut trees, x, y) {
+        if land.add_block_near(&records, &region, &mut trees, &mut near, x, y) {
             n += 1;
         }
     }
+    drop(near);
     // Every interior cell of the world, with the cells it sees (about a second's reading).
     let mut sees = std::collections::HashMap::new();
     for place in 0..=0xFFFF_u32 {
@@ -985,7 +1055,7 @@ mod tests {
     use super::*;
     use auberean_dat::checked::{Exact, ReadAt};
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     /// A data file that counts its reads.
     #[derive(Debug)]
@@ -1015,13 +1085,7 @@ mod tests {
             Box::new(Exact(Counted(file, Arc::clone(&reads)))),
         )
         .expect("opens");
-        let ctx = Context::from_portal(&dat).expect("a context");
-        let p = Portal {
-            dat,
-            ctx,
-            library: OnceCell::new(),
-            saved_states: OnceCell::new(),
-        };
+        let p = Portal::over(dat, Vec::new()).expect("a context");
         library(&p).expect("the library");
         let at = |n: &Arc<AtomicU64>| n.load(Ordering::Relaxed);
         let before = at(&reads);
@@ -1032,5 +1096,129 @@ mod tests {
         let second = at(&reads) - before;
         assert!(first > 10_000, "the first reads them all: {first}");
         assert!(second < first / 10, "{second} after {first}");
+        // The same reading finds the quests' definitions a world's compile asks for.
+        let states = saved_states(&p).expect("the states");
+        assert!(states.iter().any(|s| s.quest == Some(0x4000_005E)));
+        let quests = states.iter().filter(|s| s.quest.is_some()).count();
+        assert_eq!(quests, 1741, "only states with phases define quests");
+    }
+
+    /// A data file that counts the reads at each offset.
+    #[derive(Debug)]
+    struct Tallied(std::fs::File, Arc<Mutex<HashMap<u64, u32>>>);
+
+    impl ReadAt for Tallied {
+        fn read_at(&self, offset: u64, buf: &mut [u8]) -> std::io::Result<usize> {
+            if let Ok(mut t) = self.1.lock() {
+                *t.entry(offset).or_insert(0) += 1;
+            }
+            self.0.read_at(offset, buf)
+        }
+    }
+
+    type Tally = Arc<Mutex<HashMap<u64, u32>>>;
+
+    /// An install's file whose reads are tallied, from the time it has opened.
+    fn tallied(want: &DatName) -> (DatFile, Tally) {
+        let found = install_dats(&auberean_dat::testing::require_target_install()).expect("files");
+        let (_, path) = found
+            .into_iter()
+            .find(|(n, _)| n == want)
+            .expect("the file");
+        let tally = Tally::default();
+        let file = std::fs::File::open(&path).expect("the file");
+        let dat = DatFile::from_storage(path, Box::new(Exact(Tallied(file, Arc::clone(&tally)))))
+            .expect("opens");
+        tally.lock().expect("the tally").clear();
+        (dat, tally)
+    }
+
+    /// Each entry's reads in `lo..=hi` of a file, at the head of its chain.
+    fn heads(dat: &DatFile, tally: &Tally, lo: u32, hi: u32, of: impl Fn(u32) -> bool) -> Vec<u32> {
+        let tally = tally.lock().expect("the tally");
+        dat.entries_in(lo, hi)
+            .filter(|e| of(e.id))
+            .filter_map(|e| tally.get(&u64::from(e.offset)).copied())
+            .collect()
+    }
+
+    /// Reading the ground of two camps side by side reads each landblock and each mesh once, and
+    /// reads no material; each mesh's head is read at most a few times besides, not its whole.
+    /// Behaviour: server.operator.start-reads-the-ground-once
+    #[test]
+    fn the_ground_reads_each_landblock_and_mesh_once() {
+        let (dat, portal_reads) = tallied(&DatName::Portal);
+        let (cell, cell_reads) = tallied(&DatName::Cell(1));
+        let p = Portal::over(dat, Vec::new()).expect("a context");
+        p.cell.set(Some(cell)).expect("not yet opened");
+        let camp = |cell: u32| yalain_content::Camp {
+            id: String::new(),
+            cell,
+            origin: [0.0; 3],
+            radius: 0.0,
+            population: 0,
+            regen: 0.0,
+            templates: Vec::new(),
+            spots: Vec::new(),
+            placed: String::new(),
+            confidence: String::new(),
+            moves: yalain_content::movement::CampMoves::default(),
+        };
+        let spawns = SpawnTable {
+            camps: vec![camp(0x75B9_0001), camp(0x76B9_0001)],
+        };
+        land_ground(&p, &spawns, &Catalog::default()).expect("the ground");
+        let cell = p.cell().expect("the cell file");
+        let lands = heads(cell, &cell_reads, 0, u32::MAX, |id| id & 0xFFFF == 0xFFFF);
+        assert!(
+            lands.len() >= 12,
+            "the blocks of both camps: {}",
+            lands.len()
+        );
+        assert!(lands.iter().all(|n| *n == 1), "{lands:?}");
+        let meshes = heads(&p.dat, &portal_reads, 0x0600_0000, 0x06FF_FFFF, |_| true);
+        assert!(!meshes.is_empty(), "the blocks hold objects");
+        assert!(meshes.iter().all(|n| *n == 1), "{meshes:?}");
+        let materials = heads(&p.dat, &portal_reads, 0x3000_0000, 0x30FF_FFFF, |_| true);
+        assert!(materials.is_empty(), "{materials:?}");
+    }
+
+    /// The files served to clients are the ones the start read, not opened again; and a record the
+    /// tables ask for again is not read again.
+    /// Behaviour: server.operator.start-shares-the-open-files
+    #[test]
+    fn the_files_served_are_the_files_the_start_read_and_a_record_is_read_once() {
+        let (dat, reads) = tallied(&DatName::Portal);
+        let (cell, _) = tallied(&DatName::Cell(1));
+        let (english, _) = tallied(&DatName::Local("English".into()));
+        // No file to open: only what the start already holds can be served.
+        let p = Portal::over(dat, Vec::new()).expect("a context");
+        p.cell.set(Some(cell)).expect("not yet opened");
+        p.english.set(Some(english)).expect("not yet opened");
+        let served = install_files(&p);
+        assert!(served.portal.is_some() && served.cell.is_some() && served.english.is_some());
+        let total = |r: &Tally| r.lock().expect("the tally").values().sum::<u32>();
+        let entity = BODY_ENTITIES[0].2;
+        let qualities = p
+            .dat
+            .entries_in(0x8100_0000, 0x81FF_FFFF)
+            .next()
+            .expect("qualities")
+            .id;
+        let visual = p
+            .dat
+            .entries_in(0x1F00_0000, 0x1FFF_FFFF)
+            .next()
+            .expect("a look")
+            .id;
+        assert!(p.entity(entity).is_some());
+        assert!(p.qualities(qualities).is_some());
+        assert!(p.visual(visual).is_some());
+        let before = total(&reads);
+        assert!(before >= 3);
+        assert!(p.entity(entity).is_some());
+        assert!(p.qualities(qualities).is_some());
+        assert!(p.visual(visual).is_some());
+        assert_eq!(total(&reads), before);
     }
 }
