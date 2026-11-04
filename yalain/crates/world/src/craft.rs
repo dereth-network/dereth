@@ -1845,24 +1845,22 @@ pub fn executed(err: u32, recipe: u32) -> ServerMessage {
     .expect("packs")
 }
 
-/// An ALHash's pairs (a word key, a 64-bit value), from its packed bytes.
+/// An ALHash's pairs (a word key, a 64-bit value), from its packed bytes: none when its count isn't
+/// what they hold.
 fn word_long_pairs(bytes: &[u8]) -> Vec<(u32, u64)> {
-    let word = |i: usize| -> Option<u32> {
-        bytes
-            .get(i..i + 4)
-            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-    };
-    let Some(h) = word(0) else {
+    let Some((header, body)) = bytes.split_first_chunk::<4>() else {
         return Vec::new();
     };
-    let n = (h & 0x00FF_FFFF) as usize;
-    (0..n)
-        .filter_map(|k| {
-            let at = 4 + k * 12;
-            let key = word(at)?;
-            let lo = word(at + 4)?;
-            let hi = word(at + 8)?;
-            Some((key, u64::from(hi) << 32 | u64::from(lo)))
+    let n = (u32::from_le_bytes(*header) & 0x00FF_FFFF) as usize;
+    let (pairs, rest) = body.as_chunks::<12>();
+    if pairs.len() != n || !rest.is_empty() {
+        return Vec::new();
+    }
+    pairs
+        .iter()
+        .map(|p| {
+            let word = |i: usize| u32::from_le_bytes([p[i], p[i + 1], p[i + 2], p[i + 3]]);
+            (word(0), u64::from(word(8)) << 32 | u64::from(word(4)))
         })
         .collect()
 }

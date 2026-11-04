@@ -3116,3 +3116,39 @@ fn a_recipe_past_its_cutoff_is_refused_until_effects_lift_the_skill() {
     wait(&mut h, 9.0);
     assert_eq!(craft_answers(&h, b, from), [0], "exactly at the cutoff");
 }
+
+/// A request's table of ingredients is read as it is packed: its pairs, and none at all when its
+/// count isn't what it holds.
+/// Behaviour: server.lying-client.calls-hurt-nobody
+#[test]
+fn a_crafts_table_whose_count_is_not_what_it_holds_names_nothing() {
+    use yalain_world::calls::Node;
+    let table = |count: u32, pairs: usize| {
+        let mut bytes = count.to_le_bytes().to_vec();
+        for k in 0..pairs {
+            let k = u32::try_from(k).expect("few");
+            bytes.extend_from_slice(&k.to_le_bytes());
+            bytes.extend_from_slice(&(k + 10).to_le_bytes());
+            bytes.extend_from_slice(&(k + 20).to_le_bytes());
+        }
+        vec![(1u32, Node::Native { ty: 1, bytes })]
+    };
+    // The size place above the count.
+    assert_eq!(
+        yalain_world::craft::slots_in(&table(0x0200_0002, 2)),
+        vec![(0, 20u64 << 32 | 10), (1, 21u64 << 32 | 11)]
+    );
+    assert_eq!(yalain_world::craft::slots_in(&table(0, 0)), vec![]);
+    for (count, pairs) in [(0x00FF_FFFF, 0), (3, 2), (1, 2), (0, 1)] {
+        assert_eq!(
+            yalain_world::craft::slots_in(&table(count, pairs)),
+            vec![],
+            "{count} {pairs}"
+        );
+    }
+    let mut cut = table(1, 1);
+    if let Node::Native { bytes, .. } = &mut cut[0].1 {
+        bytes.pop();
+    }
+    assert_eq!(yalain_world::craft::slots_in(&cut), vec![]);
+}
