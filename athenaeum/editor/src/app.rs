@@ -424,21 +424,15 @@ fn field_text(row: &Row, field: &str) -> String {
     match (row, field) {
         (Row::Object(o), "template") => hex(o.template),
         (Row::Object(o), "scale") => o.scale.map(num).unwrap_or_default(),
-        (Row::Object(o), "kind") => format!(
-            "\"{}\"",
-            if o.kind == ObjectKind::Npc {
-                "npc"
-            } else {
-                "static"
-            }
-        ),
+        (Row::Object(o), "kind") => if o.kind == ObjectKind::Npc {
+            "npc"
+        } else {
+            "static"
+        }
+        .to_string(),
         (Row::Object(o), "cell") => o.cell.map(hex).unwrap_or_default(),
         (Row::Object(o), "id") => o.id.map(|v| format!("0x{v:016X}")).unwrap_or_default(),
-        (Row::Object(o), "to") => {
-            o.to.as_ref()
-                .map(|t| format!("\"{t}\""))
-                .unwrap_or_default()
-        }
+        (Row::Object(o), "to") => o.to.clone().unwrap_or_default(),
         (Row::Object(o), "name") => o
             .name
             .map(|n| {
@@ -492,11 +486,20 @@ fn is_indoors(row: &Row) -> bool {
 #[must_use]
 pub fn field_toml(field: &str, typed: &str) -> String {
     let t = typed.trim();
-    let words = matches!(field, "to" | "destination");
+    let words = matches!(field, "to" | "destination" | "kind");
     if words && !t.is_empty() && !t.starts_with('"') {
         format!("\"{t}\"")
     } else {
         t.to_string()
+    }
+}
+
+/// A row's kind as a person reads it.
+fn kind_shown(kind: &str) -> &'static str {
+    if kind == "npc" {
+        "person"
+    } else {
+        "object"
     }
 }
 
@@ -3183,18 +3186,36 @@ impl<'w> Editor<'w> {
             .show(ui, |ui| {
                 for (name, text) in &mut self.fields {
                     ui.label(name.as_str());
+                    if name == "kind" {
+                        egui::ComboBox::from_id_salt("row kind")
+                            .selected_text(kind_shown(text))
+                            .width(220.0)
+                            .show_ui(ui, |ui| {
+                                for k in ["npc", "static"] {
+                                    if ui.selectable_label(text == k, kind_shown(k)).clicked() {
+                                        set = Some((name.clone(), k.to_string()));
+                                    }
+                                }
+                            });
+                        ui.end_row();
+                        continue;
+                    }
                     let r = ui.add(
                         egui::TextEdit::singleline(text)
                             .desired_width(220.0)
                             .font(egui::TextStyle::Monospace),
                     );
-                    if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    // Going elsewhere keeps what was typed; Escape leaves it as it was.
+                    if r.lost_focus() && !ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                         set = Some((name.clone(), text.clone()));
+                    } else if r.lost_focus() {
+                        self.fields_of = None;
                     }
                     ui.end_row();
                 }
             });
-        if let Some((field, value)) = set {
+        let unchanged = |field: &str, value: &str| field_text(&e.row.row, field) == value.trim();
+        if let Some((field, value)) = set.filter(|(f, v)| !unchanged(f, v)) {
             match self.session.set(&item, &field, &field_toml(&field, &value)) {
                 Ok(_) => self.status = format!("{item}: {field} set"),
                 Err(err) => {

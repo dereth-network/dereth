@@ -300,6 +300,7 @@ fn a_place_is_typed_without_its_quotes() {
     assert_eq!(field_toml("to", "inn"), "\"inn\"");
     assert_eq!(field_toml("to", "\"inn\""), "\"inn\"");
     assert_eq!(field_toml("to", " "), "");
+    assert_eq!(field_toml("kind", "static"), "\"static\"");
     assert_eq!(field_toml("radius", "5.0"), "5.0");
 }
 

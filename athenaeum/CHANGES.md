@@ -8,6 +8,7 @@ see, not how it was done.
 
 ## Unreleased
 
+- The inspector saves what you type when you click away, and needs no quotes.
 - macOS: Intel Macs are no longer supported; Apple silicon only.
 - The editor asks before closing with changes not saved.
 - Clicks on a window over the world no longer reach the world.
