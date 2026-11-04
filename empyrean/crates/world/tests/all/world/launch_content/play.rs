@@ -20,6 +20,7 @@ use empyrean_world::entity::landblock;
 use empyrean_world::factories::world_object_factory as factory;
 use empyrean_world::managers::recipe_manager as rm;
 use empyrean_world::managers::{guid_manager, landblock_manager};
+use empyrean_world::network::game_messages::game_message::{start_capture, take_sent};
 use empyrean_world::network::motion::movement_data::Motion;
 use empyrean_world::sessions::SessionData;
 use empyrean_world::world_objects::world_object::{CtorEnv, WorldObject};
@@ -60,6 +61,7 @@ fn enter_as(w: &mut World, area: usize, template: usize) -> ObjectGuid {
         SessionData {
             state: SessionState::WorldConnected,
             player: Some(guid),
+            account: Some("offline-fixture".into()),
             ..Default::default()
         },
     );
@@ -669,4 +671,125 @@ fn a_launch_skulker_takes_a_weapons_hit_without_its_innate_resistances() {
             .formulas
             .physical_hits_skip_innate_resistance
     );
+}
+
+/// A wand carrying Strength Self I with mana, in `player`'s pack, as the world base's loot makes one.
+fn magic_wand(w: &mut World, player: ObjectGuid) -> ObjectGuid {
+    const STRENGTH_SELF_I: i32 = 2;
+    let wand = spawn(w, 4914, Some(player));
+    let o = w.objects.get_mut(wand).unwrap();
+    o.biota
+        .properties_spell_book
+        .get_or_insert_with(Default::default)
+        .insert(STRENGTH_SELF_I, 2.0);
+    o.set_item_max_mana(Some(100));
+    o.set_item_cur_mana(Some(100));
+    wand
+}
+
+/// Wields `item` through the client's action and returns whether its spell reached the wielder.
+fn wield_and_read_magic(w: &mut World, player: ObjectGuid, item: ObjectGuid) -> (bool, bool) {
+    use empyrean_entity::enums::EquipMask;
+    use empyrean_world::world_objects::creature_equipment;
+    const STRENGTH_SELF_I: u32 = 2;
+    player_inventory::handle_action_get_and_wield_item(w, player, item.full(), EquipMask::Held);
+    drain(w, 3, &[player]);
+    let wielded = creature_equipment::get_equipped_wand(w, player) == Some(item);
+    let magic = w
+        .objects
+        .get(player)
+        .unwrap()
+        .biota
+        .properties_enchantment_registry
+        .as_ref()
+        .is_some_and(|rows| rows.iter().any(|e| e.spell_id == STRENGTH_SELF_I as i32));
+    (wielded, magic)
+}
+
+/// An item's gates hold back its magic, never the item: failing arcane lore, the item's skill, an
+/// allegiance rank or a heritage leaves it in the hand with its mana whole, and the player told why.
+#[test]
+fn a_launch_item_failing_a_magic_gate_is_wielded_with_its_spells_off() {
+    use empyrean_entity::enums::{PropertyDataId, PropertyInt};
+
+    type Gate = fn(&mut WorldObject);
+    let gates: [(&str, Gate); 4] = [
+        ("Arcane Lore", |o| {
+            o.set_property(PropertyInt::ItemDifficulty, 9999);
+        }),
+        ("Sword", |o| {
+            let sword = u32::try_from(Skill::Sword.0).unwrap();
+            o.set_property(PropertyDataId::ItemSkillLimit, sword);
+            o.set_property(PropertyInt::ItemSkillLevelLimit, 9999);
+        }),
+        ("Allegiance Rank", |o| {
+            o.set_property(PropertyInt::ItemAllegianceRankLimit, 2);
+        }),
+        ("Gharu", |o| {
+            o.set_property(PropertyInt::HeritageGroup, 2);
+        }),
+    ];
+    for (name, gate) in gates {
+        let mut w = world();
+        let player = enter(&mut w, 0);
+        let wand = magic_wand(&mut w, player);
+        gate(w.objects.get_mut(wand).unwrap());
+        start_capture();
+        let (wielded, magic) = wield_and_read_magic(&mut w, player, wand);
+        let told = take_sent().iter().any(|(_, _, bytes)| {
+            bytes
+                .windows(name.len())
+                .any(|part| part == name.as_bytes())
+        });
+        assert!(wielded, "{name}: the item is in the hand");
+        assert!(!magic, "{name}: its spell is off");
+        assert_eq!(
+            w.objects.get(wand).unwrap().item_cur_mana(),
+            Some(100),
+            "{name}: no mana spent"
+        );
+        assert!(told, "{name}: the player hears why");
+    }
+
+    let mut w = world();
+    let player = enter(&mut w, 0);
+    let wand = magic_wand(&mut w, player);
+    assert_eq!(
+        wield_and_read_magic(&mut w, player, wand),
+        (true, true),
+        "with every gate met the spell lands"
+    );
+}
+
+/// Divergence: V506
+/// The world base's one weapon with a wield requirement goes in any hand: the 1999 client knows no
+/// such requirement. Other eras keep the check.
+#[test]
+fn a_launch_lugian_mace_is_wielded_at_any_skill() {
+    use empyrean_common::era::EraExt;
+    use empyrean_entity::enums::{PropertyInt, WeenieError};
+    use empyrean_world::managers::property_manager as pm;
+    const LUGIAN_MACE: u32 = 543;
+
+    let mut w = world();
+    pm::initialize(&mut w, true);
+    let player = enter(&mut w, 0);
+    let mace = spawn(&mut w, LUGIAN_MACE, None);
+    let o = w.objects.get(mace).unwrap();
+    assert_eq!(o.get_property(PropertyInt::WieldDifficulty), Some(250));
+    assert_eq!(
+        player_inventory::check_wield_requirements(&mut w, player, mace),
+        WeenieError::None
+    );
+
+    // An operator can turn the check on: the character has no row for the mace's skill.
+    assert!(pm::modify_bool(&w, "use_wield_requirements", true));
+    assert_eq!(
+        player_inventory::check_wield_requirements(&mut w, player, mace),
+        WeenieError::SkillTooLow
+    );
+
+    w.era = empyrean_common::era::EraId::Eor.rules();
+    pm::initialize(&mut w, true);
+    assert!(pm::get_bool(&w, "use_wield_requirements", false, true).item);
 }

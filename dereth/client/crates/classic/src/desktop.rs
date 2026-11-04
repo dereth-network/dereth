@@ -249,6 +249,70 @@ impl Desktop {
             .filter(|w| visible.contains(&w.token))
             .find_map(|w| w.controls.item_at(x - w.x, y - w.y))
     }
+    /// What the control under `(x, y)` says of itself: the topmost window there decides, and a
+    /// dialog keeps every window quiet. With no control there, a window may still speak for its
+    /// bare ground, with an empty id.
+    pub fn hover_at(&self, x: i32, y: i32, context: &Context<'_>) -> Option<crate::panels::Hover> {
+        if self.modal.is_some() {
+            return None;
+        }
+        let current = self.panel_context(context);
+        let visible = self.visible_tokens();
+        // An open list lies over everything, past its window if it must.
+        let open_list = self
+            .windows
+            .iter()
+            .rev()
+            .filter(|w| visible.contains(&w.token))
+            .find_map(|w| Some((w, w.controls.popup_row_at(x - w.x, y - w.y)?)));
+        if let Some((w, (id, row))) = open_list {
+            let at = crate::panels::HoverPoint {
+                id,
+                x: x - w.x,
+                y: y - w.y,
+                item: None,
+                row: Some(row),
+            };
+            return w.panel.hover(at, &current);
+        }
+        let w = self.windows.iter().rev().find(|w| {
+            visible.contains(&w.token)
+                && rect(
+                    w.x,
+                    w.y,
+                    w.frame.screen.width as i32,
+                    w.frame.screen.height as i32,
+                )
+                .contains(x, y)
+                && w.controls.control_id_at(x - w.x, y - w.y).is_some()
+        });
+        let Some(w) = w else {
+            return self
+                .windows
+                .iter()
+                .rev()
+                .filter(|w| visible.contains(&w.token))
+                .find_map(|w| {
+                    let at = crate::panels::HoverPoint {
+                        id: "",
+                        x: x - w.x,
+                        y: y - w.y,
+                        item: None,
+                        row: None,
+                    };
+                    w.panel.hover(at, &current)
+                });
+        };
+        let (x, y) = (x - w.x, y - w.y);
+        let at = crate::panels::HoverPoint {
+            id: w.controls.control_id_at(x, y)?,
+            x,
+            y,
+            item: w.controls.item_at(x, y).filter(|id| id.0 != 0),
+            row: w.controls.list_row_at(x, y),
+        };
+        w.panel.hover(at, &current)
+    }
     fn visible_tokens(&self) -> std::collections::BTreeSet<u64> {
         let external = self
             .windows
@@ -2219,6 +2283,25 @@ mod tests {
     #[derive(Debug)]
     struct World;
     impl GameView for World {}
+    #[test]
+    fn the_topmost_window_under_the_pointer_says_what_its_control_does() {
+        context_test(|c| {
+            let mut desktop = Desktop::new(crate::panels::factory, (800, 600));
+            desktop.open("hud", c);
+            desktop.tick(c);
+            let frame = crate::panels::hud::make("hud").unwrap().frame(c);
+            let help = &frame
+                .controls
+                .iter()
+                .find(|c| c.id == "vitals:help")
+                .unwrap()
+                .rect;
+            let hover = desktop.hover_at(help.x + 1, help.y + 1, c).unwrap();
+            assert_eq!(hover.name, "Click here for help");
+            desktop.show_dialog("test".into(), "A question".into(), vec![], vec![]);
+            assert_eq!(desktop.hover_at(help.x + 1, help.y + 1, c), None);
+        });
+    }
     fn context_test(f: impl FnOnce(&Context<'_>)) {
         let game = World;
         let pregame = PregameView::default();

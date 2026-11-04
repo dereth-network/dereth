@@ -223,6 +223,7 @@ fn synthetic_spell(i: &Value) -> Spell {
         ..DbSpell::default()
     };
     let mut spell = Spell {
+        rules_category: None,
         spell_base: Some(base),
         spell: Some(Arc::new(db)),
         formula: None,

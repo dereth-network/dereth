@@ -638,6 +638,10 @@ fn magic_controls_and_favorite_navigation_follow_independent_profile_facts() {
         spell_favorite_tabs: 7,
         idle_scroll_thumb: true,
         one_effects_panel: false,
+        launch_wording: false,
+        map_outdoors_only: false,
+        spell_filter_panel: true,
+        combat_keep_in_view: false,
     });
     book.update(&mut ui, &w);
     bar.update(&mut ui, &w);

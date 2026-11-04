@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Fixed a crash wielding an item that requires a skill the character doesn't have.
 - New experimental Launch era: the world and its rules as they were in November 1999.
 - Launch: spells have the Charge and the world-wide spell economy of 1999.
 - Launch: accounts hold five characters; `max_characters_per_account` changes that.

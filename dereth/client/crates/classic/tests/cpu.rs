@@ -748,6 +748,10 @@ fn classic_magic_filters_gate_inputs_independently_of_skill_loading() {
                 spell_favorite_tabs: 7,
                 idle_scroll_thumb: true,
                 one_effects_panel: false,
+                launch_wording: false,
+                map_outdoors_only: false,
+                spell_filter_panel: true,
+                combat_keep_in_view: false,
             }),
             ..Default::default()
         };

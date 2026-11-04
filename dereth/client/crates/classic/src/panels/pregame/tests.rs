@@ -1064,6 +1064,25 @@ fn clothing_and_town_dropdowns_use_the_art_face_at_their_screen_places() {
 }
 
 #[test]
+fn a_refused_new_character_is_told_why_and_a_taken_name_is_named() {
+    assert_eq!(
+        creation_refusal(3, "Asheron"),
+        "The name you have chosen for your character, Asheron, is already in use by another character.  Please choose another name."
+    );
+    assert_eq!(
+        creation_refusal(4, "Asheron"),
+        "Sorry, but that name is not permitted."
+    );
+    assert_eq!(
+        creation_refusal(6, "Asheron"),
+        "The server cannot create your new character at this time. Please try again later."
+    );
+    assert_eq!(
+        creation_refusal(99, "Asheron"),
+        "The character database is unavailable."
+    );
+}
+#[test]
 #[cfg(windows)]
 fn the_trademark_sign_sits_after_the_title_not_over_it() {
     use dereth_classic_gdi::fonts::{rasterize, FontSpec};

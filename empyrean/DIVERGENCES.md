@@ -509,3 +509,6 @@ the evidence behind each row. Edit the register, not this file.
 | V502 | era | In Launch, a spell weakens as you repeat it and recovers with time. | `empyrean-world::all::magic::spellcasting::a_successful_cast_spends_its_spells_charge_tells_the_client_and_lasts_by_it` |
 | V503 | era | In Launch, spells grow weaker the more the whole world casts them. | `empyrean-world::all::magic::spellcasting::a_successful_cast_spends_the_worlds_value_and_says_how_strong_the_magic_felt` |
 | V504 | era | A world can turn portal storms on. | - |
+| V505 | era | In Launch, spell rules work with the 1999 data's categories. | `empyrean-world::all::world::launch_content::spell_ranges::a_launch_spell_is_read_by_the_later_category_and_stacks_by_its_own` |
+| V506 | era | In Launch, items have no wield requirements. | `empyrean-world::all::world::launch_content::play::a_launch_lugian_mace_is_wielded_at_any_skill` |
+| V507 | robustness | A wield requirement on a stat the character lacks refuses the item. | `empyrean-world::all::inventory::player_inventory::a_wield_requirement_on_a_missing_stat_counts_it_as_zero` |

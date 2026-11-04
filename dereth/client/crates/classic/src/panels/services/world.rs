@@ -149,6 +149,17 @@ impl Panel for MapHouse {
         // Under the page's two tabs.
         (!self.house).then_some((0, 25))
     }
+    fn hover(&self, at: HoverPoint<'_>, c: &Context<'_>) -> Option<Hover> {
+        if self.house || !at.id.is_empty() || !c.game.player_outside() {
+            return None;
+        }
+        let (north, east) = c.game.player_coords()?;
+        let (x, y) = map_marker(f64::from(north), f64::from(east));
+        rect(x - 8, y - 8 + 25, 17, 16)
+            .contains(at.x, at.y)
+            .then(|| Hover::line("Your location is marked with a green circle"))
+            .flatten()
+    }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
         let has_house =
             dereth_client_contract::era::EraSurface::House.offered(c.game.era_features());

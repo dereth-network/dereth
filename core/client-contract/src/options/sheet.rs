@@ -1096,7 +1096,7 @@ const CLIENT_SHARED: [Heading; 5] = [
             only(
                 Shown::Only(Interface::Classic),
                 pref(
-                    "Right-click Mouselook",
+                    "Right-click mouselook",
                     Value::Check(crate::options::classic::RIGHT_CLICK_MOUSE_LOOK),
                     Bool(true),
                 ),

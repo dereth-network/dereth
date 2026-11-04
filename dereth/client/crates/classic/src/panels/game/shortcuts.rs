@@ -11,6 +11,16 @@ use dereth_client_contract::view::MagicNotice;
 #[derive(Debug, Default)]
 pub struct Shortcuts;
 impl Panel for Shortcuts {
+    fn hover(&self, at: HoverPoint<'_>, c: &Context<'_>) -> Option<Hover> {
+        at.id.strip_prefix("slot:")?;
+        match at.item {
+            Some(item) => Hover::line(format!(
+                "Shortcut to {}",
+                c.game.name(item).unwrap_or_default()
+            )),
+            None => Hover::line("Drag items and spells here to make shortcuts"),
+        }
+    }
     fn id(&self) -> &'static str {
         "shortcuts"
     }
@@ -358,6 +368,38 @@ fn charge_bar(f: &mut PanelFrame, r: Rect, charge: f32) {
 }
 
 impl Panel for Favorites {
+    fn hover(&self, at: HoverPoint<'_>, c: &Context<'_>) -> Option<Hover> {
+        let g = c.game;
+        if at.id == "cast" {
+            return match self.choice(g) {
+                Some((Some(object), _)) => Hover::line(format!(
+                    "Click to use your {}",
+                    g.name(object).unwrap_or_default()
+                )),
+                Some((None, spell)) => {
+                    Hover::line(format!("Click to cast {}", g.spell(spell)?.name))
+                }
+                None if drawable_favorites(g, self.tab).is_empty() => Hover::lines(
+                    "Drag a spell to the menu above,",
+                    "then click here to cast it.",
+                ),
+                None => Hover::lines(
+                    "Select a spell from the menu above,",
+                    "then click here to cast it.",
+                ),
+            };
+        }
+        if !at.id.starts_with("spell:") {
+            return None;
+        }
+        match self.spell_at(at.id, g) {
+            Some(spell) => Hover::lines(g.spell(spell)?.name, "Double-click to cast this spell"),
+            None => Hover::lines(
+                "Drag a spell here from your spellbook",
+                "to make it available to cast",
+            ),
+        }
+    }
     fn id(&self) -> &'static str {
         "spell-favorites"
     }

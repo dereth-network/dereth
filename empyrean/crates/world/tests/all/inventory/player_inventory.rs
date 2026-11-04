@@ -729,6 +729,40 @@ fn check_wield_requirements_in_aces_order() {
     );
 }
 
+/// Divergence: V507
+/// A wield requirement on a stat the character has no record of refuses the item as a stat of zero
+/// would, on every era: a world's data can name anything, and the server keeps running.
+#[test]
+fn a_wield_requirement_on_a_missing_stat_counts_it_as_zero() {
+    const NO_SUCH_STAT: i32 = 999;
+    for era in empyrean_common::era::EraId::ALL {
+        let mut w = world();
+        w.era = era.rules();
+        for req in [
+            WieldRequirement::Skill,
+            WieldRequirement::RawSkill,
+            WieldRequirement::Training,
+            WieldRequirement::Attrib,
+            WieldRequirement::RawAttrib,
+            WieldRequirement::SecondaryAttrib,
+            WieldRequirement::RawSecondaryAttrib,
+        ] {
+            assert_eq!(
+                pi::check_wield_requirement(&mut w, player(), req, Some(NO_SUCH_STAT), Some(1)),
+                WeenieError::SkillTooLow,
+                "{era}, requirement {}",
+                req.0
+            );
+            assert_eq!(
+                pi::check_wield_requirement(&mut w, player(), req, Some(NO_SUCH_STAT), Some(0)),
+                WeenieError::None,
+                "{era}, requirement {}: zero meets a requirement of zero",
+                req.0
+            );
+        }
+    }
+}
+
 /// `PutItemInContainerEvent.IsDoubleSend`: same item, container and placement, the newer one
 /// less than 0.5 s old and less than 0.5 s after the older.
 #[test]

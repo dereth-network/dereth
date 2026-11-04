@@ -14,6 +14,9 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Classic: resting the pointer on a button, bar or slot says what it does.
+- Refused stances and emotes now say why.
+- Launch worlds: Classic's spellbook, chat menu and messages match the 1999 client.
 - Web: the launcher opens much faster, fetching the game only when you play.
 - The client now updates on its own, apart from the launcher.
 - Launch worlds: the Charge bar and each spell's duration range.

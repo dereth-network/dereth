@@ -189,6 +189,10 @@ fn the_options_page_has_the_shared_buttons_and_the_interface_choice_is_a_client_
     assert!(matches!(
         &activate(&mut *p, "keyboard", &v)[0],
         PanelAction::Confirm { accept, .. } if *accept == vec![
+            PanelAction::Host(HostAction::LocalFeedback {
+                severity: crate::panels::FeedbackSeverity::Information,
+                text: "Logging out to configure keys.".into(),
+            }),
             PanelAction::Game(UiRequest::EndCharacterSession { ask: false }),
             PanelAction::Host(HostAction::KeyboardOnLeaving),
         ]
@@ -1045,13 +1049,221 @@ fn the_oath_cost_line_is_the_eras_and_a_first_oath_is_free() {
 }
 #[test]
 fn switching_tabs_cancels_the_global_social_target_mode() {
-    let v = View::default();
+    let v = View {
+        roster: dereth_client_contract::view::AllegianceRoster {
+            patron: Some(Default::default()),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
     let mut p = make("allegiance").unwrap();
     activate(&mut *p, "break", &v);
     assert!(activate(&mut *p, "tab1", &v).contains(&PanelAction::Host(HostAction::SocialTarget(0))));
     assert!(event(&mut *p, ControlEvent::WorldTarget(Some(ObjectId(9))), &v).is_empty());
 }
 
+fn feedback(actions: &[PanelAction]) -> Vec<String> {
+    actions
+        .iter()
+        .filter_map(|a| match a {
+            PanelAction::Host(HostAction::LocalFeedback { text, .. }) => Some(text.clone()),
+            _ => None,
+        })
+        .collect()
+}
+#[test]
+fn breaking_allegiance_names_who_there_is_to_break_from_and_says_when_it_is_cancelled() {
+    use dereth_client_contract::view::{AllegianceEntry, AllegianceRoster};
+    let roster = |patron: bool, vassals: usize| AllegianceRoster {
+        patron: patron.then(AllegianceEntry::default),
+        vassals: vec![AllegianceEntry::default(); vassals],
+        ..Default::default()
+    };
+    for (patron, vassals, whom) in [
+        (true, 1, "your Patron or a Vassal"),
+        (true, 0, "your Patron"),
+        (false, 1, "a Vassal"),
+    ] {
+        let v = View {
+            roster: roster(patron, vassals),
+            ..Default::default()
+        };
+        let mut p = make("allegiance").unwrap();
+        assert_eq!(
+            feedback(&activate(&mut *p, "break", &v)),
+            [format!(
+                "Click {whom} to break Allegiance. Click anywhere to abort."
+            )]
+        );
+        assert_eq!(
+            feedback(&event(
+                &mut *p,
+                ControlEvent::WorldTarget(Some(ObjectId(9))),
+                &v
+            )),
+            ["Break Allegiance cancelled"],
+            "someone not in the allegiance"
+        );
+        activate(&mut *p, "break", &v);
+        assert_eq!(
+            feedback(&event(&mut *p, ControlEvent::WorldTarget(None), &v)),
+            ["Break Allegiance cancelled"],
+            "nobody at all"
+        );
+    }
+    let v = View::default();
+    let mut p = make("allegiance").unwrap();
+    assert_eq!(
+        activate(&mut *p, "break", &v),
+        vec![],
+        "nobody to break from"
+    );
+}
+#[test]
+fn a_recruit_or_a_dismissal_refuses_the_player_and_recruits_nobody_twice() {
+    use dereth_client_contract::view::{FellowEntry, FellowshipView};
+    let v = View {
+        no_selection: true,
+        fellow: Some(FellowshipView {
+            members: vec![FellowEntry {
+                id: ObjectId(5),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    let mut p = make("fellowship").unwrap();
+    let mut pick = |id, target| {
+        activate(&mut *p, id, &v);
+        event(
+            &mut *p,
+            ControlEvent::WorldTarget(Some(ObjectId(target))),
+            &v,
+        )
+    };
+    assert_eq!(
+        feedback(&pick("dismiss", 7)),
+        ["You can't dismiss yourself."]
+    );
+    assert!(
+        pick("dismiss", 5).contains(&PanelAction::Game(UiRequest::FellowshipDismiss {
+            target: ObjectId(5)
+        }))
+    );
+    let selected = |target| {
+        let mut p = make("fellowship").unwrap();
+        activate(&mut *p, "recruit", &v);
+        event(
+            &mut *p,
+            ControlEvent::WorldTarget(Some(ObjectId(target))),
+            &v,
+        )
+    };
+    assert_eq!(feedback(&selected(7)), ["You can't recruit yourself."]);
+    assert_eq!(feedback(&selected(5)), [" is already in your Fellowship"]);
+    assert!(
+        selected(6).contains(&PanelAction::Game(UiRequest::FellowshipRecruit {
+            target: ObjectId(6)
+        }))
+    );
+}
+#[test]
+fn the_allegiance_page_says_who_each_row_is_and_why_nobody_can_be_sworn_to() {
+    use dereth_client_contract::view::{AllegianceEntry, AllegianceRoster};
+    let entry = |n| AllegianceEntry {
+        id: ObjectId(n),
+        ..Default::default()
+    };
+    let says = |v: &View, id: &str| {
+        let p = make("allegiance").unwrap();
+        with_context(v, |c| {
+            p.hover(
+                HoverPoint {
+                    id,
+                    x: 0,
+                    y: 0,
+                    item: None,
+                    row: None,
+                },
+                c,
+            )
+        })
+        .unwrap()
+        .name
+    };
+    let both = View {
+        roster: AllegianceRoster {
+            patron: Some(entry(1)),
+            monarch: Some(entry(2)),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert_eq!(
+        says(&both, "monarch"),
+        "This is the leader of your Allegiance group."
+    );
+    assert_eq!(
+        says(&both, "patron"),
+        "This is the person you've sworn Allegiance to."
+    );
+    let one = View {
+        roster: AllegianceRoster {
+            patron: Some(entry(1)),
+            monarch: Some(entry(1)),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    assert_eq!(
+        says(&one, "patron"),
+        "This is the leader of your Allegiance, and the person you've sworn Allegiance to."
+    );
+    let free = View {
+        available: 100,
+        oath_cost: Some(50),
+        ..Default::default()
+    };
+    assert_eq!(
+        says(&free, "swear-hint"),
+        "Select the character you want to swear Allegiance to."
+    );
+    let poor = View {
+        available: 10,
+        oath_cost: Some(50),
+        ..Default::default()
+    };
+    assert_eq!(
+        says(&poor, "swear-hint"),
+        "You don't have enough experience to swear Allegiance."
+    );
+}
+#[test]
+fn the_green_circle_on_the_map_says_what_it_is_and_only_the_circle() {
+    let v = View {
+        coords: Some((42.2, 33.8)),
+        ..Default::default()
+    };
+    let p = make("map").unwrap();
+    let at = |x, y| HoverPoint {
+        id: "",
+        x,
+        y,
+        item: None,
+        row: None,
+    };
+    let (x, y) = super::world::map_marker(42.2_f32.into(), 33.8_f32.into());
+    with_context(&v, |c| {
+        assert_eq!(
+            p.hover(at(x, y + 25), c).unwrap().name,
+            "Your location is marked with a green circle"
+        );
+        assert_eq!(p.hover(at(x + 40, y + 25), c), None);
+    });
+    let indoors = View::default();
+    with_context(&indoors, |c| assert_eq!(p.hover(at(x, y + 25), c), None));
+}
 #[test]
 fn replacing_a_dirty_book_saves_the_original_object() {
     let mut world = dereth_client_model::World::new();
@@ -1325,11 +1537,11 @@ fn fellowship_pick_prompt_returns_the_chosen_target_to_the_runtime() {
         }))
     );
     assert_eq!(
-        event(&mut *p, ControlEvent::WorldTarget(Some(ObjectId(7))), &v),
+        event(&mut *p, ControlEvent::WorldTarget(Some(ObjectId(8))), &v),
         vec![
             PanelAction::Host(HostAction::SocialTarget(0)),
             PanelAction::Game(UiRequest::FellowshipRecruit {
-                target: ObjectId(7)
+                target: ObjectId(8)
             })
         ]
     );

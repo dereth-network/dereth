@@ -1259,6 +1259,11 @@ pub trait GameView: std::fmt::Debug {
         crate::combat_mode::NONCOMBAT
     }
 
+    /// The mode the combat button would enter from peace, for what is in hand.
+    fn default_combat_mode(&self) -> u32 {
+        crate::combat_mode::MELEE
+    }
+
     /// The player module's advanced-combat-UI option — bit 12 of the first player-option word.
     ///
     /// The combat window's set-combat-mode notice calls it **itself**,

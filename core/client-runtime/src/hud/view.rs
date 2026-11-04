@@ -2760,6 +2760,9 @@ impl GameView for HudView<'_> {
     /// `UNDEF` is mapped to `NONCOMBAT` because the toolbar has
     /// no picture for "no mode" — all four stance buttons would be hidden — and a character in the
     /// world is always in one of the four.
+    fn default_combat_mode(&self) -> u32 {
+        self.world.get_default_combat_mode(true).0.raw()
+    }
     fn combat_mode(&self) -> u32 {
         let m = self.world.combat.combat_mode.raw();
         if m == 0 {

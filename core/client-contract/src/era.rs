@@ -11,6 +11,14 @@ pub struct EraUiFacts {
     pub idle_scroll_thumb: bool,
     /// One panel of the spells in effect on a character, rather than beneficial and harmful apart.
     pub one_effects_panel: bool,
+    /// The interface's words are the 1999 client's where a later client changed them.
+    pub launch_wording: bool,
+    /// The map opens only outdoors.
+    pub map_outdoors_only: bool,
+    /// The spellbook filters its rows by school and level.
+    pub spell_filter_panel: bool,
+    /// The combat panel carries the camera's option to keep the target in view.
+    pub combat_keep_in_view: bool,
 }
 impl Default for EraUiFacts {
     fn default() -> Self {
@@ -27,6 +35,10 @@ impl EraUiFacts {
                 spell_favorite_tabs: 8,
                 idle_scroll_thumb: true,
                 one_effects_panel: false,
+                launch_wording: false,
+                map_outdoors_only: false,
+                spell_filter_panel: true,
+                combat_keep_in_view: true,
             },
             EraId::Launch => Self {
                 void_magic: false,
@@ -34,6 +46,10 @@ impl EraUiFacts {
                 spell_favorite_tabs: 7,
                 idle_scroll_thumb: false,
                 one_effects_panel: true,
+                launch_wording: true,
+                map_outdoors_only: true,
+                spell_filter_panel: false,
+                combat_keep_in_view: false,
             },
             EraId::Infiltration => Self {
                 void_magic: false,
@@ -41,6 +57,10 @@ impl EraUiFacts {
                 spell_favorite_tabs: 7,
                 idle_scroll_thumb: true,
                 one_effects_panel: false,
+                launch_wording: false,
+                map_outdoors_only: false,
+                spell_filter_panel: true,
+                combat_keep_in_view: false,
             },
         }
     }
@@ -298,6 +318,10 @@ mod tests {
                 spell_favorite_tabs: 7,
                 idle_scroll_thumb: true,
                 one_effects_panel: false,
+                launch_wording: false,
+                map_outdoors_only: false,
+                spell_filter_panel: true,
+                combat_keep_in_view: false,
             }
         );
         let mut late = world(EraId::Eor);
@@ -310,6 +334,10 @@ mod tests {
                 spell_favorite_tabs: 8,
                 idle_scroll_thumb: true,
                 one_effects_panel: false,
+                launch_wording: false,
+                map_outdoors_only: false,
+                spell_filter_panel: true,
+                combat_keep_in_view: true,
             }
         );
         late.era.announced_features.set("luminance", false);
@@ -345,6 +373,10 @@ mod tests {
             spell_favorite_tabs: 7,
             idle_scroll_thumb: true,
             one_effects_panel: false,
+            launch_wording: false,
+            map_outdoors_only: false,
+            spell_filter_panel: true,
+            combat_keep_in_view: false,
         };
         assert!(!facts.spell_filter(0x2000));
         assert!(facts.spell_filter(0x800));
@@ -479,6 +511,10 @@ mod tests {
                 spell_favorite_tabs: 7,
                 idle_scroll_thumb: true,
                 one_effects_panel: false,
+                launch_wording: false,
+                map_outdoors_only: false,
+                spell_filter_panel: true,
+                combat_keep_in_view: false,
             }),
             ..Default::default()
         };

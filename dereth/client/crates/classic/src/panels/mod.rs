@@ -552,6 +552,8 @@ pub struct Control {
     pub keyed: bool,
     /// An edit field that selects all its text when it gains the focus.
     pub select_on_focus: bool,
+    /// What an empty edit field shows while it does not have the focus.
+    pub idle_text: Option<String>,
     /// A dropdown whose list is the chat's destination list art.
     pub chat_popup: bool,
     /// A dropdown drawn from the interface art, as the creation screens' are: a 117x25 face on
@@ -648,6 +650,40 @@ impl PanelFrame {
                 }
             }
         }
+    }
+}
+
+/// Where the pointer rests in a window: the control there, the point in the window, and the item
+/// in the control's slot under it.
+#[derive(Clone, Copy, Debug)]
+pub struct HoverPoint<'a> {
+    pub id: &'a str,
+    pub x: i32,
+    pub y: i32,
+    pub item: Option<ObjectId>,
+    /// The row of the control's open list under the pointer.
+    pub row: Option<usize>,
+}
+/// What the viewport's name and hint lines say while the pointer rests on a control.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hover {
+    pub name: String,
+    pub hint: Option<String>,
+}
+impl Hover {
+    /// One line.
+    pub fn line(name: impl Into<String>) -> Option<Self> {
+        Some(Self {
+            name: name.into(),
+            hint: None,
+        })
+    }
+    /// Two lines.
+    pub fn lines(name: impl Into<String>, hint: impl Into<String>) -> Option<Self> {
+        Some(Self {
+            name: name.into(),
+            hint: Some(hint.into()),
+        })
     }
 }
 
@@ -766,6 +802,7 @@ impl PanelFrame {
             endcaps: None,
             keyed: true,
             select_on_focus: false,
+            idle_text: None,
             chat_popup: false,
             choice_art: false,
             slot: false,
@@ -930,6 +967,10 @@ impl PanelFrame {
 }
 
 pub trait Panel: std::fmt::Debug {
+    /// What the control under the pointer says of itself.
+    fn hover(&self, _at: HoverPoint<'_>, _context: &Context<'_>) -> Option<Hover> {
+        None
+    }
     fn pointer_art(&self, _x: i32, _y: i32) -> Option<(String, u32, u32)> {
         None
     }
@@ -1105,6 +1146,10 @@ pub fn configure_keyboard() -> PanelAction {
         id: "configure-keyboard".into(),
         text: "\n\nTo configure your keyboard, you need to leave the world.\nProceed?".into(),
         accept: vec![
+            PanelAction::Host(HostAction::LocalFeedback {
+                severity: FeedbackSeverity::Information,
+                text: "Logging out to configure keys.".into(),
+            }),
             PanelAction::Game(UiRequest::EndCharacterSession { ask: false }),
             PanelAction::Host(HostAction::KeyboardOnLeaving),
         ],

@@ -508,7 +508,8 @@ pub static LAUNCH: EraRules = EraRules {
     creation_skills: Some(&LAUNCH_SKILLS),
     heritages: Some(&INFILTRATION_HERITAGES),
     features: EraFeatures::LAUNCH,
-    property_defaults: &[],
+    // DIVERGE: V506 an item's only requirements in 1999 are the gates on its magic.
+    property_defaults: &[("use_wield_requirements", false)],
     // DIVERGE: V496 five characters an account until later years gave more.
     long_property_defaults: &[("max_chars_per_account", 5)],
     // DIVERGE: V499 no greeter to send a new character to.

@@ -136,6 +136,7 @@ fn power_spell(school: i32, power: u32) -> Spell {
         ..DbSpell::default()
     };
     let mut spell = Spell {
+        rules_category: None,
         spell_base: Some(base),
         spell: Some(Arc::new(db)),
         formula: None,

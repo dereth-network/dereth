@@ -214,7 +214,7 @@ fn a_launch_creatures_default_script_goes_out_one_above_what_it_stores() {
         .get_cached_weenie(OLTHOI_NOBLE)
         .expect("the Olthoi");
     let guid = guid_manager::new_dynamic_guid(&mut w);
-    let o = CtorEnv::with_world(&mut w, |env| {
+    let o = CtorEnv::with_world(&w, |env| {
         factory::create_world_object(env, Some(weenie), guid)
     })
     .expect("constructible");

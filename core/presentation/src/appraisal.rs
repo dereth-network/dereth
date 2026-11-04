@@ -635,6 +635,39 @@ pub const ARMOR_RESISTANCE_ROWS: [(u32, usize, u32); 8] = [
     (0x400, 6, 0xA5), // Nether   <- mod_vs_nether
 ];
 
+/// The armor rows as they read at Launch, in their order: the name, the slot of the armor's
+/// modifiers, and the modifier's key.
+const LAUNCH_ARMOR_ROWS: [(&str, usize, u32); 7] = [
+    ("Slashing", 0, 0x0D),
+    ("Piercing", 1, 0x0E),
+    ("Bludgeon", 2, 0x0F),
+    ("Cold", 3, 0x10),
+    ("Fire", 4, 0x11),
+    ("Acid", 5, 0x12),
+    ("Electrical", 7, 0x13),
+];
+
+/// How good an armor's protection against a damage type reads at Launch; nothing below zero.
+fn launch_protection_word(modifier: f64) -> Option<&'static str> {
+    if modifier < 0.0 {
+        None
+    } else if modifier == 0.0 {
+        Some("No")
+    } else if modifier <= 0.4 {
+        Some("Poor")
+    } else if modifier <= 0.8 {
+        Some("Below average")
+    } else if modifier < 1.2 {
+        Some("Average")
+    } else if modifier < 1.6 {
+        Some("Above average")
+    } else if modifier < 2.0 {
+        Some("Excellent")
+    } else {
+        Some("Unparalleled")
+    }
+}
+
 /// `MISSILE_RANGE_CAP` and the two roundings of the weapon-and-armour block's range block.
 ///
 /// The range is `max_velocity^2 * (1/9.8)` metres, times `1.094` for yards, capped at `85.0`
@@ -819,7 +852,7 @@ fn weapon_and_armor_lines_for(
         return out;
     }
     let Some(w) = p.weapon else {
-        push_ammunition_line(&mut out, loc, p.ammo_type);
+        push_ammunition_line(&mut out, loc, p.ammo_type, p.launch_wording);
         return out;
     };
     // "Is a launcher that takes ammunition".
@@ -841,7 +874,9 @@ fn weapon_and_armor_lines_for(
     } else {
         "Damage: "
     };
-    if w.weapon_damage < 0 {
+    // A launcher at Launch says nothing of damage: what it shoots does.
+    if launcher && p.launch_wording {
+    } else if w.weapon_damage < 0 {
         out.push((format!("{label}Unknown"), 0));
     } else {
         let suffix = if launcher {
@@ -885,7 +920,7 @@ fn weapon_and_armor_lines_for(
 
     // 5. The damage modifier, launcher only. `0x3F`, and the failed-assess arm sets the colour to
     //    a literal `0` before it picks its string.
-    if launcher {
+    if launcher && !p.launch_wording {
         if p.success {
             out.push((
                 format!("Damage Modifier: {}.", modifier_to_string(w.damage_mod)),
@@ -945,13 +980,16 @@ fn weapon_and_armor_lines_for(
     }
 
     // 8. The ammunition sentence.
-    push_ammunition_line(&mut out, loc, p.ammo_type);
+    push_ammunition_line(&mut out, loc, p.ammo_type, p.launch_wording);
     out
 }
 
 /// The ammunition arm produces six sentences over two slots and three ammunition types.
-fn push_ammunition_line(out: &mut Vec<(String, u8)>, loc: u32, ammo: u16) {
+fn push_ammunition_line(out: &mut Vec<(String, u8)>, loc: u32, ammo: u16, launch_wording: bool) {
     let line = if loc & equip::MISSILE_WEAPON != 0 {
+        if launch_wording {
+            out.push(("Cannot be used with shields.".to_string(), 0));
+        }
         match ammo {
             ammo_type::ARROW => "Uses arrows as ammunition.",
             ammo_type::BOLT => "Uses quarrels as ammunition.",
@@ -988,6 +1026,17 @@ pub fn armor_mod_lines(p: &AppraisalView) -> Vec<(String, u8)> {
         return out;
     };
     if level <= 0 {
+        return out;
+    }
+    if p.launch_wording {
+        for (name, slot, key) in LAUNCH_ARMOR_ROWS {
+            if let Some(word) = launch_protection_word(f64::from(mods[slot])) {
+                out.push((
+                    format!("{word} protection against {name} Damage."),
+                    mod_color(p, &[key]),
+                ));
+            }
+        }
         return out;
     }
     // Int modifier `0x1C`, the armour level's own key.
@@ -1522,7 +1571,7 @@ fn magic_info_lines_for(p: &AppraisalView, variant: crate::DisplayVariant) -> Ve
             out.push((format!("Mana Cost: 1 point per {seconds} seconds."), true));
         } else if let Some(cost) = m.mana_cost {
             // A cost of zero or less gets the bare sentence.
-            let text = if cost > 0 {
+            let text = if cost > 0 && !p.launch_wording {
                 format!("Mana Cost: {cost}.\n(Can be reduced by the Mana Conversion skill)")
             } else {
                 format!("Mana Cost: {cost}.")
@@ -1966,7 +2015,9 @@ pub fn level_limit_lines(p: &AppraisalView) -> Vec<ItemInfo> {
     let max = p.level_limits.1.unwrap_or(-1);
     let text = if min < 1 {
         if max < 1 {
-            None
+            // At Launch a place open to all says so.
+            (p.launch_wording && (p.level_limits.0.is_some() || p.level_limits.1.is_some()))
+                .then(|| "No level restrictions.".to_owned())
         } else {
             Some(format!("Restricted to characters of Level {max} or below."))
         }
@@ -1976,6 +2027,8 @@ pub fn level_limit_lines(p: &AppraisalView) -> Vec<ItemInfo> {
         ))
     } else if min == max {
         Some(format!("Restricted to characters of Level {min}."))
+    } else if p.launch_wording {
+        Some(format!("Restricted to characters of Levels {min} - {max}."))
     } else {
         Some(format!(
             "Restricted to characters of Levels {min} to {max}."
@@ -2012,6 +2065,10 @@ pub fn level_limit_lines(p: &AppraisalView) -> Vec<ItemInfo> {
 #[must_use]
 pub fn wield_requirement_lines(p: &AppraisalView) -> Vec<ItemInfo> {
     let mut out = Vec::new();
+    // At Launch anything can be wielded; only an item's magic asks anything of the wielder.
+    if p.launch_wording {
+        return out;
+    }
     if p.has_allowed_wielder {
         let who = p.craftsman_name.as_deref().unwrap_or("the original owner");
         push_item_info(&mut out, format!("Wield requires {who}"), true, 0);
@@ -4859,6 +4916,94 @@ mod launch_wording_tests {
             ["Use this item to read it or write in it."]
         );
         assert!(hints(0, 0x800, false).is_empty());
+    }
+
+    #[test]
+    fn launch_armor_says_how_well_it_protects_in_a_sentence_each() {
+        let view = |launch_wording| AppraisalView {
+            launch_wording,
+            armor_level: Some(50),
+            armor_mods: Some([0.0, 0.3, 0.7, 1.0, 1.3, 1.7, 9.0, 2.0]),
+            ..Default::default()
+        };
+        let lines: Vec<_> = armor_mod_lines(&view(true))
+            .into_iter()
+            .map(|l| l.0)
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "No protection against Slashing Damage.",
+                "Poor protection against Piercing Damage.",
+                "Below average protection against Bludgeon Damage.",
+                "Average protection against Cold Damage.",
+                "Above average protection against Fire Damage.",
+                "Excellent protection against Acid Damage.",
+                "Unparalleled protection against Electrical Damage.",
+            ]
+        );
+        assert!(armor_mod_lines(&view(false))[0].0.contains("Armor Level"));
+    }
+
+    #[test]
+    fn a_launch_level_range_uses_a_dash_and_a_place_open_to_all_says_so() {
+        let view = |launch_wording, level_limits| AppraisalView {
+            launch_wording,
+            level_limits,
+            ..Default::default()
+        };
+        let text = |p: &AppraisalView| {
+            level_limit_lines(p)
+                .into_iter()
+                .map(|l| l.text)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            text(&view(true, (Some(5), Some(10)))),
+            ["Restricted to characters of Levels 5 - 10."]
+        );
+        assert_eq!(
+            text(&view(false, (Some(5), Some(10)))),
+            ["Restricted to characters of Levels 5 to 10."]
+        );
+        assert_eq!(
+            text(&view(true, (Some(0), Some(-1)))),
+            ["No level restrictions."]
+        );
+        assert!(text(&view(true, (None, None))).is_empty());
+        assert!(text(&view(false, (Some(0), Some(-1)))).is_empty());
+    }
+
+    #[test]
+    fn a_launch_launcher_says_nothing_of_damage_and_no_shields() {
+        let view = |launch_wording| AppraisalView {
+            launch_wording,
+            success: true,
+            valid_locations: equip::MISSILE_WEAPON,
+            ammo_type: ammo_type::ARROW,
+            weapon: Some(Default::default()),
+            ..Default::default()
+        };
+        let text = |p: &AppraisalView| {
+            weapon_and_armor_lines(p)
+                .into_iter()
+                .map(|l| l.0)
+                .collect::<Vec<_>>()
+        };
+        let launch = text(&view(true));
+        assert!(
+            !launch.iter().any(|l| l.starts_with("Damage")),
+            "{launch:?}"
+        );
+        assert!(launch.iter().any(|l| l == "Cannot be used with shields."));
+        assert!(launch.iter().any(|l| l == "Uses arrows as ammunition."));
+        let later = text(&view(false));
+        assert!(
+            later.iter().any(|l| l.starts_with("Damage Bonus")),
+            "{later:?}"
+        );
+        assert!(later.iter().any(|l| l.starts_with("Damage Modifier")));
+        assert!(!later.iter().any(|l| l == "Cannot be used with shields."));
     }
 
     #[test]

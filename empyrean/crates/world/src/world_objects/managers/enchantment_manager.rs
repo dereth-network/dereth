@@ -301,9 +301,11 @@ pub fn add(
     let mut result = AddEnchantmentResult::new();
 
     // check for existing spell in this category
-    let indices =
-        reg::get_enchantments_by_category_indices(Some(registry(obj(w, this))), spell.category())
-            .expect("the registry is not null");
+    let indices = reg::get_enchantments_by_category_indices(
+        Some(registry(obj(w, this))),
+        spell.stacking_category(),
+    )
+    .expect("the registry is not null");
 
     // if none, add new record
     if indices.is_empty() {
@@ -399,7 +401,7 @@ fn build_entry(
     let mut entry = PropertiesEnchantmentRegistry {
         enchantment_category: spell.meta_spell_type().0.cast_unsigned(),
         spell_id: spell.id().cast_signed(),
-        spell_category: spell.category(),
+        spell_category: spell.stacking_category(),
         power_level: spell.power(),
         ..PropertiesEnchantmentRegistry::default()
     };

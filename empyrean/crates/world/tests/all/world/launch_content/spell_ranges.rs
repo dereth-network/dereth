@@ -78,3 +78,31 @@ fn a_launch_spell_takes_the_target_type_its_formula_names() {
         );
     }
 }
+
+/// Divergence: V505
+/// The 1999 table's own numbers are not the later ones the server's rules test: Blood Drinker and
+/// Impenetrability read as the later categories, and they stack by the table's.
+#[test]
+fn a_launch_spell_is_read_by_the_later_category_and_stacks_by_its_own() {
+    use empyrean_world::entity::spell::later_category_of_1999;
+    use empyrean_world::entity::spell::Spell;
+    assert_eq!(later_category_of_1999(63), 67, "Heal Self");
+    assert_eq!(later_category_of_1999(148), 154, "Blood Drinker");
+    assert_eq!(later_category_of_1999(154), 160, "Impenetrability");
+    assert_eq!(later_category_of_1999(182), 204, "Vitae");
+    let w = super::world();
+    let table = fixture().dats.portal_dat().spell_table();
+    let (id, base) = table
+        .spells
+        .iter()
+        .find(|(_, s)| s.name == "Impenetrability I")
+        .expect("in the 1999 table");
+    assert_eq!(base.category, 154);
+    let spell = Spell::new(&w, *id, true);
+    assert_eq!(spell.category().0, 160);
+    assert_eq!(spell.stacking_category().0, 154);
+    assert!(
+        spell.is_impen_bane_type(),
+        "with the wrong number it reads as another spell"
+    );
+}
