@@ -8,6 +8,7 @@ see, not how it was done.
 
 ## Unreleased
 
+- New map of the whole world: click to go there.
 - Find rows goes to a room by its id, and Enter takes what it offers first.
 - A place can be renamed, and what leads to it follows.
 - Placed rows now play their effects while you edit, such as a portal's glow.

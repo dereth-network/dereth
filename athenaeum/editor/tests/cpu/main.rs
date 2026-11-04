@@ -438,3 +438,48 @@ fn a_lean_keeps_the_heading_on_flat_ground_and_points_up_along_the_slope() {
         }
     }
 }
+
+#[test]
+fn a_map_pixel_and_the_place_under_it_agree() {
+    use athenaeum_editor::map::{pixel_of, place_at, SIDE};
+    assert_eq!(place_at([-1.0, 5.0]), None, "off the map");
+    #[allow(clippy::cast_precision_loss)]
+    let side = SIDE as f32;
+    assert_eq!(place_at([side, 5.0]), None, "off the map");
+    let at = global(0x5766, [80.0, 40.0, 0.0]);
+    let (lb, local) = place_at(pixel_of(at[0], at[1])).expect("on the map");
+    assert_eq!(lb, 0x5766);
+    assert!(
+        (local[0] - 80.0).abs() < 0.01 && (local[1] - 40.0).abs() < 0.01,
+        "{local:?}"
+    );
+    // North is up: further north is higher on the map.
+    assert!(pixel_of(at[0], at[1] + 160.0)[1] < pixel_of(at[0], at[1])[1]);
+    // The map's corners are in the world's.
+    assert_eq!(place_at([0.5, side - 0.5]).map(|p| p.0), Some(0x0000));
+    assert_eq!(place_at([side - 0.5, 0.0]).map(|p| p.0), Some(0xFFFF));
+}
+
+#[test]
+fn the_map_tells_kinds_of_ground_apart_and_low_from_high() {
+    use athenaeum_editor::map::color_of;
+    let colors = [
+        color_of("TownHuman", 40.0, false),
+        color_of("Water-Deep", 40.0, false),
+        color_of("HumanBeach", 40.0, false),
+        color_of("highland-Snow", 40.0, false),
+        color_of("HighlandRock", 40.0, false),
+        color_of("GrassLand", 40.0, false),
+        color_of("GrassLand", 40.0, true),
+    ];
+    for (i, a) in colors.iter().enumerate() {
+        for b in &colors[i + 1..] {
+            assert_ne!(a, b);
+        }
+    }
+    let (low, high) = (
+        color_of("GrassLand", 0.0, false),
+        color_of("GrassLand", 72.0, false),
+    );
+    assert!(low[1] < high[1], "{low:?} {high:?}");
+}

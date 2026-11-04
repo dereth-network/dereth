@@ -504,6 +504,12 @@ impl<'w> Scene<'w> {
         best
     }
 
+    /// The overview map's picture.
+    #[must_use]
+    pub fn map_picture(&self) -> Vec<u8> {
+        crate::map::picture(self.data)
+    }
+
     /// A point in the middle of a room, in its landblock, by what its walls and floors reach.
     pub fn room_point(&mut self, cell: u32) -> Option<[f32; 3]> {
         #[allow(clippy::cast_possible_truncation)]

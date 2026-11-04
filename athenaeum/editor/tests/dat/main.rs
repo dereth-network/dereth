@@ -1098,3 +1098,31 @@ fn a_row_selected_is_drawn_however_far_off_it_stands() {
     let not = e.frame().objects.len();
     assert!(selected > not, "{item}: {selected} against {not}");
 }
+
+#[test]
+fn the_map_shows_the_world_and_marks_this_worlds_rows() {
+    let (mut e, item, g) = with_a_row("map");
+    let map = e.scene.map_picture();
+    let side = athenaeum_editor::map::SIDE;
+    assert_eq!(map.len(), side * side * 4);
+    let pixel = |p: [f32; 2]| {
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let (x, y) = (p[0] as usize, p[1] as usize);
+        let at = (y * side + x) * 4;
+        [map[at], map[at + 1], map[at + 2]]
+    };
+    // The town stands on land, not in the sea.
+    let town = pixel(athenaeum_editor::map::pixel_of(g[0], g[1]));
+    assert_ne!(town, [0, 0, 0], "the town's block is held");
+    assert!(
+        i32::from(town[2]) - i32::from(town[0]) < 60,
+        "not water: {town:?}"
+    );
+    let marks = e.map_marks();
+    assert_eq!(marks.len(), 1, "this world's row alone: {marks:?}");
+    assert_eq!(marks[0].2, TOWN, "{item}");
+    let (lb, at) = athenaeum_editor::map::place_at(marks[0].0).expect("on the map");
+    assert_eq!(lb, TOWN);
+    e.go_to(lb, at);
+    assert!((e.view().eye[0] - g[0]).abs() < 1.0, "a click goes there");
+}

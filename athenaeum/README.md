@@ -96,6 +96,8 @@ to where it leads.
   it; Shift+click keeps the window open for the next, and it opens again on the same search.
   Things to carry stay out of the way until **Items** is ticked, or **Worn**, which shows what can
   be worn on a body. **no picture** is something that shows only as effects, which play once it stands in the world.
+- **Map** or M shows the whole world, this world's rows on it and the camera as a cross. Click
+  to go there.
 - Ctrl+F or **Find rows** finds any row of the world by its name, template, kind or key, nearest
   or not, and goes to a landblock (`5766` or `5766:123,45`) or a room (`03BB022C`). Enter takes
   the first thing it offers.

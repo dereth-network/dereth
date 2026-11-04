@@ -29,6 +29,7 @@ pub mod gizmo;
 pub mod gui;
 pub mod icon;
 pub mod live;
+pub mod map;
 pub mod paint;
 pub mod scene;
 pub mod script;

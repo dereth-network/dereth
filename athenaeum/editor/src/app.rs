@@ -259,6 +259,9 @@ pub struct Editor<'w> {
     pub also: Vec<String>,
     /// What the Find window looks for, and what it reads each row by, of a revision of the world.
     finding_rows: Option<String>,
+    /// Whether the overview map is open, and its picture once it has been.
+    map_open: bool,
+    map_picture: Option<egui::TextureHandle>,
     focus_find: bool,
     row_index: Option<(u64, Vec<String>)>,
     /// The row under the pointer.
@@ -577,6 +580,8 @@ impl<'w> Editor<'w> {
             close_now: false,
             also: Vec::new(),
             finding_rows: None,
+            map_open: false,
+            map_picture: None,
             focus_find: false,
             row_index: None,
             hovered: None,
@@ -1496,6 +1501,98 @@ impl<'w> Editor<'w> {
         self.camera.position = Vec3::new(g[0], g[1], g[2]);
     }
 
+    /// What the overview map marks: this world's own rows, each where it stands on the map (a row
+    /// among rooms at the middle of its landblock), in its kind's color, with its landblock.
+    #[must_use]
+    pub fn map_marks(&self) -> Vec<([f32; 2], egui::Color32, u16)> {
+        self.session
+            .entries()
+            .iter()
+            .filter(|e| e.layer == athenaeum_foundry::Layer::Target)
+            .map(|e| {
+                let lb = e.landblock();
+                let at = e.at();
+                let local = if is_indoors(&e.row.row) {
+                    [view::BLOCK / 2.0, view::BLOCK / 2.0, 0.0]
+                } else {
+                    [at.x, at.y, 0.0]
+                };
+                let g = view::global(lb, local);
+                (crate::map::pixel_of(g[0], g[1]), color_of(&e.row.row), lb)
+            })
+            .collect()
+    }
+
+    /// The overview map: the world at a glance, this world's rows and the camera marked. A click
+    /// goes there and leaves the way clear to see it.
+    fn map_window(&mut self, ctx: &egui::Context) {
+        if !self.map_open {
+            return;
+        }
+        let scene = &self.scene;
+        let picture = self.map_picture.get_or_insert_with(|| {
+            let side = crate::map::SIDE;
+            ctx.load_texture(
+                "overview map",
+                egui::ColorImage::from_rgba_unmultiplied([side, side], &scene.map_picture()),
+                egui::TextureOptions::NEAREST,
+            )
+        });
+        let picture = picture.id();
+        let marks = self.map_marks();
+        let eye = self.view().eye;
+        let mut open = true;
+        let mut go = None;
+        egui::Window::new("Map")
+            .open(&mut open)
+            .resizable(false)
+            .default_pos([340.0, 60.0])
+            .show(ctx, |ui| {
+                #[allow(clippy::cast_precision_loss)]
+                let side = crate::map::SIDE as f32;
+                let (rect, r) =
+                    ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::click());
+                let whole = egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+                let painter = ui.painter_at(rect);
+                painter.image(picture, rect, whole, egui::Color32::WHITE);
+                let on_map = |p: [f32; 2]| rect.min + egui::vec2(p[0], p[1]);
+                for (at, color, _) in &marks {
+                    let c = on_map(*at);
+                    painter.circle_filled(c, 3.0, egui::Color32::BLACK);
+                    painter.circle_filled(c, 2.0, *color);
+                }
+                let here = on_map(crate::map::pixel_of(eye[0], eye[1]));
+                let stroke = egui::Stroke::new(1.5, egui::Color32::WHITE);
+                painter.line_segment(
+                    [here - egui::vec2(5.0, 0.0), here + egui::vec2(5.0, 0.0)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [here - egui::vec2(0.0, 5.0), here + egui::vec2(0.0, 5.0)],
+                    stroke,
+                );
+                let pointed =
+                    |p: egui::Pos2| crate::map::place_at([p.x - rect.min.x, p.y - rect.min.y]);
+                if let Some((lb, _)) = r.hover_pos().and_then(pointed) {
+                    let held = marks.iter().filter(|m| m.2 == lb).count();
+                    let text = match held {
+                        0 => format!("{lb:04X}"),
+                        1 => format!("{lb:04X}: 1 row of this world"),
+                        n => format!("{lb:04X}: {n} rows of this world"),
+                    };
+                    r.clone().on_hover_text_at_pointer(text);
+                }
+                if r.clicked() {
+                    go = r.interact_pointer_pos().and_then(pointed);
+                }
+            });
+        if let Some((lb, at)) = go {
+            self.go_to(lb, at);
+            open = false;
+        }
+        self.map_open = open;
+    }
+
     /// The Find window: any row of the world by its name, template, kind or key, and a landblock to
     /// go to.
     fn row_finder(&mut self, ctx: &egui::Context) {
@@ -2211,6 +2308,7 @@ impl<'w> Editor<'w> {
                         self.scale_selected(1.0 / SCALE_STEP);
                     }
                     KeyCode::KeyF if input.ctrl => self.toggle_row_finder(),
+                    KeyCode::KeyM if !input.ctrl => self.map_open = !self.map_open,
                     KeyCode::KeyC if input.ctrl => self.copy_selected(),
                     KeyCode::KeyV if input.ctrl => {
                         let to = self.ground_at(input.pointer).filter(|_| !over_panels);
@@ -2810,6 +2908,13 @@ impl<'w> Editor<'w> {
                 {
                     self.toggle_row_finder();
                 }
+                if ui
+                    .button("Map")
+                    .on_hover_text("the whole world: click to go there (M)")
+                    .clicked()
+                {
+                    self.map_open = !self.map_open;
+                }
             });
             ui.horizontal_wrapped(|ui| {
                 ui.checkbox(&mut self.snap.on, "Snap").on_hover_text(
@@ -2858,6 +2963,7 @@ impl<'w> Editor<'w> {
         let ctx = ui.ctx().clone();
         self.finder(&ctx);
         self.row_finder(&ctx);
+        self.map_window(&ctx);
         self.characters_window(&ctx);
         self.closing_window(&ctx);
     }
