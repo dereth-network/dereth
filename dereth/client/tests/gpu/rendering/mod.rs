@@ -26,6 +26,8 @@ mod hifi_drawn_ground;
 #[cfg(feature = "hifi")]
 mod hifi_far_trees;
 #[cfg(feature = "hifi")]
+mod hifi_flicker;
+#[cfg(feature = "hifi")]
 mod hifi_indoor;
 #[cfg(feature = "hifi")]
 mod hifi_lighting;

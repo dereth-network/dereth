@@ -10,14 +10,15 @@ struct Params {
     viewport: vec4<f32>,
     // xyz the eye; w the number of lights.
     eye: vec4<f32>,
-    // x 1 to trace, y how far short of a light a ray stops (meters), zw unused.
+    // x 1 to trace, y how far short of a light a ray stops (meters), z unused, w the frame's
+    // number, wrapped.
     tune: vec4<f32>,
 };
 
 struct CellLight {
     // xyz position; w the range, meters: the light's falloff and nearly a third again.
     pos: vec4<f32>,
-    // rgb the color, 0..1; w unused.
+    // rgb the color, 0..1; w its radius, meters.
     col: vec4<f32>,
 };
 
@@ -57,6 +58,34 @@ fn room_direct(p: vec3<f32>, n: vec3<f32>, light_pos: vec3<f32>, range: f32, col
     return color * (2.4 * room_window(x) * near * turn);
 }
 
+// The share of a light of `radius` meters that `origin` sees, so a shadow's edge is as soft as the
+// light is large against what casts it: rays to points across the light's disc, turned from pixel
+// to pixel and frame to frame for the anti-aliasing to smooth. Two opposite rays that agree settle
+// it, as they do away from any edge.
+fn light_seen(origin: vec3<f32>, light_pos: vec3<f32>, radius: f32, px: vec2<i32>) -> f32 {
+    let d = normalize(light_pos - origin);
+    let side = select(vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(1.0, 0.0, 0.0), abs(d.z) > 0.9);
+    let a = normalize(cross(d, side));
+    let b = cross(d, a);
+    let cell = vec2<f32>(px) + 5.588238 * params.tune.w;
+    let spin = 6.2831853 * fract(52.9829189 * fract(dot(cell, vec2<f32>(0.06711056, 0.00583715))));
+    var seen = 0.0;
+    for (var i = 0; i < 4; i = i + 1) {
+        if (i == 2 && seen != 1.0) {
+            return seen * 0.5;
+        }
+        let turn = spin + 3.1415927 * (f32(i % 2) + f32(i / 2) * 0.5);
+        let across = radius * sqrt((f32(i) + 0.5) * 0.25);
+        let to = light_pos + (a * cos(turn) + b * sin(turn)) * across - origin;
+        let r = length(to);
+        let stop = r - params.tune.y;
+        if (stop <= 0.02 || !blocked(origin, to / r, stop)) {
+            seen = seen + 1.0;
+        }
+    }
+    return seen * 0.25;
+}
+
 // The light the room scatters from one light onto `p`, reaching round corners and onto faces
 // turned away: a little of it, falling off with the same reach.
 fn room_scattered(p: vec3<f32>, light_pos: vec3<f32>, range: f32, color: vec3<f32>) -> vec3<f32> {
@@ -72,6 +101,11 @@ fn burned_surface(kind: f32) -> bool {
     return kind > 1.54 && kind < 1.96;
 }
 
+// Whether the pixel is an art pack model in a room.
+fn room_model(kind: f32) -> bool {
+    return abs(kind - 1.52) < 0.015;
+}
+
 {{TRACE}}
 
 @compute @workgroup_size(8, 8)
@@ -83,7 +117,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let px = vec2<i32>(id.xy);
     let d = textureLoad(depth, px, 0);
     let nw = textureLoad(normals, px, 0);
-    if (d >= 1.0 || dot(nw.xyz, nw.xyz) < 0.25 || !burned_surface(nw.w)) {
+    if (d >= 1.0 || dot(nw.xyz, nw.xyz) < 0.25 || !(burned_surface(nw.w) || room_model(nw.w))) {
         textureStore(out_light, px, vec4<f32>(0.0, 0.0, 0.0, -1.0));
         return;
     }
@@ -100,15 +134,15 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         if (max(direct.r, max(direct.g, direct.b)) <= 0.0) {
             continue;
         }
+        var seen = 1.0;
         if (params.tune.x > 0.5) {
-            let to = l.pos.xyz - origin;
-            let r = length(to);
-            let stop = r - params.tune.y;
-            if (stop > 0.02 && blocked(origin, to / r, stop)) {
-                continue;
+            seen = light_seen(origin, l.pos.xyz, l.col.w, px);
+            // Retail's burn takes no walls into account, and a model has no burn to keep.
+            if (room_model(nw.w)) {
+                seen = max(seen, 0.5);
             }
         }
-        sum = sum + direct;
+        sum = sum + direct * seen;
     }
     textureStore(out_light, px, vec4<f32>(sum, 1.0));
 }

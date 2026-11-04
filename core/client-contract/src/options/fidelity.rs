@@ -1,6 +1,7 @@
-//! The words and rules of the optional high-fidelity presentation's options: ten check boxes on
-//! the Horizon interface's Client page, under a heading of their own, each off until the player
-//! ticks it.
+//! The words and rules of the optional high-fidelity presentation's options: eleven check boxes
+//! on the Horizon interface's Client page, under a heading of their own, each off until the player
+//! ticks it, and the Light Draw Distance menu after them ([`super::light_distance`]), at the whole
+//! distance until the player chooses another.
 //!
 //! Four of the effects are drawn inside the better lighting and draw nothing without it: the sun
 //! shadows, the bounced light, the lamps and the weather. The lamps also need a graphics device
@@ -11,7 +12,7 @@
 //! are drawn inside the better lighting too, and the retail look box draws the original models in
 //! their place. The better lighting smooths the world's edges with temporal anti-aliasing, which
 //! the ninth box turns off; an art pack's ground lays scree and rock on steep slopes, which the
-//! last box turns off.
+//! tenth box turns off; and the flames' light flickers, which the last box holds steady.
 //!
 //! In a build with the `hifi` feature the options are registered with the value store
 //! ([`register`]), so the page reads and writes them like any other option and the profile keeps
@@ -44,8 +45,8 @@ pub struct FidelityOption {
     pub needs: Needs,
 }
 
-/// The ten boxes, in page order.
-pub const OPTIONS: [FidelityOption; 10] = [
+/// The eleven boxes, in page order.
+pub const OPTIONS: [FidelityOption; 11] = [
     FidelityOption {
         name: fidelity::LIGHTING,
         caption: "Better Lighting (HDR Sun and Sky Light)",
@@ -117,6 +118,13 @@ pub const OPTIONS: [FidelityOption; 10] = [
                to compare the two. It changes at once.",
         needs: Needs::Lighting,
     },
+    FidelityOption {
+        name: fidelity::NO_FLAME_FLICKER,
+        caption: "No Flame Flicker",
+        note: "Holds the light of torches, braziers and candles steady instead of letting it \
+               flicker and sway, for anyone bothered by flickering light. It changes at once.",
+        needs: Needs::Lighting,
+    },
 ];
 
 /// The heading's caption.
@@ -154,24 +162,29 @@ pub fn find(name: &str) -> Option<&'static FidelityOption> {
     OPTIONS.iter().find(|o| o.name.eq_ignore_ascii_case(name))
 }
 
-/// Why the box `name` draws nothing however it is ticked, with `ticked` saying which boxes are
-/// ticked and `rays` whether the graphics device traces rays (`None` while that is not known yet,
-/// which blocks nothing). `None` when it draws when ticked.
+/// Why the box or menu `name` draws nothing however it is set, with `ticked` saying which boxes
+/// are ticked and `rays` whether the graphics device traces rays (`None` while that is not known
+/// yet, which blocks nothing). `None` when it draws when ticked.
 #[must_use]
 pub fn blocked(name: &str, ticked: impl Fn(&str) -> bool, rays: Option<bool>) -> Option<Blocked> {
-    let o = find(name)?;
+    let needs = if super::light_distance::is_light_distance(name) {
+        Needs::Lighting
+    } else {
+        find(name)?.needs
+    };
     let lighting = ticked(fidelity::LIGHTING);
-    match o.needs {
+    match needs {
         Needs::Lighting | Needs::LightingAndRays if !lighting => Some(Blocked::NeedsLighting),
         Needs::LightingAndRays if rays == Some(false) => Some(Blocked::NeedsRays),
         _ => None,
     }
 }
 
-/// Register every box with the value store, each off. The store's load then reads the
-/// `[Fidelity]` section of the profile into them, and the page reads and writes them.
+/// Register every box with the value store, each off, and the Light Draw Distance menu, at the
+/// whole distance. The store's load then reads the `[Fidelity]` section of the profile into them,
+/// and the page reads and writes them.
 pub fn register() -> usize {
-    OPTIONS
+    let boxes: usize = OPTIONS
         .iter()
         .map(|o| {
             usize::from(super::store::register_preference(
@@ -180,19 +193,30 @@ pub fn register() -> usize {
                 super::store::DataType::Bool,
             ))
         })
-        .sum()
+        .sum();
+    let lights = super::store::register_preference(
+        fidelity::LIGHT_DRAW_DISTANCE,
+        PrefValue::Int(super::light_distance::DEFAULT),
+        super::store::DataType::UInt,
+    );
+    boxes + usize::from(lights)
 }
 
-/// Whether the store's save leaves `name` out of the profile: a box still off that the profile
-/// does not name, so a profile that never ticked one has no `[Fidelity]` section.
+/// Whether the store's save leaves `name` out of the profile: a box still off, or the Light Draw
+/// Distance menu still at its default, that the profile does not name, so a profile that never
+/// changed one has no `[Fidelity]` section.
 #[must_use]
 pub fn left_out_of_save(
     name: &str,
     value: &PrefValue,
     ini: &crate::persist::preferences::UserPreferences,
 ) -> bool {
-    find(name).is_some()
-        && *value == PrefValue::Bool(false)
+    let unchanged = if super::light_distance::is_light_distance(name) {
+        *value == PrefValue::Int(super::light_distance::DEFAULT)
+    } else {
+        find(name).is_some() && *value == PrefValue::Bool(false)
+    };
+    unchanged
         && !ini
             .entries
             .iter()
@@ -420,6 +444,33 @@ mod tests {
         );
         assert_eq!(blocked(WEATHER, with(&[LIGHTING]), Some(false)), None);
         assert_eq!(blocked(LIGHTING, with(&[]), Some(false)), None);
+    }
+
+    #[test]
+    fn the_flame_flicker_box_and_the_light_draw_distance_need_the_better_lighting() {
+        use fidelity::{LIGHTING, LIGHT_DRAW_DISTANCE, NO_FLAME_FLICKER};
+        let with = |on: &'static [&'static str]| move |n: &str| on.contains(&n);
+        for name in [NO_FLAME_FLICKER, LIGHT_DRAW_DISTANCE] {
+            assert_eq!(blocked(name, with(&[]), None), Some(Blocked::NeedsLighting));
+            assert_eq!(blocked(name, with(&[LIGHTING]), Some(false)), None);
+        }
+        assert!(find(LIGHT_DRAW_DISTANCE).is_none(), "the menu is no box");
+    }
+
+    /// The Light Draw Distance is registered at the whole distance, and the save leaves it out
+    /// until it is changed.
+    #[test]
+    fn the_light_draw_distance_is_whole_and_left_out_of_the_profile_until_chosen() {
+        use crate::persist::preferences::UserPreferences;
+        let empty = UserPreferences::parse("").expect("an empty profile");
+        let whole = PrefValue::Int(super::super::light_distance::DEFAULT);
+        assert_eq!(whole, PrefValue::Int(100));
+        let name = fidelity::LIGHT_DRAW_DISTANCE;
+        assert!(left_out_of_save(name, &whole, &empty));
+        assert!(!left_out_of_save(name, &PrefValue::Int(300), &empty));
+        let named =
+            UserPreferences::parse("[Fidelity]\r\nLightDrawDistance=1x\r\n").expect("reads");
+        assert!(!left_out_of_save(name, &whole, &named));
     }
 
     #[test]

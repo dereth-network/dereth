@@ -114,6 +114,10 @@ fn check(surface: DataId, untextured: bool) {
         from_look: false,
         statics: vec![],
         statics_blended: vec![],
+        #[cfg(feature = "hifi")]
+        art_pack: Vec::new(),
+        #[cfg(feature = "hifi")]
+        lamps: Default::default(),
         degrade: vec![],
         objects: Box::default(),
         burned_count: None,

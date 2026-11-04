@@ -26,7 +26,7 @@ struct Frame {
     // The ambient light as the old light took it.
     amb_legacy: vec4<f32>,
     // x the frame's place in the anti-aliasing's dither of the edges of cut-outs (1 and over),
-    // nought on a frame drawn without it.
+    // nought on a frame drawn without it; z the scene's clock, seconds, wrapped.
     taa: vec4<f32>,
     // The ambient light the world's objects took from the old light: the landscape's and a share
     // of the sun's more.
@@ -76,8 +76,9 @@ struct Vertex {
     @location(4) color: vec4<f32>,
 };
 
-// The model's placement: the three rows of its model-to-render transform, and in `keep.xy` the
-// values of the screen's dither its level keeps (all of 0..1 away from a change of level).
+// The model's placement: the three rows of its model-to-render transform, in `keep.xy` the
+// values of the screen's dither its level keeps (all of 0..1 away from a change of level), and in
+// `keep.w` a negative number for a model in a room.
 struct Instance {
     @location(5) r0: vec4<f32>,
     @location(6) r1: vec4<f32>,
@@ -107,6 +108,8 @@ struct VsOut {
     @location(5) local: vec3<f32>,
     // The values of the screen's dither the level keeps.
     @location(6) @interpolate(flat) keep: vec2<f32>,
+    // 1 for a model in a room, which its lights per pixel light.
+    @location(7) @interpolate(flat) in_room: f32,
 };
 
 @vertex
@@ -121,6 +124,7 @@ fn vs_main(v: Vertex, i: Instance) -> VsOut {
     o.uv = v.uv;
     o.color = v.color;
     o.keep = i.keep.xy;
+    o.in_room = select(0.0, 1.0, i.keep.w < 0.0);
     return o;
 }
 
@@ -190,6 +194,24 @@ fn object_light(share: f32) -> vec3<f32> {
     return pow(max(legacy, vec3<f32>(0.03)), vec3<f32>(2.2));
 }
 
+// A bed of embers (a solid material whose colour's alpha is under a half): `heat` of its picture
+// glowing from deep red to orange, each patch breathing slowly in its own time over dark coal.
+const EMBER_GAIN: f32 = 1.25;
+fn ember(heat: f32, local: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
+    let t = frame.taa.z;
+    let spot = dot(local.xy, vec2<f32>(5.1, 7.3)) + dot(world.xy, vec2<f32>(0.7, 1.1));
+    let whole = sin(t * 1.5 + dot(world.xy, vec2<f32>(2.3, 3.7)));
+    let local_breath = 0.6 * sin(t * 1.9 + spot) + 0.4 * sin(t * 3.3 + spot * 1.7);
+    let glow = clamp(heat, 0.0, 1.0) * (0.68 + 0.2 * whole + 0.14 * local_breath);
+    let colour = mix(vec3<f32>(0.5, 0.015, 0.0), vec3<f32>(1.0, 0.16, 0.012), smoothstep(0.3, 0.9, glow));
+    return vec3<f32>(0.018, 0.008, 0.006) + colour * glow * EMBER_GAIN;
+}
+
+// A model in a room: its class, and the share of its colour it is drawn with until the room's
+// lights per pixel replace that (see `relight.wgsl`).
+const ROOM_MODEL_CLASS: f32 = 1.52;
+const ROOM_MODEL_DRAWN: f32 = 0.17;
+
 // The frame's dither for the edges of cut-outs at `at` (a pixel), 0..1, as the re-shaded
 // world's: a pattern that spreads its values evenly over any few pixels, moved each frame.
 fn dither_at(at: vec2<f32>) -> f32 {
@@ -257,7 +279,14 @@ fn fs_main(in: VsOut, @builtin(front_facing) front: bool) -> Out {
     let albedo = base.rgb * occlusion;
     var o: Out;
     let view_n = normalize((frame.view_from_render * vec4<f32>(n, 0.0)).xyz);
-    if (foliage) {
+    if (material.base_color.a < 0.5 && material.flags.x <= 0.0) {
+        // A class of its own, which the light per pixel leaves as drawn.
+        o.colour = vec4<f32>(ember(base.r, in.local, in.world), 1.0);
+        o.normal = vec4<f32>(view_n, 0.0);
+    } else if (in.in_room > 0.5) {
+        o.colour = vec4<f32>(base.rgb * mix(1.0, ao, material.pbr.w) * ROOM_MODEL_DRAWN, 1.0);
+        o.normal = vec4<f32>(view_n, ROOM_MODEL_CLASS);
+    } else if (foliage) {
         return leaf_out(albedo, n, in.local, in.position.xy);
     } else {
         o.colour = vec4<f32>(albedo * object_light(share), 1.0);

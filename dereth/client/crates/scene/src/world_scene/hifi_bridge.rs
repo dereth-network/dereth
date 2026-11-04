@@ -26,9 +26,9 @@ use dereth_render_hifi::snapshot::{
     AskedFall, HifiArtPack, HifiBlockLevels, HifiCamera, HifiDrawnGround, HifiFog, HifiFrame,
     HifiGround, HifiGroundKnobs, HifiGroundMaterial, HifiGroundTile, HifiLamp, HifiLevelRun,
     HifiLight, HifiMaterials, HifiPackBlock, HifiPackImage, HifiPackLod, HifiPackMaterial,
-    HifiPackModel, HifiPackPlacement, HifiPackPrimitive, HifiSky, HifiSkyCard, HifiSkyDeck,
-    HifiSkyObject, HifiSlopeMaterials, HifiStaticBatch, HifiStaticBlock, HifiTerrainBlock,
-    HifiTextureMaterial, HifiWater, HifiWorldGround, LampSource,
+    HifiPackModel, HifiPackPlacement, HifiPackPrimitive, HifiRoomPlacement, HifiSky, HifiSkyCard,
+    HifiSkyDeck, HifiSkyObject, HifiSlopeMaterials, HifiStaticBatch, HifiStaticBlock,
+    HifiTerrainBlock, HifiTextureMaterial, HifiWater, HifiWorldGround, LampSource,
 };
 use dereth_render_hifi::{DebugView, HifiRenderer, HifiSettings, Level};
 use dereth_terrain::land::drawn::{Knob, Knobs};
@@ -620,6 +620,231 @@ fn drawn_for_presentation(
     })
 }
 
+/// Whether flames flicker: unless the player holds them steady.
+fn flame_flicker(prefs: &FidelityPreferences) -> bool {
+    prefs.effective(FidelityFeature::NoFlameFlicker) == 0
+}
+
+/// How far the player asks the lamps to light the world and show their glow, a share of the
+/// whole distance, percent: the choice while the better lighting is drawn, the whole otherwise.
+fn light_distance(prefs: &FidelityPreferences) -> u32 {
+    match prefs.effective(FidelityFeature::LightDrawDistance) {
+        share @ 50.. if settings(prefs, false).lighting.is_on() => share,
+        _ => 100,
+    }
+}
+
+/// How far from a lamp a room's light counts as that lamp's, meters: a little past the data's
+/// placeholder for a light, two meters out on both level axes.
+const LAMP_REACH: f32 = 3.0;
+
+/// A lamp in a room, render space.
+struct RoomLamp {
+    at: glam::Vec3,
+    /// If it is a flame, its number and reach.
+    flame: Option<(u32, f32)>,
+}
+
+/// A sprite of light in a room, render space, or the light an art pack gives in its place.
+struct RoomSprite {
+    at: glam::Vec3,
+    color: [f32; 3],
+    intensity: f32,
+    falloff: f32,
+    /// If it moves as a flame, the number and reach it flickers by.
+    flame: Option<(u32, f32)>,
+    /// Whether an art pack gave it.
+    given: bool,
+}
+
+/// An art pack's lights of one object standing near enough each other to be one light.
+struct Gathered<'p> {
+    given: &'p dereth_assets::art_pack::ManifestLight,
+    object: dereth_primitives::DataId,
+    seed: u32,
+    places: Vec<glam::Vec3>,
+}
+
+impl Gathered<'_> {
+    fn middle(&self) -> glam::Vec3 {
+        #[allow(clippy::cast_precision_loss)] // a handful of places
+        let n = self.places.len() as f32;
+        self.places.iter().copied().sum::<glam::Vec3>() / n
+    }
+
+    /// The one lamp they make: at their middle, as bright as all of them, and as large as they
+    /// stand from their middle.
+    fn lamp(&self) -> HifiLamp {
+        let middle = self.middle();
+        let mut lamp = pack_lamp(self.given, middle, self.seed);
+        #[allow(clippy::cast_precision_loss)] // a handful of places
+        let n = self.places.len() as f32;
+        lamp.intensity *= n;
+        let spread = self
+            .places
+            .iter()
+            .map(|p| (*p - middle).length())
+            .fold(0.0, f32::max);
+        if let Some(p) = lamp.pack.as_mut() {
+            p.size = p.size.max(spread);
+        }
+        lamp.falloff += spread;
+        lamp
+    }
+}
+
+/// Adds the light `given` gives `object` at `at` to the one it gathers with in `gathered`, or as one
+/// of its own.
+fn gather<'p>(
+    gathered: &mut Vec<Gathered<'p>>,
+    given: &'p dereth_assets::art_pack::ManifestLight,
+    object: dereth_primitives::DataId,
+    at: glam::Vec3,
+    seed: u32,
+) {
+    if given.gather > 0.0 {
+        if let Some(g) = gathered.iter_mut().find(|g| {
+            g.object == object && g.places.iter().any(|p| (*p - at).length() <= given.gather)
+        }) {
+            g.places.push(at);
+            return;
+        }
+    }
+    gathered.push(Gathered {
+        given,
+        object,
+        seed,
+        places: vec![at],
+    });
+}
+
+/// The light `lights` give `object` standing outdoors (`outdoors`) or in a room, if any.
+fn given_light(
+    lights: &[dereth_assets::art_pack::ManifestLight],
+    object: dereth_primitives::DataId,
+    outdoors: bool,
+) -> Option<&dereth_assets::art_pack::ManifestLight> {
+    lights
+        .iter()
+        .find(|l| l.object == object && l.place.takes(outdoors))
+}
+
+/// The lumens an art pack's light shines with that the presentation takes as a lamp's own
+/// brightness: about a torch's.
+const LUMENS_OF_A_LAMP: f32 = 800.0;
+
+/// The lamp an art pack's light `given` makes standing at `at`, render space, its own number `seed`.
+fn pack_lamp(
+    given: &dereth_assets::art_pack::ManifestLight,
+    at: glam::Vec3,
+    seed: u32,
+) -> HifiLamp {
+    use dereth_assets::art_pack::LightFlicker;
+    HifiLamp {
+        position: at + glam::Vec3::from(given.offset),
+        color: kelvin_colour(given.kelvin),
+        intensity: given.brightness / LUMENS_OF_A_LAMP,
+        falloff: given.reach,
+        source: match given.flicker {
+            LightFlicker::Embers => LampSource::Ember,
+            LightFlicker::Flame | LightFlicker::Steady => LampSource::Authored,
+        },
+        flicker: given.flicker != LightFlicker::Steady,
+        seed,
+        pack: Some(dereth_render_hifi::snapshot::PackLamp {
+            size: given.size,
+            shadows: given.shadows,
+            haze: given.haze,
+            presence: given.presence,
+        }),
+    }
+}
+
+/// The colour of a light at `kelvin`, linear, brightest channel 1: a black body's, as Tanner
+/// Helland's fit gives it in sRGB.
+fn kelvin_colour(kelvin: f32) -> [f32; 3] {
+    use dereth_primitives::num::math::{logf, powf};
+    let t = kelvin.clamp(1000.0, 40000.0) / 100.0;
+    let r = if t <= 66.0 {
+        255.0
+    } else {
+        329.698_73 * powf(t - 60.0, -0.133_204_76)
+    };
+    let g = if t <= 66.0 {
+        99.470_8 * logf(t) - 161.119_57
+    } else {
+        288.122_16 * powf(t - 60.0, -0.075_514_85)
+    };
+    let b = if t >= 66.0 {
+        255.0
+    } else if t <= 19.0 {
+        0.0
+    } else {
+        138.517_73 * logf(t - 10.0) - 305.044_8
+    };
+    let linear = |c: f32| {
+        let c = (c / 255.0).clamp(0.0, 1.0);
+        if c <= 0.04045 {
+            c / 12.92
+        } else {
+            powf((c + 0.055) / 1.055, 2.4)
+        }
+    };
+    let rgb = [linear(r), linear(g), linear(b)];
+    let peak = rgb[0].max(rgb[1]).max(rgb[2]).max(1e-6);
+    rgb.map(|c| c / peak)
+}
+
+/// The rooms' lamps, their sprites of light and the lights `pack` gives in rooms, their beds of
+/// embers, and whether any room's lamps have been looked for.
+fn room_lamps(
+    draw: &SceneDraw,
+    pack: Option<&Vec<dereth_assets::art_pack::ManifestLight>>,
+) -> (Vec<RoomLamp>, Vec<RoomSprite>, Vec<glam::Vec3>, bool) {
+    use super::hifi_lamps::LampKind;
+    let (mut lamps, mut sprites, mut beds, mut looked) =
+        (Vec::new(), Vec::new(), Vec::new(), false);
+    for block in draw.blocks.values() {
+        for cell in &block.env_cells {
+            looked |= cell.lamps.looked();
+            for l in cell.lamps.placed() {
+                let p = l.position;
+                let at = glam::Vec3::new(block.origin.0 + p.x, block.origin.1 + p.y, p.z);
+                if let Some(given) = pack.and_then(|k| given_light(k, l.object, false)) {
+                    let lamp = pack_lamp(given, at, dereth_render_hifi::flicker::seed_at(p));
+                    sprites.push(RoomSprite {
+                        at: lamp.position,
+                        color: lamp.color,
+                        intensity: lamp.intensity,
+                        falloff: lamp.falloff * 0.75,
+                        flame: lamp.flicker.then_some((lamp.seed, lamp.falloff)),
+                        given: true,
+                    });
+                    continue;
+                }
+                if l.source.kind == LampKind::Sprite {
+                    sprites.push(RoomSprite {
+                        at,
+                        color: l.source.color,
+                        intensity: 1.0,
+                        falloff: l.source.falloff,
+                        flame: None,
+                        given: false,
+                    });
+                }
+                let ember = l.source.kind == LampKind::Ember;
+                if ember {
+                    beds.push(at);
+                }
+                let flame = (l.source.flicker && !ember)
+                    .then(|| (dereth_render_hifi::flicker::seed_at(p), l.source.falloff));
+                lamps.push(RoomLamp { at, flame });
+            }
+        }
+    }
+    (lamps, sprites, beds, looked)
+}
+
 /// The level a box asks of its effect: a ticked box is `on`; a number past 1 (from `--set-at`)
 /// keeps the level it names.
 fn level_of(raw: u32, on: Level) -> Level {
@@ -769,6 +994,11 @@ pub(super) fn lamps_drawn(gpu: &mut Gpu) -> bool {
     renderer(gpu).is_some_and(|r| r.settings().lamps.is_on())
 }
 
+/// Whether the installed presentation draws its lighting.
+pub(super) fn lighting_drawn(gpu: &mut Gpu) -> bool {
+    renderer(gpu).is_some_and(|r| r.settings().lighting.is_on())
+}
+
 /// Whether this device could ever draw the lamps: it was asked for the presentation at start-up
 /// and traces rays. Only then does a block's bake keep where its lamps may be.
 pub(super) fn lamps_possible(gpu: &Gpu) -> bool {
@@ -792,6 +1022,8 @@ pub(super) fn publish(draw: &SceneDraw, sh: &mut Shadow, ws: &WorldState, gpu: &
     }
     let reuse = renderer(gpu).and_then(HifiRenderer::recycle_frame);
     let mut frame = snapshot(draw, ws, stamp, (width, height), sh, reuse);
+    frame.flame_flicker = flame_flicker(&draw.cfg.render.fidelity);
+    frame.light_distance = light_distance(&draw.cfg.render.fidelity);
     // The slots holding the retail pictures the pack's materials stand for, as they are now.
     frame.material_slots.clear();
     if frame.materials.is_some() {
@@ -996,6 +1228,8 @@ fn snapshot(
             falloff: l.info.falloff,
             interior: true,
             burned: false,
+            steady: false,
+            flame: None,
         });
     }
     // Every cell light belongs to a building's or dungeon's own cell.
@@ -1009,6 +1243,8 @@ fn snapshot(
                 falloff: light.info.falloff,
                 interior: true,
                 burned: false,
+                steady: false,
+                flame: None,
             });
         }
     }
@@ -1026,29 +1262,133 @@ fn snapshot(
             falloff: l.info.falloff,
             interior: true,
             burned: true,
+            steady: false,
+            flame: None,
         });
     }
 
     // --- the outdoor lamps -----------------------------------------------------------------
+    // An art pack's light stands in place of what was found at its object.
+    let pack = draw
+        .land
+        .art_pack
+        .as_ref()
+        .map(|p| &p.lights)
+        .filter(|l| !l.is_empty());
     frame.lamps.clear();
+    let mut gathered: Vec<Gathered> = Vec::new();
     for block in draw.blocks.values() {
         for l in block.hifi_lamps.placed() {
             use super::hifi_lamps::LampKind;
             let p = l.position;
+            let at = glam::Vec3::new(block.origin.0 + p.x, block.origin.1 + p.y, p.z);
+            let seed = dereth_render_hifi::flicker::seed_at(p);
+            if let Some(given) = pack.and_then(|k| given_light(k, l.object, true)) {
+                gather(&mut gathered, given, l.object, at, seed);
+                continue;
+            }
             frame.lamps.push(HifiLamp {
-                position: glam::Vec3::new(block.origin.0 + p.x, block.origin.1 + p.y, p.z),
+                position: at,
                 color: l.source.color,
                 intensity: l.source.intensity,
                 falloff: l.source.falloff,
                 source: match l.source.kind {
-                    LampKind::Authored => LampSource::Authored,
+                    LampKind::Authored | LampKind::Unseen => LampSource::Authored,
                     LampKind::Flame => LampSource::Flame,
                     LampKind::Glow => LampSource::Glow,
+                    LampKind::Ember => LampSource::Ember,
+                    LampKind::Sprite => LampSource::Sprite,
                 },
                 flicker: l.source.flicker,
-                // LINT-OK: hashing the bits of a position. Not a float conversion.
-                seed: p.x.to_bits() ^ p.y.to_bits().rotate_left(11) ^ p.z.to_bits().rotate_left(22),
+                seed,
+                pack: None,
             });
+        }
+    }
+    frame.lamps.extend(gathered.iter().map(Gathered::lamp));
+    // A room's light goes with the lamp nearest it: a flame's flickers with that flame. Once the
+    // rooms' lamps are found, any other holds steady, for embers and a warm crystal have no flame.
+    let (lamps, sprites, beds, looked) = room_lamps(draw, pack);
+    for light in frame.lights.iter_mut().filter(|l| l.burned) {
+        let far = |lamp: &RoomLamp| (lamp.at - light.position).length();
+        light.flame = lamps
+            .iter()
+            .filter(|l| far(l) < LAMP_REACH)
+            .min_by(|a, b| far(a).total_cmp(&far(b)))
+            .and_then(|l| l.flame);
+        light.steady = looked && light.flame.is_none();
+    }
+    // Where a sprite of light stood there is a light now, for the sprite isn't drawn: unless it is
+    // fire's colour and a light of the room's own stands there.
+    let unlit: Vec<_> = sprites
+        .into_iter()
+        .filter(|s| {
+            let [r, g, b] = s.color;
+            s.given
+                || !(r >= g && g >= b && g > 0.25 * r)
+                || !frame
+                    .lights
+                    .iter()
+                    .any(|l| l.burned && (l.position - s.at).length() < LAMP_REACH)
+        })
+        .collect();
+    frame.lights.extend(unlit.into_iter().map(|s| HifiLight {
+        position: s.at,
+        color: s.color,
+        intensity: s.intensity,
+        falloff: s.falloff,
+        interior: true,
+        burned: true,
+        steady: s.flame.is_none(),
+        flame: s.flame,
+    }));
+    // And each bed adds a low red glow of its own, close by.
+    frame.lights.extend(beds.iter().map(|at| HifiLight {
+        position: *at + glam::Vec3::Z * 0.4,
+        color: [0.4, 0.07, 0.015],
+        intensity: 1.0,
+        falloff: 2.5,
+        interior: true,
+        burned: true,
+        steady: false,
+        flame: None,
+    }));
+    // The lamps of the rooms this frame reached, for their flames' halos.
+    frame.room_lamps.clear();
+    {
+        let drawn = draw.frame_drawn_cells.borrow();
+        for block in draw.blocks.values() {
+            for cell in &block.env_cells {
+                if !drawn.as_ref().is_some_and(|d| d.contains(&cell.id.0)) {
+                    continue;
+                }
+                for l in cell.lamps.placed() {
+                    use super::hifi_lamps::LampKind;
+                    let p = l.position;
+                    let at = glam::Vec3::new(block.origin.0 + p.x, block.origin.1 + p.y, p.z);
+                    if let Some(given) = pack.and_then(|k| given_light(k, l.object, false)) {
+                        let seed = dereth_render_hifi::flicker::seed_at(p);
+                        frame.room_lamps.push(pack_lamp(given, at, seed));
+                        continue;
+                    }
+                    frame.room_lamps.push(HifiLamp {
+                        position: at,
+                        color: l.source.color,
+                        intensity: l.source.intensity,
+                        falloff: l.source.falloff,
+                        source: match l.source.kind {
+                            LampKind::Authored => LampSource::Authored,
+                            LampKind::Flame => LampSource::Flame,
+                            LampKind::Glow => LampSource::Glow,
+                            LampKind::Ember => LampSource::Ember,
+                            LampKind::Sprite | LampKind::Unseen => continue,
+                        },
+                        flicker: l.source.flicker,
+                        seed: dereth_render_hifi::flicker::seed_at(p),
+                        pack: None,
+                    });
+                }
+            }
         }
     }
 
@@ -1168,6 +1508,29 @@ fn snapshot(
     }
 
     // --- the landscape ---------------------------------------------------------------------
+    // The models of the statics in the rooms and dungeons this frame reached.
+    frame.pack_rooms.clear();
+    if frame.art_pack.is_some() {
+        let drawn = draw.frame_drawn_cells.borrow();
+        for block in draw.blocks.values() {
+            for cell in &block.env_cells {
+                if cell.art_pack.is_empty()
+                    || !drawn.as_ref().is_some_and(|d| d.contains(&cell.id.0))
+                {
+                    continue;
+                }
+                let origin = glam::Vec3::new(block.origin.0, block.origin.1, 0.0);
+                frame
+                    .pack_rooms
+                    .extend(cell.art_pack.iter().map(|p| HifiRoomPlacement {
+                        origin,
+                        cell: cell.id.0,
+                        placement: pack_placement(p),
+                    }));
+            }
+        }
+    }
+
     frame.terrain.clear();
     frame.static_feed.clear();
     frame.static_levels.clear();
@@ -1338,6 +1701,58 @@ mod tests {
     use dereth_client_contract::options::fidelity::{blocked, OPTIONS};
     use dereth_render_hifi::composite::CompositeMode;
 
+    /// Behaviour: none (experimental hi-fi lighting)
+    #[test]
+    fn a_packs_lights_standing_close_together_are_one_beacon_at_their_middle() {
+        let given = dereth_assets::art_pack::ManifestLight {
+            object: dereth_primitives::DataId(0x0200_069D),
+            place: dereth_assets::art_pack::LightPlace::Outdoors,
+            offset: [0.0; 3],
+            kelvin: 1500.0,
+            brightness: 800.0,
+            size: 0.4,
+            reach: 12.0,
+            shadows: true,
+            flicker: dereth_assets::art_pack::LightFlicker::Steady,
+            haze: 0.6,
+            presence: 1.0,
+            gather: 6.0,
+            credit: dereth_assets::art_pack::Credit {
+                author: String::new(),
+                tool: String::new(),
+                license: String::new(),
+            },
+        };
+        let mut g = Vec::new();
+        let id = given.object;
+        for (x, y) in [
+            (34.0, 82.0),
+            (38.0, 82.0),
+            (34.0, 86.0),
+            (38.0, 86.0),
+            (90.0, 90.0),
+        ] {
+            gather(&mut g, &given, id, glam::Vec3::new(x, y, 140.0), 1);
+        }
+        assert_eq!(g.len(), 2, "the four tips, and one far off");
+        let beacon = g[0].lamp();
+        assert!((beacon.position - glam::Vec3::new(36.0, 84.0, 140.0)).length() < 1e-4);
+        assert!((beacon.intensity - 4.0).abs() < 1e-4);
+        assert!(beacon.pack.expect("a pack's").size > 2.5);
+        assert!((g[1].lamp().intensity - 1.0).abs() < 1e-4);
+    }
+
+    /// Behaviour: none (experimental hi-fi lighting)
+    #[test]
+    fn a_light_s_colour_follows_its_temperature() {
+        let flame = kelvin_colour(1600.0);
+        let day = kelvin_colour(6500.0);
+        assert_eq!(flame[0], 1.0);
+        assert!(flame[2] < 0.05 && flame[1] < 0.35, "{flame:?}");
+        assert!(day.iter().all(|c| *c > 0.9), "{day:?}");
+        assert!(kelvin_colour(12000.0)[2] == 1.0);
+    }
+
     /// The preferences with the boxes `ticked` (one bit each, in the page's order) under the
     /// Horizon interface.
     fn boxes(ticked: u32) -> FidelityPreferences {
@@ -1357,7 +1772,7 @@ mod tests {
 
     /// Whether the settings draw what the box `name` asks for: its effect, or for the retail
     /// look's box the original models in place of an art pack's.
-    fn drawn(s: &HifiSettings, name: &str) -> bool {
+    fn drawn(s: &HifiSettings, prefs: &FidelityPreferences, name: &str) -> bool {
         use dereth_client_contract::options::names::fidelity as n;
         match name {
             n::LIGHTING => s.lighting.is_on(),
@@ -1370,6 +1785,7 @@ mod tests {
             n::RETAIL_LOOK => s.lighting.is_on() && !s.art_pack,
             n::NO_ANTI_ALIASING => s.lighting.is_on() && !s.anti_aliasing,
             n::NO_SLOPE_MATERIALS => s.lighting.is_on() && !s.slope_materials,
+            n::NO_FLAME_FLICKER => s.lighting.is_on() && !flame_flicker(prefs),
             _ => unreachable!("{name}"),
         }
     }
@@ -1488,7 +1904,7 @@ mod tests {
                         .is_some_and(|i| ticked & (1 << i) != 0)
                 };
                 for o in &OPTIONS {
-                    let drawn = drawn(&s, o.name);
+                    let drawn = drawn(&s, &prefs, o.name);
                     let greyed = blocked(o.name, is, Some(rays)).is_some();
                     assert_eq!(
                         drawn,

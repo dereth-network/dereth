@@ -14,6 +14,8 @@ fn light(x: f32, interior: bool) -> HifiLight {
         falloff: 5.0,
         interior,
         burned: false,
+        steady: false,
+        flame: None,
     }
 }
 

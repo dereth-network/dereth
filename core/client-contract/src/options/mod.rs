@@ -10,6 +10,7 @@ pub mod config;
 pub mod fidelity;
 pub mod interface;
 pub mod landscape;
+pub mod light_distance;
 pub mod names;
 pub mod performance;
 pub mod preferences;

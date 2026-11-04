@@ -577,6 +577,8 @@ pub struct ArtPack {
     pub grounds: Vec<PackGround>,
     /// The materials for retail pictures that read.
     pub materials: Vec<TextureMaterial>,
+    /// The lights it gives retail objects.
+    pub lights: Vec<dereth_assets::art_pack::ManifestLight>,
     /// What would not read, a line each.
     pub problems: Vec<String>,
 }
@@ -1051,6 +1053,7 @@ impl ArtPack {
             images,
             grounds,
             materials: retextured,
+            lights: manifest.lights,
             problems,
         })
     }
@@ -1095,6 +1098,13 @@ impl ArtPack {
             .map(|p| p.indices.len() / 3)
             .sum()
     }
+}
+
+/// Whether a pack's model for `id` lies over its retail object instead of replacing it: a bed of
+/// embers in a retail basin or fire pit.
+#[must_use]
+pub fn lays_over(id: DataId) -> bool {
+    matches!(id.0, 0x0200_0285 | 0x0200_0354)
 }
 
 #[cfg(test)]
@@ -1591,6 +1601,7 @@ license = "CC0-1.0"
             images: Vec::new(),
             grounds: Vec::new(),
             materials: Vec::new(),
+            lights: Vec::new(),
             problems: Vec::new(),
         };
         let one = images::with_levels(4, 4, vec![9; 64], true, None);

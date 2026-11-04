@@ -139,6 +139,11 @@ pub mod fidelity {
     /// `Fidelity.NoSlopeMaterials`: an art pack's ground is laid without the scree and rock it
     /// lays on steep slopes.
     pub const NO_SLOPE_MATERIALS: &str = "Fidelity.NoSlopeMaterials";
+    /// `Fidelity.NoFlameFlicker`: every flame's light holds steady.
+    pub const NO_FLAME_FLICKER: &str = "Fidelity.NoFlameFlicker";
+    /// `Fidelity.LightDrawDistance`: how far the lamps light the world and show their glow, a
+    /// share of the distance they reach with nothing changed, percent.
+    pub const LIGHT_DRAW_DISTANCE: &str = "Fidelity.LightDrawDistance";
     /// `Fidelity.Debug`: a diagnostic view, set only by `--set-at`: 0 Off, 1 Passthrough,
     /// 2 Depth, 3 Normals, 4 AO, 5 Shadows, 6 Census, 7 Parity (re-shaded with no pass).
     pub const DEBUG: &str = "Fidelity.Debug";
@@ -151,7 +156,8 @@ pub mod fidelity {
     /// over it. No box sets it.
     pub const ART_PACK: &str = "Fidelity.ArtPack";
 
-    /// Every name the profile and `--set-at` may set, the ten boxes first.
+    /// Every name the profile and `--set-at` may set, the eleven boxes first and the menu after
+    /// them.
     pub const NAMES: &[&str] = &[
         LIGHTING,
         SHADOWS,
@@ -163,6 +169,8 @@ pub mod fidelity {
         RETAIL_LOOK,
         NO_ANTI_ALIASING,
         NO_SLOPE_MATERIALS,
+        NO_FLAME_FLICKER,
+        LIGHT_DRAW_DISTANCE,
         DEBUG,
     ];
 }

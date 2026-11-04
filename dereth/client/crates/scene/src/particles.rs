@@ -19,9 +19,10 @@
 
 use std::collections::BTreeMap;
 
+use dereth_animation::data::ParticleEmitterInfo;
 use dereth_animation::particles::ParticleManager;
 use dereth_assets::motion::GfxObjDegradeInfo;
-use dereth_assets::{Decode, GfxObj};
+use dereth_assets::{Decode, GfxObj, Surface};
 use dereth_dat::{DbType, RetailDatStore};
 use dereth_physics::PhysHandle;
 use dereth_primitives::{CellId, DataId, Frame, Vec3};
@@ -52,6 +53,8 @@ pub const DEFAULT_DEGRADE_DISTANCE: f32 =
 pub(crate) struct ParticleGfx {
     /// The triangles, in object space, one batch per surface.
     pub(crate) meshes: Vec<PartMesh>,
+    /// Whether any surface adds its light to what is behind it.
+    pub(crate) additive: bool,
     /// The sort center used for viewer-distance measurements instead of the origin.
     pub(crate) sort_center: Vec3,
     /// The graphics object's optional degrade record.
@@ -117,6 +120,16 @@ pub(crate) struct ParticleGeometry {
 }
 
 impl ParticleGeometry {
+    /// Whether `info` shows one additive sprite standing for the light of something: it holds its
+    /// size and strength, where fire and smoke are many particles that grow and fade.
+    pub(crate) fn is_light_sprite(&self, info: &ParticleEmitterInfo) -> bool {
+        is_light_sprite(
+            info.max_particles,
+            (info.start_scale, info.final_scale),
+            (info.start_trans, info.final_trans),
+        ) && self.get(info.hw_gfxobj_id).is_some_and(|gfx| gfx.additive)
+    }
+
     /// Whether this id has already been resolved, hit or miss.
     pub(crate) fn contains(&self, id: DataId) -> bool {
         self.cache.contains_key(&id)
@@ -166,6 +179,23 @@ pub(crate) fn read_degrade(store: &RetailDatStore, id: DataId) -> Option<GfxObjD
     let did = obj.did_degrade?;
     let bytes = store.read_typed(DbType::DegradeInfo, did).ok()?;
     GfxObjDegradeInfo::decode_payload_in(store.era_of(did), did, &bytes).ok()
+}
+
+/// Whether the graphics object `id` has a surface that adds its light to what is behind it.
+pub(crate) fn read_additive(store: &RetailDatStore, id: DataId) -> bool {
+    const ADDITIVE: u32 = 0x1_0000;
+    let Ok(bytes) = store.read_typed(DbType::GfxObj, id) else {
+        return false;
+    };
+    GfxObj::decode_payload_in(store.era_of(id), id, &bytes).is_ok_and(|o| {
+        o.surfaces.iter().any(|s| {
+            store
+                .read_typed(DbType::Surface, *s)
+                .ok()
+                .and_then(|b| Surface::decode_payload_in(store.era_of(*s), *s, &b).ok())
+                .is_some_and(|s| s.surface_type & ADDITIVE != 0 || s.luminosity > 0.0)
+        })
+    })
 }
 
 /// Read the point used to measure viewer distance.
@@ -492,10 +522,14 @@ pub(crate) fn collect(
     mgr: &ParticleManager,
     shift: Vec3,
     outdoors: bool,
+    without_light_sprites: Option<&ParticleGeometry>,
     out: &mut Vec<ParticlePart>,
 ) {
     for e in mgr.iter() {
         let gfx = e.info.hw_gfxobj_id;
+        if without_light_sprites.is_some_and(|g| g.is_light_sprite(&e.info)) {
+            continue;
+        }
         let object_origin = e.object_origin.add(shift);
         for p in e.live() {
             // The translucency convention: exactly 1.0 sets NoDraw, so a particle that fades to
@@ -516,6 +550,14 @@ pub(crate) fn collect(
             });
         }
     }
+}
+
+/// Whether `particles` particles of these (start, end) scales and translucencies only hold still.
+#[must_use]
+pub(crate) fn is_light_sprite(particles: i32, scale: (f32, f32), translucency: (f32, f32)) -> bool {
+    particles <= 2
+        && (scale.0 - scale.1).abs() < 0.5
+        && (translucency.0 - translucency.1).abs() < 0.02
 }
 
 /// What one draw pass reported, for [`crate::world_scene::SceneStats`].
@@ -795,6 +837,7 @@ mod tests {
 
     fn entry(degrade: Option<GfxObjDegradeInfo>) -> ParticleGfx {
         ParticleGfx {
+            additive: false,
             meshes: Vec::new(),
             sort_center: Vec3::ZERO,
             degrade,
@@ -1086,7 +1129,7 @@ mod tests {
         );
 
         let mut out = Vec::new();
-        collect(&m, Vec3::ZERO, false, &mut out);
+        collect(&m, Vec3::ZERO, false, None, &mut out);
         assert_eq!(
             out.len(),
             2,

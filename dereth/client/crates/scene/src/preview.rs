@@ -1268,6 +1268,7 @@ mod imp {
                     let meshes =
                         build_meshes(&store, &mut self.cache, &textures, gpu, &groups, None, None)?;
                     Some(crate::particles::ParticleGfx {
+                        additive: crate::particles::read_additive(&store, id),
                         meshes,
                         sort_center: crate::particles::read_sort_center(&store, id),
                         degrade: crate::particles::read_degrade(&store, id),
@@ -1449,7 +1450,7 @@ mod imp {
             // nearest, so no particle is cut for its distance; each is lit by the space's lights.
             let mut parts = Vec::new();
             for o in &self.objects {
-                crate::particles::collect(&o.body.particles, Vec3::ZERO, false, &mut parts);
+                crate::particles::collect(&o.body.particles, Vec3::ZERO, false, None, &mut parts);
             }
             if parts.is_empty() {
                 return Ok(());

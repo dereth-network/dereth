@@ -802,6 +802,16 @@ impl LandContext {
                 from_look && self.objects.as_ref().is_some_and(|l| l.takes(s.id, false))
             };
             let looks: Vec<bool> = statics.iter().map(piece_from_look).collect();
+            #[cfg(feature = "hifi")]
+            let covered: Vec<bool> = statics
+                .iter()
+                .zip(&defaults)
+                .map(|(s, d)| {
+                    !d.animation
+                        && !crate::art_pack::lays_over(s.id)
+                        && self.art_pack.as_ref().is_some_and(|p| p.has(s.id))
+                })
+                .collect();
             for side_look in [false, true] {
                 let mine: Vec<(usize, &dereth_world_data::env_cells::CellStatic)> = statics
                     .iter()
@@ -835,7 +845,13 @@ impl LandContext {
                 for (i, s) in mine {
                     // LINT-OK: an index into one cell's statics. Not a float.
                     #[allow(clippy::cast_possible_truncation)]
-                    baker.add_cell_static(s.id, &s.frame, i as u32);
+                    {
+                        #[cfg(feature = "hifi")]
+                        {
+                            baker.covered = covered[i];
+                        }
+                        baker.add_cell_static(s.id, &s.frame, i as u32);
+                    }
                 }
                 let ((mut opaque, mut blended, degrade), mut parts) = baker
                     .finish_cell(gpu)
@@ -915,6 +931,24 @@ impl LandContext {
                 from_look,
                 statics: statics_opaque,
                 statics_blended,
+                #[cfg(feature = "hifi")]
+                art_pack: statics
+                    .iter()
+                    .zip(&covered)
+                    .filter(|(s, c)| {
+                        **c || (crate::art_pack::lays_over(s.id)
+                            && self.art_pack.as_ref().is_some_and(|p| p.has(s.id)))
+                    })
+                    .map(|(s, _)| crate::art_pack::PackPlacement {
+                        id: s.id,
+                        frame: s.frame,
+                        scale: 1.0,
+                    })
+                    .collect(),
+                #[cfg(feature = "hifi")]
+                lamps: super::hifi_lamps::BlockLamps::at(
+                    statics.iter().map(|s| (s.id, &s.frame, 1.0)),
+                ),
                 degrade: cell_degrade,
                 objects: Box::new(CellObjects {
                     parts: cell_parts,
@@ -1117,16 +1151,22 @@ pub(super) fn cover_with_pack(
         pack: Some(&has),
         classic: Some(takes),
     };
-    placed.covered = placed
+    let drawn: Vec<bool> = placed
         .items
         .iter()
         .map(|it| looks.of(it.0, it.3) == crate::art_pack::Look::ArtPack)
         .collect();
+    placed.covered = placed
+        .items
+        .iter()
+        .zip(&drawn)
+        .map(|(it, d)| *d && !crate::art_pack::lays_over(it.0))
+        .collect();
     placed.art_pack = placed
         .items
         .iter()
-        .zip(&placed.covered)
-        .filter(|(_, c)| **c)
+        .zip(&drawn)
+        .filter(|(_, d)| **d)
         .map(|(it, _)| crate::art_pack::PackPlacement {
             id: it.0,
             frame: it.1,

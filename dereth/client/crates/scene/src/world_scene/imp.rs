@@ -626,6 +626,12 @@ struct EnvCellDraw {
     /// the second.
     statics: Vec<StaticBatch>,
     statics_blended: Vec<StaticBatch>,
+    /// The statics the art pack has models for, block-local: baked apart from the rest.
+    #[cfg(feature = "hifi")]
+    art_pack: Vec<crate::art_pack::PackPlacement>,
+    /// The lamps of its statics, for their flames' halos.
+    #[cfg(feature = "hifi")]
+    lamps: hifi_lamps::BlockLamps,
     /// This cell's degrading static placements. Per cell rather than per block,
     /// because the batches are.
     degrade: Vec<DegradePlacement>,
@@ -1139,6 +1145,9 @@ pub struct SceneDraw {
     /// that differs does any work. [`SceneConfig::render`] holds the current values and this is the
     /// shadow bank, so [`WorldScene::update_from_preferences`] is the same poll.
     render_shadow: dereth_client_runtime::render_prefs::RenderPreferences,
+    /// Whether the better lighting drew at the last poll: it lights a place with its light
+    /// sources, so the place's flat sprites of light are left out.
+    lit_by_sources: bool,
     /// What the high-fidelity bridge remembers between frames.
     #[cfg(feature = "hifi")]
     hifi: RefCell<hifi_bridge::Shadow>,

@@ -40,6 +40,12 @@ pub(crate) enum LampKind {
     Flame,
     /// A warm luminous surface.
     Glow,
+    /// A bed of embers.
+    Ember,
+    /// One large glow sprite on a marker: soft steady light, and no flame or dot to see at it.
+    Sprite,
+    /// An authored light with no flame or fixture to see at it: it lights the room and shows nothing.
+    Unseen,
 }
 
 /// One light of an object, in the object's own space.
@@ -278,6 +284,23 @@ fn flame_colour(
     e: &ParticleEmitterInfo,
     colours: &mut HashMap<DataId, Option<[f32; 3]>>,
 ) -> Result<[f32; 3], String> {
+    let sum = sprite_colour(store, e, colours)?;
+    let (h, s, v) = hsv(sum);
+    if v <= 0.0 || s < 0.3 || !(8.0..=60.0).contains(&h) {
+        return Err(format!(
+            "sprite {:08X} not fire-coloured (h {h:.0} s {s:.2})",
+            e.hw_gfxobj_id.0
+        ));
+    }
+    Ok(normalised(sum))
+}
+
+/// The summed colour of an emitter's additive sprite, whatever its colour.
+fn sprite_colour(
+    store: &RetailDatStore,
+    e: &ParticleEmitterInfo,
+    colours: &mut HashMap<DataId, Option<[f32; 3]>>,
+) -> Result<[f32; 3], String> {
     let gid = if e.hw_gfxobj_id.0 != 0 {
         e.hw_gfxobj_id
     } else {
@@ -300,18 +323,11 @@ fn flame_colour(
     if !additive {
         return Err(format!("sprite {:08X} not additive", gid.0));
     }
-    let (h, s, v) = hsv(sum);
-    if v <= 0.0 || s < 0.3 || !(8.0..=60.0).contains(&h) {
-        return Err(format!(
-            "sprite {:08X} not fire-coloured (h {h:.0} s {s:.2})",
-            gid.0
-        ));
-    }
-    Ok(normalised(sum))
+    Ok(sum)
 }
 
-/// The middle of the top of an object's parts, a little below the top.
-fn top_of(store: &RetailDatStore, parts: &[(DataId, Frame, Vec3)]) -> Option<Vec3> {
+/// The lowest and highest corners of an object's parts.
+fn bounds_of(store: &RetailDatStore, parts: &[(DataId, Frame, Vec3)]) -> Option<(Vec3, Vec3)> {
     let mut lo = Vec3::splat(f32::MAX);
     let mut hi = Vec3::splat(f32::MIN);
     for (gid, f, sc) in parts {
@@ -322,8 +338,40 @@ fn top_of(store: &RetailDatStore, parts: &[(DataId, Frame, Vec3)]) -> Option<Vec
             hi = hi.max(p);
         }
     }
-    (hi.z >= lo.z).then(|| Vec3::new((lo.x + hi.x) * 0.5, (lo.y + hi.y) * 0.5, hi.z - 0.1))
+    (hi.z >= lo.z).then_some((lo, hi))
 }
+
+/// The middle of the top of an object's parts, a little below the top.
+fn top_of(store: &RetailDatStore, parts: &[(DataId, Frame, Vec3)]) -> Option<Vec3> {
+    let (lo, hi) = bounds_of(store, parts)?;
+    Some(Vec3::new(
+        (lo.x + hi.x) * 0.5,
+        (lo.y + hi.y) * 0.5,
+        hi.z - 0.1,
+    ))
+}
+
+/// The middle of an object short enough to carry its light within it: a lantern.
+fn middle_of_short(store: &RetailDatStore, parts: &[(DataId, Frame, Vec3)]) -> Option<Vec3> {
+    let (lo, hi) = bounds_of(store, parts)?;
+    (hi.z - lo.z < 1.0).then(|| (lo + hi) * 0.5)
+}
+
+/// Whether an object has a body a light can be seen to shine from: a small marker has none, and a
+/// tall or wide one is not a lantern.
+fn has_lantern_body(store: &RetailDatStore, parts: &[(DataId, Frame, Vec3)]) -> bool {
+    bounds_of(store, parts).is_some_and(|(lo, hi)| {
+        let size = hi - lo;
+        size.max_element() >= LANTERN_LEAST && size.z < 1.0 && size.x.max(size.y) < LANTERN_WIDEST
+    })
+}
+
+/// The most an object measures to be a marker with no body to see, metres.
+const MARKER_MOST: f32 = 0.1;
+
+/// The least an object measures to be a lantern, and the widest one is, metres.
+const LANTERN_LEAST: f32 = 0.25;
+const LANTERN_WIDEST: f32 = 0.7;
 
 /// The surface type's cut-out bit: the picture's alpha cuts the surface (leaves, grass).
 const CLIPMAP: u32 = 0x4;
@@ -402,6 +450,9 @@ pub(crate) fn examine(store: &RetailDatStore, id: DataId) -> LampObject {
 
     // Flames first: they also say whether an authored light should flicker.
     let mut flames = Vec::new();
+    let mut sprites = Vec::new();
+    let marker =
+        bounds_of(store, &part_list).is_none_or(|(lo, hi)| (hi - lo).max_element() < MARKER_MOST);
     let mut emitter_at = Vec::new();
     if let Some(s) = &setup {
         for (e, part, offset) in script_emitters(store, s) {
@@ -411,6 +462,18 @@ pub(crate) fn examine(store: &RetailDatStore, id: DataId) -> LampObject {
                     place(f, *sc, g(offset.origin))
                 });
             emitter_at.push(at);
+            if marker
+                && crate::particles::is_light_sprite(
+                    e.max_particles,
+                    (e.start_scale, e.final_scale),
+                    (e.start_trans, e.final_trans),
+                )
+            {
+                if let Ok(sum) = sprite_colour(store, &e, &mut colours) {
+                    sprites.push((at, normalised(sum), e.start_scale));
+                    continue;
+                }
+            }
             match flame_colour(store, &e, &mut colours) {
                 Ok(c) => {
                     // The flame's light sits a little above where its particles are born.
@@ -443,9 +506,20 @@ pub(crate) fn examine(store: &RetailDatStore, id: DataId) -> LampObject {
                     .or_else(|| top_of(store, &part_list))
                     .unwrap_or(at);
             }
+            if emitter_at.is_empty() {
+                at = middle_of_short(store, &part_list).unwrap_or(at);
+                if let Some(top) = top_of(store, &part_list) {
+                    at.z = at.z.min(top.z);
+                }
+            }
             let near_flame = flames.iter().any(|(p, _)| (*p - at).length() < 1.5);
+            let seen = !emitter_at.is_empty() || has_lantern_body(store, &part_list);
             out.sources.push(LampSource {
-                kind: LampKind::Authored,
+                kind: if seen {
+                    LampKind::Authored
+                } else {
+                    LampKind::Unseen
+                },
                 offset: at,
                 color,
                 intensity: l.intensity,
@@ -463,6 +537,18 @@ pub(crate) fn examine(store: &RetailDatStore, id: DataId) -> LampObject {
                 intensity: 1.0,
                 falloff: 8.0,
                 flicker: true,
+            });
+        }
+    }
+    if out.sources.is_empty() {
+        for (p, c, size) in &sprites {
+            out.sources.push(LampSource {
+                kind: LampKind::Sprite,
+                offset: *p,
+                color: *c,
+                intensity: 1.0,
+                falloff: (size * 1.2).clamp(3.0, 12.0),
+                flicker: false,
             });
         }
     }
@@ -641,6 +727,7 @@ pub(crate) fn place_lamps<'a>(
     let mut out = Vec::new();
     for (id, frame, scale) in placements {
         let lamps = lamps_of(store, id);
+        let ember = crate::art_pack::lays_over(id);
         for s in &lamps.sources {
             out.push(PlacedLamp {
                 position: g(dereth_physics::math::localtoglobal(
@@ -649,6 +736,8 @@ pub(crate) fn place_lamps<'a>(
                 )),
                 source: LampSource {
                     falloff: s.falloff * scale.max(0.5),
+                    kind: if ember { LampKind::Ember } else { s.kind },
+                    flicker: ember || s.flicker,
                     ..*s
                 },
                 object: id,
@@ -979,6 +1068,34 @@ mod survey_blocks {
 mod glow_tests {
     //! Behaviour: none (experimental hi-fi art packs)
     use super::*;
+
+    #[test]
+    #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]
+    fn the_glowing_orb_in_a_dungeon_is_a_sprite_with_no_flame_and_a_brazier_is_embers() {
+        let store = dereth_dat::testing::open_store_or_fail();
+        let orb = examine(&store, DataId(0x0200_05B2));
+        assert_eq!(orb.sources.len(), 1, "{:?}", orb.sources);
+        assert_eq!(orb.sources[0].kind, LampKind::Sprite);
+        assert!(!orb.sources[0].flicker);
+        for id in 0x0200_05B1..=0x0200_05B4 {
+            let all = examine(&store, DataId(id));
+            assert!(
+                all.sources.iter().all(|s| s.kind == LampKind::Sprite),
+                "{id:#x}"
+            );
+        }
+        // A blue one gives blue light.
+        let blue = examine(&store, DataId(0x0200_05BA));
+        assert_eq!(blue.sources[0].kind, LampKind::Sprite);
+        assert!(
+            blue.sources[0].color[2] > blue.sources[0].color[0],
+            "{:?}",
+            blue.sources[0]
+        );
+        // A real fire on the same scale of thing keeps its flame.
+        let brazier = examine(&store, DataId(0x0200_0285));
+        assert!(brazier.sources.iter().all(|s| s.kind != LampKind::Sprite));
+    }
 
     #[test]
     #[cfg_attr(not(feature = "retail-dats"), ignore = "reads retail data")]

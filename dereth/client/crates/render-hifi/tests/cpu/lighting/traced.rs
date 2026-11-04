@@ -22,6 +22,7 @@ fn frame(height: f32, outdoor: bool, lamp: bool) -> HifiFrame {
             source: dereth_render_hifi::snapshot::LampSource::Authored,
             flicker: false,
             seed: 0,
+            pack: None,
         });
     }
     f
@@ -37,6 +38,27 @@ fn by_day_out_of_doors_nothing_traces_and_after_dusk_the_lamps_do() {
     assert!(traces(&frame(0.05, true, true)), "dusk, with a lamp");
     assert!(!traces(&frame(0.05, true, false)), "dusk, with no lamp");
     assert!(traces(&frame(-0.5, true, true)), "night");
+}
+
+#[test]
+fn an_art_packs_light_near_the_eye_traces_by_day_and_one_far_off_does_not() {
+    let mut f = frame(0.8, true, false);
+    f.lamps.push(HifiLamp {
+        position: Vec3::new(30.0, 0.0, 10.0),
+        color: [1.0, 0.4, 0.1],
+        intensity: 1.0,
+        falloff: 12.0,
+        pack: Some(dereth_render_hifi::snapshot::PackLamp {
+            size: 0.4,
+            shadows: true,
+            haze: 0.6,
+            presence: 1.0,
+        }),
+        ..HifiLamp::default()
+    });
+    assert!(traces(&f), "noon, with the pack's light in reach");
+    f.lamps[0].position.x = 2000.0;
+    assert!(!traces(&f), "noon, with the pack's light far off");
 }
 
 #[test]

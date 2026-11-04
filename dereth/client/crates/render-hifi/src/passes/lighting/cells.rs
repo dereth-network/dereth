@@ -6,6 +6,7 @@
 //! shut gives it only the little the room scatters, so no light reaches through a wall.
 
 use crate::build::Build;
+use crate::flicker::Flicker;
 use crate::shared::camera::{render_from_clip, HEIGHT_UP};
 use crate::snapshot::HifiLight;
 use crate::HifiFrame;
@@ -66,6 +67,23 @@ pub fn burned_lights(frame: &HifiFrame) -> Vec<&HifiLight> {
 pub fn room_window(x: f32) -> f32 {
     let w = (1.0 - x * x).clamp(0.0, 1.0);
     w * w
+}
+
+/// How a room's light stands at `time` seconds. A warm light is a flame, unless the scene has found
+/// it holds steady; a low red one is a bed of embers; any other does not move.
+#[must_use]
+pub fn flame_flicker(light: &HifiLight, time: f64) -> Flicker {
+    let [r, g, b] = light.color;
+    if light.steady || r <= b * 1.15 {
+        return Flicker::STEADY;
+    }
+    let (seed, reach) = light
+        .flame
+        .unwrap_or_else(|| (crate::flicker::seed_at(light.position), light.falloff));
+    if r > g * 2.5 {
+        return crate::flicker::embers(seed, time);
+    }
+    crate::flicker::flame(seed, crate::flicker::size_of_a_flame_reaching(reach), time)
 }
 
 /// The reach of `light`, meters, as its light is burned into the rooms.
@@ -292,8 +310,19 @@ impl CellLight {
         let (_, _, out) = self.target.as_ref()?;
         let mut lb: Vec<f32> = Vec::with_capacity(lights.len() * 8);
         for l in &lights {
-            lb.extend([l.position.x, l.position.y, l.position.z, reach(l)]);
-            lb.extend([l.color[0], l.color[1], l.color[2], 0.0]);
+            let f = if frame.flame_flicker {
+                flame_flicker(l, frame.time)
+            } else {
+                Flicker::STEADY
+            };
+            let at = l.position + f.sway;
+            lb.extend([at.x, at.y, at.z, reach(l)]);
+            lb.extend([
+                l.color[0] * f.tint[0],
+                l.color[1] * f.tint[1],
+                l.color[2] * f.tint[2],
+                (l.falloff * 0.05).clamp(0.1, 0.4),
+            ]);
         }
         queue.write_buffer(&gpu.lights, 0, &floats(&lb));
         let cam = &frame.camera;
@@ -303,7 +332,9 @@ impl CellLight {
         p.extend(viewport);
         #[allow(clippy::cast_precision_loss)] // at most a hundred and twenty-eight
         p.extend([cam.eye.x, cam.eye.y, cam.eye.z, lights.len() as f32]);
-        p.extend([f32::from(u8::from(traced)), STOP_SHORT, 0.0, 0.0]);
+        #[allow(clippy::cast_precision_loss)] // a little past two seconds of frames
+        let number = (frame.stamp % 128) as f32;
+        p.extend([f32::from(u8::from(traced)), STOP_SHORT, 0.0, number]);
         queue.write_buffer(&gpu.params, 0, &floats(&p));
         let mut entries = vec![
             wgpu::BindGroupEntry {
@@ -365,5 +396,54 @@ impl CellLight {
         pass.dispatch_workgroups(size.0.div_ceil(8), size.1.div_ceil(8), 1);
         drop(pass);
         Some(out)
+    }
+}
+
+#[cfg(test)]
+mod flicker_tests {
+    //! Behaviour: none (experimental hi-fi lighting)
+    use super::*;
+    use glam::Vec3;
+
+    fn light(color: [f32; 3], x: f32) -> HifiLight {
+        HifiLight {
+            position: Vec3::new(x, 2.0, 1.0),
+            color,
+            intensity: 1.0,
+            falloff: 5.0,
+            interior: true,
+            burned: true,
+            steady: false,
+            flame: None,
+        }
+    }
+
+    #[test]
+    fn a_flame_wavers_on_its_own_and_a_cold_light_holds_steady() {
+        let flame = light([1.0, 0.6, 0.3], 3.0);
+        let other = light([1.0, 0.6, 0.3], 9.37);
+        let at = |l: &HifiLight, t: f64| flame_flicker(l, t).brightness;
+        assert!((0..50).any(|k| (at(&flame, 0.0) - at(&flame, f64::from(k) * 0.1)).abs() > 0.02));
+        // Two flames do not flicker as one.
+        let apart: f32 = (0..50)
+            .map(|k| (at(&flame, f64::from(k) * 0.1) - at(&other, f64::from(k) * 0.1)).abs())
+            .sum();
+        assert!(apart > 0.5, "{apart}");
+        for k in 0..200 {
+            let v = at(&flame, f64::from(k) * 0.1);
+            assert!((0.6..=1.3).contains(&v), "{v}");
+        }
+        assert_eq!(at(&light([0.4, 0.6, 1.0], 3.0), 1.0), 1.0);
+        // A light at a flame moves as that flame does, and one found steady does not move.
+        let at_flame = |x| HifiLight {
+            flame: Some((42, 6.0)),
+            ..light([1.0, 0.6, 0.3], x)
+        };
+        assert_eq!(at(&at_flame(1.0), 7.0), at(&at_flame(1.4), 7.0));
+        let found = HifiLight {
+            steady: true,
+            ..flame
+        };
+        assert_eq!(flame_flicker(&found, 7.0), Flicker::STEADY);
     }
 }

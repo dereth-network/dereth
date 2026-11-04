@@ -1716,7 +1716,12 @@ impl HifiPass for Lighting {
             )),
             f32::from(u8::from(!frame.sky.outdoor)),
         ]);
-        p.extend([env_f32("DERETH_HIFI_ROOM_KEPT", 0.45), 0.0, 0.0, 0.0]);
+        p.extend([
+            env_f32("DERETH_HIFI_ROOM_KEPT", 0.45),
+            env_f32("DERETH_HIFI_ROOM_WARM", 0.35),
+            env_f32("DERETH_HIFI_ROOM_DEEP", 0.2),
+            env_f32("DERETH_HIFI_ROOM_MID", 0.6),
+        ]);
         let sun_lin = sun.map(|c| dereth_primitives::num::math::powf(c.max(0.0), 2.2));
         let (all_round, about_sun) = day.sky_light(sun_lin, if sun_on { sun_gain } else { 0.0 });
         p.extend([all_round, about_sun, day.penumbra(), 0.0]);
@@ -1844,7 +1849,12 @@ impl HifiPass for Lighting {
             pass.set_bind_group(0, &relight_bind, &[]);
             pass.draw(0..3, 0..1);
         }
-        if lamp_picture.is_some()
+        let lamps_lit = lamp_picture.is_some();
+        let room_halos = lamps_on
+            && !lamps_lit
+            && !frame.sky.outdoor
+            && self.lamps.prepare_room_halos(&device, &queue, frame, HDR);
+        if (lamps_lit || room_halos)
             && self.lamps.draw_halos(
                 &device, &queue, cx.encoder, frame, cx.depth, &rt.hdr, viewport, cx.timer,
             )

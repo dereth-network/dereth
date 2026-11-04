@@ -32,11 +32,13 @@ const MAX_INSTANCES: u32 = 4096;
 pub const KEEP_FRAMES: u32 = 120;
 
 /// Whether anything traces through the scene in `frame`: the lamps, once the sun is low enough
-/// for them to light and the frame has any, or a room's own lights, while the viewer is in a
-/// room.
+/// for them to light and the frame has any, or an art pack's lights within reach, which shine by
+/// day; or a room's own lights, while the viewer is in a room.
 #[must_use]
 pub fn traces(frame: &HifiFrame) -> bool {
-    !frame.sky.outdoor || (crate::passes::lamps::night(frame) > 0.001 && !frame.lamps.is_empty())
+    !frame.sky.outdoor
+        || (crate::passes::lamps::night(frame) > 0.001 && !frame.lamps.is_empty())
+        || crate::passes::lamps::shine_by_day(frame)
 }
 
 fn floats(values: &[f32]) -> Vec<u8> {

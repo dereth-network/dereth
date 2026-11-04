@@ -549,6 +549,10 @@ pub enum FidelityFeature {
     NoAntiAliasing,
     /// `Fidelity.NoSlopeMaterials`.
     NoSlopeMaterials,
+    /// `Fidelity.NoFlameFlicker`.
+    NoFlameFlicker,
+    /// `Fidelity.LightDrawDistance`.
+    LightDrawDistance,
     /// `Fidelity.Debug`.
     Debug,
 }
@@ -556,7 +560,7 @@ pub enum FidelityFeature {
 #[cfg(feature = "hifi")]
 impl FidelityFeature {
     /// Every option, in the order the names list them.
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 13] = [
         Self::Lighting,
         Self::Shadows,
         Self::GlobalIllumination,
@@ -567,6 +571,8 @@ impl FidelityFeature {
         Self::RetailLook,
         Self::NoAntiAliasing,
         Self::NoSlopeMaterials,
+        Self::NoFlameFlicker,
+        Self::LightDrawDistance,
         Self::Debug,
     ];
 
@@ -584,27 +590,40 @@ impl FidelityFeature {
             Self::RetailLook => fidelity::RETAIL_LOOK,
             Self::NoAntiAliasing => fidelity::NO_ANTI_ALIASING,
             Self::NoSlopeMaterials => fidelity::NO_SLOPE_MATERIALS,
+            Self::NoFlameFlicker => fidelity::NO_FLAME_FLICKER,
+            Self::LightDrawDistance => fidelity::LIGHT_DRAW_DISTANCE,
             Self::Debug => fidelity::DEBUG,
         }
     }
 
     /// The highest value the option takes: 4 for an effect (Ultra), 1 for the switches that
-    /// turn something off (the retail look's, the anti-aliasing's, the slope materials'), the last
-    /// view for the diagnostic views.
+    /// turn something off (the retail look's, the anti-aliasing's, the slope materials', the
+    /// flicker's), the greatest share for the light draw distance, the last view for the
+    /// diagnostic views.
     #[must_use]
     pub const fn max(self) -> u32 {
         match self {
             Self::Debug => 7,
-            Self::RetailLook | Self::NoAntiAliasing | Self::NoSlopeMaterials => 1,
+            Self::LightDrawDistance => dereth_client_contract::options::light_distance::MOST,
+            Self::RetailLook
+            | Self::NoAntiAliasing
+            | Self::NoSlopeMaterials
+            | Self::NoFlameFlicker => 1,
             _ => 4,
         }
     }
 
     /// `raw` as this option stores it: an effect past Ultra is Ultra; a diagnostic view past the
-    /// last is off.
+    /// last is off; a light draw distance outside its menu is the whole distance, 0.
     #[must_use]
     pub const fn clamp(self, raw: u32) -> u32 {
-        if raw <= self.max() {
+        if matches!(self, Self::LightDrawDistance) {
+            if raw >= dereth_client_contract::options::light_distance::LEAST && raw <= self.max() {
+                raw
+            } else {
+                0
+            }
+        } else if raw <= self.max() {
             raw
         } else if matches!(self, Self::Debug) {
             0
@@ -622,7 +641,7 @@ impl FidelityFeature {
 pub struct FidelityPreferences {
     /// Each option's stored value, in [`FidelityFeature::ALL`] order. 0 is off for every one; a
     /// ticked box is 1.
-    pub values: [u32; 11],
+    pub values: [u32; 13],
     /// Whether the interface shown is Horizon. Never kept in the profile: it is read from the
     /// interface choice at start-up and follows the interface shown after that. Off, every option
     /// is off in effect, whatever it stores.
@@ -640,6 +659,16 @@ impl FidelityPreferences {
             let raw = match feature {
                 // The view a diagnostic run asks for, by number.
                 FidelityFeature::Debug => prefs.u32(feature.name()),
+                // A share by its words.
+                FidelityFeature::LightDrawDistance => prefs
+                    .get(feature.name())
+                    .and_then(|v| {
+                        dereth_client_contract::options::light_distance::parse_value(
+                            feature.name(),
+                            v,
+                        )
+                    })
+                    .and_then(|v| u32::try_from(v).ok()),
                 // A box the page ticked; a number the file holds otherwise (from an older
                 // build) is not read, as the page does not read it.
                 _ => prefs.bool(feature.name()).map(u32::from),
@@ -684,7 +713,8 @@ impl FidelityPreferences {
 
     /// Whether any option is on in effect. Without one the presentation is not installed. The
     /// switches that turn something off (the retail look's, the anti-aliasing's, the slope
-    /// materials') draw nothing of their own, so they alone are none.
+    /// materials', the flicker's) and the light draw distance draw nothing of their own, so they
+    /// alone are none.
     #[must_use]
     pub fn any_effective(&self) -> bool {
         FidelityFeature::ALL
@@ -695,6 +725,8 @@ impl FidelityPreferences {
                     FidelityFeature::RetailLook
                         | FidelityFeature::NoAntiAliasing
                         | FidelityFeature::NoSlopeMaterials
+                        | FidelityFeature::NoFlameFlicker
+                        | FidelityFeature::LightDrawDistance
                 )
             })
             .any(|f| self.effective(f) != 0)
@@ -835,6 +867,30 @@ mod tests {
         for f in FidelityFeature::ALL {
             assert!(fidelity::NAMES.contains(&f.name()), "{f:?}");
         }
+    }
+
+    #[test]
+    #[cfg(feature = "hifi")]
+    fn the_light_draw_distance_is_read_by_its_words_and_draws_nothing_alone() {
+        let read = |line: &str| {
+            FidelityPreferences::from_preferences(&Preferences::parse(&format!(
+                "[UI]\nInterface=Horizon\n[Fidelity]\n{line}\n"
+            )))
+        };
+        let lights = FidelityFeature::LightDrawDistance;
+        assert_eq!(read("LightDrawDistance=3x").effective(lights), 300);
+        assert_eq!(read("LightDrawDistance=150").effective(lights), 150);
+        assert_eq!(
+            read("LightDrawDistance=9x").effective(lights),
+            0,
+            "the whole"
+        );
+        assert!(!read("LightDrawDistance=5x\nNoFlameFlicker=True").any_effective());
+        let switched = FidelityPreferences::parse_switch("Lighting=1,LightDrawDistance=200")
+            .expect("a switch");
+        assert_eq!(switched.effective(lights), 200);
+        assert_eq!(lights.clamp(20), 0);
+        assert_eq!(FidelityFeature::NoFlameFlicker.clamp(3), 1);
     }
 
     #[test]

@@ -13,6 +13,7 @@
 use glam::{Mat4, Vec3, Vec4};
 
 use crate::build::Build;
+use crate::flicker::Flicker;
 use crate::shared::camera::{render_from_clip, HEIGHT_UP};
 use crate::snapshot::{HifiLamp, LampSource};
 use crate::{HifiFrame, Level};
@@ -28,7 +29,7 @@ const MAX_LAMPS: usize = 256;
 const MAX_HALOS: usize = 128;
 /// Bytes of one lamp record.
 const LAMP_BYTES: u64 = 48;
-const HALO_BYTES: u64 = 32;
+const HALO_BYTES: u64 = 48;
 
 fn env_f32(name: &str, default: f32) -> f32 {
     std::env::var(name)
@@ -54,11 +55,52 @@ pub fn night(frame: &HifiFrame) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// How far past its own reach a lamp lights the world, metres, at the whole Light Draw Distance.
+const LAMP_REACH: f32 = 160.0;
+
+/// How far from the eye a lamp's halo shows, metres, at the whole Light Draw Distance.
+const HALO_REACH: f32 = 120.0;
+
+/// The share of a reach over which a lamp's light and halo fade out before its end.
+const FADE_SHARE: f32 = 0.25;
+
+/// The Light Draw Distance `frame` asks for, as a multiple of the whole distance.
+fn distance_share(frame: &HifiFrame) -> f32 {
+    #[allow(clippy::cast_precision_loss)] // a share in percent
+    match frame.light_distance {
+        0 => 1.0,
+        share => share as f32 / 100.0,
+    }
+}
+
+/// How far the lamps light the world past their own reach in `frame`, metres.
+fn lamp_reach(frame: &HifiFrame) -> f32 {
+    env_f32("DERETH_HIFI_LAMP_REACH", LAMP_REACH) * distance_share(frame)
+}
+
+/// 1 short of the last [`FADE_SHARE`] of `reach`, easing to 0 at `reach`, for something `d` away.
+fn fade_toward(d: f32, reach: f32) -> f32 {
+    let t = ((reach - d) / (reach * FADE_SHARE).max(1e-3)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Whether an art pack's light stands within the lamps' reach of the eye: those shine by day.
+#[must_use]
+pub fn shine_by_day(frame: &HifiFrame) -> bool {
+    let reach = lamp_reach(frame);
+    frame
+        .lamps
+        .iter()
+        .any(|l| l.pack.is_some() && (l.position - frame.camera.eye).length() - l.falloff < reach)
+}
+
 /// One lamp as it is lit this frame.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LitLamp {
     /// Where, render space.
     pub position: Vec3,
+    /// Whether its light moves from frame to frame.
+    pub flickers: bool,
     /// Its colour times its brightness, night and flicker folded in.
     pub color: [f32; 3],
     /// Its reach, metres.
@@ -73,11 +115,22 @@ pub struct LitLamp {
     pub halo: f32,
     /// Where it was found: 0 authored, 1 flame, 2 glow.
     pub source: f32,
+    /// How brightly the air about it glows, in place of a halo; 0 for a halo.
+    pub air: f32,
+    /// How much of its glow it keeps against the daylight, 0 to 1.
+    pub presence: f32,
 }
+
+/// How much brighter a light's glow is drawn at noon than at night for all its presence: about
+/// how far the eye's exposure falls from night to day, so the glow holds its own.
+const DAY_GLOW: f32 = 10.0;
 
 /// The fire colour a flame's own sprite colour is pulled toward, so a deep red sprite still lights
 /// the ground the colour of firelight.
 const FIRE: [f32; 3] = [1.0, 0.52, 0.18];
+
+/// The light of a bed of embers.
+const EMBER: [f32; 3] = [1.0, 0.2, 0.04];
 
 /// The warm light most lamps throw on the ground: authored lamp colours are saturated, and are
 /// pulled halfway toward it.
@@ -89,23 +142,50 @@ fn toward(c: [f32; 3], to: [f32; 3], k: f32) -> [f32; 3] {
     m.map(|v| v / top)
 }
 
-/// A lamp's brightness multiplier at `t` seconds: a flame's gentle flicker, 1 otherwise.
-fn flicker(lamp: &HifiLamp, t: f32) -> f32 {
-    if !lamp.flicker {
-        return 1.0;
+/// How a lamp stands in `frame`: as a flame or a bed of embers moves, or steady.
+fn flicker(frame: &HifiFrame, lamp: &HifiLamp) -> Flicker {
+    if !frame.flame_flicker || !lamp.flicker {
+        return Flicker::STEADY;
     }
-    #[allow(clippy::cast_precision_loss)]
-    let s = (lamp.seed % 9973) as f32 * 0.37;
-    use dereth_primitives::num::math::sinf;
-    1.0 + 0.07 * sinf(t * 8.3 + s)
-        + 0.05 * sinf(t * 13.9 + s * 1.7)
-        + 0.03 * sinf(t * 23.1 + s * 2.3)
+    if lamp.source == LampSource::Ember {
+        return crate::flicker::embers(lamp.seed, frame.time);
+    }
+    crate::flicker::flame(
+        lamp.seed,
+        crate::flicker::size_of_a_flame_reaching(lamp.falloff),
+        frame.time,
+    )
+}
+
+/// `lamp` as it stands with `f`.
+fn moved(mut lamp: LitLamp, f: Flicker, k: f32) -> LitLamp {
+    lamp.position += f.sway;
+    for (c, tint) in lamp.color.iter_mut().zip(f.tint) {
+        *c *= k * tint;
+    }
+    lamp
 }
 
 /// How one found lamp is lit, before night and flicker.
 fn shape(lamp: &HifiLamp) -> LitLamp {
     let range_mul = env_f32("DERETH_HIFI_LAMP_RANGE", 2.0);
     let warmth = env_f32("DERETH_HIFI_LAMP_WARMTH", 0.5);
+    if let Some(p) = lamp.pack {
+        // An art pack's light is as the pack says, its glow in the air for a halo.
+        return LitLamp {
+            position: lamp.position,
+            flickers: lamp.flicker,
+            color: lamp.color.map(|c| c * lamp.intensity),
+            range: lamp.falloff,
+            radius: (p.size * 0.5).max(0.02),
+            skip: if p.shadows { 0.1 } else { lamp.falloff },
+            glow: 0.0,
+            halo: if p.haze > 0.0 { lamp.falloff } else { 0.0 },
+            source: 0.0,
+            air: p.haze,
+            presence: p.presence,
+        };
+    }
     let (color, brightness, range, radius, skip, glow, halo, source) = match lamp.source {
         LampSource::Authored => (
             toward(lamp.color, LAMPLIGHT, warmth),
@@ -125,6 +205,17 @@ fn shape(lamp: &HifiLamp) -> LitLamp {
             0.35,
             0.25,
             0.75,
+            1.0,
+        ),
+        LampSource::Ember => (EMBER, 0.18, 4.0, 0.3, 0.3, 0.0, 0.0, 1.0),
+        LampSource::Sprite => (
+            lamp.color,
+            0.45,
+            (lamp.falloff * range_mul * 0.5).clamp(3.0, 8.0),
+            0.2,
+            0.35,
+            0.0,
+            0.0,
             1.0,
         ),
         LampSource::Glow => (
@@ -147,6 +238,9 @@ fn shape(lamp: &HifiLamp) -> LitLamp {
         glow,
         halo,
         source,
+        flickers: lamp.flicker,
+        air: 0.0,
+        presence: 0.0,
     }
 }
 
@@ -166,22 +260,63 @@ fn inside(planes: &[Vec4; 6], p: Vec3, r: f32) -> bool {
     planes.iter().all(|pl| pl.truncate().dot(p) + pl.w >= -r)
 }
 
+/// The halos of the lamps in the rooms the frame reached, the nearest first, as the outdoor lamps
+/// show theirs: the same shape and flicker, at any hour.
+#[must_use]
+pub fn room_halos(frame: &HifiFrame) -> Vec<(usize, LitLamp)> {
+    let cam = &frame.camera;
+    let pl = planes(cam.projection * cam.view * HEIGHT_UP);
+    let mut near: Vec<(f32, LitLamp)> = Vec::new();
+    for lamp in &frame.room_lamps {
+        let l = shape(lamp);
+        let d = (l.position - cam.eye).length();
+        if l.halo <= 0.0 || d > ROOM_HALO_REACH || !inside(&pl, l.position, l.halo) {
+            continue;
+        }
+        if near
+            .iter()
+            .any(|(_, n)| (n.position - l.position).length() < 0.6)
+        {
+            continue;
+        }
+        near.push((d, moved(l, flicker(frame, lamp), 1.0)));
+    }
+    near.sort_by(|a, b| a.0.total_cmp(&b.0));
+    near.into_iter()
+        .take(MAX_HALOS)
+        .enumerate()
+        .map(|(i, (_, l))| (i, l))
+        .collect()
+}
+
+/// How far a room's flame shows its halo, metres.
+const ROOM_HALO_REACH: f32 = 60.0;
+
 /// The lamps worth lighting this frame, the most important first: inside the view, within reach
 /// of the eye, ordered by how bright they stand to the eye. And those given a halo.
 #[must_use]
-pub fn choose(frame: &HifiFrame, night: f32, t: f32) -> (Vec<LitLamp>, Vec<(usize, LitLamp)>) {
+pub fn choose(frame: &HifiFrame, night: f32) -> (Vec<LitLamp>, Vec<(usize, LitLamp)>) {
     let cam = &frame.camera;
     let pl = planes(cam.projection * cam.view * HEIGHT_UP);
-    let reach = env_f32("DERETH_HIFI_LAMP_REACH", 160.0);
+    let reach = lamp_reach(frame);
+    let halo_reach = HALO_REACH * distance_share(frame);
     let mut lit: Vec<(f32, LitLamp)> = Vec::new();
     for lamp in &frame.lamps {
-        let mut l = shape(lamp);
+        let l = shape(lamp);
         let d = (l.position - cam.eye).length();
         if d - l.range > reach || !inside(&pl, l.position, l.range) {
             continue;
         }
-        let k = night * flicker(lamp, t);
-        l.color = l.color.map(|c| c * k);
+        // An art pack's light shines day and night; the others come on at dusk.
+        let on = if lamp.pack.is_some() { 1.0 } else { night };
+        if on <= 0.001 {
+            continue;
+        }
+        let l = moved(
+            l,
+            flicker(frame, lamp),
+            on * fade_toward(d - l.range, reach),
+        );
         let peak = l.color[0].max(l.color[1]).max(l.color[2]);
         let near = (d - l.range).max(1.0);
         lit.push((peak * l.range * l.range / (near * near), l));
@@ -203,10 +338,22 @@ pub fn choose(frame: &HifiFrame, night: f32, t: f32) -> (Vec<LitLamp>, Vec<(usiz
         .iter()
         .enumerate()
         .filter(|(_, (_, l))| {
-            (l.position - cam.eye).length() < 120.0 && inside(&pl, l.position, l.halo)
+            l.halo > 0.0
+                && (l.position - cam.eye).length() < halo_reach
+                && inside(&pl, l.position, l.halo)
         })
         .take(MAX_HALOS)
-        .map(|(i, (_, l))| (i, *l))
+        .map(|(i, (_, l))| {
+            // The halo fades out toward the end of its reach rather than leaving at a line.
+            let fade = fade_toward((l.position - cam.eye).length(), halo_reach);
+            (
+                i,
+                LitLamp {
+                    color: l.color.map(|c| c * fade),
+                    ..*l
+                },
+            )
+        })
         .collect();
     (lit.into_iter().map(|(_, l)| l).collect(), halos)
 }
@@ -496,9 +643,6 @@ pub struct LampLight {
     still: u32,
     last_camera: Option<([f32; 16], [f32; 16])>,
     frame: u32,
-    /// The scene's clock when the lamps were first lit, seconds: the flicker's time is counted
-    /// from it.
-    start: Option<f64>,
     /// The lamps given a halo this frame, each with its place in the lit list.
     halos: Vec<(usize, LitLamp)>,
 }
@@ -559,19 +703,10 @@ impl LampLight {
     ) -> Option<LampPicture<'_>> {
         self.halos.clear();
         let n = night(frame);
-        if n <= 0.001 || frame.lamps.is_empty() {
+        if frame.lamps.is_empty() || n <= 0.001 && !shine_by_day(frame) {
             return None;
         }
-        // The flicker follows the scene's clock, so the same frames flicker alike however fast
-        // they are drawn. A clock that went back (a new scene) starts it again.
-        let start = match self.start {
-            Some(s) if s <= frame.time => s,
-            _ => frame.time,
-        };
-        self.start = Some(start);
-        #[allow(clippy::cast_possible_truncation)] // seconds since the lamps were first lit
-        let t = (frame.time - start) as f32;
-        let (lit, halos) = choose(frame, n, t);
+        let (lit, halos) = choose(frame, n);
         if std::env::var_os("DERETH_HIFI_LAMPS_TRACE").is_some() {
             eprintln!(
                 "lamps: {} in the frame, {} lit, {} halos, night {n:.2}",
@@ -655,9 +790,10 @@ impl LampLight {
         p.extend(viewport);
         #[allow(clippy::cast_precision_loss)]
         p.extend([cam.eye.x, cam.eye.y, cam.eye.z, lit.len() as f32]);
-        // Flickering lamps change from frame to frame, so a still view gathers only a few.
-        let gather = if lit.iter().any(|l| l.source > 0.5 && l.source < 1.5) {
-            6
+        // Flickering lamps change from frame to frame, so a still view gathers only a few, or it
+        // would smooth their flicker away.
+        let gather = if frame.flame_flicker && lit.iter().any(|l| l.flickers) {
+            3
         } else {
             24
         };
@@ -822,6 +958,29 @@ impl LampLight {
         })
     }
 
+    /// Readies the halos of the room's flames, while no lamps are lit. Whether there are any.
+    pub fn prepare_room_halos(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        frame: &HifiFrame,
+        hdr: wgpu::TextureFormat,
+    ) -> bool {
+        self.halos = room_halos(frame);
+        if self.halos.is_empty() {
+            return false;
+        }
+        let pre = &mut self.pre_gpu;
+        let gpu = self.gpu.get_or_insert_with(|| {
+            pre.take()
+                .filter(|_| hdr == crate::derive::pipeline::HDR_FORMAT)
+                .unwrap_or_else(|| LampGpu::new(device, hdr))
+        });
+        // A wall in front of a flame hides its halo by depth, so each stands fully open.
+        queue.write_buffer(&gpu.open, 0, &floats(&vec![1.0; self.halos.len()]));
+        true
+    }
+
     /// Draws the halos of the lamps lit this frame into `target`, the lit picture.
     #[allow(clippy::too_many_arguments)]
     pub fn draw_halos(
@@ -843,11 +1002,14 @@ impl LampLight {
             return false;
         };
         let cam = &frame.camera;
-        let mut hb: Vec<f32> = Vec::with_capacity(self.halos.len() * 8);
+        let day = 1.0 - night(frame);
+        let mut hb: Vec<f32> = Vec::with_capacity(self.halos.len() * 12);
         for (i, l) in &self.halos {
             hb.extend([l.position.x, l.position.y, l.position.z, l.halo]);
             #[allow(clippy::cast_precision_loss)]
             hb.extend([l.color[0], l.color[1], l.color[2], *i as f32]);
+            let held = 1.0 + l.presence * (DAY_GLOW - 1.0) * day;
+            hb.extend([l.air, held, l.range, l.radius]);
         }
         queue.write_buffer(&gpu.halos, 0, &floats(&hb));
         let mut p: Vec<f32> = Vec::with_capacity(32);
@@ -861,6 +1023,13 @@ impl LampLight {
             env_f32("DERETH_HIFI_LAMP_HALO_SHARE", 0.10),
             gain,
         ]);
+        // Indoors a lamp's own frame stands before its halo, so the light comes from within.
+        let air = env_f32("DERETH_HIFI_LAMP_AIR", 0.12);
+        p.extend(if frame.sky.outdoor {
+            [0.35, 0.15, air, 0.0]
+        } else {
+            [0.0, 0.03, air, 0.0]
+        });
         queue.write_buffer(&gpu.halo_params, 0, &floats(&p));
         let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("high-fidelity lamp halos"),

@@ -14,6 +14,11 @@ use glam::{Mat4, Quat, Vec2, Vec3};
 /// The snapshot of one frame.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct HifiFrame {
+    /// Whether flames flicker. Off, every light holds steady.
+    pub flame_flicker: bool,
+    /// The Light Draw Distance: how far the lamps light the world and show their halos, a share
+    /// of the whole distance, percent; 0 for the whole.
+    pub light_distance: u32,
     /// The device's frame stamp of the frame this snapshot describes. A snapshot whose stamp is
     /// not the frame being ended is not used for it.
     pub stamp: u64,
@@ -29,6 +34,8 @@ pub struct HifiFrame {
     /// The outdoor lamps of the resident blocks: lights the data places on outdoor objects, which
     /// the ordinary renderer never lights the world with.
     pub lamps: Vec<HifiLamp>,
+    /// The lamps of the rooms the frame reached, whose flames show a halo.
+    pub room_lamps: Vec<HifiLamp>,
     /// The resident landscape blocks.
     pub terrain: Vec<HifiTerrainBlock>,
     /// Retained geometry of blocks whose contents changed since the last snapshot: every detail
@@ -43,6 +50,8 @@ pub struct HifiFrame {
     /// Where the art pack's models stand in blocks whose contents changed since the last
     /// snapshot.
     pub pack_feed: Vec<HifiPackBlock>,
+    /// Where the art pack's models stand in the rooms and dungeons this frame draws.
+    pub pack_rooms: Vec<HifiRoomPlacement>,
     /// How the light falls on an art pack's art, as the scene's tuning has it.
     pub pack_light: HifiPackLight,
     /// The art pack's ground and what it is laid with, while a pack that lays one is open and
@@ -629,6 +638,10 @@ pub struct HifiLight {
     /// Whether its light is burned into the vertex colors of the rooms around it: one of the
     /// static lights the rooms' light is made from, with the color and place it was made with.
     pub burned: bool,
+    /// Whether it holds steady whatever its colour: a room's light with no flame found at it.
+    pub steady: bool,
+    /// The flame it stands at, which it flickers with: that flame's number and reach, metres.
+    pub flame: Option<(u32, f32)>,
 }
 
 /// Where an outdoor lamp's light was found in the data.
@@ -641,6 +654,10 @@ pub enum LampSource {
     Flame,
     /// A warm glowing surface: lamp glass, a lantern's panes.
     Glow,
+    /// A bed of embers: a low red light that pulses, and no flame.
+    Ember,
+    /// One large glow sprite on a marker: soft light, steady, and nothing to see at it.
+    Sprite,
 }
 
 /// One outdoor lamp.
@@ -660,6 +677,21 @@ pub struct HifiLamp {
     pub flicker: bool,
     /// A number of its own, for the flicker's phase.
     pub seed: u32,
+    /// What an art pack says of it, when the pack gave it.
+    pub pack: Option<PackLamp>,
+}
+
+/// What an art pack says of a light it gives an object, beyond its colour, brightness and reach.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PackLamp {
+    /// Metres across: how soft its shadows are.
+    pub size: f32,
+    /// Whether it casts shadows.
+    pub shadows: bool,
+    /// How brightly the air about it glows.
+    pub haze: f32,
+    /// How much of its glow it keeps against the daylight, 0 to 1.
+    pub presence: f32,
 }
 
 /// One resident landscape block.
@@ -951,6 +983,17 @@ pub struct HifiGroundMaterial {
     /// Retail's own picture for a ground the pack has no material for: laid as retail lays it,
     /// its repeats square with the cells, with no detail or variation of the pack's.
     pub retail: bool,
+}
+
+/// One of an art pack's models standing in a room or dungeon's cell.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HifiRoomPlacement {
+    /// The south-west corner of its block, render space.
+    pub origin: Vec3,
+    /// The room it stands in.
+    pub cell: u32,
+    /// Where it stands in its block.
+    pub placement: HifiPackPlacement,
 }
 
 /// Where an art pack's models stand in one block.

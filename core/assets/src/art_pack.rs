@@ -97,6 +97,33 @@
 //!
 //! Only `texture`, `base_color` and the credit are required.
 //!
+//! A pack may also give a retail object a light of its own, in place of whatever light and
+//! sprites of light retail gives it. It shines day and night, lights what is around it, casts
+//! shadows as soft as it is large, and the air about it glows, so it holds its own by day as it
+//! does at night. An object's light stands where retail's light or sprite of light stood.
+//!
+//! ```toml
+//! [[light]]
+//! object = "0x0200069D"      # the retail object: a setup (0x02...) or a graphics object (0x01...)
+//! where = "outdoors"         # where it is placed: outdoors, indoors or both; both unless named
+//! offset = [0.0, 0.0, 0.0]   # metres from where retail's light stood, east, north and up
+//! kelvin = 1900              # its colour temperature: 1500 is a deep flame, 6500 daylight
+//! brightness = 800           # lumens: a candle is about 12, a torch about 800
+//! size = 0.3                 # metres across the light: how soft its shadows are
+//! reach = 12.0               # metres its light reaches
+//! shadows = true             # whether it casts shadows; true unless named
+//! flicker = "flame"          # flame, embers or steady; steady unless named
+//! haze = 0.6                 # how brightly the air about it glows, 0 to 4; 0 for none
+//! presence = 1.0             # 0 to 1: how much of its glow it keeps against the daylight
+//! gather = 6.0               # metres: the object's lights this near each other are one light,
+//!                            # at their middle and as large as they stand apart; 0 unless named
+//! author = "..."
+//! tool = "..."
+//! license = "..."
+//! ```
+//!
+//! Only `object`, `kelvin`, `brightness`, `reach` and the credit are required.
+//!
 //! This module reads the manifest only. The models and their pictures are read by whatever
 //! draws them.
 
@@ -119,6 +146,73 @@ pub struct ArtPackManifest {
     pub grounds: Vec<ManifestGround>,
     /// Its materials for retail pictures, in the order the manifest lists them.
     pub materials: Vec<ManifestMaterial>,
+    /// The lights it gives retail objects, in the order the manifest lists them.
+    pub lights: Vec<ManifestLight>,
+}
+
+/// Where a pack's light is given to its object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LightPlace {
+    /// Where the object stands outdoors.
+    Outdoors,
+    /// Where it stands in a building's or a dungeon's rooms.
+    Indoors,
+    /// Wherever it stands.
+    Both,
+}
+
+impl LightPlace {
+    /// Whether an object standing outdoors (`outdoors`) or in a room is given the light.
+    #[must_use]
+    pub fn takes(self, outdoors: bool) -> bool {
+        match self {
+            Self::Outdoors => outdoors,
+            Self::Indoors => !outdoors,
+            Self::Both => true,
+        }
+    }
+}
+
+/// How a pack's light moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LightFlicker {
+    /// As a flame does.
+    Flame,
+    /// As a bed of embers breathes.
+    Embers,
+    /// Not at all.
+    Steady,
+}
+
+/// A light a pack gives a retail object.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ManifestLight {
+    /// The retail object.
+    pub object: DataId,
+    /// Where it is given.
+    pub place: LightPlace,
+    /// Metres from where retail's light stood: east, north and up.
+    pub offset: [f32; 3],
+    /// Its colour temperature, kelvin.
+    pub kelvin: f32,
+    /// Lumens.
+    pub brightness: f32,
+    /// Metres across.
+    pub size: f32,
+    /// Metres its light reaches.
+    pub reach: f32,
+    /// Whether it casts shadows.
+    pub shadows: bool,
+    /// How it moves.
+    pub flicker: LightFlicker,
+    /// How brightly the air about it glows.
+    pub haze: f32,
+    /// How much of its glow it keeps against the daylight.
+    pub presence: f32,
+    /// Metres: the object's lights this near each other are one light; 0 for none.
+    pub gather: f32,
+    /// Who made it, with what, and under which license.
+    pub credit: Credit,
 }
 
 /// One material drawn in place of retail pictures: the pictures it stands for and its own.
@@ -331,12 +425,45 @@ impl ArtPackManifest {
             }
             materials.push(material);
         }
+        let listed = match table.get("light") {
+            None => &empty,
+            Some(toml::Value::Array(a)) => a,
+            Some(_) => return fail("`light` is not a list of [[light]] tables"),
+        };
+        let mut lights: Vec<ManifestLight> = Vec::with_capacity(listed.len());
+        for (i, l) in listed.iter().enumerate() {
+            let Some(l) = l.as_table() else {
+                return fail(format!("light {} is not a table", i + 1));
+            };
+            let light = light(l).map_err(|e| ManifestError(format!("light {}: {}", i + 1, e.0)))?;
+            if lights.iter().any(|o| {
+                o.object == light.object
+                    && (o.place.takes(true) && light.place.takes(true)
+                        || o.place.takes(false) && light.place.takes(false))
+            }) {
+                return fail(format!(
+                    "light {}: {:#010X} has a light there already",
+                    i + 1,
+                    light.object.0
+                ));
+            }
+            lights.push(light);
+        }
         Ok(Self {
             name,
             models,
             grounds,
             materials,
+            lights,
         })
+    }
+
+    /// The light the pack gives `object` standing outdoors (`outdoors`) or in a room, if any.
+    #[must_use]
+    pub fn light(&self, object: DataId, outdoors: bool) -> Option<&ManifestLight> {
+        self.lights
+            .iter()
+            .find(|l| l.object == object && l.place.takes(outdoors))
     }
 
     /// The material drawn in place of the retail picture `texture`, if the pack has one.
@@ -541,6 +668,75 @@ fn material(t: &toml::Table) -> Result<ManifestMaterial, ManifestError> {
         roughness: picture("roughness")?,
         occlusion: picture("occlusion")?,
         normal_scale,
+        credit: Credit {
+            author: text(t, "author")?.to_owned(),
+            tool: text(t, "tool")?.to_owned(),
+            license: text(t, "license")?.to_owned(),
+        },
+    })
+}
+
+/// A light a pack gives a retail object.
+fn light(t: &toml::Table) -> Result<ManifestLight, ManifestError> {
+    let object = object_id(t.get("object").and_then(toml::Value::as_str).unwrap_or(""))?;
+    let place = match t.get("where").map(|v| v.as_str()) {
+        None => LightPlace::Both,
+        Some(Some("outdoors")) => LightPlace::Outdoors,
+        Some(Some("indoors")) => LightPlace::Indoors,
+        Some(Some("both")) => LightPlace::Both,
+        Some(_) => return fail("where is not outdoors, indoors or both"),
+    };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+    // Metres, lumens and kelvin from a manifest, well inside both types' range.
+    let part = |v: &toml::Value| match v {
+        toml::Value::Float(f) if f.is_finite() => Some(*f as f32),
+        toml::Value::Integer(i) => Some(*i as f32),
+        _ => None,
+    };
+    let offset = match t.get("offset") {
+        None => [0.0; 3],
+        Some(toml::Value::Array(a)) if a.len() == 3 => {
+            match (part(&a[0]), part(&a[1]), part(&a[2])) {
+                (Some(x), Some(y), Some(z)) => [x, y, z],
+                _ => return fail("offset is not three numbers"),
+            }
+        }
+        Some(_) => return fail("offset is not three numbers"),
+    };
+    let within = |key: &str, lo: f32, hi: f32, otherwise: Option<f32>| match t.get(key) {
+        None => otherwise.map_or_else(|| fail(format!("no {key}")), Ok),
+        Some(v) => match part(v) {
+            Some(v) if (lo..=hi).contains(&v) => Ok(v),
+            Some(v) => fail(format!("{key} {v} is not from {lo} to {hi}")),
+            None => fail(format!("{key} is not a number")),
+        },
+    };
+    let shadows = match t.get("shadows") {
+        None => true,
+        Some(v) => match v.as_bool() {
+            Some(b) => b,
+            None => return fail("shadows is not true or false"),
+        },
+    };
+    let flicker = match t.get("flicker").map(|v| v.as_str()) {
+        None | Some(Some("steady")) => LightFlicker::Steady,
+        Some(Some("flame")) => LightFlicker::Flame,
+        Some(Some("embers")) => LightFlicker::Embers,
+        Some(_) => return fail("flicker is not flame, embers or steady"),
+    };
+    Ok(ManifestLight {
+        object,
+        place,
+        offset,
+        kelvin: within("kelvin", 1000.0, 12000.0, None)?,
+        brightness: within("brightness", 0.1, 100_000.0, None)?,
+        size: within("size", 0.0, 2.0, Some(0.1))?,
+        reach: within("reach", 0.5, 60.0, None)?,
+        shadows,
+        flicker,
+        haze: within("haze", 0.0, 4.0, Some(0.0))?,
+        presence: within("presence", 0.0, 1.0, Some(0.0))?,
+        gather: within("gather", 0.0, 30.0, Some(0.0))?,
         credit: Credit {
             author: text(t, "author")?.to_owned(),
             tool: text(t, "tool")?.to_owned(),
@@ -1056,5 +1252,59 @@ license = \"CC0-1.0\"
             let e = ArtPackManifest::parse(&text).expect_err(why);
             assert!(e.0.contains(why), "{why}: {}", e.0);
         }
+    }
+
+    const LIGHTS: &str = r#"
+[pack]
+name = "Lamps"
+format = 1
+
+[[light]]
+object = "0x0200069D"
+where = "outdoors"
+kelvin = 1600
+brightness = 800
+reach = 12
+flicker = "flame"
+haze = 0.8
+presence = 1
+author = "Someone"
+tool = "By hand"
+license = "CC0-1.0"
+
+[[light]]
+object = "0x0200069D"
+where = "indoors"
+kelvin = 2700
+brightness = 40
+reach = 4.5
+author = "Someone"
+tool = "By hand"
+license = "CC0-1.0"
+"#;
+
+    #[test]
+    fn a_light_is_given_to_its_object_where_it_stands() {
+        let m = ArtPackManifest::parse(LIGHTS).expect("reads");
+        let outside = m.light(DataId(0x0200_069D), true).expect("outdoors");
+        assert_eq!(outside.flicker, LightFlicker::Flame);
+        assert!((outside.reach - 12.0).abs() < 1e-6 && outside.shadows);
+        let inside = m.light(DataId(0x0200_069D), false).expect("indoors");
+        assert!((inside.kelvin - 2700.0).abs() < 1e-6);
+        assert_eq!(inside.flicker, LightFlicker::Steady);
+        assert!((inside.size - 0.1).abs() < 1e-6 && inside.haze == 0.0 && inside.gather == 0.0);
+        assert!(m.light(DataId(0x0200_069E), true).is_none());
+    }
+
+    #[test]
+    fn a_light_that_says_too_little_or_claims_a_place_twice_is_refused() {
+        let twice = LIGHTS.replace("where = \"indoors\"", "where = \"both\"");
+        assert!(ArtPackManifest::parse(&twice).is_err());
+        let cold = LIGHTS.replace("kelvin = 1600", "kelvin = 300");
+        assert!(ArtPackManifest::parse(&cold).is_err());
+        let dark = LIGHTS.replace("brightness = 800\n", "");
+        assert!(ArtPackManifest::parse(&dark).is_err());
+        let odd = LIGHTS.replace("flicker = \"flame\"", "flicker = \"strobe\"");
+        assert!(ArtPackManifest::parse(&odd).is_err());
     }
 }

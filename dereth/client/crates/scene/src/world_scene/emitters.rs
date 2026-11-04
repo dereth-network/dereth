@@ -156,6 +156,7 @@ impl SceneDraw {
                 .map_err(|e| WorldError::Render(e.to_string()))?;
                 Some(ParticleGfx {
                     meshes,
+                    additive: crate::particles::read_additive(store, id),
                     sort_center: crate::particles::read_sort_center(store, id),
                     degrade: crate::particles::read_degrade(store, id),
                     // The same a part carries:
@@ -719,6 +720,9 @@ impl SceneDraw {
     ) -> Vec<ParticlePart> {
         let shift = self.block_shift(ws);
         let mut out = Vec::new();
+        // The better lighting lights a place with its light sources, so the places' flat sprites
+        // of light are left out. A server's objects keep theirs: those can be spells.
+        let lights_only = self.lit_by_sources.then_some(&self.particle_gfx);
         // Parent assignment makes the emitter inherit
         // the host cell. `PARTICLE_EMITTER_PS` adds the particle shadow to the cell:
         // exactly ONE cell, not the ordinary object's overlap set. Its live parts can
@@ -736,7 +740,13 @@ impl SceneDraw {
                     // The emitter's own cell decides which pass lights its
                     // particles, the same split `PartSubmission::outdoors` carries.
                     let outdoors = dereth_physics::landdefs::is_outdoors(h.cell);
-                    crate::particles::collect(&h.driver.particles, shift, outdoors, &mut out);
+                    crate::particles::collect(
+                        &h.driver.particles,
+                        shift,
+                        outdoors,
+                        lights_only,
+                        &mut out,
+                    );
                 }
             }
         }
@@ -751,6 +761,7 @@ impl SceneDraw {
                     &o.sim.driver.borrow().particles,
                     Vec3::ZERO,
                     outdoors,
+                    None,
                     &mut out,
                 );
             }
@@ -759,7 +770,13 @@ impl SceneDraw {
             let cell = c.position().cell;
             if visible(cell) {
                 let outdoors = dereth_physics::landdefs::is_outdoors(cell);
-                crate::particles::collect(&c.driver().particles, Vec3::ZERO, outdoors, &mut out);
+                crate::particles::collect(
+                    &c.driver().particles,
+                    Vec3::ZERO,
+                    outdoors,
+                    None,
+                    &mut out,
+                );
             }
         }
         out

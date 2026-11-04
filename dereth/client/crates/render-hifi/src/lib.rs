@@ -32,6 +32,7 @@ pub mod build;
 pub mod composite;
 pub mod derive;
 pub mod fail;
+pub mod flicker;
 pub mod graph;
 pub mod materials;
 pub mod passes;

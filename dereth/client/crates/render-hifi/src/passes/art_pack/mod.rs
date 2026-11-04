@@ -9,6 +9,11 @@
 //! occlusion and the bounced light as everything else does. The sun's shadow cascades take the
 //! models in place of the objects too ([`PackCasters`]).
 //!
+//! The models of the statics in the rooms the frame reached ([`HifiFrame::pack_rooms`]) are drawn
+//! at the frame's object passes: those of the rooms a frame seen from a room draws again after its
+//! indoor depth clear at its last, the rest at its first, with the outdoors. They are lit by the
+//! rooms' own light per pixel.
+//!
 //! Only pixels change. What can be picked, where the camera may go and everything the game reads
 //! come from the ordinary frame, which draws the original objects whether or not the pack is
 //! drawn. A frame that is not re-shaded, or that notes no block, draws the original objects.
@@ -121,6 +126,8 @@ struct Placed {
     /// The second of a placement's two levels in a band: drawn into the view, but not into the
     /// sun's shadows, which draw the first.
     second: bool,
+    /// It stands in a room, which its lights per pixel light.
+    room: bool,
 }
 
 /// Whether the pack's models are drawn: its option is on, with the light, and the frame carries a
@@ -179,6 +186,17 @@ struct State {
     /// the last time the set changed, its taking in.
     far_prepare_us: u64,
     far_taken_us: u64,
+    /// The models of the statics in the rooms the frame reached: drawn at the frame's last object
+    /// pass, once a frame that steps indoors has cleared the depth and drawn its rooms.
+    room_view: Vec<Batch>,
+    /// The runs of rooms the frame does not draw again after its indoor depth clear. They stand
+    /// with what is outdoors.
+    room_view_outdoors: Vec<Batch>,
+    room_active: bool,
+    room_drawn: bool,
+    /// How many object passes the frame holds, and how many have begun.
+    objects_total: u32,
+    objects_seen: u32,
 }
 
 /// A model on the device.
@@ -235,6 +253,7 @@ struct PackGpu {
     caster_bind: wgpu::BindGroup,
     view_instances: Option<(wgpu::Buffer, u64)>,
     caster_instances: Option<(wgpu::Buffer, u64)>,
+    room_instances: Option<(wgpu::Buffer, u64)>,
     /// The far trees' layouts and culling.
     far: far::FarPipelines,
     /// The far trees' pictures, placed from the set the culling kept.
@@ -1056,6 +1075,7 @@ impl PackGpu {
             caster_bind,
             view_instances: None,
             caster_instances: None,
+            room_instances: None,
             far: far_pipelines,
             view_far,
             far_models,
@@ -1253,7 +1273,12 @@ fn batches(placed: &[Placed], mut chosen: Vec<usize>, rows: &mut Vec<Vec4>) -> V
         let p = &placed[i];
         let at = u32::try_from(rows.len() / 4).unwrap_or(u32::MAX);
         rows.extend(p.rows);
-        rows.push(Vec4::new(p.keep.0, p.keep.1, 0.0, 0.0));
+        rows.push(Vec4::new(
+            p.keep.0,
+            p.keep.1,
+            0.0,
+            if p.room { -1.0 } else { 0.0 },
+        ));
         match out.last_mut() {
             Some(b) if b.model == p.model && b.lod == p.lod => b.instances.end = at + 1,
             _ => out.push(Batch {
@@ -1318,10 +1343,62 @@ impl State {
                         seen,
                         keep: (lo, hi),
                         second: i > 0,
+                        room: false,
                     });
                 }
             }
         }
+    }
+
+    /// The models of the statics in the rooms `frame` reached, each with its room.
+    fn rooms(&self, frame: &HifiFrame, clip_from_render: Mat4) -> Vec<(Placed, u32)> {
+        let mut out = Vec::new();
+        let Some(gpu) = self.gpu.as_ref() else {
+            return out;
+        };
+        let planes = frustum(clip_from_render);
+        let eye = frame.camera.eye;
+        let band = lod_band();
+        for room in &frame.pack_rooms {
+            let p = &room.placement;
+            let Some(&model) = gpu.by_id.get(&p.id) else {
+                continue;
+            };
+            let m = &gpu.models[model];
+            let rows = placement_rows(p, room.origin);
+            let c = m.bounds.0.extend(1.0);
+            let centre = Vec3::new(rows[0].dot(c), rows[1].dot(c), rows[2].dot(c));
+            let radius = m.bounds.1 * p.scale.abs();
+            if !sphere_seen(&planes, centre, radius) {
+                continue;
+            }
+            let shown: Vec<usize> = (0..m.lods.len())
+                .filter(|k| !m.lods[*k].shadows_only)
+                .collect();
+            let distances: Vec<f32> = shown.iter().map(|k| m.lods[*k].distance).collect();
+            let far = (room.origin + p.origin).distance(eye);
+            for (i, (k, lo, hi)) in levels_at(&distances, far, p.scale, band)
+                .into_iter()
+                .enumerate()
+            {
+                out.push((
+                    Placed {
+                        model,
+                        lod: shown[k],
+                        levels: m.lods.len(),
+                        rows,
+                        centre,
+                        radius,
+                        seen: true,
+                        keep: (lo, hi),
+                        second: i > 0,
+                        room: true,
+                    },
+                    room.cell,
+                ));
+            }
+        }
+        out
     }
 
     /// The far trees for `frame`: the set on the device (made again when the set or the pack
@@ -1415,16 +1492,34 @@ impl State {
         let Some(gpu) = self.gpu.as_ref() else {
             return false;
         };
-        let Some((instances, _)) = gpu.view_instances.as_ref() else {
+        Self::draw_runs(gpu, gpu.view_instances.as_ref(), &self.view, pass)
+    }
+
+    /// Draw `runs` of the rooms' models into `pass`.
+    fn draw_room_runs(&self, runs: &[Batch], pass: &mut wgpu::RenderPass<'_>) -> bool {
+        let Some(gpu) = self.gpu.as_ref() else {
             return false;
         };
-        if self.view.is_empty() {
+        Self::draw_runs(gpu, gpu.room_instances.as_ref(), runs, pass)
+    }
+
+    /// Draw `runs` of `instances` into `pass`.
+    fn draw_runs(
+        gpu: &PackGpu,
+        instances: Option<&(wgpu::Buffer, u64)>,
+        runs: &[Batch],
+        pass: &mut wgpu::RenderPass<'_>,
+    ) -> bool {
+        let Some((instances, _)) = instances else {
+            return false;
+        };
+        if runs.is_empty() {
             return false;
         }
         pass.set_bind_group(0, &gpu.frame_bind, &[]);
         // The pipeline last set: for pictures, for both faces, or for the front alone.
         let mut current: Option<u8> = None;
-        for b in &self.view {
+        for b in runs {
             let lod = &gpu.models[b.model].lods[b.lod];
             for p in &lod.primitives {
                 let (which, pipeline) = if lod.pictures {
@@ -1565,8 +1660,8 @@ fn render_origin(frame: &HifiFrame) -> Option<Vec2> {
 }
 
 /// The frame's constants: the transforms to clip and view space, the eye, the sun, the old light
-/// the light per pixel divides out, the frame's place in the anti-aliasing's dither, and the
-/// ambient light the world's objects are drawn with.
+/// the light per pixel divides out, the frame's place in the anti-aliasing's dither and its clock,
+/// and the ambient light the world's objects are drawn with.
 fn frame_constants(frame: &HifiFrame, clip_from_render: Mat4) -> Vec<f32> {
     let cam = &frame.camera;
     let (sun, amb) = legacy_light(frame);
@@ -1579,7 +1674,9 @@ fn frame_constants(frame: &HifiFrame, clip_from_render: Mat4) -> Vec<f32> {
     c.extend([l.x, l.y, l.z, frame.pack_light.glow]);
     c.extend([sun[0], sun[1], sun[2], 0.0]);
     c.extend([amb[0], amb[1], amb[2], 0.0]);
-    c.extend([cam.dither, 0.0, 0.0, 0.0]);
+    #[allow(clippy::cast_possible_truncation)] // ten minutes' worth, well inside the type
+    let clock = frame.time.rem_euclid(600.0) as f32;
+    c.extend([cam.dither, 0.0, clock, 0.0]);
     c.extend([objects[0], objects[1], objects[2], 0.0]);
     c
 }
@@ -1659,6 +1756,7 @@ impl HifiPass for ArtPack {
         s.marked.clear();
         s.first_mark = None;
         s.far_mark = None;
+        s.objects_total = 0;
         let mut open = None;
         for (at, mark) in &cx.seam.tables().marks {
             match mark {
@@ -1675,6 +1773,7 @@ impl HifiPass for ArtPack {
                 Mark::TerrainCellEnd => {
                     s.far_mark.get_or_insert(*at);
                 }
+                Mark::Objects => s.objects_total += 1,
                 _ => {}
             }
         }
@@ -1700,6 +1799,34 @@ impl HifiPass for ArtPack {
             );
             write_instances(&device, &queue, &mut gpu.view_instances, &rows);
         }
+        let rooms = s.rooms(cx.frame, clip_from_render);
+        let mut rows = Vec::with_capacity(rooms.len() * 4);
+        // A frame seen from a room clears its depth once the outdoors is drawn, and draws again
+        // only the rooms it reaches from there. A model of any other room is drawn with the
+        // outdoors, where the walls before it can hide it.
+        let marks = &cx.seam.tables().marks;
+        let cleared = marks
+            .iter()
+            .position(|(_, m)| matches!(m, Mark::IndoorFlush));
+        let again: HashSet<u32> = cleared
+            .map(|from| {
+                marks[from..]
+                    .iter()
+                    .filter_map(|(_, m)| match m {
+                        Mark::EnvCell { cell } => Some(*cell),
+                        _ => None,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let (last, outdoors): (Vec<usize>, Vec<usize>) =
+            (0..rooms.len()).partition(|i| cleared.is_none() || again.contains(&rooms[*i].1));
+        let placed: Vec<Placed> = rooms.into_iter().map(|(p, _)| p).collect();
+        s.room_view = batches(&placed, last, &mut rows);
+        s.room_view_outdoors = batches(&placed, outdoors, &mut rows);
+        if let Some(gpu) = s.gpu.as_mut() {
+            write_instances(&device, &queue, &mut gpu.room_instances, &rows);
+        }
         let started = std::time::Instant::now();
         s.prepare_far(&device, &queue, cx.frame, clip_from_render);
         s.far_prepare_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
@@ -1717,6 +1844,11 @@ impl HifiPass for ArtPack {
         s.far_active = s.far.is_some()
             && plan.is_some_and(|p| s.far_mark.is_some_and(|m| p.opaque.contains(&m)));
         s.far_drawn = false;
+        s.room_active = s.gpu.is_some()
+            && plan.is_some()
+            && !(s.room_view.is_empty() && s.room_view_outdoors.is_empty());
+        s.room_drawn = false;
+        s.objects_seen = 0;
     }
 
     fn encode(&mut self, _cx: &mut EncodeCx<'_, '_>) -> Result<(), HifiError> {
@@ -1757,7 +1889,7 @@ impl HifiPass for FarCull {
 impl ReplayFilter for ArtPack {
     fn draw(&mut self, cmd: u32, _note: Option<&DrawNote>) -> DrawAction<'_> {
         let s = self.0.borrow();
-        if s.active && s.covered.contains(cmd) {
+        if (s.active || s.room_active) && s.covered.contains(cmd) {
             DrawAction::Skip(SkipRule::ReplacedByPass)
         } else {
             DrawAction::Legacy
@@ -1765,11 +1897,27 @@ impl ReplayFilter for ArtPack {
     }
 
     fn mark(&mut self, mark: Mark, pass: &mut wgpu::RenderPass<'_>) -> bool {
-        if !matches!(mark, Mark::ArtPackBlock { .. } | Mark::TerrainCellEnd) {
+        if !matches!(
+            mark,
+            Mark::ArtPackBlock { .. } | Mark::TerrainCellEnd | Mark::Objects
+        ) {
             return false;
         }
         let mut s = self.0.borrow_mut();
         let mut drew = false;
+        if matches!(mark, Mark::Objects) {
+            // The rooms' models drawn with the outdoors at the frame's first object pass, and
+            // the rest at its last, over the rooms it has drawn.
+            s.objects_seen += 1;
+            if s.room_active && s.objects_seen == 1 {
+                drew |= s.draw_room_runs(&s.room_view_outdoors, pass);
+            }
+            if s.room_active && !s.room_drawn && s.objects_seen == s.objects_total {
+                s.room_drawn = true;
+                drew |= s.draw_room_runs(&s.room_view, pass);
+            }
+            return drew;
+        }
         // The far trees at the end of the first landscape cell's ground in the opaque world,
         // once, where the drawn ground is drawn.
         if matches!(mark, Mark::TerrainCellEnd) && s.far_active && !s.far_drawn {
@@ -1990,6 +2138,7 @@ mod tests {
             seen: false,
             keep: (0.0, 1.0),
             second: false,
+            room: false,
         };
         for floor in CASTER_FLOORS {
             let near = casters(&[tree(0)], floor);
@@ -2054,6 +2203,7 @@ mod tests {
             seen: true,
             keep: (0.25, 1.0),
             second: false,
+            room: false,
         };
         let placed = [at(1, 0), at(0, 2), at(1, 0), at(0, 2), at(0, 1)];
         // Ten instances of an earlier run are already in the buffer.

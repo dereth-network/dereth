@@ -403,6 +403,12 @@ const CUSTOM_ENUMS: &[CustomEnum] = &[
         format: super::render_scale::convert_to_string,
         choices: super::render_scale::choice_rows,
     },
+    CustomEnum {
+        recognizes: super::light_distance::is_light_distance,
+        parse: super::light_distance::parse_value,
+        format: super::light_distance::convert_to_string,
+        choices: super::light_distance::choice_rows,
+    },
 ];
 
 fn custom_enum(name: &str) -> Option<&'static CustomEnum> {
@@ -1202,11 +1208,11 @@ mod tests {
         // ...beside this client's three presentation options from another era, its interface, its
         // performance panel, its background slow-down, the classic interface's six, the renderer
         // and the landscape detail texture, and in a build with the high-fidelity presentation its
-        // options too.
+        // boxes and its menu too.
         #[cfg(not(feature = "hifi"))]
         assert_eq!(len(), 48);
         #[cfg(feature = "hifi")]
-        assert_eq!(len(), 48 + super::super::fidelity::OPTIONS.len());
+        assert_eq!(len(), 48 + super::super::fidelity::OPTIONS.len() + 1);
         // The registration defaults are in force before any file is read.
         assert_eq!(
             inq_value("Input.MouseLookSensitivity"),
