@@ -1093,6 +1093,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.sky.clouds-asked-for-replace-the-settings-until-reset",
+        says: "A cloud option set with /clouds replaces the Remastered sky's setting of the same \
+               kind for as long as it is set, each option within that setting's range, and those \
+               not set keep the setting's value. Reset returns to the settings, which were never \
+               changed.",
+        since: THIS_CLIENT,
+        divergence: "CD-cloud-command",
+        evidence: Evidence::Private("AC-EVID-SKY-CLOUDS"),
+        station: "dereth-scene::lib::world_scene::imp::hifi_bridge::tests::the_clouds_asked_for_replace_the_knobs_and_reset_returns_to_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "rendering.sky.the-sky-is-drawn-and-the-day-cycle-moves-it",
         says: "The sky is drawn rather than left black, and the time of day changes it: noon and \
                midnight give clearly different pictures, and the sun and the ambient light both \

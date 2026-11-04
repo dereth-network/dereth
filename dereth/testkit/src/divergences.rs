@@ -469,6 +469,17 @@ pub static DIVERGENCES: &[Divergence] = &[
               and nothing opens without the player saying so.",
     },
     Divergence {
+        id: "CD-cloud-command",
+        title: "The clouds this client draws can be set from chat",
+        change: "/clouds (or @clouds) is a chat command of this client's own: alone it says which \
+                 cloud options are set here; none, thin or thick sets their cover, and cover, \
+                 speed, height, depth, size, detail, light, shade or shadows with a number sets \
+                 that option of the Remastered sky's clouds; reset returns one option or all of \
+                 them to the sky's own. It changes only what this client draws and is never sent \
+                 to the server. The final client had no such command.",
+        why: "A player can look at the world under any sky without editing a settings file.",
+    },
+    Divergence {
         id: "CD-network-channel-lines",
         title: "Dereth Network channel lines are drawn as channel lines",
         change: "A Dereth Network channel reaches every client as a tell from the channel, since \

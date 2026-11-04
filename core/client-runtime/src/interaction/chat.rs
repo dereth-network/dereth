@@ -769,6 +769,24 @@ impl Interaction {
                 }
             },
 
+            // **`@clouds`**, this client's own (CD-cloud-command), handled as `@weather` is.
+            H::Clouds => match dereth_client_model::cmd::clouds::parse(args) {
+                Ok(command) => self
+                    .pending_clouds
+                    .push((command, self.chat.current_command_source)),
+                Err(refusal) => {
+                    game.scroll.add_feedback_to_scroll(
+                        &refusal,
+                        dereth_client_model::chat::text_type::LOCAL_ERROR,
+                        true,
+                        self.chat.current_command_source,
+                        dereth_client_contract::feedback::Feedback::LOCAL,
+                    );
+                    self.stats.chat_command_lines += 1;
+                    self.stats.chat_commands_refused += 1;
+                }
+            },
+
             // **`@report`** and **`@perfcapture`**, this client's own (CD-report-commands), handled
             // as `@tod` is: a line that does not read is refused here, and one that does is
             // carried out by App, which has the world, the camera and the frame loop. Nothing is

@@ -179,6 +179,8 @@ pub mod vendor_view;
 /// scene owns and drives.
 pub mod world_stream;
 
+/// `@clouds` carried out on the world's clouds.
+pub mod clouds;
 /// The Dereth calendar clock.
 pub mod game_clock;
 /// `@tod` carried out on the world's sky clock.

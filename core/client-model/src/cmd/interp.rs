@@ -540,6 +540,26 @@ mod tests {
         );
     }
 
+    /// Behaviour: chat.commands.clouds-is-answered-by-this-client-and-never-sent
+    #[test]
+    fn clouds_is_this_clients_own_command_and_a_longer_word_is_the_servers() {
+        let mut c = CommandInterp::new();
+        c.add_turbine_chat_commands();
+        for line in ["/clouds cover 2", "@CLOUDS cover 2"] {
+            match c.on_chat_command(line, 1, TalkFocus::Say) {
+                CommandOutcome::Handled { handler, args, .. } => {
+                    assert_eq!(handler, CommandHandler::Clouds, "{line}");
+                    assert_eq!(args, vec!["cover", "2"], "{line}");
+                }
+                other => panic!("{line}: {other:?}"),
+            }
+        }
+        assert_eq!(
+            c.on_chat_command("@cloudsy", 1, TalkFocus::Say),
+            CommandOutcome::ForwardVerbatim("@cloudsy".into())
+        );
+    }
+
     /// Oracle: the recovered command-interpreter behavior §2 — only windows 1 and 8 are routed by talk focus.
     #[test]
     fn only_two_windows_honour_the_talk_focus() {

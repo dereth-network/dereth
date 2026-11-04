@@ -214,6 +214,9 @@ pub struct WorldState {
     /// The weather this client was asked to draw with `@weather` (CD-039): the day's own until
     /// then. Read by the sky, its light and fog, and the Weather effect.
     pub weather: crate::weather::Weather,
+    /// What this client was asked to draw its clouds with by `@clouds` (CD-cloud-command): the
+    /// sky's own until then. Read by the Remastered sky.
+    pub clouds: crate::clouds::Clouds,
     /// The chase camera's yaw **offset from the character's own heading**, and its pitch.
     pub camera_orbit: (f32, f32),
     /// How far behind the character the chase camera sits.

@@ -94,6 +94,8 @@ impl WorldState {
             always_daylight: false,
             // The day's own until the player asks for another.
             weather: crate::weather::Weather::Auto,
+            // The sky's own until the player asks for others.
+            clouds: crate::clouds::Clouds::default(),
             // Behind and a little above, looking slightly down: the client camera's own
             // defaults are explicitly not reproduced here (see [`crate::camera`]).
             camera_orbit: (0.0, -0.20),

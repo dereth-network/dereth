@@ -135,6 +135,24 @@ impl<S: Shell> App<S> {
                 dereth_client_contract::feedback::Feedback::LOCAL,
             );
         }
+        // The clouds command changes the clouds this client draws, as the weather command does.
+        for (command, window) in self.interaction.take_clouds_commands() {
+            use dereth_client_model::chat::text_type;
+            let (answer, ty) = match self.world.as_mut() {
+                Some(ws) => (crate::clouds::apply(ws, command), text_type::DEFAULT),
+                None => (
+                    dereth_client_model::cmd::clouds::NO_WORLD.to_owned(),
+                    text_type::LOCAL_ERROR,
+                ),
+            };
+            self.objects.world.scroll.add_feedback_to_scroll(
+                &answer,
+                ty,
+                true,
+                window,
+                dereth_client_contract::feedback::Feedback::LOCAL,
+            );
+        }
         // The report and the performance capture describe what this client draws, and answer
         // in the window they were typed in. Nothing is sent.
         self.report_use_time(shell);

@@ -30,6 +30,8 @@ pub enum CommandHandler {
     ChannelShortcut,
     Chat,
     Clist,
+    /// This client's own clouds command, not retail's (CD-cloud-command).
+    Clouds,
     Consent,
     Corpse,
     Day,
@@ -784,6 +786,11 @@ pub const DERETH_COMMANDS: &[CommandEntry] = &[
         help: Some("help_weather"),
     },
     CommandEntry {
+        name: "clouds",
+        handler: Some(CommandHandler::Clouds),
+        help: Some("help_clouds"),
+    },
+    CommandEntry {
         name: "report",
         handler: Some(CommandHandler::Report),
         help: Some("help_report"),
@@ -896,6 +903,8 @@ pub const HELP_TEXTS: &[(&str, &[&str], &[&str])] = &[
     ("help_unfilter", &["@unfilter - Commands to remove filters from incoming messages.\n"], &["The @unfilter commands remove specific filters from your incoming messages. For a complete list of message types that you can filter, type @help messagetypes.\n@unfilter <-message_type> - Removes filters on incoming messages of a specific type.  For example, the following allows spellcasting text to resume:\n     Example: @unfilter -spellcasting\n@unfilter -all - Removes all filters on incoming messages of all types.\n"]),
     // This client's own command's help (CD-038), not one of retail's.
     ("help_tod", &["@tod - Shows the current time of day and if it is forced locally.\n"], &["@tod - Shows the current time of day and if it is forced locally.\n@tod <0 to 1> - Forces the time of day and lets it run from there.\n@tod midnight, dawn, noon, dusk - Forces the time of day and lets it run from there.\n@tod reset - Restore natural time of day set by the world timeline.\n"]),
+    // This client's own command's help (CD-cloud-command), not one of retail's.
+    ("help_clouds", &["@clouds - Shows the cloud options forced locally.\n"], &["@clouds - Shows the cloud options forced locally.\n@clouds none, thin, thick - Forces how much of the sky the clouds cover.\n@clouds cover <0 to 2> - Forces how much of the sky the clouds cover.\n@clouds speed <0 to 4> - Forces how fast they drift.\n@clouds height <200 to 6000> - Forces how high their base lies, in meters.\n@clouds depth <50 to 4000> - Forces how thick they are, in meters.\n@clouds size <0.25 to 4> - Forces how large they are.\n@clouds detail <0 to 2> - Forces how much fine detail breaks them up.\n@clouds light <0 to 3> - Forces how brightly the sun lights them.\n@clouds shade <0 to 2> - Forces how dark their bases are.\n@clouds shadows <0 to 1> - Forces how much they shade the land.\n@clouds <option> reset - Restores one option.\n@clouds reset - Restores them all.\nThese change the clouds of the Remastered sky, which needs an art pack and Better Lighting, with Retail Look off.\n"]),
     // This client's own command's help (CD-039), not one of retail's.
     ("help_weather", &["@weather - Shows the current weather and if it is forced locally.\n"], &["@weather - Shows the current weather and if it is forced locally.\n@weather clear - Forces local weather to clear skies\n@weather rain - Forces local weather to rainfall\n@weather snow - Forces local weather to snowfall\n@weather reset - Restore natural weather set by the world timeline.\n"]),
     // This client's own commands' help (CD-report-commands), not retail's.

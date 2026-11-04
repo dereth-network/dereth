@@ -168,6 +168,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chat.commands.clouds-is-answered-by-this-client-and-never-sent",
+        says: "Typing /clouds or @clouds is answered by this client and nothing is sent to the \
+               shard: alone it says which cloud options are set on this client; with none, thin or \
+               thick it sets their cover, with an option and a number in that option's range it \
+               sets that option, and with reset it returns one option or all of them to the sky's \
+               own; and anything else is refused with one line saying what it takes, in the window \
+               it was typed in. No command of the final client's own is shadowed by it.",
+        since: THIS_CLIENT,
+        divergence: "CD-cloud-command",
+        evidence: Evidence::Private("AC-EVID-CHAT-CLOUDS"),
+        station: "dereth-client-runtime::lib::interaction::tests::typed_clouds_is_answered_by_this_client_and_nothing_reaches_the_server",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "chat.commands.every-wired-command-reaches-the-wire-from-a-typed-line",
         says: "Every chat command that asks the shard for something -- recall to the lifestone, \
                the marketplace or the house, the arenas, age and birth, turning chat on and off \

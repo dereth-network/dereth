@@ -10,6 +10,7 @@
 //! game-master command reaches the server, and it was confirmed live by typing a command the
 //! client has never heard of and getting the server's reply.
 
+pub mod clouds;
 pub mod console;
 pub mod help;
 pub mod interp;
