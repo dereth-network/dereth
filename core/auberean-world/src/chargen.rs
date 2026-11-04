@@ -3,8 +3,8 @@
 //! and the look they give.
 //!
 //! The values of build and height step by 0.01 between a race and sex's bounds; every other type is
-//! an appearance table's key, and its values are that key's change-set intensities (from the
-//! table, or from its base tables when it has no such key). A choice is one of its type's values.
+//! an appearance table's key, and its values are that key's change-set intensities (its base
+//! tables' with the table's, in order). A choice is one of its type's values.
 //! A new avatar's choices are picked at random, then its height and build are set to the middle of
 //! their lists. The look is the body's description with a scale of build × height across and height
 //! up, and each choice as its table's value in the whole avatar's changes; a garment's choice also
@@ -14,7 +14,9 @@ use std::collections::BTreeMap;
 
 use auberean_primitives::{DataId, Vec3};
 
-use crate::look::{Desc, Group, Keyed, LookRecords, GLOBAL_KEY, TABLE_BUCKETS};
+use crate::look::{
+    appearance_key_steps, Desc, Group, Keyed, LookRecords, GLOBAL_KEY, TABLE_BUCKETS,
+};
 
 /// The physique types, in the order they are worked through.
 pub const BUILD: u32 = 0x1;
@@ -349,23 +351,11 @@ pub fn by_steps(low: f32, high: f32) -> Vec<f32> {
     out
 }
 
-/// A table key's values: its change sets' intensities in order, from the table, else from the
-/// first of its base tables that has the key.
+/// A table key's values: the strength steps the key has in the table and its base tables, in
+/// order; none for a table not in the data or listing the key with no change sets.
 #[must_use]
 pub fn key_values(records: &dyn LookRecords, table: u32, key: u32) -> Vec<f32> {
-    fn walk(records: &dyn LookRecords, table: u32, key: u32, depth: usize) -> Option<Vec<f32>> {
-        let t = records.appearance(DataId(table))?;
-        if let Some((_, sets)) = t.keys.iter().find(|(k, _)| *k == key) {
-            return Some(sets.iter().map(|s| s.intensity).collect());
-        }
-        if depth > 8 {
-            return None;
-        }
-        t.base
-            .iter()
-            .find_map(|b| walk(records, *b, key, depth + 1))
-    }
-    walk(records, table, key, 0).unwrap_or_default()
+    appearance_key_steps(records, DataId(table), key).unwrap_or_default()
 }
 
 /// Every physique type a race and sex has, in type order: each with its label and the values it
