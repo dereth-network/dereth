@@ -47,6 +47,7 @@ not how it was done.
 - Request Assistance opens the project's issues page.
 - `/saveui` and `/loadui` now save and restore your window layout.
 - Rooms seen from outside now show only through their doorways, lit as rooms.
+- Wind-driven animations now follow the wind.
 
 ## 0.1.2 (2026-11-02)
 

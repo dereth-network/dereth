@@ -61,6 +61,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "animation.body.its-wind-slider-follows-the-wind-over-a-second",
+        says: "Each body's wind slider follows how hard the wind blows, reaching a new strength over a \n               second.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ANIM-WIND-SLIDER"),
+        station: "auberean-animation::cpu::motion::its_wind_slider_follows_the_wind_over_a_second",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "animation.body.the-human-male-puts-together-and-moves",
         says: "The player's human male is put together from its visual description: a 41-bone body \
                with its head hung from the body's head connection; its behavior table plays moving \

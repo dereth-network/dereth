@@ -38,6 +38,8 @@ pub struct CachedRecords<'a> {
     pub template: DataId,
     /// The client's random numbers, which the bodies made from these records draw from.
     pub dice: Random,
+    /// How hard the world's wind blows at the moment.
+    pub wind: f32,
 }
 
 impl std::fmt::Debug for CachedRecords<'_> {
@@ -109,5 +111,8 @@ impl BodyRecords for CachedRecords<'_> {
     }
     fn dice(&self) -> Option<&Random> {
         Some(&self.dice)
+    }
+    fn wind(&self) -> f32 {
+        self.wind
     }
 }

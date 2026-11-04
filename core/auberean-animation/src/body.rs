@@ -57,6 +57,8 @@ pub mod slider {
     pub const SIDEWAYS: u32 = 0x4000_0002;
     pub const VERTICAL: u32 = 0x4000_0003;
     pub const TURN: u32 = 0x4000_0004;
+    /// How hard the wind blows.
+    pub const WIND: u32 = 0x4000_000B;
 }
 
 /// The pose kind a bone nothing animates rests in.
@@ -83,6 +85,10 @@ pub trait BodyRecords: Animations + LookRecords {
     /// gives each body a generator of its own.
     fn dice(&self) -> Option<&Random> {
         None
+    }
+    /// How hard the world's wind blows at the moment, which each body's wind slider follows.
+    fn wind(&self) -> f32 {
+        0.0
     }
 }
 
@@ -753,6 +759,12 @@ impl Body {
         if self.mode != self.applied_mode {
             let m = self.mode;
             self.set_mode(records, m);
+        }
+        // D2-06487
+        let wind = records.wind();
+        #[allow(clippy::float_cmp)] // the client compares them exactly
+        if self.sliders.current(slider::WIND) != wind {
+            self.sliders.do_slider(0, slider::WIND, wind, 1.0);
         }
         self.sliders.update(dt);
         self.scripts
