@@ -148,6 +148,7 @@ what they see, not how it was done.
 - Counters on weapons now answer attacks, and wards keep their effects off.
 - A skill's rating falls at no vigor, for skills that say so.
 - Items taken from corpses and chests now join a stack, even in a full pack.
+- Gifts to a full pack now show up at once.
 
 ## 0.1.2 (2026-11-03)
 

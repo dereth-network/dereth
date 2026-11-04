@@ -595,7 +595,7 @@ pub fn enter<S: Store>(
     crate::inventory::close_up(&mut p.play.items);
     let mut pack: Vec<&crate::state::Held> =
         p.play.items.iter().filter(|h| h.location == 0).collect();
-    pack.sort_by_key(|h| h.slot);
+    pack.sort_by_key(|h| crate::inventory::pack_order(h.slot));
     let contents: Vec<u64> = pack.iter().map(|h| h.id).collect();
     let worn = crate::inventory::worn(
         &s.catalog,

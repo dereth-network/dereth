@@ -751,6 +751,7 @@ fn take_off_to<S: Store>(
     made_room: bool,
     slot: u32,
 ) -> bool {
+    let slot = crate::inventory::named_slot(slot);
     let Some(p) = s.players.get(&world) else {
         return false;
     };
@@ -1082,7 +1083,7 @@ fn put_away<S: Store>(
     };
     // Back at the pack's end, where the client puts it, or at the slot named.
     let slot = match to {
-        Some((slot, _)) => slot,
+        Some((slot, _)) => crate::inventory::named_slot(slot),
         None => s
             .players
             .get(&world)
@@ -1165,9 +1166,7 @@ fn put_away<S: Store>(
         }
     }
     if let Some(p) = s.players.get_mut(&world) {
-        if to.is_some() {
-            crate::inventory::insert_at(&mut p.play.items, slot);
-        }
+        crate::inventory::insert_at(&mut p.play.items, slot);
         if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {
             h.location = 0;
             h.slot = slot;

@@ -4097,6 +4097,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.past-every-segment-the-pack-itself-grows",
+        says: "Past every segment an item goes to the pack itself and no bag grows; a slot past the \
+               last bag is the pack's own. Recorded looks show the pack over its room and never a \
+               bag, and the client takes no slot past the bags. Our choice: that it goes to the \
+               pack's front, as no such move is recorded.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PACK-PAST-SEGMENTS"),
+        station: "yalain-testkit::cpu::play::pack::an_item_past_every_segment_goes_to_the_packs_front_and_no_bag_grows",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.putting-down-takes-the-bodys-time",
         says: "Putting an item down takes as long as the body's putting-down behavior: about 1.75 \
                s for a human man, 1.97 s for Lugians and Tumeroks, 1.56 s for an Empyrean woman \

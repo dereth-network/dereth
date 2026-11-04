@@ -751,6 +751,107 @@ fn the_packs_segments_are_windows_that_tile_its_contents_in_order() {
     assert_eq!(contents[42], bag_item, "the first bag's window after it");
 }
 
+/// Past every segment an item goes to the pack itself, at its front, and no bag grows: the move
+/// names slot 0 and says it ran past the room, the pack's window lengthens, the bags' stay as they
+/// were and are told after it. The pack's own items past its places go into a bag with room like any
+/// other, and the pack closes up.
+/// Behaviour: server.inventory.past-every-segment-the-pack-itself-grows
+#[test]
+fn an_item_past_every_segment_goes_to_the_packs_front_and_no_bag_grows() {
+    let (mut h, b, me, world) = player();
+    let before = give(&mut h, world, TEST_ITEM, inventory::PACK_ROOM as usize);
+    let from = h.bots[b].inbox.len();
+    inventory::give(&mut h.server, &mut h.net, world, STACKING, 1);
+    h.run(2);
+    let slots = answers(&h, b, from);
+    assert_eq!(
+        (slots[0][11].1, slots[0][24].1, slots[0][34].1),
+        (0, 0, 1),
+        "to the front, past the room"
+    );
+    let (segments, contents) = windows(&h, world);
+    assert_eq!(segments, [(42, 43), (12, 12), (12, 12), (12, 12)]);
+    assert_eq!(contents.len(), 79, "the counts tile the list");
+    assert_eq!(contents[1..43], before[..42], "the pack's own moved on");
+    assert_eq!(
+        contents[43..],
+        before[42..],
+        "the bags' after them, in order"
+    );
+    let first = contents[0];
+    inventory::give(&mut h.server, &mut h.net, world, TEST_ITEM, 1);
+    h.run(2);
+    let (segments, contents) = windows(&h, world);
+    assert_eq!(segments[0], (42, 44), "and on");
+    assert_eq!(contents[1], first);
+    let last = contents[43];
+    // A bag with room takes the pack's last.
+    let gone = contents[44];
+    h.server
+        .players
+        .get_mut(&world)
+        .unwrap()
+        .play
+        .items
+        .retain(|x| x.id != gone);
+    h.ask(
+        b,
+        function::REORGANIZE,
+        &[move_request(me, last, 1, 43, 42)],
+        4,
+    );
+    let (segments, contents) = windows(&h, world);
+    assert_eq!(
+        segments[..2],
+        [(42, 43), (12, 12)],
+        "out of the pack, into the bag"
+    );
+    assert_eq!(contents[43], last, "the bag's first");
+    assert_eq!(contents.len(), 79);
+    // A move to the slot just past the last bag's last item is no way into the pack.
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        function::REORGANIZE,
+        &[move_request(me, contents[1], 1, 1, 78)],
+        4,
+    );
+    assert_eq!(reorganized(&h, b, from)[0][40].1, status::CONTAINER_FULL);
+}
+
+/// A pack kept with an item past the last bag holds it in the pack itself, in its window: no slot
+/// past the bags names a bag.
+/// Behaviour: server.inventory.past-every-segment-the-pack-itself-grows
+#[test]
+fn an_item_kept_past_the_last_bag_is_told_in_the_pack_itself() {
+    let (mut h, _, _, world) = player();
+    let items = give(&mut h, world, TEST_ITEM, 3);
+    let p = h.server.players.get_mut(&world).unwrap();
+    p.play
+        .items
+        .iter_mut()
+        .find(|x| x.id == items[0])
+        .unwrap()
+        .slot = inventory::PACK_ROOM;
+    p.play
+        .items
+        .iter_mut()
+        .find(|x| x.id == items[1])
+        .unwrap()
+        .slot = 66;
+    assert_eq!(inventory::segment_of(inventory::PACK_ROOM), 0);
+    let (segments, contents) = windows(&h, world);
+    assert_eq!(segments, [(42, 2), (12, 0), (12, 0), (12, 1)]);
+    assert_eq!(contents, [items[2], items[0], items[1]], "the pack's first");
+    let p = h.server.players.get_mut(&world).unwrap();
+    inventory::close_up(&mut p.play.items);
+    assert_eq!(
+        pack_slots(&h, world),
+        [(items[2], 0), (items[0], 1), (items[1], 66)],
+        "closed up in its own place"
+    );
+}
+
 /// Coins used from the pack go into the money bag whole, one gold each, as a drag of them would:
 /// "Adding %1 pieces of Gold.", the money up by as many, the coins gone, and the drag's answer
 /// from the player at slot 0, with no answer to the use.

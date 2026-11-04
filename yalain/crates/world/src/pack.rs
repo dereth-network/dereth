@@ -134,7 +134,8 @@ fn destroyed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, it
 /// The slot an item moved to goes in at: the slot named, no further than just past its segment's
 /// items. `None` when the segment has no room.
 fn place_for(held: &[Held], target: u32) -> Option<u32> {
-    let segment = inv::segment_of(target);
+    // A client's slot past the bags is just past the last bag's items.
+    let segment = inv::segment_of(target.min(inv::PACK_ROOM - 1));
     let n = inv::segment_counts(held)[segment];
     if n >= inv::SEGMENTS[segment] {
         return None;

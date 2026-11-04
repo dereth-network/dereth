@@ -24,8 +24,10 @@
 //!
 //! **Where an item comes in.** An item given, bought or taken goes to the front of the first
 //! segment with room (slot 0 while the pack itself has room), every item of that segment moving up
-//! one, and the move names that slot as both where it was sent and where it went; into a full pack
-//! it goes after the last.
+//! one, and the move names that slot as both where it was sent and where it went. Into a pack with
+//! no room in any segment it goes to the pack itself, at its front: the pack holds more than its
+//! places then, as it may, while a bag never does, and a slot past the bags names no segment to the
+//! client.
 
 use auberean_protocol::physics::{CreateObject, ObjectEvent, ObjectOnly, Word};
 use auberean_protocol::quality::VisualQuality;
@@ -103,7 +105,8 @@ pub const PACK_SLOTS: u32 = 42;
 /// The segments of a player's pack: the pack itself and its three bags, each segment's places.
 pub const SEGMENTS: [u32; 4] = [PACK_SLOTS, 12, 12, 12];
 
-/// The places of a player's pack and its bags together.
+/// The places of a player's pack and its bags together. The pack itself numbers its items past its
+/// own places from here on: the bags' numbers are fixed, and these are ours, never named to a client.
 pub const PACK_ROOM: u32 = PACK_SLOTS + 36;
 
 /// The first slot of each segment.
@@ -112,13 +115,41 @@ pub fn segment_start(segment: usize) -> u32 {
     SEGMENTS[..segment.min(SEGMENTS.len())].iter().sum()
 }
 
-/// The segment a slot is in (a slot past the last bag is in the last).
+/// The segment an item's slot is in (a slot past the last bag is the pack itself).
 #[must_use]
 pub fn segment_of(slot: u32) -> usize {
+    if slot >= PACK_ROOM {
+        return 0;
+    }
     (1..SEGMENTS.len())
         .rev()
         .find(|s| slot >= segment_start(*s))
         .unwrap_or(0)
+}
+
+/// The slot of the item at a place in its segment.
+fn slot_at(segment: usize, place: u32) -> u32 {
+    if segment == 0 && place >= PACK_SLOTS {
+        PACK_ROOM + (place - PACK_SLOTS)
+    } else {
+        segment_start(segment) + place
+    }
+}
+
+/// The order of a pack's items: each segment's in turn, in its slots' order.
+#[must_use]
+pub fn pack_order(slot: u32) -> (usize, u32) {
+    (segment_of(slot), slot)
+}
+
+/// A slot to name to a client: one past the bags names no segment there, so the pack's front.
+#[must_use]
+pub fn named_slot(slot: u32) -> u32 {
+    if slot >= PACK_ROOM {
+        0
+    } else {
+        slot
+    }
 }
 
 /// How many items each segment of a pack holds.
@@ -139,15 +170,14 @@ pub fn pack_segments(held: &[Held]) -> Vec<(u32, u32)> {
     SEGMENTS.iter().zip(n).map(|(room, n)| (*room, n)).collect()
 }
 
-/// The slot after the last item of the first segment with room (after the last bag's last item
-/// when every segment is full).
+/// The slot after the last item of the first segment with room (the pack's front when every
+/// segment is full).
 #[must_use]
 pub fn end_slot(held: &[Held]) -> u32 {
     let n = segment_counts(held);
-    let segment = (0..SEGMENTS.len())
+    (0..SEGMENTS.len())
         .find(|s| n[*s] < SEGMENTS[*s])
-        .unwrap_or(SEGMENTS.len() - 1);
-    segment_start(segment) + n[segment]
+        .map_or(0, |segment| segment_start(segment) + n[segment])
 }
 
 /// Make room at a slot of a pack: every item of the slot's segment at or after it moves up one.
@@ -157,7 +187,11 @@ pub fn insert_at(held: &mut [Held], slot: u32) {
         .iter_mut()
         .filter(|h| h.location == 0 && segment_of(h.slot) == segment && h.slot >= slot)
     {
-        h.slot += 1;
+        h.slot = if h.slot + 1 == PACK_SLOTS {
+            PACK_ROOM
+        } else {
+            h.slot + 1
+        };
     }
 }
 
@@ -785,11 +819,11 @@ pub fn close_up(items: &mut [Held]) {
     let mut order: Vec<usize> = (0..items.len())
         .filter(|i| items[*i].location == 0)
         .collect();
-    order.sort_by_key(|i| items[*i].slot);
+    order.sort_by_key(|i| pack_order(items[*i].slot));
     let mut next = [0u32; 4];
     for i in order {
         let segment = segment_of(items[i].slot);
-        items[i].slot = segment_start(segment) + next[segment];
+        items[i].slot = slot_at(segment, next[segment]);
         next[segment] += 1;
     }
 }
@@ -808,13 +842,13 @@ pub fn fits_in_pack(held: &[Held], incoming: usize) -> bool {
 }
 
 /// Make room for an item coming into a pack: at the front of the first segment with room, its
-/// items each moving up one slot, as the client puts it at the slot the move names; after the
-/// last when every segment is full, a gift or a taking held all the same. Returns the slot.
+/// items each moving up one slot, as the client puts it at the slot the move names; at the pack's
+/// front when every segment is full, a gift held all the same. Returns the slot.
 pub(crate) fn room_for_one(held: &mut [Held]) -> u32 {
     let n = segment_counts(held);
-    let Some(segment) = (0..SEGMENTS.len()).find(|s| n[*s] < SEGMENTS[*s]) else {
-        return segment_start(SEGMENTS.len() - 1) + n[SEGMENTS.len() - 1];
-    };
+    let segment = (0..SEGMENTS.len())
+        .find(|s| n[*s] < SEGMENTS[*s])
+        .unwrap_or(0);
     let slot = segment_start(segment);
     insert_at(held, slot);
     slot
@@ -2038,7 +2072,7 @@ pub fn reset_contents<S: Store>(s: &Server<S>, world: ConnId) -> ServerMessage {
         .map(|p| p.play.items.clone())
         .unwrap_or_default();
     let mut pack: Vec<&Held> = held.iter().filter(|h| h.location == 0).collect();
-    pack.sort_by_key(|h| h.slot);
+    pack.sort_by_key(|h| pack_order(h.slot));
     let ids: Vec<u64> = pack.iter().map(|h| h.id).collect();
     session::call(
         function::RESET_CONTENTS,
@@ -2088,7 +2122,7 @@ pub fn enter<S: Store>(s: &mut Server<S>, world: ConnId) -> Vec<u64> {
     };
     let (owner, mut held) = (p.character, p.play.items.clone());
     let kept = p.play.item_states.clone();
-    held.sort_by_key(|h| h.slot);
+    held.sort_by_key(|h| pack_order(h.slot));
     let mut ids = Vec::new();
     for h in held {
         let Some(t) = s.catalog.get(h.template).cloned() else {

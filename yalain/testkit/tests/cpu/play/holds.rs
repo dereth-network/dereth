@@ -456,3 +456,38 @@ fn a_template_that_names_no_hand_is_held_as_a_sword() {
     catalog.insert(held(TOOL, (0, 0, 0), None, None));
     assert_eq!(equip::hold_of(&catalog, TOOL), equip::SWORD);
 }
+
+/// A wielded thing put away into a pack with every segment full goes to the pack's front like
+/// anything else past them: it is in the pack itself, with nothing lost of what was there.
+/// Behaviour: server.inventory.past-every-segment-the-pack-itself-grows
+#[test]
+fn a_weapon_put_away_past_every_segment_goes_to_the_packs_front() {
+    use yalain_world::inventory;
+    let (mut h, b, me, world) = player();
+    let sword = id_of(&h, world, SWORD);
+    use_it(&mut h, b, me, sword);
+    let in_pack = |h: &Harness| {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .filter(|x| x.location == 0)
+            .count()
+    };
+    while in_pack(&h) < inventory::PACK_ROOM as usize {
+        inventory::give(&mut h.server, &mut h.net, world, TOOL, 1);
+    }
+    h.run(2);
+    use_it(&mut h, b, me, sword);
+    let items = &h.server.players[&world].play.items;
+    let put = items.iter().find(|x| x.id == sword).expect("held");
+    assert_eq!((put.location, put.slot), (0, 0), "at the front");
+    assert_eq!(
+        inventory::pack_segments(items),
+        [(42, 43), (12, 12), (12, 12), (12, 12)]
+    );
+    let mut slots: Vec<u32> = items.iter().map(|x| x.slot).collect();
+    slots.sort_unstable();
+    slots.dedup();
+    assert_eq!(slots.len(), items.len(), "every slot its own item's");
+}
