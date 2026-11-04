@@ -296,6 +296,37 @@ impl App<'_> {
                 Step::Import(file, name) => e.import_character(&file, &name),
                 Step::Teleport => e.teleport_to_camera(),
                 Step::Characters => e.characters_open = !e.characters_open,
+                Step::Point(x, y) => self.gui.point([x, y]),
+                Step::Button(left, down) => {
+                    if left {
+                        self.gui.button(egui::PointerButton::Primary, down);
+                        self.input.left_down = down;
+                        self.input.left_pressed |= down;
+                        self.input.left_released |= !down;
+                    } else {
+                        self.gui.button(egui::PointerButton::Secondary, down);
+                        self.input.right_down = down;
+                    }
+                }
+                Step::Wheel(n) => self.input.wheel += n,
+                Step::Key(name, ctrl, shift) => match gui::key_named(&name) {
+                    Some(code) => {
+                        self.gui.key(
+                            code,
+                            egui::Modifiers {
+                                ctrl,
+                                shift,
+                                command: ctrl,
+                                ..egui::Modifiers::default()
+                            },
+                        );
+                        self.input.ctrl = ctrl;
+                        self.input.shift = shift;
+                        self.input.pressed.push(code);
+                    }
+                    None => e.status = format!("{name}: no such key"),
+                },
+                Step::Type(text) => self.gui.type_text(&text),
                 Step::Shot(p) => self.shot_next = Some(p),
                 Step::Quit => self.quit = true,
             }

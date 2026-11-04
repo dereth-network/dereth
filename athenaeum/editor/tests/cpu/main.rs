@@ -182,3 +182,26 @@ fn a_rows_letter_says_where_it_came_from() {
     assert_eq!(parse_id("0"), None);
     assert_eq!(parse_id("vendor"), None);
 }
+
+#[test]
+fn a_script_clicks_and_drags_in_stages_a_frame_can_see() {
+    let steps = parse(
+        "click 10 20\ndrag 1 2 3 4\nkey KeyR ctrl\ntype a b",
+        Path::new("."),
+    )
+    .unwrap();
+    assert_eq!(
+        &steps[..5],
+        &[
+            Step::Point(10.0, 20.0),
+            Step::Wait(0.1),
+            Step::Button(true, true),
+            Step::Wait(0.1),
+            Step::Button(true, false),
+        ]
+    );
+    assert_eq!(steps[6], Step::Wait(0.1));
+    assert_eq!(steps[9], Step::Point(3.0, 4.0));
+    assert_eq!(steps[12], Step::Key("KeyR".into(), true, false));
+    assert_eq!(steps[13], Step::Type("a b".into()));
+}
