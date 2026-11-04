@@ -683,7 +683,6 @@ fn composite_over(dst: &mut Surface, layer: &Surface, area: Rect) {
 /// Draw the top-level elements whose depth passes `keep`, deepest first, into a picture that
 /// starts transparent and keeps how much each texel is covered: laid over a scene by its alpha, it
 /// gives what [`draw_where`] gives over that scene.
-// D2-11219, D2-11163
 pub fn draw_layers_where(ui: &Ui, out: &mut Surface, keep: impl Fn(i32) -> bool) {
     draw_layers_with(ui, out, keep, &mut Layers::default());
 }
@@ -697,6 +696,7 @@ pub struct Layers {
 }
 
 /// [`draw_layers_where`], drawing into `layers`, and leaving them clear.
+// D2-11219, D2-11163
 pub fn draw_layers_with(
     ui: &Ui,
     out: &mut Surface,
