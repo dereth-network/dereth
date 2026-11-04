@@ -4603,6 +4603,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-word",
+        says: "A treasure item's name has a word before it by its sort, its level and its combat \
+               delay, in its create and its profile. Our choice, a fit to the recorded items.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-WORD"),
+        station: "yalain-testkit::cpu::play::fights::a_treasure_items_word_goes_by_its_sort_level_and_combat_delay",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.turned-into-money",
         says: "Turning a corpse's items into money moves each into the pack and destroys it \
                there, the money going up by its value, and the answer says what was earned; each \

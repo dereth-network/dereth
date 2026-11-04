@@ -631,6 +631,13 @@ fn a_weapon_with_an_enchantment_glows_as_it_says() {
         let item = yalain_world::inventory::make_item(&mut h.server, template, 1, 9).expect("made");
         yalain_world::treasure::endow(&mut h.server, item, 50, None);
         let t = h.server.things.get(item).expect("made");
+        let word = t.own.made.expect("its numbers").prefix;
+        assert!(
+            yalain_content::treasure_words::WEAPON_WORDS
+                .iter()
+                .any(|w| w.word == word),
+            "{word:x} a weapon's word"
+        );
         let glow = t
             .own
             .look
@@ -799,6 +806,46 @@ fn a_slayer_on_a_weapon_puts_nothing_on_what_it_hits() {
     h.run(2000);
     assert!(h.server.things.get(beetle).expect("alive").health < 1_000_000);
     assert_eq!(h.server.unhandled.counts().len(), before);
+}
+
+/// The word before a treasure item's name goes by its sort, its level and its combat delay: a weapon
+/// of a short delay takes a word of speed, one of a usual delay never does, and the low levels'
+/// plain word isn't drawn at 50.
+/// Behaviour: server.loot.treasure-word
+#[test]
+fn a_treasure_items_word_goes_by_its_sort_level_and_combat_delay() {
+    use yalain_content::treasure_words as w;
+    use yalain_world::treasure::{word_of, Sort};
+    const QUICK: [u32; 4] = [0xDFD0_258D, 0xDFD0_058D, 0xDFD0_E58D, 0xDFD0_458D];
+    const BALANCED: u32 = 0xEF7F_89B9;
+    let mut rng = yalain_world::rng::Rng::new(5);
+    let draws = |rng: &mut yalain_world::rng::Rng, sort, level, delay| -> Vec<u32> {
+        (0..500).map(|_| word_of(rng, sort, level, delay)).collect()
+    };
+    let short = draws(&mut rng, Sort::Weapon, 50, 6);
+    assert!(short.iter().any(|x| QUICK.contains(x)));
+    let usual = draws(&mut rng, Sort::Weapon, 50, 13);
+    assert!(usual.iter().all(|x| !QUICK.contains(x)));
+    assert!(usual.iter().all(|x| *x != BALANCED), "a low level's");
+    assert!(draws(&mut rng, Sort::Weapon, 5, 13).contains(&BALANCED));
+    let armor = draws(&mut rng, Sort::Armor, 30, 14);
+    assert!(armor
+        .iter()
+        .all(|x| w::ARMOR_WORDS.iter().any(|a| a.word == *x)));
+    let shield = draws(&mut rng, Sort::Shield, 30, 8);
+    assert!(shield
+        .iter()
+        .all(|x| w::SHIELD_WORDS.iter().any(|a| a.word == *x)));
+    assert_eq!(
+        word_of(&mut rng, Sort::Jewelry, 30, 8),
+        0,
+        "jewelry has none"
+    );
+    // A delay none showed still takes a word of its level.
+    let odd = draws(&mut rng, Sort::Weapon, 50, 999);
+    assert!(odd
+        .iter()
+        .all(|x| w::WEAPON_WORDS.iter().any(|a| a.word == *x)));
 }
 
 /// A slayer harms what it names by its spellcraft as each hit lands, told as a story of its own, and

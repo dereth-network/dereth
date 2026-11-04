@@ -738,12 +738,15 @@ pub fn potion_name(f: &Facts, effect_table: u32) -> TextInfo {
 #[must_use]
 pub fn treasure_name(f: &Facts, effect_table: u32) -> TextInfo {
     use crate::inventory::treasure_name::PREFIX_TEXT;
+    treasure_word_name(f, effect_table, PREFIX_TEXT.0)
+}
+
+/// A treasure item's name with the word it drew before it.
+#[must_use]
+pub fn treasure_word_name(f: &Facts, effect_table: u32, word: u32) -> TextInfo {
+    use crate::inventory::treasure_name::PREFIX_TEXT;
     let name = f.name.map_or_else(|| literal(""), |(s, t)| string(t, s));
-    let word = with_vars(
-        PREFIX_TEXT.1,
-        PREFIX_TEXT.0,
-        vec![nested(var::SUFFIX_ITEM, name)],
-    );
+    let word = with_vars(PREFIX_TEXT.1, word, vec![nested(var::SUFFIX_ITEM, name)]);
     named_for(f, word, effect_table)
 }
 

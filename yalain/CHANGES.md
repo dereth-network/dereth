@@ -134,6 +134,7 @@ what they see, not how it was done.
 - Items with no use are refused instead of being held as a sword.
 - Items that raise a skill now raise your rating in it.
 - Slayer weapons now do extra damage to what they name.
+- Treasure names now use the right word for what the item is.
 
 ## 0.1.2 (2026-11-03)
 

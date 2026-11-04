@@ -401,8 +401,18 @@ fn suffix_of(template_name: (u32, u32), effect_table: Option<u32>) -> StringInfo
 /// A treasure item's name: its template's name, with the suffix of the effect it is named for.
 #[must_use]
 pub fn treasure_item_name(template_name: (u32, u32), effect_table: Option<u32>) -> StringInfo {
+    treasure_word_name(template_name, effect_table, treasure_name::PREFIX_TEXT.0)
+}
+
+/// A treasure item's name with the word it drew before it.
+#[must_use]
+pub fn treasure_word_name(
+    template_name: (u32, u32),
+    effect_table: Option<u32>,
+    word: u32,
+) -> StringInfo {
     use treasure_name as n;
-    let mut prefix = name_ref(n::PREFIX_TEXT);
+    let mut prefix = name_ref((word, n::PREFIX_TEXT.1));
     prefix.variables = vec![nested(n::PREFIX_NAME, name_ref(template_name))];
     prefix.variable_count = 1;
     let vars = ordered(vec![
@@ -489,16 +499,13 @@ pub fn item_create(t: &Thing) -> CreateObject {
         weenie.name = potion_name(name, e.table);
     } else if let Some(name) = t.facts.name.filter(|_| t.value > 0) {
         weenie.mask |= WeenieDesc::NAME;
-        weenie.name = t.own.made.filter(|m| m.prefix != 0).map_or_else(
-            || {
-                if t.own.made.is_none() && t.own.suffix.is_some() {
-                    jewelry_name(name, t.own.suffix)
-                } else {
-                    treasure_item_name(name, t.own.suffix)
-                }
-            },
-            |m| made_item_name(name, m.prefix),
-        );
+        // Nothing of its own but its value: no word (2017: 120 of 120 plain pieces of jewelry, and
+        // the 39 weapons of a fixed template).
+        weenie.name = match (t.own.made, t.own.suffix) {
+            (None, suffix) => jewelry_name(name, suffix),
+            (Some(m), suffix) if m.prefix != 0 => treasure_word_name(name, suffix, m.prefix),
+            (Some(_), suffix) => treasure_item_name(name, suffix),
+        };
     }
     if let Some(most) = t.own.made.and_then(|m| m.durability) {
         let number = |bit: u32| WeenieDesc::NUMBER_BITS.iter().position(|b| *b == bit);

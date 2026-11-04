@@ -1325,7 +1325,9 @@ fn a_made_items_own_numbers_are_kept_across_a_logout() {
 /// Behaviour: server.loot.treasure-named-for-an-enchantment
 #[test]
 fn a_treasure_item_is_named_for_its_enchantment_in_its_create_and_its_profile() {
-    use yalain_world::inventory::{item_create, jewelry_name, treasure_item_name, treasure_name};
+    use yalain_world::inventory::{
+        item_create, jewelry_name, treasure_item_name, treasure_name, treasure_word_name,
+    };
     const NAME: (u32, u32) = (0x1234_5678, 0x2500_0777);
     const TABLE: u32 = 0x2500_1292;
     let mut h = Harness::new();
@@ -1381,4 +1383,29 @@ fn a_treasure_item_is_named_for_its_enchantment_in_its_create_and_its_profile() 
     let has = |id: u32| got[0].windows(4).any(|w| w == id.to_le_bytes());
     assert!(has(treasure_name::EFFECT_SUFFIX) && has(TABLE), "named");
     assert!(has(treasure_name::PREFIX_TEXT.0), "with treasure's word");
+    // A word it drew, in its create and its profile; none at all with nothing of its own.
+    const STEADY: u32 = 0xEF4F_89B9;
+    let t = h.server.things.get_mut(item).expect("made");
+    t.own.made = Some(yalain_world::made::Made {
+        prefix: STEADY,
+        ..yalain_world::made::Made::default()
+    });
+    assert_eq!(
+        item_create(h.server.things.get(item).expect("made"))
+            .weenie
+            .name,
+        treasure_word_name(NAME, Some(TABLE), STEADY)
+    );
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(item, 0x3FF)]),
+    );
+    h.run(10);
+    let got = profile_nodes(&h, a, from);
+    let has = |id: u32| got[0].windows(4).any(|w| w == id.to_le_bytes());
+    assert!(has(STEADY) && has(TABLE), "its word and its suffix");
+    assert!(!has(treasure_name::PREFIX_TEXT.0));
+    assert_eq!(shape(&mut h, false, None), jewelry_name(NAME, None));
 }

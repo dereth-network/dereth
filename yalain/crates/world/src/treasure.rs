@@ -441,6 +441,32 @@ pub fn enchantments(
     out
 }
 
+/// The word before a treasure item's name, once its effects have changed its numbers: among those of
+/// its sort that go with its combat delay, by how many of 2017's items at its level showed each.
+/// With none for its delay, among those of its level. Our fit: of 2,371 recorded items, it gives the
+/// word each showed a chance of 0.49 for a weapon, 0.42 for armor, 0.34 for a shield.
+#[must_use]
+pub fn word_of(rng: &mut Rng, sort: Sort, level: i32, delay: i32) -> u32 {
+    use yalain_content::treasure_words as w;
+    let words = match sort {
+        Sort::Weapon => w::WEAPON_WORDS,
+        Sort::Armor => w::ARMOR_WORDS,
+        Sort::Shield => w::SHIELD_WORDS,
+        Sort::Jewelry => return 0,
+    };
+    let band = count_band(level);
+    let of_level = || words.iter().filter(|x| x.by_level[band] > 0.0);
+    let goes = |x: &&w::Word| (x.delays.0..=x.delays.1).contains(&delay);
+    let mut open: Vec<&w::Word> = of_level().filter(goes).collect();
+    if open.is_empty() {
+        open = of_level().collect();
+    }
+    rng.weighted(open.iter().map(|x| x.by_level[band]))
+        .map_or(crate::inventory::treasure_name::PREFIX_TEXT.0, |i| {
+            open[i].word
+        })
+}
+
 /// What a permanent effect does to an item's numbers (2017: a combat delay reduced to 1 and no
 /// lower; the rest by what the effect says). A weapon's own effects change its numbers as they do a
 /// made one's.
@@ -681,6 +707,9 @@ pub fn endow<S: yalain_store::Store>(
                 };
                 if let Some(sort) = sort {
                     put_enchantments(s, item, &mut own, sort, item_level);
+                    if let Some(m) = own.made.as_mut() {
+                        m.prefix = word_of(&mut s.rng, sort, item_level, m.delay.unwrap_or(0));
+                    }
                 }
             }
         }
