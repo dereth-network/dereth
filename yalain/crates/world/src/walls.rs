@@ -3,9 +3,11 @@
 //! transition the client moves bodies with.
 //!
 //! - **A step** moves a creature's body (its setup's spheres and step heights, at its scale) along
-//!   the ground through the transition: it slides along walls and what stands in the world, climbs
-//!   and goes down what its step heights allow, and takes the cell it ends in. A step that would
-//!   leave the ground is not taken.
+//!   the ground through the transition, a short leg at a time as a physics tick would: it slides
+//!   along walls and what stands in the world, climbs and goes down what its step heights allow,
+//!   and takes the cell it ends in. It stops at the leg that gets nowhere or would leave the ground,
+//!   so a creature held up stands or slides and is never put back. Only a body that can move no
+//!   way at all, which stands in something, is put where it fits nearest.
 //! - **A way** to a goal is searched over a meter's lattice of the ground, each link a step the
 //!   transition lets the body take (A*, the straight line its estimate). Inside, a goal in no cell
 //!   joined to the creature's by doorways is out of reach at once.
@@ -211,6 +213,11 @@ pub fn walker(records: &WorldRecords, look: u32) -> Option<Walker> {
 
 /// The body every creature with no walker of its own is given: a human's size.
 const ANY_WALKER: (f32, f32) = (0.4, 1.8);
+
+/// The longest leg of a step through the transition, in meters: about what a creature running at 4
+/// m/s moves in a physics tick of a thirtieth of a second. A longer leg sinks the body so far into
+/// what it meets that the transition can send it back.
+const LEG: f32 = 0.125;
 
 /// The spacing of the lattice a way is searched over, in meters.
 const LATTICE: f32 = 1.0;
@@ -474,13 +481,26 @@ impl Walls {
 
     /// Move the body of a creature of `template` and `scale` from `from` by `(dx, dy)` along the
     /// ground through the transition; none when the walls cannot place it there (its cell was
-    /// never read). A step that would leave the ground stays where it was.
+    /// never read). It goes as far as it gets on the ground; a body that can move no way at all is
+    /// first put where it fits nearest.
     pub fn step(
         &mut self,
         template: u32,
         scale: f32,
         from: &StoredPosition,
         d: [f32; 2],
+    ) -> Option<Stepped> {
+        self.step_as(template, scale, from, d, true)
+    }
+
+    /// A step, the body put where it fits first only when `fit` says it may be.
+    fn step_as(
+        &mut self,
+        template: u32,
+        scale: f32,
+        from: &StoredPosition,
+        d: [f32; 2],
+        fit: bool,
     ) -> Option<Stepped> {
         self.need(from.cell);
         let (x, y) = block_of(from.cell);
@@ -514,19 +534,33 @@ impl Walls {
             b
         });
         let start = position(from, heading);
-        let go = Vec3::new(d[0], d[1], 0.0);
-        let mut took = take_step(body, &self.land, &mut self.world, start, go, heading);
-        if took.is_none() {
-            // A body that cannot set out from where it is (it stands a little into the floor or
-            // what stands on it) is first put where it fits nearest.
-            body.place(start, heading);
-            let ok = body.set_position_simple(&self.land, &mut self.world, start, true);
-            if ok == auberean_physics::body::placing::error::OK {
-                let fitted = body.position;
-                took = take_step(body, &self.land, &mut self.world, fitted, go, heading);
+        let length = (d[0] * d[0] + d[1] * d[1]).sqrt();
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        let legs = (length / LEG).ceil().max(1.0) as u32;
+        #[allow(clippy::cast_precision_loss)]
+        let share = 1.0 / legs as f32;
+        let leg = Vec3::new(d[0] * share, d[1] * share, 0.0);
+        let mut end = start;
+        for i in 0..legs {
+            if let Some(next) = take_step(body, &self.land, &mut self.world, end, leg, heading) {
+                end = next;
+                continue;
             }
+            if i == 0 && fit && !can_set_out(body, &self.land, &mut self.world, start, heading) {
+                // It stands in something: it is put where it fits nearest, and steps from there.
+                body.place(start, heading);
+                let ok = body.set_position_simple(&self.land, &mut self.world, start, true);
+                if ok == auberean_physics::body::placing::error::OK {
+                    end = body.position;
+                    if let Some(next) =
+                        take_step(body, &self.land, &mut self.world, end, leg, heading)
+                    {
+                        end = next;
+                    }
+                }
+            }
+            break;
         }
-        let end = took.unwrap_or(start);
         let moved = flat(&start, &end);
         let mut at = stored(&end);
         at.rotation = stored(&start).rotation;
@@ -554,7 +588,13 @@ impl Walls {
                 return Some(at);
             }
             let go = left.min(LATTICE);
-            let s = self.step(template, scale, &at, [o.x / left * go, o.y / left * go])?;
+            let s = self.step_as(
+                template,
+                scale,
+                &at,
+                [o.x / left * go, o.y / left * go],
+                false,
+            )?;
             if s.moved < go * 0.9 {
                 return None;
             }
@@ -655,7 +695,7 @@ impl Walls {
             // Near the goal, a step straight to it.
             if left <= LATTICE * 1.5 {
                 let d = [g[0] - p[0], g[1] - p[1]];
-                if let Some(s) = self.step(template, scale, &here, d) {
+                if let Some(s) = self.step_as(template, scale, &here, d, false) {
                     if gap(local(&s.at)) <= close {
                         let gk = (i32::MIN, i32::MIN, i32::MIN);
                         reached.insert(
@@ -685,7 +725,7 @@ impl Walls {
                 let target = [(k.0 + dx) as f32 * LATTICE, (k.1 + dy) as f32 * LATTICE];
                 let d = [target[0] - p[0], target[1] - p[1]];
                 let length = (d[0] * d[0] + d[1] * d[1]).sqrt();
-                let Some(s) = self.step(template, scale, &here, d) else {
+                let Some(s) = self.step_as(template, scale, &here, d, false) else {
                     continue;
                 };
                 let q = local(&s.at);
@@ -730,6 +770,21 @@ impl Walls {
 fn flat(a: &Position, b: &Position) -> f32 {
     let o = auberean_physics::geom::offset(a, b);
     (o.x * o.x + o.y * o.y).sqrt()
+}
+
+/// Whether a body at `start` can move any way at all: one held up by what is ahead can go back.
+fn can_set_out(
+    body: &mut Body,
+    land: &Land,
+    world: &mut World,
+    start: Position,
+    heading: f32,
+) -> bool {
+    (0u8..8).any(|k| {
+        let a = f32::from(k) * core::f32::consts::FRAC_PI_4;
+        let d = Vec3::new(math::sinf(a) * LEG, math::cosf(a) * LEG, 0.0);
+        take_step(body, land, world, start, d, heading).is_some()
+    })
 }
 
 /// One move of `body` from `start` by `d`; none when it went nowhere or left the ground.

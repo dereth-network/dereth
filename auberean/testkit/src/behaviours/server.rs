@@ -2029,6 +2029,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.held-up-not-put-back",
+        says: "A creature held up at what stands in the world stands or slides along it and is \
+               never put back along its way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HELD-UP-NOT-PUT-BACK"),
+        station: "yalain-testkit::dat::walls::a_creature_held_up_at_what_a_world_places_is_not_put_back",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.creatures.idle-behaviors",
         says: "A creature of a class of behavior at rest and standing now and then plays one of its \
                two idle behaviors (the behavior and its context alone), about every seven and a \
@@ -2210,6 +2219,16 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-BARRED"),
         station: "yalain-testkit::cpu::play::missiles::a_creatures_special_waits_forty_seconds_before_it_is_used_again",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.stuck-in-something-put-out",
+        says: "A creature that stands in something and can move no way at all is put where it \
+               fits nearest when it next steps. Our choice: 2017's creatures were placed where \
+               they fit when they appeared, and a world's spots are rounded.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STUCK-PUT-OUT"),
+        station: "yalain-testkit::dat::walls::a_creature_standing_in_something_is_put_where_it_fits_and_walks_on",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.creatures.turn-on-the-most-harm",

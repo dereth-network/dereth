@@ -298,13 +298,15 @@ fn a_barrel(scale: f32) -> Standing {
 #[test]
 fn what_a_world_places_holds_a_creature_up_at_the_size_it_stands() {
     let open = furthest_north(Vec::new()).0;
-    let small = furthest_north(vec![a_barrel(1.0)]);
-    let large = furthest_north(vec![a_barrel(3.0)]);
+    let small = furthest_north(vec![a_barrel(0.1)]);
+    let large = furthest_north(vec![a_barrel(1.0)]);
     assert!(open > 96.0, "open ground: {open}");
-    // The barrel's own height is within the creature's step: it goes up and over, not through.
-    assert!(small.1 > 86.5, "on the barrel: {small:?}");
-    // Three times the size, its top is out of reach.
-    assert!(large.0 < 92.5, "held off it: {large:?}");
+    // A tenth of its size, its top is within what the creature's sphere reaches: it goes up and
+    // over, not through.
+    assert!(small.0 > 94.51, "past the barrel: {small:?}");
+    assert!(small.1 < 85.3 + 0.2, "back on the ground beyond: {small:?}");
+    // At its size, its side is too tall to step onto.
+    assert!(large.0 < 93.6, "held off it: {large:?}");
     assert!(large.1 < 85.5, "on the ground: {large:?}");
     let mut w = walls();
     w.set_standing(vec![a_barrel(1.0)]);
@@ -320,3 +322,186 @@ fn what_a_world_places_holds_a_creature_up_at_the_size_it_stands() {
 
 /// The barrel's template.
 const BARREL: u32 = 0x4700_26C4;
+/// A template with one large sphere for a body.
+const LARGE: u32 = 0x4700_2229;
+
+/// Walks a creature at a barrel of `scale` from `sides` sides in strides of `stride` meters, from
+/// 4 m off the place it stands to as far beyond it, and returns the farthest any stride put it back
+/// along its way or carried it past the stride.
+fn farthest_put_back(scale: f32, stride: f32, sides: u8) -> f32 {
+    let mut w = walls();
+    w.set_standing(vec![a_barrel(scale)]);
+    let [cx, cy, z] = a_barrel(scale).at.origin;
+    let mut worst = 0.0f32;
+    for side in 0..sides {
+        let a = f32::from(side) / f32::from(sides) * core::f32::consts::TAU;
+        let (ux, uy) = (
+            dereth_primitives::num::math::sinf(a),
+            dereth_primitives::num::math::cosf(a),
+        );
+        let (cell, x, y) = yalain_world::spawn::outdoor(0x6FA9, cx - ux * 4.0, cy - uy * 4.0);
+        let mut at = StoredPosition {
+            cell,
+            origin: [x, y, z],
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        };
+        for _ in 0..30 {
+            let (dx, dy) = (ux * stride, uy * stride);
+            let s = w.step(DIGGER, 1.0, &at, [dx, dy]).expect("placed");
+            let (mx, my) = (s.at.origin[0] - at.origin[0], s.at.origin[1] - at.origin[1]);
+            worst = worst.max(-(mx * ux + my * uy)).max(s.moved - stride);
+            at = s.at;
+        }
+    }
+    worst
+}
+
+/// A creature held up at what a world places is not put back along its way, from whichever side
+/// it comes, whatever the length of its strides and whether it can climb what it met (2017's
+/// creatures: no such reversal in 2,831 segments at solid shapes).
+/// Behaviour: server.creatures.held-up-not-put-back
+#[test]
+fn a_creature_held_up_at_what_a_world_places_is_not_put_back() {
+    for scale in [0.3, 0.6, 1.0, 1.5, 3.0] {
+        for stride in [0.5, 0.78, 1.0] {
+            let back = farthest_put_back(scale, stride, 16);
+            assert!(back < 0.3, "scale {scale}, stride {stride}: {back}");
+        }
+    }
+}
+
+/// Where what stands in a town holds a large body up at a place a placement would refuse it, it
+/// stands held there, and is not put where a placement would.
+/// Behaviour: server.creatures.held-up-not-put-back
+#[test]
+fn a_body_held_where_a_placement_would_refuse_it_stays_where_it_is() {
+    let records = records();
+    let describe = yalain_content::describe(
+        LARGE,
+        &|id| records.get::<auberean_assets::entity::Entity>(id),
+        &|_| None,
+    )
+    .expect("the description");
+    let body = yalain_world::walls::walker(&records, describe.look).expect("the body");
+    let mut w = walls();
+    w.walkers.insert(LARGE, body);
+    let (cx, cy, z) = (96.6244, 141.5138, 190.505);
+    let person = |id, template, look, origin, rotation| Standing {
+        id,
+        template,
+        look,
+        scale: 1.0,
+        at: StoredPosition {
+            cell: yalain_world::spawn::outdoor(0x5765, cx, cy).0,
+            origin,
+            rotation,
+        },
+        ethereality: auberean_physics::solid::Ethereality {
+            physics_type: 0x0100_0020,
+            movement: 0x0220_0010,
+            placement: 0x02A0_0090,
+        },
+    };
+    w.set_standing(vec![
+        person(
+            0x4000_0000_0000_0001,
+            0x4700_2EDD,
+            0x1F00_0F20,
+            [cx, cy, z],
+            [0.793_353, 0.0, 0.0, -0.608_761],
+        ),
+        person(
+            0x4000_0000_0000_0002,
+            0x4700_0CD6,
+            0x1F00_0691,
+            [85.2, 140.3001, 190.6],
+            [
+                core::f32::consts::FRAC_1_SQRT_2,
+                0.0,
+                0.0,
+                -core::f32::consts::FRAC_1_SQRT_2,
+            ],
+        ),
+    ]);
+    let mut worst = 0.0f32;
+    for side in 0..8u8 {
+        let a = f32::from(side) * core::f32::consts::FRAC_PI_4;
+        let (ux, uy) = (
+            dereth_primitives::num::math::sinf(a),
+            dereth_primitives::num::math::cosf(a),
+        );
+        let (x, y) = (cx + ux * 10.0, cy + uy * 10.0);
+        let (cell, x, y) = yalain_world::spawn::outdoor(0x5765, x, y);
+        let mut at = StoredPosition {
+            cell,
+            origin: [x, y, z],
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        };
+        let goal = (cx - ux * 10.0, cy - uy * 10.0);
+        let mut first = true;
+        for _ in 0..28 {
+            let (dx, dy) = (goal.0 - at.origin[0], goal.1 - at.origin[1]);
+            let len = (dx * dx + dy * dy).sqrt();
+            if len < 0.5 {
+                break;
+            }
+            let go = len.min(1.0);
+            let s = w
+                .step(LARGE, 1.0, &at, [dx / len * go, dy / len * go])
+                .expect("placed");
+            let along = (s.at.origin[0] - at.origin[0]) * dx / len
+                + (s.at.origin[1] - at.origin[1]) * dy / len;
+            if !first {
+                worst = worst.max(-along);
+            }
+            first = false;
+            at = s.at;
+        }
+    }
+    assert!(worst < 0.3, "put back {worst}");
+}
+
+/// A creature running straight at what it cannot climb stands where it met it, step after step;
+/// aimed across it, it slides along.
+/// Behaviour: server.creatures.held-up-not-put-back
+#[test]
+fn a_creature_held_up_stands_head_on_and_slides_along_when_aimed_across() {
+    let mut w = walls();
+    w.set_standing(vec![a_barrel(3.0)]);
+    let start = StoredPosition {
+        cell: yalain_world::spawn::outdoor(0x6FA9, 45.24, 90.51).0,
+        origin: [45.24, 90.51, 85.26],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let mut at = start;
+    for _ in 0..12 {
+        at = w.step(DIGGER, 1.0, &at, [0.0, 1.0]).expect("placed").at;
+    }
+    let held = at;
+    assert!(held.origin[1] < 94.51, "short of the barrel: {held:?}");
+    let s = w.step(DIGGER, 1.0, &held, [0.0, 1.0]).expect("placed");
+    assert!(s.moved < 0.05, "it stands: {s:?}");
+    let s = w.step(DIGGER, 1.0, &held, [0.5, 0.87]).expect("placed");
+    assert!(
+        s.moved > 0.2 && s.at.origin[0] > held.origin[0] + 0.15,
+        "it slides along: {s:?}"
+    );
+}
+
+/// A creature that stands in what a world places, and can move no way at all, is put where it fits
+/// nearest and walks on from there.
+/// Behaviour: server.creatures.stuck-in-something-put-out
+#[test]
+fn a_creature_standing_in_something_is_put_where_it_fits_and_walks_on() {
+    let mut w = walls();
+    w.set_standing(vec![a_barrel(3.0)]);
+    let inside = StoredPosition {
+        cell: yalain_world::spawn::outdoor(0x6FA9, 45.24, 94.51).0,
+        origin: [45.24, 94.51, 85.26],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let s = w.step(DIGGER, 1.0, &inside, [0.0, 0.5]).expect("placed");
+    assert!(s.moved > 0.1, "it was put out of it: {s:?}");
+    let next = w.step(DIGGER, 1.0, &s.at, [0.0, 0.5]).expect("placed");
+    assert!(next.moved > 0.1, "it walks on: {next:?}");
+}

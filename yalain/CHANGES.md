@@ -158,6 +158,7 @@ what they see, not how it was done.
 - Alacrity, Quickening and other attack speed effects now speed up your attacks.
 - Practice dummies hurt whoever hits them.
 - Plan B and Immolation now burn whoever casts harmful effects on their holder.
+- Fixed creatures jumping back when something held them up.
 
 ## 0.1.2 (2026-11-03)
 
