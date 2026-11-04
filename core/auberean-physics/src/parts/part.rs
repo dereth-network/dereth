@@ -68,7 +68,7 @@ impl PartMesh {
             bounds,
             default_bounds: bounds,
             drawn: !mesh.levels.is_empty(),
-            weighted: (mesh.vertices.format >> 16) & 0xFF != 0,
+            weighted: mesh.has_matrix_weights(),
         }
     }
 }

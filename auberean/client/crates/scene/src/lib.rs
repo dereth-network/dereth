@@ -2063,10 +2063,8 @@ impl<'w> Scene<'w> {
                     .then(|| self.land.cell(pos.cell))
                     .flatten()
                     .filter(|g| g.seen_outside)
-                    .and_then(|_| {
-                        let (mut c, mut o) = (pos.cell, pos.frame.origin);
-                        auberean_physics::cells::adjust_to_outside(&mut c, &mut o).then_some(c.0)
-                    });
+                    .map(|_| auberean_physics::geom::position::outside_cell(&pos).0)
+                    .filter(|c| *c != 0);
                 (pos.cell.0, outside)
             }
             None => (0, None),

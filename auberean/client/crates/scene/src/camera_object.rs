@@ -5,7 +5,7 @@
 //! same answer without asking the world.
 
 use auberean_physics::body::{setup_spheres, Body, BodyConfig};
-use auberean_physics::collision::{settings, CollisionSettings};
+use auberean_physics::collision::CollisionSettings;
 use auberean_physics::land::Land;
 use auberean_physics::motion::values::default_values;
 use auberean_physics::world::World;
@@ -71,20 +71,12 @@ impl CameraObject {
                 let k = world.insert_body(land, self.body.id, &mut self.body);
                 let mut solid = auberean_physics::ethereal::ObjectEthereality::default();
                 solid.set_to_solid();
-                world.set_collision_state(
-                    k,
-                    &CollisionSettings {
-                        bits: settings::MOVEMENT_PHYSICS
-                            | settings::PLACEMENT_PHYSICS
-                            | settings::MOVEMENT_OBJECTS
-                            | settings::PLACEMENT_OBJECTS,
-                        movement_physics: passes,
-                        placement_physics: passes,
-                        movement_objects: solid.clone(),
-                        placement_objects: solid,
-                        ..CollisionSettings::default()
-                    },
-                );
+                let mut collision = CollisionSettings::default();
+                collision.set_physics_placement_type(passes);
+                collision.set_weenie_placement_type(&solid);
+                collision.set_physics_movement_type(passes);
+                collision.set_weenie_movement_type(&solid);
+                world.set_collision_state(k, &collision);
                 k
             }
         };
