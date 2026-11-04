@@ -235,11 +235,56 @@ fn thing_vitals(t: &crate::things::Thing) -> Vitals {
     }
 }
 
+/// What its holder's auras hold on a thing in its hands: each listed with its spellcraft, its vigor
+/// cost lowered and a weapon's combat delay with it, rounded down (2017: 67 profiles of weapons and
+/// shields under Balance and Featherweight, 18 to 13, 18 to 11, 7 to 5; a weapon's delay under Swift
+/// Killer 18 to 14, 12 to 9, 10 to 8, a shield's 8 stays 8).
+fn enchanted_for_now<S: Store>(s: &Server<S>, t: &crate::things::Thing, v: &mut profile::ItemView) {
+    let Some((holder, _)) = t.wielded else {
+        return;
+    };
+    let shield = crate::skill_use::implement_of(&s.catalog, t.template)
+        == Some(crate::skill_use::implement::SHIELD);
+    let held = crate::effects::on_held(s, holder, t.id, shield);
+    if held.is_empty() {
+        return;
+    }
+    let by = |stat: u32, n: i32| {
+        #[allow(clippy::cast_precision_loss)]
+        let lowered = n as f32 * crate::effects::held_multiplier(s, &held, stat);
+        dereth_primitives::num::to_i32(lowered.floor())
+    };
+    if let Some(w) = &mut v.weapon {
+        w.3 = by(crate::made::stat::VIGOR, w.3);
+        if !shield {
+            w.2 = by(crate::made::stat::COMBAT_DELAY, w.2);
+        }
+    }
+    for (state, spellcraft) in held {
+        let Some(shown) = s
+            .effect_table
+            .get(state)
+            .and_then(profile::EffectShown::of)
+            .filter(|x| x.visible)
+        else {
+            continue;
+        };
+        v.effects.push(profile::ItemEffect {
+            when: profile::When::Enchantment,
+            table: shown.table,
+            spellcraft: shown
+                .spellcraft_shown
+                .then_some(dereth_primitives::num::to_i32(spellcraft)),
+            amount: None,
+        });
+    }
+}
+
 /// What an item's profile shows: its class's facts for a starting weapon, else its template's;
 /// its value, each piece's own when it has one (treasure) else its template's, times its count; its icon; the
 /// effects its template lists; who made it and what is inscribed on it; whether its kind is
 /// destroyed on use; the skills it takes.
-fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::ItemView {
+pub fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::ItemView {
     let own_value = (t.value > 0).then(|| t.value.saturating_mul(t.quantity.max(1)));
     let mut v = profile::starting_weapon(t.template).unwrap_or_else(|| {
         s.catalog
@@ -298,6 +343,7 @@ fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::Item
         }
     }
     crate::made::show(s, t, &mut v);
+    enchanted_for_now(s, t, &mut v);
     if let Some(table) = t.own.suffix {
         let word = t.own.made.map_or(0, |m| m.prefix);
         v.name = Some(if v.jewelry {

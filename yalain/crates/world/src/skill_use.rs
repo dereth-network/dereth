@@ -618,19 +618,15 @@ pub struct HeldVigor {
 /// What each thing in a player's hands costs its skills: the item's own number (a treasure or
 /// made item's), else its template's; a starting weapon's 4 (2017: an item's own or its template's
 /// number, both weapons' when it holds two; 237 of 248 uses by players whose costs nothing else
-/// lowered paid them on themselves too). What the player's auras multiply it by is taken from each
-/// item, rounded down (2017: a weapon of 18 examined 13 under Balance and 11 under Featherweight, 30
-/// at 22, 16 at 11, a shield of 7 at 5, 67 profiles; uses under a Balance recorded, 77 of 84 exact).
+/// lowered paid them on themselves too). What the player's auras multiply it by comes off each item,
+/// rounded down (2017: a weapon of 18 examined 13 under Balance and 11 under Featherweight, 30 at 22,
+/// 16 at 11, a shield of 7 at 5, 67 profiles; uses under a Balance recorded, 77 of 84 exact).
 pub fn held_vigor<S: Store>(s: &Server<S>, player: u64) -> HeldVigor {
     let mut held = HeldVigor::default();
-    let scale = s
-        .players
-        .values()
-        .find(|p| p.character == player)
-        .map_or(1.0, |p| {
-            crate::effects::modifier(&s.effect_table, &p.play.effects, crate::made::stat::VIGOR).1
-        });
     for (item, template) in wielded(s, player) {
+        let shield = implement_of(&s.catalog, template) == Some(implement::SHIELD);
+        let on_it = crate::effects::on_held(s, player, item, shield);
+        let scale = crate::effects::held_multiplier(s, &on_it, crate::made::stat::VIGOR);
         let own = s
             .things
             .get(item)
@@ -650,7 +646,7 @@ pub fn held_vigor<S: Store>(s: &Server<S>, player: u64) -> HeldVigor {
             });
         #[allow(clippy::cast_precision_loss)]
         let cost = dereth_primitives::num::to_i32((cost as f32 * scale).floor());
-        if implement_of(&s.catalog, template) == Some(implement::SHIELD) {
+        if shield {
             held.shield += cost;
         } else {
             held.weapons += cost;

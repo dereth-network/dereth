@@ -623,6 +623,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.auras.held-pulses-last-while-held",
+        says: "What an aura holds on a thing in hand lasts while the aura is on and the thing in \
+               hand, on a weapon or a shield as the aura names them. Our choice: no record of its \
+               own, so it ends with either at once and not at a pulse's three minutes.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-AURA-ON-HELD-LASTS"),
+        station: "yalain-testkit::cpu::play::auras::an_aura_on_what_is_held_keeps_its_pulses_off_the_player",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.auras.off-in-portal-space",
         says: "Going into portal space turns every aura its player holds off: the toggle off, \
                its pulses' records and its own taken off, the appearance stopped.",
@@ -649,6 +659,17 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-AURA-PULSES"),
         station: "yalain-testkit::cpu::play::auras::an_aura_pulses_every_two_minutes_each_pulse_a_record_of_its_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.auras.pulses-on-what-is-held",
+        says: "An aura for what its user holds puts no record of its pulses on the user: the thing in \
+               hand holds them, and its examination lists them with their spellcraft under \
+               Enchantment Effects and shows its vigor cost and a weapon's combat delay lowered, \
+               rounded down.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-AURA-ON-HELD"),
+        station: "yalain-testkit::cpu::play::auras::a_weapons_examination_shows_what_an_aura_holds_on_it",
         tier: Tier::Cpu,
     },
     behaviour! {

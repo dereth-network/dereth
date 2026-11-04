@@ -149,6 +149,7 @@ what they see, not how it was done.
 - A skill's rating falls at no vigor, for skills that say so.
 - Items taken from corpses and chests now join a stack, even in a full pack.
 - Gifts to a full pack now show up at once.
+- Balance and Featherweight now last as long as the aura, and show on the item.
 
 ## 0.1.2 (2026-11-03)
 

@@ -646,7 +646,7 @@ fn an_effect_lowers_what_a_skill_costs_down_to_half_its_own() {
 /// Behaviour: server.specials.vigor-of-what-is-held-under-an-aura
 #[test]
 fn an_aura_on_what_is_held_lowers_its_cost_rounded_down() {
-    use yalain_world::effect_defs::{numeric, EffectDef, Kind, Scale};
+    use yalain_world::effect_defs::{aura_target, numeric, Aura, EffectDef, Kind, Scale};
     const LOWERS: u32 = 0x6F00_7778;
     const LOOTED: u32 = 0x4700_07A3;
     let paid = |by: Option<f32>| -> i32 {
@@ -680,22 +680,28 @@ fn an_aura_on_what_is_held_lowers_its_cost_rounded_down() {
                 stats: vec![yalain_world::made::stat::VIGOR],
                 magnitude: Scale(vec![(0.0, by)]),
             };
+            let aura = EffectDef {
+                state: LOWERS + 1,
+                kind: Kind::Aura(Aura {
+                    pulsed: vec![LOWERS],
+                    targets: aura_target::ITEM,
+                    range: 300.0,
+                }),
+                ..d.clone()
+            };
             h.server.effect_table.effects.insert(LOWERS, d);
+            h.server.effect_table.effects.insert(LOWERS + 1, aura);
             let world = *h.server.players.keys().next().expect("in the world");
             let clock = h.clock();
-            let cast = yalain_world::effects::Cast {
-                caster: me,
-                spellcraft: 1.0,
-                ..yalain_world::effects::Cast::default()
-            };
-            assert!(yalain_world::effects::apply(
+            yalain_world::effects::aura_on(
                 &mut h.server,
                 &mut h.net,
                 world,
-                LOWERS,
-                cast,
-                clock
-            ));
+                LOWERS + 1,
+                0,
+                1.0,
+                clock,
+            );
             h.run(2);
         }
         let from = use_skill(&mut h, b, 6, DEADEYE, beetle);

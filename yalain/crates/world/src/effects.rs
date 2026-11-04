@@ -1693,7 +1693,11 @@ pub fn aura_on<S: Store>(
     };
     let me = p.character;
     let eid = next_eid(p);
-    let fx = pulse_records(s, net, world, me, &a, spellcraft, clock);
+    let fx = if pulses_on_held(&a) {
+        Vec::new()
+    } else {
+        pulse_records(s, net, world, me, &a, spellcraft, clock)
+    };
     let e = EffectState {
         eid,
         state: aura,
@@ -1754,6 +1758,52 @@ fn pulse_records<S: Store>(
         }
     }
     fx
+}
+
+/// Whether an aura's pulses go on what its user holds, not on anyone: no record of one is ever on a
+/// player (2017: 0 records of their pulses beside 11 of such auras), and the item's examination
+/// lists them.
+fn pulses_on_held(a: &Aura) -> bool {
+    a.targets & (aura_target::WEAPON | aura_target::SHIELD | aura_target::ITEM) != 0
+}
+
+/// The pulsed effects a player's auras hold on a thing in its hands, each with its aura's
+/// spellcraft: a weapon's or a shield's by what the aura names, anything held by an aura for items.
+#[must_use]
+pub fn on_held<S: Store>(s: &Server<S>, player: u64, item: u64, shield: bool) -> Vec<(u32, f32)> {
+    let Some(p) = s.players.values().find(|p| p.character == player) else {
+        return Vec::new();
+    };
+    if !crate::skill_use::wielded(s, player)
+        .iter()
+        .any(|(i, _)| *i == item)
+    {
+        return Vec::new();
+    }
+    let kind = if shield {
+        aura_target::SHIELD
+    } else {
+        aura_target::WEAPON
+    };
+    p.play
+        .effects
+        .iter()
+        .filter(|e| e.flags == AURA_FLAGS)
+        .filter_map(|e| Some((aura_def(s, e.state)?, e.spellcraft)))
+        .filter(|(a, _)| a.targets & (kind | aura_target::ITEM) != 0)
+        .flat_map(|(a, spellcraft)| a.pulsed.into_iter().map(move |state| (state, spellcraft)))
+        .collect()
+}
+
+/// What these effects on an item multiply a stat of it by.
+#[must_use]
+pub fn held_multiplier<S: Store>(s: &Server<S>, held: &[(u32, f32)], stat: u32) -> f32 {
+    held.iter()
+        .filter_map(|(state, spellcraft)| Some((s.effect_table.get(*state)?, *spellcraft)))
+        .flat_map(|(d, spellcraft)| d.changes(spellcraft))
+        .filter(|(st, multiply, _)| *st == stat && *multiply)
+        .map(|(_, _, by)| by)
+        .product()
 }
 
 /// The players an aura's pulse reaches, when it reaches players: its user, and each of its fellows

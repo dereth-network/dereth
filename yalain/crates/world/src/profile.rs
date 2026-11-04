@@ -863,6 +863,8 @@ pub mod item_line {
     pub const TOTEM_LORE: u32 = 0xB873_5FB6;
     /// "Permanent Enchantment Effect(s):"
     pub const EFFECTS_PERMANENT: u32 = 0xF397_0BCA;
+    /// "Enchantment Effect(s):"
+    pub const EFFECTS_ENCHANTMENT: u32 = 0xC4E5_ED4C;
     /// "Amount: ", and its value.
     pub const AMOUNT: u32 = 0x0CA6_14AD;
     pub const AMOUNT_VALUE: u32 = 0xCB4D_6AD4;
@@ -955,6 +957,8 @@ pub enum When {
     Hit,
     /// On the item itself, always.
     Permanent,
+    /// On the item itself for now: what its holder's auras hold on it.
+    Enchantment,
 }
 
 /// One effect an item's profile lists: when it applies, its name's table (the effect's own, which
@@ -1704,7 +1708,13 @@ fn effect_lines(p: &mut Profile, v: &ItemView) {
     let weapon = v.weapon.is_some();
     let armor = v.armor.is_some();
     let mut first = true;
-    for when in [When::Used, When::Permanent, When::Equipped, When::Hit] {
+    for when in [
+        When::Used,
+        When::Permanent,
+        When::Enchantment,
+        When::Equipped,
+        When::Hit,
+    ] {
         let list: Vec<&ItemEffect> = v.effects.iter().filter(|e| e.when == when).collect();
         if list.is_empty() {
             continue;
@@ -1717,6 +1727,7 @@ fn effect_lines(p: &mut Profile, v: &ItemView) {
             When::Equipped => (l::EFFECTS_WIELDED, 1, false),
             When::Hit => (l::EFFECTS_ON_HIT, 0, true),
             When::Permanent => (l::EFFECTS_PERMANENT, 0, true),
+            When::Enchantment => (l::EFFECTS_ENCHANTMENT, 0, true),
         };
         if after_break && first {
             p.brk(EFFECTS);

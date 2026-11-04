@@ -502,3 +502,164 @@ fn player_conn(h: &Harness, me: u64) -> yalain_net::ConnId {
         .map(|(c, _)| *c)
         .expect("in the world")
 }
+
+/// An aura for what is held: its effects, lowering a thing's cost and a weapon's delay, and the
+/// aura itself turned on for `me` as its use does, all three made up for the test.
+fn aura_on_what_is_held(h: &mut Harness, me: u64, targets: u32) -> u32 {
+    use yalain_world::effect_defs::{numeric, Aura, EffectDef, Kind, Scale};
+    use yalain_world::made::stat;
+    const COST: u32 = 0x6F00_7781;
+    const DELAY: u32 = 0x6F00_7782;
+    const AURA: u32 = 0x6F00_7783;
+    let like: EffectDef = h
+        .server
+        .effect_table
+        .get(ESPIRIT_PULSE)
+        .cloned()
+        .expect("a pulse");
+    let lowers = |state: u32, on: u32, by: f32| EffectDef {
+        state,
+        kind: Kind::Numeric {
+            flags: numeric::MULTIPLY,
+            stats: vec![on],
+            magnitude: Scale(vec![(1.0, by + 0.1), (50.0, by)]),
+        },
+        name: Some((0xA860_7CEC, 0x2500_0708)),
+        ..like.clone()
+    };
+    let aura = EffectDef {
+        state: AURA,
+        kind: Kind::Aura(Aura {
+            pulsed: vec![COST, DELAY],
+            targets,
+            range: 300.0,
+        }),
+        ..like.clone()
+    };
+    for d in [
+        lowers(COST, stat::VIGOR, 0.72),
+        lowers(DELAY, stat::COMBAT_DELAY, 0.8),
+        aura,
+    ] {
+        h.server.effect_table.effects.insert(d.state, d);
+    }
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    let clock = h.clock();
+    effects::aura_on(&mut h.server, &mut h.net, world, AURA, 0, 50.0, clock);
+    AURA
+}
+
+/// A player in the world holding a weapon whose template names its cost and delay, in the world
+/// with the scene drawn; its client, itself and the weapon.
+fn holding_a_blade(h: &mut Harness) -> (usize, u64, u64) {
+    const BLADE: u32 = 0x4700_77A1;
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    let mut p = yalain_content::Props::default();
+    p.set("Weapon_VigorCost", yalain_content::Prop::Int(18));
+    p.set("Weapon_Damage", yalain_content::Prop::Int(100));
+    p.set("Weapon_Speed", yalain_content::Prop::Int(18));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(BLADE, 0x1067, p));
+    h.server
+        .catalog
+        .implements
+        .insert(BLADE, yalain_world::skill_use::implement::BOW);
+    h.arm(b, me, BLADE);
+    let blade = player(h, me)
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == BLADE)
+        .expect("in hand")
+        .id;
+    (b, me, blade)
+}
+
+/// An aura for what its user holds puts no record on the user beyond its own, however long it runs;
+/// what it lowers stays lowered between its pulses, and goes when the aura does.
+/// Behaviour: server.auras.held-pulses-last-while-held
+#[test]
+fn an_aura_on_what_is_held_keeps_its_pulses_off_the_player() {
+    let mut h = Harness::new();
+    let (_, me, _) = holding_a_blade(&mut h);
+    let cost = |h: &Harness| yalain_world::skill_use::held_vigor(&h.server, me).weapons;
+    assert_eq!(cost(&h), 18);
+    let aura = aura_on_what_is_held(&mut h, me, yalain_world::effect_defs::aura_target::ITEM);
+    let records = |h: &mut Harness| -> Vec<u32> {
+        player(h, me).play.effects.iter().map(|e| e.state).collect()
+    };
+    assert_eq!(records(&mut h), [aura], "the aura's own record alone");
+    assert_eq!(cost(&h), 12, "18 at 0.72, rounded down");
+    // Past a pulse's own three minutes.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    h.run((400.0 / yalain_testkit::STEP) as usize);
+    assert_eq!(records(&mut h), [aura], "and no record of a pulse since");
+    assert_eq!(cost(&h), 12, "still lowered");
+    player(&mut h, me).play.effects.clear();
+    assert_eq!(cost(&h), 18, "gone with the aura");
+}
+
+/// An aura for weapons holds nothing on a shield, one for items on both; a thing no longer in hand
+/// holds nothing.
+/// Behaviour: server.auras.held-pulses-last-while-held
+#[test]
+fn an_aura_names_the_kind_of_thing_it_holds_on() {
+    use yalain_world::effect_defs::aura_target as to;
+    let mut h = Harness::new();
+    let (_, me, blade) = holding_a_blade(&mut h);
+    aura_on_what_is_held(&mut h, me, to::WEAPON);
+    let on =
+        |h: &Harness, item: u64, shield: bool| effects::on_held(&h.server, me, item, shield).len();
+    assert_eq!(on(&h, blade, false), 2, "a weapon");
+    assert_eq!(on(&h, blade, true), 0, "not a shield");
+    player(&mut h, me).play.effects.clear();
+    aura_on_what_is_held(&mut h, me, to::SHIELD);
+    assert_eq!(on(&h, blade, false), 0);
+    assert_eq!(on(&h, blade, true), 2);
+    assert_eq!(on(&h, 0x8130_0000_0000_0001, false), 0, "not in hand");
+}
+
+/// A weapon's examination lists what an aura holds on it, under its own heading with its spellcraft,
+/// and shows its cost and delay as they stand, rounded down; out of the aura, as they were.
+/// Behaviour: server.auras.pulses-on-what-is-held
+#[test]
+fn a_weapons_examination_shows_what_an_aura_holds_on_it() {
+    use yalain_world::profile::When;
+    let mut h = Harness::new();
+    let (_, me, blade) = holding_a_blade(&mut h);
+    let view = |h: &Harness| {
+        let t = h.server.things.get(blade).expect("the weapon");
+        yalain_world::requests::item_view(&h.server, t)
+    };
+    let plain = view(&h).weapon.expect("a weapon's numbers");
+    assert_eq!((plain.2, plain.3), (18, 18));
+    aura_on_what_is_held(&mut h, me, yalain_world::effect_defs::aura_target::ITEM);
+    let v = view(&h);
+    let w = v.weapon.expect("a weapon's numbers");
+    assert_eq!((w.2, w.3), (14, 12), "18 at 0.8 and at 0.72");
+    assert_eq!(w.0, plain.0, "its damage not its concern");
+    let listed: Vec<Option<i32>> = v
+        .effects
+        .iter()
+        .filter(|e| e.when == When::Enchantment)
+        .map(|e| e.spellcraft)
+        .collect();
+    assert_eq!(listed, [Some(50), Some(50)]);
+    player(&mut h, me).play.effects.clear();
+    let v = view(&h);
+    assert!(v.effects.iter().all(|e| e.when != When::Enchantment));
+    assert_eq!(v.weapon.map(|w| (w.2, w.3)), Some((18, 18)));
+}
