@@ -1385,8 +1385,8 @@ fn a_ward_keeps_off_the_effects_of_its_classes_by_its_chance() {
         me,
         WARD,
         Kind::Ward {
-            classes: &[48],
-            chance: 0.15,
+            classes: vec![48],
+            chance: Scale(vec![(0.0, 0.15)]),
         },
     );
     holds(
@@ -1394,8 +1394,8 @@ fn a_ward_keeps_off_the_effects_of_its_classes_by_its_chance() {
         me,
         SURE,
         Kind::Ward {
-            classes: &[22],
-            chance: 1.0,
+            classes: vec![22],
+            chance: Scale(vec![(0.0, 1.0)]),
         },
     );
     let clock = h.clock();

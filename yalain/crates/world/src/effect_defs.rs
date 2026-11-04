@@ -127,14 +127,24 @@ fn ward_of(state: u32) -> Option<Kind> {
     const VIGOR: &[u32] = &[49, 5014, 26, 4015, 5043, 5050];
     const POISON: &[u32] = &[53, 5007, 5022, 5046];
     const ARMOR: &[u32] = &[22, 5061];
-    let (classes, chance) = match state {
+    let (classes, chance): (&[u32], f32) = match state {
         0x6F00_2671 => (VIGOR, 0.15),
         0x6F00_2672 => (FIRE, 0.15),
         0x6F00_2675 => (POISON, 0.15),
         0x6F00_266E | 0x6F00_2670 | 0x6F00_2674 => (ARMOR, 1.0),
         _ => return None,
     };
-    Some(Kind::Ward { classes, chance })
+    Some(Kind::Ward {
+        classes: classes.to_vec(),
+        chance: Scale(vec![(0.0, chance)]),
+    })
+}
+
+/// What a reflective effect's external flags say of keeping effects off: its chance the same at
+/// any spellcraft, or along a line.
+mod keeps_off_flag {
+    pub const CONSTANT: u32 = 0x1;
+    pub const VARIABLE: u32 = 0x2;
 }
 
 /// A combination's flags (its effect's external flags): what it takes off of the effects it found.
@@ -246,11 +256,9 @@ pub enum Kind {
     Counter { effect: u32, chance: Scale },
     /// Held by its wearer, it takes from an attack's harm and sends some back.
     Watcher(Box<Watcher>),
-    /// Held by its wearer, it may keep off effects of these classes, by a chance.
-    Ward {
-        classes: &'static [u32],
-        chance: f32,
-    },
+    /// Held by its wearer, it may keep off effects of these classes (none named: of any), by a
+    /// chance at its spellcraft.
+    Ward { classes: Vec<u32>, chance: Scale },
     /// Anything else (kept as a record only).
     Other,
 }
@@ -508,6 +516,21 @@ impl EffectDef {
                 shares: flags & watcher_flag::SHARES != 0,
                 watches: flags & watcher_flag::HEALTH != 0 && flags & watcher_flag::ATTACKS != 0,
             }))
+        } else if is("ReflectiveEffect")
+            && flags & (keeps_off_flag::CONSTANT | keeps_off_flag::VARIABLE) != 0
+        {
+            let begin = number("m_fAbsorbProbBegin");
+            Kind::Ward {
+                classes: words("m_clsAbsorbList"),
+                chance: if flags & keeps_off_flag::CONSTANT != 0 {
+                    Scale(vec![(0.0, begin)])
+                } else {
+                    Scale(vec![
+                        (number("m_fAbsorbSpellcraftBegin"), begin),
+                        (number("m_fAbsorbSpellcraftEnd"), number("m_fAbsorbProbEnd")),
+                    ])
+                },
+            }
         } else if is("InstantVitalEffect") {
             Kind::InstantVital {
                 flags,

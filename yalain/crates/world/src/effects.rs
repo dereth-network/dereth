@@ -579,20 +579,18 @@ pub fn apply_on<S: Store>(
     }
 }
 
-/// Does a ward its target holds keep this effect off? One of each ward draws, by its own chance.
+/// Does a ward its target holds keep this effect off? The top of each class of ward draws, by its
+/// chance at its spellcraft. A use's own effects come on in the order its data lists them, the ward
+/// after what it would keep off, so it doesn't keep off its own.
 fn warded<S: Store>(s: &mut Server<S>, on: On, def: &EffectDef) -> bool {
-    let On::Player(world) = on else {
-        return false;
-    };
-    let Some(p) = s.players.get(&world) else {
-        return false;
-    };
-    let chances: Vec<f32> = p
-        .play
-        .effects
-        .iter()
-        .filter_map(|r| match s.effect_table.get(r.state)?.kind {
-            Kind::Ward { classes, chance } if classes.contains(&def.eq_class) => Some(chance),
+    let chances: Vec<f32> = applying(&s.effect_table, records_of(s, on))
+        .into_iter()
+        .filter_map(|r| match &s.effect_table.get(r.state)?.kind {
+            Kind::Ward { classes, chance }
+                if classes.is_empty() || classes.contains(&def.eq_class) =>
+            {
+                chance.at(r.spellcraft)
+            }
             _ => None,
         })
         .collect();
@@ -1859,6 +1857,9 @@ fn pulse_records<S: Store>(
             timeout: None,
             acting: me,
         };
+        if warded(s, On::Player(world), &d) {
+            continue;
+        }
         if add_quietly(s, net, On::Player(world), &d, cast, shape, clock).is_some()
             && d.fx != 0
             && shows_once(s, On::Player(world), d.fx)

@@ -151,6 +151,7 @@ what they see, not how it was done.
 - Gifts to a full pack now show up at once.
 - Balance and Featherweight now last as long as the aura, and show on the item.
 - Damage reflecting and absorbing effects now work, on players and creatures.
+- Protections like Extinguish Blaze and Cure Disease now keep their effects off.
 
 ## 0.1.2 (2026-11-03)
 

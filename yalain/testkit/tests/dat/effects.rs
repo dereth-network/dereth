@@ -597,7 +597,7 @@ fn the_counters_and_wards_read_as_the_data_defines_them() {
     assert_eq!(brittle.changes(30.0), [(0x4_0125, false, -50.0)]);
     assert_eq!(brittle.duration.at(30.0), Some(30.0));
     let ward = |s: u32| match &t.get(s).expect("read").kind {
-        Kind::Ward { classes, chance } => (classes.to_vec(), *chance),
+        Kind::Ward { classes, chance } => (classes.clone(), chance.at(30.0).expect("a chance")),
         k => panic!("{s:08X}: {k:?}"),
     };
     assert_eq!(ward(0x6F00_266E), (vec![22, 5061], 1.0));
@@ -663,6 +663,93 @@ fn the_watchers_read_as_the_data_defines_them() {
     // They go on as records.
     assert!(t.get(0x7000_070E).expect("read").client_visible());
     assert!(t.get(0x6F00_0186).expect("read").lasts());
+}
+
+/// The protections read with their lists and chances: Extinguish Blaze's along a line from a fifth
+/// at 1 to 0.7 at 50, Immolation's, Cure Disease's and the Blockers' always.
+/// Behaviour: server.effects.protections-read
+#[test]
+fn the_protections_read_as_the_data_defines_them() {
+    let p = Portal::open();
+    let t = p.effects(&[
+        0x7000_1F48,
+        0x7000_1F53,
+        0x7000_1F63,
+        0x7000_1F19,
+        0x6F00_21A9,
+        0x6F00_1141,
+    ]);
+    let ward = |s: u32| match &t.get(s).expect("read").kind {
+        Kind::Ward { classes, chance } => (classes.clone(), chance.clone()),
+        k => panic!("{s:08X}: {k:?}"),
+    };
+    let (blaze, chance) = ward(0x7000_1F48);
+    assert_eq!(blaze, [48, 1119, 5013]);
+    assert_eq!((chance.at(1.0), chance.at(50.0)), (Some(0.2), Some(0.7)));
+    let (immolation, chance) = ward(0x7000_1F53);
+    assert_eq!(immolation, [48, 5013]);
+    assert_eq!(chance.at(30.0), Some(1.0));
+    let (disease, chance) = ward(0x7000_1F63);
+    assert_eq!(disease, [49, 5014, 26, 4015, 5043, 5050]);
+    assert_eq!(chance.at(30.0), Some(1.0));
+    for s in [0x7000_1F19, 0x6F00_21A9, 0x6F00_1141] {
+        let (blocker, chance) = ward(s);
+        assert_eq!(blocker, [117], "{s:08X}");
+        assert_eq!(chance.at(30.0), Some(1.0));
+    }
+}
+
+/// No use of a skill and no aura keeps off its own: each effect after a protection in its list is
+/// of a class the protection leaves alone, over every skill and every aura they read.
+/// Behaviour: server.effects.protections-read
+#[test]
+fn no_skill_or_aura_keeps_off_its_own_effects() {
+    let p = Portal::open();
+    let skills = p.skills();
+    let mut lists: Vec<(String, Vec<u32>)> = skills
+        .skills
+        .iter()
+        .filter_map(|(k, d)| {
+            Some((
+                format!("skill {k}"),
+                d.usage.as_ref()?.target_effects.clone(),
+            ))
+        })
+        .collect();
+    let mut states: Vec<u32> = lists.iter().flat_map(|(_, l)| l.iter().copied()).collect();
+    // The aura that names a Blocker, with the skills' own.
+    states.push(0x6F00_0225);
+    states.sort_unstable();
+    states.dedup();
+    let t = p.effects(&states);
+    for d in t.effects.values() {
+        if let Kind::Aura(a) = &d.kind {
+            lists.push((format!("aura {:08X}", d.state), a.pulsed.clone()));
+        }
+    }
+    let mut wards = 0;
+    for (who, list) in &lists {
+        for (i, state) in list.iter().enumerate() {
+            let Some(Kind::Ward { classes, .. }) = t.get(*state).map(|d| &d.kind) else {
+                continue;
+            };
+            wards += 1;
+            for later in &list[i + 1..] {
+                let class = t.get(*later).map_or(0, |d| d.eq_class);
+                assert!(
+                    !classes.is_empty() && !classes.contains(&class),
+                    "{who}: {state:08X} would keep off {later:08X}"
+                );
+            }
+        }
+    }
+    assert!(wards >= 3, "the protections are among them: {wards}");
+    // The Blocker comes on after what it blocks.
+    let Some(Kind::Aura(a)) = t.get(0x6F00_0225).map(|d| &d.kind) else {
+        panic!("the aura")
+    };
+    assert_eq!(a.pulsed, [0x6F00_1140, 0x6F00_1141]);
+    assert_eq!(t.get(0x6F00_1140).map(|d| d.eq_class), Some(117));
 }
 
 /// A recipe that binds its product names it by the product's ordinal over the whole spinner range

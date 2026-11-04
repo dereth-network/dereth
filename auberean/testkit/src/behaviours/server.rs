@@ -2632,6 +2632,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.protection-keeps-off-its-classes",
+        says: "A protection in the data keeps off effects of the classes its list names, silently, by its chance \
+               at its record's spellcraft, the top of its class drawing; effects of other classes come on, \
+               and an aura's pulse is asked the same.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PROTECTION"),
+        station: "yalain-testkit::cpu::play::watchers::a_protection_keeps_off_what_it_names_by_its_chance_at_its_spellcraft",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.protections-read",
+        says: "The protections read with their lists and chances, and no skill or aura lists a protection before \
+               an effect it would keep off.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PROTECTION-READ"),
+        station: "yalain-testkit::dat::effects::the_protections_read_as_the_data_defines_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.effects.quest-rewards",
         says: "A quest step's effects are put on the player after its line and gifts, cast by the \
                player at spellcraft 1, then its text, then the update; a blessing that raises a \

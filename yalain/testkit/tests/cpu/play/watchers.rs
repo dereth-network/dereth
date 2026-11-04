@@ -713,3 +713,118 @@ fn a_specials_strike_and_a_specials_missile_are_answered() {
         }
     }
 }
+
+/// Harm over time of a class a protection names does not come on while the protection is held, and
+/// one of another class does; when a chance runs along a line, the record's spellcraft reads it.
+/// Behaviour: server.effects.protection-keeps-off-its-classes
+#[test]
+fn a_protection_keeps_off_what_it_names_by_its_chance_at_its_spellcraft() {
+    let (mut h, _, me, _) = beside(0.0);
+    tall(&mut h, me);
+    let world = world_of(&h, me);
+    let on = On::Player(world);
+    const FIRE: u32 = 0x6F00_7405;
+    const COLD: u32 = 0x6F00_7406;
+    const PROTECTION: u32 = 0x6F00_7407;
+    let of = |state, class| EffectDef {
+        kind: Kind::InstantVital {
+            flags: 1,
+            change: Scale(vec![(0.0, -1.0)]),
+        },
+        duration: Scale::default(),
+        ..def(state, class, watcher(0.0, 0.0))
+    };
+    for d in [of(FIRE, 48), of(COLD, 49)] {
+        h.server.effect_table.effects.insert(d.state, d);
+    }
+    h.server.effect_table.effects.insert(
+        PROTECTION,
+        EffectDef {
+            kind: Kind::Ward {
+                classes: vec![48, 5013],
+                chance: Scale(vec![(1.0, 0.2), (50.0, 0.7)]),
+            },
+            ..def(PROTECTION, 87, watcher(0.0, 0.0))
+        },
+    );
+    let clock = h.clock();
+    let cast = Cast {
+        spellcraft: 50.0,
+        ..Cast::default()
+    };
+    assert!(effects::apply_on(
+        &mut h.server,
+        &mut h.net,
+        on,
+        PROTECTION,
+        cast,
+        clock
+    ));
+    let through = |state: u32, h: &mut Harness| {
+        (0..4000)
+            .filter(|_| {
+                effects::apply_on(&mut h.server, &mut h.net, on, state, Cast::default(), clock)
+            })
+            .count()
+    };
+    let fire = through(FIRE, &mut h);
+    assert!(
+        (1000..1400).contains(&fire),
+        "at 50, 0.7 kept off: {fire} of 4,000 through"
+    );
+    assert_eq!(through(COLD, &mut h), 4000, "of another class");
+}
+
+/// A pulse of an aura does not put on what a Blocker it put on before keeps off, and puts on the
+/// rest; the first pulse holds no Blocker yet and puts on both.
+/// Behaviour: server.effects.protection-keeps-off-its-classes
+#[test]
+fn a_later_pulse_is_kept_off_by_the_blocker_of_the_first() {
+    let (mut h, _, me, _) = beside(0.0);
+    let world = world_of(&h, me);
+    const SKIN: u32 = 0x6F00_7408;
+    const BLOCKER: u32 = 0x6F00_7409;
+    const AURA: u32 = 0x6F00_740A;
+    h.server
+        .effect_table
+        .effects
+        .insert(SKIN, def(SKIN, 117, watcher(0.0, 0.1)));
+    h.server.effect_table.effects.insert(
+        BLOCKER,
+        EffectDef {
+            kind: Kind::Ward {
+                classes: vec![117],
+                chance: Scale(vec![(0.0, 1.0)]),
+            },
+            ..def(BLOCKER, 118, watcher(0.0, 0.0))
+        },
+    );
+    h.server.effect_table.effects.insert(
+        AURA,
+        EffectDef {
+            kind: Kind::Aura(yalain_world::effect_defs::Aura {
+                pulsed: vec![SKIN, BLOCKER],
+                targets: yalain_world::effect_defs::aura_target::PLAYER,
+                range: 300.0,
+            }),
+            ..def(AURA, 1401, watcher(0.0, 0.0))
+        },
+    );
+    let clock = h.clock();
+    let count = |h: &Harness, state: u32| {
+        effects::records_of(&h.server, On::Player(world))
+            .iter()
+            .filter(|e| e.state == state)
+            .count()
+    };
+    effects::aura_on(&mut h.server, &mut h.net, world, AURA, 0, 30.0, clock);
+    let held = effects::aura_held(&h.server, world, AURA).expect("on");
+    assert_eq!(
+        (count(&h, SKIN), count(&h, BLOCKER)),
+        (1, 1),
+        "the first pulse"
+    );
+    effects::pulse(&mut h.server, &mut h.net, world, held.eid, clock);
+    assert_eq!(count(&h, SKIN), 1, "kept off");
+    assert_eq!(count(&h, BLOCKER), 2, "the rest comes on");
+}
