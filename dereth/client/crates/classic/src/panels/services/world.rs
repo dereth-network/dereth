@@ -150,7 +150,10 @@ impl Panel for MapHouse {
         (!self.house).then_some((0, 25))
     }
     fn frame(&self, c: &Context<'_>) -> PanelFrame {
-        let mut f = if self.house {
+        let has_house =
+            dereth_client_contract::era::EraSurface::House.offered(c.game.era_features());
+        let house = self.house && has_house;
+        let mut f = if house {
             housing::house(c)
         } else {
             let mut f = tiled(300, c.layout.side_height() - 25, "06001398");
@@ -208,15 +211,31 @@ impl Panel for MapHouse {
                     );
                 }
             }
-            if let Some((x, y)) = c.game.house_data().and_then(|h| h.location) {
+            if let Some((x, y)) = c
+                .game
+                .house_data()
+                .filter(|_| has_house)
+                .and_then(|h| h.location)
+            {
                 let (x, y) = marker(x, y);
                 f.image("06002279", rect(x - 4, y - 4, 8, 8), false, true);
             }
             f
         };
         f = translated(f, 25, c.layout.side_height());
-        for (id, text, x) in [("map", "Map", 0), ("house", "House", 138)] {
-            let active = self.house == (id == "house");
+        // With no House tab there is nothing to choose between: the row is the page's title, as
+        // every other side page's is, and the map keeps its place under it.
+        if !has_house {
+            f.image("0600127B", rect(0, 0, 276, 25), true, false);
+            label_color(&mut f, rect(2, 2, 272, 21), "Map", "16-7", MAP_TITLE);
+        }
+        let tabs: &[(&str, &str, i32)] = if has_house {
+            &[("map", "Map", 0), ("house", "House", 138)]
+        } else {
+            &[]
+        };
+        for &(id, text, x) in tabs {
+            let active = house == (id == "house");
             let c = f.button(id, rect(x, 0, 138, 25), text, true);
             c.images = Some(
                 [
@@ -252,6 +271,9 @@ impl Panel for MapHouse {
         }
     }
     fn event(&mut self, e: ControlEvent, c: &Context<'_>) -> Vec<PanelAction> {
+        let has_house =
+            dereth_client_contract::era::EraSurface::House.offered(c.game.era_features());
+        self.house &= has_house;
         if let ControlEvent::Pointer { x, y, pressed } = e {
             let y = y - 25;
             let mut out = Vec::new();
@@ -273,7 +295,7 @@ impl Panel for MapHouse {
         if let ControlEvent::Activate(id) = e {
             match id.as_str() {
                 "map" => self.house = false,
-                "house" => self.house = true,
+                "house" => self.house = has_house,
                 "close" => return vec![PanelAction::Close],
                 _ => {}
             }
@@ -285,6 +307,9 @@ impl Panel for MapHouse {
         vec![]
     }
 }
+
+/// The colour of a side page's title.
+const MAP_TITLE: u32 = 0xffd2_d2c8;
 
 fn map_region(x: i32, y: i32, profile: EraId) -> Option<MapNote> {
     shared_map::notes(profile)

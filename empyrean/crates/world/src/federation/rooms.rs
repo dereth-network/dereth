@@ -60,6 +60,33 @@ pub fn global_slot(w: &World) -> Option<RoomSlot> {
     }
 }
 
+/// The room that carries the Dereth Network's Global room on this world, when the network is on.
+#[must_use]
+pub fn network_room(w: &World) -> Option<RoomSlot> {
+    if w.federation.settings.enabled {
+        global_slot(w)
+    } else {
+        None
+    }
+}
+
+/// Whether the room `channel` is open to players here: the game's own rooms on a world with them,
+/// and on any world the one carrying the network's Global room.
+#[must_use]
+pub fn room_open(w: &World, channel: u32) -> bool {
+    w.era.features.global_chat_rooms || network_room(w).is_some_and(|r| r.channel() == channel)
+}
+
+/// Whether this world's players use the chat rooms at all.
+#[must_use]
+pub fn chat_rooms_in_use(w: &World) -> bool {
+    use crate::managers::property_manager;
+    property_manager::get_bool(w, "use_turbine_chat", false, true).item
+        && (w.era.features.global_chat_rooms
+            || w.era.features.allegiance_chat
+            || network_room(w).is_some())
+}
+
 /// The world's own rooms whose lines go to the hub to be mirrored into Discord now, as the hub
 /// last said: never the one carrying the Global room.
 #[must_use]

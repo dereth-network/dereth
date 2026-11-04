@@ -288,7 +288,7 @@ impl Front {
             "world": self.world_json(&w),
             "dat_sets": taken,
             "refused_sets": refused,
-            "classic_sets": choices::classic_sets_for(&self.state),
+            "classic_sets": choices::classic_sets_for(&self.state, &w),
             "launch": launch::describe(&w),
             "args": launch::describe(&w).args(),
             "prefs": self.state.world_prefs.get(slug),
@@ -510,12 +510,12 @@ impl Front {
             }
         }
         let mut ids = Vec::new();
-        for (kind, files) in [(SetKind::Modern, modern), (SetKind::Classic, classic)] {
-            let existing = self
-                .state
-                .dat_sets
-                .iter()
-                .position(|s| s.path == path && s.kind == kind);
+        // A pair from 1999 is its own kind, which a Launch world needs.
+        let pair = SetKind::of_pair(&classic);
+        for (kind, files) in [(SetKind::Modern, modern), (pair, classic)] {
+            let existing = self.state.dat_sets.iter().position(|s| {
+                s.path == path && (s.kind == kind || s.kind.is_pair() && kind.is_pair())
+            });
             if files.is_empty() {
                 if let Some(i) = existing {
                     self.state.dat_sets.remove(i);
@@ -525,6 +525,7 @@ impl Front {
             match existing {
                 Some(i) => {
                     self.state.dat_sets[i].files = files;
+                    self.state.dat_sets[i].kind = kind;
                     ids.push(self.state.dat_sets[i].id.clone());
                 }
                 None => {

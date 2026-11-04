@@ -84,6 +84,45 @@ pub fn duration_text(duration: f64) -> Option<String> {
     }
 }
 
+/// The spell examination's duration on a world with a spell economy: the range a cast can land in.
+/// A range reaching past a minute and a half reads in minutes.
+#[must_use]
+pub fn duration_range_text(duration: f64) -> Option<String> {
+    if duration == -1.0 || duration <= 0.0 {
+        return None;
+    }
+    let (low, high) = (duration * 0.75, duration * 1.25);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    if high > 90.0 {
+        Some(format!(
+            "Duration: {:.1}-{:.1} min.",
+            low * RECIPROCAL_MINUTE,
+            high * RECIPROCAL_MINUTE
+        ))
+    } else {
+        Some(format!("Duration: {}-{} sec.", low as u32, high as u32))
+    }
+}
+
+/// The duration a world's spell panels show: a range with a spell economy, else the one number.
+#[must_use]
+pub fn duration_text_for(
+    duration: f64,
+    features: dereth_primitives::EraFeatures,
+) -> Option<String> {
+    if features.spell_economy {
+        duration_range_text(duration)
+    } else {
+        duration_text(duration)
+    }
+}
+
+/// A spell's charge as its panels show it.
+#[must_use]
+pub fn charge_text(charge: f32) -> String {
+    format!("Charge: {}%", dereth_rules::spell_charge::percent(charge))
+}
+
 /// The spell examination's range arm. `None` is the exact-zero arm, on which the client clears
 /// the text rather than writing `"Range: 0.0 yds."`.
 #[must_use]
@@ -190,5 +229,33 @@ impl SpellIconLayers {
             Some(SpellBadge::SelfTargeted) => Some(3),
             None => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod era_text_tests {
+    //! Behaviour: none (a world's text, from the 1999 panel's own)
+    use super::*;
+
+    #[test]
+    fn a_duration_reads_as_its_range_and_a_charge_as_a_percent() {
+        assert_eq!(
+            duration_range_text(1800.0).as_deref(),
+            Some("Duration: 22.5-37.5 min.")
+        );
+        assert_eq!(
+            duration_range_text(60.0).as_deref(),
+            Some("Duration: 45-75 sec."),
+            "the top of the range is under a minute and a half"
+        );
+        assert_eq!(duration_range_text(0.0), None);
+        assert_eq!(charge_text(0.94), "Charge: 94%");
+        let with = dereth_primitives::EraFeatures::LAUNCH;
+        let without = dereth_primitives::EraFeatures::END_OF_RETAIL;
+        assert!(duration_text_for(1800.0, with).unwrap().contains('-'));
+        assert_eq!(
+            duration_text_for(1800.0, without).as_deref(),
+            Some("Duration: 30 min.")
+        );
     }
 }

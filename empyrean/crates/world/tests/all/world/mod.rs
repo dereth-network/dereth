@@ -7,6 +7,7 @@ pub(crate) mod landblock_object_lifecycle;
 pub(crate) mod landblocks;
 pub(crate) mod object_store;
 pub(crate) mod performance;
+mod portal_storm;
 pub(crate) mod server_properties;
 pub(crate) mod spawning;
 pub(crate) mod terrain;
@@ -14,5 +15,7 @@ pub(crate) mod world_loop;
 use crate::content::emotes;
 use crate::inventory::containers;
 pub(crate) mod build_information;
+#[cfg(feature = "launch-content")]
+mod launch_content;
 pub(crate) mod object_lifetime;
 pub(crate) mod positions;

@@ -746,6 +746,8 @@ fn classic_magic_filters_gate_inputs_independently_of_skill_loading() {
                 void_magic: void,
                 spell_level_eight: eight,
                 spell_favorite_tabs: 7,
+                idle_scroll_thumb: true,
+                one_effects_panel: false,
             }),
             ..Default::default()
         };

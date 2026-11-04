@@ -622,6 +622,35 @@ impl ListSkin {
     };
 }
 
+/// A panel's frame as its world draws it: a world whose scroll bars draw no thumb with nothing to
+/// scroll has those thumbs taken off.
+pub fn era_frame(panel: &mut dyn Panel, context: &Context<'_>) -> PanelFrame {
+    let mut frame = panel.frame(context);
+    frame.apply_era_facts(context.game.era_ui());
+    frame
+}
+
+impl PanelFrame {
+    fn apply_era_facts(&mut self, facts: dereth_client_contract::era::EraUiFacts) {
+        if facts.idle_scroll_thumb {
+            return;
+        }
+        for control in &mut self.controls {
+            if let ControlKind::ScrollBar {
+                min,
+                max,
+                thumb_size,
+                ..
+            } = &mut control.kind
+            {
+                if *max <= *min {
+                    *thumb_size = 0;
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PanelFrame {
     pub screen: Screen,
@@ -1082,6 +1111,41 @@ pub fn configure_keyboard() -> PanelAction {
     }
 }
 
+/// The system the classic panel `id` belongs to, if it follows one.
+#[must_use]
+pub fn era_surface_of(id: &str) -> Option<dereth_client_contract::era::EraSurface> {
+    use dereth_client_contract::era::EraSurface as S;
+    Some(match id {
+        "journal" => S::Journal,
+        "contracts" => S::Contracts,
+        "titles" => S::Titles,
+        "house" | "maintenance" => S::House,
+        "game-center" => S::Chess,
+        "trade" | "trade-intro" => S::Trade,
+        "salvage" => S::Salvage,
+        "spell-research" => S::SpellResearch,
+        _ => return None,
+    })
+}
+
+/// The system the paper doll's accessory at `index` belongs to, if it follows one of its own: the
+/// cloak and the trinket. The sigils follow the character's unlocks.
+#[must_use]
+pub fn accessory_surface(index: usize) -> Option<dereth_client_contract::era::EraSurface> {
+    use dereth_client_contract::era::EraSurface as S;
+    match index {
+        0 => Some(S::CloakSlot),
+        1 => Some(S::TrinketSlot),
+        _ => None,
+    }
+}
+
+/// Whether a world playing `features` refuses the classic panel `id`.
+#[must_use]
+pub fn era_refuses(id: &str, features: dereth_primitives::EraFeatures) -> bool {
+    era_surface_of(id).is_some_and(|s| !s.offered(features))
+}
+
 /// Every classic panel, by id.
 #[must_use]
 pub fn factory(
@@ -1097,4 +1161,62 @@ pub fn factory(
         .or_else(|| game::make(id))
         .or_else(|| services::make(id))
         .or_else(|| crate::help::make(id, resources.help.as_ref()))
+}
+
+#[cfg(test)]
+mod idle_scroll_thumb_tests {
+    use super::*;
+    use dereth_client_contract::era::EraUiFacts;
+    use dereth_primitives::EraId;
+
+    fn bar_frame(max: i32) -> PanelFrame {
+        let mut frame = PanelFrame::new(100, 100);
+        frame.control(
+            "bar",
+            Rect {
+                x: 0,
+                y: 0,
+                w: 20,
+                h: 100,
+            },
+            ControlKind::ScrollBar {
+                min: 0,
+                max,
+                value: 0,
+                page: 100,
+                step: 10,
+                vertical: true,
+                arrow_size: 20,
+                thumb_size: 28,
+            },
+            true,
+        );
+        frame
+    }
+
+    fn thumb(frame: &PanelFrame) -> i32 {
+        match frame.controls[0].kind {
+            ControlKind::ScrollBar { thumb_size, .. } => thumb_size,
+            _ => unreachable!("a scroll bar"),
+        }
+    }
+
+    /// Behaviour: none (how a Launch world's bars differ from the later ones)
+    #[test]
+    fn a_launch_bar_with_nothing_to_scroll_has_no_thumb_and_a_later_one_keeps_it() {
+        let launch = EraUiFacts::for_profile(EraId::Launch);
+        let mut frame = bar_frame(0);
+        frame.apply_era_facts(launch);
+        assert_eq!(thumb(&frame), 0, "the list fits");
+
+        let mut frame = bar_frame(32);
+        frame.apply_era_facts(launch);
+        assert_eq!(thumb(&frame), 28, "the list overflows");
+
+        for later in [EraId::Infiltration, EraId::Eor] {
+            let mut frame = bar_frame(0);
+            frame.apply_era_facts(EraUiFacts::for_profile(later));
+            assert_eq!(thumb(&frame), 28, "{later:?}");
+        }
+    }
 }

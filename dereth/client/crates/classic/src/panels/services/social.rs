@@ -569,6 +569,10 @@ impl Social {
                     true,
                 ),
             ] {
+                // A world without open fellowships has no such button.
+                if id == "open" && !c.game.era_features().fellowship_open {
+                    continue;
+                }
                 if leader || id == "recruit" {
                     social_button(&mut f, id, rect(x, y, 85, 27), text, enabled);
                 }
@@ -657,6 +661,13 @@ impl Social {
                     false,
                 ),
             ] {
+                // A box for what the world lacks is left out, as on the options page.
+                let features = c.game.era_features();
+                if dereth_client_contract::options::sheet::row_of_option(p)
+                    .is_some_and(|row| !row.needs.met(Some(&features)))
+                {
+                    continue;
+                }
                 f.check(
                     id,
                     rect(25, y, 270, 13),

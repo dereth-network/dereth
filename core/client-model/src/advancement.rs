@@ -188,6 +188,76 @@ mod tests {
         }
     }
 
+    /// Behaviour: presentation.era.a-launch-creation-bonus-is-experience
+    /// A specialized skill with the creation bonus as experience shows 10 ranks from the
+    /// experience alone, and the next rank costs that rank's price, not the first rank's.
+    #[test]
+    fn the_creation_bonus_as_experience_prices_the_next_rank_from_where_it_stands() {
+        let xp = XpTable {
+            trained_xp: vec![0, 58, 138, 243, 372, 526, 704],
+            specialized_xp: vec![0, 23, 56, 97, 149, 211, 283, 365, 457, 559, 671, 795],
+            ..xp_table()
+        };
+        let skills = {
+            use dereth_assets::tables::{SkillBase, SkillFormula};
+            let base = SkillBase {
+                description: String::new(),
+                name: String::new(),
+                icon: 0,
+                trained_cost: 6,
+                specialized_cost: 12,
+                category: 1,
+                chargen_use: 0,
+                min_level: 1,
+                formula: SkillFormula {
+                    w: 0,
+                    x: 1,
+                    y: 0,
+                    z: 1,
+                    attr1: 1,
+                    attr2: 0,
+                },
+                upper_bound: 0.0,
+                lower_bound: 0.0,
+                learn_mod: 0.0,
+            };
+            SkillTable {
+                id: DataId(0x0E00_0004),
+                buckets: 11,
+                skills: [(7u32, base.clone()), (8u32, base)].into(),
+            }
+        };
+        let mut q = Qualities::new();
+        let seeded =
+            |sac: Sac, level_from_pp: u16, pp: u32| dereth_protocol::types::qualities::Skill {
+                level_from_pp,
+                format_version: 1,
+                sac: sac as u32,
+                pp,
+                init_level: 0,
+                resistance_of_last_check: 0,
+                last_used_time: 0.0,
+            };
+        q.set_skill(7, seeded(Sac::Trained, 5, 526));
+        q.set_skill(8, seeded(Sac::Specialized, 10, 671));
+        assert_eq!(
+            dereth_rules::skills::inq_skill(&q, &skills, 7, true),
+            Some(5)
+        );
+        assert_eq!(
+            dereth_rules::skills::inq_skill(&q, &skills, 8, true),
+            Some(10)
+        );
+        assert_eq!(
+            dereth_rules::advancement::skill_cost_to_raise(&q, &skills, &xp, 7),
+            178
+        );
+        assert_eq!(
+            dereth_rules::advancement::skill_cost_to_raise(&q, &skills, &xp, 8),
+            124
+        );
+    }
+
     /// Oracle: §6.1 — the cost is measured against `_pp`, so a partially-filled level costs less.
     #[test]
     fn raise_costs_are_measured_against_experience_already_sunk() {

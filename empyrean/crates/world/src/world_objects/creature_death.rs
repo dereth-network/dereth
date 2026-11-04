@@ -96,10 +96,14 @@ fn chat(msg: &str) -> crate::network::game_messages::game_message::GameMessage {
 pub fn death_treasure(
     w: &World,
     this: ObjectGuid,
-) -> Option<Arc<empyrean_content::models::world::treasure_death::TreasureDeath>> {
+) -> Option<empyrean_content::loot::DeathLootProfile> {
     let death_treasure_type = obj(w, this).death_treasure_type()?;
     // DIVERGE: the era's profile for a creature (the Infiltration era scales its chances by tier).
-    crate::factories::loot_generation_factory::era_death_treasure(w, death_treasure_type, this)
+    crate::factories::loot_generation_factory::death_loot_profile(
+        w,
+        death_treasure_type,
+        Some(this),
+    )
 }
 
 // ACE: Creature.OnDeath
@@ -322,11 +326,11 @@ pub fn on_death_grant_xp(w: &mut World, this: ObjectGuid) {
 
         let damage_percent = total_damage / total_health;
 
-        let (xp_override, luminance_award) = {
+        let (kill_xp, luminance_award) = {
             let o = obj(w, this);
-            (o.xp_override(), o.luminance_award())
+            (kill_xp(w, o), o.luminance_award())
         };
-        let xp: f32 = xp_override.unwrap_or(0).cs_cast();
+        let xp: f32 = kill_xp.cs_cast();
         let total_xp = xp * damage_percent;
 
         let amount: i64 = math_round(f64::from(total_xp)).cs_cast();
@@ -345,6 +349,24 @@ pub fn on_death_grant_xp(w: &mut World, this: ObjectGuid) {
             player_earn_luminance(w, player_damager, total_luminance, XpType::Kill);
         }
     }
+}
+
+/// Not ACE: the experience a creature pays for its kill. ACE's world holds it on the creature; a
+/// world with [`empyrean_common::era::EraFormulas::kill_xp_from_level`] pays a levelled creature
+/// from its level unless the creature sets its own, 0 included, and an unlevelled one nothing.
+#[must_use]
+pub fn kill_xp(w: &World, o: &WorldObject) -> i32 {
+    if !w.era.formulas.kill_xp_from_level {
+        return o.xp_override().unwrap_or(0);
+    }
+    let level = o.level().unwrap_or(0);
+    if level <= 0 {
+        return 0;
+    }
+    o.xp_override().unwrap_or_else(|| {
+        i32::try_from(empyrean_common::era::EraFormulas::kill_xp_for_level(level))
+            .unwrap_or(i32::MAX)
+    })
 }
 
 // ACE: Creature.OnDeath_HandleKillTask
@@ -802,7 +824,9 @@ pub fn create_corpse(
                 );
                 send(w, this, [msg]);
 
-                if !dropped.is_empty() {
+                // DIVERGE: V479, a world without corpse location notices (May 2001) keeps the
+                // position but tells the player nothing.
+                if !dropped.is_empty() && w.era.features.corpse_location_notices {
                     let coords =
                         crate::entity::position_extensions::get_map_coord_str(&corpse_location)
                             .unwrap_or_default();
@@ -845,6 +869,12 @@ pub fn create_corpse(
         }
     } else {
         crate::world_objects::corpse::set_is_monster(w, corpse, true);
+
+        // DIVERGE: an era's monster corpse lifetime (`EraFormulas::monster_corpses`, V476): 90
+        // seconds before November 2002, the corpse's own rot time after.
+        if let Some(seconds) = w.era.formulas.monster_corpses.seconds() {
+            obj_mut(w, corpse).set_time_to_rot(Some(seconds));
+        }
 
         if killer.is_none_or(|k| !k.is_olthoi_player) {
             generate_treasure(w, this, killer, Some(corpse));
@@ -911,6 +941,16 @@ pub fn create_corpse(
         for item in container_inventory(w, corpse) {
             dispatch::save_biota_to_database::save_biota_to_database(w, item, true);
         }
+    }
+
+    // DIVERGE: an era's limit on a character's corpses in the world
+    // (`EraFormulas::player_corpse_limit`, V475), once the new one is in it.
+    if player
+        && w.objects
+            .get(corpse)
+            .is_some_and(|c| c.current_landblock.is_some())
+    {
+        crate::world_objects::corpse::enforce_player_corpse_limit(w, this);
     }
 
     // Not ACE (V203): a corpse whose `EnterWorld` failed is unreferenced once this returns (ACE's
@@ -1043,6 +1083,9 @@ fn generate_treasure_olthoi(
         return;
     };
 
+    let empyrean_content::loot::DeathLootProfile::Ace(death_treasure) = death_treasure else {
+        return;
+    };
     let Some(slag) = loot_generation_factory_roll_slag(w, &death_treasure) else {
         return;
     };
@@ -1296,9 +1339,9 @@ fn insert_new_object(w: &mut World, wo: WorldObject) -> ObjectGuid {
 /// `LootGenerationFactory.CreateRandomLootObjects(profile)` (4.10); the items join `World.objects`.
 fn loot_generation_factory_create_random_loot_objects(
     w: &mut World,
-    profile: &empyrean_content::models::world::treasure_death::TreasureDeath,
+    profile: &empyrean_content::loot::DeathLootProfile,
 ) -> Vec<ObjectGuid> {
-    let items = crate::factories::loot_generation_factory::create_random_loot_objects(w, profile);
+    let items = crate::factories::loot_generation_factory::create_death_loot(w, profile);
     items
         .into_iter()
         .map(|wo| insert_new_object(w, wo))

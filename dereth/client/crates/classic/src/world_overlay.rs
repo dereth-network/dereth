@@ -474,6 +474,8 @@ fn action_hint(world: &World, id: ObjectId) -> Hint {
         2 => "Double click to pick up",
         3 => "Double click to wield",
         4 => "Double click to wear (if there's room)",
+        // Nothing happens on a world without trade, so nothing is offered.
+        5 if !world.era_features.trade => return Hint::Clear,
         5 => {
             return Hint::Set(format!(
                 "Double click to trade items with {}",
@@ -761,6 +763,24 @@ mod tests {
         w.pwd.container_id = Some(ObjectId(1));
         w.pwd.combat_use = Some(1);
         assert_eq!(classify(&world, id), 3);
+    }
+    /// Behaviour: presentation.era.a-double-click-on-a-player-does-nothing-without-trade
+    #[test]
+    fn another_player_offers_a_trade_only_on_a_world_with_it() {
+        let mut world = world();
+        let mut other = Weenie::new(ObjectId(3));
+        other.pwd.name = "Someone".into();
+        other.pwd.obj_type = 0x10;
+        other.pwd.bitfield = 4 | 8;
+        other.pwd.useability = Some(1);
+        world.tables.weenies.insert(ObjectId(3), other);
+        assert_eq!(classify(&world, ObjectId(3)), 5);
+        assert!(matches!(
+            action_hint(&world, ObjectId(3)),
+            Hint::Set(text) if text.starts_with("Double click to trade")
+        ));
+        world.era_features.trade = false;
+        assert!(matches!(action_hint(&world, ObjectId(3)), Hint::Clear));
     }
     #[test]
     fn creature_noncombat_hint_preserves_prior_text_and_hidden_objects_leave_hover() {

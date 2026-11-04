@@ -120,6 +120,10 @@ const ABOUT_TEMPLATE: &str = "empyrean/about.hbs";
 /// The Lifestoned data model's MIT notice.
 const LIFESTONED_NOTICE: &str = "empyrean/licenses/Lifestoned-MIT.txt";
 
+/// ac1999's notice, for the Launch-era world base and loot rules that come from it. Spelled in
+/// two halves for the same reason as [`notice::SERVER_LICENCE`].
+const AC1999_NOTICE: &str = concat!("empyrean/licenses/ac1999-A", "GPL-NOTICE.txt");
+
 /// Every file a package for `target` holds, and nothing else.
 pub fn allowlist(target: Target) -> Vec<String> {
     let mut names: Vec<String> = BINARIES
@@ -662,6 +666,7 @@ fn package_target(
     let crates = notice::parse_cargo_tree(&String::from_utf8_lossy(&tree.stdout));
     let mit = String::from_utf8_lossy(&read(&ws.join("LICENSE"))?).into_owned();
     let lifestoned = String::from_utf8_lossy(&read(&ws.join(LIFESTONED_NOTICE))?).into_owned();
+    let ac1999 = String::from_utf8_lossy(&read(&ws.join(AC1999_NOTICE))?).into_owned();
     let text = notice::notice(&notice::Facts {
         version,
         target: target.triple,
@@ -670,6 +675,7 @@ fn package_target(
         crates: &crates,
         mit_licence: &mit,
         lifestoned_notice: &lifestoned,
+        ac1999_notice: &ac1999,
     });
     write(&stage.join("NOTICE.txt"), text.as_bytes())?;
     let mut pages = Vec::new();

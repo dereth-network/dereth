@@ -35,7 +35,7 @@ fn spells(game: &dyn GameView) -> Vec<&SpellEntry> {
 }
 /// Whether the world has spell research: the Create Spell page is shown only where it does.
 pub fn research_on(game: &dyn GameView) -> bool {
-    game.era_features().spell_research
+    dereth_client_contract::era::EraSurface::SpellResearch.offered(game.era_features())
 }
 
 /// The magic window's tabs and the close button. `page` is the shown one: 0 the spellbook, 1 the
@@ -475,6 +475,7 @@ impl Panel for Effects {
         }
     }
     fn frame(&self, ctx: &Context<'_>) -> PanelFrame {
+        let one_panel = ctx.game.era_ui().one_effects_panel;
         let height = ctx.layout.side_height();
         let mut f = PanelFrame::new(300, height);
         // Stretched, the list grows and the description keeps to the bottom.
@@ -492,7 +493,9 @@ impl Panel for Effects {
         text(
             &mut f,
             rect(2, 2, 272, 21),
-            if self.beneficial {
+            if one_panel {
+                "Spells in Effect"
+            } else if self.beneficial {
                 "Beneficial Spells in Effect"
             } else {
                 "Harmful Spells in Effect"
@@ -507,7 +510,7 @@ impl Panel for Effects {
             .game
             .active_effects()
             .into_iter()
-            .filter(|e| e.beneficial == self.beneficial)
+            .filter(|e| one_panel || e.beneficial == self.beneficial)
             .collect();
         rows.sort_by(|a, b| a.name.cmp(&b.name));
         let offset = self

@@ -25,6 +25,7 @@
 pub mod admin_channel;
 pub mod config_file;
 pub mod dat_directory;
+pub mod dat_identity;
 pub mod database_manager;
 pub mod federation_link;
 pub mod guid_manager_boot;

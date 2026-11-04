@@ -2084,7 +2084,11 @@ pub fn usage_limit_lines(p: &AppraisalView) -> Vec<ItemInfo> {
         blank(&mut out, &mut drew);
         push_item_info(
             &mut out,
-            format!("Use requires {name} of at least {level}."),
+            if p.launch_wording {
+                format!("Your {name} skill must be {level} or greater to use this item.")
+            } else {
+                format!("Use requires {name} of at least {level}.")
+            },
             true,
             0,
         );
@@ -2197,6 +2201,90 @@ pub fn activation_requirement_lines(p: &AppraisalView) -> Vec<ItemInfo> {
     activation_requirement_lines_for(p, crate::DisplayVariant::Modern)
 }
 
+/// What an item says it is for at Launch, from where it goes and what it is.
+#[must_use]
+pub fn launch_use_hints(p: &AppraisalView) -> Vec<&'static str> {
+    use dereth_rules::weenie::item_type;
+    /// Armor and clothing slots; weapon, shield and ammunition slots; jewelry slots.
+    const WORN: u32 = 0x7FFF;
+    const HELD: u32 = 0x01F0_0000;
+    const JEWELRY: u32 = 0x000F_8000;
+    const SHIELD: u32 = 0x0020_0000;
+    const AMMUNITION: u32 = equip::AMMUNITION;
+    let at = p.valid_locations;
+    let mut out = Vec::new();
+    if at & JEWELRY != 0 {
+        out.push(if p.wielded {
+            "Use this item to take it off."
+        } else {
+            "Use this item, or drag it to the appropriate jewelry slot on the Inventory Panel, to wear it."
+        });
+        if at & 0x8000 != 0 {
+            out.push("Worn on neck.");
+        }
+        if at & 0x0003_0000 != 0 {
+            out.push("Worn on wrist.");
+        }
+        if at & 0x000C_0000 != 0 {
+            out.push("Worn on finger.");
+        }
+    } else if at & HELD != 0 {
+        out.push(if p.wielded {
+            "Use this item to unwield it."
+        } else if at & AMMUNITION != 0 {
+            "Use this item, or drag it to the ammunition slot on the Inventory Panel, to wield it."
+        } else if at & SHIELD != 0 {
+            "Use this item, or drag it onto the shield slot in the Inventory Panel, to wield it."
+        } else {
+            "Use this item, or drag it to the weapon slot on the Inventory Panel, to wield it."
+        });
+    } else if at & WORN != 0 {
+        out.push(if p.wielded {
+            "Use this item to take it off."
+        } else {
+            "Use this item, or drag it onto the character in the Inventory Panel, to wear it."
+        });
+    } else if p.obj_type & item_type::FOOD != 0 {
+        out.push("Use this item to eat it.");
+    } else if p.obj_type & item_type::WRITABLE != 0 {
+        out.push("Use this item to read it or write in it.");
+    }
+    out
+}
+
+/// An item's activation requirements as they read at Launch: a sentence each.
+fn launch_activation_lines(p: &AppraisalView) -> Vec<ItemInfo> {
+    let mut out = Vec::new();
+    if let Some(v) = p.item_difficulty.filter(|v| *v > 0) {
+        push_item_info(&mut out, format!("Difficulty: {v}."), true, 0);
+    }
+    if let Some(v) = p.allegiance_rank_limit.filter(|v| *v > 1) {
+        push_item_info(
+            &mut out,
+            format!("You must be of Allegiance Rank {v} or greater to use this item."),
+            true,
+            0,
+        );
+    }
+    if let Some(h) = p.heritage_group.as_deref() {
+        push_item_info(
+            &mut out,
+            format!("You must be {h} to use this item's magic."),
+            true,
+            0,
+        );
+    }
+    if let Some((name, level)) = &p.activation_skill {
+        push_item_info(
+            &mut out,
+            format!("Your {name} skill must be {level} or greater to use this item."),
+            true,
+            0,
+        );
+    }
+    out
+}
+
 fn activation_requirement_lines_for(
     p: &AppraisalView,
     variant: crate::DisplayVariant,
@@ -2204,6 +2292,9 @@ fn activation_requirement_lines_for(
     let mut out = Vec::new();
     if !p.success {
         return out;
+    }
+    if p.launch_wording {
+        return launch_activation_lines(p);
     }
     let mut terms: Vec<String> = Vec::new();
     if let Some(v) = p.item_difficulty {
@@ -2913,6 +3004,11 @@ pub fn item_description_runs_for(
                 }
             }
             Use => {
+                if p.launch_wording {
+                    for text in launch_use_hints(p) {
+                        push_item_info(&mut out, text.to_owned(), false, 0);
+                    }
+                }
                 if let Some(text) = &p.use_text {
                     push_item_info(&mut out, text.clone(), false, 0);
                 }
@@ -4706,5 +4802,92 @@ mod tests {
         assert_eq!(char_misc_rows(&p).last().unwrap().label, "");
         assert_eq!(crate::spell::school_name_in(5, Some(&p.world_rules)), "Any");
         assert_eq!(crate::spell::school_name_in(5, None), "Void Magic");
+    }
+}
+
+#[cfg(test)]
+mod launch_wording_tests {
+    //! Behaviour: none (the words, as the 1999 client's panel has them)
+    use super::*;
+
+    fn texts(lines: Vec<ItemInfo>) -> Vec<String> {
+        lines.into_iter().map(|l| l.text).collect()
+    }
+
+    #[test]
+    fn a_launch_item_says_what_it_is_for_from_where_it_goes_and_what_it_is() {
+        let hints = |valid_locations, obj_type, wielded| {
+            launch_use_hints(&AppraisalView {
+                valid_locations,
+                obj_type,
+                wielded,
+                ..Default::default()
+            })
+        };
+        assert_eq!(
+            hints(0x000C_0000, 0, false),
+            [
+                "Use this item, or drag it to the appropriate jewelry slot on the Inventory Panel, to wear it.",
+                "Worn on finger."
+            ]
+        );
+        assert_eq!(hints(0x8000, 0, true)[0], "Use this item to take it off.");
+        assert_eq!(hints(0x8000, 0, true)[1], "Worn on neck.");
+        assert_eq!(
+            hints(0x0010_0000, 1, false),
+            ["Use this item, or drag it to the weapon slot on the Inventory Panel, to wield it."]
+        );
+        assert_eq!(
+            hints(0x0020_0000, 2, false),
+            ["Use this item, or drag it onto the shield slot in the Inventory Panel, to wield it."]
+        );
+        assert_eq!(
+            hints(equip::AMMUNITION, 0x100, false),
+            ["Use this item, or drag it to the ammunition slot on the Inventory Panel, to wield it."]
+        );
+        assert_eq!(
+            hints(0x0010_0000, 1, true),
+            ["Use this item to unwield it."]
+        );
+        assert_eq!(
+            hints(0x1, 2, false),
+            ["Use this item, or drag it onto the character in the Inventory Panel, to wear it."]
+        );
+        assert_eq!(hints(0, 0x20, false), ["Use this item to eat it."]);
+        assert_eq!(
+            hints(0, 0x2000, false),
+            ["Use this item to read it or write in it."]
+        );
+        assert!(hints(0, 0x800, false).is_empty());
+    }
+
+    #[test]
+    fn a_launch_item_says_its_requirements_in_sentences_and_a_later_one_as_before() {
+        let view = |launch_wording| AppraisalView {
+            success: true,
+            launch_wording,
+            item_difficulty: Some(150),
+            allegiance_rank_limit: Some(3),
+            heritage_group: Some("Sho".into()),
+            activation_skill: Some(("Mana Conversion".into(), 200)),
+            use_requires_skill: Some((Some("Sword".into()), 40)),
+            ..Default::default()
+        };
+        let launch = view(true);
+        assert_eq!(
+            texts(activation_requirement_lines(&launch)),
+            [
+                "Difficulty: 150.",
+                "You must be of Allegiance Rank 3 or greater to use this item.",
+                "You must be Sho to use this item's magic.",
+                "Your Mana Conversion skill must be 200 or greater to use this item.",
+            ]
+        );
+        assert!(texts(usage_limit_lines(&launch))
+            .contains(&"Your Sword skill must be 40 or greater to use this item.".to_owned()));
+        let later = view(false);
+        assert!(texts(activation_requirement_lines(&later))[0].starts_with("Activation requires "));
+        assert!(texts(usage_limit_lines(&later))
+            .contains(&"Use requires Sword of at least 40.".to_owned()));
     }
 }

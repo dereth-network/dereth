@@ -433,27 +433,41 @@ impl Federation {
 /// # Errors
 /// What to choose instead, in words for a person.
 pub fn check_game_data(era: &str, dats: &Path) -> Result<(), String> {
-    if dereth_launch::eras::required_set(Some(era)) == SetKind::Classic {
-        if datset::is_classic_pair(&datset::scan_classic_dir(dats)) {
-            Ok(())
-        } else {
-            Err(format!(
-                "{} is drawn on the land from before Throne of Destiny: choose Classic data files (portal.dat and cell.dat) for it.",
-                dereth_launch::eras::label(Some(era))
-            ))
+    match dereth_launch::eras::required_set(Some(era)) {
+        SetKind::Original => {
+            let files = datset::scan_classic_dir(dats);
+            if datset::is_classic_pair(&files) && SetKind::of_pair(&files) == SetKind::Original {
+                Ok(())
+            } else {
+                Err(format!(
+                    "{} is drawn from the 1999 data files: choose a folder whose portal.dat and cell.dat are from 1999.",
+                    dereth_launch::eras::label(Some(era))
+                ))
+            }
         }
-    } else {
-        let files = datset::scan_dir(dats);
-        if [DatRole::Portal, DatRole::Cell, DatRole::Local]
-            .iter()
-            .all(|r| files.iter().any(|f| f.role == *r))
-        {
-            Ok(())
-        } else {
-            Err(format!(
-                "{} plays the Modern data files (client_portal.dat and the rest): choose those for it.",
-                dereth_launch::eras::label(Some(era))
-            ))
+        SetKind::Classic => {
+            if datset::is_classic_pair(&datset::scan_classic_dir(dats)) {
+                Ok(())
+            } else {
+                Err(format!(
+                    "{} is drawn on the land from before Throne of Destiny: choose Classic data files (portal.dat and cell.dat) for it.",
+                    dereth_launch::eras::label(Some(era))
+                ))
+            }
+        }
+        SetKind::Modern | SetKind::Auberean => {
+            let files = datset::scan_dir(dats);
+            if [DatRole::Portal, DatRole::Cell, DatRole::Local]
+                .iter()
+                .all(|r| files.iter().any(|f| f.role == *r))
+            {
+                Ok(())
+            } else {
+                Err(format!(
+                    "{} plays the Modern data files (client_portal.dat and the rest): choose those for it.",
+                    dereth_launch::eras::label(Some(era))
+                ))
+            }
         }
     }
 }
@@ -1435,6 +1449,16 @@ mod tests {
         let wrong = check_game_data("infiltration", &modern).unwrap_err();
         assert!(wrong.contains("Classic data files"), "{wrong}");
         assert!(check_game_data("eor", &classic).is_err());
+        // Launch plays the 1999 pair, and the February 2005 pair is not one.
+        let original = temp.path().join("original");
+        dereth_launch::testing::write_classic_set(&original, 105, 67);
+        check_game_data("launch", &original).unwrap();
+        let later = check_game_data("launch", &classic).unwrap_err();
+        assert!(later.contains("1999 data files"), "{later}");
+        assert!(
+            check_game_data("infiltration", &original).is_ok(),
+            "a pair is a pair"
+        );
     }
 
     /// A world that plays a Lyceum world keeps the era and game data it was published for; any

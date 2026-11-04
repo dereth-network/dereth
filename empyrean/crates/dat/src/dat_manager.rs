@@ -306,7 +306,10 @@ impl DatManager {
         // answers language reads).
         let pre_tod = source.container_era() == ContainerEra::Classic;
         let (expected_cell, expected_portal) = if pre_tod {
-            (ITERATION_CELL_FEBRUARY_2005, ITERATION_PORTAL_FEBRUARY_2005)
+            pre_tod_iterations(
+                source.header_iteration(DatDatabaseType::Portal),
+                source.header_iteration(DatDatabaseType::Cell),
+            )
         } else {
             (ITERATION_CELL, ITERATION_PORTAL)
         };
@@ -402,6 +405,28 @@ fn log_opened(db: &DatDatabase, expected: i32) {
     );
     if let Some(warning) = iteration_warning(db, expected) {
         log::warn!("{warning}");
+    }
+}
+
+/// The iterations a pair from before Throne of Destiny is compared with, cell then portal: its own
+/// when it is the 1999 pair, which is the Launch era's and no mismatch, else the February 2005
+/// ones. Which era a world may play over which files is the server's to refuse, not this log line's.
+#[must_use]
+pub fn pre_tod_iterations(portal: Option<u32>, cell: Option<u32>) -> (i32, i32) {
+    match (portal, cell) {
+        (Some(p), Some(c))
+            if dereth_primitives::EraId::Launch.expected_dats().admits(
+                ContainerEra::Classic,
+                Some(p),
+                Some(c),
+            ) =>
+        {
+            (
+                i32::try_from(c).unwrap_or(i32::MAX),
+                i32::try_from(p).unwrap_or(i32::MAX),
+            )
+        }
+        _ => (ITERATION_CELL_FEBRUARY_2005, ITERATION_PORTAL_FEBRUARY_2005),
     }
 }
 

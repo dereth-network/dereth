@@ -73,7 +73,7 @@ fn send(w: &mut World, this: ObjectGuid, msg: GameMessage) {
 }
 
 /// `ChangesDetected = true` (`WorldObject_Database.cs`).
-fn set_changes_detected(w: &mut World, this: ObjectGuid) {
+pub(crate) fn set_changes_detected(w: &mut World, this: ObjectGuid) {
     obj_mut(w, this).wo.world_object_database.changes_detected = true;
 }
 

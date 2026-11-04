@@ -475,7 +475,12 @@ mod tests {
         );
         assert_eq!(
             told(&w),
-            ["--era", "infiltration", "--era-features", "1:0002de"]
+            [
+                "--era",
+                "infiltration",
+                "--era-features",
+                "4:0002deffffffff00"
+            ]
         );
         assert_eq!(
             crate::choices::required_set_for(&w),
@@ -521,7 +526,7 @@ mod tests {
                 "--era",
                 "infiltration",
                 "--era-features",
-                "1:0000df",
+                "4:0000dfffffffff00",
                 "--logon-version",
                 "1802",
                 "--world-profile",

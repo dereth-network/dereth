@@ -2640,6 +2640,7 @@ dependencies = [
  "log",
  "memmap2",
  "rusqlite",
+ "serde",
  "serde_json",
  "thiserror 2.0.20",
 ]
@@ -2652,6 +2653,7 @@ dependencies = [
  "dereth-dat",
  "dereth-physics",
  "dereth-primitives",
+ "dereth-rules",
  "dereth-world-data",
  "empyrean-common",
  "empyrean-entity",
@@ -2816,6 +2818,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "sha2",
  "zlib-rs",
 ]
 

@@ -123,6 +123,8 @@ pub struct Creation {
     turning: Option<f32>,
     /// Asked to spend the attribute credits left before creating.
     confirm_unspent: bool,
+    /// Warned that the skill credits left are lost, on a world where they are.
+    confirm_lost_skills: bool,
     /// Whether the account may make what the third expansion added, for the Random buttons.
     tod: bool,
     /// The dice have been seeded from the client's start-up, as the other interfaces seed them.
@@ -291,6 +293,7 @@ impl Creation {
             heading: HEADING,
             turning: None,
             confirm_unspent: false,
+            confirm_lost_skills: false,
             tod: account_has_tod,
             seeded: false,
             attire_seen: false,
@@ -520,9 +523,25 @@ impl Creation {
             ) {
                 Some(0) => {
                     self.confirm_unspent = false;
-                    self.send(state, out);
+                    self.after_attribute_credits(state, out);
                 }
                 Some(_) => self.confirm_unspent = false,
+                None => {}
+            }
+        }
+        if self.confirm_lost_skills {
+            match crate::ui::pregame::message_box(
+                p,
+                ctx,
+                "Character Creation",
+                dereth_client_contract::era::LOST_SKILL_CREDITS_WARNING,
+                &["Create", "Cancel"],
+            ) {
+                Some(0) => {
+                    self.confirm_lost_skills = false;
+                    self.send(state, out);
+                }
+                Some(_) => self.confirm_lost_skills = false,
                 None => {}
             }
         }
@@ -555,6 +574,17 @@ impl Creation {
     fn create(&mut self, state: &GameState, out: &mut Outcome) {
         if self.state.remaining_atrb_credits > 0 {
             self.confirm_unspent = true;
+            return;
+        }
+        self.after_attribute_credits(state, out);
+    }
+
+    /// Past the attribute credits: asked about the skill credits on a world that loses them.
+    fn after_attribute_credits(&mut self, state: &GameState, out: &mut Outcome) {
+        if state.era.is_some_and(|f| {
+            dereth_client_contract::era::loses_skill_credits(f, self.state.remaining_skill_credits)
+        }) {
+            self.confirm_lost_skills = true;
             return;
         }
         self.send(state, out);
@@ -1606,6 +1636,43 @@ pub(crate) mod tests {
         c.status = None;
         c.follow_server(&refused, &mut out);
         assert_eq!(c.status, None);
+    }
+
+    /// Behaviour: presentation.era.unspent-skill-credits-warn-where-they-are-lost
+    #[test]
+    fn creating_with_skill_credits_left_asks_first_only_where_they_are_lost() {
+        let features = dereth_primitives::EraFeatures {
+            creation_credit_carry_over: false,
+            ..dereth_primitives::EraFeatures::ALL
+        };
+        let world = GameState {
+            era: Some(features),
+            ..lobby()
+        };
+        let mut c = creation();
+        c.name = "Aurelia".into();
+        c.state.remaining_atrb_credits = 0;
+        c.state.remaining_skill_credits = 3;
+        let mut out = Outcome::default();
+        c.create(&world, &mut out);
+        assert!(c.confirm_lost_skills, "asked");
+        assert!(out.requests.is_empty(), "before anything is sent");
+        // After the attribute credits' own question it is still asked.
+        c.confirm_lost_skills = false;
+        c.after_attribute_credits(&world, &mut out);
+        assert!(c.confirm_lost_skills);
+        // A world that carries them over does not ask; nor one not yet known.
+        let mut c = creation();
+        c.name = "Aurelia".into();
+        c.state.remaining_atrb_credits = 0;
+        c.state.remaining_skill_credits = 3;
+        let carries = GameState {
+            era: Some(dereth_primitives::EraFeatures::ALL),
+            ..lobby()
+        };
+        c.create(&carries, &mut out);
+        assert!(!c.confirm_lost_skills);
+        assert_eq!(out.requests.len(), 1, "sent at once");
     }
 
     #[test]

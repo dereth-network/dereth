@@ -129,9 +129,9 @@ function installName(i) {
 }
 function setName(s) {
   if (!s) return "No data files";
-  if (s.kind === "classic") {
+  if (s.kind === "classic" || s.kind === "original") {
     const it = setIterations(s);
-    return `Classic  ${it.portal ?? "-"}/${it.cell ?? "-"}`;
+    return `${s.kind === "original" ? "1999" : "Classic"}  ${it.portal ?? "-"}/${it.cell ?? "-"}`;
   }
   if (s.kind === "auberean") {
     const it = setIterations(s);
@@ -479,7 +479,7 @@ const networkPage = (slug) => `https://dereth.network/worlds/?q=${encodeURICompo
 const worldName = (path) => path.split(/[\\/]/).slice(-2, -1)[0] ?? path;
 const parentOf = (path) => path.split(/[\\/]/).slice(0, -1).join(path.includes("\\") ? "\\" : "/");
 // The Library's default Modern data files, which a new world and Lyceum are given.
-const defaultDats = () => ui.snap.state.dat_sets.find((s) => s.kind !== "classic" && s.origin.kind === "shared")?.path ?? null;
+const defaultDats = () => ui.snap.state.dat_sets.find((s) => (s.kind ?? "modern") === "modern" && s.origin.kind === "shared")?.path ?? null;
 const defaultClassicDats = () => ui.snap.state.dat_sets.find((s) => s.kind === "classic" && s.origin.kind === "shared")?.path ?? null;
 // A new Lyceum world's folder name, as Lyceum names worlds: lower case, words joined by hyphens.
 const folderName = (name) => String(name ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -779,8 +779,8 @@ function freePorts(game = "dereth") {
   return { port };
 }
 
-// The Library's data sets of one kind, `modern` or `classic`, which a world of an era that plays
-// that kind may be given; `auberean`, Auberean's realm's own.
+// The Library's data sets of one kind, `modern`, `classic` or `original` (the 1999 pair), which a
+// world of an era that plays that kind may be given; `auberean`, Auberean's realm's own.
 const librarySets = (kind) => (kind === "auberean" ? ui.snap.state.auberean?.dat_sets ?? [] : ui.snap.state.dat_sets ?? [])
   .filter((s) => (s.kind ?? "modern") === kind && s.origin.kind !== "world");
 // Auberean's realm's default data set: the one its programs are given unless another is chosen.
@@ -841,14 +841,15 @@ function newServerDraft() {
 }
 
 // The game data a world plays: one of the Library's sets of the kind its era is drawn from, as
-// the client's rule says (`needs`): Classic for an era before Throne of Destiny, else Modern. A
-// Yalain world (`game` auberean) plays one of Auberean's realm's sets.
+// the client's rule says (`needs`): the 1999 pair for Launch, Classic for another era before Throne
+// of Destiny, else Modern. A Yalain world (`game` auberean) plays one of Auberean's realm's sets.
 function datsField(id, s, locked, game = "dereth") {
   const era = eraOf(s.era);
   const kind = game === "auberean" ? "auberean" : era?.needs ?? "modern";
   const sets = librarySets(kind);
   // Only when there is nothing to choose does the screen say anything: which files to add.
   const missing = kind === "auberean" ? "You have no Asheron's Call 2 game files yet. Add them in the Library."
+    : kind === "original" ? `${esc((era?.label ?? "This era").replace(/ \(.*\)$/, ""))} needs the 1999 game files. Add them in the Library.`
     : kind === "classic" ? `${esc((era?.label ?? "This era").replace(/ \(.*\)$/, ""))} needs the 2005 game files. Add them in the Library.`
     : "You have no end-of-retail game files yet. Add them in the Library.";
   if (!sets.length && !locked) return `<div class="pair"><span class="warn small">${missing}</span><button class="btn" data-go="library">Library</button></div>`;
@@ -1151,11 +1152,17 @@ function settingsPage() {
 
   const said = s.systems ?? {};
   const on = systemsOver(era?.features ?? {}, said);
-  const boxes = ui.snap.features.map((f) => {
+  // The systems a person would look for by name, in the order they came, and any flag this world
+  // changed; the other flags follow the era, folded away.
+  const box = (f) => {
     const mine = f.name in said;
-    return `<label class="check small ${mine ? "changed" : ""}" title="${mine ? `Changed from ${esc(era?.label)}` : `As ${esc(era?.label)} has it`}"><input type="checkbox" data-srv-system="${esc(f.name)}" ${on[f.name] ? "checked" : ""}>${esc(f.label)}</label>`;
-  }).join("");
-  const systems = `<div class="features">${boxes}</div>
+    return `<label class="check small ${mine ? "changed" : ""}" title="${mine ? `Changed from ${esc(era?.label)}` : `As ${esc(era?.label)} has it`}"><input type="checkbox" data-srv-system="${esc(f.name)}" ${on[f.name] ? "checked" : ""}>${esc(f.label)}${f.dated ? ` <span class="muted">(${esc(f.dated)})</span>` : ""}</label>`;
+  };
+  const shown = ui.snap.features.filter((f) => f.dated || f.name in said);
+  const order = (f) => { const at = String(f.dated ?? "").match(/\d+/); return at ? Number(at[0]) : 9999; };
+  const others = ui.snap.features.filter((f) => !f.dated && !(f.name in said));
+  const systems = `<div class="features">${[...shown].sort((a, b) => order(a) - order(b)).map(box).join("")}</div>
+    ${others.length ? fold(`set-other-rules-${id}`, "OTHER RULES", `<p class="small muted">These follow the era.</p><div class="features">${others.map(box).join("")}</div>`, false) : ""}
     <div class="btns" style="margin-top:8px"><button class="btn mini-btn" data-act="set-systems-reset" ${Object.keys(said).length ? "" : "disabled"}>Use defaults for ${esc(era?.label)}</button></div>`;
 
   // The endpoint on or off, and the pages that may connect to it, the page Dereth is played from
@@ -1631,15 +1638,22 @@ function playersLabel(w) {
   return w.state === "offline" ? "offline" : w.players != null ? `${w.players}` : "unknown";
 }
 
-// An open row: what the world says about itself, its era and systems, and the way to its page.
+// What a world changes from its era, in words: what it adds and what it goes without. Empty when it
+// plays the era as it was.
+function eraChanges(w) {
+  const era = ui.snap.eras.find((e) => e.name === (w.era || "eor")) ?? ui.snap.eras[0];
+  const base = era?.features ?? {};
+  const on = worldFeatures(w);
+  const names = (want) => ui.snap.features.filter((f) => !!on[f.name] === want && !!base[f.name] !== want).map((f) => f.label.toLowerCase());
+  const plus = names(true);
+  const minus = names(false);
+  return [plus.length ? `plus ${plus.join(", ")}` : "", minus.length ? `without ${minus.join(", ")}` : ""].filter(Boolean).join("; ");
+}
+
+// An open row: what the world says about itself, its era and what it changes, and the way to its page.
 function worldDetail(w) {
   const links = [["Website", w.links.website], ["Discord", w.links.discord], ["Rules", w.links.rules]].filter(([, u]) => u);
-  // The systems, shown for a world that names its era or systems; nothing here is chosen.
-  const named = w.era_source === "world" || w.features_source === "world";
-  const on = worldFeatures(w);
-  const boxes = named
-    ? ui.snap.features.map((f) => `<label class="check small"><input type="checkbox" ${on[f.name] ? "checked" : ""} disabled>${esc(f.label)}</label>`).join("")
-    : "";
+  const changes = eraChanges(w);
   const facts = [
     ["EMULATOR", emulatorLabel(w)],
     ["STATUS", w.development_status ?? "unknown"],
@@ -1658,8 +1672,7 @@ function worldDetail(w) {
         </div>
         <div class="strip">${facts.map(([k, v]) => `<span><b>${k}</b>${esc(v)}</span>`).join("")}</div>
         ${links.length ? `<div class="btns">${links.map(([l, u]) => `<button class="btn" data-url="${esc(u)}">${l}</button>`).join("")}</div>` : ""}
-        <div class="era-line"><b>ERA</b><span>${esc(eraText(w))}</span>${eraNote(w)}</div>
-        ${boxes ? `<div class="features">${boxes}</div>` : ""}
+        <div class="era-line"><b>ERA</b><span>${esc(eraText(w))}${changes ? `, ${esc(changes)}` : ""}</span>${eraNote(w)}</div>
       </div></td></tr>`;
 }
 
@@ -1824,7 +1837,7 @@ function formChoice() {
 // Destiny, the Modern files for any other, and for an era nobody has named.
 function requiredKind(world) {
   // A world that names the set it is drawn from needs that one, whatever its era.
-  if (world.world_base === "modern" || world.world_base === "classic") return world.world_base;
+  if (["modern", "classic", "original"].includes(world.world_base)) return world.world_base;
   return ui.snap.eras.find((e) => e.name === world.era)?.needs ?? "modern";
 }
 
@@ -1834,8 +1847,9 @@ function hasRequiredSet() {
   const w = ui.world;
   const world = worldBy(w.view.world.slug) ?? w.view.world;
   if (w.form.client !== "dereth") return true;
+  const needs = requiredKind(world);
   const bothKinds = host.moreSets?.(world).find((s) => s.id === w.form.dat_set_id)?.both_kinds;
-  return !!w.form.dat_set_id && (requiredKind(world) !== "classic" || bothKinds || !!w.form.classic_set_id);
+  return !!w.form.dat_set_id && (needs === "modern" || (needs === "classic" && bothKinds) || !!w.form.classic_set_id);
 }
 
 // Whether PLAY can go, and what the account field warns about: redrawn in place while typing, so
@@ -1914,6 +1928,8 @@ function worldPage() {
     ? "This world has not said its era yet. It needs Modern data files, and Classic ones too if it plays an era before Throne of Destiny."
     : world.world_base === "modern" && world.dats.custom
     ? `${world.name} plays ${eraName} over its own Modern data files. Classic ones are optional, for the classic interface and looks.`
+    : needs === "original"
+    ? `${eraName} needs the 1999 data files, which its world is drawn from, and Modern ones beside them for the interface.`
     : needs === "classic"
     ? `${eraName} is before Throne of Destiny: it needs Classic data files, which its world is drawn from, and Modern ones beside them for the interface.`
     : `${eraName} needs Modern data files. Classic ones are optional, for the classic interface and looks.`;
@@ -1927,7 +1943,7 @@ function worldPage() {
   const dataRow = f.client === "retail"
     ? `<label class="lab">DATA</label><div class="plain">The data files beside the retail client <span class="muted small">${esc(ui.snap.state.retail?.path ?? "")}</span></div>`
     : `<label class="lab" for="dats">MODERN DATA</label><select id="dats" class="field">${setOpts}</select>
-       <label class="lab" for="classic">CLASSIC DATA</label><select id="classic" class="field">${classicOpts}</select>
+       <label class="lab" for="classic">${needs === "original" ? "1999 DATA" : "CLASSIC DATA"}</label><select id="classic" class="field">${classicOpts}</select>
        <p class="note ${missing ? "warn" : "muted"}">${esc(dataNote)}</p>${ownFiles}`;
   const remembers = ui.snap.vault_name === "memory only" ? "Remember until the launcher closes" : "Save password securely";
   // Asheron's Call 2: the client, and the data files it plays (the retail client its own).
@@ -2036,7 +2052,7 @@ function library() {
       + interfaceRow() + (host.libraryClientRows?.(ui.snap) ?? "")}</div>`;
   const setRow = (d) => {
     const size = d.files.reduce((n, f) => n + (f.size ?? 0), 0);
-    const pairBroken = d.kind === "classic" && !(d.files.some((f) => f.role === "portal") && d.files.some((f) => f.role === "cell"));
+    const pairBroken = (d.kind === "classic" || d.kind === "original") && !(d.files.some((f) => f.role === "portal") && d.files.some((f) => f.role === "cell"));
     const facts = [d.created_by_launcher ? gb(size) : d.files.every((f) => f.read_only) ? "read-only" : null, d.last_patched_by_server && "patched by its world", d.files.some((f) => f.error) && "some files unreadable", pairBroken && "portal.dat or cell.dat is missing"].filter(Boolean);
     const isDefault = d.origin.kind === "shared";
     const defaultBtn = isDefault ? `<span class="tag">DEFAULT</span>`
@@ -2051,12 +2067,16 @@ function library() {
       || `<p class="muted">${say("library.no-auberean", "No data sets yet. Add a folder that holds portal.dat, cell_1.dat and local_English.dat.")}</p>`;
     sets = `<h2>DATA SETS</h2><p class="muted small">The *.dat files from an install.</p><div class="list">${all}</div>`;
   } else {
-    const modern = s.dat_sets.filter((d) => d.kind !== "classic").map(setRow).join("")
+    const isPair = (d) => d.kind === "classic" || d.kind === "original";
+    const modern = s.dat_sets.filter((d) => !isPair(d)).map(setRow).join("")
       || `<p class="muted">${say("library.no-modern", "No Modern data files yet. Add a folder that holds the client_*.dat files.")}</p>`;
     const classic = s.dat_sets.filter((d) => d.kind === "classic").map(setRow).join("")
       || `<p class="muted">${say("library.no-classic", "No Classic data files yet. Add a folder that holds portal.dat and cell.dat.")}</p>`;
+    const original = s.dat_sets.filter((d) => d.kind === "original").map(setRow).join("")
+      || `<p class="muted">${say("library.no-original", "No 1999 data files yet. Add a folder that holds the 1999 portal.dat and cell.dat.")}</p>`;
     sets = `<h2>MODERN DATA SETS</h2><p class="muted small">The files from a modern install: client_*.dat.</p><div class="list">${modern}</div>
-          <h2>CLASSIC DATA SETS</h2><p class="muted small">The files from older installs: portal.dat and cell.dat.</p><div class="list">${classic}</div>`;
+          <h2>CLASSIC DATA SETS</h2><p class="muted small">The files from older installs: portal.dat and cell.dat.</p><div class="list">${classic}</div>
+          <h2>1999 DATA SETS</h2><p class="muted small">The files the game launched with in 1999, for the Launch era.</p><div class="list">${original}</div>`;
   }
 
   let pending = "";
@@ -2109,7 +2129,7 @@ function findSummary(f, purpose) {
   }
   if (f.classic) {
     const it = setIterations(f.classic);
-    lines.push(`<p><span class="good">CLASSIC</span> — portal ${it.portal ?? "-"}, cell ${it.cell ?? "-"}</p>`);
+    lines.push(`<p><span class="good">${f.classic.kind === "original" ? "1999" : "CLASSIC"}</span> — portal ${it.portal ?? "-"}, cell ${it.cell ?? "-"}</p>`);
   }
   if (!f.dats && !f.classic && !f.error) {
     lines.push(`<p class="warn">${say("find.none", "No data files in this folder.")}</p>`);

@@ -69,6 +69,11 @@ fn every_file_the_package_reads_from_the_tree_is_there() {
     }
     let lifestoned = std::fs::read_to_string(ws.join(LIFESTONED_NOTICE)).expect("the notice");
     assert!(lifestoned.contains("MIT License"), "{lifestoned}");
+    let ac1999 = std::fs::read_to_string(ws.join(AC1999_NOTICE)).expect("the notice");
+    assert!(
+        ac1999.contains("https://gitlab.com/adamplumb/ac1999"),
+        "{ac1999}"
+    );
     assert!(ws.join(ABOUT_CONFIG).is_file());
     let template = std::fs::read_to_string(ws.join(ABOUT_TEMPLATE)).expect("the template");
     assert!(template.contains(notice::SECTION_START));
@@ -1140,7 +1145,8 @@ fn the_crate_list_is_read_from_cargo_tree_once_per_crate() {
 }
 
 /// NOTICE.txt offers the exact commit's source and the release's, says no game data is inside,
-/// and carries the ACE attribution, the Lifestoned notice and the crate list.
+/// and carries the ACE, ClassicACE and ac1999 attributions, the Lifestoned notice and the crate
+/// list.
 #[test]
 fn the_notice_offers_the_commits_source_and_carries_every_attribution() {
     let crates = notice::parse_cargo_tree(
@@ -1155,6 +1161,7 @@ fn the_notice_offers_the_commits_source_and_carries_every_attribution() {
         crates: &crates,
         mit_licence: "MIT License\n\nCopyright (c) the contributors\n",
         lifestoned_notice: "MIT License\n\nCopyright (c) 2018 Scribble\n",
+        ac1999_notice: "ac1999\nhttps://gitlab.com/adamplumb/ac1999\n",
     });
     for needle in [
         &format!("https://github.com/dereth-network/dereth/tree/{commit}") as &str,
@@ -1164,6 +1171,7 @@ fn the_notice_offers_the_commits_source_and_carries_every_attribution() {
         "no Asheron's Call client files",
         "https://github.com/ACEmulator/ACE",
         "https://github.com/bDekaru/ClassicACE",
+        "https://gitlab.com/adamplumb/ac1999",
         "Copyright (c) 2018 Scribble",
         "public domain",
         "  log 0.4.22 (MIT OR Apache-2.0)",

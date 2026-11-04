@@ -1509,23 +1509,11 @@ pub fn spell_target_type(base: &SpellBase) -> u32 {
     formula_target_type(&decrypt_formula(&base.raw_comps, base.comp_key))
 }
 
-/// Returns the target type a **decrypted** formula names, or 0 unless it is complete.
-///
-/// The target component is the last filled slot of the run that starts at slot 5: the walk goes up
-/// from slot 5 while the slot is non-zero, stopping at slot 8, and takes the slot before the one it
-/// stopped at. A formula with only its five required slots therefore aims with slot 4, and a full
-/// eight-slot formula with slot 7. That component is mapped by
-/// [`dereth_rules::weenie::spell_target_type_of_component`].
+/// Returns the target type a **decrypted** formula names, or 0 unless it is complete; the shared
+/// rule the server applies too.
 #[must_use]
 pub fn formula_target_type(comps: &[u32; 8]) -> u32 {
-    if !formula_is_complete(comps) {
-        return 0;
-    }
-    let mut i = 5;
-    while i < 8 && comps[i] != 0 {
-        i += 1;
-    }
-    dereth_rules::weenie::spell_target_type_of_component(comps[i - 1])
+    dereth_rules::weenie::formula_target_type(comps)
 }
 
 #[derive(Debug, Clone)]

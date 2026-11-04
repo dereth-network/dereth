@@ -542,7 +542,8 @@ impl ResearchPanel {
                 }
             }
         }
-        let has = view.era_features().spell_research;
+        let has =
+            dereth_client_contract::era::EraSurface::SpellResearch.offered(view.era_features());
         let mut wrote = false;
         let learned = view.last_learned_spell().map_or(0, |(serial, _)| serial);
         if self.learned_seen.is_some_and(|seen| seen != learned)

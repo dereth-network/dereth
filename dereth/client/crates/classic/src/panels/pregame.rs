@@ -1732,7 +1732,7 @@ impl Panel for Pregame {
                         }
                     }
                 }
-                "create-submit" | "create-confirmed" => {
+                "create-submit" | "create-confirmed" | "create-skills-confirmed" => {
                     if self.data.is_ok() {
                         if self.name_edit.trim().is_empty()
                             || self.state.name.trim().is_empty()
@@ -1743,6 +1743,20 @@ impl Panel for Pregame {
                             self.status = "The network is not connected.".into();
                         } else if id == "create-submit" && self.state.remaining_atrb_credits > 0 {
                             actions.push(PanelAction::Confirm{id:"unspent-creation".into(),text:"You have not spent all your Attribute Credits. Create this character anyway?".into(),accept:vec![PanelAction::Control(ControlEvent::Activate("create-confirmed".into()))]});
+                        } else if id != "create-skills-confirmed"
+                            && dereth_client_contract::era::loses_skill_credits(
+                                c.pregame.era_features,
+                                self.state.remaining_skill_credits,
+                            )
+                        {
+                            actions.push(PanelAction::Confirm {
+                                id: "lost-skill-credits".into(),
+                                text: dereth_client_contract::era::LOST_SKILL_CREDITS_WARNING
+                                    .into(),
+                                accept: vec![PanelAction::Control(ControlEvent::Activate(
+                                    "create-skills-confirmed".into(),
+                                ))],
+                            });
                         } else {
                             let Some(slot) = self
                                 .creation_slot

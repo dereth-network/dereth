@@ -494,7 +494,7 @@ impl Desktop {
                     if id.is_empty() || id == "chat:input" {
                         if let Some(window) = self.windows.iter_mut().find(|w| Some(w.token) == hud)
                         {
-                            window.frame = window.panel.frame(context);
+                            window.frame = crate::panels::era_frame(window.panel.as_mut(), context);
                             window.controls.sync(&window.frame);
                         }
                         self.focus_control(id);
@@ -517,7 +517,7 @@ impl Desktop {
         let focus = update.focus;
         self.dispatch_panel("hud", ControlEvent::ChatEntry(update), context);
         if let Some(window) = self.windows.iter_mut().find(|w| w.key == "hud") {
-            window.frame = window.panel.frame(context);
+            window.frame = crate::panels::era_frame(window.panel.as_mut(), context);
             window.controls.sync(&window.frame);
             window.controls.place_caret("chat:input", cursor);
         }
@@ -760,7 +760,26 @@ impl Desktop {
         self.capture = None;
         self.focus = None;
     }
+    /// Close the panels of the systems the world lacks, as it comes to lack them.
+    pub fn close_what_the_world_lacks(&mut self, context: &Context<'_>) {
+        let features = context.game.era_features();
+        let lacking: Vec<String> = self
+            .windows
+            .iter()
+            .filter(|w| crate::panels::era_refuses(&w.key, features))
+            .map(|w| w.key.clone())
+            .collect();
+        for key in lacking {
+            self.close(&key, context);
+        }
+    }
+
+    /// Open the panel `id`, or bring it up. A panel of a system the world lacks stays shut,
+    /// whichever key, button or server notice asks.
     pub fn open(&mut self, id: &str, context: &Context<'_>) -> Option<u64> {
+        if crate::panels::era_refuses(id, context.game.era_features()) {
+            return None;
+        }
         self.stretched = context.classic.stretched();
         let current = self.panel_context(context);
         let context = &current;
@@ -839,7 +858,7 @@ impl Desktop {
                 regions.right.h as u32
             },
         );
-        let frame = panel.frame(context);
+        let frame = crate::panels::era_frame(panel.as_mut(), context);
         let (x, y) = if id == "help-chargen" {
             (2, 26)
         } else if id == "help-game" {
@@ -895,7 +914,7 @@ impl Desktop {
             if w.frame.screen.width != width {
                 w.panel.resize(width, regions.right.h as u32);
                 w.panel.set_layout(context.layout);
-                w.frame = w.panel.frame(context);
+                w.frame = crate::panels::era_frame(w.panel.as_mut(), context);
                 w.controls.sync(&w.frame);
             }
             w.x = 0;
@@ -935,7 +954,7 @@ impl Desktop {
                 if full { size.1 } else { r.right.h as u32 },
             );
             w.panel.set_layout(context.layout);
-            w.frame = w.panel.frame(context);
+            w.frame = crate::panels::era_frame(w.panel.as_mut(), context);
             (w.x, w.y) = if w.key == "help-chargen" {
                 (2, 26)
             } else if w.key == "help-game" {
@@ -1212,7 +1231,7 @@ impl Desktop {
         self.fit_bottom_windows(context);
         for w in &mut self.windows {
             w.panel.set_layout(context.layout);
-            w.frame = w.panel.frame(context);
+            w.frame = crate::panels::era_frame(w.panel.as_mut(), context);
             w.controls.sync(&w.frame);
         }
     }
@@ -2216,6 +2235,69 @@ mod tests {
             settings: &settings,
             map_teleport_allowed: false,
             classic: &classic,
+        });
+    }
+    /// A game view of a world with what `features` says.
+    #[derive(Debug)]
+    struct Lacking(dereth_client_contract::EraView);
+    impl GameView for Lacking {
+        fn era(&self) -> Option<&dereth_client_contract::EraView> {
+            Some(&self.0)
+        }
+    }
+    fn lacking(names: &[&str]) -> Lacking {
+        let mut era = dereth_client_contract::EraView {
+            era: dereth_primitives::era::EraId::Eor,
+            era_announced: true,
+            ..Default::default()
+        };
+        for name in names {
+            era.announced_features.set(name, false);
+        }
+        Lacking(era)
+    }
+    /// Behaviour: presentation.era.every-interface-refuses-what-the-world-lacks
+    /// A panel of a system the world lacks stays shut through the one place that opens panels:
+    /// asked directly, by a toggle as a key asks, and by the object a server notice opens it on.
+    /// One open as the system goes closes.
+    #[test]
+    fn a_panel_of_a_system_the_world_lacks_stays_shut_whatever_asks() {
+        let game = lacking(&["trade", "housing", "chess", "tinkering", "titles"]);
+        context_test(|base| {
+            let c = Context {
+                game: &game,
+                ..*base
+            };
+            let mut d = Desktop::new(|_, _, _| Some(Box::new(StatefulPane(0))), (800, 600));
+            for id in [
+                "trade",
+                "house",
+                "maintenance",
+                "game-center",
+                "salvage",
+                "titles",
+            ] {
+                assert_eq!(d.open(id, &c), None, "{id}");
+                d.apply(0, vec![PanelAction::Toggle(id.into())], &c);
+                d.open_object(id, dereth_primitives::ObjectId(5), &c);
+                assert!(!d.is_open(id), "{id}");
+            }
+            assert!(d.host_actions.is_empty(), "a refused window does nothing");
+            assert!(d.open("inventory", &c).is_some());
+        });
+    }
+    /// Behaviour: presentation.era.every-interface-refuses-what-the-world-lacks
+    #[test]
+    fn a_panel_closes_when_the_world_comes_to_lack_its_system() {
+        let lacks = lacking(&["contracts"]);
+        context_test(|c| {
+            let mut d = Desktop::new(|_, _, _| Some(Box::new(StatefulPane(0))), (800, 600));
+            d.open("contracts", c);
+            d.close_what_the_world_lacks(c);
+            assert!(d.is_open("contracts"), "the world has them");
+            let c = Context { game: &lacks, ..*c };
+            d.close_what_the_world_lacks(&c);
+            assert!(!d.is_open("contracts"));
         });
     }
     /// The windows of a panel a plugin hides are neither drawn nor take the pointer, open still:

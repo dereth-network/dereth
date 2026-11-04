@@ -204,9 +204,25 @@ fn rows_of_record(
                 }
             }
         }
+        TableId::GROUPED_TREASURE => {
+            if let Some((t, rows)) = find(store, "empyrean_loot_policy", "id", 1)? {
+                add(selected, t, rows);
+            }
+        }
+        TableId::LOOT_POLICY => {
+            if let Ok(t) = store.table_index("empyrean_grouped_treasure") {
+                let rows = store.find(t, &[], &[])?;
+                add(selected, t, rows);
+            }
+        }
+        TableId::RECIPE_VITAL => {
+            if let Some((t, rows)) = find(store, "recipe", "id", key.1)? {
+                add(selected, t, rows);
+            }
+        }
         TableId::RECIPE => {
             for (t, name) in &tables {
-                if name.starts_with("recipe_requirements_") {
+                if name.starts_with("recipe_requirements_") && name != "recipe_requirements_vital" {
                     let rows = store.find(*t, &["recipe_Id"], &[int(key.1)])?;
                     add(selected, *t, rows);
                 }

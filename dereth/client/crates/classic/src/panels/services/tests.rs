@@ -1755,3 +1755,121 @@ fn map_frame_formats_zero_and_tiny_signed_coordinates() {
     v.coords = Some((-0.001, 0.001));
     assert!(with_context(&v, |c| texts(&panel.frame(c))).contains(&"0.0S, 0.0E".into()));
 }
+
+/// Whether the panel's frame has a control `id`.
+fn has(v: &View, p: &dyn Panel, id: &str) -> bool {
+    with_context(v, |c| p.frame(c).controls.iter().any(|k| k.id == id))
+}
+
+fn lacking(names: &[&str]) -> View {
+    let mut era = dereth_client_contract::EraView {
+        era: dereth_primitives::era::EraId::Eor,
+        era_announced: true,
+        ..Default::default()
+    };
+    for name in names {
+        era.announced_features.set(name, false);
+    }
+    View {
+        era: Some(era),
+        ..Default::default()
+    }
+}
+
+/// Behaviour: presentation.era.every-interface-refuses-what-the-world-lacks
+/// A world without housing has no House tab on the Map window, and a click there does nothing; a
+/// page left on it comes back to the map when the system goes.
+#[test]
+fn the_map_window_has_a_house_tab_only_with_housing() {
+    let houses = View::default();
+    let none = lacking(&["housing"]);
+    let mut p = make("map").unwrap();
+    assert!(has(&houses, &*p, "house"));
+    assert!(!has(&none, &*p, "house"));
+    assert!(activate(&mut *p, "house", &none).is_empty(), "no query");
+    assert_eq!(p.map_origin(), Some((0, 25)), "still the map");
+    activate(&mut *p, "house", &houses);
+    assert_eq!(p.map_origin(), None, "on the house with housing");
+    event(&mut *p, ControlEvent::Tick, &none);
+    assert_eq!(p.map_origin(), Some((0, 25)), "back on the map without it");
+}
+
+/// Behaviour: presentation.era.a-fellowship-always-shares-without-the-founders-choice
+/// A world without the founder's choice has no box for it, and its other boxes stay.
+#[test]
+fn the_fellowship_page_has_no_share_box_without_the_founders_choice() {
+    let p = make("fellowship").unwrap();
+    assert!(has(&View::default(), &*p, "share-xp"));
+    let none = lacking(&["fellowship_options"]);
+    assert!(!has(&none, &*p, "share-xp"));
+    assert!(has(&none, &*p, "share-loot"));
+}
+
+/// Behaviour: presentation.era.fellowship-options-follow-the-world
+/// Each box of the fellowship page follows its own system, by the options page's own answer.
+#[test]
+fn the_fellowship_page_has_each_box_only_with_its_system() {
+    let p = make("fellowship").unwrap();
+    for (flag, control) in [
+        ("fellowship_share_loot", "share-loot"),
+        ("fellowship_auto_accept", "auto-fellow"),
+    ] {
+        assert!(has(&View::default(), &*p, control), "{control}");
+        let none = lacking(&[flag]);
+        assert!(!has(&none, &*p, control), "{control}");
+        assert!(has(&none, &*p, "accept-fellow"), "{control}");
+    }
+}
+
+/// Behaviour: presentation.era.every-interface-refuses-what-the-world-lacks
+/// With no House tab the Map window has no tab strip: its top row is a plain title, the close stays,
+/// and a press lands on the same spot of the map as with the tabs.
+#[test]
+fn a_map_window_without_a_house_tab_has_a_title_and_no_tab_art() {
+    let names = |v: &View, p: &dyn Panel| {
+        with_context(v, |c| {
+            let f = p.frame(c);
+            let mut out: Vec<String> = f
+                .screen
+                .commands
+                .iter()
+                .filter_map(|c| match c {
+                    crate::Command::Image { did, .. } => Some(did.clone()),
+                    _ => None,
+                })
+                .collect();
+            for c in &f.controls {
+                out.extend(c.images.iter().flatten().cloned());
+            }
+            out
+        })
+    };
+    let none = lacking(&["housing"]);
+    let p = make("map").unwrap();
+    let without = names(&none, &*p);
+    for tab in ["060022BC", "060022BD"] {
+        assert!(!without.iter().any(|n| n == tab), "{tab}");
+    }
+    assert!(has(&none, &*p, "close"));
+    assert_eq!(p.map_origin(), Some((0, 25)));
+    // A press reads the same spot of the map, with the tabs and without.
+    let press = |v: &View, p: &mut dyn Panel| {
+        format!(
+            "{:?}",
+            event(
+                p,
+                ControlEvent::Pointer {
+                    x: 100,
+                    y: 130,
+                    pressed: true,
+                },
+                v,
+            )
+        )
+    };
+    let mut map = make("map").unwrap();
+    assert_eq!(press(&none, &mut *map), press(&View::default(), &mut *map));
+    assert!(press(&none, &mut *map).contains("MapClick"));
+    let with = names(&View::default(), &*p);
+    assert!(with.iter().any(|n| n == "060022BC" || n == "060022BD"));
+}

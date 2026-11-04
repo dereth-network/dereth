@@ -1280,7 +1280,8 @@ impl ControlHost {
                             false,
                             false,
                         );
-                        if let Some(t) = self.tree.scrollbar_thumb(node) {
+                        if let Some(t) = self.tree.scrollbar_thumb(node).filter(|_| *thumb_size > 0)
+                        {
                             out.image(thumb, t, false, false);
                         }
                     } else {
@@ -1299,12 +1300,14 @@ impl ControlHost {
                             false,
                             false,
                         );
-                        out.image(
-                            thumb,
-                            rect(r.x + arrow_size + p, r.y, *thumb_size, r.h),
-                            false,
-                            false,
-                        );
+                        if *thumb_size > 0 {
+                            out.image(
+                                thumb,
+                                rect(r.x + arrow_size + p, r.y, *thumb_size, r.h),
+                                false,
+                                false,
+                            );
+                        }
                     }
                 }
                 ControlKind::Choice { options, selected } if c.list_skin.is_some() => {
@@ -1969,6 +1972,48 @@ mod tests {
         );
         assert!(host.take_sounds().is_empty());
     }
+    /// Behaviour: none (a bar told to draw no thumb)
+    #[test]
+    fn a_scrollbar_with_a_thumb_of_no_size_draws_its_arrows_and_no_thumb() {
+        for (id, vertical, r, thumb) in [
+            ("v", true, rect(0, 0, 20, 100), "0600125C"),
+            ("h", false, rect(0, 0, 100, 20), "06001255"),
+        ] {
+            let pictures = |thumb_size: i32| {
+                let mut frame = PanelFrame::new(100, 100);
+                frame.control(
+                    id,
+                    r,
+                    ControlKind::ScrollBar {
+                        min: 0,
+                        max: 0,
+                        value: 0,
+                        page: 100,
+                        step: 10,
+                        vertical,
+                        arrow_size: 20,
+                        thumb_size,
+                    },
+                    true,
+                );
+                let mut host = ControlHost::default();
+                host.sync(&frame);
+                host.draw(&frame)
+                    .commands
+                    .iter()
+                    .filter_map(|c| match c {
+                        Command::Image { did, .. } => Some(did.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            };
+            assert!(pictures(28).iter().any(|d| d == thumb), "{id} with a thumb");
+            let none = pictures(0);
+            assert!(!none.iter().any(|d| d == thumb), "{id}: {none:?}");
+            assert!(none.len() >= 3, "{id} keeps its track and arrows: {none:?}");
+        }
+    }
+
     #[test]
     fn scrollbar_arrows_press_and_thumb_releases_have_distinct_sounds() {
         let mut frame = PanelFrame::new(100, 160);

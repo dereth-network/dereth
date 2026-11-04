@@ -66,6 +66,8 @@ pub struct Facts<'a> {
     pub mit_licence: &'a str,
     /// The Lifestoned data model's MIT notice.
     pub lifestoned_notice: &'a str,
+    /// ac1999's notice: the Launch-era world base and loot rules come from it.
+    pub ac1999_notice: &'a str,
 }
 
 /// `NOTICE.txt`.
@@ -131,6 +133,11 @@ General Public License v3.0. Each such rule names ClassicACE's source file besid
 DIVERGENCES.md lists them as its era rows.
 
 
+AC1999
+
+{ac1999}
+
+
 LIFESTONED DATA MODEL
 
 The server reads and writes weenie JSON in the Lifestoned data model's format (Lifestoned.DataModel,
@@ -164,6 +171,7 @@ Third-party crates (their licence texts are in THIRD-PARTY-LICENSES.html):
         rule = "=".repeat(format!("Empyrean {} ({})", f.version, f.target).len()),
         commit = f.commit,
         lifestoned = indent(f.lifestoned_notice.trim_end()),
+        ac1999 = indent(f.ac1999_notice.trim_end()),
         mit = indent(f.mit_licence.trim_end()),
         own = own.join("\n"),
         third = third.join("\n"),
@@ -440,7 +448,8 @@ BUNDLED EMPYREAN
 The separate empyrean-server and empyrean-import programs are Empyrean, a Rust port of ACE
 (https://github.com/ACEmulator/ACE), copyright its contributors. Empyrean is licensed under the
 GNU Affero General Public License, version 3 only; EMPYREAN-LICENSE carries its full text.
-Its earlier-era rules also derive from ClassicACE (https://github.com/bDekaru/ClassicACE), under
+Its earlier-era rules also derive from ClassicACE (https://github.com/bDekaru/ClassicACE), and its
+Launch-era world base and loot rules from ac1999 (https://gitlab.com/adamplumb/ac1999), both under
 the same license. The Lifestoned data model's MIT notice is in LIFESTONED-LICENSE.txt. SQLite is
 in the public domain. These programs run separately; they are not linked into Lyceum.
 

@@ -346,7 +346,10 @@ pub fn add(
         // for the same void caster re-casting the same DoT,
         // should be update the StatModVal here?
 
-        let mut duration = spell.duration();
+        // DIVERGE: V502, a cast's worth lengthens or shortens it, within the band.
+        let mut duration = w
+            .cast_potency
+            .map_or(spell.duration(), |p| p.duration(spell.duration()));
         if let Some(aug) = caster_player_augmentation_increased_spell_duration(w, caster) {
             if !is_weapon_spell && spell.dot_duration() == 0.0 {
                 duration *= f64::from(1.0f32 + aug as f32 * 0.2f32);
@@ -406,7 +409,9 @@ fn build_entry(
         .is_some_and(WorldObject::is_creature);
 
     if caster_is_creature {
-        entry.duration = spell.duration();
+        entry.duration = w
+            .cast_potency
+            .map_or(spell.duration(), |p| p.duration(spell.duration()));
 
         if let Some(aug) = caster_player_augmentation_increased_spell_duration(w, caster) {
             if !is_weapon_spell && spell.dot_duration() == 0.0 {

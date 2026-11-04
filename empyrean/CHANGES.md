@@ -14,6 +14,12 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- New experimental Launch era: the world and its rules as they were in November 1999.
+- Launch: spells have the Charge and the world-wide spell economy of 1999.
+- Launch: accounts hold five characters; `max_characters_per_account` changes that.
+- Portal storms can now move players out of a crowded landblock, off by default.
+- Fetch a world by its era, or build the Launch world from any ac1999 commit, with its own loot and recipes.
+- A world will not start on another era's data files unless its operator allows it.
 - macOS: Intel Macs are no longer supported; Apple silicon only.
 
 ## 0.3.8 (2026-11-02)

@@ -437,7 +437,8 @@ pub struct WorldView {
     pub default_client: Option<ClientKind>,
     /// The Modern sets the Dereth client may be given here.
     pub dat_sets: Vec<DatSet>,
-    /// The Classic sets the Dereth client may be given here.
+    /// The pairs the Dereth client may be given here: the Original sets on a world drawn from the
+    /// 1999 files, the Classic sets on any other.
     pub classic_sets: Vec<DatSet>,
     /// Which kind of set the world is drawn from. A Modern set is always needed besides; a
     /// Classic one is optional when this is Modern.
@@ -1301,7 +1302,7 @@ impl Backend {
                 .collect(),
             default_client,
             dat_sets: choices::dat_sets_for(&self.state, &world),
-            classic_sets: choices::classic_sets_for(&self.state),
+            classic_sets: choices::classic_sets_for(&self.state, &world),
             requires: choices::required_set_for(&world),
             offers_private_copy: choices::offers_private_copy(&self.state, &world),
             accounts: self.state.accounts_for(slug).cloned().collect(),
@@ -1400,14 +1401,14 @@ impl Backend {
         let extra_args = hosted.as_ref().map_or_else(Vec::new, |h| h.args.clone());
         let (dat_dir, classic_dat_dir) = if let Some(hosted) = hosted.filter(|_| dereth) {
             let modern = path_of(dat_set_id.as_deref(), SetKind::Modern);
-            let classic = path_of(classic_set_id.as_deref(), SetKind::Classic);
+            let classic = path_of(classic_set_id.as_deref(), choices::pair_kind_for(&world));
             match hosted.client_dats(modern.as_deref(), classic.as_deref()) {
                 Ok(d) => (Some(d.dat_dir), d.classic_dat_dir),
                 Err(e) => return err(e),
             }
         } else if dereth {
             let modern = path_of(dat_set_id.as_deref(), SetKind::Modern);
-            let classic = path_of(classic_set_id.as_deref(), SetKind::Classic);
+            let classic = path_of(classic_set_id.as_deref(), choices::pair_kind_for(&world));
             match choices::dat_dirs_for(&world, modern.as_deref(), classic.as_deref()) {
                 Ok(d) => (Some(d.dat_dir), d.classic_dat_dir),
                 Err(e) => return err(e.to_string()),
@@ -3756,6 +3757,35 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    #[test]
+    fn a_launch_world_is_not_started_on_the_february_2005_pair() {
+        let (mut b, dir) = backend("original-needed");
+        b.list.worlds_mut()[0].era = Some("launch".into());
+        let feb = dir.join("feb2005");
+        dereth_launch::testing::write_classic_set(&feb, 2112, 1593);
+        let find = b.read_folder(&feb, Game::Dereth);
+        let id = find.classic.as_ref().unwrap().id.clone();
+        b.add_folder(find);
+        assert!(b.world_view("eulmore").unwrap().classic_sets.is_empty());
+        let out = b.launch(Choice {
+            classic_set_id: Some(id),
+            ..choice(Some("pw"))
+        });
+        assert!(
+            matches!(&out, LaunchOutcome::Error { message } if message.contains("1999 data files")),
+            "{out:?}"
+        );
+        let original = dir.join("nov1999");
+        dereth_launch::testing::write_classic_set(&original, 105, 67);
+        let find = b.read_folder(&original, Game::Dereth);
+        b.add_folder(find);
+        let view = b.world_view("eulmore").unwrap();
+        assert_eq!(view.requires, SetKind::Original);
+        assert_eq!(view.classic_sets.len(), 1);
+        assert_eq!(view.classic_sets[0].path, original);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[cfg(unix)]
     #[test]
     fn the_dereth_client_is_given_the_classic_set_and_the_era_the_world_says() {
@@ -3825,7 +3855,7 @@ mod tests {
         assert_eq!(s.worlds[0].slug, "leafcull");
         assert!(s.list_fetched_at.is_some());
         assert!(!b.list.wants_reading(now()), "fresh: no fetch at start");
-        assert_eq!(s.eras.len(), 2);
+        assert_eq!(s.eras.len(), 3);
         let _ = std::fs::remove_dir_all(dir);
     }
 

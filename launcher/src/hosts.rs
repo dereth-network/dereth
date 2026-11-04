@@ -620,15 +620,14 @@ pub fn prepare_host(shared: State<'_, Shared>, id: String) -> Result<(), String>
                     "empyrean-import is missing beside empyrean-server.".to_owned()
                 });
             }
-            // The era's own world database: ACE's world for the end of retail, its Infiltration
-            // world for that era.
+            // The era's own world database; the end of retail's is the default.
             let text =
                 std::fs::read_to_string(dir.join("empyrean.toml")).map_err(|e| e.to_string())?;
             let era = Settings::from_config(&text)?.era;
             let mut fetch = crate::components::command(&import);
             fetch.arg("fetch");
-            if era == "infiltration" {
-                fetch.args(["--world", "16py"]);
+            if era != "eor" {
+                fetch.args(["--era", era.as_str()]);
             }
             let pack = crate::host_publication::pack_path(&dir);
             let output = fetch

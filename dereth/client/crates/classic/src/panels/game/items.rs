@@ -39,8 +39,8 @@ fn accessories(game: &dyn GameView) -> Vec<usize> {
     let features = game.era_features();
     let sigils = game.aetheria_slots();
     [
-        features.cloaks,
-        features.trinkets,
+        crate::panels::accessory_surface(0).is_some_and(|s| s.offered(features)),
+        crate::panels::accessory_surface(1).is_some_and(|s| s.offered(features)),
         sigils & 1 != 0,
         sigils & 2 != 0,
         sigils & 4 != 0,

@@ -1,11 +1,12 @@
-//! Dat sets: a folder of the game's data files, Modern or Classic ([`SetKind`]), or Asheron's Call
-//! 2's.
+//! Dat sets: a folder of the game's data files, Modern, Classic or Original ([`SetKind`]), or
+//! Asheron's Call 2's.
 //!
 //! A Modern set is the four later files, identified by what a world compares. A Classic set is the
-//! pair from before Throne of Destiny, `portal.dat` and `cell.dat`, known by being the pair. One
-//! folder may hold both: the names never collide, and the launcher lists them as two sets. An
-//! Asheron's Call 2 set is that game's four files, read as [`crate::auberean::scan_dir`] reads
-//! them, in the same roles.
+//! pair from before Throne of Destiny, `portal.dat` and `cell.dat`, known by being the pair; an
+//! Original set is the same pair from 1999, known by the iterations its files carry. One folder
+//! may hold a Modern set beside either: the names never collide, and the launcher lists them as
+//! two sets. An Asheron's Call 2 set is that game's four files, read as
+//! [`crate::auberean::scan_dir`] reads them, in the same roles.
 //!
 //! **Identity is iterations, not file hashes.** Two correct end-of-retail sets can hash differently:
 //! the 6096 and 4186 installs have the same `client_local_English.dat` contents in a different
@@ -217,6 +218,39 @@ pub enum SetKind {
     /// `highres.dat`, in the same four roles. Kept in Auberean's realm's own library, never offered
     /// to a world of Asheron's Call.
     Auberean,
+    /// The same pair as the game launched with it in 1999 (`portal.dat` and `cell.dat` whose
+    /// iterations are the 1999 files'): the world of the Launch era.
+    Original,
+}
+
+impl SetKind {
+    /// Whether the set is a `portal.dat` and `cell.dat` pair: Classic or Original.
+    #[must_use]
+    pub fn is_pair(self) -> bool {
+        matches!(self, SetKind::Classic | SetKind::Original)
+    }
+
+    /// The kind of a whole pair whose files report `files`: Original when they are the 1999
+    /// files, Classic otherwise.
+    #[must_use]
+    pub fn of_pair(files: &[DatFileState]) -> SetKind {
+        let it = |role: DatRole| {
+            files
+                .iter()
+                .find(|f| f.role == role)
+                .and_then(|f| f.iterations)
+        };
+        let launch = dereth_primitives::EraId::Launch.expected_dats();
+        if launch.admits(
+            ContainerEra::Classic,
+            it(DatRole::Portal),
+            it(DatRole::Cell),
+        ) {
+            SetKind::Original
+        } else {
+            SetKind::Classic
+        }
+    }
 }
 
 /// The two files of a Classic set, by the role each plays: the portal file and the cell file.
@@ -228,7 +262,7 @@ pub const CLASSIC_FILES: [(DatRole, &str); 2] =
 pub struct DatSet {
     pub id: String,
     pub path: PathBuf,
-    /// Modern or Classic. Each kind has its own default ([`DatOrigin::Shared`]).
+    /// Modern, Classic or Original. Each kind has its own default ([`DatOrigin::Shared`]).
     #[serde(default)]
     pub kind: SetKind,
     pub origin: DatOrigin,
@@ -278,7 +312,7 @@ impl DatSet {
     /// world wrote to the set; `now` is recorded as the time it did.
     pub fn refresh(&mut self, now: u64) -> bool {
         match self.kind {
-            SetKind::Classic => {
+            SetKind::Classic | SetKind::Original => {
                 self.files = scan_classic_dir(&self.path);
                 return false;
             }
@@ -442,7 +476,7 @@ fn reading(
 pub fn role_of(kind: SetKind, name: &str) -> Option<DatRole> {
     let lower = name.to_ascii_lowercase();
     match kind {
-        SetKind::Classic => CLASSIC_FILES
+        SetKind::Classic | SetKind::Original => CLASSIC_FILES
             .iter()
             .find(|(_, n)| *n == lower)
             .map(|(r, _)| *r),
@@ -472,7 +506,7 @@ pub fn file_in_storage(
     let role = role_of(kind, name)?;
     let era = match kind {
         SetKind::Modern => ContainerEra::Modern,
-        SetKind::Classic => ContainerEra::Classic,
+        SetKind::Classic | SetKind::Original => ContainerEra::Classic,
         SetKind::Auberean => return crate::auberean::file_in_storage(name, size, storage),
     };
     let (iterations, error) = reading(role, era, read_dat_from(name, storage));

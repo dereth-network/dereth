@@ -233,13 +233,17 @@ impl Spell {
         // the base rate for each component is defined per-spell
         let base_rate = self.component_loss();
 
-        // get magic skill mod
-        let magic_skill = self.get_magic_skill();
-        let player_skill_current = creature_get_creature_skill_current(w, player, magic_skill);
-        let power: f32 = self.power().cs_cast();
-        let current: f32 = player_skill_current.cs_cast();
-        let skill_mod = math::min_f32(1.0, power / current);
-        //Console.WriteLine($"TryBurnComponents.SkillMod: {skillMod}");
+        // DIVERGE: without `EraFeatures::component_burn_skill_discount` (V471) the burn chance
+        // takes no discount for skill above the spell's power.
+        let skill_mod = if w.era.features.component_burn_skill_discount {
+            let magic_skill = self.get_magic_skill();
+            let player_skill_current = creature_get_creature_skill_current(w, player, magic_skill);
+            let power: f32 = self.power().cs_cast();
+            let current: f32 = player_skill_current.cs_cast();
+            math::min_f32(1.0, power / current)
+        } else {
+            1.0
+        };
 
         //DebugComponents();
 
@@ -399,6 +403,19 @@ impl Spell {
             MagicSchool::VoidMagic => Skill::VoidMagic,
             _ => Skill::None,
         }
+    }
+
+    /// An item enchantment, including equipment spell families with later creature targets.
+    /// Portal magic and enchantments unrelated to items are separate.
+    #[must_use]
+    pub fn is_item_targeted_enchantment(&self) -> bool {
+        self.school() == MagicSchool::ItemEnchantment
+            && self.meta_spell_type() == SpellType::Enchantment
+            && (self.non_component_target_type() != empyrean_entity::enums::ItemType::Creature
+                || self.is_impen_bane_type()
+                || self.is_other_negative_redirectable()
+                || self.is_item_redirectable_type()
+                || self.has_item_category())
     }
 
     /// Returns TRUE if spell category matches impen / bane / brittlemail / lure.

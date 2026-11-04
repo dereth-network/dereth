@@ -80,6 +80,15 @@ pub fn act_on_use(w: &mut World, this: ObjectGuid, activator: ObjectGuid, confir
         return;
     }
     let player = activator;
+    // DIVERGE: `EraFeatures::augmentations` (V461), before the gem's requirements or question.
+    if !crate::world_objects::era_gates::has(
+        w,
+        player,
+        w.era.features.augmentations,
+        "augmentations",
+    ) {
+        return;
+    }
 
     if !verify_requirements(w, this, player) {
         return;
@@ -108,6 +117,10 @@ pub fn act_on_use(w: &mut World, this: ObjectGuid, activator: ObjectGuid, confir
 /// Raises the player's augmentation property and applies its effect, spends the experience,
 /// consumes the gem, and tells the player and everyone around.
 pub fn do_augmentation(w: &mut World, this: ObjectGuid, player: ObjectGuid) {
+    // DIVERGE: `EraFeatures::augmentations` (V461), again at a confirmed use.
+    if !w.era.features.augmentations {
+        return;
+    }
     //Console.WriteLine($"{Name}.DoAugmentation({player.Name})");
 
     // set augmentation props for player

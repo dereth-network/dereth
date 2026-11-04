@@ -154,6 +154,7 @@ pub fn required_set_for(world: &World) -> SetKind {
     {
         Some("modern") => SetKind::Modern,
         Some("classic") => SetKind::Classic,
+        Some("original") => SetKind::Original,
         _ => crate::eras::required_set(world.era.as_deref()),
     }
 }
@@ -167,20 +168,31 @@ pub fn dat_dirs_for(
     modern: Option<&Path>,
     classic: Option<&Path>,
 ) -> Result<DatDirs, MissingSet> {
-    if required_set_for(world) == SetKind::Classic {
-        dat_dirs(Some(EraId::Infiltration.name()), modern, classic)
-    } else {
-        dat_dirs(None, modern, classic)
+    match required_set_for(world) {
+        SetKind::Classic => dat_dirs(Some(EraId::Infiltration.name()), modern, classic),
+        SetKind::Original => dat_dirs(Some(EraId::Launch.name()), modern, classic),
+        SetKind::Modern | SetKind::Auberean => dat_dirs(None, modern, classic),
     }
 }
 
-/// The Classic sets the Dereth client may be given: every one. No world patches or ships them, so
-/// any world may read any of them.
-pub fn classic_sets_for(state: &LauncherState) -> Vec<DatSet> {
+/// The kind of pair the Dereth client's second folder (`--classic-dat-dir`) takes on a world: the
+/// Original set where its world is drawn from the 1999 files, the Classic set otherwise.
+pub fn pair_kind_for(world: &World) -> SetKind {
+    if required_set_for(world) == SetKind::Original {
+        SetKind::Original
+    } else {
+        SetKind::Classic
+    }
+}
+
+/// The pairs the Dereth client may be given on a world: every set of the kind it takes
+/// ([`pair_kind_for`]). No world patches or ships them, so any world may read any of them.
+pub fn classic_sets_for(state: &LauncherState, world: &World) -> Vec<DatSet> {
+    let kind = pair_kind_for(world);
     state
         .dat_sets
         .iter()
-        .filter(|s| s.kind == SetKind::Classic)
+        .filter(|s| s.kind == kind)
         .cloned()
         .collect()
 }
@@ -201,6 +213,8 @@ pub enum MissingSet {
     Modern,
     /// The era is before Throne of Destiny, and no Classic set was chosen.
     Classic,
+    /// The era is Launch, and no Original set (the 1999 files) was chosen.
+    Original,
 }
 
 impl core::fmt::Display for MissingSet {
@@ -209,6 +223,9 @@ impl core::fmt::Display for MissingSet {
             MissingSet::Modern => "Choose the Modern data files for the Dereth client.",
             MissingSet::Classic => {
                 "This world's era is before Throne of Destiny: choose Classic data files (portal.dat and cell.dat) as well as the Modern ones."
+            }
+            MissingSet::Original => {
+                "This world plays the 1999 launch: choose the 1999 data files (portal.dat and cell.dat) as well as the Modern ones."
             }
         })
     }
@@ -228,19 +245,27 @@ pub fn dat_dirs(
     modern: Option<&Path>,
     classic: Option<&Path>,
 ) -> Result<DatDirs, MissingSet> {
-    if crate::eras::required_set(era) == SetKind::Classic {
-        let classic = classic.ok_or(MissingSet::Classic)?;
-        let dat_dir = modern.ok_or(MissingSet::Modern)?.to_path_buf();
-        Ok(DatDirs {
-            classic_dat_dir: (dat_dir != classic).then(|| classic.to_path_buf()),
-            dat_dir,
-        })
-    } else {
-        let dat_dir = modern.ok_or(MissingSet::Modern)?.to_path_buf();
-        Ok(DatDirs {
-            dat_dir,
-            classic_dat_dir: classic.map(Path::to_path_buf),
-        })
+    match crate::eras::required_set(era) {
+        kind @ (SetKind::Classic | SetKind::Original) => {
+            let missing = if kind == SetKind::Original {
+                MissingSet::Original
+            } else {
+                MissingSet::Classic
+            };
+            let classic = classic.ok_or(missing)?;
+            let dat_dir = modern.ok_or(MissingSet::Modern)?.to_path_buf();
+            Ok(DatDirs {
+                classic_dat_dir: (dat_dir != classic).then(|| classic.to_path_buf()),
+                dat_dir,
+            })
+        }
+        SetKind::Modern | SetKind::Auberean => {
+            let dat_dir = modern.ok_or(MissingSet::Modern)?.to_path_buf();
+            Ok(DatDirs {
+                dat_dir,
+                classic_dat_dir: classic.map(Path::to_path_buf),
+            })
+        }
     }
 }
 
@@ -346,7 +371,7 @@ mod tests {
     }
 
     #[test]
-    fn classic_sets_are_offered_to_every_world_and_never_as_modern_ones() {
+    fn classic_sets_are_offered_to_every_world_but_launch_which_is_offered_the_1999_sets() {
         let set = |id: &str, kind| DatSet {
             id: id.into(),
             path: PathBuf::from(id),
@@ -357,13 +382,40 @@ mod tests {
             created_by_launcher: false,
         };
         let s = LauncherState {
-            dat_sets: vec![set("m", SetKind::Modern), set("c", SetKind::Classic)],
+            dat_sets: vec![
+                set("m", SetKind::Modern),
+                set("c", SetKind::Classic),
+                set("o", SetKind::Original),
+            ],
             ..Default::default()
         };
-        let w = World::new("eulmore", "Eulmore");
+        let mut w = World::new("eulmore", "Eulmore");
         let ids = |v: Vec<DatSet>| v.into_iter().map(|d| d.id).collect::<Vec<_>>();
         assert_eq!(ids(dat_sets_for(&s, &w)), ["m"]);
-        assert_eq!(ids(classic_sets_for(&s)), ["c"]);
+        assert_eq!(ids(classic_sets_for(&s, &w)), ["c"]);
+        w.era = Some("infiltration".into());
+        assert_eq!(ids(classic_sets_for(&s, &w)), ["c"]);
+        w.era = Some("launch".into());
+        assert_eq!(ids(dat_sets_for(&s, &w)), ["m"]);
+        assert_eq!(ids(classic_sets_for(&s, &w)), ["o"]);
+    }
+
+    #[test]
+    fn a_launch_world_needs_the_1999_set_beside_the_modern_one() {
+        let (m, o) = (Path::new("/m"), Path::new("/o"));
+        let mut w = World::new("x", "X");
+        w.era = Some("launch".into());
+        assert_eq!(required_set_for(&w), SetKind::Original);
+        assert_eq!(dat_dirs_for(&w, Some(m), None), Err(MissingSet::Original));
+        assert!(MissingSet::Original.to_string().contains("1999 data files"));
+        assert_eq!(
+            dat_dirs_for(&w, Some(m), Some(o)),
+            Ok(DatDirs {
+                dat_dir: m.into(),
+                classic_dat_dir: Some(o.into())
+            })
+        );
+        assert_eq!(dat_dirs_for(&w, None, Some(o)), Err(MissingSet::Modern));
     }
 
     /// A set whose files report `it`, with the given origin.

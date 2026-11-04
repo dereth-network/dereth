@@ -454,6 +454,12 @@ impl GameView for HudView<'_> {
     /// of those 5 carries an `EnchantmentRegistry`, and **0** carry a vitae — with 31 enchantment
     /// messages in the `0x02Cx` range in the corpus, none of which installs one.
     /// The lit branch is asserted against the vitae rule separately from these captures.
+    fn spell_charge(&self, spell: u32) -> Option<f32> {
+        self.era_features()
+            .spell_charge
+            .then(|| self.hud.spell_charges.value(spell, self.hud.now.0))
+    }
+
     fn vitae(&self) -> Option<f32> {
         Some(self.player_desc()?.enchantments.vitae_value())
     }
@@ -2398,6 +2404,9 @@ impl GameView for HudView<'_> {
         use dereth_client_model::appraisal::hook_appraisal as hk;
 
         Some(dereth_client_contract::AppraisalView {
+            launch_wording: self.hud.era.era == dereth_primitives::EraId::Launch,
+            obj_type: w.map_or(0, |w| w.pwd.obj_type),
+            wielded: w.is_some_and(|w| w.pwd.wielder_id.is_some()),
             delivery: self.world.appraisal.delivery(id),
             creature: p.creature_profile.is_some(),
             template: am::inq::string(p, 5).is_some(),

@@ -197,7 +197,7 @@ impl World {
                 return 0;
             }
             let valid = w.pwd.valid_locations.unwrap_or(0);
-            if valid & loc::MELEE_WEAPON != 0 {
+            if self.era_features.dual_wield && valid & loc::MELEE_WEAPON != 0 {
                 valid | loc::SHIELD
             } else {
                 valid
@@ -228,7 +228,12 @@ impl World {
             return EquipmentDropOutcome::Refused;
         };
         let mut valid = w.pwd.valid_locations.unwrap_or(0);
-        let side = if mask == loc::SHIELD && valid & loc::MELEE_WEAPON != 0 {
+        // Only a world with dual wield takes a weapon in the shield's slot; without it a weapon
+        // dropped there is refused, with no message.
+        let side = if self.era_features.dual_wield
+            && mask == loc::SHIELD
+            && valid & loc::MELEE_WEAPON != 0
+        {
             valid |= loc::SHIELD;
             SlotSide::Left
         } else {

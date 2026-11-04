@@ -445,7 +445,15 @@ impl Windows {
             words::school_name(d.school).to_owned(),
             words::mana_text(d.base_mana, d.mana_mod),
         ];
-        lines.extend(words::duration_text(d.duration));
+        lines.extend(
+            known
+                .and_then(|s| s.charge)
+                .map(|percent| format!("Charge: {percent}%")),
+        );
+        lines.extend(match state.era {
+            Some(era) => dereth_presentation::spell::duration_text_for(d.duration, era),
+            None => words::duration_text(d.duration),
+        });
         lines.extend(words::range_text(d.range));
         lines.extend(extra.iter().cloned());
         for l in &lines {

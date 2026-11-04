@@ -69,7 +69,10 @@ use crate::World;
 
 pub use dereth_network_protocol::address::looks_remote;
 pub use directory::{deleted, renamed};
-pub use rooms::{global_slot, mirrored_slots, room_said, KeptRooms, UNCARRIED_SECS};
+pub use rooms::{
+    chat_rooms_in_use, global_slot, mirrored_slots, network_room, room_open, room_said, KeptRooms,
+    UNCARRIED_SECS,
+};
 pub use social::{
     add_friend, friend_rows, on_login, on_logout, remove_all_friends, remove_friend,
     settings_changed, squelch,

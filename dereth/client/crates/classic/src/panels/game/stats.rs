@@ -43,7 +43,7 @@ impl Stats {
 
 /// Whether the character window has a Titles tab: on a world with titles.
 fn titles_tab(game: &dyn GameView) -> bool {
-    super::systems::era_has(game, |e| e.titles)
+    super::systems::offered(game, dereth_client_contract::era::EraSurface::Titles)
 }
 #[derive(Clone)]
 enum Row<'a> {

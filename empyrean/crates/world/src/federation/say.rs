@@ -188,6 +188,10 @@ fn carried(w: &World, room: &str) -> Option<RoomSlot> {
     let slot = if room == GLOBAL_ROOM {
         super::global_slot(w)?
     } else {
+        // DIVERGE: V498, a world without the game's own rooms has none to mirror.
+        if !w.era.features.global_chat_rooms {
+            return None;
+        }
         super::mirrored_slots(w)
             .into_iter()
             .find(|r| r.room() == room)?

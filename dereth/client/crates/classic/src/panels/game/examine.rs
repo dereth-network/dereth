@@ -135,7 +135,19 @@ impl Panel for Examine {
                     false,
                     None,
                 );
-                if let Some(duration) = spell::duration_text(s.duration) {
+                if let Some(charge) = g.spell_charge(id) {
+                    text(
+                        &mut f,
+                        rect(150, 51, 146, 20),
+                        spell::charge_text(charge),
+                        "15-6",
+                        CREAM,
+                        2,
+                        false,
+                        None,
+                    );
+                }
+                if let Some(duration) = spell::duration_text_for(s.duration, g.era_features()) {
                     text(
                         &mut f,
                         rect(150, 76, 146, 20),

@@ -248,6 +248,15 @@ fn append(f: &mut PanelFrame, child: PanelFrame, x: i32, y: i32, prefix: &str) {
         c
     }));
 }
+/// The stack splitter's bar up to its thumb, its bar past it, and the thumb, which has its black
+/// see-through.
+const STACK_BAR_LIT: u32 = 0x0600_127F;
+const STACK_BAR_DARK: u32 = 0x0600_1150;
+const STACK_THUMB: u32 = 0x0600_0F82;
+const STACK_THUMB_WIDTH: i32 = 16;
+/// The thumb's travel along the 96-pixel bar, whose length is inclusive.
+const STACK_THUMB_TRAVEL: i64 = 81;
+
 /// The selected-object bar: the object's name, its stack splitter when it is a stack, and its
 /// health or mana.
 fn selected_object(f: &mut PanelFrame, c: &Context<'_>, x: i32, y: i32, draft: Option<&str>) {
@@ -273,17 +282,33 @@ fn selected_object(f: &mut PanelFrame, c: &Context<'_>, x: i32, y: i32, draft: O
         .font = "14-6".into();
         f.controls.last_mut().unwrap().background = Some(0xff323232);
         let slider = rect(x + 128, y + 28, 96, 14);
-        image(f, 0x0600127f, slider, false, None);
+        let thumb_x =
+            slider.x + i32_from_i64((split - 1) as i64 * STACK_THUMB_TRAVEL / (max - 1) as i64);
+        // The bar is lit up to the middle of the thumb and dark past it.
+        let lit_to = thumb_x + STACK_THUMB_WIDTH / 2;
         image(
             f,
-            0x06001150,
-            rect(
-                slider.x + i32_from_i64((split - 1) as i64 * 83 / (max - 1) as i64),
-                slider.y,
-                14,
-                14,
-            ),
+            STACK_BAR_LIT,
+            rect(slider.x, slider.y, 140, slider.h),
             false,
+            Some(rect(slider.x, slider.y, lit_to - slider.x, slider.h)),
+        );
+        image(
+            f,
+            STACK_BAR_DARK,
+            slider,
+            true,
+            Some(rect(
+                lit_to,
+                slider.y,
+                slider.x + slider.w - lit_to,
+                slider.h,
+            )),
+        );
+        keyed_image(
+            f,
+            STACK_THUMB,
+            rect(thumb_x, slider.y, STACK_THUMB_WIDTH, slider.h),
             None,
         );
         f.control(
@@ -297,7 +322,7 @@ fn selected_object(f: &mut PanelFrame, c: &Context<'_>, x: i32, y: i32, draft: O
                 step: 1,
                 vertical: false,
                 arrow_size: 0,
-                thumb_size: 14,
+                thumb_size: STACK_THUMB_WIDTH,
             },
             true,
         )
@@ -769,7 +794,7 @@ impl Panel for Hud {
                 // windows, the map, the Options window and the two forms.
                 "ToggleSocialPanel" => Some("social"),
                 "ToggleFriendsPanel" => Some("friends"),
-                "TogglePageListPanel" => quest_page(c.game),
+                "TogglePageListPanel" => Some("journal"),
                 "ToggleSpellManagementPanel" => Some("spellbook"),
                 "ToggleSkillManagementPanel" => Some("character-stats"),
                 "ToggleWorldPanel" => Some("map"),
@@ -779,8 +804,8 @@ impl Panel for Hud {
                 _ => None,
             };
             if let Some(panel) = panel {
-                // The research page's key does nothing on a world without spell research.
-                if panel == "spell-research" && !super::game::research_on(c.game) {
+                // A key for a system the world lacks does nothing.
+                if crate::panels::era_refuses(panel, c.game.era_features()) {
                     return vec![];
                 }
                 return vec![PanelAction::Toggle(panel.into())];
@@ -1532,6 +1557,17 @@ impl Chat {
             .selected_object()
             .map(|id| (id, c.game.name(id).unwrap_or("").to_owned()))
     }
+    /// The menu's entries, as indices into [`CHAT_FOCUSES`]: a world without the game's own rooms
+    /// lists only the room the server named, if any.
+    fn shown_destinations(c: &Context<'_>) -> Vec<usize> {
+        /// The first of the rooms in the menu.
+        const FIRST_ROOM: usize = 8;
+        let rooms = c.game.era_features().global_chat_rooms;
+        let enabled = Self::enabled(c);
+        (0..CHAT_FOCUSES.len())
+            .filter(|i| *i < FIRST_ROOM || rooms || (c.classic.chat_focus.is_some() && enabled[*i]))
+            .collect()
+    }
     fn enabled(c: &Context<'_>) -> Vec<bool> {
         let target = Self::target(c).is_some();
         let enabled = c
@@ -1711,18 +1747,21 @@ impl Panel for Chat {
             destinations[0] = format!("Squelch (ignore) {name}");
             destinations[1] = format!("Tell to {name}");
         }
+        let shown = Self::shown_destinations(c);
+        let enabled = Self::enabled(c);
+        let selected = self.destination(c);
         let destination = f.control(
             "destination",
             rect(0, h - 17, 48, 17),
             ControlKind::Choice {
-                options: destinations,
-                selected: self.destination(c),
+                options: shown.iter().map(|i| destinations[*i].clone()).collect(),
+                selected: shown.iter().position(|i| *i == selected).unwrap_or(0),
             },
             true,
         );
         destination.paint = false;
         destination.chat_popup = true;
-        destination.choice_enabled = Some(Self::enabled(c));
+        destination.choice_enabled = Some(shown.iter().map(|i| enabled[*i]).collect());
         image(&mut f, 0x060010ed, rect(0, h - 17, 46, 17), false, None);
         f.text_box(
             rect(2, h - 15, 44, 13),
@@ -1836,8 +1875,9 @@ impl Panel for Chat {
                 _ => {}
             },
             ControlEvent::Select { id, index }
-                if id == "destination" && index < CHAT_FOCUSES.len() =>
+                if id == "destination" && index < Self::shown_destinations(c).len() =>
             {
+                let index = Self::shown_destinations(c)[index];
                 if !Self::enabled(c)[index] {
                     return vec![];
                 }
@@ -1893,6 +1933,84 @@ impl Panel for Chat {
 mod tests {
     //! Behaviour: none (classic panel adapter; no retail behaviour claim).
     use super::*;
+
+    #[derive(Debug)]
+    struct NoRooms(dereth_client_contract::EraView);
+    impl GameView for NoRooms {
+        fn era(&self) -> Option<&dereth_client_contract::EraView> {
+            Some(&self.0)
+        }
+    }
+
+    /// A world without the game's own rooms lists them only when the server named one.
+    #[test]
+    fn the_chat_menu_lists_no_room_on_a_world_without_them_but_one_the_server_named() {
+        let game = NoRooms(dereth_client_contract::EraView {
+            era: dereth_primitives::era::EraId::Launch,
+            era_announced: true,
+            ..Default::default()
+        });
+        let resources = crate::resources::Resources::default();
+        let (p, k, s) = Default::default();
+        let mut state = ClassicState::default();
+        let context = |state: &'_ ClassicState| {
+            let c = Context {
+                resources: &resources,
+                layout: crate::panels::Layout::default(),
+                now: dereth_primitives::LocalTime(0.0),
+                game: &game,
+                pregame: &p,
+                keyboard: &k,
+                settings: &s,
+                map_teleport_allowed: false,
+                classic: state,
+            };
+            Chat::shown_destinations(&c)
+        };
+        assert_eq!(context(&state), (0..8).collect::<Vec<_>>());
+        let mut enabled = [false; 14];
+        enabled[9] = true;
+        state.chat_focus = Some((1, enabled));
+        let mut want: Vec<usize> = (0..8).collect();
+        want.push(9);
+        assert_eq!(context(&state), want, "the room the server named");
+    }
+
+    /// The splitter at 4 of 10: the thumb, keyed, a third of the way along (`3 * 81 / 9`), the lit
+    /// bar cut at its middle and the dark bar from there on.
+    fn stack_splitter_draws_its_thumb_over_a_bar_lit_up_to_it(f: &PanelFrame) {
+        let picture = |id: &str| {
+            f.screen.commands.iter().find_map(|c| match c {
+                Command::Image {
+                    did,
+                    x,
+                    y,
+                    width,
+                    height,
+                    clip,
+                    color_key,
+                    tile,
+                    ..
+                } if did == id => Some((
+                    (*x, *y, *width as i32, *height as i32),
+                    *tile,
+                    *clip,
+                    color_key.is_some(),
+                )),
+                _ => None,
+            })
+        };
+        let (at, _, _, keyed) = picture("06000F82").expect("the thumb");
+        assert_eq!((at.2, at.3), (16, 14));
+        assert!(keyed, "the thumb's black is see-through");
+        let (bar, _, lit_clip, _) = picture("0600127F").expect("the lit bar");
+        assert_eq!(at.0, bar.0 + 27, "a third of the way along");
+        let lit_clip = lit_clip.expect("cut at the thumb");
+        assert_eq!(lit_clip[2], at.0 + 8, "lit up to the thumb's middle");
+        let (_, tile, dark_clip, _) = picture("06001150").expect("the dark bar");
+        assert!(tile);
+        assert_eq!(dark_clip.expect("past the thumb")[0], at.0 + 8);
+    }
     #[test]
     fn the_chat_log_is_the_interfaces_where_no_control_lies_and_the_world_view_is_not() {
         let mut hud = make("hud").expect("the interface");
@@ -2015,6 +2133,51 @@ mod tests {
         }
         assert_eq!(quest_page(&Era(era)), None);
         assert_eq!(quest_page(&World::default()), Some("journal"));
+    }
+    /// Behaviour: presentation.era.every-interface-refuses-what-the-world-lacks
+    /// The window keys of a system the world lacks do nothing; the page list's key follows the
+    /// journal, not the contracts beside it.
+    #[test]
+    fn a_window_key_does_nothing_without_its_system() {
+        #[derive(Debug)]
+        struct Era(dereth_client_contract::EraView);
+        impl GameView for Era {
+            fn era(&self) -> Option<&dereth_client_contract::EraView> {
+                Some(&self.0)
+            }
+        }
+        let mut era = dereth_client_contract::EraView {
+            era: dereth_primitives::era::EraId::Eor,
+            era_announced: true,
+            ..Default::default()
+        };
+        for name in ["contracts", "titles", "journal", "housing", "trade"] {
+            era.announced_features.set(name, false);
+        }
+        let g = Era(era);
+        let resources = crate::resources::Resources::default();
+        let state = ClassicState::default();
+        let (p, k, s) = Default::default();
+        let mut hud = Hud::default();
+        let c = context(&resources, &g, &state, &p, &k, &s);
+        for key in [
+            "ToggleContractsPanel",
+            "ToggleCharacterTitlePanel",
+            "ToggleJournalPanel",
+            "TogglePageListPanel",
+            "ToggleHousePanel",
+            "TradePanel",
+        ] {
+            assert_eq!(
+                hud.event(ControlEvent::Action(key.into()), &c),
+                vec![],
+                "{key}"
+            );
+        }
+        assert_eq!(
+            hud.event(ControlEvent::Action("ToggleMapPanel".into()), &c),
+            vec![PanelAction::Toggle("map".into())]
+        );
     }
     #[test]
     fn the_journal_button_opens_the_journal_and_closes_the_page_it_shows() {
@@ -2557,6 +2720,7 @@ mod tests {
                 let mut h = Hud::default();
                 let f = h.frame(c);
                 assert!(f.controls.iter().any(|c| c.id == "stack-count"));
+                stack_splitter_draws_its_thumb_over_a_bar_lit_up_to_it(&f);
                 assert!(!f
                     .screen
                     .commands

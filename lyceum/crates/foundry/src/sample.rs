@@ -64,7 +64,7 @@ pub fn file_for<'a>(era: EraId, rel: &str, bytes: &'a [u8]) -> Cow<'a, [u8]> {
                 .replace("0x090001D0", "0x09000008")
                 .into_bytes(),
         ),
-        EraId::Infiltration => Cow::Borrowed(bytes),
+        EraId::Launch | EraId::Infiltration => Cow::Borrowed(bytes),
     }
 }
 

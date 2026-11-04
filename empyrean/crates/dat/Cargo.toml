@@ -22,6 +22,7 @@ dereth-assets.workspace = true
 dereth-dat.workspace = true
 dereth-physics.workspace = true
 dereth-primitives.workspace = true
+dereth-rules = { workspace = true, default-features = true }
 dereth-world-data.workspace = true
 thiserror.workspace = true
 log.workspace = true

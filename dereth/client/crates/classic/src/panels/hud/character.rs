@@ -95,7 +95,7 @@ impl AugmentationSheet {
     }
 }
 
-fn body(i: &CharacterInfo, augmentations: &str) -> String {
+fn body(i: &CharacterInfo, augmentations: &str, endurance_benefits: bool, chess: bool) -> String {
     use dereth_presentation::character::{regeneration_band, resist_band};
     let mut s = String::new();
     if let Some(t) = i.created {
@@ -113,11 +113,13 @@ fn body(i: &CharacterInfo, augmentations: &str) -> String {
         2 => "You've died twice.\n\n".into(),
         n => format!("You've died {} times.\n\n", comma(n)),
     });
-    let resist = resist_band(i.strength.wrapping_add(i.endurance) as u32);
-    let regen = regeneration_band(i.strength.wrapping_add(i.endurance.wrapping_mul(2)) as u32);
-    s.push_str(&format!(
+    if endurance_benefits {
+        let resist = resist_band(i.strength.wrapping_add(i.endurance) as u32);
+        let regen = regeneration_band(i.strength.wrapping_add(i.endurance.wrapping_mul(2)) as u32);
+        s.push_str(&format!(
         "Natural Resistances: {resist}\nDrain Resistances: {resist}\nRegeneration Bonus: {regen}\n"
     ));
+    }
     for (name, n) in [
         "Strength",
         "Endurance",
@@ -131,10 +133,11 @@ fn body(i: &CharacterInfo, augmentations: &str) -> String {
     {
         s.push_str(&format!("Innate {name}: {}\n", comma(n)));
     }
-    s.push_str(&format!(
-        "Chess Rank: {}\nFishing Skill: {}\n\n",
-        i.chess_rank, i.fishing_skill
-    ));
+    // A rank is a fact about a world with chess; without it the number is only a default.
+    if chess {
+        s.push_str(&format!("Chess Rank: {}\n", i.chess_rank));
+    }
+    s.push_str(&format!("Fishing Skill: {}\n\n", i.fishing_skill));
     if !augmentations.is_empty() {
         s.push_str(augmentations);
         s.push('\n');
@@ -179,7 +182,15 @@ impl Panel for Character {
             .game
             .character_info()
             .as_ref()
-            .map(|i| body(i, &c.classic.augmentations))
+            .map(|i| {
+                let features = c.game.era_features();
+                body(
+                    i,
+                    &c.classic.augmentations,
+                    features.endurance_benefits,
+                    features.chess,
+                )
+            })
             .unwrap_or_default();
         let text_w = (w - 34).max(1);
         let content = c
@@ -230,6 +241,29 @@ impl Panel for Character {
 mod tests {
     //! Behaviour: none (classic panel adapter; no retail behaviour claim).
     use super::*;
+    /// Behaviour: presentation.era.endurance-information-follows-the-world-profile
+    #[test]
+    fn character_body_omits_unavailable_endurance_bonuses() {
+        let info = CharacterInfo {
+            strength: 300,
+            endurance: 300,
+            innate: [10; 6],
+            ..Default::default()
+        };
+        for available in [false, true] {
+            let text = body(&info, "", available, true);
+            for label in [
+                "Natural Resistances:",
+                "Drain Resistances:",
+                "Regeneration Bonus:",
+            ] {
+                assert_eq!(text.contains(label), available);
+            }
+            assert!(text.contains("Innate Endurance: 10"));
+            assert!(text.contains("not overburdened"));
+        }
+    }
+
     #[test]
     fn duration_uses_months_not_years_or_weeks() {
         assert_eq!(duration(31_536_061), "12mo 5d 1m 1s");
@@ -243,7 +277,7 @@ mod tests {
             num_deaths: 2,
             ..Default::default()
         };
-        let text = body(&i, "");
+        let text = body(&i, "", true, true);
         assert!(text.contains("You've died twice."));
         assert!(text.contains("Innate Coordination: 10"));
         assert!(!text.contains("Luminance"));
@@ -332,11 +366,17 @@ mod tests {
         );
         assert_eq!(
             augmentation_text(&world(EraId::Infiltration, None), &Rows),
+            "Strength augmentations: 2
+",
+            "an era with augmentations to buy keeps what was bought"
+        );
+        assert_eq!(
+            augmentation_text(&world(EraId::Launch, None), &Rows),
             "",
-            "an era with neither system shows no section"
+            "an era with none of the systems shows no section"
         );
         let i = CharacterInfo::default();
-        let text = body(&i, "Strength augmentations: 2\n");
+        let text = body(&i, "Strength augmentations: 2\n", true, true);
         assert!(
             text.contains("Fishing Skill: 0\n\nStrength augmentations: 2\n\nYou are not"),
             "the section sits between the skills and the load: {text:?}"

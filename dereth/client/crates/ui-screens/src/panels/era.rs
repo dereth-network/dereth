@@ -13,6 +13,10 @@
 //! | `trinkets` | the paper doll's trinket slot |
 //! | `luminance` | the character sheet's luminance section (see [`super::characterinfo`]) |
 //! | `housing` | the map page's House tab (the page opens on its Map tab instead) |
+//! | `fellowship_options` | the fellowship panel's Share Experience box |
+//! | `fellowship_share_loot` | its Share Loot box |
+//! | `fellowship_auto_accept` | its Auto-Accept box |
+//! | `fellowship_open` | its Open button |
 //!
 //! A page that loses a tab keeps no gap in its strip: its other tabs share the strip in equal
 //! shares, and get their own places back when the tab returns.
@@ -30,6 +34,7 @@
 //!
 //! Aetheria slots require both world availability and the character's unlock bits.
 
+use dereth_client_contract::era::EraSurface;
 use dereth_primitives::EraFeatures;
 use dereth_ui::msg::element::id as msgid;
 use dereth_ui::widgets::panel::Panel;
@@ -57,6 +62,33 @@ pub fn option_caption(
 pub const CLOAK_SLOT: ElementId = ElementId(0x1000_05E9);
 /// The paper doll's trinket slot (worn location `0x04000000`).
 pub const TRINKET_SLOT: ElementId = ElementId(0x1000_058E);
+
+/// The system the element `element` belongs to, for the windows, pages, tabs' pages and slots of
+/// this interface that follow one.
+#[must_use]
+pub fn era_surface_of(element: ElementId) -> Option<EraSurface> {
+    use super::{contracts, house, journal, minigame, pagelist, research, salvage, slumlord};
+    use super::{titles, trade};
+    Some(match element {
+        e if e == journal::PAGE => EraSurface::QuestWindow,
+        e if e == journal::PANEL || e == pagelist::PANEL => EraSurface::Journal,
+        e if e == contracts::PANEL => EraSurface::Contracts,
+        e if e == titles::PANEL => EraSurface::Titles,
+        e if e == house::PANEL || e == slumlord::PANEL => EraSurface::House,
+        e if e == minigame::PANEL => EraSurface::Chess,
+        e if e == trade::WINDOW => EraSurface::Trade,
+        e if e == salvage::PANEL => EraSurface::Salvage,
+        e if e == research::PAGE => EraSurface::SpellResearch,
+        e if e == CLOAK_SLOT => EraSurface::CloakSlot,
+        e if e == TRINKET_SLOT => EraSurface::TrinketSlot,
+        _ => return None,
+    })
+}
+
+/// Whether a world playing `features` has the element `element`.
+fn offered(features: EraFeatures, element: ElementId) -> bool {
+    era_surface_of(element).is_none_or(|s| s.offered(features))
+}
 
 /// A tab an era can take away, with the tabbed page it belongs to.
 #[derive(Debug, Clone, Copy)]
@@ -179,6 +211,10 @@ pub struct EraPanels {
     trinket_slot: Option<ElemHandle>,
     sigil_slots: [Option<ElemHandle>; 3],
     applied_sigils: u8,
+    /// The fellowship panel's option boxes, each with what it needs of the world.
+    fellowship_boxes: Vec<(ElemHandle, dereth_client_contract::options::sheet::Needs)>,
+    /// The fellowship panel's Open button.
+    fellowship_open: Option<ElemHandle>,
     /// The tab strips of the pages above, which close up over a hidden tab.
     strips: Vec<Strip>,
     /// The features last applied; `None` before the first frame.
@@ -212,6 +248,14 @@ impl EraPanels {
         self.house_tab = Self::tab_of(ui, root, super::house::PANEL);
         self.cloak_slot = ui.get_child_recursive(root, CLOAK_SLOT);
         self.trinket_slot = ui.get_child_recursive(root, TRINKET_SLOT);
+        self.fellowship_boxes = crate::options::toggle::FELLOWSHIP_OPTION_BOXES
+            .iter()
+            .filter_map(|(id, option)| {
+                let row = dereth_client_contract::options::sheet::row_of_option(*option)?;
+                Some((ui.get_child_recursive(root, *id)?, row.needs))
+            })
+            .collect();
+        self.fellowship_open = ui.get_child_recursive(root, super::fellowship::OPEN_BUTTON);
         let mut pages: Vec<ElemHandle> = Vec::new();
         for t in [
             self.contracts_tab,
@@ -260,14 +304,15 @@ impl EraPanels {
         }
         self.applied = Some(features);
         self.applied_sigils = sigils;
-        for (tab, has) in [
-            (self.contracts_tab, features.contracts),
-            (self.journal_tab, features.journal),
-            (self.page_list_tab, features.journal),
-            (self.titles_tab, features.titles),
-            (self.house_tab, features.housing),
+        for (tab, sub) in [
+            (self.contracts_tab, super::contracts::PANEL),
+            (self.journal_tab, super::journal::PANEL),
+            (self.page_list_tab, super::pagelist::PANEL),
+            (self.titles_tab, super::titles::PANEL),
+            (self.house_tab, super::house::PANEL),
         ] {
             let Some(tab) = tab else { continue };
+            let has = offered(features, sub);
             ui.set_visible(tab.tab, has);
             ui.set_mouse_visible(tab.tab, has);
         }
@@ -309,12 +354,12 @@ impl EraPanels {
                     ui.broadcast_element_message(target.tab, msgid::MOUSE_CLICK, 0, 0);
                 }
             }
-            for (id, has) in [
-                (super::journal::PANEL, features.journal),
-                (super::pagelist::PANEL, features.journal),
-                (super::contracts::PANEL, features.contracts),
+            for id in [
+                super::journal::PANEL,
+                super::pagelist::PANEL,
+                super::contracts::PANEL,
             ] {
-                if !has {
+                if !offered(features, id) {
                     if let Some(h) = ui.get_child_recursive(tab.page, id) {
                         ui.set_visible(h, false);
                         ui.set_mouse_visible(h, false);
@@ -335,12 +380,18 @@ impl EraPanels {
             strip.lay_out(ui);
         }
         for (slot, has) in [
-            (self.cloak_slot, features.cloaks),
-            (self.trinket_slot, features.trinkets),
+            (self.cloak_slot, offered(features, CLOAK_SLOT)),
+            (self.trinket_slot, offered(features, TRINKET_SLOT)),
+            (self.fellowship_open, features.fellowship_open),
         ] {
             let Some(slot) = slot else { continue };
             ui.set_visible(slot, has);
             ui.set_mouse_visible(slot, has);
+        }
+        for &(option_box, needs) in &self.fellowship_boxes {
+            let has = needs.met(Some(&features));
+            ui.set_visible(option_box, has);
+            ui.set_mouse_visible(option_box, has);
         }
         true
     }

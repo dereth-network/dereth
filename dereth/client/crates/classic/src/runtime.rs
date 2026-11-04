@@ -2006,6 +2006,11 @@ impl ClassicUi {
             .map(|(x, y)| (to_i32_f64(x), to_i32_f64(y)));
         {
             let view = cx.hud().view(cx.objects());
+            if let Some(bindings) = &mut self.bindings {
+                if bindings.set_era(view.era_features()) {
+                    self.keyboard = bindings.snapshot();
+                }
+            }
             let context = Context {
                 resources: &self.resources,
                 layout: self.desktop.layout(),
@@ -2047,6 +2052,7 @@ impl ClassicUi {
                 } else if self.desktop.is_open("book") {
                     self.desktop.remove_visual("book", &context);
                 }
+                self.desktop.close_what_the_world_lacks(&context);
                 open_house_profile(&mut self.desktop, &mut self.house_profile_seen, &context);
                 let salvage = context.game.salvage_list();
                 match (

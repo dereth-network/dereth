@@ -200,6 +200,18 @@ pub fn oath_xp_cost(view: &dyn GameView) -> Option<u32> {
     view.oath_xp_cost()
 }
 
+/// What the prompt to swear adds on a world that charges experience for an oath; the end-of-retail
+/// prompt is unchanged.
+#[must_use]
+pub fn oath_cost_line(view: &dyn GameView) -> Option<String> {
+    oath_xp_cost(view).filter(|&c| c > 0).map(|cost| {
+        format!(
+            "\n\nThis oath costs {} unassigned experience.",
+            super::examination::insert_commas(i32::try_from(cost).unwrap_or(i32::MAX))
+        )
+    })
+}
+
 /// One row as this panel wrote it, so a test can read back what a player would see without
 /// re-walking the element tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -754,14 +766,9 @@ impl AllegiancePanel {
         };
         let mut prompt = fill(ui, token, &[(var::PLAYER, &name)]);
         // A world that charges experience for an oath (an earlier era's rule) says what this one
-        // costs; the end-of-retail prompt is unchanged.
+        // costs.
         if action == AllegianceAction::Swear {
-            if let Some(cost) = oath_xp_cost(view).filter(|&c| c > 0) {
-                prompt.push_str(&format!(
-                    "\n\nThis oath costs {} unassigned experience.",
-                    super::examination::insert_commas(i32::try_from(cost).unwrap_or(i32::MAX))
-                ));
-            }
+            prompt.push_str(&oath_cost_line(view).unwrap_or_default());
         }
         self.confirmations[slot] += 1;
         ui.requests.emit(UiRequest::AllegianceConfirmation {
@@ -1114,6 +1121,26 @@ fn set_attr_instance_id(ui: &mut UiSystem, h: ElemHandle, id: u32, v: u32) {
 mod tests {
     use super::*;
     use crate::view::AllegianceEntry;
+
+    /// Behaviour: presentation.era.every-interface-refuses-what-the-world-lacks
+    /// A world that charges experience for an oath names the cost in the prompt; another adds
+    /// nothing, as a first oath on the charging world adds nothing.
+    #[test]
+    fn the_prompt_to_swear_names_what_the_oath_costs() {
+        #[derive(Debug)]
+        struct Oath(Option<u32>);
+        impl GameView for Oath {
+            fn oath_xp_cost(&self) -> Option<u32> {
+                self.0
+            }
+        }
+        assert_eq!(
+            oath_cost_line(&Oath(Some(1234))).as_deref(),
+            Some("\n\nThis oath costs 1,234 unassigned experience.")
+        );
+        assert_eq!(oath_cost_line(&Oath(Some(0))), None);
+        assert_eq!(oath_cost_line(&Oath(None)), None);
+    }
 
     /// Oracle: the allegiance data's full name read — `title + " " + name`.
     #[test]

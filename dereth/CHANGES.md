@@ -16,6 +16,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 - Web: the launcher opens much faster, fetching the game only when you play.
 - The client now updates on its own, apart from the launcher.
+- Launch worlds: the Charge bar and each spell's duration range.
 
 - macOS: Intel Macs are no longer supported; Apple silicon only.
 
@@ -39,6 +40,9 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## 0.4.9 (2026-11-01)
 
 - Launcher: each realm lists only its own game's worlds.
+- Commands, help, travel routes and the character sheet follow the systems the world says it has.
+- Launcher: 1999 data files are their own kind, which Launch worlds need.
+- Launcher: a world shows its era and what it changes, and hosting offers the systems you'd look for by name.
 
 ## 0.4.8 (2026-10-28)
 
