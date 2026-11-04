@@ -14,7 +14,7 @@ use yalain_testkit::play::server_call;
 use yalain_testkit::Harness;
 use yalain_world::calls::{self, Node, Value};
 use yalain_world::graph::{Builder, Slot};
-use yalain_world::quests::{composed, status};
+use yalain_world::quests::{composed, status, PERSON_WAIT};
 use yalain_world::state::QuestState;
 
 const USE: u32 = 0x8216_0016;
@@ -633,6 +633,77 @@ fn a_persons_too_soon_line_is_not_said_at_a_plain_use() {
             "under way: its own line"
         );
     }
+}
+
+/// A person's wait after giving a quest counts the player's time in the world: more than two hours
+/// away leave it where it was, and two hours played end it.
+/// Behaviour: server.quests.a-persons-wait-runs-only-in-the-world
+#[test]
+fn a_persons_wait_counts_only_the_players_time_in_the_world() {
+    const STUBBY: u32 = 0x4700_335B;
+    const QUESTS: [u32; 2] = [0x4000_0313, 0x4000_0336];
+    const TOO_SOON: u32 = 0x3867_28F6;
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![object(0x8130_0000_0000_0801, STUBBY, [61.0, 241.0, -44.6])],
+        ..ContentPack::default()
+    };
+    h.server.quests = QuestTable {
+        quests: QUESTS
+            .iter()
+            .map(|q| QuestDef {
+                duration: 7200.0,
+                ..quest(*q, 0x2500_17D4, 2)
+            })
+            .collect(),
+        steps: QUESTS
+            .iter()
+            .map(|q| step(*q, 0, Trigger::Use(STUBBY), Update::Bestow))
+            .collect(),
+        gives: Vec::new(),
+    };
+    h.server.talk = TalkTable {
+        lines: vec![line(STUBBY, TOO_SOON, Role::TooSoon, How::Tell, None)],
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let stubby = 0x8130_0000_0000_0801;
+    holding(&mut h, &[(QUESTS[0], status::COMPLETED, 0)], 60);
+    let from = use_it(&mut h, b, me, stubby);
+    assert!(updates(&h, b, from).is_empty(), "too soon: none given");
+    // Away for more than its wait, by the calendar.
+    let before = h.bots[b].inbox.len();
+    h.bots[b].send(
+        false,
+        queue::LOGON,
+        &auberean_protocol::ClientMessage::LogOff(auberean_protocol::login::CharacterRef {
+            character: me,
+        }),
+    );
+    assert!(h.run_until(400, |h| h.bots[b].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+    let t = h.now.0 + PERSON_WAIT + 100.0;
+    while h.now.0 < t {
+        h.step_by(5.0);
+    }
+    h.enter_world(b, "one", me);
+    let from = use_it(&mut h, b, me, stubby);
+    assert!(
+        updates(&h, b, from).is_empty(),
+        "the time away does not count"
+    );
+    assert_eq!(
+        texts(&h, b, from),
+        vec![(HEAR_TELL, TOO_SOON)],
+        "it is still too soon"
+    );
+    // Its wait played out.
+    let t = h.now.0 + PERSON_WAIT;
+    while h.now.0 < t {
+        h.step_by(5.0);
+    }
+    let from = use_it(&mut h, b, me, stubby);
+    assert_eq!(updates(&h, b, from).len(), 1, "the time in the world does");
 }
 
 /// A person who gives several quests gives one of them at a use (not always the same one), none

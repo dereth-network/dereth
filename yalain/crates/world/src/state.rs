@@ -27,7 +27,8 @@ pub struct QuestState {
     /// Its status (a value of the quest statuses: underway, a phase of it, completed).
     pub status: u32,
     pub phase: u32,
-    /// When it was taken, and when it was last updated (world seconds since 1970).
+    /// When it was taken, moved on by the time its character has been out of the world since
+    /// (its time runs only in the world), and when it was last updated (world seconds since 1970).
     pub started: i64,
     pub updated: i64,
 }

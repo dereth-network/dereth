@@ -61,6 +61,8 @@ what they see, not how it was done.
 - Item-level recipes can be made now.
 - Crafting Workshops work: stand near one to craft what needs it.
 - A failed craft no longer makes the item.
+- A timed quest's clock now stops while you're logged out.
+- A person's two-hour wait between quests counts only time played.
 
 ## 0.1.2 (2026-11-03)
 

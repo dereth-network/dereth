@@ -6961,6 +6961,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-persons-wait-runs-only-in-the-world",
+        says: "A person's wait after giving a quest counts the player's time in the world, not the time it was away.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-CLOCK-PERSON"),
+        station: "yalain-testkit::cpu::play::quest_uses::a_persons_wait_counts_only_the_players_time_in_the_world",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-posting-waits-its-timer",
         says: "A postings board gives its quest with its unseen under-way quest, no other \
                until it is done, and none for its wait after.",
@@ -6986,6 +6994,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-REQUIRED"),
         station: "yalain-testkit::cpu::play::kill_quests::a_kill_or_a_step_gives_a_quest_only_with_the_quest_it_requires_at_its_status",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-saved-quest-keeps-what-it-had-left",
+        says: "A quest under way in a save keeps the time it had left when it was kept, neither lost nor given time back.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-CLOCK-SAVES"),
+        station: "yalain-testkit::cpu::entry::keeping::a_quest_under_way_in_a_save_keeps_the_time_it_had_left_when_it_was_kept",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -7196,6 +7212,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.given-out-of-the-world-counts-from-entry",
+        says: "A quest given while its character was out of the world counts from when the character enters.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-CLOCK-GIVEN-AWAY"),
+        station: "yalain-testkit::cpu::entry::keeping::time_away_moves_a_quests_time_on_but_never_past_now",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.hidden-never-listed",
         says: "A hidden quest a character holds is never in the journal it enters the world with; \
                the shown ones are.",
@@ -7305,12 +7329,12 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
-        id: "server.quests.ran-out-while-away",
-        says: "A quest whose time ran out while its character was away is failed when the character \
-               enters, its wait counted from when the time ran out.",
+        id: "server.quests.ran-out-before-leaving",
+        says: "A quest with no time left when its character left the world is failed when the \
+               character enters, its wait counted from when the time ran out.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-RAN-OUT-AWAY"),
-        station: "yalain-testkit::cpu::entry::keeping::a_quest_whose_time_ran_out_while_away_is_listed_failed",
+        station: "yalain-testkit::cpu::entry::keeping::a_quest_with_no_time_left_when_its_player_left_is_listed_failed",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -7410,6 +7434,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.time-and-waits-as-2017-recorded-them",
+        says: "Between two recorded entries of a character, a timed quest's time left fell by no more than the time that passed and a wait to be taken again by all of it, and this server's records say the same from the same time away.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-CLOCK-RECORDED"),
+        station: "yalain-testkit::corpus::keeping::a_timed_quests_time_runs_in_play_and_a_wait_on_the_calendar_across_recorded_entries",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.time-runs-only-in-the-world",
+        says: "A timed quest's time stands still while its player is away, and when it was given moves on by the time away.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-CLOCK"),
+        station: "yalain-testkit::cpu::entry::keeping::a_timed_quests_time_stands_still_while_its_player_is_away",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.under-level-line-is-the-persons",
         says: "A person says its under-level line to a player too low for what it gives, and to no one else.",
         since: RETAIL,
@@ -7432,6 +7472,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-UPDATE-EFFECTS"),
         station: "yalain-testkit::cpu::play::quests::an_update_puts_on_its_definitions_effects_before_it_is_told",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.waits-run-while-away",
+        says: "A wait to be taken again runs while its player is away, a done, a failed and a cancelled quest's alike.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-CLOCK-WAITS"),
+        station: "yalain-testkit::cpu::entry::keeping::a_wait_to_be_taken_again_runs_while_its_player_is_away",
         tier: Tier::Cpu,
     },
     behaviour! {

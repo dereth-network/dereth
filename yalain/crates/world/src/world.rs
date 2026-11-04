@@ -521,8 +521,8 @@ pub fn enter<S: Store>(
     let worn = crate::inventory::worn(&s.catalog, &p.play.items, c.race, c.sex);
     let game_now = net.game_time(clock.local);
     s.game_now = game_now;
-    // A skill's wait does not run while the character is away: its last use moves on by the time
-    // since the character was last kept.
+    // A skill's wait does not run while the character is away, nor a quest's time: its last use,
+    // and when each quest was given, move on by the time since the character was last kept.
     let away = if p.play.kept_at > 0.0 {
         (game_now - p.play.kept_at).max(0.0)
     } else {
@@ -536,8 +536,11 @@ pub fn enter<S: Store>(
     let game_epoch = game_now - clock.unix as f64;
     // The effects that ran out while the character was away are gone before its session starts.
     crate::effects::prune(&mut p.play, game_now);
-    // So have the quests whose time ran out.
-    crate::quests::ran_out_away(&s.quests, &mut p.play.quests, clock.unix);
+    // So have the quests with no time left when it left; the others' time stood still.
+    #[allow(clippy::cast_possible_truncation)]
+    let away_s = away as i64;
+    crate::quests::ran_out_before_leaving(&s.quests, &mut p.play.quests, clock.unix - away_s);
+    crate::quests::time_stood_still(&mut p.play.quests, away_s, clock.unix);
     let effects = crate::effects::registry(s, &p);
     let start = SessionStart {
         server_faction: 0,

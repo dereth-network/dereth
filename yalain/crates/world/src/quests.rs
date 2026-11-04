@@ -22,8 +22,13 @@
 //! update puts them on the player before anything else of it is told.
 //!
 //! **Time running out.** A quest with a duration fails when its time runs out: its update of the
-//! fail kind tells it failed, with the whole of its wait to be taken again. One whose time ran out
-//! while its player was away is failed before the player's next entry lists it.
+//! fail kind tells it failed, with the whole of its wait to be taken again. Its time runs only
+//! while its player is in the world: it stands still while the player is away, however long, and
+//! a person's wait after giving a quest runs the same way. A quest's wait to be taken again runs
+//! on the calendar, in the world or not. 2017, between two entries of a character: every timed
+//! quest's time left fell by the same amount, at most the time that passed (585 of 585), and by
+//! the time played where all of it was recorded; 1,651 waits to be taken again fell by the time
+//! that passed, of which 1,583 had a character away a minute or more.
 //!
 //! **A fellowship's step.** A step may make its update for the player's fellows too: each fellow
 //! in the world for whom it may run is given the same update, told it alone.
@@ -947,9 +952,10 @@ fn refuse<S: Store>(
 }
 
 /// How long a person who gives several quests with no wait of their own gives none after giving
-/// one, in seconds (2017, on the server's quest clock from the last one given: Stubby gave none
-/// at 371 to 6,976 s, 18 of 18 uses, and one at 7,257 s and later, 18 of 18; Lupe 12 of 13). It
-/// is those quests' own duration.
+/// one, in seconds of the player's time in the world (2017, from the last one given: Stubby gave
+/// none at 371 to 6,976 s, 18 of 18 uses, and one at 7,257 s and later, 18 of 18; Lupe 12 of 13;
+/// 6 uses said none with less than this played though more than this had passed). It is those
+/// quests' own duration.
 pub const PERSON_WAIT: f64 = 7200.0;
 
 /// The quests a trigger gives (its steps that give a quest), each once, in step order.
@@ -1693,9 +1699,27 @@ pub fn timers_at_entry<S: Store>(s: &mut Server<S>, world: ConnId, clock: Clock)
     }
 }
 
-/// The quests whose time ran out while their player was away fail, as of when it ran out (2017:
-/// no entry listed a quest under way with no time left, 691 of 691 timed ones with time left).
-pub fn ran_out_away(table: &yalain_content::QuestTable, held: &mut [QuestState], now_unix: i64) {
+/// A character enters after `away` seconds out of the world: its time did not run. Each quest it
+/// holds counts from `away` later, done or not, as a person's wait counts from it too (2017: when
+/// each was given, as an entry listed it, moved on by the time left's fall short of the time that
+/// passed, for every quest held). Never past now, for a quest given while it was out of the world.
+pub fn time_stood_still(held: &mut [QuestState], away: i64, now_unix: i64) {
+    for st in held {
+        st.started = st
+            .started
+            .saturating_add(away)
+            .min(now_unix.max(st.started));
+    }
+}
+
+/// The quests with no time left when their player last left the world, at `left_unix`, fail, as of
+/// when it ran out: a server that stopped before their time told it (2017: no entry listed a quest
+/// under way with no time left, 691 of 691 timed ones with time left).
+pub fn ran_out_before_leaving(
+    table: &yalain_content::QuestTable,
+    held: &mut [QuestState],
+    left_unix: i64,
+) {
     for st in held.iter_mut().filter(|q| q.status == status::UNDERWAY) {
         let Some(def) = table.quest(st.quest) else {
             continue;
@@ -1705,7 +1729,7 @@ pub fn ran_out_away(table: &yalain_content::QuestTable, held: &mut [QuestState],
         }
         #[allow(clippy::cast_possible_truncation)]
         let ends = st.started + def.duration.ceil() as i64;
-        if ends <= now_unix {
+        if ends <= left_unix {
             st.status = status::FAILED;
             st.phase = 0;
             st.updated = ends;
