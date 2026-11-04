@@ -641,6 +641,71 @@ fn an_effect_lowers_what_a_skill_costs_down_to_half_its_own() {
     assert_eq!(paid(-1000.0), 16, "half its own");
 }
 
+/// What an aura multiplies a held item's cost by comes off that item, rounded down: Deadeye costs its
+/// 32 and a bow of 18, which at 0.72 costs 12.
+/// Behaviour: server.specials.vigor-of-what-is-held-under-an-aura
+#[test]
+fn an_aura_on_what_is_held_lowers_its_cost_rounded_down() {
+    use yalain_world::effect_defs::{numeric, EffectDef, Kind, Scale};
+    const LOWERS: u32 = 0x6F00_7778;
+    const LOOTED: u32 = 0x4700_07A3;
+    let paid = |by: Option<f32>| -> i32 {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        let mut p = yalain_content::Props::default();
+        p.set("Weapon_VigorCost", yalain_content::Prop::Int(18));
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(LOOTED, 0x1067, p));
+        h.server
+            .catalog
+            .implements
+            .insert(LOOTED, yalain_world::skill_use::implement::BOW);
+        h.arm(b, me, LOOTED);
+        if let Some(by) = by {
+            let mut d: EffectDef = h
+                .server
+                .effect_table
+                .effects
+                .values()
+                .next()
+                .cloned()
+                .expect("an effect");
+            d.state = LOWERS;
+            d.fx = 0;
+            d.eq_class = 0;
+            d.duration = Scale(vec![(0.0, 3000.0)]);
+            d.kind = Kind::Numeric {
+                flags: numeric::MULTIPLY,
+                stats: vec![yalain_world::made::stat::VIGOR],
+                magnitude: Scale(vec![(0.0, by)]),
+            };
+            h.server.effect_table.effects.insert(LOWERS, d);
+            let world = *h.server.players.keys().next().expect("in the world");
+            let clock = h.clock();
+            let cast = yalain_world::effects::Cast {
+                caster: me,
+                spellcraft: 1.0,
+                ..yalain_world::effects::Cast::default()
+            };
+            assert!(yalain_world::effects::apply(
+                &mut h.server,
+                &mut h.net,
+                world,
+                LOWERS,
+                cast,
+                clock
+            ));
+            h.run(2);
+        }
+        let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+        h.run(80);
+        100 - vigor_sent(&h, b, from).first().copied().expect("it paid")
+    };
+    assert_eq!(paid(None), 32 + 18);
+    assert_eq!(paid(Some(0.72)), 32 + 12);
+}
+
 /// A bow the player came by costs what it says, not what a starting bow does.
 /// Behaviour: server.specials.vigor-of-what-is-held
 #[test]

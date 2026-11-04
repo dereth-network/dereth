@@ -139,6 +139,7 @@ what they see, not how it was done.
 - Loot can now have Stasis, armor counters and Burning Edge.
 - Fixed specials that strike with the left hand doing the right hand's damage.
 - Heroes' skills can now go past 50.
+- Balance and Featherweight now lower what skills cost.
 
 ## 0.1.2 (2026-11-03)
 

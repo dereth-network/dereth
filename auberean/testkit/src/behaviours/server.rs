@@ -8823,6 +8823,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.specials.vigor-of-what-is-held-under-an-aura",
+        says: "What a player's auras multiply a held item's cost by comes off that item, rounded \
+               down.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-VIGOR-HELD-AURA"),
+        station: "yalain-testkit::cpu::play::specials::an_aura_on_what_is_held_lowers_its_cost_rounded_down",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.store.a-sale-the-world-cannot-make-is-not-paid-for",
         says: "A sale whose template the world doesn't hold is refused, not found: nothing \
                is paid and nothing made.",
