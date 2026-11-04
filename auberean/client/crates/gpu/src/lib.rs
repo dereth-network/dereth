@@ -251,6 +251,8 @@ pub struct Renderer {
     meshes: cache::MeshCache,
     /// What the frames since it was last taken asked of the device.
     work: std::cell::Cell<Work>,
+    /// The sun's shadow map as last drawn.
+    shadow_kept: Option<ShadowKept>,
     /// The sky objects' lens flares by their place in the day's list: each one's fade and
     /// whether its object was seen when last looked for; the look under way (the markers drawn at
     /// the objects, whose answers come back a frame or so later); the flares' and the markers'
@@ -269,6 +271,30 @@ pub struct Renderer {
     /// The volumes of shadow's pipelines: the volumes counted in the stencil, and the darkening
     /// where the count is not zero.
     volume_pipelines: Option<(wgpu::RenderPipeline, wgpu::RenderPipeline)>,
+}
+
+/// The sun's shadow map as last drawn, and all that decided it.
+struct ShadowKept {
+    view: wgpu::TextureView,
+    signature: Vec<u8>,
+    /// The casters' lists, held so their addresses stay theirs while the signature names them.
+    lists: Vec<CasterLists>,
+}
+
+/// The lists one caster draws.
+type CasterLists = (Arc<Vec<auberean_draw::mesh::MeshVertex>>, Arc<Vec<u16>>);
+
+/// One caster of a shadow map: the batch, its pictures and its uniforms.
+type Caster<'a> = (&'a ObjectBatch, [(u32, bool); 3], DrawUniforms);
+
+/// A caster's pictures, as bytes for the map's signature.
+fn texture_bytes(textures: &[(u32, bool); 3]) -> [u8; 15] {
+    let mut out = [0; 15];
+    for (o, (id, clamp)) in out.as_chunks_mut::<5>().0.iter_mut().zip(textures) {
+        o[..4].copy_from_slice(&id.to_le_bytes());
+        o[4] = u8::from(*clamp);
+    }
+    out
 }
 
 /// What a pass last bound.
@@ -709,6 +735,7 @@ impl Renderer {
             backdrop: wgpu::Color::BLACK,
             meshes: cache::MeshCache::default(),
             work: std::cell::Cell::default(),
+            shadow_kept: None,
             flares: HashMap::new(),
             flare_scan: None,
             flare_kept: None,
@@ -899,6 +926,7 @@ impl Renderer {
             (self.wrap, self.clamp) = Self::samplers(&self.device, textures);
         }
         self.texture_groups.clear();
+        self.shadow_kept = None;
         self.textures_as = textures;
     }
 
@@ -1297,7 +1325,8 @@ impl Renderer {
     }
 
     /// The sun's shadow map of `shadow`'s casters: white, the casters black over it, then lifted
-    /// by one less the shadow strength.
+    /// by one less the shadow strength. A map whose casters and sun are as they were when it was
+    /// last drawn holds this frame's picture already, and is not drawn again.
     // D2-10929, D2-10609, D2-10610
     fn render_shadow_map(
         &mut self,
@@ -1307,46 +1336,115 @@ impl Renderer {
         load: &mut dyn FnMut(u32) -> Option<Image>,
     ) -> wgpu::TextureView {
         self.build_shadow_pipelines();
-        let (_, view) = self.target(
-            "shadow map",
-            (SHADOW_MAP_SIZE, SHADOW_MAP_SIZE, 1),
-            COLOR_FORMAT,
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-        );
+        let view = match &self.shadow_kept {
+            Some(k) => k.view.clone(),
+            None => {
+                self.note_work(|w| w.textures += 1);
+                self.device
+                    .create_texture(&wgpu::TextureDescriptor {
+                        label: Some("shadow map"),
+                        size: wgpu::Extent3d {
+                            width: SHADOW_MAP_SIZE,
+                            height: SHADOW_MAP_SIZE,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: COLOR_FORMAT,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                            | wgpu::TextureUsages::TEXTURE_BINDING,
+                        view_formats: &[],
+                    })
+                    .create_view(&wgpu::TextureViewDescriptor::default())
+            }
+        };
         let mut map_u = *frame_u;
         map_u.view_proj = mat(&shadow.view_projection());
         let s = shadow.strength;
         // the lift's color: one less the strength, added at full alpha
         map_u.fog_color = [1.0 - s.r, 1.0 - s.g, 1.0 - s.b, 1.0];
+        let black = auberean_world::color::Color::new(0.0, 0.0, 0.0, 1.0);
+        // All that decides the map's picture: the sun's view, the lift, and each caster's lists,
+        // pictures and uniforms.
+        let casters: Vec<Caster<'_>> = shadow
+            .casters
+            .iter()
+            .filter(|b| !b.indices.is_empty())
+            .map(|b| {
+                let stage = b.layer.stages.first().copied();
+                (
+                    b,
+                    [
+                        stage.map_or((0, false), |s| (s.texture, s.clamp_u || s.clamp_v)),
+                        (0, false),
+                        (0, false),
+                    ],
+                    Self::draw_uniforms(
+                        &b.layer,
+                        &b.transform,
+                        black,
+                        frame_u.sun_color,
+                        &PointLights::NONE,
+                    ),
+                )
+            })
+            .collect();
+        let (mut signature, lists) = self
+            .shadow_kept
+            .take()
+            .map_or_else(Default::default, |k| (k.signature, k.lists));
+        let unchanged = {
+            let mut was = signature.as_slice();
+            let mut same = |bytes: &[u8]| match was.split_at_checked(bytes.len()) {
+                Some((head, tail)) if head == bytes => {
+                    was = tail;
+                    true
+                }
+                _ => false,
+            };
+            same(bytemuck::bytes_of(&map_u.view_proj))
+                && same(bytemuck::bytes_of(&map_u.fog_color))
+                && casters.iter().all(|(b, textures, u)| {
+                    same(&Self::caster_lists(b))
+                        && same(&texture_bytes(textures))
+                        && same(bytemuck::bytes_of(u))
+                })
+                && was.is_empty()
+        };
+        if unchanged {
+            self.shadow_kept = Some(ShadowKept {
+                view: view.clone(),
+                signature,
+                lists,
+            });
+            return view;
+        }
+        signature.clear();
+        signature.extend_from_slice(bytemuck::bytes_of(&map_u.view_proj));
+        signature.extend_from_slice(bytemuck::bytes_of(&map_u.fog_color));
+        for (b, textures, u) in &casters {
+            signature.extend_from_slice(&Self::caster_lists(b));
+            signature.extend_from_slice(&texture_bytes(textures));
+            signature.extend_from_slice(bytemuck::bytes_of(u));
+        }
+        self.shadow_kept = Some(ShadowKept {
+            view: view.clone(),
+            signature,
+            lists: casters
+                .iter()
+                .map(|(b, _, _)| (Arc::clone(&b.vertices), Arc::clone(&b.indices)))
+                .collect(),
+        });
         let map_group =
             self.frame_uniforms
                 .take(&self.device, &self.frame_layout, bytemuck::bytes_of(&map_u));
-        let black = auberean_world::color::Color::new(0.0, 0.0, 0.0, 1.0);
         let mut draws = Vec::new();
-        for b in &shadow.casters {
-            if b.indices.is_empty() {
-                continue;
-            }
-            let stage = b.layer.stages.first().copied();
-            let texture_group = self.texture_group(
-                [
-                    stage.map_or((0, false), |s| (s.texture, s.clamp_u || s.clamp_v)),
-                    (0, false),
-                    (0, false),
-                ],
-                load,
-            );
-            let draw_group = self.uniforms.take(
-                &self.device,
-                &self.draw_layout,
-                bytemuck::bytes_of(&Self::draw_uniforms(
-                    &b.layer,
-                    &b.transform,
-                    black,
-                    frame_u.sun_color,
-                    &PointLights::NONE,
-                )),
-            );
+        for (b, textures, u) in &casters {
+            let texture_group = self.texture_group(*textures, load);
+            let draw_group =
+                self.uniforms
+                    .take(&self.device, &self.draw_layout, bytemuck::bytes_of(u));
             let (vertices, indices) = self.meshes.buffers(&self.device, &b.vertices, &b.indices);
             draws.push((
                 vertices,
@@ -1405,6 +1503,15 @@ impl Renderer {
         pass.draw(0..3, 0..1);
         drop(pass);
         view
+    }
+
+    /// Which lists a caster draws, as bytes for the map's signature.
+    fn caster_lists(b: &ObjectBatch) -> [u8; 16] {
+        let (v, i) = (
+            Arc::as_ptr(&b.vertices) as u64,
+            Arc::as_ptr(&b.indices) as u64,
+        );
+        bytemuck::cast([v.to_le_bytes(), i.to_le_bytes()])
     }
 
     /// The ripples' bump picture: 256 x 256 signed offsets, the sum of a ring of waves fading

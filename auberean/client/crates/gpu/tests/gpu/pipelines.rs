@@ -139,6 +139,38 @@ fn a_frame_like_the_one_before_makes_nothing_new() {
     assert_eq!(third.textures, 0, "{third:?}");
 }
 
+/// The sun's shadow map is drawn for the first frame and not again while its casters and its sun
+/// stay as they were; a change in the sun's strength draws it again, the draws of the casters
+/// coming back.
+#[test]
+fn the_shadow_map_is_drawn_again_only_when_it_would_differ() {
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let mut frame = still_frame(&mut builder);
+    let casters = frame.shadow.as_ref().expect("a shadow map").casters.len();
+    assert!(casters > 10, "{casters} casters");
+    let mut device = renderer();
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let (first, again, changed, picture_kept, picture_new) = checked(&mut device, |d| {
+        d.render(&frame, 320, 240, &mut load).expect("read back");
+        let first = d.take_work().draws;
+        let picture_kept = d.render(&frame, 320, 240, &mut load).expect("read back");
+        let again = d.take_work().draws;
+        let map = frame.shadow.as_mut().expect("a shadow map");
+        map.strength.r *= 0.5;
+        let picture_new = d.render(&frame, 320, 240, &mut load).expect("read back");
+        let changed = d.take_work().draws;
+        (first, again, changed, picture_kept, picture_new)
+    });
+    assert_eq!(first as usize, again as usize + casters + 1);
+    assert_eq!(changed, first);
+    assert_ne!(
+        picture_kept, picture_new,
+        "the shadows take the new strength"
+    );
+}
+
 /// A list that is new every frame, as a moving body's vertices are, makes no buffer of its own,
 /// however many frames it goes on being new.
 #[test]
