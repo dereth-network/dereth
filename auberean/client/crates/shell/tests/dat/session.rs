@@ -1538,6 +1538,57 @@ fn a_behavior_that_locks_actions_holds_the_player_until_it_ends() {
     );
 }
 
+/// A jump is heard: the body leaving the ground plays the jump effect's sound, and coming down
+/// plays the landing effect's.
+///
+/// Behaviour: desktop.sound.a-jump-and-its-landing-are-heard
+#[test]
+fn a_jump_and_its_landing_are_heard() {
+    const JUMPS: std::ops::RangeInclusive<u32> = 0x2A00_03B4..=0x2A00_03B9;
+    const LANDS: std::ops::RangeInclusive<u32> = 0x2A00_03BA..=0x2A00_03C0;
+    let script = script();
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with_sound(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 8.0 {
+        step(&mut s);
+    }
+    assert!(s.scene.status.contact, "standing on the floor");
+    let heard = |s: &Shell<'_, DoubleHost>, ids: std::ops::RangeInclusive<u32>| {
+        s.sound
+            .manager
+            .playing()
+            .iter()
+            .any(|&(_, id, _)| ids.contains(&id))
+    };
+    assert!(!heard(&s, JUMPS) && !heard(&s, LANDS), "quiet at rest");
+    for down in [true, false] {
+        s.event(&Event::Key {
+            key: Key::Space,
+            down,
+            repeat: false,
+        });
+        step(&mut s);
+    }
+    let pressed = s.host.time;
+    let (mut jumped, mut landed) = (false, false);
+    while !landed && s.host.time < pressed + 4.0 {
+        step(&mut s);
+        jumped |= heard(&s, JUMPS);
+        landed |= heard(&s, LANDS);
+    }
+    assert!(jumped, "leaving the ground is heard");
+    assert!(landed, "coming down is heard");
+}
+
 /// Space pressed with the player standing in the hall: its figure plays the jump's lead-in while
 /// the body stays on the ground, until the lead-in's animation sets the jump off; then the body
 /// leaves the ground at the jump's speed with its figure in the air, the server is told of the

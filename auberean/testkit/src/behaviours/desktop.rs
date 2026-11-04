@@ -1655,6 +1655,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.sound.a-jump-and-its-landing-are-heard",
+        says: "The body leaving the ground plays the jump effect's sound, and coming down plays                the landing effect's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SOUND-JUMP-LAND"),
+        station: "auberean-shell::dat::session::a_jump_and_its_landing_are_heard",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.sound.the-radars-groove-level-reaches-the-music",
         says: "The groove level the radar works out from what is near sets the level the music's patterns follow.",
         since: RETAIL,

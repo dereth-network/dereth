@@ -394,6 +394,13 @@ impl SoundPlayer {
     // D2-07723, D2-07721, D2-07722
     pub fn play(&mut self, files: &dyn SoundFiles, req: &PlayRequest) -> Option<u32> {
         self.stats.requests += 1;
+        tracing::debug!(
+            id = format_args!("{:08X}", req.id),
+            emitter = ?req.emitter,
+            volume = req.volume,
+            channel = ?req.channel,
+            "sound asked for"
+        );
         self.mixer.as_ref()?;
         if self.exclusive.contains(&req.id) {
             self.stats.already_playing += 1;

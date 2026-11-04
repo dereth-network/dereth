@@ -93,6 +93,7 @@ not how it was done.
 - Effects on placed objects now stand on their bones.
 - Portal arrivals and resurrections now show their mist.
 - Fixed Apply doing nothing after refusing a new resolution.
+- Jumps, landings and skids now make their sounds.
 
 ## 0.1.2 (2026-11-02)
 

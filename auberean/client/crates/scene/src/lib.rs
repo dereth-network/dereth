@@ -3405,6 +3405,12 @@ impl<'w> Scene<'w> {
                 let Some(n) = self.temporary_notice_or(from, n, now) else {
                     continue;
                 };
+                // What its motion asks of the object: the effects of leaving the ground, of
+                // landing and of a skid.
+                if let Notice::Animate(Animate::Fx { fx, intensity }) = n {
+                    self.do_fx(from, fx, intensity);
+                    continue;
+                }
                 let figure = match self.player.as_mut() {
                     Some(p) if p.id == from => Some(&mut p.figure),
                     _ => match self.others.figure_mut(from) {
