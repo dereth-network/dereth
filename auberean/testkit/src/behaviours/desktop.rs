@@ -1420,6 +1420,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.settings.a-mac-window-counts-its-size-in-points",
+        says: "On macOS a window's size is in points, so it opens as large on a Retina screen \
+               as on any other: the picture is drawn at that size and scaled to fill the \
+               window, and the pointer lands on the same place in the picture.",
+        since: THIS_CLIENT,
+        divergence: "CD2-mac-window-goes-by-points",
+        evidence: Evidence::Private("AC2-EVID-MAC-WINDOW-POINTS"),
+        station: "auberean-shell::cpu::settings::a_mac_window_counts_its_size_in_points",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.settings.full-screen-fills-the-monitor-at-the-size-asked-for",
         says: "Full screen leaves the monitor's display mode alone: the picture is drawn at the \
                display's size and scaled to fill the monitor, and the pointer lands on the same \

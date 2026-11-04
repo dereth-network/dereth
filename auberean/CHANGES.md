@@ -87,6 +87,7 @@ not how it was done.
 - Crafting workshops and some other objects now appear.
 - Choosing a craft skill no longer opens the examine window.
 - Full screen no longer changes the display mode.
+- macOS: the window now opens at full size on Retina screens.
 
 ## 0.1.2 (2026-11-02)
 

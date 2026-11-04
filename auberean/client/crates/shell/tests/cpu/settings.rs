@@ -1,7 +1,7 @@
 //! The settings' text.
 
 use auberean_scene::camera::AvatarInFirstPerson;
-use auberean_shell::settings::{in_picture, Presentation};
+use auberean_shell::settings::{in_picture, in_picture_pixels, Presentation};
 use auberean_shell::Settings;
 
 /// The camera, mouse and avatar options are read by the client's own names, each within its range
@@ -294,5 +294,19 @@ fn full_screen_fills_the_monitor_at_the_size_asked_for() {
         in_picture((7.5, 9.5), (1280, 960), (1280, 960)),
         (7.5, 9.5),
         "a window's point is the picture's"
+    );
+}
+
+/// Behaviour: desktop.settings.a-mac-window-counts-its-size-in-points
+#[test]
+fn a_mac_window_counts_its_size_in_points() {
+    assert_eq!(in_picture_pixels((2560, 1920), 2.0), (1280, 960));
+    assert_eq!(in_picture_pixels((1280, 960), 1.0), (1280, 960));
+    assert_eq!(in_picture_pixels((1, 1), 2.0), (1, 1), "never no picture");
+    let (window, picture) = ((2560, 1920), (1280, 960));
+    assert_eq!(
+        in_picture((2000.0, 1000.0), window, picture),
+        (1000.0, 500.0),
+        "the pointer lands on the same place in the picture"
     );
 }

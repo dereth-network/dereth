@@ -59,6 +59,15 @@ impl Presentation {
     }
 }
 
+/// A window's size in the screen's pixels as the pixels of the picture it shows, at this many screen
+/// pixels to one of the picture's.
+#[must_use]
+pub fn in_picture_pixels(window: (u32, u32), scale: f64) -> (u32, u32) {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let along = |w: u32| (f64::from(w) / scale).round().max(1.0) as u32;
+    (along(window.0), along(window.1))
+}
+
 /// A point of a picture of size `from` in a picture of size `to` that fills the same space.
 #[must_use]
 pub fn in_picture(point: (f32, f32), from: (u32, u32), to: (u32, u32)) -> (f32, f32) {

@@ -87,7 +87,7 @@ use auberean_scene::WorldData;
 use auberean_shell::command_line::{parse_args, set_error_text, Arg, ArgList, ClientLine, Reader};
 use auberean_shell::input::{Event, Key};
 use auberean_shell::interface::Interface;
-use auberean_shell::settings::in_picture;
+use auberean_shell::settings::{in_picture, in_picture_pixels};
 use auberean_shell::{Host, Presentation, Shell};
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, ElementState, MouseScrollDelta, WindowEvent};
@@ -602,6 +602,26 @@ fn monitor_sizes(monitor: Option<winit::monitor::MonitorHandle>) -> Vec<(u32, u3
     sizes
 }
 
+/// The window to ask for to show a picture of this size. On macOS a window goes by points, of which
+/// a Retina screen has two pixels to one; elsewhere by the screen's pixels.
+fn window_size_for(size: (u32, u32)) -> winit::dpi::Size {
+    if cfg!(target_os = "macos") {
+        winit::dpi::LogicalSize::new(size.0, size.1).into()
+    } else {
+        winit::dpi::PhysicalSize::new(size.0, size.1).into()
+    }
+}
+
+/// How many of the screen's pixels a window gives each pixel of its picture (see
+/// [`window_size_for`]).
+fn window_scale(window: &Window) -> f64 {
+    if cfg!(target_os = "macos") {
+        window.scale_factor()
+    } else {
+        1.0
+    }
+}
+
 struct App<'w> {
     shell: Shell<'w, Desktop>,
     world: &'w WorldData,
@@ -704,7 +724,8 @@ impl App<'_> {
     /// the picture it draws.
     fn window_sized(&mut self, size: (u32, u32)) {
         self.window_size = size;
-        let drawn = self.shown.drawn_in(size);
+        let scale = self.shell.host.window.as_deref().map_or(1.0, window_scale);
+        let drawn = self.shown.drawn_in(in_picture_pixels(size, scale));
         if let Some(p) = &mut self.present {
             p.resize(size.0, size.1);
             p.draw_at(drawn.0, drawn.1);
@@ -732,7 +753,7 @@ impl App<'_> {
             );
         }
         if !p.full_screen && (was.full_screen || p.size != was.size) {
-            let _ = w.request_inner_size(winit::dpi::PhysicalSize::new(p.size.0, p.size.1));
+            let _ = w.request_inner_size(window_size_for(p.size));
         }
         if p.antialiasing != was.antialiasing {
             // The window's surface is let go before another is made on it.
@@ -747,8 +768,9 @@ impl App<'_> {
         } else if let Some(present) = &mut self.present {
             present.set_presentation(p.full_screen, p.triple_buffering, p.sync_to_display);
         }
-        // In full screen the window stays as it is while the picture's size changes.
-        if p.full_screen {
+        // In full screen the window stays as it is while the picture's size changes; a new device
+        // starts at the window's own size.
+        if p.full_screen || p.antialiasing != was.antialiasing {
             let size = w.inner_size();
             self.window_sized((size.width, size.height));
         }
@@ -821,7 +843,7 @@ impl ApplicationHandler for App<'_> {
         let (w, h) = self.shell.size;
         let attrs = icon::with_icon(Window::default_attributes())
             .with_title("Auberean")
-            .with_inner_size(winit::dpi::PhysicalSize::new(w, h))
+            .with_inner_size(window_size_for((w, h)))
             // D2-08325
             .with_fullscreen(
                 self.shell

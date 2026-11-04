@@ -73,6 +73,12 @@ pub static DIVERGENCES: &[Divergence] = &[
                need, so an admin's login isn't held up for minutes downloading them.",
     },
     Divergence {
+        id: "CD2-mac-window-goes-by-points",
+        says: "On macOS a window's size is in points, and the picture is drawn at that size and \
+               scaled to fill the window, so a Retina screen shows it as large as any other. The \
+               original client ran only where a window's size is in the screen's pixels.",
+    },
+    Divergence {
         id: "CD2-math-last-bit",
         says: "The scripts' sine, cosine, tangent, arc sine, arc cosine, arc tangent, logarithms \
                and exponential come from this client's own functions, which can differ from the \
