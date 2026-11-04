@@ -54,7 +54,7 @@ impl Scale {
                 if (x1 - x0).abs() < f32::EPSILON {
                     y1
                 } else {
-                    y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+                    y0 + (y1 - y0) * ((x - x0) / (x1 - x0))
                 }
             })
         })

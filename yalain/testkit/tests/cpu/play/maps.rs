@@ -55,6 +55,8 @@ fn use_of(item: u64, me: u64) -> Arg {
 
 fn surveying() -> CraftSkillDef {
     CraftSkillDef {
+        bonus_stat: 0,
+        common_name: (0, 0),
         did: mining::SURVEYING,
         cap: 150,
         name: (0xA860_7CEC, 0x2500_13CA),

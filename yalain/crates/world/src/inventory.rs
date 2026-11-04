@@ -404,6 +404,24 @@ pub fn treasure_item_name(template_name: (u32, u32)) -> StringInfo {
     s
 }
 
+/// A made item's name: its template's name after the word its level gives it.
+#[must_use]
+pub fn made_item_name(template_name: (u32, u32), level_word: u32) -> StringInfo {
+    use treasure_name as n;
+    let mut prefix = name_ref((level_word, n::PREFIX_TEXT.1));
+    prefix.variables = vec![nested(n::PREFIX_NAME, name_ref(template_name))];
+    prefix.variable_count = 1;
+    let vars = ordered(vec![
+        nested(n::PREFIX, prefix),
+        nested(n::SUFFIX, StringInfo::literal("")),
+        nested(n::ITEM, name_ref(template_name)),
+    ]);
+    let mut s = name_ref(n::NAME);
+    s.variable_count = 3;
+    s.variables = vars;
+    s
+}
+
 /// A treasure potion's name: its template's name with its effect's, "{the potion} of {the
 /// effect}" (the effect's name table holds the suffix, the template's name inside it).
 #[must_use]
@@ -425,6 +443,10 @@ pub fn potion_name(template_name: (u32, u32), effect_table: u32) -> StringInfo {
 
 /// The whole-object appearance a treasure potion's color is set in, and its key there.
 pub const POTION_COLOR: (u32, u32) = (0x2000_011F, 2);
+
+/// The bits of an item's description naming its durability now and at most.
+const DURABILITY_NOW: u32 = 0x800_0000;
+const DURABILITY_MOST: u32 = 0x1000_0000;
 
 /// An item's object as a client is told of it: in its container with no place, or standing where
 /// it was put down; named and valued when it is a treasure item (one with a value); a treasure
@@ -451,7 +473,18 @@ pub fn item_create(t: &Thing) -> CreateObject {
         weenie.name = potion_name(name, e.table);
     } else if let Some(name) = t.facts.name.filter(|_| t.value > 0) {
         weenie.mask |= WeenieDesc::NAME;
-        weenie.name = treasure_item_name(name);
+        weenie.name = t.own.made.filter(|m| m.prefix != 0).map_or_else(
+            || treasure_item_name(name),
+            |m| made_item_name(name, m.prefix),
+        );
+    }
+    if let Some(most) = t.own.made.and_then(|m| m.durability) {
+        let number = |bit: u32| WeenieDesc::NUMBER_BITS.iter().position(|b| *b == bit);
+        if let (Some(now_at), Some(most_at)) = (number(DURABILITY_NOW), number(DURABILITY_MOST)) {
+            weenie.mask |= DURABILITY_NOW | DURABILITY_MOST;
+            weenie.numbers[now_at] = i32::try_from(t.durability.unwrap_or(most)).unwrap_or(0);
+            weenie.numbers[most_at] = i32::try_from(most).unwrap_or(0);
+        }
     }
     if t.value > 0 {
         weenie.mask |= WeenieDesc::NUMBER_BITS[1];
@@ -1720,6 +1753,10 @@ pub fn enter<S: Store>(s: &mut Server<S>, world: ConnId) -> Vec<u64> {
         item.bonuses = k.map(|k| k.bonuses.clone()).unwrap_or_default();
         item.binds_on_use = k.is_some_and(|k| k.binds_on_use);
         item.own = k.map(|k| k.own).unwrap_or_default();
+        item.enchantments = k.map(|k| k.enchantments.clone()).unwrap_or_default();
+        if let Some(m) = item.own.made {
+            item.value = m.value;
+        }
         if h.location & crate::equip::BODY_PLACES != 0 {
             item.wielded = Some((owner, h.location));
         } else if h.location != 0 {

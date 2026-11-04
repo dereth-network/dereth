@@ -427,6 +427,7 @@ fn an_item_names_its_maker_its_durability_and_its_effects() {
             when: profile::When::Equipped,
             table: EFFECT_TABLE,
             spellcraft: Some(50),
+            amount: None,
         }],
     );
     let item = h.arm(a, me, BLADE);
@@ -574,7 +575,8 @@ fn an_effects_spellcraft_shows_unless_it_happens_at_once_or_never_varies() {
         [profile::ItemEffect {
             when: profile::When::Used,
             table: 0x2500_7103,
-            spellcraft: Some(100)
+            spellcraft: Some(100),
+            amount: None,
         }]
     );
 }
@@ -677,7 +679,7 @@ fn a_treasure_items_own_requirements_and_the_hero_credits_are_kept_across_a_logo
     let own = yalain_world::treasure::Own {
         min_level: Some(33),
         arcane_lore: Some(17),
-        effect: None,
+        ..yalain_world::treasure::Own::default()
     };
     h.server.things.get_mut(item).expect("made").own = own;
     h.server
@@ -974,4 +976,61 @@ fn an_item_lists_the_skills_and_arcane_lore_it_takes() {
         "skills, then the Arcane Lore"
     );
     assert_eq!(got[0][20..], p.packed(&got[0][..20])[20..], "as built");
+}
+
+/// What a recipe's item level gave an item, its value and its permanent effects are kept across a
+/// logout, its name still its level's.
+/// Behaviour: server.craft.made-item-kept
+#[test]
+fn a_made_items_own_numbers_are_kept_across_a_logout() {
+    use auberean_protocol::login::CharacterRef;
+    use auberean_protocol::ClientMessage;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let (a, me) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let item = yalain_world::inventory::give(
+        &mut h.server,
+        &mut h.net,
+        world,
+        yalain_testkit::TEST_ITEM,
+        1,
+    )
+    .expect("given");
+    let made = yalain_world::made::Made {
+        prefix: yalain_world::made::prefix(20),
+        value: 7,
+        damage: Some((110, 0.2)),
+        delay: Some(13),
+        vigor: Some(5),
+        slots: 2,
+        harmonic: true,
+        damage_changed: true,
+        durability: Some(200),
+        tool_yield: Some(25),
+        craft_needed: Some(60),
+        ..yalain_world::made::Made::default()
+    };
+    {
+        let t = h.server.things.get_mut(item).expect("made");
+        t.own.made = Some(made);
+        t.own.min_level = Some(20);
+        t.value = 7;
+        t.enchantments = vec![(0x6F00_0F2B, 20.0)];
+    }
+    let before = h.bots[a].inbox.len();
+    h.bots[a].send(
+        false,
+        queue::LOGON,
+        &ClientMessage::LogOff(CharacterRef { character: me }),
+    );
+    assert!(h.run_until(400, |h| h.bots[a].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+    h.enter_world(a, "one", me);
+    let t = h.server.things.get(item).expect("back in the world");
+    assert_eq!(t.own.made, Some(made));
+    assert_eq!(t.own.min_level, Some(20));
+    assert_eq!(t.value, 7);
+    assert_eq!(t.enchantments, vec![(0x6F00_0F2B, 20.0)]);
 }

@@ -221,6 +221,8 @@ pub struct Thing {
     pub binds_on_use: bool,
     /// What a treasure item carries of its own (its least level, Arcane Lore, a potion's effect).
     pub own: crate::treasure::Own,
+    /// Its own permanent effects (a made item's): each saved state and the spellcraft it is at.
+    pub enchantments: Vec<(u32, f32)>,
 }
 
 impl Thing {
@@ -268,6 +270,7 @@ impl Thing {
             bonuses: Vec::new(),
             binds_on_use: false,
             own: crate::treasure::Own::default(),
+            enchantments: Vec::new(),
         }
     }
 

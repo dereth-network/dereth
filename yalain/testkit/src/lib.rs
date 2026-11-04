@@ -1015,6 +1015,8 @@ pub fn butchery_skill() -> yalain_world::craft::CraftSkillDef {
         }),
         pool_share: 0.01,
         cannot_raise: false,
+        bonus_stat: 0,
+        common_name: (0, 0),
     }
 }
 

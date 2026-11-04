@@ -1084,12 +1084,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.craft.butchery-units-by-knife",
-        says: "A crude knife cuts 11 units from any creature, a hunting knife 16 from creatures below \
-               level 17 and more from stronger ones, twice as many for an expert cut, which comes more \
-               often the more the butcher's level passes the creature's.",
+        says: "A cut gives ten units above the knife's own yield, twice that for an expert cut; a crude knife's yield is 1, a made knife's its level and five.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-BUTCHERY-UNITS"),
-        station: "yalain-testkit::cpu::play::butchery::a_knife_cuts_its_units_by_the_creatures_level",
+        station: "yalain-testkit::cpu::play::butchery::a_knife_cuts_ten_units_above_its_own_yield",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1208,6 +1206,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.made-armor-at-its-level",
+        says: "A piece of armor's rating follows the item level by where it is worn: a chest piece's whole, a leg piece's half, a smaller piece's a quarter, a robe's more than a chest piece's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-ARMOR"),
+        station: "yalain-testkit::cpu::play::crafting::armor_made_at_a_level_is_rated_by_where_it_is_worn",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.made-item-binds-on-use",
         says: "An item a recipe's outcome binds (on the product's ordinal, the spinner chosen within \
                the action's range) is made to bind when used in combat.",
@@ -1224,6 +1230,38 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-BONUS"),
         station: "yalain-testkit::cpu::play::crafting::a_made_item_carries_its_outcomes_bonus_at_the_spinner_chosen_and_puts_it_on_when_wielded",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.made-item-kept",
+        says: "What a recipe's item level gave an item and its permanent effects are kept across a logout.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-KEPT"),
+        station: "yalain-testkit::cpu::entry::examine::a_made_items_own_numbers_are_kept_across_a_logout",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.made-item-own-effects",
+        says: "A made item's permanent effects change it as it is made: more damage, a smaller span, less vigor, the changed lines marked; they are listed among its enchantments with their amounts.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-EFFECTS"),
+        station: "yalain-testkit::cpu::play::crafting::a_made_items_permanent_effects_change_its_numbers_and_show_with_their_amounts",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.made-item-profiles-as-2017",
+        says: "Every profile recorded of an item made at a spinner is the profile built from its template, the recipe's outcome and the item level, what differs between items of a level taken from the recording.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-PROFILES"),
+        station: "yalain-testkit::corpus::examine::made_items_profiles_are_built_from_their_recipes_item_level_as_2017_built_them",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.craft.made-weapon-at-its-level",
+        says: "A weapon made at a level takes its name, value and least level from it and its greatest damage from the outcome's quality, and its hits are reckoned from that.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-WEAPON"),
+        station: "yalain-testkit::cpu::play::crafting::a_weapon_made_at_a_level_hits_for_that_levels_damage_and_needs_that_level",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1298,6 +1336,22 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-REGISTRY"),
         station: "yalain-testkit::cpu::play::crafting::a_new_character_gets_every_craft_skill_and_the_starting_recipes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.no-level-mutation-no-level",
+        says: "A product whose outcome names no mutation through the item level's table stays its template.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-NO-LEVEL"),
+        station: "yalain-testkit::cpu::play::crafting::a_product_with_no_mutation_by_the_item_level_stays_its_template",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.outcome-quality-decides",
+        says: "An outcome's quality decides a product's numbers: a flawed making's reads two levels below the spinner, an expert one's two above; its name stays the spinner's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-QUALITY"),
+        station: "yalain-testkit::cpu::play::crafting::a_flawed_making_is_two_levels_worse_and_an_expert_one_two_better",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1450,11 +1504,35 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.tool-asks-its-craft-skill",
+        says: "A knife that asks more of the player's craft skill than it has is refused, and cuts nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TOOL-REFUSED"),
+        station: "yalain-testkit::cpu::play::butchery::a_knife_asking_more_craft_skill_than_the_player_has_is_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.tool-at-its-level",
+        says: "A gathering tool's table gives the craft skill it asks and a yield of five above its level; its durability is 100, an expert making's 200; it takes no name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TOOL-LEVEL"),
+        station: "yalain-testkit::cpu::play::crafting::a_tool_made_at_a_level_asks_its_craft_skill_and_yields_five_above_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.tool-wear-kept-across-sessions",
         says: "A worn tool keeps its durability across a logout: it comes back as worn as it left.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TOOL-WEAR-KEPT"),
         station: "yalain-testkit::cpu::play::butchery::a_worn_knife_keeps_its_durability_across_a_logout",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.trade-goods-worth-their-materials",
+        says: "A recipe's trade goods take the item level's name and are worth what went into them, 4 a unit of the first material and 2 of the second; they need no level to use.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MADE-TRADE-GOODS"),
+        station: "yalain-testkit::cpu::play::crafting::trade_goods_made_at_a_level_are_named_for_it_and_worth_their_materials",
         tier: Tier::Cpu,
     },
     behaviour! {

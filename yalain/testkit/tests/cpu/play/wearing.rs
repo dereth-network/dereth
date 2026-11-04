@@ -635,6 +635,7 @@ fn a_treasure_chest_piece_is_refused_by_its_own_least_level_then_its_own_arcane_
         min_level: Some(50),
         arcane_lore: Some(26),
         effect: None,
+        ..yalain_world::treasure::Own::default()
     };
     let refused = |h: &mut Harness, why: u32, what: &str| {
         let fa = h.bots[a].inbox.len();

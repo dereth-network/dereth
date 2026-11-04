@@ -1507,3 +1507,524 @@ fn crafting_asks_the_world_for_its_products_ingredients_and_conjured_nodes() {
         Some(0x4700_0C8E)
     );
 }
+
+/// A recipe of the test's own, known to the player, its craft skill at a level; its ingredients'
+/// templates and its product in the catalog.
+fn with_own_recipe(
+    h: &mut Harness,
+    world: yalain_net::ConnId,
+    def: yalain_world::craft::RecipeDef,
+    level: u32,
+    templates: &[u32],
+) {
+    use yalain_world::state::RecipeState;
+    for t in templates {
+        if h.server.catalog.get(*t).is_none() {
+            h.server.catalog.insert(yalain_testkit::test_template(
+                *t,
+                0x200,
+                yalain_content::Props::default(),
+            ));
+        }
+    }
+    let p = h.server.players.get_mut(&world).expect("in the world");
+    p.play.recipes.push(RecipeState {
+        recipe: def.did,
+        use_again: -1.0,
+        successes: 0,
+        charges: -1,
+        last_spinner: 0,
+    });
+    if let Some(c) = p
+        .play
+        .craft_skills
+        .iter_mut()
+        .find(|c| c.skill == def.skill)
+    {
+        c.level = level;
+    }
+    h.server.crafting.recipes.insert(def.did, def);
+}
+
+const WOOD: u32 = 0x4700_06C5;
+const LEVEL_TABLE: u32 = yalain_world::made::ITEM_LEVEL_TABLE;
+const PLAIN_QUALITY: u32 = 0x6F00_0EBC;
+const SWORD: u32 = 0x4700_07B0;
+const SMALL_SWORD_RECIPE: u32 = 0x6F00_0F71;
+const HELM: u32 = 0x4700_07D8;
+
+/// A recipe of a spinner making one template, with the mutations named, using `stack` of iron in
+/// slot 1 and hide in slot 3 by a table of tens.
+fn made_recipe(product: u32, tables: &[u32]) -> yalain_world::craft::RecipeDef {
+    use yalain_world::craft::{Action, Check, Ingredient, Outcome, RecipeDef};
+    const TENS: u32 = 0x6F00_0EC2;
+    let slot = |ordinal, item| Ingredient {
+        ordinal,
+        quantity: 1,
+        items: vec![item],
+        spinners: Some((1, 100)),
+        stack_table: Some(TENS),
+        ..Ingredient::default()
+    };
+    let mut actions = vec![Action::Produce {
+        template: product,
+        quantity: 1,
+        ordinal: 10_001,
+    }];
+    actions.extend(tables.iter().map(|t| Action::Mutate {
+        ordinal: 10_001,
+        table: Some(*t),
+        spinners: Some((1, 100)),
+    }));
+    RecipeDef {
+        did: SMALL_SWORD_RECIPE,
+        skill: TOOLS,
+        charges: -1,
+        animation: 0x4100_014B,
+        cycles: 3,
+        spinner: Some((1, 150)),
+        ingredients: vec![slot(1, IRON), slot(3, WOOD)],
+        checks: vec![Check {
+            upto: 2.0,
+            outcomes: vec![Outcome {
+                upto: 1000.0,
+                xp_mod: 1.0,
+                actions,
+            }],
+        }],
+        ..RecipeDef::default()
+    }
+}
+
+fn with_level_tables(h: &mut Harness) {
+    use yalain_world::craft::LevelMap;
+    let tables = &mut h.server.crafting.spinner_tables;
+    tables.insert(
+        LEVEL_TABLE,
+        LevelMap {
+            first: 1,
+            values: (1..=150).collect(),
+        },
+    );
+    tables.insert(
+        PLAIN_QUALITY,
+        LevelMap {
+            first: 1,
+            values: (1..=150).map(|l| l * 10).collect(),
+        },
+    );
+    tables.insert(
+        0x6F00_0EC2,
+        LevelMap {
+            first: 1,
+            values: vec![10; 150],
+        },
+    );
+}
+
+fn props_of(pairs: &[(&str, i64)]) -> yalain_content::Props {
+    let mut p = yalain_content::Props::default();
+    for (k, v) in pairs {
+        p.set(k, yalain_content::Prop::Int(*v));
+    }
+    p
+}
+
+/// Make a template at a spinner: the item made.
+fn make_at(
+    h: &mut Harness,
+    b: usize,
+    world: yalain_net::ConnId,
+    props: yalain_content::Props,
+    product: u32,
+    tables: &[u32],
+    spinner: u32,
+) -> u64 {
+    with_level_tables(h);
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(product, 0x200, props));
+    with_own_recipe(h, world, made_recipe(product, tables), 50, &[IRON, WOOD]);
+    let iron =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, IRON, 40).expect("iron");
+    let wood =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, WOOD, 40).expect("wood");
+    h.run(2);
+    execute_at(h, b, SMALL_SWORD_RECIPE, &[(1, iron), (3, wood)], spinner);
+    h.run(4);
+    wait(h, 9.0);
+    h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == product)
+        .map(|i| i.id)
+        .expect("made")
+}
+
+/// A recipe's trade goods take the item level's name and are worth what went into them: 4 a unit of
+/// the first material, 2 of the second; they need no level to use.
+/// Behaviour: server.craft.trade-goods-worth-their-materials
+#[test]
+fn trade_goods_made_at_a_level_are_named_for_it_and_worth_their_materials() {
+    let (mut h, b, _me, world) = in_world();
+    let item = make_at(
+        &mut h,
+        b,
+        world,
+        props_of(&[("Item_Value", 150)]),
+        0x4700_0FA5,
+        &[LEVEL_TABLE],
+        28,
+    );
+    let t = h.server.things.get(item).expect("in the world");
+    let m = t.own.made.expect("what its level gave it");
+    assert_eq!(m.prefix, yalain_world::made::prefix(28));
+    assert_eq!(t.value, 4 * 10 + 2 * 10, "4 a unit and 2 a unit");
+    assert_eq!(m.value, t.value);
+    assert_eq!(t.own.min_level, None, "no level to use it");
+    assert_eq!(m.damage, None);
+    assert_eq!(m.armor, None);
+}
+
+/// A weapon made at a level takes its name, value and least level from it, and its greatest damage
+/// from the outcome's quality: and that is the damage its hits are reckoned from.
+/// Behaviour: server.craft.made-weapon-at-its-level
+#[test]
+fn a_weapon_made_at_a_level_hits_for_that_levels_damage_and_needs_that_level() {
+    let (mut h, b, _me, world) = in_world();
+    let props = {
+        let mut p = props_of(&[("Weapon_Damage", 10), ("Item_Value", 10)]);
+        p.set("Weapon_Variance", yalain_content::Prop::Float(0.25));
+        p
+    };
+    let item = make_at(
+        &mut h,
+        b,
+        world,
+        props,
+        SWORD,
+        &[LEVEL_TABLE, PLAIN_QUALITY],
+        20,
+    );
+    let t = h.server.things.get(item).expect("in the world");
+    let m = t.own.made.expect("what its level gave it");
+    assert_eq!(m.prefix, 0x2AF5_7660, "Sturdy");
+    assert_eq!(t.own.min_level, Some(20));
+    assert_eq!(m.damage, Some((105, 0.25)));
+    assert_eq!(m.slots, 2);
+    let (low, high) = yalain_world::made::equipment_value(20);
+    assert!((low..=high).contains(&t.value), "worth {}", t.value);
+    assert!(m.vigor == Some(4) || m.vigor == Some(5), "{:?}", m.vigor);
+    let (least, most) = yalain_world::made::WEAPON_DELAY;
+    assert!(m.delay.is_some_and(|d| (least..=most).contains(&d)));
+    let d = yalain_world::combat::weapon_damage(&h.server, item).expect("a weapon");
+    assert_eq!(d.most, 105, "its hits are reckoned from its own damage");
+}
+
+/// An outcome's quality decides a product's damage: a flawed making's reads two levels below the
+/// spinner, an expert one's two above.
+/// Behaviour: server.craft.outcome-quality-decides
+#[test]
+fn a_flawed_making_is_two_levels_worse_and_an_expert_one_two_better() {
+    use yalain_world::craft::LevelMap;
+    const FLAWED: u32 = 0x6F00_0EBE;
+    const EXPERT: u32 = 0x6F00_0EB8;
+    for (table, values, expected) in [
+        (
+            FLAWED,
+            (1..=150)
+                .map(|l: u32| l.saturating_sub(2).max(1) * 10)
+                .collect::<Vec<_>>(),
+            18,
+        ),
+        (
+            EXPERT,
+            (1..=150).map(|l: u32| (l + 2) * 10).collect::<Vec<_>>(),
+            22,
+        ),
+    ] {
+        let (mut h, b, _me, world) = in_world();
+        h.server
+            .crafting
+            .spinner_tables
+            .insert(table, LevelMap { first: 1, values });
+        let props = props_of(&[("Weapon_Damage", 10)]);
+        let item = make_at(&mut h, b, world, props, SWORD, &[LEVEL_TABLE, table], 20);
+        let m = h
+            .server
+            .things
+            .get(item)
+            .and_then(|t| t.own.made)
+            .expect("made");
+        assert_eq!(
+            m.damage.map(|d| d.0),
+            Some(yalain_world::made::damage(expected)),
+            "quality {expected}"
+        );
+        assert_eq!(
+            m.prefix,
+            yalain_world::made::prefix(20),
+            "named for the spinner"
+        );
+    }
+}
+
+/// A piece of armor's rating follows the item level by where it is worn: a chest piece's whole, a
+/// leg piece's half, a smaller piece's a quarter, a robe's more than a chest piece's.
+/// Behaviour: server.craft.made-armor-at-its-level
+#[test]
+fn armor_made_at_a_level_is_rated_by_where_it_is_worn() {
+    use yalain_world::made::{armor_rating, Piece};
+    // Each as recorded of 2017's made pieces.
+    for (level, rating) in [
+        (5, 3),
+        (10, 7),
+        (12, 9),
+        (13, 10),
+        (15, 12),
+        (20, 19),
+        (28, 32),
+    ] {
+        assert_eq!(
+            armor_rating(Piece::Chest, level),
+            rating,
+            "chest at {level}"
+        );
+    }
+    for (level, rating) in [
+        (5, 2),
+        (10, 4),
+        (12, 5),
+        (13, 5),
+        (25, 13),
+        (28, 16),
+        (29, 17),
+    ] {
+        assert_eq!(armor_rating(Piece::Legs, level), rating, "legs at {level}");
+    }
+    for (level, rating) in [
+        (5, 2),
+        (10, 3),
+        (12, 3),
+        (13, 3),
+        (15, 3),
+        (18, 4),
+        (20, 5),
+        (25, 7),
+        (28, 8),
+        (29, 8),
+    ] {
+        assert_eq!(
+            armor_rating(Piece::Small, level),
+            rating,
+            "small at {level}"
+        );
+    }
+    assert_eq!(armor_rating(Piece::Robe, 20), 24);
+    assert_eq!(armor_rating(Piece::Robe, 17), 19);
+    assert_eq!(Piece::of(0x2, 0x8), Piece::Robe);
+    assert_eq!(Piece::of(0x2, 0), Piece::Chest);
+    assert_eq!(Piece::of(0x8, 0), Piece::Legs);
+    assert_eq!(Piece::of(0x1, 0), Piece::Small);
+
+    let (mut h, b, _me, world) = in_world();
+    let mut props = props_of(&[("Item_ArmorLevel", 10), ("Item_CombatDelay", 5)]);
+    props.set(
+        "Item_ValidInventoryLocations",
+        yalain_content::Prop::Word(1),
+    );
+    let item = make_at(
+        &mut h,
+        b,
+        world,
+        props,
+        HELM,
+        &[LEVEL_TABLE, PLAIN_QUALITY],
+        12,
+    );
+    let t = h.server.things.get(item).expect("in the world");
+    let m = t.own.made.expect("what its level gave it");
+    assert_eq!(m.armor, Some(3));
+    assert_eq!(m.slots, 1);
+    assert_eq!(t.own.min_level, Some(12));
+    let (least, most) = yalain_world::made::ARMOR_DELAY;
+    assert!(m.delay.is_some_and(|d| (least..=most).contains(&d)));
+}
+
+/// A product whose outcome names no mutation through the item level's table is its template (a tool
+/// or a stone a spinner chooses): nothing of its own.
+/// Behaviour: server.craft.no-level-mutation-no-level
+#[test]
+fn a_product_with_no_mutation_by_the_item_level_stays_its_template() {
+    let (mut h, b, _me, world) = in_world();
+    let item = make_at(
+        &mut h,
+        b,
+        world,
+        props_of(&[("Item_Value", 10)]),
+        HELM,
+        &[PLAIN_QUALITY],
+        12,
+    );
+    let t = h.server.things.get(item).expect("in the world");
+    assert_eq!(t.own.made, None);
+    assert_eq!(t.value, 0);
+    assert_eq!(t.own.min_level, None);
+}
+
+/// A made item's own effects change it as it is made: more damage, a smaller span, less vigor, the
+/// changed lines marked; they are listed among its enchantments with their amounts.
+/// Behaviour: server.craft.made-item-own-effects
+#[test]
+fn a_made_items_permanent_effects_change_its_numbers_and_show_with_their_amounts() {
+    use yalain_world::craft::{item_effect, Action};
+    use yalain_world::effect_defs::{numeric, EffectDef, Kind, Scale};
+    use yalain_world::made::stat;
+    use yalain_world::profile::{Amount, When};
+    const WEIGHTED: u32 = 0x6F00_0F2B;
+    const BALANCED: u32 = 0x6F00_0F23;
+    const LIGHT: u32 = 0x6F00_0F1B;
+    let (mut h, b, _me, world) = in_world();
+    with_level_tables(&mut h);
+    for (state, stat_, by) in [
+        (WEIGHTED, stat::DAMAGE, 1.05),
+        (BALANCED, stat::SPAN, 0.8),
+        (LIGHT, stat::VIGOR, 0.5),
+    ] {
+        h.server.effect_table.effects.insert(
+            state,
+            EffectDef {
+                kind: Kind::Numeric {
+                    flags: numeric::MULTIPLY,
+                    stats: vec![stat_],
+                    magnitude: Scale(vec![(0.0, by)]),
+                },
+                internal_flags: 1,
+                name: Some((0xA860_7CEC, 0x2500_179B)),
+                ..yalain_testkit::plain_effect(state)
+            },
+        );
+    }
+    let mut def = made_recipe(SWORD, &[LEVEL_TABLE, PLAIN_QUALITY]);
+    for o in def.checks.iter_mut().flat_map(|c| c.outcomes.iter_mut()) {
+        for state in [WEIGHTED, BALANCED, LIGHT] {
+            o.actions.push(Action::ItemEffect {
+                ordinal: 10_001,
+                state,
+                kind: item_effect::STATIC,
+                spellcraft: 0.0,
+                by_spinner: Some(LEVEL_TABLE),
+            });
+        }
+    }
+    let mut props = props_of(&[("Weapon_Damage", 10)]);
+    props.set("Weapon_Variance", yalain_content::Prop::Float(0.25));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(SWORD, 0x200, props));
+    with_own_recipe(&mut h, world, def, 50, &[IRON, WOOD]);
+    let iron =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, IRON, 40).expect("iron");
+    let wood =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, WOOD, 40).expect("wood");
+    h.run(2);
+    execute_at(&mut h, b, SMALL_SWORD_RECIPE, &[(1, iron), (3, wood)], 20);
+    h.run(4);
+    wait(&mut h, 9.0);
+    let item = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == SWORD)
+        .map(|i| i.id)
+        .expect("made");
+    let t = h.server.things.get(item).expect("in the world");
+    let m = t.own.made.expect("its own");
+    let (most, variance) = m.damage.expect("a weapon");
+    assert_eq!(most, 110, "105 and a twentieth more");
+    assert!(
+        (variance - 0.2).abs() < 1e-5,
+        "a fifth less span: {variance}"
+    );
+    assert!(m.damage_changed && m.vigor_changed);
+    assert!(
+        m.vigor.is_some_and(|v| v <= 3),
+        "half the vigor: {:?}",
+        m.vigor
+    );
+    assert_eq!(
+        t.enchantments.iter().map(|e| e.0).collect::<Vec<_>>(),
+        vec![WEIGHTED, BALANCED, LIGHT]
+    );
+    let d = h.server.effect_table.get(LIGHT).expect("light");
+    let shown = yalain_world::made::effect_shown(d, When::Permanent, 20.0).expect("shown");
+    assert_eq!(shown.amount, Some(Amount::Percent(50.0)));
+    let d = h.server.effect_table.get(WEIGHTED).expect("weighted");
+    let shown = yalain_world::made::effect_shown(d, When::Permanent, 20.0).expect("shown");
+    assert_eq!(shown.amount, Some(Amount::Percent((1.05f32 - 1.0) * 100.0)));
+}
+
+/// A gathering tool's table gives the craft skill it asks and a yield of five above its level; its
+/// durability is 100, an expert making's 200; it takes no name; and it says so.
+/// Behaviour: server.craft.tool-at-its-level
+#[test]
+fn a_tool_made_at_a_level_asks_its_craft_skill_and_yields_five_above_it() {
+    use yalain_world::craft::{Check, LevelMap, Outcome};
+    use yalain_world::made::GATHERING_TOOL_TABLE;
+    const HUNTING_KNIFE: u32 = 0x4700_0CBB;
+    for (upto, durability) in [(1.99_f32, 100), (2.0, 200)] {
+        let (mut h, b, _me, world) = in_world();
+        with_level_tables(&mut h);
+        h.server.crafting.spinner_tables.insert(
+            GATHERING_TOOL_TABLE,
+            LevelMap {
+                first: 1,
+                values: (1..=150).map(|l| l * 3).collect(),
+            },
+        );
+        let mut def = made_recipe(HUNTING_KNIFE, &[GATHERING_TOOL_TABLE]);
+        let outcome = def.checks[0].outcomes[0].clone();
+        def.checks = vec![Check {
+            upto,
+            outcomes: vec![Outcome { ..outcome }],
+        }];
+        h.server.catalog.insert(yalain_testkit::test_template(
+            HUNTING_KNIFE,
+            0x200,
+            props_of(&[("Item_Value", 1)]),
+        ));
+        with_own_recipe(&mut h, world, def, 50, &[IRON, WOOD]);
+        let iron = yalain_world::inventory::give(&mut h.server, &mut h.net, world, IRON, 40)
+            .expect("iron");
+        let wood = yalain_world::inventory::give(&mut h.server, &mut h.net, world, WOOD, 40)
+            .expect("wood");
+        h.run(2);
+        execute_at(&mut h, b, SMALL_SWORD_RECIPE, &[(1, iron), (3, wood)], 20);
+        h.run(4);
+        wait(&mut h, 9.0);
+        let item = h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .find(|i| i.template == HUNTING_KNIFE)
+            .map(|i| i.id)
+            .expect("made");
+        let t = h.server.things.get(item).expect("in the world");
+        let m = t.own.made.expect("its own");
+        assert_eq!(m.tool_yield, Some(25));
+        assert_eq!(m.craft_needed, Some(60));
+        assert_eq!(m.durability, Some(durability));
+        assert_eq!(m.prefix, 0, "no name of its level");
+        assert_eq!(t.value, 0, "its template's value");
+        let create = yalain_world::inventory::item_create(t);
+        let bit = auberean_protocol::types::WeenieDesc::NUMBER_BITS
+            .iter()
+            .position(|x| *x == 0x1000_0000)
+            .expect("the bit");
+        assert_eq!(
+            create.weenie.numbers[bit],
+            i32::try_from(durability).unwrap()
+        );
+    }
+}

@@ -35,6 +35,8 @@ pub struct Own {
     pub arcane_lore: Option<i32>,
     /// The effect it is drunk for.
     pub effect: Option<OwnEffect>,
+    /// What a recipe's item level gave it.
+    pub made: Option<crate::made::Made>,
 }
 
 /// A potion's own effect: its saved state and spellcraft, the table of its name (which holds the
@@ -51,7 +53,10 @@ impl Own {
     /// Does it carry nothing of its own?
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.min_level.is_none() && self.arcane_lore.is_none() && self.effect.is_none()
+        self.min_level.is_none()
+            && self.arcane_lore.is_none()
+            && self.effect.is_none()
+            && self.made.is_none()
     }
 }
 

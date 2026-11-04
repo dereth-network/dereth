@@ -112,8 +112,10 @@ pub struct ItemState {
     pub bonuses: Vec<(u32, f32)>,
     /// It becomes bound when used in combat, and has not been yet.
     pub binds_on_use: bool,
-    /// What a treasure item carries of its own.
+    /// What a treasure or made item carries of its own.
     pub own: crate::treasure::Own,
+    /// Its own permanent effects (a made item's): each saved state and the spellcraft it is at.
+    pub enchantments: Vec<(u32, f32)>,
 }
 
 /// Everything a character holds and has done in play.
@@ -171,9 +173,63 @@ pub fn kept_by_a_newer_build(b: &[u8]) -> bool {
 const OWN_MIN_LEVEL: u32 = 0x1;
 const OWN_ARCANE_LORE: u32 = 0x2;
 const OWN_EFFECT: u32 = 0x4;
+/// What a recipe's item level gave it, and its permanent effects after that.
+const OWN_MADE: u32 = 0x8;
 
 /// An item's durability as kept: none (never worn) is a value no durability takes.
 const UNWORN: u32 = u32::MAX;
+
+/// A number a made item may lack, as kept: none is a value none of them takes.
+const NO_NUMBER: u32 = u32::MAX;
+
+fn write_made(out: &mut Vec<u8>, m: &crate::made::Made) {
+    let w32 = |out: &mut Vec<u8>, v: u32| out.extend_from_slice(&v.to_le_bytes());
+    let number = |v: Option<i32>| v.map_or(NO_NUMBER, i32::cast_unsigned);
+    w32(out, m.prefix);
+    w32(out, m.value);
+    w32(out, number(m.damage.map(|d| d.0)));
+    w32(out, m.damage.map_or(0.0, |d| d.1).to_bits());
+    w32(out, number(m.armor));
+    w32(out, number(m.delay));
+    w32(out, number(m.vigor));
+    w32(out, m.slots);
+    w32(out, u32::from(m.harmonic));
+    w32(out, m.covers);
+    w32(
+        out,
+        u32::from(m.damage_changed) | u32::from(m.vigor_changed) << 1,
+    );
+    w32(out, m.durability.unwrap_or(NO_NUMBER));
+    w32(out, m.tool_yield.unwrap_or(NO_NUMBER));
+    w32(out, m.craft_needed.unwrap_or(NO_NUMBER));
+}
+
+fn read_made(r: &mut In<'_>) -> Option<crate::made::Made> {
+    let (prefix, value) = (r.u32()?, r.u32()?);
+    let number = |v: u32| (v != NO_NUMBER).then_some(v.cast_signed());
+    let most = number(r.u32()?);
+    let variance = r.f32()?;
+    let (armor, delay, vigor) = (number(r.u32()?), number(r.u32()?), number(r.u32()?));
+    let (slots, harmonic, covers, changed) = (r.u32()?, r.u32()? != 0, r.u32()?, r.u32()?);
+    let some = |v: u32| (v != NO_NUMBER).then_some(v);
+    let (durability, tool_yield, craft_needed) = (some(r.u32()?), some(r.u32()?), some(r.u32()?));
+    Some(crate::made::Made {
+        prefix,
+        value,
+        damage: most.map(|d| (d, variance)),
+        armor,
+        delay,
+        vigor,
+        slots,
+        harmonic,
+        covers,
+        damage_changed: changed & 1 != 0,
+        vigor_changed: changed & 2 != 0,
+        durability,
+        tool_yield,
+        craft_needed,
+    })
+}
 
 struct In<'a>(&'a [u8]);
 
@@ -319,7 +375,8 @@ impl PlayState {
                 OWN_ARCANE_LORE
             } else {
                 0
-            } | if own.effect.is_some() { OWN_EFFECT } else { 0 };
+            } | if own.effect.is_some() { OWN_EFFECT } else { 0 }
+                | if own.made.is_some() { OWN_MADE } else { 0 };
             w32(&mut out, has);
             if let Some(v) = own.min_level {
                 w32(&mut out, v.cast_unsigned());
@@ -332,6 +389,14 @@ impl PlayState {
                 w32(&mut out, e.spellcraft.to_bits());
                 w32(&mut out, e.table);
                 w32(&mut out, e.color.to_bits());
+            }
+            if let Some(m) = own.made {
+                write_made(&mut out, &m);
+                w32(&mut out, u32::try_from(i.enchantments.len()).unwrap_or(0));
+                for (state, spellcraft) in &i.enchantments {
+                    w32(&mut out, *state);
+                    w32(&mut out, spellcraft.to_bits());
+                }
             }
         }
         w32(&mut out, self.hero_credits);
@@ -485,6 +550,7 @@ impl PlayState {
                 }
                 let binds_on_use = version >= 10 && r.u32().ok_or_else(bad)? != 0;
                 let mut own = crate::treasure::Own::default();
+                let mut enchantments = Vec::new();
                 if version >= 11 {
                     let has = r.u32().ok_or_else(bad)?;
                     if has & OWN_MIN_LEVEL != 0 {
@@ -501,6 +567,12 @@ impl PlayState {
                             color: r.f32().ok_or_else(bad)?,
                         });
                     }
+                    if has & OWN_MADE != 0 {
+                        own.made = Some(read_made(&mut r).ok_or_else(bad)?);
+                        for _ in 0..r.u32().ok_or_else(bad)? {
+                            enchantments.push((r.u32().ok_or_else(bad)?, r.f32().ok_or_else(bad)?));
+                        }
+                    }
                 }
                 s.item_states.push(ItemState {
                     id,
@@ -511,6 +583,7 @@ impl PlayState {
                     bonuses,
                     binds_on_use,
                     own,
+                    enchantments,
                 });
             }
         }

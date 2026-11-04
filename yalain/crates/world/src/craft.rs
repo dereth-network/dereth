@@ -142,6 +142,9 @@ mod flag {
     pub const ACTION_TABLE: u32 = 0x2;
 }
 
+/// The qualities effects add to a craft skill by: these bits with the craft skill's number.
+const BONUS_STATS: u32 = 129 << 16;
+
 /// The script packages of the registry and its records, with their sizes in slots.
 pub mod package {
     pub const REGISTRY: (u16, usize) = (0x1D2, 7);
@@ -225,6 +228,15 @@ pub enum Action {
     /// Make an item of the making (a product by its ordinal) one that binds to its holder when used
     /// in combat, when the spinner the player chose is within the action's.
     Bind { ordinal: u32, spinners: (u32, u32) },
+    /// Change an item of the making (a product by its ordinal) by the spinner chosen, when it is
+    /// within the action's: through a table (its saved state), or by no number.
+    Mutate {
+        ordinal: u32,
+        table: Option<u32>,
+        spinners: Option<(u32, u32)>,
+    },
+    /// Make an item of the making one that can become harmonic.
+    Harmonize { ordinal: u32, spinners: (u32, u32) },
     /// Marks on the product the client does not show.
     Other,
 }
@@ -371,6 +383,10 @@ pub struct CraftSkillDef {
     pub usage_xp: Option<LevelMap>,
     pub pool_share: f32,
     pub cannot_raise: bool,
+    /// The quality effects change to add to it (a crucible's, a tool's): none when it has none.
+    pub bonus_stat: u32,
+    /// What a tool's requirement calls it.
+    pub common_name: (u32, u32),
 }
 
 impl CraftSkillDef {
@@ -437,6 +453,8 @@ impl Crafting {
                     .and_then(|g| LevelMap::from_state(lib, &g).ok()),
                 pool_share: nav.number(root, "m_fGenericXPMod").unwrap_or(0.0),
                 cannot_raise: nav.field(root, "m_bCannotRaise").unwrap_or(0) != 0,
+                bonus_stat: nav.field(root, "mEnum").map_or(0, |e| BONUS_STATS | e),
+                common_name: text_of(&nav, root, "m_siCommonName"),
             });
         }
         for did in recipes.iter().chain(starting_recipes) {
@@ -465,6 +483,7 @@ impl Crafting {
                     .filter_map(|a| match a {
                         Action::ItemEffect { by_spinner, .. }
                         | Action::Destroy { by_spinner, .. } => *by_spinner,
+                        Action::Mutate { table, .. } => *table,
                         _ => None,
                     })
                     .chain(r.ingredients.iter().filter_map(|i| i.stack_table))
@@ -502,6 +521,17 @@ impl Crafting {
         made.chain(asked)
             .chain(crate::mining::SUMMONED_NODES)
             .collect()
+    }
+
+    /// The spellcraft an item effect is at: fixed, or the spinner's through a level table.
+    #[must_use]
+    pub fn spellcraft_at(&self, spellcraft: f32, by_spinner: Option<u32>, spinner: u32) -> f32 {
+        #[allow(clippy::cast_precision_loss)]
+        by_spinner.map_or(spellcraft, |table| {
+            self.spinner_tables
+                .get(&table)
+                .map_or(spinner, |t| t.at(spinner)) as f32
+        })
     }
 
     /// How many of an ingredient a making takes at a spinner value.
@@ -780,6 +810,18 @@ fn action(lib: &Library, nav: &Nav<'_>, a: &PackedObject) -> Action {
             }
         }
         "BindRecipeAction" => Action::Bind {
+            ordinal: w("m_uiOrdinal"),
+            spinners: (w("m_uiMinSpinnerVal"), w("m_uiMaxSpinnerVal")),
+        },
+        "MutateRecipeAction" => Action::Mutate {
+            ordinal: w("m_uiOrdinal"),
+            table: (w("m_flags") & flag::ACTION_TABLE != 0)
+                .then(|| w("m_didMappingTable"))
+                .filter(|d| *d != 0 && *d != NULL),
+            spinners: Some((w("m_uiMinSpinnerVal"), w("m_uiMaxSpinnerVal")))
+                .filter(|(_, most)| *most != 0),
+        },
+        "HarmonizeRecipeAction" => Action::Harmonize {
             ordinal: w("m_uiOrdinal"),
             spinners: (w("m_uiMinSpinnerVal"), w("m_uiMaxSpinnerVal")),
         },
@@ -1668,11 +1710,11 @@ fn result<S: Store>(
             }
             // An effect on whoever wears or wields the item becomes the item's own (2017: every
             // item made by such a recipe and later worn, 43 of 43, carried its outcome's effects
-            // at the spinner chosen).
+            // at the spinner chosen); one on the item itself stays with it always.
             Action::ItemEffect {
                 ordinal,
                 state,
-                kind: item_effect::WORN,
+                kind: kind @ (item_effect::WORN | item_effect::STATIC),
                 spellcraft,
                 by_spinner,
             } => {
@@ -1681,18 +1723,18 @@ fn result<S: Store>(
                     .chain(m.slots.iter())
                     .find(|(o, _)| o == ordinal)
                     .map(|(_, i)| *i);
-                #[allow(clippy::cast_precision_loss)]
-                let at = by_spinner.map_or(*spellcraft, |table| {
-                    s.crafting
-                        .spinner_tables
-                        .get(&table)
-                        .map_or(m.spinner, |t| t.at(m.spinner)) as f32
-                });
+                let at = s
+                    .crafting
+                    .spellcraft_at(*spellcraft, *by_spinner, m.spinner);
                 if let Some(t) = item.and_then(|i| s.things.get_mut(i)) {
-                    t.bonuses.push((*state, at));
+                    if *kind == item_effect::WORN {
+                        t.bonuses.push((*state, at));
+                    } else {
+                        t.enchantments.push((*state, at));
+                    }
                 }
             }
-            Action::ItemEffect { .. } => {}
+            Action::ItemEffect { .. } | Action::Mutate { .. } | Action::Harmonize { .. } => {}
             Action::Destroy { .. } => {
                 let Some((ordinal, quantity)) = s.crafting.destroyed(a, m.spinner) else {
                     continue;
@@ -1716,6 +1758,10 @@ fn result<S: Store>(
             }
             Action::Other => {}
         }
+    }
+    // What the recipe's item level makes each product (its effects known by now).
+    for &(ordinal, item) in &made {
+        endow(s, &def, &outcome, ordinal, item, m.spinner);
     }
     // An item of the making that binds when used in combat (2017: the 56 items equipped with the
     // mark were all of templates made by recipes that bind their product).
@@ -1800,6 +1846,206 @@ fn result<S: Store>(
         use_up(s, net, world, item, quantity);
     }
     crate::world::keep_player(s, world);
+}
+
+/// A product takes what its outcome's mutations say at the spinner chosen: see [`crate::made`].
+fn endow<S: Store>(
+    s: &mut Server<S>,
+    def: &RecipeDef,
+    outcome: &Outcome,
+    ordinal: u32,
+    item: u64,
+    spinner: u32,
+) {
+    let Some(tp) = s.things.get(item).and_then(|t| s.catalog.get(t.template)) else {
+        return;
+    };
+    let table = &s.effect_table;
+    let Some(own) = made_of(
+        &s.crafting,
+        def,
+        outcome,
+        ordinal,
+        spinner,
+        &tp.props,
+        &|state| table.get(state).cloned(),
+        &mut s.rng,
+    ) else {
+        return;
+    };
+    if let Some(t) = s.things.get_mut(item) {
+        if own.damage.is_some() || own.armor.is_some() {
+            t.own.min_level = Some(i32::try_from(spinner).unwrap_or(i32::MAX));
+        }
+        t.value = own.value;
+        t.own.made = Some(own);
+    }
+}
+
+/// The checks' values an expert making's outcome covers up to, and a flawed one's at most.
+const EXPERT_CHECK: f32 = 2.0;
+const FLAWED_CHECK: f32 = 1.02;
+
+/// What a product of a template carries at a spinner, drawing what differs between items of one
+/// level; none when its outcome does not give it its level.
+#[allow(clippy::too_many_arguments)]
+pub fn made_of(
+    crafting: &Crafting,
+    def: &RecipeDef,
+    outcome: &Outcome,
+    ordinal: u32,
+    spinner: u32,
+    props: &yalain_content::Props,
+    effect: &dyn Fn(u32) -> Option<crate::effect_defs::EffectDef>,
+    rng: &mut crate::rng::Rng,
+) -> Option<crate::made::Made> {
+    use crate::made;
+    let within = |spinners: &Option<(u32, u32)>| {
+        spinners.is_none_or(|(least, most)| (least..=most).contains(&spinner))
+    };
+    let (mut named, mut quality, mut harmonic) = (false, None, false);
+    let mut tool = None;
+    let mut enchantments = Vec::new();
+    for a in &outcome.actions {
+        match a {
+            Action::Mutate {
+                ordinal: o,
+                table: Some(table),
+                spinners,
+            } if *o == ordinal && within(spinners) => {
+                if *table == made::ITEM_LEVEL_TABLE {
+                    named = true;
+                } else if *table == made::GATHERING_TOOL_TABLE || *table == made::WORKING_TOOL_TABLE
+                {
+                    tool = crafting
+                        .spinner_tables
+                        .get(table)
+                        .map(|t| (*table, t.at(spinner)));
+                } else if let Some(t) = crafting.spinner_tables.get(table) {
+                    quality = Some(made::quality_level(t.at(spinner)));
+                }
+            }
+            Action::Harmonize {
+                ordinal: o,
+                spinners,
+            } if *o == ordinal && (spinners.0..=spinners.1).contains(&spinner) => harmonic = true,
+            Action::ItemEffect {
+                ordinal: o,
+                state,
+                kind: item_effect::STATIC,
+                spellcraft,
+                by_spinner,
+            } if *o == ordinal => {
+                enchantments.push((
+                    *state,
+                    crafting.spellcraft_at(*spellcraft, *by_spinner, spinner),
+                ));
+            }
+            _ => {}
+        }
+    }
+    if let Some((table, craft)) = tool {
+        let check = def.checks.iter().find(|c| c.outcomes.contains(outcome));
+        let (expert, flawed) = check.map_or((false, false), |c| {
+            (c.upto >= EXPERT_CHECK, c.upto <= FLAWED_CHECK)
+        });
+        return Some(made::Made {
+            durability: Some(made::tool_durability(expert, flawed)),
+            tool_yield: (table == made::GATHERING_TOOL_TABLE)
+                .then_some(spinner + made::TOOL_YIELD_ABOVE_LEVEL),
+            craft_needed: Some(craft),
+            ..made::Made::default()
+        });
+    }
+    if !named {
+        return None;
+    }
+    let is_weapon = props.int("Weapon_Damage").is_some();
+    let is_armor = props.int("Item_ArmorLevel").is_some();
+    let places = props.word("Item_ValidInventoryLocations").unwrap_or(0);
+    let precluded = props.word("Item_PrecludedInventoryLocations").unwrap_or(0);
+    let variance = props.float("Weapon_Variance").unwrap_or(0.0);
+    let mut own = made::Made {
+        prefix: made::prefix(spinner),
+        ..made::Made::default()
+    };
+    let Some(q) = quality else {
+        // Trade goods are worth what went into them.
+        let units = |o: u32| {
+            def.ingredients
+                .iter()
+                .filter(|i| i.ordinal == o && i.asked_at(spinner))
+                .map(|i| crafting.required(i, spinner))
+                .sum::<u32>()
+        };
+        own.value = made::trade_goods_value(units(1), units(3));
+        return Some(own);
+    };
+    let band = |r: &mut crate::rng::Rng, (least, most): (i32, i32)| {
+        least + i32::try_from(r.below(usize::try_from(most - least + 1).unwrap_or(1))).unwrap_or(0)
+    };
+    let (low, high) = made::equipment_value(spinner);
+    own.value = low + u32::try_from(rng.below((high - low + 1) as usize)).unwrap_or(0);
+    if is_weapon {
+        let most = if is_armor {
+            made::shield_damage(q)
+        } else {
+            made::damage(q)
+        };
+        own.damage = Some((most, variance));
+        own.delay = Some(band(rng, made::WEAPON_DELAY));
+        own.vigor = Some((made::vigor(spinner) - i32::from(rng.chance(0.5))).max(0));
+        own.slots = if is_armor { 1 } else { 2 };
+        if is_armor {
+            own.armor = Some(made::shield_rating(q));
+        }
+        own.harmonic = harmonic && !is_armor;
+    } else if is_armor {
+        let piece = made::Piece::of(places, precluded);
+        own.armor = Some(made::armor_rating(piece, q));
+        own.delay = Some(band(rng, made::ARMOR_DELAY));
+        if piece == made::Piece::Robe {
+            own.slots = 3;
+            own.covers = precluded;
+        } else {
+            own.slots = 1;
+        }
+    }
+    // What its own permanent effects do to its numbers.
+    for (state, sc) in enchantments {
+        let Some(d) = effect(state) else {
+            continue;
+        };
+        for (stat, multiply, by) in d.changes(sc) {
+            if !multiply {
+                continue;
+            }
+            if let Some((most, variance)) = own.damage.as_mut() {
+                match stat {
+                    made::stat::DAMAGE => {
+                        #[allow(clippy::cast_precision_loss)]
+                        let more = *most as f32 * by;
+                        *most = dereth_primitives::num::to_i32(more.round());
+                        own.damage_changed = true;
+                    }
+                    made::stat::SPAN => {
+                        *variance *= by;
+                        own.damage_changed = true;
+                    }
+                    made::stat::VIGOR => {
+                        if let Some(v) = own.vigor.as_mut() {
+                            #[allow(clippy::cast_precision_loss)]
+                            let less = *v as f32 * by;
+                            *v = dereth_primitives::num::to_i32(less.round());
+                        }
+                        own.vigor_changed = true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    Some(own)
 }
 
 /// Use up so many of a held item: a whole stack leaves the pack, part of one shows its new

@@ -80,6 +80,15 @@ pub fn skill_tools(skill: u32) -> Option<(u32, [u32; 2])> {
     })
 }
 
+/// The mining craft skills.
+pub const SKILLS: [u32; 5] = [
+    0x6F00_069B,
+    0x6F00_069C,
+    0x6F00_069D,
+    0x6F00_069E,
+    0x6F00_069F,
+];
+
 /// A mining tool's durability when its template names none.
 pub const TOOL_DURABILITY: u32 = 100;
 

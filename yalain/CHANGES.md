@@ -71,6 +71,8 @@ what they see, not how it was done.
 - Resurrecting now takes off the buffs a death ends, and keeps auras on.
 - A melee hit lands when the swing connects, not when it starts.
 - A player left dead for ten minutes is sent back to their lifestone.
+- Made items now carry their level: name, value, damage, armor.
+- Knives cut by their own yield and need the skill to use.
 
 ## 0.1.2 (2026-11-03)
 

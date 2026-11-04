@@ -279,11 +279,13 @@ fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::Item
             spellcraft: shown
                 .is_none_or(|x| x.spellcraft_shown)
                 .then_some(dereth_primitives::num::to_i32(e.spellcraft)),
+            amount: None,
         });
         if t.quantity <= 1 {
             v.name = Some(profile::potion_name(&t.facts, e.table));
         }
     }
+    crate::made::show(s, t, &mut v);
     // The skills it takes, by their names.
     if let Some(tp) = s.catalog.get(t.template) {
         v.skills = ["Usage_RequiredSkill1", "Usage_RequiredSkill2"]

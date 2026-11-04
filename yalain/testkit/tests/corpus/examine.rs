@@ -527,6 +527,356 @@ fn item_profiles_are_built_from_their_templates_as_2017_built_them() {
     );
 }
 
+/// A number the line after a label shows: the whole-number node, or the first variable of the
+/// next text.
+fn stat_in(bytes: &[u8], request_len: usize, label: u32) -> Option<u32> {
+    let mut r = In::new(bytes.get(request_len..)?);
+    let n = r.u32().ok()?;
+    let mut armed = false;
+    for _ in 0..n {
+        let ty = r.u32().ok()?;
+        r.u32().ok()?;
+        match ty {
+            0x4000_0001..=0x4000_0003 | 0x4000_000C => {
+                r.u32().ok()?;
+                let v = r.u32().ok()?;
+                if armed {
+                    return Some(v);
+                }
+            }
+            0x4000_0004 => {
+                r.u32().ok()?;
+                let t = TextInfo::unpack(&mut r).ok()?;
+                if armed {
+                    if let Some(VariableValue::Word(v)) = t.variables.first().map(|v| &v.value) {
+                        return Some(*v);
+                    }
+                    armed = false;
+                }
+                if t.string_id == label {
+                    armed = true;
+                }
+            }
+            0x4000_0005 | 0x4000_0007 => {
+                r.u32().ok()?;
+            }
+            0x4000_0006 => {}
+            0x4000_0008 | 0x4000_000A => {
+                r.u32().ok()?;
+                r.u32().ok()?;
+                r.u32().ok()?;
+            }
+            0x4000_0009 => {
+                let c = r.u32().ok()? as usize;
+                for _ in 0..c * 3 {
+                    r.u32().ok()?;
+                }
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// The strings and numbers two profiles differ in, the first of each, for the tally.
+fn first_difference(theirs: &[u8], ours: &[u8]) -> String {
+    let (a, b) = (strings_in(theirs, 20), strings_in(ours, 20));
+    match a.iter().zip(&b).position(|(x, y)| x != y) {
+        Some(i) => format!("line {:08X} where ours has {:08X}", a[i], b[i]),
+        None if a.len() != b.len() => {
+            let longer = if a.len() > b.len() { &a } else { &b };
+            format!(
+                "{} lines against {} (the first more: {:08X})",
+                a.len(),
+                b.len(),
+                longer[a.len().min(b.len())]
+            )
+        }
+        None => "a number".to_string(),
+    }
+}
+
+/// Every profile 2017 sent of an item made at a spinner is the profile built from the template,
+/// the recipe's outcome and the item level: its name, its least level, its damage or armor, its
+/// slots, its effects with their amounts, that it binds. What differs between items of a level
+/// (its delay, vigor cost and value) is taken from the recording, and is checked apart to lie
+/// within the rule's bands.
+/// Behaviour: server.craft.made-item-profiles-as-2017
+#[test]
+fn made_items_profiles_are_built_from_their_recipes_item_level_as_2017_built_them() {
+    use auberean_protocol::types::WeenieDesc;
+    use auberean_protocol::ClientMessage;
+    use yalain_world::craft::{Action, Crafting};
+    use yalain_world::made;
+    use yalain_world::profile::{ItemView, When};
+    let path = auberean_testkit::data::require_capture_index();
+    let Some(inst) = installed() else {
+        println!("no September 2013 install here");
+        return;
+    };
+    let lib = &inst.lib;
+    let graph = |state: u32| -> Option<auberean_script::graph::Graph> {
+        let st: auberean_assets::script::ScriptState =
+            auberean_assets::decode(state, &inst.dat.read(state).ok()?, &inst.ctx).ok()?;
+        auberean_script::graph::Graph::decode(&st.graph, lib).ok()
+    };
+    let effect = |state: u32| {
+        yalain_world::effect_defs::EffectDef::from_state(state, lib, &graph(state)?).ok()
+    };
+    let prop_name = |id: u32| {
+        inst.ctx
+            .properties()
+            .and_then(|l| l.names.name(id))
+            .map(str::to_string)
+    };
+    let con = open(&path);
+    let mut st = con
+        .prepare(
+            "SELECT m.session_id, m.raw, m.dir FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.status = 'ac2' \
+             AND m.mtype IN (65619, 65624, 65638) ORDER BY m.session_id, m.idx",
+        )
+        .expect("prepares");
+    let mut rows = st.query([]).expect("runs");
+    let mut crafting = Crafting::default();
+    let every_skill: Vec<u32> = (0x6F00_068F..=0x6F00_06AA).collect();
+    let all_skills = Crafting::read(lib, &every_skill, &[], &[], &graph);
+    let mut read: HashMap<u32, bool> = HashMap::new();
+    let mut session = -1;
+    let mut asked: Option<(u32, u32)> = None;
+    let mut made_here: HashMap<u64, (u32, u32, u32, u32, u32)> = HashMap::new();
+    let mut seen: HashMap<u64, bool> = HashMap::new();
+    let mut tally: BTreeMap<String, usize> = BTreeMap::new();
+    let (mut built, mut compared) = (0usize, 0usize);
+    let mut rng = yalain_world::rng::Rng::new(1);
+    let mut icons: HashMap<u32, Vec<[u32; 3]>> = HashMap::new();
+    while let Some(r) = rows.next().expect("a row") {
+        let sid: i64 = r.get(0).expect("session");
+        if sid != session {
+            session = sid;
+            asked = None;
+            made_here.clear();
+        }
+        let raw: Vec<u8> = r.get(1).expect("raw");
+        let dir: String = r.get(2).expect("dir");
+        if dir == "c2s" {
+            if let Ok(ClientMessage::ServerCall(c)) = ClientMessage::decode(&raw) {
+                if c.function.0 == yalain_world::craft::function::EXECUTE {
+                    let v = calls::values(&c.args.0).unwrap_or_default();
+                    if let [_, _, Value::Int(spinner), Value::Int(recipe)] = v.as_slice() {
+                        asked = (*spinner > 0).then_some((*recipe, *spinner));
+                        if let Some((recipe, _)) = asked {
+                            if read.insert(recipe, true).is_none() {
+                                let one = Crafting::read(lib, &[], &[recipe], &[], &graph);
+                                crafting.recipes.extend(one.recipes);
+                                crafting.spinner_tables.extend(one.spinner_tables);
+                            }
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+        let Ok(m) = ServerMessage::decode(&raw) else {
+            continue;
+        };
+        let call = match m {
+            ServerMessage::CreateObject(o) => {
+                let w = &o.weenie;
+                if let Some((recipe, spinner)) = asked {
+                    let product = crafting.recipes.get(&recipe).and_then(|d| {
+                        d.checks
+                            .iter()
+                            .flat_map(|c| &c.outcomes)
+                            .flat_map(|x| &x.actions)
+                            .find_map(|a| match a {
+                                Action::Produce {
+                                    template, ordinal, ..
+                                } if *template == w.entity_did => Some(*ordinal),
+                                _ => None,
+                            })
+                    });
+                    let tool = crafting.recipes.get(&recipe).is_some_and(|d| {
+                        d.checks
+                            .iter()
+                            .flat_map(|c| &c.outcomes)
+                            .flat_map(|x| &x.actions)
+                            .any(|a| {
+                                matches!(a, Action::Mutate { table: Some(t), .. }
+                                    if *t == made::GATHERING_TOOL_TABLE
+                                        || *t == made::WORKING_TOOL_TABLE)
+                            })
+                    });
+                    if product.is_some() && (tool || w.mask & WeenieDesc::NAME != 0) {
+                        made_here.insert(
+                            o.id,
+                            (recipe, spinner, w.entity_did, o.visual.parent, w.package_id),
+                        );
+                        asked = None;
+                    }
+                }
+                continue;
+            }
+            ServerMessage::PlayerCall(c) if c.function.0 == profile::EXAMINATION_PROFILE => c,
+            _ => continue,
+        };
+        let v = calls::values(&call.args.map(|a| a.0).unwrap_or_default()).unwrap_or_default();
+        let Some(Node::Native { bytes, .. }) = v.first().and_then(Value::root) else {
+            continue;
+        };
+        let req = profile::read_request(bytes);
+        if req.kind != profile::request::OBJECT {
+            continue;
+        }
+        let Some(&(recipe, spinner, template, look, package)) = made_here.get(&req.object) else {
+            continue;
+        };
+        if seen.insert(req.object, true).is_some() {
+            continue;
+        }
+        let def = crafting.recipes.get(&recipe).cloned().expect("read");
+        let props = yalain_content::Props::of(template, &|id| entity(inst, id), &prop_name);
+        let facts_of = facts(template, &|id| entity(inst, id), &inst.ids);
+        compared += 1;
+        // The outcome it came from: of those making this template, whichever builds what was sent.
+        let mut best: Option<Vec<u8>> = None;
+        let mut exact = false;
+        for out in def.checks.iter().flat_map(|c| &c.outcomes) {
+            let Some(ordinal) = out.actions.iter().find_map(|a| match a {
+                Action::Produce {
+                    template: t,
+                    ordinal,
+                    ..
+                } if *t == template => Some(*ordinal),
+                _ => None,
+            }) else {
+                continue;
+            };
+            let Some(mut mine) = yalain_world::craft::made_of(
+                &crafting, &def, out, ordinal, spinner, &props, &effect, &mut rng,
+            ) else {
+                continue;
+            };
+            let delay = stat_in(bytes, 20, profile::item_line::COMBAT_DELAY);
+            let vigor = stat_in(bytes, 20, profile::item_line::VIGOR_COST);
+            let value = stat_in(bytes, 20, profile::item_line::VALUE_LABEL);
+            if mine.delay.is_some() {
+                mine.delay = delay.map(u32::cast_signed);
+            }
+            if mine.vigor.is_some() {
+                mine.vigor = vigor.map(u32::cast_signed);
+            }
+            if mine.damage.is_some() || mine.armor.is_some() {
+                mine.value = value.unwrap_or(mine.value);
+            }
+            let mut view = ItemView::of(&props, 1, (mine.value > 0).then_some(mine.value));
+            made::apply_to_view(&mine, &facts_of, &mut view);
+            if mine.damage.is_some() || mine.armor.is_some() {
+                view.min_level = spinner.cast_signed();
+            }
+            view.crafter = crafter_in(bytes, 20);
+            // What a tool has worn down to is the recording's.
+            if let (Some(now), Some(d)) = (
+                stat_in(bytes, 20, profile::item_line::DURABILITY),
+                view.durability.as_mut(),
+            ) {
+                d.0 = now.cast_signed();
+            }
+            let worn: Vec<_> = out
+                .actions
+                .iter()
+                .filter_map(|a| match a {
+                    Action::ItemEffect {
+                        ordinal: o,
+                        state,
+                        kind: yalain_world::craft::item_effect::WORN,
+                        ..
+                    } if *o == ordinal => effect(*state),
+                    _ => None,
+                })
+                .collect();
+            if mine.craft_needed.is_some() {
+                view.tool_skills = made::tool_skills(template, &worn, &all_skills.skills)
+                    .into_iter()
+                    .map(|(id, table)| profile::string(table, id))
+                    .collect();
+            }
+            view.binds = out.actions.iter().any(|a| {
+                matches!(a, Action::Bind { ordinal: o, spinners }
+                    if *o == ordinal && (spinners.0..=spinners.1).contains(&spinner))
+            });
+            view.destroyed_on_use |= profile::destroyed_on_use_kind(
+                package,
+                |n| lib.package_id(n),
+                |a, b| lib.derives_from(a, b),
+            );
+            view.icon = icons
+                .entry(look)
+                .or_insert_with(|| {
+                    yalain_content::icon_layers(look, &|did| {
+                        auberean_assets::decode(did, &inst.dat.read(did).ok()?, &inst.ctx).ok()
+                    })
+                })
+                .clone();
+            for a in &out.actions {
+                if let Action::ItemEffect {
+                    ordinal: o,
+                    state,
+                    kind,
+                    spellcraft,
+                    by_spinner,
+                } = a
+                {
+                    let when = match *kind {
+                        yalain_world::craft::item_effect::STATIC => When::Permanent,
+                        yalain_world::craft::item_effect::WORN => When::Equipped,
+                        _ => continue,
+                    };
+                    if *o == ordinal {
+                        let sc = crafting.spellcraft_at(*spellcraft, *by_spinner, spinner);
+                        if let Some(e) = effect(*state)
+                            .as_ref()
+                            .and_then(|d| made::effect_shown(d, when, sc))
+                        {
+                            view.effects.push(e);
+                        }
+                    }
+                }
+            }
+            let request = &bytes[..20.min(bytes.len())];
+            let ours = profile::item(req.asked, &view).packed(request);
+            if ours == *bytes {
+                exact = true;
+                break;
+            }
+            let same = |o: &[u8]| o.iter().zip(bytes.iter()).filter(|(a, b)| a == b).count();
+            if best.as_ref().is_none_or(|b| same(&ours) > same(b)) {
+                best = Some(ours);
+            }
+        }
+        if exact {
+            built += 1;
+            *tally.entry("exact".into()).or_default() += 1;
+        } else if let Some(ours) = best {
+            *tally.entry(first_difference(bytes, &ours)).or_default() += 1;
+        } else {
+            *tally.entry("no outcome".into()).or_default() += 1;
+        }
+    }
+    println!("made items' profiles: {built} of {compared} byte for byte");
+    let mut list: Vec<_> = tally.into_iter().collect();
+    list.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    for (k, n) in &list {
+        println!("  {n:6}  {k}");
+    }
+    // The residue measured on 2026-11-04 (4 of 330): a chest piece a point off the curve, a helm
+    // dyed since, a knife made as another making was asked for, a shield's races.
+    assert!(
+        compared == built || compared - built <= 4,
+        "made items' profiles built: {built} of {compared}"
+    );
+}
+
 /// What a recorded dye plant profile shows: its lines' string ids in order, its countdown, the
 /// numbers of its lines' variables.
 fn plant_lines(bytes: &[u8], request_len: usize) -> Option<(Vec<u32>, Option<f64>)> {

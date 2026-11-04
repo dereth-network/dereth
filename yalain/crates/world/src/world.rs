@@ -732,6 +732,7 @@ fn keep<S: Store>(s: &mut Server<S>, p: &Player) {
                 bonuses: t.bonuses.clone(),
                 binds_on_use: t.binds_on_use,
                 own: t.own,
+                enchantments: t.enchantments.clone(),
             })
         })
         .collect();

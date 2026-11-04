@@ -45,6 +45,7 @@
 //!   ride's end.
 //! - [`usable`]: doors, chests, their locks and keys, surveyor's maps, items used on the objects
 //!   their interaction tables name (a hoard's key on its stockpile).
+//! - [`made`]: what a recipe's item level makes a product carry of its own.
 //! - [`treasure`]: what a treasure item carries of its own, chosen as it drops.
 //! - [`walkers`]: placed people walking their routes.
 //! - [`reload`]: the world database taken again while the server runs.
@@ -90,6 +91,7 @@ pub mod item_use;
 pub mod kingdoms;
 pub mod levels;
 pub mod login;
+pub mod made;
 pub mod map_trips;
 pub mod market;
 pub mod mining;
