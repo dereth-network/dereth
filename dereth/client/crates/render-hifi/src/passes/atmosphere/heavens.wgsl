@@ -35,7 +35,8 @@ struct Heavens {
     moon_u: array<vec4<f32>, 2>,
     // xyz the step for one unit of v; w its picture's v at the center.
     moon_v: array<vec4<f32>, 2>,
-    // rgb how bright it is drawn; w how opaque.
+    // x how bright its lit face is drawn; y how brightly the lights on its night side burn; z how
+    // much of its face is lit; w how opaque.
     moon_light: array<vec4<f32>, 2>,
     // x how bright the stars are, retail's night layer's hours in it; y how much they twinkle;
     // z the clock's place in the twinkle's period, 0..1; w radians a pixel of the frame spans.
@@ -47,6 +48,11 @@ struct Heavens {
     // The clouds' shadow map: xy its center, render space; z how far it reaches each way from
     // it; w the clouds' base, render space. All 0 when the clouds cast no shadows.
     shadow: vec4<f32>,
+    // x, y 1 when each moon has a layer of cloud over its ground; zw unused.
+    moon_clouds: vec4<f32>,
+    // A point meters from the eye, height third, to clip space: the frame's projection, as the
+    // sky's own rays are made from it.
+    clip_from_ray: mat4x4<f32>,
 };
 
 @group(0) @binding(3) var<uniform> heavens: Heavens;

@@ -6,7 +6,7 @@
 //! places them; and the clouds shade the land under them.
 //!
 //! The pack is made in the test: a flat ground of its own color for each terrain type, so the sky
-//! is what changes.
+//! is what changes, and flat pictures of the two moons, which it draws as balls.
 //!
 //! Fixture: the retail dats (`DERETH_TEST_DAT_DIR`) and a hardware `wgpu` device off screen.
 //!
@@ -47,11 +47,30 @@ fn flat_png(rgba: [u8; 4]) -> Vec<u8> {
     png
 }
 
-/// The pack: a flat ground of its own color for each terrain type.
+/// The pack: a flat ground of its own color for each terrain type, and flat pictures of the moons.
 fn ground_pack() -> Arc<ArtPack> {
+    pack_with_moons(true)
+}
+
+/// The pack, with flat pictures of the moons or none.
+fn pack_with_moons(moons: bool) -> Arc<ArtPack> {
     let mut files: HashMap<String, Vec<u8>> = HashMap::new();
     let mut manifest = String::from("[pack]\nname = \"Grounds\"\nformat = 1\n");
     let credit = "author = \"a\"\ntool = \"t\"\nlicense = \"CC0-1.0\"\n";
+    if moons {
+        // Rez'arel orange, Alb'arel pale, each a flat ground at half height, lights burning
+        // faintly all over their night sides.
+        files.insert("lights.png".to_owned(), flat_png([70, 70, 70, 255]));
+        for (object, name, rgba) in [
+            ("0x01001F67", "rez.png", [222, 128, 82, 128]),
+            ("0x01001F6A", "alb.png", [160, 150, 92, 128]),
+        ] {
+            files.insert(name.to_owned(), flat_png(rgba));
+            manifest.push_str(&format!(
+                "[[moon]]\nobject = \"{object}\"\nsurface = \"{name}\"\nlights = \"lights.png\"\n{credit}"
+            ));
+        }
+    }
     for t in 0..32u8 {
         let name = format!("g{t}.png");
         let h = u32::from(t).wrapping_mul(0x9E37_79B9).rotate_left(7);
@@ -524,6 +543,24 @@ fn orange_box(rgba: &[u8]) -> Option<[usize; 4]> {
     (n > 20).then_some(b)
 }
 
+/// The box round the pixels lit against a black night within a lit face's own size of `face`,
+/// its longer side each way, as long as the disk for a crescent: the whole disk of a moon, its
+/// night side too, its faint glow past the limb left out.
+fn disk_box(rgba: &[u8], face: [usize; 4]) -> [usize; 4] {
+    let w = SIZE.0 as usize;
+    let reach = (face[2] - face[0]).max(face[3] - face[1]);
+    let mut b = face;
+    for y in sky_rows().filter(|&y| y + reach >= face[1] && y <= face[3] + reach) {
+        for x in face[0].saturating_sub(reach)..(face[2] + reach + 1).min(w) {
+            let i = (y * w + x) * 4;
+            if rgba[i..i + 3].iter().any(|&c| c > 24) {
+                b = [b[0].min(x), b[1].min(y), b[2].max(x), b[3].max(y)];
+            }
+        }
+    }
+    b
+}
+
 #[test]
 fn the_moons_stand_where_retail_places_them() {
     let _gpu = crate::common::gpu_lock();
@@ -539,15 +576,40 @@ fn the_moons_stand_where_retail_places_them() {
         4,
         "two moons among them"
     );
+    // A moon the pack has no pictures for is retail's.
+    let (mut bare, mut bare_shot) = opened(
+        &station,
+        &pack_with_moons(false),
+        BOXES,
+        "cloud_cover = 0\nstars = 0",
+    );
+    held(&mut bare_shot, &mut bare, 2);
+    assert_eq!(
+        note(&bare, "sky remastered models"),
+        2,
+        "no moons among them"
+    );
     switch_boxes(&mut shot, gpu, &format!("{BOXES},RetailLook=1"));
     let retail = held(&mut shot, gpu, 3);
     keep("moon-remastered", &remastered);
     keep("moon-retail", &retail);
-    let ours = orange_box(&remastered).expect("the moon drawn again");
+    // Ours is lit by the sun as it stands, often a crescent, so its whole disk is measured
+    // against the black night; retail's sky behind it is not black, so its lit face is.
+    let ours = disk_box(
+        &remastered,
+        orange_box(&remastered).expect("the moon drawn again"),
+    );
     let theirs = orange_box(&retail).expect("retail's moon");
-    eprintln!("the moon over {ours:?}, retail's over {theirs:?}");
-    // Retail's clouds hide part of its moon, and only the moon's lit face is orange: the two
-    // stand within a quarter of the disk of each other, and are about as wide.
+    eprintln!("the moon over {ours:?}, retail's lit face over {theirs:?}");
+    assert!(
+        ours[0] <= theirs[0] + 3
+            && ours[1] <= theirs[1] + 3
+            && ours[2] + 3 >= theirs[2]
+            && ours[3] + 3 >= theirs[3],
+        "retail's lit face {theirs:?} lies outside the moon {ours:?}"
+    );
+    // Retail's lit face is only part of its disk: the two stand within a third of the disk of
+    // each other, and are about as wide.
     #[allow(clippy::cast_precision_loss)] // pixel coordinates
     let middle = |b: [usize; 4]| ((b[0] + b[2]) as f64 / 2.0, (b[1] + b[3]) as f64 / 2.0);
     let (a, b) = (middle(ours), middle(theirs));

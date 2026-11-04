@@ -772,6 +772,7 @@ impl HifiPass for SkyTables {
                     h.prepare(
                         cx.seam,
                         &plan,
+                        cx.frame.art_pack.as_deref(),
                         size,
                         (&g.constants, &binds.sky_view_view, &g.sampler),
                     );

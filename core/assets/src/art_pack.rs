@@ -97,6 +97,23 @@
 //!
 //! Only `texture`, `base_color` and the credit are required.
 //!
+//! A pack may draw one of retail's moons again as a ball of its own. Its pictures cover the whole
+//! ball, longitude by latitude: longitude 0, the face turned to Dereth, at the middle of the
+//! picture's width, north at its top. The sky lights it from the sun as in open space, and its
+//! lights picture burns where its night falls.
+//!
+//! ```toml
+//! [[moon]]
+//! object = "0x01001F6A"      # the retail moon's graphics object
+//! surface = "sky/albarel_surface.png"  # its colour, and its height in alpha
+//! lights = "sky/albarel_lights.png"    # what burns on its night side; none unless named
+//! clouds = "sky/albarel_clouds.png"    # a layer of cloud over the ground, its cover in alpha;
+//!                                      # none unless named
+//! author = "..."
+//! tool = "..."
+//! license = "..."
+//! ```
+//!
 //! This module reads the manifest only. The models and their pictures are read by whatever
 //! draws them.
 
@@ -119,6 +136,23 @@ pub struct ArtPackManifest {
     pub grounds: Vec<ManifestGround>,
     /// Its materials for retail pictures, in the order the manifest lists them.
     pub materials: Vec<ManifestMaterial>,
+    /// The moons it draws again, in the order the manifest lists them.
+    pub moons: Vec<ManifestMoon>,
+}
+
+/// A retail moon a pack draws again as a ball.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManifestMoon {
+    /// The retail moon's graphics object.
+    pub object: DataId,
+    /// Its colour, and its height in alpha, over the whole ball longitude by latitude.
+    pub surface: String,
+    /// What burns on its night side, laid as the surface is.
+    pub lights: Option<String>,
+    /// A layer of cloud over the ground, its cover in alpha, laid as the surface is.
+    pub clouds: Option<String>,
+    /// Who made it, with what, under which license.
+    pub credit: Credit,
 }
 
 /// One material drawn in place of retail pictures: the pictures it stands for and its own.
@@ -331,11 +365,32 @@ impl ArtPackManifest {
             }
             materials.push(material);
         }
+        let listed = match table.get("moon") {
+            None => &empty,
+            Some(toml::Value::Array(a)) => a,
+            Some(_) => return fail("`moon` is not a list of [[moon]] tables"),
+        };
+        let mut moons: Vec<ManifestMoon> = Vec::with_capacity(listed.len());
+        for (i, m) in listed.iter().enumerate() {
+            let Some(m) = m.as_table() else {
+                return fail(format!("moon {} is not a table", i + 1));
+            };
+            let moon = moon(m).map_err(|e| ManifestError(format!("moon {}: {}", i + 1, e.0)))?;
+            if moons.iter().any(|o| o.object == moon.object) {
+                return fail(format!(
+                    "moon {}: {:#010X} is listed twice",
+                    i + 1,
+                    moon.object.0
+                ));
+            }
+            moons.push(moon);
+        }
         Ok(Self {
             name,
             models,
             grounds,
             materials,
+            moons,
         })
     }
 
@@ -541,6 +596,37 @@ fn material(t: &toml::Table) -> Result<ManifestMaterial, ManifestError> {
         roughness: picture("roughness")?,
         occlusion: picture("occlusion")?,
         normal_scale,
+        credit: Credit {
+            author: text(t, "author")?.to_owned(),
+            tool: text(t, "tool")?.to_owned(),
+            license: text(t, "license")?.to_owned(),
+        },
+    })
+}
+
+/// A retail moon a pack draws again.
+fn moon(t: &toml::Table) -> Result<ManifestMoon, ManifestError> {
+    let object = object_id(t.get("object").and_then(toml::Value::as_str).unwrap_or(""))?;
+    if object.0 >> 24 != 0x01 {
+        return fail(format!("{:#010X} is not a graphics object", object.0));
+    }
+    let picture = |key: &str| -> Result<Option<String>, ManifestError> {
+        match t.get(key) {
+            None => Ok(None),
+            Some(v) => match v.as_str().map(str::trim) {
+                Some(p) if inside_the_pack(p) => Ok(Some(p.to_owned())),
+                _ => fail(format!("{key} is not a path inside the pack")),
+            },
+        }
+    };
+    let Some(surface) = picture("surface")? else {
+        return fail("no surface");
+    };
+    Ok(ManifestMoon {
+        object,
+        surface,
+        lights: picture("lights")?,
+        clouds: picture("clouds")?,
         credit: Credit {
             author: text(t, "author")?.to_owned(),
             tool: text(t, "tool")?.to_owned(),
@@ -1054,6 +1140,52 @@ license = \"CC0-1.0\"
             let text = MATERIALS.replacen(from, to, 1);
             assert_ne!(text, MATERIALS, "{from}");
             let e = ArtPackManifest::parse(&text).expect_err(why);
+            assert!(e.0.contains(why), "{why}: {}", e.0);
+        }
+    }
+
+    const MOONS: &str = r#"
+[pack]
+name = "Moons"
+format = 1
+
+[[moon]]
+object = "0x01001F6A"
+surface = "sky/albarel_surface.png"
+lights = "sky/albarel_lights.png"
+clouds = "sky/albarel_clouds.png"
+author = "Someone"
+tool = "By hand"
+license = "CC0-1.0"
+
+[[moon]]
+object = "0x01001F67"
+surface = "sky/rezarel_surface.png"
+author = "Someone"
+tool = "By hand"
+license = "CC0-1.0"
+"#;
+
+    #[test]
+    fn a_moon_names_its_ball_pictures_and_refuses_what_is_not_one() {
+        let m = ArtPackManifest::parse(MOONS).expect("reads");
+        assert_eq!(m.moons.len(), 2);
+        assert_eq!(m.moons[0].object, DataId(0x0100_1F6A));
+        assert_eq!(m.moons[0].lights.as_deref(), Some("sky/albarel_lights.png"));
+        assert!(m.moons[1].lights.is_none(), "no lights unless named");
+        assert_eq!(m.moons[0].clouds.as_deref(), Some("sky/albarel_clouds.png"));
+        assert!(m.moons[1].clouds.is_none(), "no clouds unless named");
+        for (from, to, why) in [
+            ("\"0x01001F67\"", "\"0x02001F67\"", "not a graphics object"),
+            ("\"0x01001F67\"", "\"0x01001F6A\"", "listed twice"),
+            ("surface = \"sky/rezarel_surface.png\"\n", "", "no surface"),
+            (
+                "\"sky/albarel_lights.png\"",
+                "\"../x.png\"",
+                "inside the pack",
+            ),
+        ] {
+            let e = ArtPackManifest::parse(&MOONS.replacen(from, to, 1)).expect_err(why);
             assert!(e.0.contains(why), "{why}: {}", e.0);
         }
     }

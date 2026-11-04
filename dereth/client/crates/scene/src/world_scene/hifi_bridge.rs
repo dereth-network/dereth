@@ -20,15 +20,16 @@
 
 use std::collections::HashMap;
 
+use dereth_client_runtime::moon::{calendar_days, Moons, MOONS};
 use dereth_client_runtime::render_prefs::{FidelityFeature, FidelityPreferences};
 use dereth_render_hifi::snapshot::HifiPackLight;
 use dereth_render_hifi::snapshot::{
     AskedFall, HifiArtPack, HifiBlockLevels, HifiCamera, HifiDrawnGround, HifiFog, HifiFrame,
     HifiGround, HifiGroundKnobs, HifiGroundMaterial, HifiGroundTile, HifiLamp, HifiLevelRun,
-    HifiLight, HifiMaterials, HifiPackBlock, HifiPackImage, HifiPackLod, HifiPackMaterial,
-    HifiPackModel, HifiPackPlacement, HifiPackPrimitive, HifiSky, HifiSkyCard, HifiSkyDeck,
-    HifiSkyObject, HifiSlopeMaterials, HifiStaticBatch, HifiStaticBlock, HifiTerrainBlock,
-    HifiTextureMaterial, HifiWater, HifiWorldGround, LampSource,
+    HifiLight, HifiMaterials, HifiMoon, HifiPackBlock, HifiPackImage, HifiPackLod,
+    HifiPackMaterial, HifiPackModel, HifiPackPlacement, HifiPackPrimitive, HifiSky, HifiSkyCard,
+    HifiSkyDeck, HifiSkyObject, HifiSlopeMaterials, HifiStaticBatch, HifiStaticBlock,
+    HifiTerrainBlock, HifiTextureMaterial, HifiWater, HifiWorldGround, LampSource,
 };
 use dereth_render_hifi::{DebugView, HifiRenderer, HifiSettings, Level};
 use dereth_terrain::land::drawn::{Knob, Knobs};
@@ -303,6 +304,16 @@ fn pack_for_presentation(
             })
             .collect(),
         images: pack.images.iter().map(picture).collect(),
+        moons: pack
+            .moons
+            .iter()
+            .map(|m| HifiMoon {
+                object: m.object.0,
+                surface: picture(&m.surface),
+                lights: m.lights.as_ref().map(picture),
+                clouds: m.clouds.as_ref().map(picture),
+            })
+            .collect(),
     }
 }
 
@@ -499,7 +510,15 @@ fn sky_knobs(k: &Knobs) -> Option<dereth_render_hifi::snapshot::HifiSkyKnobs> {
             moon_size: k.get(Knob::MoonSize),
             stars: k.get(Knob::Stars),
             star_twinkle: k.get(Knob::StarTwinkle),
+            // Set from the moons' calendar, or `@moon`, once the world is known.
+            ..dereth_render_hifi::snapshot::HifiSkyKnobs::default()
         })
+}
+
+/// How much of each moon's face the presentation draws lit `days` into the calendar, by its
+/// graphics object: what `@moon` forces, or the calendar's.
+fn moon_phases(asked: &Moons, days: f64) -> [(u32, f32); 2] {
+    MOONS.map(|m| (m.gfx(), asked.phase(m, days)))
 }
 
 /// The light on an art pack's art as the presentation reads it.
@@ -1075,6 +1094,10 @@ fn snapshot(
         .art_pack
         .as_ref()
         .and_then(|_| sky_knobs(&draw.drawn.knobs));
+    if let Some(sky) = frame.sky_knobs.as_mut() {
+        let (year, day, time_of_day) = ws.game_time();
+        sky.moon_phases = moon_phases(&ws.moons, calendar_days(year, day, time_of_day));
+    }
     frame.far = far_knobs(&draw.drawn.knobs);
     frame.far_trees = if draw.far.active && frame.art_pack.is_some() {
         if sh
@@ -1337,6 +1360,24 @@ mod tests {
 
     use dereth_client_contract::options::fidelity::{blocked, OPTIONS};
     use dereth_render_hifi::composite::CompositeMode;
+
+    /// Behaviour: rendering.sky.moon-phases-asked-for-replace-the-calendars-until-reset
+    #[test]
+    fn the_moons_are_drawn_at_the_phase_asked_for_or_the_calendars() {
+        use dereth_client_runtime::moon::{Moon, MoonCommand as C};
+        let days = calendar_days(12, 200, 0.25);
+        let mut asked = Moons::default();
+        let calendar = moon_phases(&asked, days);
+        for (m, (gfx, lit)) in MOONS.iter().zip(calendar) {
+            assert_eq!((gfx, lit), (m.gfx(), m.calendar_phase(days)));
+        }
+        asked.obey(C::Set(Some(Moon::Albarel), 0.0));
+        let forced = moon_phases(&asked, days);
+        assert_eq!(forced[0], calendar[0], "Rez'arel keeps the calendar's");
+        assert_eq!(forced[1], (Moon::Albarel.gfx(), 0.0));
+        asked.obey(C::Reset);
+        assert_eq!(moon_phases(&asked, days), calendar);
+    }
 
     /// The preferences with the boxes `ticked` (one bit each, in the page's order) under the
     /// Horizon interface.

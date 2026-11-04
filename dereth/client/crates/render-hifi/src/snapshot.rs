@@ -107,6 +107,9 @@ pub struct HifiSkyKnobs {
     pub stars: f32,
     /// How much the stars twinkle as the clock runs.
     pub star_twinkle: f32,
+    /// How much of each moon's face is lit, by its graphics object: the moons' calendar's phase,
+    /// or the one `@moon` forces. A moon not named is drawn full.
+    pub moon_phases: [(u32, f32); 2],
 }
 
 impl Default for HifiSkyKnobs {
@@ -129,6 +132,7 @@ impl Default for HifiSkyKnobs {
             moon_size: 1.0,
             stars: 1.0,
             star_twinkle: 1.0,
+            moon_phases: [(0, 1.0); 2],
         }
     }
 }
@@ -792,6 +796,22 @@ pub struct HifiArtPack {
     pub models: Vec<HifiPackModel>,
     /// The pictures the models' materials name by index.
     pub images: Vec<HifiPackImage>,
+    /// The retail moons it draws again as balls.
+    pub moons: Vec<HifiMoon>,
+}
+
+/// A retail moon an art pack draws again as a ball, its pictures laid longitude by latitude:
+/// longitude 0, the face turned to the world, at the middle of their width, north at their top.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HifiMoon {
+    /// The retail moon's graphics object.
+    pub object: u32,
+    /// Its colour in the display's encoding, and its height in alpha.
+    pub surface: HifiPackImage,
+    /// What burns on its night side, in the display's encoding.
+    pub lights: Option<HifiPackImage>,
+    /// A layer of cloud over the ground in the display's encoding, its cover in alpha.
+    pub clouds: Option<HifiPackImage>,
 }
 
 /// One model of an art pack.

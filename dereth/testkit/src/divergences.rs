@@ -469,6 +469,18 @@ pub static DIVERGENCES: &[Divergence] = &[
               and nothing opens without the player saying so.",
     },
     Divergence {
+        id: "CD-moon-command",
+        title: "The moons' phases this client draws can be set from chat",
+        change: "/moon (or @moon) is a chat command of this client's own: alone it says how much \
+                 of each moon's face is lit, as the moons' calendar has it or as forced; new, \
+                 crescent, half, gibbous or full, or a number from 0 to 1, forces both moons' \
+                 phase, and after rez or alb forces that moon's alone; reset returns one moon or \
+                 both to the calendar. It changes only what this client draws and is never sent \
+                 to the server. The final client had neither the command nor phases.",
+        why: "A player can look at either moon at any phase without waiting the game's days its \
+              month takes.",
+    },
+    Divergence {
         id: "CD-network-channel-lines",
         title: "Dereth Network channel lines are drawn as channel lines",
         change: "A Dereth Network channel reaches every client as a tell from the channel, since \

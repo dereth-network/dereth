@@ -5,7 +5,8 @@
 
 use dereth_render_hifi::passes::atmosphere::heavens::{self, Role};
 use dereth_render_hifi::snapshot::{
-    HifiFrame, HifiSky, HifiSkyCard, HifiSkyDeck, HifiSkyKnobs, HifiSkyObject,
+    HifiArtPack, HifiFrame, HifiMoon, HifiSky, HifiSkyCard, HifiSkyDeck, HifiSkyKnobs,
+    HifiSkyObject,
 };
 use glam::Vec3;
 
@@ -13,7 +14,16 @@ use glam::Vec3;
 fn every_remastered_sky_shader_parses_validates_and_has_its_entry_points() {
     let wanted: [(&str, &[&str]); 2] = [
         ("clouds", &["vs_fullscreen", "fs_clouds"]),
-        ("heavens", &["vs_fullscreen", "fs_heavens"]),
+        (
+            "heavens",
+            &[
+                "vs_fullscreen",
+                "fs_heavens",
+                "vs_moon",
+                "fs_moon",
+                "fs_cloud_cover",
+            ],
+        ),
     ];
     for ((name, source), (want_name, entries)) in heavens::shader_sources().iter().zip(wanted) {
         assert_eq!(*name, want_name);
@@ -120,6 +130,16 @@ fn frame(clock: f64) -> HifiFrame {
             outdoor: true,
             ..HifiSky::default()
         },
+        // An art pack with pictures of both moons, which it draws as balls.
+        art_pack: Some(std::sync::Arc::new(HifiArtPack {
+            moons: [0x0100_1F67, 0x0100_1F6A]
+                .map(|object| HifiMoon {
+                    object,
+                    ..HifiMoon::default()
+                })
+                .to_vec(),
+            ..HifiArtPack::default()
+        })),
         ..HifiFrame::default()
     }
 }
@@ -157,6 +177,12 @@ fn the_remastered_sky_draws_again_the_night_layer_the_moons_the_deck_and_the_sun
         assert!(!plan.replaces(gfx), "{gfx:08X} is kept");
     }
     assert_eq!(plan.moons.len(), 2);
+    // A moon the art pack has no pictures for is retail's.
+    let mut bare = frame(0.0);
+    bare.art_pack = Some(std::sync::Arc::new(HifiArtPack::default()));
+    let plan = heavens::plan(&bare, &knobs);
+    assert!(plan.moons.is_empty());
+    assert!(!plan.replaces(0x0100_1F67) && !plan.replaces(0x0100_1F6A));
     // With the clouds' knob off, retail's own deck is drawn.
     let off = HifiSkyKnobs {
         clouds: false,

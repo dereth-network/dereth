@@ -4,8 +4,9 @@
 //! Retail's sky is a handful of objects: a dome, a night layer that darkens it after dusk with
 //! its stars painted on, two moons on cards, a cloud deck, and the sun on a card of its own. While
 //! an art pack is open and Retail Look is off, and the sky's knob has it on, the world replay
-//! leaves out the night layer, the moons, the cloud deck and the sun, and they are drawn again in
-//! one draw where the night layer would have been:
+//! leaves out the night layer, the moons, the cloud deck and the sun, and they are drawn again
+//! where the night layer would have been: the night layer, the stars and the sun, then the moons,
+//! then the clouds over them all:
 //!
 //! - **The clouds** are a layer of air over the eye whose cover is retail's own cloud picture,
 //!   laid over the world as retail lays it, as large overhead as retail shows it, and drifted as
@@ -18,8 +19,11 @@
 //!   share of the frame's pixels once a frame, before the world is drawn, and enlarged.
 //! - **The night layer** blackens the sky as retail's hours of it do, and the stars are drawn
 //!   over it as points, twinkling with the clock.
-//! - **The moons** stand where retail's cards stand as the eye sees them, with retail's pictures,
-//!   lit as spheres by the sun.
+//! - **The moons** the art pack has pictures for are balls the sky makes itself, standing where
+//!   retail's cards stand as the eye sees them and as large, the pack's pictures laid over them
+//!   longitude by latitude. They are lit from the sun's side as in open space, each waxing and
+//!   waning over a month of its own; the lights on their night sides flicker, and a moon's clouds
+//!   are a shell over its ground that shades it. A moon the pack has no pictures for is retail's.
 //! - **The sun** is a disk with its glow where its light comes from: where the sky model's glow
 //!   is, and where the shadows point.
 //!
@@ -31,7 +35,8 @@ use glam::{Vec3, Vec4};
 
 use super::model;
 use crate::build::Build;
-use crate::snapshot::{HifiFrame, HifiSkyKnobs, HifiSkyObject};
+use crate::shared::pack_image;
+use crate::snapshot::{HifiArtPack, HifiFrame, HifiPackImage, HifiSkyKnobs, HifiSkyObject};
 
 /// What the clouds and the heavens share.
 pub(crate) const HEAVENS_WGSL: &str = include_str!("heavens.wgsl");
@@ -40,8 +45,8 @@ pub(crate) const CLOUDS_WGSL: &str = include_str!("clouds.wgsl");
 /// The night layer, the stars, the moons, the sun, and the clouds laid over them.
 pub(crate) const CELESTIAL_WGSL: &str = include_str!("celestial.wgsl");
 
-/// The constant block's size, bytes: twenty vectors.
-pub const CONSTANTS_SIZE: usize = 20 * 16;
+/// The constant block's size, bytes: twenty-five vectors.
+pub const CONSTANTS_SIZE: usize = 25 * 16;
 /// The texels a side of the clouds' shadow map.
 pub const SHADOW_SIZE: u32 = 1024;
 /// How far from the eye each way the clouds' shadow map reaches, meters.
@@ -63,8 +68,10 @@ pub const DETAIL_PERIOD: f64 = 1800.0;
 pub const CLOUD_FADE: f32 = 60_000.0;
 /// The sun's light on the clouds, against its color's brightest channel.
 pub const CLOUD_SUN: f32 = 0.9;
-/// How brightly the moons' lit faces are drawn, against retail's pictures of them.
-pub const MOON_LIGHT: f32 = 1.4;
+/// How brightly the moons' lit faces are drawn, against their pictures' colour.
+pub const MOON_LIGHT: f32 = 1.2;
+/// The segments round a moon's ball and from pole to pole.
+pub const BALL_SEGMENTS: (u16, u16) = (64, 32);
 /// How far the sun's light on the clouds warms toward retail's fog color in the lowest sun.
 pub const DUSK_GLOW: f32 = 0.6;
 /// How much of their color the stars take from the night's light.
@@ -133,10 +140,16 @@ impl Plan {
 }
 
 /// What `frame`'s sky draws again with `knobs`: the first deck with a picture, while the clouds
-/// are on; the sun; the first two moons with pictures; and the night layer.
+/// are on; the sun; the first two moons the art pack has pictures for; and the night layer.
 #[must_use]
 pub fn plan(frame: &HifiFrame, knobs: &HifiSkyKnobs) -> Plan {
     let mut p = Plan::default();
+    let pictured = |gfx: u32| {
+        frame
+            .art_pack
+            .as_ref()
+            .is_some_and(|a| a.moons.iter().any(|m| m.object == gfx))
+    };
     for o in frame.sky.objects.iter().filter(|o| o.gfx_id != 0) {
         match role(o) {
             Role::Deck if knobs.clouds && p.deck.is_none() && o.texture.is_some() => {
@@ -144,7 +157,7 @@ pub fn plan(frame: &HifiFrame, knobs: &HifiSkyKnobs) -> Plan {
                 p.replaced.push(o.gfx_id);
             }
             Role::Sun => p.replaced.push(o.gfx_id),
-            Role::Moon if p.moons.len() < MOONS && o.texture.is_some() => {
+            Role::Moon if p.moons.len() < MOONS && pictured(o.gfx_id) => {
                 p.moons.push(*o);
                 p.replaced.push(o.gfx_id);
             }
@@ -278,7 +291,7 @@ pub fn constants(
     ));
     // The low sun's warmth, as the sky model is tinted toward it.
     let warm = normalized(model::sun_illuminance(sky));
-    let mut rows = [Vec4::ZERO; 20];
+    let mut rows = [Vec4::ZERO; 25];
     // --- the clouds -----------------------------------------------------------------------
     if let (Some(deck), Some(lay)) = (
         plan.deck.as_ref(),
@@ -357,7 +370,30 @@ pub fn constants(
         rows[9 + k] = (card.center - cam.eye).extend(1.0);
         rows[11 + k] = (card.u * size).extend(card.uv[0]);
         rows[13 + k] = (card.v * size).extend(card.uv[1]);
-        rows[15 + k] = Vec3::splat(MOON_LIGHT).extend(showing(m));
+        let pictures = frame
+            .art_pack
+            .as_ref()
+            .and_then(|a| a.moons.iter().find(|p| p.object == m.gfx_id));
+        let lamps = pictures.is_some_and(|p| p.lights.is_some());
+        rows[15 + k] = Vec4::new(
+            MOON_LIGHT,
+            if lamps { 1.0 } else { 0.0 },
+            knobs
+                .moon_phases
+                .iter()
+                .find(|(gfx, _)| *gfx == m.gfx_id)
+                .map_or(1.0, |(_, lit)| *lit),
+            showing(m),
+        );
+        rows[20][k] = if pictures.is_some_and(|p| p.clouds.is_some()) {
+            1.0
+        } else {
+            0.0
+        };
+    }
+    let clip_from_ray = model::ray_from_ndc(cam).inverse();
+    for (c, row) in rows[21..25].iter_mut().enumerate() {
+        *row = clip_from_ray.col(c);
     }
     // --- the night layer and the stars -----------------------------------------------------
     let night = plan.night.as_ref().map_or(1.0 - day, showing);
@@ -605,6 +641,66 @@ pub fn cloud_size(width: u32, height: u32, share: f32) -> (u32, u32) {
     (at(width), at(height))
 }
 
+/// A moon's ball: the unit ball's points, x east, y north and z toward the world it circles,
+/// [`BALL_SEGMENTS`] round and from pole to pole, and its triangles.
+#[must_use]
+pub fn ball() -> (Vec<[f32; 3]>, Vec<u16>) {
+    let (round, poles) = BALL_SEGMENTS;
+    let mut points = Vec::with_capacity(usize::from(round + 1) * usize::from(poles + 1));
+    for j in 0..=poles {
+        let lat =
+            std::f32::consts::FRAC_PI_2 - std::f32::consts::PI * f32::from(j) / f32::from(poles);
+        for i in 0..=round {
+            let lon = std::f32::consts::TAU * f32::from(i) / f32::from(round);
+            let (s, c) = dereth_primitives::num::math::sin_cosf(lat);
+            let (sl, cl) = dereth_primitives::num::math::sin_cosf(lon);
+            points.push([c * sl, s, c * cl]);
+        }
+    }
+    let mut triangles = Vec::with_capacity(usize::from(round) * usize::from(poles) * 6);
+    let at = |i: u16, j: u16| j * (round + 1) + i;
+    for j in 0..poles {
+        for i in 0..round {
+            let (a, b, c, d) = (at(i, j), at(i + 1, j), at(i, j + 1), at(i + 1, j + 1));
+            triangles.extend_from_slice(&[a, c, b, b, c, d]);
+        }
+    }
+    (points, triangles)
+}
+
+/// An art pack's picture of a moon on the device, all its levels.
+fn moon_picture(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    image: &HifiPackImage,
+) -> wgpu::TextureView {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("sky moon"),
+        size: wgpu::Extent3d {
+            width: image.width.max(1),
+            height: image.height.max(1),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: u32::try_from(image.levels.len().max(1)).unwrap_or(1),
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: pack_image::format(image, pack_image::samples_blocks(device)),
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    pack_image::write(queue, &texture, 0, image, image.levels.len());
+    texture.create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+/// A moon's pictures on the device: its ground, its lights and its clouds.
+#[derive(Debug)]
+struct MoonPictures {
+    object: u32,
+    ground: wgpu::TextureView,
+    lamps: Option<wgpu::TextureView>,
+    veil: Option<wgpu::TextureView>,
+}
+
 /// A device texture viewed as one flat picture with all its levels.
 fn picture_view(t: &wgpu::Texture) -> wgpu::TextureView {
     t.create_view(&wgpu::TextureViewDescriptor {
@@ -630,6 +726,12 @@ pub(super) struct HeavensGpu {
     clouds: wgpu::RenderPipeline,
     shadow: wgpu::RenderPipeline,
     celestial: wgpu::RenderPipeline,
+    moons: wgpu::RenderPipeline,
+    cloud_cover: wgpu::RenderPipeline,
+    /// The moons' ball: its points, its triangles and how many corners they have.
+    ball: (wgpu::Buffer, wgpu::Buffer, u32),
+    /// The art pack's pictures of the moons on the device, and the pack they are of.
+    moon_pictures: Option<(u64, Vec<MoonPictures>)>,
     detail: wgpu::TextureView,
     wrap: wgpu::Sampler,
     blank: wgpu::TextureView,
@@ -659,11 +761,11 @@ fn texture_entry(binding: u32, dim: wgpu::TextureViewDimension) -> wgpu::BindGro
     }
 }
 
-/// One uniform binding of a fragment shader, `size` bytes.
+/// One uniform binding of a vertex and fragment shader, `size` bytes.
 fn uniform_entry(binding: u32, size: usize) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
-        visibility: wgpu::ShaderStages::FRAGMENT,
+        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
         ty: wgpu::BindingType::Buffer {
             ty: wgpu::BufferBindingType::Uniform,
             has_dynamic_offset: false,
@@ -805,6 +907,10 @@ impl HeavensGpu {
                 sampler_entry(5),
                 texture_entry(6, d2),
                 texture_entry(7, d2),
+                texture_entry(8, d2),
+                texture_entry(9, d2),
+                texture_entry(10, d2),
+                texture_entry(11, d2),
             ],
         );
         let pipeline = |label: &str,
@@ -866,35 +972,100 @@ impl HeavensGpu {
         );
         // Drawn inside the world replay, in the sky pass, as the sky's layers are: premultiplied
         // over the sky, leaving the target's alpha alone and touching no depth.
+        let over = wgpu::ColorTargetState {
+            format,
+            blend: Some(wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::Zero,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+            }),
+            write_mask: wgpu::ColorWrites::ALL,
+        };
+        let no_depth = wgpu::DepthStencilState {
+            format: crate::SidecarContext::depth_format(),
+            depth_write_enabled: Some(false),
+            depth_compare: Some(wgpu::CompareFunction::Always),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        };
         let celestial = pipeline(
             "sky heavens",
             &celestial_module,
             &celestial_layout,
             "fs_heavens",
-            wgpu::ColorTargetState {
-                format,
-                blend: Some(wgpu::BlendState {
-                    color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                    alpha: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::Zero,
-                        dst_factor: wgpu::BlendFactor::One,
-                        operation: wgpu::BlendOperation::Add,
-                    },
-                }),
-                write_mask: wgpu::ColorWrites::ALL,
-            },
-            Some(wgpu::DepthStencilState {
-                format: crate::SidecarContext::depth_format(),
-                depth_write_enabled: Some(false),
-                depth_compare: Some(wgpu::CompareFunction::Always),
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
+            over.clone(),
+            Some(no_depth.clone()),
         );
+        let cloud_cover = pipeline(
+            "sky cloud cover",
+            &celestial_module,
+            &celestial_layout,
+            "fs_cloud_cover",
+            over.clone(),
+            Some(no_depth.clone()),
+        );
+        let moons = {
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("sky moons"),
+                bind_group_layouts: &[Some(&celestial_layout)],
+                immediate_size: 0,
+            });
+            device.build_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("sky moons"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &celestial_module,
+                    entry_point: Some("vs_moon"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    buffers: &[Some(wgpu::VertexBufferLayout {
+                        array_stride: 12,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x3],
+                    })],
+                },
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: Some(no_depth),
+                multisample: wgpu::MultisampleState::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &celestial_module,
+                    entry_point: Some("fs_moon"),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    targets: &[Some(over)],
+                }),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let ball = {
+            use wgpu::util::DeviceExt;
+            let (points, triangles) = ball();
+            let points: Vec<u8> = points
+                .iter()
+                .flatten()
+                .flat_map(|f| f.to_le_bytes())
+                .collect();
+            let corners: Vec<u8> = triangles.iter().flat_map(|i| i.to_le_bytes()).collect();
+            (
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("sky moon ball"),
+                    contents: &points,
+                    usage: wgpu::BufferUsages::VERTEX,
+                }),
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("sky moon ball"),
+                    contents: &corners,
+                    usage: wgpu::BufferUsages::INDEX,
+                }),
+                u32::try_from(triangles.len()).unwrap_or(0),
+            )
+        };
         let constants = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("sky heavens"),
             size: CONSTANTS_SIZE as u64,
@@ -919,6 +1090,10 @@ impl HeavensGpu {
             clouds,
             shadow,
             celestial,
+            moons,
+            cloud_cover,
+            ball,
+            moon_pictures: None,
             detail: detail_view(device, queue),
             wrap,
             blank: blank_view(device, queue),
@@ -962,12 +1137,13 @@ impl HeavensGpu {
     }
 
     /// Ready the frame's targets and bind groups: the clouds' picture `size`, retail's pictures
-    /// `plan` names, and the sky's constants `atmosphere`, its view table `sky_view` and its
-    /// `sampler`.
+    /// `plan` names, the art `pack`'s pictures of the moons it names, and the sky's constants
+    /// `atmosphere`, its view table `sky_view` and its `sampler`.
     pub(super) fn prepare(
         &mut self,
         seam: &crate::SidecarContext<'_>,
         plan: &Plan,
+        pack: Option<&HifiArtPack>,
         size: (u32, u32),
         (atmosphere, sky_view, sampler): (&wgpu::Buffer, &wgpu::TextureView, &wgpu::Sampler),
     ) {
@@ -993,10 +1169,42 @@ impl HeavensGpu {
         let deck = self
             .picture(seam, plan.deck.and_then(|d| d.texture))
             .unwrap_or_else(|| self.blank.clone());
-        let mut moons = [self.blank.clone(), self.blank.clone()];
+        if let Some(pack) = pack {
+            if self
+                .moon_pictures
+                .as_ref()
+                .is_none_or(|(s, _)| *s != pack.serial)
+            {
+                let queue = seam.queue();
+                let made = pack
+                    .moons
+                    .iter()
+                    .map(|m| MoonPictures {
+                        object: m.object,
+                        ground: moon_picture(&device, queue, &m.surface),
+                        lamps: m.lights.as_ref().map(|i| moon_picture(&device, queue, i)),
+                        veil: m.clouds.as_ref().map(|i| moon_picture(&device, queue, i)),
+                    })
+                    .collect();
+                self.moon_pictures = Some((pack.serial, made));
+            }
+        }
+        // Each moon's ground, lights and clouds, in the order the shader binds them.
+        let mut moons: [wgpu::TextureView; 6] = std::array::from_fn(|_| self.blank.clone());
         for (k, m) in plan.moons.iter().enumerate().take(MOONS) {
-            if let Some(v) = self.picture(seam, m.texture) {
-                moons[k] = v;
+            let Some(p) = self
+                .moon_pictures
+                .as_ref()
+                .and_then(|(_, all)| all.iter().find(|p| p.object == m.gfx_id))
+            else {
+                continue;
+            };
+            moons[k] = p.ground.clone();
+            if let Some(v) = &p.lamps {
+                moons[2 + k] = v.clone();
+            }
+            if let Some(v) = &p.veil {
+                moons[4 + k] = v.clone();
             }
         }
         let Some(clouds) = self.target.as_ref().map(|(_, v)| v.clone()) else {
@@ -1026,12 +1234,8 @@ impl HeavensGpu {
             self.cloud_bind = Some((cloud_key, bind));
             self.binds_made += 1;
         }
-        let celestial_key = vec![
-            sky_view.clone(),
-            clouds.clone(),
-            moons[0].clone(),
-            moons[1].clone(),
-        ];
+        let mut celestial_key = vec![sky_view.clone(), clouds.clone()];
+        celestial_key.extend(moons.iter().cloned());
         if self
             .celestial_bind
             .as_ref()
@@ -1039,9 +1243,10 @@ impl HeavensGpu {
         {
             let mut entries = shared.to_vec();
             entries.push(entry(4, wgpu::BindingResource::TextureView(&clouds)));
-            entries.push(entry(5, wgpu::BindingResource::Sampler(sampler)));
-            entries.push(entry(6, wgpu::BindingResource::TextureView(&moons[0])));
-            entries.push(entry(7, wgpu::BindingResource::TextureView(&moons[1])));
+            entries.push(entry(5, wgpu::BindingResource::Sampler(&self.wrap)));
+            for (b, v) in (6..).zip(&moons) {
+                entries.push(entry(b, wgpu::BindingResource::TextureView(v)));
+            }
             let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("sky heavens"),
                 layout: &self.celestial_layout,
@@ -1120,7 +1325,9 @@ impl HeavensGpu {
         true
     }
 
-    /// Draw the heavens into the open sky pass; whether they were drawn.
+    /// Draw the heavens into the open sky pass: the night layer, the stars and the sun, then the
+    /// moons' balls (each one's ground, then its clouds), then the clouds over them all; whether
+    /// they were drawn.
     pub(super) fn draw(&self, pass: &mut wgpu::RenderPass<'_>) -> bool {
         let Some((_, bind)) = self.celestial_bind.as_ref() else {
             return false;
@@ -1128,6 +1335,48 @@ impl HeavensGpu {
         pass.set_pipeline(&self.celestial);
         pass.set_bind_group(0, bind, &[]);
         pass.draw(0..3, 0..1);
+        let (points, triangles, corners) = &self.ball;
+        pass.set_pipeline(&self.moons);
+        pass.set_vertex_buffer(0, points.slice(..));
+        pass.set_index_buffer(triangles.slice(..), wgpu::IndexFormat::Uint16);
+        #[allow(clippy::cast_possible_truncation)] // two moons
+        pass.draw_indexed(0..*corners, 0, 0..2 * MOONS as u32);
+        pass.set_pipeline(&self.cloud_cover);
+        pass.draw(0..3, 0..1);
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Behaviour: none (the sky, an art-pack presentation's own)
+    use super::*;
+
+    #[test]
+    fn a_moons_ball_is_the_whole_unit_ball_its_triangles_closing_over_it() {
+        let (points, triangles) = ball();
+        let (round, poles) = BALL_SEGMENTS;
+        assert_eq!(
+            points.len(),
+            usize::from(round + 1) * usize::from(poles + 1)
+        );
+        assert_eq!(triangles.len(), usize::from(round) * usize::from(poles) * 6);
+        for p in &points {
+            let r = (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt();
+            assert!((r - 1.0).abs() < 1e-5, "{p:?} lies on the unit ball");
+        }
+        assert!(triangles.iter().all(|&i| usize::from(i) < points.len()));
+        // The triangles cover the ball's whole surface: their areas sum to its own.
+        let area: f32 = triangles
+            .chunks(3)
+            .map(|t| {
+                let [a, b, c] = [0, 1, 2].map(|k| Vec3::from(points[usize::from(t[k])]));
+                (b - a).cross(c - a).length() * 0.5
+            })
+            .sum();
+        let whole = 4.0 * std::f32::consts::PI;
+        assert!((area / whole - 1.0).abs() < 0.01, "{area} of {whole}");
+        // The ball's face toward the world, longitude 0, is its +z.
+        assert!(points.iter().any(|p| p[2] > 0.999 && p[1].abs() < 1e-3));
     }
 }

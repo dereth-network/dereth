@@ -14,6 +14,7 @@ pub mod console;
 pub mod help;
 pub mod interp;
 pub mod loadfile;
+pub mod moon;
 pub mod report;
 pub mod table;
 pub mod tod;

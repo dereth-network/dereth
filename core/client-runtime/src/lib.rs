@@ -181,6 +181,8 @@ pub mod world_stream;
 
 /// The Dereth calendar clock.
 pub mod game_clock;
+/// `@moon` carried out on the moons' phases.
+pub mod moon;
 /// `@tod` carried out on the world's sky clock.
 pub mod time_of_day;
 /// `@weather` carried out on the world's weather.

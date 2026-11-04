@@ -179,6 +179,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "chat.commands.moon-is-answered-by-this-client-and-never-sent",
+        says: "Typing /moon or @moon is answered by this client and nothing is sent to the shard: \
+               alone it says how much of each moon's face is lit; with new, crescent, half, \
+               gibbous, full or a number from 0 to 1 it forces both moons' phase, after rez or alb \
+               that moon's alone, and with reset it returns one moon or both to the moons' \
+               calendar; and anything else is refused with one line saying what it takes, in the \
+               window it was typed in. No command of the final client's own is shadowed by it.",
+        since: THIS_CLIENT,
+        divergence: "CD-moon-command",
+        evidence: Evidence::Private("AC-EVID-CHAT-MOON"),
+        station: "dereth-client-runtime::lib::interaction::tests::typed_moon_is_answered_by_this_client_and_nothing_reaches_the_server",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "chat.commands.perfcapture-saves-a-row-for-every-frame-of-its-seconds",
         says: "Typing /perfcapture with a number of seconds records from the next frame on, a \
                row for every frame until that many seconds of the client's clock have passed, \

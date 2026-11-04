@@ -349,6 +349,10 @@ pub struct Interaction {
     /// the world the weather is drawn in and answers in that window.
     pending_weather: Vec<(dereth_client_model::cmd::weather::WeatherCommand, u32)>,
 
+    /// The moon commands typed this frame, each with the chat window it came from. App owns the
+    /// world the moons are drawn in and answers in that window.
+    pending_moons: Vec<(dereth_client_model::cmd::moon::MoonCommand, u32)>,
+
     /// The report commands typed this frame, each the chat window it came from. App has the
     /// world, the camera and the presentation the report describes, and answers in that window.
     pending_reports: Vec<u32>,
@@ -1090,6 +1094,14 @@ impl Interaction {
         &mut self,
     ) -> Vec<(dereth_client_model::cmd::weather::WeatherCommand, u32)> {
         std::mem::take(&mut self.pending_weather)
+    }
+
+    /// The moon commands typed since the last call, in command order, each with the chat window
+    /// its answer goes to.
+    pub fn take_moon_commands(
+        &mut self,
+    ) -> Vec<(dereth_client_model::cmd::moon::MoonCommand, u32)> {
+        std::mem::take(&mut self.pending_moons)
     }
 
     /// The report commands typed since the last call, in command order, each the chat window its

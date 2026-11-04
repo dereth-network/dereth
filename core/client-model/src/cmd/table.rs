@@ -63,6 +63,8 @@ pub enum CommandHandler {
     MansionRecall,
     Marketplace,
     Messagetypes,
+    /// This client's own moon phase command, not retail's (CD-moon-command).
+    Moon,
     Motd,
     Notell,
     Off,
@@ -784,6 +786,11 @@ pub const DERETH_COMMANDS: &[CommandEntry] = &[
         help: Some("help_weather"),
     },
     CommandEntry {
+        name: "moon",
+        handler: Some(CommandHandler::Moon),
+        help: Some("help_moon"),
+    },
+    CommandEntry {
         name: "report",
         handler: Some(CommandHandler::Report),
         help: Some("help_report"),
@@ -898,6 +905,8 @@ pub const HELP_TEXTS: &[(&str, &[&str], &[&str])] = &[
     ("help_tod", &["@tod - Shows the current time of day and if it is forced locally.\n"], &["@tod - Shows the current time of day and if it is forced locally.\n@tod <0 to 1> - Forces the time of day and lets it run from there.\n@tod midnight, dawn, noon, dusk - Forces the time of day and lets it run from there.\n@tod reset - Restore natural time of day set by the world timeline.\n"]),
     // This client's own command's help (CD-039), not one of retail's.
     ("help_weather", &["@weather - Shows the current weather and if it is forced locally.\n"], &["@weather - Shows the current weather and if it is forced locally.\n@weather clear - Forces local weather to clear skies\n@weather rain - Forces local weather to rainfall\n@weather snow - Forces local weather to snowfall\n@weather reset - Restore natural weather set by the world timeline.\n"]),
+    // This client's own command's help (CD-moon-command), not one of retail's.
+    ("help_moon", &["@moon - Shows how much of each moon's face is lit.\n"], &["@moon - Shows how much of each moon's face is lit.\n@moon new, crescent, half, gibbous, full - Forces both moons' phase.\n@moon <0 to 1> - Forces how much of both moons' faces is lit.\n@moon rez <phase> - Forces Rez'arel's phase alone.\n@moon alb <phase> - Forces Alb'arel's phase alone.\n@moon rez reset, @moon alb reset - Returns one moon to the calendar.\n@moon reset - Returns both to the calendar.\nThese change the moons of the Remastered sky, which needs Better Lighting and an art pack with pictures of the moons, with Retail Look off.\n"]),
     // This client's own commands' help (CD-report-commands), not retail's.
     ("help_report", &["@report - Prints a debug line with diagnostic information about where you are (@loc), what you're looking at (camera values), and various client rendering state.\n"], &["@report - Prints a debug line with diagnostic information about where you are (@loc), what you're looking at (camera values), and various client rendering state. Please include this when reporting bugs.\n"]),
     ("help_perfcapture", &["@perfcapture <seconds> - Records performance metrics for <seconds> (default 10) to a file in your settings folder.\n"], &["@perfcapture <seconds> - Records performance metrics for <seconds> (default 10) to a file in your settings folder. Please include this when reporting performance-related bugs.\n"]),

@@ -1093,6 +1093,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "rendering.sky.moon-phases-asked-for-replace-the-calendars-until-reset",
+        says: "Each moon waxes and wanes over a month of its own on the game's calendar. A phase \
+               forced with /moon replaces the calendar's for that moon for as long as it is set, \
+               the other moon keeping the calendar's; reset returns to the calendar, which was \
+               never changed.",
+        since: THIS_CLIENT,
+        divergence: "CD-moon-command",
+        evidence: Evidence::Private("AC-EVID-SKY-MOON"),
+        station: "dereth-scene::lib::world_scene::imp::hifi_bridge::tests::the_moons_are_drawn_at_the_phase_asked_for_or_the_calendars",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "rendering.sky.the-sky-is-drawn-and-the-day-cycle-moves-it",
         says: "The sky is drawn rather than left black, and the time of day changes it: noon and \
                midnight give clearly different pictures, and the sun and the ambient light both \

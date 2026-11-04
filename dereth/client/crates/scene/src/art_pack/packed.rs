@@ -23,7 +23,8 @@
 //! - a ground material's three pictures: `ground` and the paths of its base color, normal,
 //!   height, roughness and occlusion, empty where it names none;
 //! - a material's three: `material`, the paths of its base color, normal, roughness and
-//!   occlusion, and its normal scale.
+//!   occlusion, and its normal scale;
+//! - a moon's picture: `moon` and its path.
 //!
 //! No path a manifest names holds a `:`. A pictures record holds a count, then each picture: its
 //! width and height, whether it holds color (1) or data (0), its blocks (0 for four bytes a
@@ -278,6 +279,12 @@ pub fn material_key(entry: &ManifestMaterial) -> String {
         path(&entry.occlusion),
         entry.normal_scale,
     )
+}
+
+/// What a packed pack keeps a moon's picture under.
+#[must_use]
+pub fn moon_key(path: &str) -> String {
+    format!("moon:{path}")
 }
 
 /// The number a pictures record gives a picture's blocks.
@@ -810,6 +817,13 @@ base_color = "m/missing.png"
 author = "a"
 tool = "t"
 license = "CC0-1.0"
+[[moon]]
+object = "0x01001F6A"
+surface = "m/wall.png"
+lights = "m/wall_n.png"
+author = "a"
+tool = "t"
+license = "CC0-1.0"
 "#;
 
     fn files() -> HashMap<String, Vec<u8>> {
@@ -907,6 +921,10 @@ license = "CC0-1.0"
         assert_eq!(opened.images, folder.images);
         assert_eq!(opened.grounds, folder.grounds);
         assert_eq!(opened.materials, folder.materials);
+        // A moon's pictures are made as colour, and read back as packed.
+        assert_eq!(folder.moons.len(), 1);
+        assert!(folder.moons[0].surface.srgb && folder.moons[0].lights.is_some());
+        assert_eq!(opened.moons, folder.moons);
         // What the folder left out, the packed pack leaves out too.
         assert_eq!(opened.problems.len(), 2, "{:?}", opened.problems);
         assert!(
