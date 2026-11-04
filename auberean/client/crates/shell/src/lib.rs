@@ -817,10 +817,12 @@ impl<'w, H: Host> Shell<'w, H> {
             // D2-08334, D2-00085
             if let Some(c) = &mut self.client {
                 c.disconnect();
+                c.end_friends();
                 while let Some((to, bytes)) = c.poll_transmit() {
                     self.host.send(to, &bytes);
                 }
             }
+            self.carry_friends(stream_now);
             self.host.save_settings(&self.settings.write());
         }
         let views = self.scene.view_frames(&self.overlay.scenes, dt);

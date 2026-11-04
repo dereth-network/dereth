@@ -359,6 +359,8 @@ pub struct Friends {
     waiting: BTreeMap<Cx, Waiting>,
     /// The ticket's handler: whether its answer came, and what it was.
     ticket_answer: Option<u32>,
+    /// A ticket was presented and is not finished with.
+    ticket_held: bool,
     /// The ticket is being presented again after the service came back.
     reauthenticating: bool,
     use_ticket: bool,
@@ -392,6 +394,7 @@ impl Friends {
             next_cx: 1,
             waiting: BTreeMap::new(),
             ticket_answer: None,
+            ticket_held: false,
             reauthenticating: false,
             use_ticket: options.use_ticket,
             named: options.named,
@@ -563,6 +566,7 @@ impl Friends {
             .trim_end_matches('\0')
             .to_owned();
         self.ticket_answer = None;
+        self.ticket_held = true;
         self.request(
             Request::PresentTicket {
                 email: String::new(),
@@ -570,6 +574,27 @@ impl Friends {
             },
             Waiting::Ticket,
         )
+    }
+
+    /// The client is done with its ticket, when one was presented and the service is up: whether
+    /// it was. The stream's own end gives the ticket back; no element says so.
+    // D2-12099
+    pub fn finish_with_ticket(&mut self) -> bool {
+        if !self.connected || !self.ticket_held {
+            return false;
+        }
+        self.ticket_held = false;
+        true
+    }
+
+    /// The layer ends: the connection closes, if it stands, and no event is listened for.
+    // D2-12118
+    pub fn end(&mut self) {
+        if self.connected {
+            self.connection.disconnect(self.now);
+            self.connected = false;
+        }
+        self.unregister_events();
     }
 
     /// Ask for the friends list; `context` comes back with it.
@@ -867,6 +892,14 @@ impl Client {
     /// A request of the friends service, when there is one: whether it went out.
     pub(crate) fn with_friends(&mut self, f: impl FnOnce(&mut Friends) -> bool) -> bool {
         self.friends.as_mut().is_some_and(f)
+    }
+
+    /// The client ends: it finishes with its ticket and the friends service's layer ends.
+    pub fn end_friends(&mut self) {
+        if let Some(f) = &mut self.friends {
+            f.finish_with_ticket();
+            f.end();
+        }
     }
 
     /// The friends service's layer, when the player was started with one.
