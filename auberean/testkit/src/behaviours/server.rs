@@ -2710,6 +2710,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.self-cast-lists",
+        says: "A skill used on oneself names its effects in its list for its user: Immolation's protection and \
+               Bladeskin come on by using them. The plain Bladeskin's aura pulses no Blocker.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SELF-CAST-LISTS"),
+        station: "yalain-testkit::dat::effects::immolation_and_bladeskin_put_their_effects_on_their_user",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.effects.speed-told-at-each-speed-record",
         says: "A player and those who see it are told its speed and acceleration whenever an \
                effect that changes them comes or goes, even when the speed stays the same.",

@@ -709,11 +709,12 @@ fn no_skill_or_aura_keeps_off_its_own_effects() {
     let mut lists: Vec<(String, Vec<u32>)> = skills
         .skills
         .iter()
-        .filter_map(|(k, d)| {
-            Some((
-                format!("skill {k}"),
-                d.usage.as_ref()?.target_effects.clone(),
-            ))
+        .filter_map(|(k, d)| d.usage.as_ref().map(|u| (k, u)))
+        .flat_map(|(k, u)| {
+            [
+                (format!("skill {k}"), u.target_effects.clone()),
+                (format!("skill {k} on its user"), u.user_effects.clone()),
+            ]
         })
         .collect();
     let mut states: Vec<u32> = lists.iter().flat_map(|(_, l)| l.iter().copied()).collect();
@@ -750,6 +751,123 @@ fn no_skill_or_aura_keeps_off_its_own_effects() {
     };
     assert_eq!(a.pulsed, [0x6F00_1140, 0x6F00_1141]);
     assert_eq!(t.get(0x6F00_1140).map(|d| d.eq_class), Some(117));
+}
+
+/// A skill used on oneself names its effects in its list for its user, not its target's: Immolation's
+/// protection and Bladeskin's aura come on by using them. The plain Bladeskin's aura pulses Bladeskin
+/// alone; only the Soul Defractor's names a Blocker.
+/// Behaviour: server.effects.self-cast-lists
+#[test]
+fn immolation_and_bladeskin_put_their_effects_on_their_user() {
+    use auberean_protocol::{queue, ClientMessage};
+    use auberean_script::args::Arg;
+    use yalain_testkit::play::server_call;
+    use yalain_testkit::Harness;
+    use yalain_world::effects::{self, Cast, On};
+    use yalain_world::skill_use::function;
+    use yalain_world::state::SkillState;
+    const IMMOLATION: u32 = 1079;
+    const BLADESKIN: u32 = 1006;
+    const PROTECTION: u32 = 0x7000_1F53;
+    const AURA: u32 = 0x6F00_00C8;
+    const WATCHER: u32 = 0x6F00_10F5;
+    /// A fire effect over time.
+    const BURNS: u32 = 0x6F00_10C7;
+
+    let p = Portal::open();
+    let mut skills = p.skills();
+    let list = |s: u32| skills.skills[&s].usage.as_ref().expect("used").clone();
+    assert!(list(IMMOLATION).target_effects.is_empty());
+    assert!(list(BLADESKIN).target_effects.is_empty());
+    assert_eq!(
+        list(IMMOLATION).user_effects,
+        [0x7000_07F8, 0x7000_1F51, PROTECTION, 0x7000_1F52]
+    );
+    assert_eq!(list(BLADESKIN).user_effects, [AURA]);
+    let mut states = vec![BURNS, 0x6F00_0225];
+    states.extend(list(IMMOLATION).user_effects);
+    states.extend(list(BLADESKIN).user_effects);
+    let table = p.effects(&states);
+    let Some(Kind::Aura(a)) = table.get(AURA).map(|d| &d.kind) else {
+        panic!("the aura")
+    };
+    assert_eq!(a.pulsed, [WATCHER]);
+    for s in [IMMOLATION, BLADESKIN] {
+        let u = skills
+            .skills
+            .get_mut(&s)
+            .and_then(|d| {
+                d.parents.clear();
+                d.prereqs.clear();
+                d.usage.as_mut()
+            })
+            .expect("used");
+        u.implements_right = -1;
+        u.implements_left = -1;
+        u.vigor_add = 0.0;
+        u.vigor_mult = 0.0;
+        u.min_vigor = 0.0;
+    }
+
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    h.server.skill_table = skills;
+    h.server.effect_table = table;
+    let world = *h.server.players.keys().next().expect("in the world");
+    for (n, skill) in [IMMOLATION, BLADESKIN].into_iter().enumerate() {
+        let held = SkillState {
+            skill,
+            granted: 50,
+            mask: 1,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        };
+        if let Some(p) = h.server.players.get_mut(&world) {
+            p.play.skills.push(held);
+        }
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(
+                function::USE,
+                &[
+                    Arg::Int(u32::try_from(n).unwrap_or(0) + 1),
+                    Arg::Int(skill),
+                    Arg::LongInt(me),
+                ],
+            ),
+        );
+        h.run(400);
+    }
+    let holds = |h: &Harness, s: u32| {
+        h.server
+            .players
+            .get(&world)
+            .is_some_and(|p| p.play.effects.iter().any(|e| e.state == s))
+    };
+    assert!(holds(&h, PROTECTION), "Immolation's protection");
+    assert!(holds(&h, WATCHER), "Bladeskin");
+    let clock = h.clock();
+    effects::apply_on(
+        &mut h.server,
+        &mut h.net,
+        On::Player(world),
+        BURNS,
+        Cast {
+            spellcraft: 30.0,
+            ..Cast::default()
+        },
+        clock,
+    );
+    assert!(!holds(&h, BURNS), "fire kept off");
 }
 
 /// A recipe that binds its product names it by the product's ordinal over the whole spinner range
