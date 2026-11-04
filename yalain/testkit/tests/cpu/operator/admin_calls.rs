@@ -813,6 +813,117 @@ fn the_library_carries_the_words_of_the_ethereality_command() {
     );
 }
 
+/// With the library goes the record of the log type's names, which no install holds: the client reads
+/// the type every answer goes out as under a name, so it shows no empty `[]`. A client holding the
+/// iteration before is sent that record alone, never the library again; one holding any other, or
+/// none, the whole; one holding this one, nothing.
+/// Behaviour: server.admin.library-names-the-log-type
+#[test]
+fn the_library_names_the_log_type_and_a_client_holding_the_last_gets_only_that() {
+    use auberean_assets::strings::EnumMap;
+    use auberean_dat::Reader;
+    use auberean_protocol::login::{DataFileIterations, DataRecord};
+    use auberean_protocol::types::{IterationRun, IterationSet};
+    use yalain_world::admin_calls::LOG_TYPE;
+    use yalain_world::admin_library::{
+        log_type_record, AdminLibrary, ENUM_KIND, ETHEREALITY_RECORD, ITERATION, LOG_TYPE_RECORD,
+        PREVIOUS_ITERATION, RECORD,
+    };
+    use yalain_world::download::PORTAL_FILE;
+    let bytes = log_type_record();
+    let map = EnumMap::read(&mut Reader::new(&bytes)).expect("reads");
+    assert_eq!(map.id, LOG_TYPE_RECORD);
+    assert_eq!(map.base, 0);
+    assert_eq!(map.names, [(LOG_TYPE, "Admin".to_owned())]);
+
+    let mut record = Vec::new();
+    for _ in 0..200 {
+        record.extend(0x0C_u32.to_le_bytes());
+        record.extend(SEND_ENCRYPTED.to_le_bytes());
+    }
+    let lib = AdminLibrary::of(&record).expect("made");
+    let held = |file, runs| {
+        vec![DataFileIterations {
+            dat_file: file,
+            iterations: IterationSet { total: 1, runs },
+        }]
+    };
+    let one = |v: u32| IterationRun::One(v.cast_signed());
+    let sent = |files: &[DataFileIterations]| -> Option<(Vec<u32>, usize, u32, Vec<u32>)> {
+        let (begins, records) = lib.to_send(files)?;
+        let ServerMessage::DownloadBegins(b) = begins else {
+            panic!("it begins the download");
+        };
+        let records: Vec<&DataRecord> = records
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DataRecord(r) => Some(r),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            b.bytes as usize,
+            records.iter().map(|r| r.bytes.len()).sum::<usize>(),
+            "the bytes it says"
+        );
+        assert!(records
+            .iter()
+            .filter(|r| r.id == LOG_TYPE_RECORD)
+            .all(|r| r.kind == ENUM_KIND));
+        Some((
+            b.files[0].download.clone(),
+            b.files.len(),
+            b.files[0].iteration,
+            records.iter().map(|r| r.id).collect(),
+        ))
+    };
+    let whole = vec![RECORD, ETHEREALITY_RECORD, LOG_TYPE_RECORD];
+    let newer = vec![LOG_TYPE_RECORD];
+    for (files, expected) in [
+        (Vec::new(), Some(&whole)),
+        (held(PORTAL_FILE, vec![one(9_000)]), Some(&whole)),
+        (
+            held(PORTAL_FILE + 1, vec![one(PREVIOUS_ITERATION)]),
+            Some(&whole),
+        ),
+        (
+            held(PORTAL_FILE, vec![one(PREVIOUS_ITERATION)]),
+            Some(&newer),
+        ),
+        (
+            held(
+                PORTAL_FILE,
+                vec![IterationRun::Run {
+                    count: 2,
+                    first: PREVIOUS_ITERATION - 1,
+                }],
+            ),
+            Some(&newer),
+        ),
+        (held(PORTAL_FILE, vec![one(ITERATION)]), None),
+        (
+            held(
+                PORTAL_FILE,
+                vec![IterationRun::Run {
+                    count: 2,
+                    first: PREVIOUS_ITERATION,
+                }],
+            ),
+            None,
+        ),
+    ] {
+        let got = sent(&files);
+        match expected {
+            Some(ids) => assert_eq!(
+                got,
+                Some((ids.clone(), 1, ITERATION, ids.clone())),
+                "{files:?}"
+            ),
+            None => assert_eq!(got, None, "{files:?}"),
+        }
+    }
+}
+
 /// What makes an admin is the operator's alone: said in game by an admin, raising an account, making
 /// an admin character, changing groups or a new admin's account are refused and change nothing, as is
 /// another admin's password; a player's password may be set, as before.

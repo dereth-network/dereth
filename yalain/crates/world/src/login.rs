@@ -909,14 +909,15 @@ pub(crate) fn message<S: Store>(
     match m {
         ClientMessage::DataHeld(held) => {
             let admin = s.sessions.get(&conn).is_some_and(|x| x.account.admin);
-            if let Some(lib) = s
+            if let Some((begins, records)) = s
                 .admin_library
                 .as_ref()
-                .filter(|l| admin && !l.held_by(&held.files))
+                .filter(|_| admin)
+                .and_then(|l| l.to_send(&held.files))
             {
                 tracing::info!(?conn, "serving an admin's account the script library");
-                send(net, conn, queue::DATABASE, BlobKind::LOGIN, &lib.begins);
-                for record in &lib.records {
+                send(net, conn, queue::DATABASE, BlobKind::LOGIN, begins);
+                for record in records {
                     send(net, conn, queue::DATABASE, BlobKind::LOGIN, record);
                 }
                 s.storing_library.insert(conn);

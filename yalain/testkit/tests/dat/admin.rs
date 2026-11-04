@@ -86,7 +86,7 @@ fn an_admin_characters_client_side_commands_run_to_their_end() {
 }
 
 /// An admin's command that goes to the server runs the game's scripts to a plain call, the server
-/// answers it, and the client's own admin script shows the line.
+/// answers it, and the client's own admin script shows the line, under the name of its log type.
 /// Behaviour: session.server.an-admins-command-reaches-the-server-and-is-answered
 #[test]
 fn an_admins_server_command_is_answered_in_the_clients_window() {
@@ -95,6 +95,7 @@ fn an_admins_server_command_is_answered_in_the_clients_window() {
     play::wait(&mut s, 2.0);
     let all = shown(&s).join("\n");
     assert!(all.contains("characters in the world"), "{all}");
+    assert!(all.contains("\\[Admin\\] "), "{all}");
     let stops = s.client_ref().script_stops();
     assert!(stops.is_empty(), "{stops:#?}");
     assert!(s.h.server.admin_calls.refused.is_empty());
@@ -151,4 +152,36 @@ fn the_admin_library_is_the_installs_with_every_send_in_the_clear() {
     let different = changed.iter().zip(&record).filter(|(a, b)| a != b).count();
     assert_eq!(different, 175, "one byte of each operand");
     assert!(AdminLibrary::of(&record).is_ok());
+}
+
+/// The client finds a log type's names through its master map, in a record the install hasn't got:
+/// the record the library brings is the one the map names, and the one it lacks.
+/// Behaviour: server.admin.library-names-the-log-type
+#[test]
+fn the_log_types_names_are_the_record_the_client_looks_for_and_the_install_lacks() {
+    use auberean_assets::tables::IdMap;
+    use auberean_assets::Database;
+    use yalain_world::admin_library::LOG_TYPE_RECORD;
+    const LOG_TYPE: u32 = 0x4000_002C;
+    const ENUMERATIONS: u32 = 0x2800_0002;
+    let dir = auberean_dat::testing::require_target_install();
+    let (_, path) = auberean_dat::locate::install_dats(&dir)
+        .expect("list the install")
+        .into_iter()
+        .find(|(name, _)| *name == auberean_dat::locate::DatName::Portal)
+        .expect("the install's portal file");
+    let portal = auberean_dat::DatFile::open(&path).expect("opens");
+    assert!(
+        portal.read(LOG_TYPE_RECORD).is_err(),
+        "the install lacks it"
+    );
+    let db = Database::new(vec![std::sync::Arc::new(portal)]);
+    let table = db
+        .get::<IdMap>(ENUMERATIONS)
+        .expect("the table of enumerations");
+    assert!(table
+        .ids
+        .iter()
+        .chain(table.tool_ids.iter())
+        .any(|(k, d)| *k == LOG_TYPE && d.0 == LOG_TYPE_RECORD));
 }

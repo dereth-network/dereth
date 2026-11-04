@@ -270,6 +270,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.library-names-the-log-type",
+        says: "With the admin library goes the record of the log type's names, which no install holds, \
+               so an admin's answer shows under a name and not an empty []. A client holding the \
+               iteration before is sent that record alone, not the library again. The one name is \
+               chosen: what the original listed is not held.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-LOG-TYPE"),
+        station: "yalain-testkit::cpu::operator::admin_calls::the_library_names_the_log_type_and_a_client_holding_the_last_gets_only_that",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.admin.library-sends-admin-calls-in-the-clear",
         says: "The library an admin's retail client is served is the install's own with every encrypted \
                send made a plain one, in the same bytes otherwise, 175 in the final client's library; a \
