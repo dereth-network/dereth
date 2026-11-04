@@ -70,6 +70,7 @@ not how it was done.
 - Faces turned away from torches are no longer teal indoors.
 - `/cliprops` now shows the properties your surroundings give you.
 - `/loadui` no longer leaves the chat scrolled to the top.
+- Blood and other effect decals now show on the ground.
 
 ## 0.1.2 (2026-11-02)
 

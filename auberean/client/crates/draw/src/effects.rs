@@ -213,6 +213,14 @@ impl ObjectFxTable {
     }
 }
 
+/// A decal an effect lays: what it is made from, and how far from its object's place it lies,
+/// along the world's axes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FxDecal {
+    pub desc: crate::decal::DecalDesc,
+    pub offset: Vec3,
+}
+
 /// The channels an effect's entry may be keyed to, and what its key there says.
 pub mod channel {
     /// How much gore: fun, none, low or normal, 1 to 4.
@@ -376,6 +384,8 @@ pub struct ObjectEffects {
     streak_asks: Vec<(bool, u32)>,
     /// The sliders its effects moved since last taken, in order.
     sliders: Vec<FxSlider>,
+    /// The decals its effects laid since last taken, in order.
+    decals: Vec<FxDecal>,
     /// What the player's preferences last asked of its effects' entries.
     channels: Channels,
     /// The sounds its effects played or stopped, in order, not yet taken.
@@ -522,6 +532,7 @@ impl ObjectEffects {
             streaks: Vec::new(),
             streak_asks: Vec::new(),
             sliders: Vec::new(),
+            decals: Vec::new(),
             channels: Channels::default(),
             sounds: Vec::new(),
         })
@@ -530,6 +541,67 @@ impl ObjectEffects {
     /// The sliders its effects moved since last taken, in order.
     pub fn take_sliders(&mut self) -> Vec<FxSlider> {
         std::mem::take(&mut self.sliders)
+    }
+
+    /// The decals its effects laid since last taken, in order.
+    pub fn take_decals(&mut self) -> Vec<FxDecal> {
+        std::mem::take(&mut self.decals)
+    }
+
+    /// An entry's decal, while the decal effects preference is on: its size, its turn from the way
+    /// the object faces and how far off it lies each read from its waveforms at this moment; off
+    /// by the entry's origin and, with a distance, by a random way across the ground for a random
+    /// part of that distance.
+    // D2-06891
+    fn decal_fx(
+        &mut self,
+        systems: &ParticleSystems,
+        decal: &auberean_assets::fx::Decal,
+        at: &Spot,
+    ) {
+        if !systems.decal_effects() {
+            return;
+        }
+        let dice = systems.dice();
+        let wave = |w| auberean_world::wave::value(w, at.now, &dice);
+        let (size, turn, reach) = (
+            wave(&decal.size),
+            wave(&decal.rotation).to_radians(),
+            wave(&decal.position_radius),
+        );
+        let mut offset = decal.origin;
+        if reach > 0.0 {
+            let way = Vec3::new(dice.roll_float(-1.0, 1.0), dice.roll_float(-1.0, 1.0), 0.0);
+            let far = reach * dice.roll_float(0.0, 1.0);
+            let long = length(way).max(f32::EPSILON);
+            offset.x += way.x / long * far;
+            offset.y += way.y / long * far;
+        }
+        let forward = sub(
+            at.place.point(Vec3::new(0.0, 1.0, 0.0)),
+            at.place.point(Vec3::ZERO),
+        );
+        let (s, c) = (
+            dereth_primitives::num::math::sinf(turn),
+            dereth_primitives::num::math::cosf(turn),
+        );
+        let way = Vec3::new(
+            forward.x * c - forward.y * s,
+            forward.x * s + forward.y * c,
+            forward.z,
+        );
+        let long = length(way).max(f32::EPSILON);
+        self.decals.push(FxDecal {
+            desc: crate::decal::DecalDesc {
+                material: decal.material.0,
+                lifespan: decal.lifespan,
+                size: Vec3::new(size, size, size),
+                direction: Vec3::new(way.x / long, way.y / long, way.z / long),
+                color: Color::from_argb(decal.color.0),
+                draw_once: false,
+            },
+            offset,
+        });
     }
 
     /// The sounds its effects played or stopped since last taken, in order.
@@ -682,6 +754,9 @@ impl ObjectEffects {
                         volume: strength,
                         kept: true,
                     });
+                }
+                if let Some((true, d)) = &node.decal {
+                    self.decal_fx(systems, d, at);
                 }
                 if let Some((true, r)) = node.repulsor {
                     self.repulse_fx(systems, &r, at);
@@ -1010,6 +1085,9 @@ impl ObjectEffects {
             }
             if let Some((true, s)) = &node.streak {
                 self.streak_fx(systems, s, at.now);
+            }
+            if let Some((true, d)) = &node.decal {
+                self.decal_fx(systems, d, &spot);
             }
             if let Some((true, l)) = &node.light {
                 self.light_fx(systems, l, node.bone_offset, at.now);

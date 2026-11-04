@@ -160,6 +160,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.effects.an-effect-lays-the-decal-its-entry-names",
+        says: "An effect's entry with a decal lays it, of its material, life and color, sized and turned by its waveforms at that moment, while the decal effects preference is on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-DECAL"),
+        station: "auberean-draw::dat::effects::an_effect_lays_the_decal_its_entry_names",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.effects.an-effect-moves-its-sliders-over-its-ramp",
         says: "An effect entry moves its slider to its intensity over its ramp time, and an \
                entry with a color moves the object's four color sliders to that color's \

@@ -1108,3 +1108,54 @@ fn an_effects_color_goes_back_as_it_ends() {
     assert!(!fx.stop_fx(r, ARRIVAL, false), "no longer playing");
     assert!(white(&fx.take_sliders()), "put back all the same");
 }
+
+/// An effect with a decal (`0x810002C7` of the shared table) lays it: its material, its life, its
+/// size and its color from the entry; with the decal effects preference off, none.
+///
+/// Behaviour: draw.effects.an-effect-lays-the-decal-its-entry-names
+#[test]
+fn an_effect_lays_the_decal_its_entry_names() {
+    use auberean_draw::effects::{stored_fx_data, FxSpot, FxWho, NoRig};
+    const LAYS: u32 = 0x8100_02C7;
+    let r = &install().records;
+    let unit = Vec3::new(1.0, 1.0, 1.0);
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let systems = ParticleSystems::default();
+    let spot = FxSpot {
+        home: (0, 0),
+        place: Mat4::IDENTITY,
+        scale: unit,
+        now: 1.0,
+    };
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let (took, _) = fx.do_fx(&systems, r, LAYS, 1.0, &spot, FxWho::default(), &NoRig);
+    assert!(took);
+    let laid = fx.take_decals();
+    let named: Vec<u32> = stored_fx_data(r, 0x1E00_0057, LAYS)
+        .iter()
+        .filter(|d| !systems.fx_channels().mismatch(&d.default))
+        .filter_map(|d| d.default.decal.as_ref())
+        .filter(|(on, _)| *on)
+        .map(|(_, d)| d.material.0)
+        .collect();
+    assert!(!named.is_empty());
+    assert_eq!(
+        laid.iter().map(|d| d.desc.material).collect::<Vec<_>>(),
+        named
+    );
+    for d in &laid {
+        assert_eq!(d.desc.lifespan, 30.0);
+        assert!(
+            d.desc.size.x > 0.0 && d.desc.size.x == d.desc.size.y,
+            "{:?}",
+            d.desc.size
+        );
+        assert!((auberean_world::math::length(d.desc.direction) - 1.0).abs() < 1e-3);
+    }
+    assert!(fx.take_decals().is_empty(), "taken");
+    let off = ParticleSystems::default();
+    off.set_decal_effects(false);
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let _ = fx.do_fx(&off, r, LAYS, 1.0, &spot, FxWho::default(), &NoRig);
+    assert!(fx.take_decals().is_empty(), "the preference off");
+}

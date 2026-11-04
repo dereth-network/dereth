@@ -1611,6 +1611,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.world.an-effects-decal-is-laid-where-its-object-stands",
+        says: "An effect with a decal lays it where its object stands, on the land outdoors and on its cell's ground inside, and it is drawn with the frame.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-DECAL-LAID"),
+        station: "auberean-shell::dat::session::an_effects_decal_is_laid_where_its_object_stands",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.world.an-object-is-told-the-mode-its-body-goes-into",
         says: "Each body the server asks into a mode, or that a behavior carrying one puts there, \
                tells its object the mode, as a notice about the object; every mode the server asked \

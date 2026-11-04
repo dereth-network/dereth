@@ -1401,6 +1401,7 @@ impl<'w> Scene<'w> {
         self.light_effects = on(key::LIGHT_SOURCE_EFFECTS);
         self.systems.set_light_sources(self.light_effects);
         self.systems.set_streak_effects(on(key::STREAK_EFFECTS));
+        self.systems.set_decal_effects(on(key::DECAL_EFFECTS));
         self.built = None;
     }
 
@@ -4073,6 +4074,36 @@ impl<'w> Scene<'w> {
                 &mut self.decals,
             );
         }
+        // The decals the objects' effects laid since the last frame.
+        // D2-06891, D2-10358
+        {
+            let mut asked = Vec::new();
+            if let Some(p) = self.player.as_mut() {
+                if let Some(fx) = p.effects.as_mut() {
+                    let place = p.body.position;
+                    asked.extend(fx.fx.take_decals().into_iter().map(|d| (place, d)));
+                }
+            }
+            self.others.take_decals(&mut asked);
+            self.held.take_decals(&mut asked);
+            self.temporaries.take_decals(&mut asked);
+            let frame_block = (bx, by);
+            let builder = &self.builder;
+            let ground = |at: auberean_primitives::Vec3| builder.ground_square(frame_block, at);
+            lay_fx_decals(
+                &self.world.records,
+                &asked,
+                &DecalGround {
+                    square: &ground,
+                    side: builder.square_side(),
+                    inside: is_interior(view),
+                    block: frame_block,
+                    block_len: self.world.region.land.grid().block_length(),
+                },
+                now,
+                &mut self.decals,
+            );
+        }
         built.frame.decals = auberean_draw::decal::decal_batches(
             &self.world.records,
             &mut self.decals,
@@ -4673,6 +4704,55 @@ fn disc_shadows<'b>(
             landscape_decal(*at, &desc, ground.side, ground.square)
         };
         decals.create(cell.0, &desc, now, triangles, true);
+    }
+}
+
+/// The decals effects asked for, each laid off its object's place: inside on its cell's ground
+/// about it, outdoors on the land (none where the frame built no land).
+// D2-06891
+fn lay_fx_decals(
+    records: &auberean_world::records::WorldRecords,
+    asked: &[(Position, auberean_draw::effects::FxDecal)],
+    ground: &DecalGround<'_>,
+    now: f64,
+    decals: &mut auberean_draw::decal::DecalManager,
+) {
+    use auberean_draw::decal::{dungeon_decal, landscape_decal};
+    for (place, decal) in asked {
+        let cell = place.cell;
+        if cell.0 == 0 {
+            continue;
+        }
+        let o = dv(place.frame.origin);
+        let at = auberean_primitives::Vec3::new(
+            o.x + decal.offset.x,
+            o.y + decal.offset.y,
+            o.z + decal.offset.z,
+        );
+        let home = cell.landblock();
+        let home = (i32::from(home.x()), i32::from(home.y()));
+        #[allow(clippy::cast_precision_loss)] // block offsets are a few blocks
+        let (dx, dy) = (
+            (home.0 - ground.block.0) as f32 * ground.block_len,
+            (home.1 - ground.block.1) as f32 * ground.block_len,
+        );
+        let triangles = if is_interior(cell.0) {
+            #[allow(clippy::cast_possible_truncation)]
+            let low = (cell.0 & 0xFFFF) as u16;
+            let mut t = dungeon_decal(records, home, low, at, &decal.desc);
+            for v in t.iter_mut().flatten() {
+                v.position = auberean_primitives::Vec3::new(
+                    v.position.x + dx,
+                    v.position.y + dy,
+                    v.position.z,
+                );
+            }
+            t
+        } else {
+            let in_frame = auberean_primitives::Vec3::new(at.x + dx, at.y + dy, at.z);
+            landscape_decal(in_frame, &decal.desc, ground.side, ground.square)
+        };
+        decals.create(cell.0, &decal.desc, now, triangles, true);
     }
 }
 

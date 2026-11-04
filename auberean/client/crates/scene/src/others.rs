@@ -1098,6 +1098,19 @@ impl Others {
     /// their systems kept and drawn by `systems`, the water each stands over as `land` has it. A
     /// body's effects begin the first time it is drawn after it is put together. A body whose
     /// effects changed its appearance takes the new look (its parts' meshes read through `trees`).
+    /// The decals the bodies' effects laid since last asked, each with where its body stands.
+    pub(crate) fn take_decals(
+        &mut self,
+        out: &mut Vec<(Position, auberean_draw::effects::FxDecal)>,
+    ) {
+        for b in self.bodies.values_mut() {
+            if let (Some(fx), Some(ob)) = (&mut b.effects, &b.body) {
+                let place = ob.body.position;
+                out.extend(fx.fx.take_decals().into_iter().map(|d| (place, d)));
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn draw_effects(
         &mut self,

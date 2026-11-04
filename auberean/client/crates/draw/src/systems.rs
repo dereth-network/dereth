@@ -74,6 +74,8 @@ struct Inner {
     no_streaks: bool,
     /// What the player's preferences ask of the effects' entries.
     channels: crate::effects::Channels,
+    /// The decal effects preference is off.
+    no_decals: bool,
     /// The volumetric fog effects preference is off: the systems whose particles move by
     /// repulsors (the ground's mists) neither think nor draw.
     no_fog: bool,
@@ -325,6 +327,18 @@ impl ParticleSystems {
     #[must_use]
     pub fn streak_effects(&self) -> bool {
         !self.lock().no_streaks
+    }
+
+    /// Whether the effects played from now on lay the decals they name: the decal effects
+    /// preference (on unless set off).
+    pub fn set_decal_effects(&self, on: bool) {
+        self.lock().no_decals = !on;
+    }
+
+    /// Whether the effects lay decals.
+    #[must_use]
+    pub fn decal_effects(&self) -> bool {
+        !self.lock().no_decals
     }
 
     /// What the player's preferences ask of the effects' entries from now on.

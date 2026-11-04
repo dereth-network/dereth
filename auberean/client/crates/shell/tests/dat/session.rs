@@ -3741,6 +3741,89 @@ fn an_object_starts_the_behaviors_and_effects_its_description_gives() {
     assert!(made, "the effect its description lists makes its object");
 }
 
+/// An effect with a decal lays it where its object stands: on the land outdoors, on its cell's
+/// ground inside, and it is drawn with the frame. Fixture: the server double asks the player's body
+/// for the effect at a set time, at the camp and in the hall.
+///
+/// Behaviour: desktop.world.an-effects-decal-is-laid-where-its-object-stands
+#[test]
+fn an_effects_decal_is_laid_where_its_object_stands() {
+    use auberean_client_sdk::protocol::physics::{ObjectEvent, TargetedFx};
+    use auberean_draw::material::{draw_layers, instance_material_with, DEVICE_FLAGS};
+    const LAYS: u32 = 0x8100_02C7;
+    let (world, _) = data();
+    let of_the_effect: Vec<_> = [0x3100_03DC, 0x3100_0519]
+        .into_iter()
+        .filter_map(|m| instance_material_with(&world.records, m, None, &[]))
+        .flat_map(|m| draw_layers(&m, DEVICE_FLAGS))
+        .collect();
+    let drawn_with = |cell: u32, at: Vec3, asked: bool| {
+        let later = [(
+            9.0,
+            ServerMessage::DoTargetedFx(ObjectEvent {
+                sender: ObjectStamp {
+                    id: PLAYER,
+                    instance_stamp: 1,
+                    other_stamp: 0,
+                },
+                action: TargetedFx {
+                    fx: LAYS,
+                    scalar: 1.0,
+                    target: 0,
+                },
+            }),
+        )];
+        let later: &[_] = if asked { &later } else { &[] };
+        let script = script_until(cell, at, Quat::IDENTITY, &[], later, 40.0);
+        let server =
+            ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+        let mut s = shell_with(
+            script,
+            Box::new(DevLogin::new(
+                server,
+                "tester".into(),
+                "t".into(),
+                Some("tester".into()),
+            )),
+        );
+        let mut drawn = false;
+        while s.host.time < 14.0 {
+            step(&mut s);
+            let now = s.host.time;
+            drawn |= s.scene.frame(now).is_some_and(|f| {
+                f.decals
+                    .iter()
+                    .any(|b| !b.vertices.is_empty() && of_the_effect.contains(&b.layer))
+            });
+        }
+        drawn
+    };
+    for (cell, at) in [
+        (
+            0xC156_0035,
+            Vec3 {
+                x: 122.842,
+                y: 89.758,
+                z: 80.0,
+            },
+        ),
+        (
+            0x0298_0121,
+            Vec3 {
+                x: 2.0,
+                y: 330.0,
+                z: -44.7,
+            },
+        ),
+    ] {
+        assert!(
+            !drawn_with(cell, at, false),
+            "nothing asked, cell {cell:#x}"
+        );
+        assert!(drawn_with(cell, at, true), "asked, cell {cell:#x}");
+    }
+}
+
 /// The server asks the rest of what it can of a body, and the body does each: a global modifier and
 /// a terrain modifier are kept (and the terrain modifiers cleared), a new motion description is
 /// taken, a push toward an object gives it that speed away from the object, and a missile launched flies at the velocity given with

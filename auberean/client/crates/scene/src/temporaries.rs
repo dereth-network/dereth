@@ -126,6 +126,19 @@ fn body_of(id: u64, figure: Option<&Figure>, scale: f32, at: Position) -> Body {
 }
 
 impl Temporaries {
+    /// The decals the bodies' effects laid since last asked, each with where its body stands.
+    pub(crate) fn take_decals(
+        &mut self,
+        out: &mut Vec<(Position, auberean_draw::effects::FxDecal)>,
+    ) {
+        for b in self.made.values_mut() {
+            if let Some(fx) = b.effects.as_mut() {
+                let place = b.body.position;
+                out.extend(fx.fx.take_decals().into_iter().map(|d| (place, d)));
+            }
+        }
+    }
+
     /// The sounds every body's effects played or stopped since last taken, each with its object.
     pub(crate) fn take_sounds(&mut self, out: &mut Vec<(u64, auberean_draw::effects::FxSound)>) {
         for fx in self.made.values_mut().filter_map(|b| b.effects.as_mut()) {
