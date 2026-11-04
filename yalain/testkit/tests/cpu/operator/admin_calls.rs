@@ -1532,6 +1532,7 @@ fn a_quest_an_admin_takes_off_a_player_takes_its_subquests_too() {
                 to: None,
             })
             .to_vec(),
+        gives: Vec::new(),
     };
     let world = h
         .server
@@ -1662,6 +1663,7 @@ fn a_quest_an_admin_takes_off_a_player_leaves_its_clients_list_at_once() {
         h.server.quests = yalain_content::QuestTable {
             quests: vec![def(SHOWN, false), def(OTHER, false), def(HIDDEN, true)],
             steps: Vec::new(),
+            gives: Vec::new(),
         };
         for p in h.server.players.values_mut() {
             for quest in [SHOWN, OTHER, HIDDEN] {

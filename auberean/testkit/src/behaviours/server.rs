@@ -3052,6 +3052,43 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.row-any-item",
+        says: "A give that moves no quest may name no item: the person takes anything, with one of its \
+               lines for taking any item, and a row naming the item given comes first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-ROW-ANY"),
+        station: "yalain-testkit::cpu::play::gives::a_give_naming_no_item_takes_anything_and_a_row_for_the_item_comes_first",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.row-keeps-and-gives",
+        says: "A give that moves no quest keeps the item whole, says the person's lines for taking it in \
+               their order, plays what the row says and gives what it gives from the person, and puts \
+               its effects and its text on the player; no quest moves and nothing is handed back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-ROW"),
+        station: "yalain-testkit::cpu::play::gives::a_give_moving_no_quest_keeps_the_item_says_its_lines_and_gives_its_items",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.row-requires",
+        says: "A give that moves no quest and requires a quest at a phase runs at that phase alone, and a \
+               quest's step for the same give comes first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-ROW-REQUIRES"),
+        station: "yalain-testkit::cpu::play::gives::a_give_requiring_a_phase_runs_at_it_and_a_step_comes_first",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.row-wants-a-count",
+        says: "A give that moves no quest and wants a count refuses any other with the person's line for \
+               the item, the stack whole; that count is taken and the rest stays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-ROW-WANTS"),
+        station: "yalain-testkit::cpu::play::gives::a_give_moving_no_quest_may_want_a_count_and_refuses_any_other",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.gives.subquests",
         says: "Items given that close a phase's subquests each tell the quest's record with its phase \
                kept, and the last, in any order, moves it on.",

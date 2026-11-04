@@ -175,6 +175,7 @@ fn every_row_of_the_world_database_compiles_against_the_install() {
     assert_eq!(rows.len(), count("quest"));
     assert!(subquests.iter().all(|q| q.hidden));
     assert_eq!(t.quests.steps.len(), count("step"));
+    assert_eq!(t.quests.gives.len(), count("give"));
     assert_eq!(t.talk.lines.len(), count("talk"));
     // Every object is drawn as something.
     for o in &t.content.objects {

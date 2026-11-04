@@ -136,6 +136,7 @@ fn world() -> Harness {
             required: None,
         }],
         steps: Vec::new(),
+        gives: Vec::new(),
     };
     let effect = |state, spellcraft| UsageEffect { state, spellcraft };
     h.server.item_uses.insert(
@@ -807,6 +808,7 @@ fn a_reward_quest_is_completed_with_the_quest_it_rewards() {
             wants: None,
             fellows: false,
         }],
+        gives: Vec::new(),
     };
     let mut token = Props::default();
     token

@@ -334,6 +334,30 @@ pub struct Step {
     pub prov: Prov,
 }
 
+/// `[[give]]`: what a person or an object does with an item given it that moves no quest.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Give {
+    pub key: String,
+    /// The template of the person or the object given to.
+    pub to: u32,
+    /// The template of the item given (none: any item).
+    pub item: Option<u32>,
+    /// Exactly how many of the item it wants (none: whatever is given).
+    pub wants: Option<u32>,
+    /// The items it gives back in its place.
+    pub gives: Vec<u32>,
+    /// How many of each item given, in order (1 when left out).
+    pub counts: Vec<u32>,
+    /// The effects it puts on the player (their saved states), and a text shown after them.
+    pub effects: Vec<u32>,
+    pub text: Option<StrRef>,
+    /// What the person or the object plays as it takes the item.
+    pub fx: Option<u32>,
+    /// The quests it requires.
+    pub requires: Vec<(u32, Need)>,
+    pub prov: Prov,
+}
+
 /// `[[talk]]`: a line a person says, and when.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Talk {
@@ -380,6 +404,7 @@ pub enum Row {
     Sale(Sale),
     Quest(Quest),
     Step(Step),
+    Give(Give),
     Place(Place),
     Talk(Talk),
     /// `[[remove]]`: items a pack takes away, each in the one form the build's report names it.
@@ -492,6 +517,7 @@ impl Row {
             Self::Sale(_) => "sale",
             Self::Quest(_) => "quest",
             Self::Step(_) => "step",
+            Self::Give(_) => "give",
             Self::Place(_) => "place",
             Self::Talk(_) => "talk",
             Self::Remove(_) => "remove",
@@ -516,6 +542,7 @@ impl Row {
             Self::Sale(r) => Some(&r.prov),
             Self::Quest(r) => Some(&r.prov),
             Self::Step(r) => Some(&r.prov),
+            Self::Give(r) => Some(&r.prov),
             Self::Place(r) => Some(&r.prov),
             Self::Talk(r) => Some(&r.prov),
             Self::Craft(r) => Some(&r.prov),
@@ -531,13 +558,13 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 17] = [
-    "object", "camp", "loot", "keeper", "sale", "quest", "step", "place", "talk", "remove",
+pub const KINDS: [&str; 18] = [
+    "object", "camp", "loot", "keeper", "sale", "quest", "step", "give", "place", "talk", "remove",
     "craft", "butchery", "scene", "shard", "weapon", "route", "area",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 17] = [
+pub const FIELDS: [(&str, &[&str]); 18] = [
     (
         "object",
         &[
@@ -667,6 +694,13 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "effects_last",
             "fellows",
             "wants",
+            "prov",
+        ],
+    ),
+    (
+        "give",
+        &[
+            "key", "to", "item", "wants", "gives", "counts", "effects", "text", "fx", "requires",
             "prov",
         ],
     ),
@@ -1126,6 +1160,19 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 prov: f.req_prov()?,
             })
         }
+        "give" => Row::Give(Give {
+            key: f.req_symbol("key")?,
+            to: f.req_id("to")?,
+            item: f.id("item"),
+            wants: f.u32("wants"),
+            gives: f.ids("gives"),
+            counts: f.ids("counts"),
+            effects: f.ids("effects"),
+            text: f.strref("text"),
+            fx: f.id("fx"),
+            requires: f.requires("requires"),
+            prov: f.req_prov()?,
+        }),
         "talk" => {
             let how = match f.word("how", How::from_word, "tell, say, emote or broadcast") {
                 Some(Some(h)) => h,

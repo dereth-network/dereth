@@ -682,6 +682,7 @@ fn quests() -> QuestTable {
             step(0, GUARD_TEMPLATE, Update::Bestow),
             step(1, LIEUTENANT_TEMPLATE, Update::Advance(2)),
         ],
+        gives: Vec::new(),
     }
 }
 

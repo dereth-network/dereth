@@ -13,6 +13,9 @@
 //! **Given an item it has no use for.** A person says its line for that item, else its refusal of
 //! a give (else another line it says at a give naming no quest) as it hands the item back.
 //!
+//! **Given an item it takes, no quest moved.** A person says its lines for taking that item, else
+//! one of its lines for taking any item.
+//!
 //! **Given a map.** A person who sends players where their maps lead says its line for that as it
 //! hands the map back, and its own line for a map it does not take.
 //!
@@ -410,6 +413,38 @@ pub fn at_wrong_count<S: Store>(
         return at_give(s, who, object, item);
     }
     pick(s, &lines)
+}
+
+/// What a person says as it takes an item by a give that moves no quest: its lines for taking that
+/// item, in their order, else one of its lines for taking any item.
+pub fn with_give<S: Store>(
+    s: &mut Server<S>,
+    who: u32,
+    object: Option<usize>,
+    item: u32,
+) -> Vec<Line> {
+    let taking: Vec<Line> = s
+        .talk
+        .of(who, object)
+        .filter(|l| {
+            l.when == When::Give
+                && l.role == Some(Role::Accept)
+                && l.quest.is_none()
+                && l.update.is_none()
+        })
+        .cloned()
+        .collect();
+    let mut named: Vec<Line> = taking
+        .iter()
+        .filter(|l| l.item == Some(item))
+        .cloned()
+        .collect();
+    if named.is_empty() {
+        let any: Vec<Line> = taking.into_iter().filter(|l| l.item.is_none()).collect();
+        return pick(s, &any).into_iter().collect();
+    }
+    named.sort_by_key(|l| l.order);
+    named
 }
 
 /// A person's line of a role said at a give, picked at random (heard ones first): of those naming

@@ -24,7 +24,12 @@
 //!   the pack (templates joined by `,`), where it takes the player (`CELL:X:Y:Z:HEADING`; an item's
 //!   use on an object makes the update on arrival), its effects (saved states joined by `,`), the text shown after them
 //!   (`string:table`), whether its update is made for the player's fellows too (0/1), and for a
-//!   give how many of the item it wants (empty for whatever is given).
+//!   give how many of the item it wants (empty for whatever is given);
+//! - `give`: what a person or an object does with an item given it that moves no quest: the template
+//!   given to, the item's template (empty: any item), how many of it it wants (empty: whatever is
+//!   given), the items given back (templates joined by `,`, a count after `x`), its effects (saved
+//!   states joined by `,`), the text shown after them (`string:table`), what the person or the object plays
+//!   (an effect's id, or empty), what it requires (as a step), provenance.
 
 use std::fmt::Write as _;
 
@@ -250,15 +255,66 @@ pub struct Step {
     pub wants: Option<u32>,
 }
 
-/// Every quest and step.
+/// What a person or an object does with an item given it that moves no quest (a toll, a donation,
+/// an offering, a filled bucket): it keeps the item, says its lines, and gives what it gives.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Give {
+    /// The template of the person or the object given to.
+    pub to: u32,
+    /// The template of the item given (none: any item).
+    pub item: Option<u32>,
+    /// Exactly how many of the item it wants (none: whatever is given, all of it taken).
+    pub wants: Option<u32>,
+    pub gives: Vec<u32>,
+    /// How many of each item given, in order (1 when left out).
+    pub counts: Vec<u32>,
+    /// The effects it puts on the player (their saved states), and a text shown after them.
+    pub effects: Vec<u32>,
+    pub text: Option<(u32, u32)>,
+    /// What the person or the object plays as it takes the item.
+    pub fx: Option<u32>,
+    /// The quests it requires, at a phase or done.
+    pub requires: Vec<(u32, Need)>,
+    pub placed: String,
+}
+
+/// Every quest, step and give that moves no quest.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct QuestTable {
     pub quests: Vec<QuestDef>,
     pub steps: Vec<Step>,
+    pub gives: Vec<Give>,
 }
 
 fn hex(s: &str) -> Result<u32, String> {
     u32::from_str_radix(s, 16).map_err(|e| format!("{s}: {e}"))
+}
+
+/// A column's value, if it holds one.
+fn optional<T>(s: &str, read: impl Fn(&str) -> Result<T, String>) -> Result<Option<T>, String> {
+    if s.is_empty() {
+        Ok(None)
+    } else {
+        read(s).map(Some)
+    }
+}
+
+/// What a row requires of other quests: `QUEST:N`, `QUEST:done` or `QUEST:free`, joined by `,`.
+fn requirements(s: &str) -> Result<Vec<(u32, Need)>, String> {
+    s.split(',')
+        .filter(|x| !x.is_empty())
+        .map(|x| {
+            let (q, n) = x
+                .split_once(':')
+                .ok_or_else(|| format!("a requirement is QUEST:N, not {x}"))?;
+            let need = match n {
+                "done" => Need::Done,
+                "free" => Need::Free,
+                _ => Need::Phase(num(n)?),
+            };
+            Ok((hex(q)?, need))
+        })
+        .collect()
 }
 
 fn subquests(s: &str) -> Result<Subquests, String> {
@@ -444,6 +500,44 @@ impl QuestTable {
                 s.wants.map_or_else(String::new, |n| n.to_string())
             );
         }
+        for g in &self.gives {
+            let gives = g
+                .gives
+                .iter()
+                .enumerate()
+                .map(|(i, x)| match g.counts.get(i).copied().unwrap_or(1) {
+                    1 => format!("{x:08X}"),
+                    n => format!("{x:08X}x{n}"),
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            let effects = g
+                .effects
+                .iter()
+                .map(|e| format!("{e:08X}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let requires = g
+                .requires
+                .iter()
+                .map(|(q, n)| match n {
+                    Need::Phase(p) => format!("{q:08X}:{p}"),
+                    Need::Done => format!("{q:08X}:done"),
+                    Need::Free => format!("{q:08X}:free"),
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            let _ = writeln!(
+                out,
+                "give\t{:08X}\t{}\t{}\t{gives}\t{effects}\t{}\t{}\t{requires}\t{}",
+                g.to,
+                g.item.map_or_else(String::new, |i| format!("{i:08X}")),
+                g.wants.map_or_else(String::new, |n| n.to_string()),
+                g.text.map_or_else(String::new, r),
+                g.fx.map_or_else(String::new, |f| format!("{f:08X}")),
+                g.placed,
+            );
+        }
         out
     }
 
@@ -542,22 +636,7 @@ impl QuestTable {
                         other => return Err(at(format!("a trigger of kind {other}"))),
                     };
                     let col = |i: usize| c.get(i).copied().unwrap_or("");
-                    let requires = col(9)
-                        .split(',')
-                        .filter(|x| !x.is_empty())
-                        .map(|x| {
-                            let (q, n) = x
-                                .split_once(':')
-                                .ok_or_else(|| format!("a requirement is QUEST:N, not {x}"))?;
-                            let need = match n {
-                                "done" => Need::Done,
-                                "free" => Need::Free,
-                                _ => Need::Phase(num(n)?),
-                            };
-                            Ok((hex(q)?, need))
-                        })
-                        .collect::<Result<Vec<_>, String>>()
-                        .map_err(at)?;
+                    let requires = requirements(col(9)).map_err(at)?;
                     let takes = col(10)
                         .split(',')
                         .filter(|x| !x.is_empty())
@@ -640,6 +719,38 @@ impl QuestTable {
                         } else {
                             Some(num(col(15)).map_err(at)?)
                         },
+                    });
+                }
+                "give" if c.len() == 10 => {
+                    let gifts: Vec<(u32, u32)> = c[4]
+                        .split(',')
+                        .filter(|x| !x.is_empty())
+                        .map(|x| match x.split_once('x') {
+                            Some((g, n)) => Ok((hex(g)?, num(n)?)),
+                            None => Ok((hex(x)?, 1)),
+                        })
+                        .collect::<Result<_, String>>()
+                        .map_err(at)?;
+                    t.gives.push(Give {
+                        to: hex(c[1]).map_err(at)?,
+                        item: optional(c[2], hex).map_err(at)?,
+                        wants: optional(c[3], num).map_err(at)?,
+                        gives: gifts.iter().map(|(g, _)| *g).collect(),
+                        counts: if gifts.iter().all(|(_, n)| *n == 1) {
+                            Vec::new()
+                        } else {
+                            gifts.iter().map(|(_, n)| *n).collect()
+                        },
+                        effects: c[5]
+                            .split(',')
+                            .filter(|x| !x.is_empty())
+                            .map(hex)
+                            .collect::<Result<_, _>>()
+                            .map_err(at)?,
+                        text: optional(c[6], pair).map_err(at)?,
+                        fx: optional(c[7], hex).map_err(at)?,
+                        requires: requirements(c[8]).map_err(at)?,
+                        placed: c[9].to_string(),
                     });
                 }
                 other => {

@@ -360,6 +360,12 @@ pub fn handed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
             hand_back(s, net, world, i, &m, object, None, clock);
             return;
         }
+        if let Some(row) =
+            crate::quests::give_for(s, world, template, target_template, given.quantity)
+        {
+            takes(s, net, world, i, &row, given, clock);
+            return;
+        }
         match crate::map_trips::sends(s, i, template) {
             crate::map_trips::Sends::To(to) => {
                 crate::map_trips::send(s, net, world, i, &m, to, clock);
@@ -388,6 +394,60 @@ pub fn handed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
     // Steps that kept nothing hand the item back.
     if !kept {
         hand_back(s, net, world, i, &m, object, None, clock);
+    }
+}
+
+/// A give that moves no quest: what the person plays and says, the item kept, what it gives in its
+/// place made from the person, its effects on the player, cast by the person (2017: 1 of 1).
+fn takes<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    i: usize,
+    row: &yalain_content::quests::Give,
+    given: Given,
+    clock: Clock,
+) {
+    let who = s.content.objects[i].template;
+    let speaker = crate::talk::content_speaker(s, i);
+    if let Some(fx) = row.fx {
+        let played = ServerMessage::DoFx(ObjectEvent {
+            sender: crate::places::object_stamp(s, speaker.id),
+            action: Fx { fx, scalar: 1.0 },
+        });
+        crate::places::to_knowers(s, net, speaker.id, &played);
+    }
+    for line in crate::talk::with_give(s, who, Some(i), given.template) {
+        crate::talk::say(s, net, world, &speaker, &line.words, line.how);
+    }
+    keep(s, net, world, given);
+    for (n, item) in row.gives.iter().enumerate() {
+        let count = row.counts.get(n).copied().unwrap_or(1).max(1);
+        crate::inventory::give_from(s, net, world, *item, count, given.target);
+    }
+    for e in &row.effects {
+        if special_effect(s, net, world, *e) {
+            continue;
+        }
+        crate::effects::apply(
+            s,
+            net,
+            world,
+            *e,
+            crate::effects::Cast {
+                caster: speaker.id,
+                spellcraft: 1.0,
+                giver: Some((speaker.id, speaker.name)),
+                ..crate::effects::Cast::default()
+            },
+            clock,
+        );
+    }
+    if let Some(text) = row.text {
+        progress::private(net, world, &crate::chat::show_text(2, progress::text(text)));
+    }
+    for item in &row.gives {
+        crate::quests::triggered(s, net, world, Trigger::Take(*item), None, clock);
     }
 }
 

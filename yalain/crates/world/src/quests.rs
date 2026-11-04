@@ -1048,6 +1048,43 @@ pub fn step_for_give<S: Store>(
         .cloned()
 }
 
+/// The give that moves no quest a person takes so many of an item by: its row for that item, else
+/// one for any item. A row for the item wanting another count refuses it; so does a row whose
+/// requirements the player does not meet, unless one for any item takes it.
+#[must_use]
+pub fn give_for<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    item: u32,
+    to: u32,
+    quantity: u32,
+) -> Option<yalain_content::quests::Give> {
+    let held = &s.players.get(&world)?.play.quests;
+    let meets = |g: &&yalain_content::quests::Give| {
+        g.requires.iter().all(|(q, need)| match need {
+            Need::Phase(n) => phase_of(held, *q) == *n,
+            Need::Done => done(held, *q),
+            Need::Free => phase_of(held, *q) == 0,
+        })
+    };
+    let rows: Vec<&yalain_content::quests::Give> = s
+        .quests
+        .gives
+        .iter()
+        .filter(|g| g.to == to)
+        .filter(meets)
+        .collect();
+    let named: Vec<&&yalain_content::quests::Give> =
+        rows.iter().filter(|g| g.item == Some(item)).collect();
+    if !named.is_empty() {
+        return named
+            .into_iter()
+            .find(|g| g.wants.is_none_or(|n| n == quantity))
+            .map(|g| (*g).clone());
+    }
+    rows.into_iter().find(|g| g.item.is_none()).cloned()
+}
+
 /// The quest of a step a give would run now but for its count, if any.
 #[must_use]
 pub fn wants_another_count<S: Store>(

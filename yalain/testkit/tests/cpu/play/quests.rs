@@ -225,6 +225,7 @@ fn an_item_used_on_an_object_takes_the_player_and_moves_the_quest_on_arrival() {
                 Update::Advance(7),
             )
         }],
+        gives: Vec::new(),
     };
     let (b, me) = h.player_in_world("one", "Elara");
     at_phase(&mut h, HALL_QUEST, 6);
@@ -310,6 +311,7 @@ fn one_use_completes_a_quest_and_gives_the_next_that_requires_it() {
                 Update::Complete,
             ),
         ],
+        gives: Vec::new(),
     };
     let (b, me) = h.player_in_world("one", "Elara");
     at_phase(&mut h, NEXT_QUEST, 1);
@@ -415,6 +417,7 @@ fn a_completion_adds_its_points_to_the_rating_every_time_whatever_the_level() {
     h.server.quests = QuestTable {
         quests: vec![def],
         steps: Vec::new(),
+        gives: Vec::new(),
     };
     let (_, me) = h.player_in_world("one", "Elara");
     let world = conn_of(&h, me);
@@ -464,6 +467,7 @@ fn a_hidden_quests_completion_pays_with_no_text() {
             quest(SHOWN, 800, -999),
         ],
         steps: Vec::new(),
+        gives: Vec::new(),
     };
     let (b, me) = h.player_in_world("one", "Elara");
     let world = conn_of(&h, me);
@@ -612,6 +616,7 @@ fn completing_a_quest_that_pays_a_share_adds_it_to_the_players_experience() {
             Trigger::Use(EXPLORER_TEMPLATE),
             Update::Complete,
         )],
+        gives: Vec::new(),
     };
     let (b, me) = h.player_in_world("one", "Elara");
     at_phase(&mut h, HALL_QUEST, 1);
@@ -657,6 +662,7 @@ fn a_step_for_some_races_runs_only_for_a_player_of_one_of_them() {
                 ..step(HALL_QUEST, 0, trigger, Update::Bestow)
             },
         ],
+        gives: Vec::new(),
     };
     let (_b, _me) = h.player_in_world("one", "Elara");
     let world = *h.server.players.keys().next().expect("a player");
@@ -682,7 +688,11 @@ fn explorer_world(quests: Vec<QuestDef>, steps: Vec<Step>) -> Harness {
         )],
         ..ContentPack::default()
     };
-    h.server.quests = QuestTable { quests, steps };
+    h.server.quests = QuestTable {
+        quests,
+        steps,
+        gives: Vec::new(),
+    };
     h
 }
 

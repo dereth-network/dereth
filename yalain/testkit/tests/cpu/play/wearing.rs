@@ -490,6 +490,7 @@ fn a_chest_piece_whose_race_skill_level_or_quest_the_wearer_lacks_is_refused_in_
             required: None,
         }],
         steps: Vec::new(),
+        gives: Vec::new(),
     };
     yalain_world::quals::set_int(
         &mut h.server.players.get_mut(&world).unwrap().qualities,

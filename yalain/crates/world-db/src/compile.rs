@@ -18,8 +18,8 @@ use auberean_assets::entity::Entity;
 use auberean_assets::script::Qualities;
 use dereth_primitives::num::math;
 use yalain_content::quests::{
-    Need as TableNeed, Place as StepPlace, QuestDef, QuestTable, Step as TableStep,
-    Trigger as TableTrigger, Update as TableUpdate,
+    Give as TableGive, Need as TableNeed, Place as StepPlace, QuestDef, QuestTable,
+    Step as TableStep, Trigger as TableTrigger, Update as TableUpdate,
 };
 use yalain_content::stores::{Keeper as TableKeeper, Sale as TableSale, SaleGate, StoreTable};
 use yalain_content::talk::{Line, TalkTable};
@@ -138,9 +138,9 @@ pub struct Tables {
 }
 
 impl Tables {
-    /// Rows by table: content, spawns, loot, keepers, sales, quests, steps, lines.
+    /// Rows by table: content, spawns, loot, keepers, sales, quests, steps, gives, lines.
     #[must_use]
-    pub fn counts(&self) -> [(&'static str, usize); 8] {
+    pub fn counts(&self) -> [(&'static str, usize); 9] {
         [
             ("content", self.content.objects.len()),
             ("spawns", self.spawns.camps.len()),
@@ -149,6 +149,7 @@ impl Tables {
             ("sales", self.stores.sales.len()),
             ("quests", self.quests.quests.len()),
             ("steps", self.quests.steps.len()),
+            ("gives", self.quests.gives.len()),
             ("talk", self.talk.lines.len()),
         ]
     }
@@ -899,6 +900,40 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     fellows: s.fellows,
                     wants: s.wants,
                     to,
+                });
+            }
+            Row::Give(g) => {
+                let mut ok = cx.template(l, "to", g.to);
+                for tpl in g.item.iter().chain(&g.gives) {
+                    ok &= cx.template(l, "item, gives", *tpl);
+                }
+                if !ok {
+                    continue;
+                }
+                t.quests.gives.push(TableGive {
+                    to: g.to,
+                    item: g.item,
+                    wants: g.wants,
+                    gives: g.gives.clone(),
+                    counts: g.counts.clone(),
+                    effects: g.effects.clone(),
+                    text: g.text.map(|r| (r.string, r.table)),
+                    fx: g.fx,
+                    requires: g
+                        .requires
+                        .iter()
+                        .map(|(q, n)| {
+                            (
+                                *q,
+                                match n {
+                                    Need::Phase(p) => TableNeed::Phase(*p),
+                                    Need::Done => TableNeed::Done,
+                                    Need::Free => TableNeed::Free,
+                                },
+                            )
+                        })
+                        .collect(),
+                    placed: prov_text(&g.prov),
                 });
             }
             Row::Craft(c) => {

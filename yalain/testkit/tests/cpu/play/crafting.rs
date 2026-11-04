@@ -607,6 +607,7 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
                 required: None,
             }],
             steps: Vec::new(),
+            gives: Vec::new(),
         };
         let step = Step {
             quest: QUEST,

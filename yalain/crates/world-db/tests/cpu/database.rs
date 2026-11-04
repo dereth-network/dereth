@@ -435,6 +435,7 @@ fn the_compile_takes_what_the_rows_leave_out_from_the_install() {
             ("sales", 2),
             ("quests", 1),
             ("steps", 4),
+            ("gives", 0),
             ("talk", 2)
         ]
     );
@@ -1683,6 +1684,95 @@ fn a_give_s_step_may_want_a_count_and_no_other_step_may() {
             .any(|m| m.contains("only a give's step wants a count")),
         "{messages:?}"
     );
+}
+
+const GIVE_ROW: &str = r#"[[give]]
+key = "bucket"
+item = 0x470020B9
+to = 0x470033D0
+wants = 50
+gives = [0x470020B9]
+counts = [8]
+effects = [0x6F0019F0]
+fx = 0x410005EB
+requires = [{ quest = 0x40000088, phase = 2 }]
+prov = { from = "authored", by = "a test", note = "a test" }
+"#;
+
+/// Behaviour: server.gives.row-keeps-and-gives
+#[test]
+fn a_give_moving_no_quest_compiles_and_reads_back_as_written() {
+    let mut files = fixture();
+    files.insert("town/server/gives/470033D0.toml".into(), GIVE_ROW.into());
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let g = &t.quests.gives[0];
+    assert_eq!(
+        (g.to, g.item, g.wants, g.fx),
+        (0x4700_33D0, Some(0x4700_20B9), Some(50), Some(0x4100_05EB))
+    );
+    assert_eq!(
+        (g.gives.as_slice(), g.counts.as_slice()),
+        (&[0x4700_20B9][..], &[8][..])
+    );
+    assert_eq!(g.effects, vec![0x6F00_19F0]);
+    assert_eq!(
+        g.requires,
+        vec![(0x4000_0088, yalain_content::quests::Need::Phase(2))]
+    );
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+    let plain = GIVE_ROW
+        .replace("item = 0x470020B9\n", "")
+        .replace("wants = 50\n", "")
+        .replace("counts = [8]\n", "")
+        .replace("fx = 0x410005EB\n", "");
+    let mut files = fixture();
+    files.insert("town/server/gives/470033D0.toml".into(), plain);
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!((t.quests.gives[0].item, t.quests.gives[0].fx), (None, None));
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "any item reads back as written"
+    );
+}
+
+/// Behaviour: server.gives.row-wants-a-count
+#[test]
+fn a_give_moving_no_quest_is_checked_for_what_it_wants_and_names() {
+    let problems = |row: String| -> Vec<String> {
+        let mut files = fixture();
+        files.insert("town/server/gives/470033D0.toml".into(), row);
+        check(&files).iter().map(ToString::to_string).collect()
+    };
+    let m = problems(GIVE_ROW.replace("wants = 50", "wants = 0"));
+    assert!(
+        m.iter().any(|x| x.contains("a count of at least 1")),
+        "{m:?}"
+    );
+    let m = problems(GIVE_ROW.replace("item = 0x470020B9\n", ""));
+    assert!(
+        m.iter()
+            .any(|x| x.contains("a count of no item in particular")),
+        "{m:?}"
+    );
+    let m = problems(GIVE_ROW.replace("counts = [8]", "counts = [8, 9]"));
+    assert!(
+        m.iter().any(|x| x.contains("a count for each item given")),
+        "{m:?}"
+    );
+    let mut files = fixture();
+    files.insert(
+        "town/server/gives/470033D0.toml".into(),
+        GIVE_ROW.replace("to = 0x470033D0", "to = 0x47009998"),
+    );
+    let compiled = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new());
+    assert!(compiled.is_err(), "a template the install lacks");
 }
 
 #[test]

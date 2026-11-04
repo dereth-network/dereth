@@ -299,6 +299,7 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
             wants: None,
             fellows: false,
         }],
+        gives: Vec::new(),
     };
     let (mut h, b, me) = world(talk, quests);
     let from = use_person(&mut h, b, me);

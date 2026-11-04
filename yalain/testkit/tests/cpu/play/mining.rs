@@ -723,6 +723,7 @@ fn the_hoards_time_runs_out_and_its_miner_is_sent_out() {
             required: None,
         }],
         steps: Vec::new(),
+        gives: Vec::new(),
     };
     let def = |state, kind, seconds: f32| EffectDef {
         state,

@@ -6,7 +6,7 @@
 use auberean_protocol::{queue, ServerMessage};
 use auberean_script::native_object::QuestInfo;
 use auberean_script::wire::In;
-use yalain_content::quests::{Need, QuestDef, QuestTable, Step, Subquests, Trigger, Update};
+use yalain_content::quests::{Give, Need, QuestDef, QuestTable, Step, Subquests, Trigger, Update};
 use yalain_content::talk::{How, Line, Role, TalkTable, TalkUpdate, When, Words};
 use yalain_content::{ContentObject, ContentPack, Description, Facts, Kind, Props};
 use yalain_testkit::play::{report, server_call};
@@ -164,6 +164,7 @@ fn world() -> Harness {
                 ..step(QUEST, 3, Trigger::Give(SLIVER, PERSON_T), Update::Complete)
             },
         ],
+        gives: Vec::new(),
     };
     h.server.talk = TalkTable {
         lines: vec![
@@ -892,6 +893,7 @@ fn items_given_close_a_phases_subquests_and_the_last_moves_it_on() {
     h.server.quests = QuestTable {
         quests,
         steps: steps_,
+        gives: Vec::new(),
     };
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, DOCTRINES, 1);
@@ -949,6 +951,7 @@ fn an_item_a_give_brings_moves_its_quest_on_after_the_step() {
             },
             step(CLAIM_QUEST, 6, Trigger::Take(CLAIM), Update::Advance(7)),
         ],
+        gives: Vec::new(),
     };
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, CLAIM_QUEST, 5);
@@ -1021,6 +1024,7 @@ fn a_give_that_makes_a_hero_does_so_when_the_transformation_is_through() {
             effects: vec![gives::HERO_TRANSFORMATION],
             ..step(ELYSA, 4, Trigger::Give(GEM, OBJECT_T), Update::Complete)
         }],
+        gives: Vec::new(),
     };
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, ELYSA, 4);
@@ -1109,4 +1113,229 @@ fn a_person_with_only_a_line_for_another_item_says_nothing_of_this_one() {
     let (lines, _) = give_ashes(&mut h, b, me, junk, 1);
     assert_eq!(lines, Vec::<u32>::new());
     assert!(holds(&h, me, junk.0), "handed back");
+}
+
+const OFFERING: u32 = 0x4700_1775;
+const GEM: u32 = 0x4700_1758;
+const TOKEN_FX: u32 = 0x4100_05EB;
+
+/// A give that moves no quest, for the person: the ashes, wanting nothing further.
+fn taking(item: Option<u32>) -> Give {
+    Give {
+        to: PERSON_T,
+        item,
+        wants: None,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        fx: None,
+        requires: Vec::new(),
+        placed: "authored for a test".into(),
+    }
+}
+
+fn taking_line(item: Option<u32>, string: u32, order: u32) -> Line {
+    Line {
+        item,
+        order,
+        ..line(PERSON_T, string, Some(Role::Accept), None)
+    }
+}
+
+/// A give that moves no quest keeps the item, says the person's lines for taking it in their order,
+/// and gives what it gives from the person, so many of each; no quest moves and nothing is handed
+/// back, whatever is given being taken whole.
+///
+/// Behaviour: server.gives.row-keeps-and-gives
+#[test]
+fn a_give_moving_no_quest_keeps_the_item_says_its_lines_and_gives_its_items() {
+    let mut h = world();
+    h.server.quests.gives.push(Give {
+        gives: vec![GEM],
+        counts: vec![8],
+        fx: Some(TOKEN_FX),
+        ..taking(Some(OFFERING))
+    });
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(GEM, 0x1067, Props::default()));
+    h.server
+        .talk
+        .lines
+        .push(taking_line(Some(OFFERING), TAKING_LINE, 1));
+    h.server
+        .talk
+        .lines
+        .push(taking_line(Some(OFFERING), NAMED_LINE, 0));
+    let (b, me) = player(&mut h, "one", "Elara");
+    let offering = hold(&mut h, me, OFFERING, 3);
+    let from = h.bots[b].inbox.len();
+    let (lines, moved) = give_ashes(&mut h, b, me, offering, 3);
+    assert_eq!(lines, vec![NAMED_LINE, TAKING_LINE], "in their order");
+    assert!(moved.is_empty(), "no quest moves");
+    assert!(!holds(&h, me, offering.0), "kept whole");
+    let gem = h.server.players[&world_of(&h, me)]
+        .play
+        .items
+        .iter()
+        .find(|x| h.server.things.get(x.id).is_some_and(|t| t.template == GEM))
+        .map(|x| x.quantity);
+    assert_eq!(gem, Some(8), "the gems from the person");
+    let played = h.world_messages(b, from).iter().any(
+        |m| matches!(m, ServerMessage::DoFx(e) if e.sender.id == PERSON && e.action.fx == TOKEN_FX),
+    );
+    assert!(played, "the person plays what the row says");
+}
+
+/// A give that moves no quest and wants a count refuses any other with the person's line for the
+/// item, handing the stack back; it takes that count, the rest staying.
+///
+/// Behaviour: server.gives.row-wants-a-count
+#[test]
+fn a_give_moving_no_quest_may_want_a_count_and_refuses_any_other() {
+    let mut h = world();
+    h.server.quests.gives.push(Give {
+        wants: Some(50),
+        ..taking(Some(OFFERING))
+    });
+    h.server.talk.lines.push(Line {
+        item: Some(OFFERING),
+        ..line(PERSON_T, WRONG_NUMBER, Some(Role::RefuseGive), None)
+    });
+    h.server
+        .talk
+        .lines
+        .push(taking_line(Some(OFFERING), TAKING_LINE, 0));
+    let (b, me) = player(&mut h, "one", "Elara");
+    let coins = hold(&mut h, me, OFFERING, 60);
+    let (lines, _) = give_ashes(&mut h, b, me, coins, 60);
+    assert_eq!(lines, vec![WRONG_NUMBER], "a whole stack of more");
+    assert_eq!(quantity_of(&h, me, coins.0), Some(60));
+    let (lines, _) = give_ashes(&mut h, b, me, coins, 40);
+    assert_eq!(lines, vec![WRONG_NUMBER], "too few");
+    assert_eq!(quantity_of(&h, me, coins.0), Some(60));
+    let (lines, _) = give_ashes(&mut h, b, me, coins, 50);
+    assert_eq!(lines, vec![TAKING_LINE], "the count wanted");
+    assert_eq!(quantity_of(&h, me, coins.0), Some(10), "the rest stays");
+}
+
+/// A give that names no item takes anything, with one of the person's lines for taking any item;
+/// a row for the item given comes first.
+///
+/// Behaviour: server.gives.row-any-item
+#[test]
+fn a_give_naming_no_item_takes_anything_and_a_row_for_the_item_comes_first() {
+    let mut h = world();
+    h.server.quests.gives.push(taking(None));
+    h.server.quests.gives.push(Give {
+        gives: vec![GEM],
+        ..taking(Some(OFFERING))
+    });
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(GEM, 0x1067, Props::default()));
+    h.server.talk.lines.push(taking_line(None, TAKING_LINE, 0));
+    h.server
+        .talk
+        .lines
+        .push(taking_line(Some(OFFERING), NAMED_LINE, 0));
+    let (b, me) = player(&mut h, "one", "Elara");
+    let junk = hold(&mut h, me, JUNK, 1);
+    let (lines, _) = give_ashes(&mut h, b, me, junk, 1);
+    assert_eq!(lines, vec![TAKING_LINE], "any item");
+    assert!(!holds(&h, me, junk.0), "kept");
+    let offering = hold(&mut h, me, OFFERING, 1);
+    let (lines, _) = give_ashes(&mut h, b, me, offering, 1);
+    assert_eq!(lines, vec![NAMED_LINE], "its own row and line");
+    let gems = h.server.players[&world_of(&h, me)]
+        .play
+        .items
+        .iter()
+        .filter(|x| h.server.things.get(x.id).is_some_and(|t| t.template == GEM))
+        .count();
+    assert_eq!(gems, 1);
+}
+
+/// A give that requires a quest at a phase runs at that phase alone; at another the item is refused
+/// and handed back. A quest's step for the same give comes first.
+///
+/// Behaviour: server.gives.row-requires
+#[test]
+fn a_give_requiring_a_phase_runs_at_it_and_a_step_comes_first() {
+    let mut h = world();
+    h.server.quests.gives.push(Give {
+        requires: vec![(QUEST, Need::Phase(3))],
+        ..taking(Some(ASHES))
+    });
+    h.server
+        .talk
+        .lines
+        .push(taking_line(Some(ASHES), TAKING_LINE, 0));
+    let (b, me) = player(&mut h, "one", "Elara");
+    let ashes = hold(&mut h, me, ASHES, 1);
+    at_phase(&mut h, QUEST, 1);
+    let (lines, moved) = give_ashes(&mut h, b, me, ashes, 1);
+    assert_eq!(lines, vec![PLAIN_REFUSAL], "the wrong phase");
+    assert!(moved.is_empty());
+    assert!(holds(&h, me, ashes.0));
+
+    at_phase(&mut h, QUEST, 2);
+    let (_, moved) = give_ashes(&mut h, b, me, ashes, 1);
+    assert_eq!(moved, vec![(0x2000_0003, QUEST, 3)], "the quest's step");
+    assert!(!holds(&h, me, ashes.0));
+
+    let ashes = hold(&mut h, me, ASHES, 1);
+    let (lines, moved) = give_ashes(&mut h, b, me, ashes, 1);
+    assert_eq!(lines, vec![TAKING_LINE], "the phase it requires");
+    assert!(moved.is_empty());
+    assert!(!holds(&h, me, ashes.0));
+}
+
+/// A give's effects go on the player, the person the caster, then its text.
+///
+/// Behaviour: server.gives.row-keeps-and-gives
+#[test]
+fn a_give_moving_no_quest_puts_its_text_on_the_player_after_keeping_the_item() {
+    let mut h = world();
+    h.server.quests.gives.push(Give {
+        text: Some((NAMED_LINE, 0x2500_2958)),
+        ..taking(Some(OFFERING))
+    });
+    let (b, me) = player(&mut h, "one", "Elara");
+    let offering = hold(&mut h, me, OFFERING, 1);
+    let from = h.bots[b].inbox.len();
+    give_ashes(&mut h, b, me, offering, 1);
+    let shown = h.calls(b, from).into_iter().any(|(_, v)| {
+        v.iter().any(|x| match x.root() {
+            Some(Node::TextInfo(t)) => t.string_id == NAMED_LINE,
+            _ => false,
+        })
+    });
+    assert!(shown, "its text");
+    assert!(!holds(&h, me, offering.0));
+}
+
+/// A quest's step for a give comes before a give that moves no quest, both able to run; with the
+/// step out of reach the row runs.
+///
+/// Behaviour: server.gives.row-requires
+#[test]
+fn a_quests_step_comes_before_a_give_moving_no_quest() {
+    let mut h = world();
+    h.server.quests.gives.push(taking(Some(ASHES)));
+    h.server
+        .talk
+        .lines
+        .push(taking_line(Some(ASHES), TAKING_LINE, 0));
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, QUEST, 2);
+    let ashes = hold(&mut h, me, ASHES, 1);
+    let (lines, moved) = give_ashes(&mut h, b, me, ashes, 1);
+    assert_eq!(moved, vec![(0x2000_0003, QUEST, 3)], "the quest's step");
+    assert!(!lines.contains(&TAKING_LINE), "{lines:?}");
+    let ashes = hold(&mut h, me, ASHES, 1);
+    let (lines, moved) = give_ashes(&mut h, b, me, ashes, 1);
+    assert!(moved.is_empty());
+    assert_eq!(lines, vec![TAKING_LINE], "the row");
 }

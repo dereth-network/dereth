@@ -562,6 +562,7 @@ fn every_quest_held_is_listed_at_entry_with_what_is_left_of_its_wait() {
             .map(hour_quest)
             .collect(),
         steps: Vec::new(),
+        gives: Vec::new(),
     };
     let now = h.unix;
     let held = |quest, status, phase, ago: i64| QuestState {
@@ -739,6 +740,7 @@ fn a_hidden_quest_is_never_listed_at_entry() {
             },
         ],
         steps: Vec::new(),
+        gives: Vec::new(),
     };
     let now = h.unix;
     let held = |quest, status, phase| QuestState {
@@ -785,6 +787,7 @@ fn a_quest_whose_time_ran_out_while_away_is_listed_failed() {
     h.server.quests = QuestTable {
         quests: vec![timed(TIMED), timed(STILL_TIMED)],
         steps: Vec::new(),
+        gives: Vec::new(),
     };
     let now = h.unix;
     let given = |quest, ago: i64| QuestState {

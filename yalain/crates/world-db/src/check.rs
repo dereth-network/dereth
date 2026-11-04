@@ -259,6 +259,17 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                     ));
                 }
             }
+            Row::Give(r) => {
+                if r.wants == Some(0) {
+                    problems.push(at("wants: a count of at least 1".into()));
+                }
+                if r.item.is_none() && r.wants.is_some() {
+                    problems.push(at("wants: a count of no item in particular".into()));
+                }
+                if r.counts.len() > r.gives.len() {
+                    problems.push(at("counts: a count for each item given".into()));
+                }
+            }
             Row::Talk(r) => check_talk(r, l, &objects, &mut |m| problems.push(at(m))),
             Row::Loot(r) if r.counts.iter().any(|c| !(0.0..=1.0).contains(c)) => {
                 problems.push(at("counts: shares between 0 and 1".into()));
