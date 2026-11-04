@@ -193,6 +193,9 @@ pub const WALKING_CHECK: f64 = 0.2;
 /// for the dagger wielders).
 pub const CREATURE_ATTACK_SECONDS: f64 = 1.35;
 
+/// The stat of a weapon that adds to its chance of a critical.
+pub const CRITICAL_BONUS: u32 = 0x3_03E9;
+
 /// Seconds from a creature's basic strike to its next attack, by the strike's skill (2017's medians:
 /// the plain strike 1.39 s, `Strong` 1.52, `Stronger` 1.63); others as [`CREATURE_ATTACK_SECONDS`].
 #[must_use]
@@ -781,18 +784,13 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
             && usage
                 .and_then(|u| u.hooks.get(index))
                 .is_some_and(|h| h.flags & crate::skill_use::hook_flag::LEFT_HAND != 0);
-        let outcome = rules::roll_outcome(
-            &mut s.rng,
-            Direction::PlayerOnCreature,
-            kind,
-            my_level,
-            level,
-        );
+        let weapon = if left { hands.left } else { hands.right };
+        let bonus = critical_bonus(s, weapon.map(|(w, _)| w));
+        let outcome = rules::roll_basic(&mut s.rng, kind, my_level, level, bonus);
         let Some(p) = s.players.get(&world) else {
             return;
         };
         let damage = if outcome.landed() {
-            let weapon = if left { hands.left } else { hands.right };
             let me = hitter_with(s, p, weapon.map(|(w, _)| w));
             let striking = usage.and_then(|u| {
                 let strikes = crate::skill_use::strikes(u);
@@ -949,18 +947,14 @@ fn stand_and_swing<S: Store>(
     }
     let thrown = crate::skill_use::missile_hook(&u).cloned();
     let kind = kind_of(s, skill, thrown.is_some());
-    let outcome = rules::roll_outcome(
-        &mut s.rng,
-        Direction::PlayerOnCreature,
-        kind,
-        my_level,
-        level,
-    );
+    let critical = critical_bonus(s, Some(weapon));
+    let outcome = rules::roll_basic(&mut s.rng, kind, my_level, level, critical);
     let damage = if outcome.landed() {
         let me = rules::Hitter {
             level: my_level,
             weapon: weapon_damage(s, weapon),
             added,
+            critical,
         };
         let strike = crate::skill_use::strikes(&u)
             .first()
@@ -1462,6 +1456,24 @@ pub fn weapon_damage<S: Store>(s: &Server<S>, weapon: u64) -> Option<rules::Weap
     })
 }
 
+/// What a weapon's own effects add to the chance of a critical: stat 197609's additions on it, at
+/// their spellcraft (2017: a bow with a 0.03 hit critically 0.084 of 1,137 basic attacks and 0.032 of
+/// 3,765 specials, staves with a 0.08 0.127 of 4,117 and 0.075 of 637, against 0.043-0.055 of 9,134
+/// and 0.001 of 5,397 with neither). No effect on a player was seen to hold the stat.
+#[must_use]
+pub fn critical_bonus<S: Store>(s: &Server<S>, weapon: Option<u64>) -> f64 {
+    let Some(t) = weapon.and_then(|w| s.things.get(w)) else {
+        return 0.0;
+    };
+    t.enchantments
+        .iter()
+        .filter_map(|(state, spellcraft)| Some((s.effect_table.get(*state)?, *spellcraft)))
+        .flat_map(|(d, spellcraft)| d.changes(spellcraft))
+        .filter(|(stat, multiply, _)| *stat == CRITICAL_BONUS && !*multiply)
+        .map(|(_, _, by)| f64::from(by))
+        .sum()
+}
+
 /// A player as its hits on creatures are reckoned: its level, the first weapon it wields, what its
 /// effects add.
 #[must_use]
@@ -1479,6 +1491,7 @@ fn hitter_with<S: Store>(s: &Server<S>, p: &Player, weapon: Option<u64>) -> rule
         level: crate::examine::level_of(&p.qualities),
         weapon: weapon.and_then(|w| weapon_damage(s, w)),
         added: crate::effects::damage_added(s, p),
+        critical: critical_bonus(s, weapon),
     }
 }
 

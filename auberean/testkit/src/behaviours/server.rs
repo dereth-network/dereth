@@ -950,6 +950,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.critical-by-weapon",
+        says: "What a weapon's own effects add to the chance of a critical goes on top of the \
+               attack's, measured as a share of hits that land.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRITICAL-BONUS"),
+        station: "yalain-testkit::cpu::play::fights::a_weapons_critical_bonus_makes_its_hits_critical",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combat.empty-hand-refused",
         says: "A player with nothing in its hand has no basic attack: asked to attack, the server \n               answers that it is attacking, that its basic attacks failed (not wielding the right \n               item) and that it is not attacking, and nothing swings.",
         since: RETAIL,

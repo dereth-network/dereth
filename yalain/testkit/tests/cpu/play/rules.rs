@@ -134,6 +134,29 @@ fn a_creatures_skill_adds_its_damage_before_the_players_armor() {
     assert_eq!(rules::creature_hit(&mut rng, Kind::Melee, n, 1, true), 12);
 }
 
+/// What a weapon adds to the chance of a critical goes on top of the measured one, in the share of
+/// the attacks that land: nothing else about the attack moves.
+/// Behaviour: server.combat.critical-by-weapon
+#[test]
+fn a_weapons_critical_bonus_adds_to_the_chance_among_hits_that_land() {
+    let mut rng = yalain_world::rng::Rng::new(5);
+    let base = rules::fit(rules::Direction::PlayerOnCreature, rules::Kind::Melee).critical;
+    let mut share = |bonus: f64| {
+        let (mut landed, mut critical) = (0.0, 0.0);
+        for _ in 0..80_000 {
+            let o = rules::roll_basic(&mut rng, rules::Kind::Melee, 20, 20, bonus);
+            landed += f64::from(u8::from(o.landed()));
+            critical += f64::from(u8::from(o == rules::Outcome::Critical));
+        }
+        (critical / landed, landed)
+    };
+    let (plain, n0) = share(0.0);
+    let (with, n1) = share(0.08);
+    assert!((plain - base).abs() < 0.006, "{plain}");
+    assert!((with - base - 0.08).abs() < 0.006, "{with}");
+    assert!((n0 - n1).abs() / n0 < 0.02, "{n0} {n1}");
+}
+
 /// A player's hit with a weapon is a whole number drawn evenly across the weapon's damage (the
 /// starting drum's 9 at a variance of a third: 6 to 9), with what its effects add, less the creature's
 /// armor level, at least 1; a critical doubles it.
@@ -158,6 +181,7 @@ fn a_players_hit_is_its_weapons_damage_less_the_creatures_armor() {
             variance: 0.33,
         }),
         added,
+        critical: 0.0,
     };
     let rolls: Vec<i32> = (0..2000)
         .map(|_| rules::player_hit(&mut rng, me(0), 0, false))

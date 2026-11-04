@@ -806,6 +806,93 @@ fn a_weapons_effect_on_a_hit_goes_on_what_it_hits() {
     assert_eq!(view.effects[0].when, yalain_world::profile::When::Hit);
 }
 
+/// A weapon's effect that adds to the chance of a critical does: at 1, every hit it lands is
+/// critical; a weapon without it lands plain hits.
+/// Behaviour: server.combat.critical-by-weapon
+#[test]
+fn a_weapons_critical_bonus_makes_its_hits_critical() {
+    use yalain_world::combat::{critical_bonus, CRITICAL_BONUS};
+    use yalain_world::effect_defs::{numeric, EffectDef, Kind, Scale};
+    const BONUS: u32 = 0x6F00_0001;
+    let outcomes = |bonus: bool| -> Vec<i32> {
+        let mut h = Harness::new();
+        h.add_creatures(1);
+        h.server.levels = levels();
+        let (b, me) = h.player_in_world("one", "Elara");
+        scene_drawn(&mut h, b);
+        let weapon = h.arm(b, me, STARTER_SWORD);
+        h.server.effect_table.effects.insert(
+            BONUS,
+            EffectDef {
+                state: BONUS,
+                kind: Kind::Numeric {
+                    flags: numeric::ADD,
+                    stats: vec![CRITICAL_BONUS],
+                    magnitude: Scale(vec![(0.0, 1.0)]),
+                },
+                duration: Scale::default(),
+                priority: Scale::default(),
+                fx: 0,
+                external_flags: 0,
+                internal_flags: 0,
+                enum_value: 0,
+                eq_class: 0,
+                name: None,
+            },
+        );
+        if bonus {
+            h.server
+                .things
+                .get_mut(weapon)
+                .expect("held")
+                .enchantments
+                .push((BONUS, 9.0));
+        }
+        assert_eq!(
+            critical_bonus(&h.server, Some(weapon)),
+            if bonus { 1.0 } else { 0.0 }
+        );
+        let beetle = creature_of(&h, b);
+        {
+            let t = h.server.things.get_mut(beetle).expect("the beetle");
+            t.max_health = 1_000_000;
+            t.health = 1_000_000;
+            t.creature
+                .as_mut()
+                .expect("a creature")
+                .stats
+                .natural_damage = 0.0;
+        }
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+        );
+        h.run(4000);
+        h.world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e) if e.sender.id == me => Some(e.action.hooks.clone()),
+                _ => None,
+            })
+            .flatten()
+            .filter(|k| k.target == beetle && k.numbers[3] < 0)
+            .map(|k| k.numbers[0])
+            .collect()
+    };
+    let critical = yalain_world::rules::Outcome::Critical.code().cast_signed();
+    let with = outcomes(true);
+    assert!(with.len() > 20, "{}", with.len());
+    assert!(with.iter().all(|o| *o == critical), "{with:x?}");
+    let without = outcomes(false);
+    assert!(without.len() > 20, "{}", without.len());
+    assert!(
+        without.iter().filter(|o| **o == critical).count() < without.len() / 2,
+        "{without:x?}"
+    );
+}
+
 /// Using the corpse opens it: the opener is told what it holds (the beetle's profile always
 /// leaves one item) and of the item; using the item takes it, and once the taking is through the
 /// move is answered and the item is the player's.

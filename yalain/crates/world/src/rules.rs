@@ -165,10 +165,36 @@ pub fn roll_outcome(
     attacker_level: i32,
     defender_level: i32,
 ) -> Outcome {
+    let critical = fit(dir, kind).critical;
+    roll_with_critical(rng, dir, kind, (attacker_level, defender_level), critical)
+}
+
+/// A player's basic attack: its outcome, its chance of a critical the measured one with what its
+/// weapon adds ([`crate::combat::critical_bonus`]).
+pub fn roll_basic(
+    rng: &mut Rng,
+    kind: Kind,
+    attacker_level: i32,
+    defender_level: i32,
+    bonus: f64,
+) -> Outcome {
+    let dir = Direction::PlayerOnCreature;
+    let critical = fit(dir, kind).critical + bonus;
+    roll_with_critical(rng, dir, kind, (attacker_level, defender_level), critical)
+}
+
+/// An attack's outcome at a chance of a critical among those that land.
+pub fn roll_with_critical(
+    rng: &mut Rng,
+    dir: Direction,
+    kind: Kind,
+    (attacker_level, defender_level): (i32, i32),
+    critical: f64,
+) -> Outcome {
     let f = fit(dir, kind);
     let p = landing_chance(dir, kind, attacker_level, defender_level);
     if f64::from(rng.unit()) < p {
-        if f64::from(rng.unit()) < f.critical {
+        if f64::from(rng.unit()) < critical {
             Outcome::Critical
         } else {
             Outcome::Hit
@@ -356,6 +382,8 @@ pub struct Hitter {
     pub level: i32,
     pub weapon: Option<WeaponDamage>,
     pub added: i32,
+    /// What its weapon adds to the chance of a critical.
+    pub critical: f64,
 }
 
 /// A player's hit on a creature. With a weapon: a whole number drawn evenly from the weapon's

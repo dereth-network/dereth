@@ -83,7 +83,7 @@ use crate::calls::Value;
 use crate::combat::{self, player_event, to_all_seeing};
 use crate::effect_defs::{EffectDef, Kind as EffectKind, Recall};
 use crate::player::quality;
-use crate::rules::{self, Direction, Kind, Outcome};
+use crate::rules::{self, Kind, Outcome};
 use crate::skills::{Hook, Usage};
 use crate::{progress, quals, session, Clock, Server, Timer};
 
@@ -1529,13 +1529,7 @@ fn roll_hook<S: Store>(
     } else {
         Kind::Melee
     };
-    let o = rules::roll_outcome(
-        &mut s.rng,
-        Direction::PlayerOnCreature,
-        kind,
-        me.level,
-        level,
-    );
+    let o = rules::roll_basic(&mut s.rng, kind, me.level, level, me.critical);
     let o = if kind == Kind::Melee && o == Outcome::Miss {
         Outcome::Evade
     } else {
@@ -1641,13 +1635,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         } else {
             Kind::Melee
         };
-        let o = rules::roll_outcome(
-            &mut s.rng,
-            Direction::PlayerOnCreature,
-            kind,
-            my_level,
-            level,
-        );
+        let o = rules::roll_basic(&mut s.rng, kind, my_level, level, me_hits.critical);
         // Strikes of specials are evaded, never missed.
         let o = if kind == Kind::Melee && o == Outcome::Miss {
             Outcome::Evade
