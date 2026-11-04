@@ -822,3 +822,48 @@ fn the_hoards_time_runs_out_and_its_miner_is_sent_out() {
         "nothing of the quest told"
     );
 }
+
+/// A node refuses a player with no place in its pack for what it would give, and is not worn by it.
+/// Behaviour: server.craft.mining-wants-a-place-in-the-pack
+#[test]
+fn a_node_refuses_a_player_with_no_place_in_its_pack() {
+    let mut h = world();
+    let (b, me, world) = in_world(&mut h, "Elara");
+    give(&mut h, world, PICKAXE);
+    let stone = give(&mut h, world, STONE);
+    let from = send_use(&mut h, b, me, stone, 0.5);
+    let (node, _) = node_made(&h, b, from).expect("the node");
+    let items = &mut h.server.players.get_mut(&world).expect("there").play.items;
+    for n in u32::try_from(items.len()).expect("few")..mining_room() {
+        items.push(yalain_world::state::Held {
+            id: 0x8130_0000_0FFF_0000 + u64::from(n),
+            template: STONE,
+            slot: n,
+            location: 0,
+            quantity: 1,
+        });
+    }
+    let from = send_use(&mut h, b, me, node, mining::WORK_SECONDS + 0.5);
+    assert_eq!(
+        use_answers(&h, b, from).first().map(|a| a.0),
+        Some(refusal::NO_ROOM)
+    );
+    assert!(!h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .any(|i| i.template == ORE));
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("there")
+        .play
+        .items
+        .retain(|i| i.template != STONE);
+    let from = send_use(&mut h, b, me, node, mining::WORK_SECONDS + 0.5);
+    assert_eq!(use_answers(&h, b, from).first().map(|a| a.0), Some(0));
+}
+
+fn mining_room() -> u32 {
+    yalain_world::inventory::PACK_ROOM
+}

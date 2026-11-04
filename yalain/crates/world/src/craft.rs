@@ -145,6 +145,8 @@ pub mod error {
     pub const NOT_RESET: u32 = 40_024;
     pub const FAILED: u32 = 40_025;
     pub const PEACE_REQUIRED: u32 = 40_026;
+    /// No place in the pack for the product (2017: 1 of 1, at the result, with a full pack).
+    pub const NO_ROOM: u32 = 40_029;
     /// The recipe's workshop is not at hand (its record is not on the player).
     pub const MISSING_EFFECT: u32 = 40_041;
     /// An item whose least level is above what its slot takes at the spinner.
@@ -2069,6 +2071,19 @@ fn result<S: Store>(
     let Some(outcome) = def.outcome(value, roll).cloned() else {
         return;
     };
+    let makes_item = outcome.actions.iter().any(|a| match a {
+        Action::Produce { .. } => true,
+        Action::Custom => matches!(def.custom, Custom::Refine { .. }),
+        _ => false,
+    });
+    if makes_item
+        && s.players
+            .get(&world)
+            .is_some_and(|p| crate::inventory::pack_full(&p.play.items))
+    {
+        progress::private(net, world, &executed(error::NO_ROOM, m.recipe));
+        return;
+    }
     let failed = value <= 1.0 && def.checked();
     #[allow(
         clippy::cast_possible_truncation,

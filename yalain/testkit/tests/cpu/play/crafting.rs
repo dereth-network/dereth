@@ -3156,3 +3156,48 @@ fn a_crafts_table_whose_count_is_not_what_it_holds_names_nothing() {
     }
     assert_eq!(yalain_world::craft::slots_in(&cut), vec![]);
 }
+
+/// A product with no place in the pack is refused at the craft's result: its answer says so, and
+/// nothing is made or used up. With a place, the same request makes it.
+/// Behaviour: server.craft.a-product-wants-a-place-in-the-pack
+#[test]
+fn a_product_with_no_place_in_the_pack_is_refused_at_the_result_and_uses_nothing() {
+    let (mut h, b, me, world) = in_world();
+    let iron = with_recipe_and_iron(&mut h, world, me, 20);
+    let room = yalain_world::inventory::PACK_ROOM;
+    let items = &mut h.server.players.get_mut(&world).expect("there").play.items;
+    for n in u32::try_from(items.len()).expect("few")..room {
+        items.push(yalain_world::state::Held {
+            id: 0x8130_0000_0FFF_0000 + u64::from(n),
+            template: IRON + 1,
+            slot: n,
+            location: 0,
+            quantity: 1,
+        });
+    }
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    wait(&mut h, 8.0);
+    let answers: Vec<u32> = craft_answers(&h, b, from);
+    assert_eq!(answers, [yalain_world::craft::error::NO_ROOM]);
+    let of = |h: &Harness, t: u32| {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .find(|i| i.template == t)
+            .map(|i| i.quantity)
+    };
+    assert_eq!(of(&h, MINES_SWORD), None, "nothing made");
+    assert_eq!(of(&h, IRON), Some(20), "nothing used up");
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("there")
+        .play
+        .items
+        .retain(|i| i.template != IRON + 1);
+    let from = execute(&mut h, b, MINES_RECIPE, &[(1, iron)]);
+    wait(&mut h, 8.0);
+    assert_eq!(craft_answers(&h, b, from), [0]);
+    assert!(of(&h, MINES_SWORD).is_some(), "made");
+}

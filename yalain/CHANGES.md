@@ -141,6 +141,7 @@ what they see, not how it was done.
 - Heroes' skills can now go past 50.
 - Balance and Featherweight now lower what skills cost.
 - Quest items your quest doesn't allow can't be used or taken.
+- A full pack now stops crafting, butchering and mining.
 
 ## 0.1.2 (2026-11-03)
 

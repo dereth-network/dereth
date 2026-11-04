@@ -96,6 +96,8 @@ pub const TOOL_DURABILITY: u32 = 100;
 pub mod refusal {
     /// The node has given all its uses.
     pub const USED_UP: u32 = 10_060;
+    /// No place in the pack for what it would give.
+    pub const NO_ROOM: u32 = 10_057;
     /// Only the one who summoned the node may mine it.
     pub const SUMMONER_ONLY: u32 = 10_066;
 }
@@ -367,6 +369,14 @@ fn in_hand<S: Store>(s: &Server<S>, world: ConnId) -> Option<(u64, u32)> {
     })
 }
 
+/// Whether a character's pack and its bags hold an item in every place.
+fn pack_full_of<S: Store>(s: &Server<S>, me: u64) -> bool {
+    s.players
+        .values()
+        .find(|p| p.character == me)
+        .is_some_and(|p| crate::inventory::pack_full(&p.play.items))
+}
+
 /// Why a player at a node may not mine it (none: it may).
 fn refusal_at<S: Store>(s: &Server<S>, me: u64, node: u64) -> Option<u32> {
     let n = node_of(s, node)?;
@@ -374,6 +384,8 @@ fn refusal_at<S: Store>(s: &Server<S>, me: u64, node: u64) -> Option<u32> {
         Some(refusal::SUMMONER_ONLY)
     } else if n.uses >= n.max_uses {
         Some(refusal::USED_UP)
+    } else if pack_full_of(s, me) {
+        Some(refusal::NO_ROOM)
     } else {
         None
     }
@@ -794,6 +806,8 @@ pub fn at_quest_mine<S: Store>(
         Some(crate::item_use::refusal::MYSTERIOUS_USE)
     } else if phase == 0 {
         Some(quest_refusal::WRONG_QUEST)
+    } else if pack_full_of(s, me) {
+        Some(refusal::NO_ROOM)
     } else {
         None
     };

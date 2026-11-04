@@ -1475,7 +1475,15 @@ mod crafts {
             if items.len() < c.slots.len() {
                 count("one item named for two slots");
             }
-            // Stocked for it, its workshop's record on but where the recording had it off.
+            // Stocked for it, its workshop's record on but where the recording had it off, and a
+            // pack with room for what it makes: one character here makes what many did.
+            h.server
+                .players
+                .get_mut(&world)
+                .expect("in the world")
+                .play
+                .items
+                .clear();
             let mut slots = Vec::new();
             let mut unknown = false;
             let mut wanted_of: BTreeMap<u32, u32> = BTreeMap::new();

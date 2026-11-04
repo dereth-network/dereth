@@ -53,6 +53,8 @@ pub mod refusal {
     pub const TOO_DAMAGED: u32 = 10_063;
     /// The cut found nothing (at the result).
     pub const EMPTY: u32 = 10_064;
+    /// No place in the pack for the material (at the result; 2017: 1 of 1, with a full pack).
+    pub const NO_ROOM: u32 = 10_065;
     /// The knife asks more of the player's craft skill than it has.
     pub const CRAFT_TOO_LOW: u32 = 10_067;
 }
@@ -322,6 +324,15 @@ pub fn done<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, w: 
     if material == NOTHING_FOUND {
         // Nothing found: answered so, nothing paid, the corpse still to butcher.
         let m = crate::places::use_answer_to(&w.used, me, 0, TARGET_KIND, 0.0, refusal::EMPTY);
+        progress::private(net, world, &m);
+        return;
+    }
+    if s.players
+        .get(&world)
+        .is_some_and(|p| crate::inventory::pack_full(&p.play.items))
+    {
+        // No place for it: the corpse still to butcher, the knife unworn, nothing paid.
+        let m = crate::places::use_answer_to(&w.used, me, 0, TARGET_KIND, 0.0, refusal::NO_ROOM);
         progress::private(net, world, &m);
         return;
     }

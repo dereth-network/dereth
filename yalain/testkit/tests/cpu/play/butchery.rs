@@ -532,3 +532,51 @@ fn a_knife_asking_more_craft_skill_than_the_player_has_is_refused() {
     let p = &h.server.players[&world];
     assert!(!p.play.items.iter().any(|i| i.template == BONE));
 }
+
+/// A cut with no place in the pack for its material is refused at the result, as the work ends: no
+/// material, the corpse still to butcher, nothing paid. With a place, the same corpse is cut.
+/// Behaviour: server.craft.butchery-wants-a-place-in-the-pack
+#[test]
+fn a_cut_with_no_place_in_the_pack_is_refused_and_leaves_the_corpse_to_butcher() {
+    let (mut h, b, me, world, knife, corpse) = at_a_corpse();
+    let items = &mut h.server.players.get_mut(&world).expect("there").play.items;
+    for n in u32::try_from(items.len()).expect("few")..yalain_world::inventory::PACK_ROOM {
+        items.push(yalain_world::state::Held {
+            id: 0x8130_0000_0FFF_0000 + u64::from(n),
+            template: BONE - 1,
+            slot: n,
+            location: 0,
+            quantity: 1,
+        });
+    }
+    let from = butcher(&mut h, b, me, knife, corpse, 2.5);
+    assert_eq!(
+        use_answers(&h, b, from).first().map(|a| a.0),
+        Some(refusal::NO_ROOM)
+    );
+    let held = |h: &Harness, t: u32| {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .filter(|i| i.template == t)
+            .count()
+    };
+    assert_eq!(held(&h, BONE), 0, "no material");
+    assert!(
+        wear_updates(&h, b, from, knife).is_empty(),
+        "the knife unworn"
+    );
+    let open = h.server.things.get(corpse).and_then(|t| t.corpse.as_ref());
+    assert!(open.is_some_and(|c| !c.butchered), "still to butcher");
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("there")
+        .play
+        .items
+        .retain(|i| i.template != BONE - 1);
+    let from = butcher(&mut h, b, me, knife, corpse, 2.5);
+    assert_eq!(use_answers(&h, b, from).first().map(|a| a.0), Some(0));
+    assert_eq!(held(&h, BONE), 1);
+}

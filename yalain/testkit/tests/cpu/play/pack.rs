@@ -839,3 +839,47 @@ fn coins_out_of_the_money_bag_into_a_full_pack_do_nothing() {
     assert_eq!(p.play.items.len(), room, "no more than it holds");
     assert_eq!(yalain_world::store::money(&p.qualities), 500);
 }
+
+/// A gift to a pack holding all its room is held all the same, past it, and its move says it took a
+/// place past the room; a move with room says it did not. What comes from a person may always.
+/// Behaviour: server.inventory.a-gift-runs-past-a-full-pack
+#[test]
+fn a_gift_past_a_full_pack_is_held_and_its_move_says_so() {
+    let (mut h, b, _me, world) = player();
+    let from = h.bots[b].inbox.len();
+    inventory::give_from(&mut h.server, &mut h.net, world, TEST_ITEM, 1, 7);
+    h.run(2);
+    let slots = answers(&h, b, from);
+    assert_eq!(
+        (slots[0][43].1, slots[0][34].1),
+        (1, 0),
+        "may, and did not need to"
+    );
+    let full: Vec<Held> = (0..inventory::PACK_ROOM)
+        .map(|n| Held {
+            id: 0x8130_0000_0FFF_0000 + u64::from(n),
+            template: TEST_ITEM,
+            slot: n,
+            location: 0,
+            quantity: 1,
+        })
+        .collect();
+    h.server.players.get_mut(&world).unwrap().play.items = full;
+    let from = h.bots[b].inbox.len();
+    inventory::give(&mut h.server, &mut h.net, world, TEST_ITEM, 1);
+    inventory::give_from(&mut h.server, &mut h.net, world, TEST_ITEM, 1, 7);
+    h.run(2);
+    let slots = answers(&h, b, from);
+    assert_eq!(slots.len(), 2);
+    for m in &slots {
+        assert_eq!(
+            (m[40].1, m[43].1, m[34].1),
+            (0, 1, 1),
+            "held, past the room"
+        );
+    }
+    assert_eq!(
+        h.server.players[&world].play.items.len(),
+        inventory::PACK_ROOM as usize + 2
+    );
+}

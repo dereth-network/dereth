@@ -225,7 +225,10 @@ pub struct Move {
     pub hidden: bool,
     pub no_anim: bool,
     pub no_move: bool,
+    /// The move may take a place past the pack's room.
     pub overflow: bool,
+    /// The move took one: the pack already held all its room.
+    pub used_overflow: bool,
     pub check_take: bool,
     pub played_anim: bool,
     pub template: u32,
@@ -284,6 +287,7 @@ pub fn move_graph(m: &Move) -> Arg {
     s[30] = Slot::Ref(None);
     s[31] = b(m.no_anim);
     put_long(&mut s, 32, m.merge_container);
+    s[34] = b(m.used_overflow);
     s[35] = b(m.grab);
     put_long(&mut s, 36, m.actual_from);
     s[38] = Slot::Int(m.look_entity);
@@ -788,7 +792,8 @@ pub fn close_up(items: &mut [Held]) {
     }
 }
 
-/// Whether a player's pack and its bags hold an item in every place.
+/// Whether a player's pack and its bags hold an item in every place. What a player makes (a craft's
+/// product, a cut, what it mines) waits for a place then; what it is given or takes does not.
 pub(crate) fn pack_full(held: &[Held]) -> bool {
     !fits_in_pack(held, 1)
 }
@@ -802,7 +807,7 @@ pub fn fits_in_pack(held: &[Held], incoming: usize) -> bool {
 
 /// Make room for an item coming into a pack: at the front of the first segment with room, its
 /// items each moving up one slot, as the client puts it at the slot the move names; after the
-/// last when every segment is full. Returns the slot.
+/// last when every segment is full, a gift or a taking held all the same. Returns the slot.
 pub(crate) fn room_for_one(held: &mut [Held]) -> u32 {
     let n = segment_counts(held);
     let Some(segment) = (0..SEGMENTS.len()).find(|s| n[*s] < SEGMENTS[*s]) else {
@@ -918,6 +923,7 @@ pub fn give_from<S: Store>(
             no_move: true,
             grab: true,
             unlock: true,
+            overflow: true,
             ..Move::default()
         },
     );
@@ -1337,6 +1343,13 @@ fn arrive<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u
     let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
+    // Past the pack's room the move says so (2017: 7 of 7, at 78 items or more).
+    let past_room = s
+        .players
+        .get(&world)
+        .is_some_and(|p| pack_full(&p.play.items));
+    m.overflow |= past_room;
+    m.used_overflow = past_room;
     let Some(slot) = hold(s, world, id) else {
         return;
     };

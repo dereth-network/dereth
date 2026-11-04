@@ -1062,6 +1062,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.craft.a-product-wants-a-place-in-the-pack",
+        says: "A recipe's product with no place in the pack is refused at the craft's result with its \
+               own answer, and nothing is made or used up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-NO-ROOM"),
+        station: "yalain-testkit::cpu::play::crafting::a_product_with_no_place_in_the_pack_is_refused_at_the_result_and_uses_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.butchery-finds-nothing",
         says: "A cut that draws its profile's share of nothing gathers no material and pays no experience; \
                the use is answered empty at the result and the corpse may be butchered again.",
@@ -1105,6 +1114,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-BUTCHERY-UNITS"),
         station: "yalain-testkit::cpu::play::butchery::a_knife_cuts_ten_units_above_its_own_yield",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.butchery-wants-a-place-in-the-pack",
+        says: "A cut with no place in the pack for its material is refused as the work ends, with the \
+               corpse still to butcher.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BUTCHERY-NO-ROOM"),
+        station: "yalain-testkit::cpu::play::butchery::a_cut_with_no_place_in_the_pack_is_refused_and_leaves_the_corpse_to_butcher",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1361,6 +1379,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MINING-UNITS"),
         station: "yalain-testkit::cpu::play::mining::a_nodes_units_follow_its_summoners_surveying_level",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.mining-wants-a-place-in-the-pack",
+        says: "A node refuses a player with no place in its pack, with the client's own answer for a \
+               use wanting room; no recording shows one, and every mined item is a move that may not \
+               pass the room.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MINING-NO-ROOM"),
+        station: "yalain-testkit::cpu::play::mining::a_node_refuses_a_player_with_no_place_in_its_pack",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -3658,6 +3686,15 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-INTERACTION-GONE"),
         station: "yalain-testkit::cpu::play::interactions::an_item_put_down_while_its_use_plays_does_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.a-gift-runs-past-a-full-pack",
+        says: "An item given to a pack holding all its room is held all the same, and its move says \
+               it took a place past the room; an item from a person may always take one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PACK-OVERFLOW"),
+        station: "yalain-testkit::cpu::play::pack::a_gift_past_a_full_pack_is_held_and_its_move_says_so",
         tier: Tier::Cpu,
     },
     behaviour! {
