@@ -1013,6 +1013,37 @@ fn an_object_is_covered_by_more_rays_as_asked() {
     );
 }
 
+/// A detection takes an object with no game object for any kind it reports, unless it ignores the
+/// object or has targets the object isn't among.
+///
+/// Behaviour: detection.world.an-object-with-no-game-object-is-of-every-kind
+#[test]
+fn an_object_with_no_game_object_is_of_every_kind_a_detection_reports() {
+    use auberean_physics::world::NoGameObjects;
+    let land = land();
+    let mut world = table::World::new();
+    let mut m = body(60.0, 50.0);
+    m.id = MOVER;
+    let mover = world.insert_body(&land, MOVER, &mut m);
+    let after = |s: &DetectorSettings| world.check_type_match(mover, s, &NoGameObjects);
+    assert!(after(&DetectorSettings::default()), "any kind");
+    let ignored = DetectorSettings {
+        ignored: vec![MOVER],
+        ..DetectorSettings::default()
+    };
+    assert!(!after(&ignored), "it is ignored");
+    let others = DetectorSettings {
+        targets: vec![WATCHER],
+        ..DetectorSettings::default()
+    };
+    assert!(!after(&others), "another is the target");
+    let it = DetectorSettings {
+        targets: vec![MOVER],
+        ..DetectorSettings::default()
+    };
+    assert!(after(&it), "it is the target");
+}
+
 /// A body's other updates check its detection spheres against the world it moves in: a sphere
 /// around another body notices it once a second has passed and the other has come within reach,
 /// and the body's other updates keep running while the sphere is there.

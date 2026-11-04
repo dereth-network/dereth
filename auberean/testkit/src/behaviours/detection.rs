@@ -198,4 +198,13 @@ pub static ROWS: &[Behaviour] = &[
         station: "auberean-physics::cpu::contact::detections::a_bodys_updates_check_its_spheres_against_the_world",
         tier: Tier::Cpu,
     },
+    behaviour! {
+        id: "detection.world.an-object-with-no-game-object-is-of-every-kind",
+        says: "A detection takes an object with no game object for any kind it reports, unless it \
+               ignores it or has other targets.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DETECT-NO-GAME-OBJECT"),
+        station: "auberean-physics::cpu::contact::detections::an_object_with_no_game_object_is_of_every_kind_a_detection_reports",
+        tier: Tier::Cpu,
+    },
 ];

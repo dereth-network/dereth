@@ -42,15 +42,16 @@ use crate::land::{
 };
 use crate::solid;
 
-/// The game objects for a host that has none: no object is of a kind a detection reports, and
-/// nothing is noted of any (an object's own note starts its sighting over with its own id, which
-/// the sighting already has).
+/// The game objects for a host that has none: an object with no game object is of every kind a
+/// detection reports, and nothing is noted of any (an object's own note starts its sighting over
+/// with its own id, which the sighting already has).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoGameObjects;
 
 impl GameObjects for NoGameObjects {
+    // D2-06131
     fn matches(&self, _object: u64, _report: &ReportType) -> bool {
-        false
+        true
     }
     // D2-08064
     fn note(&self, _object: u64, _sighting: &mut Sighting) {}
