@@ -303,8 +303,11 @@ mod tests {
         Turning::Plain.blend(&mut plain, &a, &b, 0.25);
         // Straight: three quarters of the one and a quarter of the other, made unit length.
         let (w, z) = (0.75 + 0.25 * c, 0.25 * s);
+        let (w, z) = (f64::from(w), f64::from(z));
         let k = 1.0 / (z * z + w * w).sqrt();
-        assert_eq!((plain.rotation.w, plain.rotation.z), (k * w, k * z));
+        #[allow(clippy::cast_possible_truncation)]
+        let unit = ((k * w) as f32, (k * z) as f32);
+        assert_eq!((plain.rotation.w, plain.rotation.z), unit);
         assert!((guarded.rotation.z - plain.rotation.z).abs() > 1e-8);
 
         let zero = Quat::new(0.0, 0.0, 0.0, 0.0);
