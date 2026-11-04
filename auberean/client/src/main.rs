@@ -377,6 +377,8 @@ struct Desktop {
     /// The install's folder: the game's own files beside its data files.
     install: PathBuf,
     held: bool,
+    /// A script is playing: the window hears it alone, and the real pointer is left alone.
+    scripted: bool,
     seed: u64,
     buf: Vec<u8>,
     friends: friends::FriendsSocket,
@@ -457,6 +459,9 @@ impl Host for Desktop {
             return;
         }
         self.held = held;
+        if self.scripted {
+            return;
+        }
         if let Some(w) = &self.window {
             if held {
                 if w.set_cursor_grab(CursorGrabMode::Locked).is_err() {
@@ -588,6 +593,23 @@ fn presenter(
 }
 
 /// The sizes the display's row offers: those of a monitor's modes of full color.
+/// Whether a window's event comes from the keyboard, the mouse or the window being the active one:
+/// what a script playing stands in for, so it plays the same in a window in the background.
+const fn from_the_devices(event: &WindowEvent) -> bool {
+    matches!(
+        event,
+        WindowEvent::Focused(_)
+            | WindowEvent::KeyboardInput { .. }
+            | WindowEvent::ModifiersChanged(_)
+            | WindowEvent::Ime(_)
+            | WindowEvent::MouseInput { .. }
+            | WindowEvent::CursorMoved { .. }
+            | WindowEvent::CursorEntered { .. }
+            | WindowEvent::CursorLeft { .. }
+            | WindowEvent::MouseWheel { .. }
+    )
+}
+
 fn monitor_sizes(monitor: Option<winit::monitor::MonitorHandle>) -> Vec<(u32, u32)> {
     let Some(m) = monitor else {
         return Vec::new();
@@ -787,8 +809,9 @@ impl App<'_> {
                 self.shell.phase(),
                 &self.shell.scene.status,
             );
+            let playing = s.playing();
             for e in &asked.events {
-                self.shell.event(e);
+                self.send(e);
             }
             if asked.shot.is_some() {
                 self.shot_next = asked.shot;
@@ -798,6 +821,13 @@ impl App<'_> {
             }
             if asked.quit {
                 self.shell.event(&Event::Close);
+            }
+            // The script over, the window hears the devices again, starting with its own state.
+            if self.shell.host.scripted && !playing {
+                self.shell.host.scripted = false;
+                if let Some(active) = self.shell.host.window.as_ref().map(|w| w.has_focus()) {
+                    self.send(&Event::Focus(active));
+                }
             }
         }
         let shot = self.shot_next.take();
@@ -877,6 +907,9 @@ impl ApplicationHandler for App<'_> {
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if self.shell.host.scripted && from_the_devices(&event) {
+            return;
+        }
         match event {
             WindowEvent::CloseRequested => self.send(&Event::Close),
             WindowEvent::Resized(s) => self.window_sized((s.width, s.height)),
@@ -937,6 +970,9 @@ impl ApplicationHandler for App<'_> {
     }
 
     fn device_event(&mut self, _el: &ActiveEventLoop, _id: winit::event::DeviceId, e: DeviceEvent) {
+        if self.shell.host.scripted {
+            return;
+        }
         if let DeviceEvent::MouseMotion { delta } = e {
             #[allow(clippy::cast_possible_truncation)]
             self.send(&Event::Motion {
@@ -1019,6 +1055,7 @@ fn run() -> Result<(), String> {
         settings,
         install: o.dats.clone(),
         held: false,
+        scripted: o.script.is_some(),
         seed: u64::from(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -1135,6 +1172,19 @@ fn version_text() -> String {
         option_env!("AUBEREAN_BUILD_COMMIT").unwrap_or("unknown"),
         option_env!("AUBEREAN_BUILD_TARGET").unwrap_or("unknown"),
     )
+}
+
+#[cfg(test)]
+mod script_tests {
+    //! Behaviour: none (tooling: a developer's script of input)
+    use super::{from_the_devices, WindowEvent};
+
+    #[test]
+    fn a_script_stands_in_for_the_devices_and_not_for_the_window() {
+        assert!(from_the_devices(&WindowEvent::Focused(false)));
+        assert!(!from_the_devices(&WindowEvent::CloseRequested));
+        assert!(!from_the_devices(&WindowEvent::RedrawRequested));
+    }
 }
 
 #[cfg(test)]
