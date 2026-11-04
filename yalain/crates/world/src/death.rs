@@ -1195,8 +1195,8 @@ pub fn player_corpse<S: Store>(
     }
 }
 
-/// A dead player's client asks to be resurrected (only once its corpse is made): protected (see
-/// `effects`); for everyone who sees it, set standing at peace at once (2017: the mode set 223 of 227
+/// A dead player's client asks to be resurrected (only once its corpse is made): what its death
+/// ended taken off, protected (see `effects`); for everyone who sees it, set standing at peace at once (2017: the mode set 223 of 227
 /// resurrections, played 0), the resurrection's effect and, into portal space, the arrival's (219 of
 /// 227, in that order 216); a second and a half later it is back at the
 /// lifestone it is bound to (or, never bound, the nearest lifestone the world has, else where it
@@ -1211,14 +1211,21 @@ pub fn resurrect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
         return;
     }
     let to = crate::places::resurrection_place(s, world);
-    // Protected for three minutes, the protection added before portal space.
+    // What a death ends goes first, then it is protected for three minutes, before portal space.
+    let stop = crate::effects::resurrected(s, net, world);
     crate::effects::protect(s, net, world, clock);
-    resurrection_look(s, net, world);
+    resurrection_look(s, net, world, &stop);
     crate::places::resurrection_trip(s, net, world, to, clock);
 }
 
-/// For everyone who sees it, a player coming back is set standing at peace and glows.
-fn resurrection_look<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+/// For everyone who sees it, a player coming back is set standing at peace, the appearances of what
+/// its death ended stop, and it glows (2017: in that order, 172 of 227 requests).
+fn resurrection_look<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    stop: &[u32],
+) {
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -1227,6 +1234,11 @@ fn resurrection_look<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Co
         sender: player_stamp(p),
         action: auberean_protocol::physics::Word(crate::combat::mode::PEACE),
     });
+    to_all_seeing(s, net, id, &peace);
+    crate::effects::stop_fx(s, net, world, stop);
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
     let fx = ServerMessage::DoFx(ObjectEvent {
         sender: player_stamp(p),
         action: auberean_protocol::physics::Fx {
@@ -1234,27 +1246,27 @@ fn resurrection_look<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Co
             scalar: 1.0,
         },
     });
-    to_all_seeing(s, net, id, &peace);
     to_all_seeing(s, net, id, &fx);
 }
 
 /// A character that left the world dead, entered where it returns to and at no health, comes back
-/// where it stands: protected, its vitae, health and vigor, alive as far as its client knows,
-/// standing, glowing, playing its return. Its client was never told it was dead, so no box is up
-/// and it asks for nothing. Our choice, on one recording: the one such entry of 434, of a character
-/// that died during its own log-off, 1.43 s after its description and at the place of its two
-/// resurrections before. Logging off with the box up, a client gone while dead and a restart while
-/// dead are unrecorded, and take the same way. It is kept at once, so a server that stops now does
-/// not take its vitae again.
+/// where it stands: what its death ends taken off, protected, its vitae, health and vigor, alive as
+/// far as its client knows, standing, glowing, playing its return. Its client was never told it was
+/// dead, so no box is up and it asks for nothing. Our choice, on one recording: the one such entry
+/// of 434, of a character that died during its own log-off, 1.43 s after its description and at the
+/// place of its two resurrections before. Logging off with the box up, a client gone while dead and
+/// a restart while dead are unrecorded, and take the same way. It is kept at once, so a server that
+/// stops now does not take its vitae again.
 pub fn back_after_entry<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     clock: Clock,
 ) {
+    let stop = crate::effects::resurrected(s, net, world);
     crate::effects::protect(s, net, world, clock);
     returns(s, net, world);
-    resurrection_look(s, net, world);
+    resurrection_look(s, net, world, &stop);
     returned(s, net, world);
     crate::world::keep_player(s, world);
 }

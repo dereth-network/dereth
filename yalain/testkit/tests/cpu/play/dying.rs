@@ -862,3 +862,115 @@ fn a_creatures_strike_reaches_its_target_by_its_skill() {
     assert!((at(7, 0, true) - 0.71 * 1.6).abs() < 1e-9);
     assert!((at(7, 0x4100_0077, true) - 0.71 * 1.444).abs() < 1e-9);
 }
+
+/// A record of an effect on a player, by hand.
+fn record_on(h: &mut Harness, state: u32, flags: u32, timeout: f32) -> u32 {
+    let cast = h.net.game_time(h.now);
+    let p = h.server.players.values_mut().next().expect("the player");
+    let eid = yalain_world::effects::next_eid(p);
+    p.play.effects.push(yalain_world::state::EffectState {
+        eid,
+        state,
+        cast,
+        timeout,
+        caster: 0,
+        spellcraft: 10.0,
+        pk: false,
+        acting: 0,
+        skill: 0,
+        item: 0,
+        flags,
+        categories: 1,
+    });
+    eid
+}
+
+fn records_held(h: &Harness) -> Vec<u32> {
+    let p = h.server.players.values().next().expect("the player");
+    p.play.effects.iter().map(|e| e.eid).collect()
+}
+
+fn word(v: &Value) -> u32 {
+    let Value::Int(i) = v else {
+        panic!("a word: {v:?}")
+    };
+    *i
+}
+
+/// As a resurrection is asked for, the records whose effects a death ends are taken off, and only
+/// then is the protection added; a worn item's record and one a death does not end stay. For all
+/// who see it, it is set standing, what its death ended stops showing, and it glows.
+/// Behaviour: server.death.resurrection-ends-effects
+#[test]
+fn a_resurrection_takes_off_what_a_death_ends_and_keeps_the_rest() {
+    use yalain_testkit::{COURAGE_EFFECT, DASH_EFFECT, EASE_SUFFERING_EFFECT};
+    use yalain_world::effects::{function as effect_fn, TIMED, WORN};
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    let dash = record_on(&mut h, DASH_EFFECT, TIMED, 3000.0);
+    let worn = record_on(&mut h, EASE_SUFFERING_EFFECT, WORN, f32::MAX);
+    let courage = record_on(&mut h, COURAGE_EFFECT, TIMED, 3000.0);
+    let from = h.bots[b].inbox.len();
+    let _ = run_to_death(&mut h, b, from);
+    wait(&mut h, 11.0);
+    assert_eq!(
+        records_held(&h),
+        vec![dash, worn, courage],
+        "a death itself takes nothing off"
+    );
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &server_call(RESURRECT, &[]));
+    h.run(3);
+    let told: Vec<(u32, Vec<Value>)> = calls_of(&h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == effect_fn::REMOVE || *f == effect_fn::ADD)
+        .collect();
+    assert_eq!(told.len(), 2, "one record off, the protection on: {told:?}");
+    assert_eq!(told[0].0, effect_fn::REMOVE);
+    assert_eq!(word(&told[0].1[0]), dash);
+    assert_eq!(told[1].0, effect_fn::ADD);
+    assert_eq!(records_held(&h), vec![worn, courage]);
+    let look: Vec<(&str, u32)> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::SetMode(e) if e.sender.id == me => Some(("set", e.action.0)),
+            ServerMessage::StopFx(e) if e.sender.id == me => Some(("stop", e.action.0)),
+            ServerMessage::DoFx(e) if e.sender.id == me => Some(("effect", e.action.fx)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        look,
+        vec![
+            ("set", 0x4000_0001),
+            ("stop", 0x4100_04CB),
+            ("effect", 0x4100_000F),
+            ("effect", 0x4100_0010)
+        ]
+    );
+}
+
+/// A character that left the world dead loses what its death ends as it comes back, before its
+/// protection, as one resurrected by asking does.
+/// Behaviour: server.death.resurrection-ends-effects
+#[test]
+fn a_character_coming_back_at_its_entry_loses_what_a_death_ends() {
+    use yalain_testkit::{COURAGE_EFFECT, DASH_EFFECT};
+    use yalain_world::effects::{function as effect_fn, TIMED};
+    let mut h = Harness::new();
+    let (b, me) = dead_with_its_box_up(&mut h);
+    let dash = record_on(&mut h, DASH_EFFECT, TIMED, 3000.0);
+    let courage = record_on(&mut h, COURAGE_EFFECT, TIMED, 3000.0);
+    log_off(&mut h, b, me);
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    wait(&mut h, 2.0);
+    let told: Vec<u32> = calls_of(&h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == effect_fn::REMOVE || *f == effect_fn::ADD)
+        .map(|(f, _)| f)
+        .collect();
+    assert_eq!(told, vec![effect_fn::REMOVE, effect_fn::ADD]);
+    assert_eq!(records_held(&h), vec![courage], "not {dash}");
+}

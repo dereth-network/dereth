@@ -68,6 +68,7 @@ what they see, not how it was done.
 - Fixed characters being wiped when their saved state couldn't be read: they're now refused entry.
 - A failed save now keeps your character and retries, and everyone is told.
 - A crash can no longer leave a trade, craft or sale half done.
+- Resurrecting now takes off the buffs a death ends, and keeps auras on.
 
 ## 0.1.2 (2026-11-03)
 

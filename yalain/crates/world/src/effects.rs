@@ -39,7 +39,10 @@
 //! players it reaches (2017: each a record of three minutes, so two run at a time). One who holds a
 //! record from an earlier pulse that this one missed is told (`Effect_PulseMissed`), and its client
 //! shows that record running down. Turning it off takes its pulsed records and its own off; so does
-//! going into portal space.
+//! going into portal space, but for a resurrection's: its auras stay on, and pulse again three
+//! seconds after it is back, beside their own round (2017: 0 of 98 auras off at the 44 requests of
+//! players holding one listed; 129 of 137 returns by players whose pulses came before it pulsed so,
+//! a median 2.97 s after it was told it lives).
 //!
 //! **Lifestone protection.** A player is protected for three minutes as it is resurrected: the
 //! protection is added in the request's tick, before portal space, and its glow (the effect the
@@ -121,6 +124,8 @@ pub const PULSE_FLAGS: u32 = 0xC52;
 /// 95%), then every 121 to 124 seconds (12,036 pulses: quartiles 121.0, 122.4, 123.9).
 pub const PULSE_LEAST: f64 = 121.0;
 pub const PULSE_MOST: f64 = 124.0;
+/// How long after a player is back from a resurrection its auras pulse again.
+pub const AURAS_PULSE_AFTER_RETURN: f64 = 3.0;
 
 /// A creature's change over time: the first tick a share of this after the add, then every so
 /// many seconds (2017, a creature's single change over time: the first 0.1-10.4 s, then 5.7-11.2 s,
@@ -1313,8 +1318,11 @@ pub fn enter<S: Store>(s: &mut Server<S>, net: &ServerNet, world: ConnId, clock:
     }
 }
 
-/// A resurrection takes off the records whose effects a death ends.
-pub fn resurrected<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+/// A resurrection takes off the records whose effects a death ends, as it is asked for (2017: of the
+/// records still running at 227 requests, 1,664 of 1,664 such were gone before the protection's add,
+/// 192 of 192 worn ones and 432 of 432 others stayed). A ride ends as rides end. Returns the
+/// appearances no record shows now, for the caller to stop when they are due.
+pub fn resurrected<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) -> Vec<u32> {
     let gone: Vec<u32> = s.players.get(&world).map_or_else(Vec::new, |p| {
         p.play
             .effects
@@ -1329,12 +1337,16 @@ pub fn resurrected<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
             .map(|e| e.eid)
             .collect()
     });
+    let mut stop = Vec::new();
     for eid in gone {
         // A ride ends as rides end.
         if !crate::mounts::record_ends(s, net, world, eid) {
-            remove(s, net, world, eid);
+            if let Some(Some(fx)) = take_off(s, net, On::Player(world), eid) {
+                stop.push(fx);
+            }
         }
     }
+    stop
 }
 
 /// The effect registry a session start carries: the records, the id counter, each class's top
@@ -1688,16 +1700,56 @@ pub fn pulse<S: Store>(
     eid: u32,
     clock: Clock,
 ) {
+    if !pulse_once(s, net, world, eid, clock) {
+        return;
+    }
+    let wait = f64::from(s.rng.between(0.0, 1.0));
+    s.after(
+        clock,
+        PULSE_LEAST + wait * (PULSE_MOST - PULSE_LEAST),
+        Timer::AuraPulse { world, eid },
+    );
+}
+
+/// Three seconds after a player is back from a resurrection, each aura it held through it pulses
+/// beside its own round.
+pub fn auras_pulse_again<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    clock: Clock,
+) {
+    let held: Vec<u32> = s.players.get(&world).map_or_else(Vec::new, |p| {
+        p.play
+            .effects
+            .iter()
+            .filter(|e| e.flags == AURA_FLAGS)
+            .map(|e| e.eid)
+            .collect()
+    });
+    for eid in held {
+        pulse_once(s, net, world, eid, clock);
+    }
+}
+
+/// One pulse of an aura, without its next: false if it is no longer on.
+fn pulse_once<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    eid: u32,
+    clock: Clock,
+) -> bool {
     let Some(aura) = s
         .players
         .get(&world)
         .and_then(|p| p.play.effects.iter().find(|e| e.eid == eid))
         .copied()
     else {
-        return;
+        return false;
     };
     let Some(a) = aura_def(s, aura.state) else {
-        return;
+        return false;
     };
     let reached = pulse_reaches(s, world, &a);
     for to in &reached {
@@ -1727,12 +1779,7 @@ pub fn pulse<S: Store>(
     for (to, eids) in missed {
         progress::private(net, to, &pulse_missed_call(&eids));
     }
-    let wait = f64::from(s.rng.between(0.0, 1.0));
-    s.after(
-        clock,
-        PULSE_LEAST + wait * (PULSE_MOST - PULSE_LEAST),
-        Timer::AuraPulse { world, eid },
-    );
+    true
 }
 
 /// Turn an aura off: the records of its pulses its user holds, oldest first, then its own; the
@@ -1775,8 +1822,8 @@ pub fn aura_off<S: Store>(
     stop
 }
 
-/// A player goes into portal space: every aura it holds turns off (its toggle, its records, the
-/// appearances they showed).
+/// A player goes into portal space, other than to come back from its death: every aura it holds
+/// turns off (its toggle, its records, the appearances they showed).
 pub fn auras_off<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let held: Vec<EffectState> = s.players.get(&world).map_or_else(Vec::new, |p| {
         p.play

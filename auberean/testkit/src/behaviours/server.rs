@@ -643,6 +643,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.auras.through-a-resurrection",
+        says: "A resurrection's trip through portal space turns no aura off, and three seconds \
+               after the player is back each aura it holds pulses once, beside its own round.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-AURAS-THROUGH-RESURRECTION"),
+        station: "yalain-testkit::cpu::play::auras::a_resurrection_leaves_auras_on_and_they_pulse_again_as_it_comes_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.auras.turned-off",
         says: "A toggled skill used while its aura is on turns it off at once: attacking, the \
                use over, the toggle off, the pulses' records then the aura's taken off, the \
@@ -2098,6 +2107,18 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-RESURRECT"),
         station: "yalain-testkit::cpu::play::dying::a_dead_player_is_resurrected_with_three_quarters_of_its_health",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.death.resurrection-ends-effects",
+        says: "As a resurrection is asked for, or a character that left the world dead comes back, \
+               the records of effects a death ends are taken off, before the protection is added. \
+               A worn item's record and those of other effects stay. A death itself takes nothing \
+               off. Everyone who sees the player sees it set standing, what was taken off stop \
+               showing, and it glow. One recording shows the coming back; all others are requests.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-RESURRECTION-ENDS-EFFECTS"),
+        station: "yalain-testkit::cpu::play::dying::a_resurrection_takes_off_what_a_death_ends_and_keeps_the_rest",
         tier: Tier::Cpu,
     },
     behaviour! {

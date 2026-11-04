@@ -441,6 +441,59 @@ fn going_into_portal_space_turns_auras_off() {
     ));
 }
 
+/// A resurrection's portal space turns no aura off. Its pulse's record goes at the request, as what a
+/// death ends, and three seconds after the player is back the aura pulses again.
+/// Behaviour: server.auras.through-a-resurrection
+#[test]
+fn a_resurrection_leaves_auras_on_and_they_pulse_again_as_it_comes_back() {
+    let mut h = Harness::new();
+    let (b, me) = armed(&mut h, "one", "Elara");
+    turned_on(&mut h, b);
+    let world = player_conn(&h, me);
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, None, clock);
+    let t = h.now.0 + 11.0;
+    while h.now.0 < t {
+        h.step();
+    }
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(yalain_world::death::player_fn::RESURRECT, &[]),
+    );
+    assert!(h.run_until(400, |h| h.server.players[&world].dying.is_none()));
+    let back = h.now.0;
+    assert!(effects::aura_held(&h.server, world, ESPIRIT_AURA).is_some());
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .all(|(f, _)| *f != effect_fn::TOGGLE),
+        "its toggle stays on"
+    );
+    assert!(
+        h.server.players[&world]
+            .play
+            .effects
+            .iter()
+            .all(|e| e.flags != PULSE_FLAGS),
+        "its pulses went at the request"
+    );
+    while h.now.0 < back + 2.9 {
+        h.step();
+    }
+    let mark = h.bots[b].inbox.len();
+    while h.now.0 < back + 3.2 {
+        h.step();
+    }
+    assert!(
+        calls_of(&h, b, mark)
+            .iter()
+            .any(|(f, _)| *f == effect_fn::ADD),
+        "pulsed again"
+    );
+}
+
 fn player_conn(h: &Harness, me: u64) -> yalain_net::ConnId {
     h.server
         .players

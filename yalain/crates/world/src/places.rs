@@ -1728,6 +1728,18 @@ fn enter_portal_space<S: Store>(
     world: ConnId,
     teleport_fx: bool,
 ) {
+    goes_into_portal_space(s, net, world, teleport_fx);
+    // Auras go off as the player goes into portal space.
+    crate::effects::auras_off(s, net, world);
+}
+
+/// The player goes into portal space: its effects, its animation and movement frozen.
+fn goes_into_portal_space<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    teleport_fx: bool,
+) {
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
@@ -1771,8 +1783,6 @@ fn enter_portal_space<S: Store>(
         BlobKind::PRIVATE,
         &portal_space(function::ENTER_PORTAL_SPACE),
     );
-    // Auras go off as the player goes into portal space.
-    crate::effects::auras_off(s, net, world);
 }
 
 /// Bind a player to the lifestone it used.
@@ -1989,7 +1999,8 @@ pub fn resurrection_trip<S: Store>(
     to: StoredPosition,
     clock: Clock,
 ) {
-    enter_portal_space(s, net, world, false);
+    // Its auras stay on (2017: 0 of 98 went off at the 44 requests of a player holding some).
+    goes_into_portal_space(s, net, world, false);
     if let Some(p) = s.players.get_mut(&world) {
         p.trip = Some(Trip {
             to,
@@ -2239,6 +2250,11 @@ fn arrive<S: Store>(
     }
     if trip.resurrect {
         crate::death::returned(s, net, world);
+        s.after(
+            clock,
+            crate::effects::AURAS_PULSE_AFTER_RETURN,
+            crate::Timer::AurasPulseAgain { world },
+        );
     }
     if let Some(u) = trip.used.as_ref().filter(|u| u.target != 0) {
         // An item used on an object: the use answered, as the object's work is done (a vault's

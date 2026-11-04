@@ -503,6 +503,8 @@ pub enum Timer {
     CreatureEffectTick { creature: u64, eid: u32, since: f64 },
     /// A player's aura (its record's id) pulses.
     AuraPulse { world: ConnId, eid: u32 },
+    /// Back from a resurrection, the auras it held pulse again.
+    AurasPulseAgain { world: ConnId },
     /// The next step of a player's craft.
     Craft { world: ConnId, step: craft::Step },
     /// A player's day of craft experience may be over.
@@ -823,6 +825,9 @@ impl<S: Store> Server<S> {
                     since,
                 } => effects::creature_tick(self, net, creature, eid, since, clock),
                 Timer::AuraPulse { world, eid } => effects::pulse(self, net, world, eid, clock),
+                Timer::AurasPulseAgain { world } => {
+                    effects::auras_pulse_again(self, net, world, clock);
+                }
                 Timer::Craft { world, step } => craft::step(self, net, world, step, clock),
                 Timer::CraftDay { world } => craft::day_due(self, net, world, clock),
                 Timer::Butcher { world, work } => butchery::done(self, net, world, &work),
