@@ -96,6 +96,8 @@ pub(crate) struct Manager {
     pub object_clean: VecDeque<(Listener, Handle, u32)>,
     /// Elements by name, oldest first.
     pub by_name: HashMap<Token, Vec<Handle>>,
+    /// The use key is down.
+    pub use_down: bool,
     /// The left button is down; where it last went down.
     pub left_down: bool,
     pub press_x: i32,
@@ -609,6 +611,9 @@ impl Ui {
     /// element took it.
     // D2-11198, D2-11199
     pub fn key(&mut self, key: u32, down: bool) -> bool {
+        if key == key_id::USE {
+            self.mgr.use_down = down;
+        }
         let used = match (self.mgr.active, key) {
             (Some(a), key_id::LEFT | key_id::RIGHT | key_id::UP | key_id::DOWN | key_id::USE) => {
                 self.element_key(a, key, down)

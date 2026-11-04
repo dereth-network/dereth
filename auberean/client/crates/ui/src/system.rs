@@ -1125,7 +1125,8 @@ impl Ui {
             self.deactivate_element(h);
             return;
         }
-        if after && n.bool_attr(attr::ACTIVATE_ON_SHOW) {
+        // The use key held (it may be what showed this) would press what took the keyboard.
+        if after && n.bool_attr(attr::ACTIVATE_ON_SHOW) && !self.mgr.use_down {
             self.activate_element(h);
         }
     }

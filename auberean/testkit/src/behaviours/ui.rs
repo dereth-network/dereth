@@ -677,6 +677,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.element.the-use-key-held-keeps-a-shown-element-off-the-keyboard",
+        says: "An element shown with activate_on_show takes the keyboard, unless the use key is \
+               held.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-USE-HELD"),
+        station: "auberean-ui::cpu::text::the_use_key_held_keeps_a_shown_element_off_the_keyboard",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.examination.a-countdown-shows-the-time-left-the-clock-keeps-current",
         says: "A countdown line of an examination profile shows the time left until its end (a game \
                time) in the string table's words, with the journal's least months, days and minutes \

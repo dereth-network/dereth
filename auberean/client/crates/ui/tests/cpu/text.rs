@@ -734,6 +734,37 @@ fn a_character_the_font_lacks_switches_to_a_fallback_font() {
     assert_eq!(font(&u, bare), 0, "an element without a font keeps none");
 }
 
+/// An element shown with `activate_on_show` takes the keyboard, unless the use key is held: it may
+/// be what showed the element, and letting it go would press what took the keyboard.
+///
+/// Behaviour: ui.element.the-use-key-held-keeps-a-shown-element-off-the-keyboard
+#[test]
+fn the_use_key_held_keeps_a_shown_element_off_the_keyboard() {
+    use auberean_ui::types::key_id;
+    let mut u = ui(
+        vec![text(
+            "Entry",
+            [10, 20, 109, 39],
+            vec![
+                ("editable", V::Bool(true)),
+                ("activate_on_show", V::Bool(true)),
+            ],
+        )],
+        vec![],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    let entry = u.create_root(l, Token::of("Entry")).unwrap();
+    u.set_visible(entry, false);
+    u.deactivate();
+    u.key(key_id::USE, true);
+    u.set_visible(entry, true);
+    assert_eq!(u.active(), None, "held, it stays off the keyboard");
+    u.key(key_id::USE, false);
+    u.set_visible(entry, false);
+    u.set_visible(entry, true);
+    assert_eq!(u.active(), Some(entry), "let go, it takes the keyboard");
+}
+
 /// An editable entry that takes the keyboard turns the host's input method on over the part of it
 /// that shows, in its font and color, and giving the keyboard up turns it off; an entry marked
 /// `no_IME` never turns it on.
