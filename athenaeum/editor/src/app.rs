@@ -5,8 +5,9 @@
 //! **In the world.** The right button held turns the camera; W, A, S, D fly it, E rises and Q
 //! sinks, the wheel changes its speed. A click on a marker selects its row; dragging it moves the
 //! row over the ground. R turns the selected row a step to the right (with Shift, to the left),
-//! Delete takes it away, F flies to it, Escape lets it go. T sends the character playing on the
-//! editor's own Yalain to the camera. Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes.
+//! Delete or Backspace takes it away, F flies to it, Escape lets it go. T sends the character
+//! playing on the editor's own Yalain to the camera. Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes
+//! (Cmd on macOS, as well).
 //!
 //! **The panels.** Along the top: save, undo and redo; what to place (a person, an object, a camp
 //! or a place, and its template) and the button that places it at the next click on the ground;
@@ -818,7 +819,8 @@ impl<'w> Editor<'w> {
                         }
                     }
                     KeyCode::KeyT if !input.ctrl => self.teleport_to_camera(),
-                    KeyCode::Delete => self.delete_selected(),
+                    // A Mac's keyboard calls Backspace delete.
+                    KeyCode::Delete | KeyCode::Backspace => self.delete_selected(),
                     KeyCode::Escape => {
                         self.tool = Tool::Select;
                         self.drag = None;

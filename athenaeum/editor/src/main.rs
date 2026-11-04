@@ -70,6 +70,7 @@ struct Options {
     at: Option<(u16, Option<(f32, f32)>)>,
     size: (u32, u32),
     scale: f32,
+    scale_chosen: bool,
     programs: live::Programs,
     script: Option<PathBuf>,
     shots: Option<PathBuf>,
@@ -87,7 +88,7 @@ athenaeum-editor <world> --dats <install> [options]
   --pack NAME           the pack edits go into (default: the world's last)
   --at XXYY[:X,Y]       start over landblock XXYY (hex), at X,Y in it (default 80,80)
   --size WxH            the window's size (default 1600x900)
-  --scale S             the panels' scale (default 1)
+  --scale S             the panels' scale (default: the screen's)
   --yalain EXE          the Yalain that plays the world (default: the one beside this program)
   --server-dats DIR     the install Yalain reads (default: --dats; give a copy no client runs
                         from when the retail client plays)
@@ -151,7 +152,10 @@ fn options_from(args: impl IntoIterator<Item = String>) -> Result<Options, Strin
                     h.parse().map_err(|e| format!("--size: {e}"))?,
                 );
             }
-            "--scale" => o.scale = value()?.parse().map_err(|e| format!("--scale: {e}"))?,
+            "--scale" => {
+                o.scale = value()?.parse().map_err(|e| format!("--scale: {e}"))?;
+                o.scale_chosen = true;
+            }
             "--yalain" => o.programs.yalain = Some(PathBuf::from(value()?)),
             "--server-dats" => o.programs.server_dats = Some(PathBuf::from(value()?)),
             "--client" => o.programs.client = Some(PathBuf::from(value()?)),
@@ -205,9 +209,21 @@ struct App<'w> {
     last: f64,
     failed: Option<String>,
     quit: bool,
+    /// The command line chose the panels' scale.
+    scale_chosen: bool,
 }
 
 impl App<'_> {
+    /// The panels at the screen's scale, unless the command line chose one.
+    fn follow_scale(&mut self, scale: f64) {
+        if !self.scale_chosen {
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                self.gui.scale = scale as f32;
+            }
+        }
+    }
+
     /// Run the steps a script has due.
     fn script(&mut self, now: f64) {
         let Some(s) = &mut self.script else {
@@ -411,7 +427,7 @@ impl ApplicationHandler for App<'_> {
         let (w, h) = self.editor.size;
         let attrs = icon::with_icon(Window::default_attributes())
             .with_title("Athenaeum")
-            .with_inner_size(winit::dpi::PhysicalSize::new(w, h));
+            .with_inner_size(window_size_for((w, h)));
         let window = match el.create_window(attrs) {
             Ok(w) => Arc::new(w),
             Err(e) => {
@@ -435,6 +451,7 @@ impl ApplicationHandler for App<'_> {
         if let Some(p) = &mut self.present {
             p.resize(size.width, size.height);
         }
+        self.follow_scale(window.scale_factor());
         self.window = Some(window);
     }
 
@@ -442,6 +459,9 @@ impl ApplicationHandler for App<'_> {
         self.gui.event(&event);
         match &event {
             WindowEvent::CloseRequested => self.editor.ask_close(),
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                self.follow_scale(*scale_factor);
+            }
             WindowEvent::Resized(s) => {
                 if let Some(p) = &mut self.present {
                     p.resize(s.width, s.height);
@@ -465,7 +485,7 @@ impl ApplicationHandler for App<'_> {
                 }
             }
             WindowEvent::ModifiersChanged(m) => {
-                self.input.ctrl = m.state().control_key();
+                self.input.ctrl = gui::command_key(m.state());
                 self.input.shift = m.state().shift_key();
             }
             WindowEvent::MouseInput { state, button, .. } => {
@@ -515,6 +535,16 @@ impl ApplicationHandler for App<'_> {
         if let Some(w) = &self.window {
             w.request_redraw();
         }
+    }
+}
+
+/// The window to ask for: on macOS a window goes by points, of which a Retina screen has two pixels
+/// to one; elsewhere by the screen's pixels.
+fn window_size_for(size: (u32, u32)) -> winit::dpi::Size {
+    if cfg!(target_os = "macos") {
+        winit::dpi::LogicalSize::new(size.0, size.1).into()
+    } else {
+        winit::dpi::PhysicalSize::new(size.0, size.1).into()
     }
 }
 
@@ -701,6 +731,7 @@ fn run() -> Result<(), String> {
         last: 0.0,
         failed: None,
         quit: false,
+        scale_chosen: o.scale_chosen,
     };
     let el = EventLoop::new().map_err(|e| e.to_string())?;
     el.set_control_flow(ControlFlow::Poll);

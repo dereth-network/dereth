@@ -36,6 +36,12 @@ fn fonts() -> egui::FontDefinitions {
     f
 }
 
+/// Whether the key shortcuts are held for is down: Cmd on macOS as well as Ctrl.
+#[must_use]
+pub fn command_key(m: winit::keyboard::ModifiersState) -> bool {
+    m.control_key() || (cfg!(target_os = "macos") && m.super_key())
+}
+
 /// A physical key by its name (`KeyR`, `Delete`, `Digit1`), for the keys [`key_of`] knows.
 #[must_use]
 pub fn key_named(name: &str) -> Option<KeyCode> {
@@ -296,8 +302,8 @@ impl Gui {
                     alt: st.alt_key(),
                     ctrl: st.control_key(),
                     shift: st.shift_key(),
-                    mac_cmd: false,
-                    command: st.control_key(),
+                    mac_cmd: cfg!(target_os = "macos") && st.super_key(),
+                    command: command_key(st),
                 };
                 self.events
                     .push(egui::Event::ModifiersChanged(self.modifiers));
@@ -315,7 +321,7 @@ impl Gui {
                         });
                     }
                 }
-                if pressed && !self.modifiers.ctrl {
+                if pressed && !self.modifiers.ctrl && !self.modifiers.command {
                     if let Some(t) = event
                         .text
                         .as_ref()

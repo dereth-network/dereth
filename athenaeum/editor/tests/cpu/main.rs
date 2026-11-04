@@ -205,3 +205,14 @@ fn a_script_clicks_and_drags_in_stages_a_frame_can_see() {
     assert_eq!(steps[12], Step::Key("KeyR".into(), true, false));
     assert_eq!(steps[13], Step::Type("a b".into()));
 }
+
+#[test]
+fn the_shortcuts_key_is_ctrl_and_on_a_mac_cmd_too() {
+    use winit::keyboard::ModifiersState as M;
+    assert!(athenaeum_editor::gui::command_key(M::CONTROL));
+    assert_eq!(
+        athenaeum_editor::gui::command_key(M::SUPER),
+        cfg!(target_os = "macos")
+    );
+    assert!(!athenaeum_editor::gui::command_key(M::SHIFT));
+}

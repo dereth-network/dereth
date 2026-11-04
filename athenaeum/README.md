@@ -75,13 +75,13 @@ templates look, a camp's creature at its middle with its reach drawn round it, a
 to where it leads.
 
 - Click a marker (or a row in the list on the left) to select it; its fields are on the right.
-- Drag a marker to move its row over the ground; R turns it (Shift+R the other way); Delete takes
-  it away; F flies to it.
+- Drag a marker to move its row over the ground; R turns it (Shift+R the other way); Delete or
+  Backspace takes it away; F flies to it.
 - **Place**, with a kind and a template along the top, puts a new row at the next click on the
   ground.
 - A row of the database is never written: changing one writes this world's own row of its key,
   shown as changed, with what it was and **Put back**; taking one away writes a `[[remove]]`.
-- Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes. The world's problems are listed along the bottom as
+- Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes (Cmd on macOS, as well). The world's problems are listed along the bottom as
   the server's check finds them.
 - T sends the character playing on Live to the camera.
 
