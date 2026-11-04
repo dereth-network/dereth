@@ -223,6 +223,7 @@ pub fn ensure<S: Store>(s: &mut Server<S>) -> bool {
     let read = read.unwrap_or_default();
     s.market.list = read.list;
     s.market.next_sale = read.next_sale;
+    s.market.item_states.clone_from(&read.item_states);
     s.market.loaded = true;
     let items: Vec<Consignment> = s.market.list.clone();
     for c in items {
@@ -249,13 +250,21 @@ fn keep<S: Store>(s: &mut Server<S>) {
     if !s.market.loaded {
         return;
     }
+    // An item its template no longer makes is not in the world: as it was last kept.
     s.market.item_states = s
         .market
         .list
         .iter()
         .filter(|c| c.sold < c.offered)
-        .filter_map(|c| s.things.get(c.item))
-        .map(crate::state::ItemState::of)
+        .filter_map(|c| match s.things.get(c.item) {
+            Some(t) => Some(crate::state::ItemState::of(t)),
+            None => s
+                .market
+                .item_states
+                .iter()
+                .find(|k| k.id == c.item)
+                .cloned(),
+        })
         .collect();
     let b = s.market.to_bytes();
     s.saves.hold_record(RECORD, b);
@@ -690,6 +699,10 @@ pub fn sell<S: Store>(
         return;
     };
     let quantity = quantity.clamp(1, held.quantity.max(1));
+    // A part of a stack goes as a new item, which only its template can make.
+    if quantity < held.quantity && s.catalog.get(held.template).is_none() {
+        return;
+    }
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let charge = ((f64::from(quantity) * f64::from(price) * CHARGE).ceil() as u32).max(1);
     let money = store::money(&p.qualities);
@@ -816,12 +829,43 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
         }
     } else {
         let left = c.offered.saturating_sub(c.sold);
+        // A sold item is its buyer's, and its price stays to be collected. What comes back needs
+        // its template to be made from and a place in the pack. Anything else leaves the sale up.
+        let made = s.catalog.get(c.template).is_some();
+        let room = s
+            .players
+            .get(&world)
+            .is_some_and(|p| inventory::fits_in_pack(&p.play.items, 1));
+        let refused = if left == 0 || !made {
+            Some(store::error::COLLECT_FAILED)
+        } else if room {
+            None
+        } else {
+            Some(store::error::NO_ROOM)
+        };
+        if let Some(error) = refused {
+            let m = call(store::function::REQUEST_DONE, &[Arg::Int(error)]);
+            progress::private(net, world, &m);
+            let m = consignment_message(s, function::UPDATE_CONSIGNMENT, me, keeper);
+            progress::private(net, world, &m);
+            return;
+        }
         s.market.list.remove(i);
         let stamp = s
             .things
             .get(c.item)
             .map(|t| ObjectOnly(inventory::stamp_of_thing(t)));
-        let kept = s.things.get(c.item).map(crate::state::ItemState::of);
+        let kept = s
+            .things
+            .get(c.item)
+            .map(crate::state::ItemState::of)
+            .or_else(|| {
+                s.market
+                    .item_states
+                    .iter()
+                    .find(|k| k.id == c.item)
+                    .cloned()
+            });
         s.things.remove(c.item);
         if let Some(stamp) = stamp {
             net.send(
@@ -831,9 +875,7 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
                 ServerMessage::ForgetObject(stamp).encode(),
             );
         }
-        if left > 0 {
-            inventory::collected(s, net, world, c.template, left, keeper, kept.as_ref());
-        }
+        inventory::collected(s, net, world, c.template, left, keeper, kept.as_ref());
     }
     keep(s);
     let m = consignment_message(s, function::UPDATE_CONSIGNMENT, me, keeper);
@@ -906,7 +948,8 @@ pub fn purchase<S: Store>(
         progress::private(net, world, &m);
         return true;
     }
-    if left == 0 {
+    // An item its template no longer makes isn't in the world to be bought.
+    if left == 0 || s.things.get(item).is_none() {
         progress::private(
             net,
             world,

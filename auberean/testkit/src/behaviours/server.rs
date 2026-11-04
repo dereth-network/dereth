@@ -4586,6 +4586,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.a-consignment-comes-back-only-unsold-with-room-and-its-template",
+        says: "A consignment comes back to its seller only unsold, with a place in the pack \
+               and its template in the world; anything else is answered and leaves the sale \
+               up and whole. A sold item stays its buyer's, its price still to be \
+               collected. A sale of a template the world no longer holds isn't bought, and \
+               part of a stack of one isn't put up.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-TAKE-BACK"),
+        station: "yalain-testkit::cpu::play::market::a_sold_consignment_stays_up_with_its_price_and_its_buyers_item_stays_whole",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.catalog-consignments-and-player-sales",
         says: "Using a broker answers the use, then shows its catalog; an item put up for sale \
                takes a hundredth of what it would fetch, moves to the broker and shows the \

@@ -563,3 +563,276 @@ fn a_brokers_dealings_need_reach_and_room() {
     assert_eq!(yalain_world::store::money(&p.qualities), 5_000, "not paid");
     assert_eq!(h.server.market.list[0].sold, 0, "not sold");
 }
+
+fn world_of(h: &Harness, id: u64) -> yalain_net::ConnId {
+    *h.server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == id)
+        .expect("in the world")
+        .0
+}
+
+/// The error of the last store answer a player has had since `from`.
+fn last_error(h: &Harness, b: usize, from: usize) -> Option<u32> {
+    h.calls(b, from)
+        .iter()
+        .rev()
+        .find(|(f, _)| *f == yalain_world::store::function::REQUEST_DONE)
+        .and_then(|(_, args)| match args.first() {
+            Some(yalain_world::calls::Value::Int(e)) => Some(*e),
+            _ => None,
+        })
+}
+
+/// A sold consignment stays to be collected: it comes back to no one, its buyer's item stays
+/// whole, and its price is paid when it is asked for.
+/// Behaviour: server.market.a-consignment-comes-back-only-unsold-with-room-and-its-template
+#[test]
+fn a_sold_consignment_stays_up_with_its_price_and_its_buyers_item_stays_whole() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    money(&mut h, ida, 1_000);
+    money(&mut h, idb, 5_000);
+    let sword = put_up_a_made_item(&mut h, a, ida);
+    let mut g = Builder::new();
+    g.object(
+        0x1B76,
+        &[
+            Slot::Long(sword),
+            Slot::Ref(None),
+            Slot::Long(idb),
+            Slot::Int(1),
+            Slot::Long(BROKER),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    h.ask(b, PURCHASE, &[Arg::Object(g.graph())], 10);
+    let sale = h.server.market.list[0].sale;
+    let wa = world_of(&h, ida);
+    let held = h.server.players[&wa].play.items.len();
+    let from = h.bots[a].inbox.len();
+    h.ask(
+        a,
+        function::COLLECT,
+        &[Arg::Int(0), Arg::Int(sale), Arg::LongInt(BROKER)],
+        10,
+    );
+    assert_eq!(
+        last_error(&h, a, from),
+        Some(yalain_world::store::error::COLLECT_FAILED)
+    );
+    assert!(h.functions(a, from).contains(&function::UPDATE_CONSIGNMENT));
+    assert_eq!(h.server.market.list.len(), 1, "stays up");
+    assert_eq!(h.server.players[&wa].play.items.len(), held);
+    let t = h.server.things.get(sword).expect("still the buyer's");
+    assert_eq!(t.value, 41);
+    assert_eq!(t.own.made.and_then(|m| m.armor), Some(33));
+    let wb = world_of(&h, idb);
+    yalain_world::world::keep_player(&mut h.server, wb);
+    let st = yalain_world::saves::state_of(&mut h.server, idb)
+        .expect("reads")
+        .expect("kept with its buyer");
+    let play = yalain_world::state::PlayState::from_bytes(&st.play).expect("reads");
+    assert!(play.item_states.iter().any(|k| k.id == sword));
+    // Its price is still there.
+    h.ask(
+        a,
+        function::COLLECT,
+        &[Arg::Int(1), Arg::Int(sale), Arg::LongInt(BROKER)],
+        10,
+    );
+    assert!(h.server.market.list.is_empty());
+    assert!(h.server.things.get(sword).is_some());
+}
+
+/// An unsold consignment stays up while its seller's pack has no place for it, and comes back when
+/// it has.
+/// Behaviour: server.market.a-consignment-comes-back-only-unsold-with-room-and-its-template
+#[test]
+fn an_unsold_consignment_stays_up_until_its_sellers_pack_has_room() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 1_000);
+    put_up_a_made_item(&mut h, a, ida);
+    let w = world_of(&h, ida);
+    let room = yalain_world::inventory::PACK_ROOM as usize;
+    while h.server.players[&w].play.items.len() < room {
+        yalain_world::inventory::give(&mut h.server, &mut h.net, w, GEM, 1);
+    }
+    let sale = h.server.market.list[0].sale;
+    let collect = [Arg::Int(0), Arg::Int(sale), Arg::LongInt(BROKER)];
+    let from = h.bots[a].inbox.len();
+    h.ask(a, function::COLLECT, &collect, 10);
+    assert_eq!(
+        last_error(&h, a, from),
+        Some(yalain_world::store::error::NO_ROOM)
+    );
+    assert_eq!(h.server.market.list.len(), 1, "stays up");
+    assert_eq!(h.server.players[&w].play.items.len(), room);
+    // A place made, it comes back whole.
+    let one = h.server.players[&w].play.items[0].id;
+    yalain_world::inventory::take_item(&mut h.server, &mut h.net, w, one, GEM);
+    h.ask(a, function::COLLECT, &collect, 10);
+    assert!(h.server.market.list.is_empty());
+    let p = &h.server.players[&w];
+    assert_eq!(p.play.items.len(), room);
+    assert!(p
+        .play
+        .items
+        .iter()
+        .all(|i| i.slot < yalain_world::inventory::PACK_ROOM));
+    assert!(p
+        .play
+        .items
+        .iter()
+        .any(|i| h.server.things.get(i.id).is_some_and(|t| t.value == 41)));
+}
+
+/// A sale of a template the world no longer holds stays up, kept whole: it comes back to its seller
+/// once the template does, what it held of its own with it, whatever else was kept meanwhile.
+/// Behaviour: server.market.a-consignment-comes-back-only-unsold-with-room-and-its-template
+#[test]
+fn a_consignment_whose_template_has_gone_stays_up_and_comes_back_whole_when_it_returns() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 1_000);
+    let sword = put_up_a_made_item(&mut h, a, ida);
+    let sale = h.server.market.list[0].sale;
+    let w = world_of(&h, ida);
+    let collect = [Arg::Int(0), Arg::Int(sale), Arg::LongInt(BROKER)];
+    // In the same running world.
+    let whole = std::mem::take(&mut h.server.catalog);
+    let from = h.bots[a].inbox.len();
+    h.ask(a, function::COLLECT, &collect, 10);
+    assert_eq!(
+        last_error(&h, a, from),
+        Some(yalain_world::store::error::COLLECT_FAILED)
+    );
+    assert_eq!(h.server.market.list.len(), 1, "stays up");
+    assert!(
+        h.server.things.get(sword).is_some(),
+        "still with its broker"
+    );
+    // Across a restart with it gone: not in the world, and a save of the market keeps it.
+    restart_the_market(&mut h, sword);
+    assert!(h.server.things.get(sword).is_none());
+    let from = h.bots[a].inbox.len();
+    h.ask(a, function::COLLECT, &collect, 10);
+    assert_eq!(
+        last_error(&h, a, from),
+        Some(yalain_world::store::error::COLLECT_FAILED)
+    );
+    h.ask(
+        a,
+        function::COLLECT,
+        &[Arg::Int(1), Arg::Int(sale), Arg::LongInt(BROKER)],
+        10,
+    );
+    assert_eq!(h.server.market.list.len(), 1, "still up");
+    // The template back.
+    h.server.catalog = whole;
+    restart_the_market(&mut h, sword);
+    h.ask(a, function::COLLECT, &collect, 10);
+    assert!(h.server.market.list.is_empty());
+    let back = h.server.players[&w]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == GEM)
+        .expect("back in the pack");
+    let t = h.server.things.get(back.id).expect("in the world");
+    assert_eq!(t.value, 41);
+    assert_eq!(t.own.made.and_then(|m| m.armor), Some(33));
+    assert_eq!(t.crafter.as_deref(), Some("Seller"));
+}
+
+/// A sale of a template the world no longer holds is not sold: nothing is paid and nothing moves.
+/// Behaviour: server.market.a-consignment-comes-back-only-unsold-with-room-and-its-template
+#[test]
+fn a_sale_whose_template_has_gone_is_not_bought_or_paid_for() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    money(&mut h, ida, 1_000);
+    money(&mut h, idb, 5_000);
+    let sword = put_up_a_made_item(&mut h, a, ida);
+    h.server.catalog = yalain_content::Catalog::default();
+    restart_the_market(&mut h, sword);
+    let wb = world_of(&h, idb);
+    let held = h.server.players[&wb].play.items.len();
+    let mut g = Builder::new();
+    g.object(
+        0x1B76,
+        &[
+            Slot::Long(sword),
+            Slot::Ref(None),
+            Slot::Long(idb),
+            Slot::Int(1),
+            Slot::Long(BROKER),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    let from = h.bots[b].inbox.len();
+    h.ask(b, PURCHASE, &[Arg::Object(g.graph())], 10);
+    assert_eq!(
+        last_error(&h, b, from),
+        Some(yalain_world::store::error::NOT_FOUND)
+    );
+    assert_eq!(last_money(&h, b, from), None, "nothing paid");
+    assert_eq!(h.server.players[&wb].play.items.len(), held);
+    assert_eq!(h.server.market.list[0].sold, 0);
+}
+
+/// Part of a stack of a template the world no longer holds is not put up: nothing is charged and
+/// the stack stays whole.
+/// Behaviour: server.market.a-consignment-comes-back-only-unsold-with-room-and-its-template
+#[test]
+fn part_of_a_stack_whose_template_has_gone_is_not_put_up() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 1_000);
+    let stack = yalain_world::inventory::make_item(&mut h.server, GEM, 5, 0).expect("made");
+    let w = world_of(&h, ida);
+    h.server
+        .players
+        .get_mut(&w)
+        .expect("in")
+        .play
+        .items
+        .push(yalain_world::state::Held {
+            id: stack,
+            template: GEM,
+            slot: 0,
+            location: 0,
+            quantity: 5,
+        });
+    h.server.catalog = yalain_content::Catalog::default();
+    let from = h.bots[a].inbox.len();
+    h.ask(
+        a,
+        function::SELL,
+        &[
+            Arg::Int(STORE),
+            Arg::Int(100),
+            Arg::Int(2),
+            Arg::LongInt(stack),
+            Arg::LongInt(BROKER),
+        ],
+        10,
+    );
+    assert!(h.server.market.list.is_empty());
+    assert_eq!(last_money(&h, a, from), None, "nothing charged");
+    assert_eq!(h.server.things.get(stack).expect("kept").quantity, 5);
+    assert_eq!(h.server.players[&w].play.items[0].quantity, 5);
+}
