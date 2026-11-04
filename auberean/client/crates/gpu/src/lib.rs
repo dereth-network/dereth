@@ -1837,7 +1837,7 @@ impl Renderer {
         // walk from the camera's cell reaches, the land and its water when a view out was found,
         // the sky with it or with a cell open to it.
         // D2-11042
-        let sight = frame.rooms.as_ref().map(|r| r.sight(cam, aspect));
+        let sight = frame.sight(aspect);
         let outdoors = sight.as_ref().is_none_or(Sight::outdoors);
         let sky_shown = sight.as_ref().is_none_or(Sight::sky);
         let shown = |b: &&ObjectBatch| sight.as_ref().is_none_or(|s| s.shows(b));

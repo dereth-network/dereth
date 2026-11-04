@@ -629,6 +629,12 @@ impl Others {
         }
     }
 
+    /// Object `id`'s entry in the world's table, if it stands in it.
+    pub(crate) fn key_of(&self, id: u64) -> Option<auberean_physics::collision::manager::BodyKey> {
+        let o = self.bodies.get(&id)?;
+        o.key.or_else(|| o.body.as_ref().and_then(|b| b.body.key()))
+    }
+
     /// Object `id`'s body goes: out of the cell it is lost in and out of the world's table.
     // D2-05725, D2-05638
     pub(crate) fn destroy_object(&mut self, id: u64, world: &mut World) {

@@ -684,7 +684,7 @@ impl Placer<'_> {
     }
 
     /// Place one object: a frill is only drawn; anything else is also kept clear.
-    // D2-03677, D2-03643, D2-12446
+    // D2-03677, D2-03643, D2-12446, D2-03891
     fn entity(&mut self, id: DataId, place: &Place, scale: Vec3, frill: bool) {
         if !frill {
             self.clear.push(Clearance {

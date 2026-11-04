@@ -77,6 +77,7 @@ impl SceneBuilder<'_> {
     /// `outside` the day outside: the lights its record lists baked once, the sun on top made
     /// again when the day outside changes; each vertex's lean toward them in the surface's frame,
     /// not yet made a unit (the device adds the kept lights' as they shine at the moment).
+    // D2-03524, D2-03525
     fn lit_cell(
         &mut self,
         id: u32,
@@ -199,7 +200,7 @@ impl SceneBuilder<'_> {
     /// What culls an object standing in cell `cell` made of `parts`, placed by `place`: its box
     /// about every part, twice its size about its middle.
     // D2-03518
-    fn object_cull(&mut self, cell: u16, parts: &[Part], place: &Mat4) -> Cull {
+    pub(crate) fn object_cull(&mut self, cell: u16, parts: &[Part], place: &Mat4) -> Cull {
         let mut lo = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
         let mut hi = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
         for p in parts {
@@ -298,6 +299,7 @@ impl SceneBuilder<'_> {
             f.shadow = None;
             f.clouds = None;
             f.reflection = None;
+            f.look_in = Arc::default();
         }
         if !outlook.sky && !outlook.land {
             f.sky_before.clear();
@@ -353,9 +355,8 @@ impl SceneBuilder<'_> {
     /// block's interior fog distance and keeps it; the others keep the one they last took.
     // D2-03604, D2-03601, D2-03607
     fn rooms(&mut self, spot: &Spot, block: (i32, i32), cell: u16) -> Option<Rooms> {
-        let records = self.records;
         let (bx, by) = block;
-        let home = records.cell(bx, by, cell)?;
+        let home = self.records.cell(bx, by, cell)?;
         #[allow(clippy::cast_sign_loss)]
         let high = ((bx as u32) << 24) | ((by as u32) << 16);
         let lights = self.block_lights(block);
@@ -363,6 +364,26 @@ impl SceneBuilder<'_> {
             high | u32::from(cell),
             lights.as_ref().and_then(|l| l.fog_cut),
         );
+        let mut order = vec![cell];
+        for &c in &home.visible {
+            if !order.contains(&c) {
+                order.push(c);
+            }
+        }
+        let mut rooms = self.block_rooms(spot, block, &order);
+        rooms.stab.clone_from(&home.visible);
+        Some(rooms)
+    }
+
+    /// Cells `order` of block `block`, the first the walk's, as a walk through their doorways takes
+    /// them, placed in the frame of `spot`'s block.
+    // D2-03557
+    pub(crate) fn block_rooms(&mut self, spot: &Spot, block: (i32, i32), order: &[u16]) -> Rooms {
+        let records = self.records;
+        let (bx, by) = block;
+        #[allow(clippy::cast_sign_loss)]
+        let high = ((bx as u32) << 24) | ((by as u32) << 16);
+        let lights = self.block_lights(block);
         let block_len = self.region.land.grid().block_length();
         #[allow(clippy::cast_precision_loss)] // block offsets are a few blocks
         let place = Mat4::translation(Vec3::new(
@@ -370,19 +391,9 @@ impl SceneBuilder<'_> {
             (by - spot.block.1) as f32 * block_len,
             0.0,
         ));
-        let mut order = vec![cell];
-        for &c in &home.visible {
-            if !order.contains(&c) {
-                order.push(c);
-            }
-        }
         let mut cells = std::collections::HashMap::new();
-        for &low in &order {
-            let Some(c) = (if low == cell {
-                Some(home.clone())
-            } else {
-                records.cell(bx, by, low)
-            }) else {
+        for &low in order {
+            let Some(c) = records.cell(bx, by, low) else {
                 continue;
             };
             let Some((mesh, _)) = self.mesh(c.mesh.0) else {
@@ -422,6 +433,7 @@ impl SceneBuilder<'_> {
                     sky: c.flags & CELL_SKY != 0,
                     doorways,
                     shared: c.shared.clone(),
+                    visible: c.visible.clone(),
                     fog_cut: self
                         .fog_cuts
                         .get(&(high | u32::from(low)))
@@ -434,15 +446,16 @@ impl SceneBuilder<'_> {
             .as_ref()
             .map_or(Color::new(1.0, 1.0, 1.0, 1.0), |l| l.fog_paint);
         let mut rooms = Rooms {
-            root: cell,
-            stab: home.visible.clone(),
+            block,
+            root: order.first().copied().unwrap_or(0),
+            stab: Vec::new(),
             cells,
             group_of: std::collections::HashMap::new(),
             groups: Vec::new(),
             fog_color: [paint.r, paint.g, paint.b, paint.a],
         };
-        rooms.make_groups(&order);
-        Some(rooms)
+        rooms.make_groups(order);
+        rooms
     }
 
     /// The objects standing in the interior cell `cell` of block `block` and in the cells it sees

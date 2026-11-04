@@ -272,6 +272,7 @@ impl WorldRecords {
     }
 
     /// The landblock info (placed objects) of block `(x, y)`, if it has one.
+    // D2-03622
     #[must_use]
     pub fn landblock_info(&self, x: i32, y: i32) -> Option<LandblockInfo> {
         let id = block_id(x, y)? | 0xFFFE;

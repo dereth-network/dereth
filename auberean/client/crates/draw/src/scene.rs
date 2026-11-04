@@ -21,6 +21,7 @@ use auberean_world::terrain::{build_block, TerrainBlock};
 use auberean_world::water::BlockWater;
 use dereth_landscape::{Detail, LandblockWindow, SlotAction, WindowSpec};
 
+use crate::cull::LookIn;
 use crate::effects::{entity_place, object_effect_look, PlacedLook};
 use crate::material::{
     device_flags, draw_layers, ground_picture, instance_material, instance_material_with,
@@ -252,6 +253,26 @@ pub enum Cull {
     InCell { cell: u16, lo: Vec3, hi: Vec3 },
     /// An object standing outdoors, its box: drawn when the box meets a view out.
     Box { lo: Vec3, hi: Vec3 },
+    /// An interior cell's own mesh seen from outside, by its block and low word: drawn when a view
+    /// onto the land looks into it.
+    Looked { block: (i32, i32), cell: u16 },
+    /// An object standing in an interior cell seen from outside: drawn when the cell is, and the
+    /// object's box (twice its size about its middle) meets a view the cell was entered by.
+    LookedIn {
+        block: (i32, i32),
+        cell: u16,
+        lo: Vec3,
+        hi: Vec3,
+    },
+    /// A body standing in interior cells of a block, by their low words (0 past the last): drawn
+    /// when one of them is, and the body's box (twice its size about its middle) meets a view that
+    /// cell was entered by.
+    Body {
+        block: (i32, i32),
+        cells: [u16; crate::cull::BODY_CELLS],
+        lo: Vec3,
+        hi: Vec3,
+    },
 }
 
 /// The box about the box from `lo` to `hi` carried by `m`: about its eight corners.
@@ -607,6 +628,8 @@ pub struct Frame {
     /// Inside: the camera's cell and the cells it sees, which the device walks through each
     /// frame to draw only what the doorways show ([`crate::cull::Rooms::sight`]).
     pub rooms: Option<Arc<crate::cull::Rooms>>,
+    /// The blocks' cells a view onto the land may look into.
+    pub look_in: Arc<Vec<crate::cull::LookIn>>,
     /// The dynamic objects' volumes of shadow, drawn after the opaque objects that cast none.
     pub volumes: crate::volume::Volumes,
     /// The decals laid on the ground this frame, drawn after the landscape.
@@ -641,6 +664,22 @@ impl Default for Textures {
 }
 
 impl Frame {
+    /// What the frame shows at the moment, in a picture `aspect` times as wide as it is high: none
+    /// when it draws everything, on the land with no cell to look into.
+    // D2-03646
+    #[must_use]
+    pub fn sight(&self, aspect: f32) -> Option<crate::cull::Sight> {
+        if let Some(rooms) = &self.rooms {
+            let mut sight = rooms.sight(&self.camera, aspect);
+            sight.look_out(&self.look_in);
+            return Some(sight);
+        }
+        (!self.look_in.is_empty()).then(|| {
+            let view = crate::cull::Frustum::of_camera(&self.camera, aspect);
+            crate::cull::Sight::on_land(view, &self.look_in)
+        })
+    }
+
     /// Every draw's layer as it is drawn `t` seconds into the client's run (pictures sliding,
     /// turning and stretching, specular power and alpha reference moving), rolling `rng` for any
     /// noise, in the frame's drawing order.
@@ -1635,6 +1674,7 @@ impl<'a> SceneBuilder<'a> {
         let mut objects = Vec::new();
         let mut placed = Vec::new();
         let mut casters: Vec<(Part, Mat4)> = Vec::new();
+        let mut look_in = Vec::new();
         for &(bx, by) in &wanted {
             #[allow(clippy::cast_precision_loss)]
             let place = Mat4::translation(Vec3::new(
@@ -1668,7 +1708,7 @@ impl<'a> SceneBuilder<'a> {
                         by * cells + floor_to_i32(s.origin.y / cell_len),
                     );
                     // Frills only in the cells about the viewer's, and none when turned off.
-                    // D2-10843, D2-10858
+                    // D2-10843, D2-10858, D2-03855
                     if s.frill
                         && (!self.frills
                             || (cell.0 - viewer_cell.0).abs() > self.frill_radius
@@ -1753,8 +1793,9 @@ impl<'a> SceneBuilder<'a> {
             // The interior cells seen from outside, each once (the list may name a cell again),
             // lit as cells: each part's cell, and for an object standing in one its key, place
             // and reach.
-            let mut in_cells: Vec<(u32, Option<interior::ObjectReach>)> = Vec::new();
+            let mut in_cells: Vec<(u32, Option<interior::ObjectReach>, Cull)> = Vec::new();
             let mut taken: Vec<u32> = Vec::new();
+            let mut order: Vec<u16> = Vec::new();
             for &low in &info.outside_visible {
                 #[allow(clippy::cast_sign_loss)]
                 let id = ((bx as u32) << 24) | ((by as u32) << 16) | (low & 0xFFFF);
@@ -1768,6 +1809,7 @@ impl<'a> SceneBuilder<'a> {
                 else {
                     continue;
                 };
+                order.push(cell_low(low));
                 counts.cells += 1;
                 let frame = Mat4::from_parts(
                     cell.frame.origin,
@@ -1782,7 +1824,11 @@ impl<'a> SceneBuilder<'a> {
                     detail: None,
                     look,
                 });
-                in_cells.push((id, None));
+                let looked = Cull::Looked {
+                    block: (bx, by),
+                    cell: cell_low(low),
+                };
+                in_cells.push((id, None, looked));
                 for (i, e) in cell
                     .entities
                     .iter()
@@ -1811,7 +1857,16 @@ impl<'a> SceneBuilder<'a> {
                         let key = (id, u32::try_from(i + 1).unwrap_or(u32::MAX));
                         (key, at, self.object_reach(&p))
                     });
-                    in_cells.extend(p.iter().map(|_| (id, reach)));
+                    let cull = match self.object_cull(cell_low(low), &p, &place) {
+                        Cull::InCell { cell, lo, hi } => Cull::LookedIn {
+                            block: (bx, by),
+                            cell,
+                            lo,
+                            hi,
+                        },
+                        _ => looked,
+                    };
+                    in_cells.extend(p.iter().map(|_| (id, reach, cull)));
                     if let Some(first) = p.first() {
                         anchors.extend(std::iter::repeat_n(
                             first.transform.point(Vec3::ZERO),
@@ -1850,7 +1905,7 @@ impl<'a> SceneBuilder<'a> {
                         b.kept_by = Some(kept_by);
                         b.block = Some((bx, by));
                     }
-                } else if let Some(&(id, reach)) = in_cells.get(k - outdoors) {
+                } else if let Some(&(id, reach, cull)) = in_cells.get(k - outdoors) {
                     self.light_seen_from_outside(
                         &mut objects[first..],
                         part,
@@ -1859,7 +1914,18 @@ impl<'a> SceneBuilder<'a> {
                         reach,
                         &outside,
                     );
+                    for b in &mut objects[first..] {
+                        b.cull = cull;
+                    }
                 }
+            }
+            if !order.is_empty() {
+                let rooms = self.block_rooms(spot, (bx, by), &order);
+                look_in.push(LookIn {
+                    block: (bx, by),
+                    rooms,
+                    order,
+                });
             }
         }
 
@@ -1982,6 +2048,7 @@ impl<'a> SceneBuilder<'a> {
             flares,
             outside: None,
             rooms: None,
+            look_in: Arc::new(look_in),
             volumes: crate::volume::Volumes::default(),
             decals: Vec::new(),
             textures: self.textures,
@@ -2130,6 +2197,7 @@ impl<'a> SceneBuilder<'a> {
             flares: Vec::new(),
             outside: None,
             rooms: None,
+            look_in: Arc::default(),
             volumes: crate::volume::Volumes::default(),
             decals: Vec::new(),
             textures: self.textures,

@@ -46,6 +46,7 @@ not how it was done.
 - The examine panel now shows an item's icon.
 - Request Assistance opens the project's issues page.
 - `/saveui` and `/loadui` now save and restore your window layout.
+- Rooms seen from outside now show only through their doorways, lit as rooms.
 
 ## 0.1.2 (2026-11-02)
 

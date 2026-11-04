@@ -869,6 +869,7 @@ impl World {
     /// in its interior cells (once a body is inside), the entities placed outside that collide
     /// through cylinders or spheres (once the block is in `land`), and those placed inside (once
     /// its interior cells are).
+    // D2-03678
     pub(crate) fn add_scenery(&mut self, land: &Land, cell: CellId) {
         self.add_interior_solids(land, cell);
         self.add_placed(land, cell);

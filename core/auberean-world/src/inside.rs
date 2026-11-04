@@ -819,7 +819,7 @@ fn adjust_heap<T: Copy>(
 
 impl BlockLights {
     /// The light of block `(x, y)`'s interior cells, from its information and its light record.
-    // D2-11007, D2-13327, D2-03578, D2-13330, D2-13329, D2-03899
+    // D2-11007, D2-13327, D2-03578, D2-13330, D2-13329, D2-03899, D2-03734, D2-03740, D2-03746
     #[must_use]
     pub fn of(records: &WorldRecords, x: i32, y: i32) -> Option<Self> {
         let info = records.landblock_info(x, y)?;
@@ -1092,7 +1092,7 @@ impl BlockLights {
     /// intensity at that moment, `at` (the client's running time, and its generator for a light
     /// whose intensity is noise, rolled afresh for each vertex), or at its intensity's start with
     /// none; and the lean toward each listed light.
-    // D2-03609, D2-03526, D2-13326, D2-13338
+    // D2-03609, D2-03526, D2-13326, D2-13338, D2-03898, D2-03915, D2-03916
     #[must_use]
     pub fn cell_bake(
         &self,

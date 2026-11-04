@@ -3719,6 +3719,44 @@ impl<'w> Scene<'w> {
             &mut built.frame.objects,
             &mut noted,
         );
+        // A body shows by the cells it touches, what is held by its holder's.
+        // D2-03577, D2-03583
+        if built.frame.rooms.is_some() || !built.frame.look_in.is_empty() {
+            let holders: HashMap<u64, u64> = self.held.holders().into_iter().collect();
+            let inside = built.frame.rooms.is_some();
+            let mut culled: HashMap<u64, auberean_draw::scene::Cull> = HashMap::new();
+            for (id, range, _, _) in &noted {
+                let root = holders.get(id).copied().unwrap_or(*id);
+                let stands = if root == p.id {
+                    Some((pos.cell.0, p.body.key()))
+                } else if let Some(t) = self.temporaries.get(root) {
+                    Some((t.body.position.cell.0, t.body.key()))
+                } else {
+                    self.others
+                        .body(root)
+                        .map(|b| (b.position.cell.0, self.others.key_of(root)))
+                };
+                let Some((cell, key)) = stands else {
+                    continue;
+                };
+                if !inside && !is_interior(cell) {
+                    continue;
+                }
+                let touching: Vec<u32> = key
+                    .and_then(|k| self.table.cells_of(k))
+                    .map(|c| c.iter().map(|c| c.0).collect())
+                    .unwrap_or_default();
+                let Some(batches) = built.frame.objects.get_mut(range.clone()) else {
+                    continue;
+                };
+                let cull = *culled
+                    .entry(root)
+                    .or_insert_with(|| auberean_draw::cull::body_cull(cell, &touching, batches));
+                for b in batches.iter_mut() {
+                    b.cull = cull;
+                }
+            }
+        }
         // With the option on, the player's body and what it holds turn see-through under the
         // pointer, with the camera off its eyes.
         // D2-06220

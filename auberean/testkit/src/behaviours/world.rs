@@ -263,6 +263,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "world.inside.no-cell-holds-a-light-of-its-own",
+        says: "No interior cell of the data holds a light of its own as an entity: every entity placed \n               in a cell is an object.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-CELL-NO-LIGHT"),
+        station: "auberean-world::dat::inside::no_cell_holds_a_light_entity",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "world.inside.the-halls-light-and-a-cells-lit-vertices",
         says: "Inside there is no sun overhead: a block's interior ambient light and linear interior \
                fog come from its information, its point and sky lights from its light record; a \
