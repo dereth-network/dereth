@@ -136,6 +136,8 @@ pub mod flag {
     pub const CANNOT_RAISE: u32 = 0x4;
     pub const NOT_BY_PLAYER: u32 = 0x8;
     pub const HERO: u32 = 0x10;
+    /// At no vigor a player rates nothing in it.
+    pub const NOTHING_AT_NO_VIGOR: u32 = 0x40;
 }
 
 /// A skill information's mask.
@@ -618,6 +620,18 @@ impl SkillDef {
 }
 
 impl SkillTable {
+    /// The skills a player at no vigor still rates in: those that do not say otherwise. What it
+    /// rates nothing in adds nothing to the skills it is a parent of.
+    #[must_use]
+    pub fn at_no_vigor(&self, mut skills: Vec<Held>) -> Vec<Held> {
+        skills.retain(|h| {
+            self.skills
+                .get(&h.skill)
+                .is_none_or(|d| d.flags & flag::NOTHING_AT_NO_VIGOR == 0)
+        });
+        skills
+    }
+
     /// A held skill's rating (see the module's rules), for a hero or a player who is none.
     #[must_use]
     pub fn rating(&self, skills: &[Held], skill: u32, hero: bool) -> u32 {

@@ -9,6 +9,7 @@ use yalain_testkit::play::server_call;
 use yalain_testkit::Harness;
 use yalain_world::calls::{self, Value};
 use yalain_world::skills::{raise_cost, table_level, SkillDef, SkillTable};
+use yalain_world::state::SkillState;
 
 const TRAIN: u32 = 0x8214_0002;
 const RAISE: u32 = 0x8214_000C;
@@ -41,6 +42,70 @@ fn table() -> SkillTable {
         (0..=50u64).map(|n| 2 * n * n.saturating_sub(1)).collect(),
     );
     SkillTable { skills, tables }
+}
+
+/// At no vigor a player's rating in a skill that says so falls to the least there is, and what it
+/// adds to a skill it is a parent of goes too; a skill that does not say so keeps its own. With any
+/// vigor at all each has its whole rating.
+/// Behaviour: server.skills.rating-at-no-vigor
+#[test]
+fn at_no_vigor_a_skill_that_says_so_rates_nothing_and_others_keep_their_rating() {
+    use yalain_world::player::quality;
+    use yalain_world::quals;
+    use yalain_world::skill_use::rating_of_for_test as rating;
+    use yalain_world::skills::flag::NOTHING_AT_NO_VIGOR;
+    const PENALIZED: u32 = 16;
+    const FREE: u32 = 17;
+    const CHILD: u32 = 18;
+    let mut t = table();
+    let def = |id, flags, parents| SkillDef {
+        id,
+        cap: 200,
+        table: TABLE,
+        flags,
+        parents,
+        ..SkillDef::default()
+    };
+    t.skills
+        .insert(PENALIZED, def(PENALIZED, NOTHING_AT_NO_VIGOR, Vec::new()));
+    t.skills.insert(FREE, def(FREE, 0, Vec::new()));
+    t.skills.insert(CHILD, def(CHILD, 0, vec![(PENALIZED, 0)]));
+    let mut h = Harness::new();
+    h.server.skill_table = t;
+    let (_, me) = h.player_in_world("one", "Elara");
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    let trained = |skill, granted| SkillState {
+        skill,
+        mask: yalain_world::skills::mask::TRAINED,
+        granted,
+        cost: 0,
+        children: 0,
+        dependents: 0,
+        spent: 0,
+    };
+    if let Some(p) = h.server.players.get_mut(&world) {
+        p.play.skills = vec![
+            trained(PENALIZED, 30),
+            trained(FREE, 30),
+            trained(CHILD, 20),
+        ];
+        quals::set_int(&mut p.qualities, quality::VIGOR, 1);
+    }
+    let of = |h: &Harness, skill| rating(&h.server, world, skill);
+    assert_eq!(of(&h, PENALIZED), 31.0, "granted, and the table's first");
+    assert_eq!(of(&h, CHILD), 24.0, "with a tenth of its parent");
+    if let Some(p) = h.server.players.get_mut(&world) {
+        quals::set_int(&mut p.qualities, quality::VIGOR, 0);
+    }
+    assert_eq!(of(&h, PENALIZED), 1.0);
+    assert_eq!(of(&h, FREE), 31.0);
+    assert_eq!(of(&h, CHILD), 21.0, "with none");
 }
 
 fn calls_of(h: &Harness, b: usize, from: usize) -> Vec<(u32, Vec<Value>)> {

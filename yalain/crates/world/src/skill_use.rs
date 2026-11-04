@@ -796,6 +796,11 @@ pub(crate) fn rating_of<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> f
     };
     let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
     let held = crate::skills::held(&starting, &p.play.skills);
+    let held = if quals::int(&p.qualities, quality::VIGOR) == Some(0) {
+        s.skill_table.at_no_vigor(held)
+    } else {
+        held
+    };
     #[allow(clippy::cast_precision_loss)]
     let r = effective_rating(s, p, &held, skill) as f32;
     r.max(1.0)
@@ -812,6 +817,13 @@ pub(crate) fn effective_rating<S: Store>(
     s.skill_table.rating_with(held, skill, hero, &|sk, rating| {
         crate::effects::skill_rating(&s.effect_table, &p.play.effects, sk, rating)
     })
+}
+
+/// [`rating_of`] for tests.
+#[doc(hidden)]
+#[must_use]
+pub fn rating_of_for_test<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> f32 {
+    rating_of(s, world, skill)
 }
 
 /// Does a player carry an effect of one of these saved states?

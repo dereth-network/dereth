@@ -8685,6 +8685,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.rating-at-no-vigor",
+        says: "At no vigor a player's rating in a skill that says so is the least there is, and it adds \
+               nothing to the skills it is a parent of; with any vigor, and in any other skill, the \
+               rating is whole.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-NO-VIGOR"),
+        station: "yalain-testkit::cpu::play::skills::at_no_vigor_a_skill_that_says_so_rates_nothing_and_others_keep_their_rating",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.rating-with-effects",
         says: "A skill's rating counts its holder's effects on that skill, each change by whole \
                points, its parents' as changed and its cap still holding, in what its hooks add, \
