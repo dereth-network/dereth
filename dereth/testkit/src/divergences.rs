@@ -446,6 +446,21 @@ pub static DIVERGENCES: &[Divergence] = &[
               the day.",
     },
     Divergence {
+        id: "CD-admin-window",
+        title: "An administrator's commands have a window",
+        change: "In the Horizon interface, a character with the administrator flag has an Admin \
+                 window, opened with Ctrl+Shift+A or from the System menu: buttons and boxes that \
+                 send the chat commands an administrator would otherwise type, with the server's \
+                 replies under them, a second press for what is hard to undo, and a search of \
+                 every other command. A command on the selection first has the server appraise \
+                 it afresh, so it acts on what is selected now. Its map has a Teleport button: \
+                 the next press on the map goes there. Every other character has no such \
+                 window. This is not the final client's own Admin panel, nothing of whose \
+                 behaviour has been recovered; there, a command was typed.",
+        why: "An administrator can run a server without remembering every command and its \
+              arguments, and the server still decides what each command may do.",
+    },
+    Divergence {
         id: "CD-background-frame-rate",
         title: "Slowing down in the background is an option",
         change: "Every interface's Client Options page has a Slow Down in the Background box. \

@@ -755,6 +755,13 @@ impl GameView for HudView<'_> {
         self.hud.heading
     }
 
+    /// Bool property `0x2C`, `IsAdmin`.
+    fn player_is_admin(&self) -> bool {
+        self.world
+            .player_qualities()
+            .is_some_and(|q| q.inq_bool(0x2C))
+    }
+
     /// The shared outdoor-state predicate — see
     /// [`Hud::player_outside`], which is the single owner of the answer so that the radar's range
     /// and the chat sweep's radius cannot disagree.

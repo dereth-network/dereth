@@ -151,7 +151,10 @@ impl Windows {
     /// Whether window `id` is offered on this world.
     #[must_use]
     pub fn offers(&self, id: WindowId) -> bool {
-        self.world.features.is_none_or(|f| id.offered(&f))
+        match id {
+            WindowId::Admin => self.admin.allowed,
+            _ => self.world.features.is_none_or(|f| id.offered(&f)),
+        }
     }
 
     /// The world's notices: a new house profile raises the housing window and a closed list

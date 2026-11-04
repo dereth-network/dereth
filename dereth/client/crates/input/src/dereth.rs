@@ -63,6 +63,7 @@ pub const ACTIONS: &[DerethAction] = {
             ..one_shot(a::MOVEMENT_HOLD_SIDESTEP, class::MOVEMENT, "Hold Sidestep")
         },
         one_shot(a::TOGGLE_TRADE_PANEL, class::INTERFACE, "Trade Panel"),
+        one_shot(a::TOGGLE_ADMIN_WINDOW, class::INTERFACE, "Admin Window"),
         one_shot(
             a::TOGGLE_SPELL_RESEARCH_PANEL,
             class::INTERFACE,

@@ -291,6 +291,11 @@ pub trait GameView: std::fmt::Debug {
     fn player_outside(&self) -> bool {
         true
     }
+    /// Whether the player's character has the administrator flag, the one the server's Admin
+    /// commands check.
+    fn player_is_admin(&self) -> bool {
+        false
+    }
     /// The player's heading, in degrees.
     fn player_heading(&self) -> f32 {
         0.0

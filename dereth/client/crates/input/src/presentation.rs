@@ -191,6 +191,7 @@ impl Row {
                         | "ToggleSpellResearchPanel"
                         | "MovementHoldSidestep"
                         | "LookAtFront"
+                        | "ToggleAdminWindow"
                 ))
     }
 
@@ -623,6 +624,7 @@ pub const ROWS: &[Row] = &[
     row_not_used(M::OWN, "Cancel", G::Other, C::PERMANENT, "Cancel / Options Panel", Some(Why::CANCEL), None),
     row_not_used(M::OWN, "RepeatLastMessage", G::Chat, C::PERMANENT, "Repeat Message (in chat box)", Some(Why::REPEAT_MESSAGE), None),
     row_not_used(M::OWN, "LookAtFront", G::Camera, C::CAMERA, "Look At Your Front", None, Some(Why::HORIZON_ONLY)),
+    row_not_used(M::OWN, "ToggleAdminWindow", G::Other, C::PANELS, "Admin Window", None, Some(Why::HORIZON_ONLY)),
 ];
 
 #[cfg(test)]
@@ -706,7 +708,7 @@ mod tests {
             assert!(r.category < CATEGORIES.len(), "{}", r.action_name);
             assert!(!r.label.is_empty(), "{}", r.action_name);
         }
-        assert_eq!(ROWS.len(), 309);
+        assert_eq!(ROWS.len(), 310);
     }
 
     #[test]
@@ -731,8 +733,9 @@ mod tests {
             .filter(|r| r.not_used(Interface::Classic).is_some())
             .count();
         // The alternate camera mode and its ten keys, the four floating chat windows, the plugin
-        // manager, the compass and side-by-side vitals, and the Horizon interface's front view.
-        assert_eq!(classic, 19);
+        // manager, the compass and side-by-side vitals, and the Horizon interface's front view and
+        // Admin window.
+        assert_eq!(classic, 20);
         assert!(ROWS
             .iter()
             .all(|r| r.not_used(Interface::Modern).is_none()

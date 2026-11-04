@@ -6,7 +6,8 @@
 //!   pack's grid;
 //! * **Spellbook**: the spells by school, the spell components, and Create Spell;
 //! * **Social** and **Allegiance** (the allegiance window);
-//! * **Map**, **Settings** and **HUD Layout**.
+//! * **Map**, **Settings** and **HUD Layout**;
+//! * **Admin**, for an administrator alone.
 
 use crate::art::AcArt as _;
 use dereth_client_contract::UiRequest;
@@ -19,6 +20,7 @@ use crate::ui::kit::{self, Ctx, WindowState};
 use crate::ui::paint::{Align, Painter, TextStyle};
 use crate::ui::Outcome;
 
+pub mod admin;
 mod commerce;
 mod examine;
 pub mod info;
@@ -66,13 +68,15 @@ pub enum WindowId {
     Vitae,
     /// The load carried, from its lamp.
     Burden,
+    /// An administrator's commands.
+    Admin,
     /// A plugin's window, by its number in the plugins' seat
     /// ([`crate::ui::plugins::PluginSeat::number_of`]).
     Plugin(u32),
 }
 
 impl WindowId {
-    pub const ALL: [Self; 22] = [
+    pub const ALL: [Self; 23] = [
         Self::Character,
         Self::Inventory,
         Self::Actions,
@@ -95,6 +99,7 @@ impl WindowId {
         Self::SpellInfo,
         Self::Vitae,
         Self::Burden,
+        Self::Admin,
     ];
 
     /// The name `--horizon-open` uses.
@@ -113,6 +118,7 @@ impl WindowId {
             "journal" | "duty" => Self::Journal,
             "house" => Self::House,
             "chess" | "game-center" => Self::GameCenter,
+            "admin" => Self::Admin,
             _ => return None,
         })
     }
@@ -141,6 +147,7 @@ impl WindowId {
             Self::SpellInfo => "Spell",
             Self::Vitae => "Vitae",
             Self::Burden => "Burden",
+            Self::Admin => "Admin",
             Self::Plugin(_) => "Plugin",
         }
     }
@@ -172,6 +179,7 @@ impl WindowId {
             Self::SpellInfo => ((400.0, 394.0), (1040.0, 180.0)),
             Self::Vitae => ((420.0, 434.0), (1240.0, 120.0)),
             Self::Burden => ((420.0, 334.0), (1240.0, 120.0)),
+            Self::Admin => ((760.0, 594.0), (320.0, 120.0)),
             // Sized by its nodes and placed in turn: [`Windows::geometry_of`].
             Self::Plugin(n) => {
                 #[allow(clippy::cast_precision_loss)]
@@ -456,6 +464,8 @@ pub struct Windows {
     journal_tab: usize,
     notebook_shown: bool,
     notebook_search: String,
+    /// The Admin window's own state.
+    pub admin: admin::AdminWindow,
     /// The world's services' windows.
     pub world: world::WorldWindows,
     /// The plugins' windows, HUDs, bar and marks.
@@ -784,7 +794,13 @@ impl Windows {
         self.follow_notebook(state, out);
         self.follow_world(ctx, state, out);
         self.follow_learned_spells(ctx, state);
+        self.follow_admin(ctx, state);
         for id in std::mem::take(&mut self.pending) {
+            // Kept for when the flag comes: it reaches the client after the world does.
+            if id == WindowId::Admin && !state.is_admin {
+                self.pending.push(id);
+                continue;
+            }
             // Staggered, so a capture that opens several shows each one.
             self.open(id, ctx.time - 1.0);
         }
@@ -910,7 +926,7 @@ impl Windows {
                 WindowId::Actions => self.actions(p, ctx, state, body, out),
                 WindowId::Social => self.social(p, ctx, state, body, out),
                 WindowId::Allegiance => self.allegiance(p, ctx, state, body, out),
-                WindowId::Map => self.map(p, ctx, state, body),
+                WindowId::Map => self.map(p, ctx, state, body, out),
                 WindowId::Options => self.options(p, ctx, state, body, out),
                 WindowId::Layout => {}
                 WindowId::Examine => self.examine(p, ctx, state, body, out),
@@ -927,6 +943,7 @@ impl Windows {
                 WindowId::SpellInfo => self.spell_info(p, ctx, state, body, out),
                 WindowId::Vitae => self.vitae(p, ctx, state, body),
                 WindowId::Burden => self.burden(p, ctx, state, body),
+                WindowId::Admin => self.admin_window(p, ctx, state, body, out),
                 WindowId::Plugin(n) => self.plugin_window(p, ctx, n, body),
             }
         }
@@ -1655,7 +1672,14 @@ impl Windows {
     // Social, allegiance, map
     // -----------------------------------------------------------------------------------------
 
-    fn map(&mut self, p: &mut Painter<'_>, ctx: &mut Ctx<'_>, state: &GameState, body: Rect) {
+    fn map(
+        &mut self,
+        p: &mut Painter<'_>,
+        ctx: &mut Ctx<'_>,
+        state: &GameState,
+        body: Rect,
+        out: &mut Outcome,
+    ) {
         use dereth_ui_screens::mapradar::map::{
             graphic, place_marker_on_map, SHIPPED_NOTE_BINDING,
         };
@@ -1741,6 +1765,7 @@ impl Windows {
                 &label,
             );
         }
+        self.map_teleport(p, ctx, state, (body, area, fit), out);
     }
 
     /// A press on the map's picture `area`, drawn `fit` times the picture's own size, told to the

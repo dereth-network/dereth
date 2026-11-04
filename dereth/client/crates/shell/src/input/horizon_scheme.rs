@@ -33,7 +33,8 @@ const EARLIER_SHIFT: u32 = 1;
 /// Movement: W forward, S back, A and D turn (camera-based movement makes them step sideways),
 /// Q and E step sideways, Space jumps, R runs on, Shift+R switches between walking and running,
 /// X stops. The arrows turn and tilt the camera. Windows: C character, I or B inventory,
-/// M map, J or L journal, K settings, `;` allegiance, P spellbook. Tab and Shift-Tab pick the next
+/// M map, J or L journal, K settings, `;` allegiance, P spellbook, and for an administrator
+/// Ctrl+Shift+A the Admin window. Tab and Shift-Tab pick the next
 /// and the previous creature, Ctrl-Tab and Ctrl-Shift-Tab the next and the previous thing on the
 /// radar; `\`, `[` and `]` the closest, the previous and the next item. V held looks
 /// at the character's front, G examines, F uses the selection and Shift+F picks it up. Enter opens the chat line, `/` opens it with a `/` in
@@ -89,6 +90,7 @@ pub const HORIZON_KEYS: &[(u16, u32, &str)] = &[
     (0x0D, 0, "UseSpellSlot_12"),
     (0x58, 0, "CaptureScreenshot"),
     (0x18, 0, "ToggleSocialPanel"),
+    (0x1E, CTRL | SHIFT, "ToggleAdminWindow"),
 ];
 
 /// The wheel, turned up and down, as the camera map binds it: closer and farther. Each turn is a

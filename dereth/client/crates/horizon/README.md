@@ -27,6 +27,13 @@ other two, it draws the screens before the world at the window's own size.
   spellbook. Tab and Shift-Tab pick the next and previous creature. F uses the selection, Shift+F
   picks it up and G examines it. `/` opens the chat line with a `/` in it, and F12 takes a
   screenshot.
+- **The Admin window.** A character with the administrator flag, and no one else, has this window:
+  Ctrl+Shift+A, or Admin on the System menu. Its tabs (Players, Travel, Target, Myself, Spawn and
+  World) are buttons and boxes that send the chat commands an administrator would otherwise type,
+  and Commands searches the rest. The line sent and the server's replies show at its foot, and
+  what is hard to undo takes a second press. Their map also has a Teleport button: press it, then
+  click where to go. Commands that carry a password, and those the server
+  answers only at its console, stay at the launcher's or server's console.
 - **Hotbar 1** is the shortcut bar. Click a shortcut to use it, drag it to another slot to move it,
   or drag it off the bar to remove it. Drag an item from the inventory onto a slot to make a
   shortcut.

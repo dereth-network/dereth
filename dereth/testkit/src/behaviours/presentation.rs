@@ -11,6 +11,19 @@ use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "presentation.admin-window.only-an-administrator-has-it",
+        says: "A character with the administrator flag has an Admin window in the Horizon \
+               interface, by its key and on the System menu, whose buttons send the chat commands \
+               an administrator would otherwise type. For any other character there is no window, \
+               no menu entry and no row on the key page, and a window open when the flag goes is \
+               closed before it is drawn again.",
+        since: THIS_CLIENT,
+        divergence: "CD-admin-window",
+        evidence: Evidence::Private("AC-EVID-ADMIN-WINDOW"),
+        station: "dereth-horizon::cpu::windows::admin::a_player_can_never_have_the_window",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "presentation.brightness.it-changes-the-games-own-picture-and-not-the-display",
         says: "The brightness setting is part of the game's own picture: a captured frame is \
                darker at the lowest setting and brighter at a high one than at the middle, by \

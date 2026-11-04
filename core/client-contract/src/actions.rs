@@ -250,6 +250,8 @@ pub mod dereth {
     pub const REPEAT_LAST_MESSAGE: super::ActionId = super::ActionId(0x2000_000B);
     /// Hold to turn the camera round to the character's front (the Horizon interface's camera).
     pub const LOOK_AT_FRONT: super::ActionId = super::ActionId(0x2000_000C);
+    /// Show or hide the Horizon interface's Admin window, for an administrator.
+    pub const TOGGLE_ADMIN_WINDOW: super::ActionId = super::ActionId(0x2000_000D);
 }
 
 /// The action names: the enum table the client writes an action out with (field `0x19` of a
@@ -722,6 +724,7 @@ pub mod names {
         (super::dereth::CANCEL.0, "Cancel"),
         (super::dereth::REPEAT_LAST_MESSAGE.0, "RepeatLastMessage"),
         (super::dereth::LOOK_AT_FRONT.0, "LookAtFront"),
+        (super::dereth::TOGGLE_ADMIN_WINDOW.0, "ToggleAdminWindow"),
     ];
 
     /// Every named action: the retail table, then this client's own.

@@ -52,6 +52,8 @@ dereth-client-net = { workspace = true, features = ["test-support"] }
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 # The chat command scenarios drive empyrean-command through a TestServer.
 empyrean-command.workspace = true
+# The table of commands the client's Admin window runs, held to this server's.
+dereth-client-model.workspace = true
 # The Dereth Network scenarios link several TestServers through the hub's own routing.
 dereth-network-hub.workspace = true
 dereth-network-conformance.workspace = true

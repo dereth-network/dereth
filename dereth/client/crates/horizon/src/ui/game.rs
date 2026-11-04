@@ -591,6 +591,8 @@ pub struct GameState {
     /// The pad's alternate selection as the target bar shows it while it is up, in place of the
     /// selection.
     pub alt_target: Option<Target>,
+    /// Whether the character is an administrator, who alone has the Admin window.
+    pub is_admin: bool,
     /// The player's heading, degrees clockwise from north.
     pub heading: f32,
     /// The way the camera looks, degrees clockwise from north, as `heading` is given.

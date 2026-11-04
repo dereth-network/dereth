@@ -2,6 +2,7 @@
 //! the notebook, the spellbook, the information windows, housing, chess and the barber; the
 //! plugins' windows; and the title bar every window keeps to.
 
+mod admin;
 mod books;
 mod character;
 mod examine;

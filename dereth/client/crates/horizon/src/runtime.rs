@@ -901,6 +901,9 @@ impl HorizonFrontEnd {
         }
         state.abuse_answer.clone_from(&self.abuse_answer);
         state.key_bindings.clone_from(&self.keys);
+        if let Some(keys) = state.key_bindings.as_mut() {
+            crate::ui::panels::admin::offer_admin_key(keys, state.is_admin);
+        }
         state.spell_tab_keys = spell_tab_keys(self.keys.as_ref());
         // A disconnection's notice, in the game's words: a token of the disconnect table, or the
         // sentence itself for the two notices that carry their own.
