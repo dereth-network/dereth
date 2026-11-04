@@ -88,6 +88,13 @@ pub fn motion_byte(v: f32) -> u32 {
     b.min(255)
 }
 
+/// Whether stamp `b` is newer than stamp `a`, the stamps counting round through 65536.
+// D2-05665
+#[must_use]
+pub fn is_newer(a: u16, b: u16) -> bool {
+    a != b && b.wrapping_sub(a) < 0x8000
+}
+
 impl Body {
     /// The server put the body somewhere.
     pub fn place(&mut self, cell: u32, origin: Vec3, heading: f32) {

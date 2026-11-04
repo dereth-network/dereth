@@ -116,3 +116,64 @@ fn a_players_position_leaves_the_game_clock_alone() {
     assert_eq!(c.body.teleport_stamp, 3, "the position taken");
     assert_eq!(c.game_time(), 1000.0, "not back");
 }
+
+/// A position of the player's own moves the body only when newer: a newer teleport puts it there
+/// facing the position's heading; a newer forced position puts it there facing as it faced; one
+/// with no newer stamp, or an old stamp, leaves it.
+///
+/// Behaviour: session.time.a-position-of-the-players-own-moves-it-by-its-stamps
+#[test]
+fn a_position_of_the_players_own_moves_it_by_its_stamps() {
+    use auberean_primitives::Vec3;
+    use auberean_protocol::physics::{CreateObject, ObjectPosition};
+    use auberean_protocol::types::ObjectStamp;
+    use auberean_protocol::ServerMessage;
+    const PLAYER: u64 = 0x5000_0001;
+    const POSTED: u64 = 0x0300_0000_0000_0000;
+    let mut c = client();
+    c.model.player = Some(PLAYER);
+    let at_x = |x: f32, byte: u32, teleport_stamp, force_position_stamp| {
+        ServerMessage::Position(ObjectPosition {
+            sender: ObjectStamp {
+                id: PLAYER,
+                ..ObjectStamp::default()
+            },
+            cell: 0x0298_0109,
+            origin: Vec3::new(x, 0.0, 0.0),
+            heading_motion: byte << 24,
+            teleport_stamp,
+            force_position_stamp,
+            ..ObjectPosition::default()
+        })
+    };
+    let quarter = 64.0 * 360.0 / 255.0;
+    c.take_message(
+        POSTED,
+        ServerMessage::CreateObject(CreateObject {
+            id: PLAYER,
+            ..CreateObject::default()
+        }),
+    );
+    c.take_message(POSTED | 1, at_x(1.0, 64, 1, 1));
+    assert_eq!((c.body.origin.x, c.body.heading), (1.0, quarter), "placed");
+    c.take_message(POSTED | 2, at_x(2.0, 128, 1, 1));
+    assert_eq!(
+        (c.body.origin.x, c.body.heading),
+        (1.0, quarter),
+        "no newer"
+    );
+    c.take_message(POSTED | 3, at_x(3.0, 128, 1, 2));
+    assert_eq!(
+        (c.body.origin.x, c.body.heading),
+        (3.0, quarter),
+        "forced there, facing as it faced"
+    );
+    c.take_message(POSTED | 4, at_x(4.0, 128, 0, 2));
+    assert_eq!(c.body.origin.x, 3.0, "an old teleport moves nothing");
+    c.take_message(POSTED | 5, at_x(5.0, 128, 2, 2));
+    assert_eq!(
+        (c.body.origin.x, c.body.heading),
+        (5.0, 128.0 * 360.0 / 255.0),
+        "a teleport takes its heading"
+    );
+}

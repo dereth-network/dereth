@@ -390,6 +390,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.time.a-position-of-the-players-own-moves-it-by-its-stamps",
+        says: "A position of the player's own moves its body only by a newer stamp: a teleport \
+               puts it there facing the position's heading, a forced position puts it there \
+               facing as it faced, and any other moves nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SESS-PLAYER-POSITION"),
+        station: "auberean-client-runtime::cpu::world::clock::a_position_of_the_players_own_moves_it_by_its_stamps",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.time.a-thread-is-never-answered-an-earlier-elapsed-time",
         says: "The elapsed time a thread is answered never goes back: a reading earlier than the \
                last answer answers the last again, unless the last was not above zero.",

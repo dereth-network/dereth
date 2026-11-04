@@ -1881,17 +1881,22 @@ impl Client {
         }
     }
 
-    /// The server placed the player: on a teleport or a forced position, the body goes there. The
-    /// position's time leaves the game clock alone: only the server's time-sync sets it.
+    /// The server placed the player: on a newer teleport the body goes there, facing the position's
+    /// heading; on a newer forced position it goes there, facing as it faced. Any other position of
+    /// the player's own moves nothing. The position's time leaves the game clock alone: only the
+    /// server's time-sync sets it.
+    // D2-06372
     fn server_moved_player(&mut self, p: &auberean_protocol::physics::ObjectPosition) {
-        let heading = (p.heading_motion >> 24) as f32 * 360.0 / 255.0;
-        let jumped = p.teleport_stamp != self.body.teleport_stamp
-            || p.force_position_stamp != self.body.force_position_stamp
-            || !self.body.placed();
+        let teleported =
+            motion::is_newer(self.body.teleport_stamp, p.teleport_stamp) || !self.body.placed();
+        let forced = motion::is_newer(self.body.force_position_stamp, p.force_position_stamp);
         self.body.teleport_stamp = p.teleport_stamp;
         self.body.force_position_stamp = p.force_position_stamp;
-        if jumped {
+        if teleported {
+            let heading = (p.heading_motion >> 24) as f32 * 360.0 / 255.0;
             self.body.place(p.cell, p.origin, heading);
+        } else if forced {
+            self.body.place(p.cell, p.origin, self.body.heading);
         }
     }
 

@@ -88,6 +88,7 @@ not how it was done.
 - Choosing a craft skill no longer opens the examine window.
 - Full screen no longer changes the display mode.
 - macOS: the window now opens at full size on Retina screens.
+- Fixed walking into stones and objects ending somewhere other than retail's path.
 
 ## 0.1.2 (2026-11-02)
 
