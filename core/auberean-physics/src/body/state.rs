@@ -70,6 +70,9 @@ pub mod transient {
 /// Below this a velocity or acceleration counts as none.
 const STILL: f32 = 0.0002;
 
+/// The longest chain of parents a sound asks up.
+const MAX_PARENTS: usize = 16;
+
 impl Body {
     /// The standing state.
     // D2-06286
@@ -318,6 +321,45 @@ impl Body {
     }
     pub fn set_in_workspace(&mut self, on: bool) {
         self.put(flags::IN_WORKSPACE, on);
+    }
+
+    /// The cell the body stands in is among the free blocks, or back from them.
+    // D2-06055, D2-06056
+    pub fn set_cell_on_free_list(&mut self, on: bool) {
+        self.cell_on_free_list = on;
+    }
+
+    /// Whether the sounds the body makes are silent just now, to play again when they are not: a
+    /// static body's while its cell is among the free blocks; a moving body's out of the world
+    /// with no parent, or out of the player's physics range (`in_range`, as the body's movement
+    /// keeps it); what a parent holds, as its parent's (`find`); any other body's out of both the
+    /// world and the workspace.
+    // D2-06153, D2-06102, D2-06103
+    pub fn should_mute_sound<'a>(
+        &'a self,
+        find: &dyn Fn(u64) -> Option<&'a Self>,
+        in_range: &dyn Fn(&Self) -> bool,
+    ) -> bool {
+        let mut body = self;
+        // A chain of parents is short; one that loops is heard.
+        for _ in 0..MAX_PARENTS {
+            let silent = if body.is_static() {
+                body.cell_on_free_list
+            } else {
+                (!body.in_world && !body.has_parent) || !in_range(body)
+            };
+            if silent {
+                return true;
+            }
+            if !body.has_parent {
+                return !body.in_world && !body.is_in_workspace();
+            }
+            match find(body.parent) {
+                Some(parent) => body = parent,
+                None => return false,
+            }
+        }
+        false
     }
 
     // D2-06009

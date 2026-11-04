@@ -34,6 +34,31 @@ use crate::interface::{SoundOrder, SoundSlot};
 /// The data files, as the sound manager reads them: each in the client's order.
 struct Files(Vec<Arc<DatFile>>);
 
+/// How the sounds an object makes are heard.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Heard {
+    Heard,
+    /// Silent for now, to play again.
+    Silent,
+    /// The object is gone: they stop for good.
+    Gone,
+}
+
+/// How an object's sounds are heard: `in_world` whether the client's object is in the world (`None`
+/// once the client no longer holds it), `muted` what its body answers (`None` with no body).
+// D2-06178, D2-07696
+#[must_use]
+pub fn heard(in_world: Option<bool>, muted: Option<bool>) -> Heard {
+    let Some(in_world) = in_world else {
+        return Heard::Gone;
+    };
+    if muted.unwrap_or(!in_world) {
+        Heard::Silent
+    } else {
+        Heard::Heard
+    }
+}
+
 impl SoundFiles for Files {
     fn read(&self, id: u32) -> Option<Vec<u8>> {
         self.0.iter().find_map(|f| f.read(id).ok())
@@ -319,7 +344,7 @@ impl Sound {
         }
     }
 
-    /// Every sound object `object` makes stops: it left the world.
+    /// Every sound object `object` makes stops: it is gone.
     pub fn object_gone(&mut self, object: u64) {
         self.kept.retain(|(o, _), _| *o != object);
         self.manager.stop_for_emitter(object);

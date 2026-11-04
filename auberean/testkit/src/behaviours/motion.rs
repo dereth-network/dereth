@@ -597,6 +597,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.sound.what-silences-a-bodys-sounds",
+        says: "The sounds a body makes are silent while a static body's cell is among the free \
+               blocks; while a moving body is out of the world with no parent, or more than 96 \
+               meters from the player; while the parent of a held body is silent; and while any \
+               other body is out of both the world and the workspace.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-SOUND-SILENT"),
+        station: "auberean-physics::cpu::motion::sound::a_moving_body_is_silent_out_of_the_world_or_out_of_range",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "motion.stamps.a-newer-stamp-is-kept-and-an-older-one-refused",
         says: "A body keeps one stamp per kind of update the server sends it; an update is newer \
                when its stamp is ahead of the kept one by less than half the range (stamps count \

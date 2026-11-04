@@ -1759,6 +1759,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.sound.an-object-out-of-the-world-is-silent-and-one-gone-stops",
+        says: "The sounds of an object the client still holds wait while it is out of the world, \
+               to play again when it is back; only an object the client no longer holds stops \
+               them for good.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-SOUND-OUT-OF-WORLD"),
+        station: "auberean-shell::cpu::sound::an_object_out_of_the_world_is_silent_and_one_gone_stops",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.sound.portal-space-is-heard",
         says: "As portal space starts its start sound plays and its two loops stay on while it \
                lasts; as it goes, its stop sound plays and the loops stop.",

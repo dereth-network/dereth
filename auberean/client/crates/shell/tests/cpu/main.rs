@@ -7,3 +7,4 @@ mod keys;
 mod preferences;
 mod profile;
 mod settings;
+mod sound;

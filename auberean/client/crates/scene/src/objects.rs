@@ -233,6 +233,10 @@ impl Scene<'_> {
         for (x, y) in self.near.take_released() {
             let base = u32::from(x) << 24 | u32::from(y) << 16;
             cells.extend((1..=64).map(|i| base | i));
+            self.others.set_block_on_free_list((x, y), true);
+        }
+        for block in self.near.take_handed_out() {
+            self.others.set_block_on_free_list(block, false);
         }
         let now = self
             .player

@@ -120,6 +120,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "audio.manager.a-silent-makers-sounds-stop-and-play-again",
+        says: "A sound whose maker has gone silent stops and is kept; it plays again when its \
+               maker can be heard. Sounds of other makers are not touched.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-AUDIO-MAKER-SILENT"),
+        station: "auberean-audio::cpu::manager::a_silent_makers_sounds_stop_and_play_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "audio.manager.a-sound-starts-on-the-next-turn-at-its-level",
         says: "A sound asked for starts on the sound manager's next turn, not at once, and plays \
                its wave as recorded at full volume on a full slider; at half volume it plays 12.5 \

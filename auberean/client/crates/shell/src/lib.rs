@@ -875,9 +875,9 @@ impl<'w, H: Host> Shell<'w, H> {
         }
     }
 
-    /// The sound's turn: the sounds the world's effects played or stopped, the sounds of objects no
-    /// longer in the world stopped, then the ambient sound's turn and the manager's with the
-    /// listener at the camera.
+    /// The sound's turn: the sounds the world's effects played or stopped, the sounds of objects
+    /// gone stopped and of objects out of the world silent, then the ambient sound's turn and the
+    /// manager's with the listener at the camera.
     fn sound_frame(&mut self, now: f64, in_world: bool) {
         for order in self.scene.take_portal_sounds() {
             let records = &self.world.records;
@@ -888,20 +888,22 @@ impl<'w, H: Host> Shell<'w, H> {
         for (object, s) in self.scene.take_sounds() {
             self.sound.effect(object, s);
         }
+        let mut muted = std::collections::BTreeSet::new();
         for e in self.sound.manager.emitters() {
             // The ambient sound's objects are no objects of the world.
             if auberean_audio::ambient::is_emitter(e) {
                 continue;
             }
-            let here = self
-                .client
-                .as_ref()
-                .and_then(|c| c.model.object(e))
-                .is_some_and(|o| o.in_world);
-            if !here {
-                self.sound.object_gone(e);
+            let object = self.client.as_ref().and_then(|c| c.model.object(e));
+            match sound::heard(object.map(|o| o.in_world), self.scene.should_mute_sound(e)) {
+                sound::Heard::Gone => self.sound.object_gone(e),
+                sound::Heard::Silent => {
+                    muted.insert(e);
+                }
+                sound::Heard::Heard => {}
             }
         }
+        self.sound.manager.set_muted(muted);
         let rain = if in_world {
             self.scene.rain_heard()
         } else {

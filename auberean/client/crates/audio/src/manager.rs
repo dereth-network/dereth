@@ -141,6 +141,8 @@ struct Playing {
     life: Life,
     has_played: bool,
     disabled: bool,
+    /// Its maker is silent: it neither starts nor goes on until the maker is heard.
+    muted: bool,
     start: f64,
     /// Seconds it lasts from its start (its wave's length and a margin), below 0 for music.
     length: f32,
@@ -270,6 +272,8 @@ pub struct SoundPlayer {
     instances: HashMap<u32, Instance>,
     playing: Vec<Playing>,
     listener: Listener,
+    /// The objects whose sounds are silent.
+    muted: BTreeSet<u64>,
     last_commit: f64,
     now: f64,
     music: MusicEngine,
@@ -298,6 +302,7 @@ impl SoundPlayer {
             instances: HashMap::new(),
             playing: Vec::new(),
             listener: Listener::default(),
+            muted: BTreeSet::new(),
             last_commit: f64::NEG_INFINITY,
             now: 0.0,
             music: MusicEngine {
@@ -360,6 +365,13 @@ impl SoundPlayer {
             .iter()
             .map(|p| (p.handle, p.id, p.life))
             .collect()
+    }
+
+    /// The objects whose sounds are silent from the next turn on: each sound playing stops, kept
+    /// to play again; the rest, when an object is no longer among them.
+    // D2-06153
+    pub fn set_muted(&mut self, muted: BTreeSet<u64>) {
+        self.muted = muted;
     }
 
     /// The objects making the sounds playing.
@@ -471,6 +483,7 @@ impl SoundPlayer {
             life: Life::KeepAlive,
             has_played: false,
             disabled: false,
+            muted: false,
             start: self.now,
             fade: None,
             local: [0.0; 3],
@@ -989,7 +1002,7 @@ impl SoundPlayer {
                 p.start = now;
                 p.has_played = true;
             }
-            if p.disabled {
+            if p.disabled || p.muted {
                 return;
             }
         }
@@ -1324,7 +1337,7 @@ impl SoundPlayer {
     fn enable(&mut self, i: usize, on: bool) {
         let p = &mut self.playing[i];
         p.disabled = !on;
-        if !p.has_played {
+        if !p.has_played || p.muted {
             return;
         }
         if on {
@@ -1351,12 +1364,39 @@ impl SoundPlayer {
         }
     }
 
-    /// A sound's own turn: one kept and played before plays again; one that does not loop is
-    /// done once its length has run from its start; a fade that has run its time ends it.
+    /// A sound's own turn: one whose maker is silent stops, kept to play again (a fade that was to
+    /// end it is done); else one kept and played before plays again. Then one that does not loop
+    /// is done once its length has run from its start; a fade that has run its time ends it.
     // D2-07781
     fn sound_use_time(&mut self, i: usize) {
         let now = self.now;
-        if self.playing[i].life == Life::KeepAlive && self.playing[i].has_played {
+        let silent = self.playing[i]
+            .settings
+            .emitter
+            .is_some_and(|e| self.muted.contains(&e));
+        self.playing[i].muted = silent;
+        if silent {
+            let p = &mut self.playing[i];
+            let stops = match p.life {
+                Life::Playing => {
+                    p.life = Life::KeepAlive;
+                    true
+                }
+                Life::Fading => {
+                    if p.fade.is_some_and(|f| f.die) {
+                        p.life = Life::Done;
+                        p.settings.emitter = None;
+                    } else {
+                        p.life = Life::KeepAlive;
+                    }
+                    true
+                }
+                _ => false,
+            };
+            if stops {
+                self.on_segment_ended(i);
+            }
+        } else if self.playing[i].life == Life::KeepAlive && self.playing[i].has_played {
             self.play_internal(i);
         }
         let p = &mut self.playing[i];

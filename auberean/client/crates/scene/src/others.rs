@@ -722,6 +722,23 @@ impl Others {
         true
     }
 
+    /// Block `block` went among the free blocks, or came back: the static bodies standing in it
+    /// are told.
+    // D2-03634, D2-03633
+    pub(crate) fn set_block_on_free_list(&mut self, block: (u8, u8), on: bool) {
+        for b in self.bodies.values_mut() {
+            let Some(ob) = b.body.as_mut().filter(|ob| ob.body.is_static()) else {
+                continue;
+            };
+            let cell = ob.body.position.cell.0;
+            #[allow(clippy::cast_possible_truncation)]
+            // LINT-OK: the two high bytes of a cell id are its block.
+            if ((cell >> 24) as u8, (cell >> 16) as u8) == block {
+                ob.body.set_cell_on_free_list(on);
+            }
+        }
+    }
+
     /// Whether object `id`'s body never moves (static).
     #[must_use]
     pub fn is_static(&self, id: u64) -> bool {

@@ -1689,6 +1689,27 @@ impl<'w> Scene<'w> {
         }
     }
 
+    /// Whether the sounds object `id` makes are silent just now; `None` for an object with no body.
+    // D2-06153
+    #[must_use]
+    pub fn should_mute_sound(&self, id: u64) -> Option<bool> {
+        let me = self.player.as_ref().map(|p| p.body.position);
+        let find = |parent: u64| self.body(parent);
+        let in_range = |b: &Body| {
+            let Some(me) = &me else { return true };
+            let mut top = b;
+            while top.has_parent {
+                match self.body(top.parent) {
+                    Some(p) if !std::ptr::eq(p, top) => top = p,
+                    _ => break,
+                }
+            }
+            let o = auberean_physics::geom::offset(me, &top.position);
+            (o.x * o.x + o.y * o.y + o.z * o.z).sqrt() <= others::PHYSICS_RANGE
+        };
+        self.body(id).map(|b| b.should_mute_sound(&find, &in_range))
+    }
+
     /// The physics record object `id`'s physics object was made from, as the client named it (0
     /// for none): the player's, or another's the scene draws; `None` for an object the scene made
     /// no physics object for.
