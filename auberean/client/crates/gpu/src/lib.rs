@@ -271,6 +271,27 @@ pub struct Renderer {
     volume_pipelines: Option<(wgpu::RenderPipeline, wgpu::RenderPipeline)>,
 }
 
+/// What a pass last bound.
+struct Bound {
+    pipeline: *const wgpu::RenderPipeline,
+    env: Option<usize>,
+    textures: Option<wgpu::BindGroup>,
+    vertices: Option<cache::Slice>,
+    indices: Option<cache::Slice>,
+}
+
+impl Default for Bound {
+    fn default() -> Self {
+        Self {
+            pipeline: std::ptr::null(),
+            env: None,
+            textures: None,
+            vertices: None,
+            indices: None,
+        }
+    }
+}
+
 /// One lens flare as the device keeps it between frames.
 #[derive(Clone, Copy, Debug, Default)]
 struct FlareSlot {
@@ -2704,7 +2725,9 @@ impl Renderer {
                       water: &[Draw],
                       shadows: bool,
                       reflecting: bool| {
-            let run = |pass: &mut wgpu::RenderPass<'_>, d: &Draw| {
+            // What stays the same from one draw to the next is not bound again.
+            let mut bound = Bound::default();
+            let run = |pass: &mut wgpu::RenderPass<'_>, bound: &mut Bound, d: &Draw| {
                 let faint = d.faint.as_ref().filter(|_| reflecting);
                 let pipeline = match (&d.pipeline, faint) {
                     (_, Some((k, _))) => &this.mesh_pipelines[k],
@@ -2712,12 +2735,27 @@ impl Renderer {
                     (Pipe::Mesh(k), None) => &this.mesh_pipelines[k],
                     (Pipe::Water(k), None) => &this.water_pipelines[k],
                 };
-                pass.set_pipeline(pipeline);
-                pass.set_bind_group(0, groups[d.env as usize], &[]);
+                if !std::ptr::eq(bound.pipeline, pipeline) {
+                    pass.set_pipeline(pipeline);
+                    bound.pipeline = pipeline;
+                }
+                if bound.env != Some(d.env as usize) {
+                    pass.set_bind_group(0, groups[d.env as usize], &[]);
+                    bound.env = Some(d.env as usize);
+                }
                 pass.set_bind_group(1, faint.map_or(&d.draw_group, |f| &f.1), &[]);
-                pass.set_bind_group(2, &d.texture_group, &[]);
-                pass.set_vertex_buffer(0, d.vertices.get());
-                pass.set_index_buffer(d.indices.get(), d.index_format);
+                if bound.textures.as_ref() != Some(&d.texture_group) {
+                    pass.set_bind_group(2, &d.texture_group, &[]);
+                    bound.textures = Some(d.texture_group.clone());
+                }
+                if bound.vertices.as_ref() != Some(&d.vertices) {
+                    pass.set_vertex_buffer(0, d.vertices.get());
+                    bound.vertices = Some(d.vertices.clone());
+                }
+                if bound.indices.as_ref() != Some(&d.indices) {
+                    pass.set_index_buffer(d.indices.get(), d.index_format);
+                    bound.indices = Some(d.indices.clone());
+                }
                 pass.draw_indexed(0..d.index_count, 0, 0..1);
                 this.note_work(|w| w.draws += 1);
             };
@@ -2733,6 +2771,7 @@ impl Renderer {
                                 pass.set_bind_group(1, &identity, &[]);
                                 pass.set_bind_group(2, &veil_textures, &[]);
                                 pass.draw(0..3, 0..1);
+                                bound = Bound::default();
                             }
                         }
                         &[]
@@ -2763,6 +2802,7 @@ impl Renderer {
                             pass.set_pipeline(darken);
                             pass.set_bind_group(1, &darkening, &[]);
                             pass.draw(0..3, 0..1);
+                            bound = Bound::default();
                         }
                         &[]
                     }
@@ -2778,7 +2818,7 @@ impl Renderer {
                 };
                 for d in draws {
                     if if reflecting { d.reflected } else { d.shown } {
-                        run(pass, d);
+                        run(pass, &mut bound, d);
                     }
                 }
             }

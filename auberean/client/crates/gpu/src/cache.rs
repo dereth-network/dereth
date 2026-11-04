@@ -24,7 +24,7 @@ const KEEP_FRAMES: u64 = 240;
 const CHUNK: usize = 4 << 20;
 
 /// A list's place on the device.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Slice {
     buffer: wgpu::Buffer,
     offset: u64,
