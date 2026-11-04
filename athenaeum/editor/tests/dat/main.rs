@@ -855,3 +855,28 @@ fn keys_scale_the_selection_as_one_step_and_it_is_drawn_and_clicked_so() {
     click(&mut e, high, false);
     assert_eq!(e.selected.as_deref(), Some(a.as_str()));
 }
+
+#[test]
+fn the_finder_goes_by_name_or_id_and_alone_leaves_out_what_shows_nothing() {
+    let mut e = editor("finder");
+    let (vendor, bare) = (0x4700_33D0, 0x4700_000C);
+    assert!(e.look(vendor).is_some());
+    assert!(e.look(bare).is_none());
+    e.set_templates(vec![bare, vendor]);
+    assert_eq!(&*e.templates_matching("Weapon VENDOR"), [vendor]);
+    assert_eq!(&*e.templates_matching("0x470033d0"), [vendor]);
+    assert_eq!(&*e.templates_matching(" "), [vendor]);
+    assert_eq!(&*e.templates_matching("0x4700000c"), [bare]);
+    assert!(e
+        .templates_matching("no template is called this")
+        .is_empty());
+}
+
+#[test]
+fn a_looks_picture_shows_its_body_and_one_with_no_body_has_none() {
+    let mut e = editor("picture");
+    let (look, _) = e.look(0x4700_33D0).expect("a look");
+    let frame = e.scene.picture_frame(look).expect("a picture");
+    assert!(!frame.objects.is_empty());
+    assert!(e.scene.picture_frame(0x02FF_FFFF).is_none());
+}

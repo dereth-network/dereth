@@ -251,6 +251,16 @@ impl Gui {
     }
 
     /// Text typed, as a script types it.
+    pub fn wheel(&mut self, notches: f32) {
+        self.events.push(egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: egui::vec2(0.0, notches),
+            phase: egui::TouchPhase::Move,
+            modifiers: self.modifiers,
+        });
+    }
+
+    /// Text typed, as a script types it.
     pub fn type_text(&mut self, text: &str) {
         self.events.push(egui::Event::Text(text.to_string()));
     }

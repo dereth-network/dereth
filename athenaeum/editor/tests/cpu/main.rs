@@ -4,10 +4,12 @@ mod play;
 
 use std::path::Path;
 
-use athenaeum_editor::app::{badge, kind_word, parse_id};
+use athenaeum_editor::app::{badge, halved, kind_word, parse_id};
+use athenaeum_editor::scene::picture_camera;
 use athenaeum_editor::script::{parse, Step};
 use athenaeum_editor::view::{global, hit_ground, local, View};
 use dereth_builder::camera::FlyCamera;
+use dereth_primitives::num::math;
 use dereth_primitives::Vec3;
 use yalain_world_db::rows::{At, Object, ObjectKind, Prov, Row, Source};
 
@@ -348,4 +350,56 @@ fn a_floor_is_level_either_way_round_and_a_wall_is_not() {
         [1.0, 0.0, 0.0],
         [0.0, 0.0, 1.0]
     ]));
+}
+
+#[test]
+fn a_picture_holds_all_of_what_it_shows_whatever_its_size_and_shape() {
+    let boxes = [
+        ([-0.1, -0.1, 0.0], [0.1, 0.1, 0.02]),
+        ([-0.4, -0.3, 0.0], [0.4, 0.3, 1.9]),
+        ([-30.0, -8.0, -2.0], [30.0, 8.0, 12.0]),
+        ([5.0, 5.0, 5.0], [5.0, 5.0, 5.0]),
+    ];
+    for (lo, hi) in boxes {
+        let c = picture_camera(lo, hi);
+        let (h, p) = (c.heading.to_radians(), c.pitch.to_radians());
+        let (sin, cos) = (math::sinf, math::cosf);
+        let f = [sin(h) * cos(p), cos(h) * cos(p), sin(p)];
+        let r = [cos(h), -sin(h), 0.0];
+        let u = [
+            r[1] * f[2] - r[2] * f[1],
+            r[2] * f[0] - r[0] * f[2],
+            r[0] * f[1] - r[1] * f[0],
+        ];
+        let half = (c.fov_y / 2.0).to_radians();
+        let reach = sin(half) / cos(half);
+        let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+        for corner in 0..8 {
+            let pick = |i: usize| if corner >> i & 1 == 0 { lo[i] } else { hi[i] };
+            let v = [
+                pick(0) - c.position.x,
+                pick(1) - c.position.y,
+                pick(2) - c.position.z,
+            ];
+            let depth = dot(v, f);
+            assert!(depth > c.near && depth < c.far, "{lo:?} {hi:?}: {depth}");
+            assert!(dot(v, r).abs() <= depth * reach * 1.001, "{lo:?} {hi:?}");
+            assert!(dot(v, u).abs() <= depth * reach * 1.001, "{lo:?} {hi:?}");
+        }
+    }
+}
+
+#[test]
+fn a_picture_is_halved_by_averaging_and_comes_out_opaque() {
+    #[rustfmt::skip]
+    let big = [
+        10, 20, 30, 0,   20, 40, 60, 0,   0, 0, 0, 255,   0, 0, 0, 255,
+        30, 60, 90, 0,   40, 80, 120, 0,  0, 0, 0, 255,   0, 0, 0, 255,
+        0, 0, 0, 0,      0, 0, 0, 0,      4, 4, 4, 9,     4, 4, 4, 9,
+        0, 0, 0, 0,      0, 0, 0, 0,      4, 4, 4, 9,     4, 4, 4, 9,
+    ];
+    assert_eq!(
+        halved(&big, 2),
+        [25, 50, 75, 255, 0, 0, 0, 255, 0, 0, 0, 255, 4, 4, 4, 255]
+    );
 }

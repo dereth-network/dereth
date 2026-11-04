@@ -49,6 +49,13 @@ pub const MARKED: f32 = 400.0;
 pub const HIT: f32 = 12.0;
 /// How far a look finds what the world has built, meters.
 pub const BUILT_REACH: f32 = 400.0;
+/// A finder tile's side, points; the room under it for a name; the room between tiles.
+const TILE: f32 = 88.0;
+const TILE_NAME: f32 = 30.0;
+const TILE_GAP: f32 = 6.0;
+/// A finder picture's side, in pixels. Each is drawn at twice this and halved, for smooth edges.
+const PICTURE: u32 = 176;
+
 /// What a key makes a selected object larger or smaller by.
 pub const SCALE_STEP: f32 = 1.1;
 /// How small and how large a key will make one.
@@ -193,6 +200,12 @@ pub struct Editor<'w> {
     /// Every template of the install, for the finder; and what the finder looks for.
     templates: Vec<u32>,
     finding: Option<String>,
+    /// The templates the finder's text matches, and the text they match.
+    found: Option<(String, std::sync::Arc<[u32]>)>,
+    /// The pictures drawn so far, by look; `None` for a look that draws nothing.
+    pictures: HashMap<u32, Option<egui::TextureHandle>>,
+    /// The looks the finder shows this frame that have no picture yet.
+    pictures_wanted: Vec<u32>,
     /// The last build against the install: the world's revision it was of, its problems and
     /// warnings in the world's own files, and what it made.
     build: Option<(u64, Vec<Problem>, Vec<Problem>, String)>,
@@ -263,6 +276,27 @@ fn rotation_of(row: &Row) -> [f32; 4] {
         _ => (None, None),
     };
     q.unwrap_or_else(|| view::heading_rotation(h.unwrap_or(0.0)))
+}
+
+/// A square picture, `side` * 2 pixels across and red, green, blue, alpha, at half the size and
+/// opaque: what shines without covering, as a portal does, has no alpha of its own to go by.
+#[must_use]
+pub fn halved(rgba: &[u8], side: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(side * side * 4);
+    let across = side * 2;
+    for y in 0..side {
+        for x in 0..side {
+            for c in 0..3 {
+                let at = |dx: usize, dy: usize| {
+                    u32::from(rgba[((y * 2 + dy) * across + (x * 2 + dx)) * 4 + c])
+                };
+                #[allow(clippy::cast_possible_truncation)]
+                out.push(((at(0, 0) + at(1, 0) + at(0, 1) + at(1, 1) + 2) / 4) as u8);
+            }
+            out.push(u8::MAX);
+        }
+    }
+    out
 }
 
 /// How large a row stands by its own word, in place of its template's.
@@ -420,6 +454,9 @@ impl<'w> Editor<'w> {
             held: None,
             templates: Vec::new(),
             finding: None,
+            found: None,
+            pictures: HashMap::new(),
+            pictures_wanted: Vec::new(),
             build: None,
             problems_seen: 0,
             recipes: Vec::new(),
@@ -455,7 +492,7 @@ impl<'w> Editor<'w> {
     }
 
     /// A template's look and scale, as the server describes it.
-    fn look(&mut self, template: u32) -> Option<(u32, f32)> {
+    pub fn look(&mut self, template: u32) -> Option<(u32, f32)> {
         let install = self.install;
         *self.looks.entry(template).or_insert_with(|| {
             let d = yalain_content::describe(template, &|id| install.entity(id), &|id| {
@@ -1077,6 +1114,7 @@ impl<'w> Editor<'w> {
     /// The install's templates, for the finder.
     pub fn set_templates(&mut self, templates: Vec<u32>) {
         self.templates = templates;
+        self.found = None;
     }
 
     /// Build the world against the install, as the server will at start, and keep what it says of
@@ -1272,6 +1310,7 @@ impl<'w> Editor<'w> {
 
     /// The finder: templates whose names hold what is typed.
     fn finder(&mut self, ctx: &egui::Context) {
+        self.pictures_wanted.clear();
         let Some(mut text) = self.finding.take() else {
             return;
         };
@@ -1279,7 +1318,7 @@ impl<'w> Editor<'w> {
         let mut chosen = None;
         egui::Window::new("Templates")
             .open(&mut open)
-            .default_size([360.0, 420.0])
+            .default_size([560.0, 520.0])
             .default_pos([340.0, 80.0])
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
@@ -1289,44 +1328,158 @@ impl<'w> Editor<'w> {
                         field.request_focus();
                     }
                 });
-                let want = text.trim().to_lowercase();
-                if want.len() < 2 {
-                    ui.label(egui::RichText::new("type two letters or more").weak());
+                let found = self.templates_matching(&text);
+                if found.is_empty() {
+                    ui.label(egui::RichText::new("no template has that").weak());
                     return;
                 }
-                let templates = self.templates.clone();
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    let mut shown = 0;
-                    for t in templates {
-                        let name = self.label(t);
-                        let hex = format!("0x{t:08x}");
-                        if !name.to_lowercase().contains(&want) && !hex.contains(&want) {
-                            continue;
+                let step = TILE + TILE_GAP;
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    clippy::cast_precision_loss
+                )]
+                let across = ((ui.available_width() / step) as usize).max(1);
+                let rows = found.len().div_ceil(across);
+                ui.spacing_mut().item_spacing = egui::vec2(TILE_GAP, TILE_GAP);
+                // Each search starts at the top of its own list.
+                egui::ScrollArea::vertical()
+                    .id_salt(text.trim().to_lowercase())
+                    .auto_shrink([false, false])
+                    .show_rows(ui, TILE + TILE_NAME, rows, |ui, range| {
+                        for row in range {
+                            ui.horizontal(|ui| {
+                                for t in found.iter().skip(row * across).take(across) {
+                                    if self.tile(ui, *t) {
+                                        chosen = Some(*t);
+                                    }
+                                }
+                            });
                         }
-                        // One with no look shows only as its marker in the world.
-                        let line = if self.look(t).is_some() {
-                            format!("0x{t:08X}  {name}")
-                        } else {
-                            format!("0x{t:08X}  {name}  (no look)")
-                        };
-                        if ui.selectable_label(false, line).clicked() {
-                            chosen = Some(t);
-                        }
-                        shown += 1;
-                        if shown >= 200 {
-                            ui.label(egui::RichText::new("and more: type more of the name").weak());
-                            break;
-                        }
-                    }
-                });
+                    });
             });
         if let Some(t) = chosen {
             self.template = format!("0x{t:08X}");
             self.tool = Tool::Place;
             self.status = "click the ground to place it".into();
-        } else if open {
+        }
+        if open {
             self.finding = Some(text);
         }
+    }
+
+    /// The templates whose name or id has `text`.
+    pub fn templates_matching(&mut self, text: &str) -> std::sync::Arc<[u32]> {
+        let want = text.trim().to_lowercase();
+        if let Some((known, list)) = &self.found {
+            if *known == want {
+                return list.clone();
+            }
+        }
+        // Asked for nothing in particular, the many with nothing to show stay out of the way.
+        let list: std::sync::Arc<[u32]> = self
+            .templates
+            .clone()
+            .into_iter()
+            .filter(|t| {
+                if want.is_empty() {
+                    self.look(*t).is_some()
+                } else {
+                    format!("0x{t:08x}").contains(&want)
+                        || self.label(*t).to_lowercase().contains(&want)
+                }
+            })
+            .collect();
+        self.found = Some((want, list.clone()));
+        list
+    }
+
+    /// One template in the finder: its picture and name. Whether it was clicked.
+    fn tile(&mut self, ui: &mut egui::Ui, t: u32) -> bool {
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(TILE, TILE + TILE_NAME), egui::Sense::click());
+        let name = self.label(t);
+        if ui.is_rect_visible(rect) {
+            let picture = egui::Rect::from_min_size(rect.min, egui::vec2(TILE, TILE));
+            let painter = ui.painter();
+            painter.rect_filled(picture, 2.0, egui::Color32::BLACK);
+            let look = self.look(t).map(|l| l.0);
+            match look.map(|l| (l, self.pictures.get(&l))) {
+                Some((_, Some(Some(texture)))) => {
+                    let whole =
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+                    painter.image(texture.id(), picture, whole, egui::Color32::WHITE);
+                }
+                Some((l, None)) => self.pictures_wanted.push(l),
+                _ => {
+                    painter.text(
+                        picture.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "no look",
+                        egui::FontId::proportional(11.0),
+                        egui::Color32::GRAY,
+                    );
+                }
+            }
+            let color = ui.visuals().text_color();
+            let mut job = egui::text::LayoutJob::simple(
+                name.clone(),
+                egui::FontId::proportional(11.0),
+                color,
+                TILE,
+            );
+            job.wrap.max_rows = 2;
+            let words = painter.layout_job(job);
+            painter.galley(egui::pos2(rect.min.x, picture.max.y + 1.0), words, color);
+            let chosen = self.template == format!("0x{t:08X}");
+            if chosen || response.hovered() {
+                let stroke = if chosen {
+                    ui.visuals().selection.stroke
+                } else {
+                    ui.visuals().widgets.hovered.fg_stroke
+                };
+                painter.rect_stroke(picture, 2.0, stroke, egui::StrokeKind::Inside);
+            }
+        }
+        response
+            .on_hover_text(format!("0x{t:08X}  {name}"))
+            .clicked()
+    }
+
+    /// Draw one picture the finder is waiting for, as a frame has room for one.
+    pub fn draw_picture(
+        &mut self,
+        ctx: &egui::Context,
+        renderer: &mut auberean_gpu::Renderer,
+        load: &mut dyn FnMut(u32) -> Option<auberean_draw::picture::Image>,
+    ) {
+        let Some(look) = self.pictures_wanted.first().copied() else {
+            return;
+        };
+        let drawn = self.scene.picture_frame(look).and_then(|frame| {
+            match renderer.render(&frame, PICTURE * 2, PICTURE * 2, load) {
+                Ok(p) => Some(p),
+                Err(e) => {
+                    tracing::warn!("a template's picture: {e:?}");
+                    None
+                }
+            }
+        });
+        let texture = drawn
+            .map(|p| halved(&p.rgba, PICTURE as usize))
+            // Some looks are only a place effects come from, and show nothing at rest.
+            .filter(|rgba| rgba.as_chunks::<4>().0.iter().any(|c| c[..3] != [0, 0, 0]))
+            .map(|rgba| {
+                ctx.load_texture(
+                    format!("look-{look:08x}"),
+                    egui::ColorImage::from_rgba_unmultiplied(
+                        [PICTURE as usize, PICTURE as usize],
+                        &rgba,
+                    ),
+                    egui::TextureOptions::LINEAR,
+                )
+            });
+        self.pictures.insert(look, texture);
     }
 
     /// Keep the camera's place for the next session.

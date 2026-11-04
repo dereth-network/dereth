@@ -12,13 +12,16 @@ use auberean_assets::Context;
 use auberean_dat::locate::{install_dats, DatName};
 use auberean_dat::DatFile;
 use auberean_draw::body::BodyDrawer;
-use auberean_draw::scene::{inside_light, Frame, SceneBuilder, Spot};
+use auberean_draw::scene::{inside_light, Camera, Frame, SceneBuilder, Spot};
 use auberean_physics::interior::add_block_cells;
 use auberean_physics::land::Land;
 use auberean_physics::mesh::Trees;
 use auberean_primitives::{DataId, Quat, Vec3};
-use auberean_world::math::Mat4;
+use auberean_world::color::Color;
+use auberean_world::math::{self, Mat4};
 use auberean_world::records::{RegionSet, WorldRecords};
+use auberean_world::sky::DayLight;
+use dereth_primitives::num::math as fm;
 use dereth_primitives::{CellId, LandblockId};
 
 use crate::view::{View, BLOCK};
@@ -85,6 +88,48 @@ struct LookShape {
     lo: [f32; 3],
     hi: [f32; 3],
     triangles: Vec<[[f32; 3]; 3]>,
+}
+
+/// A picture's field of view, degrees. Narrow, so a tall thing keeps its shape.
+const PICTURE_FOV: f32 = 30.0;
+/// Where a picture is seen from, degrees: to the north-west of the thing, so what faces north
+/// shows its front, and a little above.
+const PICTURE_HEADING: f32 = 145.0;
+const PICTURE_PITCH: f32 = -15.0;
+
+/// A camera that holds all of the box from `lo` to `hi` in a square picture.
+#[must_use]
+pub fn picture_camera(lo: [f32; 3], hi: [f32; 3]) -> Camera {
+    let center = Vec3::new(
+        (lo[0] + hi[0]) / 2.0,
+        (lo[1] + hi[1]) / 2.0,
+        (lo[2] + hi[2]) / 2.0,
+    );
+    let half = [hi[0] - center.x, hi[1] - center.y, hi[2] - center.z];
+    // Seen from anywhere, nothing in the box is further from its center than its corners are.
+    let reach = (half[0] * half[0] + half[1] * half[1] + half[2] * half[2])
+        .sqrt()
+        .max(0.05);
+    let distance = reach / fm::sinf((PICTURE_FOV / 2.0).to_radians());
+    let (heading, pitch) = (PICTURE_HEADING.to_radians(), PICTURE_PITCH.to_radians());
+    let along = Vec3::new(
+        fm::sinf(heading) * fm::cosf(pitch),
+        fm::cosf(heading) * fm::cosf(pitch),
+        fm::sinf(pitch),
+    );
+    Camera {
+        position: Vec3::new(
+            center.x - along.x * distance,
+            center.y - along.y * distance,
+            center.z - along.z * distance,
+        ),
+        heading: PICTURE_HEADING,
+        pitch: PICTURE_PITCH,
+        fov_y: PICTURE_FOV,
+        near: (distance - reach * 1.1).max(0.01),
+        far: distance + reach * 1.1,
+        orthographic: None,
+    }
 }
 
 /// The world a window shows, from the free camera.
@@ -430,6 +475,29 @@ impl<'w> Scene<'w> {
             }
         }
         best
+    }
+
+    /// A picture of `look` alone: its parts and body at rest in a plain light, framed to the box
+    /// it fills. `None` for a look that draws nothing.
+    pub fn picture_frame(&mut self, look: u32) -> Option<Frame> {
+        let shape = self.look_shape(look)?;
+        let p = self.looks.get(&look)?.as_ref()?;
+        let place = Mat4::from_parts(Vec3::new(0.0, 0.0, 0.0), Quat::IDENTITY, p.scale);
+        let bodies = self
+            .drawer
+            .batches(&self.data.records, &p.figure, &p.poses, &place);
+        let light = DayLight {
+            ambient_brightness: 0.45,
+            ambient_color: Color::WHITE,
+            direct_brightness: 0.75,
+            direct_color: Color::WHITE,
+            light_direction: math::normalize(Vec3::new(0.3, -0.9, -0.8)),
+            fog_min: 0.0,
+            fog_max: 0.0,
+            ..DayLight::DEFAULT
+        };
+        let camera = picture_camera(shape.lo, shape.hi);
+        Some(self.builder.parts_frame(&[], bodies, camera, light, None))
     }
 
     /// The frame from `view`, with `rows` standing in it; `inside` the block and interior cell the

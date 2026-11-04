@@ -323,7 +323,10 @@ impl App<'_> {
                         self.input.right_down = down;
                     }
                 }
-                Step::Wheel(n) => self.input.wheel += n,
+                Step::Wheel(n) => {
+                    self.gui.wheel(n);
+                    self.input.wheel += n;
+                }
                 Step::Key(name, ctrl, shift) => match gui::key_named(&name) {
                     Some(code) => {
                         self.gui.key(
@@ -395,6 +398,8 @@ impl App<'_> {
         let frame = self.editor.frame();
         let mut load = |id: u32| auberean_draw::picture::load(&world.records, id);
         present.present(Some(frame), out, &self.gui.ctx, &mut load, shot.as_deref());
+        self.editor
+            .draw_picture(&self.gui.ctx, &mut present.renderer, &mut load);
         if let Some(w) = &self.window {
             let dirty = if self.editor.session.unsaved() {
                 "*"

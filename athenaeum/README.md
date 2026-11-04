@@ -91,6 +91,8 @@ to where it leads.
 - An object's **Lead to a place** list makes it a portal: this world's places first, then the
   nearest others. A camp's creatures are listed by name, with how often each comes and **Add** for
   the template along the top.
+- **Find** shows the templates as pictures, by name or id. Click one and click the ground to place
+  it; the window stays open for the next.
 - Ctrl+F or **Find rows** finds any row of the world by its name, template, kind or key, nearest
   or not, and goes to a landblock (`5766` or `5766:123,45`).
 - `=` and `-` make the selected objects larger and smaller, and **scale** on the right sets it; an
