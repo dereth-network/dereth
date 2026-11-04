@@ -446,8 +446,8 @@ fn a_system_set_going_on_its_own_draws_until_it_is_spent() {
     let systems = ParticleSystems::default();
     let one = Vec3::new(1.0, 1.0, 1.0);
     let place = Mat4::translation(Vec3::new(100.0, 240.0, -43.5));
-    assert!(!systems.create_autonomous(r, 0x3900_0000 - 1, (2, 0x98), place, one, 0.0));
-    assert!(systems.create_autonomous(r, id, (2, 0x98), place, one, 0.0));
+    assert!(!systems.create_autonomous(r, 0x3900_0000 - 1, (2, 0x98), place, one, 1.0, 0.0));
+    assert!(systems.create_autonomous(r, id, (2, 0x98), place, one, 1.0, 0.0));
     assert_eq!(systems.counts(), (0, 1));
     let eye = Vec3::new(100.0, 230.0, -43.0);
     let axes = (
@@ -568,7 +568,7 @@ fn the_start_halls_mist_parts_around_a_walker() {
     let run = |walk: bool| {
         let systems = ParticleSystems::default();
         let mist = systems
-            .create(r, 0x3900_018D, false, home, mist_at, unit, 0.0)
+            .create(r, 0x3900_018D, false, home, mist_at, unit, 1.0, 0.0)
             .expect("the mist");
         let mut walker = ObjectEffects::of_look(&human).expect("its look carries effects");
         let start = Mat4::translation(Vec3::new(57.0, 240.0, -44.6));
@@ -593,7 +593,7 @@ fn the_start_halls_mist_parts_around_a_walker() {
                     now,
                 );
             }
-            systems.queue(&mist, home, mist_at, unit, Color::WHITE, now);
+            systems.queue(&mist, home, mist_at, unit, 1.0, Color::WHITE, now);
             let batches = systems.batches(
                 home,
                 160.0,
@@ -636,7 +636,7 @@ fn a_human_running_in_place_parts_the_mist() {
     let run = |velocity: Vec3| {
         let systems = ParticleSystems::default();
         let mist = systems
-            .create(r, 0x3900_018D, false, home, mist_at, unit, 0.0)
+            .create(r, 0x3900_018D, false, home, mist_at, unit, 1.0, 0.0)
             .expect("the mist");
         let mut runner = ObjectEffects::of_look(&human).expect("its look carries effects");
         let place = Mat4::translation(stands);
@@ -647,7 +647,7 @@ fn a_human_running_in_place_parts_the_mist() {
             let now = f64::from(t);
             runner.set_velocity(velocity);
             runner.think(&systems, home, &place, unit, Color::WHITE, now);
-            systems.queue(&mist, home, mist_at, unit, Color::WHITE, now);
+            systems.queue(&mist, home, mist_at, unit, 1.0, Color::WHITE, now);
             let batches = systems.batches(
                 home,
                 160.0,
@@ -973,10 +973,10 @@ fn a_mist_stands_unseen_without_volumetric_fog() {
     let unit = Vec3::new(1.0, 1.0, 1.0);
     let systems = ParticleSystems::default();
     let mist = systems
-        .create(r, 0x3900_018D, false, home, at, unit, 0.0)
+        .create(r, 0x3900_018D, false, home, at, unit, 1.0, 0.0)
         .expect("the mist");
     let frame = |now: f64| {
-        systems.queue(&mist, home, at, unit, Color::WHITE, now);
+        systems.queue(&mist, home, at, unit, 1.0, Color::WHITE, now);
         systems
             .batches(
                 home,

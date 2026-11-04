@@ -377,6 +377,9 @@ pub struct CarriedSystem {
 /// The effects an object plays and the particle systems they keep going.
 #[derive(Clone, Debug)]
 pub struct ObjectEffects {
+    /// What its look gives its systems' scale.
+    // D2-06005
+    particle_scale: f32,
     table: ObjectFxTable,
     /// The effects played from the moment the object is made, with their strengths, in the
     /// object's table order.
@@ -540,6 +543,7 @@ impl ObjectEffects {
             return None;
         }
         Some(Self {
+            particle_scale: look.particle_scale,
             table: ObjectFxTable::of_group(&look.global),
             startup: look.global.startup_fx.entries.clone(),
             states: BTreeMap::new(),
@@ -1021,7 +1025,16 @@ impl ObjectEffects {
         rig: &dyn Rig,
     ) -> Option<u32> {
         let place = carried_place(&offset, on, remove_rotation, &at.place, rig);
-        let system = systems.create(records, desc, true, at.home, place, at.scale, at.now)?;
+        let system = systems.create(
+            records,
+            desc,
+            true,
+            at.home,
+            place,
+            at.scale,
+            self.particle_scale,
+            at.now,
+        )?;
         systems.set_can_be_shared(&system, self.shared);
         let id = self.next_id;
         self.next_id += 1;
@@ -1214,7 +1227,15 @@ impl ObjectEffects {
             offset()
         };
         let place = on.then(&place);
-        let _ = systems.create_autonomous(records, desc, at.home, place, at.scale, at.now);
+        let _ = systems.create_autonomous(
+            records,
+            desc,
+            at.home,
+            place,
+            at.scale,
+            self.particle_scale,
+            at.now,
+        );
     }
 
     /// Stops effect `effect`: the particle systems it keeps going are let go of, and it no longer
@@ -1357,7 +1378,7 @@ impl ObjectEffects {
     ) {
         for c in &self.systems {
             let at = carried_place(&c.offset, c.on, c.remove_rotation, place, rig);
-            systems.queue(&c.system, home, at, scale, light, now);
+            systems.queue(&c.system, home, at, scale, self.particle_scale, light, now);
         }
         self.systems
             .retain(|c| !systems.ready_to_die(&c.system, now));

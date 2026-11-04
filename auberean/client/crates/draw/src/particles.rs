@@ -367,6 +367,10 @@ pub struct Push {
     pub attracts: bool,
 }
 
+/// The description's scale type of a system drawn at its object's scale as well as its look's
+/// particle scale: all but 2 of the data's 1,560.
+const SCALES_WITH_OBJECT: u32 = 2;
+
 impl ParticleSet {
     /// The system of record `id`, its material made ready, standing at `place` with the object's
     /// `scale`, made at time `created` (seconds of the client's running time), rolling `dice`.
@@ -495,6 +499,21 @@ impl ParticleSet {
     #[must_use]
     pub fn place(&self) -> Mat4 {
         self.place
+    }
+
+    /// The scale it draws with, standing on an object of scale `object` whose look gives its
+    /// systems `particle`: by that alone, unless the system's description scales it with its object.
+    #[must_use]
+    pub fn drawn_scale(&self, object: Vec3, particle: f32) -> Vec3 {
+        if self.desc.scale_type == SCALES_WITH_OBJECT {
+            Vec3::new(
+                object.x * particle,
+                object.y * particle,
+                object.z * particle,
+            )
+        } else {
+            Vec3::new(particle, particle, particle)
+        }
     }
 
     /// The scale of the object it stands on.

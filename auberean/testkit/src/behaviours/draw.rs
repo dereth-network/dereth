@@ -848,6 +848,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.particles.a-looks-particle-scale-sizes-its-systems",
+        says: "A particle system draws at its look's particle scale, times its object's scale \
+               when its description scales it with its object.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-SCALE"),
+        station: "auberean-draw::cpu::effects::particles::a_looks_particle_scale_sizes_its_systems",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.particles.a-mist-stands-unseen-without-volumetric-fog",
         says: "With the volumetric fog effects off, a particle system whose particles move by \
                repulsors (the start hall's ground mist) neither moves on nor draws; turned on \

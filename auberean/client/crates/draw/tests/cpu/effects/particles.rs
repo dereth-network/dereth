@@ -542,3 +542,29 @@ fn an_effect_moves_its_sliders_over_its_ramp() {
     );
     assert!(node_sliders(&FxNode::default()).is_empty());
 }
+
+/// A system draws with its look's particle scale, times its object's scale when its description
+/// scales it with its object; a system that does not draws by the particle scale alone.
+///
+/// Behaviour: draw.particles.a-looks-particle-scale-sizes-its-systems
+#[test]
+fn a_looks_particle_scale_sizes_its_systems() {
+    let object = Vec3::new(1.5, 1.5, 3.0);
+    let with_object = system(Emitter::default());
+    assert_eq!(with_object.desc().scale_type, 2);
+    assert_eq!(
+        with_object.drawn_scale(object, 2.0),
+        Vec3::new(3.0, 3.0, 6.0)
+    );
+    let mut desc = with_object.desc().clone();
+    desc.scale_type = 1;
+    let alone = ParticleSet::new(
+        desc,
+        Vec::new(),
+        Mat4::IDENTITY,
+        object,
+        0.0,
+        &Random::new(),
+    );
+    assert_eq!(alone.drawn_scale(object, 2.0), Vec3::new(2.0, 2.0, 2.0));
+}

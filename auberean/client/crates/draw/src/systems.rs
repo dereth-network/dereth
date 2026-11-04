@@ -379,6 +379,7 @@ impl ParticleSystems {
         home: (i32, i32),
         place: Mat4,
         scale: Vec3,
+        particle: f32,
         now: f64,
     ) -> Option<SystemRef> {
         if record == 0 {
@@ -398,7 +399,9 @@ impl ParticleSystems {
             inner.add_ref(id);
             id
         } else {
-            let set = ParticleSet::load(records, record, place, scale, now, &inner.dice)?;
+            let mut set = ParticleSet::load(records, record, place, scale, now, &inner.dice)?;
+            let scale = set.drawn_scale(scale, particle);
+            set.set_place(place, scale);
             inner.next_id += 1;
             let id = inner.next_id;
             inner.systems.push(System {
@@ -424,6 +427,7 @@ impl ParticleSystems {
     /// its particles are dead. A record that is not a system sets nothing going.
     // D2-10310
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub fn create_autonomous(
         &self,
         records: &WorldRecords,
@@ -431,6 +435,7 @@ impl ParticleSystems {
         home: (i32, i32),
         place: Mat4,
         scale: Vec3,
+        particle: f32,
         now: f64,
     ) -> bool {
         if record == 0 {
@@ -440,6 +445,8 @@ impl ParticleSystems {
         let Some(mut set) = ParticleSet::load(records, record, place, scale, now, &dice) else {
             return false;
         };
+        let scale = set.drawn_scale(scale, particle);
+        set.set_place(place, scale);
         set.place_emitters(now);
         self.lock()
             .autonomous
@@ -474,12 +481,14 @@ impl ParticleSystems {
     /// emitters placed there the first time) and runs it to `now`.
     // D2-10293
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn queue(
         &self,
         system: &SystemRef,
         home: (i32, i32),
         place: Mat4,
         scale: Vec3,
+        particle: f32,
         light: Color,
         now: f64,
     ) {
@@ -488,6 +497,7 @@ impl ParticleSystems {
         let Some(s) = inner.find(system.id) else {
             return;
         };
+        let scale = s.set.drawn_scale(scale, particle);
         let first = s.queued_at != Some(now);
         if first {
             s.places.clear();

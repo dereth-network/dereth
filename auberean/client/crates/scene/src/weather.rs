@@ -125,6 +125,7 @@ impl Weather {
                     v.home,
                     Mat4::IDENTITY,
                     Vec3::new(1.0, 1.0, 1.0),
+                    1.0,
                     v.now,
                 );
                 if let Some(s) = &made {
@@ -208,6 +209,7 @@ impl Weather {
                 v.home,
                 Mat4::IDENTITY,
                 Vec3::new(1.0, 1.0, 1.0),
+                1.0,
                 Color::WHITE,
                 v.now,
             );
