@@ -325,7 +325,7 @@ impl OtherBody {
     }
 
     /// The body leaves the world, to enter it again at `p`.
-    // D2-06057, D2-06161
+    // D2-06057, D2-06161, D2-06158
     pub fn leave_visibility(&mut self, p: Position) {
         self.body.stop_interpolating();
         self.body.in_world = false;
@@ -637,6 +637,7 @@ impl Others {
 
     /// Object `id`'s body goes: out of the cell it is lost in and out of the world's table.
     // D2-05725, D2-05638
+    // D2-06178, D2-06138
     pub(crate) fn destroy_object(&mut self, id: u64, world: &mut World) {
         self.lost.remove(id);
         if let Some(k) = self.bodies.get(&id).and_then(|b| b.key) {

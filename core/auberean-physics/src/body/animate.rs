@@ -170,7 +170,7 @@ impl Body {
     /// frozen. The figure is then told that speed, not the velocity the body asks for: a body
     /// held against a wall stands, and a step up or down shows in its vertical speed. (The rest of
     /// an animation step, the figure's sliders, effects and triggers, is the figure's own.)
-    // D2-06252
+    // D2-06252, D2-06489
     pub fn update_animation(&mut self, dt: f32) {
         if self.is_animation_frozen() {
             return;

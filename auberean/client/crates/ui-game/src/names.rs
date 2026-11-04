@@ -747,7 +747,7 @@ impl Names {
     /// The box an object fills on the screen (clip square: x and y from -1 to 1), its recent
     /// boxes averaged; and whether any corner of it is on the screen. `None` when it is not
     /// drawn or the world has no camera yet.
-    // D2-02108, D2-13233, D2-13225, D2-08173, D2-08174, D2-08175
+    // D2-02108, D2-13233, D2-06337, D2-13225, D2-08173, D2-08174, D2-08175
     fn object_to_window(
         world: &World,
         t: &Thing,

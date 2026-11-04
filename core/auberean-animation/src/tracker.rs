@@ -522,7 +522,7 @@ impl Behaviors {
     /// waits at once. Otherwise its starting effect fires; it takes its layer from the behavior that
     /// held it (stopped) and from one that let it go (ended at once); its weight starts at 0
     /// rising over its ramp time (at 1 without one); a hold without a loop plays as an action.
-    // D2-14963
+    // D2-14963, D2-06443, D2-06442
     pub fn do_behavior(
         &mut self,
         table: &BehaviorTable,

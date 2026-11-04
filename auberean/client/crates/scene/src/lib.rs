@@ -723,7 +723,7 @@ pub(crate) fn give_parts(
 /// What a body keeps when its object's look becomes `look` (none: it has no look to draw): its
 /// figure brought up to date with it, keeping what it plays (made when it has none), and its
 /// effects made again from it with the effects that were playing asked again.
-// D2-06002, D2-06551
+// D2-06002, D2-06551, D2-06532, D2-06550
 pub(crate) fn takes_look(
     anims: &CachedRecords<'_>,
     figure: &mut Option<Figure>,

@@ -70,6 +70,7 @@ pub mod stop {
 
 /// Where an emitter is: its place in the world's axes, by its object's id (`None` when it is not
 /// where the listener's world is drawn; its last place stands).
+// D2-06032
 pub type Emitters<'a> = &'a dyn Fn(u64) -> Option<Vec3>;
 
 /// What the manager did, in numbers.

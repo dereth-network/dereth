@@ -422,7 +422,7 @@ fn travel(v0: f32, v1: f32, r: f32, west_to_east: bool) -> f32 {
 }
 
 /// The sky's objects at fraction `t` of day `day`.
-// D2-07600, D2-10937, D2-10943
+// D2-07600, D2-10937, D2-10943, D2-06003, D2-06004
 #[must_use]
 pub fn sky_pieces(day: &DayDesc, t: f32) -> Vec<SkyPiece> {
     let around = bracket(&day.times, t);

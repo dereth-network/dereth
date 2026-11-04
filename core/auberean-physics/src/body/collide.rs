@@ -191,7 +191,7 @@ impl Body {
 
     /// Reports what began and ended of the body's collisions (`end_all`: every touch ends): kept
     /// for the host, and heard by its guidance when it flies as a missile.
-    // D2-06244
+    // D2-06244, D2-06215
     pub fn report_collisions(
         &mut self,
         land: &Land,

@@ -436,7 +436,7 @@ const FAR_FADE: f32 = 40.0;
 /// distance it fades out, and on a landblock of `blocks` (each with its opacity) it fades in with
 /// the block. Its visible distance past, it is wholly transparent, and not drawn. Each object's
 /// level of detail and materials are chosen here too, from among its draws.
-// D2-03680, D2-03691, D2-03784, D2-03789, D2-06658
+// D2-03680, D2-03691, D2-03784, D2-03789, D2-06658, D2-06218, D2-06330, D2-06576
 pub fn fade_objects(objects: &mut [ObjectBatch], eye: Vec3, blocks: &[((u8, u8), f32)]) {
     for b in objects {
         let d = b.distance_from(eye);

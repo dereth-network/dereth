@@ -1051,7 +1051,7 @@ impl ObjectEffects {
     /// strength it then has; nothing restarts; a startup effect is left alone. Whether it played,
     /// and the effect scripts to play. Its streaks are made, and the streaks it turns on or off asked
     /// for. (Its colors, sliders, objects made, targets, decals and repulsors are not played here.)
-    // D2-06934, D2-06932
+    // D2-06934, D2-06932, D2-06887
     #[allow(clippy::too_many_arguments)]
     pub fn do_fx(
         &mut self,
@@ -1221,7 +1221,7 @@ impl ObjectEffects {
     /// plays; a startup effect only when `force`d. Asked (not `force`d), the appearances its
     /// entries lay over the object are taken off it. An entry that says so puts the object's color
     /// back to white in a tenth of a second, whether the effect was playing or not.
-    // D2-06920
+    // D2-06920, D2-06588, D2-06646
     pub fn stop_fx(&mut self, records: &WorldRecords, effect: u32, force: bool) -> bool {
         let Some(state) = self.states.get(&effect) else {
             self.restore_color(records, effect);

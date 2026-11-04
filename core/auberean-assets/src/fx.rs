@@ -65,6 +65,7 @@ impl Streak {
 }
 
 /// A decal laid on surfaces.
+// D2-15756
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Decal {
     pub color: Color32,
@@ -161,6 +162,7 @@ impl AppearanceKey {
 }
 
 /// One effect. Every part is optional; [`FxNode::parts`] says which are stored.
+// D2-15723
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct FxNode {
     /// Which parts are stored, a bit each.

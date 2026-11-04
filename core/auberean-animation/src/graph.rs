@@ -218,7 +218,7 @@ pub fn axis_weights(sliders: &[u32], children: usize, state: &GraphState<'_>) ->
 /// What a random node's crossfade plays: the child its crossfade started from and, while one
 /// runs, the child it goes to and how far it is (the same child twice counts once). Choices are
 /// cut toward zero into child indices.
-// D2-15419
+// D2-15419, D2-06519
 #[must_use]
 pub fn interp_pick(children: &[DataId], c: &SliderInterp) -> (DataId, DataId, f32) {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]

@@ -50,7 +50,7 @@ impl Scene<'_> {
     /// The objects this frame's effects make and what they do to what they aim at: an effect that
     /// is already playing only takes its strength. Each entry played where the object is now, for
     /// who it is and the time of day, makes its object and acts on its target.
-    // D2-06907, D2-06916, D2-06932
+    // D2-06907, D2-06916, D2-06932, D2-06547
     pub(crate) fn aim_fx(&mut self, client: &mut Client, played: &[(u64, u32, f32)], night: bool) {
         let aims = std::mem::take(&mut self.fx_aims);
         for &(object, effect, scalar) in played {

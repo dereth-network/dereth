@@ -92,6 +92,7 @@ pub struct Ticker {
 
 impl Ticker {
     #[must_use]
+    // D2-05760
     pub const fn new(now: f64) -> Self {
         Self {
             reached: now,
@@ -101,7 +102,7 @@ impl Ticker {
 
     /// How many ticks the frame at time `now` runs: none before a tenth of a second has passed,
     /// none (and the backlog dropped) after more than a second, or when time ran backward.
-    // D2-13684
+    // D2-13684, D2-05761, D2-05763
     pub fn ticks(&mut self, now: f64) -> u32 {
         let mut d = now - self.reached;
         if d < 0.0 || d > MAX_BACKLOG {
