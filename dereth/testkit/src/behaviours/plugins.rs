@@ -735,7 +735,7 @@ pub static ROWS: &[Behaviour] = &[
                Where no walk then goes round it, the journey fails naming a shut door.",
         since: THIS_CLIENT,
         divergence: "CD-plugins",
-        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-PATH-RETAIL"),
+        evidence: Evidence::Private("AC-EVID-PLUGINS-NAV-DOOR-SHUT"),
         station: "dereth-client-runtime::lib::travel::tests::a_door_that_never_opens_and_never_answers_ends_the_journey_after_a_bounded_number_of_uses",
         tier: Tier::Cpu,
     },
