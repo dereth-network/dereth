@@ -278,6 +278,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.admin.generate-makes-at-most-a-hundred",
+        says: "An admin's generate call makes the number asked for, one if the number is not a count, \
+               and at most a hundred. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ADMIN-GENERATE-MOST"),
+        station: "yalain-testkit::cpu::operator::admin_calls::generate_makes_what_is_asked_up_to_a_hundred",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.admin.library-carries-the-ethereality-words",
         says: "With the admin library goes the record of the ethereality command's words, which no \
                install holds, so a retail client finds a value for each and sends the command. The \

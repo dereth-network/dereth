@@ -563,6 +563,31 @@ fn the_state_and_object_calls_act() {
     assert!(answers(&h, me, from)[0].contains("no template"));
 }
 
+/// `/generate` makes the number asked for, one if the number is not a count, and at most a hundred
+/// however many are asked for.
+/// Behaviour: server.admin.generate-makes-at-most-a-hundred
+#[test]
+fn generate_makes_what_is_asked_up_to_a_hundred() {
+    let mut h = Harness::new();
+    h.add_creatures(0);
+    let (me, _) = admin_in_world(&mut h, "one", "Elara");
+    h.run(10);
+    for (asked, makes) in [(3, 3), (0, 1), (-5, 1), (101, 100), (i32::MAX, 100)] {
+        let from = h.bots[me].inbox.len();
+        send(
+            &mut h,
+            me,
+            0x8201_0037,
+            &[text("test"), Arg::Int(asked.cast_unsigned())],
+        );
+        assert_eq!(
+            answers(&h, me, from),
+            [format!("Camp test made {makes}.")],
+            "{asked} asked for"
+        );
+    }
+}
+
 /// Every call of the family has an answer from an admin character, whatever comes with it: none
 /// stops the server, and none needs its values to be there.
 /// Behaviour: server.admin.every-call-answers-an-admin

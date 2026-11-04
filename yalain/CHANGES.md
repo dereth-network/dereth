@@ -144,6 +144,7 @@ what they see, not how it was done.
 - A full pack now stops crafting, butchering and mining.
 - Picking up a quest item now moves its quest on.
 - Fixed a weapon in the off hand stopping your stance and swings from showing.
+- An admin's /generate now makes at most a hundred.
 
 ## 0.1.2 (2026-11-03)
 

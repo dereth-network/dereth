@@ -28,6 +28,8 @@ pub mod function {
 /// How far in front of the admin an object is made, and how far `/createdistant` makes one.
 const NEAR: f32 = 2.0;
 const DISTANT: f32 = 20.0;
+/// The most creatures one `/generate` makes.
+const MOST_GENERATED: i32 = 100;
 
 /// A call of this kind: its answer; `None` for any other.
 pub(super) fn call<S: Store>(cx: &mut Cx<'_, S>, f: u32, a: &Args<'_>) -> Option<Vec<String>> {
@@ -138,10 +140,10 @@ fn delete<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
 }
 
 /// `/generate <profile> <quantity>`: run the camp the words name, by its index or id, that many
-/// times.
+/// times, at most `MOST_GENERATED`.
 fn generate<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
     let word = a.text(0).unwrap_or_default();
-    let quantity = a.signed(1).unwrap_or(1).max(1);
+    let quantity = a.signed(1).unwrap_or(1).clamp(1, MOST_GENERATED);
     let Some(i) = cx.s.spawns.camps.iter().position(|c| c.id == word) else {
         return vec![format!("The world has no camp {word}.")];
     };
