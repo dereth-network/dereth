@@ -738,21 +738,7 @@ fn keep<S: Store>(s: &mut Server<S>, p: &Player) {
     play.item_states = play
         .items
         .iter()
-        .filter_map(|h| {
-            let t = s.things.get(h.id)?;
-            Some(crate::state::ItemState {
-                id: h.id,
-                instance: t.instance,
-                crafter: t.crafter.clone(),
-                durability: t.durability,
-                destination: t.destination,
-                bonuses: t.bonuses.clone(),
-                binds_on_use: t.binds_on_use,
-                own: t.own,
-                enchantments: t.enchantments.clone(),
-                value: t.value,
-            })
-        })
+        .filter_map(|h| s.things.get(h.id).map(crate::state::ItemState::of))
         .collect();
     let st = WorldState {
         position: Some(p.position),

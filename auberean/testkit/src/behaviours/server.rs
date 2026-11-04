@@ -4241,6 +4241,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.a-consigned-item-keeps-what-it-holds",
+        says: "An item on sale holds what it held in the pack: taken back unsold it comes as a new \
+               item with the old one's value and own numbers, a restart leaves it as it was, and \
+               a seller collecting its price leaves the buyer's item alone. A record from before \
+               items' numbers were kept still reads, its items plain. Our choice: recordings show \
+               a bought item keeping its id and a plain stack taken back under a new one, but no \
+               made item taken back, no seller collecting and no restart.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-ITEM-KEPT"),
+        station: "yalain-testkit::cpu::play::market::an_item_taken_back_from_a_broker_keeps_what_it_holds_of_its_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.catalog-consignments-and-player-sales",
         says: "Using a broker answers the use, then shows its catalog; an item put up for sale \
                takes a hundredth of what it would fetch, moves to the broker and shows the \

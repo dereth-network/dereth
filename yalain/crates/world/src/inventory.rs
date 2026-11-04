@@ -1199,10 +1199,14 @@ pub fn collected<S: Store>(
     template: u32,
     quantity: u32,
     from: u64,
+    kept: Option<&crate::state::ItemState>,
 ) {
     let Some(id) = make_item(s, template, quantity, 0) else {
         return;
     };
+    if let (Some(kept), Some(t)) = (kept, s.things.get_mut(id)) {
+        kept.restore(t);
+    }
     arrive(
         s,
         net,
@@ -1789,17 +1793,8 @@ pub fn enter<S: Store>(s: &mut Server<S>, world: ConnId) -> Vec<u64> {
         item.position_stamp = 0;
         item.quantity = h.quantity;
         item.container = Some((owner, h.slot));
-        item.crafter = k.and_then(|k| k.crafter.clone());
-        item.durability = k.and_then(|k| k.durability);
-        item.destination = k.and_then(|k| k.destination);
-        item.bonuses = k.map(|k| k.bonuses.clone()).unwrap_or_default();
-        item.binds_on_use = k.is_some_and(|k| k.binds_on_use);
-        item.own = k.map(|k| k.own).unwrap_or_default();
-        item.enchantments = k.map(|k| k.enchantments.clone()).unwrap_or_default();
-        item.value = k.map_or(0, |k| k.value);
-        // A made item saved before an item's own value was kept has it in what its level gave it.
-        if let Some(m) = item.own.made {
-            item.value = m.value;
+        if let Some(k) = k {
+            k.restore(&mut item);
         }
         if h.location & crate::equip::BODY_PLACES != 0 {
             item.wielded = Some((owner, h.location));

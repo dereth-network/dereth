@@ -271,6 +271,205 @@ impl In<'_> {
     }
 }
 
+impl ItemState {
+    /// What an item holds of its own, as it stands.
+    #[must_use]
+    pub fn of(t: &crate::things::Thing) -> Self {
+        Self {
+            id: t.id,
+            instance: t.instance,
+            crafter: t.crafter.clone(),
+            durability: t.durability,
+            destination: t.destination,
+            bonuses: t.bonuses.clone(),
+            binds_on_use: t.binds_on_use,
+            own: t.own,
+            enchantments: t.enchantments.clone(),
+            value: t.value,
+        }
+    }
+
+    /// An item takes what was kept of it again (all but its id and its instance stamp, which are
+    /// the item's own to give).
+    pub fn restore(&self, item: &mut crate::things::Thing) {
+        item.crafter.clone_from(&self.crafter);
+        item.durability = self.durability;
+        item.destination = self.destination;
+        item.bonuses.clone_from(&self.bonuses);
+        item.binds_on_use = self.binds_on_use;
+        item.own = self.own;
+        item.enchantments.clone_from(&self.enchantments);
+        item.value = self.value;
+        // A made item saved before an item's own value was kept has it in what its level gave it.
+        if let Some(m) = item.own.made {
+            item.value = m.value;
+        }
+    }
+
+    /// It alone, in the server's encoding, saying its version.
+    #[must_use]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut out = VERSION.to_le_bytes().to_vec();
+        self.write(&mut out);
+        out
+    }
+
+    /// It alone, read back; none when it does not read.
+    #[must_use]
+    pub fn from_bytes(b: &[u8]) -> Option<Self> {
+        let mut r = In(b);
+        let version = r.u32()?;
+        if !(6..=VERSION).contains(&version) {
+            return None;
+        }
+        let read = Self::read(&mut r, version)?;
+        r.0.is_empty().then_some(read)
+    }
+
+    fn write(&self, out: &mut Vec<u8>) {
+        let w32 = |out: &mut Vec<u8>, v: u32| out.extend_from_slice(&v.to_le_bytes());
+        let w64 = |out: &mut Vec<u8>, v: u64| out.extend_from_slice(&v.to_le_bytes());
+        w64(out, self.id);
+        w32(out, u32::from(self.instance));
+        // A name's length, 0 for none (no maker is named by an empty name).
+        let maker = self.crafter.as_deref().unwrap_or("").as_bytes();
+        w32(out, u32::try_from(maker.len()).unwrap_or(0));
+        out.extend_from_slice(maker);
+        w32(out, self.durability.unwrap_or(UNWORN));
+        // A place's cell, 0 for none (no place is in cell 0), then its point.
+        let (cell, origin) = self
+            .destination
+            .map_or((0, [0.0; 3]), |d| (d.cell, d.origin));
+        w32(out, cell);
+        for v in origin {
+            w32(out, v.to_bits());
+        }
+        w32(out, u32::try_from(self.bonuses.len()).unwrap_or(0));
+        for (state, spellcraft) in &self.bonuses {
+            w32(out, *state);
+            w32(out, spellcraft.to_bits());
+        }
+        w32(out, u32::from(self.binds_on_use));
+        let own = &self.own;
+        let has = if own.min_level.is_some() {
+            OWN_MIN_LEVEL
+        } else {
+            0
+        } | if own.arcane_lore.is_some() {
+            OWN_ARCANE_LORE
+        } else {
+            0
+        } | if own.effect.is_some() { OWN_EFFECT } else { 0 }
+            | if own.made.is_some() { OWN_MADE } else { 0 }
+            | if own.dye.is_some() { OWN_DYE } else { 0 }
+            | if self.value > 0 { OWN_VALUE } else { 0 };
+        w32(out, has);
+        if let Some(v) = own.min_level {
+            w32(out, v.cast_unsigned());
+        }
+        if let Some(v) = own.arcane_lore {
+            w32(out, v.cast_unsigned());
+        }
+        if let Some(e) = own.effect {
+            w32(out, e.state);
+            w32(out, e.spellcraft.to_bits());
+            w32(out, e.table);
+            w32(out, e.color.to_bits());
+        }
+        if let Some(m) = own.made {
+            write_made(out, &m);
+            w32(out, u32::try_from(self.enchantments.len()).unwrap_or(0));
+            for (state, spellcraft) in &self.enchantments {
+                w32(out, *state);
+                w32(out, spellcraft.to_bits());
+            }
+        }
+        if let Some((table, value)) = own.dye {
+            w32(out, table);
+            w32(out, value.to_bits());
+        }
+        if self.value > 0 {
+            w32(out, self.value);
+        }
+    }
+
+    fn read(r: &mut In<'_>, version: u32) -> Option<Self> {
+        let id = r.u64()?;
+        let instance = u16::try_from(r.u32()?).ok()?;
+        let crafter = r.text()?;
+        let durability = if version >= 7 {
+            Some(r.u32()?).filter(|d| *d != UNWORN)
+        } else {
+            None
+        };
+        let destination = if version >= 8 {
+            let cell = r.u32()?;
+            let mut origin = [0.0; 3];
+            for v in &mut origin {
+                *v = f32::from_bits(r.u32()?);
+            }
+            (cell != 0).then_some(StoredPosition {
+                cell,
+                origin,
+                rotation: [1.0, 0.0, 0.0, 0.0],
+            })
+        } else {
+            None
+        };
+        let mut bonuses = Vec::new();
+        if version >= 9 {
+            for _ in 0..r.u32()? {
+                bonuses.push((r.u32()?, r.f32()?));
+            }
+        }
+        let binds_on_use = version >= 10 && r.u32()? != 0;
+        let mut own = crate::treasure::Own::default();
+        let mut enchantments = Vec::new();
+        let mut value = 0;
+        if version >= 11 {
+            let has = r.u32()?;
+            if has & OWN_MIN_LEVEL != 0 {
+                own.min_level = Some(r.u32()?.cast_signed());
+            }
+            if has & OWN_ARCANE_LORE != 0 {
+                own.arcane_lore = Some(r.u32()?.cast_signed());
+            }
+            if has & OWN_EFFECT != 0 {
+                own.effect = Some(crate::treasure::OwnEffect {
+                    state: r.u32()?,
+                    spellcraft: r.f32()?,
+                    table: r.u32()?,
+                    color: r.f32()?,
+                })
+            }
+            if has & OWN_MADE != 0 {
+                own.made = Some(read_made(r)?);
+                for _ in 0..r.u32()? {
+                    enchantments.push((r.u32()?, r.f32()?));
+                }
+            }
+            if has & OWN_DYE != 0 {
+                own.dye = Some((r.u32()?, r.f32()?));
+            }
+            if has & OWN_VALUE != 0 {
+                value = r.u32()?;
+            }
+        }
+        Some(Self {
+            id,
+            instance,
+            crafter: (!crafter.is_empty()).then_some(crafter),
+            durability,
+            destination,
+            bonuses,
+            binds_on_use,
+            own,
+            enchantments,
+            value,
+        })
+    }
+}
+
 impl PlayState {
     /// The state in the server's encoding.
     #[must_use]
@@ -354,66 +553,7 @@ impl PlayState {
         }
         w32(&mut out, u32::try_from(self.item_states.len()).unwrap_or(0));
         for i in &self.item_states {
-            w64(&mut out, i.id);
-            w32(&mut out, u32::from(i.instance));
-            // A name's length, 0 for none (no maker is named by an empty name).
-            let maker = i.crafter.as_deref().unwrap_or("").as_bytes();
-            w32(&mut out, u32::try_from(maker.len()).unwrap_or(0));
-            out.extend_from_slice(maker);
-            w32(&mut out, i.durability.unwrap_or(UNWORN));
-            // A place's cell, 0 for none (no place is in cell 0), then its point.
-            let (cell, origin) = i.destination.map_or((0, [0.0; 3]), |d| (d.cell, d.origin));
-            w32(&mut out, cell);
-            for v in origin {
-                w32(&mut out, v.to_bits());
-            }
-            w32(&mut out, u32::try_from(i.bonuses.len()).unwrap_or(0));
-            for (state, spellcraft) in &i.bonuses {
-                w32(&mut out, *state);
-                w32(&mut out, spellcraft.to_bits());
-            }
-            w32(&mut out, u32::from(i.binds_on_use));
-            let own = &i.own;
-            let has = if own.min_level.is_some() {
-                OWN_MIN_LEVEL
-            } else {
-                0
-            } | if own.arcane_lore.is_some() {
-                OWN_ARCANE_LORE
-            } else {
-                0
-            } | if own.effect.is_some() { OWN_EFFECT } else { 0 }
-                | if own.made.is_some() { OWN_MADE } else { 0 }
-                | if own.dye.is_some() { OWN_DYE } else { 0 }
-                | if i.value > 0 { OWN_VALUE } else { 0 };
-            w32(&mut out, has);
-            if let Some(v) = own.min_level {
-                w32(&mut out, v.cast_unsigned());
-            }
-            if let Some(v) = own.arcane_lore {
-                w32(&mut out, v.cast_unsigned());
-            }
-            if let Some(e) = own.effect {
-                w32(&mut out, e.state);
-                w32(&mut out, e.spellcraft.to_bits());
-                w32(&mut out, e.table);
-                w32(&mut out, e.color.to_bits());
-            }
-            if let Some(m) = own.made {
-                write_made(&mut out, &m);
-                w32(&mut out, u32::try_from(i.enchantments.len()).unwrap_or(0));
-                for (state, spellcraft) in &i.enchantments {
-                    w32(&mut out, *state);
-                    w32(&mut out, spellcraft.to_bits());
-                }
-            }
-            if let Some((table, value)) = own.dye {
-                w32(&mut out, table);
-                w32(&mut out, value.to_bits());
-            }
-            if i.value > 0 {
-                w32(&mut out, i.value);
-            }
+            i.write(&mut out);
         }
         w32(&mut out, self.hero_credits);
         w64(&mut out, self.played_seconds);
@@ -536,79 +676,8 @@ impl PlayState {
         }
         if version >= 6 {
             for _ in 0..r.u32().ok_or_else(bad)? {
-                let id = r.u64().ok_or_else(bad)?;
-                let instance = u16::try_from(r.u32().ok_or_else(bad)?).map_err(|_| bad())?;
-                let crafter = r.text().ok_or_else(bad)?;
-                let durability = if version >= 7 {
-                    Some(r.u32().ok_or_else(bad)?).filter(|d| *d != UNWORN)
-                } else {
-                    None
-                };
-                let destination = if version >= 8 {
-                    let cell = r.u32().ok_or_else(bad)?;
-                    let mut origin = [0.0; 3];
-                    for v in &mut origin {
-                        *v = f32::from_bits(r.u32().ok_or_else(bad)?);
-                    }
-                    (cell != 0).then_some(StoredPosition {
-                        cell,
-                        origin,
-                        rotation: [1.0, 0.0, 0.0, 0.0],
-                    })
-                } else {
-                    None
-                };
-                let mut bonuses = Vec::new();
-                if version >= 9 {
-                    for _ in 0..r.u32().ok_or_else(bad)? {
-                        bonuses.push((r.u32().ok_or_else(bad)?, r.f32().ok_or_else(bad)?));
-                    }
-                }
-                let binds_on_use = version >= 10 && r.u32().ok_or_else(bad)? != 0;
-                let mut own = crate::treasure::Own::default();
-                let mut enchantments = Vec::new();
-                let mut value = 0;
-                if version >= 11 {
-                    let has = r.u32().ok_or_else(bad)?;
-                    if has & OWN_MIN_LEVEL != 0 {
-                        own.min_level = Some(r.u32().ok_or_else(bad)?.cast_signed());
-                    }
-                    if has & OWN_ARCANE_LORE != 0 {
-                        own.arcane_lore = Some(r.u32().ok_or_else(bad)?.cast_signed());
-                    }
-                    if has & OWN_EFFECT != 0 {
-                        own.effect = Some(crate::treasure::OwnEffect {
-                            state: r.u32().ok_or_else(bad)?,
-                            spellcraft: r.f32().ok_or_else(bad)?,
-                            table: r.u32().ok_or_else(bad)?,
-                            color: r.f32().ok_or_else(bad)?,
-                        });
-                    }
-                    if has & OWN_MADE != 0 {
-                        own.made = Some(read_made(&mut r).ok_or_else(bad)?);
-                        for _ in 0..r.u32().ok_or_else(bad)? {
-                            enchantments.push((r.u32().ok_or_else(bad)?, r.f32().ok_or_else(bad)?));
-                        }
-                    }
-                    if has & OWN_DYE != 0 {
-                        own.dye = Some((r.u32().ok_or_else(bad)?, r.f32().ok_or_else(bad)?));
-                    }
-                    if has & OWN_VALUE != 0 {
-                        value = r.u32().ok_or_else(bad)?;
-                    }
-                }
-                s.item_states.push(ItemState {
-                    id,
-                    instance,
-                    crafter: (!crafter.is_empty()).then_some(crafter),
-                    durability,
-                    destination,
-                    bonuses,
-                    binds_on_use,
-                    own,
-                    enchantments,
-                    value,
-                });
+                s.item_states
+                    .push(ItemState::read(&mut r, version).ok_or_else(bad)?);
             }
         }
         if version >= 11 {
