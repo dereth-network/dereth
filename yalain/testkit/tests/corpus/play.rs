@@ -288,6 +288,7 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        wants: None,
         fellows: false,
         to: None,
     };
@@ -652,6 +653,7 @@ fn a_visit() -> Vec<ServerMessage> {
             takes: Vec::new(),
             races: Vec::new(),
             effects_last: false,
+            wants: None,
             fellows: false,
             to: None,
         }],

@@ -367,6 +367,7 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
         to: None,
         races: Vec::new(),
         effects_last: false,
+        wants: None,
         fellows: false,
     });
     let (b, me, world, map) = with_map(&mut h);

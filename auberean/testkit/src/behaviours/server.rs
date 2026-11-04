@@ -2914,6 +2914,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.any-count-taken-whole",
+        says: "A give's step that names no count runs for whatever is given and takes all of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-ANY-COUNT"),
+        station: "yalain-testkit::cpu::play::gives::a_step_wanting_no_count_takes_whatever_is_given",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.gives.cannot-get-there",
         says: "A walk to give that ends at rest out of reach is refused as one that could not get \
                there: nothing handed over, the item never leaving the pack.",
@@ -3008,6 +3016,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.part-stays-in-the-pack",
+        says: "A part of a stack given stays in the pack: its container is not cleared at the handing \
+               over, and handed back it merges, its container not told again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-PART-STAYS"),
+        station: "yalain-testkit::cpu::play::gives::a_part_of_a_stack_refused_comes_back_merged_with_its_container_untouched",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.gives.received-moves-on",
         says: "An item a give's step hands the player that moves the same quest on when received moves \
                it after the step's own update: two records, in that order.",
@@ -3043,6 +3060,24 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-GIVE-WALK"),
         station: "yalain-testkit::cpu::play::gives::an_item_given_is_walked_to_handed_over_and_answered",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.wants-a-count",
+        says: "A give's step may want an exact count: it takes that many, whole or split off a stack, \
+               and any other count is refused and handed back, the quest not moved.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-WANTS"),
+        station: "yalain-testkit::cpu::play::gives::a_step_wanting_a_count_takes_that_many_and_refuses_any_other",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.wrong-count-line",
+        says: "A wrong count hears the person's own line for it where it has one, for a quest waiting \
+               for that item, and its plain refusal otherwise.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-WRONG-COUNT"),
+        station: "yalain-testkit::cpu::play::gives::the_wrong_number_line_is_said_only_with_the_step_waiting_for_the_item",
         tier: Tier::Cpu,
     },
     behaviour! {

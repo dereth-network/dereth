@@ -296,6 +296,7 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
             to: None,
             races: Vec::new(),
             effects_last: false,
+            wants: None,
             fellows: false,
         }],
     };

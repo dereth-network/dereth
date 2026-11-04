@@ -108,6 +108,7 @@ fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        wants: None,
         fellows: false,
         to: None,
     }
@@ -618,6 +619,240 @@ fn a_part_of_a_stack_given_is_taken_and_the_rest_stays() {
             ServerMessage::UpdateIntVisual(q) if q.object.id == ashes && q.value == 3)),
         "its quantity told"
     );
+}
+
+/// The world's quest wanting exactly three ashes at its second phase, with the person's line for
+/// the wrong number when asked for.
+fn wanting_three(h: &mut Harness, with_line: bool) {
+    h.server.quests.steps[0].wants = Some(3);
+    if with_line {
+        h.server.talk.lines.push(Line {
+            quest: Some(QUEST),
+            update: None,
+            item: Some(ASHES),
+            ..line(PERSON_T, WRONG_NUMBER, Some(Role::RefuseGive), None)
+        });
+    }
+}
+
+const WRONG_NUMBER: u32 = 0x4F33_0AB6;
+const OTHER_WRONG_NUMBER: u32 = 0x65DE_CD8E;
+const PLAIN_REFUSAL: u32 = 0x1BCB_4AED;
+
+/// Give so many ashes to the person and wait until the person is through with them. Returns the
+/// lines told and the quest updates.
+fn give_ashes(
+    h: &mut Harness,
+    b: usize,
+    me: u64,
+    ashes: (u64, i32),
+    count: u32,
+) -> (Vec<u32>, Vec<(u32, u32, u32)>) {
+    let from = h.bots[b].inbox.len();
+    let m = give(me, ashes.0, ashes.1, PERSON, count);
+    h.bots[b].send(true, queue::WEENIE, &m);
+    h.run(steps(HANDED_AFTER) + steps(gives::HANDED_BACK_AFTER) + 8);
+    (told(h, b, from), updates(h, b, from))
+}
+
+fn quantity_of(h: &Harness, me: u64, item: u64) -> Option<u32> {
+    h.server.players[&world_of(h, me)]
+        .play
+        .items
+        .iter()
+        .find(|x| x.id == item)
+        .map(|x| x.quantity)
+}
+
+/// A step wanting a count takes exactly that many: fewer, and a whole stack of more, are refused
+/// with the person's own line for it and handed back, the quest not moved and the stack whole; that
+/// count split off the same stack is taken, the rest staying.
+///
+/// Behaviour: server.gives.wants-a-count
+#[test]
+fn a_step_wanting_a_count_takes_that_many_and_refuses_any_other() {
+    let mut h = world();
+    wanting_three(&mut h, true);
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, QUEST, 2);
+    let ashes = hold(&mut h, me, ASHES, 5);
+
+    for count in [2, 4, 5] {
+        let (lines, moved) = give_ashes(&mut h, b, me, ashes, count);
+        assert_eq!(lines, vec![WRONG_NUMBER], "a count of {count}");
+        assert!(moved.is_empty(), "a count of {count} moves nothing");
+        assert_eq!(quantity_of(&h, me, ashes.0), Some(5), "a count of {count}");
+    }
+
+    let (lines, moved) = give_ashes(&mut h, b, me, ashes, 3);
+    assert!(
+        !lines.contains(&WRONG_NUMBER),
+        "the count wanted: {lines:?}"
+    );
+    assert_eq!(moved, vec![(0x2000_0003, QUEST, 3)]);
+    assert_eq!(quantity_of(&h, me, ashes.0), Some(2), "the rest stays");
+}
+
+/// A whole stack of exactly the count wanted is taken whole, and leaves the pack.
+///
+/// Behaviour: server.gives.wants-a-count
+#[test]
+fn a_whole_stack_of_the_count_wanted_leaves_the_pack() {
+    let mut h = world();
+    wanting_three(&mut h, true);
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, QUEST, 2);
+    let ashes = hold(&mut h, me, ASHES, 3);
+    let (_, moved) = give_ashes(&mut h, b, me, ashes, 3);
+    assert_eq!(moved, vec![(0x2000_0003, QUEST, 3)]);
+    assert!(!holds(&h, me, ashes.0));
+}
+
+/// A person with no line for the wrong number says its plain refusal, and hands the stack back
+/// (a person given three fins she wanted one at a time).
+///
+/// Behaviour: server.gives.wrong-count-line
+#[test]
+fn a_wrong_count_hears_the_plain_refusal_from_a_person_with_no_line_for_it() {
+    let mut h = world();
+    wanting_three(&mut h, false);
+    // Its lines for the wrong number of another item, and of this item for another quest.
+    h.server.talk.lines.push(Line {
+        quest: Some(QUEST),
+        update: None,
+        item: Some(JUNK),
+        ..line(PERSON_T, OTHER_WRONG_NUMBER, Some(Role::RefuseGive), None)
+    });
+    h.server.talk.lines.push(Line {
+        quest: Some(QUEST + 1),
+        update: None,
+        item: Some(ASHES),
+        ..line(PERSON_T, OTHER_WRONG_NUMBER, Some(Role::RefuseGive), None)
+    });
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, QUEST, 2);
+    let ashes = hold(&mut h, me, ASHES, 5);
+    let from = h.bots[b].inbox.len();
+    let (lines, moved) = give_ashes(&mut h, b, me, ashes, 5);
+    assert_eq!(lines, vec![PLAIN_REFUSAL]);
+    assert!(moved.is_empty());
+    let a = answers(&h, b, from);
+    assert_eq!(a.len(), 2, "answered, then back: {a:?}");
+    assert_eq!((a[1].from, a[1].target), (PERSON, me));
+    assert_eq!(quantity_of(&h, me, ashes.0), Some(5));
+}
+
+/// The line for the wrong number is for a player the person asked: with the quest at another
+/// phase, or not under way, the same stack is only an item not wanted.
+///
+/// Behaviour: server.gives.wrong-count-line
+#[test]
+fn the_wrong_number_line_is_said_only_with_the_step_waiting_for_the_item() {
+    let mut h = world();
+    wanting_three(&mut h, true);
+    let (b, me) = player(&mut h, "one", "Elara");
+    let ashes = hold(&mut h, me, ASHES, 5);
+    let (lines, _) = give_ashes(&mut h, b, me, ashes, 2);
+    assert_eq!(lines, vec![PLAIN_REFUSAL], "the quest not under way");
+    at_phase(&mut h, QUEST, 1);
+    let (lines, _) = give_ashes(&mut h, b, me, ashes, 2);
+    assert_eq!(lines, vec![PLAIN_REFUSAL], "the quest at another phase");
+    assert_eq!(quantity_of(&h, me, ashes.0), Some(5));
+    at_phase(&mut h, QUEST, 2);
+    let (lines, _) = give_ashes(&mut h, b, me, ashes, 2);
+    assert_eq!(lines, vec![WRONG_NUMBER], "its own line and no other");
+}
+
+/// A give runs only the steps whose count it fits: of two quests moved by the same item, the one
+/// wanting a count not given stays where it is.
+///
+/// Behaviour: server.gives.wants-a-count
+#[test]
+fn a_give_runs_only_the_steps_whose_count_it_fits() {
+    const OTHER: u32 = 0x4000_024D;
+    let mut h = world();
+    h.server.quests.quests.push(quest(OTHER, 2));
+    h.server.quests.steps.insert(
+        0,
+        Step {
+            wants: Some(3),
+            ..step(OTHER, 1, Trigger::Give(ASHES, PERSON_T), Update::Advance(2))
+        },
+    );
+    let (b, me) = player(&mut h, "one", "Elara");
+    at_phase(&mut h, QUEST, 2);
+    at_phase(&mut h, OTHER, 1);
+    let ashes = hold(&mut h, me, ASHES, 5);
+    h.server.quests.steps[1].takes.clear();
+    let (_, moved) = give_ashes(&mut h, b, me, ashes, 2);
+    assert_eq!(moved, vec![(0x2000_0003, QUEST, 3)], "only the one fitting");
+}
+
+/// A step wanting no count runs for whatever is given and takes all of it (a pile of stone: 82 in
+/// a stack, or 1).
+///
+/// Behaviour: server.gives.any-count-taken-whole
+#[test]
+fn a_step_wanting_no_count_takes_whatever_is_given() {
+    for (stack, count, left) in [(82, 82, None), (82, 1, Some(81))] {
+        let mut h = world();
+        let (b, me) = player(&mut h, "one", "Elara");
+        at_phase(&mut h, QUEST, 2);
+        let ashes = hold(&mut h, me, ASHES, stack);
+        let (_, moved) = give_ashes(&mut h, b, me, ashes, count);
+        assert_eq!(moved, vec![(0x2000_0003, QUEST, 3)], "{count} of {stack}");
+        assert_eq!(quantity_of(&h, me, ashes.0), left, "{count} of {stack}");
+    }
+}
+
+/// A part of a stack never leaves the pack: its container is not cleared at the handing over, and
+/// it comes back merged with its container untouched, the stack as it was. A whole stack's is
+/// cleared and told back.
+///
+/// Behaviour: server.gives.part-stays-in-the-pack
+#[test]
+fn a_part_of_a_stack_refused_comes_back_merged_with_its_container_untouched() {
+    let containers = |h: &Harness, b: usize, from: usize, item: u64| -> usize {
+        h.world_messages(b, from)
+            .iter()
+            .filter(|m| {
+                matches!(m, ServerMessage::UpdateInstanceIdVisual(q)
+                    if q.object.id == item && q.quality == CONTAINER)
+            })
+            .count()
+    };
+    let mut h = world();
+    let (b, me) = player(&mut h, "one", "Elara");
+    let (ashes, slot) = hold(&mut h, me, ASHES, 5);
+
+    let from = h.bots[b].inbox.len();
+    let (lines, _) = give_ashes(&mut h, b, me, (ashes, slot), 2);
+    assert_eq!(lines, vec![PLAIN_REFUSAL]);
+    assert_eq!(
+        containers(&h, b, from, ashes),
+        0,
+        "the part: no container told"
+    );
+    let a = answers(&h, b, from);
+    assert_eq!(a.len(), 2, "answered, then back: {a:?}");
+    assert_eq!(
+        (a[1].from, a[1].target, a[1].merge),
+        (PERSON, me, true),
+        "merged back"
+    );
+    assert_eq!(quantity_of(&h, me, ashes), Some(5));
+
+    let from = h.bots[b].inbox.len();
+    let (lines, _) = give_ashes(&mut h, b, me, (ashes, slot), 5);
+    assert_eq!(lines, vec![PLAIN_REFUSAL]);
+    assert_eq!(
+        containers(&h, b, from, ashes),
+        4,
+        "the whole stack: cleared, then the person's, none and the player's"
+    );
+    let a = answers(&h, b, from);
+    assert!(!a[1].merge, "the whole stack is not merged back");
+    assert_eq!(quantity_of(&h, me, ashes), Some(5));
 }
 
 /// Items given that close a phase's subquests: each moves the quest's record with its phase kept,

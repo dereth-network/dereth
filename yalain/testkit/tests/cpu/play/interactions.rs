@@ -165,6 +165,7 @@ fn hall() -> Harness {
         to: None,
         races: Vec::new(),
         effects_last: false,
+        wants: None,
         fellows: true,
     });
     h
@@ -382,6 +383,7 @@ fn an_item_used_on_an_object_while_its_step_waits_for_another_phase_is_answered_
         }),
         races: Vec::new(),
         effects_last: false,
+        wants: None,
         fellows: false,
     });
     let (a, me, world, glyph) = holding(&mut h, "one", GLYPH_TEMPLATE);

@@ -232,6 +232,14 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                 if matches!(r.update, Update::Fail) && r.needs == 0 {
                     problems.push(at("needs: only a quest under way fails".into()));
                 }
+                if let Some(wants) = r.wants {
+                    if !matches!(r.trigger, Trigger::Give(..)) {
+                        problems.push(at("wants: only a give's step wants a count".into()));
+                    }
+                    if wants == 0 {
+                        problems.push(at("wants: a count of at least 1".into()));
+                    }
+                }
                 if let Some(why) = r.to.as_deref().and_then(|to| place_ref(to, &l.pack)) {
                     problems.push(at(format!("to: {why}")));
                 }

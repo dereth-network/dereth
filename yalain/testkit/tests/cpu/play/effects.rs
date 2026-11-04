@@ -537,6 +537,7 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        wants: None,
         fellows: false,
         to: None,
     };

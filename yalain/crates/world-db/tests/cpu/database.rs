@@ -1616,6 +1616,56 @@ fn a_step_that_fails_a_quest_must_need_it_under_way() {
     );
 }
 
+/// Behaviour: server.gives.wants-a-count
+#[test]
+fn a_give_s_step_may_want_a_count_and_no_other_step_may() {
+    let mut files = fixture();
+    let give = yalain_content::quests::Trigger::Give(0x4700_20B9, 0x4700_33D0);
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "trigger = { give = 0x470020B9, to = 0x470033D0 }\n",
+        "trigger = { give = 0x470020B9, to = 0x470033D0 }\nwants = 3\n",
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let wanted = |t: &yalain_content::QuestTable| {
+        t.steps.iter().find(|s| s.trigger == give).map(|s| s.wants)
+    };
+    assert_eq!(wanted(&t.quests), Some(Some(3)));
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "trigger = { give = 0x470020B9, to = 0x470033D0 }\n",
+        "trigger = { give = 0x470020B9, to = 0x470033D0 }\nwants = 0\n",
+    );
+    let messages: Vec<String> = check(&files).iter().map(ToString::to_string).collect();
+    assert!(
+        messages.iter().any(|m| m.contains("a count of at least 1")),
+        "{messages:?}"
+    );
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "needs = 0\ntrigger = { use = 0x470033D0 }\n",
+        "needs = 0\ntrigger = { use = 0x470033D0 }\nwants = 2\n",
+    );
+    let messages: Vec<String> = check(&files).iter().map(ToString::to_string).collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("only a give's step wants a count")),
+        "{messages:?}"
+    );
+}
+
 #[test]
 fn a_reminder_may_name_a_phase_and_no_other_line_but_an_advance_may() {
     let mut files = fixture();

@@ -651,6 +651,7 @@ fn a_rod_whose_use_moves_a_quest_is_refused_away_from_its_place_and_moves_it_the
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        wants: None,
         fellows: false,
         to: None,
     });
@@ -803,6 +804,7 @@ fn a_reward_quest_is_completed_with_the_quest_it_rewards() {
             to: None,
             races: Vec::new(),
             effects_last: false,
+            wants: None,
             fellows: false,
         }],
     };

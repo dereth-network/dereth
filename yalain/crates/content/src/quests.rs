@@ -23,7 +23,8 @@
 //!   quests at a phase, done or free to be given: `QUEST:N`, `QUEST:done` or `QUEST:free`, joined by `,`), the items it takes from
 //!   the pack (templates joined by `,`), where it takes the player (`CELL:X:Y:Z:HEADING`; an item's
 //!   use on an object makes the update on arrival), its effects (saved states joined by `,`), the text shown after them
-//!   (`string:table`), and whether its update is made for the player's fellows too (0/1).
+//!   (`string:table`), whether its update is made for the player's fellows too (0/1), and for a
+//!   give how many of the item it wants (empty for whatever is given).
 
 use std::fmt::Write as _;
 
@@ -244,6 +245,9 @@ pub struct Step {
     /// Its update is made for each of the player's fellows as well (a hoard's key opens the hoard
     /// to the whole fellowship).
     pub fellows: bool,
+    /// For a give, exactly how many of the item it wants; any other count is refused and handed
+    /// back. With none it runs for whatever is given, and takes all of it.
+    pub wants: Option<u32>,
 }
 
 /// Every quest and step.
@@ -430,13 +434,14 @@ impl QuestTable {
             });
             let _ = writeln!(
                 out,
-                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}",
+                "step\t{:08X}\t{}\t{trigger}\t{}\t{update}\t{}\t{gives}\t{}\t{requires}\t{takes}\t{to}\t{effects}\t{text}\t{}\t{}",
                 s.quest,
                 s.needs,
                 s.tell.as_ref().map(Words::to_text).unwrap_or_default(),
                 s.xp,
                 s.placed,
-                u8::from(s.fellows)
+                u8::from(s.fellows),
+                s.wants.map_or_else(String::new, |n| n.to_string())
             );
         }
         out
@@ -513,7 +518,7 @@ impl QuestTable {
                         _ => CompletionPay::default(),
                     },
                 }),
-                "step" if (9..=15).contains(&c.len()) => {
+                "step" if (9..=16).contains(&c.len()) => {
                     let (kind, tpl) = c[3]
                         .split_once(':')
                         .ok_or_else(|| at(format!("a trigger is kind:template, not {}", c[3])))?;
@@ -630,6 +635,11 @@ impl QuestTable {
                         races: Vec::new(),
                         effects_last: false,
                         fellows: col(14) == "1",
+                        wants: if col(15).is_empty() {
+                            None
+                        } else {
+                            Some(num(col(15)).map_err(at)?)
+                        },
                     });
                 }
                 other => {

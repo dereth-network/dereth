@@ -863,6 +863,7 @@ pub fn quest_mine_done<S: Store>(
             to: None,
             races: Vec::new(),
             effects_last: false,
+            wants: None,
             fellows: false,
         };
         crate::quests::run(s, net, world, &step, None, clock);

@@ -648,6 +648,7 @@ fn quests() -> QuestTable {
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        wants: None,
         fellows: false,
         to: None,
     };

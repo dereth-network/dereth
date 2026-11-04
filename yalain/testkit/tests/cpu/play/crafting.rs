@@ -624,6 +624,7 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
             takes: Vec::new(),
             races: Vec::new(),
             effects_last: last,
+            wants: None,
             fellows: false,
             to: None,
         };

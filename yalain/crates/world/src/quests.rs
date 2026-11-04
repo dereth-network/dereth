@@ -679,6 +679,8 @@ fn run_triggered<S: Store>(
     moved: &mut Vec<u32>,
 ) -> bool {
     let mut kept = false;
+    // A step wanting a count runs for that many given and no other.
+    let handed = given.map(|g| g.quantity);
     // A person who gives several quests gives one of them at a time.
     let several = match trigger {
         Trigger::Use(_) => givings(s, trigger),
@@ -694,6 +696,7 @@ fn run_triggered<S: Store>(
         let runs = |s: &Server<S>, st: &Step| {
             st.trigger == trigger
                 && (st.to.is_none() || leads_on)
+                && handed.is_none_or(|n| takes_count(st, n))
                 && !seen.contains(&st.quest)
                 && !(blocked && st.needs == 0 && several.contains(&st.quest))
                 && may_run(s, world, st, clock.unix)
@@ -1017,6 +1020,50 @@ pub fn step_for<S: Store>(
         .iter()
         .find(|st| st.trigger == trigger && may_run(s, world, st, now_unix))
         .cloned()
+}
+
+/// Whether a give's step runs for so many of its item: exactly the count it wants, or whatever is
+/// given when it wants none. Of 2017's 26 gives to a step naming a count, 25 gave that count and
+/// were taken, a stack of more split to it first, and the other, three fins to a person wanting one
+/// at a time, was refused; where no count is named, 82 stones were taken whole where 1 had been.
+fn takes_count(st: &Step, quantity: u32) -> bool {
+    st.wants.is_none_or(|n| n == quantity)
+}
+
+/// The step a give of so many of an item would run now, if any.
+#[must_use]
+pub fn step_for_give<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    trigger: Trigger,
+    quantity: u32,
+    now_unix: i64,
+) -> Option<Step> {
+    s.quests
+        .steps
+        .iter()
+        .find(|st| {
+            st.trigger == trigger && takes_count(st, quantity) && may_run(s, world, st, now_unix)
+        })
+        .cloned()
+}
+
+/// The quest of a step a give would run now but for its count, if any.
+#[must_use]
+pub fn wants_another_count<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    trigger: Trigger,
+    quantity: u32,
+    now_unix: i64,
+) -> Option<u32> {
+    s.quests
+        .steps
+        .iter()
+        .find(|st| {
+            st.trigger == trigger && !takes_count(st, quantity) && may_run(s, world, st, now_unix)
+        })
+        .map(|st| st.quest)
 }
 
 /// Run a step: the line and what else the person says with the update, the items given (so many

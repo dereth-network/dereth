@@ -329,6 +329,8 @@ pub struct Step {
     pub effects_last: bool,
     /// Its update is made for each of the player's fellows as well.
     pub fellows: bool,
+    /// For a give, exactly how many of the item it wants (none: whatever is given).
+    pub wants: Option<u32>,
     pub prov: Prov,
 }
 
@@ -664,6 +666,7 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "races",
             "effects_last",
             "fellows",
+            "wants",
             "prov",
         ],
     ),
@@ -1119,6 +1122,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 races: f.ids("races"),
                 effects_last: f.bool("effects_last").unwrap_or(false),
                 fellows: f.bool("fellows").unwrap_or(false),
+                wants: f.u32("wants"),
                 prov: f.req_prov()?,
             })
         }

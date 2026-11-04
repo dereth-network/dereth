@@ -363,6 +363,34 @@ pub fn at_give<S: Store>(s: &mut Server<S>, who: u32, object: Option<usize>) -> 
     pick(s, &others)
 }
 
+/// What a person says when given the wrong count of an item a quest under way wants: its line for
+/// that (a `refuse-give` line naming the quest and the item and no update), else its plain refusal
+/// (2017: Lupe, given three fins she wanted one at a time, her plain refusal, 1 of 1).
+pub fn at_wrong_count<S: Store>(
+    s: &mut Server<S>,
+    who: u32,
+    object: Option<usize>,
+    quest: u32,
+    item: u32,
+) -> Option<Line> {
+    let lines: Vec<Line> = s
+        .talk
+        .of(who, object)
+        .filter(|l| {
+            l.when == When::Give
+                && l.role == Some(Role::RefuseGive)
+                && l.quest == Some(quest)
+                && l.item == Some(item)
+                && l.update.is_none()
+        })
+        .cloned()
+        .collect();
+    if lines.is_empty() {
+        return at_give(s, who, object);
+    }
+    pick(s, &lines)
+}
+
 /// A person's line of a role said at a give, picked at random (heard ones first): of those naming
 /// no item or the item given, else of them all.
 pub fn at_give_as<S: Store>(

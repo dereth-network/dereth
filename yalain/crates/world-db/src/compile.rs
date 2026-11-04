@@ -897,6 +897,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     races: s.races.clone(),
                     effects_last: s.effects_last,
                     fellows: s.fellows,
+                    wants: s.wants,
                     to,
                 });
             }
