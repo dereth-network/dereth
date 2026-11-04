@@ -917,3 +917,152 @@ fn a_made_item_carries_its_outcomes_bonus_at_the_spinner_chosen_and_puts_it_on_w
         "on its holder at that spellcraft"
     );
 }
+
+/// A recipe def for these tests: one text, the charges and targets given.
+fn charged(did: u32, charges: i32, targets: Vec<u32>) -> yalain_world::craft::RecipeDef {
+    use yalain_world::craft::{Action, Check, Outcome, RecipeDef};
+    RecipeDef {
+        did,
+        skill: QUEST_RECIPES,
+        charges,
+        targets,
+        animation: 0x4100_00A4,
+        cycles: 1,
+        checks: vec![Check {
+            upto: 2.0,
+            outcomes: vec![Outcome {
+                upto: 1000.0,
+                xp_mod: 1.0,
+                actions: vec![Action::Text {
+                    text: (0x53FE_2D25, 0x2500_1758),
+                    kind: 8,
+                }],
+            }],
+        }],
+        ..RecipeDef::default()
+    }
+}
+
+/// The answer a craft got: its error, the last answer to the recipe since `from`.
+fn answer(h: &Harness, b: usize, from: usize) -> Option<u32> {
+    calls_of(h, b, from)
+        .iter()
+        .rev()
+        .find(|(f, _)| *f == function::EXECUTED)
+        .and_then(|(_, v)| match v.get(1) {
+            Some(Value::Int(e)) => Some(*e),
+            _ => None,
+        })
+}
+
+/// Ask to make a recipe at a target.
+fn execute_on(h: &mut Harness, b: usize, recipe: u32, target: u64) -> usize {
+    let mut g = yalain_world::graph::Builder::new();
+    g.native(8, yalain_world::graph::hash(Elem::Word, Elem::Long, 0, &[]));
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            function::EXECUTE,
+            &[
+                Arg::LongInt(target),
+                Arg::Object(g.graph()),
+                Arg::Int(0),
+                Arg::Int(recipe),
+            ],
+        ),
+    );
+    from
+}
+
+/// A recipe with charges comes with them when it is learned, granted again has them all again, and
+/// with none left is refused with the answer for that, not the one for a recipe still waiting.
+/// Behaviour: server.craft.charges-come-with-a-recipe
+#[test]
+fn a_recipe_learned_has_its_charges_and_granted_again_has_them_all_again() {
+    const CHARGED: u32 = 0x6F00_2002;
+    let (mut h, b, _me, world) = in_world();
+    h.server
+        .crafting
+        .recipes
+        .insert(CHARGED, charged(CHARGED, 2, Vec::new()));
+    let charges = |h: &Harness| {
+        let p = h.server.players.get(&world).expect("in the world");
+        p.play.recipes.iter().find(|r| r.recipe == CHARGED).map(|r| r.charges)
+    };
+    let clock = h.clock();
+    yalain_world::craft::learn(&mut h.server, &mut h.net, world, CHARGED, clock);
+    assert_eq!(charges(&h), Some(2));
+    for left in [1, 0] {
+        let from = execute(&mut h, b, CHARGED, &[]);
+        wait(&mut h, 8.0);
+        assert_eq!(answer(&h, b, from), Some(0));
+        assert_eq!(charges(&h), Some(left));
+    }
+    let from = execute(&mut h, b, CHARGED, &[]);
+    wait(&mut h, 1.0);
+    assert_eq!(answer(&h, b, from), Some(error::NO_CHARGES));
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    yalain_world::craft::learn(&mut h.server, &mut h.net, world, CHARGED, clock);
+    h.run(2);
+    assert_eq!(charges(&h), Some(2));
+    let got = calls_of(&h, b, from);
+    assert!(got.iter().any(|(f, _)| *f == function::UPDATE_RECIPE), "told");
+    assert!(!got.iter().any(|(f, _)| *f == function::ADD_RECIPE), "known");
+}
+
+/// A recipe that asks for a target is made only at an object of a template it names: at nothing, or
+/// at anything else, it is refused with the answer for that and nothing is spent.
+/// Behaviour: server.craft.target-asked-for
+#[test]
+fn a_recipe_asking_for_a_target_is_made_at_one_of_its_own_and_nowhere_else() {
+    const AT_MINE: u32 = 0x6F00_2003;
+    const MINE: u32 = 0x4700_0B3D;
+    const THE_MINE: u64 = 0x4079_9500_0000_000C;
+    const ELSE: u64 = 0x4079_9500_0000_000D;
+    let (mut h, b, _me, world) = in_world();
+    let like = |id, template| yalain_content::ContentObject {
+        object: Some(id),
+        template,
+        description: yalain_content::Description {
+            package: 0x103E,
+            look: 0x1F00_0100,
+            enter_fx: 0,
+            scale: None,
+            name: Some((0xA860_7CEC, 0x2500_1B44)),
+            numbers: [0; 6],
+            source: "authored for a test".into(),
+        },
+        cell: 0x0299_0109,
+        origin: [61.0, 241.0, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        kind: yalain_content::Kind::Static,
+        label: String::new(),
+        placed: "authored for a test".into(),
+        destination: None,
+        facts: yalain_content::Facts::default(),
+        walks: None,
+        gate: None,
+    };
+    h.server.content.objects.push(like(THE_MINE, MINE));
+    h.server.content.objects.push(like(ELSE, MINE + 1));
+    h.server
+        .crafting
+        .recipes
+        .insert(AT_MINE, charged(AT_MINE, 3, vec![MINE]));
+    let clock = h.clock();
+    yalain_world::craft::learn(&mut h.server, &mut h.net, world, AT_MINE, clock);
+    for target in [0, ELSE] {
+        let from = execute_on(&mut h, b, AT_MINE, target);
+        wait(&mut h, 1.0);
+        assert_eq!(answer(&h, b, from), Some(error::WRONG_TARGET), "{target:X}");
+    }
+    let from = execute_on(&mut h, b, AT_MINE, THE_MINE);
+    wait(&mut h, 8.0);
+    assert_eq!(answer(&h, b, from), Some(0));
+    let p = h.server.players.get(&world).expect("in the world");
+    let r = p.play.recipes.iter().find(|r| r.recipe == AT_MINE).expect("held");
+    assert_eq!(r.charges, 2, "the refusals spent nothing");
+}

@@ -1083,6 +1083,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.charges-come-with-a-recipe",
+        says: "A recipe with charges comes with them when learned, granted again has them all again, and with \
+               none left is refused with the answer for no charges.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-CHARGES-2017"),
+        station: "yalain-testkit::cpu::play::crafting::a_recipe_learned_has_its_charges_and_granted_again_has_them_all_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.day-starts-over",
         says: "When a player's day of craft experience is over, every craft skill earns nothing today \
                again, the client is told all its craft skills, and the next day ends 22 hours later.",
@@ -1338,6 +1347,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MAP-PLACE"),
         station: "yalain-testkit::cpu::play::maps::a_maps_place_is_chosen_inside_its_rectangle_and_kept_with_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.target-asked-for",
+        says: "A recipe that asks for a target is made only at an object of a template it names; at nothing or \
+               anything else it is refused with the answer for that, and nothing is spent.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-TARGET-2017"),
+        station: "yalain-testkit::cpu::play::crafting::a_recipe_asking_for_a_target_is_made_at_one_of_its_own_and_nowhere_else",
         tier: Tier::Cpu,
     },
     behaviour! {

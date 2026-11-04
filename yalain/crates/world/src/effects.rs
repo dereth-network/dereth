@@ -490,7 +490,7 @@ pub fn apply_on<S: Store>(
             true
         }
         (Kind::GrantRecipe(recipe), On::Player(world)) => {
-            crate::craft::learn(s, net, world, *recipe);
+            crate::craft::learn(s, net, world, *recipe, clock);
             if def.fx != 0 {
                 show_fx(s, net, world, def.fx);
             }

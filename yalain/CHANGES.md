@@ -57,6 +57,7 @@ what they see, not how it was done.
 - Miners charge their fee, and their portals stay shut until you pay.
 - People no longer talk about the wrong item when they turn down a give.
 - Warders accept any item you no longer want.
+- Fixed recipes with limited uses never running out.
 
 ## 0.1.2 (2026-11-03)
 

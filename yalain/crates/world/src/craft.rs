@@ -56,7 +56,7 @@ use crate::calls::{Node, Value};
 use crate::graph::{hash, tag, Builder, Slot, NULL};
 use crate::start::Nav;
 use crate::state::{CraftSkillState, RecipeState};
-use crate::{progress, quals, session, Clock, Server, Timer};
+use crate::{presence, progress, quals, session, Clock, Server, Timer};
 
 /// The calls of crafting.
 pub mod function {
@@ -110,6 +110,10 @@ pub mod error {
     pub const TOO_FEW: u32 = 40_002;
     pub const BAD_RECIPE: u32 = 40_016;
     pub const INVALID_INGREDIENTS: u32 = 40_018;
+    /// A recipe with no charges left: the recipe's own message for it, if it has one, is the client's.
+    pub const NO_CHARGES: u32 = 40_021;
+    /// A recipe that asks for a target, not given one of its own (2017: 8 of 8, none of them at a mine).
+    pub const WRONG_TARGET: u32 = 40_022;
     pub const NOT_RESET: u32 = 40_024;
     pub const FAILED: u32 = 40_025;
     pub const PEACE_REQUIRED: u32 = 40_026;
@@ -267,6 +271,8 @@ pub struct RecipeDef {
     pub animation: u32,
     pub cycles: u32,
     pub ingredients: Vec<Ingredient>,
+    /// The templates it must be made at (none: it asks for no target).
+    pub targets: Vec<u32>,
     pub checks: Vec<Check>,
     /// The craft experience by the spinner chosen (none: the fixed `craft_xp`).
     pub xp_map: Option<LevelMap>,
@@ -505,6 +511,7 @@ impl RecipeDef {
             animation: word("m_animation")?,
             cycles: word("m_uiNumAnimCycles")?,
             ingredients,
+            targets: keys(root, "m_hashTargets"),
             checks,
             xp_map: None,
             difficulty_map: None,
@@ -1073,14 +1080,33 @@ pub fn day_due<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
 }
 
 /// A player learns a recipe (unless it knows it).
-pub fn learn<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, recipe: u32) {
+pub fn learn<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    recipe: u32,
+    clock: Clock,
+) {
+    let charges = s.crafting.recipes.get(&recipe).map_or(-1, |d| d.charges);
+    let now = net.game_time(clock.local);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
-    if p.play.recipes.iter().any(|r| r.recipe == recipe) {
+    if let Some(known) = p.play.recipes.iter_mut().find(|r| r.recipe == recipe) {
+        // Granted again, its charges are whole again. Nothing recorded grants one twice; a second
+        // toll for a mine's gems has to mean this, or the mine stays spent.
+        if known.charges != charges {
+            known.charges = charges;
+            let rec = *known;
+            progress::private(net, world, &recipe_call(&rec, now));
+            crate::world::keep_player(s, world);
+        }
         return;
     }
-    p.play.recipes.push(new_recipe(recipe));
+    p.play.recipes.push(RecipeState {
+        charges,
+        ..new_recipe(recipe)
+    });
     progress::private(
         net,
         world,
@@ -1253,7 +1279,7 @@ pub fn execute<S: Store>(
     v: &[Value],
     clock: Clock,
 ) {
-    let [Value::Long(_target), Value::Graph(g), Value::Int(spinner), Value::Int(recipe)] = v else {
+    let [Value::Long(target), Value::Graph(g), Value::Int(spinner), Value::Int(recipe)] = v else {
         s.unhandled.note("a craft that does not read");
         return;
     };
@@ -1281,8 +1307,17 @@ pub fn execute<S: Store>(
     let Some(def) = s.crafting.recipes.get(&recipe).cloned() else {
         return refuse(net, error::BAD_RECIPE);
     };
-    if known.use_again > now || known.charges == 0 {
+    if known.charges == 0 {
+        return refuse(net, error::NO_CHARGES);
+    }
+    if known.use_again > now {
         return refuse(net, error::NOT_RESET);
+    }
+    if !def.targets.is_empty()
+        && !presence::content_by_id(&s.content.objects, *target)
+            .is_some_and(|i| def.targets.contains(&s.content.objects[i].template))
+    {
+        return refuse(net, error::WRONG_TARGET);
     }
     for ing in &def.ingredients {
         let ok = slots

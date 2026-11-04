@@ -619,7 +619,7 @@ fn recipe_add<S: Store>(cx: &mut Cx<'_, S>, a: &Args<'_>) -> Vec<String> {
     if p.play.recipes.iter().any(|r| r.recipe == recipe) {
         return vec![format!("{name} knows that recipe.")];
     }
-    crate::craft::learn(cx.s, cx.net, w, recipe);
+    crate::craft::learn(cx.s, cx.net, w, recipe, cx.clock);
     vec![format!("{name} knows recipe {recipe:08X}.")]
 }
 
