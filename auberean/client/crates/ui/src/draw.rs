@@ -64,6 +64,23 @@ impl Surface {
         self.bgra.fill(0);
     }
 
+    /// Make the texels of `area` transparent black.
+    fn clear_area(&mut self, area: Rect) {
+        let Some(c) = area.intersect(self.bounds()) else {
+            return;
+        };
+        for y in c.y0..=c.y1 {
+            let (from, to) = self.row(y, c.x0, c.x1);
+            self.bgra[from..to].fill(0);
+        }
+    }
+
+    /// Where the texels of row `y` from column `x0` to `x1` lie, all of them on the picture.
+    fn row(&self, y: i32, x0: i32, x1: i32) -> (usize, usize) {
+        let at = |x: i32| usize::try_from((y * self.width + x) * 4).unwrap_or(0);
+        (at(x0), at(x1 + 1))
+    }
+
     /// The whole picture.
     #[must_use]
     pub const fn bounds(&self) -> Rect {
@@ -218,9 +235,36 @@ pub fn draw_image(
     }
 }
 
+/// The part of a layer anything has been drawn in so far.
+#[derive(Clone, Copy, Debug, Default)]
+struct Drawn(Option<Rect>);
+
+impl Drawn {
+    fn add(&mut self, r: Rect) {
+        self.0 = Some(match self.0 {
+            Some(d) => Rect::new(
+                d.x0.min(r.x0),
+                d.y0.min(r.y0),
+                d.x1.max(r.x1),
+                d.y1.max(r.y1),
+            ),
+            None => r,
+        });
+    }
+}
+
 /// Draw one element and what is under it into a layer.
 // D2-11176, D2-11169
-fn draw_element(ui: &Ui, layer: &mut Surface, h: Handle, ox: i32, oy: i32, parent_clip: Rect) {
+#[allow(clippy::too_many_arguments)]
+fn draw_element(
+    ui: &Ui,
+    layer: &mut Surface,
+    h: Handle,
+    ox: i32,
+    oy: i32,
+    parent_clip: Rect,
+    drawn: &mut Drawn,
+) {
     let Some(n) = ui.node(h) else { return };
     if !n.visible {
         return;
@@ -234,15 +278,18 @@ fn draw_element(ui: &Ui, layer: &mut Surface, h: Handle, ox: i32, oy: i32, paren
             let how = Blit::of_mode(p.mode, n.alpha);
             let stretch = n.bool_attr(attr::SIZE_IMAGE_TO_OWNER);
             draw_image(layer, &img, area, clip, how, stretch, n.center_image);
+            drawn.add(clip);
         }
     }
     if n.kind == kind::TEXT {
         crate::types::text::post_blit(ui, layer, h, area, clip);
+        drawn.add(clip);
     }
     for c in n.children.iter().rev() {
-        draw_element(ui, layer, *c, area.x0, area.y0, clip);
+        draw_element(ui, layer, *c, area.x0, area.y0, clip, drawn);
     }
     if n.kind == kind::TREE {
+        drawn.add(clip);
         let (segments, color) = ui.tree_segments(h);
         for [x0, y0, x1, y1] in segments {
             draw_line(
@@ -261,6 +308,7 @@ fn draw_element(ui: &Ui, layer: &mut Surface, h: Handle, ox: i32, oy: i32, paren
         let Some(c) = w.offset(area.x0, area.y0).intersect(clip) else {
             continue;
         };
+        drawn.add(c);
         for y in c.y0..=c.y1 {
             for x in c.x0..=c.x1 {
                 layer.put(x, y, *texel);
@@ -271,6 +319,7 @@ fn draw_element(ui: &Ui, layer: &mut Surface, h: Handle, ox: i32, oy: i32, paren
         let (x0, y0) = (area.x0 + ox, area.y0 + oy);
         let r = Rect::sized(x0, y0, picture.width, picture.height);
         if let Some(c) = r.intersect(clip) {
+            drawn.add(c);
             for y in c.y0..=c.y1 {
                 for x in c.x0..=c.x1 {
                     blit_texel(layer, x, y, picture.get(x - x0, y - y0), Blit::Blend);
@@ -439,14 +488,18 @@ pub fn draw_where(ui: &Ui, frame: &mut Surface, keep: impl Fn(i32) -> bool) {
         let Some(clip) = layer_clip(ui, r, screen) else {
             continue;
         };
-        layer.clear();
-        draw_element(ui, &mut layer, r, 0, 0, clip);
-        fade_layer(&mut layer, n.rect, n.object_alpha);
-        if n.rotation == 0 {
-            composite(frame, &layer, n.rect);
-        } else {
-            let (turned, covers) = turn_layer(&layer, n.rect, n.rotation);
-            composite(frame, &turned, covers);
+        let mut drawn = Drawn::default();
+        draw_element(ui, &mut layer, r, 0, 0, clip, &mut drawn);
+        if let Some(area) = drawn.0 {
+            fade_layer(&mut layer, area, n.object_alpha);
+            if n.rotation == 0 {
+                composite(frame, &layer, area.intersect(n.rect).unwrap_or(area));
+            } else {
+                let (turned, covers) = turn_layer(&layer, n.rect, n.rotation);
+                composite(frame, &turned, covers);
+            }
+            // The next element starts from a clear layer.
+            layer.clear_area(area);
         }
         draw_resize_outline(ui, frame, r, screen);
     }
@@ -525,20 +578,25 @@ fn fade_layer(layer: &mut Surface, area: Rect, alpha: f32) {
 /// Lay one layer over a picture that keeps its own alpha (`over`): what the layer covers wins by
 /// the layer's alpha, and the picture's alpha grows by what the layer adds.
 fn composite_over(dst: &mut Surface, layer: &Surface, area: Rect) {
-    let Some(c) = area.intersect(dst.bounds()) else {
+    let Some(c) = area
+        .intersect(dst.bounds())
+        .and_then(|c| c.intersect(layer.bounds()))
+    else {
         return;
     };
     for y in c.y0..=c.y1 {
-        for x in c.x0..=c.x1 {
-            let s = layer.get(x, y);
+        let (from, to) = layer.row(y, c.x0, c.x1);
+        let (at, end) = dst.row(y, c.x0, c.x1);
+        let texels = layer.bgra[from..to].as_chunks::<4>().0;
+        let under = dst.bgra[at..end].as_chunks_mut::<4>().0;
+        for (s, d) in texels.iter().zip(under) {
             let sa = u32::from(s[3]);
             if sa == 0 {
                 continue;
             }
-            let d = dst.get(x, y);
             let da = u32::from(d[3]);
             if sa == 255 || da == 0 {
-                dst.put(x, y, s);
+                *d = *s;
                 continue;
             }
             // Straight alpha: out = s * sa + d * da * (1 - sa), over out's alpha.
@@ -549,7 +607,7 @@ fn composite_over(dst: &mut Surface, layer: &Surface, area: Rect) {
                     .unwrap_or(255)
             };
             let a = u8::try_from((oa + 127) / 255).unwrap_or(255);
-            dst.put(x, y, [mix(s[0], d[0]), mix(s[1], d[1]), mix(s[2], d[2]), a]);
+            *d = [mix(s[0], d[0]), mix(s[1], d[1]), mix(s[2], d[2]), a];
         }
     }
 }
@@ -569,14 +627,18 @@ pub fn draw_layers_where(ui: &Ui, out: &mut Surface, keep: impl Fn(i32) -> bool)
         let Some(clip) = layer_clip(ui, r, screen) else {
             continue;
         };
-        layer.clear();
-        draw_element(ui, &mut layer, r, 0, 0, clip);
-        fade_layer(&mut layer, n.rect, n.object_alpha);
-        if n.rotation == 0 {
-            composite_over(out, &layer, n.rect);
-        } else {
-            let (turned, covers) = turn_layer(&layer, n.rect, n.rotation);
-            composite_over(out, &turned, covers);
+        let mut drawn = Drawn::default();
+        draw_element(ui, &mut layer, r, 0, 0, clip, &mut drawn);
+        if let Some(area) = drawn.0 {
+            fade_layer(&mut layer, area, n.object_alpha);
+            if n.rotation == 0 {
+                composite_over(out, &layer, area);
+            } else {
+                let (turned, covers) = turn_layer(&layer, n.rect, n.rotation);
+                composite_over(out, &turned, covers);
+            }
+            // The next element starts from a clear layer.
+            layer.clear_area(area);
         }
         draw_resize_outline(ui, out, r, screen);
     }

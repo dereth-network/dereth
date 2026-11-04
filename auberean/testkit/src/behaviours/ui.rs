@@ -491,6 +491,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.draw.each-layer-starts-clear-of-the-one-before",
+        says: "Each top-level element starts from a clear layer, whatever the elements drawn before                it left on theirs.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-UI-DRAW-LAYER-CLEAR"),
+        station: "auberean-ui::cpu::compositor::each_layer_starts_clear_of_the_one_before",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.draw.mode-three-fades-by-the-elements-alpha",
         says: "A picture of draw mode 3 is copied and faded by its element's transparency.",
         since: RETAIL,

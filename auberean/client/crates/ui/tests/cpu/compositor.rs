@@ -15,6 +15,42 @@ fn screen_over(ui: &auberean_ui::Ui, under: [u8; 4]) -> Surface {
     s
 }
 
+/// Each top-level element starts from a clear layer: a nearer one that draws nothing over a deeper
+/// one's place leaves the deeper one's texels as they were, not laid over themselves again.
+///
+/// Behaviour: ui.draw.each-layer-starts-clear-of-the-one-before
+#[test]
+fn each_layer_starts_clear_of_the_one_before() {
+    let deep = element(
+        "Deep",
+        "field",
+        [10, 10, 29, 29],
+        5,
+        vec![state("stateless", 0, vec![], vec![image(1, 0)], vec![])],
+    );
+    let near = element(
+        "Near",
+        "field",
+        [0, 0, 49, 49],
+        1,
+        vec![state("stateless", 0, vec![], vec![image(2, 1)], vec![])],
+    );
+    let mut u = ui(
+        vec![deep, near],
+        vec![
+            (1, solid(20, 20, [10, 90, 240, 128])),
+            (2, solid(50, 50, [0, 0, 0, 0])),
+        ],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    u.create_root(l, Token::of("Deep")).unwrap();
+    u.create_root(l, Token::of("Near")).unwrap();
+    let mut own = Surface::new(1024, 768);
+    draw::draw_layers_where(&u, &mut own, |_| true);
+    assert_eq!(own.get(15, 15), [10, 90, 240, 128]);
+    assert_eq!(own.get(5, 5), [0; 4]);
+}
+
 /// A picture smaller than its element repeats across it from the element's top left; one the
 /// element asks to fit is stretched over it instead.
 ///
