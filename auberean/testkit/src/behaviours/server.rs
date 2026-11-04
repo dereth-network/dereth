@@ -3670,6 +3670,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.coins-out-of-the-bag-need-room",
+        says: "Coins taken out of the money bag into a full pack, or by a player busy or \
+               dead, do nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-COINS-ROOM"),
+        station: "yalain-testkit::cpu::play::pack::coins_out_of_the_money_bag_into_a_full_pack_do_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.coins-used-into-money",
         says: "Coins used from the pack go into the money bag whole, one gold each, as a drag of \
                them would: the adding text, the money up, the coins gone, and the drag's answer \

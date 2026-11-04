@@ -535,6 +535,14 @@ pub fn from_money_bag<S: Store>(
     if quantity == 0 || quantity > money {
         return;
     }
+    // Into a full pack, or from a player busy or dead, it is not answered either.
+    let full = s
+        .players
+        .get(&world)
+        .is_none_or(|p| inv::pack_full(&p.play.items));
+    if full || crate::places::actions_locked(s, world) {
+        return;
+    }
     if inv::give(s, net, world, COINS, quantity).is_none() {
         return;
     }

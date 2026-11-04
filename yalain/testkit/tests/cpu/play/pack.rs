@@ -805,3 +805,37 @@ fn coins_used_from_the_pack_go_into_the_money_bag_whole() {
     );
     assert!(pack_order(&h, world).is_empty(), "the coins gone");
 }
+
+/// Coins taken out of the money bag into a full pack: nothing moves, the money stays.
+/// Behaviour: server.inventory.coins-out-of-the-bag-need-room
+#[test]
+fn coins_out_of_the_money_bag_into_a_full_pack_do_nothing() {
+    let (mut h, b, me, world) = player();
+    h.server.catalog.insert(yalain_testkit::test_template(
+        yalain_world::pack::COINS,
+        0x1067,
+        yalain_content::Props::default(),
+    ));
+    let room = inventory::PACK_ROOM as usize;
+    let have = h.server.players[&world].play.items.len();
+    give(&mut h, world, TEST_ITEM, room - have);
+    yalain_world::quals::set_int(
+        &mut h
+            .server
+            .players
+            .get_mut(&world)
+            .expect("in the world")
+            .qualities,
+        yalain_world::store::MONEY,
+        500,
+    );
+    h.ask(
+        b,
+        function::FROM_MONEY_BAG,
+        &[Arg::LongInt(me), Arg::Int(0), Arg::Int(100)],
+        5,
+    );
+    let p = &h.server.players[&world];
+    assert_eq!(p.play.items.len(), room, "no more than it holds");
+    assert_eq!(yalain_world::store::money(&p.qualities), 500);
+}
