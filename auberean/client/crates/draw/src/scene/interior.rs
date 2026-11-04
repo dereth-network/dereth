@@ -1069,7 +1069,14 @@ type InteriorPart = (
 fn reach_of(batches: &[ObjectBatch]) -> Option<f32> {
     let mut lo = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
     let mut hi = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
+    // The layers and fragments of one part share its vertices, in one place.
+    let mut done: Vec<(*const Vec<crate::mesh::MeshVertex>, [[f32; 4]; 4])> = Vec::new();
     for b in batches {
+        let this = (Arc::as_ptr(&b.vertices), b.transform.0);
+        if done.contains(&this) {
+            continue;
+        }
+        done.push(this);
         for v in b.vertices.iter() {
             let w = b
                 .transform
