@@ -376,6 +376,7 @@ fn open(
     let languages = EnumNames::read(&world.records, LANGUAGES);
     let prefs = Preferences::startup(Profile::new(preferences), Names::read(&world.records));
     let mut id = auberean_shell::preferences::language(language, &prefs, &languages);
+    // D2-05140, D2-12611
     let mut name = languages.name(id).unwrap_or("English").to_owned();
     if !found
         .iter()

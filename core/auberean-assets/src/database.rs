@@ -179,8 +179,6 @@ pub struct Database {
     master_map: u32,
     ctx: Context,
     caches: Shared,
-    region: u32,
-    language: u32,
     client: bool,
     server: bool,
     graph: Mutex<Option<Box<dyn DataGraph>>>,
@@ -220,8 +218,6 @@ impl Database {
             master_map,
             ctx: Context::empty(),
             caches: Arc::new(Mutex::new(cache::Caches::default())),
-            region: 0,
-            language: 0,
             client: true,
             server: false,
             graph: Mutex::new(None),
@@ -269,31 +265,6 @@ impl Database {
     pub fn set_roles(&mut self, client: bool, server: bool) {
         self.client = client;
         self.server = server;
-    }
-
-    /// The region the cell records are read for.
-    // D2-12604
-    #[must_use]
-    pub fn current_region(&self) -> u32 {
-        self.region
-    }
-
-    // D2-12608
-    pub fn set_region(&mut self, region: u32) -> bool {
-        self.region = region;
-        true
-    }
-
-    /// The language the local records are read for.
-    // D2-12612
-    #[must_use]
-    pub fn local_language(&self) -> u32 {
-        self.language
-    }
-
-    // D2-12611
-    pub fn set_local_language(&mut self, language: u32) {
-        self.language = language;
     }
 
     /// Give the caches time: `now` is the host's clock in seconds; past a type's ideal number of
