@@ -1282,6 +1282,63 @@ mod tests {
         }
     }
 
+    /// Every slayer treasure draws reads as one, by the superclass it names and a number of 1.
+    /// Behaviour: server.loot.treasure-slayer
+    #[test]
+    fn the_slayers_treasure_draws_read_as_slayers() {
+        use yalain_content::treasure_effects::{states, WEAPON_FAMILIES};
+        use yalain_world::effect_defs::Kind;
+        const MUCOR: u32 = 0x6F00_03C0;
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new()).expect("a context");
+        let wanted: Vec<u32> = states().collect();
+        let table = effect_table(&p, &wanted).expect("the table");
+        let family = WEAPON_FAMILIES
+            .iter()
+            .find(|f| f.tiers.iter().any(|t| t.state == MUCOR))
+            .expect("the slayers' family");
+        assert_eq!(family.tiers.len(), 31);
+        for t in family.tiers {
+            let d = table.get(t.state).expect("it reads");
+            assert!(
+                matches!(&d.kind, Kind::Slayer(c) if !c.is_empty()),
+                "{:08x}: {:?}",
+                t.state,
+                d.kind
+            );
+        }
+        let Some(Kind::Slayer(c)) = table.get(MUCOR).map(|d| &d.kind) else {
+            panic!("Mucor's");
+        };
+        assert_eq!(c, &vec![(25, 1.0)]);
+    }
+
+    /// Stasis reads, with the changes its chain holds of other effects' saved states; what it puts on
+    /// what it hits comes a tenth of the time.
+    /// Behaviour: server.loot.treasure-rarer-enchantments
+    #[test]
+    fn stasis_reads_with_the_changes_of_its_chain() {
+        use yalain_content::treasure_effects::tier_of;
+        const STASIS: u32 = 0x6F00_0574;
+        const CHAINED: u32 = 0x6F00_2607;
+        let (dat, _) = tallied(&DatName::Portal);
+        let p = Portal::over(dat, Vec::new()).expect("a context");
+        let table = effect_table(&p, &[STASIS, CHAINED]).expect("the table");
+        let (when, tier) = tier_of(STASIS).expect("a tier");
+        assert_eq!(when, yalain_content::treasure_effects::When::Hit);
+        assert_eq!(tier.puts_on, CHAINED);
+        assert!((tier.chance - 0.1).abs() < 1e-3, "{}", tier.chance);
+        let d = table.get(CHAINED).expect("its chain reads");
+        assert!(d.lasts());
+        let changes = d.changes(50.0);
+        for stat in [0x3_010B, 0x3_010C, 0x4_0128] {
+            assert!(
+                changes.iter().any(|(s, _, _)| *s == stat),
+                "{stat:x}: {changes:?}"
+            );
+        }
+    }
+
     /// The tiers named for Water's River and Wounding's Crippling carry the name 2017's items of them
     /// show, not the next tier's.
     /// Behaviour: server.loot.treasure-named-for-an-enchantment

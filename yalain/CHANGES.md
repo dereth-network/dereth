@@ -135,6 +135,7 @@ what they see, not how it was done.
 - Items that raise a skill now raise your rating in it.
 - Slayer weapons now do extra damage to what they name.
 - Treasure names now use the right word for what the item is.
+- Loot can now have Stasis, armor counters and Burning Edge.
 
 ## 0.1.2 (2026-11-03)
 

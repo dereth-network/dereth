@@ -284,6 +284,31 @@ impl EffectDef {
         }
     }
 
+    /// A change held inside a chain that is another effect's saved state, until the table has read
+    /// it.
+    const fn reference_to(state: u32) -> Self {
+        Self {
+            state,
+            kind: Kind::Other,
+            duration: Scale(Vec::new()),
+            priority: Scale(Vec::new()),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0,
+            enum_value: 0,
+            eq_class: 0,
+            name: None,
+        }
+    }
+
+    /// The saved states a chain holds of other effects.
+    fn chained_states(&self) -> Vec<u32> {
+        match &self.kind {
+            Kind::Chained(list) => list.iter().map(|d| d.state).filter(|s| *s != 0).collect(),
+            _ => Vec::new(),
+        }
+    }
+
     /// Read an effect from its saved state's graph.
     ///
     /// # Errors
@@ -356,12 +381,22 @@ impl EffectDef {
                 per_second: scale("m_changeData"),
             }
         } else if is("ChainedNumericEffect") {
-            Kind::Chained(
-                nav.list(o, "m_listEffect")?
-                    .into_iter()
-                    .map(|c| Self::from_object(0, lib, nav, c))
-                    .collect::<Result<_, _>>()?,
-            )
+            // Each held inside it, or another effect's saved state, read with the table.
+            let mut held = Vec::new();
+            let list = nav.field(o, "m_listEffect")?;
+            let items = if list == 0 || list == NULL {
+                Vec::new()
+            } else {
+                nav.items(list)?
+            };
+            for r in items {
+                let r = Nav::reference(r)?;
+                held.push(match nav.singleton(r) {
+                    Some(chained) => Self::reference_to(chained),
+                    None => Self::from_object(0, lib, nav, nav.object(r)?)?,
+                });
+            }
+            Kind::Chained(held)
         } else if is("SlayerEffect") {
             let classes = nav
                 .field(o, "m_SlayerHash")
@@ -508,7 +543,19 @@ impl EffectTable {
             let Some(g) = graph(s) else { continue };
             if let Ok(d) = EffectDef::from_state(s, lib, &g) {
                 todo.extend(d.adds());
+                todo.extend(d.chained_states());
                 t.effects.insert(s, d);
+            }
+        }
+        // A chain's changes held by other effects' saved states.
+        let read = t.effects.clone();
+        for d in t.effects.values_mut() {
+            if let Kind::Chained(list) = &mut d.kind {
+                for held in list.iter_mut().filter(|h| h.state != 0) {
+                    if let Some(chained) = read.get(&held.state) {
+                        *held = chained.clone();
+                    }
+                }
             }
         }
         t

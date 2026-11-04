@@ -303,6 +303,12 @@ pub const WEAPON_FAMILIES: &[Family] = &[
     },
     Family {
         when: When::Hit,
+        weight: 4.0,
+        by_level: false,
+        tiers: &[tier(45, 0x6F000574, 0x6F002607, 0.10, 0.00)],
+    },
+    Family {
+        when: When::Hit,
         weight: 11.0,
         by_level: false,
         tiers: &[
