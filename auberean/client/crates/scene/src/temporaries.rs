@@ -361,6 +361,7 @@ impl Temporaries {
             let g = crate::figures::global(at.cell.0, Vec3::new(o.x, o.y, o.z));
             let rel = Vec3::new(g.x - ox, g.y - oy, g.z);
             let q = at.frame.rotation;
+            // D2-05981
             let place = Mat4::from_parts(
                 rel,
                 Quat {

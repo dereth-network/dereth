@@ -2280,7 +2280,7 @@ impl<'w> Scene<'w> {
     /// everyone else's, on one schedule; then the camera, placed when the frame is made; then what
     /// the figures asked beyond their animation (the camera's requests) and the camera's part of
     /// the effects played. (The camera's blur is not drawn.)
-    // D2-10668
+    // D2-10668, D2-05768
     pub fn update(&mut self, client: &mut Client, intent: &Intent, now: f64, dt: f32) {
         self.clock = now;
         self.attach_data_cache(client);
