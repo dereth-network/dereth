@@ -329,24 +329,41 @@ impl Body {
         self.cell_on_free_list = on;
     }
 
+    /// Out of the player's physics range, or back in it: its movement and animation stop, or
+    /// wake. A body keeps what it last found until a position or its own movement looks again.
+    // D2-06102, D2-06103
+    pub fn set_out_of_physics_range(&mut self, out: bool) {
+        self.out_of_physics_range = out;
+        self.set_movement_active(!out);
+        self.set_animation_active(!out);
+    }
+
+    /// Whether the body's movement looks at the player's range this tick: its movement runs, it
+    /// stands in a cell or hangs from a parent, and it hangs from a parent, or is a missile, or
+    /// stands in the world able to move.
+    // D2-06344
+    #[must_use]
+    pub fn movement_checks_range(&self) -> bool {
+        self.is_movement_active()
+            && (self.has_parent || self.position.cell.0 != 0)
+            && (self.has_parent
+                || self.missile.is_some()
+                || (self.in_world && !self.is_movement_frozen() && self.is_mobile()))
+    }
+
     /// Whether the sounds the body makes are silent just now, to play again when they are not: a
     /// static body's while its cell is among the free blocks; a moving body's out of the world
-    /// with no parent, or out of the player's physics range (`in_range`, as the body's movement
-    /// keeps it); what a parent holds, as its parent's (`find`); any other body's out of both the
-    /// world and the workspace.
-    // D2-06153, D2-06102, D2-06103
-    pub fn should_mute_sound<'a>(
-        &'a self,
-        find: &dyn Fn(u64) -> Option<&'a Self>,
-        in_range: &dyn Fn(&Self) -> bool,
-    ) -> bool {
+    /// with no parent, or out of the player's physics range; what a parent holds, as its parent's
+    /// (`find`); any other body's out of both the world and the workspace.
+    // D2-06153
+    pub fn should_mute_sound<'a>(&'a self, find: &dyn Fn(u64) -> Option<&'a Self>) -> bool {
         let mut body = self;
         // A chain of parents is short; one that loops is heard.
         for _ in 0..MAX_PARENTS {
             let silent = if body.is_static() {
                 body.cell_on_free_list
             } else {
-                (!body.in_world && !body.has_parent) || !in_range(body)
+                (!body.in_world && !body.has_parent) || body.out_of_physics_range
             };
             if silent {
                 return true;

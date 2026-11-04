@@ -640,6 +640,26 @@ impl Scene<'_> {
         for id in gone {
             self.destroy_temporary(client, id);
         }
+        // Past the player's range, an object the client made goes, as its movement finds it there.
+        // D2-06102
+        if let Some(me) = self.player.as_ref().map(|p| p.body.position) {
+            let far: Vec<u64> = self
+                .temporaries
+                .ids()
+                .into_iter()
+                .map(|(id, _)| id)
+                .filter(|id| {
+                    self.temporaries.get(*id).is_some_and(|t| {
+                        t.body.movement_checks_range()
+                            && !t.body.has_parent
+                            && crate::others::out_of_physics_range(&me, &t.body.position)
+                    })
+                })
+                .collect();
+            for id in far {
+                self.destroy_temporary(client, id);
+            }
+        }
         let game_now = client.game_time();
         for (id, holder) in self.temporaries.ids() {
             // Held, it stands where it hangs from its holder; let go of, it is held no more.

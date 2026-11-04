@@ -326,6 +326,8 @@ pub struct Body {
     pub element_changed: bool,
     /// The cell it stands in is among the free blocks.
     cell_on_free_list: bool,
+    /// It was past the player's physics range when last looked at.
+    out_of_physics_range: bool,
     /// Its guidance, when it flies as a missile ([`missile`]).
     pub missile: Option<Box<Guidance>>,
     /// What it last went off on as a missile (0 for no object), for the host to read.
@@ -460,6 +462,7 @@ impl Body {
             children: None,
             element_changed: false,
             cell_on_free_list: false,
+            out_of_physics_range: false,
             missile: None,
             struck: None,
             tracking: None,

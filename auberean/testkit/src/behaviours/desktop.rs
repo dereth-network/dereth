@@ -1293,6 +1293,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.others.a-moving-body-past-the-range-stops-until-a-position-comes",
+        says: "A moving body checks the player's range as it moves. Over 96 meters away it stops \
+               where it is, its sounds silent, until a position for it comes; a body that can't \
+               move doesn't check.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-RANGE-EACH-MOVE"),
+        station: "auberean-scene::cpu::others::a_moving_body_past_the_range_stops_until_a_position_comes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.others.a-place-in-the-world-takes-an-item-out-of-its-pack",
         says: "An object given a place in the world stands there and is drawn, in no container,                with or without word that it left the pack it was in: the server tells the player                who put an item down only its place.",
         since: RETAIL,

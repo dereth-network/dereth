@@ -62,6 +62,14 @@ use auberean_physics::world::{NoGameObjects, World, WorldObject};
 /// animates, and every position puts it in place, meters.
 pub const PHYSICS_RANGE: f32 = 96.0;
 
+/// Whether `at` is past the physics range of a player at `player`.
+// D2-06344
+#[must_use]
+pub fn out_of_physics_range(player: &Position, at: &Position) -> bool {
+    let o = geom::offset(player, at);
+    (o.x * o.x + o.y * o.y + o.z * o.z).sqrt() > PHYSICS_RANGE
+}
+
 /// Whether stamp `b` is newer than stamp `a`, the stamps counting round through 65536.
 // D2-05665
 #[must_use]
@@ -387,13 +395,10 @@ impl OtherBody {
         }
         let mut out = false;
         if let Some(me) = player {
-            let o = geom::offset(me, &p);
-            let d = (o.x * o.x + o.y * o.y + o.z * o.z).sqrt();
-            self.in_range = d <= PHYSICS_RANGE;
-            out = !self.in_range;
+            out = out_of_physics_range(me, &p);
+            self.in_range = !out;
             // In range the body moves and animates; out of it, neither.
-            self.body.set_movement_active(self.in_range);
-            self.body.set_animation_active(self.in_range);
+            self.body.set_out_of_physics_range(out);
         }
         let heading = Heading::new(place.heading());
         if is_newer(self.stamps.1, place.teleport_stamp) || out {
@@ -414,6 +419,16 @@ impl OtherBody {
         }
         self.stamps = (place.position_stamp, place.teleport_stamp);
         Received::Taken
+    }
+
+    /// The body's movement looks at the player's range, as it does every tick while it runs: past
+    /// it, the body stops where it is until a position for it comes.
+    // D2-06344, D2-06102
+    pub fn check_range(&mut self, player: &Position) {
+        if self.body.movement_checks_range() && out_of_physics_range(player, &self.body.position) {
+            self.in_range = false;
+            self.body.set_out_of_physics_range(true);
+        }
     }
 
     /// One physics tick against `land` and the world's other objects, with the game clock at
@@ -963,6 +978,9 @@ impl Others {
                     b.key = Some(k);
                 }
                 (None, Some(_)) => {}
+            }
+            if let Some((_, me)) = player.as_ref().filter(|_| ticks > 0 && b.shape.is_none()) {
+                ob.check_range(me);
             }
             if ob.in_range {
                 if b.shape.is_none() {
