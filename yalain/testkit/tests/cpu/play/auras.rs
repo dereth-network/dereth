@@ -795,6 +795,29 @@ fn an_aura_for_weapons_holds_on_a_fellows_weapon_within_its_range() {
     player(&mut h, caster).position.origin[0] += 400.0;
     assert_eq!(reckoned(&h, me, blade), (240, 180, 240), "beyond its range");
     player(&mut h, caster).position.origin[0] -= 400.0;
+    assert_eq!(reckoned(&h, me, blade), (320, 240, 320), "back in range");
+    player(&mut h, me).scene_drawn = false;
+    assert_eq!(
+        reckoned(&h, me, blade),
+        (240, 180, 240),
+        "its holder still coming in"
+    );
+    player(&mut h, me).scene_drawn = true;
+    let trip = yalain_world::places::Trip {
+        to: player(&mut h, me).position,
+        used: None,
+        step: None,
+        resurrect: false,
+        sent: false,
+        said: None,
+    };
+    player(&mut h, me).trip = Some(trip);
+    assert_eq!(
+        reckoned(&h, me, blade),
+        (240, 180, 240),
+        "its holder in portal space"
+    );
+    player(&mut h, me).trip = None;
     h.server.fellowships.list.clear();
     fellows(&mut h, &[me, stranger]);
     assert_eq!(reckoned(&h, me, blade), (240, 180, 240), "not a fellow");
