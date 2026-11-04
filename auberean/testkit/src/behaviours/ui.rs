@@ -823,6 +823,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.inventory.an-item-coming-back-as-another-leaves-shows",
+        says: "An item added to the pack at the slot past its last as another leaves in the same frame shows in its slot, though by the scripts' answers after the frame the pack holds no more than before.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-INVENTORY-SWAP-SHOWS"),
+        station: "auberean-ui-game::dat::play::inventory::an_item_coming_back_as_another_leaves_shows",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.inventory.an-item-dropped-in-the-world-goes-to-what-lies-there",
         says: "An item of the pack dragged over the world and let go asks what lies under the \
                pointer there; once the world answers it is moved to what was found: to no object \

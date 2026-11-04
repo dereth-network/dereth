@@ -378,6 +378,38 @@ fn an_item_given_as_the_pack_is_sent_shows_once() {
     assert_eq!(main, vec![BONE, SHIELD, ARROWS], "removed");
 }
 
+/// A swap in one frame (one wielded thing back in the pack as the next leaves it): the item coming
+/// back is added at the slot past the last, though by the scripts' answers after the frame the
+/// pack holds no more items than before and that slot lies past them.
+///
+/// Behaviour: ui.inventory.an-item-coming-back-as-another-leaves-shows
+#[test]
+fn an_item_coming_back_as_another_leaves_shows() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut f = facts();
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    // The answers after the frame: as many items, the shield gone and the bone last.
+    f.version += 1;
+    f.items.insert(BONE, item("Bone", SWORD_ICON, 1, false));
+    let pack = vec![SWORD, ARROWS, BONE];
+    let held = f.containers.get_mut(&PLAYER).expect("the pack");
+    for c in &mut held.segments {
+        c.items.clone_from(&pack);
+    }
+    let out = [
+        pack_notice(change::ADDED, BONE, 3),
+        pack_notice(change::REMOVED, SHIELD, 1),
+    ];
+    tick(&mut ui, &mut p, &mut t, &f, &out);
+    let main = window(&p).backpack().unwrap().packs()[0].items();
+    assert_eq!(main, vec![SWORD, ARROWS, BONE], "the bone in the pack");
+    for other in &window(&p).backpack().unwrap().packs()[1..] {
+        assert!(other.items().is_empty(), "only in the main pack");
+    }
+}
+
 /// An item pressed is selected; dragged onto another cell of its pack it is moved to that slot (no further than just
 /// past the last item, which is a slot sooner once it has left its own); a stack is split first:
 /// the splitter shows its name and the whole stack, OK with more than that says so, OK with a

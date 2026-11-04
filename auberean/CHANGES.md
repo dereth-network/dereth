@@ -94,6 +94,7 @@ not how it was done.
 - Portal arrivals and resurrections now show their mist.
 - Fixed Apply doing nothing after refusing a new resolution.
 - Jumps, landings and skids now make their sounds.
+- Fixed a weapon vanishing from the pack when swapped for another.
 
 ## 0.1.2 (2026-11-02)
 
