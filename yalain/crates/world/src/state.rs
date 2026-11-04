@@ -116,6 +116,9 @@ pub struct ItemState {
     pub own: crate::treasure::Own,
     /// Its own permanent effects (a made item's): each saved state and the spellcraft it is at.
     pub enchantments: Vec<(u32, f32)>,
+    /// The value it was given (a treasure item's draw, a made item's), 0 when its template's is
+    /// its value.
+    pub value: u32,
 }
 
 /// Everything a character holds and has done in play.
@@ -159,8 +162,8 @@ pub struct PlayState {
 /// nothing after the skills; 3 nothing after the recipes; 4 nothing after the scenes; 5 nothing
 /// after the skills' last uses; 6 an item's instance stamp and maker only; 7 nothing after an
 /// item's durability; 8 nothing after a map's place; 9 nothing after an item's bonuses; 10 nothing
-/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix).
-const VERSION: u32 = 15;
+/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix; 15 no value of an item's own).
+const VERSION: u32 = 16;
 
 /// Do these bytes say a newer build kept them (a world that went back to an older build)?
 #[must_use]
@@ -177,6 +180,8 @@ const OWN_EFFECT: u32 = 0x4;
 const OWN_MADE: u32 = 0x8;
 /// The color a dye gave it.
 const OWN_DYE: u32 = 0x10;
+/// The value it was given.
+const OWN_VALUE: u32 = 0x20;
 
 /// An item's durability as kept: none (never worn) is a value no durability takes.
 const UNWORN: u32 = u32::MAX;
@@ -379,7 +384,8 @@ impl PlayState {
                 0
             } | if own.effect.is_some() { OWN_EFFECT } else { 0 }
                 | if own.made.is_some() { OWN_MADE } else { 0 }
-                | if own.dye.is_some() { OWN_DYE } else { 0 };
+                | if own.dye.is_some() { OWN_DYE } else { 0 }
+                | if i.value > 0 { OWN_VALUE } else { 0 };
             w32(&mut out, has);
             if let Some(v) = own.min_level {
                 w32(&mut out, v.cast_unsigned());
@@ -404,6 +410,9 @@ impl PlayState {
             if let Some((table, value)) = own.dye {
                 w32(&mut out, table);
                 w32(&mut out, value.to_bits());
+            }
+            if i.value > 0 {
+                w32(&mut out, i.value);
             }
         }
         w32(&mut out, self.hero_credits);
@@ -558,6 +567,7 @@ impl PlayState {
                 let binds_on_use = version >= 10 && r.u32().ok_or_else(bad)? != 0;
                 let mut own = crate::treasure::Own::default();
                 let mut enchantments = Vec::new();
+                let mut value = 0;
                 if version >= 11 {
                     let has = r.u32().ok_or_else(bad)?;
                     if has & OWN_MIN_LEVEL != 0 {
@@ -583,6 +593,9 @@ impl PlayState {
                     if has & OWN_DYE != 0 {
                         own.dye = Some((r.u32().ok_or_else(bad)?, r.f32().ok_or_else(bad)?));
                     }
+                    if has & OWN_VALUE != 0 {
+                        value = r.u32().ok_or_else(bad)?;
+                    }
                 }
                 s.item_states.push(ItemState {
                     id,
@@ -594,6 +607,7 @@ impl PlayState {
                     binds_on_use,
                     own,
                     enchantments,
+                    value,
                 });
             }
         }

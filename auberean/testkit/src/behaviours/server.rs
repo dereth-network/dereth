@@ -8896,6 +8896,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.world.treasure-value-kept-across-sessions",
+        says: "A treasure item keeps the value it was drawn across a logout, so it is named and \
+               valued as before on its next entry.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-VALUE-KEPT"),
+        station: "yalain-testkit::cpu::entry::examine::a_treasure_items_drawn_value_is_kept_across_a_logout",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.world.worn-armor-kept-across-sessions",
         says: "Armor worn at a logout is worn again at the next entry, and the character list and \
                other players show the character wearing it.",

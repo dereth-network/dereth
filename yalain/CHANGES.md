@@ -76,6 +76,7 @@ what they see, not how it was done.
 - Refining now makes its material.
 - Dyeing now colors armor.
 - Fixed new items taking the ids of items players already held.
+- Treasure items keep their value across a logout.
 
 ## 0.1.2 (2026-11-03)
 

@@ -750,6 +750,7 @@ fn keep<S: Store>(s: &mut Server<S>, p: &Player) {
                 binds_on_use: t.binds_on_use,
                 own: t.own,
                 enchantments: t.enchantments.clone(),
+                value: t.value,
             })
         })
         .collect();

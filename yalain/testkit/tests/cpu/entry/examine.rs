@@ -978,6 +978,46 @@ fn an_item_lists_the_skills_and_arcane_lore_it_takes() {
     assert_eq!(got[0][20..], p.packed(&got[0][..20])[20..], "as built");
 }
 
+/// A treasure item keeps the value it was drawn across a logout: it is still named and valued as
+/// one on its next entry.
+/// Behaviour: server.world.treasure-value-kept-across-sessions
+#[test]
+fn a_treasure_items_drawn_value_is_kept_across_a_logout() {
+    use auberean_protocol::login::CharacterRef;
+    use auberean_protocol::ClientMessage;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let (a, me) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let item = yalain_world::inventory::give(
+        &mut h.server,
+        &mut h.net,
+        world,
+        yalain_testkit::TEST_ITEM,
+        1,
+    )
+    .expect("given");
+    h.server.things.get_mut(item).expect("made").value = 77;
+    let shown = yalain_world::inventory::item_create(h.server.things.get(item).expect("made"));
+    let before = h.bots[a].inbox.len();
+    h.bots[a].send(
+        false,
+        queue::LOGON,
+        &ClientMessage::LogOff(CharacterRef { character: me }),
+    );
+    assert!(h.run_until(400, |h| h.bots[a].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+    h.enter_world(a, "one", me);
+    let t = h.server.things.get(item).expect("back in the world");
+    assert_eq!(t.value, 77, "the value it was drawn");
+    assert_eq!(
+        yalain_world::inventory::item_create(t).weenie,
+        shown.weenie,
+        "named and valued as before"
+    );
+}
+
 /// What a recipe's item level gave an item, its value and its permanent effects are kept across a
 /// logout, its name still its level's.
 /// Behaviour: server.craft.made-item-kept

@@ -1796,6 +1796,8 @@ pub fn enter<S: Store>(s: &mut Server<S>, world: ConnId) -> Vec<u64> {
         item.binds_on_use = k.is_some_and(|k| k.binds_on_use);
         item.own = k.map(|k| k.own).unwrap_or_default();
         item.enchantments = k.map(|k| k.enchantments.clone()).unwrap_or_default();
+        item.value = k.map_or(0, |k| k.value);
+        // A made item saved before an item's own value was kept has it in what its level gave it.
         if let Some(m) = item.own.made {
             item.value = m.value;
         }
