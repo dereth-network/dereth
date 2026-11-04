@@ -19,8 +19,9 @@
 //! A visual message (type 2) is about an object and is ordered by the visual stamp it carries
 //! against that object's: the object's creation sets the start, an older stamp is dropped, a newer
 //! one waits for the stamps between. Unordered messages (type 3) take effect as they come. Any other type is
-//! dropped. A private message this client cannot read still counts for its stamp, so what comes
-//! after it is not held for it.
+//! dropped. A private or visual message this client cannot read still counts for its stamp, so what
+//! comes after it is not held for it: a visual message's object and stamps stand at its head,
+//! whatever its type.
 //!
 //! **Objects not here yet.** A message about an object the client does not have, or about a newer
 //! incarnation of it (a higher instance stamp), waits in that object's queue; one about an older
@@ -102,6 +103,20 @@ pub fn newer(a: u16, b: u16) -> bool {
     } else {
         a < b
     }
+}
+
+/// The object and stamps at the head of a visual message's bytes, whatever its type, after its
+/// type word. None for one too short to hold them.
+// D2-03936
+#[must_use]
+pub fn visual_head(raw: &[u8]) -> Option<ObjectStamp> {
+    let head = raw.get(4..16)?;
+    let word = |at: usize| u16::from_le_bytes([head[at], head[at + 1]]);
+    Some(ObjectStamp {
+        id: u64::from_le_bytes(head[..8].try_into().ok()?),
+        instance_stamp: word(8),
+        other_stamp: word(10),
+    })
 }
 
 /// The object a message is about: the sender of an object event, the object of a visual quality
@@ -236,11 +251,11 @@ impl PrivateStream {
     }
 }
 
-/// A held visual message and its visual stamp.
+/// A held visual message and its visual stamp; nothing for one that did not read.
 #[derive(Debug)]
 struct Stamped {
     stamp: u16,
-    item: Item,
+    item: Option<Item>,
 }
 
 /// An object's visual messages, ordered by their visual stamps; made empty at stamp 0 and never
@@ -258,7 +273,7 @@ struct VisualQueue {
 
 impl VisualQueue {
     // D2-05756, D2-05753
-    fn push(&mut self, stamp: u16, item: Item) {
+    fn push(&mut self, stamp: u16, item: Option<Item>) {
         self.held.push(Stamped { stamp, item });
         self.sift_up(self.held.len() - 1);
     }
@@ -307,7 +322,7 @@ impl VisualQueue {
 
     /// The next message whose stamp follows the current one; older ones are dropped.
     // D2-05757
-    fn next(&mut self, now: f64, dropped: &mut u32) -> Option<Item> {
+    fn next(&mut self, now: f64, dropped: &mut u32) -> Option<Stamped> {
         loop {
             let Some(stamp) = self.held.first().map(|h| h.stamp) else {
                 self.blocked_since = None;
@@ -317,7 +332,7 @@ impl VisualQueue {
             if stamp == want {
                 self.current = stamp;
                 self.blocked_since = None;
-                return self.pop().map(|h| h.item);
+                return self.pop();
             }
             if newer(stamp, want) {
                 if self.blocked_since.is_none() {
@@ -403,6 +418,8 @@ struct Waiting {
     last_push: f64,
     wants_force: bool,
     items: Vec<Item>,
+    /// The blob ids and heads of visual messages that did not read.
+    unread: Vec<(u64, ObjectStamp)>,
 }
 
 /// Counts for logs and tests.
@@ -713,26 +730,58 @@ impl EventQueue {
         }
     }
 
-    /// A message this client cannot read came under `blob_id`. If it is private its stamp still
-    /// counts, so that the messages after it are not held for it: it waits as a private message
-    /// would for the player's object, and out of the world it counts for nothing.
-    // D2-05618, D2-03940
-    pub fn receive_unread(&mut self, now: f64, blob_id: u64) {
-        if ordering_type(blob_id) != 1 || self.state == WorldState::NotInWorld {
-            return;
+    /// A message this client cannot read came under `blob_id`, `raw` its bytes. If it is private
+    /// or visual its stamp still counts, so that the messages after it are not held for it: a
+    /// private one waits as a private message would for the player's object, a visual one as a
+    /// visual message would for its own, and out of the world a private one counts for nothing.
+    // D2-05618, D2-03940, D2-03936
+    pub fn receive_unread(&mut self, now: f64, blob_id: u64, raw: &[u8]) {
+        match ordering_type(blob_id) {
+            1 if self.state != WorldState::NotInWorld => {
+                let stamp = u32::from(ordering_stamp(blob_id));
+                if self.player.is_some_and(|p| self.bookies.contains_key(&p)) {
+                    self.take_private(now, stamp, None);
+                } else {
+                    self.unread.push(stamp);
+                }
+            }
+            2 => {
+                if let Some(s) = visual_head(raw) {
+                    self.visual_unread(now, blob_id, s);
+                }
+            }
+            _ => {}
         }
-        let stamp = u32::from(ordering_stamp(blob_id));
-        if self.player.is_some_and(|p| self.bookies.contains_key(&p)) {
-            self.take_private(now, stamp, None);
-        } else {
-            self.unread.push(stamp);
+    }
+
+    /// The stamp of a visual message that did not read: as [`Self::visual`] with nothing to take
+    /// effect.
+    fn visual_unread(&mut self, now: f64, blob_id: u64, s: ObjectStamp) {
+        match self.bookies.get_mut(&s.id) {
+            Some(b) if b.instance_stamp == s.instance_stamp => {
+                if newer(s.other_stamp, b.visual.current.wrapping_add(1)) {
+                    self.stats.held_visual += 1;
+                }
+                b.visual.push(s.other_stamp, None);
+                self.flush_visual(s.id, now);
+            }
+            Some(b) if !newer(s.instance_stamp, b.instance_stamp) => self.stats.dropped += 1,
+            _ => {
+                let w = self.waiting.entry(s.id).or_default();
+                if !cell_flag(blob_id) {
+                    w.wants_force = true;
+                }
+                w.last_push = now;
+                w.unread.push((blob_id, s));
+                self.stats.waited += 1;
+            }
         }
     }
 
     /// A visual message: wait for its object, then for the stamps before its own.
     // D2-03936, D2-05639
     fn visual(&mut self, now: f64, item: Item) {
-        let Some(s) = subject(&item.message) else {
+        let Some(s) = subject(&item.message).or_else(|| visual_head(&item.message.encode())) else {
             self.post(now, item);
             return;
         };
@@ -745,7 +794,7 @@ impl EventQueue {
         if newer(s.other_stamp, b.visual.current.wrapping_add(1)) {
             self.stats.held_visual += 1;
         }
-        b.visual.push(s.other_stamp, item);
+        b.visual.push(s.other_stamp, Some(item));
         self.flush_visual(s.id, now);
     }
 
@@ -761,7 +810,9 @@ impl EventQueue {
             let Some(next) = b.visual.next(now, &mut self.stats.dropped) else {
                 break;
             };
-            self.post(now, next);
+            if let Some(item) = next.item {
+                self.post(now, item);
+            }
         }
         if let Some(b) = self.bookies.get_mut(&id) {
             if b.visual.heavily_blocked(now) {
@@ -906,10 +957,18 @@ impl EventQueue {
             return;
         };
         let held = std::mem::take(&mut w.items);
+        let unread = std::mem::take(&mut w.unread);
         for i in held {
             self.receive(now, i);
         }
-        if self.waiting.get(&id).is_some_and(|w| w.items.is_empty()) {
+        for (blob_id, s) in unread {
+            self.visual_unread(now, blob_id, s);
+        }
+        if self
+            .waiting
+            .get(&id)
+            .is_some_and(|w| w.items.is_empty() && w.unread.is_empty())
+        {
             self.waiting.remove(&id);
         }
     }
@@ -952,7 +1011,7 @@ impl EventQueue {
             .waiting
             .iter()
             .filter(|(id, w)| {
-                !w.items.is_empty()
+                !(w.items.is_empty() && w.unread.is_empty())
                     && now - w.last_push > OBJECT_QUEUE_PATIENCE
                     && !being_created(**id)
             })

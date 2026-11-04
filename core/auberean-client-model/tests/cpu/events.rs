@@ -141,7 +141,7 @@ fn private_id(stamp: u16) -> u64 {
 fn a_private_message_that_does_not_read_holds_nothing_back() {
     let mut q = in_the_world();
     q.receive(1.0, private_int(1, 1));
-    q.receive_unread(1.0, private_id(2));
+    q.receive_unread(1.0, private_id(2), &[]);
     q.receive(1.0, private_int(3, 3));
     assert_eq!(private_taken(&mut q), vec![1, 3], "it came in its place");
     q.receive(2.0, private_int(5, 5));
@@ -149,7 +149,7 @@ fn a_private_message_that_does_not_read_holds_nothing_back() {
         private_taken(&mut q).is_empty(),
         "the stamp before it hasn't come"
     );
-    q.receive_unread(2.0, private_id(4));
+    q.receive_unread(2.0, private_id(4), &[]);
     assert_eq!(
         private_taken(&mut q),
         vec![5],
@@ -158,7 +158,7 @@ fn a_private_message_that_does_not_read_holds_nothing_back() {
     q.receive(3.0, private_int(6, 6));
     assert_eq!(private_taken(&mut q), vec![6]);
     assert_eq!(q.stats().dropped, 0);
-    q.receive_unread(3.0, private_id(6));
+    q.receive_unread(3.0, private_id(6), &[]);
     q.receive(3.0, private_int(7, 7));
     assert_eq!(
         private_taken(&mut q),
@@ -175,8 +175,16 @@ fn a_private_message_that_does_not_read_holds_nothing_back() {
 fn a_message_of_another_kind_that_does_not_read_counts_for_no_private_stamp() {
     let mut q = in_the_world();
     q.receive(1.0, private_int(1, 1));
-    q.receive_unread(1.0, item(3, 2, ServerMessage::DownloadEnds(Empty)).blob_id);
-    q.receive_unread(1.0, item(2, 2, ServerMessage::DownloadEnds(Empty)).blob_id);
+    q.receive_unread(
+        1.0,
+        item(3, 2, ServerMessage::DownloadEnds(Empty)).blob_id,
+        &[],
+    );
+    q.receive_unread(
+        1.0,
+        item(2, 2, ServerMessage::DownloadEnds(Empty)).blob_id,
+        &[],
+    );
     q.receive(1.0, private_int(3, 3));
     assert_eq!(private_taken(&mut q), vec![1], "stamp 2 is still missing");
     q.receive(1.0, private_int(2, 2));
@@ -190,9 +198,9 @@ fn a_message_of_another_kind_that_does_not_read_counts_for_no_private_stamp() {
 #[test]
 fn a_private_message_that_does_not_read_waits_for_the_player_as_any_would() {
     let mut q = EventQueue::new();
-    q.receive_unread(0.0, private_id(1));
+    q.receive_unread(0.0, private_id(1), &[]);
     q.start_entering();
-    q.receive_unread(0.0, private_id(2));
+    q.receive_unread(0.0, private_id(2), &[]);
     q.receive(0.0, private_int(1, 1));
     q.receive(0.0, private_int(3, 3));
     q.receive(0.0, player_object());
@@ -202,7 +210,7 @@ fn a_private_message_that_does_not_read_waits_for_the_player_as_any_would() {
 
     let mut q = EventQueue::new();
     q.start_entering();
-    q.receive_unread(0.0, private_id(2));
+    q.receive_unread(0.0, private_id(2), &[]);
     q.leave_world();
     q.start_entering();
     q.receive(0.0, player_object());
@@ -366,6 +374,81 @@ fn visual_messages_take_effect_in_stamp_order_per_object() {
         1,
         "the newer incarnation's effect waits"
     );
+}
+
+/// The bytes of a visual message of a type this client doesn't read, about `id`.
+fn unread_visual(id: u64, instance: u16, visual: u16) -> Vec<u8> {
+    let mut raw = 0x1_FFFF_u32.to_le_bytes().to_vec();
+    raw.extend_from_slice(&id.to_le_bytes());
+    raw.extend_from_slice(&instance.to_le_bytes());
+    raw.extend_from_slice(&visual.to_le_bytes());
+    raw
+}
+
+/// A visual message that does not read counts for its object's stamp, read from its head: what
+/// follows takes effect at once, whichever order they come in. About an object not here yet it
+/// waits with what waits for it, and one too short to name an object counts for nothing.
+///
+/// Behaviour: model.events.a-visual-message-that-does-not-read-holds-nothing-back
+#[test]
+fn a_visual_message_that_does_not_read_holds_nothing_back() {
+    let id = 0x8130_0000_0000_0007;
+    let visual_blob = fx(id, 1, 0, 0).blob_id;
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 1, 1));
+    drain(&mut q);
+    q.receive_unread(1.0, visual_blob, &unread_visual(id, 1, 2));
+    q.receive(1.0, fx(id, 1, 3, 0x3));
+    let got: Vec<u32> = drain(&mut q).iter().filter_map(effect_of).collect();
+    assert_eq!(got, vec![0x3], "it came in its place");
+    q.receive(2.0, fx(id, 1, 5, 0x5));
+    assert!(drain(&mut q).is_empty(), "the stamp before it hasn't come");
+    q.receive_unread(2.0, visual_blob, &unread_visual(id, 1, 4));
+    let got: Vec<u32> = drain(&mut q).iter().filter_map(effect_of).collect();
+    assert_eq!(got, vec![0x5], "it came late, and let go of what it held");
+    assert_eq!(q.stats().force_creates, 0);
+
+    q.receive_unread(3.0, visual_blob, &[0; 8]);
+    q.receive(3.0, fx(id, 1, 7, 0x7));
+    assert!(
+        drain(&mut q).is_empty(),
+        "too short: stamp 6 is still missing"
+    );
+
+    let later = 0x8130_0000_0000_0008;
+    q.receive_unread(4.0, visual_blob, &unread_visual(later, 1, 2));
+    assert_eq!(q.waiting_objects(), 1, "it waits for its object");
+    q.receive(4.0, fx(later, 1, 3, 0x33));
+    q.receive(4.0, create_item(later, 1, 1));
+    let got: Vec<u32> = drain(&mut q).iter().filter_map(effect_of).collect();
+    assert_eq!(got, vec![0x33], "its stamp came with the creation");
+    assert_eq!(q.waiting_objects(), 0);
+}
+
+/// A visual message of a type that reads but names no object of its own takes its object and stamps
+/// from its head too, so it holds its place in that object's order.
+///
+/// Behaviour: model.events.a-visual-message-that-does-not-read-holds-nothing-back
+#[test]
+fn a_visual_message_of_any_type_keeps_its_place_by_its_head() {
+    use auberean_protocol::quality::PrivateQuality;
+    let id: u64 = 0x0000_0002_0000_0007;
+    let mut q = EventQueue::new();
+    q.receive(0.0, create_item(id, 1, 1));
+    drain(&mut q);
+    let value = (id >> 32) | (1 << 32) | (2 << 48);
+    let quality = u32::try_from(id & 0xFFFF_FFFF).expect("its low half");
+    let of_any_type = item(
+        2,
+        0,
+        ServerMessage::UpdateInstanceId(PrivateQuality { quality, value }),
+    );
+    q.receive(1.0, fx(id, 1, 3, 0x3));
+    assert!(drain(&mut q).is_empty(), "stamp 2 hasn't come");
+    q.receive(1.0, of_any_type);
+    let got = drain(&mut q);
+    assert!(matches!(got[0].message, ServerMessage::UpdateInstanceId(_)));
+    assert_eq!(effect_of(&got[1]), Some(0x3));
 }
 
 /// A creation of a newer incarnation replaces the one the client has: the old one goes first,

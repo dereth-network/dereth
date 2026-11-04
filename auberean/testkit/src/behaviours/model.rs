@@ -126,6 +126,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "model.events.a-visual-message-that-does-not-read-holds-nothing-back",
+        says: "A visual message's object and stamps stand at its head, whatever its type: one that \
+               does not read still counts for its stamp, or waits for its object, and one of any \
+               readable type keeps its place in that object's order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-VISUAL-HEAD"),
+        station: "auberean-client-model::cpu::events::a_visual_message_that_does_not_read_holds_nothing_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "model.events.a-visual-stream-blocked-20-seconds-is-given-up",
         says: "An object whose visual messages have waited on a missing stamp for more than 20 \
                seconds is given up on when its next visual message (or its creation) comes: the \

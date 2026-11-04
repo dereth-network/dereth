@@ -1640,7 +1640,7 @@ impl Client {
         match e {
             Event::Message(r) => match r.incoming {
                 Incoming::Message(m) => self.take_message(r.blob_id, *m),
-                Incoming::Undecodable { .. } => self.take_unread(r.blob_id),
+                Incoming::Undecodable { bytes, .. } => self.take_unread(r.blob_id, &bytes),
             },
             Event::LoginFailed(error) => {
                 self.session_end.login_failed = true;
@@ -1705,8 +1705,8 @@ impl Client {
 
     /// A message that did not read came under `blob_id`: nothing of it takes effect, but what its
     /// stamp was holding back does.
-    fn take_unread(&mut self, blob_id: u64) {
-        self.queue.receive_unread(self.now, blob_id);
+    fn take_unread(&mut self, blob_id: u64, raw: &[u8]) {
+        self.queue.receive_unread(self.now, blob_id, raw);
         while let Some(item) = self.queue.pop() {
             self.take_effect(&item);
         }
