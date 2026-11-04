@@ -304,14 +304,7 @@ fn field_text(row: &Row, field: &str) -> String {
         (Row::Camp(c), "population") => c.population.to_string(),
         #[allow(clippy::cast_possible_truncation)]
         (Row::Camp(c), "regen") => num(c.regen as f32),
-        (Row::Camp(c), "spawns") => format!(
-            "[{}]",
-            c.spawns
-                .iter()
-                .map(|(t, w)| format!("{{ template = 0x{t:08X}, weight = {w} }}"))
-                .collect::<Vec<_>>()
-                .join(", ")
-        ),
+        (Row::Camp(c), "spawns") => spawns_toml(&c.spawns),
         (Row::Camp(c), "cell") => c.cell.map(hex).unwrap_or_default(),
         (Row::Place(p), "cell") => p.cell.map(hex).unwrap_or_default(),
         (Row::Place(p), "destination") => p
@@ -321,6 +314,19 @@ fn field_text(row: &Row, field: &str) -> String {
             .unwrap_or_default(),
         _ => String::new(),
     }
+}
+
+/// A camp's creatures as the TOML of its `spawns` field.
+#[must_use]
+pub fn spawns_toml(spawns: &[(u32, u32)]) -> String {
+    format!(
+        "[{}]",
+        spawns
+            .iter()
+            .map(|(t, w)| format!("{{ template = 0x{t:08X}, weight = {w} }}"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
 }
 
 /// Whether a row stands in an interior cell.
@@ -350,7 +356,7 @@ pub fn field_toml(field: &str, typed: &str) -> String {
 fn editable(row: &Row) -> &'static [&'static str] {
     match row {
         Row::Object(_) => &["template", "kind", "to", "name", "id", "cell"],
-        Row::Camp(_) => &["spawns", "radius", "population", "regen", "cell"],
+        Row::Camp(_) => &["radius", "population", "regen", "cell"],
         Row::Place(_) => &["cell", "destination"],
         _ => &[],
     }
@@ -561,6 +567,101 @@ impl<'w> Editor<'w> {
         near.sort_by(|a, b| a.1.total_cmp(&b.1));
         self.near = near;
         self.near_at = Some((eye, rev));
+    }
+
+    /// The places a portal in the selected row's pack could lead to: this world's own first, then
+    /// the nearest of the rest, each as its `to` names it, with its row's item.
+    #[must_use]
+    pub fn places_to_lead_to(&mut self, item: &str, limit: usize) -> Vec<(String, String)> {
+        let eye = self.view().eye;
+        let pack = self
+            .session
+            .entry(item)
+            .map_or_else(String::new, |e| e.row.pack.clone());
+        let target = self.session.target().to_string();
+        let mut places: Vec<(bool, f32, String, String)> = self
+            .session
+            .entries()
+            .iter()
+            .filter_map(|e| {
+                let Row::Place(p) = &e.row.row else {
+                    return None;
+                };
+                let at = e.at();
+                let g = view::global(e.landblock(), [at.x, at.y, at.z.unwrap_or(0.0)]);
+                // A row changed here is written in this pack; a reference from it names another's.
+                let here = e.row.pack == pack || (e.row.pack == target && pack == target);
+                let to = if here {
+                    p.key.clone()
+                } else {
+                    format!("{}:{}", e.row.pack, p.key)
+                };
+                Some((
+                    e.layer == Layer::Base,
+                    math::hypotf(g[0] - eye[0], g[1] - eye[1]),
+                    to,
+                    e.item.clone(),
+                ))
+            })
+            .collect();
+        places.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        places
+            .into_iter()
+            .take(limit)
+            .map(|(_, _, to, item)| (to, item))
+            .collect()
+    }
+
+    /// Set a camp's creatures.
+    pub fn set_spawns(&mut self, item: &str, spawns: &[(u32, u32)]) {
+        let r = self.session.set(item, "spawns", &spawns_toml(spawns));
+        self.report(r);
+    }
+
+    /// Lead a portal to a place, written as its `to` names it.
+    pub fn lead_to(&mut self, item: &str, to: &str) {
+        let r = self.session.set(item, "to", &field_toml("to", to));
+        if self.report(r).is_some() {
+            self.status = format!("{item} leads to {to}");
+        }
+    }
+
+    /// A camp's creatures: each by name, how often, and taken away; the template above added.
+    fn camp_spawns(&mut self, ui: &mut egui::Ui, item: &str, spawns: &[(u32, u32)]) {
+        ui.label("creatures");
+        let mut now = spawns.to_vec();
+        let mut changed = false;
+        let mut gone = None;
+        for (i, (t, w)) in now.iter_mut().enumerate() {
+            let name = self.label(*t);
+            ui.horizontal(|ui| {
+                let r = ui.add(egui::DragValue::new(w).range(1..=1000));
+                changed |= r.drag_stopped() || (r.changed() && !r.dragged());
+                ui.label(name).on_hover_text(format!("0x{t:08X}"));
+                if spawns.len() > 1 && ui.small_button("x").clicked() {
+                    gone = Some(i);
+                }
+            });
+        }
+        if let Some(i) = gone {
+            now.remove(i);
+            changed = true;
+        }
+        let adding = parse_id(&self.template).filter(|t| !now.iter().any(|(s, _)| s == t));
+        if let Some(t) = adding {
+            let name = self.label(t);
+            if ui
+                .small_button(format!("Add {name}"))
+                .on_hover_text("the template along the top")
+                .clicked()
+            {
+                now.push((t, 1));
+                changed = true;
+            }
+        }
+        if changed {
+            self.set_spawns(item, &now);
+        }
     }
 
     /// Fly the camera to a row: a little back from it and above, looking at it.
@@ -2467,7 +2568,27 @@ impl<'w> Editor<'w> {
                 }
             }
         }
+        if let Row::Camp(c) = &e.row.row {
+            self.camp_spawns(ui, &item, &c.spawns.clone());
+        }
         if let Row::Object(o) = &e.row.row {
+            let mut lead = None;
+            egui::ComboBox::from_id_salt("leads to")
+                .selected_text(o.to.as_deref().map_or("Lead to a place", |t| t))
+                .width(220.0)
+                .show_ui(ui, |ui| {
+                    for (to, _) in self.places_to_lead_to(&item, 40) {
+                        if ui
+                            .selectable_label(o.to.as_deref() == Some(&to), &to)
+                            .clicked()
+                        {
+                            lead = Some(to);
+                        }
+                    }
+                });
+            if let Some(to) = lead {
+                self.lead_to(&item, &to);
+            }
             if let Some(to) = &o.to {
                 if ui.button(format!("Go to {to}")).clicked() {
                     if let Some(t) = self.place_of(to, &e.row.pack).map(|p| p.item) {

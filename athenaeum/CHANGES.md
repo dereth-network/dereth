@@ -18,6 +18,7 @@ see, not how it was done.
 - The editor now goes indoors: rooms and dungeons are drawn, and rows are placed on their floors.
 - Click a person or an object itself to select it, not just its marker.
 - Shift+click selects several rows, to move, turn, copy and take away together.
+- Lead a portal to a place from a list, and change a camp's creatures by name.
 - Duplicate copies the selected row beside it (Ctrl+D).
 - macOS: the editor opens at full size on Retina screens, Cmd works as Ctrl, and Backspace deletes.
 

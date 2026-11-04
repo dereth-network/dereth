@@ -87,6 +87,9 @@ to where it leads.
   it at the next click on the ground. R turns it first; Shift+click keeps placing; Esc stops.
 - Shift+click adds a row to the selection. Then dragging, the handles, R, Duplicate and Delete take
   them all together, keeping how they stand to each other, and one Undo takes it back.
+- An object's **Lead to a place** list makes it a portal: this world's places first, then the
+  nearest others. A camp's creatures are listed by name, with how often each comes and **Add** for
+  the template along the top.
 - Ctrl+F or **Find rows** finds any row of the world by its name, template, kind or key, nearest
   or not, and goes to a landblock (`5766` or `5766:123,45`).
 - Ctrl+D or **Duplicate** copies the selected row beside it and selects the copy, whatever it is:

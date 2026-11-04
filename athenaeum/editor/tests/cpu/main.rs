@@ -326,3 +326,12 @@ fn turning_back_undoes_a_rows_heading() {
     assert!(east[1].abs() < 1e-5, "{east:?}");
     assert!((east[0].abs() - 1.0).abs() < 1e-5, "{east:?}");
 }
+
+#[test]
+fn a_camps_creatures_are_written_as_its_field_reads() {
+    use athenaeum_editor::app::spawns_toml;
+    assert_eq!(
+        spawns_toml(&[(0x4700_1000, 2), (0x4700_1001, 1)]),
+        "[{ template = 0x47001000, weight = 2 }, { template = 0x47001001, weight = 1 }]"
+    );
+}

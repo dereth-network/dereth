@@ -12,6 +12,7 @@ use athenaeum_editor::gizmo::{self, Handle};
 use athenaeum_editor::live::Programs;
 use athenaeum_editor::scene::{Scene, WorldData};
 use athenaeum_editor::view;
+use athenaeum_foundry::edit::NewKind;
 use athenaeum_foundry::{build, new, world, Session};
 use auberean_dat::testing::{require_install, TARGET};
 use dereth_builder::camera::FlyCamera;
@@ -622,4 +623,58 @@ fn shift_click_takes_a_selected_row_out_and_a_plain_click_lets_the_rest_go() {
     click(&mut e, at, false);
     assert_eq!(e.selected.as_deref(), Some(first.as_str()));
     assert!(e.also.is_empty());
+}
+
+#[test]
+fn a_portal_leads_to_this_worlds_place_and_it_builds_clean() {
+    let (mut e, object, g) = with_a_row("link");
+    e.new_kind = NewKind::Place;
+    e.place_at([g[0] + 5.0, g[1], g[2]], 0.0);
+    let places = e.places_to_lead_to(&object, 10);
+    let (to, _) = places.first().expect("a place").clone();
+    assert_eq!(to, "place-1", "this world's own comes first");
+    assert!(
+        places.iter().skip(1).any(|(t, _)| t.contains(':')),
+        "the database's, by their pack: {places:?}"
+    );
+    e.lead_to(&object, &to);
+    assert!(
+        e.session.problems().is_empty(),
+        "{:?}",
+        e.session.problems()
+    );
+    let Row::Object(o) = &e.session.entry(&object).unwrap().row.row else {
+        panic!("an object")
+    };
+    assert_eq!(o.to.as_deref(), Some("place-1"));
+    let (other, _) = places
+        .iter()
+        .find(|(t, _)| t.contains(':'))
+        .unwrap()
+        .clone();
+    e.lead_to(&object, &other);
+    assert!(
+        e.session.problems().is_empty(),
+        "{:?}",
+        e.session.problems()
+    );
+}
+
+#[test]
+fn a_camps_creatures_change_by_template_and_weight() {
+    let (mut e, _, g) = with_a_row("spawns");
+    e.new_kind = NewKind::Camp;
+    e.place_at([g[0] + 5.0, g[1], g[2]], 0.0);
+    let camp = e.selected.clone().expect("the camp");
+    let first = 0x4700_33D0;
+    e.set_spawns(&camp, &[(first, 3), (0x4700_100C, 1)]);
+    assert!(
+        e.session.problems().is_empty(),
+        "{:?}",
+        e.session.problems()
+    );
+    let Row::Camp(c) = &e.session.entry(&camp).unwrap().row.row else {
+        panic!("a camp")
+    };
+    assert_eq!(c.spawns, vec![(first, 3), (0x4700_100C, 1)]);
 }
