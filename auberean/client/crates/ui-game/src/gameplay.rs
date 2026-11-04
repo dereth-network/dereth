@@ -1168,13 +1168,6 @@ impl GamePlay {
         }
     }
 
-    /// The please-wait dialog cancelled: back to the character list.
-    // D2-01921
-    pub fn do_please_wait_cancel(&mut self, out: &mut Vec<Request>) {
-        self.wait = 0;
-        out.push(Request::CharacterSelection);
-    }
-
     /// A message of the scripts in a dialog of its own (written, or a string reference its text
     /// element writes), kept until it closes; `modal`, it goes up at once in place of the dialog
     /// up, which waits behind it.
