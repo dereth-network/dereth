@@ -462,6 +462,10 @@ impl World {
             shape.scale = scale;
             e.radius = containment(&shape);
             e.shape = Arc::new(shape);
+            e.tree_scale = scale;
+            if let Some(o) = self.objects.get_mut(e.handle) {
+                o.scale = scale.z;
+            }
         }
     }
 

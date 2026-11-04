@@ -10,6 +10,11 @@
 //!   transition lets the body take (A*, the straight line its estimate). Inside, a goal in no cell
 //!   joined to the creature's by doorways is out of reach at once.
 //!
+//! - **What a world places** stands among the walls as it stands in a client's world: its look's
+//!   shape at its own scale, solid or not as its description says ([`Standing`]). What moves, comes
+//!   and goes or is seen by some players only is left out: a door is met where it stands
+//!   ([`crate::usable::doors`]).
+//!
 //! The host reads the blocks ([`Blocks`]); the walls hold what was read for as long as the world
 //! lives.
 
@@ -17,10 +22,13 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::Arc;
 
 use auberean_physics::body::heading_rotation;
+use auberean_physics::collision::manager::BodyKey;
 use auberean_physics::interior::add_block_cells;
 use auberean_physics::land::Land;
 use auberean_physics::mesh::Trees;
-use auberean_physics::world::World;
+use auberean_physics::object::Shape;
+use auberean_physics::solid::Ethereality;
+use auberean_physics::world::{World, WorldObject};
 use auberean_physics::{Body, BodyConfig};
 use auberean_primitives::DataId;
 use auberean_world::look::LookRecords as _;
@@ -36,6 +44,43 @@ use yalain_store::StoredPosition;
 pub trait Blocks {
     /// Read block `(x, y)` into `land`; false when the world has no such block.
     fn load(&mut self, land: &Land, x: u8, y: u8) -> bool;
+
+    /// Put what a world places in `world`, where the land is read; none when it has no shape.
+    fn stand(&mut self, land: &Land, world: &mut World, row: &Standing) -> Option<BodyKey> {
+        let _ = (land, world, row);
+        None
+    }
+}
+
+/// A thing a world places, as creatures meet it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Standing {
+    /// Its id in the world.
+    pub id: u64,
+    /// The entity it is made from, whose properties it takes.
+    pub template: u32,
+    /// Its look, and its own scale.
+    pub look: u32,
+    pub scale: f32,
+    pub at: StoredPosition,
+    /// The numbers its description gives.
+    pub ethereality: Ethereality,
+}
+
+impl Standing {
+    fn position(&self) -> Position {
+        let [w, x, y, z] = self.at.rotation;
+        let [ox, oy, oz] = self.at.origin;
+        Position::new(
+            CellId(self.at.cell),
+            Frame::new(Vec3::new(ox, oy, oz), Quat { w, x, y, z }),
+        )
+    }
+
+    /// The block whose reading puts it in the world.
+    fn block(&self) -> (u8, u8) {
+        block_of(self.at.cell)
+    }
 }
 
 /// The blocks as a world's records hold them: the ground and the solid objects placed on it, and
@@ -86,6 +131,33 @@ impl Blocks for RecordBlocks {
         self.blocks += usize::from(ground);
         self.cells += cells;
         ground || cells > 0
+    }
+
+    fn stand(&mut self, land: &Land, world: &mut World, row: &Standing) -> Option<BodyKey> {
+        let shape = Shape::of(&self.records, DataId(row.look), &mut self.trees)?;
+        let whole = Vec3::new(
+            shape.scale.x * row.scale,
+            shape.scale.y * row.scale,
+            shape.scale.z * row.scale,
+        );
+        let at = row.position();
+        let key = world.insert(
+            land,
+            row.id,
+            &WorldObject {
+                shape: Arc::new(shape),
+                position: at,
+                is_static: true,
+                passable: false,
+            },
+        );
+        world.set_scale(key, whole);
+        world.set_ethereality(key, row.ethereality);
+        let lookup = |id: u32| self.records.entity(DataId(id));
+        world.apply_entity_properties(key, row.template, &lookup);
+        // Filed again by the box of its whole size.
+        world.place(land, key, at);
+        Some(key)
     }
 }
 
@@ -169,6 +241,9 @@ pub struct Stepped {
     pub moved: f32,
 }
 
+/// What a world places, with its entry once it stands.
+type Kept = (Standing, Option<BodyKey>);
+
 /// The walls the creatures meet.
 pub struct Walls {
     land: Arc<Land>,
@@ -180,6 +255,9 @@ pub struct Walls {
     /// Each template's body, and the bodies stepped (by template and scale).
     pub walkers: HashMap<u32, Walker>,
     bodies: HashMap<(u32, u32), Body>,
+    /// What the world places, by the block whose reading stands it, each with its entry once it
+    /// stands.
+    standing: BTreeMap<(u8, u8), Vec<Kept>>,
 }
 
 impl std::fmt::Debug for Walls {
@@ -235,6 +313,59 @@ impl Walls {
             graphs: HashMap::new(),
             walkers: HashMap::new(),
             bodies: HashMap::new(),
+            standing: BTreeMap::new(),
+        }
+    }
+
+    /// What a world places becomes `rows`, in place of what it placed before.
+    pub fn set_standing(&mut self, rows: Vec<Standing>) {
+        for (_, kept) in std::mem::take(&mut self.standing) {
+            for (_, key) in kept {
+                if let Some(key) = key {
+                    self.world.remove(key);
+                }
+            }
+        }
+        for row in rows {
+            self.standing
+                .entry(row.block())
+                .or_default()
+                .push((row, None));
+        }
+        let read: Vec<(u8, u8)> = self.read.iter().copied().collect();
+        for (x, y) in read {
+            self.stand_in(x, y);
+        }
+    }
+
+    /// Stand what is placed in block `(x, y)`, now it is read, and file what stands beside it
+    /// again, since it may reach into this block.
+    fn stand_in(&mut self, x: u8, y: u8) {
+        if let Some(kept) = self.standing.get_mut(&(x, y)) {
+            for (row, key) in kept.iter_mut().filter(|(_, key)| key.is_none()) {
+                *key = self.blocks.stand(&self.land, &mut self.world, row);
+            }
+        }
+        for dx in -1i16..=1 {
+            for dy in -1i16..=1 {
+                if (dx, dy) == (0, 0) {
+                    continue;
+                }
+                let (Ok(a), Ok(b)) = (
+                    u8::try_from(i16::from(x) + dx),
+                    u8::try_from(i16::from(y) + dy),
+                ) else {
+                    continue;
+                };
+                let Some(kept) = self.standing.get(&(a, b)) else {
+                    continue;
+                };
+                for (row, key) in kept {
+                    if let Some(key) = key {
+                        self.world.place(&self.land, *key, row.position());
+                    }
+                }
+            }
         }
     }
 
@@ -255,6 +386,7 @@ impl Walls {
             return;
         }
         self.blocks.load(&self.land, x, y);
+        self.stand_in(x, y);
         let block = u32::from(x) << 24 | u32::from(y) << 16;
         let graph = self.graph_of(block);
         self.graphs.insert(block, graph);

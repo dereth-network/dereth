@@ -8,7 +8,7 @@ use auberean_physics::land::Land;
 use auberean_world::records::WorldRecords;
 use yalain_store::StoredPosition;
 use yalain_testkit::{Harness, TEST_CREATURE};
-use yalain_world::walls::{RecordBlocks, Walker, Walls};
+use yalain_world::walls::{RecordBlocks, Standing, Walker, Walls};
 
 /// The install's world records, opened anew.
 fn records() -> WorldRecords {
@@ -253,3 +253,70 @@ fn a_creature_with_no_way_to_its_player_counts_it_as_one_it_could_not_reach() {
         "the doorway leads there: {next_room:x?}"
     );
 }
+
+/// How far north a creature gets from open ground, against what is `placed` there, and how high.
+fn furthest_north(placed: Vec<Standing>) -> (f32, f32) {
+    let mut w = walls();
+    w.set_standing(placed);
+    let mut at = StoredPosition {
+        cell: yalain_world::spawn::outdoor(0x6FA9, 45.24, 90.51).0,
+        origin: [45.24, 90.51, 85.26],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    for _ in 0..12 {
+        at = w.step(DIGGER, 1.0, &at, [0.0, 0.5]).expect("placed").at;
+    }
+    (at.origin[1], at.origin[2])
+}
+
+/// What a world places on that ground, 4 m on from where the creature sets out.
+fn a_barrel(scale: f32) -> Standing {
+    let records = records();
+    let describe = yalain_content::describe(
+        BARREL,
+        &|id| records.get::<auberean_assets::entity::Entity>(id),
+        &|_| None,
+    )
+    .expect("the barrel's description");
+    Standing {
+        id: 0x4000_0000_0000_0001,
+        template: BARREL,
+        look: describe.look,
+        scale,
+        at: StoredPosition {
+            cell: yalain_world::spawn::outdoor(0x6FA9, 45.24, 94.51).0,
+            origin: [45.24, 94.51, 85.26],
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        },
+        ethereality: auberean_physics::solid::Ethereality::default(),
+    }
+}
+
+/// A barrel the world places stands in a creature's way at the size it stands, and a creature
+/// goes on where the world no longer places it.
+/// Behaviour: server.creatures.chase-around-walls
+#[test]
+fn what_a_world_places_holds_a_creature_up_at_the_size_it_stands() {
+    let open = furthest_north(Vec::new()).0;
+    let small = furthest_north(vec![a_barrel(1.0)]);
+    let large = furthest_north(vec![a_barrel(3.0)]);
+    assert!(open > 96.0, "open ground: {open}");
+    // The barrel's own height is within the creature's step: it goes up and over, not through.
+    assert!(small.1 > 86.5, "on the barrel: {small:?}");
+    // Three times the size, its top is out of reach.
+    assert!(large.0 < 92.5, "held off it: {large:?}");
+    assert!(large.1 < 85.5, "on the ground: {large:?}");
+    let mut w = walls();
+    w.set_standing(vec![a_barrel(1.0)]);
+    w.set_standing(Vec::new());
+    let start = StoredPosition {
+        cell: yalain_world::spawn::outdoor(0x6FA9, 45.24, 94.0).0,
+        origin: [45.24, 94.0, 85.26],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let on = w.step(DIGGER, 1.0, &start, [0.0, 1.0]).expect("placed");
+    assert!(on.at.origin[1] > 94.5, "taken away: {:?}", on.at.origin);
+}
+
+/// The barrel's template.
+const BARREL: u32 = 0x4700_26C4;

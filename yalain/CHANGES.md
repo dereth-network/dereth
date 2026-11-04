@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 
+- Creatures now go around what a world places.
 - Players in a browser now have their friends list.
 - A world's objects can have a scale of their own.
 - Killing creatures moves the quests their deaths name, and a kill can give a quest.

@@ -1419,12 +1419,7 @@ pub(crate) fn ethereality(w: &WeenieDesc) -> auberean_physics::solid::Etherealit
             .filter(|_| w.mask & bit != 0)
             .map(|i| w.numbers[i])
     };
-    let mask = |low, high| auberean_physics::solid::Ethereality::mask(number(low), number(high));
-    auberean_physics::solid::Ethereality {
-        physics_type: mask(0x8000, 0x1_0000),
-        movement: mask(0x2_0000, 0x4_0000),
-        placement: mask(0x8_0000, 0x10_0000),
-    }
+    auberean_physics::solid::Ethereality::of_numbers(number)
 }
 
 /// Entry `key` takes the properties of the entity record `desc` its object is made from (an

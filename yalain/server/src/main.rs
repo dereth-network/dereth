@@ -945,6 +945,7 @@ fn run<S: Store>(
     }
     server.ground = Some(Box::new(play.ground));
     server.walls = Some(play.walls);
+    server.stand_placed();
     let files = play.files;
     if o.serve_admin_library {
         use yalain_world::admin_library::{AdminLibrary, RECORD};

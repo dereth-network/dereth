@@ -784,6 +784,14 @@ impl<S: Store> Server<S> {
         self
     }
 
+    /// Stand what the world database places among the walls creatures meet.
+    pub fn stand_placed(&mut self) {
+        let rows = walls_standing(self);
+        if let Some(w) = self.walls.as_mut() {
+            w.set_standing(rows);
+        }
+    }
+
     /// Handle every event the network has, then whatever is due.
     pub fn pump(&mut self, net: &mut ServerNet, clock: Clock) {
         self.saves.now = clock.local;
@@ -1001,4 +1009,49 @@ impl<S: Store> Server<S> {
             }
         }
     }
+}
+
+/// What the world database places that creatures meet: people and objects that stay where they are
+/// for every player. A person on a route moves, a vein comes and goes, a door is met where it
+/// stands and what a quest gates is there for some players only.
+#[must_use]
+pub fn walls_standing<S: Store>(s: &Server<S>) -> Vec<walls::Standing> {
+    s.content
+        .objects
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| {
+            o.kind != yalain_content::Kind::Creature
+                && o.walks.is_none()
+                && o.gate.is_none()
+                && !s.catalog.get(o.template).is_some_and(mining::is_craft_node)
+        })
+        .filter(|(i, _)| {
+            usable::doors::door(s, presence::content_id(&s.content.objects, *i)).is_none()
+        })
+        .map(|(i, o)| {
+            let w = player::weenie_with_numbers(
+                auberean_protocol::types::WeenieDesc::default(),
+                o.description.numbers,
+            );
+            walls::Standing {
+                id: presence::content_id(&s.content.objects, i),
+                template: o.template,
+                look: o.description.look,
+                scale: o.description.scale.unwrap_or(1.0),
+                at: yalain_store::StoredPosition {
+                    cell: o.cell,
+                    origin: o.origin,
+                    rotation: o.rotation,
+                },
+                ethereality: auberean_physics::solid::Ethereality::of_numbers(|bit| {
+                    auberean_protocol::types::WeenieDesc::NUMBER_BITS
+                        .iter()
+                        .position(|b| *b == bit)
+                        .filter(|_| w.mask & bit != 0)
+                        .map(|i| w.numbers[i])
+                }),
+            }
+        })
+        .collect()
 }

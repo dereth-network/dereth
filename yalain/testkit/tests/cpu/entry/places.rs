@@ -1451,3 +1451,36 @@ fn a_forge_or_a_road_sign_is_refused_at_once_wherever_the_player_stands() {
         "an object of another kind: not answered"
     );
 }
+
+/// Of what the world database places, creatures meet what stays where it is for every player: not
+/// a creature, a person on a route, a door, or what a quest gates.
+/// Behaviour: server.creatures.chase-around-walls
+#[test]
+fn creatures_meet_what_stays_where_it_stands_for_every_player() {
+    let mut h = Harness::new();
+    let plain = object(0x4002_9900_0000_0001, 0x4700_0001, [1.0, 2.0, 3.0], None);
+    let mut scaled = object(0x4002_9900_0000_0002, 0x4700_0001, [1.0, 2.0, 3.0], None);
+    scaled.description.scale = Some(2.5);
+    let mut creature = object(0x4002_9900_0000_0003, 0x4700_0001, [1.0, 2.0, 3.0], None);
+    creature.kind = Kind::Creature;
+    let mut walker = object(0x4002_9900_0000_0004, 0x4700_0001, [1.0, 2.0, 3.0], None);
+    walker.walks = Some(yalain_content::CampMoves::default());
+    let mut gated = object(0x4002_9900_0000_0005, 0x4700_0001, [1.0, 2.0, 3.0], None);
+    gated.gate = Some(yalain_content::QuestGate {
+        quest: 0x4000_0001,
+        status: 0,
+    });
+    let mut door = object(0x4002_9900_0000_0006, 0x4700_0001, [1.0, 2.0, 3.0], None);
+    door.description.package = 0xD00;
+    h.server
+        .doors
+        .packages
+        .insert(0xD00, yalain_world::usable::doors::Kind::Plain);
+    h.server.content.objects = vec![plain.clone(), scaled.clone(), creature, walker, gated, door];
+    let rows = yalain_world::walls_standing(&h.server);
+    let met: Vec<(u64, f32)> = rows.iter().map(|r| (r.id, r.scale)).collect();
+    assert_eq!(
+        met,
+        [(plain.object.unwrap(), 1.0), (scaled.object.unwrap(), 2.5)]
+    );
+}

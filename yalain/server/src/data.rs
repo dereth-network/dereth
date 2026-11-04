@@ -1098,6 +1098,15 @@ impl yalain_world::walls::Blocks for TimedBlocks {
         }
         had
     }
+
+    fn stand(
+        &mut self,
+        land: &auberean_physics::land::Land,
+        world: &mut auberean_physics::world::World,
+        row: &yalain_world::walls::Standing,
+    ) -> Option<auberean_physics::collision::manager::BodyKey> {
+        self.inner.stand(land, world, row)
+    }
 }
 
 #[cfg(all(test, feature = "live"))]

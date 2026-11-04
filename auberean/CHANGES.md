@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Scaled objects now block you at the size they're drawn.
 - Fixed frozen characters still moving and animating.
 - Fixed names and selection marks floating over the portal swirl.
 - Tell on a fellow now starts a tell to them in chat.
