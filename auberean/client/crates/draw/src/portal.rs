@@ -490,7 +490,7 @@ impl Passage {
         let mut light = DayLight::DEFAULT;
         light.fog_min = 0.0;
         light.fog_max = 0.0;
-        let mut frame = builder.parts_frame(&[nebula], Vec::new(), camera, light);
+        let mut frame = builder.parts_frame(&[nebula], Vec::new(), camera, light, None);
         for b in &mut frame.objects {
             b.tint = Color::new(1.0, 1.0, 1.0, look.nebula);
         }

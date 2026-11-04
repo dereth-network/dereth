@@ -12,13 +12,13 @@ use std::collections::BTreeMap;
 use auberean_animation::body::Body as Figure;
 use auberean_animation::look::{Desc, Look};
 use auberean_animation::CachedRecords;
-use auberean_assets::entity::Entity;
 use auberean_assets::property::{PropertyCollection, PropertyValue};
 use auberean_assets::ui::UiScene;
 use auberean_draw::body::BodyDrawer;
-use auberean_draw::scene::{Camera, Frame, ObjectBatch, SceneBuilder};
+use auberean_draw::scene::{light_view_draw, Camera, Frame, ObjectBatch, SceneBuilder};
 use auberean_primitives::{Quat, Vec3};
 use auberean_world::color::Color;
+use auberean_world::inside::{BlockLights, Light, Outside};
 use auberean_world::math::{self, Mat4};
 use auberean_world::place::{entity_parts, Part};
 use auberean_world::records::WorldRecords;
@@ -37,9 +37,6 @@ pub const FOV: u32 = 0x4000_001F;
 pub const VERTICAL_SCALE: u32 = 0x4000_0020;
 pub const NEAR: u32 = 0x4000_0021;
 pub const FAR: u32 = 0x4000_0022;
-/// A light's properties: its diffuse color and intensity.
-const LIGHT_COLOR: u32 = 0x4000_0008;
-const LIGHT_INTENSITY: u32 = 0x4000_0009;
 
 /// Where a viewport's camera stands and looks, and how it sees: through a perspective of its field
 /// of view, or straight on (orthographic), `vertical_scale` metres from the picture's foot to its
@@ -222,7 +219,8 @@ struct Kept {
 struct KeptScene {
     scene: u32,
     parts: Vec<Part>,
-    lights: Vec<(Vec3, Color, f32)>,
+    lights: BlockLights,
+    fog: Option<(Color, f32, f32)>,
     figures: Vec<Kept>,
 }
 
@@ -248,20 +246,6 @@ impl std::fmt::Debug for Views {
             .field("scenes", &self.kept.len())
             .finish_non_exhaustive()
     }
-}
-
-fn float_of(e: &Entity, id: u32) -> Option<f32> {
-    e.properties.as_ref()?.iter().find_map(|p| match p.value {
-        PropertyValue::Float(v) if p.id == id => Some(v),
-        _ => None,
-    })
-}
-
-fn color_of(e: &Entity, id: u32) -> Option<Color> {
-    e.properties.as_ref()?.iter().find_map(|p| match p.value {
-        PropertyValue::Integer(v) if p.id == id => Some(Color::from_argb(v.cast_unsigned())),
-        _ => None,
-    })
 }
 
 fn forward_of(q: Quat) -> Vec3 {
@@ -334,16 +318,21 @@ impl Views {
         if fresh {
             let mut parts = Vec::new();
             let mut lights = Vec::new();
+            let mut fog = None;
             if let Some(s) = (scene != 0)
                 .then(|| records.get::<UiScene>(scene))
                 .flatten()
             {
+                if s.fog {
+                    fog = Some((Color::from_argb(s.fog_color.0), s.fog_near, s.fog_far));
+                }
                 for e in &s.entities {
                     if e.kind == Some(LIGHT_KIND) {
                         let at = e.offset.map(|o| o.frame.origin).unwrap_or(Vec3::ZERO);
-                        let color = color_of(e, LIGHT_COLOR).unwrap_or(Color::WHITE);
-                        let k = float_of(e, LIGHT_INTENSITY).unwrap_or(0.5);
-                        lights.push((at, color, k));
+                        let none = PropertyCollection::default();
+                        let properties = e.properties.as_ref().unwrap_or(&none);
+                        let (light, _, _) = Light::of_properties(0, at, properties);
+                        lights.push(light);
                     } else {
                         parts.extend(entity_parts(records, e));
                     }
@@ -354,7 +343,8 @@ impl Views {
                 KeptScene {
                     scene,
                     parts,
-                    lights,
+                    lights: BlockLights::of_scene(lights),
+                    fog,
                     figures: Vec::new(),
                 },
             );
@@ -455,11 +445,21 @@ impl Views {
                         ..DayLight::DEFAULT
                     }
                 }
-                ViewLight::Scene => scene_light(&kept.lights, &v.camera),
+                ViewLight::Scene if kept.lights.lights.is_empty() => default_light(),
+                ViewLight::Scene => lit_by_its_lights(kept.fog),
             };
+            let lit_by = (matches!(v.light, ViewLight::Scene) && !kept.lights.lights.is_empty())
+                .then_some(&kept.lights);
+            if let Some(lights) = lit_by {
+                let outside = Outside::of(&light);
+                let mut order = lights.scene();
+                for ((_, batches), (at, _)) in bodies.iter_mut().zip(&stand) {
+                    light_view_draw(batches, *at, lights, &mut order, &outside);
+                }
+            }
             let camera = v.camera.drawn();
             let batches = bodies.into_iter().flat_map(|(_, b)| b).collect();
-            let frame = builder.parts_frame(&kept.parts, batches, camera, light);
+            let frame = builder.parts_frame(&kept.parts, batches, camera, light, lit_by);
             out.push(ViewFrame {
                 rect: v.rect,
                 frame,
@@ -470,40 +470,17 @@ impl Views {
     }
 }
 
-/// A scene lit by its own lights, as one light can stand for them: the brightest's color along
-/// its way to the camera's view, the others as ambient; with none, the default light.
-fn scene_light(lights: &[(Vec3, Color, f32)], camera: &ViewCamera) -> DayLight {
-    let Some((at, color, k)) = lights.iter().copied().max_by(|a, b| a.2.total_cmp(&b.2)) else {
-        return default_light();
-    };
-    let (f, _, _) = camera.axes();
-    let target = math::add(camera.position, math::scale(f, 3.0));
-    let rest: f32 = lights.iter().map(|l| l.2).sum::<f32>() - k;
-    // The other lights' colors, by their strength, light everything a little.
-    let mut tint = [0.0_f32; 3];
-    for (_, c, w) in lights.iter().filter(|l| l.0 != at) {
-        tint[0] += c.r * w;
-        tint[1] += c.g * w;
-        tint[2] += c.b * w;
-    }
-    let ambient_color = if rest > 0.0 {
-        Color {
-            r: tint[0] / rest,
-            g: tint[1] / rest,
-            b: tint[2] / rest,
-            a: 1.0,
-        }
-    } else {
-        Color::WHITE
-    };
+/// The day of a scene lit by its own lights: no sun and no ambient light, its own fog.
+fn lit_by_its_lights(fog: Option<(Color, f32, f32)>) -> DayLight {
+    let (fog_color, fog_min, fog_max) = fog.unwrap_or((Color::WHITE, 0.0, 0.0));
     DayLight {
-        ambient_brightness: (0.25 * rest).min(1.0),
-        ambient_color,
-        direct_brightness: k.min(1.5),
-        direct_color: color,
-        light_direction: math::normalize(math::sub(target, at)),
-        fog_min: 0.0,
-        fog_max: 0.0,
+        ambient_brightness: 0.0,
+        ambient_color: Color::WHITE,
+        direct_brightness: 0.0,
+        direct_color: Color::WHITE,
+        fog_min,
+        fog_max,
+        fog_color,
         ..DayLight::DEFAULT
     }
 }

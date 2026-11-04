@@ -54,6 +54,7 @@ not how it was done.
 - Resizing the chat window now shows an outline until you let go.
 - Screen brightness now works in full screen.
 - You can now restore a deleted character.
+- Character creation now has its proper lights, flames and framing.
 
 ## 0.1.2 (2026-11-02)
 

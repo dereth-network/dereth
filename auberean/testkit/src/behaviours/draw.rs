@@ -1294,6 +1294,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.view.a-scenes-own-lights-light-its-draws-in-place-of-the-sun",
+        says: "An interface scene with lights of its own lights each draw by those it keeps \
+               where it stands, as a draw inside keeps a cell's, with the sun off and no ambient \
+               light; it is not one light standing for them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-VIEW-LIGHTS"),
+        station: "auberean-draw::dat::parts::a_scenes_own_lights_light_its_draws_in_place_of_the_sun",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.viewport.a-viewports-scene-covers-only-where-it-draws",
         says: "A panel's viewport (the paper doll's) covers the panels behind it only where its \
                scene draws, wholly under what is opaque and partly under what is seen through; \

@@ -833,6 +833,21 @@ fn adjust_heap<T: Copy>(
 }
 
 impl BlockLights {
+    /// The lights of an interface scene: its light entities, all linked for each draw, with no
+    /// ambient light of their own and nothing from outside.
+    // D2-10618
+    #[must_use]
+    pub fn of_scene(lights: Vec<Light>) -> Self {
+        let all = (0..lights.len()).collect();
+        Self {
+            ambient: Color::new(0.0, 0.0, 0.0, 1.0),
+            fog_paint: Color::new(1.0, 1.0, 1.0, 1.0),
+            lights,
+            lookup: HashMap::from([(0, all)]),
+            ..Self::default()
+        }
+    }
+
     /// The light of block `(x, y)`'s interior cells, from its information and its light record.
     // D2-11007, D2-13327, D2-03578, D2-13330, D2-13329, D2-03899, D2-03734, D2-03740, D2-03746
     #[must_use]

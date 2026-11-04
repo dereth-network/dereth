@@ -1081,6 +1081,33 @@ fn reach_of(batches: &[ObjectBatch]) -> Option<f32> {
     (lo.x <= hi.x).then(|| 0.5 * (hi.x - lo.x).max(hi.y - lo.y).max(hi.z - lo.z))
 }
 
+/// Light `batches`, one draw of an interface scene standing at `at`, by the lights it keeps there
+/// among the scene's, in place of the sun.
+// D2-10629, D2-10630
+pub fn light_view_draw(
+    batches: &mut [ObjectBatch],
+    at: Vec3,
+    lights: &BlockLights,
+    order: &mut SceneLights,
+    outside: &Outside,
+) {
+    let Some(radius) = reach_of(batches) else {
+        return;
+    };
+    let kept = order.keep(lights, at, radius, outside);
+    let device = kept
+        .iter()
+        .filter(|&&k| lights.lights[k].kind != LightKind::Directional)
+        .count();
+    for b in batches.iter_mut() {
+        let points = program_points(b, device);
+        b.points = PointLights::inside(
+            &lights.device_lights(&kept, outside, points),
+            &Mat4::IDENTITY,
+        );
+    }
+}
+
 impl SceneBuilder<'_> {
     /// Light `batches`, one body (the player's or one the server makes) standing at `at` in cell
     /// `cell`, both in the frame of `spot`'s block, inside block `block`, as an object inside is

@@ -11,6 +11,7 @@ use auberean_assets::landblock::Landblock;
 use auberean_assets::mesh::{CellMesh, Mesh};
 use auberean_primitives::{DataId, Vec3};
 use auberean_world::color::Color;
+use auberean_world::inside::{BlockLights, Outside};
 use auberean_world::look::{Look, PartLook};
 use auberean_world::math::Mat4;
 use auberean_world::place::{cell_look, entity_parts, parts_of, Part};
@@ -32,7 +33,7 @@ use crate::shadow::{CloudShadows, ShadowMap};
 
 mod interior;
 
-pub use interior::{Outlook, LIT_IN_VERTICES};
+pub use interior::{light_view_draw, Outlook, LIT_IN_VERTICES};
 
 /// Where a frame is seen from and when.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -2215,17 +2216,20 @@ impl<'a> SceneBuilder<'a> {
         bodies: Vec<ObjectBatch>,
         camera: Camera,
         light: DayLight,
+        lights: Option<&BlockLights>,
     ) -> Frame {
         let mut counts = Counts::default();
         let mut objects = Vec::new();
+        let outside = Outside::of(&light);
+        let mut order = lights.map(BlockLights::scene);
         for part in parts {
-            objects.extend(self.part_batches(
-                part,
-                &Mat4::IDENTITY,
-                0.0,
-                Color::WHITE,
-                &mut counts,
-            ));
+            let mut batches =
+                self.part_batches(part, &Mat4::IDENTITY, 0.0, Color::WHITE, &mut counts);
+            if let (Some(lights), Some(order)) = (lights, order.as_mut()) {
+                let at = part.transform.point(Vec3::ZERO);
+                interior::light_view_draw(&mut batches, at, lights, order, &outside);
+            }
+            objects.extend(batches);
         }
         counts.objects = parts.len();
         objects.extend(bodies);
