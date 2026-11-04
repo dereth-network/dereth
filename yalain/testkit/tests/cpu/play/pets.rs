@@ -866,6 +866,73 @@ fn a_pets_strike_carries_the_basic_flag_by_its_skill() {
     }
 }
 
+/// A pet striking a creature that sends harm back loses what it told.
+/// Behaviour: server.effects.watcher-sends-back
+#[test]
+fn a_pet_striking_a_holder_of_what_sends_harm_back_loses_it() {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale, Share, Watcher};
+    use yalain_world::effects::{self, Cast, On};
+    const WATCHER: u32 = 0x6F00_7321;
+    let mut h = Harness::new();
+    let (b, _, pet) = with_lasher(&mut h);
+    let beetle = beetle(&mut h);
+    h.server.effect_table.effects.insert(
+        WATCHER,
+        EffectDef {
+            state: WATCHER,
+            kind: Kind::Watcher(Box::new(Watcher {
+                sends_back: Share {
+                    chance: 1.0,
+                    amount: Scale(vec![(0.0, 0.01)]),
+                    spread: 0.0,
+                },
+                against_a_player: 1.0,
+                shares: true,
+                watches: true,
+                ..Watcher::default()
+            })),
+            duration: Scale(vec![(0.0, 100_000.0)]),
+            priority: Scale::default(),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0x1100_0003,
+            enum_value: 0,
+            eq_class: 43,
+            name: None,
+        },
+    );
+    let clock = h.clock();
+    effects::apply_on(
+        &mut h.server,
+        &mut h.net,
+        On::Creature(beetle),
+        WATCHER,
+        Cast::default(),
+        clock,
+    );
+    // It never strikes the pet itself: all the pet loses is what comes back.
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(beetle)
+        .and_then(|t| t.creature.as_mut())
+    {
+        c.stats.fights = false;
+    }
+    let keep = h.server.things.get(pet).map_or(0, |t| t.health);
+    let from = h.bots[b].inbox.len();
+    pet_strike_seen(&mut h, b, pet, beetle);
+    let lost = h.run_until(2000, |h| {
+        h.server.things.get(pet).map_or(0, |t| t.health) < keep
+    });
+    assert!(lost, "it loses what came back");
+    let told = h.world_messages(b, from).iter().any(|m| {
+        matches!(m, ServerMessage::DoStory(e) if e.action.attacker == pet
+            && e.action.hooks.iter().any(|k| k.target == beetle && k.bits & 0x1000 != 0 && k.numbers[4] < 0))
+    });
+    assert!(told, "it is told");
+}
+
 /// A creature dead by the time a pet's blow reaches it is not hurt by it.
 /// Behaviour: server.pets.strikes-land-late
 #[test]
@@ -879,7 +946,14 @@ fn a_pets_strike_reaching_a_creature_dead_by_then_does_nothing() {
     assert!(hurt.is_some());
     h.step();
     let clock = h.clock();
-    yalain_world::combat::thing_strike_lands(&mut h.server, &mut h.net, pet, beetle, 5, clock);
+    yalain_world::combat::thing_strike_lands(
+        &mut h.server,
+        &mut h.net,
+        pet,
+        beetle,
+        yalain_world::effects::Harm::plain(5),
+        clock,
+    );
     assert_eq!(h.server.things.get(beetle).map(|t| t.last_hurt), hurt);
 }
 

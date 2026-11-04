@@ -137,6 +137,89 @@ fn a_counter_answers_a_shot_that_lands_on_its_holder() {
     assert!(h.run_until(1000, answered), "it answers");
 }
 
+/// A shot that lands on a holder of what sends harm back tells it, and the shooter loses it.
+/// Behaviour: server.effects.watcher-sends-back
+#[test]
+fn a_shot_on_a_holder_tells_what_goes_back_and_the_shooter_loses_it() {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale, Share, Watcher};
+    use yalain_world::effects::{self, Cast, On};
+    use yalain_world::player::quality;
+    const WATCHER: u32 = 0x6F00_7313;
+    let mut h = Harness::new();
+    shooter_at(&mut h, 22.0, false);
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let id = shooter_id(&h, b);
+    h.server.effect_table.effects.insert(
+        WATCHER,
+        EffectDef {
+            state: WATCHER,
+            kind: Kind::Watcher(Box::new(Watcher {
+                sends_back: Share {
+                    chance: 1.0,
+                    amount: Scale(vec![(0.0, 0.5)]),
+                    spread: 0.0,
+                },
+                against_a_player: 1.0,
+                shares: true,
+                watches: true,
+                ..Watcher::default()
+            })),
+            duration: Scale(vec![(0.0, 100_000.0)]),
+            priority: Scale::default(),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0x1100_0003,
+            enum_value: 0,
+            eq_class: 43,
+            name: None,
+        },
+    );
+    let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+    if let Some(p) = h.server.players.get_mut(&world) {
+        yalain_world::quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 100_000);
+        yalain_world::quals::set_int(&mut p.qualities, quality::HEALTH, 100_000);
+    }
+    let clock = h.clock();
+    effects::apply_on(
+        &mut h.server,
+        &mut h.net,
+        On::Player(world),
+        WATCHER,
+        Cast::default(),
+        clock,
+    );
+    let (from, was) = (
+        h.bots[b].inbox.len(),
+        h.server.things.get(id).map_or(0, |t| t.health),
+    );
+    let answered = |h: &Harness| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::DoStory(e) if e.action.attacker == id
+                && e.action.hooks.iter().any(|k| k.bits & 0x1000 != 0))
+        })
+    };
+    assert!(h.run_until(1000, answered), "it tells what goes back");
+    let told = h.world_messages(b, from);
+    let k = told
+        .iter()
+        .find_map(|m| match m {
+            ServerMessage::DoStory(e) if e.action.attacker == id => e
+                .action
+                .hooks
+                .iter()
+                .find(|k| k.bits & 0x1000 != 0)
+                .cloned(),
+            _ => None,
+        })
+        .expect("told");
+    assert_eq!(k.numbers[4], -((-k.numbers[3] + 1) / 2));
+    assert!(
+        h.server.things.get(id).map_or(0, |t| t.health) < was,
+        "it lost it"
+    );
+}
+
 /// A shooter's shot comes when it is due, not at the world's next step: each gap is its rhythm's over
 /// the shot's time scale, within the harness's step.
 /// Behaviour: server.creatures.attacks-when-due

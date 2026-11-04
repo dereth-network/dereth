@@ -330,6 +330,7 @@ fn a_strike_at_a_player_gone_into_portal_space_does_not_hurt_it() {
         skill: 690,
         outcome: yalain_world::rules::Outcome::Hit,
         damage: 5,
+        back: 0,
         index: 0,
         thrown: false,
         anim_hook: 1,

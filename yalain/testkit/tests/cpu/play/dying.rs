@@ -807,7 +807,14 @@ fn a_blow_at_a_player_gone_into_portal_space_does_not_hurt_it() {
     let to = a_lifestone();
     yalain_world::places::resurrection_trip(&mut h.server, &mut h.net, world, to, clock);
     let before = yalain_world::quals::int(&h.server.players[&world].qualities, HEALTH);
-    yalain_world::combat::creature_strike_lands(&mut h.server, &mut h.net, me, world, 5, clock);
+    yalain_world::combat::creature_strike_lands(
+        &mut h.server,
+        &mut h.net,
+        me,
+        world,
+        yalain_world::effects::Harm::plain(5),
+        clock,
+    );
     assert_eq!(
         yalain_world::quals::int(&h.server.players[&world].qualities, HEALTH),
         before
@@ -827,7 +834,14 @@ fn a_blow_at_a_player_already_dead_does_nothing() {
         yalain_world::quals::set_int(&mut p.qualities, HEALTH, 0);
     }
     let clock = h.clock();
-    yalain_world::combat::creature_strike_lands(&mut h.server, &mut h.net, me, world, 5, clock);
+    yalain_world::combat::creature_strike_lands(
+        &mut h.server,
+        &mut h.net,
+        me,
+        world,
+        yalain_world::effects::Harm::plain(5),
+        clock,
+    );
     assert!(h.server.players[&world].dying.is_none(), "no second death");
 }
 
@@ -841,7 +855,14 @@ fn a_blow_that_reaches_a_player_hurts_it_by_its_damage() {
     let world = *h.server.players.keys().next().expect("the player");
     let clock = h.clock();
     let before = yalain_world::quals::int(&h.server.players[&world].qualities, HEALTH).unwrap_or(0);
-    yalain_world::combat::creature_strike_lands(&mut h.server, &mut h.net, me, world, 5, clock);
+    yalain_world::combat::creature_strike_lands(
+        &mut h.server,
+        &mut h.net,
+        me,
+        world,
+        yalain_world::effects::Harm::plain(5),
+        clock,
+    );
     assert_eq!(
         yalain_world::quals::int(&h.server.players[&world].qualities, HEALTH),
         Some(before - 5)

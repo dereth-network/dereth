@@ -464,6 +464,8 @@ pub struct Landing {
     pub hook: usize,
     pub outcome: Outcome,
     pub damage: i32,
+    /// What the target's effects send back.
+    pub back: i32,
 }
 
 /// A special's missile in flight: its request, how it is used, how it will come out.
@@ -1410,15 +1412,16 @@ pub(crate) fn story_hooks(
     u: &Usage,
     target: u64,
     weapon: u64,
-    outcome: Option<(Outcome, i32)>,
+    outcome: Option<(Outcome, crate::effects::Harm)>,
 ) -> Vec<StoryHook> {
-    let (o, damage) = outcome.unwrap_or((Outcome::Hit, 0));
+    let (o, harm) = outcome.unwrap_or((Outcome::Hit, crate::effects::Harm::default()));
     let landings: Vec<Landing> = (0..u.hooks.len())
         .map(|hook| Landing {
             target,
             hook,
             outcome: o,
-            damage,
+            damage: harm.left,
+            back: harm.back,
         })
         .collect();
     story_hooks_with(u, target, weapon, &landings)
@@ -1489,6 +1492,7 @@ pub(crate) fn story_hooks_with(
                 hook: i,
                 outcome: Outcome::Hit,
                 damage: 0,
+                back: 0,
             }]
         } else {
             mine
@@ -1509,6 +1513,10 @@ pub(crate) fn story_hooks_with(
             sh.numbers[2] = index.cast_signed();
             if hurts {
                 sh.numbers[3] = -l.damage;
+            }
+            if l.back > 0 {
+                sh.bits |= crate::combat::ATTACKER_HEALTH;
+                sh.numbers[4] = -l.back;
             }
             hooks.push(sh);
         }
@@ -1942,11 +1950,20 @@ fn landings_of<S: Store>(
                 }
             };
             if let Some((outcome, damage)) = o {
+                let harm = if outcome.landed() {
+                    let other = combat::player_target(s, world, t);
+                    let on =
+                        other.map_or(crate::effects::On::Creature(t), crate::effects::On::Player);
+                    crate::effects::answer_harm(s, on, damage, other.is_some())
+                } else {
+                    crate::effects::Harm::plain(damage)
+                };
                 out.push(Landing {
                     target: t,
                     hook: i,
                     outcome,
-                    damage,
+                    damage: harm.left,
+                    back: harm.back,
                 });
             }
         }
@@ -2018,15 +2035,21 @@ fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock
     };
     let me = s.players.get(&world).map_or(0, |p| p.character);
     for l in &landings {
-        if !(l.outcome.landed() && l.damage > 0) {
+        if !(l.outcome.landed() && (l.damage > 0 || l.back > 0)) {
             continue;
         }
         if let Some(c) = combat::player_target(s, world, l.target) {
             if s.players.get(&c).is_some_and(|q| q.dying.is_none()) {
-                combat::hurt_player(s, net, c, me, l.damage, clock);
+                if l.damage > 0 {
+                    combat::hurt_player(s, net, c, me, l.damage, clock);
+                }
+                crate::effects::harm_back(s, net, me, l.target, l.back, clock);
             }
         } else if s.things.get(l.target).is_some_and(|t| t.alive()) {
-            combat::hurt_creature(s, net, l.target, me, l.damage, clock);
+            if l.damage > 0 {
+                combat::hurt_creature(s, net, l.target, me, l.damage, clock);
+            }
+            crate::effects::harm_back(s, net, me, l.target, l.back, clock);
         }
     }
     let mut hit: Vec<u64> = Vec::new();
@@ -2103,6 +2126,16 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
         return;
     }
     let (o, dmg) = outcome.unwrap_or((Outcome::Evade, 0));
+    let harm = if o.landed() {
+        let on = player.map_or(
+            crate::effects::On::Creature(r.target),
+            crate::effects::On::Player,
+        );
+        crate::effects::answer_harm(s, on, dmg, player.is_some())
+    } else {
+        crate::effects::Harm::plain(dmg)
+    };
+    let dmg = harm.left;
     let hurts = o.landed() && dmg > 0;
     let mut hook = StoryHook {
         bits: if hurts {
@@ -2117,6 +2150,10 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
     hook.numbers[1] = 1;
     if hurts {
         hook.numbers[3] = -dmg;
+    }
+    if harm.back > 0 {
+        hook.bits |= crate::combat::ATTACKER_HEALTH;
+        hook.numbers[4] = -harm.back;
     }
     let sender = match player {
         Some(c) => match s.players.get_mut(&c) {
@@ -2143,6 +2180,7 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
         if hurts {
             combat::hurt_player(s, net, c, me, dmg, clock);
         }
+        crate::effects::harm_back(s, net, me, r.target, harm.back, clock);
         if o.landed() && alive(s) {
             put_target_effects(
                 s,
@@ -2159,6 +2197,7 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
     if hurts {
         combat::hurt_creature(s, net, r.target, me, dmg, clock);
     }
+    crate::effects::harm_back(s, net, me, r.target, harm.back, clock);
     if o.landed() && s.things.get(r.target).is_some_and(|t| t.alive()) {
         put_target_effects(
             s,

@@ -2688,6 +2688,46 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.watcher-absorbs",
+        says: "A record that takes from attacks on its holder lessens what the attack does, told so: each of \
+               its class's top records, the higher classes first, draws its chance and takes its share \
+               of the harm rounded up, or its amount. All of it taken tells a hit and no change; more \
+               than all heals. Harm an effect does is no attack.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ABSORBS"),
+        station: "yalain-testkit::cpu::play::watchers::a_swing_at_a_creature_holding_one_is_lessened_and_sent_back_at_the_swinger",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.watcher-sends-back",
+        says: "A record that sends harm back tells the attacker's health change in the hook of the attack it \
+               answers, its share of the harm rounded up, by its chance; the attacker loses it as the \
+               attack lands, creature or player, and may die of it, the holder then its killer. An \
+               attack evaded, or an effect's harm, sends nothing back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SENDS-BACK"),
+        station: "yalain-testkit::cpu::play::watchers::a_strike_on_a_holder_tells_what_goes_back_and_the_creature_loses_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.watcher-sends-back-at-a-player",
+        says: "What goes back at a player's attack on another player is multiplied by the record's figure \
+               for that, and told as PK damage too. Our choice for the telling: no recording holds one.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SENDS-BACK-PK"),
+        station: "yalain-testkit::cpu::play::watchers::a_players_attack_sends_back_its_share_for_players_told_as_pk_damage",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.watchers-read",
+        says: "The records that watch attacks read with what they take and send back: chances, amounts along \
+               a line or the same at any spellcraft, shares or amounts, and the figure against a player.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WATCHERS-READ"),
+        station: "yalain-testkit::dat::effects::the_watchers_read_as_the_data_defines_them",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.equip.own-requirements-refuse",
         says: "A treasure item whose template names no requirement is refused by its own: below \
                its own least level 10009, then below its own Arcane Lore (the player's Arcane \

@@ -850,6 +850,7 @@ pub(crate) fn put_on<S: Store>(
         | Kind::Aura(_)
         | Kind::Recall(_)
         | Kind::Counter { .. }
+        | Kind::Watcher(_)
         | Kind::Ward { .. } => {
             s.unhandled
                 .note(format!("an item's effect {:08X} of no kind made", e.state));

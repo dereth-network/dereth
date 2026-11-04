@@ -1483,6 +1483,20 @@ fn roll<S: Store>(s: &mut Server<S>, id: u64, target: u64, kind: &PetKind) -> (O
     (Outcome::Hit, pet_hit(&mut s.rng, kind, level, armor))
 }
 
+/// What a pet's strike comes to once the creature's effects have watched it.
+fn answered<S: Store>(
+    s: &mut Server<S>,
+    target: u64,
+    outcome: Outcome,
+    damage: i32,
+) -> crate::effects::Harm {
+    if outcome.landed() {
+        crate::effects::answer_harm(s, crate::effects::On::Creature(target), damage, false)
+    } else {
+        crate::effects::Harm::default()
+    }
+}
+
 /// A pet's hit at its level on a creature of this armor.
 #[must_use]
 pub fn pet_hit(rng: &mut crate::rng::Rng, kind: &PetKind, level: i32, armor: i32) -> i32 {
@@ -1519,15 +1533,17 @@ fn strike<S: Store>(
     let clock_free = crate::combat::CREATURE_TIME_SCALE * s.rng.between(0.9, 1.1);
     let mut rolls = Vec::new();
     for _ in 0..kind.hits.max(1) {
-        rolls.push(roll(s, id, target, kind));
+        let (outcome, damage) = roll(s, id, target, kind);
+        rolls.push((outcome, answered(s, target, outcome, damage)));
     }
-    let swing = |(outcome, damage): (Outcome, i32)| crate::combat::Swing {
+    let swing = |(outcome, harm): (Outcome, crate::effects::Harm)| crate::combat::Swing {
         skill: skill.skill,
         behavior: skill.behavior,
         time_scale: clock_free,
         target,
         outcome,
-        damage,
+        damage: harm.left,
+        back: harm.back,
     };
     let mut st = crate::combat::story(s, crate::combat::Attacker::Thing(id), swing(rolls[0]));
     if let ServerMessage::DoStory(e) = &mut st {
@@ -1542,7 +1558,7 @@ fn strike<S: Store>(
     }
     crate::combat::to_all_seeing(s, net, id, &st);
     let lands = crate::combat::pet_strike_seconds(skill.skill) / f64::from(clock_free);
-    for (outcome, damage) in rolls {
+    for (outcome, harm) in rolls {
         if outcome.landed() {
             s.after(
                 clock,
@@ -1550,7 +1566,7 @@ fn strike<S: Store>(
                 crate::Timer::ThingStrikeLands {
                     by: id,
                     target,
-                    damage,
+                    harm,
                 },
             );
         }
@@ -1585,6 +1601,7 @@ fn launch<S: Store>(
             target,
             outcome: Outcome::Hit,
             damage: 0,
+            back: 0,
         },
     );
     if let ServerMessage::DoStory(e) = &mut st {
@@ -1651,6 +1668,7 @@ pub fn lands<S: Store>(
     let mut landed = Vec::new();
     for t in hit {
         let (outcome, damage) = roll(s, pet, t, &kind);
+        let harm = answered(s, t, outcome, damage);
         hooks.push(
             crate::combat::Swing {
                 skill: skill.skill,
@@ -1658,12 +1676,13 @@ pub fn lands<S: Store>(
                 time_scale: 1.0,
                 target: t,
                 outcome,
-                damage,
+                damage: harm.left,
+                back: harm.back,
             }
             .hook(),
         );
         if outcome.landed() {
-            landed.push((t, damage));
+            landed.push((t, harm));
         }
     }
     let told = ServerMessage::DoStory(auberean_protocol::physics::ObjectEvent {
@@ -1677,8 +1696,9 @@ pub fn lands<S: Store>(
         },
     });
     crate::combat::to_all_seeing(s, net, target, &told);
-    for (t, damage) in landed {
-        struck_by_pet(s, net, t, pet, damage, clock);
+    for (t, harm) in landed {
+        struck_by_pet(s, net, t, pet, harm.left, clock);
+        crate::effects::harm_back(s, net, pet, t, harm.back, clock);
     }
 }
 

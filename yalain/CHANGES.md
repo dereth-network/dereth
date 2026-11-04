@@ -150,6 +150,7 @@ what they see, not how it was done.
 - Items taken from corpses and chests now join a stack, even in a full pack.
 - Gifts to a full pack now show up at once.
 - Balance and Featherweight now last as long as the aura, and show on the item.
+- Damage reflecting and absorbing effects now work, on players and creatures.
 
 ## 0.1.2 (2026-11-03)
 

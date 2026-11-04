@@ -615,6 +615,56 @@ fn the_counters_and_wards_read_as_the_data_defines_them() {
     assert_eq!(brittle.eq_class, 5061);
 }
 
+/// The effects that watch attacks read with what they take and send back: a creature's Absorption,
+/// a caster's Thornskin, Darkfoe's always a fifth, the armor's one time in five, Thorns' at a third
+/// against a player, an amount rather than a share, and what lowers vigor (which an attack doesn't).
+/// Behaviour: server.effects.watchers-read
+#[test]
+fn the_watchers_read_as_the_data_defines_them() {
+    let p = Portal::open();
+    let t = p.effects(&[
+        0x6F00_0186,
+        0x6F00_018A,
+        0x7000_08D8,
+        0x7000_070E,
+        0x6F00_1964,
+        0x7000_09FD,
+        0x6F00_1AA6,
+        0x6F00_264F,
+    ]);
+    let w = |s: u32| match &t.get(s).expect("read").kind {
+        Kind::Watcher(w) => (**w).clone(),
+        k => panic!("{s:08X}: {k:?}"),
+    };
+    let absorption = w(0x6F00_0186);
+    assert_eq!(absorption.absorbs.chance, 1.0);
+    assert_eq!(absorption.absorbs.amount.at(1.0), Some(0.05));
+    assert!(absorption.sends_back.amount.is_empty());
+    assert!(absorption.shares && absorption.watches);
+    let reflection = w(0x6F00_018A);
+    assert_eq!(reflection.sends_back.amount.at(1.0), Some(0.025));
+    assert!(reflection.absorbs.amount.is_empty());
+    let thornskin = w(0x7000_08D8);
+    assert_eq!(thornskin.sends_back.amount.at(1.0), Some(0.08));
+    assert_eq!(thornskin.sends_back.amount.at(50.0), Some(0.35));
+    assert_eq!(w(0x7000_070E).sends_back.amount.at(30.0), Some(0.2));
+    let armor = w(0x6F00_1964);
+    assert_eq!(armor.sends_back.chance, 0.2);
+    assert_eq!(armor.sends_back.amount.at(0.0), Some(0.1));
+    let thorns = w(0x7000_09FD);
+    assert_eq!(thorns.against_a_player, 1.0 / 3.0);
+    let might = w(0x6F00_1AA6);
+    assert_eq!(might.absorbs.amount.at(0.0), Some(135.0));
+    assert!(!might.shares);
+    assert!(
+        !w(0x6F00_264F).watches,
+        "vigor's, which no attack lowers here"
+    );
+    // They go on as records.
+    assert!(t.get(0x7000_070E).expect("read").client_visible());
+    assert!(t.get(0x6F00_0186).expect("read").lasts());
+}
+
 /// A recipe that binds its product names it by the product's ordinal over the whole spinner range
 /// (`0x6F000E9D`: each outcome makes `0x470008D4` and binds it, spinners 1 to 100).
 /// Behaviour: server.craft.recipe-binds-read

@@ -105,6 +105,19 @@ mod counter_flag {
     pub const VARIABLE: u32 = 0x80;
 }
 
+/// What the external flags of an effect that watches vitals change say: how much it absorbs and
+/// how much it sends back (the same at any spellcraft, or along a line), that it watches health,
+/// that those are shares of the harm rather than amounts, that attacks are what it watches.
+mod watcher_flag {
+    pub const ABSORB_CONSTANT: u32 = 0x1;
+    pub const ABSORB_VARIABLE: u32 = 0x2;
+    pub const SEND_BACK_CONSTANT: u32 = 0x4;
+    pub const SEND_BACK_VARIABLE: u32 = 0x8;
+    pub const HEALTH: u32 = 0x100;
+    pub const SHARES: u32 = 0x2000;
+    pub const ATTACKS: u32 = 0x4000;
+}
+
 /// The wards and what they keep off, as their descriptions say: the classes of fire and of what
 /// lowers vigor are those the install's own protections from them name, of poison those its poisons
 /// are in, of what lowers armor those that hold its armor-lowering effects. Their own data names
@@ -169,6 +182,29 @@ pub struct Aura {
     pub range: f32,
 }
 
+/// One side of an effect that watches attacks on its holder: its chance, how much at a spellcraft
+/// (none: nothing), and up to how much a draw adds to that.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Share {
+    pub chance: f32,
+    pub amount: Scale,
+    pub spread: f32,
+}
+
+/// An effect that watches attacks on its holder: what it takes off their harm and what it sends
+/// back to the attacker.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Watcher {
+    pub absorbs: Share,
+    pub sends_back: Share,
+    /// What sending back another player's attack is multiplied by.
+    pub against_a_player: f32,
+    /// Its amounts are shares of the harm, rather than amounts of it.
+    pub shares: bool,
+    /// It watches health, and attacks (its data may have it watch neither).
+    pub watches: bool,
+}
+
 /// What an effect does.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Kind {
@@ -208,6 +244,8 @@ pub enum Kind {
     /// Held by its wearer, it may answer an attack that reaches them: an effect put on the attacker,
     /// by a chance at its spellcraft.
     Counter { effect: u32, chance: Scale },
+    /// Held by its wearer, it takes from an attack's harm and sends some back.
+    Watcher(Box<Watcher>),
     /// Held by its wearer, it may keep off effects of these classes, by a chance.
     Ward {
         classes: &'static [u32],
@@ -426,6 +464,50 @@ impl EffectDef {
                     ])
                 },
             }
+        } else if is("ReflectiveVitalEffect")
+            && flags
+                & (watcher_flag::ABSORB_CONSTANT
+                    | watcher_flag::ABSORB_VARIABLE
+                    | watcher_flag::SEND_BACK_CONSTANT
+                    | watcher_flag::SEND_BACK_VARIABLE)
+                != 0
+        {
+            let line = |constant: u32, variable: u32, side: &str| {
+                let begin = number(&format!("m_f{side}MagBegin"));
+                let amount = if flags & constant != 0 {
+                    Scale(vec![(0.0, begin)])
+                } else if flags & variable != 0 {
+                    Scale(vec![
+                        (number(&format!("m_f{side}SpellcraftBegin")), begin),
+                        (
+                            number(&format!("m_f{side}SpellcraftEnd")),
+                            number(&format!("m_f{side}MagEnd")),
+                        ),
+                    ])
+                } else {
+                    Scale::default()
+                };
+                Share {
+                    chance: number(&format!("m_f{side}ProbBegin")),
+                    amount,
+                    spread: number(&format!("m_f{side}Var")),
+                }
+            };
+            Kind::Watcher(Box::new(Watcher {
+                absorbs: line(
+                    watcher_flag::ABSORB_CONSTANT,
+                    watcher_flag::ABSORB_VARIABLE,
+                    "Absorb",
+                ),
+                sends_back: line(
+                    watcher_flag::SEND_BACK_CONSTANT,
+                    watcher_flag::SEND_BACK_VARIABLE,
+                    "Reflect",
+                ),
+                against_a_player: number("m_fReflectPKMod"),
+                shares: flags & watcher_flag::SHARES != 0,
+                watches: flags & watcher_flag::HEALTH != 0 && flags & watcher_flag::ATTACKS != 0,
+            }))
         } else if is("InstantVitalEffect") {
             Kind::InstantVital {
                 flags,

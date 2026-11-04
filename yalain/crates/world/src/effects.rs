@@ -567,7 +567,11 @@ pub fn apply_on<S: Store>(
             combine(s, net, on, &def, c, cast, clock);
             true
         }
-        (Kind::Other | Kind::Counter { .. } | Kind::Ward { .. }, _) if !def.lasts() => false,
+        (Kind::Other | Kind::Counter { .. } | Kind::Watcher(_) | Kind::Ward { .. }, _)
+            if !def.lasts() =>
+        {
+            false
+        }
         _ => {
             add_on(s, net, on, &def, cast, Shape::TIMED, clock);
             true
@@ -633,6 +637,111 @@ pub fn answer_attack<S: Store>(
             ..Cast::default()
         };
         apply_on(s, net, on, effect, cast, clock);
+    }
+}
+
+/// What an attack's harm comes to once its target's effects have watched it: what is left of it
+/// (below nothing, it heals), and what goes back to the attacker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Harm {
+    pub left: i32,
+    pub back: i32,
+}
+
+impl Harm {
+    /// Harm no effect has touched.
+    #[must_use]
+    pub const fn plain(left: i32) -> Self {
+        Self { left, back: 0 }
+    }
+}
+
+/// A side of a watcher, drawn: nothing unless its chance comes up, else its amount at the spellcraft
+/// plus up to its spread.
+fn drawn<S: Store>(s: &mut Server<S>, side: &crate::effect_defs::Share, spellcraft: f32) -> f32 {
+    if !s.rng.chance(side.chance) {
+        return 0.0;
+    }
+    side.amount.at(spellcraft).unwrap_or(0.0) + s.rng.between(0.0, side.spread)
+}
+
+/// What the watchers a target holds make of an attack's harm, drawn as the attack is told: the top
+/// of each class, the higher classes first, each seeing what those before it left. Each takes
+/// from the harm and sends back, by its own draws, what its amounts come to of the harm it saw,
+/// rounded up (2017: 317 of 317 strikes on a wearer of a fifth, 360 sending back 72, so reckoned in
+/// single precision; two classes add, a tenth and 0.19 sending back 0.3). Sending back a player's
+/// attack is multiplied by what the watcher says for that. A creature is not healed by it. What
+/// is left is not stopped at nothing: an amount larger than the harm heals (2017: a strike told as
+/// 106 health gained).
+pub fn answer_harm<S: Store>(s: &mut Server<S>, on: On, harm: i32, by_a_player: bool) -> Harm {
+    let mut watchers: Vec<(u32, crate::effect_defs::Watcher, f32)> =
+        applying(&s.effect_table, records_of(s, on))
+            .into_iter()
+            .filter_map(|r| {
+                let d = s.effect_table.get(r.state)?;
+                match &d.kind {
+                    Kind::Watcher(w) => Some((d.eq_class, (**w).clone(), r.spellcraft)),
+                    _ => None,
+                }
+            })
+            .collect();
+    watchers.sort_by_key(|w| std::cmp::Reverse(w.0));
+    let (mut left, mut back) = (harm, 0);
+    for (_, w, spellcraft) in watchers {
+        let mut sent = drawn(s, &w.sends_back, spellcraft);
+        if by_a_player {
+            sent *= w.against_a_player;
+        }
+        let absorbed = drawn(s, &w.absorbs, spellcraft);
+        if !w.watches || left <= 0 {
+            continue;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let of = if w.shares { left as f32 } else { 1.0 };
+        back += dereth_primitives::num::to_i32((of * sent).ceil());
+        left -= dereth_primitives::num::to_i32((of * absorbed).ceil());
+    }
+    if matches!(on, On::Creature(_)) {
+        left = left.max(0);
+    }
+    Harm { left, back }
+}
+
+/// What a target's effects sent back reaches its attacker: a player loses that health, and may die
+/// of it; a creature or a pet is hurt by the target (2017: where it took a fifth of a creature's
+/// health or more, 17 kills, the attacks alone came to 0.89 of it, with what went back 1.14; a
+/// player's health fell by it, 51 of 98 alone between two updates).
+pub(crate) fn harm_back<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    attacker: u64,
+    target: u64,
+    back: i32,
+    clock: Clock,
+) {
+    if back <= 0 {
+        return;
+    }
+    if let Some(world) = conn_of(s, attacker) {
+        if s.players
+            .get(&world)
+            .is_some_and(|p| p.trip.is_some() || crate::combat::is_dead(p))
+        {
+            return;
+        }
+        let (share, was) = crate::combat::lose_health(s, net, world, back);
+        crate::combat::wounded(s, net, attacker, share, was);
+        crate::combat::after_hurt(s, net, world, target, clock);
+    } else if s
+        .things
+        .get(attacker)
+        .is_some_and(crate::things::Thing::alive)
+    {
+        if conn_of(s, target).is_some() {
+            crate::combat::hurt_creature(s, net, attacker, target, back, clock);
+        } else {
+            crate::pets::struck(s, net, attacker, target, back, clock);
+        }
     }
 }
 

@@ -43,6 +43,7 @@ use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::Store;
 
 use crate::calls::Value;
+use crate::effects::On;
 use crate::player::quality;
 use crate::rules::{self, Direction, Kind, Outcome};
 use crate::world::Player;
@@ -349,6 +350,9 @@ pub struct Landing {
     pub skill: u32,
     pub outcome: Outcome,
     pub damage: i32,
+    /// What its target's effects send back, as told with a strike (a thrown one's is drawn as it
+    /// arrives).
+    pub back: i32,
     /// Its result hook's index among the skill's hooks, whether it is thrown (its target tells it
     /// as it arrives), and the animation hook its arrival names.
     pub index: u32,
@@ -450,6 +454,9 @@ pub fn may_attack_player<S: Store>(s: &Server<S>, world: ConnId, other: ConnId) 
 /// The bits of a hook's target health change and target PK damage change.
 const TARGET_HEALTH: u32 = 0x800;
 const TARGET_PK_DAMAGE: u32 = 0x2000;
+/// The bits of a hook's attacker health change and attacker PK damage change.
+pub(crate) const ATTACKER_HEALTH: u32 = 0x1000;
+const ATTACKER_PK_DAMAGE: u32 = 0x4000;
 
 /// A story's hits on another player are told as PK damage too: each hook that takes that player's
 /// health gives the same amount as PK damage (2017: every harmful hook between two players, 109 of
@@ -460,6 +467,11 @@ pub fn with_pk_damage(m: &mut ServerMessage, player: u64) {
             if h.target == player && h.bits & TARGET_HEALTH != 0 && h.numbers[3] < 0 {
                 h.bits |= TARGET_PK_DAMAGE;
                 h.numbers[5] = -h.numbers[3];
+            }
+            // Harm sent back to a player, told the same way. Our choice: no recording holds one.
+            if h.target == player && h.bits & ATTACKER_HEALTH != 0 && h.numbers[4] < 0 {
+                h.bits |= ATTACKER_PK_DAMAGE;
+                h.numbers[6] = -h.numbers[4];
             }
         }
     }
@@ -807,11 +819,18 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
         } else {
             0
         };
+        let harm = if outcome.landed() {
+            let on = other.map_or(On::Creature(run.target), On::Player);
+            crate::effects::answer_harm(s, on, damage, other.is_some())
+        } else {
+            crate::effects::Harm::default()
+        };
         blows.push(crate::skill_use::Landing {
             target: run.target,
             hook: index,
             outcome,
-            damage,
+            damage: harm.left,
+            back: harm.back,
         });
     }
     let ts = PLAYER_TIME_SCALE * s.rng.between(0.9, 1.1);
@@ -825,6 +844,7 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
             target: run.target,
             outcome: blows[0].outcome,
             damage: blows[0].damage,
+            back: blows[0].back,
         },
     );
     if let (true, Some(u), ServerMessage::DoStory(e)) = (two_blows.is_some(), usage, &mut st) {
@@ -858,6 +878,7 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
                     skill,
                     outcome: blow.outcome,
                     damage: blow.damage,
+                    back: blow.back,
                     index: u32::try_from(blow.hook).unwrap_or(0),
                     thrown: false,
                     anim_hook: 1,
@@ -968,9 +989,17 @@ fn stand_and_swing<S: Store>(
     } else {
         0
     };
+    // A strike is told as it starts; a thrown one's target tells it as it arrives.
+    let other = player_target(s, world, run.target);
+    let harm = if outcome.landed() && thrown.is_none() {
+        let on = other.map_or(On::Creature(run.target), On::Player);
+        crate::effects::answer_harm(s, on, damage, other.is_some())
+    } else {
+        crate::effects::Harm::plain(damage)
+    };
     let ts = PLAYER_TIME_SCALE * s.rng.between(0.9, 1.1);
     let behavior = u.behavior_other[0];
-    let hooks = crate::skill_use::story_hooks(&u, run.target, weapon, Some((outcome, damage)));
+    let hooks = crate::skill_use::story_hooks(&u, run.target, weapon, Some((outcome, harm)));
     let index = hooks.len().saturating_sub(2);
     let Some(p) = s.players.get_mut(&world) else {
         return;
@@ -1002,7 +1031,8 @@ fn stand_and_swing<S: Store>(
         target: run.target,
         skill,
         outcome,
-        damage,
+        damage: harm.left,
+        back: harm.back,
         index: u32::try_from(index).unwrap_or(0),
         thrown: thrown.is_some(),
         anim_hook: 1,
@@ -1093,6 +1123,7 @@ fn throw_twice<S: Store>(
                 skill,
                 outcome,
                 damage,
+                back: 0,
                 index: u32::try_from(i).unwrap_or(0),
                 thrown: true,
                 anim_hook: h.anim_hook,
@@ -1139,7 +1170,7 @@ fn kind_of<S: Store>(s: &Server<S>, skill: u32, thrown: bool) -> Kind {
 
 /// A basic attack lands: a thrown one's target tells how it came out (with no result when it died
 /// on the way), then the hit hurts it; a creature struck goes after the one who struck it.
-pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, l: Landing, clock: Clock) {
+pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, mut l: Landing, clock: Clock) {
     let Some(me) = s.players.get(&l.world).map(|p| p.character) else {
         return;
     };
@@ -1155,6 +1186,11 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, l: Landing, clock
     let Some(alive) = alive else {
         return;
     };
+    if l.thrown && alive && l.outcome.landed() {
+        let on = other.map_or(On::Creature(l.target), On::Player);
+        let harm = crate::effects::answer_harm(s, on, l.damage, other.is_some());
+        (l.damage, l.back) = (harm.left, harm.back);
+    }
     let hurts = alive && l.outcome.landed() && l.damage > 0;
     if hurts && other.is_none() {
         crate::treasure::on_hit(s, net, l.world, l.target, clock);
@@ -1176,6 +1212,10 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, l: Landing, clock
             h.numbers[2] = l.index.cast_signed();
             if hurts {
                 h.numbers[3] = -l.damage;
+            }
+            if alive && l.back > 0 {
+                h.bits |= ATTACKER_HEALTH;
+                h.numbers[4] = -l.back;
             }
             vec![h]
         } else {
@@ -1203,10 +1243,16 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, l: Landing, clock
         if hurts {
             hurt_player(s, net, o, me, l.damage, clock);
         }
+        if alive {
+            crate::effects::harm_back(s, net, me, l.target, l.back, clock);
+        }
         return;
     }
     if hurts {
         hurt_creature(s, net, l.target, me, l.damage, clock);
+    }
+    if alive {
+        crate::effects::harm_back(s, net, me, l.target, l.back, clock);
     }
     if s.things
         .get(l.target)
@@ -1232,12 +1278,14 @@ pub(crate) struct Swing {
     pub target: u64,
     pub outcome: Outcome,
     pub damage: i32,
+    /// What the target's effects send back.
+    pub back: i32,
 }
 
 impl Swing {
     pub(crate) fn hook(&self) -> StoryHook {
         let mut h = StoryHook {
-            bits: if self.outcome.landed() {
+            bits: if self.outcome.landed() && self.damage != 0 {
                 hook::HIT
             } else {
                 hook::EVADE
@@ -1245,11 +1293,14 @@ impl Swing {
             target: self.target,
             ..StoryHook::default()
         };
-        // The numbers: the result, the animation hook (1), the target's health change.
+        // The numbers: the result, the animation hook (1), the target's health change, the
+        // attacker's when something goes back.
         h.numbers[0] = self.outcome.code().cast_signed();
         h.numbers[1] = 1;
-        if self.outcome.landed() {
-            h.numbers[3] = -self.damage;
+        h.numbers[3] = -self.damage;
+        if self.back > 0 {
+            h.bits |= ATTACKER_HEALTH;
+            h.numbers[4] = -self.back;
         }
         h
     }
@@ -1636,6 +1687,11 @@ pub fn creature_strike_with<S: Store>(
     } else {
         0
     };
+    let harm = if outcome.landed() {
+        crate::effects::answer_harm(s, On::Player(target), damage, false)
+    } else {
+        crate::effects::Harm::default()
+    };
     let ts = CREATURE_TIME_SCALE * s.rng.between(0.9, 1.1) * attack_pace(s, id);
     let mut st = story(
         s,
@@ -1646,7 +1702,8 @@ pub fn creature_strike_with<S: Store>(
             time_scale: ts,
             target: pid,
             outcome,
-            damage,
+            damage: harm.left,
+            back: harm.back,
         },
     );
     if special {
@@ -1665,7 +1722,7 @@ pub fn creature_strike_with<S: Store>(
             crate::Timer::CreatureStrikeLands {
                 creature: id,
                 target,
-                damage,
+                harm,
             },
         );
     }
@@ -1696,14 +1753,17 @@ pub fn creature_strike_lands<S: Store>(
     net: &mut ServerNet,
     creature: u64,
     target: ConnId,
-    damage: i32,
+    harm: crate::effects::Harm,
     clock: Clock,
 ) {
-    if s.players
+    if let Some(id) = s
+        .players
         .get(&target)
-        .is_some_and(|p| p.trip.is_none() && !is_dead(p))
+        .filter(|p| p.trip.is_none() && !is_dead(p))
+        .map(|p| p.character)
     {
-        hurt_player(s, net, target, creature, damage, clock);
+        hurt_player(s, net, target, creature, harm.left, clock);
+        crate::effects::harm_back(s, net, creature, id, harm.back, clock);
     }
 }
 
@@ -1727,7 +1787,7 @@ pub(crate) fn lose_health<S: Store>(
         .max(1);
     let health = quals::int(&p.qualities, quality::HEALTH).unwrap_or(max);
     let least = i32::from(p.admin.never_say_die);
-    let now = (health - damage).max(least);
+    let now = (health - damage).clamp(least, max.max(health));
     quals::set_int(&mut p.qualities, quality::HEALTH, now);
     progress::send_int(net, world, quality::HEALTH, now);
     #[allow(clippy::cast_precision_loss)]
@@ -1841,6 +1901,11 @@ pub fn thing_strikes_thing<S: Store>(
     } else {
         0
     };
+    let harm = if outcome.landed() {
+        crate::effects::answer_harm(s, On::Creature(target), damage, false)
+    } else {
+        crate::effects::Harm::default()
+    };
     let ts = CREATURE_TIME_SCALE * s.rng.between(0.9, 1.1);
     let st = story(
         s,
@@ -1851,7 +1916,8 @@ pub fn thing_strikes_thing<S: Store>(
             time_scale: ts,
             target,
             outcome,
-            damage,
+            damage: harm.left,
+            back: harm.back,
         },
     );
     to_all_seeing(s, net, id, &st);
@@ -1862,7 +1928,7 @@ pub fn thing_strikes_thing<S: Store>(
             crate::Timer::ThingStrikeLands {
                 by: id,
                 target,
-                damage,
+                harm,
             },
         );
     }
@@ -1901,13 +1967,14 @@ pub fn thing_strike_lands<S: Store>(
     net: &mut ServerNet,
     by: u64,
     target: u64,
-    damage: i32,
+    harm: crate::effects::Harm,
     clock: Clock,
 ) {
     if s.things
         .get(target)
         .is_some_and(crate::things::Thing::alive)
     {
-        crate::pets::struck(s, net, target, by, damage, clock);
+        crate::pets::struck(s, net, target, by, harm.left, clock);
+        crate::effects::harm_back(s, net, by, target, harm.back, clock);
     }
 }

@@ -66,6 +66,7 @@ mod trading;
 mod two_blows;
 mod untraining;
 mod vaults;
+mod watchers;
 mod weapons;
 mod wearing;
 mod workshops;

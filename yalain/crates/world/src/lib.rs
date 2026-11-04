@@ -489,10 +489,14 @@ pub enum Timer {
     CreatureStrikeLands {
         creature: u64,
         target: ConnId,
-        damage: i32,
+        harm: effects::Harm,
     },
     /// A strike between a creature and a pet reaches its target.
-    ThingStrikeLands { by: u64, target: u64, damage: i32 },
+    ThingStrikeLands {
+        by: u64,
+        target: u64,
+        harm: effects::Harm,
+    },
     /// A dead player's corpse is made.
     PlayerCorpse { world: ConnId },
     /// A character that left the world dead comes back.
@@ -838,10 +842,10 @@ impl<S: Store> Server<S> {
                 Timer::CreatureStrikeLands {
                     creature,
                     target,
-                    damage,
-                } => combat::creature_strike_lands(self, net, creature, target, damage, clock),
-                Timer::ThingStrikeLands { by, target, damage } => {
-                    combat::thing_strike_lands(self, net, by, target, damage, clock);
+                    harm,
+                } => combat::creature_strike_lands(self, net, creature, target, harm, clock),
+                Timer::ThingStrikeLands { by, target, harm } => {
+                    combat::thing_strike_lands(self, net, by, target, harm, clock);
                 }
                 Timer::PlayerCorpse { world } => death::player_corpse(self, net, world, clock),
                 Timer::BackAfterEntry { world } => death::back_after_entry(self, net, world, clock),
