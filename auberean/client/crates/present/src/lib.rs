@@ -155,6 +155,8 @@ pub struct Presenter {
     white: wgpu::TextureView,
     pictures: HashMap<u32, Option<Arc<wgpu::TextureView>>>,
     composed: Option<(wgpu::Texture, u32, u32)>,
+    /// The overlay's vertices.
+    overlay_vertices: Option<wgpu::Buffer>,
     /// The size each picture is drawn at, scaled to fill the window.
     drawn: (u32, u32),
 }
@@ -415,6 +417,7 @@ impl Presenter {
             white,
             pictures: HashMap::new(),
             composed: None,
+            overlay_vertices: None,
         })
     }
 
@@ -609,6 +612,36 @@ impl Presenter {
         });
     }
 
+    /// The overlay's vertices on the device, in a buffer kept while they fit it.
+    fn overlay_buffer(&mut self, verts: &[QuadVertex]) -> wgpu::Buffer {
+        let bytes: &[u8] = bytemuck::cast_slice(verts);
+        let fits = self
+            .overlay_vertices
+            .as_ref()
+            .filter(|b| b.size() >= bytes.len() as u64)
+            .cloned();
+        let buffer = fits.unwrap_or_else(|| {
+            let size = (bytes.len() as u64).next_power_of_two().max(4096);
+            self.renderer.note_work(|w| {
+                w.buffers += 1;
+                w.buffer_bytes += size;
+            });
+            let made = self
+                .renderer
+                .device()
+                .create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("overlay"),
+                    size,
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+            self.overlay_vertices = Some(made.clone());
+            made
+        });
+        self.renderer.queue().write_buffer(&buffer, 0, bytes);
+        buffer
+    }
+
     /// Draw a frame: the world (when there is one), portal space laid over it (with how much of
     /// the way), a veil over both, and the overlay over all, into the window; with `shot`, also
     /// save the window's picture there.
@@ -775,19 +808,7 @@ impl Presenter {
             .iter()
             .map(|(_, v)| self.bind_with(v, &self.nearest))
             .collect();
-        let device = self.renderer.device();
-        let buffer = (!verts.is_empty()).then(|| {
-            use wgpu::util::DeviceExt;
-            self.renderer.note_work(|w| {
-                w.buffers += 1;
-                w.buffer_bytes += std::mem::size_of_val(verts.as_slice()) as u64;
-            });
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("overlay"),
-                contents: bytemuck::cast_slice(&verts),
-                usage: wgpu::BufferUsages::VERTEX,
-            })
-        });
+        let buffer = (!verts.is_empty()).then(|| self.overlay_buffer(&verts));
         let world_group = world_view.as_ref().map(|v| self.bind(v));
         // The interface's pictures texel for texel at the window's size; another screen (the
         // screens before the world, laid out on 1024 by 768) is filtered as it scales.
