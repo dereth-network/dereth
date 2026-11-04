@@ -354,7 +354,7 @@ impl LinkQueue {
     fn taken(&self, len: usize) {
         let _ = self
             .bytes
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+            .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
                 Some(n.saturating_sub(len))
             });
     }
