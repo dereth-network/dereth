@@ -3569,6 +3569,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.interactions.an-item-gone-while-it-plays-does-nothing",
+        says: "An item put down while its use on an object plays: nothing comes of the use, \
+               as for a use from the pack.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-INTERACTION-GONE"),
+        station: "yalain-testkit::cpu::play::interactions::an_item_put_down_while_its_use_plays_does_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.a-picked-up-item-goes-to-the-packs-front",
         says: "An item picked up goes to the front of the pack, every item there moving up one, \
                and the move names that slot as both where it was sent and where it went.",

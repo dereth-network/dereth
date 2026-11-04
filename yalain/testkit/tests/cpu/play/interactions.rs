@@ -651,3 +651,27 @@ fn a_pollen_on_a_plant_and_the_requiescat_on_a_held_weapon_play_and_are_used_up(
         "the weapon kept"
     );
 }
+
+/// An item put down while its use on an object plays: nothing comes of it, and it is not used up.
+/// Behaviour: server.interactions.an-item-gone-while-it-plays-does-nothing
+#[test]
+fn an_item_put_down_while_its_use_plays_does_nothing() {
+    use yalain_world::drops;
+    use yalain_world::inventory::{move_graph, Move};
+    let mut h = garden();
+    let (a, me, world, pollen) = holding(&mut h, "one", POLLEN_TEMPLATE);
+    east_of_stockpile(&mut h, world, 3.5);
+    let fa = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, pollen, STOCKPILE);
+    assert_eq!(played(&h, a, fa, me).len(), 1, "it plays");
+    let m = Move {
+        move_type: drops::DROP,
+        item: pollen,
+        quantity: 1,
+        ..Move::default()
+    };
+    h.ask(a, drops::function::MOVE_ITEM, &[move_graph(&m)], 2);
+    run_for(&mut h, 3.0);
+    assert!(answers(&h, a, fa).is_empty(), "no answer of it done");
+    assert!(h.server.things.get(pollen).is_some(), "still in the world");
+}
