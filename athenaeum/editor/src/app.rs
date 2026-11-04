@@ -56,6 +56,14 @@ const TILE_GAP: f32 = 6.0;
 /// A finder picture's side, in pixels. Each is drawn at twice this and halved, for smooth edges.
 const PICTURE: u32 = 176;
 
+/// The body what can be worn is shown on: a human man, as a new character starts.
+const WORN_BODY: u32 = 0x1F00_0023;
+const WORN_RACE: u32 = 1;
+const WORN_SEX: u32 = 0x1000;
+/// How many appearances a template may name, and the key that shows one.
+const WORN_APPEARANCES: u32 = 16;
+const WORN_SHOWN: u32 = 0x10;
+
 /// How far each way the ground is read to find how it leans, in meters.
 const LEAN_ACROSS: f32 = 0.5;
 /// How near the ground a row is to count as on it, in meters.
@@ -207,10 +215,14 @@ pub struct Editor<'w> {
     finding: Option<String>,
     /// The templates the finder's text matches, and the text they match.
     found: Option<(String, std::sync::Arc<[u32]>)>,
-    /// The pictures drawn so far, by look; `None` for a look that draws nothing.
-    pictures: HashMap<u32, Option<egui::TextureHandle>>,
-    /// The looks the finder shows this frame that have no picture yet.
-    pictures_wanted: Vec<u32>,
+    /// The pictures drawn so far; `None` for one that shows nothing.
+    pictures: HashMap<Picture, Option<egui::TextureHandle>>,
+    /// The pictures the finder shows this frame that are not drawn yet.
+    pictures_wanted: Vec<Picture>,
+    /// Whether the finder shows what can be worn as worn.
+    pub show_worn: bool,
+    /// What each template looks like worn, once asked.
+    worn: HashMap<u32, Option<Worn>>,
     /// The last build against the install: the world's revision it was of, its problems and
     /// warnings in the world's own files, and what it made.
     build: Option<(u64, Vec<Problem>, Vec<Problem>, String)>,
@@ -283,6 +295,45 @@ fn rotation_of(row: &Row) -> [f32; 4] {
         _ => (None, None),
     };
     q.unwrap_or_else(|| view::heading_rotation(h.unwrap_or(0.0)))
+}
+
+/// What a finder tile pictures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Picture {
+    /// A look, as it stands.
+    Look(u32),
+    /// A template's appearance, worn by the body it is shown on.
+    Worn(u32),
+}
+
+/// What a template looks like worn: its appearance table, with its keys and values.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Worn {
+    pub table: u32,
+    pub keys: Vec<(u32, f32)>,
+}
+
+/// What a template says it looks like worn by `race` and `sex`: the first of its appearances for
+/// them, shown, with the value its template sets.
+#[must_use]
+pub fn worn_of(props: &yalain_content::Props, race: u32, sex: u32) -> Option<Worn> {
+    let table = (1..=WORN_APPEARANCES).find_map(|n| {
+        let file = props.word(&format!("Item_WornAppearanceFile{n}"))?;
+        let r = props.word(&format!("Item_WornAppearanceRace{n}"))?;
+        let x = props.word(&format!("Item_WornAppearanceSex{n}"))?;
+        (r & race != 0 && x & sex != 0).then_some(file)
+    })?;
+    let mut keys = vec![(WORN_SHOWN, 1.0)];
+    if let (Some(key), Some(v)) = (
+        props.word("AppearanceMutationKey"),
+        props.float("AppearanceMutationKeyValue"),
+    ) {
+        if key != WORN_SHOWN {
+            keys.push((key, v));
+        }
+    }
+    keys.sort_by_key(|(k, _)| *k);
+    Some(Worn { table, keys })
 }
 
 /// A row Ctrl+C copied: how it stood to the row leading the selection, and above the ground.
@@ -490,6 +541,8 @@ impl<'w> Editor<'w> {
             found: None,
             pictures: HashMap::new(),
             pictures_wanted: Vec::new(),
+            show_worn: false,
+            worn: HashMap::new(),
             build: None,
             problems_seen: 0,
             recipes: Vec::new(),
@@ -1503,6 +1556,8 @@ impl<'w> Editor<'w> {
                     if std::mem::take(&mut self.focus_find) {
                         field.request_focus();
                     }
+                    ui.checkbox(&mut self.show_worn, "Worn")
+                        .on_hover_text("what can be worn, on a body");
                 });
                 let found = self.templates_matching(&text);
                 if found.is_empty() {
@@ -1570,6 +1625,29 @@ impl<'w> Editor<'w> {
         list
     }
 
+    /// What a finder tile shows of a template, when it shows anything.
+    fn picture_of(&mut self, t: u32) -> Option<Picture> {
+        if self.show_worn && self.worn_look(t).is_some() {
+            return Some(Picture::Worn(t));
+        }
+        self.look(t).map(|l| Picture::Look(l.0))
+    }
+
+    /// What a template looks like worn by the body it is shown on, if it can be worn.
+    #[must_use]
+    pub fn worn_look(&mut self, t: u32) -> Option<Worn> {
+        let install = self.install;
+        self.worn
+            .entry(t)
+            .or_insert_with(|| {
+                let props = yalain_content::Props::of(t, &|id| install.entity(id), &|id| {
+                    install.property_name(id)
+                });
+                worn_of(&props, WORN_RACE, WORN_SEX)
+            })
+            .clone()
+    }
+
     /// One template in the finder: its picture and name. Whether it was clicked.
     fn tile(&mut self, ui: &mut egui::Ui, t: u32) -> bool {
         let (rect, response) =
@@ -1579,8 +1657,8 @@ impl<'w> Editor<'w> {
             let picture = egui::Rect::from_min_size(rect.min, egui::vec2(TILE, TILE));
             let painter = ui.painter();
             painter.rect_filled(picture, 2.0, egui::Color32::BLACK);
-            let look = self.look(t).map(|l| l.0);
-            match look.map(|l| (l, self.pictures.get(&l))) {
+            let shown = self.picture_of(t);
+            match shown.map(|l| (l, self.pictures.get(&l))) {
                 Some((_, Some(Some(texture)))) => {
                     let whole =
                         egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
@@ -1629,25 +1707,32 @@ impl<'w> Editor<'w> {
         renderer: &mut auberean_gpu::Renderer,
         load: &mut dyn FnMut(u32) -> Option<auberean_draw::picture::Image>,
     ) {
-        let Some(look) = self.pictures_wanted.first().copied() else {
+        let Some(wanted) = self.pictures_wanted.first().copied() else {
             return;
         };
-        let drawn = self.scene.picture_frame(look).and_then(|frame| {
-            match renderer.render(&frame, PICTURE * 2, PICTURE * 2, load) {
-                Ok(p) => Some(p),
-                Err(e) => {
-                    tracing::warn!("a template's picture: {e:?}");
-                    None
-                }
-            }
-        });
+        let frame = match wanted {
+            Picture::Look(look) => self.scene.picture_frame(look),
+            Picture::Worn(t) => self
+                .worn_look(t)
+                .and_then(|w| self.scene.worn_frame(WORN_BODY, w.table, &w.keys)),
+        };
+        let drawn =
+            frame.and_then(
+                |frame| match renderer.render(&frame, PICTURE * 2, PICTURE * 2, load) {
+                    Ok(p) => Some(p),
+                    Err(e) => {
+                        tracing::warn!("a template's picture: {e:?}");
+                        None
+                    }
+                },
+            );
         let texture = drawn
             .map(|p| halved(&p.rgba, PICTURE as usize))
             // Some looks are only a place effects come from, and show nothing at rest.
             .filter(|rgba| rgba.as_chunks::<4>().0.iter().any(|c| c[..3] != [0, 0, 0]))
             .map(|rgba| {
                 ctx.load_texture(
-                    format!("look-{look:08x}"),
+                    format!("{wanted:?}"),
                     egui::ColorImage::from_rgba_unmultiplied(
                         [PICTURE as usize, PICTURE as usize],
                         &rgba,
@@ -1655,7 +1740,7 @@ impl<'w> Editor<'w> {
                     egui::TextureOptions::LINEAR,
                 )
             });
-        self.pictures.insert(look, texture);
+        self.pictures.insert(wanted, texture);
     }
 
     /// Keep the camera's place for the next session.

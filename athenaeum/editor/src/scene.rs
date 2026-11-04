@@ -6,13 +6,13 @@
 use std::collections::{HashMap, HashSet};
 
 use auberean_animation::body::{Body as Figure, PartPose};
-use auberean_animation::look::{Desc, Look, GLOBAL_KEY};
+use auberean_animation::look::{Desc, Keyed, Look, GLOBAL_KEY};
 use auberean_animation::CachedRecords;
 use auberean_assets::Context;
 use auberean_dat::locate::{install_dats, DatName};
 use auberean_dat::DatFile;
 use auberean_draw::body::BodyDrawer;
-use auberean_draw::scene::{inside_light, Camera, Frame, SceneBuilder, Spot};
+use auberean_draw::scene::{inside_light, Camera, Frame, ObjectBatch, SceneBuilder, Spot};
 use auberean_physics::interior::add_block_cells;
 use auberean_physics::land::Land;
 use auberean_physics::mesh::Trees;
@@ -88,6 +88,24 @@ struct LookShape {
     lo: [f32; 3],
     hi: [f32; 3],
     triangles: Vec<[[f32; 3]; 3]>,
+}
+
+/// How many buckets a worn appearance's tables are kept in.
+const WORN_BUCKETS: u32 = 4;
+
+/// The description of `look` alone.
+fn plain_desc(look: u32) -> Desc {
+    Desc {
+        parent: DataId(look),
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        child_scale: 1.0,
+        particle_scale: 1.0,
+        global: auberean_animation::look::Group {
+            key: GLOBAL_KEY,
+            ..Default::default()
+        },
+        ..Desc::default()
+    }
 }
 
 /// A picture's field of view, degrees. Narrow, so a tall thing keeps its shape.
@@ -388,17 +406,7 @@ impl<'w> Scene<'w> {
 
     fn posed(&mut self, look: u32) -> bool {
         if !self.looks.contains_key(&look) {
-            let desc = Desc {
-                parent: DataId(look),
-                scale: Vec3::new(1.0, 1.0, 1.0),
-                child_scale: 1.0,
-                particle_scale: 1.0,
-                global: auberean_animation::look::Group {
-                    key: GLOBAL_KEY,
-                    ..Default::default()
-                },
-                ..Desc::default()
-            };
+            let desc = plain_desc(look);
             let posed = Look::of(&self.anims, &desc).ok().and_then(|l| {
                 let figure = Figure::from_look(&self.anims, &l)?;
                 let poses = figure.pose(&self.anims);
@@ -486,6 +494,39 @@ impl<'w> Scene<'w> {
         let bodies = self
             .drawer
             .batches(&self.data.records, &p.figure, &p.poses, &place);
+        Some(self.picture_of(bodies, picture_camera(shape.lo, shape.hi)))
+    }
+
+    /// A picture of the body of `look` wearing the appearance `table` with these keys and values.
+    /// `None` when it draws nothing.
+    pub fn worn_frame(&mut self, look: u32, table: u32, keys: &[(u32, f32)]) -> Option<Frame> {
+        let mut desc = plain_desc(look);
+        let values = Keyed::stored(WORN_BUCKETS, keys.to_vec());
+        desc.global.appearance = Keyed::stored(WORN_BUCKETS, vec![(table, values)]);
+        let dressed = Look::of(&self.anims, &desc).ok()?;
+        let figure = Figure::from_look(&self.anims, &dressed)?;
+        let poses = figure.pose(&self.anims);
+        let place = Mat4::from_parts(Vec3::new(0.0, 0.0, 0.0), Quat::IDENTITY, dressed.scale);
+        let bodies = self
+            .drawer
+            .batches(&self.data.records, &figure, &poses, &place);
+        let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+        for b in &bodies {
+            for v in b.vertices.iter() {
+                let q = b
+                    .transform
+                    .transform4([v.position[0], v.position[1], v.position[2], 1.0]);
+                for ((lo, hi), v) in lo.iter_mut().zip(&mut hi).zip(q) {
+                    *lo = lo.min(v);
+                    *hi = hi.max(v);
+                }
+            }
+        }
+        (lo[0] <= hi[0]).then(|| self.picture_of(bodies, picture_camera(lo, hi)))
+    }
+
+    /// A frame of these bodies alone, in a plain light.
+    fn picture_of(&mut self, bodies: Vec<ObjectBatch>, camera: Camera) -> Frame {
         let light = DayLight {
             ambient_brightness: 0.45,
             ambient_color: Color::WHITE,
@@ -496,8 +537,7 @@ impl<'w> Scene<'w> {
             fog_max: 0.0,
             ..DayLight::DEFAULT
         };
-        let camera = picture_camera(shape.lo, shape.hi);
-        Some(self.builder.parts_frame(&[], bodies, camera, light, None))
+        self.builder.parts_frame(&[], bodies, camera, light, None)
     }
 
     /// The frame from `view`, with `rows` standing in it; `inside` the block and interior cell the

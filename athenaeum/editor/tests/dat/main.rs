@@ -968,3 +968,26 @@ fn rows_copied_go_down_in_another_landblock_standing_as_they_stood() {
     assert!(e.session.entry(&lead).is_none(), "one undo takes both");
     assert!(e.session.entry(&other).is_none(), "one undo takes both");
 }
+
+#[test]
+fn what_can_be_worn_is_pictured_on_a_body_and_differs_from_the_bare_body() {
+    let mut e = editor("worn");
+    let (boots, vendor) = (0x4700_07D0, 0x4700_33D0);
+    assert!(e.worn_look(vendor).is_none(), "a person is not worn");
+    let worn = e.worn_look(boots).expect("boots are worn");
+    assert!(worn.keys.contains(&(0x10, 1.0)), "shown: {worn:?}");
+    let body = 0x1F00_0023;
+    let vertices = |f: &auberean_draw::scene::Frame| -> usize {
+        f.objects.iter().map(|o| o.vertices.len()).sum()
+    };
+    let bare = e.scene.picture_frame(body).expect("the body");
+    let dressed = e
+        .scene
+        .worn_frame(body, worn.table, &worn.keys)
+        .expect("dressed");
+    assert_ne!(
+        vertices(&bare),
+        vertices(&dressed),
+        "the boots change the body"
+    );
+}
