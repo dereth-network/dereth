@@ -4525,6 +4525,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-named-for-an-enchantment",
+        says: "A treasure item with enchantments is named for one of them, drawn evenly, in the \
+               suffix its name holds for the effect. Our choice which; its name's shape is 2017's.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-NAMED"),
+        station: "yalain-testkit::cpu::entry::examine::a_treasure_item_is_named_for_its_enchantment_in_its_create_and_its_profile",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.treasure-numbers-by-level",
         says: "A treasure weapon, shield or piece of armor has its own damage, rating, delay, vigor \
                cost and slots by its level, near what a made one has there, in place of its \

@@ -386,16 +386,28 @@ fn nested(id: u32, s: StringInfo) -> Variable {
     }
 }
 
-/// A treasure item's name: its template's name, with no suffix.
+/// A name's suffix: an effect's own item name, the template's name inside it; none, empty.
+fn suffix_of(template_name: (u32, u32), effect_table: Option<u32>) -> StringInfo {
+    use treasure_name as n;
+    let Some(table) = effect_table else {
+        return StringInfo::literal("");
+    };
+    let mut suffix = name_ref((n::EFFECT_SUFFIX, table));
+    suffix.variables = vec![nested(n::PREFIX_NAME, name_ref(template_name))];
+    suffix.variable_count = 1;
+    suffix
+}
+
+/// A treasure item's name: its template's name, with the suffix of the effect it is named for.
 #[must_use]
-pub fn treasure_item_name(template_name: (u32, u32)) -> StringInfo {
+pub fn treasure_item_name(template_name: (u32, u32), effect_table: Option<u32>) -> StringInfo {
     use treasure_name as n;
     let mut prefix = name_ref(n::PREFIX_TEXT);
     prefix.variables = vec![nested(n::PREFIX_NAME, name_ref(template_name))];
     prefix.variable_count = 1;
     let vars = ordered(vec![
         nested(n::PREFIX, prefix),
-        nested(n::SUFFIX, StringInfo::literal("")),
+        nested(n::SUFFIX, suffix_of(template_name, effect_table)),
         nested(n::ITEM, name_ref(template_name)),
     ]);
     let mut s = name_ref(n::NAME);
@@ -426,13 +438,17 @@ pub fn made_item_name(template_name: (u32, u32), level_word: u32) -> StringInfo 
 /// effect}" (the effect's name table holds the suffix, the template's name inside it).
 #[must_use]
 pub fn potion_name(template_name: (u32, u32), effect_table: u32) -> StringInfo {
+    jewelry_name(template_name, Some(effect_table))
+}
+
+/// A piece of treasure jewelry's name: no word before it, with the suffix of the effect it is named
+/// for, if it has one (2017: 193 of 193, a suffix on the 73 with an effect).
+#[must_use]
+pub fn jewelry_name(template_name: (u32, u32), effect_table: Option<u32>) -> StringInfo {
     use treasure_name as n;
-    let mut suffix = name_ref((n::EFFECT_SUFFIX, effect_table));
-    suffix.variables = vec![nested(n::PREFIX_NAME, name_ref(template_name))];
-    suffix.variable_count = 1;
     let vars = ordered(vec![
         nested(n::PREFIX, StringInfo::literal("")),
-        nested(n::SUFFIX, suffix),
+        nested(n::SUFFIX, suffix_of(template_name, effect_table)),
         nested(n::ITEM, name_ref(template_name)),
     ]);
     let mut s = name_ref(n::NAME);
@@ -474,7 +490,13 @@ pub fn item_create(t: &Thing) -> CreateObject {
     } else if let Some(name) = t.facts.name.filter(|_| t.value > 0) {
         weenie.mask |= WeenieDesc::NAME;
         weenie.name = t.own.made.filter(|m| m.prefix != 0).map_or_else(
-            || treasure_item_name(name),
+            || {
+                if t.own.made.is_none() && t.own.suffix.is_some() {
+                    jewelry_name(name, t.own.suffix)
+                } else {
+                    treasure_item_name(name, t.own.suffix)
+                }
+            },
             |m| made_item_name(name, m.prefix),
         );
     }

@@ -881,6 +881,73 @@ fn treasure_jewelry_is_plain_or_has_one_effect_and_a_least_level() {
     assert!(worn, "its heading says worn");
 }
 
+/// A treasure item that draws enchantments is named for one of them, any of them in time; one that
+/// draws none has no name of the kind.
+/// Behaviour: server.loot.treasure-named-for-an-enchantment
+#[test]
+fn a_treasure_item_with_enchantments_is_named_for_one_of_them() {
+    use yalain_content::treasure_effects::{states, WEAPON_FAMILIES};
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    const SWORD: u32 = 0x4700_7003;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    for state in states() {
+        h.server.effect_table.effects.insert(
+            state,
+            EffectDef {
+                state,
+                kind: Kind::Other,
+                duration: Scale::default(),
+                priority: Scale::default(),
+                fx: 0,
+                external_flags: 0,
+                internal_flags: 1,
+                enum_value: 2,
+                eq_class: 2,
+                name: Some((1, state ^ 0x4B00_0000)),
+            },
+        );
+    }
+    let mut props = yalain_content::Props::default();
+    props
+        .set("Weapon_Damage", yalain_content::Prop::Int(10))
+        .set("Weapon_Variance", yalain_content::Prop::Float(0.25));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(SWORD, 0x200, props));
+    h.server.treasure.equipment.insert(0x200);
+    assert!(WEAPON_FAMILIES.len() > 2);
+    let (mut plain, mut one, mut many) = (0, 0, std::collections::HashSet::new());
+    for _ in 0..3000 {
+        let item = yalain_world::inventory::make_item(&mut h.server, SWORD, 1, 9).expect("made");
+        yalain_world::treasure::endow(&mut h.server, item, 50, None);
+        let t = h.server.things.get(item).expect("made");
+        let carried: Vec<u32> = t
+            .enchantments
+            .iter()
+            .chain(&t.bonuses)
+            .map(|(state, _)| state ^ 0x4B00_0000)
+            .collect();
+        match t.own.suffix {
+            None => {
+                plain += 1;
+                assert!(carried.is_empty());
+            }
+            Some(table) => {
+                let at = carried.iter().position(|c| *c == table);
+                assert!(at.is_some(), "one of what it carries");
+                if carried.len() == 1 {
+                    one += 1;
+                } else {
+                    many.insert(at);
+                }
+            }
+        }
+    }
+    assert!(plain > 1000 && one > 100, "{plain} {one}");
+    assert!(many.len() >= 2, "any of them: {many:?}");
+}
+
 /// A weapon's effect that adds to the chance of a critical does: at 1, every hit it lands is
 /// critical; a weapon without it lands plain hits.
 /// Behaviour: server.combat.critical-by-weapon

@@ -297,6 +297,13 @@ fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::Item
             v.name = Some(profile::potion_name(&t.facts, e.table));
         }
     }
+    if let Some(table) = t.own.suffix {
+        v.name = Some(if v.jewelry {
+            profile::potion_name(&t.facts, table)
+        } else {
+            profile::treasure_name(&t.facts, table)
+        });
+    }
     crate::made::show(s, t, &mut v);
     // The skills it takes, by their names.
     if let Some(tp) = s.catalog.get(t.template) {

@@ -21,7 +21,8 @@
 //! not known.
 //!
 //! **Its enchantments.** It may draw some by its level: see [`enchantments`]. Each is cast at one
-//! below its item level. An effect on what it hits lands by that effect's own chance.
+//! below its item level, and it is named for one of them. An effect on what it hits lands by that
+//! effect's own chance.
 //!
 //! **Treasure jewelry** is plain with no least level, or by its dropper's level has one enchantment
 //! on its wearer and a least level.
@@ -56,6 +57,8 @@ pub struct Own {
     pub look: Option<Look>,
     /// The hand it was last held in (0: never): where its use puts it.
     pub hand: u32,
+    /// The name table of the effect it is named for ("of the Inferno").
+    pub suffix: Option<u32>,
 }
 
 /// What a treasure item drew of its look: the appearance table, and each key's value (no key, 0,
@@ -95,6 +98,7 @@ impl Own {
             && self.craft_flags == 0
             && self.look.is_none()
             && self.hand == 0
+            && self.suffix.is_none()
     }
 }
 
@@ -681,6 +685,16 @@ fn put_enchantments<S: yalain_store::Store>(
     #[allow(clippy::cast_precision_loss)]
     let spellcraft = (level - 1).max(1) as f32;
     let drawn = enchantments(&mut s.rng, sort, level);
+    // Named for one of them (2017: of 109 weapons named for one of two or more, 74 for an effect on
+    // a hit, 30 on itself, 5 on the wielder; no order or value of the effects says which).
+    if !drawn.is_empty() {
+        let named = drawn[s.rng.below(drawn.len())].1.state;
+        own.suffix = s
+            .effect_table
+            .get(named)
+            .and_then(|d| d.name)
+            .map(|(_, table)| table);
+    }
     let mut glow = None;
     for (when, tier) in &drawn {
         if *when == When::Permanent {

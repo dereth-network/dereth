@@ -726,16 +726,34 @@ pub fn made_name(f: &Facts, level_word: u32) -> TextInfo {
     )
 }
 
-/// A treasure potion's name: its template's name with its effect's suffix ("Potion of Revival"),
-/// the effect's name table holding the suffix.
+/// A treasure potion's or piece of jewelry's name: its template's name with its effect's suffix
+/// ("Potion of Revival"), the effect's name table holding the suffix.
 #[must_use]
 pub fn potion_name(f: &Facts, effect_table: u32) -> TextInfo {
+    named_for(f, literal(""), effect_table)
+}
+
+/// A treasure item's name: the word treasure gives it, its template's name and the suffix of the
+/// effect it is named for.
+#[must_use]
+pub fn treasure_name(f: &Facts, effect_table: u32) -> TextInfo {
+    use crate::inventory::treasure_name::PREFIX_TEXT;
+    let name = f.name.map_or_else(|| literal(""), |(s, t)| string(t, s));
+    let word = with_vars(
+        PREFIX_TEXT.1,
+        PREFIX_TEXT.0,
+        vec![nested(var::SUFFIX_ITEM, name)],
+    );
+    named_for(f, word, effect_table)
+}
+
+fn named_for(f: &Facts, prefix: TextInfo, effect_table: u32) -> TextInfo {
     let name = || f.name.map_or_else(|| literal(""), |(s, t)| string(t, s));
     with_vars(
         line::ITEM_NAMES,
         line::ITEM_NAME,
         vec![
-            nested(var::PREFIX, literal("")),
+            nested(var::PREFIX, prefix),
             nested(
                 var::SUFFIX,
                 with_vars(

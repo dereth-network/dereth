@@ -1297,6 +1297,7 @@ fn a_made_items_own_numbers_are_kept_across_a_logout() {
         t.enchantments = vec![(0x6F00_0F2B, 20.0)];
         t.own.dye = Some((0x2000_036A, 0.573));
         t.own.look = Some(drawn);
+        t.own.suffix = Some(0x2500_1292);
     }
     let before = h.bots[a].inbox.len();
     h.bots[a].send(
@@ -1315,4 +1316,69 @@ fn a_made_items_own_numbers_are_kept_across_a_logout() {
     assert_eq!(t.enchantments, vec![(0x6F00_0F2B, 20.0)]);
     assert_eq!(t.own.dye, Some((0x2000_036A, 0.573)));
     assert_eq!(t.own.look, Some(drawn));
+    assert_eq!(t.own.suffix, Some(0x2500_1292));
+}
+
+/// A treasure item with an enchantment is named for it: in the name it is made with and in its
+/// profile, the suffix in the effect's own table with the item's name inside it; a piece of jewelry
+/// has no word before it.
+/// Behaviour: server.loot.treasure-named-for-an-enchantment
+#[test]
+fn a_treasure_item_is_named_for_its_enchantment_in_its_create_and_its_profile() {
+    use yalain_world::inventory::{item_create, jewelry_name, treasure_item_name, treasure_name};
+    const NAME: (u32, u32) = (0x1234_5678, 0x2500_0777);
+    const TABLE: u32 = 0x2500_1292;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let item = yalain_world::inventory::give(
+        &mut h.server,
+        &mut h.net,
+        world,
+        yalain_testkit::TEST_ITEM,
+        1,
+    )
+    .expect("given");
+    let shape = |h: &mut Harness, made: bool, suffix: Option<u32>| {
+        let t = h.server.things.get_mut(item).expect("made");
+        t.facts.name = Some(NAME);
+        t.value = 7;
+        t.own.made = made.then(yalain_world::made::Made::default);
+        t.own.suffix = suffix;
+        item_create(h.server.things.get(item).expect("made"))
+            .weenie
+            .name
+    };
+    assert_eq!(shape(&mut h, true, None), treasure_item_name(NAME, None));
+    assert_eq!(
+        shape(&mut h, false, Some(TABLE)),
+        jewelry_name(NAME, Some(TABLE))
+    );
+    let named = shape(&mut h, true, Some(TABLE));
+    assert_eq!(named, treasure_item_name(NAME, Some(TABLE)));
+    let suffix = named
+        .variables
+        .iter()
+        .find(|v| v.id == treasure_name::SUFFIX)
+        .expect("a suffix");
+    let auberean_protocol::text::VariableValue::Nested(suffix) = &suffix.value else {
+        panic!("a nested string");
+    };
+    assert_eq!(
+        (suffix.string_id, suffix.table_id),
+        (treasure_name::EFFECT_SUFFIX, TABLE)
+    );
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(item, 0x3FF)]),
+    );
+    h.run(10);
+    let got = profile_nodes(&h, a, from);
+    assert_eq!(got.len(), 1, "answered once");
+    let has = |id: u32| got[0].windows(4).any(|w| w == id.to_le_bytes());
+    assert!(has(treasure_name::EFFECT_SUFFIX) && has(TABLE), "named");
+    assert!(has(treasure_name::PREFIX_TEXT.0), "with treasure's word");
 }

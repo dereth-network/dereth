@@ -125,6 +125,7 @@ what they see, not how it was done.
 - A special attack's critical now does a quarter more, not double.
 - Weapons' crit bonuses now work.
 - Treasure rings and talismans can carry enchantments.
+- Enchanted loot is named for one of its effects.
 
 ## 0.1.2 (2026-11-03)
 
