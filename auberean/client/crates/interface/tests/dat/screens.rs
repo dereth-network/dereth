@@ -2678,14 +2678,15 @@ fn the_tooltip_switch_as_read_reaches_the_screens() {
 
 /// A door plays its scene with the player's body standing where it is. The scene stays up when the
 /// door's scene ends and after it has played, until the player's body has been sent through and
-/// stands at the other side with its cells loaded: then the story goes and the world shows.
+/// stands at the other side with its cells loaded: then the story goes and the world shows. Portal
+/// space never shows on the way, and the scripts hear the scenes are done.
 ///
 /// Behaviour: ui.story.a-doors-scene-ends-when-the-player-has-arrived
 #[test]
 fn a_doors_scene_ends_when_the_player_has_arrived() {
     use auberean_client_sdk::protocol::physics::ObjectPosition;
     use auberean_client_sdk::protocol::types::ObjectStamp;
-    use auberean_client_sdk::runtime::host::PanelNotice;
+    use auberean_client_sdk::runtime::host::{CallResult, PanelNotice};
     use auberean_client_sdk::script::native_object::NativeObject;
     use auberean_client_sdk::script::story::SceneInfo;
     const THROUGH: f64 = 20.0;
@@ -2705,8 +2706,10 @@ fn a_doors_scene_ends_when_the_player_has_arrived() {
         teleport_stamp: 2,
         velocity: Vec3::new(0.0, 0.0, 0.0),
     });
-    let (mut s, retail) =
-        into_the_world_with(script_with(vec![s2c(THROUGH, 1, 1, WORLD | 7, &put)]));
+    let (mut s, retail) = into_the_world_running(
+        script_with(vec![s2c(THROUGH, 1, 1, WORLD | 7, &put)]),
+        data_with_scripts(),
+    );
     assert!(
         until(&mut s, 5.0, |s| s.scene.arrivals() == 1),
         "arrived in the world"
@@ -2748,11 +2751,26 @@ fn a_doors_scene_ends_when_the_player_has_arrived() {
         "its end alone does not end it"
     );
     assert_eq!(s.scene.arrivals(), 1, "not through yet");
+    let mut tunnel = false;
     assert!(
-        until(&mut s, 30.0, |_| !story(&retail)),
+        until(&mut s, 30.0, |s| {
+            tunnel |= s.scene.in_portal_space();
+            !story(&retail)
+        }),
         "the player arrived"
     );
     assert_eq!(s.scene.arrivals(), 2);
+    assert!(!tunnel, "the scene plays in place of portal space");
+    until(&mut s, 0.5, |_| false);
+    let done = 0x00B4_0090;
+    assert!(
+        s.client
+            .as_ref()
+            .expect("in the world")
+            .asked
+            .contains(&(done, CallResult::Completed)),
+        "the scripts heard the scenes are done"
+    );
 }
 
 /// Credits pressed with Ctrl and Alt held and Shift not shows the other set of the credits' fields;

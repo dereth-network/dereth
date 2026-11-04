@@ -837,9 +837,17 @@ impl Client {
             // D2-00593, D2-01152
             Action::PlayScenesDone { scenes } => {
                 let ty = store::SCENE_LIST;
+                // None were handed to play (a door's, once the player has arrived): an empty list.
+                let bytes = if scenes.is_empty() {
+                    let mut w = auberean_script::wire::Out::new();
+                    auberean_script::story::write_scenes(&mut w, &[]);
+                    w.buf
+                } else {
+                    scenes
+                };
                 self.ask(
                     store::function::PLAY_SCENES_DONE,
-                    &[InterfaceArg::Native { ty, bytes: scenes }],
+                    &[InterfaceArg::Native { ty, bytes }],
                 );
             }
             // D2-00463, D2-01086

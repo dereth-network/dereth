@@ -1954,7 +1954,7 @@ pub static ROWS: &[Behaviour] = &[
         id: "ui.story.a-doors-scene-ends-when-the-player-has-arrived",
         says: "A scene played on the way through a door stays over the screen until the player's \
                body has been sent through and stands at the other side with its cells loaded; \
-               the door's scene ending does not end it. Then the story goes and the world shows.",
+               the door's scene ending does not end it. Then the story goes, the world shows and the                scripts hear the scenes are done. Portal space does not show on the way.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-DOOR-ARRIVAL"),
         station: "auberean-interface::dat::screens::a_doors_scene_ends_when_the_player_has_arrived",

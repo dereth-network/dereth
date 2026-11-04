@@ -1404,6 +1404,7 @@ impl Retail {
                     ..gameplay::Notice::default()
                 }),
                 R::ShowWorld(on) => requests.push(Request::ShowWorld(on)),
+                R::PortalScenePlaying(on) => requests.push(Request::PortalScenePlaying(on)),
                 R::PrecludeFromTop(n) => self.flow.flow.data.preclude.0 = n,
                 // The play screen takes these itself, before they would come here.
                 R::Notice(_) | R::ShortcutRows(_) => {}

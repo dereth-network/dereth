@@ -67,6 +67,8 @@ pub enum Request {
     Camera(CameraRequest),
     /// The world shown again, or hidden while the story plays.
     ShowWorld(bool),
+    /// A scene on the way through a door plays in place of portal space, or no longer does.
+    PortalScenePlaying(bool),
     /// Find the body under the pointer (window pixels) in the world as last drawn: the answer
     /// comes with the next frame's game ([`Game::world_pick`]).
     PickWorld { x: f32, y: f32 },

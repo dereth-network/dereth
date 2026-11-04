@@ -371,6 +371,8 @@ pub struct Scene<'w> {
     pub entering: bool,
     /// The player's teleport stamp last seen.
     teleport_stamp: Option<u16>,
+    /// A scene on the way through a door plays: no portal space while it does.
+    pub portal_scene_playing: bool,
     /// The player's body was placed with its cells loaded, last frame.
     ready_to_enter: bool,
     /// How many times the player's body has come to be placed with its cells loaded.
@@ -1205,6 +1207,7 @@ impl<'w> Scene<'w> {
             in_session: false,
             entering: false,
             teleport_stamp: None,
+            portal_scene_playing: false,
             ready_to_enter: false,
             arrivals: 0,
             placed_effects: PlacedEffects::default(),
@@ -1247,7 +1250,8 @@ impl<'w> Scene<'w> {
     /// Portal space follows the session: on at once when the player starts entering the world;
     /// then wanted until the server has the player in the world (it took the player out of it for
     /// a trip, or has not said who the player is yet) and the client has the player's body placed
-    /// with the world around it loaded; a teleport of the player wants it again.
+    /// with the world around it loaded; a teleport of the player wants it again, unless a door's
+    /// scene plays in its place.
     // D2-01910, D2-01944, D2-01909, D2-10657, D2-10665, D2-10643, D2-10644, D2-11001, D2-11002, D2-04056, D2-04057
     fn follow_portal_space(&mut self, client: &Client, now: f64) {
         let in_session = self.entering || client.model.player.is_some();
@@ -1257,6 +1261,7 @@ impl<'w> Scene<'w> {
             }
             self.in_session = false;
             self.teleport_stamp = None;
+            self.portal_scene_playing = false;
             self.ready_to_enter = false;
         } else {
             if !self.in_session {
@@ -1270,8 +1275,11 @@ impl<'w> Scene<'w> {
                 self.teleport_stamp = Some(stamp);
             }
             let client_ready = self.player.is_some() && !teleported;
-            self.portal
-                .want(!(server_ready && client_ready), false, now);
+            self.portal.want(
+                !(server_ready && client_ready) && !self.portal_scene_playing,
+                false,
+                now,
+            );
             let ready = client_ready && !self.cells.blocking;
             if ready && !self.ready_to_enter {
                 self.arrivals = self.arrivals.wrapping_add(1);

@@ -383,6 +383,7 @@ impl<'w, H: Host> Shell<'w, H> {
             }
             Request::Quit => self.quit = true,
             Request::ShowWorld(on) => self.scene.show_world(on),
+            Request::PortalScenePlaying(on) => self.scene.portal_scene_playing = on,
             Request::Camera(c) => self.camera(c),
             Request::PickWorld { x, y } => {
                 self.world_pick = Some(self.scene.pick_world((x, y), self.size));

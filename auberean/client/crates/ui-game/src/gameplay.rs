@@ -374,6 +374,8 @@ pub enum Request {
     PlayScenesDone(Vec<u8>),
     /// The world shown again, or hidden (while the story plays).
     ShowWorld(bool),
+    /// A scene on the way through a door plays in place of portal space, or no longer does.
+    PortalScenePlaying(bool),
     /// The story's music or voice played or stopped.
     StorySound(crate::story::Sound),
     /// The trade panel's.
@@ -1244,6 +1246,7 @@ impl GamePlay {
     ) {
         if playing {
             self.playing_portal_scene = true;
+            out.push(Request::PortalScenePlaying(true));
         }
         self.check_portal_scene(ui, scenes, out);
     }
@@ -1272,6 +1275,7 @@ impl GamePlay {
     pub fn player_ready_to_enter_world(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
         if self.playing_portal_scene {
             self.playing_portal_scene = false;
+            out.push(Request::PortalScenePlaying(false));
             self.check_portal_scene(ui, &crate::story::Scenes::default(), out);
         }
     }
