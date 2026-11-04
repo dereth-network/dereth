@@ -216,6 +216,8 @@ pub struct Editor<'w> {
     /// Every template of the install, for the finder; and what the finder looks for.
     templates: Vec<u32>,
     finding: Option<String>,
+    /// What the finder last searched for, for when it opens again.
+    last_find: String,
     /// The templates the finder's text matches, and the text they match.
     found: Option<(String, std::sync::Arc<[u32]>)>,
     /// The pictures drawn so far; `None` for one that shows nothing.
@@ -541,6 +543,7 @@ impl<'w> Editor<'w> {
             held: None,
             templates: Vec::new(),
             finding: None,
+            last_find: String::new(),
             found: None,
             pictures: HashMap::new(),
             pictures_wanted: Vec::new(),
@@ -1592,10 +1595,13 @@ impl<'w> Editor<'w> {
                         }
                     });
             });
+        self.last_find.clone_from(&text);
+        // A pick gets out of the way of where it goes; Shift keeps the window for the next.
+        let keep = ctx.input(|i| i.modifiers.shift);
         if let Some(t) = chosen {
             self.choose_template(t);
         }
-        if open {
+        if open && (chosen.is_none() || keep) {
             self.finding = Some(text);
         }
     }
@@ -2699,7 +2705,7 @@ impl<'w> Editor<'w> {
                         .on_hover_text("a template by its name")
                         .clicked()
                     {
-                        self.finding = Some(self.finding.take().unwrap_or_default());
+                        self.finding = Some(self.finding.take().unwrap_or(self.last_find.clone()));
                         self.focus_find = true;
                     }
                 }

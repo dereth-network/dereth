@@ -92,7 +92,8 @@ to where it leads.
   nearest others. A camp's creatures are listed by name, with how often each comes and **Add** for
   the template along the top.
 - **Find** shows the templates as pictures, by name or id. Click one and click the ground to place
-  it; the window stays open for the next. **Worn** shows what can be worn on a body.
+  it; Shift+click keeps the window open for the next, and it opens again on the same search.
+  **Worn** shows what can be worn on a body.
 - Ctrl+F or **Find rows** finds any row of the world by its name, template, kind or key, nearest
   or not, and goes to a landblock (`5766` or `5766:123,45`).
 - G stands the selected rows on what is under them; Shift+G also leans objects with the ground.
