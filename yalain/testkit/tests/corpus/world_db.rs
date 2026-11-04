@@ -1151,6 +1151,10 @@ fn a_person_gives_a_kill_quest_and_takes_it_back_as_the_recordings_show() {
     for (quest, play) in &sample {
         let (mut h, b, me) = served(t);
         h.server.quest_ids = quest_ids();
+        // Of a level no quest of the sample holds back.
+        for p in h.server.players.values_mut() {
+            yalain_world::quals::set_int(&mut p.qualities, 302, 60);
+        }
         for (i, (what, after)) in play.iter().enumerate() {
             let from = h.bots[b].inbox.len();
             match *what {
@@ -1242,6 +1246,7 @@ fn a_postings_board_gives_one_of_the_quests_it_lists_at_a_time() {
         .collect();
     assert!(listed.len() > 5, "{} postings", listed.len());
     let (mut h, b, me) = served(t);
+    set_level(&mut h, 72);
     let o = t
         .content
         .objects
@@ -1273,4 +1278,601 @@ fn a_postings_board_gives_one_of_the_quests_it_lists_at_a_time() {
     );
     use_person(&mut h, b, me, t, o);
     assert_eq!(held(&h), first, "none other while that one is under way");
+}
+
+/// Every vault's shard names the quest of its vault: hidden, with its setup's pay and points.
+/// Behaviour: server.story.shard-names-its-vaults-quest
+#[test]
+fn a_vaults_shard_completes_the_quest_of_its_vault() {
+    let t = &compiled().tables;
+    assert_eq!(
+        t.story.shard_quests.len(),
+        22,
+        "the 21 vaults and Soulbound"
+    );
+    let def = |q: &u32| t.quests.quest(*q).expect("the quest has a row");
+    for (object, q) in &t.story.shard_quests {
+        assert!(t.story.shards.contains_key(object));
+        assert!(def(q).hidden, "{q:08X} is told to nobody");
+        assert!(def(q).pay.points > 0, "{q:08X} adds to the rating");
+    }
+    // What 2017 paid as the player came out of each.
+    for (object, xp, points, challenge) in [
+        (0x4000_BD00_0000_0001u64, 800, 400, 8),
+        (0x4001_F900_0000_0001, 4500, 700, 13),
+        (0x4001_C400_0000_0001, 30_000_000, 2500, 54),
+        (0x4006_F600_0000_0001, 10_000_000, 80_000, 40),
+    ] {
+        let d = def(&t.story.shard_quests[&object]);
+        assert_eq!((d.xp, d.pay.points, d.challenge), (xp, points, challenge));
+    }
+}
+
+/// A quest with no setup adds what 2017's ratings moved by as it was completed.
+/// Behaviour: server.quests.points-with-no-setup
+#[test]
+fn the_quests_measured_with_no_setup_add_what_2017_added() {
+    let t = &compiled().tables;
+    let ids = quest_ids();
+    let points = |name: &str| {
+        t.quests
+            .quest(ids[name])
+            .unwrap_or_else(|| panic!("{name} has a row"))
+            .pay
+            .points
+    };
+    for (name, want) in [
+        ("QuestBarnesLostWish", 50),
+        ("QuestBarnesLumari", 750),
+        ("QuestBarnesOriad", 2500),
+        ("QuestIcefire", 50_000),
+        ("QuestRytheransBane", 60_000),
+        ("QuestKanten1", 50),
+        ("QuestLupe1", 1200),
+        ("QuestArmorLords", 30_000),
+    ] {
+        assert_eq!(points(name), want, "{name}");
+    }
+    assert_eq!(points("QuestRytheransReward"), 0, "measured at none");
+    assert_eq!(points("QuestBeetleHunt"), 15, "a setup's still its own");
+}
+
+/// A player's rating moved by the points of what it completed between two of its profiles, a
+/// vault's shard's quest among them, over every 2017 run of the client.
+/// Behaviour: server.quests.ratings-as-2017
+#[test]
+fn a_players_rating_moved_in_2017_by_the_points_of_what_it_completed() {
+    use auberean_testkit::captures::{self, carrier};
+    use yalain_world::requests::function;
+    const UPDATE_QUEST: u32 = 0x8213_0024;
+    const PROFILE: u32 = 0x820A_0009;
+    const PLAYER_OBJECT: u32 = 0x10060;
+    let lib = {
+        let dir = require_install(TARGET);
+        let found = install_dats(&dir).expect("the install");
+        let portal = DatFile::open(
+            &found
+                .iter()
+                .find(|(m, _)| *m == DatName::Portal)
+                .expect("a portal")
+                .1,
+        )
+        .expect("opens");
+        auberean_script::library::Library::from_record(
+            &portal
+                .read(auberean_script::library::RECORD)
+                .expect("the library's record"),
+        )
+        .expect("the library reads")
+    };
+    let t = &compiled().tables;
+    let index = auberean_testkit::data::require_capture_index();
+    let rating_var = yalain_world::profile::var::QUEST_RATING.to_le_bytes();
+    // A run's character, its rating last seen, what it has completed since, the shard last used.
+    let mut capture = -1;
+    let mut own = 0u64;
+    let mut last: Option<i64> = None;
+    let mut since: Vec<u32> = Vec::new();
+    let mut shard: Option<(u64, f64)> = None;
+    let (mut agree, mut more, mut less, mut profiles) = (0, Vec::new(), Vec::new(), 0);
+    captures::messages_in_time_order(
+        &index,
+        &[carrier::TO_PLAYER, carrier::TO_SERVER, PLAYER_OBJECT],
+        &[2017],
+        |m| {
+            if m.capture != capture {
+                capture = m.capture;
+                own = 0;
+                last = None;
+                since.clear();
+                shard = None;
+            }
+            if m.message_type == PLAYER_OBJECT {
+                if let Ok(ServerMessage::PlayerObject(p)) = ServerMessage::decode(&m.raw) {
+                    if p.id != own {
+                        last = None;
+                        since.clear();
+                    }
+                    own = p.id;
+                }
+                return;
+            }
+            let Some(call) = m.script_call() else { return };
+            if call.function == function::USE {
+                for (object, quest) in &t.story.shard_quests {
+                    let again = shard.is_some_and(|(o, at)| o == *object && m.time - at < 60.0);
+                    let named = call.args.windows(8).any(|w| w == object.to_le_bytes());
+                    if named && !again {
+                        since.push(*quest);
+                        shard = Some((*object, m.time));
+                    }
+                }
+            } else if call.function == UPDATE_QUEST {
+                if let Some(s) = said_by(&call.args, &lib) {
+                    if s.7 >> 28 == 3 && s.0 == 0 {
+                        since.push(s.2);
+                    }
+                }
+            } else if call.function == PROFILE && own != 0 {
+                let Some(at) = call.args.windows(4).position(|w| w == rating_var) else {
+                    return;
+                };
+                if !call.args[..at].windows(8).any(|w| w == own.to_le_bytes()) {
+                    return;
+                }
+                let word = call.args.get(at + 8..at + 12).expect("the value");
+                let now = i64::from(u32::from_le_bytes(word.try_into().expect("four")));
+                profiles += 1;
+                if let Some(before) = last {
+                    let points =
+                        |q: &u32| t.quests.quest(*q).map_or(0, |d| i64::from(d.pay.points));
+                    let added: i64 = since.iter().map(points).sum();
+                    let moved = now - before;
+                    if moved == added {
+                        agree += usize::from(moved != 0);
+                    } else if moved < added {
+                        less.push((m.session, before, now, since.clone()));
+                    } else {
+                        more.push((m.session, before, now, since.clone()));
+                    }
+                }
+                last = Some(now);
+                since.clear();
+            }
+        },
+    )
+    .expect("the capture index reads");
+    println!("2017 ratings: {profiles} own profiles, {agree} moves agree");
+    assert!(agree >= 100, "{agree} moves");
+    assert!(less.is_empty(), "moved by less: {less:x?}");
+    assert!(more.is_empty(), "moved by more: {more:x?}");
+}
+
+/// The install's effects a quest's updates put on its player, read as a server reads them.
+fn effects_of(def: &yalain_content::quests::QuestDef) -> yalain_world::effect_defs::EffectTable {
+    let dir = require_install(TARGET);
+    let found = install_dats(&dir).expect("the install");
+    let portal = DatFile::open(
+        &found
+            .iter()
+            .find(|(m, _)| *m == DatName::Portal)
+            .expect("a portal")
+            .1,
+    )
+    .expect("opens");
+    let ctx = Context::from_portal(&portal).expect("context");
+    let lib = portal
+        .read_checked(RECORD, Library::from_record)
+        .expect("the library reads")
+        .value;
+    let states: Vec<u32> = def.effects.iter().map(|(_, e)| *e).collect();
+    yalain_world::effect_defs::EffectTable::read(&lib, &states, &|id| {
+        let bytes = portal.read(id).ok()?;
+        let st: auberean_assets::script::ScriptState =
+            auberean_assets::decode(id, &bytes, &ctx).ok()?;
+        auberean_script::graph::Graph::decode(&st.graph, &lib).ok()
+    })
+}
+
+/// Put a character at a level.
+fn set_level(h: &mut Harness, level: i32) {
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::examine::LEVEL, level);
+    }
+}
+
+/// **What other quests require has rows**: the quests the setups of others name as required stand
+/// in the world, so a requirement asks of a quest a player can hold.
+/// Behaviour: server.quests.required-quests-have-rows
+#[test]
+fn the_quests_other_quests_require_are_in_the_world() {
+    let t = &compiled().tables;
+    for q in [
+        0x4000_0189u32, // the three portals of the bosses' mines
+        0x4000_0186,
+        0x4000_0183,
+        0x4000_0258, // the bug hunts' control
+        0x4000_026C, // the two chains' second and fourth
+        0x4000_026E,
+        0x4000_0271,
+        0x4000_0273,
+    ] {
+        assert!(t.quests.quest(q).is_some(), "{q:08X} has a row");
+    }
+}
+
+/// **An obelisk search sends its seeker from stone to stone**: each giving and each stone's advance
+/// is followed by the trip 2017's seekers made, to the next stone and last to the explorer; the
+/// explorer's completion sends no one. The landings are the recordings' (each step's commonest, of
+/// 4 to 7 sessions).
+/// Behaviour: server.quests.an-obelisk-search-leads-on
+#[test]
+fn an_obelisk_search_sends_its_seeker_from_stone_to_stone_as_the_recordings_show() {
+    let t = &compiled().tables;
+    type Stop = (u32, u32, u32);
+    const SEARCHES: [(u32, [Stop; 4]); 3] = [
+        (
+            0x4000_0018,
+            [
+                (0x4700_31E8, 1, 0x6CB9_0029),
+                (0x4700_31EF, 2, 0x5EB4_0022),
+                (0x4700_31F0, 3, 0x5FA5_003E),
+                (0x4700_31F1, 4, 0x66AF_000F),
+            ],
+        ),
+        (
+            0x4000_0017,
+            [
+                (0x4700_31EA, 1, 0x8CC3_000A),
+                (0x4700_31F2, 2, 0x97C3_002F),
+                (0x4700_31F3, 3, 0x9ABB_0038),
+                (0x4700_31F4, 4, 0x8EB6_000B),
+            ],
+        ),
+        (
+            0x4000_0016,
+            [
+                (0x4700_31E6, 1, 0x7FBB_000B),
+                (0x4700_31EC, 2, 0x8AB5_0012),
+                (0x4700_31ED, 3, 0x7DAB_0001),
+                (0x4700_31EE, 4, 0x76B8_0027),
+            ],
+        ),
+    ];
+    for (quest, stops) in SEARCHES {
+        let (mut h, b, me) = served(t);
+        for (who, phase, landing) in stops {
+            let i = t
+                .content
+                .objects
+                .iter()
+                .position(|o| o.template == who)
+                .expect("placed");
+            use_person(&mut h, b, me, t, i);
+            let p = h.server.players.values().next().expect("a player");
+            assert_eq!(
+                yalain_world::quests::phase_of(&p.play.quests, quest),
+                phase,
+                "{quest:08X} moved on by {who:08X}"
+            );
+            let until = h.now.0 + 12.0;
+            h.run_to(yalain_net::LocalTime(until));
+            let p = h.server.players.values().next().expect("a player");
+            assert_eq!(p.position.cell, landing, "{who:08X}'s trip");
+        }
+        let explorer = stops[0].0;
+        let i = t
+            .content
+            .objects
+            .iter()
+            .position(|o| o.template == explorer)
+            .expect("placed");
+        let at = t.content.objects[i].cell;
+        use_person(&mut h, b, me, t, i);
+        let until = h.now.0 + 12.0;
+        h.run_to(yalain_net::LocalTime(until));
+        let p = h.server.players.values().next().expect("a player");
+        assert!(
+            p.play
+                .quests
+                .iter()
+                .any(|x| x.quest == quest && x.status == yalain_world::quests::status::COMPLETED),
+            "{quest:08X} done"
+        );
+        assert_eq!(p.position.cell, at, "the last use sends no one");
+    }
+}
+
+/// **People who send whoever uses them**: the Virindi's envoy says its line and sends a player to
+/// Dominion Center, where 16 of 2017's 18 uses landed; the Portal Device where 3 of 3 did.
+/// Behaviour: server.quests.a-person-sends-whoever-uses-it
+#[test]
+fn a_person_who_sends_whoever_uses_it_says_its_line_and_sends_them_where_2017_landed() {
+    let t = &compiled().tables;
+    for (who, landing, lines) in [
+        (
+            0x4700_302Du32,
+            0x0499_0126u32,
+            &[0xA2FE_F207u32, 0x9291_E909][..],
+        ),
+        (0x4700_305E, 0x04A2_0104, &[][..]),
+    ] {
+        let (mut h, b, me) = served(t);
+        let i = t
+            .content
+            .objects
+            .iter()
+            .position(|o| o.template == who)
+            .expect("placed");
+        let said = use_person(&mut h, b, me, t, i);
+        assert!(
+            lines.is_empty()
+                || said
+                    .iter()
+                    .any(|(_, s)| s.is_some_and(|s| lines.contains(&s))),
+            "{who:08X} says its line: {said:08X?}"
+        );
+        let until = h.now.0 + 12.0;
+        h.run_to(yalain_net::LocalTime(until));
+        let p = h.server.players.values().next().expect("a player");
+        assert_eq!(p.position.cell, landing, "{who:08X}'s trip");
+    }
+}
+
+/// **A person says the line numbered for the quest it gives**: Brother Groli's table numbers his
+/// three quests, and each giving comes with its own first line and each use after with its own
+/// reminder, in every one of a few worlds (he picks at random).
+/// Behaviour: server.quests.a-giving-says-its-numbered-line
+#[test]
+fn a_person_says_the_line_numbered_for_the_quest_it_gives() {
+    const GROLI: u32 = 0x4700_308E;
+    const LINES: [(u32, u32, u32); 3] = [
+        (0x8000_00D3, 0x2AE6_124E, 0xCDEB_1FB2),
+        (0x8000_00D4, 0x2AE6_1248, 0xCDEB_2FB2),
+        (0x8000_00D5, 0x2AE6_124A, 0xCDEB_3FB2),
+    ];
+    let t = &compiled().tables;
+    let i = t
+        .content
+        .objects
+        .iter()
+        .position(|o| o.template == GROLI)
+        .expect("placed");
+    let mut given = std::collections::HashSet::new();
+    for _ in 0..6 {
+        let (mut h, b, me) = served(t);
+        // Of a level none of his quests holds back.
+        for p in h.server.players.values_mut() {
+            yalain_world::quals::set_int(&mut p.qualities, 302, 60);
+        }
+        for _ in 0..given.len() {
+            h.server.rng.below(7);
+        }
+        let said = use_person(&mut h, b, me, t, i);
+        let (quest, line, reminder) = LINES
+            .iter()
+            .find(|(q, _, _)| holds(&h, *q))
+            .copied()
+            .expect("one of his quests given");
+        assert!(
+            said.iter().any(|(_, s)| *s == Some(line)),
+            "{quest:08X}: its own line {line:08X} in {said:08X?}"
+        );
+        let said = use_person(&mut h, b, me, t, i);
+        assert!(
+            said.iter().any(|(_, s)| *s == Some(reminder)),
+            "{quest:08X}: its own reminder {reminder:08X} in {said:08X?}"
+        );
+        given.insert(quest);
+    }
+}
+
+/// **A posting from its giving to its wait**: the board gives its quest and with it, unseen, its
+/// `Underway`; gives no other, saying it sees none, until it is done; the last of 30 kills completes
+/// it and leaves `QuestPostingComplete` done; the board then gives nothing for 20 hours, and then
+/// gives again. A player under its least level is given nothing.
+/// Behaviour: server.quests.a-posting-waits-its-timer
+#[test]
+fn a_posting_is_given_finished_and_waited_for_as_its_definition_says() {
+    use yalain_content::quests::Trigger;
+    use yalain_world::quests::status;
+    const BOARD: u32 = 0x4700_3182;
+    const FELSISTERS: u32 = 0x8000_0216;
+    const THRALLS: u32 = 0x8000_023B;
+    const UNDERWAY: u32 = 0x8000_028E;
+    const COMPLETE: u32 = 0x8000_028D;
+    const TORMENT: u32 = 0x4700_2305;
+    const NONE_NOW: u32 = 0x83DF_378C;
+    let t = &compiled().tables;
+    let (mut h, b, me) = served(t);
+    h.server.quest_ids = quest_ids();
+    h.server.effect_table = effects_of(t.quests.quest(FELSISTERS).expect("a row"));
+    h.server
+        .quests
+        .steps
+        .retain(|s| s.trigger != Trigger::Use(BOARD) || s.quest == FELSISTERS);
+    let i = t
+        .content
+        .objects
+        .iter()
+        .position(|o| o.template == BOARD)
+        .expect("placed");
+    let said = use_person(&mut h, b, me, t, i);
+    assert!(!holds(&h, FELSISTERS), "under its least level");
+    assert!(
+        said.iter().any(|(_, s)| *s == Some(NONE_NOW)),
+        "the board sees none: {said:08X?}"
+    );
+    set_level(&mut h, 72);
+    let said = use_person(&mut h, b, me, t, i);
+    assert!(holds(&h, FELSISTERS) && holds(&h, UNDERWAY), "both held");
+    assert!(
+        said.iter().any(|(_, s)| *s == Some(0x9177_9F7E)),
+        "the board's line: {said:08X?}"
+    );
+    let said = use_person(&mut h, b, me, t, i);
+    assert!(
+        said.iter().any(|(_, s)| *s == Some(NONE_NOW)),
+        "no other while it is under way: {said:08X?}"
+    );
+    let install = dat_install();
+    for _ in 0..30 {
+        killed_as(&mut h, me, TORMENT, &install);
+    }
+    let state = |h: &Harness, q: u32| -> Option<u32> {
+        let p = h.server.players.values().next()?;
+        p.play
+            .quests
+            .iter()
+            .find(|x| x.quest == q)
+            .map(|x| x.status)
+    };
+    assert_eq!(state(&h, FELSISTERS), Some(status::COMPLETED), "30 kills");
+    assert_eq!(state(&h, UNDERWAY), Some(status::COMPLETED), "over");
+    assert_eq!(state(&h, COMPLETE), Some(status::COMPLETED), "the timer");
+    // Another of the board's quests waits for the timer too.
+    h.server.quests = t.quests.clone();
+    h.server
+        .quests
+        .steps
+        .retain(|s| s.trigger != Trigger::Use(BOARD) || s.quest == THRALLS);
+    h.unix += 3600;
+    let said = use_person(&mut h, b, me, t, i);
+    assert!(
+        !holds(&h, THRALLS) && said.iter().any(|(_, s)| *s == Some(NONE_NOW)),
+        "the timer is running: {said:08X?}"
+    );
+    h.unix += 20 * 3600;
+    use_person(&mut h, b, me, t, i);
+    assert!(holds(&h, THRALLS), "given once it is over");
+}
+
+/// A person says its under-level line to a player too low for what it gives, and gives it from the
+/// level recorded: 2017 heard Thin the Boglurk Armoredillos's person refuse a level 34 and give to a
+/// level 35. The line stays out of what it says to anyone else: a player who has done the quest is
+/// told it has no task, as 2017 heard at level 37. A world older than these rows has nothing to
+/// play.
+/// Behaviour: server.quests.under-level-line-is-the-persons
+#[test]
+fn a_person_says_its_under_level_line_to_a_player_too_low_and_to_no_one_else() {
+    const PERSON: u32 = 0x4700_3074;
+    const QUEST: u32 = 0x8000_00BE;
+    const TOO_LOW: u32 = 0x68F4_92A3;
+    const NO_TASK: u32 = 0x0920_0EFE;
+    let t = &compiled().tables;
+    let (mut h, b, me) = served(t);
+    let o = t
+        .content
+        .objects
+        .iter()
+        .position(|o| o.template == PERSON)
+        .expect("the person is placed");
+    let level = |h: &mut Harness, level: i32| {
+        for p in h.server.players.values_mut() {
+            yalain_world::quals::set_int(&mut p.qualities, 302, level);
+        }
+    };
+    level(&mut h, 34);
+    let said = use_person(&mut h, b, me, t, o);
+    assert!(
+        said.iter().any(|(_, s)| *s == Some(TOO_LOW)),
+        "its refusal: {said:08X?}"
+    );
+    assert!(!holds(&h, QUEST), "not given");
+    level(&mut h, 35);
+    let said = use_person(&mut h, b, me, t, o);
+    assert!(holds(&h, QUEST), "given: {said:08X?}");
+    // Done, and waiting to be given again: it says what it says to anyone.
+    for p in h.server.players.values_mut() {
+        p.play.quests.retain(|q| q.quest != QUEST);
+        p.play.quests.push(yalain_world::state::QuestState {
+            quest: QUEST,
+            status: yalain_world::quests::status::COMPLETED,
+            phase: 0,
+            started: i64::MAX / 2,
+            updated: i64::MAX / 2,
+        });
+    }
+    for _ in 0..16 {
+        let said = use_person(&mut h, b, me, t, o);
+        assert!(
+            !said.iter().any(|(_, s)| *s == Some(TOO_LOW)),
+            "never to one it would give to: {said:08X?}"
+        );
+        assert!(
+            said.iter().any(|(_, s)| *s == Some(NO_TASK)),
+            "it has no task for them: {said:08X?}"
+        );
+    }
+}
+
+/// The quests 2017 listed with no words of their own are shown, not hidden: three entries held
+/// the postings' two done quests, with the strings their definitions name, which are empty. A quest
+/// is hidden for having no string, not for an empty one.
+/// Behaviour: server.quests.empty-words-are-still-listed
+#[test]
+fn the_quests_2017_listed_with_empty_words_are_listed() {
+    use yalain_world::quests::{is_hidden, list, status};
+    use yalain_world::state::QuestState;
+    let t = &compiled().tables;
+    for (quest, name, journal) in [
+        (0x8000_028D_u32, 0xC2D0_C9C9_u32, 0xFAA2_0995_u32),
+        (0x8000_028B, 0xDB7E_E1BD, 0xFAA2_0995),
+    ] {
+        const TABLE: u32 = 0x2500_1654;
+        let d = t.quests.quest(quest).expect("the quest has a row");
+        assert_eq!(d.name, (name, TABLE));
+        assert_eq!(d.description, (journal, TABLE));
+        assert_eq!(d.icon, 0x4100_034B);
+        assert!(!is_hidden(&t.quests, d), "{quest:08X} is shown");
+        let held = [QuestState {
+            quest,
+            status: status::COMPLETED,
+            phase: 0,
+            started: 0,
+            updated: 0,
+        }];
+        assert_eq!(
+            list(&t.quests, &held, 0.0, 0.0)[..4],
+            1u32.to_le_bytes(),
+            "{quest:08X} is in the list"
+        );
+    }
+    let hidden = [QuestState {
+        quest: 0x4000_01CA,
+        status: status::COMPLETED,
+        phase: 0,
+        started: 0,
+        updated: 0,
+    }];
+    assert_eq!(
+        list(&t.quests, &hidden, 0.0, 0.0)[..4],
+        0u32.to_le_bytes(),
+        "a quest with no description is not"
+    );
+}
+
+/// The postings pay a share of what the player's level takes to reach the next, at most what it
+/// comes to at level 72: the 115,274,269 a player's guide of the time gives at that level. A world
+/// older than these rows has nothing to play.
+/// Behaviour: server.quests.postings-pay-a-share
+#[test]
+fn a_posting_pays_the_share_the_guide_gives() {
+    let t = &compiled().tables;
+    let root = t.quests.quest(0x8000_0216).expect("a posting");
+    let p = yalain_testkit::authored::Portal::open();
+    let levels = p.levels();
+    assert_eq!(
+        yalain_world::quests::completion_pay(&levels, root, 72),
+        115_274_269
+    );
+    assert_eq!(
+        yalain_world::quests::completion_pay(&levels, root, 80),
+        115_274_269,
+        "no more above it"
+    );
+    assert!(
+        yalain_world::quests::completion_pay(&levels, root, 70) < 115_274_269,
+        "less below it"
+    );
 }

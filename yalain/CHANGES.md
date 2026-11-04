@@ -39,6 +39,10 @@ what they see, not how it was done.
 - Objects meant for monarchs now refuse everyone else.
 - People no longer say "come back later" while you're on their quest.
 - From level 50, kills and quests well below your level pay less, as in 2017.
+- Obelisks and explorers now send players on, and more people and gates send whoever uses them.
+- Postings boards give one quest at a time, with a wait after each, and now pay experience.
+- People now turn you away when you're too low for their quests.
+- Finishing a vault now pays its experience as you leave.
 
 ## 0.1.2 (2026-11-03)
 

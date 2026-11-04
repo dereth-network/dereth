@@ -6464,6 +6464,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.a-giving-says-its-numbered-line",
+        says: "A person whose table numbers its quests says, as it gives one, the line \
+               numbered for that quest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-LINES"),
+        station: "yalain-testkit::corpus::world_db::a_person_says_the_line_numbered_for_the_quest_it_gives",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.a-heros-quest-only-for-a-hero",
         says: "A quest whose setup says heroes alone is given only to a hero, by a kill or a step, and \
                to anyone else nothing is given or said. Heroes were given such quests in all 14 known \
@@ -6594,12 +6603,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.a-person-sends-whoever-uses-it",
+        says: "A person who sends whoever uses it says its line and sends them to where \
+               2017's users landed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERSON-SENDS"),
+        station: "yalain-testkit::corpus::world_db::a_person_who_sends_whoever_uses_it_says_its_line_and_sends_them_where_2017_landed",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.a-person-sends-whoever-uses-it-speaks",
         says: "A person who sends whoever uses it says its line as it does.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PERSON-SENDS-LINE"),
         station: "yalain-testkit::cpu::play::talk::a_person_who_sends_whoever_uses_it_says_its_line_first",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-posting-waits-its-timer",
+        says: "A postings board gives its quest with its unseen under-way quest, no other \
+               until it is done, and none for its wait after.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-POSTINGS"),
+        station: "yalain-testkit::corpus::world_db::a_posting_is_given_finished_and_waited_for_as_its_definition_says",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.a-required-quest-holds-back-a-giving",
@@ -6648,6 +6675,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-KILL-NAMES"),
         station: "yalain-testkit::cpu::play::kill_quests::an_effects_name_says_what_it_does_to_which_quest",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.an-obelisk-search-leads-on",
+        says: "Each giving and each stone's advance of an obelisk search sends its seeker \
+               where 2017's landed; its completion sends no one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-OBELISK-SEARCH"),
+        station: "yalain-testkit::corpus::world_db::an_obelisk_search_sends_its_seeker_from_stone_to_stone_as_the_recordings_show",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.an-unrecorded-quest-reaches-no-fellow",
@@ -6718,6 +6754,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-ONCE-NO-ROWS"),
         station: "yalain-testkit::corpus::world_db::a_quest_its_setup_says_is_done_once_is_not_given_again_whatever_the_rows_say",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.empty-words-are-still-listed",
+        says: "A quest whose name and description are empty strings is listed and told as any other; a quest is hidden for naming no description.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-EMPTY-WORDS"),
+        station: "yalain-testkit::corpus::world_db::the_quests_2017_listed_with_empty_words_are_listed",
         tier: Tier::Corpus,
     },
     behaviour! {
@@ -6871,6 +6915,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.points-with-no-setup",
+        says: "A quest with no setup adds to a quest rating what 2017's ratings moved by as it was completed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-QUEST-POINTS-2017"),
+        station: "yalain-testkit::corpus::world_db::the_quests_measured_with_no_setup_add_what_2017_added",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.postings-pay-a-share",
+        says: "The postings pay a share of what the player's level takes to reach the next, at most what it comes to at level 72.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-POSTING-PAY"),
+        station: "yalain-testkit::corpus::world_db::a_posting_pays_the_share_the_guide_gives",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.ran-out-while-away",
         says: "A quest whose time ran out while its character was away is failed when the character \
                enters, its wait counted from when the time ran out.",
@@ -6878,6 +6938,22 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-RAN-OUT-AWAY"),
         station: "yalain-testkit::cpu::entry::keeping::a_quest_whose_time_ran_out_while_away_is_listed_failed",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.ratings-as-2017",
+        says: "A player's rating moved in 2017 by the points of what it completed between two of its profiles in a session.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-RATINGS-2017"),
+        station: "yalain-testkit::corpus::world_db::a_players_rating_moved_in_2017_by_the_points_of_what_it_completed",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.required-quests-have-rows",
+        says: "The quests other quests' setups require stand in the world.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-REQUIRED-QUESTS"),
+        station: "yalain-testkit::corpus::world_db::the_quests_other_quests_require_are_in_the_world",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.reward-done-with-its-quest",
@@ -6925,6 +7001,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-SUBQUESTS"),
         station: "yalain-testkit::cpu::play::quest_uses::a_quests_subquests_are_told_as_its_record_and_the_last_moves_it_on",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.under-level-line-is-the-persons",
+        says: "A person says its under-level line to a player too low for what it gives, and to no one else.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-UNDER-LEVEL-LINE"),
+        station: "yalain-testkit::corpus::world_db::a_person_says_its_under_level_line_to_a_player_too_low_and_to_no_one_else",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.update-effects-come-first",
@@ -7443,6 +7527,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-SHARD-QUESTS"),
         station: "yalain-testkit::cpu::play::story::a_vaults_shard_completes_its_quest_as_the_player_comes_out",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.story.shard-names-its-vaults-quest",
+        says: "Every vault's shard names the hidden quest of its vault, with that quest's setup's pay and points.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-SHARD-QUESTS-2017"),
+        station: "yalain-testkit::corpus::world_db::a_vaults_shard_completes_the_quest_of_its_vault",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.story.starting-scenes",
