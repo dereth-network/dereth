@@ -18,6 +18,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.a-behavior-the-server-started-it-can-stop-or-let-go",
+        says: "A hold the server started loops until the server lets it go, stops those a move                cancels, ends its layer, or, while it is within the cycles it was asked for, stops                all behaviors; each of them ends it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-SERVER-STOPS"),
+        station: "auberean-shell::dat::session::a_behavior_the_server_started_it_can_stop_or_let_go",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.a-behavior-with-an-emote-plays-when-the-objects-scripts-take-it",
         says: "A behavior the server asks of a body plays with the context 1; one carrying an emote \
                is first handed to the object's own scripts, and plays only when they take it.",
@@ -60,6 +68,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-ANIM-COLOR"),
         station: "auberean-shell::dat::session::a_body_is_drawn_in_the_color_its_sliders_hold",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.bodies.a-body-takes-a-script-a-motion-description-and-private-effects",
+        says: "A body the server asks plays an effect script and takes a new motion description; a                private effect plays on the player whoever else is near.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-SERVER-ASKS"),
+        station: "auberean-shell::dat::session::a_body_takes_a_script_a_motion_description_and_private_effects",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -145,6 +161,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DESKTOP-LIVES"),
         station: "auberean-scene::corpus::combat::an_object_is_in_the_world_while_its_body_stands_there",
         tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "desktop.bodies.an-object-starts-the-behaviors-and-effects-its-description-gives",
+        says: "An object the server creates plays at once the behaviors its description lists, and                the effects it lists, those that make objects making them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-DESCRIPTION-PLAYS"),
+        station: "auberean-shell::dat::session::an_object_starts_the_behaviors_and_effects_its_description_gives",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "desktop.bodies.an-object-takes-up-its-description",

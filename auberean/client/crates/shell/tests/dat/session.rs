@@ -3498,6 +3498,249 @@ fn an_object_an_effect_makes_lasts_as_its_entry_says() {
     assert_eq!(fades_after(0x4100_05BE), None, "below zero: it stays");
 }
 
+/// A hold the server starts on the player loops until each of the ways the server has of ending it
+/// ends it: letting it go, stopping all behaviors (a hold still within the cycles it was asked for,
+/// as they stop only what someone waits on), stopping those a move cancels, ending its layer.
+/// Fixture: a server double asking at set times.
+///
+/// Behaviour: desktop.bodies.a-behavior-the-server-started-it-can-stop-or-let-go
+#[test]
+fn a_behavior_the_server_started_it_can_stop_or_let_go() {
+    use auberean_client_sdk::protocol::physics::{NoAction, ObjectEvent, Release, Word};
+    use auberean_client_sdk::protocol::types::BehaviorParams;
+    /// A hold of the human's, on layer 6.
+    const HOLD: u32 = 0x4100_0125;
+    const LAYER: u32 = 6;
+    const MOVE_TO_CANCELS_WORD: usize = 1;
+    // Each event newer than the last.
+    let sender = |n: u16| ObjectStamp {
+        id: PLAYER,
+        instance_stamp: 1,
+        other_stamp: n,
+    };
+    let hold = |n: u16, move_to_cancels: bool, waited_on: bool| {
+        let mut p = BehaviorParams {
+            bits: BehaviorParams::BEHAVIOR,
+            behavior: HOLD,
+            ..BehaviorParams::default()
+        };
+        if move_to_cancels {
+            p.bits |= BehaviorParams::WORD_BITS[MOVE_TO_CANCELS_WORD];
+            p.words[MOVE_TO_CANCELS_WORD] = 1;
+        }
+        if waited_on {
+            p.bits |= BehaviorParams::HOLD_CYCLES;
+            p.hold_cycles = 1000;
+        }
+        ServerMessage::PlayBehavior(ObjectEvent {
+            sender: sender(n),
+            action: p,
+        })
+    };
+    let ends: [ServerMessage; 4] = [
+        ServerMessage::LetGoBehavior(ObjectEvent {
+            sender: sender(2),
+            action: Release {
+                behavior: HOLD,
+                params: BehaviorParams::default(),
+            },
+        }),
+        ServerMessage::StopAllBehaviors(ObjectEvent {
+            sender: sender(4),
+            action: NoAction,
+        }),
+        ServerMessage::StopMoveCancelsBehaviors(ObjectEvent {
+            sender: sender(6),
+            action: NoAction,
+        }),
+        ServerMessage::EndLayer(ObjectEvent {
+            sender: sender(8),
+            action: Word(LAYER),
+        }),
+    ];
+    // A hold every ten seconds from 9 s, ended 5 s on.
+    let mut later = Vec::new();
+    let mut at = 9.0;
+    for (k, end) in (0u16..).zip(&ends) {
+        later.push((at, hold(2 * k + 1, k == 2, k == 1)));
+        later.push((at + 5.0, end.clone()));
+        at += 10.0;
+    }
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 60.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let doing = |s: &Shell<'_, DoubleHost>| {
+        s.scene
+            .figure(PLAYER)
+            .is_some_and(|f| f.is_doing_behavior(HOLD))
+    };
+    while !doing(&s) && s.host.time < 30.0 {
+        step(&mut s);
+    }
+    for k in 0..ends.len() {
+        assert!(doing(&s), "hold {k} plays");
+        let started = s.host.time;
+        // It is still looping a second before the end is asked for.
+        while s.host.time < started + 3.5 {
+            step(&mut s);
+        }
+        assert!(doing(&s), "hold {k} loops until it is ended");
+        while doing(&s) && s.host.time < started + 9.5 {
+            step(&mut s);
+        }
+        assert!(!doing(&s), "end {k} ended the hold");
+        while !doing(&s) && k + 1 < ends.len() && s.host.time < started + 20.0 {
+            step(&mut s);
+        }
+    }
+}
+
+/// The rest the server asks of a body by itself: an effect script plays on the figure, a new motion
+/// description takes over, and a private effect plays on the player: this one makes an object.
+/// Fixture: a server double asking at set times.
+///
+/// Behaviour: desktop.bodies.a-body-takes-a-script-a-motion-description-and-private-effects
+#[test]
+fn a_body_takes_a_script_a_motion_description_and_private_effects() {
+    use auberean_client_sdk::protocol::physics::{ObjectEvent, PrivateFx, Word};
+    const SCRIPT: u32 = 0x5700_0005;
+    const MOTION: u32 = 0x3200_0001;
+    const MAKES_BLADES: u32 = 0x8100_0366;
+    let sender = ObjectStamp {
+        id: PLAYER,
+        instance_stamp: 1,
+        other_stamp: 0,
+    };
+    let later = [
+        (
+            9.0,
+            ServerMessage::DoFxScript(ObjectEvent {
+                sender,
+                action: Word(SCRIPT),
+            }),
+        ),
+        (
+            9.0,
+            ServerMessage::MotionInterpChange(ObjectEvent {
+                sender,
+                action: Word(MOTION),
+            }),
+        ),
+        (9.0, ServerMessage::PrivateFx(PrivateFx(vec![MAKES_BLADES]))),
+    ];
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let (mut played, mut made) = (false, false);
+    while s.host.time < 14.0 {
+        step(&mut s);
+        played |= s
+            .scene
+            .figure(PLAYER)
+            .is_some_and(|f| f.scripts.tracks.iter().any(|t| t.script == SCRIPT));
+        made |= !s.scene.made_objects().is_empty();
+    }
+    assert!(played, "the effect script played");
+    assert!(made, "the private effect played on the player");
+    let body = s.scene.body(PLAYER).expect("the player's body");
+    assert_eq!(body.minterp.desc_id, MOTION, "the motion description");
+}
+
+/// A creature created with behaviors and effects in its description plays them: the hold plays on
+/// its figure and the effect makes its object. Fixture: the human figure created in the hall's cell.
+///
+/// Behaviour: desktop.bodies.an-object-starts-the-behaviors-and-effects-its-description-gives
+#[test]
+fn an_object_starts_the_behaviors_and_effects_its_description_gives() {
+    use auberean_client_sdk::protocol::types::{BehaviorParams, RunningFx};
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const CREATURE: u64 = 0x8130_1B05_CC00_0191;
+    const HOLD: u32 = 0x4100_0125;
+    const MAKES_BLADES: u32 = 0x8100_0366;
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION | PhysicsDesc::BEHAVIORS | PhysicsDesc::FX,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: DRUDGES_CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: -3.9,
+                        y: 337.5,
+                        z: -44.7,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            behaviors: vec![BehaviorParams {
+                bits: BehaviorParams::BEHAVIOR,
+                behavior: HOLD,
+                ..BehaviorParams::default()
+            }],
+            fx: vec![RunningFx {
+                fx: MAKES_BLADES,
+                scalar: 1.0,
+                target: 0,
+            }],
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -44.7,
+    };
+    let script = script_until(DRUDGES_CELL, at, Quat::IDENTITY, &[creature], &[], 30.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let (mut plays, mut made) = (false, false);
+    while s.host.time < 14.0 {
+        step(&mut s);
+        plays |= s
+            .scene
+            .figure(CREATURE)
+            .is_some_and(|f| f.is_doing_behavior(HOLD));
+        made |= !s.scene.made_objects().is_empty();
+    }
+    assert!(plays, "the behavior its description lists plays");
+    assert!(made, "the effect its description lists makes its object");
+}
+
 /// The server asks the rest of what it can of a body, and the body does each: a global modifier and
 /// a terrain modifier are kept (and the terrain modifiers cleared), a new motion description is
 /// taken, a push toward an object gives it that speed away from the object, and a missile launched flies at the velocity given with
