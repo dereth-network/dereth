@@ -121,12 +121,13 @@ body.pad tr.pad-focus > td, body.pad .row.pad-focus { background: rgba(233, 199,
 .drag { position: fixed; top: 0; left: 0; right: 0; height: 36px; z-index: 5; }
 
 .shell {
+  --foot-height: 34px;
   position: relative; z-index: 1;
   display: grid;
   grid-template-columns: 206px minmax(0, 1fr);
   gap: 26px;
   height: 100%;
-  padding: 40px 28px 22px 28px;
+  padding: 40px 28px var(--foot-height) 28px;
 }
 
 /* ----- the lockup and the rail ------------------------------------------------------------------ */
@@ -159,11 +160,12 @@ body.pad tr.pad-focus > td, body.pad .row.pad-focus { background: rgba(233, 199,
   image-rendering: pixelated;
 }
 /* The footnote: the launcher's version, the website, and the desktop-shortcut button, as a line of
- * small print rather than a destination. */
+ * small print rather than a destination, in the middle of the strip under the rail and the page. */
 .foot {
-  margin-top: auto;
+  position: absolute; left: 28px; bottom: 0;
   display: flex;
   align-items: center;
+  height: var(--foot-height);
   gap: 7px;
   font: 13px var(--body);
   letter-spacing: 0.04em;
@@ -221,7 +223,7 @@ body.pad tr.pad-focus > td, body.pad .row.pad-focus { background: rgba(233, 199,
 .realm { display: flex; justify-content: space-around; width: 176px; flex: none; padding: 2px 0; }
 /* Auberean's realm says, on every screen, how early its games are. */
 .realm-note {
-  display: none; width: 176px; box-sizing: border-box; margin: 0; padding: 8px 10px;
+  display: none; width: 176px; box-sizing: border-box; margin: auto 0 0; padding: 8px 10px;
   border: 1px solid var(--line); border-radius: var(--radius); background: var(--glass);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   font-size: 13px; line-height: 1.35; color: var(--realm-bright); text-align: center;
