@@ -37,8 +37,8 @@ pub const BYTES_PER_INTERVAL: usize = 32 * 1024;
 
 /// The most sequenced packets a server has out unacknowledged before its large messages wait: ten
 /// of the client's requests to send again, which it makes one each 0.6 s, so a whole window lost
-/// is asked for again within six seconds, far inside the 120 s and the 4,096 packets a server
-/// keeps for resending.
+/// is asked for again within six seconds, far inside the time and the 4,096 packets a server keeps
+/// for resending.
 #[allow(clippy::cast_possible_truncation)]
 pub const WINDOW: u32 = 10 * MAX_NAK_IDS as u32;
 
