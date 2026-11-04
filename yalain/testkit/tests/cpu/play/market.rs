@@ -836,3 +836,42 @@ fn part_of_a_stack_whose_template_has_gone_is_not_put_up() {
     assert_eq!(h.server.things.get(stack).expect("kept").quantity, 5);
     assert_eq!(h.server.players[&w].play.items[0].quantity, 5);
 }
+
+/// A price collected past what money can count leaves the seller at the most it can.
+/// Behaviour: server.market.catalog-consignments-and-player-sales
+#[test]
+fn a_price_collected_past_what_money_counts_stops_at_the_most() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    money(&mut h, ida, 1_000);
+    money(&mut h, idb, 5_000);
+    let sword = put_up_a_made_item(&mut h, a, ida);
+    let mut g = Builder::new();
+    g.object(
+        0x1B76,
+        &[
+            Slot::Long(sword),
+            Slot::Ref(None),
+            Slot::Long(idb),
+            Slot::Int(1),
+            Slot::Long(BROKER),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    h.ask(b, PURCHASE, &[Arg::Object(g.graph())], 10);
+    money(&mut h, ida, -1);
+    let sale = h.server.market.list[0].sale;
+    let from = h.bots[a].inbox.len();
+    h.ask(
+        a,
+        function::COLLECT,
+        &[Arg::Int(1), Arg::Int(sale), Arg::LongInt(BROKER)],
+        10,
+    );
+    assert_eq!(last_money(&h, a, from), Some(-1));
+    assert!(h.server.market.list.is_empty());
+}

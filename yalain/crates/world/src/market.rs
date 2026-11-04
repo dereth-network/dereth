@@ -816,7 +816,7 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let paid = (f64::from(c.sold) * f64::from(c.price)).floor() as u32;
         if let Some(p) = s.players.get_mut(&world) {
-            let money = store::money(&p.qualities) + paid;
+            let money = store::money(&p.qualities).saturating_add(paid);
             crate::quals::set_int(&mut p.qualities, store::MONEY, money.cast_signed());
             progress::send_int(net, world, store::MONEY, money.cast_signed());
         }
