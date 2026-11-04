@@ -4357,6 +4357,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.lying-client.calls-hurt-nobody",
+        says: "Every call a client may make, of the shape it reads and with every value a \
+               lie, from fixed seeds, panics nothing and takes nothing of another player.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LYING-CALLS"),
+        station: "yalain-testkit::cpu::play::lying_client::every_call_of_its_shape_with_every_value_a_lie_does_no_harm",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.lying-client.messages-cut-and-bitten-do-no-harm",
+        says: "Messages cut short, bitten, grown and with counts inflated, from fixed \
+               seeds, through the real parser on every queue, panic nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LYING-BYTES"),
+        station: "yalain-testkit::cpu::play::lying_client::messages_cut_short_and_bitten_panic_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.a-consigned-item-keeps-what-it-holds",
         says: "An item on sale holds what it held in the pack: taken back unsold it comes as a new \
                item with the old one's value and own numbers, a restart leaves it as it was, and \

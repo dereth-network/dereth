@@ -32,6 +32,7 @@ mod interactions;
 mod items;
 mod kill_quests;
 mod kingdoms;
+mod lying_client;
 mod map_trips;
 mod maps;
 mod market;
