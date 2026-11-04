@@ -574,6 +574,9 @@ fn skill_names(files: &build::InstallFiles) -> Vec<(u32, String)> {
         .unwrap_or_default()
 }
 
+/// Where a world with nothing of its own yet opens: open ground on the edge of a town.
+const START: (u16, f32, f32) = (0x5766, 123.0, 50.0);
+
 /// Where the camera starts: `--at`, else where it was when the world was last closed, else over
 /// the target pack's first row, else over the
 /// outdoor landblock where the world places the most people and objects, looking north at them.
@@ -598,18 +601,7 @@ fn start_camera(o: &Options, session: &Session, scene: &mut scene::Scene<'_>) ->
         let at = e.at();
         (e.landblock(), at.x, at.y)
     } else {
-        let mut by: std::collections::BTreeMap<u16, (u32, f32, f32)> = Default::default();
-        for e in session.entries().iter().filter(|e| outdoors(e)) {
-            let at = e.at();
-            let s = by.entry(e.landblock()).or_default();
-            *s = (s.0 + 1, s.1 + at.x, s.2 + at.y);
-        }
-        #[allow(clippy::cast_precision_loss)]
-        by.into_iter()
-            .max_by_key(|(lb, (n, _, _))| (*n, std::cmp::Reverse(*lb)))
-            .map_or((0x77B8, 80.0, 80.0), |(lb, (n, x, y))| {
-                (lb, x / n as f32, y / n as f32)
-            })
+        START
     };
     let g = view::global(lb, [x, y, 0.0]);
     let ground = scene.ground(g[0], g[1]).unwrap_or(0.0);

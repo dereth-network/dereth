@@ -20,6 +20,7 @@ see, not how it was done.
 - Shift+click selects several rows, to move, turn, copy and take away together.
 - Lead a portal to a place from a list, and change a camp's creatures by name.
 - Placing and dragging land on platforms and other things the world has built, not just the ground.
+- A new world now opens looking at a town, not into a rock.
 - Find shows templates as pictures, and what can be worn on a body.
 - G puts the selection on the ground, and Shift+G leans objects with it.
 - Rows can be copied between landblocks with Ctrl+C and Ctrl+V.
