@@ -206,6 +206,8 @@ pub struct ViewScene {
     pub figures: Vec<ViewFigure>,
     /// A pick asked at the pointer (window pixels).
     pub pick: Option<(f32, f32)>,
+    /// Behaviors figures are to begin this frame: the figure's place in `figures`, the behavior.
+    pub behaviors: Vec<(usize, u32)>,
 }
 
 /// A viewport's frame: where it goes in the window, and what it shows.
@@ -219,6 +221,8 @@ struct Kept {
     figure: ViewFigure,
     body: Option<Figure>,
     scale: Vec3,
+    /// The behavior it was asked to play, while it plays it.
+    behavior: Option<u32>,
 }
 
 struct KeptScene {
@@ -248,6 +252,8 @@ pub struct Views {
     pub dice: Random,
     /// How long the scenes have been drawn, the clock their effects run on.
     clock: f64,
+    /// The figures still playing a behavior they were asked to: the scene, the figure.
+    pub behaving: Vec<(usize, usize)>,
     /// What each scene's last pick met (scene index, what it met).
     pub picked: Vec<(usize, Option<ViewHit>)>,
 }
@@ -395,6 +401,7 @@ impl Views {
         self.clock += f64::from(dt);
         let now = self.clock;
         let mut picked = Vec::new();
+        let mut behaving = Vec::new();
         let mut out = Vec::new();
         for (i, v) in scenes.iter().enumerate() {
             let kept = self.keep(records, i, v.scene);
@@ -402,6 +409,18 @@ impl Views {
             for (k, f) in v.figures.iter().enumerate() {
                 let same = kept.figures.get(k).is_some_and(|x| x.figure == *f);
                 if same {
+                    continue;
+                }
+                // Another mode alone: the figure goes over to it by its table's graph.
+                if let Some(x) = kept
+                    .figures
+                    .get_mut(k)
+                    .filter(|x| x.figure.mode != f.mode && same_but_mode(&x.figure, f))
+                {
+                    if let Some(b) = &mut x.body {
+                        b.do_mode(anims, 0, f.mode);
+                    }
+                    x.figure.mode = f.mode;
                     continue;
                 }
                 let look = Look::of(anims, &f.look).ok();
@@ -420,11 +439,22 @@ impl Views {
                     figure: f.clone(),
                     body,
                     scale,
+                    behavior: None,
                 };
                 if k < kept.figures.len() {
                     kept.figures[k] = kept_figure;
                 } else {
                     kept.figures.push(kept_figure);
+                }
+            }
+            for &(k, behavior) in &v.behaviors {
+                if let Some(f) = kept.figures.get_mut(k) {
+                    if let Some(b) = &mut f.body {
+                        let params = auberean_animation::track::Params::behavior(behavior);
+                        if b.do_behavior(anims, &params) {
+                            f.behavior = Some(behavior);
+                        }
+                    }
                 }
             }
             let mut bodies: Vec<(usize, Vec<ObjectBatch>)> = Vec::new();
@@ -433,6 +463,10 @@ impl Views {
                 let Some(b) = &mut f.body else { continue };
                 if !f.figure.still {
                     b.advance(anims, dt);
+                }
+                match f.behavior {
+                    Some(id) if b.is_doing_behavior(id) => behaving.push((i, k)),
+                    _ => f.behavior = None,
                 }
                 let rot = auberean_physics::body::heading_rotation(f.figure.heading);
                 let place = Mat4::from_parts(
@@ -501,8 +535,14 @@ impl Views {
             });
         }
         self.picked = picked;
+        self.behaving = behaving;
         out
     }
+}
+
+/// Whether two figures differ in nothing but the mode they stand in.
+fn same_but_mode(a: &ViewFigure, b: &ViewFigure) -> bool {
+    a.look == b.look && a.origin == b.origin && a.heading == b.heading && a.still == b.still
 }
 
 /// The day of a scene lit by its own lights alone: no sun and no ambient light, its own fog.

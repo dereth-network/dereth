@@ -35,8 +35,9 @@ const ON_ARM: Vec3 = Vec3 {
 };
 /// The hall's floor, which the figures stand on.
 const LANDMESH: &str = "CHARGEN_LANDMESH";
-/// The modes the figures stand in: in the hall, and being shaped.
+/// The modes the figures stand in: in the hall, the one under the pointer, and being shaped.
 const HALL_MODE: u32 = 0x4100_0006;
+const HALL_UNDER_MODE: u32 = 0x4100_0007;
 const SHAPING_MODE: u32 = 0x4100_0008;
 
 /// Where each race and sex stands in the hall: the floor's holding place.
@@ -189,6 +190,7 @@ pub fn select_scene(
         light: ViewLight::Scene,
         figures,
         pick: None,
+        behaviors: Vec::new(),
     })
 }
 
@@ -202,6 +204,7 @@ pub fn hall_scene(
     rect: auberean_ui::Rect,
     creation: &Creation,
     may_make: u32,
+    under: Option<usize>,
 ) -> Option<(ViewScene, Vec<(u32, u32)>)> {
     let scene: UiScene = records.get(HALL_SCENE)?;
     let camera = scene_camera(&scene, CAMERA)?;
@@ -236,7 +239,11 @@ pub fn hall_scene(
             look: desc,
             origin: place.point(loc.transform.offset),
             heading: heading_of(loc.transform.rotation) + heading_of(at.rotation),
-            mode: HALL_MODE,
+            mode: if under == Some(who.len()) {
+                HALL_UNDER_MODE
+            } else {
+                HALL_MODE
+            },
             still: false,
         });
         who.push((race, sex));
@@ -249,6 +256,7 @@ pub fn hall_scene(
             light: ViewLight::Scene,
             figures,
             pick: None,
+            behaviors: Vec::new(),
         },
         who,
     ))
@@ -317,5 +325,6 @@ pub fn shaping_scene(
             still: false,
         }],
         pick: None,
+        behaviors: Vec::new(),
     })
 }

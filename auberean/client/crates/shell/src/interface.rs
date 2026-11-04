@@ -150,6 +150,8 @@ pub struct Game<'a> {
     pub shown: &'a [Shown],
     /// What the last frame's picks met: per viewport scene that asked, its index in the
     /// overlay's scenes and the figure under the pointer, with the kind of mesh met there.
+    /// The figures still playing a behavior they were asked to: the scene, the figure.
+    pub behaving: &'a [(usize, usize)],
     pub picked: &'a [(usize, Option<auberean_scene::view::ViewHit>)],
     /// The notices the player's scripts sent the interface's panels since the last frame, oldest
     /// first.

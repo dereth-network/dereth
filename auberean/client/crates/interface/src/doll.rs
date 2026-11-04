@@ -141,6 +141,7 @@ impl Dolls {
                     still: true,
                 }],
                 pick,
+                behaviors: Vec::new(),
             });
         }
         asked

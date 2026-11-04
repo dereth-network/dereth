@@ -534,6 +534,10 @@ pub struct Retail {
     /// How many of the session's data download events the connecting screen was told.
     ddd_told: usize,
     pointer: (i32, i32),
+    /// Behaviors the figures of the screen's scene are to begin, and the frames until those asked
+    /// show as played.
+    behaviors: Vec<(usize, u32)>,
+    behaviors_begin: u8,
     behind: Option<Arc<Canvas>>,
     middle: Option<Arc<Canvas>>,
     front: Option<Arc<Canvas>>,
@@ -650,6 +654,8 @@ impl Retail {
             failure_told: false,
             ddd_told: 0,
             pointer: (0, 0),
+            behaviors: Vec::new(),
+            behaviors_begin: 0,
             behind: None,
             middle: None,
             front: None,

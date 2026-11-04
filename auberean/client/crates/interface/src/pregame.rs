@@ -553,9 +553,8 @@ impl Retail {
                     self.refresh_choices();
                 }
                 P::Behave { figure, behavior } => {
-                    // The scenes' figures play no behaviors yet: the behavior is over at once.
-                    tracing::debug!(figure, behavior, "a figure's behavior not played");
-                    self.flow.flow.data.pre.behaving.retain(|f| *f != figure);
+                    self.behaviors.push((figure, behavior));
+                    self.behaviors_begin = 2;
                 }
                 P::Randomize { mask } => {
                     if let Some(c) = &mut self.creation {
@@ -635,7 +634,8 @@ impl Retail {
             let rect = a.viewport().and_then(|v| self.ui.screen_rect(v));
             if let (Some(c), Some(r)) = (&self.creation, rect) {
                 let may = self.flow.flow.data.pre.may_make;
-                if let Some((v, who)) = hall::hall_scene(records, r, c, may) {
+                let under = self.flow.flow.data.pre.under;
+                if let Some((v, who)) = hall::hall_scene(records, r, c, may, under) {
                     self.flow.flow.data.pre.hall = who
                         .iter()
                         .map(|&(race, sex)| Avatar { race, sex })
@@ -652,6 +652,7 @@ impl Retail {
         match &mut scene {
             Some(v) => {
                 v.pick = self.pick.take();
+                v.behaviors = std::mem::take(&mut self.behaviors);
                 overlay.scenes.push(v.clone());
             }
             None if self.picking => {
@@ -666,6 +667,17 @@ impl Retail {
     /// What the last frame's pick found, for the screen that asked.
     // D2-01816, D2-01842
     pub(crate) fn pregame_picked(&mut self, game: &Game<'_>) {
+        // A behavior asked shows as played only once a frame has drawn it.
+        if self.behaviors_begin > 0 {
+            self.behaviors_begin -= 1;
+        } else {
+            self.flow
+                .flow
+                .data
+                .pre
+                .behaving
+                .retain(|f| game.behaving.contains(&(0, *f)));
+        }
         if !self.picking || self.pick.is_some() {
             return;
         }

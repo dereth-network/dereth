@@ -94,6 +94,8 @@ pub struct Data {
     /// The answer to the last selection in a screen's scene: the figure the pointer was over, or
     /// none; `None` while it is asked or when none was.
     pub selection: Option<Option<usize>>,
+    /// The figure of the hall under the pointer.
+    pub under: Option<usize>,
     /// The figures of the hall still playing a behavior they were asked to.
     pub behaving: Vec<usize>,
     /// The pointer, in the screen's pixels.

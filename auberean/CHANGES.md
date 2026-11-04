@@ -55,6 +55,7 @@ not how it was done.
 - Screen brightness now works in full screen.
 - You can now restore a deleted character.
 - Character creation now has its proper lights, flames and framing.
+- Avatars in the hall pose when you point at them and act when chosen.
 
 ## 0.1.2 (2026-11-02)
 

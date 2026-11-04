@@ -75,6 +75,7 @@ macro_rules! game {
             heard: &$s.fresh,
             shown: &$s.shown,
             picked: &$s.scene.views.picked,
+            behaving: &$s.scene.views.behaving,
             notices: &$s.notices,
             seen: &$s.scene.seen,
             world_pick: $s.world_pick,

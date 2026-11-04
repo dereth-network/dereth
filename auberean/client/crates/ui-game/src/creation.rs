@@ -265,6 +265,7 @@ impl AvatarSelection {
                 self.mouse_off_object(ui);
             }
             self.under = found;
+            data.under = found;
             if self.under.is_some() {
                 self.mouse_on_object(ui, data);
             }
@@ -309,6 +310,7 @@ impl Screen for AvatarSelection {
     // D2-01855, D2-01857
     fn close(mut self: Box<Self>, ui: &mut Ui, data: &mut Data, out: &mut Vec<Request>) {
         self.selecting = false;
+        data.under = None;
         data.behaving.clear();
         ui.drop_frame(self.frame);
         pregame::dialog_down(self.wait_context, out);

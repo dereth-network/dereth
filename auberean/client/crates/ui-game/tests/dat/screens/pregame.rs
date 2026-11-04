@@ -627,6 +627,8 @@ fn the_hall_describes_the_avatar_under_the_pointer_and_a_press_chooses_it() {
         behavior: creation::LEAVE_BEHAVIOR
     }));
     assert!(queued(&asked).is_empty(), "the behavior first");
+    r.step();
+    assert!(queued(&r.take()).is_empty(), "while the figure plays it");
     r.data.behaving.clear();
     r.step();
     assert_eq!(queued(&r.take()), vec![mode::AVATAR_MODIFICATION]);

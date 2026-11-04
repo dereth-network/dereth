@@ -536,8 +536,15 @@ fn into_the_world_running(
         step(&mut s);
     }
     click(&mut s, (830.0, 470.0));
+    // The figure chosen plays its leaving first: the next screen waits for it.
+    step(&mut s);
+    assert_eq!(
+        screen(&retail),
+        "avatar",
+        "the chosen figure plays its behavior"
+    );
     assert!(
-        until(&mut s, 1.0, |_| screen(&retail) == "appearance"),
+        until(&mut s, 20.0, |_| screen(&retail) == "appearance"),
         "a human picked: {}",
         screen(&retail)
     );
