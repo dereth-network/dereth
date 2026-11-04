@@ -1161,9 +1161,12 @@ fn carried_place(offset: &Mat4, remove_rotation: bool, place: &Mat4) -> Mat4 {
     offset.then(place)
 }
 
+/// How long an object an effect makes or retargets lasts when its entry doesn't say, seconds.
+const DEFAULT_LIFETIME: f32 = 15.0;
+
 /// How long an entry of an effect plays, seconds; none for until it is stopped: a looping particle
-/// system's never ends, else none at all; an object it makes or a retarget with a lifetime, that
-/// lifetime; an effect on a target, never; an appearance, a tenth of a second when its scalar
+/// system's never ends, else none at all; an object it makes or a retarget, its lifetime if not 0
+/// (15 s unless the entry says, never if negative); an effect on a target, never; an appearance, a tenth of a second when its scalar
 /// lessens it, else never; an effect script, the script's length. (A color it restores is not
 /// played here.)
 // D2-06903
@@ -1174,10 +1177,11 @@ fn calc_duration(
     script: Option<u32>,
 ) -> Option<f64> {
     let mut d = if looping { None } else { Some(0.0) };
-    if (node.visual_desc.is_some_and(|v| !v.is_none()) || node.retarget == Some(true))
-        && node.lifetime.is_some_and(|l| l != 0.0)
-    {
-        d = node.lifetime.map(f64::from);
+    if node.visual_desc.is_some_and(|v| !v.is_none()) || node.retarget == Some(true) {
+        let life = f64::from(node.lifetime.unwrap_or(DEFAULT_LIFETIME));
+        if life != 0.0 {
+            d = (life >= 0.0).then_some(life);
+        }
     }
     if node.target_fx.is_some_and(|t| t != 0) {
         d = None;

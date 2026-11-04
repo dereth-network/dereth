@@ -112,6 +112,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.bodies.an-object-an-effect-makes-goes-with-its-behavior",
+        says: "An object an effect makes hangs from the object playing it at the entry's holding                location or bone. An entry naming a behavior plays it on the object; as it ends the                object is hidden at once and goes three seconds later, whenever the effect ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-MADE-BEHAVIOR"),
+        station: "auberean-shell::dat::session::an_object_an_effect_makes_goes_with_its_behavior",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "desktop.bodies.an-object-an-effect-makes-lasts-as-its-entry-says",
+        says: "An object an effect makes with no behavior lasts as long as its entry says: 15 seconds                if it says nothing, until the effect is stopped if it says less than none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-MADE-LIFETIME"),
+        station: "auberean-shell::dat::session::an_object_an_effect_makes_lasts_as_its_entry_says",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.an-object-is-in-the-world-while-its-body-stands-there",
         says: "With the scene placing the bodies, an object's scripts are told it entered the \
                world when its body did (an object with no body, when its place's cell is \

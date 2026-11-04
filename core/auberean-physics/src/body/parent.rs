@@ -419,6 +419,33 @@ pub struct TakeUp {
     pub child_is_temporary: bool,
 }
 
+/// Body `child`, an object an effect made, hangs from `parent` at holding location `location` (none:
+/// at the bone of kind `bone`), `offset` from there, keeping only the place of that point when
+/// `remove_rotation`: the holder adds it, then it lets go of any holder it had and leaves the world.
+/// It takes no mode from the holder. Whether it was taken up.
+// D2-05997
+#[allow(clippy::too_many_arguments)]
+pub fn fx_set_parent(
+    child: &mut Body,
+    parent: &mut Body,
+    location: u32,
+    bone: u32,
+    offset: Vec3,
+    remove_rotation: bool,
+    land: &Land,
+    world: &mut World,
+    objects: &mut dyn Objects,
+) -> bool {
+    if !parent.add_child(child, location, bone, offset, remove_rotation, true) {
+        return false;
+    }
+    child.unset_parent();
+    child.leave_world(land, world, objects, None);
+    child.parent = parent.id;
+    child.has_parent = true;
+    true
+}
+
 /// Body `child` is taken up by `parent` (see [`TakeUp`]; the holder's own frame always, another
 /// holding location only when the holder's setup has it): the holder adds it, then it lets go of
 /// any holder it had and leaves the world, and changes to the holder's mode. Whether it was

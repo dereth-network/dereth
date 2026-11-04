@@ -36,7 +36,7 @@ not how it was done.
 - An admin character's commands now work: the game's admin commands, with their own dumps and answers.
 - Fixed objects vanishing on an out-of-date message.
 - Fixed things that should push you, such as currents, not pushing you.
-- Effects aimed at someone now act on them, and effects make their objects.
+- Effects aimed at someone now act on them, and effects make their objects, which go when the effect ends.
 - Fixed walking through solids that hang over a block edge.
 - Objects change detail as you move, not in steps.
 - The far landscape reaches a block farther and thins out with distance.

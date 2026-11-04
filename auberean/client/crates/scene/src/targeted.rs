@@ -12,8 +12,9 @@ use crate::{Client, Scene};
 
 /// A second property of the physics type an object an effect makes passes through.
 const MADE_OBJECT_ETHEREAL: u32 = 0x4000_0026;
-/// The slider an object an effect makes fades in on, to its whole size over a quarter second.
+/// The slider an object an effect makes fades in on, over its entry's ramp time, else this long.
 const MADE_OBJECT_FADE_SLIDER: u32 = 0x4000_001A;
+const MADE_OBJECT_FADE_IN: f32 = 0.25;
 /// How long an object an effect made fades out when the effect ends, and how long until it goes.
 const MADE_OBJECT_FADE: f64 = 0.5;
 const MADE_OBJECT_GONE: f64 = 3.0;
@@ -170,9 +171,10 @@ impl Scene<'_> {
     }
 
     /// An object an effect makes: the effect aims at it; it passes through what objects made this
-    /// way do, fades in, and stands where the object playing it does, or is held by it at the
-    /// entry's holding location or bone. Unless it plays the behavior the entry names, it goes
-    /// when the effect ends.
+    /// way do, fades in, and hangs from the object playing it at the entry's holding location or
+    /// bone, or stands where that object does (on the water, for an entry that says so). An entry
+    /// naming a behavior has it play and destroy the object as it ends; otherwise, or if it can't
+    /// play, the object goes when the effect ends.
     // D2-06052
     fn do_create_object_fx(&mut self, client: &mut Client, a: &mut Aimed, look: u32, n: &FxNode) {
         let Some(made) = self.create_temporary(client, look, -1.0) else {
@@ -181,22 +183,43 @@ impl Scene<'_> {
         self.set_made_object(a.object, made);
         a.target = made;
         if let Some(f) = self.temporaries.figure_mut(made) {
+            let ramp = n.ramp_time.unwrap_or(0.0);
+            let fade = if ramp == 0.0 {
+                MADE_OBJECT_FADE_IN
+            } else {
+                ramp
+            };
             f.sliders.do_slider(0, MADE_OBJECT_FADE_SLIDER, 0.0, 0.0);
-            f.sliders.do_slider(0, MADE_OBJECT_FADE_SLIDER, 1.0, 0.25);
+            f.sliders.do_slider(0, MADE_OBJECT_FADE_SLIDER, 1.0, fade);
         }
-        if let Some(location) = n.holding_location.or(n.bone) {
-            self.hold_temporary(made, a.object, location);
-        } else if let Some(at) = self.body(a.object).map(|b| b.position) {
+        let (location, bone) = (n.holding_location.unwrap_or(0), n.bone.unwrap_or(0));
+        if location != 0 || bone != 0 {
+            self.fx_hold_temporary(
+                client,
+                made,
+                a.object,
+                (location, bone),
+                crate::pv(n.bone_offset.unwrap_or(auberean_primitives::Vec3::ZERO)),
+                n.remove_rotation == Some(true),
+            );
+        } else if let Some(mut at) = self.body(a.object).map(|b| b.position) {
+            if n.water_plane == Some(true) {
+                if let Some(h) = crate::water_height(&self.land, at.cell) {
+                    at.frame.origin.z = h;
+                }
+            }
             let (land, table) = (&self.land, &mut self.table);
             if let Some(b) = self.temporaries.body_mut(made) {
                 b.enter_world_at(land, table, &at, false);
             }
         }
-        let plays = n.behavior.is_some_and(|behavior| {
+        let plays = n.behavior.filter(|b| *b != 0).is_some_and(|behavior| {
             self.play_behavior(
                 made,
                 &auberean_animation::track::Params {
                     behavior,
+                    destroy_on_completion: true,
+                    context: 1,
                     ..auberean_animation::track::Params::default()
                 },
             )

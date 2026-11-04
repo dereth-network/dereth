@@ -2683,6 +2683,7 @@ impl<'w> Scene<'w> {
         // What the figures asked beyond their animation, and the effects the scripts played.
         asked_of.extend(self.others.take_figure_events());
         asked_of.extend(self.held.take_figure_events());
+        asked_of.extend(self.temporaries.take_figure_events(client.local_time()));
         let mut played = std::mem::take(&mut self.asked_fx);
         let asked = played.len();
         played.extend(

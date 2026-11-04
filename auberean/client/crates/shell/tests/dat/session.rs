@@ -3266,6 +3266,148 @@ fn an_aimed_effect_acts_on_its_target() {
     );
 }
 
+/// An effect that makes an object and names a behavior: the object hangs from the player at the
+/// entry's holding location, is hidden at once as its behavior ends, and goes three seconds later,
+/// past the effect's own second. Fixture: a server double asking the player's body for the effect
+/// at a set time.
+///
+/// Behaviour: desktop.bodies.an-object-an-effect-makes-goes-with-its-behavior
+#[test]
+fn an_object_an_effect_makes_goes_with_its_behavior() {
+    use auberean_client_sdk::protocol::physics::{Fx, ObjectEvent};
+    const MAKES_BLADES: u32 = 0x8100_0366;
+    const OPACITY: u32 = 0x4000_0015;
+    let later = [(
+        9.0,
+        ServerMessage::DoFx(ObjectEvent {
+            sender: ObjectStamp {
+                id: PLAYER,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            action: Fx {
+                fx: MAKES_BLADES,
+                scalar: 1.0,
+            },
+        }),
+    )];
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let mut made = None;
+    while made.is_none() && s.host.time < 20.0 {
+        step(&mut s);
+        made = s.scene.made_objects().first().copied();
+    }
+    let made = made.expect("the effect made its object");
+    assert!(
+        s.scene.body(made).is_some_and(|b| b.has_parent),
+        "it hangs from the player"
+    );
+    let start = s.host.time;
+    let shown = |s: &Shell<_>| {
+        s.scene
+            .figure(made)
+            .is_some_and(|f| f.sliders.current(OPACITY) > 0.0)
+    };
+    while shown(&s) && s.host.time < start + 20.0 {
+        step(&mut s);
+    }
+    let hidden_after = s.host.time - start;
+    assert!(
+        s.scene.made_objects().contains(&made),
+        "hidden, not yet gone"
+    );
+    assert!(
+        (0.3..2.0).contains(&hidden_after),
+        "hidden as its behavior ends, 0.6 s in: {hidden_after}"
+    );
+    let hidden_at = s.host.time;
+    while s.scene.made_objects().contains(&made) && s.host.time < hidden_at + 20.0 {
+        step(&mut s);
+    }
+    let gone_after = s.host.time - hidden_at;
+    assert!(
+        (2.5..3.5).contains(&gone_after),
+        "it goes three seconds later: {gone_after}"
+    );
+    let holder = s.scene.body(PLAYER).expect("the player's body");
+    assert!(
+        holder
+            .children
+            .as_ref()
+            .is_none_or(|c| c.children.iter().all(|c| c.id != made)),
+        "the player no longer holds it"
+    );
+}
+
+/// An effect whose entry makes an object, names no behavior and gives no lifetime has it for 15
+/// seconds, then it fades out; one giving a lifetime below zero keeps it. Fixture: a server double
+/// asking the player's body for each effect at a set time, in sessions of their own.
+///
+/// Behaviour: desktop.bodies.an-object-an-effect-makes-lasts-as-its-entry-says
+#[test]
+fn an_object_an_effect_makes_lasts_as_its_entry_says() {
+    use auberean_client_sdk::protocol::physics::{Fx, ObjectEvent};
+    const OPACITY: u32 = 0x4000_0015;
+    // How long after it was made the effect's object starts to fade, if within 30 s.
+    let fades_after = |effect: u32| -> Option<f64> {
+        let later = [(
+            9.0,
+            ServerMessage::DoFx(ObjectEvent {
+                sender: ObjectStamp {
+                    id: PLAYER,
+                    instance_stamp: 1,
+                    other_stamp: 0,
+                },
+                action: Fx {
+                    fx: effect,
+                    scalar: 1.0,
+                },
+            }),
+        )];
+        let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 60.0);
+        let server =
+            ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+        let mut s = shell_with(
+            script,
+            Box::new(DevLogin::new(
+                server,
+                "tester".into(),
+                "t".into(),
+                Some("tester".into()),
+            )),
+        );
+        let mut made = None;
+        while made.is_none() && s.host.time < 20.0 {
+            step(&mut s);
+            made = s.scene.made_objects().first().copied();
+        }
+        let made = made.expect("the effect made its object");
+        let start = s.host.time;
+        while s.host.time < start + 30.0 {
+            step(&mut s);
+            let figure = s.scene.figure(made).expect("its figure");
+            if figure.sliders.desired(OPACITY) == 0.0 {
+                return Some(s.host.time - start);
+            }
+        }
+        None
+    };
+    let fades = fades_after(0x4100_0672).expect("an entry that says nothing ends");
+    assert!((14.5..16.0).contains(&fades), "15 seconds: {fades}");
+    assert_eq!(fades_after(0x4100_05BE), None, "below zero: it stays");
+}
+
 /// The server asks the rest of what it can of a body, and the body does each: a global modifier and
 /// a terrain modifier are kept (and the terrain modifiers cleared), a new motion description is
 /// taken, a push toward an object gives it that speed away from the object, and a missile launched flies at the velocity given with
