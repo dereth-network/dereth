@@ -495,6 +495,8 @@ impl Controls {
                         motion::STRAFE_RIGHT => sideways += e,
                         motion::STRAFE_LEFT => sideways -= e,
                         motion::JUMP => jump = true,
+                        // The other values are the rows for modifier bit 8, which no modifier
+                        // action in the data sets.
                         _ => {}
                     }
                 }

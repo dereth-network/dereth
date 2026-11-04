@@ -611,6 +611,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.controls.no-modifier-key-reaches-the-rows-for-bit-eight",
+        says: "The action map's rows for modifier bit 8 give movement values no other row gives, and \
+               no modifier action sets that bit, so every movement action keeps its ordinary value.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODIFIER-BIT-EIGHT"),
+        station: "auberean-shell::dat::controls::no_modifier_key_reaches_the_rows_for_bit_eight",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.controls.select-use-and-letting-go-on-focus-loss",
         says: "The selection keys select, Escape clears the selection and F uses what is selected; \
                a window that loses the keyboard lets every key go.",

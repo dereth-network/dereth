@@ -431,3 +431,49 @@ fn a_behavior_action_plays_and_stops_its_behavior() {
     c.action_handler(&held, HELD, 0.0, 1, 7);
     assert_eq!(c.intent(&held).behaviors, [(BEHAVIOR, false)]);
 }
+
+/// The action map's rows for modifier bit 8 give movement values no other row gives, yet no modifier
+/// action sets that bit: with every modifier key held the bits are Shift, Ctrl and Alt alone, and
+/// each movement action keeps its ordinary value.
+///
+/// Behaviour: desktop.controls.no-modifier-key-reaches-the-rows-for-bit-eight
+#[test]
+fn no_modifier_key_reaches_the_rows_for_bit_eight() {
+    const MOVEMENT_CLASS: u32 = 0x4000_0001;
+    const MODIFIER_CLASS: u32 = 0x4000_0005;
+    let map = &keys().records.action_map;
+    let hidden: Vec<(u32, u32)> = map
+        .actions
+        .iter()
+        .filter(|e| e.modifiers == 8)
+        .map(|e| (e.action, e.value))
+        .collect();
+    assert_eq!(
+        hidden,
+        vec![
+            (0x4000_0021, 0x4000_0009),
+            (0x4000_0022, 0x4000_000C),
+            (0x4000_0023, 0x4000_000D),
+            (0x4000_0024, 0x4000_000B),
+            (0x4000_0025, 0x4000_000A),
+        ],
+    );
+    let bits = map
+        .actions
+        .iter()
+        .filter(|e| e.class == MODIFIER_CLASS)
+        .fold(0, |m, e| m | e.value);
+    assert_eq!(bits, 7, "the modifier actions set Shift, Ctrl and Alt");
+    let mut c = controls();
+    for key in [Key::ShiftLeft, Key::ControlLeft, Key::AltLeft] {
+        down(&mut c, key);
+    }
+    let held = c.modifier_bitfield(keys());
+    assert_eq!(held & 8, 0, "held: {held:#x}");
+    assert_ne!(held, 0, "the keys took");
+    for (action, value) in hidden {
+        let v = keys().records.values(action, held).expect("its values");
+        assert_eq!(v.class, MOVEMENT_CLASS);
+        assert_ne!(v.value, value, "{action:#x}");
+    }
+}
