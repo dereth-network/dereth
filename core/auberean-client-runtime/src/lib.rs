@@ -102,9 +102,6 @@ pub use auberean_glue::chat_options;
 pub use host::{CallResult, InterfaceArg, Scripts};
 use interface::function;
 
-/// The server's answer to a move of an item.
-const MOVE_ITEM_DONE: u32 = 0x820E_005E;
-
 /// The server's call that puts the player in portal space, and the one that takes it out.
 pub const ENTER_PORTAL_SPACE: u32 = 0x8212_0020;
 pub const EXIT_PORTAL_SPACE: u32 = 0x8212_001B;
@@ -1340,7 +1337,6 @@ impl Client {
     /// again, and objects the server had the client forget go. (A host that hands messages over
     /// itself, a recording, calls it once a frame.)
     pub fn upkeep(&mut self) {
-        self.with_host(|h| h.being_made.clear());
         self.wake_due();
         // The data cache's worker and its askers.
         let now = self.now;
@@ -1812,14 +1808,7 @@ impl Client {
             );
         }
         if let Some(c) = change {
-            let made = match c {
-                lifecycle::Change::Made { object, .. } => Some(object),
-                _ => None,
-            };
             self.live(c);
-            if let Some(object) = made {
-                self.with_host(|h| h.being_made.insert(object));
-            }
         }
         for fx in effects {
             let mut out = Vec::new();
@@ -1956,11 +1945,9 @@ impl Client {
             _ => {}
         }
         let bytes = args.map_or(&[][..], |a| a.0.as_slice());
-        self.with_host(|h| h.answering_a_move = function == MOVE_ITEM_DONE);
         if let Some(result) = self.with_scripts(|s| s.run(object, function, bytes)) {
             self.calls.add(&result);
         }
-        self.with_host(|h| h.answering_a_move = false);
     }
 
     /// Run `f` with the client's scripts lent to the data cache to name the records of each saved
