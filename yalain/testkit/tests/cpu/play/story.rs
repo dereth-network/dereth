@@ -138,6 +138,7 @@ fn a_vaults_shard_completes_its_quest_as_the_player_comes_out() {
         journals: Vec::new(),
         challenge: -999,
         duration: 0.0,
+        timed_phase: 0,
         retry: 0.0,
         xp: 800,
         cancellable: false,

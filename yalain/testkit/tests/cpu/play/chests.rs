@@ -565,6 +565,7 @@ fn an_item_in_the_pack_its_quest_keeps_is_refused_by_its_use() {
         .catalog
         .insert(yalain_testkit::test_template(PIECE, 0x200, piece));
     let def = |hidden: bool| QuestDef {
+        timed_phase: 0,
         id: QUEST,
         name: (0xA860_7CEC, 0x2500_17EE),
         description: (0x6C45_9364, 0x2500_17EE),
@@ -695,6 +696,7 @@ fn an_item_its_quest_keeps_is_refused_when_taken_until_the_quest_is_where_it_nee
         journals: Vec::new(),
         challenge: -999,
         duration: 0.0,
+        timed_phase: 0,
         retry: 0.0,
         xp: 0,
         cancellable: false,

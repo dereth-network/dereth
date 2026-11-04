@@ -22,7 +22,10 @@
 //! update puts them on the player before anything else of it is told.
 //!
 //! **Time running out.** A quest with a duration fails when its time runs out: its update of the
-//! fail kind tells it failed, with the whole of its wait to be taken again. Its time runs only
+//! fail kind tells it failed, with the whole of its wait to be taken again. A few quests' durations
+//! run in one phase only, from when that phase comes (2017: 5 of 164 timed quests, 4 in their first
+//! phase, 1 in its second): before and after it the journal shows no time and the quest cannot fail
+//! of it. Its time runs only
 //! while its player is in the world: it stands still while the player is away, however long, and
 //! a person's wait after giving a quest runs the same way. A quest's wait to be taken again runs
 //! on the calendar, in the world or not. 2017, between two entries of a character: every timed
@@ -239,6 +242,21 @@ pub fn wait_after(q: &QuestDef, status: u32) -> f64 {
     }
 }
 
+/// What a quest's time counts from (world seconds), if its time is running: under way, with a
+/// duration, in the phase its duration runs in if it names one. The quest's giving, or the coming of
+/// a later phase its duration runs in.
+fn time_since(q: &QuestDef, st: &QuestState) -> Option<i64> {
+    if st.status != status::UNDERWAY || q.duration <= 0.0 {
+        return None;
+    }
+    match q.timed_phase {
+        0 => Some(st.started),
+        n if n != st.phase => None,
+        1 => Some(st.started),
+        _ => Some(st.updated),
+    }
+}
+
 /// A quest's record, its journal entry given where it is not the phase's.
 fn write_record(
     q: &QuestDef,
@@ -287,15 +305,11 @@ fn write_record(
     f64w(&mut b, at(st.started));
     // When it was last done: the completion's time once done, else the clock's zero.
     f64w(&mut b, if underway { game_epoch } else { at(st.updated) });
-    let expires = underway && q.duration > 0.0;
-    w32(&mut b, u32::from(expires));
+    let since = time_since(q, st);
+    w32(&mut b, u32::from(since.is_some()));
     f64w(
         &mut b,
-        if expires {
-            (q.duration - (game_now - at(st.started))).max(0.0)
-        } else {
-            -1.0
-        },
+        since.map_or(-1.0, |from| (q.duration - (game_now - at(from))).max(0.0)),
     );
     // The wait to take it again: what is left of it (the whole wait the moment it is done).
     let left = || (wait_after(q, st.status) - (game_now - at(st.updated))).max(0.0);
@@ -1463,7 +1477,6 @@ pub fn apply<S: Store>(
         // Gone by above.
         Update::Fail => return,
     };
-    let started = st.started;
     let phase = st.phase;
     // A phase done by subquests gives them with it, under way at their first phase.
     if up != Update::Complete {
@@ -1474,8 +1487,10 @@ pub fn apply<S: Store>(
     }
     crate::world::keep_player(s, world);
     if up == Update::Bestow {
-        runs_out_after(s, world, &def, started, clock);
+        start_timer(s, world, &def, clock);
         triggered(s, net, world, Trigger::Given(quest), None, clock);
+    } else if matches!(up, Update::Advance(_)) && def.timed_phase == phase && phase > 1 {
+        start_timer(s, world, &def, clock);
     }
     if let Some((parent, at)) = parent {
         subquest_moved(s, net, world, parent, at, clock);
@@ -1657,9 +1672,6 @@ fn subquest_moved<S: Store>(
         apply(s, net, world, quest, Update::Complete, 0, clock);
         return;
     }
-    if let Some(st) = p.play.quests.iter_mut().find(|q| q.quest == quest) {
-        st.updated = clock.unix;
-    }
     if !is_hidden(&s.quests, &def) {
         tell_record(s, net, world, &def, update::ADVANCE, clock);
     }
@@ -1710,26 +1722,39 @@ fn update_effects<S: Store>(
     }
 }
 
-/// When a quest given at `started` runs out, if it has a duration: the timer that fails it.
+/// The timer that fails a quest of a player's when its time runs out, if its time is running.
+fn start_timer<S: Store>(s: &mut Server<S>, world: ConnId, def: &QuestDef, clock: Clock) {
+    let Some(st) = s
+        .players
+        .get(&world)
+        .and_then(|p| p.play.quests.iter().find(|q| q.quest == def.id))
+        .copied()
+    else {
+        return;
+    };
+    runs_out_after(s, world, def, &st, clock);
+}
+
+/// When a quest under way runs out, if its time is running: the timer that fails it.
 fn runs_out_after<S: Store>(
     s: &mut Server<S>,
     world: ConnId,
     def: &QuestDef,
-    started: i64,
+    st: &QuestState,
     clock: Clock,
 ) {
-    if def.duration <= 0.0 {
+    let Some(from) = time_since(def, st) else {
         return;
-    }
+    };
     #[allow(clippy::cast_precision_loss)]
-    let left = (started as f64 + def.duration - clock.unix as f64).max(0.0);
+    let left = (from as f64 + def.duration - clock.unix as f64).max(0.0);
     s.after(
         clock,
         left,
         crate::Timer::QuestRunsOut {
             world,
             quest: def.id,
-            started,
+            started: st.started,
         },
     );
 }
@@ -1743,7 +1768,7 @@ pub fn timers_at_entry<S: Store>(s: &mut Server<S>, world: ConnId, clock: Clock)
         .unwrap_or_default();
     for st in held.iter().filter(|q| q.status == status::UNDERWAY) {
         if let Some(def) = s.quests.quest(st.quest).cloned() {
-            runs_out_after(s, world, &def, st.started, clock);
+            runs_out_after(s, world, &def, st, clock);
         }
     }
 }
@@ -1758,6 +1783,12 @@ pub fn time_stood_still(held: &mut [QuestState], away: i64, now_unix: i64) {
             .started
             .saturating_add(away)
             .min(now_unix.max(st.started));
+        if st.status == status::UNDERWAY {
+            st.updated = st
+                .updated
+                .saturating_add(away)
+                .min(now_unix.max(st.updated));
+        }
     }
 }
 
@@ -1773,11 +1804,11 @@ pub fn ran_out_before_leaving(
         let Some(def) = table.quest(st.quest) else {
             continue;
         };
-        if def.duration <= 0.0 {
+        let Some(from) = time_since(def, st) else {
             continue;
-        }
+        };
         #[allow(clippy::cast_possible_truncation)]
-        let ends = st.started + def.duration.ceil() as i64;
+        let ends = from + def.duration.ceil() as i64;
         if ends <= left_unix {
             st.status = status::FAILED;
             st.phase = 0;
@@ -1797,13 +1828,17 @@ pub fn runs_out<S: Store>(
     started: i64,
     clock: Clock,
 ) {
-    let under_way = s.players.get(&world).is_some_and(|p| {
-        p.play
-            .quests
-            .iter()
-            .any(|q| q.quest == quest && q.status == status::UNDERWAY && q.started == started)
+    // Still that giving of it, and its time still running: a phase its duration does not run in has
+    // come if not.
+    let running = s.quests.quest(quest).is_some_and(|def| {
+        s.players.get(&world).is_some_and(|p| {
+            p.play
+                .quests
+                .iter()
+                .any(|q| q.quest == quest && q.started == started && time_since(def, q).is_some())
+        })
     });
-    if under_way {
+    if running {
         fail(s, net, world, quest, clock);
     }
 }

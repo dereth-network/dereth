@@ -279,6 +279,7 @@ fn a_character_entering_again_gives_the_journal_its_quests() {
             journals: vec![(1, 0x2500_17EE)],
             challenge: -999,
             duration: 0.0,
+            timed_phase: 0,
             retry: 0.0,
             xp: 0,
             cancellable: false,

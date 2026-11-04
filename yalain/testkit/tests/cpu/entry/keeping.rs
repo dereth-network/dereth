@@ -514,6 +514,7 @@ fn hour_quest(id: u32) -> QuestDef {
         journals: (1..=3).map(|n| (n, 0x2500_17EE)).collect(),
         challenge: 5,
         duration: 0.0,
+        timed_phase: 0,
         retry: 3600.0,
         xp: 0,
         cancellable: true,
@@ -782,6 +783,7 @@ fn a_quest_with_no_time_left_when_its_player_left_is_listed_failed() {
     scene_drawn(&mut h, b);
     let timed = |id| QuestDef {
         duration: 600.0,
+        timed_phase: 0,
         ..hour_quest(id)
     };
     h.server.quests = QuestTable {
@@ -837,6 +839,7 @@ fn a_timed_quests_time_stands_still_while_its_player_is_away() {
         quests: vec![
             QuestDef {
                 duration: 600.0,
+                timed_phase: 0,
                 ..hour_quest(TIMED)
             },
             hour_quest(DONE),
@@ -942,6 +945,7 @@ fn a_wait_to_be_taken_again_runs_while_its_player_is_away() {
             .into_iter()
             .map(|q| QuestDef {
                 duration: 600.0,
+                timed_phase: 0,
                 ..hour_quest(q)
             })
             .collect(),
@@ -1004,6 +1008,7 @@ fn a_quest_under_way_in_a_save_keeps_the_time_it_had_left_when_it_was_kept() {
     h.server.quests = QuestTable {
         quests: vec![QuestDef {
             duration: 600.0,
+            timed_phase: 0,
             ..hour_quest(TIMED)
         }],
         steps: Vec::new(),
@@ -1038,6 +1043,74 @@ fn a_quest_under_way_in_a_save_keeps_the_time_it_had_left_when_it_was_kept() {
     );
     let left = f64::from_bits(timed.seconds_remaining);
     assert!((left - 400.0).abs() <= 5.0, "{left} s left, about 400");
+}
+
+/// Time away moves on when a quest under way came to its phase, so a later phase's time stands still
+/// too; when a quest no longer under way ended stays put, its wait running on the calendar.
+/// Behaviour: server.quests.timed-in-one-phase
+#[test]
+fn time_away_moves_when_a_phase_came_and_not_when_a_quest_ended() {
+    let held = |status, updated| QuestState {
+        quest: 0x4000_0112,
+        status,
+        phase: 2,
+        started: 1000,
+        updated,
+    };
+    let mut quests = [held(status::UNDERWAY, 2000), held(status::COMPLETED, 2000)];
+    yalain_world::quests::time_stood_still(&mut quests, 500, 10_000);
+    assert_eq!(quests[0].updated, 2500, "moved on by the time away");
+    assert_eq!(quests[1].updated, 2000, "stays put");
+    let mut late = [held(status::UNDERWAY, 9800)];
+    yalain_world::quests::time_stood_still(&mut late, 500, 10_000);
+    assert_eq!(late[0].updated, 10_000, "never past now");
+}
+
+/// At entry, a quest is failed for having no time left only where its time runs at its phase and has
+/// run out; one past the phase its duration runs in, however long ago it was given, stays under way.
+/// Behaviour: server.quests.timed-in-one-phase
+#[test]
+fn a_quest_at_a_phase_its_time_does_not_run_in_is_not_failed_at_entry() {
+    const IN_FIRST: u32 = 0x4000_0112;
+    const IN_SECOND: u32 = 0x4000_0113;
+    let timed = |id, phase| QuestDef {
+        duration: 600.0,
+        timed_phase: phase,
+        ..hour_quest(id)
+    };
+    let table = QuestTable {
+        quests: vec![timed(IN_FIRST, 1), timed(IN_SECOND, 2)],
+        steps: Vec::new(),
+        gives: Vec::new(),
+    };
+    let at = |quest, phase, updated| QuestState {
+        quest,
+        status: status::UNDERWAY,
+        phase,
+        started: 1000,
+        updated,
+    };
+    // A first phase's time counts from the giving, whatever moved it since.
+    let mut held = [
+        at(IN_FIRST, 2, 1000),
+        at(IN_FIRST, 1, 9900),
+        at(IN_SECOND, 1, 1000),
+        at(IN_SECOND, 2, 9900),
+        at(IN_SECOND, 2, 1000),
+    ];
+    yalain_world::quests::ran_out_before_leaving(&table, &mut held, 10_000);
+    let statuses: Vec<u32> = held.iter().map(|q| q.status).collect();
+    assert_eq!(
+        statuses,
+        [
+            status::UNDERWAY,
+            status::FAILED,
+            status::UNDERWAY,
+            status::UNDERWAY,
+            status::FAILED
+        ]
+    );
+    assert_eq!(held[4].updated, 1600, "as of when it ran out");
 }
 
 /// A quest given while its character was out of the world counts from when the character enters,

@@ -767,6 +767,7 @@ fn quests() -> QuestTable {
             journals: vec![(1, 0x2500_17EE), (2, 0x2500_17EE)],
             challenge: -999,
             duration: 72000.0,
+            timed_phase: 0,
             retry: 0.0,
             xp: 0,
             cancellable: false,

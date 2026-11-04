@@ -263,6 +263,7 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
             journals: vec![(1, 0x2500_0A7E)],
             challenge: 4,
             duration: 86400.0,
+            timed_phase: 0,
             retry: 72000.0,
             xp: 80,
             cancellable: true,

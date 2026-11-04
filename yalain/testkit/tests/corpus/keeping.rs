@@ -24,7 +24,7 @@ use yalain_world::session::{
 };
 use yalain_world::state::QuestState;
 
-fn library() -> Option<&'static Library> {
+pub(super) fn library() -> Option<&'static Library> {
     static L: OnceLock<Option<Library>> = OnceLock::new();
     L.get_or_init(|| {
         let dir = require_install(TARGET);
@@ -40,7 +40,7 @@ fn library() -> Option<&'static Library> {
     .as_ref()
 }
 
-fn open(path: &Path) -> Connection {
+pub(super) fn open(path: &Path) -> Connection {
     let uri = format!(
         "file:{}?mode=ro&immutable=1",
         path.to_string_lossy().replace('\\', "/")
@@ -393,6 +393,7 @@ fn timed_quest(id: u32, duration: f64, retry: f64) -> QuestDef {
         journals: Vec::new(),
         challenge: 0,
         duration,
+        timed_phase: 0,
         retry,
         xp: 0,
         cancellable: false,

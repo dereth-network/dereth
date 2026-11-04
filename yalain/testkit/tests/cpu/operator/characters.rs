@@ -75,6 +75,7 @@ fn quest() -> QuestDef {
         journals: (1..=3).map(|n| (n, 0x2500_17EE)).collect(),
         challenge: 0,
         duration: 0.0,
+        timed_phase: 0,
         retry: 0.0,
         xp: 0,
         cancellable: false,

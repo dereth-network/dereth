@@ -2950,3 +2950,76 @@ fn a_wrong_give_hears_no_line_about_another_item() {
         "Lupe's"
     );
 }
+
+/// Every recorded record of a quest under way says it has time left exactly where the world's row
+/// says its time runs: at the phase its duration runs in, else at every phase of a quest with one.
+/// Behaviour: server.quests.timed-as-the-records-show-them
+#[test]
+fn every_phase_a_recorded_quest_shows_time_at_is_one_the_world_times() {
+    use auberean_script::args::{decode, Arg};
+    use auberean_script::graph::{Body, PackedObject};
+    use auberean_script::native_object::{NativeObject, QuestInfo};
+    use yalain_world::quests::status;
+    use yalain_world::session::function::SESSION_START;
+    const UPDATE_QUEST: u32 = 0x8213_0024;
+    let t = &compiled().tables;
+    let lib = super::keeping::library().expect("the client library reads");
+    let con = super::keeping::open(&auberean_testkit::data::require_capture_index());
+    let mut st = con
+        .prepare(
+            "SELECT m.raw FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) \
+             WHERE c.file LIKE '2017-%' AND s.game = 'ac2' \
+             AND m.dir = 's2c' AND m.status = 'ac2' AND m.mtype = 65638",
+        )
+        .expect("the query prepares");
+    let mut held = 0usize;
+    let mut wrong: Vec<String> = Vec::new();
+    let raws = st
+        .query_map([], |r| r.get::<_, Vec<u8>>(0))
+        .expect("the query runs");
+    for raw in raws.flatten() {
+        let Ok(ServerMessage::PlayerCall(c)) = ServerMessage::decode(&raw) else {
+            continue;
+        };
+        if c.function.0 != SESSION_START && c.function.0 != UPDATE_QUEST {
+            continue;
+        }
+        let Some(args) = c.args.as_ref().and_then(|a| decode(&a.0, lib).ok()) else {
+            continue;
+        };
+        let mut records: Vec<QuestInfo> = Vec::new();
+        for a in &args {
+            let Arg::Object(g) = a else { continue };
+            for e in &g.entries {
+                if let Body::Object(PackedObject {
+                    native: Some(n), ..
+                }) = &e.body
+                {
+                    match n {
+                        NativeObject::QuestList(l) => records.extend(l.iter().cloned()),
+                        NativeObject::Quest(q) => records.push((**q).clone()),
+                        _ => {}
+                    }
+                }
+            }
+        }
+        for q in records.iter().filter(|q| q.status == status::UNDERWAY) {
+            let Some(def) = t.quests.quest(q.id) else {
+                continue;
+            };
+            held += 1;
+            let timed = def.duration > 0.0 && (def.timed_phase == 0 || def.timed_phase == q.phase);
+            if timed != (q.expires != 0) {
+                wrong.push(format!(
+                    "{:08x} at phase {}: time {} recorded, {timed} here",
+                    q.id, q.phase, q.expires
+                ));
+            }
+        }
+    }
+    assert!(held >= 2000, "records under way: {held}");
+    wrong.sort();
+    wrong.dedup();
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

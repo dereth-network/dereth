@@ -8676,6 +8676,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.timed-as-the-records-show-them",
+        says: "Every record of a quest under way shows time left at the phases the world's row \
+               times, and a quest the row times in one phase shows none at the others.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-QUEST-TIMED-PHASES-2017"),
+        station: "yalain-testkit::corpus::world_db::every_phase_a_recorded_quest_shows_time_at_is_one_the_world_times",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.quests.timed-in-one-phase",
+        says: "A quest whose duration runs in one phase shows its time and may fail of it only in \
+               that phase. In a first phase the time counts from the giving, in a later one the \
+               whole of it starts as that phase comes, with when it was given unchanged. Its time \
+               stands still out of the world there too.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-TIMED-PHASE"),
+        station: "yalain-testkit::cpu::play::quests::a_quest_timed_in_a_later_phase_counts_from_when_that_phase_comes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.under-level-line-is-the-persons",
         says: "A person says its under-level line to a player too low for what it gives, and to no one else.",
         since: RETAIL,

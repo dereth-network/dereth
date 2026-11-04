@@ -37,6 +37,7 @@ pub(super) fn quest(phases: u32) -> QuestDef {
         journals: (1..=phases).map(|n| (n, 0x2500_17EE)).collect(),
         challenge: 10,
         duration: 0.0,
+        timed_phase: 0,
         retry: 0.0,
         xp: 0,
         cancellable: false,

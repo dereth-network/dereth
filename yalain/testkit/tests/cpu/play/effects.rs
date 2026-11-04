@@ -505,6 +505,7 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
         journals: vec![(5, 6); 5],
         challenge: 4,
         duration: 0.0,
+        timed_phase: 0,
         retry: 0.0,
         xp: 0,
         cancellable: true,

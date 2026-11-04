@@ -14,8 +14,8 @@
 //!   ANY 1 when one of them is enough, joined by `,`), the least level it is given at (0 for any),
 //!   whether it fails when its player dies (0/1), whether it is given only once (0/1), how a kill's
 //!   move on it reaches the killer's fellows (added up: 1 it does, 2 only those near the killer's
-//!   level, 4 only those near the killer) and whether its last phase waits for something other than
-//!   a kill to end it (0/1);
+//!   level, 4 only those near the killer), whether its last phase waits for something other than
+//!   a kill to end it (0/1), and the one phase its duration runs in (0 or left out: all of them);
 //! - `step`: quest, the phase it needs (0: the quest not under way), the trigger (`use:TEMPLATE`,
 //!   `useon:ITEM:TARGET`, `give:ITEM:TARGET`, `arrive:TEMPLATE`, `take:TEMPLATE`, `kill:TEMPLATE`, `done:QUEST`, `given:QUEST`), the giver's line
 //!   (`string:table`, `=` and literal text, or empty), the update (`bestow`, `advance:N`, `complete`), experience, items
@@ -47,6 +47,8 @@ pub struct QuestDef {
     pub journals: Vec<(u32, u32)>,
     pub challenge: i32,
     pub duration: f64,
+    /// The one phase its duration runs in, from when that phase comes (0: all, from its giving).
+    pub timed_phase: u32,
     pub retry: f64,
     pub xp: u64,
     pub cancellable: bool,
@@ -411,7 +413,7 @@ impl QuestTable {
                 .join(",");
             let _ = writeln!(
                 out,
-                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "quest\t{:08X}\t{}\t{}\t{:08X}\t{}\t{j}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{effects}\t{subs}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 q.id,
                 r(q.name),
                 r(q.description),
@@ -433,6 +435,7 @@ impl QuestTable {
                 q.required
                     .map_or_else(String::new, |(q, st)| format!("{q:08X}:{st:08X}")),
                 q.pay.word(),
+                q.timed_phase,
             );
         }
         for s in &self.steps {
@@ -557,7 +560,7 @@ impl QuestTable {
             let at = |e: String| format!("line {}: {e}", n + 1);
             let c: Vec<&str> = line.split('\t').collect();
             match c[0] {
-                "quest" if (13..=24).contains(&c.len()) => t.quests.push(QuestDef {
+                "quest" if (13..=25).contains(&c.len()) => t.quests.push(QuestDef {
                     id: hex(c[1]).map_err(at)?,
                     name: pair(c[2]).map_err(at)?,
                     description: pair(c[3]).map_err(at)?,
@@ -613,6 +616,10 @@ impl QuestTable {
                     pay: match c.get(23) {
                         Some(v) if !v.is_empty() => CompletionPay::of_word(v).map_err(at)?,
                         _ => CompletionPay::default(),
+                    },
+                    timed_phase: match c.get(24) {
+                        Some(v) if !v.is_empty() => num(v).map_err(at)?,
+                        _ => 0,
                     },
                 }),
                 "step" if (9..=16).contains(&c.len()) => {

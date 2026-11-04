@@ -71,6 +71,7 @@ fn quest(id: u32, table: u32, phases: usize) -> QuestDef {
         journals: JOURNAL[..phases].iter().map(|j| (*j, table)).collect(),
         challenge: 15,
         duration: 0.0,
+        timed_phase: 0,
         retry: 0.0,
         xp: 0,
         cancellable: true,
@@ -594,6 +595,7 @@ fn a_persons_too_soon_line_is_not_said_at_a_plain_use() {
             .iter()
             .map(|q| QuestDef {
                 duration: 7200.0,
+                timed_phase: 0,
                 ..quest(*q, 0x2500_17D4, 2)
             })
             .collect(),
@@ -653,6 +655,7 @@ fn a_persons_wait_counts_only_the_players_time_in_the_world() {
             .iter()
             .map(|q| QuestDef {
                 duration: 7200.0,
+                timed_phase: 0,
                 ..quest(*q, 0x2500_17D4, 2)
             })
             .collect(),
@@ -732,6 +735,7 @@ fn a_person_with_several_quests_gives_one_at_a_time_and_none_until_its_wait_is_o
         .iter()
         .map(|q| QuestDef {
             duration: 7200.0,
+            timed_phase: 0,
             ..quest(*q, 0x2500_17D4, 2)
         })
         .collect();

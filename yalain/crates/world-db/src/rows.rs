@@ -244,6 +244,9 @@ pub struct Quest {
     pub state: Option<u32>,
     pub challenge: Option<i32>,
     pub duration: Option<f64>,
+    /// The one phase its duration runs in, from when that phase comes; left out, all of them from
+    /// its giving.
+    pub timed_phase: Option<u32>,
     pub retry: Option<f64>,
     pub xp: Option<u64>,
     /// In place of an amount, the share of what the player's level takes to reach the next that its
@@ -661,6 +664,7 @@ pub const FIELDS: [(&str, &[&str]); 18] = [
             "state",
             "challenge",
             "duration",
+            "timed_phase",
             "retry",
             "xp",
             "xp_share",
@@ -1113,6 +1117,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             state: f.id("state"),
             challenge: f.int("challenge").and_then(|v| i32::try_from(v).ok()),
             duration: f.float("duration"),
+            timed_phase: f.int("timed_phase").and_then(|v| u32::try_from(v).ok()),
             retry: f.float("retry"),
             xp: f.int("xp").and_then(|v| u64::try_from(v).ok()),
             xp_share: f.float("xp_share"),

@@ -73,6 +73,7 @@ fn quest(id: u32, phases: u32) -> QuestDef {
             .collect(),
         challenge: -999,
         duration: 0.0,
+        timed_phase: 0,
         retry: 0.0,
         xp: 0,
         cancellable: true,

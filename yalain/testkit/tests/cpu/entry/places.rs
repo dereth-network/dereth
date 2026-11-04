@@ -669,6 +669,7 @@ fn portal_quest(id: u32) -> yalain_content::quests::QuestDef {
         journals: Vec::new(),
         challenge: -999,
         duration: 0.0,
+        timed_phase: 0,
         retry: 0.0,
         xp: 0,
         cancellable: false,

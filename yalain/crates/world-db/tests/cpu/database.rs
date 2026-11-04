@@ -775,6 +775,24 @@ fn a_place_names_the_templates_whose_maps_lead_there_and_a_line_may_refuse_a_map
 }
 
 #[test]
+fn a_quest_row_may_name_the_one_phase_its_duration_runs_in() {
+    let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.quests.quests[0].timed_phase, 0, "left out: all of them");
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "duration = 72000",
+        "duration = 72000\ntimed_phase = 2",
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.quests.quests[0].timed_phase, 2);
+    let text = t.quests.to_text();
+    let again = yalain_content::QuestTable::from_text(&text).unwrap();
+    assert_eq!(again.quests[0].timed_phase, 2, "kept through its text form");
+}
+
+#[test]
 fn a_quest_row_may_say_it_is_given_once_and_a_line_may_say_it_is_too_soon() {
     let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
     assert!(!t.quests.quests[0].once, "left out: given again");

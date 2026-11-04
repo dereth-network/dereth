@@ -692,6 +692,7 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
             journals: vec![(5, 6)],
             challenge: 1,
             duration: 0.0,
+            timed_phase: 0,
             retry: 0.0,
             xp: 0,
             cancellable: false,

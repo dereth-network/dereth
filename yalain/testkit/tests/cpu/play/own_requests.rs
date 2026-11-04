@@ -384,6 +384,7 @@ fn a_quest_cancelled_is_updated_as_cancelled_and_no_longer_under_way() {
         journals: vec![(3, 0x2500_14B4)],
         challenge: 1,
         duration: 0.0,
+        timed_phase: 0,
         retry: 86_400.0,
         xp: 0,
         cancellable: true,

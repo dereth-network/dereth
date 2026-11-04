@@ -67,6 +67,7 @@ fn quest(id: u32, xp: u64, challenge: i32) -> QuestDef {
         journals: (1..=8).map(|n| (n, 0x2500_17EE)).collect(),
         challenge,
         duration: 72000.0,
+        timed_phase: 0,
         retry: 0.0,
         xp,
         cancellable: false,
@@ -810,6 +811,7 @@ fn an_update_puts_on_its_definitions_effects_before_it_is_told() {
 fn a_timed_quest_fails_when_its_time_runs_out() {
     let timed = QuestDef {
         duration: 60.0,
+        timed_phase: 0,
         retry: 3600.0,
         ..quest(HALL_QUEST, 0, -999)
     };
@@ -847,6 +849,177 @@ fn a_timed_quest_fails_when_its_time_runs_out() {
     assert!(
         (f64::from_bits(record.seconds_until_retry) - 3600.0).abs() < 1e-6,
         "its whole wait to be taken again"
+    );
+}
+
+/// The records of a quest a client was told since `from`.
+fn records(h: &Harness, b: usize, from: usize) -> Vec<QuestInfo> {
+    calls_of(h, b, from)
+        .into_iter()
+        .filter(|(f, _)| *f == UPDATE_QUEST)
+        .filter_map(|(_, v)| match v.get(1)?.root()? {
+            yalain_world::calls::Node::Native { bytes, .. } => {
+                QuestInfo::unpack(&mut In::new(bytes)).ok()
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A quest of a minute's time in one phase, moved on by each use of the explorer.
+fn timed_in(phase: u32) -> Harness {
+    let timed = QuestDef {
+        duration: 60.0,
+        timed_phase: phase,
+        retry: 3600.0,
+        ..quest(HALL_QUEST, 0, -999)
+    };
+    let explorer = Trigger::Use(EXPLORER_TEMPLATE);
+    explorer_world(
+        vec![timed],
+        vec![
+            step(HALL_QUEST, 0, explorer, Update::Bestow),
+            step(HALL_QUEST, 1, explorer, Update::Advance(2)),
+            step(HALL_QUEST, 2, explorer, Update::Advance(3)),
+        ],
+    )
+}
+
+/// A record's time left, if it says it has one.
+fn time_left(q: &QuestInfo) -> Option<f64> {
+    (q.expires != 0).then(|| f64::from_bits(q.seconds_remaining))
+}
+
+/// A quest whose duration runs in its first phase shows its time there. Once its next phase comes it
+/// shows none, and its time running out then does not fail it.
+/// Behaviour: server.quests.timed-in-one-phase
+#[test]
+fn a_quest_timed_in_its_first_phase_only_cannot_fail_after_it() {
+    let mut h = timed_in(1);
+    let (b, me) = h.player_in_world("one", "Elara");
+    let from = use_explorer(&mut h, b, me);
+    let left = time_left(&records(&h, b, from)[0]).expect("timed");
+    assert!((left - 60.0).abs() < 2.0, "{left} s left");
+    let from = use_explorer(&mut h, b, me);
+    let second = records(&h, b, from);
+    assert_eq!(second[0].phase, 2);
+    assert_eq!(time_left(&second[0]), None, "no time at its next phase");
+    let t = h.now.0 + 70.0;
+    h.run_to(yalain_net::LocalTime(t));
+    assert_eq!(
+        held(&h, HALL_QUEST),
+        Some((status::UNDERWAY, 2)),
+        "not lost"
+    );
+}
+
+/// A quest timed in a later phase shows no time before it, and cannot fail then. As that phase comes
+/// the whole of its time starts, with when the quest was given unchanged, and its running out fails
+/// the quest.
+/// Behaviour: server.quests.timed-in-one-phase
+#[test]
+fn a_quest_timed_in_a_later_phase_counts_from_when_that_phase_comes() {
+    let mut h = timed_in(2);
+    let (b, me) = h.player_in_world("one", "Elara");
+    let from = use_explorer(&mut h, b, me);
+    let first = records(&h, b, from);
+    assert_eq!(time_left(&first[0]), None, "no time yet");
+    let t = h.now.0 + 70.0;
+    h.run_to(yalain_net::LocalTime(t));
+    assert_eq!(
+        held(&h, HALL_QUEST),
+        Some((status::UNDERWAY, 1)),
+        "not lost"
+    );
+    let from = use_explorer(&mut h, b, me);
+    let second = records(&h, b, from);
+    assert_eq!(second[0].phase, 2);
+    let left = time_left(&second[0]).expect("timed now");
+    assert!((left - 60.0).abs() < 2.0, "the whole of it: {left} s");
+    assert_eq!(
+        second[0].bestowed, first[0].bestowed,
+        "when it was given is unchanged"
+    );
+    let t = h.now.0 + 66.0;
+    h.run_to(yalain_net::LocalTime(t));
+    assert_eq!(held(&h, HALL_QUEST), Some((status::FAILED, 0)));
+}
+
+/// A move of a subquest in the phase a quest is timed in does not start its time again.
+/// Behaviour: server.quests.timed-in-one-phase
+#[test]
+fn a_subquests_move_leaves_a_timed_phases_time_running() {
+    const SUB: u32 = 0x4000_0F01;
+    const OTHER_SUB: u32 = 0x4000_0F02;
+    const ELSEWHERE: u32 = 0x4700_0F01;
+    let timed = QuestDef {
+        duration: 60.0,
+        timed_phase: 2,
+        retry: 3600.0,
+        subquests: vec![yalain_content::quests::Subquests {
+            phase: 2,
+            quests: vec![SUB, OTHER_SUB],
+            any: false,
+        }],
+        ..quest(HALL_QUEST, 0, -999)
+    };
+    let hidden = |id| QuestDef {
+        duration: 0.0,
+        hidden: true,
+        ..quest(id, 0, -999)
+    };
+    let explorer = Trigger::Use(EXPLORER_TEMPLATE);
+    let mut h = explorer_world(
+        vec![timed, hidden(SUB), hidden(OTHER_SUB)],
+        vec![
+            step(HALL_QUEST, 0, explorer, Update::Bestow),
+            step(HALL_QUEST, 1, explorer, Update::Advance(2)),
+            step(SUB, 1, Trigger::Use(ELSEWHERE), Update::Complete),
+        ],
+    );
+    let (b, me) = h.player_in_world("one", "Elara");
+    use_explorer(&mut h, b, me);
+    let from = use_explorer(&mut h, b, me);
+    let began = time_left(&records(&h, b, from)[0]).expect("timed");
+    let t = h.now.0 + 30.0;
+    h.run_to(yalain_net::LocalTime(t));
+    let from = h.bots[b].inbox.len();
+    let world = *h.server.players.keys().next().expect("the player");
+    let clock = h.clock();
+    yalain_world::quests::triggered(
+        &mut h.server,
+        &mut h.net,
+        world,
+        Trigger::Use(ELSEWHERE),
+        None,
+        clock,
+    );
+    h.run(20);
+    let moved = records(&h, b, from);
+    assert_eq!(moved[0].phase, 2, "its phase kept");
+    let left = time_left(&moved[0]).expect("still timed");
+    assert!(
+        (began - left - 31.0).abs() < 2.0,
+        "{began} s to begin with, {left} s now"
+    );
+}
+
+/// A quest moved on past the phase its duration runs in is not failed by that phase's timer.
+/// Behaviour: server.quests.timed-in-one-phase
+#[test]
+fn a_quest_moved_on_past_its_timed_phase_keeps_going() {
+    let mut h = timed_in(2);
+    let (b, me) = h.player_in_world("one", "Elara");
+    use_explorer(&mut h, b, me);
+    use_explorer(&mut h, b, me);
+    let from = use_explorer(&mut h, b, me);
+    assert_eq!(time_left(&records(&h, b, from)[0]), None);
+    let t = h.now.0 + 70.0;
+    h.run_to(yalain_net::LocalTime(t));
+    assert_eq!(
+        held(&h, HALL_QUEST),
+        Some((status::UNDERWAY, 3)),
+        "not lost"
     );
 }
 

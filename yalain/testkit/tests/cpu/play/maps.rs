@@ -336,6 +336,7 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
         journals: vec![(3, 0x2500_14B4), (4, 0x2500_14B4)],
         challenge: 6,
         duration: 0.0,
+        timed_phase: 0,
         retry: 0.0,
         xp: 0,
         cancellable: true,

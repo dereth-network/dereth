@@ -132,6 +132,7 @@ fn hall() -> Harness {
         journals: vec![(0x7E76_0E2A, 0x2500_1446)],
         challenge: -1,
         duration: 600.0,
+        timed_phase: 0,
         retry: 590_400.0,
         xp: 0,
         cancellable: false,
