@@ -536,7 +536,7 @@ impl Ui {
 
     /// Remove an element and everything under it: each stops hearing anything and is forgotten
     /// by the manager.
-    // D2-11377, D2-11389, D2-11177
+    // D2-11377, D2-11389, D2-11177, D2-11249, D2-11245, D2-11209
     pub fn remove(&mut self, h: Handle) {
         if self
             .node(h)
@@ -598,7 +598,6 @@ impl Ui {
                 l.retain(|x| *x != h);
             }
         }
-        self.mgr.delete_queue.retain(|x| *x != h);
         self.mgr.object_listeners.retain(|(r, _), _| *r != h);
         self.mgr.object_clean.retain(|(_, r, _)| *r != h);
         if self.mgr.drag == Some(h) {
@@ -1349,6 +1348,7 @@ impl Ui {
     // ---------------------------------------------------------------------------------------
 
     /// An element's rectangle on the screen.
+    // D2-11162, D2-11319, D2-11320
     #[must_use]
     pub fn screen_rect(&self, h: Handle) -> Option<Rect> {
         let n = self.node(h)?;

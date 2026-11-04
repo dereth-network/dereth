@@ -601,6 +601,13 @@ impl GroupAtom {
         self.group.key == other.group.key
             && ((other.priority < self.priority) != (other.priority == self.priority))
     }
+
+    /// The same priority, and a group in the same place with the same tables.
+    // D2-14013
+    #[must_use]
+    pub fn same_as(&self, other: &Self) -> bool {
+        self.priority == other.priority && self.group.same_place(&other.group)
+    }
 }
 
 /// Effects an appearance lists: the effect ids it lists them for, and the effects.
@@ -715,7 +722,7 @@ impl Atoms {
 
     /// Add a part-group atom: it takes the place of the first it replaces; it is not added when
     /// one replaces it. `false` when an equal atom is there already.
-    // D2-13981, D2-14013
+    // D2-13981
     pub fn add_group(&mut self, a: GroupAtom) -> bool {
         for e in &mut self.groups {
             if a.replaces(e) {
@@ -726,7 +733,7 @@ impl Atoms {
                 return true;
             }
         }
-        if self.groups.contains(&a) {
+        if self.groups.iter().any(|e| e.same_as(&a)) {
             return false;
         }
         self.groups.push(a);

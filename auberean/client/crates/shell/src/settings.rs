@@ -375,6 +375,7 @@ impl Settings {
         ];
         let mut ours = ours;
         if let Some(g) = &self.graphics {
+            // D2-16063
             ours.push((GRAPHICS, OVERALL_NAME, g.overall().to_string()));
             for p in &PREFERENCES {
                 let Some(v) = g.get(p.key) else {

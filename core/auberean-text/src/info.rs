@@ -154,6 +154,7 @@ pub fn table_or_none(id: u32) -> u32 {
 }
 
 /// A string reference.
+// D2-14163, D2-14144
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct StringInfo {
     pub string_id: u32,
@@ -291,19 +292,6 @@ impl StringInfo {
     pub fn add_variable_string_id(&mut self, id: u32, token: u32) {
         let nested = StringInfo::entry(table_or_none(self.table), token);
         self.add_var(id, Value::Text(Box::new(nested)));
-    }
-
-    /// Drop every variable.
-    // D2-14144
-    pub fn clear_variables(&mut self) {
-        self.variables.clear();
-    }
-
-    /// Take another reference's variables in place of this one's.
-    // D2-14163
-    pub fn copy_variables(&mut self, other: &StringInfo) {
-        self.clear_variables();
-        self.variables.clone_from(&other.variables);
     }
 
     /// The literal (empty when the reference is none), its flags cut off unless kept, unescaped.

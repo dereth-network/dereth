@@ -1041,12 +1041,12 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "ui.manager.elements-by-name-and-removal-at-the-next-tick",
+        id: "ui.manager.elements-by-name-and-removal",
         says: "An element is found by name, the oldest first, or within one top-level element; an \
-               element asked to go is hidden at once and removed at the next tick.",
+               element removed is found no more.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-ELEMENTS-BY-NAME"),
-        station: "auberean-ui::cpu::framework::elements_by_name_and_removal_at_the_next_tick",
+        station: "auberean-ui::cpu::framework::elements_by_name_and_removal",
         tier: Tier::Cpu,
     },
     behaviour! {

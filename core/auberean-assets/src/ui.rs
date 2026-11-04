@@ -204,7 +204,9 @@ impl Attribute {
 
 impl Media {
     /// A kind word, the kind word again (the item's own copy), then the kind's fields.
-    // D2-11092, D2-11094, D2-11114, D2-11131, D2-11110, D2-11147, D2-11135, D2-11124
+    // D2-11092, D2-11094, D2-11114, D2-11131, D2-11110, D2-11147, D2-11135, D2-11124, D2-11093
+    // D2-11107, D2-11115, D2-11120, D2-11125, D2-11128, D2-11132, D2-11136, D2-11139, D2-11143
+    // D2-11148
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         let kind = r.u32()?;
         let again = r.u32()?;

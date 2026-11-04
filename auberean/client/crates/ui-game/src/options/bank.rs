@@ -132,13 +132,6 @@ impl Bank {
         }
     }
 
-    /// Keep the preferences in another file.
-    // D2-16017
-    pub fn choose_file(&mut self, name: &str) -> bool {
-        name.clone_into(&mut self.file);
-        !name.is_empty()
-    }
-
     /// The preferences file's name.
     #[must_use]
     pub fn file(&self) -> &str {

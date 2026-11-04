@@ -943,6 +943,7 @@ fn run() -> Result<(), String> {
         .with_writer(std::io::stderr)
         .init();
     let settings = settings_dir();
+    // D2-16047, D2-16017
     let settings_file = settings.join(o.prefs.as_deref().unwrap_or(SETTINGS_FILE));
     let preferences = std::fs::read_to_string(&settings_file).unwrap_or_default();
     let found = install_dats(&o.dats).map_err(|e| format!("{}: {e}", o.dats.display()))?;

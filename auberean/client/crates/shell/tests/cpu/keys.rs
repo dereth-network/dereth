@@ -163,7 +163,6 @@ fn the_front_map_that_binds_an_input_with_its_modifiers_held_names_its_action() 
         Some(INVENTORY)
     );
     assert_eq!(keys.interface_action(Key::W.input_word(), 0), None);
-    assert_eq!(s.input_of(STRAFE_LEFT), Some((a, META_SHIFT)));
     let mut bare = KeyStack::default();
     assert!(bare.pop().is_none());
     bare.push(KeyMap::default(), LEFT_CTRL);

@@ -211,6 +211,7 @@ impl Database {
     }
 
     fn make(files: Vec<Arc<DatFile>>, stores: Option<Arc<StoreSet>>) -> Self {
+        // D2-05125
         let master_map = files.first().map_or(0, |f| f.header().master_map_id);
         let mut db = Self {
             files,

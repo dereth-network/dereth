@@ -98,6 +98,7 @@ fn plain(parent: u32) -> Desc {
 /// (height and build in the middle), kept while the player goes back and forth.
 #[derive(Debug, Default)]
 pub struct Creation {
+    // D2-11869, D2-11870, D2-11871
     pub avatars: BTreeMap<(u32, u32), Avatar>,
     pub choices: BTreeMap<(u32, u32), Vec<Choice>>,
     /// The race and sex chosen in the hall.
@@ -126,6 +127,7 @@ impl Creation {
     }
 
     /// The chosen avatar and its choices.
+    // D2-11861
     #[must_use]
     pub fn chosen(&self) -> Option<(&Avatar, &[Choice])> {
         Some((

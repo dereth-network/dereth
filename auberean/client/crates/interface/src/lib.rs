@@ -127,6 +127,7 @@ pub struct Avatar {
 
 /// What lives across the flow's screens: what the play screen is given this frame, and what it
 /// asks.
+// D2-11874, D2-11865
 #[derive(Debug, Default)]
 struct Shared {
     /// The player is in the world.

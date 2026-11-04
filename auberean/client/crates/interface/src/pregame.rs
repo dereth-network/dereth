@@ -247,6 +247,7 @@ impl Retail {
         if let Some(list) = game.client.and_then(|c| c.model.characters.as_ref()) {
             let set = character_set(list);
             if d.pre.characters.as_ref() != Some(&set) {
+                // D2-11860
                 d.pre.characters = Some(set);
                 d.pre.lists += 1;
             }
@@ -373,6 +374,7 @@ impl Retail {
         let queued = self.flow.flow.queued_mode();
         let listing = self.flow.flow.mode() == mode::CHARACTER_SELECTION;
         if listing && queued != mode::AVATAR_SELECTION && self.creation.is_some() {
+            // D2-11863, D2-11862, D2-11864
             self.creation = None;
             let d = &mut self.flow.flow.data.pre;
             d.in_creation = false;

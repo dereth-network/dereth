@@ -39,6 +39,7 @@ pub struct Flow<P> {
     argument: String,
     factories: Vec<(Token, Factory<P>)>,
     /// What lives across screens.
+    // D2-11875
     pub data: P,
 }
 
@@ -90,12 +91,6 @@ impl<P> Flow<P> {
     pub fn queue_mode(&mut self, mode: Token, argument: &str) {
         self.queued_mode = mode;
         argument.clone_into(&mut self.argument);
-    }
-
-    /// What lives across screens, as a panel asks its framework for it.
-    // D2-11875
-    pub fn data_mut(&mut self) -> &mut P {
-        &mut self.data
     }
 
     /// The current screen's mode.

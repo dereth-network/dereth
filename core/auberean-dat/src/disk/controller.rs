@@ -395,13 +395,6 @@ impl Store {
             .wrapping_mul(self.blocks.info.block_size)
     }
 
-    /// The id of the file's id map.
-    // D2-05125
-    #[must_use]
-    pub fn get_master_map_did(&self) -> u32 {
-        self.blocks.info.master_map_id
-    }
-
     /// The file's version stamp.
     // D2-05126
     #[must_use]

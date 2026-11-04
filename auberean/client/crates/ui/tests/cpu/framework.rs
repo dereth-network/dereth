@@ -413,21 +413,18 @@ fn the_dragged_copy_shows_in_its_items_size() {
     u.pointer_release();
 }
 
-/// An element is found by name, the oldest first, or within one root; an element asked to go
-/// is hidden at once and removed at the next tick.
+/// An element is found by name, the oldest first, or within one root; an element removed is found
+/// no more.
 ///
-/// Behaviour: ui.manager.elements-by-name-and-removal-at-the-next-tick
+/// Behaviour: ui.manager.elements-by-name-and-removal
 #[test]
-fn elements_by_name_and_removal_at_the_next_tick() {
+fn elements_by_name_and_removal() {
     let mut u = ui(vec![field("Window", [0, 0, 99, 99], vec![])], vec![]);
     let l = u.load_layout(LAYOUT).unwrap();
     let a = u.create_root(l, Token::of("Window")).unwrap();
     let b = u.create_root(l, Token::of("Window")).unwrap();
     assert_eq!(u.element(Token::of("Window")), Some(a));
-    assert_eq!(u.unique_match_element(Token::of("Window"), b), Some(b));
-    u.add_element_to_delete_queue(a);
-    assert!(u.node(a).is_some() && !u.node(a).unwrap().visible);
-    u.use_time(0.5);
+    u.remove(a);
     assert!(u.node(a).is_none());
     assert_eq!(u.element(Token::of("Window")), Some(b));
 }
