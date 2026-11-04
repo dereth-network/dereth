@@ -592,20 +592,23 @@ impl Row {
         }
     }
 
-    /// The control's value tried in the preference, not yet marked applied (the rendering's, kept
-    /// or put back by the answer to a question).
+    /// The control's value tried in the preference, what it held marked applied (the rendering's,
+    /// kept or put back by the answer to a question).
     pub fn submit(&mut self, ui: &Ui) {
         let flag = self.flag_now(ui);
         let number = self.number_now(ui);
         let choice = self.choice_now(ui);
         match &mut self.control {
             Control::Flag { pref, .. } => {
+                pref.apply();
                 pref.set_value(flag);
             }
             Control::Number { pref, .. } => {
+                pref.apply();
                 pref.set_value(number);
             }
             Control::Choice { pref, .. } => {
+                pref.apply();
                 pref.set_value(choice);
             }
             Control::Section { .. } => {}
@@ -1047,6 +1050,17 @@ impl Rows {
                 row.apply(ui);
             }
         }
+    }
+
+    /// What each of the section's rows holds that its preference does not.
+    #[must_use]
+    pub fn changes(&self, ui: &Ui, section: usize) -> Vec<Change> {
+        self.section_rows(section)
+            .into_iter()
+            .filter_map(|r| self.all.get(r))
+            .filter(|r| r.changed(ui))
+            .filter_map(|r| r.change(ui))
+            .collect()
     }
 
     /// Every row of the section submitted.

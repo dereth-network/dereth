@@ -92,6 +92,7 @@ not how it was done.
 - Some creatures' and objects' effects now show at the right size.
 - Effects on placed objects now stand on their bones.
 - Portal arrivals and resurrections now show their mist.
+- Fixed Apply doing nothing after refusing a new resolution.
 
 ## 0.1.2 (2026-11-02)
 

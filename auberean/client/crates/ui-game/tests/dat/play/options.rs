@@ -417,12 +417,14 @@ fn the_client_page_shows_the_sizes_and_the_clients_own_changes() {
 
 /// Applying a changed rendering preference submits it and asks, in words that count their seconds,
 /// whether to keep it. No puts it back and keeps the file, the row left as it was set, so Apply and
-/// Revert stay lit. Asked again and answered yes, it is kept, and they go dark.
+/// Revert stay lit. Applied again the row's value is tried again before it is submitted; answered
+/// yes, it is kept, and they go dark.
 ///
 /// Behaviour: ui.options.the-rendering-question-keeps-or-puts-back-and-leaves-the-rows
 #[test]
 fn the_rendering_question_keeps_or_puts_back_and_leaves_the_rows() {
     use auberean_ui_game::options::client::{self, section, Listing, Request as Asked};
+    use auberean_ui_game::options::helper::Change;
     use auberean_ui_game::options::preference::Description;
     let mut ui = Ui::new(records(), 1024, 768);
     let mut p = play(&mut ui);
@@ -442,9 +444,20 @@ fn the_rendering_question_keeps_or_puts_back_and_leaves_the_rows() {
         false,
         true,
     );
+    let sync = client::flag(
+        Description {
+            section: section::RENDERING,
+            key: 0x4000_0006,
+            table: client::PREFERENCE_STRINGS,
+            label: Token::of("ID_Rendering_SyncToDisplayRefresh").raw(),
+            help: 0,
+        },
+        true,
+        true,
+    );
     let listing = Listing {
         serial: 1,
-        sections: vec![(section::RENDERING, vec![full])],
+        sections: vec![(section::RENDERING, vec![full, sync])],
     };
     let frame = |ui: &mut Ui, p: &mut GamePlay, t: &mut f64, notices: &[Notice]| {
         *t += 0.05;
@@ -511,6 +524,30 @@ fn the_rendering_question_keeps_or_puts_back_and_leaves_the_rows() {
     assert_eq!(asked, [&Asked::Recall(section::RENDERING), &Asked::Save]);
     assert!(!ghosted(&ui, apply), "the row still differs");
     let out = ask(&mut ui, &mut p, &mut t);
+    let asked: Vec<&Asked> = out
+        .iter()
+        .filter_map(|r| match r {
+            Request::Options(options::Request::Preferences(a)) => Some(a),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        asked
+            .iter()
+            .filter(|a| matches!(a, Asked::Change(_)))
+            .count(),
+        1,
+        "only the row that differs: {asked:?}"
+    );
+    let tried = asked
+        .iter()
+        .position(|a| matches!(a, Asked::Change(Change::Flag(f)) if f.get()))
+        .expect("the row's value tried again");
+    let submitted = asked
+        .iter()
+        .position(|a| **a == Asked::Submit(section::RENDERING))
+        .expect("submitted");
+    assert!(tried < submitted, "{asked:?}");
     let id = out
         .iter()
         .find_map(|r| match r {

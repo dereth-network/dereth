@@ -251,6 +251,12 @@ impl ClientPage {
         for (s, r) in self.sections.clone() {
             if s == section::RENDERING {
                 rendering = self.rows.changed(ui, r);
+                // A row left as it was set when its value was put back is tried again.
+                for c in self.rows.changes(ui, r) {
+                    out.push(gameplay::Request::Options(super::Request::Preferences(
+                        Request::Change(c),
+                    )));
+                }
                 self.rows.submit(ui, r);
             } else {
                 self.rows.apply(ui, r);

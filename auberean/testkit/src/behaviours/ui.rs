@@ -1472,7 +1472,8 @@ pub static ROWS: &[Behaviour] = &[
         id: "ui.options.the-rendering-question-keeps-or-puts-back-and-leaves-the-rows",
         says: "Applying a changed rendering preference submits it and asks, in words that count \
                their seconds, whether to keep it; no puts it back and keeps the file, the row left \
-               as it was set, so Apply and Revert stay lit; yes keeps it and they go dark.",
+               as it was set, so Apply and Revert stay lit and Apply tries it again; yes keeps it \
+               and they go dark.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-OPTIONS-RENDERING-QUESTION"),
         station: "auberean-ui-game::dat::play::options::the_rendering_question_keeps_or_puts_back_and_leaves_the_rows",
