@@ -2136,6 +2136,94 @@ fn a_bodys_own_streak_is_drawn_where_it_is() {
     assert_eq!(ribbons(&mut s).0, 0, "faded and gone");
 }
 
+/// A behavior of the player's that names another object for the camera has that object play the
+/// behavior it names, and the camera hangs from one of its bones and looks at another; when the
+/// object isn't there, or can't play it, the camera stays on the player.
+///
+/// Behaviour: desktop.camera.a-behavior-naming-another-object-gives-it-the-camera
+#[test]
+fn a_behavior_naming_another_object_gives_it_the_camera() {
+    use auberean_client_sdk::runtime::host::Behavior;
+    use auberean_client_sdk::script::native_object::BehaviorParams;
+    const OTHER: u64 = 0x8130_1B05_CC00_0100;
+    /// A behavior of the human's.
+    const PLAYED: u32 = 0x4100_0022;
+    let other = CreateObject {
+        id: OTHER,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: HALL_CELL,
+                frame: Frame {
+                    origin: Vec3::new(62.0, 240.0, -44.6),
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let script = script_with(
+        HALL_CELL,
+        HALL_AT,
+        Quat::IDENTITY,
+        std::slice::from_ref(&other),
+    );
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 6.0 {
+        step(&mut s);
+    }
+    let asked = |target: u64, behavior: u32| Behavior::Play {
+        object: PLAYER,
+        params: BehaviorParams {
+            behavior: PLAYED,
+            camera_target: target,
+            camera_behavior: behavior,
+            ..BehaviorParams::default()
+        },
+    };
+
+    s.scene
+        .carry_out_behavior(&asked(0x8130_1B05_CC00_0199, PLAYED));
+    for _ in 0..30 {
+        step(&mut s);
+    }
+    assert_ne!(s.scene.camera.targeting.parent, 0x8130_1B05_CC00_0199);
+    while s.scene.player_figure_plays(PLAYED) {
+        step(&mut s);
+    }
+
+    s.scene.carry_out_behavior(&asked(OTHER, PLAYED));
+    let mut hung = false;
+    for _ in 0..30 {
+        step(&mut s);
+        hung |= s.scene.camera.targeting.parent == OTHER
+            && s.scene.camera.targeting.parent_bone == 0x4000_0002;
+    }
+    assert!(hung, "the camera hangs from the object");
+    assert!(
+        s.scene.camera.no_ray_trace(),
+        "nothing keeps it off the world"
+    );
+}
+
 /// With the camera at the eyes the player's own body shows as the avatar option says: during
 /// combat only, the client's default. At peace it is not drawn; in a combat mode it is, its head
 /// left out (the drawn body ends at the shoulders). While a behavior that moves the first-person

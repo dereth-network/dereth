@@ -300,10 +300,6 @@ impl Host for Ctx<'_> {
         self.is_player
     }
 
-    fn do_behavior_on_object(&mut self, _target: u64, _behavior: u32) -> bool {
-        false
-    }
-
     fn triggers(&mut self) -> Option<&mut FrameTriggers> {
         Some(self.triggers)
     }

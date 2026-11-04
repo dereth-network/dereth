@@ -107,6 +107,7 @@ not how it was done.
 - Much higher frame rates in towns and outdoors.
 - Fixed "You just entered a peace area" showing when a new character enters.
 - The shortcut bar now shows during story scenes.
+- Shards now swing the camera up and around before their story.
 
 ## 0.1.2 (2026-11-02)
 

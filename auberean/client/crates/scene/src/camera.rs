@@ -1543,11 +1543,12 @@ impl CameraControl {
         (h - 180.0).to_radians()
     }
 
-    /// Whether the world leaves the camera where it wants to be: in first person.
+    /// Whether the world leaves the camera where it wants to be: in first person, or while it looks
+    /// at something other than the player.
     // D2-10676
     #[must_use]
     pub fn no_ray_trace(&self) -> bool {
-        self.first_person
+        self.first_person || self.targeting.player != self.targeting.target
     }
 
     /// Whether only the walls and the ground stop the camera, no object: in the map view.

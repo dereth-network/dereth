@@ -369,6 +369,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.camera.a-behavior-naming-another-object-gives-it-the-camera",
+        says: "A behavior of the player's that names another object for the camera has that object play the behavior it names, and the camera hangs from one of its bones and looks at another; when the object isn't there, or can't play it, the camera stays on the player.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CAMERA-BEHAVIOR-ON-OBJECT"),
+        station: "auberean-shell::dat::session::a_behavior_naming_another_object_gives_it_the_camera",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.camera.a-change-of-view-glides-over-the-transition-time",
         says: "A change of view glides: each frame the camera moves from where it stood toward its \
                new place by the share of the transition time (a second) gone, and stands there \

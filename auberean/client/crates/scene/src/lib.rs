@@ -3261,14 +3261,26 @@ impl<'w> Scene<'w> {
                     self.camera.set_camera_anim_target(&objects, time, ramp);
                 }
                 Event::CameraBack => self.camera.restore_player_camera(&objects),
+                // D2-06076, D2-06425, D2-06426
                 Event::TargetedCamera {
                     target,
+                    behavior,
                     words,
                     time,
                     ramp,
                 } => {
-                    self.camera
-                        .set_targeted_camera(&objects, target, words, time, ramp);
+                    let asked = auberean_animation::track::Params::behavior(behavior);
+                    if self.play_behavior(target, &asked) {
+                        let objects = followed_of(
+                            self.player.as_ref(),
+                            &self.others,
+                            &self.anims,
+                            alpha,
+                            self.stand_ins,
+                        );
+                        self.camera
+                            .set_targeted_camera(&objects, target, words, time, ramp);
+                    }
                 }
                 // What it holds fades to the opacity asked over the time asked.
                 // D2-06232
