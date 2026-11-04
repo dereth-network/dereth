@@ -2270,7 +2270,8 @@ fn a_made_items_permanent_effects_change_its_numbers_and_show_with_their_amounts
 }
 
 /// Dyeing gives a piece of armor the plant's value in three of its appearance modifiers, in the pack
-/// and on its wearer at once; the plant is used up, the armor stays.
+/// and on its wearer at once, its table for lying in a pack or, with none, its first for being worn;
+/// the plant is used up, the armor stays.
 /// Behaviour: server.craft.dyeing-colors-armor
 #[test]
 fn dyeing_gives_armor_the_plants_color_in_the_pack_and_on_its_wearer() {
@@ -2282,11 +2283,14 @@ fn dyeing_gives_armor_the_plants_color_in_the_pack_and_on_its_wearer() {
     const WORN_FILE: u32 = 0x2000_036B;
     const RECIPE: u32 = 0x6F00_56D0;
     const LAPYAN: f32 = 0.573;
-    for worn in [false, true] {
+    for (worn, pile) in [(false, true), (true, true), (false, false)] {
         let (mut h, b, _me, world) = in_world();
         let mut armor = yalain_content::Props::default();
+        if pile {
+            armor.set("Item_PileAppearance", yalain_content::Prop::Word(PILE));
+        }
+        let table = if pile { PILE } else { WORN_FILE };
         armor
-            .set("Item_PileAppearance", yalain_content::Prop::Word(PILE))
             .set(
                 "Item_ValidInventoryLocations",
                 yalain_content::Prop::Word(2),
@@ -2363,7 +2367,7 @@ fn dyeing_gives_armor_the_plants_color_in_the_pack_and_on_its_wearer() {
         h.run(4);
         wait(&mut h, 9.0);
         let t = h.server.things.get(item).expect("the armor stays");
-        assert_eq!(t.own.dye, Some((PILE, LAPYAN)));
+        assert_eq!(t.own.dye, Some((table, LAPYAN)));
         let p = &h.server.players[&world];
         assert!(
             !p.play.items.iter().any(|i| i.template == PLANT),
@@ -2376,7 +2380,7 @@ fn dyeing_gives_armor_the_plants_color_in_the_pack_and_on_its_wearer() {
             .appearance
             .entries
             .iter()
-            .find(|(k, _)| *k == PILE)
+            .find(|(k, _)| *k == table)
             .map(|(_, v)| v.clone())
             .expect("its color in the pack");
         for k in DYE_KEYS {

@@ -2457,7 +2457,7 @@ fn dye<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, slots: &
     let Some(value) = props(plant).and_then(|p| p.float("Craft_DyePlant_Mod")) else {
         return;
     };
-    let Some(table) = props(armor).and_then(|p| p.word("Item_PileAppearance")) else {
+    let Some(table) = props(armor).and_then(crate::equip::dye_table) else {
         return;
     };
     let look = s.players.get(&world).and_then(|p| {

@@ -96,6 +96,7 @@ what they see, not how it was done.
 - Fixed selling a valued stack one at a time paying too much.
 - Items with different stats no longer merge into one stack.
 - Inscriptions now show when an item is examined.
+- Dyeing now works on all armor.
 
 ## 0.1.2 (2026-11-03)
 

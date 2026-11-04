@@ -148,6 +148,15 @@ pub fn fit_of(props: &yalain_content::Props) -> Option<Fit> {
 /// dyed held the three at the plant's value when next made).
 pub const DYE_KEYS: [u32; 3] = [2, 14, 0x4100_0004];
 
+/// The appearance table a dye writes to: an item's table for lying in a pack, else its first for
+/// being worn (2017: 32 of 32 armor pieces dyed).
+#[must_use]
+pub fn dye_table(props: &yalain_content::Props) -> Option<u32> {
+    props
+        .word("Item_PileAppearance")
+        .or_else(|| props.word("Item_WornAppearanceFile1"))
+}
+
 /// The dye a kept item carries.
 #[must_use]
 pub fn dye_kept(kept: &[crate::state::ItemState], item: u64) -> Option<f32> {
