@@ -155,12 +155,28 @@ pub struct TerrainBlock {
 /// A view of the heights and splits around one block, reaching one vertex into its neighbors.
 struct Neighborhood<'a> {
     land: &'a LandConstants,
-    source: &'a dyn LandSource,
+    /// The block and the eight around it, by `dx + 1` and `dy + 1`.
+    blocks: [[Option<&'a Landblock>; 3]; 3],
     bx: i32,
     by: i32,
 }
 
-impl Neighborhood<'_> {
+impl<'a> Neighborhood<'a> {
+    fn new(land: &'a LandConstants, source: &'a dyn LandSource, bx: i32, by: i32) -> Self {
+        let block = |dx: i32, dy: i32| source.landblock(bx + dx, by + dy);
+        Self {
+            land,
+            blocks: [-1, 0, 1].map(|dx| [-1, 0, 1].map(|dy| block(dx, dy))),
+            bx,
+            by,
+        }
+    }
+
+    /// The block `(dx, dy)` from this one, each -1, 0 or 1.
+    fn block(&self, dx: i32, dy: i32) -> Option<&'a Landblock> {
+        self.blocks[usize::try_from(dx + 1).ok()?][usize::try_from(dy + 1).ok()?]
+    }
+
     fn side(&self) -> i32 {
         // LINT-OK: a block side is a few dozen vertices.
         i32::try_from(self.land.grid().vertices_per_side()).unwrap_or(i32::MAX)
@@ -182,7 +198,7 @@ impl Neighborhood<'_> {
             }
         };
         let ((dx, i), (dy, j)) = (wrap(i), wrap(j));
-        let Some(lb) = self.source.landblock(self.bx + dx, self.by + dy) else {
+        let Some(lb) = self.block(dx, dy) else {
             return 0.0;
         };
         let k = usize::try_from(n * i + j).unwrap_or(0);
@@ -206,7 +222,7 @@ impl Neighborhood<'_> {
             }
         };
         let (dx, dy) = (block(i), block(j));
-        if self.source.landblock(self.bx + dx, self.by + dy).is_none() {
+        if self.block(dx, dy).is_none() {
             return false;
         }
         (self.land.spec.split)(self.bx * squares + i, self.by * squares + j)
@@ -588,12 +604,7 @@ pub fn vertex_materials(
     y: i32,
 ) -> Option<VertexMaterials> {
     let lb = source.landblock(x, y)?;
-    let hood = Neighborhood {
-        land,
-        source,
-        bx: x,
-        by: y,
-    };
+    let hood = Neighborhood::new(land, source, x, y);
     let n = hood.side();
     let mut out = VertexMaterials::default();
     for i in 0..n {
@@ -647,12 +658,7 @@ pub fn build_block(
         grid.cells_per_side,
         Some(&holes),
     );
-    let hood = Neighborhood {
-        land,
-        source,
-        bx: x,
-        by: y,
-    };
+    let hood = Neighborhood::new(land, source, x, y);
     let n = hood.side();
     let mut normals = Vec::with_capacity(side * side);
     let mut terrain = Vec::with_capacity(side * side);
