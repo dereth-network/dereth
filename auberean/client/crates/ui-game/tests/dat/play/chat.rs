@@ -10,7 +10,7 @@ use auberean_ui::{Assets, Handle, Token, Ui, Value};
 use auberean_ui_game::chat::{
     self, text_type as t, Ask, ChatSettings, ChatUi, History, TEXT_TYPES,
 };
-use auberean_ui_game::gameplay::{GamePlay, Notice, Request, View};
+use auberean_ui_game::gameplay::{GamePlay, Notice, Record, Request, View};
 use auberean_ui_game::options::chat::{label, ChatOptionsPage};
 use auberean_ui_game::options::helper::{Control, Row};
 use auberean_ui_game::options::{notice, OptionWindow};
@@ -418,6 +418,34 @@ fn a_line_waits_in_the_log_for_its_string_tables_and_the_lines_after_it_wait_beh
     lacking.arrive();
     f.tick(&mut ui, &mut p, &[], &[]);
     assert_eq!(text(&ui, log(&p, 0)), "From the server\nAfter it.\n");
+}
+
+/// A tell the player's scripts ask for (a fellow's or a friend's Tell) puts "/tell Name, " in the
+/// entry of the window keys are for, selected, and starts typing there.
+///
+/// Behaviour: ui.chat.a-tell-asked-for-goes-in-the-entry
+#[test]
+fn a_tell_asked_for_goes_in_the_entry() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut f = Frame::new();
+    f.reload(&mut ui, &mut p);
+    let e = entry(&p, 0);
+    assert_eq!(ui.active(), None);
+    let mut who = StringInfo::default();
+    who.set_literal(&"Cora".encode_utf16().collect::<Vec<u16>>(), false);
+    f.tick(
+        &mut ui,
+        &mut p,
+        &[],
+        &[Notice {
+            native: chat::notice::DO_ASSISTED_TELL,
+            records: vec![Some(Record::Text(who))],
+            ..Notice::default()
+        }],
+    );
+    assert_eq!(text(&ui, e), "/tell Cora, ");
+    assert_eq!(ui.active(), Some(e), "typing starts there");
 }
 
 /// Enter starts typing in the first window (its prompt goes); the keys typed go into the entry;

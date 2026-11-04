@@ -128,6 +128,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.chat.a-tell-asked-for-goes-in-the-entry",
+        says: "A tell the player's scripts ask for puts the tell command with the name in the                entry of the window keys are for, selected, and starts typing there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CHAT-ASSISTED-TELL"),
+        station: "auberean-ui-game::dat::play::chat::a_tell_asked_for_goes_in_the_entry",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.chat.each-window-shows-the-kinds-its-filter-holds-in-their-colors",
         says: "The chat panel makes four windows, the first shown and the others hidden; once the chat options are read the first entry holds the prompt and a devoted window's entry its channel's name; each window shows the kinds of text its filter holds, each line whole in its kind's color; an error line also stands in the line of messages at the screen's top for the six seconds its row says.",
         since: RETAIL,

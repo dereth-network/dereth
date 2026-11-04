@@ -36,7 +36,7 @@ use auberean_ui::manager::{global, LAYOUT_MAPPING};
 use auberean_ui::types::key_id;
 use auberean_ui::{Handle, Token, Ui, Value};
 
-use crate::gameplay::{Child, Notice, Request, View};
+use crate::gameplay::{Child, Notice, Record, Request, View};
 use crate::shortcuts::TOOLBAR_LAYOUT_ENUM;
 
 /// The kinds of text the chat windows show, a bit each.
@@ -1659,9 +1659,19 @@ impl Child for ChatUi {
     }
 
     /// The chat options or the player's options changed (the player's options with the chat's
-    /// read again first): the windows read them again once the client has.
-    fn notice(&mut self, _ui: &mut Ui, n: &Notice, _out: &mut Vec<Request>) {
+    /// read again first): the windows read them again once the client has. A tell to someone
+    /// goes in the entry of the window keys are for.
+    fn notice(&mut self, ui: &mut Ui, n: &Notice, _out: &mut Vec<Request>) {
         match n.native {
+            notice::DO_ASSISTED_TELL => {
+                let target = n.records.iter().flatten().find_map(|r| match r {
+                    Record::Text(t) => ui.assets().write(t),
+                    _ => None,
+                });
+                if let Some(target) = target {
+                    self.do_assisted_tell(ui, &target);
+                }
+            }
             notice::RELOAD_CHAT_SETTINGS => self.reload_chat = Some(self.seen),
             crate::gameplay::notice::RELOAD_OPTIONS => self.reload_options = Some(self.seen),
             _ => {}
