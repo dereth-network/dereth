@@ -164,8 +164,8 @@ pub struct PlayState {
 /// nothing after the skills; 3 nothing after the recipes; 4 nothing after the scenes; 5 nothing
 /// after the skills' last uses; 6 an item's instance stamp and maker only; 7 nothing after an
 /// item's durability; 8 nothing after a map's place; 9 nothing after an item's bonuses; 10 nothing
-/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix; 15 no value of an item's own).
-const VERSION: u32 = 16;
+/// after an item's binding; 11 nothing after the hero credits; 12 nothing after the time played; 13 nothing after the cloak; 14 nothing after the suffix; 15 no value of an item's own; 16 no look an item drew).
+const VERSION: u32 = 17;
 
 /// Do these bytes say a newer build kept them (a world that went back to an older build)?
 #[must_use]
@@ -188,6 +188,8 @@ const OWN_VALUE: u32 = 0x20;
 const OWN_INSCRIPTION: u32 = 0x40;
 /// The craft flags a recipe gave it.
 const OWN_CRAFT_FLAGS: u32 = 0x80;
+/// What it drew of its look as it dropped: the table, and three keys and values.
+const OWN_LOOK: u32 = 0x100;
 
 /// An item's durability as kept: none (never worn) is a value no durability takes.
 const UNWORN: u32 = u32::MAX;
@@ -380,7 +382,8 @@ impl ItemState {
                 OWN_CRAFT_FLAGS
             } else {
                 0
-            };
+            }
+            | if own.look.is_some() { OWN_LOOK } else { 0 };
         w32(out, has);
         if let Some(v) = own.min_level {
             w32(out, v.cast_unsigned());
@@ -417,6 +420,13 @@ impl ItemState {
         }
         if own.craft_flags != 0 {
             w32(out, own.craft_flags);
+        }
+        if let Some(look) = own.look {
+            w32(out, look.table);
+            for (key, value) in look.values {
+                w32(out, key);
+                w32(out, value.to_bits());
+            }
         }
     }
 
@@ -487,6 +497,14 @@ impl ItemState {
             }
             if has & OWN_CRAFT_FLAGS != 0 {
                 own.craft_flags = r.u32()?;
+            }
+            if has & OWN_LOOK != 0 {
+                let table = r.u32()?;
+                let mut values = [(0, 0.0); 3];
+                for slot in &mut values {
+                    *slot = (r.u32()?, r.f32()?);
+                }
+                own.look = Some(crate::treasure::Look { table, values });
             }
         }
         Some(Self {

@@ -1285,6 +1285,10 @@ fn a_made_items_own_numbers_are_kept_across_a_logout() {
         craft_needed: Some(60),
         ..yalain_world::made::Made::default()
     };
+    let drawn = yalain_world::treasure::Look {
+        table: 0x2000_0122,
+        values: [(2, 0.31), (14, 0.02), (0, 0.0)],
+    };
     {
         let t = h.server.things.get_mut(item).expect("made");
         t.own.made = Some(made);
@@ -1292,6 +1296,7 @@ fn a_made_items_own_numbers_are_kept_across_a_logout() {
         t.value = 7;
         t.enchantments = vec![(0x6F00_0F2B, 20.0)];
         t.own.dye = Some((0x2000_036A, 0.573));
+        t.own.look = Some(drawn);
     }
     let before = h.bots[a].inbox.len();
     h.bots[a].send(
@@ -1309,4 +1314,5 @@ fn a_made_items_own_numbers_are_kept_across_a_logout() {
     assert_eq!(t.value, 7);
     assert_eq!(t.enchantments, vec![(0x6F00_0F2B, 20.0)]);
     assert_eq!(t.own.dye, Some((0x2000_036A, 0.573)));
+    assert_eq!(t.own.look, Some(drawn));
 }

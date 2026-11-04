@@ -46,6 +46,23 @@ pub struct Own {
     pub dye: Option<(u32, f32)>,
     /// The craft flags a recipe gave it, beside its template's.
     pub craft_flags: u32,
+    /// What it drew of its look as it dropped.
+    pub look: Option<Look>,
+}
+
+/// What a treasure item drew of its look: the appearance table, and each key's value (no key, 0,
+/// where it has fewer).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Look {
+    pub table: u32,
+    pub values: [(u32, f32); 3],
+}
+
+impl Look {
+    /// Its keys and their values.
+    pub fn keys(&self) -> impl Iterator<Item = (u32, f32)> + '_ {
+        self.values.iter().copied().filter(|(k, _)| *k != 0)
+    }
 }
 
 /// A potion's own effect: its saved state and spellcraft, the table of its name (which holds the
@@ -68,6 +85,7 @@ impl Own {
             && self.made.is_none()
             && self.dye.is_none()
             && self.craft_flags == 0
+            && self.look.is_none()
     }
 }
 
@@ -294,6 +312,45 @@ pub fn numbers(
     Some(own)
 }
 
+/// The most a weapon's glow draws (2017: 920 weapons with no effects at 0.03 to 0.61 from the 5th to
+/// the 95th in a hundred, the median 0.31, none above 0.65; it follows no level, Spearman 0.03).
+pub const GLOW_DRAW: f32 = 0.65;
+
+/// How often a color is drawn from the round tenths, which 2017's colors show about twice as often
+/// as the rest (1,585 of key 2).
+const ROUND_COLOR_CHANCE: f32 = 0.1;
+
+/// What a treasure item of a template draws of its look, if its template is one known to: a weapon's
+/// glow evenly up to [`GLOW_DRAW`]; a color in hundredths, up to its key's highest. Fit to the items
+/// the 2017 servers made (4,952 of 4,998 values within their rows), so our choice; the highest
+/// values on enchanted weapons need their enchantments.
+pub fn draw_look(rng: &mut Rng, template: u32) -> Option<Look> {
+    use yalain_content::treasure_looks::{GLOW, TREASURE_LOOKS};
+    let (_, table, keys) = TREASURE_LOOKS.iter().find(|(t, ..)| *t == template)?;
+    let mut values = [(0, 0.0); 3];
+    for (slot, (key, top)) in values.iter_mut().zip(keys.iter()) {
+        let value = if *key == GLOW {
+            rng.between(0.0, GLOW_DRAW)
+        } else if *top >= 0.1 && rng.chance(ROUND_COLOR_CHANCE) {
+            #[allow(clippy::cast_precision_loss)]
+            let tenth = rng.below(4) as f32;
+            tenth / 10.0
+        } else {
+            let steps = dereth_primitives::num::to_i32(top * 100.0)
+                .max(0)
+                .cast_unsigned();
+            #[allow(clippy::cast_precision_loss)]
+            let step = rng.below(steps as usize + 1) as f32;
+            step / 100.0
+        };
+        *slot = (*key, value);
+    }
+    Some(Look {
+        table: *table,
+        values,
+    })
+}
+
 /// The highest least level an item's own may be.
 pub const MOST_LEVEL: i32 = 50;
 
@@ -395,6 +452,7 @@ pub fn endow<S: yalain_store::Store>(
     let base = base_of(level, quality);
     let mut own = Own::default();
     if s.treasure.equipment.contains(&package) {
+        own.look = draw_look(&mut s.rng, template);
         let set = s
             .catalog
             .get(template)

@@ -369,7 +369,8 @@ pub fn catalog(
         }
         let tables = yalain_world::equip::dye_table(&props)
             .into_iter()
-            .chain([yalain_world::inventory::POTION_COLOR.0]);
+            .chain([yalain_world::inventory::POTION_COLOR.0])
+            .chain(yalain_content::treasure_looks::table_of(t));
         for table in tables {
             c.icon_tables
                 .entry(table)
@@ -1240,8 +1241,18 @@ mod tests {
         const TABLE: u32 = 0x2000_0075;
         let (dat, _) = tallied(&DatName::Portal);
         let p = Portal::over(dat, Vec::new()).expect("a context");
-        let (c, _) = catalog(&p, &SpawnTable::default(), &LootTable::default(), &[ARMOR])
-            .expect("the catalog");
+        let (weapon, table, _) = yalain_content::treasure_looks::TREASURE_LOOKS[0];
+        let (c, _) = catalog(
+            &p,
+            &SpawnTable::default(),
+            &LootTable::default(),
+            &[ARMOR, weapon],
+        )
+        .expect("the catalog");
+        assert!(
+            c.icon_tables.contains_key(&table),
+            "the table its look draws in"
+        );
         let mut icon = c.icons[&ARMOR].clone();
         assert_eq!(icon[1][2], 0xFFFF_FFFF, "its template's");
         yalain_content::apply_icon_value(&mut icon, &c.icon_tables[&TABLE], 2, 0.31);

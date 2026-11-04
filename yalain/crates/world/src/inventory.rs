@@ -517,6 +517,16 @@ pub fn item_create(t: &Thing) -> CreateObject {
         parent: d.look,
         ..VisualDesc::default()
     };
+    if let Some(look) = t.own.look {
+        crate::equip::put_on(
+            &mut visual,
+            look.table,
+            auberean_protocol::table::Table::from_inserted(
+                auberean_protocol::table::SMALL,
+                look.keys(),
+            ),
+        );
+    }
     if let Some((table, dye)) = t.own.dye {
         crate::equip::put_on(
             &mut visual,
@@ -599,7 +609,7 @@ pub fn worn(
                     taken: h.location | fit.precluded,
                     implement: 0,
                     look: props.and_then(|p| {
-                        crate::equip::worn_look(p, race, sex, crate::equip::dye_kept(kept, h.id))
+                        crate::equip::worn_look(p, race, sex, &crate::equip::own_kept(kept, h.id))
                     }),
                 }
             } else {
@@ -660,6 +670,11 @@ pub fn icon_of<S: Store>(s: &Server<S>, t: &Thing) -> Vec<[u32; 3]> {
             yalain_content::apply_icon_value(&mut icon, tables, key, value);
         }
     };
+    if let Some(look) = t.own.look {
+        for (key, value) in look.keys() {
+            apply(look.table, key, value);
+        }
+    }
     if let Some((table, dye)) = t.own.dye {
         for key in crate::equip::DYE_KEYS {
             apply(table, key, dye);

@@ -2467,7 +2467,11 @@ fn dye<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, slots: &
             .find(|h| h.id == armor && h.location & crate::equip::BODY_PLACES != 0)?;
         let t = s.things.get(armor)?;
         let tp = s.catalog.get(t.template)?;
-        crate::equip::worn_look(&tp.props, p.race, p.sex, Some(value))
+        let own = crate::treasure::Own {
+            dye: Some((table, value)),
+            ..t.own
+        };
+        crate::equip::worn_look(&tp.props, p.race, p.sex, &own)
     });
     if let Some(t) = s.things.get_mut(armor) {
         t.own.dye = Some((table, value));

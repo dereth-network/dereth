@@ -157,24 +157,24 @@ pub fn dye_table(props: &yalain_content::Props) -> Option<u32> {
         .or_else(|| props.word("Item_WornAppearanceFile1"))
 }
 
-/// The dye a kept item carries.
+/// What a kept item carries of its own.
 #[must_use]
-pub fn dye_kept(kept: &[crate::state::ItemState], item: u64) -> Option<f32> {
+pub fn own_kept(kept: &[crate::state::ItemState], item: u64) -> crate::treasure::Own {
     kept.iter()
         .find(|k| k.id == item)
-        .and_then(|k| k.own.dye)
-        .map(|(_, v)| v)
+        .map(|k| k.own)
+        .unwrap_or_default()
 }
 
 /// The appearance an item of these properties gives a wearer of this race and sex (its template
 /// names one per race and sex), with the garment shown, the item's own appearance value (one its
-/// template sets) and the color a dye gave it.
+/// template sets), what it drew of its look, and the color a dye gave it.
 #[must_use]
 pub fn worn_look(
     props: &yalain_content::Props,
     race: u32,
     sex: u32,
-    dye: Option<f32>,
+    own: &crate::treasure::Own,
 ) -> Option<(u32, Table<f32>)> {
     let file = (1..=16).find_map(|n| {
         let file = props.word(&format!("Item_WornAppearanceFile{n}"))?;
@@ -191,7 +191,13 @@ pub fn worn_look(
             values.push((key, v));
         }
     }
-    if let Some(d) = dye {
+    if let Some(look) = own.look {
+        for (key, value) in look.keys() {
+            values.retain(|(k, _)| *k != key);
+            values.push((key, value));
+        }
+    }
+    if let Some((_, d)) = own.dye {
         values.retain(|(k, _)| !DYE_KEYS.contains(k));
         values.extend(DYE_KEYS.map(|k| (k, d)));
     }
@@ -246,7 +252,7 @@ pub fn dressed(
     for h in worn {
         if let Some((table, values)) = catalog
             .get(h.template)
-            .and_then(|t| worn_look(&t.props, race, sex, dye_kept(kept, h.id)))
+            .and_then(|t| worn_look(&t.props, race, sex, &own_kept(kept, h.id)))
         {
             put_on(&mut look, table, values);
         }
@@ -572,8 +578,8 @@ fn wear<S: Store>(
     let look = s
         .things
         .get(item)
-        .and_then(|t| s.catalog.get(t.template).map(|p| (p, t.own.dye)))
-        .and_then(|(t, dye)| worn_look(&t.props, race, sex, dye.map(|d| d.1)));
+        .and_then(|t| s.catalog.get(t.template).map(|p| (p, t.own)))
+        .and_then(|(t, own)| worn_look(&t.props, race, sex, &own));
     // Its effects come on just before the answer.
     effects_on(s, net, world, item, clock);
     let binds_on_use = binds_on_use(s, item);
@@ -743,7 +749,7 @@ fn take_off_to<S: Store>(
     let look = s
         .catalog
         .get(h.template)
-        .and_then(|t| worn_look(&t.props, race, sex, None));
+        .and_then(|t| worn_look(&t.props, race, sex, &crate::treasure::Own::default()));
     if let Some(p) = s.players.get_mut(&world) {
         crate::inventory::insert_at(&mut p.play.items, slot);
         if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {

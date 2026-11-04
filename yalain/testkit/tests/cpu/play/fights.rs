@@ -438,6 +438,110 @@ fn a_weapon_a_creature_drops_carries_its_levels_numbers() {
     );
 }
 
+/// A weapon of a template known to draw its look draws its glow as it drops, within what 2017's
+/// plain weapons show: it comes in the item's look, it changes its icon, and it is kept with the item.
+/// Behaviour: server.loot.treasure-look-drawn
+#[test]
+fn a_weapon_a_creature_drops_draws_its_look() {
+    use yalain_content::treasure_looks::{GLOW, TREASURE_LOOKS};
+    use yalain_content::IconTable;
+    let (template, table, _) = *TREASURE_LOOKS
+        .iter()
+        .find(|(_, _, k)| k[0].0 == GLOW)
+        .expect("a weapon's row");
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    h.server.catalog.insert(yalain_testkit::test_template(
+        template,
+        0x200,
+        yalain_content::Props::default(),
+    ));
+    h.server.treasure.equipment.insert(0x200);
+    h.server.catalog.icons.insert(template, vec![[1, 7, 8]]);
+    h.server.catalog.icon_tables.insert(
+        table,
+        vec![IconTable {
+            keys: vec![(GLOW, vec![(0.0, vec![[1, 0, 9]])])],
+        }],
+    );
+    let mut seen = Vec::new();
+    for _ in 0..200 {
+        let item = yalain_world::inventory::make_item(&mut h.server, template, 1, 9).expect("made");
+        yalain_world::treasure::endow(&mut h.server, item, 20, None);
+        let t = h.server.things.get(item).expect("made");
+        let look = t.own.look.expect("it draws one");
+        assert_eq!(look.table, table);
+        let (key, value) = look.keys().next().expect("a key");
+        assert_eq!(key, GLOW);
+        seen.push(value);
+        let create = yalain_world::inventory::item_create(t);
+        let (shown, values) = create
+            .visual
+            .global
+            .appearance
+            .entries
+            .first()
+            .expect("its look's values");
+        assert_eq!(*shown, table);
+        assert!(values
+            .entries
+            .iter()
+            .any(|(k, v)| *k == GLOW && *v == value));
+        assert_eq!(
+            yalain_world::inventory::icon_of(&h.server, t),
+            vec![[1, 7, 9]]
+        );
+    }
+    assert!(seen.iter().all(|v| (0.0..=0.65).contains(v)), "{seen:?}");
+    let least = seen.iter().copied().fold(1.0, f32::min);
+    let most = seen.iter().copied().fold(0.0, f32::max);
+    assert!(least < 0.1 && most > 0.5, "it spreads: {least} to {most}");
+}
+
+/// A color drawn stays within its key's highest, in hundredths, and a piece worn shows what it drew,
+/// until a dye takes its place.
+/// Behaviour: server.loot.treasure-look-drawn
+#[test]
+fn a_piece_of_armor_draws_its_colors_within_their_keys_and_wears_them() {
+    use yalain_content::treasure_looks::TREASURE_LOOKS;
+    use yalain_content::{Prop, Props};
+    use yalain_world::treasure::{self, Own};
+    let (template, table, keys) = *TREASURE_LOOKS
+        .iter()
+        .find(|(_, _, k)| k.len() == 2)
+        .expect("a two-colored row");
+    let mut rng = yalain_world::rng::Rng::new(7);
+    let mut props = Props::default();
+    props
+        .set("Item_WornAppearanceFile1", Prop::Word(0x2000_0001))
+        .set("Item_WornAppearanceRace1", Prop::Word(1))
+        .set("Item_WornAppearanceSex1", Prop::Word(0x1000));
+    for _ in 0..200 {
+        let look = treasure::draw_look(&mut rng, template).expect("it draws one");
+        assert_eq!(look.table, table);
+        for (key, top) in keys {
+            let (_, v) = look.keys().find(|(k, _)| k == key).expect("the key");
+            assert!((0.0..=*top).contains(&v), "{v} above {top}");
+            assert!(((v * 100.0).round() - v * 100.0).abs() < 1e-3, "{v}");
+        }
+        let own = Own {
+            look: Some(look),
+            ..Own::default()
+        };
+        let (_, worn) = yalain_world::equip::worn_look(&props, 1, 0x1000, &own).expect("worn");
+        for (k, v) in look.keys() {
+            assert!(worn.entries.contains(&(k, v)), "{k:x}");
+        }
+        let dyed = Own {
+            dye: Some((table, 0.5)),
+            ..own
+        };
+        let (_, worn) = yalain_world::equip::worn_look(&props, 1, 0x1000, &dyed).expect("worn");
+        assert!(worn.entries.contains(&(2, 0.5)), "the dye's");
+        assert!(!worn.entries.iter().any(|(k, v)| *k == 2 && *v != 0.5));
+    }
+}
+
 /// Using the corpse opens it: the opener is told what it holds (the beetle's profile always
 /// leaves one item) and of the item; using the item takes it, and once the taking is through the
 /// move is answered and the item is the player's.

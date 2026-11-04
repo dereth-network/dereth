@@ -1554,6 +1554,63 @@ fn an_items_icon_takes_what_its_appearance_gives_as_2017() {
     assert!(seen - built <= 6, "icons built: {built} of {seen}");
 }
 
+/// Treasure items of the templates known to draw their look, as the 2017 servers made them in
+/// corpses: the same table and keys, the values within what each key draws.
+/// Behaviour: server.loot.treasure-look-drawn
+#[test]
+fn treasure_items_look_values_fall_within_their_rows() {
+    use yalain_content::treasure_looks::{GLOW, TREASURE_LOOKS};
+    const CORPSE: u32 = 0x4700_0539;
+    let path = auberean_testkit::data::require_capture_index();
+    let con = open(&path);
+    let mut st = con
+        .prepare(
+            "SELECT m.session_id, m.raw FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) WHERE c.file LIKE '2017-%' AND m.status = 'ac2' \
+             AND m.dir = 's2c' AND m.mtype = 65624 ORDER BY m.session_id, m.idx",
+        )
+        .expect("prepares");
+    let mut rows = st.query([]).expect("runs");
+    let rows_by: HashMap<u32, yalain_content::treasure_looks::Row> =
+        TREASURE_LOOKS.iter().map(|row| (row.0, *row)).collect();
+    let mut corpses = std::collections::HashSet::new();
+    let mut session = -1;
+    let (mut values, mut within, mut plain_glow) = (0usize, 0usize, 0usize);
+    while let Some(r) = rows.next().expect("a row") {
+        let sid: i64 = r.get(0).expect("session");
+        if sid != session {
+            corpses.clear();
+            session = sid;
+        }
+        let raw: Vec<u8> = r.get(1).expect("raw");
+        let Ok(ServerMessage::CreateObject(o)) = ServerMessage::decode(&raw) else {
+            continue;
+        };
+        if o.weenie.entity_did == CORPSE {
+            corpses.insert(o.id);
+            continue;
+        }
+        if !corpses.contains(&o.weenie.objects[0]) {
+            continue;
+        }
+        let Some((_, table, keys)) = rows_by.get(&o.weenie.entity_did) else {
+            continue;
+        };
+        for (t, kv) in &o.visual.global.appearance.entries {
+            for (k, v) in &kv.entries {
+                values += 1;
+                within += usize::from(
+                    t == table && keys.iter().any(|(key, top)| key == k && *v <= *top + 1e-4),
+                );
+                plain_glow += usize::from(*k == GLOW && *v <= yalain_world::treasure::GLOW_DRAW);
+            }
+        }
+    }
+    println!("look values within their rows: {within} of {values}; plain glows {plain_glow}");
+    assert!(values > 4_000, "the recordings hold them: {values}");
+    assert!(values - within <= values / 50, "{within} of {values}");
+}
+
 fn icon_in(bytes: &[u8], request_len: usize) -> Option<Vec<[u32; 3]>> {
     let mut r = In::new(bytes.get(request_len..)?);
     let n = r.u32().ok()?;

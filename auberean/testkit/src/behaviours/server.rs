@@ -4447,6 +4447,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-look-drawn",
+        says: "A treasure item of a template seen to draw its look draws values for its look's \
+               appearance keys as it drops: a weapon's glow, a piece of armor's colors. They color it, \
+               change its icon and are worn with it, and a dye takes their place. Our choice, a fit \
+               to the items 2017 made.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-LOOK"),
+        station: "yalain-testkit::cpu::play::fights::a_weapon_a_creature_drops_draws_its_look",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.treasure-numbers-by-level",
         says: "A treasure weapon, shield or piece of armor has its own damage, rating, delay, vigor \
                cost and slots by its level, near what a made one has there, in place of its \

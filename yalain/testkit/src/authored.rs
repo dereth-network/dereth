@@ -476,7 +476,10 @@ impl Portal {
             if !icon.is_empty() {
                 catalog.icons.insert(id, icon);
             }
-            if let Some(table) = yalain_world::equip::dye_table(&t.props) {
+            let tables = yalain_world::equip::dye_table(&t.props)
+                .into_iter()
+                .chain(yalain_content::treasure_looks::table_of(id));
+            for table in tables {
                 catalog.icon_tables.entry(table).or_insert_with(|| {
                     yalain_content::icon_tables(table, &|did| {
                         auberean_assets::decode(did, &self.dat.read(did).ok()?, &self.ctx).ok()
