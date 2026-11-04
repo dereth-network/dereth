@@ -188,6 +188,10 @@ pub struct Editor<'w> {
     closing: bool,
     /// The window is to close now.
     pub close_now: bool,
+    /// Where the row being placed would stand: the ground under the pointer.
+    ghost: Option<[f32; 3]>,
+    /// The way the row being placed faces, once R has turned it; until then it faces the camera.
+    place_heading: Option<f32>,
 }
 
 impl std::fmt::Debug for Editor<'_> {
@@ -346,6 +350,8 @@ impl<'w> Editor<'w> {
             adding: play::Adding::default(),
             closing: false,
             close_now: false,
+            ghost: None,
+            place_heading: None,
         };
         e.read_characters();
         e
@@ -478,6 +484,40 @@ impl<'w> Editor<'w> {
             self.status = format!("placed {item}");
             self.select(Some(item));
         }
+    }
+
+    /// The way the row being placed faces: toward the camera until R turns it.
+    fn placing_heading(&self) -> f32 {
+        self.place_heading
+            .unwrap_or_else(|| (self.view().heading() + 180.0).rem_euclid(360.0))
+    }
+
+    /// The row being placed, where it would stand; none when the pointer is on no ground.
+    #[must_use]
+    pub const fn ghost(&self) -> Option<[f32; 3]> {
+        self.ghost
+    }
+
+    /// Stop placing.
+    fn stop_placing(&mut self) {
+        self.tool = Tool::Select;
+        self.ghost = None;
+        self.place_heading = None;
+    }
+
+    /// What the row being placed would look like, when it has a look.
+    fn ghost_standing(&mut self) -> Option<Standing> {
+        let at = self.ghost.filter(|_| self.tool == Tool::Place)?;
+        if self.new_kind == NewKind::Place {
+            return None;
+        }
+        let (look, scale) = self.look(parse_id(&self.template)?)?;
+        Some(Standing {
+            look,
+            at,
+            rotation: view::heading_rotation(self.placing_heading()),
+            scale,
+        })
     }
 
     /// Move a row to a point of the world's grid.
@@ -744,6 +784,7 @@ impl<'w> Editor<'w> {
                 scale,
             });
         }
+        out.extend(self.ghost_standing());
         out
     }
 
@@ -811,7 +852,12 @@ impl<'w> Editor<'w> {
                         self.session.redo();
                     }
                     KeyCode::KeyR if !input.ctrl => {
-                        self.turn_selected(if input.shift { -TURN_STEP } else { TURN_STEP });
+                        let by = if input.shift { -TURN_STEP } else { TURN_STEP };
+                        if self.tool == Tool::Place {
+                            self.place_heading = Some(self.placing_heading() + by);
+                        } else {
+                            self.turn_selected(by);
+                        }
                     }
                     KeyCode::KeyF if !input.ctrl => {
                         if let Some(item) = self.selected.clone() {
@@ -822,9 +868,12 @@ impl<'w> Editor<'w> {
                     // A Mac's keyboard calls Backspace delete.
                     KeyCode::Delete | KeyCode::Backspace => self.delete_selected(),
                     KeyCode::Escape => {
-                        self.tool = Tool::Select;
-                        self.drag = None;
-                        self.select(None);
+                        if self.tool == Tool::Place {
+                            self.stop_placing();
+                        } else {
+                            self.drag = None;
+                            self.select(None);
+                        }
                     }
                     _ => {}
                 }
@@ -834,17 +883,27 @@ impl<'w> Editor<'w> {
             self.camera
                 .change_speed(dereth_primitives::num::to_i32(input.wheel.signum()));
         }
+        self.ghost = if self.tool == Tool::Place && !over_panels {
+            self.ground_at(input.pointer)
+        } else {
+            None
+        };
         // Selecting, dragging and placing with the left button.
         if input.left_pressed && !over_panels {
             match self.tool {
                 Tool::Place => {
-                    if let Some(g) = self.ground_at(input.pointer) {
-                        let facing = (self.view().heading() + 180.0).rem_euclid(360.0);
+                    if let Some(g) = self.ghost {
+                        let facing = self.placing_heading();
                         self.place_at(g, facing);
+                        // Shift keeps placing, facing the same way.
+                        if input.shift {
+                            self.place_heading = Some(facing);
+                        } else {
+                            self.stop_placing();
+                        }
                     } else {
                         self.status = "no ground there".into();
                     }
-                    self.tool = Tool::Select;
                 }
                 Tool::Select => match self.hit(input.pointer) {
                     Some(item) => {
@@ -987,6 +1046,50 @@ impl<'w> Editor<'w> {
                 );
             }
         }
+        self.ghost_mark(painter);
+    }
+
+    /// Mark the row being placed: a ring where it would stand, a line the way it faces, what to do.
+    fn ghost_mark(&mut self, painter: &egui::Painter) {
+        let Some(g) = self.ghost else {
+            return;
+        };
+        let v = self.view();
+        let s = self.scale;
+        let Some(p) = v.project([g[0], g[1], g[2] + 1.0]) else {
+            return;
+        };
+        let p = egui::pos2(p[0] / s, p[1] / s);
+        let color = egui::Color32::from_rgb(255, 255, 120);
+        painter.circle_stroke(p, 8.0, egui::Stroke::new(2.0, color));
+        let h = self.placing_heading().to_radians();
+        let ahead = [
+            g[0] + 2.0 * math::sinf(h),
+            g[1] + 2.0 * math::cosf(h),
+            g[2] + 1.0,
+        ];
+        if let Some(a) = v.project(ahead) {
+            painter.line_segment(
+                [p, egui::pos2(a[0] / s, a[1] / s)],
+                egui::Stroke::new(2.0, color),
+            );
+        }
+        let (look, word) = match parse_id(&self.template) {
+            Some(t) if self.new_kind != NewKind::Place => (self.look(t).is_some(), self.label(t)),
+            _ => (true, self.new_kind.word().to_string()),
+        };
+        let text = if look {
+            format!("{word}: click to place, Shift to keep placing, R to turn, Esc to stop")
+        } else {
+            format!("{word} has no look of its own: it will show only as a marker")
+        };
+        painter.text(
+            p + egui::vec2(0.0, -16.0),
+            egui::Align2::CENTER_BOTTOM,
+            text,
+            egui::FontId::proportional(13.0),
+            color,
+        );
     }
 
     /// The place a portal's `to` names (`key`, or `pack:key`), from a row of `pack`.
@@ -1077,10 +1180,14 @@ impl<'w> Editor<'w> {
                 let placing = self.tool == Tool::Place;
                 if ui
                     .selectable_label(placing, "Place")
-                    .on_hover_text("then click the ground")
+                    .on_hover_text("then click the ground; Shift keeps placing, R turns, Esc stops")
                     .clicked()
                 {
-                    self.tool = if placing { Tool::Select } else { Tool::Place };
+                    if placing {
+                        self.stop_placing();
+                    } else {
+                        self.tool = Tool::Place;
+                    }
                 }
                 ui.separator();
                 if ui
