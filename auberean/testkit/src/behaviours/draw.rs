@@ -1035,6 +1035,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "draw.picture.every-stored-picture-is-in-a-format-the-draw-reads",
+        says: "Every picture of the install is in a format the draw reads; none is in YUY2.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-STORED-PICTURE-FORMATS"),
+        station: "auberean-draw::dat::pictures::every_stored_picture_is_in_a_format_the_draw_reads",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.picture.texture-detail-leaves-out-the-largest-levels",
         says: "Texture detail from lowest to highest leaves out the four, three, two or one largest \
                levels of a picture list, none at the highest when its high detail is kept, never \

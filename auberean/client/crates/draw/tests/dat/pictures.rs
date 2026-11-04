@@ -1,8 +1,36 @@
 //! Textures made from the install's picture lists.
 
-use auberean_draw::picture::load;
+use std::collections::BTreeMap;
 
-use crate::common::install;
+use auberean_assets::picture::Picture;
+use auberean_draw::picture::{expand, load};
+
+use crate::common::{ids_of, install};
+
+/// Every stored picture is in a format the draw reads, and a format that isn't one reads as no
+/// picture: no stored picture is in YUY2, or any other format only the original's device spoke.
+///
+/// Behaviour: draw.picture.every-stored-picture-is-in-a-format-the-draw-reads
+#[test]
+fn every_stored_picture_is_in_a_format_the_draw_reads() {
+    let r = &install().records;
+    let (mut counts, mut unread) = (BTreeMap::new(), Vec::new());
+    for id in ids_of(0x41) {
+        let p: Picture = r.get(id).unwrap_or_else(|| panic!("{id:08X} decodes"));
+        *counts.entry(p.format_name()).or_insert(0u32) += 1;
+        if expand(&p).is_none() {
+            unread.push((id, p.format_name()));
+        }
+    }
+    assert!(counts.len() > 1, "{counts:?}");
+    assert!(!counts.contains_key("YUY2"), "{counts:?}");
+    assert!(
+        unread.is_empty(),
+        "{} of them unread, first {:?}; {counts:?}",
+        unread.len(),
+        unread.first()
+    );
+}
 
 /// A picture made for one language is read from the language's file: a signpost's wood and words.
 ///
