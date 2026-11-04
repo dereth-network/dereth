@@ -131,7 +131,9 @@ fn the_client_page_lists_the_cameras_preferences_and_keeps_them() {
     assert_eq!(sound.len(), 8, "{sound:?}");
     assert!(has("Sound", &music, "1.000000"), "{sound:?}");
     assert!(has("Sound", &features, "Hardware"), "{sound:?}");
-    assert_eq!(kept.len(), 21 + 16 + 8 + 3 + 3);
+    let misc: Vec<_> = kept.iter().filter(|w| w.0 == "Misc").collect();
+    assert_eq!(misc.len(), 2, "{misc:?}");
+    assert_eq!(kept.len(), 21 + 16 + 8 + 3 + 3 + 2);
 }
 
 /// The command line's gore level and blood color stand over the language's: the effects start at
@@ -268,4 +270,53 @@ fn the_effects_section_chooses_what_keyed_effects_play() {
             "{key}"
         );
     }
+}
+
+/// The client page's last section holds the interface's two preferences, the tooltip delay and
+/// whether tooltips show, read from the preferences file by the data's names and handed over as
+/// read; what the player applies is handed over, what is only tried is not; keeping writes them.
+///
+/// Behaviour: ui.options.the-client-pages-other-section-sets-tooltips
+#[test]
+fn the_client_pages_other_section_sets_tooltips() {
+    let records = &crate::screens::data().0.records;
+    let settings = Settings::read("[Misc]\r\nTooltipDelay=2.000000\r\nTooltipEnable=0\r\n");
+    let mut p = Preferences::default();
+    p.start(&settings, records);
+    assert_eq!(p.take_tooltips(), (Some(2.0), Some(false)), "as read");
+    assert_eq!(p.take_tooltips(), (None, None), "once");
+    p.handle(&Request::Attach(vec![section::OTHER]));
+    let l = p.listing().expect("listed").clone();
+    let rows = &l
+        .sections
+        .iter()
+        .find(|(s, _)| *s == section::OTHER)
+        .expect("listed")
+        .1;
+    assert_eq!(rows.len(), 2);
+    let (Change::Number(mut delay), Change::Flag(enable)) = (rows[0].clone(), rows[1].clone())
+    else {
+        panic!("a number, then a yes or no: {rows:?}");
+    };
+    assert_eq!(delay.description.key, 0x4000_005B);
+    assert_eq!((delay.get(), enable.get()), (2.0, false));
+    assert_eq!(delay.range(), (0.0, 10.0));
+    delay.set_value(1.0);
+    p.handle(&Request::Change(Change::Number(delay)));
+    assert_eq!(p.take_tooltips(), (None, None), "tried, not applied");
+    p.handle(&Request::Apply(section::OTHER));
+    assert_eq!(p.take_tooltips(), (Some(1.0), None), "only what changed");
+    p.handle(&Request::Save);
+    let kept = p.take_kept().expect("kept");
+    let value = |key: &str| {
+        kept.iter()
+            .find(|(s, k, _)| s.ends_with("Misc") && k.ends_with(key))
+            .map(|(_, _, v)| v.clone())
+    };
+    assert_eq!(
+        value("TooltipDelay").as_deref(),
+        Some("1.000000"),
+        "{kept:?}"
+    );
+    assert_eq!(value("TooltipEnable").as_deref(), Some("0"), "{kept:?}");
 }

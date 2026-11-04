@@ -201,6 +201,79 @@ fn the_view_scrolls_by_page_and_to_either_end() {
     );
 }
 
+/// A tooltip's owner and template, the pointer resting on the owner since time 0.
+fn resting_on_a_tooltips_owner() -> Ui {
+    let owner = element(
+        "Owner",
+        "field",
+        [100, 100, 199, 199],
+        5,
+        vec![state(
+            "stateless",
+            0,
+            vec![
+                ("tooltips_on", V::Bool(true)),
+                ("tooltip_ID", V::Id(Token::of("Tip").0)),
+            ],
+            vec![],
+            vec![],
+        )],
+    );
+    let tip = element(
+        "Tip",
+        "field",
+        [0, 0, 57, 27],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![("tooltip_text_ID", V::Id(Token::of("TipText").0))],
+            vec![],
+            vec![text("TipText", [4, 4, 53, 23], vec![])],
+        )],
+    );
+    let mut u = ui(vec![owner, tip], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let o = u.create_root(l, Token::of("Owner")).unwrap();
+    u.set_tooltip(o, "Hello");
+    u.use_time(0.0);
+    u.pointer_move(150, 150);
+    u
+}
+
+/// The player's tooltip delay is how long the pointer rests: lengthened, nothing shows after the
+/// quarter second; shortened to no more than the rest so far, it shows at once.
+///
+/// Behaviour: ui.tooltip.the-players-delay-and-switch-rule-tooltips
+#[test]
+fn the_players_tooltip_delay_is_how_long_the_pointer_rests() {
+    let mut u = resting_on_a_tooltips_owner();
+    u.set_tooltip_preferences(Some(2.0), None);
+    u.use_time(1.0);
+    assert!(u.tooltip().is_none(), "two seconds now, not a quarter");
+    u.set_tooltip_preferences(Some(1.5), None);
+    assert!(u.tooltip().is_none(), "rested one second of one and a half");
+    u.set_tooltip_preferences(Some(1.0), None);
+    assert!(u.tooltip().is_some(), "rested exactly as long as asked");
+}
+
+/// Switched off, no tooltip shows however long the pointer rests, and the one up goes; switched
+/// back on, the element under the pointer shows its own at once.
+///
+/// Behaviour: ui.tooltip.the-players-delay-and-switch-rule-tooltips
+#[test]
+fn the_players_tooltip_switch_turns_them_off_and_back_on() {
+    let mut u = resting_on_a_tooltips_owner();
+    u.use_time(0.3);
+    assert!(u.tooltip().is_some());
+    u.set_tooltip_preferences(None, Some(false));
+    assert!(u.tooltip().is_none(), "the one up goes");
+    u.use_time(5.0);
+    assert!(u.tooltip().is_none(), "none shows, however long");
+    u.set_tooltip_preferences(None, Some(true));
+    assert!(u.tooltip().is_some(), "back on, at once");
+}
+
 /// Once the pointer has rested a quarter of a second on an element that shows tooltips, its
 /// tooltip template comes up in front with the element's tip text, below and right of the pointer;
 /// it goes when the pointer moves to another element.

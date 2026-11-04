@@ -8,6 +8,7 @@ not how it was done.
 ## Unreleased
 
 - The client now updates on its own, apart from the launcher.
+- Options: the tooltip delay and on/off switch now work.
 - Fixed objects stalling when their message numbering wrapped around.
 - Your keys now wait while a story scene or emote holds your character.
 - The camera now follows the animations meant to move it.

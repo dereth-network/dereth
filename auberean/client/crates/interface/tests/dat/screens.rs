@@ -2487,3 +2487,18 @@ fn the_play_screens_kept_places_go_into_a_table_and_come_back() {
         "{want:?} {at:?}"
     );
 }
+
+/// The tooltip switch as the preferences file has it reaches the screens on the next frame.
+///
+/// Behaviour: ui.options.the-client-pages-other-section-sets-tooltips
+#[test]
+fn the_tooltip_switch_as_read_reaches_the_screens() {
+    let (mut s, retail) = into_the_world();
+    assert!(retail.borrow().ui().tooltips_show());
+    let settings = auberean_shell::Settings::read("[Misc]\r\nTooltipEnable=0\r\n");
+    retail
+        .borrow_mut()
+        .set_preferences(&settings, &data().0.records);
+    step(&mut s);
+    assert!(!retail.borrow().ui().tooltips_show());
+}

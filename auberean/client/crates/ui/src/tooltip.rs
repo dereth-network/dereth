@@ -163,6 +163,12 @@ impl Ui {
         self.start_tooltip();
     }
 
+    /// Whether tooltips show at all, as the player set it.
+    #[must_use]
+    pub const fn tooltips_show(&self) -> bool {
+        self.tips.enable
+    }
+
     /// The player's tooltip settings: the delay before one shows, and whether they show (either
     /// change redoes the tooltip shown).
     // D2-11226

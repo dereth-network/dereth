@@ -1385,6 +1385,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.options.the-client-pages-other-section-sets-tooltips",
+        says: "The client page's last section lists the tooltip delay, from none to ten seconds, and \
+               whether tooltips show, read from the preferences file by the data's names; applied, \
+               each reaches the interface, and keeping writes them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CSTREAM-TOOLTIP-PAGE"),
+        station: "auberean-interface::dat::preferences::the_client_pages_other_section_sets_tooltips",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.options.the-command-line-forces-the-top-gore-and-blood",
         says: "The command line's maxgore and greenblood stand over the language's top gore level and                blood color: the effects start at them and nothing above them is offered.",
         since: RETAIL,
@@ -1979,6 +1989,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-TOOLTIP"),
         station: "auberean-ui::cpu::text::a_tooltip_shows_once_the_pointer_rests_and_goes_when_it_leaves",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.tooltip.the-players-delay-and-switch-rule-tooltips",
+        says: "The player's tooltip delay is how long the pointer rests before a tooltip shows, one \
+               shows at once when the delay comes down to the rest so far; switched off, none shows \
+               and the one up goes; switched back on, the element under the pointer shows its own.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CSTREAM-TOOLTIP-OPTIONS"),
+        station: "auberean-ui::cpu::text::the_players_tooltip_switch_turns_them_off_and_back_on",
         tier: Tier::Cpu,
     },
     behaviour! {

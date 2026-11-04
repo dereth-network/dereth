@@ -2121,6 +2121,11 @@ impl Interface for Retail {
         if let Some(c) = self.preferences.take_channels() {
             requests.push(Request::FxChannels(c));
         }
+        // The tooltip preferences applied (and, first, their values as read).
+        let (delay, enable) = self.preferences.take_tooltips();
+        if delay.is_some() || enable.is_some() {
+            self.ui.set_tooltip_preferences(delay, enable);
+        }
         // The sound preferences changed or applied (and, first, their values as read).
         for (key, value, applied) in self.preferences.take_sound() {
             requests.push(Request::Sound(

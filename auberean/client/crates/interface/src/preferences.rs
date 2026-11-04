@@ -13,8 +13,10 @@
 //! and music off) are told to the sound as they change and as they are applied, and their values
 //! as read handed to it at startup. The effects' preferences (how much gore, blood's color, steps
 //! raising particles) choose among the entries of effects keyed to them, and are told as they
-//! change and as they are applied. Keeping writes every preference to the file. The rendering and
-//! other sections list nothing yet.
+//! change and as they are applied. The interface's own two (how long the pointer rests before a
+//! tooltip shows, and whether tooltips show) are the page's last section, handed to the interface
+//! as read and as they are applied. Keeping writes every preference to the file. The rendering
+//! section lists nothing yet.
 
 use auberean_audio::options as sound;
 use auberean_draw::quality::{Graphics, Kind, GRAPHICS, PREFERENCES};
@@ -47,6 +49,7 @@ const DRAWING: u32 = 1;
 const CAMERA_HANDLER: u32 = 2;
 const SOUND_HANDLER: u32 = 3;
 const FX_HANDLER: u32 = 4;
+const TOOLTIP_HANDLER: u32 = 5;
 /// The page, the monitor of its sections.
 const PAGE: u32 = 1;
 
@@ -56,6 +59,7 @@ mod section {
     pub const CAMERA: u32 = 0x4000_0008;
     pub const AVATAR: u32 = 0x4000_000D;
     pub const INPUT: u32 = 0x4000_000E;
+    pub const OTHER: u32 = 0x4000_000C;
 }
 mod key {
     pub const MOUSE_LOOK_SENSITIVITY: u32 = 0x4000_0025;
@@ -77,6 +81,8 @@ mod key {
     pub const AVATAR_IN_FIRST_PERSON: u32 = 0x4000_006C;
     pub const AVATAR_HOVER_TRANSPARENCY: u32 = 0x4000_006D;
     pub const MOUSE_LOOK_STEERS: u32 = 0x4000_006B;
+    pub const TOOLTIP_DELAY: u32 = 0x4000_005B;
+    pub const TOOLTIP_ENABLE: u32 = 0x4000_005C;
 }
 
 /// A camera preference's kind: a number's range and default, or a yes-or-no's default.
@@ -324,6 +330,9 @@ pub struct Preferences {
     sound: Vec<(u32, f32, bool)>,
     /// The effects' preferences changed or applied since last handed on (and, first, as read).
     fresh_channels: bool,
+    /// The tooltip delay and whether tooltips show, each when applied since last handed on (and,
+    /// first, as read).
+    tooltips: (Option<f32>, Option<bool>),
     /// The top gore level and blood color the language allows.
     tops: (u32, u32),
     /// What the command line forces over them (0: nothing).
@@ -345,6 +354,7 @@ impl Default for Preferences {
             keep: None,
             sound: Vec::new(),
             fresh_channels: false,
+            tooltips: (None, None),
             tops: (fx::NORMAL, fx::RED),
             forced_tops: (0, 0),
         };
@@ -422,6 +432,24 @@ fn camera_preference(label: &str, help: &str, kind: &CameraKind) -> Pref {
         }
     }
 }
+
+/// The interface's preferences, in the order it puts them in: each one's key, label and help, and
+/// kind. The defaults are the interface's own.
+// D2-11271
+const TOOLTIP_PREFERENCES: [(u32, &str, &str, CameraKind); 2] = [
+    (
+        key::TOOLTIP_DELAY,
+        "ID_Misc_TooltipDelay",
+        "ID_Misc_TooltipDelay_Help",
+        CameraKind::Number(0.0, 10.0, 0.25),
+    ),
+    (
+        key::TOOLTIP_ENABLE,
+        "ID_Misc_TooltipEnable",
+        "ID_Misc_TooltipEnable_Help",
+        CameraKind::Flag(true),
+    ),
+];
 
 /// A sound preference as the bank keeps it: its label and help, its range, the features or yes
 /// or no, and its default.
@@ -556,6 +584,18 @@ impl Preferences {
         self.put_in(settings.profile());
         self.start_sound();
         self.fresh_channels = true;
+        self.tooltips = (
+            self.bank.find(key::TOOLTIP_DELAY).map(number_of),
+            self.bank
+                .find(key::TOOLTIP_ENABLE)
+                .map(|p| number_of(p) != 0.0),
+        );
+    }
+
+    /// The tooltip delay and whether tooltips show, each when applied since last taken (and,
+    /// first, as read).
+    pub fn take_tooltips(&mut self) -> (Option<f32>, Option<bool>) {
+        std::mem::take(&mut self.tooltips)
     }
 
     /// What the effects' preferences ask of the effects, when changed since last taken.
@@ -657,6 +697,12 @@ impl Preferences {
             self.bank
                 .bless(&mut pref, fx::SECTION, k, &file, &self.names, &mut out);
             self.bank.link(k, FX_HANDLER);
+        }
+        for (k, label, help, kind) in &TOOLTIP_PREFERENCES {
+            let mut pref = camera_preference(label, help, kind);
+            self.bank
+                .bless(&mut pref, section::OTHER, *k, &file, &self.names, &mut out);
+            self.bank.link(*k, TOOLTIP_HANDLER);
         }
         // D2-01694
         for (k, default) in KEY_MAP_FILES {
@@ -809,6 +855,17 @@ impl Preferences {
                     CAMERA_HANDLER => {
                         self.camera = self.camera_options();
                         self.fresh_camera = true;
+                    }
+                    TOOLTIP_HANDLER => {
+                        for p in &prefs {
+                            match p.description().key {
+                                key::TOOLTIP_DELAY => self.tooltips.0 = Some(number_of(p)),
+                                key::TOOLTIP_ENABLE => {
+                                    self.tooltips.1 = Some(number_of(p) != 0.0);
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                     _ => {}
                 }
