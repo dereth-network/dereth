@@ -33,7 +33,7 @@ use crate::shadow::{CloudShadows, ShadowMap};
 
 mod interior;
 
-pub use interior::{light_view_draw, Outlook, LIT_IN_VERTICES};
+pub use interior::{inside_light, light_view_draw, Outlook, LIT_IN_VERTICES};
 
 /// Where a frame is seen from and when.
 #[derive(Clone, Copy, Debug, PartialEq)]

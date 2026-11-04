@@ -595,52 +595,6 @@ fn dq(q: dereth_primitives::Quat) -> Quat {
     }
 }
 
-/// The light of a frame inside: the block's interior ambient; for what stands in the cells, the
-/// lights nearest `at` taken together as one light from their side; the interior fog, or none.
-// D2-11007, D2-10629
-fn inside_light(
-    light: &mut auberean_world::sky::DayLight,
-    lights: Option<&auberean_world::inside::BlockLights>,
-    at: Vec3,
-    outside: &auberean_world::inside::Outside,
-) {
-    use auberean_world::color::Color;
-    use auberean_world::math::{length, normalize, sub};
-    light.fog_min = 0.0;
-    light.fog_max = 0.0;
-    let Some(l) = lights else {
-        return;
-    };
-    light.ambient_color = l.ambient;
-    light.ambient_brightness = 1.0;
-    let mut color = Color::new(0.0, 0.0, 0.0, 1.0);
-    let mut from = Vec3::new(0.0, 0.0, 0.0);
-    for (origin, shine, range) in l.chosen(at, 1.0, outside) {
-        let to = sub(at, origin);
-        let d = length(to);
-        let k = 1.0 / (1.0 + 10.0 * d * d / (range * range));
-        color = Color::new(
-            color.r + shine.r * k,
-            color.g + shine.g * k,
-            color.b + shine.b * k,
-            1.0,
-        );
-        let w = (shine.r + shine.g + shine.b) * k;
-        let n = normalize(to);
-        from = Vec3::new(from.x + n.x * w, from.y + n.y * w, from.z + n.z * w);
-    }
-    light.direct_color = Color::new(color.r.min(1.0), color.g.min(1.0), color.b.min(1.0), 1.0);
-    light.direct_brightness = 1.0;
-    if length(from) > 0.0 {
-        light.light_direction = normalize(from);
-    }
-    if let Some((c, near, far)) = l.fog {
-        light.fog_color = c;
-        light.fog_min = near;
-        light.fog_max = far;
-    }
-}
-
 /// The block a cell id names.
 #[must_use]
 pub fn block_of(cell: u32) -> LandblockId {
@@ -3718,7 +3672,7 @@ impl<'w> Scene<'w> {
                 // look out on (the sky, the land) keeps the light outdoors.
                 let (mut f, outside) = self.builder.inside_frame(&spot, self.fov, home, low);
                 outside_day = Some(outside);
-                inside_light(
+                auberean_draw::scene::inside_light(
                     &mut f.light,
                     self.builder.block_lights(home).as_deref(),
                     dv(eye),
@@ -3737,7 +3691,12 @@ impl<'w> Scene<'w> {
                     let lights = self.builder.block_lights(home);
                     let mut light = f.light;
                     light.ambient_color = auberean_world::color::Color::new(0.0, 0.0, 0.0, 1.0);
-                    inside_light(&mut light, lights.as_deref(), dv(eye), &outside);
+                    auberean_draw::scene::inside_light(
+                        &mut light,
+                        lights.as_deref(),
+                        dv(eye),
+                        &outside,
+                    );
                     f.looked_light = Some(light);
                 }
                 f
