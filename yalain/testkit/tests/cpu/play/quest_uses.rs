@@ -566,6 +566,65 @@ fn a_done_quest_with_no_wait_is_given_again_at_once_unless_it_is_done_once() {
     assert!(updates(&h, b, from).is_empty(), "done once: never again");
 }
 
+/// A person's too-soon line is for when it is too soon: with one of its quests under way it says
+/// another line, and nothing when it has no other.
+/// Behaviour: server.talk.too-soon-is-kept-from-a-plain-use
+#[test]
+fn a_persons_too_soon_line_is_not_said_at_a_plain_use() {
+    const STUBBY: u32 = 0x4700_335B;
+    const QUESTS: [u32; 2] = [0x4000_0313, 0x4000_0336];
+    const TOO_SOON: u32 = 0x3867_28F6;
+    const GET_MOVING: u32 = 0x6369_1D8F;
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![object(0x8130_0000_0000_0801, STUBBY, [61.0, 241.0, -44.6])],
+        ..ContentPack::default()
+    };
+    h.server.quests = QuestTable {
+        quests: QUESTS
+            .iter()
+            .map(|q| QuestDef {
+                duration: 7200.0,
+                ..quest(*q, 0x2500_17D4, 2)
+            })
+            .collect(),
+        steps: QUESTS
+            .iter()
+            .map(|q| step(*q, 0, Trigger::Use(STUBBY), Update::Bestow))
+            .collect(),
+    };
+    h.server.talk = TalkTable {
+        lines: vec![line(STUBBY, TOO_SOON, Role::TooSoon, How::Tell, None)],
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let stubby = 0x8130_0000_0000_0801;
+    holding(&mut h, &[(QUESTS[0], status::UNDERWAY, 1)], 60);
+    let from = use_it(&mut h, b, me, stubby);
+    assert!(texts(&h, b, from).is_empty(), "under way: not that line");
+    holding(&mut h, &[(QUESTS[0], status::COMPLETED, 0)], 60);
+    let from = use_it(&mut h, b, me, stubby);
+    assert_eq!(
+        texts(&h, b, from),
+        vec![(HEAR_TELL, TOO_SOON)],
+        "too soon: that line"
+    );
+    h.server.talk = TalkTable {
+        lines: vec![
+            line(STUBBY, TOO_SOON, Role::TooSoon, How::Tell, None),
+            line(STUBBY, GET_MOVING, Role::Use, How::Tell, None),
+        ],
+    };
+    holding(&mut h, &[(QUESTS[0], status::UNDERWAY, 1)], 60);
+    for _ in 0..8 {
+        let from = use_it(&mut h, b, me, stubby);
+        assert_eq!(
+            texts(&h, b, from),
+            vec![(HEAR_TELL, GET_MOVING)],
+            "under way: its own line"
+        );
+    }
+}
+
 /// A person who gives several quests gives one of them at a use (not always the same one), none
 /// while one is under way, and, when they have no wait of their own, none until two hours after
 /// the last it gave: until then it says its too-soon line. A person whose quests have waits gives

@@ -7424,6 +7424,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.talk.too-soon-is-kept-from-a-plain-use",
+        says: "A person's too-soon line is said only when it is too soon, never at a plain use.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TOO-SOON-USE"),
+        station: "yalain-testkit::cpu::play::quest_uses::a_persons_too_soon_line_is_not_said_at_a_plain_use",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.talk.used-with-nothing-to-give",
         says: "A person used with no quest step for the player says a reminder of one of its \
                quests the player has under way, else one of its lines for a use, picked at \

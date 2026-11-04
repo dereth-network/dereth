@@ -19,7 +19,7 @@
 //! **Used, with nothing for the player.** A storekeeper greets as its store row says; anyone
 //! else (a storekeeper without a greeting too) says a reminder of one of its quests the player has
 //! under way, else one of the lines it says when used (refusals, its own words at a use), picked
-//! at random, heard ones first.
+//! at random, heard ones first. Never its too-soon line, which is for when it is too soon.
 //!
 //! **Unprompted.** A person with lines for a player near says one to each player who comes within
 //! [`NEAR`] of it, at most once in [`NEAR_AGAIN`]; one with idle lines says one every
@@ -300,7 +300,9 @@ pub fn refusal_for<S: Store>(
 }
 
 /// What a person used says when no quest step ran: a reminder of a quest of its the player has
-/// under way, else one of the lines it says at a use.
+/// under way, else one of the lines it says at a use, its too-soon line not among them (2017: 25 of
+/// 25 such lines with none of the person's quests under way; with one under way, its own line 3 of
+/// 3).
 pub fn at_use<S: Store>(
     s: &mut Server<S>,
     world: ConnId,
@@ -326,7 +328,7 @@ pub fn at_use<S: Store>(
     }
     let said: Vec<Line> = lines
         .into_iter()
-        .filter(|l| l.role != Some(Role::Remind) && l.quest.is_none())
+        .filter(|l| !matches!(l.role, Some(Role::Remind | Role::TooSoon)) && l.quest.is_none())
         .collect();
     pick(s, &said)
 }
