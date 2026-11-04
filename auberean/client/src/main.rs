@@ -289,6 +289,7 @@ impl Reader for Line {
     }
 }
 
+// D2-00096
 fn options() -> Result<Options, String> {
     let words: Vec<String> = std::env::args().collect();
     let words: Vec<&str> = words.iter().map(String::as_str).collect();

@@ -607,7 +607,6 @@ impl Default for ClientLine {
 
 impl ClientLine {
     /// Read a command line's words (the program's name first): what it keeps, and whether it read.
-    // D2-00096
     #[must_use]
     pub fn parse(argv: &[&str]) -> (Self, bool) {
         let mut line = Self::default();
