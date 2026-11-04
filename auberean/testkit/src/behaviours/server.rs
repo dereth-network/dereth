@@ -1532,6 +1532,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.craft.recipe-charges-and-targets-read",
+        says: "A mine's recipe reads its charges and the template it must be made at from its definition.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-RECIPE-READ"),
+        station: "yalain-testkit::corpus::world_db::a_mines_recipe_reads_its_charges_and_its_mine",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.craft.recipe-pays-experience",
         says: "A recipe made pays the craft experience its table gives the spinner chosen (else its \
                fixed amount) times its outcome's share; the pool is told, then the craft skill's \
@@ -3743,6 +3751,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.journal-hand-ins",
+        says: "An item a journal says to hand in, given at its phase, finishes the quest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-JOURNAL-HAND-INS"),
+        station: "yalain-testkit::corpus::world_db::hand_ins_a_journal_names_finish_their_quests",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.gives.kept-in-2017",
         says: "The gives January 2017 kept with no step here have their rows: the offerings' chain, the \
                shrine's recipe, the mirras, the bucket, the repeat dips, the donation, the bribe, the \
@@ -3892,6 +3908,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.ryvenna-gems",
+        says: "A jeweler's 33 gems come one after another in the order characters did them, any size taken, none \
+               given twice.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-GEM-CHAIN-2017"),
+        station: "yalain-testkit::corpus::world_db::ryvennas_gems_follow_one_another_in_the_order_characters_did_them",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.gives.subquests",
         says: "Items given that close a phase's subquests each tell the quest's record with its phase \
                kept, and the last, in any order, moves it on.",
@@ -3909,6 +3934,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-LAST-SUB-LINE"),
         station: "yalain-testkit::cpu::play::gives::the_give_closing_a_phase_is_said_as_the_next_phase_where_a_line_says_it",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.gives.ulkas-mines",
+        says: "A guard's death gives a player who paid the toll its hidden quest and with it the mine's quest and \
+               recipe; each gem counts and the last ends the quest and the toll.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-ULKAS-MINES-2017"),
+        station: "yalain-testkit::corpus::world_db::an_ulkas_mine_is_given_by_a_guard_after_its_toll_and_its_last_gem_ends_the_toll",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.gives.vitae-tap",
