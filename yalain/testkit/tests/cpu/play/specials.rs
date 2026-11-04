@@ -275,7 +275,7 @@ fn a_special_goes_at_its_players_pace() {
 #[test]
 fn a_skill_that_says_it_goes_faster_is_told_at_the_square_of_it() {
     const LONG: u32 = 0x4100_007B;
-    let told = |speed: Option<f32>| -> Vec<(f32, f64)> {
+    let told = |speed: Option<f32>, run: bool| -> Vec<(f32, f64)> {
         let (mut h, b, me, beetle) = beside_a_beetle();
         practice_target(&mut h, beetle);
         h.arm(b, me, BOW);
@@ -288,12 +288,14 @@ fn a_skill_that_says_it_goes_faster_is_told_at_the_square_of_it() {
             .expect("Deadeye");
         u.combat_speed = speed;
         u.behavior_other = [LONG; 3];
-        h.bots[b].send(
-            true,
-            queue::WEENIE,
-            &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
-        );
-        h.run(30);
+        if run {
+            h.bots[b].send(
+                true,
+                queue::WEENIE,
+                &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+            );
+            h.run(30);
+        }
         let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
         let mut at = Vec::new();
         for _ in 0..200 {
@@ -315,9 +317,10 @@ fn a_skill_that_says_it_goes_faster_is_told_at_the_square_of_it() {
         at.retain(|x| x.0 > 0.0);
         at
     };
-    let plain = told(None);
-    let fast = told(Some(1.6));
+    let plain = told(None, true);
+    let fast = told(Some(1.6), true);
     assert!(plain.len() > 2 && fast.len() > 2);
+    let alone = told(Some(1.6), false);
     let bare = yalain_world::combat::time_scale_at_delay(0);
     assert!(
         (bare * 0.9..=bare * 1.1).contains(&plain[0].0),
@@ -326,6 +329,11 @@ fn a_skill_that_says_it_goes_faster_is_told_at_the_square_of_it() {
     );
     let at = bare * 2.56;
     assert!((at * 0.9..=at * 1.1).contains(&fast[0].0), "{:?}", fast[0]);
+    assert!(
+        (at * 0.9..=at * 1.1).contains(&alone[0].0),
+        "{:?}",
+        alone[0]
+    );
     // The next story comes the animation over the time scale and the pause on.
     for (run, name) in [(&plain, "plain"), (&fast, "fast")] {
         let gap = run[1].1 - run[0].1;
@@ -335,6 +343,38 @@ fn a_skill_that_says_it_goes_faster_is_told_at_the_square_of_it() {
             "{name}: {gap:.3} where {due:.3} was due"
         );
     }
+}
+
+/// A special waiting for a run's next swing still goes when the run has nothing it may swing.
+/// Behaviour: server.weapons.withheld-run-waits
+#[test]
+fn a_special_inside_a_run_with_nothing_to_swing_still_goes() {
+    const NEVER_CARRIED: u32 = 0x6F00_7E00;
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, BOW);
+    for d in h.server.skill_table.skills.values_mut() {
+        if d.auto_attack {
+            d.usage.as_mut().expect("used").required_effects = vec![NEVER_CARRIED];
+        }
+    }
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    h.run(30);
+    let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+    h.run(80);
+    let told: Vec<u32> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::DoStory(e) if e.sender.id == me => Some(e.action.skill),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(told, [DEADEYE]);
 }
 
 /// A special's hook that adds by rating adds at the player's rating in it: Deadeye with a hook of
