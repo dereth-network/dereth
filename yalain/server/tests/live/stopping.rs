@@ -306,11 +306,28 @@ fn installation(dir: &Path) -> PathBuf {
 
 /// Waits for `text` in the log `from` on; the place after it.
 fn wait_for(dir: &Path, server: &mut Running, text: &str, from: usize) -> usize {
+    wait_unless(dir, server, text, None, from)
+}
+
+/// [`wait_for`], failing at once should the server say `instead` first.
+fn wait_unless(
+    dir: &Path,
+    server: &mut Running,
+    text: &str,
+    instead: Option<&str>,
+    from: usize,
+) -> usize {
     let started = Instant::now();
     loop {
         let log = std::fs::read_to_string(dir.join("server.log")).unwrap_or_default();
         if let Some(at) = log.get(from..).and_then(|rest| rest.find(text)) {
             return from + at + text.len();
+        }
+        if let Some(instead) = instead {
+            assert!(
+                !log.get(from..).unwrap_or_default().contains(instead),
+                "the server said {instead:?} instead of {text:?}\n{log}"
+            );
         }
         assert!(
             server.0.try_wait().expect("its state").is_none(),
@@ -400,10 +417,11 @@ fn the_running_server_counts_down_installs_and_restarts_into_a_patch_release() {
         at,
     );
     let at = wait_for(&dir, &mut server, "the world shuts down in 1 seconds", at);
-    let at = wait_for(
+    let at = wait_unless(
         &dir,
         &mut server,
         &format!("Update: {version} passed its health check"),
+        Some("Rolling back to"),
         at,
     );
     let at = wait_for(
