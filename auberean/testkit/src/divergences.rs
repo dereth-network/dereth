@@ -32,6 +32,12 @@ pub static DIVERGENCES: &[Divergence] = &[
                of its own and finishes at most 25 milliseconds of it each frame.",
     },
     Divergence {
+        id: "CD2-data-files-from-one-folder",
+        says: "The data files are opened from the one install folder named, without checking \
+               their game versions; the first region's cell file is always used, and a language \
+               with no file falls back to English.",
+    },
+    Divergence {
         id: "CD2-data-read-again",
         says: "A record the data files hold that fails to read is read again before it counts as missing, so one bad read on a busy machine does not lose it for the rest of the session.",
     },
