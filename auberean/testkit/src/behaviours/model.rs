@@ -88,12 +88,31 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "model.events.a-private-gap-is-given-up-one-stamp-at-a-time",
+        says: "With twenty private messages held and five minutes blocked, a message arriving gives \
+               up one missing stamp, and the five minutes start again if the next held one is still \
+               not next; a late stamp the give-ups have not reached still takes effect.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CSTREAM-PRIVATE-GIVE-UP"),
+        station: "auberean-client-model::cpu::events::a_private_gap_is_given_up_one_stamp_per_five_minutes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "model.events.a-queue-for-an-object-being-made-waits",
         says: "A queue of messages waiting for an object that is being made from its records is \
                never given up, however long it waits.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-MODEL-BEING-CREATED"),
         station: "auberean-client-model::cpu::events::a_queue_for_an_object_being_made_is_never_given_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "model.events.a-repeated-private-stamp-past-a-gap-takes-effect-twice",
+        says: "A private stamp arriving again while it is held past a gap is held again and takes \
+               effect twice, the later arrival first, and each counts toward the twenty held.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CSTREAM-PRIVATE-REPEAT"),
+        station: "auberean-client-model::cpu::events::a_private_stamp_repeated_past_a_gap_takes_effect_twice_later_arrival_first",
         tier: Tier::Cpu,
     },
     behaviour! {

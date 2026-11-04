@@ -11,11 +11,14 @@
 //! does not exist yet.
 //!
 //! **Order.** A private message (ordering type 1, the player's own stream) takes effect only after
-//! the one stamped before it: the first one accepted is stamped 0 or 1, an older or repeated stamp
-//! is dropped, and twenty held messages blocked for five minutes give up on the gap. A visual
-//! message (type 2) is about an object and is ordered by the visual stamp it carries against that
-//! object's: the object's creation sets the start, an older stamp is dropped, a newer one waits for
-//! the stamps between. Unordered messages (type 3) take effect as they come. Any other type is
+//! the one stamped before it: the first one accepted is stamped 0 or 1, and a stamp at or before
+//! the last one taken is dropped. A stamp arriving again while it is held past a gap is held again,
+//! and takes effect twice, the later arrival first. With twenty held and five minutes blocked, a
+//! message arriving gives up one missing stamp, and the five minutes start again if the next held
+//! one is still not next; they also start again whenever a look at the held messages finds that.
+//! A visual message (type 2) is about an object and is ordered by the visual stamp it carries
+//! against that object's: the object's creation sets the start, an older stamp is dropped, a newer
+//! one waits for the stamps between. Unordered messages (type 3) take effect as they come. Any other type is
 //! dropped.
 //!
 //! **Objects not here yet.** A message about an object the client does not have, or about a newer
@@ -153,13 +156,14 @@ pub fn subject(m: &ServerMessage) -> Option<ObjectStamp> {
 struct PrivateStream {
     started: bool,
     last: u32,
-    held: BTreeMap<u32, Item>,
+    /// Held messages in stamp order; a stamp arriving again goes before the one already held.
+    held: VecDeque<(u32, Item)>,
     blocked_since: Option<f64>,
 }
 
 impl PrivateStream {
     /// Take a message; what may now take effect goes to `out`, in order.
-    // D2-14307, D2-14306, D2-14303, D2-05618, D2-05630, D2-14308
+    // D2-14307, D2-14308, D2-05618
     fn add(
         &mut self,
         stamp: u32,
@@ -176,15 +180,11 @@ impl PrivateStream {
         if stamp == self.last || stamp == self.last + 1 {
             self.last = stamp;
             out.push_back(item);
-            self.flush(out);
-            return;
-        }
-        if self.held.contains_key(&stamp) {
-            *dropped += 1;
+            self.flush(now, out);
             return;
         }
         let was_empty = self.held.is_empty();
-        self.held.insert(stamp, item);
+        self.hold(stamp, item);
         if was_empty {
             self.blocked_since = Some(now);
         }
@@ -193,28 +193,40 @@ impl PrivateStream {
                 .blocked_since
                 .is_some_and(|t| now - t > PRIVATE_STREAM_PATIENCE)
         {
-            // Give up on the gap: the next held message goes on as if the gap had arrived.
+            // Give up on one missing stamp, as if it had arrived empty.
             self.last += 1;
-            if let Some((&first, _)) = self.held.iter().next() {
-                self.last = self.last.max(first.saturating_sub(1));
-            }
-            self.flush(out);
+            self.flush(now, out);
         }
     }
 
-    fn flush(&mut self, out: &mut VecDeque<Item>) {
-        while let Some((&s, _)) = self.held.iter().next() {
-            if s == self.last || s == self.last + 1 {
-                if let Some(item) = self.held.remove(&s) {
-                    self.last = s;
-                    out.push_back(item);
-                }
-            } else {
-                break;
+    // D2-14306
+    fn hold(&mut self, stamp: u32, item: Item) {
+        let at = self.held.partition_point(|(s, _)| *s < stamp);
+        self.held.insert(at, (stamp, item));
+    }
+
+    /// The held message that follows the last one taken, if the first held does; if it does not,
+    /// the wait for it starts again from now.
+    // D2-14303
+    fn next_ready(&mut self, now: f64) -> Option<Item> {
+        let &(first, _) = self.held.front()?;
+        if first == self.last || first == self.last + 1 {
+            self.last = first;
+            let (_, item) = self.held.pop_front()?;
+            if self.held.is_empty() {
+                self.blocked_since = None;
             }
+            Some(item)
+        } else {
+            self.blocked_since = Some(now);
+            None
         }
-        if self.held.is_empty() {
-            self.blocked_since = None;
+    }
+
+    // D2-05630
+    fn flush(&mut self, now: f64, out: &mut VecDeque<Item>) {
+        while let Some(item) = self.next_ready(now) {
+            out.push_back(item);
         }
     }
 }

@@ -77,6 +77,182 @@ fn private_messages_take_effect_in_stamp_order() {
     assert_eq!(q.stats().dropped, 1);
 }
 
+/// The player, in the world, with the private stream not started.
+fn in_the_world() -> EventQueue {
+    let mut q = EventQueue::new();
+    q.start_entering();
+    q.receive(0.0, player_object());
+    q.receive(0.0, create_item(PLAYER, 1, 1));
+    drain(&mut q);
+    q
+}
+
+fn private_taken(q: &mut EventQueue) -> Vec<u32> {
+    drain(q).iter().filter_map(quality_of).collect()
+}
+
+/// Twenty messages held and five minutes blocked give up one stamp as a message arrives, not the
+/// whole gap. Stamps 2 to 4 are missing: each give-up takes one and starts the five minutes again,
+/// and only the last lets what is held through.
+///
+/// Behaviour: model.events.a-private-gap-is-given-up-one-stamp-at-a-time
+#[test]
+fn a_private_gap_is_given_up_one_stamp_per_five_minutes() {
+    let mut q = in_the_world();
+    q.receive(1.0, private_int(1, 1));
+    assert_eq!(private_taken(&mut q), vec![1]);
+    for stamp in 5..=23 {
+        q.receive(2.0, private_int(stamp, u32::from(stamp)));
+    }
+    assert!(private_taken(&mut q).is_empty(), "nineteen held, none next");
+    q.receive(2.0, private_int(24, 24));
+    q.receive(302.5, private_int(25, 25));
+    assert!(
+        private_taken(&mut q).is_empty(),
+        "stamp 2 given up; 5 is not next, so the five minutes start again"
+    );
+    q.receive(602.0, private_int(26, 26));
+    assert!(
+        private_taken(&mut q).is_empty(),
+        "the five minutes run from the first give-up"
+    );
+    q.receive(603.0, private_int(27, 27));
+    assert!(private_taken(&mut q).is_empty(), "stamp 3 given up");
+    q.receive(904.0, private_int(28, 28));
+    assert_eq!(
+        private_taken(&mut q),
+        (5..=28).collect::<Vec<u32>>(),
+        "stamp 4 given up, and all that was held follows"
+    );
+    assert_eq!(q.stats().dropped, 0);
+}
+
+/// It takes twenty held and more than five minutes: nineteen held after any wait give up nothing,
+/// and neither do twenty held after exactly five minutes.
+///
+/// Behaviour: model.events.a-private-gap-is-given-up-one-stamp-at-a-time
+#[test]
+fn a_private_give_up_takes_twenty_held_and_more_than_five_minutes() {
+    let mut late = in_the_world();
+    late.receive(1.0, private_int(1, 1));
+    drain(&mut late);
+    for stamp in 3..=20 {
+        late.receive(2.0, private_int(stamp, u32::from(stamp)));
+    }
+    late.receive(900.0, private_int(21, 21));
+    assert!(private_taken(&mut late).is_empty(), "nineteen held");
+    late.receive(900.0, private_int(22, 22));
+    assert_eq!(private_taken(&mut late), (3..=22).collect::<Vec<u32>>());
+
+    let mut exact = in_the_world();
+    exact.receive(1.0, private_int(1, 1));
+    drain(&mut exact);
+    for stamp in 3..=21 {
+        exact.receive(2.0, private_int(stamp, u32::from(stamp)));
+    }
+    exact.receive(302.0, private_int(22, 22));
+    assert!(private_taken(&mut exact).is_empty(), "exactly five minutes");
+    exact.receive(302.5, private_int(23, 23));
+    assert_eq!(private_taken(&mut exact), (3..=23).collect::<Vec<u32>>());
+}
+
+/// A stamp of the gap that comes late, before the give-ups reach it, still takes effect; one they
+/// have passed is dropped.
+///
+/// Behaviour: model.events.a-private-gap-is-given-up-one-stamp-at-a-time
+#[test]
+fn a_private_stamp_the_give_ups_have_not_reached_still_takes_effect() {
+    let mut q = in_the_world();
+    q.receive(1.0, private_int(1, 1));
+    drain(&mut q);
+    for stamp in 5..=24 {
+        q.receive(2.0, private_int(stamp, u32::from(stamp)));
+    }
+    q.receive(303.0, private_int(25, 25));
+    assert!(private_taken(&mut q).is_empty(), "stamp 2 given up");
+    q.receive(304.0, private_int(2, 2));
+    assert!(private_taken(&mut q).is_empty(), "stamp 2 has gone");
+    assert_eq!(q.stats().dropped, 1);
+    q.receive(305.0, private_int(3, 3));
+    assert_eq!(private_taken(&mut q), vec![3], "stamp 3 had not gone");
+    q.receive(306.0, private_int(4, 4));
+    assert_eq!(
+        private_taken(&mut q),
+        (4..=25).collect::<Vec<u32>>(),
+        "stamp 4 closes the gap"
+    );
+    assert_eq!(q.stats().dropped, 1);
+}
+
+/// When a late message lets some of what is held through and the next held one is still not next,
+/// the five minutes start again from then.
+///
+/// Behaviour: model.events.a-private-gap-is-given-up-one-stamp-at-a-time
+#[test]
+fn taking_what_a_late_message_lets_through_starts_the_five_minutes_again() {
+    let mut q = in_the_world();
+    q.receive(1.0, private_int(1, 1));
+    drain(&mut q);
+    q.receive(2.0, private_int(3, 3));
+    for stamp in 5..=23 {
+        q.receive(2.0, private_int(stamp, u32::from(stamp)));
+    }
+    q.receive(290.0, private_int(2, 2));
+    assert_eq!(private_taken(&mut q), vec![2, 3], "stamp 4 still missing");
+    q.receive(303.0, private_int(24, 24));
+    assert!(
+        private_taken(&mut q).is_empty(),
+        "twenty held, but only 13 seconds since the head was last looked at"
+    );
+    q.receive(591.0, private_int(25, 25));
+    assert_eq!(
+        private_taken(&mut q),
+        (5..=25).collect::<Vec<u32>>(),
+        "more than five minutes on: stamp 4 given up"
+    );
+}
+
+/// A stamp already held, past a gap, is held again: each takes effect, the later arrival first.
+/// A stamp already taken is still dropped.
+///
+/// Behaviour: model.events.a-repeated-private-stamp-past-a-gap-takes-effect-twice
+#[test]
+fn a_private_stamp_repeated_past_a_gap_takes_effect_twice_later_arrival_first() {
+    let mut q = in_the_world();
+    q.receive(1.0, private_int(1, 1));
+    drain(&mut q);
+    q.receive(1.1, private_int(3, 30));
+    q.receive(1.2, private_int(3, 31));
+    q.receive(1.3, private_int(4, 40));
+    assert!(private_taken(&mut q).is_empty());
+    q.receive(1.4, private_int(2, 20));
+    assert_eq!(private_taken(&mut q), vec![20, 31, 30, 40]);
+    assert_eq!(q.stats().dropped, 0);
+    q.receive(1.5, private_int(4, 41));
+    assert!(private_taken(&mut q).is_empty());
+    assert_eq!(q.stats().dropped, 1);
+}
+
+/// A message repeated past a gap counts toward the twenty held.
+///
+/// Behaviour: model.events.a-repeated-private-stamp-past-a-gap-takes-effect-twice
+#[test]
+fn a_repeated_private_stamp_counts_toward_the_twenty_held() {
+    let mut q = in_the_world();
+    q.receive(1.0, private_int(1, 1));
+    drain(&mut q);
+    for n in 0..19 {
+        q.receive(2.0, private_int(3, n));
+    }
+    assert!(private_taken(&mut q).is_empty());
+    q.receive(303.0, private_int(3, 19));
+    assert_eq!(
+        private_taken(&mut q),
+        (0..=19).rev().collect::<Vec<u32>>(),
+        "twenty held under one stamp: stamp 2 given up, the newest arrival first"
+    );
+}
+
 /// An object's visual messages take effect in visual-stamp order after its creation's stamp; one
 /// stamped at or before the creation is dropped, and one about a newer incarnation of the object
 /// waits while the client has the older one.

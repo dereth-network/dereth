@@ -1496,8 +1496,10 @@ const CUSTOM_EMOTE_COMMAND: (u32, u32) = (0x4100_0007, 0x28E8_995D);
 /// What a rider asked of its scripts and what came of it.
 #[derive(Default, Debug)]
 struct Rides {
-    /// Recorded mounts with the player in the world.
+    /// Recorded mounts with the player in the world, and those that came while the private stream
+    /// held them.
     mounted: u64,
+    held: u64,
     /// The lines shown, by the request and the line, and the server calls the requests sent.
     lines: BTreeMap<(&'static str, String), u64>,
     sends: u64,
@@ -1591,6 +1593,15 @@ fn a_rider_is_refused_attacks_and_emotes_by_its_scripts() {
         if !now || c.model.player_object().is_none() {
             return;
         }
+        // Held behind a missing private stamp, the mount has not taken effect yet.
+        let on_mount = c
+            .model
+            .player_object()
+            .is_some_and(|o| o.qualities.bools.get(&MOUNTED).is_some_and(|v| *v != 0));
+        if !on_mount {
+            t.held += 1;
+            return;
+        }
         t.mounted += 1;
         // Made known with each session's play screen.
         if !commands || c.with_host(|h| h.commands.names.is_empty()).unwrap_or(true) {
@@ -1634,6 +1645,7 @@ fn a_rider_is_refused_attacks_and_emotes_by_its_scripts() {
     let emote = "You cannot perform emotes while you are on your mount.
 ";
     assert!(t.mounted >= 200, "{t:?}");
+    assert!(t.held * 100 < t.mounted, "{t:?}");
     let shown = |request: &'static str, line: &str| t.lines.get(&(request, line.to_owned()));
     assert_eq!(shown("attack", attack), Some(&t.mounted), "{t:?}");
     for request in ["menu emote", "typed emote", "custom emote"] {
