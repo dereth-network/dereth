@@ -258,6 +258,74 @@ fn the_bars_rows_set_by_hand_are_kept_at_once() {
     assert!(!h.changed(&ui), "applied");
 }
 
+/// Default, answered yes, tells the client each value it put back and applies them, so what the
+/// client keeps and draws by goes back too, not only the page's control.
+///
+/// Behaviour: ui.options.the-client-page-shows-the-preferences-the-client-lists
+#[test]
+fn default_tells_the_client_the_values_it_puts_back() {
+    use auberean_ui_game::options::client::{self, section, Listing, Request as Asked};
+    use auberean_ui_game::options::helper::Change;
+    use auberean_ui_game::options::preference::{Description, Number};
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let b = el(&ui, "OptionButton");
+    click(&mut ui, &mut p, &mut t, b);
+    let tab = el(&ui, "ClientTab");
+    click(&mut ui, &mut p, &mut t, tab);
+    let mut bright = Number::new();
+    bright.set_range(-0.2, 1.0);
+    bright.set_default(0.0);
+    bright.set_value(-0.2);
+    bright.description = Description {
+        section: section::GRAPHICS,
+        key: 0x4000_004B,
+        table: client::PREFERENCE_STRINGS,
+        label: Token::of("ID_Graphics_ScreenBrightness").raw(),
+        help: 0,
+    };
+    let listing = Listing {
+        serial: 1,
+        sections: vec![(section::GRAPHICS, vec![Change::Number(bright)])],
+    };
+    let frame = |ui: &mut Ui, p: &mut GamePlay, t: &mut f64, notices: &[Notice]| {
+        *t += 0.05;
+        ui.use_time(*t);
+        let view = View {
+            options: Some(START),
+            preferences: Some(&listing),
+            ..View::default()
+        };
+        let mut out = Vec::new();
+        p.tick(ui, &view, notices, &mut out);
+        out
+    };
+    frame(&mut ui, &mut p, &mut t, &[]);
+    let default = button(&ui, "ClientPage", "DefaultButton");
+    let out = click(&mut ui, &mut p, &mut t, default);
+    let id = dialogs(&out).first().expect("Default asks first").0;
+    let out = frame(&mut ui, &mut p, &mut t, &[answer(id, true)]);
+    let asked: Vec<&Asked> = out
+        .iter()
+        .filter_map(|r| match r {
+            Request::Options(options::Request::Preferences(a)) => Some(a),
+            _ => None,
+        })
+        .collect();
+    let told = asked.iter().position(|a| {
+        matches!(a, Asked::Change(Change::Number(n))
+            if n.description.key == 0x4000_004B && n.get().abs() < 0.001)
+    });
+    let applied = asked
+        .iter()
+        .position(|a| matches!(a, Asked::Apply(s) if *s == section::GRAPHICS));
+    assert!(
+        told.expect("the value told") < applied.expect("the section applied"),
+        "{asked:?}"
+    );
+}
+
 /// The client page, opened, asks the client to list its sections' preferences; a listing the
 /// client gives fills the section it names with a row for each preference (a choice and a
 /// yes-or-no one here), and the same listing is taken in once.

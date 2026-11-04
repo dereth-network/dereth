@@ -289,8 +289,16 @@ impl ClientPage {
     /// Every section to its defaults, then applied.
     // D2-02856
     pub fn default(&mut self, ui: &mut Ui, out: &mut Vec<gameplay::Request>) {
-        for (_, r) in self.sections.clone() {
+        for (s, r) in self.sections.clone() {
             self.rows.to_default(ui, r);
+            // The rendering's are told as it is applied.
+            if s != section::RENDERING {
+                for c in self.rows.changes(ui, r) {
+                    out.push(gameplay::Request::Options(super::Request::Preferences(
+                        Request::Change(c),
+                    )));
+                }
+            }
         }
         self.apply(ui, out);
         self.update_buttons(ui);

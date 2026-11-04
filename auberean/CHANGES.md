@@ -11,6 +11,7 @@ not how it was done.
 - Enter World on the character screen now shows its swirling portal.
 - Chat now says "the item" when someone hands you something.
 - Fixed an object's looping sounds not coming back when it does.
+- Fixed Default in the options leaving brightness and other client settings unchanged.
 - Names near the screen's edge now run off it instead of sliding back in.
 - The first start from a cold disk is faster.
 - Scaled objects now block you at the size they're drawn.
