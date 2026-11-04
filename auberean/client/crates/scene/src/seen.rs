@@ -93,10 +93,19 @@ impl SeenBody {
     /// A point of the block's frame in the body's own.
     #[must_use]
     pub fn to_body(&self, p: Vec3) -> Vec3 {
-        let (s, c) = (
+        self.to_body_turned(p, self.turn())
+    }
+
+    /// The sine and cosine of the body's heading.
+    fn turn(&self) -> (f32, f32) {
+        (
             fm::sinf(self.heading.to_radians()),
             fm::cosf(self.heading.to_radians()),
-        );
+        )
+    }
+
+    /// [`Self::to_body`], given [`Self::turn`].
+    fn to_body_turned(&self, p: Vec3, (s, c): (f32, f32)) -> Vec3 {
         let d = math::sub(p, self.origin);
         Vec3::new(d.x * c - d.y * s, d.x * s + d.y * c, d.z)
     }
@@ -164,12 +173,20 @@ pub fn bounds_of(body: &SeenBody, batches: &[ObjectBatch]) -> Option<(Vec3, Vec3
     let mut lo = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
     let mut hi = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
     let mut any = false;
+    let turn = body.turn();
+    // The layers and fragments of one part share its vertices, in one place.
+    let mut done: Vec<(*const Vec<auberean_draw::mesh::MeshVertex>, [[f32; 4]; 4])> = Vec::new();
     for b in batches {
+        let this = (std::sync::Arc::as_ptr(&b.vertices), b.transform.0);
+        if done.contains(&this) {
+            continue;
+        }
+        done.push(this);
         for v in b.vertices.iter() {
             let w = b
                 .transform
                 .point(Vec3::new(v.position[0], v.position[1], v.position[2]));
-            let p = body.to_body(w);
+            let p = body.to_body_turned(w, turn);
             lo = Vec3::new(lo.x.min(p.x), lo.y.min(p.y), lo.z.min(p.z));
             hi = Vec3::new(hi.x.max(p.x), hi.y.max(p.y), hi.z.max(p.z));
             any = true;

@@ -123,8 +123,7 @@ pub fn skin(
             }
             let m = palette
                 .get(usize::from(inf.bones[k]))
-                .copied()
-                .unwrap_or(Mat4::IDENTITY);
+                .unwrap_or(&Mat4::IDENTITY);
             sp = add_scaled(sp, m.point(*p), w);
             sn = add_scaled(sn, m.direction(n), w);
             total += w;

@@ -100,6 +100,7 @@ not how it was done.
 - A player already through a portal now shows for the one who follows.
 - Ingredient rows no longer linger when the item level drops.
 - Items you put down now show on the ground for you.
+- Much higher frame rates in towns and outdoors.
 
 ## 0.1.2 (2026-11-02)
 
