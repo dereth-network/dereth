@@ -1355,6 +1355,7 @@ impl<'w> Scene<'w> {
         self.anims.dice = random.clone();
         self.builder.dice = random.clone();
         self.systems.set_dice(random);
+        self.views.dice = random.clone();
         self.objects.dice = random.clone();
         self.portal.set_dice(random.clone());
     }

@@ -15,7 +15,10 @@ use auberean_animation::CachedRecords;
 use auberean_assets::property::{PropertyCollection, PropertyValue};
 use auberean_assets::ui::UiScene;
 use auberean_draw::body::BodyDrawer;
+use auberean_draw::effects::ViewEffects;
+use auberean_draw::particles::camera_axes;
 use auberean_draw::scene::{light_view_draw, Camera, Frame, ObjectBatch, SceneBuilder};
+use auberean_primitives::random::Random;
 use auberean_primitives::{Quat, Vec3};
 use auberean_world::color::Color;
 use auberean_world::inside::{BlockLights, Light, Outside};
@@ -225,6 +228,7 @@ struct KeptScene {
     /// Its lights but the one a screen turns into a light from behind the camera.
     other_lights: BlockLights,
     fog: Option<(Color, f32, f32)>,
+    effects: ViewEffects,
     figures: Vec<Kept>,
 }
 
@@ -240,6 +244,10 @@ pub struct ViewHit {
 #[derive(Default)]
 pub struct Views {
     kept: BTreeMap<usize, KeptScene>,
+    /// The client's one generator of random numbers, which the scenes' effects draw from.
+    pub dice: Random,
+    /// How long the scenes have been drawn, the clock their effects run on.
+    clock: f64,
     /// What each scene's last pick met (scene index, what it met).
     pub picked: Vec<(usize, Option<ViewHit>)>,
 }
@@ -323,6 +331,7 @@ impl Views {
             let mut parts = Vec::new();
             let mut lights = Vec::new();
             let mut other_lights = Vec::new();
+            let mut effects = ViewEffects::default();
             let mut fog = None;
             if let Some(s) = (scene != 0)
                 .then(|| records.get::<UiScene>(scene))
@@ -331,6 +340,7 @@ impl Views {
                 if s.fog {
                     fog = Some((Color::from_argb(s.fog_color.0), s.fog_near, s.fog_far));
                 }
+                effects = ViewEffects::of_scene(records, &s.entities, &self.dice);
                 for e in &s.entities {
                     if e.kind == Some(LIGHT_KIND) {
                         let at = e.offset.map(|o| o.frame.origin).unwrap_or(Vec3::ZERO);
@@ -354,6 +364,7 @@ impl Views {
                     lights: BlockLights::of_scene(lights),
                     other_lights: BlockLights::of_scene(other_lights),
                     fog,
+                    effects,
                     figures: Vec::new(),
                 },
             );
@@ -381,6 +392,8 @@ impl Views {
         dt: f32,
     ) -> Vec<ViewFrame> {
         self.release_gone(scenes.len());
+        self.clock += f64::from(dt);
+        let now = self.clock;
         let mut picked = Vec::new();
         let mut out = Vec::new();
         for (i, v) in scenes.iter().enumerate() {
@@ -466,7 +479,22 @@ impl Views {
             }
             let camera = v.camera.drawn();
             let batches = bodies.into_iter().flat_map(|(_, b)| b).collect();
-            let frame = builder.parts_frame(&kept.parts, batches, camera, light, lit_by);
+            let mut frame = builder.parts_frame(&kept.parts, batches, camera, light, lit_by);
+            let outside = Outside::of(&light);
+            let sun = Color::new(
+                light.direct_color.r * light.direct_brightness,
+                light.direct_color.g * light.direct_brightness,
+                light.direct_color.b * light.direct_brightness,
+                1.0,
+            );
+            frame.objects.extend(kept.effects.batches(
+                records,
+                now,
+                sun,
+                lit_by.map(|(lights, _)| (lights, &outside)),
+                camera.position,
+                camera_axes(camera.heading, camera.pitch),
+            ));
             out.push(ViewFrame {
                 rect: v.rect,
                 frame,

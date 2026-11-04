@@ -1006,3 +1006,33 @@ fn a_mist_stands_unseen_without_volumetric_fog() {
     systems.set_volumetric_fog(true);
     assert!(step(90) > 0, "drawn again");
 }
+
+/// The avatar hall's two braziers play their effects on the scene's own clock, seen from where the
+/// camera stands: without them the hall shows no flames.
+///
+/// Behaviour: draw.view.a-scenes-objects-play-their-effects
+#[test]
+fn a_scenes_objects_play_their_effects() {
+    let r = &install().records;
+    let scene = r
+        .get::<auberean_assets::ui::UiScene>(0x2100_000B)
+        .expect("the hall's scene");
+    let mut effects = auberean_draw::effects::ViewEffects::of_scene(
+        r,
+        &scene.entities,
+        &auberean_primitives::random::Random::default(),
+    );
+    let axes = (
+        Vec3::new(1.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(0.0, 0.0, 1.0),
+    );
+    let eye = Vec3::new(2.25, 0.2, 3.1);
+    let white = Color::new(1.0, 1.0, 1.0, 1.0);
+    let mut drawn = 0;
+    for frame in 0..200 {
+        let now = f64::from(frame) * 0.05;
+        drawn = drawn.max(effects.batches(r, now, white, None, eye, axes).len());
+    }
+    assert!(drawn > 0, "the hall's objects draw particles");
+}

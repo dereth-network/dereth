@@ -23,6 +23,7 @@ use auberean_assets::fx::{AppearanceKey, FxData, FxNode, FxTable, Particles};
 use auberean_primitives::random::Random;
 use auberean_primitives::{DataId, Vec3};
 use auberean_world::color::Color;
+use auberean_world::inside::{BlockLights, Outside};
 use auberean_world::look::{Atoms, Group, Keyed, Look, LookRecords};
 use auberean_world::math::{add, length, sub, Mat4};
 use auberean_world::place::{PlaceRecords, DRAWN_KINDS};
@@ -1328,6 +1329,70 @@ pub fn entity_place(e: &Entity) -> Option<(u32, Mat4, Vec3)> {
     });
     Some((object, place, e.scale.unwrap_or(Vec3::new(1.0, 1.0, 1.0))))
 }
+
+/// The effects of the objects an interface scene places: begun when the scene is first shown, run
+/// on the scene's own clock with systems of its own, lit by the scene's lights.
+#[derive(Debug, Default)]
+pub struct ViewEffects {
+    systems: ParticleSystems,
+    effects: PlacedEffects,
+    placed: Vec<PlacedLook>,
+}
+
+impl ViewEffects {
+    /// The effects of the objects among `entities` that play any.
+    #[must_use]
+    pub fn of_scene(records: &WorldRecords, entities: &[Entity], dice: &Random) -> Self {
+        let systems = ParticleSystems::default();
+        systems.set_dice(dice);
+        let placed = entities
+            .iter()
+            .enumerate()
+            .filter_map(|(index, e)| {
+                let (object, place, own) = entity_place(e)?;
+                let (look, scale) = object_effect_look(records, object)?;
+                Some(PlacedLook {
+                    key: PlacedLook::key(VIEW_BLOCK, 0, index),
+                    block: VIEW_BLOCK,
+                    look,
+                    place,
+                    scale: Vec3::new(own.x * scale.x, own.y * scale.y, own.z * scale.z),
+                })
+            })
+            .collect();
+        Self {
+            systems,
+            effects: PlacedEffects::default(),
+            placed,
+        }
+    }
+
+    /// What the effects draw at `now`, seen from `eye` with right, forward and up: their lit
+    /// particles take `light` and, when the scene has lights, those kept where each stands.
+    pub fn batches(
+        &mut self,
+        records: &WorldRecords,
+        now: f64,
+        light: Color,
+        lights: Option<(&BlockLights, &Outside)>,
+        eye: Vec3,
+        axes: (Vec3, Vec3, Vec3),
+    ) -> Vec<ObjectBatch> {
+        self.effects.sync(&self.systems, records, &self.placed, now);
+        self.effects.draw(&self.systems, now, light);
+        if let Some((lights, outside)) = lights {
+            let mut order = lights.scene();
+            self.systems.light_queued(now, |_, at| {
+                let kept = order.keep(lights, at, 0.0, outside);
+                Some(lights.particle_lights(&kept))
+            });
+        }
+        self.systems.batches(VIEW_BLOCK, 1.0, now, eye, axes)
+    }
+}
+
+/// The block an interface scene's objects are taken to stand in: it has no other.
+const VIEW_BLOCK: (i32, i32) = (0, 0);
 
 /// One placed object's effects, kept from frame to frame.
 #[derive(Clone, Debug)]

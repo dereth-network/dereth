@@ -1294,6 +1294,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.view.a-scenes-objects-play-their-effects",
+        says: "The objects an interface scene places play their startup effects while it shows, \
+               on its own clock: the avatar hall's braziers burn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-VIEW-EFFECTS"),
+        station: "auberean-draw::dat::effects::a_scenes_objects_play_their_effects",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.view.a-scenes-own-lights-light-its-draws-in-place-of-the-sun",
         says: "An interface scene with lights of its own lights each draw by those it keeps \
                where it stands, as a draw inside keeps a cell's, with the sun off and no ambient \
