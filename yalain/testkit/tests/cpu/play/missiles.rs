@@ -72,6 +72,50 @@ fn shooter_id(h: &Harness, b: usize) -> u64 {
         .expect("the shooter is made")
 }
 
+/// A shooter's shot comes when it is due, not at the world's next step: each gap is its rhythm's over
+/// the shot's time scale, within the harness's step.
+/// Behaviour: server.creatures.attacks-when-due
+#[test]
+fn a_shot_comes_when_it_is_due_not_at_the_worlds_next_step() {
+    let mut h = Harness::new();
+    shooter_at(&mut h, 22.0, false);
+    let (b, _me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    let id = shooter_id(&h, b);
+    let from = h.bots[b].inbox.len();
+    let gap = yalain_world::missiles::rhythm(SHOOTER).gap;
+    let mut at: Vec<(f64, f32)> = Vec::new();
+    let mut told = 0;
+    for _ in 0..1000 {
+        h.step();
+        let now: Vec<f32> = h
+            .world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e)
+                    if e.sender.id == id && e.action.attacker_behavior.time_scale > 0.0 =>
+                {
+                    Some(e.action.attacker_behavior.time_scale)
+                }
+                _ => None,
+            })
+            .collect();
+        if now.len() > told {
+            at.push((h.now.0, *now.last().expect("told")));
+            told = now.len();
+        }
+    }
+    assert!(at.len() > 10, "{} shots", at.len());
+    for pair in at.windows(2) {
+        let seen = pair[1].0 - pair[0].0;
+        let due = f64::from(gap / pair[0].1);
+        assert!(
+            (seen - due).abs() <= 0.051 + 0.001,
+            "a gap of {seen:.3} where {due:.3} was due"
+        );
+    }
+}
+
 /// A creature with a basic missile attack that notices a player from afar stands where it is and
 /// shoots: its story names the skill and a missile hook (kind 3) at the player, and its places
 /// keep its spot; each missile arrives as a story the player tells, naming the creature as the

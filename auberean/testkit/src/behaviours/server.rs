@@ -1773,6 +1773,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.creatures.attacks-when-due",
+        says: "A creature attacking from where it stands attacks as soon as its attack is due, not \
+               at the world's next step.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-ATTACKS-WHEN-DUE"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_creatures_strike_comes_when_it_is_due_not_at_the_worlds_next_step",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.barrels-stand",
         says: "A barrel is made by its camp and stands where it is, never going after a player.",
         since: RETAIL,

@@ -722,6 +722,86 @@ fn strike_scales(h: &Harness, b: usize, id: u64, from: usize) -> Vec<f32> {
         .collect()
 }
 
+/// A creature's strike comes when it is due, not at the world's next step: each gap is its strike's
+/// own, within the harness's step.
+/// Behaviour: server.creatures.attacks-when-due
+#[test]
+fn a_creatures_strike_comes_when_it_is_due_not_at_the_worlds_next_step() {
+    let (mut h, b, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    hardy(&mut h, me);
+    let from = h.bots[b].inbox.len();
+    let mut at: Vec<(f64, u32)> = Vec::new();
+    let mut told = 0;
+    for _ in 0..1500 {
+        h.step();
+        let now: Vec<u32> = h
+            .world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e) if e.sender.id == id && e.action.attacker == id => {
+                    Some(e.action.skill)
+                }
+                _ => None,
+            })
+            .collect();
+        if now.len() > told {
+            at.push((h.now.0, *now.last().expect("told")));
+            told = now.len();
+        }
+    }
+    assert!(at.len() > 10, "{} strikes", at.len());
+    for pair in at.windows(2) {
+        let gap = pair[1].0 - pair[0].0;
+        let due = combat::strike_gap(pair[0].1);
+        assert!(
+            (gap - due).abs() <= 0.051 + 0.001,
+            "a gap of {gap:.3} where {due:.3} was due"
+        );
+    }
+}
+
+/// A creature that redraws its target between the world's steps and turns to one out of its reach
+/// runs only on the step: it moves at no other time.
+/// Behaviour: server.creatures.attacks-when-due
+#[test]
+fn a_creature_turning_to_a_far_target_between_steps_runs_only_on_the_step() {
+    let (mut h, _, me, id) = noticed(&[], [61.0, 240.2, -44.6]);
+    hardy(&mut h, me);
+    let (c, other) = h.player_in_world("two", "Babyfare");
+    drawn(&mut h, c);
+    hardy(&mut h, other);
+    let home = h.server.things.get(id).and_then(|t| t.at).expect("placed");
+    stand_off(&mut h, other, home, 12.0);
+    let mut turned = 0;
+    for tick in 0..6000 {
+        let (was, target) = (
+            h.server.things.get(id).and_then(|t| t.at).expect("placed"),
+            target_of(&h, id),
+        );
+        let stepped = h.server.last_step;
+        if tick % 20 == 0 {
+            let now = h.now.0;
+            let by = if target == Some(me) { other } else { me };
+            if let Some(c) = h
+                .server
+                .things
+                .get_mut(id)
+                .and_then(|t| t.creature.as_mut())
+            {
+                c.harm.push((now, by, 40));
+            }
+        }
+        h.step();
+        turned += usize::from(target_of(&h, id) != target);
+        let at = h.server.things.get(id).and_then(|t| t.at).expect("placed");
+        assert!(
+            at == was || h.server.last_step != stepped,
+            "it moved between steps"
+        );
+    }
+    assert!(turned > 3, "it turned {turned} times");
+}
+
 /// An effect slowing a creature's attacks (Still Water at a spellcraft of 50 halves their pace)
 /// slows them by the share its template takes (0.7 here: a pace of 0.65): its strikes are told at
 /// that much of the time scale, and come that much less often. A hold slows them to a fifth at

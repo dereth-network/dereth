@@ -225,15 +225,73 @@ pub fn notices<S: Store>(s: &Server<S>, at: &StoredPosition, radius: f32) -> Opt
     notice(s, at, radius)
 }
 
+/// A creature's attack comes when it is due, not at the world's next step, for one that attacks
+/// from where it stands: within reach of its target, shooting within range, or fixed where it is
+/// (2017: gaps between one creature's attacks don't fold on the step, a concentration of 0.06 or
+/// less over 15,575 melee gaps and 9,659 of missiles and magic). Going toward its target stays on
+/// the step.
+pub fn attacks_due<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
+    let now = clock.local.0;
+    let due: Vec<u64> = s
+        .things
+        .by_id
+        .values()
+        .filter(|t| t.alive() && !s.pets.is_pet(t.id) && attacks_from_here(s, t, now))
+        .map(|t| t.id)
+        .collect();
+    for id in due {
+        // Its attack redraws its target: one it has to run to waits for the step.
+        if let Some((at, perception)) = s.things.get(id).and_then(|t| {
+            let c = t.creature.as_ref()?;
+            Some((t.at?, perception_of(c)))
+        }) {
+            reconsider(s, id, &at, perception, now);
+        }
+        if s.things
+            .get(id)
+            .is_some_and(|t| attacks_from_here(s, t, now))
+        {
+            act(s, net, id, clock, now);
+        }
+    }
+}
+
+/// Is a creature fighting a player, its attack due, attacking from where it stands: within reach,
+/// shooting within range, or fixed where it is?
+fn attacks_from_here<S: Store>(s: &Server<S>, t: &crate::things::Thing, now: f64) -> bool {
+    let Some(c) = t.creature.as_ref() else {
+        return false;
+    };
+    if c.mode != Mode::Chasing || !c.stats.fights || now < c.next_attack {
+        return false;
+    }
+    let (Some(at), Some(target)) = (t.at, c.target) else {
+        return false;
+    };
+    let Some(p) = s.players.values().find(|p| p.character == target) else {
+        return false;
+    };
+    presence::distance(&at, &p.position).is_some_and(|d| {
+        d <= MELEE_REACH
+            || (c.ranged && d <= crate::missiles::MISSILE_RANGE)
+            || c.stats.turns_only()
+    })
+}
+
+/// How far a creature notices a player, and gives up beyond.
+fn perception_of(c: &crate::things::Creature) -> f32 {
+    if c.stats.movement.perception > 0.0 {
+        c.stats.movement.perception
+    } else {
+        DEFAULT_PERCEPTION
+    }
+}
+
 fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, now: f64) {
     let Some(t) = s.things.get(id) else { return };
     let Some(c) = t.creature.as_ref() else { return };
     let Some(at) = t.at else { return };
-    let perception = if c.stats.movement.perception > 0.0 {
-        c.stats.movement.perception
-    } else {
-        DEFAULT_PERCEPTION
-    };
+    let perception = perception_of(c);
     if !c.stats.fights {
         return;
     }
