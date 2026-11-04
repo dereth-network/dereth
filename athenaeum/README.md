@@ -88,6 +88,7 @@ to where it leads.
   standing there. R turns it first; Shift+click keeps placing; Esc stops.
 - Shift+click adds a row to the selection. Then dragging, the handles, R, Duplicate and Delete take
   them all together, keeping how they stand to each other, and one Undo takes it back.
+- A place's **key** on the right renames it, and what leads to it follows.
 - An object's **Lead to a place** list makes it a portal: this world's places first, then the
   nearest others. A camp's creatures are listed by name, with how often each comes and **Add** for
   the template along the top.

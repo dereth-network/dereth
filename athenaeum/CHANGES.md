@@ -8,6 +8,7 @@ see, not how it was done.
 
 ## Unreleased
 
+- A place can be renamed, and what leads to it follows.
 - Placed rows now play their effects while you edit, such as a portal's glow.
 - The inspector saves what you type when you click away, and needs no quotes.
 - macOS: Intel Macs are no longer supported; Apple silicon only.

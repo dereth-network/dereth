@@ -756,6 +756,57 @@ impl Session {
         })
     }
 
+    /// Give a place this world added another key, and every row of this world that leads to it
+    /// the new one, as one step. Answers the place's new item.
+    ///
+    /// # Errors
+    /// No such place, a place of another pack, a key that is not one or is taken.
+    pub fn rename_place(&mut self, item: &str, new: &str) -> Result<String, String> {
+        let e = self.entry(item).ok_or_else(|| not_found(item))?.clone();
+        let Row::Place(p) = &e.row.row else {
+            return Err(format!("{item} is not a place"));
+        };
+        if e.layer != Layer::Target {
+            return Err(format!(
+                "{item} is not this world's own: only its own can be renamed"
+            ));
+        }
+        if !yalain_world_db::rows::is_symbol(new) {
+            return Err(format!("{new}: a key is letters, digits, - and _"));
+        }
+        let renamed = ItemKey::Place { key: new.into() }.to_string();
+        if self.entry(&renamed).is_some() {
+            return Err(format!("{new}: there is a place of that key"));
+        }
+        let old = p.key.clone();
+        let leading: Vec<String> = self
+            .entries()
+            .iter()
+            .filter(|l| l.layer == Layer::Target)
+            .filter(|l| match &l.row.row {
+                Row::Object(o) => o.to.as_deref() == Some(&old),
+                Row::Step(s) => s.to.as_deref() == Some(&old),
+                _ => false,
+            })
+            .map(|l| l.item.clone())
+            .collect();
+        self.begin_step();
+        let done = self
+            .change(item, |t| {
+                t.insert("key", Item::Value(Value::from(new)));
+            })
+            .and_then(|_| {
+                leading.iter().try_for_each(|l| {
+                    self.change(l, |t| {
+                        t.insert("to", Item::Value(Value::from(new)));
+                    })
+                    .map(|_| ())
+                })
+            });
+        self.end_step();
+        done.map(|()| renamed)
+    }
+
     /// Set one field of a row to `value`, written as TOML (`0x47002224`, `5.0`, `"inn"`), or take
     /// it away with an empty `value`. A row's key names it and is not changed here. A change that
     /// leaves the row unread (a value of the wrong type, a needed field taken away) is refused,

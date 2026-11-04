@@ -234,6 +234,39 @@ fn changes_gathered_together_undo_and_redo_as_one_step() {
 }
 
 #[test]
+fn a_place_renamed_takes_what_leads_to_it_along_as_one_step() {
+    let mut s = session();
+    let place = s
+        .place(&NewRow {
+            kind: NewKind::Place,
+            ..person([5.0, 6.0, 7.0])
+        })
+        .unwrap();
+    let door = s.place(&person([1.0, 2.0, 3.0])).unwrap();
+    let old = match &s.entry(&place).unwrap().row.row {
+        Row::Place(p) => p.key.clone(),
+        other => panic!("{other:?}"),
+    };
+    s.set(&door, "to", &format!("\"{old}\"")).unwrap();
+    let steps = s.steps().0;
+    let renamed = s.rename_place(&place, "the-inn").unwrap();
+    assert_eq!(s.steps().0, steps + 1, "one step");
+    clean(&s);
+    assert!(s.entry(&place).is_none());
+    assert!(s.entry(&renamed).is_some());
+    let to = |s: &Session| match &s.entry(&door).unwrap().row.row {
+        Row::Object(o) => o.to.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(to(&s).as_deref(), Some("the-inn"));
+    assert!(s.rename_place(&renamed, "not a key").is_err());
+    assert!(s.rename_place(&door, "elsewhere").is_err(), "not a place");
+    s.undo();
+    assert!(s.entry(&place).is_some(), "one undo takes it all back");
+    assert_eq!(to(&s), Some(old));
+}
+
+#[test]
 fn a_row_copied_from_a_room_stands_where_it_goes() {
     let mut s = session();
     let item = s

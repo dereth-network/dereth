@@ -448,6 +448,7 @@ fn field_text(row: &Row, field: &str) -> String {
         (Row::Camp(c), "regen") => num(c.regen as f32),
         (Row::Camp(c), "spawns") => spawns_toml(&c.spawns),
         (Row::Camp(c), "cell") => c.cell.map(hex).unwrap_or_default(),
+        (Row::Place(p), "key") => p.key.clone(),
         (Row::Place(p), "cell") => p.cell.map(hex).unwrap_or_default(),
         (Row::Place(p), "destination") => p
             .destination
@@ -508,7 +509,7 @@ fn editable(row: &Row) -> &'static [&'static str] {
     match row {
         Row::Object(_) => &["template", "kind", "scale", "to", "name", "id", "cell"],
         Row::Camp(_) => &["radius", "population", "regen", "cell"],
-        Row::Place(_) => &["cell", "destination"],
+        Row::Place(_) => &["key", "cell", "destination"],
         _ => &[],
     }
 }
@@ -3217,6 +3218,14 @@ impl<'w> Editor<'w> {
             });
         let unchanged = |field: &str, value: &str| field_text(&e.row.row, field) == value.trim();
         if let Some((field, value)) = set.filter(|(f, v)| !unchanged(f, v)) {
+            if field == "key" {
+                match self.session.rename_place(&item, value.trim()) {
+                    Ok(renamed) => self.select(Some(renamed)),
+                    Err(err) => self.status = err,
+                }
+                self.fields_of = None;
+                return;
+            }
             match self.session.set(&item, &field, &field_toml(&field, &value)) {
                 Ok(_) => self.status = format!("{item}: {field} set"),
                 Err(err) => {
