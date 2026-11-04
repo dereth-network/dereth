@@ -164,6 +164,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.effects.a-placed-objects-systems-stand-on-its-bones-at-rest",
+        says: "An object placed with the world carries a system its effect sets on a bone there, \
+               the bone as its look's body first stands; a bone it lacks gives no system.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-PLACED-BONES"),
+        station: "auberean-draw::dat::effects::a_placed_objects_systems_stand_on_its_bones_at_rest",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.effects.an-appearances-effects-play-in-place-of-its-tables",
         says: "The effects an object's appearance lists for an effect id (each appearance atom's \
                effects for every id it names, gathered in order of their first ids, an atom of \

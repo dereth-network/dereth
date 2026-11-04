@@ -90,6 +90,7 @@ not how it was done.
 - macOS: the window now opens at full size on Retina screens.
 - Fixed walking into stones and objects ending somewhere other than retail's path.
 - Some creatures' and objects' effects now show at the right size.
+- Effects on placed objects now stand on their bones.
 
 ## 0.1.2 (2026-11-02)
 

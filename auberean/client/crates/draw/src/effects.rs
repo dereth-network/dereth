@@ -331,6 +331,48 @@ impl Rig for NoRig {
     }
 }
 
+/// An object with no animation of its own: its bones and holding locations as its look's body
+/// first stands, for the systems its effects carry on them.
+#[derive(Clone, Debug)]
+pub struct RestRig {
+    body: auberean_animation::body::Body,
+}
+
+impl RestRig {
+    /// The rig of look `look`, when its body can be put together.
+    #[must_use]
+    pub fn of_look(records: &WorldRecords, look: &Look) -> Option<Self> {
+        let anims = auberean_animation::records::CachedRecords::new(records);
+        auberean_animation::body::Body::from_look(&anims, look).map(|body| Self { body })
+    }
+}
+
+impl Rig for RestRig {
+    fn holding_location(&self, kind: u32) -> Option<Mat4> {
+        let anims = auberean_animation::records::CachedRecords::default();
+        let (_, location, _) = self.body.holding_location(&anims, kind)?;
+        let t = location.transform;
+        Some(Mat4::from_parts(t.offset, t.rotation, t.scale))
+    }
+    fn bone(&self, kind: u32) -> Option<Mat4> {
+        let anims = auberean_animation::records::CachedRecords::default();
+        self.body.bone_type_matrix(&anims, kind)
+    }
+    fn water_height(&self) -> Option<f32> {
+        None
+    }
+    fn holding_bone(&self, kind: u32) -> Option<Mat4> {
+        let anims = auberean_animation::records::CachedRecords::default();
+        self.body
+            .holding_location(&anims, kind)
+            .map(|(_, _, bone)| bone)
+            .or_else(|| self.body.first_bone_matrix(&anims))
+    }
+    fn has_figure(&self) -> bool {
+        true
+    }
+}
+
 /// What an object is as an effect asks: whether it is the player's own, and whether the game's
 /// time of day is a night one.
 #[derive(Clone, Copy, Debug, Default)]
@@ -1680,6 +1722,7 @@ struct Placed {
     place: Mat4,
     scale: Vec3,
     effects: ObjectEffects,
+    rig: Option<RestRig>,
 }
 
 /// The effects of the objects placed with the world around the viewer: an object's begin when it
@@ -1722,7 +1765,13 @@ impl PlacedEffects {
                 continue;
             };
             effects.shared = true;
-            effects.start(systems, records, p.block, &p.place, p.scale, now);
+            let rig = RestRig::of_look(records, &p.look);
+            match &rig {
+                Some(rig) => {
+                    effects.start_on(systems, records, p.block, &p.place, p.scale, now, rig);
+                }
+                None => effects.start(systems, records, p.block, &p.place, p.scale, now),
+            }
             self.objects.insert(
                 p.key,
                 Placed {
@@ -1730,6 +1779,7 @@ impl PlacedEffects {
                     place: p.place,
                     scale: p.scale,
                     effects,
+                    rig,
                 },
             );
         }
@@ -1760,8 +1810,15 @@ impl PlacedEffects {
     /// with `light`.
     pub fn draw(&mut self, systems: &ParticleSystems, now: f64, light: Color) {
         for p in self.objects.values_mut() {
-            p.effects
-                .think(systems, p.block, &p.place, p.scale, light, now);
+            match &p.rig {
+                Some(rig) => {
+                    p.effects
+                        .think_on(systems, p.block, &p.place, p.scale, light, now, rig);
+                }
+                None => p
+                    .effects
+                    .think(systems, p.block, &p.place, p.scale, light, now),
+            }
         }
     }
 }

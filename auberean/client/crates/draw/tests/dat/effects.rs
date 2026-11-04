@@ -1327,3 +1327,47 @@ fn a_carried_system_stands_at_the_holding_location_its_entry_names() {
     let (lo, hi) = heights(&systems, t).expect("it shows");
     assert!(lo > 40.0 && hi < 65.0, "on the bone: {lo} to {hi}");
 }
+
+/// An object placed with the world carries a system its effect sets on a bone there, the bone as
+/// the look's body first stands; a bone its look lacks gives no system. Fixture: look `0x1F0000AE`,
+/// whose effect stands fires on bones over 6 m along it, and look `0x1F00002B`, whose bones the
+/// effect names are not there.
+///
+/// Behaviour: draw.effects.a-placed-objects-systems-stand-on-its-bones-at-rest
+#[test]
+fn a_placed_objects_systems_stand_on_its_bones_at_rest() {
+    use auberean_draw::effects::{PlacedEffects, PlacedLook};
+    let r = &install().records;
+    let drawn_along_y = |id: u32| {
+        let look = Look::of_record(r, DataId(id)).expect("its look");
+        let systems = ParticleSystems::default();
+        let mut effects = PlacedEffects::default();
+        let placed = PlacedLook {
+            key: 1,
+            block: (2, 0x98),
+            look: std::sync::Arc::new(look),
+            place: Mat4::translation(Vec3::new(100.0, 100.0, 0.0)),
+            scale: Vec3::new(1.0, 1.0, 1.0),
+        };
+        effects.sync(&systems, r, std::slice::from_ref(&placed), 0.0);
+        let eye = Vec3::new(100.0, 90.0, 2.0);
+        let axes = (
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+        );
+        let mut far: f32 = 0.0;
+        for k in 1..=60 {
+            let now = f64::from(k) * 0.0525;
+            effects.draw(&systems, now, Color::WHITE);
+            for b in systems.batches((2, 0x98), 192.0, now, eye, axes) {
+                for v in b.vertices.iter() {
+                    far = far.max((v.position[1] - 100.0).abs());
+                }
+            }
+        }
+        far
+    };
+    assert!(drawn_along_y(0x1F00_00AE) > 5.0, "out on the bones");
+    assert_eq!(drawn_along_y(0x1F00_002B), 0.0, "no bone, no system");
+}
