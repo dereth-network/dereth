@@ -3598,6 +3598,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.a-save-at-entry-keeps-what-items-carry",
+        says: "A save made as a character enters, before its items are back in the world, \
+               keeps what they carry of their own (who made them, their wear and bonuses) \
+               as it was.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SAVE-AT-ENTRY"),
+        station: "yalain-testkit::cpu::operator::item_ids::a_save_made_as_a_character_enters_keeps_what_its_items_carry",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.a-thing-never-takes-anothers-place",
         says: "A thing never takes the place of one the world has: an item a character \
                comes back with under an id the world already has is given a fresh id, each \

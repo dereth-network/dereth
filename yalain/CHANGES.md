@@ -88,6 +88,7 @@ what they see, not how it was done.
 - A sword no longer repeats 'too far' while walking to its target.
 - Pets and creatures hurt each other when the blow lands.
 - Hand-in lines now say 'the item' as retail does.
+- A crash just after coming back no longer strips what your items carry.
 
 ## 0.1.2 (2026-11-03)
 

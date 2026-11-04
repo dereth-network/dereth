@@ -210,3 +210,49 @@ fn a_thing_with_an_id_the_world_has_is_left_out() {
     assert!(!h.server.things.insert(other));
     assert_eq!(h.server.things.get(first).expect("there").quantity, 7);
 }
+
+/// A character's first pass back in the world saves it (its craft day is over): what its items carry
+/// of their own is in that save, though they are not yet back in the world when it is taken.
+/// Behaviour: server.inventory.a-save-at-entry-keeps-what-items-carry
+#[test]
+fn a_save_made_as_a_character_enters_keeps_what_its_items_carry() {
+    let mut h = run(MemoryStore::default(), 1);
+    let (_, id) = h.player_in_world("one", "Elara");
+    let w = world_of(&h, id);
+    let item = inventory::give_made(&mut h.server, &mut h.net, w, TEST_ITEM, 1).expect("given");
+    h.run(5);
+    yalain_world::shutdown::save_everyone(&mut h.server, &mut h.net);
+    let carried = |h: &mut Harness| {
+        let st = h
+            .server
+            .store
+            .world_state(id)
+            .expect("reads")
+            .expect("kept");
+        let play = PlayState::from_bytes(&st.play).expect("reads");
+        play.item_states
+            .iter()
+            .find(|k| k.id == item)
+            .and_then(|k| k.crafter.clone())
+    };
+    assert!(carried(&mut h).is_some(), "kept with its maker");
+    // Away past the end of its craft day, then back: the entry's pass saves it.
+    let mut st = h
+        .server
+        .store
+        .world_state(id)
+        .expect("reads")
+        .expect("kept");
+    let mut play = PlayState::from_bytes(&st.play).expect("reads");
+    play.craft_reset = 1.0;
+    st.play = play.to_bytes();
+    h.server.store.set_world_state(id, &st).expect("kept");
+    let store = std::mem::take(&mut h.server.store);
+    let mut h = run(store, 2);
+    let w = yalain_net::ConnId(9_999);
+    let clock = h.clock();
+    yalain_world::world::enter(&mut h.server, &mut h.net, w, w, id, clock).expect("enters");
+    // What the store has after the pass that entered it, had the server died here.
+    yalain_world::saves::write_out(&mut h.server).expect("kept");
+    assert!(carried(&mut h).is_some(), "still kept with its maker");
+}

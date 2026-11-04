@@ -738,7 +738,13 @@ fn keep<S: Store>(s: &mut Server<S>, p: &Player) {
     play.item_states = play
         .items
         .iter()
-        .filter_map(|h| s.things.get(h.id).map(crate::state::ItemState::of))
+        .filter_map(|h| {
+            // Not in the world yet (a save as its holder enters): as it was last kept.
+            match s.things.get(h.id) {
+                Some(t) => Some(crate::state::ItemState::of(t)),
+                None => p.play.item_states.iter().find(|k| k.id == h.id).cloned(),
+            }
+        })
         .collect();
     let st = WorldState {
         position: Some(p.position),
