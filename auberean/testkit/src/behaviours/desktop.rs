@@ -453,6 +453,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.camera.mouse-look-sets-the-heading-from-the-camera",
+        says: "While mouse look steers, the character's heading is the way the camera looks, set \
+               every frame rather than turned by the mouse: a camera looking off to one side as \
+               mouse look starts turns the character that way, and a turn key turns nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CCAMERA-MOUSE-LOOK-HEADING"),
+        station: "auberean-scene::cpu::camera::mouse_look_gives_the_character_the_way_the_camera_looks",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.camera.mouse-look-turns-a-degree-a-count-smoothed",
         says: "In mouse look a mouse count turns the view a degree times the sensitivity, smoothed \
                over the newest ten counts weighted 1, 0.2, 0.04 and so on; moving the mouse toward \

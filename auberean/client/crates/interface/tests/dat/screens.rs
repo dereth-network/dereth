@@ -32,6 +32,7 @@ use auberean_client_sdk::Action;
 use auberean_client_sdk::ClientData;
 use auberean_interface::{Login, Retail};
 use auberean_primitives::{Frame, Quat, Vec3};
+use auberean_scene::camera::{AvatarInFirstPerson, Press};
 use auberean_scene::movement;
 use auberean_scene::WorldData;
 use auberean_shell::host::InputArea;
@@ -1993,6 +1994,67 @@ fn the_body_holds_its_place_before_the_camera_in_mouse_look() {
         );
         assert!(w[1].1.abs() < 0.5, "facing with the camera: {:?}", w[1]);
     }
+}
+
+/// The camera looking off to one side as mouse look starts, the body turns to look the way the
+/// camera looks, with no mouse count; a turn key then turns nothing, in first person with the
+/// steering option off as with it on.
+///
+/// Behaviour: desktop.camera.mouse-look-sets-the-heading-from-the-camera
+#[test]
+fn mouse_look_turns_the_body_the_way_the_camera_looks() {
+    let (mut s, _retail) = into_the_world();
+    for _ in 0..120 {
+        step(&mut s);
+    }
+    let start = s.scene.seen.body(PLAYER).expect("drawn").heading;
+    s.scene.camera.press(Press::SwingLeft);
+    for _ in 0..30 {
+        step(&mut s);
+    }
+    assert!(
+        close_heading(s.scene.seen.body(PLAYER).expect("drawn").heading, start),
+        "a swung camera alone leaves the body"
+    );
+    s.scene.camera.press(Press::MouseLook);
+    for _ in 0..10 {
+        step(&mut s);
+    }
+    let body = s.scene.seen.body(PLAYER).expect("drawn").heading;
+    let wanted = s.scene.camera.steering_heading(false).expect("steers");
+    assert!(close_heading(body, wanted), "{body} for {wanted}");
+    assert!(
+        !close_heading(body, start),
+        "it looks off to one side: {body} from {start}"
+    );
+
+    s.scene.camera.options.mouse_look_steers = false;
+    s.scene.camera.options.avatar_in_first_person = AvatarInFirstPerson::Always;
+    s.scene.camera.set_first_person(true);
+    for _ in 0..30 {
+        step(&mut s);
+    }
+    let was = s.scene.seen.body(PLAYER).expect("drawn").heading;
+    s.event(&Event::Key {
+        key: Key::A,
+        down: true,
+        repeat: false,
+    });
+    for _ in 0..30 {
+        step(&mut s);
+    }
+    s.event(&Event::Key {
+        key: Key::A,
+        down: false,
+        repeat: false,
+    });
+    let after = s.scene.seen.body(PLAYER).expect("drawn").heading;
+    assert!(close_heading(after, was), "{after} from {was}");
+}
+
+/// Two headings the same way, degrees, within a little.
+fn close_heading(a: f32, b: f32) -> bool {
+    ((a - b + 540.0).rem_euclid(360.0) - 180.0).abs() < 0.5
 }
 
 /// In mouse look the left button runs the body forward while it is held, though the field that

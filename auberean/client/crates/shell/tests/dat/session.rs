@@ -4919,7 +4919,7 @@ fn a_press_falls_on_the_body_under_it_or_failing_that_on_its_box() {
         step(&mut s);
     }
     s.scene.camera.press(Press::MouseLook);
-    let _ = s.scene.camera.mouse(0.0, 600.0);
+    s.scene.camera.mouse(0.0, 600.0);
     for _ in 0..30 {
         step(&mut s);
     }
@@ -4994,7 +4994,7 @@ fn outdoors_the_cameras_own_object_keeps_it_off_the_land() {
     }
     s.scene.camera.press(Press::MouseLook);
     for _ in 0..120 {
-        let _ = s.scene.camera.mouse(0.0, -400.0);
+        s.scene.camera.mouse(0.0, -400.0);
         step(&mut s);
     }
     let camera = s.scene.seen.camera.expect("a camera");

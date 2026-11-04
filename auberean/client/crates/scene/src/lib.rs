@@ -2317,7 +2317,7 @@ impl<'w> Scene<'w> {
             self.camera.press_facing(*p, facing);
         }
         self.camera.hold(intent.held);
-        let steer = self.camera.mouse(intent.mouse.0, intent.mouse.1);
+        self.camera.mouse(intent.mouse.0, intent.mouse.1);
 
         // The player.
         let wanted = client
@@ -2452,11 +2452,23 @@ impl<'w> Scene<'w> {
                     turn: intent.turn,
                 }
             };
-            if !frozen && !locked && steer.turn != 0.0 {
-                p.body.turn_at_once(-steer.turn);
+            // Mouse look steering sets the heading from the camera's direction and leaves no turn
+            // to the keys.
+            // D2-09649
+            if !frozen && !locked {
+                if let Some(heading) = self.camera.steering_heading(p.body.is_moving_to()) {
+                    let by = (heading - p.body.heading + 540.0).rem_euclid(360.0) - 180.0;
+                    if by != 0.0 {
+                        p.body.turn_at_once(by);
+                    }
+                }
             }
             if !locked {
-                p.body.steer(input);
+                p.body.steer(if self.camera.steers() {
+                    MotionInput { turn: 0.0, ..input }
+                } else {
+                    input
+                });
             }
             // The jump asked: standing, or moving slowly, the figure plays the jump's lead-in,
             // whose animation sets the jump off; one it cannot play, or moving faster, jumps at
