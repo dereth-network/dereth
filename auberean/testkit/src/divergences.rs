@@ -60,6 +60,13 @@ pub static DIVERGENCES: &[Divergence] = &[
                connection.",
     },
     Divergence {
+        id: "CD2-full-screen-is-borderless",
+        says: "Full screen is a borderless window over the whole monitor and never changes the \
+               machine's display mode; the display's size says what the picture is drawn at, and \
+               it is scaled to fill the monitor. The original client took the monitor to a mode \
+               of that size.",
+    },
+    Divergence {
         id: "CD2-lists-iterations-it-need-not-hold",
         says: "Asked which data it holds, the client also lists the portal file iterations a server \
                gives what it adds for a retail client's script calls, which this client doesn't \

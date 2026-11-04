@@ -34,7 +34,7 @@ pub struct Settings {
 /// How the game is shown on the screen, as the rendering preferences ask.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Presentation {
-    /// The display's size in full screen, the window's drawing area otherwise, in pixels.
+    /// The size of the picture in full screen, the window's drawing area otherwise, in pixels.
     pub size: (u32, u32),
     /// Full screen, or a window.
     pub full_screen: bool,
@@ -44,6 +44,33 @@ pub struct Presentation {
     pub sync_to_display: bool,
     /// The edges smoothed.
     pub antialiasing: bool,
+}
+
+impl Presentation {
+    /// The size of the picture shown in a window of this size: in full screen the size asked for,
+    /// scaled to fill the monitor, otherwise the window's own.
+    #[must_use]
+    pub const fn drawn_in(&self, window: (u32, u32)) -> (u32, u32) {
+        if self.full_screen {
+            self.size
+        } else {
+            window
+        }
+    }
+}
+
+/// A point of a picture of size `from` in a picture of size `to` that fills the same space.
+#[must_use]
+pub fn in_picture(point: (f32, f32), from: (u32, u32), to: (u32, u32)) -> (f32, f32) {
+    #[allow(clippy::cast_precision_loss)]
+    let along = |p: f32, f: u32, t: u32| {
+        if f == t || f == 0 {
+            p
+        } else {
+            p * t as f32 / f as f32
+        }
+    };
+    (along(point.0, from.0, to.0), along(point.1, from.1, to.1))
 }
 
 impl Default for Settings {

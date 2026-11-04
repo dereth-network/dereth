@@ -84,6 +84,7 @@ not how it was done.
 - Fixed shops saying you can't afford everything.
 - Crafting workshops and some other objects now appear.
 - Choosing a craft skill no longer opens the examine window.
+- Full screen no longer changes the display mode.
 
 ## 0.1.2 (2026-11-02)
 

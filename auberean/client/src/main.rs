@@ -87,12 +87,13 @@ use auberean_scene::WorldData;
 use auberean_shell::command_line::{parse_args, set_error_text, Arg, ArgList, ClientLine, Reader};
 use auberean_shell::input::{Event, Key};
 use auberean_shell::interface::Interface;
+use auberean_shell::settings::in_picture;
 use auberean_shell::{Host, Presentation, Shell};
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, ElementState, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::PhysicalKey;
-use winit::window::{CursorGrabMode, Window, WindowId};
+use winit::window::{CursorGrabMode, Fullscreen, Window, WindowId};
 
 /// The variable naming the settings folder.
 const SETTINGS_DIR: &str = "AUBEREAN_SETTINGS_DIR";
@@ -368,6 +369,8 @@ struct Desktop {
     window: Option<Arc<Window>>,
     /// How the game is to be shown, asked for and not yet carried out.
     presentation: Option<Presentation>,
+    /// The window's drawing area and the size of the picture filling it.
+    picture_in_window: ((u32, u32), (u32, u32)),
     settings: PathBuf,
     /// The preferences file, in the settings folder unless named elsewhere.
     settings_file: PathBuf,
@@ -478,9 +481,14 @@ impl Host for Desktop {
         };
         w.set_ime_allowed(area.is_some());
         if let Some(a) = area {
+            let (window, drawn) = self.picture_in_window;
+            #[allow(clippy::cast_precision_loss)]
+            let (x, y) = in_picture((a.x as f32, a.y as f32), drawn, window);
+            #[allow(clippy::cast_precision_loss)]
+            let (width, height) = in_picture((a.width as f32, a.height as f32), drawn, window);
             w.set_ime_cursor_area(
-                winit::dpi::PhysicalPosition::new(a.x, a.y),
-                winit::dpi::PhysicalSize::new(a.width, a.height),
+                winit::dpi::PhysicalPosition::new(x, y),
+                winit::dpi::PhysicalSize::new(width, height),
             );
         }
     }
@@ -579,7 +587,7 @@ fn presenter(
     Ok(p)
 }
 
-/// The sizes a monitor can show pictures at, from its modes of full color.
+/// The sizes the display's row offers: those of a monitor's modes of full color.
 fn monitor_sizes(monitor: Option<winit::monitor::MonitorHandle>) -> Vec<(u32, u32)> {
     let Some(m) = monitor else {
         return Vec::new();
@@ -594,40 +602,14 @@ fn monitor_sizes(monitor: Option<winit::monitor::MonitorHandle>) -> Vec<(u32, u3
     sizes
 }
 
-/// Full screen at a size: the monitor as it is when that is its size or it has no such mode, else
-/// its mode of that size, at its present refresh rate when it has that, else its fastest.
-// D2-08343
-fn full_screen_at(
-    monitor: Option<winit::monitor::MonitorHandle>,
-    size: (u32, u32),
-) -> winit::window::Fullscreen {
-    use winit::window::Fullscreen;
-    let Some(m) = monitor else {
-        return Fullscreen::Borderless(None);
-    };
-    let whole = m.size();
-    if (whole.width, whole.height) == size {
-        return Fullscreen::Borderless(Some(m));
-    }
-    let now = m.refresh_rate_millihertz();
-    let mode = m
-        .video_modes()
-        .filter(|v| v.bit_depth() >= 32 && (v.size().width, v.size().height) == size)
-        .max_by_key(|v| {
-            (
-                Some(v.refresh_rate_millihertz()) == now,
-                v.refresh_rate_millihertz(),
-            )
-        });
-    mode.map_or(Fullscreen::Borderless(Some(m)), Fullscreen::Exclusive)
-}
-
 struct App<'w> {
     shell: Shell<'w, Desktop>,
     world: &'w WorldData,
     present: Option<auberean_present::Presenter>,
     /// How the game is shown now.
     shown: Presentation,
+    /// The window's drawing area now.
+    window_size: (u32, u32),
     script: Option<script::Script>,
     marks: script::Marks,
     shots: PathBuf,
@@ -693,11 +675,6 @@ impl App<'_> {
 
     fn send(&mut self, e: &Event) {
         match e {
-            Event::Resized { width, height } => {
-                if let Some(p) = &mut self.present {
-                    p.resize(*width, *height);
-                }
-            }
             Event::Key {
                 key: Key::ControlLeft | Key::ControlRight,
                 down,
@@ -723,7 +700,24 @@ impl App<'_> {
         self.shell.event(e);
     }
 
-    /// The game shown as the rendering preferences now ask: full screen or the window at its size;
+    /// The window's drawing area is `size`: the device fills it, and the game is told the size of
+    /// the picture it draws.
+    fn window_sized(&mut self, size: (u32, u32)) {
+        self.window_size = size;
+        let drawn = self.shown.drawn_in(size);
+        if let Some(p) = &mut self.present {
+            p.resize(size.0, size.1);
+            p.draw_at(drawn.0, drawn.1);
+        }
+        self.shell.host.picture_in_window = (size, drawn);
+        self.send(&Event::Resized {
+            width: drawn.0,
+            height: drawn.1,
+        });
+    }
+
+    /// The game shown as the rendering preferences now ask: full screen fills the monitor as it
+    /// is, which never changes its display mode, or the window at its size;
     /// the device made again for the edges smoothed or not; the way pictures reach the screen.
     // D2-08343, D2-09722
     fn show(&mut self, el: &ActiveEventLoop, p: Presentation) {
@@ -731,10 +725,10 @@ impl App<'_> {
             return;
         };
         let was = std::mem::replace(&mut self.shown, p);
-        if p.full_screen != was.full_screen || (p.full_screen && p.size != was.size) {
+        if p.full_screen != was.full_screen {
             w.set_fullscreen(
                 p.full_screen
-                    .then(|| full_screen_at(w.current_monitor(), p.size)),
+                    .then(|| Fullscreen::Borderless(w.current_monitor())),
             );
         }
         if !p.full_screen && (was.full_screen || p.size != was.size) {
@@ -752,6 +746,11 @@ impl App<'_> {
             }
         } else if let Some(present) = &mut self.present {
             present.set_presentation(p.full_screen, p.triple_buffering, p.sync_to_display);
+        }
+        // In full screen the window stays as it is while the picture's size changes.
+        if p.full_screen {
+            let size = w.inner_size();
+            self.window_sized((size.width, size.height));
         }
     }
 
@@ -828,7 +827,7 @@ impl ApplicationHandler for App<'_> {
                 self.shell
                     .settings
                     .full_screen
-                    .then(|| full_screen_at(el.primary_monitor(), (w, h))),
+                    .then(|| Fullscreen::Borderless(el.primary_monitor())),
             );
         let window = match el.create_window(attrs) {
             Ok(w) => Arc::new(w),
@@ -852,19 +851,13 @@ impl ApplicationHandler for App<'_> {
         }
         let size = window.inner_size();
         self.shell.host.window = Some(window);
-        self.send(&Event::Resized {
-            width: size.width,
-            height: size.height,
-        });
+        self.window_sized((size.width, size.height));
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => self.send(&Event::Close),
-            WindowEvent::Resized(s) => self.send(&Event::Resized {
-                width: s.width,
-                height: s.height,
-            }),
+            WindowEvent::Resized(s) => self.window_sized((s.width, s.height)),
             WindowEvent::Focused(f) => self.send(&Event::Focus(f)),
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
@@ -899,10 +892,12 @@ impl ApplicationHandler for App<'_> {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 #[allow(clippy::cast_possible_truncation)]
-                self.send(&Event::Pointer {
-                    x: position.x as f32,
-                    y: position.y as f32,
-                });
+                let (x, y) = in_picture(
+                    (position.x as f32, position.y as f32),
+                    self.window_size,
+                    self.shell.size,
+                );
+                self.send(&Event::Pointer { x, y });
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 #[allow(clippy::cast_possible_truncation)]
@@ -996,6 +991,7 @@ fn run() -> Result<(), String> {
         socket: None,
         window: None,
         presentation: None,
+        picture_in_window: ((1, 1), (1, 1)),
         settings_file,
         settings,
         install: o.dats.clone(),
@@ -1028,6 +1024,7 @@ fn run() -> Result<(), String> {
         world: &world,
         present: None,
         shown,
+        window_size: (1, 1),
         script,
         marks: script::Marks::default(),
         shots,

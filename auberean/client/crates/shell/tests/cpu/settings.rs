@@ -1,6 +1,7 @@
 //! The settings' text.
 
 use auberean_scene::camera::AvatarInFirstPerson;
+use auberean_shell::settings::{in_picture, Presentation};
 use auberean_shell::Settings;
 
 /// The camera, mouse and avatar options are read by the client's own names, each within its range
@@ -258,4 +259,40 @@ fn the_rendering_options_read_by_the_clients_names_and_kept() {
     assert!(text.contains("SyncToDisplayRefresh=1"), "{text}");
     assert!(text.contains("Antialiasing=0"), "{text}");
     assert_eq!(Settings::read(&text).presentation(), q);
+}
+
+/// Full screen never changes the monitor's display mode: the window stays the monitor's size, the
+/// picture is drawn at the size asked for and fills it, and the pointer lands on the same place in
+/// the picture. A window's picture is the window's size, whatever was asked for.
+///
+/// Behaviour: desktop.settings.full-screen-fills-the-monitor-at-the-size-asked-for
+#[test]
+fn full_screen_fills_the_monitor_at_the_size_asked_for() {
+    let monitor = (3840, 2160);
+    let asked = (1024, 768);
+    let mut p = Presentation {
+        size: asked,
+        full_screen: true,
+        triple_buffering: false,
+        sync_to_display: true,
+        antialiasing: true,
+    };
+    assert_eq!(p.drawn_in(monitor), asked);
+    assert_eq!(
+        in_picture((1920.0, 540.0), monitor, asked),
+        (512.0, 192.0),
+        "the monitor's point on the picture"
+    );
+    assert_eq!(
+        in_picture((512.0, 192.0), asked, monitor),
+        (1920.0, 540.0),
+        "and back"
+    );
+    p.full_screen = false;
+    assert_eq!(p.drawn_in((1280, 960)), (1280, 960));
+    assert_eq!(
+        in_picture((7.5, 9.5), (1280, 960), (1280, 960)),
+        (7.5, 9.5),
+        "a window's point is the picture's"
+    );
 }

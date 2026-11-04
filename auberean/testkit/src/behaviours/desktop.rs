@@ -1411,6 +1411,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.settings.full-screen-fills-the-monitor-at-the-size-asked-for",
+        says: "Full screen leaves the monitor's display mode alone: the picture is drawn at the \
+               display's size and scaled to fill the monitor, and the pointer lands on the same \
+               place in the picture.",
+        since: THIS_CLIENT,
+        divergence: "CD2-full-screen-is-borderless",
+        evidence: Evidence::Private("AC2-EVID-FULL-SCREEN-BORDERLESS"),
+        station: "auberean-shell::cpu::settings::full_screen_fills_the_monitor_at_the_size_asked_for",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.settings.graphics-preferences-read-by-the-clients-names-and-kept",
         says: "The graphics preferences are read from their own section by the client's names (a \
                choice by its level's name or number, a yes-or-no, a number within its range) and \

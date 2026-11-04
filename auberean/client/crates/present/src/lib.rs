@@ -155,6 +155,8 @@ pub struct Presenter {
     white: wgpu::TextureView,
     pictures: HashMap<u32, Option<Arc<wgpu::TextureView>>>,
     composed: Option<(wgpu::Texture, u32, u32)>,
+    /// The size each picture is drawn at, scaled to fill the window.
+    drawn: (u32, u32),
 }
 
 impl std::fmt::Debug for Presenter {
@@ -395,6 +397,7 @@ impl Presenter {
         Ok(Self {
             _instance: instance,
             surface,
+            drawn: (config.width, config.height),
             config,
             present_modes,
             renderer,
@@ -428,14 +431,22 @@ impl Presenter {
         self.surface.configure(self.renderer.device(), &self.config);
     }
 
-    /// The window's drawing area changed.
+    /// The window's drawing area changed: the pictures are drawn at its size until told otherwise.
     pub fn resize(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 {
             return;
         }
         self.config.width = width;
         self.config.height = height;
+        self.drawn = (width, height);
         self.surface.configure(self.renderer.device(), &self.config);
+    }
+
+    /// Draw each picture at this size, and scale it to fill the window.
+    pub fn draw_at(&mut self, width: u32, height: u32) {
+        if width != 0 && height != 0 {
+            self.drawn = (width, height);
+        }
     }
 
     fn bind(&self, view: &wgpu::TextureView) -> wgpu::BindGroup {
@@ -612,7 +623,7 @@ impl Presenter {
         load: &mut dyn FnMut(u32) -> Option<Image>,
         shot: Option<&Path>,
     ) {
-        let (w, h) = (self.config.width, self.config.height);
+        let (w, h) = self.drawn;
         // A screen laid out at another size shows at its own proportions in the window's middle:
         // its viewports scale and move with it.
         let area = overlay
