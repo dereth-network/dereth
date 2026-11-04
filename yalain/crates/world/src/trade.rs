@@ -681,7 +681,7 @@ fn refuse_attuned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, t:
         .find(|(_, item, _)| {
             s.things
                 .get(*item)
-                .is_some_and(|x| inventory::attunable(&s.catalog, x.template))
+                .is_some_and(|x| inventory::attuned(&s.catalog, x))
         });
     let Some((giver, item, n)) = first else {
         return false;

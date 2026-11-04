@@ -1740,10 +1740,6 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         }
     }
     pay(s, net, world, &u);
-    // A special used on another fights: what binds when used in combat is bound.
-    if !on_self && !helpful(&u) {
-        crate::equip::in_combat(s, world);
-    }
     // The outcome of its damaging hook (a strike's at once; a missile's as it arrives).
     let target_thing = match aim {
         // Another player: its level, no armor.
@@ -1777,6 +1773,10 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
             0
         };
         outcome = Some((o, dmg));
+    }
+    // A special used on another fights with what its user holds, if its blow lands.
+    if !on_self && !helpful(&u) && outcome.is_none_or(|(o, _): (Outcome, i32)| o.landed()) {
+        crate::equip::blow_landed(s, net, world);
     }
     let weapon = held.first().map_or(0, |(i, _)| *i);
     let landings = if helpful(&u) {

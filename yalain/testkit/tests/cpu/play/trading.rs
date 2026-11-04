@@ -433,3 +433,34 @@ fn a_trade_is_closed_by_either_side_by_distance_and_by_leaving() {
     assert!(v.contains(&Value::Int(error::LOGGED_OUT)) && v.contains(&Value::Long(aid)));
     assert!(h.server.trades.list.is_empty());
 }
+
+/// A bound item is no attuned one: it may be traded, and whom it is bound to goes with it, so its
+/// new holder may not equip it. A recipe's attunement stops the trade as a template's does.
+/// Behaviour: server.trade.a-bound-item-may-be-traded
+#[test]
+fn a_bound_item_goes_in_a_trade_still_bound_and_an_attuned_one_stops_it() {
+    const WORN: u32 = 0x4700_7A42;
+    let (mut h, (a, aid), (b, bid)) = two();
+    let bound = hold(&mut h, aid, WORN, 1);
+    h.server.things.get_mut(bound).expect("made").own.bound_to = aid;
+    let attuned = hold(&mut h, aid, WORN, 1);
+    h.server.things.get_mut(attuned).expect("made").own.attuned = true;
+    opened(&mut h, (a, aid), (b, bid));
+    h.ask(
+        a,
+        function::OFFER,
+        &[Arg::Int(1), Arg::LongInt(attuned)],
+        10,
+    );
+    h.ask(a, function::ACCEPT, &[], 10);
+    h.ask(b, function::ACCEPT, &[], 10);
+    assert!(pack(&h, bid).iter().all(|(i, _, _)| *i != attuned));
+    h.ask(a, function::OFFER, &[Arg::Int(1), Arg::LongInt(bound)], 10);
+    h.ask(a, function::ACCEPT, &[], 10);
+    h.ask(b, function::ACCEPT, &[], 10);
+    assert!(pack(&h, bid).iter().any(|(i, _, _)| *i == bound));
+    assert_eq!(
+        h.server.things.get(bound).map(|t| t.own.bound_to),
+        Some(aid)
+    );
+}

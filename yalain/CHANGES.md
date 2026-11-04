@@ -7,6 +7,8 @@ what they see, not how it was done.
 
 ## Unreleased
 - Fixed a rebuilt server refusing to start when its world database wasn't downloaded yet.
+- Items now bind piece by piece as you fight, and tell you when they do.
+- Bound and attuned items can't be put up for sale.
 
 ## 0.2.0 (2026-11-05)
 

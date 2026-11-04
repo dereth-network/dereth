@@ -19,6 +19,9 @@
 //! gives the item back as a new item holding all it held; collecting a sold one pays its price. A
 //! player entering the world is reminded of its consignments, one reminder per broker.
 //!
+//! **What may not be sold**: an item attuned to its holder, and one bound by use in combat: refused,
+//! nothing taken and nothing moved.
+//!
 //! **Buying a player's sale**: the price taken, the item moved from the broker into the buyer's
 //! pack, the sale's stock told as gone; the seller collects the price.
 
@@ -698,6 +701,19 @@ pub fn sell<S: Store>(
     else {
         return;
     };
+    // An item bound to its seller stays with it, and so does one used in combat: its sale profile
+    // does not make, and the client's own check answers the same.
+    if s.things
+        .get(item)
+        .is_some_and(|t| inventory::attuned(&s.catalog, t) || t.own.bound_to != 0)
+    {
+        let m = call(
+            store::function::REQUEST_DONE,
+            &[Arg::Int(store::error::SALE_REFUSED)],
+        );
+        progress::private(net, world, &m);
+        return;
+    }
     let quantity = quantity.clamp(1, held.quantity.max(1));
     // A part of a stack goes as a new item, which only its template can make.
     if quantity < held.quantity && s.catalog.get(held.template).is_none() {

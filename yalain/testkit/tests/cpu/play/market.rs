@@ -875,3 +875,100 @@ fn a_price_collected_past_what_money_counts_stops_at_the_most() {
     assert_eq!(last_money(&h, a, from), Some(-1));
     assert!(h.server.market.list.is_empty());
 }
+
+/// The sale of one item, with all it should leave behind told: the money it took, what the store
+/// answered, and whether it went up.
+fn sold(h: &mut Harness, a: usize, ida: u64, item: u64) -> (i32, Option<u32>, bool) {
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == ida)
+        .expect("in the world");
+    let template = h.server.things.get(item).expect("made").template;
+    if !p.play.items.iter().any(|i| i.id == item) {
+        p.play.items.push(yalain_world::state::Held {
+            id: item,
+            template,
+            slot: 0,
+            location: 0,
+            quantity: 1,
+        });
+    }
+    let from = h.bots[a].inbox.len();
+    h.ask(
+        a,
+        function::SELL,
+        &[
+            Arg::Int(STORE),
+            Arg::Int(100),
+            Arg::Int(1),
+            Arg::LongInt(item),
+            Arg::LongInt(BROKER),
+        ],
+        10,
+    );
+    let up = h.server.market.list.iter().any(|c| c.item == item);
+    let money = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == ida)
+        .map_or(0, |p| {
+            yalain_world::quals::int(&p.qualities, 3100).unwrap_or(0)
+        });
+    (money, last_error(h, a, from), up)
+}
+
+/// An item bound by use in combat is refused its sale: nothing taken, the item kept, and marked to
+/// bind but not yet bound it goes up.
+/// Behaviour: server.market.a-bound-item-is-not-sold
+#[test]
+fn an_item_bound_by_use_is_refused_its_sale_and_one_still_to_bind_goes_up() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 1_000);
+    let bound = yalain_world::inventory::make_item(&mut h.server, GEM, 1, 41).expect("made");
+    h.server.things.get_mut(bound).expect("made").own.bound_to = ida;
+    let refused = yalain_world::store::error::SALE_REFUSED;
+    assert_eq!(
+        sold(&mut h, a, ida, bound),
+        (1_000, Some(refused), false),
+        "nothing taken"
+    );
+    let marked = yalain_world::inventory::make_item(&mut h.server, GEM, 1, 41).expect("made");
+    h.server.things.get_mut(marked).expect("made").binds_on_use = true;
+    let (left, error, up) = sold(&mut h, a, ida, marked);
+    assert!(left < 1_000, "its charge taken");
+    assert_eq!((error, up), (None, true));
+}
+
+/// An item attuned to its holder, by its template or by a recipe, is refused its sale: nothing
+/// taken, the item kept.
+/// Behaviour: server.market.an-attuned-item-is-not-sold
+#[test]
+fn an_attuned_item_is_refused_its_sale_by_its_template_or_a_recipe() {
+    const ATTUNED: u32 = 0x4700_7A41;
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 1_000);
+    let mut props = yalain_content::Props::default();
+    props.set("Item_IsAttunable", yalain_content::Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(ATTUNED, 0x200, props));
+    let refused = Some(yalain_world::store::error::SALE_REFUSED);
+    let by_template =
+        yalain_world::inventory::make_item(&mut h.server, ATTUNED, 1, 41).expect("made");
+    assert_eq!(sold(&mut h, a, ida, by_template), (1_000, refused, false));
+    let by_recipe = yalain_world::inventory::make_item(&mut h.server, GEM, 1, 41).expect("made");
+    h.server
+        .things
+        .get_mut(by_recipe)
+        .expect("made")
+        .own
+        .attuned = true;
+    assert_eq!(sold(&mut h, a, ida, by_recipe), (1_000, refused, false));
+}

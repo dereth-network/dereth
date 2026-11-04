@@ -624,8 +624,6 @@ pub fn begin<S: Store>(
         progress::private(net, world, &attack_state(false));
         return;
     }
-    // Fighting binds what binds when used in combat.
-    crate::equip::in_combat(s, world);
     let mode = crate::skill_use::player_mode(s, me);
     s.next_context = s.next_context.wrapping_add(1);
     let context = s.next_context;
@@ -1237,6 +1235,9 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, mut l: Landing, c
     let hurts = alive && l.outcome.landed() && l.damage > 0;
     if hurts && other.is_none() {
         crate::treasure::on_hit(s, net, l.world, l.target, clock);
+    }
+    if alive && l.outcome.landed() {
+        crate::equip::blow_landed(s, net, l.world);
     }
     if l.thrown {
         let hooks = if alive {
@@ -1921,8 +1922,7 @@ pub fn after_hurt<S: Store>(
     by: u64,
     clock: Clock,
 ) {
-    // Being hit binds what binds when used in combat.
-    crate::equip::in_combat(s, world);
+    crate::equip::hit_taken(s, net, world);
     if s.players.get(&world).is_some_and(is_dead) {
         crate::death::player_dies(s, net, world, Some(by), clock);
     }

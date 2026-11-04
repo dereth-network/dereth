@@ -717,6 +717,42 @@ fn an_items_bind_on_use_mark_is_kept_across_a_logout() {
     assert_eq!((mark(marked), mark(plain)), (Some(true), Some(false)));
 }
 
+/// Whom an item is bound to, and a recipe's attunement, stay with the item across a logout.
+/// Behaviour: server.items.bound-and-attuned-kept
+#[test]
+fn whom_an_item_is_bound_to_and_its_attunement_are_kept_across_a_logout() {
+    const CHEST: u32 = 0x4700_7301;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    h.server.catalog.insert(yalain_testkit::test_template(
+        CHEST,
+        0x180,
+        yalain_content::Props::default(),
+    ));
+    let bound = h.arm(b, me, CHEST);
+    let attuned = h.arm(b, me, CHEST);
+    let plain = h.arm(b, me, CHEST);
+    if let Some(t) = h.server.things.get_mut(bound) {
+        t.own.bound_to = me;
+    }
+    if let Some(t) = h.server.things.get_mut(attuned) {
+        t.own.attuned = true;
+    }
+    log_off(&mut h, b, me);
+    h.enter_world(b, "one", me);
+    h.run(10);
+    let own = |id: u64| {
+        h.server
+            .things
+            .get(id)
+            .map(|t| (t.own.bound_to, t.own.attuned))
+    };
+    assert_eq!(own(bound), Some((me, false)));
+    assert_eq!(own(attuned), Some((0, true)));
+    assert_eq!(own(plain), Some((0, false)));
+}
+
 /// A hidden quest a character holds is never in its session start's list, under way or done; the
 /// shown ones beside it are.
 /// Behaviour: server.quests.hidden-never-listed

@@ -790,6 +790,12 @@ pub fn attunable(catalog: &yalain_content::Catalog, template: u32) -> bool {
             .is_some_and(|d| d.props.flag("Item_IsAttunable"))
 }
 
+/// Is this item bound to whoever holds it, by its template or by the recipe that made it?
+#[must_use]
+pub fn attuned(catalog: &yalain_content::Catalog, t: &Thing) -> bool {
+    t.own.attuned || attunable(catalog, t.template)
+}
+
 /// What a player wears and wields, as its session start lists it: each wielded item in the
 /// primary hand, the hands it takes, its implement kind when the server knows it; each item worn
 /// on the body where it is, the places it takes, and the look it gives a body of this race and

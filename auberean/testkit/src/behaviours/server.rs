@@ -4488,6 +4488,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.items.a-blow-binds-the-piece-it-lands-on",
+        says: "A hit binds at most one marked piece worn, the one it lands on; hits go on until all \
+               are bound. Our choice: which piece a blow lands on is not told, so even odds among \
+               those worn.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOUND-PIECE"),
+        station: "yalain-testkit::cpu::play::binding::a_hit_binds_one_piece_of_what_is_worn_each_told_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.items.a-jump-cuts-a-use-short",
         says: "An item's use whose behavior is playing (a potion's drink) is cut short by a jump or \
                its user's death: answered as interrupted, nothing done, the item kept.",
@@ -4513,6 +4523,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-ITEM-DRINK"),
         station: "yalain-testkit::cpu::play::items::a_potion_is_drunk_and_at_the_drinks_end_takes_effect_and_is_spent",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.a-weapon-binds-as-its-blows-land",
+        says: "Starting a fight binds nothing. Each blow a player lands may bind what it holds marked \
+               to, one in ten; armor is not bound by the blows its wearer strikes. Our choice: the \
+               chance rests on 4 weapons.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOUND-WEAPON"),
+        station: "yalain-testkit::cpu::play::binding::a_weapon_binds_as_its_blows_land_and_armor_does_not",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4554,20 +4574,36 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.items.binds-on-use-warning",
         says: "An item that binds when used in combat is equipped with the mark in its profile and \
                the warning \"This item will become bound to you when used in combat ...\" (not on \
-               top), at every equip; once its holder fights with it on, it is bound, equipped \
-               with no mark and no warning.",
+               top), at every equip; once a blow binds it, its holder is told \"By using it, you \
+               have bound ...\", and it is equipped with no mark and no warning.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-BINDS-WARNING"),
-        station: "yalain-testkit::cpu::play::binding::an_item_that_binds_in_combat_warns_at_every_equip_until_fought_with",
+        station: "yalain-testkit::cpu::play::binding::an_item_that_binds_in_combat_warns_at_every_equip_until_a_blow_binds_it",
         tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.items.binds-when-hit",
-        says: "Being hit binds what a player wears and wields that binds when used in combat; what \
-               it only carries keeps its mark.",
+        says: "Being hit binds a marked piece a player wears; what it only carries keeps its mark.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-BINDS-WARNING-HIT"),
         station: "yalain-testkit::cpu::play::binding::being_hit_binds_what_is_worn_but_not_what_is_carried",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.bound-and-attuned-kept",
+        says: "Whom an item is bound to, and a recipe's attunement, are kept with it across a logout.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOUND-KEPT"),
+        station: "yalain-testkit::cpu::entry::keeping::whom_an_item_is_bound_to_and_its_attunement_are_kept_across_a_logout",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.bound-to-another-is-not-equipped",
+        says: "An item bound to another player is refused its equip with status 10074, which the \
+               client writes as bound to another; its own holder wears it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOUND-EQUIP"),
+        station: "yalain-testkit::cpu::play::binding::an_item_bound_to_another_is_not_equipped",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -5074,6 +5110,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.market.a-bound-item-is-not-sold",
+        says: "An item bound by use in combat is refused its sale (45009), nothing taken and the item \
+               kept; one marked to bind and not yet bound goes up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOUND-SALE"),
+        station: "yalain-testkit::cpu::play::market::an_item_bound_by_use_is_refused_its_sale_and_one_still_to_bind_goes_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.a-consigned-item-keeps-what-it-holds",
         says: "An item on sale holds what it held in the pack: taken back unsold it comes as a new \
                item with the old one's value and own numbers, a restart leaves it as it was, and \
@@ -5096,6 +5141,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-MARKET-TAKE-BACK"),
         station: "yalain-testkit::cpu::play::market::a_sold_consignment_stays_up_with_its_price_and_its_buyers_item_stays_whole",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.market.an-attuned-item-is-not-sold",
+        says: "An item attuned to its holder, by its template or a recipe, is refused its sale \
+               (45009), nothing taken and the item kept. Our choice: an attunable template's item \
+               counts as attuned to whoever holds it; no such sale in view.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ATTUNED-SALE"),
+        station: "yalain-testkit::cpu::play::market::an_attuned_item_is_refused_its_sale_by_its_template_or_a_recipe",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -9563,6 +9618,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TALK-STEP"),
         station: "yalain-testkit::cpu::play::talk::a_step_says_its_line_then_the_lines_heard_with_its_update_in_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.trade.a-bound-item-may-be-traded",
+        says: "An item bound by use goes in a trade, still bound to who bound it. Our choice: 0 bound \
+               items offered in view; what the install says of a bound item is equipping and sales.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOUND-TRADE"),
+        station: "yalain-testkit::cpu::play::trading::a_bound_item_goes_in_a_trade_still_bound_and_an_attuned_one_stops_it",
         tier: Tier::Cpu,
     },
     behaviour! {
