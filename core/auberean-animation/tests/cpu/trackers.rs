@@ -38,9 +38,6 @@ impl Host for Object {
     fn is_the_player(&self) -> bool {
         false
     }
-    fn do_behavior_on_object(&mut self, _target: u64, _behavior: u32) -> bool {
-        false
-    }
     fn triggers(&mut self) -> Option<&mut FrameTriggers> {
         Some(&mut self.triggers)
     }

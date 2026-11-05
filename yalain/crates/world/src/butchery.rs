@@ -12,9 +12,9 @@
 //! butcher %2, collecting %1 units of %3." for an expert cut).
 //!
 //! **The yield** is one of the creature's butchery profile's materials, by their shares; so many
-//! units by the knife (a crude one 11; a hunting knife 16 from creatures below level 17, more from
-//! stronger ones), twice that for an expert cut, which comes more often the more the player's
-//! butchery passes the creature's level. A profile may also hold a share of nothing: a cut that
+//! units by the knife, ten above the yield its recipe's item level gave it (a crude one's 1 gives
+//! 11), twice that for an expert cut, which comes more often the more the player's butchery passes
+//! the creature's level. A profile may also hold a share of nothing: a cut that
 //! draws it gathers nothing, pays nothing, and is answered "empty" at the result, the corpse left
 //! to butcher again.
 
@@ -53,6 +53,10 @@ pub mod refusal {
     pub const TOO_DAMAGED: u32 = 10_063;
     /// The cut found nothing (at the result).
     pub const EMPTY: u32 = 10_064;
+    /// No place in the pack for the material (at the result; 2017: 1 of 1, with a full pack).
+    pub const NO_ROOM: u32 = 10_065;
+    /// The knife asks more of the player's craft skill than it has.
+    pub const CRAFT_TOO_LOW: u32 = 10_067;
 }
 
 /// How many levels above the creature its killer may be before the corpse is too damaged to
@@ -94,21 +98,32 @@ pub struct Yield {
     pub weight: u32,
 }
 
-/// How many units a knife cuts from a creature of a level: a crude knife 11 from any; a hunting
-/// knife 16 below level 17, 32 to 27, 37 to 30, 35 above (2017: 1,236 crude cuts all 11 but 21 of
-/// 6; 1,519 hunting cuts, the bands' medians). None for an item that is not a knife.
+/// What a knife's own yield adds to every cut: a cut gives ten more than its yield says (2017: 2,955
+/// of 2,985 cuts of knives whose yield is known, an expert cut's twice that; yields 1 to 33, and no
+/// tie to the creature).
+const CUT_ABOVE_YIELD: u32 = 10;
+
+/// How many units a cut gives by the knife's yield.
 #[must_use]
-pub fn units(knife: u32, creature_level: i64) -> Option<u32> {
-    match knife {
-        0x4700_0CBD => Some(11),
-        0x4700_0CBB => Some(match creature_level {
-            i64::MIN..=16 => 16,
-            17..=27 => 32,
-            28..=30 => 37,
-            _ => 35,
-        }),
-        _ => None,
-    }
+pub const fn units(tool_yield: u32) -> u32 {
+    tool_yield + CUT_ABOVE_YIELD
+}
+
+/// A knife's yield: a made one's own; else a crude knife's 1, a hunting knife's the 6 of the lowest
+/// level it is made at.
+#[must_use]
+pub fn knife_yield(template: u32, made: Option<u32>) -> u32 {
+    made.unwrap_or(if template == HUNTING_KNIFE { 6 } else { 1 })
+}
+
+/// The knives.
+const HUNTING_KNIFE: u32 = 0x4700_0CBB;
+const CRUDE_KNIFE: u32 = 0x4700_0CBD;
+
+/// Is this template a knife?
+#[must_use]
+pub const fn is_knife(template: u32) -> bool {
+    matches!(template, HUNTING_KNIFE | CRUDE_KNIFE)
 }
 
 /// The chance of an expert cut, by the player's butchery level less the creature's: 3 in 100
@@ -129,9 +144,7 @@ pub fn is_butchery<S: Store>(s: &Server<S>, u: &Use) -> bool {
         && s.things
             .get(u.target)
             .is_some_and(|t| t.kind == Kind::Corpse)
-        && s.things
-            .get(u.item)
-            .is_some_and(|t| units(t.template, 0).is_some())
+        && s.things.get(u.item).is_some_and(|t| is_knife(t.template))
 }
 
 /// A butchery under way: the use, the corpse, the knife.
@@ -201,7 +214,23 @@ pub fn begin<S: Store>(
 ) {
     let corpse = u.target;
     let me = s.players.get(&world).map_or(0, |p| p.character);
-    let refused = refusal_at(s, world, corpse);
+    // A knife that asks more of the craft skill than the player has does not cut (2017: 4 of 4; of
+    // 1,678 cuts where both are known, none below it).
+    let needs = s
+        .things
+        .get(u.item)
+        .and_then(|t| t.own.made)
+        .and_then(|m| m.craft_needed);
+    let level = s
+        .players
+        .get(&world)
+        .and_then(|p| p.play.craft_skills.iter().find(|c| c.skill == SKILL))
+        .map_or(1, |c| c.level);
+    let refused = if needs.is_some_and(|n| level < n) {
+        Some(refusal::CRAFT_TOO_LOW)
+    } else {
+        refusal_at(s, world, corpse)
+    };
     if let Some(why) = refused {
         let m = crate::places::use_answer_to(&u, me, 0, TARGET_KIND, 0.0, why);
         progress::private(net, world, &m);
@@ -298,11 +327,25 @@ pub fn done<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, w: 
         progress::private(net, world, &m);
         return;
     }
+    if s.players
+        .get(&world)
+        .is_some_and(|p| crate::inventory::pack_full(&p.play.items))
+    {
+        // No place for it: the corpse still to butcher, the knife unworn, nothing paid.
+        let m = crate::places::use_answer_to(&w.used, me, 0, TARGET_KIND, 0.0, refusal::NO_ROOM);
+        progress::private(net, world, &m);
+        return;
+    }
     if let Some(c) = s.things.get_mut(w.corpse).and_then(|t| t.corpse.as_mut()) {
         c.butchered = true;
     }
     let expert = s.rng.chance(expert_chance(i64::from(record.level) - level));
-    let n = units(w.knife, level).unwrap_or(0) * if expert { 2 } else { 1 };
+    let own = s
+        .things
+        .get(w.used.item)
+        .and_then(|t| t.own.made)
+        .and_then(|m| m.tool_yield);
+    let n = units(knife_yield(w.knife, own)) * if expert { 2 } else { 1 };
     craft::award(s, net, world, SKILL, craft::usage_xp(&def, &record));
     craft::play_fx(s, net, world, if expert { fx::MADE_WELL } else { fx::MADE });
     crate::inventory::give_stacked(s, net, world, material, n);
@@ -375,10 +418,16 @@ pub fn wear_tool_by<S: Store>(
     let Some(t) = s.things.get(item) else {
         return;
     };
-    let Some(most) = s
-        .catalog
-        .get(t.template)
-        .and_then(|tp| tp.props.int("Item_Durability_MaxLevel"))
+    let Some(most) = t
+        .own
+        .made
+        .and_then(|m| m.durability)
+        .map(i64::from)
+        .or_else(|| {
+            s.catalog
+                .get(t.template)
+                .and_then(|tp| tp.props.int("Item_Durability_MaxLevel"))
+        })
         .and_then(|m| u32::try_from(m).ok())
         .or(Some(default))
         .filter(|m| *m > 0)

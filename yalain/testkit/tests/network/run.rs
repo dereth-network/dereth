@@ -157,6 +157,20 @@ impl Run {
         });
     }
 
+    /// How many lines of any kind a player of this game has been shown, its rooms' lines among
+    /// them.
+    pub fn lines_of_rooms(&mut self, name: &str) -> usize {
+        self.p2(name).game.client.shown.len()
+    }
+
+    /// Whether a room's line since `from` names this speaker: the client writes it from its own
+    /// strings, with the speaker as one of its variables.
+    pub fn heard_in_room(&mut self, name: &str, from: usize, speaker: &str) -> bool {
+        self.p2(name).game.client.shown[from..]
+            .iter()
+            .any(|s| second_game::names(&s.text, speaker))
+    }
+
     /// How many lines a player of this game has been shown.
     pub fn lines2(&mut self, name: &str) -> usize {
         second_game::shown(&self.p2(name).game.client).len()

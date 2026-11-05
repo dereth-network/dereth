@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use auberean_assets::mesh::Mesh;
 use auberean_primitives::{DataId, Vec3 as WorldVec3};
 use auberean_world::look::{MaterialAtom, ANY_KIND};
 use auberean_world::math::Mat4;
@@ -53,16 +54,22 @@ impl PartMesh {
     #[must_use]
     pub fn read<R: PartRecords + ?Sized>(records: &R, id: DataId) -> Option<Self> {
         let mesh = records.mesh(id)?;
+        Some(Self::of(id, &mesh, records.physics_tree(id)))
+    }
+
+    /// Mesh `id` as a part shows it, given the mesh and its physics tree.
+    #[must_use]
+    pub fn of(id: DataId, mesh: &Mesh, tree: Option<Arc<BspTree>>) -> Self {
         let bounds = bbox(mesh.vertices.bounds);
-        Some(Self {
+        Self {
             id,
             kind: mesh.kind,
-            tree: records.physics_tree(id),
+            tree,
             bounds,
             default_bounds: bounds,
             drawn: !mesh.levels.is_empty(),
-            weighted: (mesh.vertices.format >> 16) & 0xFF != 0,
-        })
+            weighted: mesh.has_matrix_weights(),
+        }
     }
 }
 

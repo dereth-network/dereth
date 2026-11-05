@@ -92,3 +92,44 @@ fn every_recorded_look_draws_through_the_objects_own_copy() {
     assert_eq!(reordered, 2_063);
     assert!(differ.is_empty(), "{:?}", &differ[..differ.len().min(8)]);
 }
+
+/// Every look of the data that puts a figure together makes a body to stand in the world, the
+/// looks whose mode their motion description does not list among them (a town's crafting workshop,
+/// `0x1F00031B`): an object without a body is drawn by nothing.
+///
+/// Behaviour: desktop.bodies.every-look-that-makes-a-figure-makes-a-body
+#[test]
+fn every_look_that_makes_a_figure_makes_a_body() {
+    let dir = auberean_dat::testing::require_target_install();
+    let found = install_dats(&dir).expect("list the install");
+    let open = |want: &dyn Fn(&DatName) -> bool| -> Option<DatFile> {
+        let (_, p) = found.iter().find(|(n, _)| want(n))?;
+        DatFile::open(p).ok()
+    };
+    let portal = open(&|n| *n == DatName::Portal).expect("a portal file");
+    let looks: Vec<u32> = portal
+        .entries()
+        .map(|e| e.id)
+        .filter(|id| id >> 24 == 0x1F)
+        .collect();
+    let cell = open(&|n| *n == DatName::Cell(1)).expect("a cell file");
+    let ctx = auberean_assets::Context::from_portal(&portal).expect("the property list");
+    let r = WorldRecords::new(portal, cell, open(&|n| *n == DatName::HighRes), ctx);
+    let anims = auberean_animation::CachedRecords::new(&r);
+    let physics = auberean_client_sdk::protocol::types::PhysicsDesc::default();
+    let (mut figures, mut bodyless) = (0, Vec::new());
+    for id in looks {
+        let Ok(look) = Look::of_record(&anims, DataId(id)) else {
+            continue;
+        };
+        let Some(figure) = auberean_animation::body::Body::from_look(&anims, &look) else {
+            continue;
+        };
+        figures += 1;
+        if auberean_scene::body_config(&r, &look, &figure, &physics).is_none() {
+            bodyless.push(id);
+        }
+    }
+    assert!(figures > 6_000, "{figures}");
+    assert!(bodyless.is_empty(), "{bodyless:08X?}");
+}

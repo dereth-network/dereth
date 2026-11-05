@@ -678,18 +678,6 @@ impl Ui {
         true
     }
 
-    /// Say a drawing of the element starts or is done, when it asks to be told.
-    // D2-11370, D2-11371
-    pub fn notify_draw(&mut self, h: Handle, done: bool) {
-        if self
-            .node(h)
-            .is_some_and(|n| n.bool_attr(Token::of("notify_on_draw")))
-        {
-            let what = if done { "draw_done" } else { "draw_start" };
-            self.broadcast(h, Token::of(what), 0);
-        }
-    }
-
     // -----------------------------------------------------------------------------------------
     // Transitions
     // -----------------------------------------------------------------------------------------

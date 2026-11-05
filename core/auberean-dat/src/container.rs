@@ -225,6 +225,18 @@ impl DatFile {
         self.0.read(DataId(id))
     }
 
+    /// The start of a record's bytes: as much of it as its first block holds. What asks for a few
+    /// words at a record's head need not read the whole chain of a long record.
+    ///
+    /// # Errors
+    /// As [`DatFile::read`], but for a chain's later links, which are not walked.
+    pub fn read_start(&self, id: u32) -> Result<Vec<u8>, DatError> {
+        let e = self.entry(id).ok_or(DatError::NotFound(DataId(id)))?;
+        let mut block = vec![0; e.size.min(self.header().block_size - 4) as usize];
+        self.0.read_raw(u64::from(e.offset) + 4, &mut block)?;
+        Ok(block)
+    }
+
     /// A record's bytes, by its entry.
     ///
     /// # Errors

@@ -230,6 +230,72 @@ fn the_keypad_views_toggle_as_the_client_does() {
     );
 }
 
+/// In first person the mouse always steers the character in mouse look: the option only speaks for
+/// the third person view.
+///
+/// Behaviour: desktop.camera.first-person-mouse-look-steers-whatever-the-option-says
+#[test]
+fn first_person_mouse_look_steers_whatever_the_option_says() {
+    let mut c = camera_with(Options {
+        mouse_look_steers: false,
+        ..Options::default()
+    });
+    c.press(Press::MouseLook);
+    c.mouse(10.0, 0.0);
+    assert_eq!(
+        c.steering_heading(false),
+        None,
+        "third person, the option off"
+    );
+    c.set_first_person(true);
+    assert!(
+        c.steering_heading(false).is_some(),
+        "first person, the option off"
+    );
+}
+
+/// With steering, the heading mouse look gives the character is the way the camera looks, read
+/// from the camera every frame: without a mouse count, and whatever way it looked before. Outside
+/// mouse look it gives none.
+///
+/// Behaviour: desktop.camera.mouse-look-sets-the-heading-from-the-camera
+#[test]
+fn mouse_look_gives_the_character_the_way_the_camera_looks() {
+    let mut c = camera();
+    assert_eq!(
+        c.steering_heading(false),
+        None,
+        "nothing outside mouse look"
+    );
+    c.press(Press::MouseLook);
+    assert!(close(c.steering_heading(false).expect("steers"), 0.0, 1e-4));
+    c.mouse(90.0, 0.0);
+    let h = c.steering_heading(false).expect("steers");
+    assert!(close(h, 90.0, 1e-3), "ninety counts right: {h}");
+    assert!(
+        close(c.steering_heading(false).expect("steers"), 90.0, 1e-3),
+        "and the same the next frame, with no count"
+    );
+    // The camera looking off to one side when mouse look starts: the character takes that way.
+    let mut c = camera();
+    c.press(Press::SwingLeft);
+    let swung = c.global_direction();
+    c.press(Press::MouseLook);
+    let h = c.steering_heading(false).expect("steers");
+    let (sin, cos) = math::sin_cosf(h.to_radians());
+    let len = (swung.x * swung.x + swung.y * swung.y).sqrt();
+    assert!(
+        close(sin * len, swung.x, 1e-3) && close(cos * len, swung.y, 1e-3),
+        "{h} for {swung:?}"
+    );
+    assert!(h > 30.0 && h < 330.0, "off to one side: {h}");
+    assert_eq!(
+        c.steering_heading(true),
+        None,
+        "a move the server ordered keeps the heading"
+    );
+}
+
 /// In mouse look a mouse count turns the camera a degree times the sensitivity, smoothed over the
 /// newest ten counts weighted 1, 0.2, 0.04 and so on; moving the mouse toward the player tilts the
 /// view down (the camera up) unless the axis is inverted; with steering the character turns with
@@ -239,13 +305,17 @@ fn the_keypad_views_toggle_as_the_client_does() {
 #[test]
 fn mouse_look_turns_a_degree_a_count_smoothed() {
     let mut c = camera();
-    assert_eq!(c.mouse(10.0, 0.0).turn, 0.0, "nothing outside mouse look");
+    let before = c.yaw();
+    c.mouse(10.0, 0.0);
+    assert_eq!(c.yaw(), before, "nothing outside mouse look");
     c.press(Press::MouseLook);
-    let s = c.mouse(10.0, 0.0);
-    assert!(close(s.turn, -10.0, 1e-4), "ten counts right: {}", s.turn);
+    c.mouse(10.0, 0.0);
+    let h = c.steering_heading(false).expect("steers");
+    assert!(close(h, 10.0, 1e-3), "ten counts right: {h}");
     // The next sample is smoothed with the one before it: (0 * 1 + 10 * 0.2) / 1.2.
-    let s = c.mouse(0.0, 0.0);
-    assert!(close(s.turn, -10.0 * 0.2 / 1.2, 1e-4), "{}", s.turn);
+    c.mouse(0.0, 0.0);
+    let h = c.steering_heading(false).expect("steers");
+    assert!(close(h, 10.0 + 10.0 * 0.2 / 1.2, 1e-3), "{h}");
     let mut c = camera();
     c.press(Press::MouseLook);
     let p0 = c.pitch();
@@ -262,8 +332,12 @@ fn mouse_look_turns_a_degree_a_count_smoothed() {
     });
     c.press(Press::MouseLook);
     let p0 = c.pitch();
-    let s = c.mouse(3.0, 5.0);
-    assert_eq!(s.turn, 0.0, "the camera turns, not the character");
+    c.mouse(3.0, 5.0);
+    assert_eq!(
+        c.steering_heading(false),
+        None,
+        "the camera turns, not the character"
+    );
     // Turning the view right swings the camera round to the player's left.
     assert!(close(c.yaw(), 6f32.to_radians(), 1e-5), "{}", c.yaw());
     assert!(

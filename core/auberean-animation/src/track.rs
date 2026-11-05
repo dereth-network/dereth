@@ -303,14 +303,6 @@ impl Default for Track {
 }
 
 impl Track {
-    /// Whether a track that is not a behavior's would count as ramping down: its weight is zero
-    /// or less.
-    // D2-14951
-    #[must_use]
-    pub fn weight_spent(&self) -> bool {
-        self.weight <= 0.0
-    }
-
     /// Whether it is ramping down.
     // D2-14954
     #[must_use]

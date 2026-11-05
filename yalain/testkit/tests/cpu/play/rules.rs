@@ -1,11 +1,12 @@
 //! The rules of a fight and of experience, as numbers.
 
+use yalain_testkit::invariants::newer;
 use yalain_world::rules::{self, Direction, Kind};
 use yalain_world::xp::kill_award;
 
-/// A solo kill pays the creature's death experience in full from ten levels below the killer to
-/// nine above, 15% less a level further below (at least 1%), 20% less a level further above,
-/// rounded down.
+/// A solo kill by a killer under level 50 pays the creature's death experience in full from ten
+/// levels below the killer to nine above, 15% less a level further below (at least 1%), 20% less a
+/// level further above, rounded down.
 /// Behaviour: server.experience.solo-kill-award
 #[test]
 fn a_solo_kill_pays_the_death_experience_weighed_by_the_level_difference() {
@@ -21,6 +22,27 @@ fn a_solo_kill_pays_the_death_experience_weighed_by_the_level_difference() {
     assert_eq!(at(31, 20), 60);
     assert_eq!(kill_award(11, 2, 1), 11);
     assert_eq!(kill_award(7, 1, 30), 0, "1% of 7 rounds down to nothing");
+}
+
+/// From level 50 what is below a killer pays in full only to four levels below it, then 20% less
+/// a level (at least 1%); at level 49 it still pays in full to ten below. A creature above the
+/// killer pays as before.
+/// Behaviour: server.experience.from-level-50-the-fall-comes-sooner
+#[test]
+fn from_level_50_a_kill_pays_in_full_only_to_four_levels_below_the_killer() {
+    let at = |creature: i32, killer: i32| kill_award(100, creature, killer);
+    assert_eq!(at(46, 50), 100, "four below: in full");
+    assert_eq!(at(45, 50), 80);
+    assert_eq!(at(44, 50), 60);
+    assert_eq!(at(43, 50), 40);
+    assert_eq!(at(42, 50), 20);
+    assert_eq!(at(41, 50), 1, "nine below: never under 1%");
+    assert_eq!(at(49, 57), 20, "the same at a higher level");
+    assert_eq!(at(41, 49), 100, "at level 49, eight below: in full");
+    assert_eq!(at(39, 49), 100, "at level 49, ten below: in full");
+    assert_eq!(at(38, 49), 85, "at level 49, eleven below: as before");
+    assert_eq!(at(59, 50), 100, "nine above: in full");
+    assert_eq!(at(60, 50), 80, "ten above: as before");
 }
 
 /// Whether an attack lands follows the measured fits, by direction, kind, level difference and the
@@ -112,6 +134,49 @@ fn a_creatures_skill_adds_its_damage_before_the_players_armor() {
     assert_eq!(rules::creature_hit(&mut rng, Kind::Melee, n, 1, true), 12);
 }
 
+/// What a weapon adds to the chance of a critical goes on top of the measured one, in the share of
+/// the attacks that land: nothing else about the attack moves.
+/// Behaviour: server.combat.critical-by-weapon
+#[test]
+fn a_weapons_critical_bonus_adds_to_the_chance_among_hits_that_land() {
+    let mut rng = yalain_world::rng::Rng::new(5);
+    let base = rules::fit(rules::Direction::PlayerOnCreature, rules::Kind::Melee).critical;
+    let mut share = |bonus: f64| {
+        let (mut landed, mut critical) = (0.0, 0.0);
+        for _ in 0..80_000 {
+            let o = rules::roll_basic(&mut rng, rules::Kind::Melee, 20, 20, bonus);
+            landed += f64::from(u8::from(o.landed()));
+            critical += f64::from(u8::from(o == rules::Outcome::Critical));
+        }
+        (critical / landed, landed)
+    };
+    let (plain, n0) = share(0.0);
+    let (with, n1) = share(0.08);
+    assert!((plain - base).abs() < 0.006, "{plain}");
+    assert!((with - base - 0.08).abs() < 0.006, "{with}");
+    assert!((n0 - n1).abs() / n0 < 0.02, "{n0} {n1}");
+}
+
+/// A special is critical only by what its weapon adds: never with a weapon that adds nothing, and at
+/// that share with one that adds.
+/// Behaviour: server.specials.critical-by-weapon-only
+#[test]
+fn a_special_is_critical_only_by_its_weapons_bonus() {
+    let mut rng = yalain_world::rng::Rng::new(9);
+    let mut share = |bonus: f64| {
+        let (mut landed, mut critical) = (0.0, 0.0);
+        for _ in 0..80_000 {
+            let o = rules::roll_special(&mut rng, Kind::Missile, 20, 20, bonus);
+            landed += f64::from(u8::from(o.landed()));
+            critical += f64::from(u8::from(o == rules::Outcome::Critical));
+        }
+        assert!(landed > 10_000.0, "{landed}");
+        critical / landed
+    };
+    assert!(share(0.0).abs() < f64::EPSILON);
+    assert!((share(0.03) - 0.03).abs() < 0.006);
+}
+
 /// A player's hit with a weapon is a whole number drawn evenly across the weapon's damage (the
 /// starting drum's 9 at a variance of a third: 6 to 9), with what its effects add, less the creature's
 /// armor level, at least 1; a critical doubles it.
@@ -136,6 +201,7 @@ fn a_players_hit_is_its_weapons_damage_less_the_creatures_armor() {
             variance: 0.33,
         }),
         added,
+        critical: 0.0,
     };
     let rolls: Vec<i32> = (0..2000)
         .map(|_| rules::player_hit(&mut rng, me(0), 0, false))
@@ -161,4 +227,21 @@ fn a_players_hit_is_its_weapons_damage_less_the_creatures_armor() {
             "at least 1"
         );
     }
+}
+
+/// The invariant checker orders stamps as the client does: the larger of two is newer while they are
+/// less than half the circle apart and the smaller from there on, exactly half included.
+/// Behaviour: server.replay.the-checker-orders-stamps-as-the-client-does
+#[test]
+fn the_checker_orders_stamps_as_the_client_does() {
+    assert!(newer(8, 7));
+    assert!(!newer(7, 7));
+    assert!(newer(0, 0xFFFF), "across the wrap");
+    assert!(!newer(0xFFFF, 0));
+    assert!(newer(0x7FFF, 0), "one short of half");
+    assert!(newer(0, 0x8001), "one past half");
+    assert!(newer(0, 0x8000), "exactly half: the smaller");
+    assert!(!newer(0x8000, 0));
+    assert!(newer(0x1234, 0x9234));
+    assert!(!newer(0x9234, 0x1234));
 }

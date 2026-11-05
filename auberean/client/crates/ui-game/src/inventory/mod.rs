@@ -434,6 +434,7 @@ impl Part {
 
 /// The toolbar's inventory window.
 #[derive(Debug)]
+// D2-02898
 pub struct Inventory {
     frame: FrameId,
     /// The window's field (the toolbar made it).

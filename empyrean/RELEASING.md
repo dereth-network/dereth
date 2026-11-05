@@ -107,7 +107,6 @@ out as a minor release, with its entry.
 | `x86_64-unknown-linux-gnu` | any host with zig | `cargo zigbuild`, against glibc 2.28 | glibc 2.28 or newer (Debian 10, Ubuntu 18.10, RHEL 8) |
 | `aarch64-unknown-linux-gnu` | any host with zig | `cargo zigbuild`, against glibc 2.28 | glibc 2.28 or newer |
 | `aarch64-apple-darwin` | macOS | `cargo build` (ad-hoc signed by the linker) | macOS 11 or newer |
-| `x86_64-apple-darwin` | macOS | `cargo build` | macOS 11 or newer |
 
 **No game data, ever.** Only the files above are copied, each from a named path, and a deny scan
 reads the staging folder and then the written archive. A `.dat`, anything named like the game
@@ -146,7 +145,7 @@ What it needs, and says when missing, before building anything:
 - **Linux targets:** `cargo install --locked cargo-zigbuild`, zig on `PATH` (or
   `pip install ziglang`), and `rustup target add <target>`. Any host can build them.
 - **Windows and macOS targets:** that host, with its own toolchain (the MSVC build tools; Xcode's
-  command-line tools). `rustup target add x86_64-apple-darwin` on an Apple-silicon Mac.
+  command-line tools).
 
 Each binary also answers `--version`: its version, commit, build time, target and source.
 
@@ -190,7 +189,7 @@ tier-2 modules the release touches on a hardware GPU.
    `cargo xtask package empyrean --target <target>`, unpacks the archive and smoke-runs both
    binaries (`--version`, and `empyrean-server --write-config`): Linux, natively on its own
    architecture, inside an AlmaLinux 8 container (glibc 2.28, the floor) and an Ubuntu 24.04 one
-   (a current distribution); Intel macOS under Rosetta when the runner has it.
+   (a current distribution).
 3. **gather the release:** downloads every archive, runs `cargo xtask package empyrean --gather`,
    and keeps the release files as a workflow artifact.
 4. **draft the GitHub release** (tags only): `gh release create --draft` (`--prerelease` for a

@@ -1,7 +1,7 @@
 [package]
 name = "empyrean-server"
 description = "The Empyrean server: ACE's Program start-up around the world loop, configured by one empyrean.toml."
-version = "0.3.8" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+version = "0.3.9" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license = "AGPL-3.0-only"
@@ -32,19 +32,12 @@ log.workspace = true
 tracing = { workspace = true, features = ["log"] }
 # Ctrl-C as a graceful shutdown.
 ctrlc = { workspace = true, features = ["termination"] }
-# The WebSocket endpoint (`src/websocket.rs`): the frame's codec, the WebSocket handshake and
-# framing (blocking, one thread per connection), and wss:// with rustls on its ring provider, the
-# same TLS stack `empyrean-import fetch` already builds. Only this crate listens, so only it
-# carries them.
-dereth-transport.workspace = true
-tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-# The updater (`src/update/`): the releases API and the downloads over HTTPS (the same client and
-# TLS stack `empyrean-import fetch` builds), the archives (.zip on Windows, .tar.gz elsewhere),
-# their checksums, and the JSON of `release.json`, the releases API and the updater's record.
+# The WebSocket endpoint (`src/websocket.rs`), the game servers' shared one. Only this crate listens,
+# so only it turns on the listener.
+dereth-server-websocket = { workspace = true, features = ["endpoint"] }
+# The updater (`src/update/`): its HTTP client's type (the same client and TLS stack
+# `empyrean-import fetch` builds), and the checksums of a launcher's prepared updates.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
-zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
-flate2.workspace = true
 sha2.workspace = true
 # The status ping's secrets: the OS random source.
 getrandom.workspace = true
@@ -54,15 +47,23 @@ serde_json.workspace = true
 # link to the hub.
 dereth-network-protocol.workspace = true
 dereth-network-link.workspace = true
+# The updater's machinery, shared with Yalain (`src/update/` is what is Empyrean's).
+dereth-server-update.workspace = true
 
 [dev-dependencies]
 dereth-dat = { workspace = true, features = ["test-support"] }
+# The WebSocket endpoint's tests are its clients: the frame, the handshake and wss://.
+dereth-transport.workspace = true
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 # The WebSocket endpoint's tests log a real client in over it: the test client and its accounts.
 empyrean-net = { workspace = true, features = ["testing"] }
 # A self-signed certificate made at test time for the wss:// test, so no key is kept in the tree.
 rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring", "pem"] }
-# The updater tests build synthetic databases for an installation.
+# The updater tests build synthetic databases for an installation, and synthetic release archives.
 rusqlite.workspace = true
+zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+flate2.workspace = true
 # `/dn verify` is checked against a real hub on loopback.
 dereth-network-hub.workspace = true
 

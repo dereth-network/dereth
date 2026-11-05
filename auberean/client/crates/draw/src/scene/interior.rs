@@ -77,6 +77,7 @@ impl SceneBuilder<'_> {
     /// `outside` the day outside: the lights its record lists baked once, the sun on top made
     /// again when the day outside changes; each vertex's lean toward them in the surface's frame,
     /// not yet made a unit (the device adds the kept lights' as they shine at the moment).
+    // D2-03524, D2-03525
     fn lit_cell(
         &mut self,
         id: u32,
@@ -199,7 +200,7 @@ impl SceneBuilder<'_> {
     /// What culls an object standing in cell `cell` made of `parts`, placed by `place`: its box
     /// about every part, twice its size about its middle.
     // D2-03518
-    fn object_cull(&mut self, cell: u16, parts: &[Part], place: &Mat4) -> Cull {
+    pub(crate) fn object_cull(&mut self, cell: u16, parts: &[Part], place: &Mat4) -> Cull {
         let mut lo = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
         let mut hi = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
         for p in parts {
@@ -297,8 +298,12 @@ impl SceneBuilder<'_> {
             f.placed.clear();
             f.shadow = None;
             f.clouds = None;
-            f.reflection = None;
+            f.look_in = Arc::default();
         }
+        f.looked_light = None;
+        // The water takes no reflection with the camera in a cell.
+        // D2-11030
+        f.reflection = None;
         if !outlook.sky && !outlook.land {
             f.sky_before.clear();
             f.sky_after.clear();
@@ -353,9 +358,8 @@ impl SceneBuilder<'_> {
     /// block's interior fog distance and keeps it; the others keep the one they last took.
     // D2-03604, D2-03601, D2-03607
     fn rooms(&mut self, spot: &Spot, block: (i32, i32), cell: u16) -> Option<Rooms> {
-        let records = self.records;
         let (bx, by) = block;
-        let home = records.cell(bx, by, cell)?;
+        let home = self.records.cell(bx, by, cell)?;
         #[allow(clippy::cast_sign_loss)]
         let high = ((bx as u32) << 24) | ((by as u32) << 16);
         let lights = self.block_lights(block);
@@ -363,6 +367,26 @@ impl SceneBuilder<'_> {
             high | u32::from(cell),
             lights.as_ref().and_then(|l| l.fog_cut),
         );
+        let mut order = vec![cell];
+        for &c in &home.visible {
+            if !order.contains(&c) {
+                order.push(c);
+            }
+        }
+        let mut rooms = self.block_rooms(spot, block, &order);
+        rooms.stab.clone_from(&home.visible);
+        Some(rooms)
+    }
+
+    /// Cells `order` of block `block`, the first the walk's, as a walk through their doorways takes
+    /// them, placed in the frame of `spot`'s block.
+    // D2-03557
+    pub(crate) fn block_rooms(&mut self, spot: &Spot, block: (i32, i32), order: &[u16]) -> Rooms {
+        let records = self.records;
+        let (bx, by) = block;
+        #[allow(clippy::cast_sign_loss)]
+        let high = ((bx as u32) << 24) | ((by as u32) << 16);
+        let lights = self.block_lights(block);
         let block_len = self.region.land.grid().block_length();
         #[allow(clippy::cast_precision_loss)] // block offsets are a few blocks
         let place = Mat4::translation(Vec3::new(
@@ -370,19 +394,9 @@ impl SceneBuilder<'_> {
             (by - spot.block.1) as f32 * block_len,
             0.0,
         ));
-        let mut order = vec![cell];
-        for &c in &home.visible {
-            if !order.contains(&c) {
-                order.push(c);
-            }
-        }
         let mut cells = std::collections::HashMap::new();
-        for &low in &order {
-            let Some(c) = (if low == cell {
-                Some(home.clone())
-            } else {
-                records.cell(bx, by, low)
-            }) else {
+        for &low in order {
+            let Some(c) = records.cell(bx, by, low) else {
                 continue;
             };
             let Some((mesh, _)) = self.mesh(c.mesh.0) else {
@@ -422,6 +436,7 @@ impl SceneBuilder<'_> {
                     sky: c.flags & CELL_SKY != 0,
                     doorways,
                     shared: c.shared.clone(),
+                    visible: c.visible.clone(),
                     fog_cut: self
                         .fog_cuts
                         .get(&(high | u32::from(low)))
@@ -434,15 +449,16 @@ impl SceneBuilder<'_> {
             .as_ref()
             .map_or(Color::new(1.0, 1.0, 1.0, 1.0), |l| l.fog_paint);
         let mut rooms = Rooms {
-            root: cell,
-            stab: home.visible.clone(),
+            block,
+            root: order.first().copied().unwrap_or(0),
+            stab: Vec::new(),
             cells,
             group_of: std::collections::HashMap::new(),
             groups: Vec::new(),
             fog_color: [paint.r, paint.g, paint.b, paint.a],
         };
-        rooms.make_groups(&order);
-        Some(rooms)
+        rooms.make_groups(order);
+        rooms
     }
 
     /// The objects standing in the interior cell `cell` of block `block` and in the cells it sees
@@ -497,6 +513,11 @@ impl SceneBuilder<'_> {
         let mut counts = Counts::default();
         let lights = self.block_lights(block);
         let mut scene = lights.as_deref().map(BlockLights::scene);
+        // A cell's own mesh takes the lights linked as it is drawn: the sky lights alone.
+        let mut sky = lights
+            .as_deref()
+            .zip(scene.as_ref())
+            .map(|(l, s)| s.sky_alone(l));
         #[allow(clippy::cast_sign_loss)]
         let high = ((bx as u32) << 24) | ((by as u32) << 16);
         // Each part: the cell it is (for a cell's own mesh), or the object it belongs to (by its
@@ -576,12 +597,12 @@ impl SceneBuilder<'_> {
                 }
             }
             // A cell's own mesh carries in its vertices the light its record lists and the sun's;
-            // the lights kept about the cell, as many point lights as each layer's program takes of
-            // them (no directional light inside), light it as they shine at the moment.
-            if let (Some(id), Some(l), Some(scene)) = (cell_id, lights.as_deref(), scene.as_mut()) {
+            // the sky lights kept about the cell, as many point lights as each layer's program
+            // takes of them, light it as they shine at the moment.
+            if let (Some(id), Some(l), Some(sky)) = (cell_id, lights.as_deref(), sky.as_mut()) {
                 let radius = self.cell_reach(part).unwrap_or(0.0);
                 let at = part.transform.point(Vec3::ZERO);
-                let kept = self.kept_lights((*id, 0), at, radius, l, scene, outside);
+                let kept = self.kept_lights((*id, 0), at, radius, l, sky, outside);
                 let device = kept
                     .iter()
                     .filter(|&&k| l.lights[k].kind != LightKind::Directional)
@@ -843,10 +864,13 @@ impl SceneBuilder<'_> {
     /// Light `batches`, the draws of `part` in block `block`'s interior cell `id` seen from outside
     /// (the cell's own mesh, or with `object` one standing in it: its key, place and reach), as a
     /// cell is lit and not by the sun: the cell's mesh by the light its vertices carry (its record's
-    /// lights and the day's sun, baked as for a camera inside), what stands in it by no light of
-    /// its own (a camera outside links no cell's lights); both by the lights objects carry inside
-    /// that reach them, each frame. A block with no interior light leaves them as they are.
+    /// lights and the day's sun, baked as for a camera inside) and the sky lights it keeps, what
+    /// stands in it by the lights it keeps, each as many point lights as each layer's program
+    /// takes, as for a camera inside; both by the lights objects carry inside that reach them, each
+    /// frame. A block with no interior light leaves them as they are. `lights` is the block's: the
+    /// scene and the sky lights alone that its draws keep lights from.
     // D2-03619, D2-03609, D2-10630
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn light_seen_from_outside(
         &mut self,
         batches: &mut [ObjectBatch],
@@ -854,11 +878,13 @@ impl SceneBuilder<'_> {
         block: (i32, i32),
         id: u32,
         object: Option<ObjectReach>,
+        lights: Option<&mut (SceneLights, SceneLights, Arc<BlockLights>)>,
         outside: &Outside,
     ) {
-        let Some(lights) = self.block_lights(block) else {
+        let Some((scene, sky, lights)) = lights else {
             return;
         };
+        let lights = lights.clone();
         let (key, at, radius) = match object {
             Some(o) => o,
             None => (
@@ -875,12 +901,32 @@ impl SceneBuilder<'_> {
         } else {
             None
         };
+        let scene = if object.is_none() { sky } else { scene };
+        let kept = self.kept_lights(key, at, radius, &lights, scene, outside);
+        let device = kept
+            .iter()
+            .filter(|&&k| lights.lights[k].kind != LightKind::Directional)
+            .count();
+        #[allow(clippy::cast_precision_loss)] // block offsets are a few blocks
+        let place = batches.first().map_or(Mat4::IDENTITY, |b| {
+            let p = b.transform.point(Vec3::ZERO);
+            let q = part.transform.point(Vec3::ZERO);
+            Mat4::translation(Vec3::new(p.x - q.x, p.y - q.y, 0.0))
+        });
         for b in batches.iter_mut() {
             if let Some(lit) = &lit {
                 b.vertices = lit.clone();
                 b.layer.switches |= LIT_IN_VERTICES;
             }
-            b.points = PointLights::inside(&[], &Mat4::IDENTITY);
+            let variants = &b.layer.light_variants;
+            let points = variant_for(
+                variants,
+                0,
+                u32::try_from(device.min(DRAW_LIGHTS)).unwrap_or(0),
+            )
+            .map_or(0, |k| variants[k].1);
+            let points = usize::try_from(points).unwrap_or(0);
+            b.points = PointLights::inside(&lights.device_lights(&kept, outside, points), &place);
             b.kept_by = Some(KeptBy {
                 key,
                 block,
@@ -888,7 +934,7 @@ impl SceneBuilder<'_> {
                 at,
                 radius,
                 took_carried: false,
-                own: false,
+                own: true,
             });
         }
     }
@@ -1021,18 +1067,56 @@ type InteriorPart = (
 /// The largest half side of the box about `batches` in the frame's world; none for draws with no
 /// vertex.
 fn reach_of(batches: &[ObjectBatch]) -> Option<f32> {
-    let mut lo = Vec3::new(f32::MAX, f32::MAX, f32::MAX);
-    let mut hi = Vec3::new(f32::MIN, f32::MIN, f32::MIN);
+    let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+    // The layers and fragments of one part share its vertices, in one place.
+    let mut done: Vec<(usize, [[f32; 4]; 4])> = Vec::new();
     for b in batches {
-        for v in b.vertices.iter() {
-            let w = b
-                .transform
-                .point(Vec3::new(v.position[0], v.position[1], v.position[2]));
-            lo = Vec3::new(lo.x.min(w.x), lo.y.min(w.y), lo.z.min(w.z));
-            hi = Vec3::new(hi.x.max(w.x), hi.y.max(w.y), hi.z.max(w.z));
+        let this = (b.places(), b.transform.0);
+        if done.contains(&this) {
+            continue;
         }
+        done.push(this);
+        b.each_position(|[x, y, z]| {
+            let w = b.transform.point(Vec3::new(x, y, z));
+            super::widen(&mut lo, &mut hi, [w.x, w.y, w.z]);
+        });
     }
-    (lo.x <= hi.x).then(|| 0.5 * (hi.x - lo.x).max(hi.y - lo.y).max(hi.z - lo.z))
+    (lo[0] <= hi[0]).then(|| 0.5 * (hi[0] - lo[0]).max(hi[1] - lo[1]).max(hi[2] - lo[2]))
+}
+
+/// Light `batches`, one draw of an interface scene standing at `at`, by the lights it keeps there
+/// among the scene's: in place of the sun, or beside it (`sun`) when the scene has a directional
+/// light of its own.
+// D2-10629, D2-10630
+pub fn light_view_draw(
+    batches: &mut [ObjectBatch],
+    at: Vec3,
+    lights: &BlockLights,
+    order: &mut SceneLights,
+    outside: &Outside,
+    sun: bool,
+) {
+    let Some(radius) = reach_of(batches) else {
+        return;
+    };
+    let kept = order.keep(lights, at, radius, outside);
+    let device = kept
+        .iter()
+        .filter(|&&k| lights.lights[k].kind != LightKind::Directional)
+        .count();
+    for b in batches.iter_mut() {
+        let (points, with_sun) = if sun {
+            outdoor_points(b, device)
+        } else {
+            (program_points(b, device), false)
+        };
+        let device = lights.device_lights(&kept, outside, points);
+        b.points = if with_sun {
+            PointLights::outdoors(&device, &Mat4::IDENTITY)
+        } else {
+            PointLights::inside(&device, &Mat4::IDENTITY)
+        };
+    }
 }
 
 impl SceneBuilder<'_> {
@@ -1157,5 +1241,51 @@ impl SceneBuilder<'_> {
             flicker: None,
         });
         Some(lights)
+    }
+}
+
+/// The light of a frame inside: the block's interior ambient; for what stands in the cells, the
+/// lights nearest `at` taken together as one light from their side; the interior fog, or none.
+// D2-11007, D2-10629
+pub fn inside_light(
+    light: &mut auberean_world::sky::DayLight,
+    lights: Option<&auberean_world::inside::BlockLights>,
+    at: Vec3,
+    outside: &auberean_world::inside::Outside,
+) {
+    use auberean_world::color::Color;
+    use auberean_world::math::{length, normalize, sub};
+    light.fog_min = 0.0;
+    light.fog_max = 0.0;
+    let Some(l) = lights else {
+        return;
+    };
+    light.ambient_color = l.ambient;
+    light.ambient_brightness = 1.0;
+    let mut color = Color::new(0.0, 0.0, 0.0, 1.0);
+    let mut from = Vec3::new(0.0, 0.0, 0.0);
+    for (origin, shine, range) in l.chosen(at, 1.0, outside) {
+        let to = sub(at, origin);
+        let d = length(to);
+        let k = 1.0 / (1.0 + 10.0 * d * d / (range * range));
+        color = Color::new(
+            color.r + shine.r * k,
+            color.g + shine.g * k,
+            color.b + shine.b * k,
+            1.0,
+        );
+        let w = (shine.r + shine.g + shine.b) * k;
+        let n = normalize(to);
+        from = Vec3::new(from.x + n.x * w, from.y + n.y * w, from.z + n.z * w);
+    }
+    light.direct_color = Color::new(color.r.min(1.0), color.g.min(1.0), color.b.min(1.0), 1.0);
+    light.direct_brightness = 1.0;
+    if length(from) > 0.0 {
+        light.light_direction = normalize(from);
+    }
+    if let Some((c, near, far)) = l.fog {
+        light.fog_color = c;
+        light.fog_min = near;
+        light.fog_max = far;
     }
 }

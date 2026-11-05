@@ -69,9 +69,54 @@ fn line(k: u32, tabs: u32, value: u64, text: Option<&str>) -> Line {
         value,
         time: -1.0,
         text: text.map(StringInfo::literal),
-        icon: 0,
+        icon: Vec::new(),
         effect: Vec::new(),
     }
+}
+
+/// A profile's icon is drawn from its layers on the line, as wide as its picture, and what follows
+/// goes after it.
+///
+/// Behaviour: ui.examination.the-window-lays-out-a-profile-line-by-line
+#[test]
+fn the_examination_window_draws_an_icon_from_its_layers_and_goes_on_after_it() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    key(&mut ui, &mut p, &mut t, tb::EXAMINATION_PANEL);
+    let list = el(&ui, "ExaminationListBox");
+    let profile = Profile {
+        request: ExamRequest::default(),
+        tabs: 0x3FF,
+        lines: vec![
+            Line {
+                icon: vec![(super::stage::ICON, 0xFFFF_FFFF)],
+                ..line(kind::ICON, 0x3FF, 0, None)
+            },
+            line(kind::STRING, 0x3FF, 0, Some("Iron Sword")),
+        ],
+    };
+    let shown = note(
+        notice::UPDATE_EXAMINATION_PROFILE,
+        vec![0],
+        vec![Some(Record::Profile(profile))],
+    );
+    tick(&mut ui, &mut p, &mut t, &[shown]);
+    let rows = ui.list_items(list);
+    let children = ui.node(rows[0]).expect("row").children.clone();
+    let icon = children
+        .iter()
+        .copied()
+        .find(|c| ui.image_size(*c).is_some())
+        .expect("a picture on the line");
+    let (w, _) = ui.image_size(icon).expect("its size");
+    let name = children
+        .iter()
+        .find(|c| ui.text(**c).as_deref() == Some("Iron Sword"))
+        .and_then(|c| ui.node(*c))
+        .expect("the name");
+    assert!(w > 0, "as wide as its picture");
+    assert_eq!(name.rect.x0, i32::try_from(w).expect("small"), "after it");
 }
 
 /// The examination window, shown, comes to the front of the toolbar's windows (another shown
@@ -387,6 +432,66 @@ fn the_journal_keeps_quests_under_way_and_finished() {
     assert_eq!(ui.node(button).expect("made").state, Token::of("changed"));
 }
 
+/// A quest that changes has its row's name and time marked in the changed look; the others keep
+/// theirs. The whole list read at the session's start marks nothing.
+///
+/// Behaviour: ui.quests.a-quest-that-changed-is-marked-in-its-row
+#[test]
+fn a_quest_that_changed_is_marked_in_its_row() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let all = vec![
+        quest(1, status::UNDER_WAY, 20.0, "Changes"),
+        quest(2, status::UNDER_WAY, 10.0, "Stays"),
+    ];
+    let start = note(
+        notice::UPDATE_QUESTS,
+        vec![change::ALL, 0],
+        vec![None, Some(Record::Quests(all))],
+    );
+    tick(&mut ui, &mut p, &mut t, &[start]);
+    tick(&mut ui, &mut p, &mut t, &[]);
+    let underway = el(&ui, "UnderwayQuestListBox");
+    let looks = |ui: &Ui, name: &str| -> Vec<(String, Token)> {
+        ui.list_items(underway)
+            .iter()
+            .filter_map(|r| {
+                let n = ui.child_recursive(*r, Token::of("QuestName"))?;
+                let e = ui.child_recursive(*r, Token::of(name))?;
+                Some((ui.text(n).unwrap_or_default(), ui.node(e)?.state))
+            })
+            .collect()
+    };
+    let changed = Token::of("changed");
+    for field in ["QuestName", "QuestTime"] {
+        assert!(
+            looks(&ui, field).iter().all(|(_, s)| *s != changed),
+            "the list read marks no {field}"
+        );
+    }
+    let update = note(
+        notice::UPDATE_QUESTS,
+        vec![change::ONE, 0],
+        vec![
+            None,
+            Some(Record::Quest(quest(1, status::UNDER_WAY, 20.0, "Changes"))),
+        ],
+    );
+    tick(&mut ui, &mut p, &mut t, &[update]);
+    tick(&mut ui, &mut p, &mut t, &[]);
+    for field in ["QuestName", "QuestTime"] {
+        let rows = looks(&ui, field);
+        let state = |name: &str| rows.iter().find(|(n, _)| n == name).map(|(_, s)| *s);
+        assert_eq!(
+            state("Changes"),
+            Some(changed),
+            "the changed quest's {field}"
+        );
+        assert_ne!(state("Stays"), Some(changed), "the other quest's {field}");
+    }
+}
+
 /// The quest window's button opens it and stays on the toolbar: the window shown, the button takes
 /// its unchanged look (a change it showed is seen) and with it the face it showed before; pressed
 /// again it hides the window.
@@ -444,6 +549,47 @@ fn scene(id: u32, name: &str, hidden: bool, playable: bool) -> Scene {
         hidden,
         playable,
     }
+}
+
+/// As the player enters the world the scripts give the journal its whole list and the story its
+/// whole story, and the window stands on the quests under way. A scene added to the story with the
+/// window hidden, as a new character's first entry adds its starting scenes, turns it to the story.
+///
+/// Behaviour: ui.quests.the-quest-window-stands-on-the-quests-under-way-until-a-scene-is-added
+#[test]
+fn the_quest_window_stands_on_the_quests_under_way_until_a_scene_is_added() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let state = |ui: &Ui, n: &str| ui.node(el(ui, n)).expect("node").state;
+    let list = note(
+        notice::UPDATE_QUESTS,
+        vec![change::ALL, 0],
+        vec![
+            None,
+            Some(Record::Quests(vec![quest(
+                1,
+                status::UNDER_WAY,
+                5.0,
+                "One",
+            )])),
+        ],
+    );
+    let story = |how: u32, act: u32| Notice {
+        native: notice::UPDATE_STORY_QUESTS,
+        about: Some(1),
+        words: vec![how, act],
+        records: Vec::new(),
+    };
+    tick(&mut ui, &mut p, &mut t, &[list, story(0x4000_0002, 0)]);
+    tick(&mut ui, &mut p, &mut t, &[]);
+    assert_eq!(state(&ui, "UnderwayTab"), Token::of("open"));
+    assert_eq!(state(&ui, "StoryTab"), Token::of("closed"));
+    tick(&mut ui, &mut p, &mut t, &[story(0x4000_0001, 2)]);
+    tick(&mut ui, &mut p, &mut t, &[]);
+    assert_eq!(state(&ui, "StoryTab"), Token::of("open"));
+    assert_eq!(state(&ui, "UnderwayTab"), Token::of("closed"));
+    assert_eq!(state(&ui, "QuestButton"), Token::of("changed"));
 }
 
 /// The story page lays out the visible acts, in order, each with its scenes' icons (the hidden

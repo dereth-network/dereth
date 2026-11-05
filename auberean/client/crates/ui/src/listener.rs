@@ -183,22 +183,8 @@ impl Ui {
         }
     }
 
-    /// Whether a listener is registered for an element's message.
-    // D2-11399
-    #[must_use]
-    pub fn is_registered_for_message(
-        &self,
-        who: impl Into<Listener>,
-        element: Token,
-        what: Token,
-    ) -> bool {
-        self.mgr
-            .element_marks
-            .contains(&(who.into(), element, what))
-    }
-
     /// Mark a listener registered for an element's message (once).
-    // D2-11414
+    // D2-11414, D2-11399
     pub(crate) fn increment_element_message(&mut self, who: Listener, element: Token, what: Token) {
         self.mgr.element_marks.insert((who, element, what));
     }

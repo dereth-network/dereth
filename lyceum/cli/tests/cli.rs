@@ -53,7 +53,17 @@ fn export_refuses_an_unknown_server_or_era_before_opening_files() {
     let era = lyceum(&[&missing[..], &["--for", "ace", "--era", "tod"]].concat());
     assert_eq!(era.status.code(), Some(2));
     let said = String::from_utf8_lossy(&era.stderr);
-    assert!(said.contains("--era is eor or infiltration"), "{said}");
+    assert!(
+        said.contains("--era is launch, infiltration or eor"),
+        "{said}"
+    );
+    let launch = lyceum(&[&missing[..], &["--for", "ace", "--era", "launch"]].concat());
+    assert_eq!(launch.status.code(), Some(2));
+    let said = String::from_utf8_lossy(&launch.stderr);
+    assert!(
+        said.contains("Launch world export is not supported yet"),
+        "{said}"
+    );
     let quests = lyceum(&[&missing[..], &["--for", "ace", "--gdle-quests", "q.json"]].concat());
     assert_eq!(quests.status.code(), Some(2));
     let said = String::from_utf8_lossy(&quests.stderr);

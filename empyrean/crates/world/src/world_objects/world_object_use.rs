@@ -572,6 +572,23 @@ pub fn world_object_check_use_requirements(
         }
     }
 
+    // DIVERGE: source loot discounts Arcane Lore in exchange for a real rank requirement.
+    if w.era.loot_rules == empyrean_common::era::LootRules::Ac1999 {
+        let limit = obj(w, this).item_allegiance_rank_limit().unwrap_or(0);
+        let rank = obj(w, player)
+            .get_property(empyrean_entity::enums::PropertyInt::AllegianceRank)
+            .unwrap_or(0);
+        if limit > 1 && rank < limit {
+            let m = transient_string(
+                w,
+                player,
+                "Your Allegiance Rank is too low to use that item's magic.",
+            );
+            send(w, player, m);
+            return ActivationResult::new(false);
+        }
+    }
+
     // verify heritage group
     let heritage_group = obj(w, this).heritage_group();
     if heritage_group != HeritageGroup::Invalid {

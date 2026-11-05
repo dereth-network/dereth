@@ -561,7 +561,7 @@ impl World {
         if ItemUses(w.pwd.useability.unwrap_or(0)).is_useable() {
             return UseResult::Useable;
         }
-        if w.is_player() && Some(item) != self.player {
+        if w.is_player() && Some(item) != self.player && self.era_features.trade {
             return UseResult::Trade;
         }
         UseResult::Nothing
@@ -1635,10 +1635,12 @@ impl World {
                     }
                     return false;
                 }
-                if self
-                    .player_system
-                    .options
-                    .get(crate::player::options::option::DRAG_ITEM_ON_PLAYER_OPENS_SECURE_TRADE)
+                // A world without trade gives the item, whatever the saved option says.
+                if self.era_features.trade
+                    && self
+                        .player_system
+                        .options
+                        .get(crate::player::options::option::DRAG_ITEM_ON_PLAYER_OPENS_SECURE_TRADE)
                     && is_player
                 {
                     self.attempt_to_trade_item(req, out, target, item, split, now);

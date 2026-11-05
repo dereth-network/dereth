@@ -37,6 +37,7 @@ pub mod particles;
 pub mod picture;
 pub mod portal;
 pub mod quality;
+pub mod rain;
 pub mod scene;
 pub mod shadow;
 pub mod shore;

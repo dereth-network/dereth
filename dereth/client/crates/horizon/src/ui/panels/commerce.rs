@@ -173,10 +173,13 @@ impl Windows {
             self.open(WindowId::Vendor, ctx.time);
             self.vendor_tab = 0;
         }
+        // A world without trade never opens its window, and so has nothing to close in the game.
         let trade = state.trade.as_ref().is_some_and(|t| t.open);
         if trade && !self.trade_shown {
-            self.open(WindowId::Trade, ctx.time);
-            self.trade_shown = true;
+            if self.offers(WindowId::Trade) {
+                self.open(WindowId::Trade, ctx.time);
+                self.trade_shown = true;
+            }
         } else if !trade && self.trade_shown {
             self.close(WindowId::Trade);
             self.trade_shown = false;

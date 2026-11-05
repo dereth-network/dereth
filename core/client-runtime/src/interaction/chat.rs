@@ -263,6 +263,10 @@ impl Interaction {
             self.pending_die_confirmations.push(prompt);
             self.stats.die_confirmations_raised += 1;
         }
+        if let Some(prompt) = cmd.lifestone_death_confirmation {
+            self.pending_lifestone_death_confirmations.push(prompt);
+            self.stats.die_confirmations_raised += 1;
+        }
         if let Some(prompt) = cmd.house_abandon_confirmation {
             self.pending_house_abandon_first.push(prompt);
             self.stats.house_abandon_first_raised += 1;
@@ -470,6 +474,28 @@ impl Interaction {
     ) {
         use dereth_client_model::chat::TellOutcome as T;
         use dereth_client_model::cmd::CommandHandler as H;
+        // A command for a system the world lacks is refused here, before it sends anything; the
+        // world's announced systems decide, never its era's name.
+        use dereth_client_model::cmd::world_commands as wc;
+        let available = wc::handler_available(&self.era_features, handler)
+            && (handler != H::Allegiance
+                || wc::allegiance_command_available(&self.era_features, args))
+            && (handler != H::House
+                || args
+                    .first()
+                    .is_none_or(|sub| wc::house_subcommand_available(&self.era_features, sub)));
+        if !available {
+            game.scroll.add_feedback_to_scroll(
+                "This command is not available in this world.",
+                dereth_client_model::chat::text_type::LOCAL_ERROR,
+                true,
+                self.chat.current_command_source,
+                dereth_client_contract::feedback::Feedback::LOCAL,
+            );
+            self.stats.chat_command_lines += 1;
+            self.stats.chat_commands_refused += 1;
+            return;
+        }
         // `do_command` hands the handler `argc`/`argv`; all three tell handlers begin by re-joining
         // them with `join_args`, which is why the original spacing inside a command is
         // lost and a forwarded line's is not.
@@ -1164,7 +1190,7 @@ impl Interaction {
                 } {
                     // Write the allegiance-chat listening bit, then tail-call the option-change handler
                     // with ordinal `0x1B`, which is the same path
-                    // `UiRequest::SetPlayerOption` takes and therefore the same `0x0005`
+                    // a player-option UI request takes and therefore the same `0x0005`
                     // player-option change when the ordinal is an `is_auto_save_option` one.
                     // The `@allegiance chat on` path is the only one in this family that sends
                     // something other than an allegiance event.
@@ -1668,7 +1694,11 @@ impl Interaction {
             // The handler returns **true** on every path, including the `"Unknown command"` one, so
             // `do_command`'s failure event `0x26` never fires for it.
             H::Help => {
-                for (text, ty) in self.chat.do_help(args) {
+                let scope = dereth_client_model::cmd::world_commands::HelpScope::of(
+                    &self.era_features,
+                    self.chat.entries(),
+                );
+                for (text, ty) in self.chat.do_help_in(args, &scope) {
                     game.scroll.add_feedback_to_scroll(
                         &text,
                         ty,
@@ -1752,6 +1782,7 @@ impl Interaction {
             // the three shape-C handlers re-split their own argv (`next_arg`, then `join_args` or
             // `join_args_as_name`) and a name carrying a run of spaces survives that.
             H::Lifestone
+            | H::Sepaku
             | H::Marketplace
             | H::HouseRecall
             | H::MansionRecall
@@ -1776,6 +1807,11 @@ impl Interaction {
             | H::House
             | H::Hslist => {
                 if let Some(cmd) = match handler {
+                    // A world whose `@lifestone` is no recall asks whether to die.
+                    H::Sepaku => Some(game.do_lifestone_death(args)),
+                    H::Lifestone if !self.era_features.lifestone_recall => {
+                        Some(game.do_lifestone_death(args))
+                    }
                     H::Lifestone => Some(game.do_lifestone(req, args)),
                     H::Marketplace => Some(game.do_marketplace(req, args)),
                     H::HouseRecall => Some(game.do_house_recall(req, args)),

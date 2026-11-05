@@ -53,8 +53,11 @@ impl Windows {
         }
         match (&state.salvage, self.salvage_shown) {
             (Some(_), false) => {
-                self.open(WindowId::Salvage, ctx.time);
-                self.salvage_shown = true;
+                // A world without tinkering never opens the window.
+                if self.offers(WindowId::Salvage) {
+                    self.open(WindowId::Salvage, ctx.time);
+                    self.salvage_shown = true;
+                }
             }
             (None, true) => {
                 self.close(WindowId::Salvage);

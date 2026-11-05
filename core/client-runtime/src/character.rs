@@ -2785,7 +2785,7 @@ impl Character {
     /// than the one `move_player` computes from the turn/sidestep heads, which for a command on no
     /// list is `HoldKey::Invalid` either way because raw-motion application does not store a hold
     /// key on the action arm.
-    pub fn command_motion(&mut self, start: bool, cmd: MotionCommand) {
+    pub fn command_motion(&mut self, start: bool, cmd: MotionCommand) -> u32 {
         self.refresh_env();
         let mut params = MovementParameters::default();
         // `MOVEMENT_AUTONOMOUS` (`0x1000`) is a flag that default movement parameters
@@ -2793,7 +2793,7 @@ impl Character {
         // sets on every command it issues. It is what puts `autonomous` on the `ActionNode`
         // raw-motion application queues, and therefore on the `0xF61C` that reports it.
         params.flags |= dereth_animation::motion::flags::AUTONOMOUS;
-        self.motion(start, cmd, &params);
+        self.motion(start, cmd, &params)
     }
 
     /// Issue movement arguments `(cmd, 1, extent, 1, 1)` as
@@ -2864,7 +2864,8 @@ impl Character {
         self.stats.camera_turn_stops += 1;
     }
 
-    fn motion(&mut self, start: bool, cmd: MotionCommand, params: &MovementParameters) {
+    /// Issue or stop a motion, and answer what the body said: zero, or why it refused.
+    fn motion(&mut self, start: bool, cmd: MotionCommand, params: &MovementParameters) -> u32 {
         let mut d = self.driver.borrow_mut();
         let MotionDriver {
             assets,
@@ -2912,6 +2913,7 @@ impl Character {
             self.stats.last_refusal = err;
         }
         self.apply_effect_list(effects);
+        err
     }
 
     // -----------------------------------------------------------------------------------------

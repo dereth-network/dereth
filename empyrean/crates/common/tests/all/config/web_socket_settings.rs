@@ -5,6 +5,7 @@
 //! URL it is reached at.
 //! Fixture: locally constructed settings.
 
+use dereth_server_websocket::settings::KEYS;
 use empyrean_common::toml_config;
 use empyrean_common::web_socket_settings::{WebSocketSettings, WebSocketSettingsError};
 
@@ -49,6 +50,34 @@ fn the_section_reads_from_the_file_and_is_off_by_default() {
             public_url: "wss://play.example.org/ws".to_owned(),
         }
     );
+}
+
+/// The list of keys the game servers share is this section's: a file naming each of them has no
+/// key the section does not know, and the section read above names no other.
+#[test]
+fn the_keys_the_game_servers_share_are_the_sections() {
+    let section = r#"
+        [server.websocket]
+        enabled = true
+        listen = "127.0.0.1:9180"
+        tls_certificate = "cert.pem"
+        tls_private_key = "key.pem"
+        behind_tls_proxy = true
+        trusted_proxies = ["127.0.0.1"]
+        allowed_origins = ["https://play.example.org"]
+        maximum_connections_per_ip_address = 2
+        idle_timeout = 90
+        public_url = "wss://play.example.org/ws"
+        "#;
+    let unknown = toml_config::from_toml_str(section)
+        .expect("reads")
+        .unknown_keys;
+    assert!(unknown.is_empty(), "{unknown:?}");
+    let named: Vec<&str> = section
+        .lines()
+        .filter_map(|l| l.trim().split_once(" = ").map(|(k, _)| k))
+        .collect();
+    assert_eq!(named, KEYS);
 }
 
 #[test]

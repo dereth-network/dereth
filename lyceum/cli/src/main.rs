@@ -23,7 +23,7 @@
 //! lyceum template --world <sql> --class <n> --name <symbol> [--blank] [--out <file>]
 //! lyceum bake --overlay <dir> --dats <dir> --to <dir> [--touched-only]
 //! lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir>
-//!               [--era eor|infiltration] [--world-sql <dump>] [--empyrean <dir>]
+//!               [--era launch|infiltration|eor] [--world-sql <dump>] [--empyrean <dir>]
 //!               [--gdle-quests <quests.json>]   GDLE's quests.json, the world's merged into it
 //! lyceum import --base <dir> --world <dir> --out <dir> --world-key <key>
 //!               [--iterations revision|world] [--verify]
@@ -56,7 +56,7 @@ lyceum edit <world.toml> --dats <dir> --edits <file> [--pack <name>] [--weenies 
 lyceum edit <world.toml> --dats <dir> --weenies <sql> add-building <model> <landblock> <x> <y> <heading> [--layout <n>] [--furnished <XXYY/n> | --bare] [--plain] [--pack <name>] [--dry-run]
 lyceum template --world <sql> --class <n> --name <symbol> [--blank] [--out <file>]
 lyceum bake --overlay <dir> --dats <dir> --to <dir> [--touched-only]
-lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir> [--era eor|infiltration] [--world-sql <dump>] [--empyrean <dir>] [--gdle-quests <quests.json>]
+lyceum export <world.toml> --dats <dir> --for empyrean|ace|gdle --out <dir> [--era launch|infiltration|eor] [--world-sql <dump>] [--empyrean <dir>] [--gdle-quests <quests.json>]
 lyceum import --base <dir> --world <dir> --out <dir> --world-key <key> [--iterations revision|world] [--verify]
 lyceum facts <world.toml>
 lyceum layer <manifest> [--out <container>] [--check]
@@ -563,7 +563,7 @@ fn run_export(args: &Args) -> ExitCode {
             Err(e) => return fail(&e),
         },
         Some(Some(era)) => era,
-        Some(None) => return usage("--era is eor or infiltration"),
+        Some(None) => return usage("--era is launch, infiltration or eor"),
     };
     let named = args.path("empyrean");
     let program = import_program(named.as_deref());

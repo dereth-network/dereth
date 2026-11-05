@@ -566,6 +566,37 @@ fn the_body_runs_with_the_default_keys_and_is_reported() {
     );
 }
 
+/// An interface that asks to leave the server from the world, once.
+struct LeavesAtOnce(DevLogin, bool);
+
+impl Interface for LeavesAtOnce {
+    fn update(&mut self, game: &Game<'_>, requests: &mut Vec<Request>) {
+        self.0.update(game, requests);
+        if !self.1 && game.phase == Phase::World {
+            self.1 = true;
+            requests.push(Request::Disconnect);
+        }
+    }
+}
+
+/// Leaving the server says goodbye on the login and the world connections, and the session goes.
+///
+/// Behaviour: desktop.session.leaving-the-server-says-goodbye
+#[test]
+fn leaving_the_server_says_goodbye_on_every_connection() {
+    let server = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell(Box::new(LeavesAtOnce(
+        DevLogin::new(server, "tester".into(), "t".into(), None),
+        false,
+    )));
+    while s.client.is_some() || s.host.time < 1.0 {
+        assert!(s.host.time < 20.0, "left the server");
+        step(&mut s);
+    }
+    assert_eq!(s.phase(), Phase::Disconnected);
+    assert_eq!(s.host.double.report().client_goodbyes, vec![true, true]);
+}
+
 /// Entering the world, the client is in portal space from the moment it asks to enter, before
 /// the player is placed, and goes out over two seconds (the tunnel widening into white, then the
 /// world out of the white) once the server has the player in the world and the client its body.
@@ -615,6 +646,82 @@ fn entering_the_world_goes_through_portal_space() {
     );
 }
 
+/// The server hears the scene is ready only once a frame of the world has been drawn, so what it
+/// keeps going until then (the mist of arrival) is seen.
+///
+/// Behaviour: desktop.shell.the-scene-is-reported-after-a-frame-of-the-world
+#[test]
+fn the_scene_is_reported_after_a_frame_of_the_world() {
+    use auberean_client_sdk::protocol::ClientMessage;
+    let server = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell(Box::new(DevLogin::new(
+        server,
+        "tester".into(),
+        "t".into(),
+        Some("tester".into()),
+    )));
+    let mut drawn = false;
+    let mut reported = false;
+    while s.host.time < 12.0 && !reported {
+        reported = s.client.as_ref().is_some_and(|c| {
+            c.sent()
+                .iter()
+                .any(|m| matches!(m.message, ClientMessage::SceneRenderingComplete(_)))
+        });
+        assert!(!reported || drawn, "reported at {} unseen", s.host.time);
+        step(&mut s);
+        drawn |= s.frame().world.is_some();
+    }
+    assert!(reported, "it is reported");
+}
+
+/// An effect the server asks of the player's body while the world is out of sight (portal space,
+/// here as the player enters) plays at once, not when the body is next drawn: stopped in the same
+/// moment it would never have shown.
+///
+/// Behaviour: desktop.bodies.an-effect-asked-out-of-sight-plays-at-once
+#[test]
+fn an_effect_asked_out_of_sight_plays_at_once() {
+    use auberean_client_sdk::protocol::physics::{Fx, ObjectEvent};
+    const ARRIVAL: u32 = 0x4100_0010;
+    let later = [(
+        0.5,
+        ServerMessage::DoFx(ObjectEvent {
+            sender: ObjectStamp {
+                id: PLAYER,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            action: Fx {
+                fx: ARRIVAL,
+                scalar: 1.0,
+            },
+        }),
+    )];
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let mut unseen = false;
+    while s.host.time < 4.0 && !unseen {
+        step(&mut s);
+        unseen = s.frame().world.is_none()
+            && s.scene
+                .player_effects()
+                .iter()
+                .any(|(fx, _)| *fx == ARRIVAL);
+    }
+    assert!(unseen, "playing while the world is out of sight");
+}
+
 /// An interface that takes every key.
 struct TakesKeys(DevLogin);
 
@@ -659,6 +766,47 @@ fn the_interface_takes_input_first() {
         ((b.x - a.x).powi(2) + (b.y - a.y).powi(2)).sqrt() < 0.01,
         "never moved: {a:?} {b:?}"
     );
+}
+
+struct WatchesPointer(Rc<RefCell<Vec<(f32, f32)>>>);
+
+impl Interface for WatchesPointer {
+    fn event(&mut self, event: &Event, _game: &Game<'_>) -> bool {
+        if let Event::Pointer { x, y } = event {
+            self.0.borrow_mut().push((*x, *y));
+        }
+        false
+    }
+    fn update(&mut self, _game: &Game<'_>, _requests: &mut Vec<Request>) {}
+}
+
+/// The shell lets the interface and the scene hear the pointer only while the window is active
+/// (they hear where it went when it comes back) and the pointer is not held; mouse look holds it,
+/// and puts it at the middle of the display.
+///
+/// Behaviour: desktop.input.the-shell-passes-events-through-the-gate
+#[test]
+fn the_shell_passes_events_through_the_gate() {
+    let seen = Rc::new(RefCell::new(Vec::new()));
+    let mut s = shell(Box::new(WatchesPointer(Rc::clone(&seen))));
+    s.size = (801, 601);
+    s.event(&Event::Pointer { x: 1.0, y: 2.0 });
+    s.event(&Event::Focus(false));
+    s.event(&Event::Pointer { x: 3.0, y: 4.0 });
+    assert_eq!(*seen.borrow(), [(1.0, 2.0)]);
+    assert_eq!(s.scene.pointer.map(|p| p.0), Some((1.0, 2.0)));
+    s.event(&Event::Focus(true));
+    assert_eq!(*seen.borrow(), [(1.0, 2.0), (3.0, 4.0)]);
+    assert_eq!(s.scene.pointer.map(|p| p.0), Some((3.0, 4.0)));
+    s.scene.camera.set_mouse_look(true, 0.0);
+    step(&mut s);
+    assert_eq!(seen.borrow().last(), Some(&(400.0, 300.0)));
+    assert_eq!(s.scene.pointer.map(|p| p.0), Some((400.0, 300.0)));
+    let heard = seen.borrow().len();
+    s.event(&Event::Pointer { x: 5.0, y: 6.0 });
+    step(&mut s);
+    assert_eq!(seen.borrow().len(), heard, "held, and heard once");
+    assert_eq!(s.scene.pointer.map(|p| p.0), Some((400.0, 300.0)));
 }
 
 /// The cameras an interface saw: at each frame's update and after the world's frame was built.
@@ -837,10 +985,16 @@ fn the_clients_objects_wait_with_the_world_for_its_cells() {
             .is_some_and(|c| c.world.blocking_for_cells);
         if s.scene.cells_pending() && objects_wait {
             waited += 1;
+            assert_eq!(
+                s.scene.arrivals(),
+                0,
+                "not arrived while its cells are asked for"
+            );
         }
     }
     assert!(waited > 0, "the objects waited with the world");
     assert!(!s.scene.cells_pending());
+    assert_eq!(s.scene.arrivals(), 1, "arrived once they came");
     assert!(s
         .client
         .as_ref()
@@ -893,6 +1047,78 @@ fn a_placed_player_stands_where_there_is_room() {
     );
 }
 
+/// A player the server puts where there is no room for the body stays in portal space and out of
+/// the world: it does not fall and nothing is reported of it. A teleport to a place with room brings
+/// it out.
+///
+/// Behaviour: desktop.shell.a-player-put-where-there-is-no-room-stays-in-portal-space
+#[test]
+fn a_player_put_where_there_is_no_room_stays_in_portal_space() {
+    const NO_ROOM: (u32, Vec3) = (
+        0x0298_010C,
+        Vec3 {
+            x: 14.2,
+            y: 425.0,
+            z: -43.1,
+        },
+    );
+    let there = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: HALL_CELL,
+        origin: HALL_AT,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1,
+        force_position_stamp: 0,
+        teleport_stamp: 1,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let mut script = script_then(NO_ROOM.0, NO_ROOM.1, Quat::IDENTITY, &[], &[(8.0, there)]);
+    // The scene is never reported from portal space, so the double doesn't wait for it.
+    script
+        .events
+        .retain(|e| !matches!(e, Step::Msg { msg, .. } if msg.c2s && msg.mtype == 0x100D1));
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let taken = |s: &Shell<'_, DoubleHost>| {
+        s.client
+            .as_ref()
+            .is_some_and(|c| c.body.teleport_stamp == 1)
+    };
+    while !taken(&s) {
+        assert!(s.host.time < 30.0, "the teleport never took effect");
+        if s.scene.has_player() {
+            assert!(s.scene.in_portal_space(), "at {}", s.host.time);
+            assert_eq!(s.scene.status.origin, NO_ROOM.1, "it does not fall");
+        }
+        step(&mut s);
+    }
+    assert!(s.scene.has_player(), "the body was made");
+    assert_eq!(s.scene.arrivals(), 0, "not arrived");
+    assert_eq!(reports(&s), vec![], "nothing reported");
+    let came_out = s.host.time + 4.0;
+    while s.scene.in_portal_space() {
+        assert!(s.host.time < came_out, "still in portal space");
+        step(&mut s);
+    }
+    assert_eq!(s.scene.arrivals(), 1, "arrived");
+    assert!(!reports(&s).is_empty(), "reported again");
+}
+
 /// A body far into an interior is drawn. The human training hall's cells reach more than 500 m
 /// north of its landblock's corner; a creature beside the player at the hall's straw drudges, some
 /// 338 m north of it, is drawn, as the retail client draws the drudges there.
@@ -931,7 +1157,7 @@ fn a_body_far_into_the_hall_is_drawn() {
     let at = Vec3 {
         x: 2.0,
         y: 330.0,
-        z: -44.7,
+        z: -43.76,
     };
     let script = script_with(DRUDGES_CELL, at, Quat::IDENTITY, &[creature]);
     let server =
@@ -1068,6 +1294,151 @@ fn a_creation_again_puts_the_body_and_a_new_incarnation_replaces_it() {
     assert!(
         near(next, d),
         "the new incarnation's first position taken: {next:?}"
+    );
+}
+
+/// A position of the player's own with an impulse throws the body from where it puts it: it leaves
+/// the floor going up, and rises.
+///
+/// Behaviour: desktop.player.an-impulse-of-the-servers-throws-the-body
+#[test]
+fn a_position_of_the_players_own_with_an_impulse_throws_the_body() {
+    use auberean_client_sdk::protocol::physics::position_flags;
+    let thrown = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: HALL_CELL,
+        origin: HALL_AT,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: position_flags::IMPULSE,
+        position_stamp: 1000,
+        force_position_stamp: 0,
+        teleport_stamp: 0,
+        velocity: Vec3::new(0.0, 0.0, 6.0),
+    });
+    let script = script_then(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &[(5.0, thrown)]);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let taken =
+        |s: &Shell<'_, DoubleHost>| s.client.as_ref().is_some_and(|c| c.body.thrown().0 == 1);
+    while !taken(&s) {
+        assert!(s.host.time < 30.0, "the position never took effect");
+        step(&mut s);
+    }
+    step(&mut s);
+    let (from, going) = s.scene.player_motion().expect("the player's body");
+    assert!(going.z > 0.0, "going up: {going:?}");
+    for _ in 0..12 {
+        step(&mut s);
+    }
+    let (now, _) = s.scene.player_motion().expect("the player's body");
+    assert!(
+        now.frame.origin.z > from.frame.origin.z,
+        "rose: {} to {}",
+        from.frame.origin.z,
+        now.frame.origin.z
+    );
+}
+
+/// The most the camera moves in a frame as a newer forced Position sends the player 4 m along, in
+/// the view asked for.
+fn camera_jump_on_a_forced_position(press: Option<auberean_scene::camera::Press>) -> f32 {
+    let forced = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: HALL_CELL,
+        origin: Vec3::new(HALL_AT.x + 4.0, HALL_AT.y, HALL_AT.z),
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1000,
+        force_position_stamp: 1,
+        teleport_stamp: 0,
+        velocity: Vec3::ZERO,
+    });
+    let script = script_then(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &[(12.0, forced)]);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 5.0 {
+        step(&mut s);
+    }
+    if let Some(p) = press {
+        s.scene.camera.press(p);
+    }
+    while s.host.time < 8.0 {
+        step(&mut s);
+    }
+    assert_eq!(
+        s.client.as_ref().map(|c| c.body.forced_moves()),
+        Some(0),
+        "not yet"
+    );
+    let taken = |s: &Shell<'_, DoubleHost>| {
+        s.client
+            .as_ref()
+            .is_some_and(|c| c.body.forced_moves() == 1)
+    };
+    let mut jump = 0.0f32;
+    let mut before: Option<Vec3> = None;
+    let mut after = 0;
+    while after < 30 {
+        assert!(s.host.time < 19.0, "the position never took effect");
+        let h = &mut s.host;
+        h.time += 1.0 / 60.0;
+        let t = LocalTime(1.0 + h.time);
+        for d in h.double.tick(t) {
+            h.inbox.push_back((d.from, d.bytes));
+        }
+        let now = s.frame().world.expect("the world is drawn").camera.position;
+        if let Some(b) = before.replace(now) {
+            let (dx, dy, dz) = (now.x - b.x, now.y - b.y, now.z - b.z);
+            jump = jump.max((dx * dx + dy * dy + dz * dz).sqrt());
+        }
+        if taken(&s) {
+            after += 1;
+        }
+    }
+    jump
+}
+
+/// A newer forced Position outside first person turns the camera's transition on, so the camera
+/// glides to the new place rather than jumping; at the eyes it goes with the body.
+///
+/// Behaviour: desktop.camera.a-forced-position-glides-outside-first-person
+#[test]
+fn a_forced_position_glides_the_camera_outside_first_person() {
+    use auberean_scene::camera::Press;
+    let behind = camera_jump_on_a_forced_position(None);
+    assert!(behind < 2.0, "it glides: {behind} m in the frame");
+    let eyes = camera_jump_on_a_forced_position(Some(Press::FirstPerson));
+    assert!(
+        eyes > 3.0,
+        "at the eyes it goes at once: {eyes} m in the frame"
     );
 }
 
@@ -1313,6 +1684,173 @@ fn figures_animate_a_thirtieth_of_a_second_apart_at_any_frame_rate() {
     );
 }
 
+/// A behavior asked with its actions locked holds the player's own movement while it plays: forward
+/// held does not move the body until the behavior is over, then it does.
+///
+/// Behaviour: desktop.shell.a-behavior-that-locks-actions-holds-the-player
+#[test]
+fn a_behavior_that_locks_actions_holds_the_player_until_it_ends() {
+    use auberean_client_sdk::runtime::host::Behavior;
+    use auberean_client_sdk::script::native_object::BehaviorParams;
+    use auberean_physics::body::JUMP_BEHAVIOR;
+    let server = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell(Box::new(DevLogin::new(
+        server,
+        "tester".into(),
+        "t".into(),
+        Some("tester".into()),
+    )));
+    while s.host.time < 8.0 {
+        step(&mut s);
+    }
+    let player = s
+        .client
+        .as_ref()
+        .and_then(|c| c.model.player)
+        .expect("the player");
+    s.scene.carry_out_behavior(&Behavior::Play {
+        object: player,
+        params: BehaviorParams {
+            behavior: JUMP_BEHAVIOR,
+            lock_actions: 1,
+            ..BehaviorParams::default()
+        },
+    });
+    step(&mut s);
+    step(&mut s);
+    let doing = |s: &Shell<'_, DoubleHost>| {
+        s.scene
+            .player_figure()
+            .expect("the figure")
+            .is_doing_behavior(JUMP_BEHAVIOR)
+    };
+    assert!(doing(&s), "it plays");
+    assert!(s.scene.actions_locked(), "and holds the player");
+    s.event(&Event::Key {
+        key: Key::W,
+        down: true,
+        repeat: false,
+    });
+    let start = s.host.time;
+    while doing(&s) && s.host.time < start + 5.0 {
+        step(&mut s);
+        if doing(&s) {
+            assert!(
+                s.scene.status.speed < 0.01,
+                "held while it plays: {}",
+                s.scene.status.speed
+            );
+        }
+    }
+    assert!(!doing(&s), "it ends");
+    assert!(!s.scene.actions_locked(), "and lets go");
+    let over = s.host.time;
+    while s.scene.status.speed < 1.0 && s.host.time < over + 5.0 {
+        step(&mut s);
+    }
+    assert!(
+        s.scene.status.speed >= 1.0,
+        "runs once it is over: {}",
+        s.scene.status.speed
+    );
+}
+
+/// Portal space is heard: as the player starts entering the world its start sound plays and its two
+/// loops stay on while it lasts; as it goes, its stop sound plays and the loops stop.
+///
+/// Behaviour: desktop.sound.portal-space-is-heard
+#[test]
+fn portal_space_is_heard() {
+    const START: u32 = 0x2A00_0316;
+    const STOP: u32 = 0x2A00_0317;
+    const LOOPS: [u32; 2] = [0x2A00_0318, 0x2A00_0319];
+    let script = script();
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with_sound(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let heard = |s: &Shell<'_, DoubleHost>, id: u32| {
+        s.sound
+            .manager
+            .playing()
+            .iter()
+            .any(|&(_, playing, _)| playing == id)
+    };
+    while !s.scene.in_portal_space() && s.host.time < 10.0 {
+        step(&mut s);
+    }
+    assert!(s.scene.in_portal_space(), "entering the world");
+    step(&mut s);
+    assert!(heard(&s, START), "the start sound");
+    assert!(LOOPS.iter().all(|l| heard(&s, *l)), "both loops");
+    let mut stopped = false;
+    while s.host.time < 15.0 && !stopped {
+        step(&mut s);
+        stopped = heard(&s, STOP);
+    }
+    assert!(stopped, "the stop sound");
+    assert!(!LOOPS.iter().any(|l| heard(&s, *l)), "the loops stopped");
+    assert!(s.scene.in_portal_space(), "as it goes, not after");
+}
+
+/// A jump is heard: the body leaving the ground plays the jump effect's sound, and coming down
+/// plays the landing effect's.
+///
+/// Behaviour: desktop.sound.a-jump-and-its-landing-are-heard
+#[test]
+fn a_jump_and_its_landing_are_heard() {
+    const JUMPS: std::ops::RangeInclusive<u32> = 0x2A00_03B4..=0x2A00_03B9;
+    const LANDS: std::ops::RangeInclusive<u32> = 0x2A00_03BA..=0x2A00_03C0;
+    let script = script();
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with_sound(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 8.0 {
+        step(&mut s);
+    }
+    assert!(s.scene.status.contact, "standing on the floor");
+    let heard = |s: &Shell<'_, DoubleHost>, ids: std::ops::RangeInclusive<u32>| {
+        s.sound
+            .manager
+            .playing()
+            .iter()
+            .any(|&(_, id, _)| ids.contains(&id))
+    };
+    assert!(!heard(&s, JUMPS) && !heard(&s, LANDS), "quiet at rest");
+    for down in [true, false] {
+        s.event(&Event::Key {
+            key: Key::Space,
+            down,
+            repeat: false,
+        });
+        step(&mut s);
+    }
+    let pressed = s.host.time;
+    let (mut jumped, mut landed) = (false, false);
+    while !landed && s.host.time < pressed + 4.0 {
+        step(&mut s);
+        jumped |= heard(&s, JUMPS);
+        landed |= heard(&s, LANDS);
+    }
+    assert!(jumped, "leaving the ground is heard");
+    assert!(landed, "coming down is heard");
+}
+
 /// Space pressed with the player standing in the hall: its figure plays the jump's lead-in while
 /// the body stays on the ground, until the lead-in's animation sets the jump off; then the body
 /// leaves the ground at the jump's speed with its figure in the air, the server is told of the
@@ -1505,9 +2043,9 @@ fn a_held_streak_runs_the_blade_at_its_size() {
     assert!((two / one - 2.0).abs() < 0.01, "{two} for {one}");
 }
 
-/// A body's own streak is drawn where the body is: a sword lying on the hall's floor, its streak
-/// turned on, draws its ribbon where it lies from the next frame; turned off, the ribbon fades
-/// over the streak's trail time (a fifth of a second) and is gone.
+/// A body's own streak is drawn where the body is: a sword lying on the hall's floor, its body
+/// asking its streak on as a missile does, draws its ribbon where it lies from the next frame;
+/// asked off, the ribbon fades over the streak's trail time (a fifth of a second) and is gone.
 ///
 /// Behaviour: draw.streak.a-bodys-own-streak-is-drawn-where-it-is
 #[test]
@@ -1583,16 +2121,107 @@ fn a_bodys_own_streak_is_drawn_where_it_is() {
         (n, nearest)
     };
     assert_eq!(ribbons(&mut s).0, 0, "off, none");
-    s.scene.start_streak(SWORD, 0, true);
+    // As a missile asks when it starts flying.
+    let body = s.scene.body_mut(SWORD).expect("its body");
+    body.notices.push(auberean_physics::body::Notice::StreakOn);
     step(&mut s);
     let (on, nearest) = ribbons(&mut s);
     assert!(on >= 1, "on, its ribbon: {on}");
     assert!(nearest < 1.5, "where it lies: {nearest} m off");
-    s.scene.start_streak(SWORD, 0, false);
+    let body = s.scene.body_mut(SWORD).expect("its body");
+    body.notices.push(auberean_physics::body::Notice::StreakOff);
     for _ in 0..30 {
         step(&mut s);
     }
     assert_eq!(ribbons(&mut s).0, 0, "faded and gone");
+}
+
+/// A behavior of the player's that names another object for the camera has that object play the
+/// behavior it names, and the camera hangs from one of its bones and looks at another; when the
+/// object isn't there, or can't play it, the camera stays on the player.
+///
+/// Behaviour: desktop.camera.a-behavior-naming-another-object-gives-it-the-camera
+#[test]
+fn a_behavior_naming_another_object_gives_it_the_camera() {
+    use auberean_client_sdk::runtime::host::Behavior;
+    use auberean_client_sdk::script::native_object::BehaviorParams;
+    const OTHER: u64 = 0x8130_1B05_CC00_0100;
+    /// A behavior of the human's.
+    const PLAYED: u32 = 0x4100_0022;
+    let other = CreateObject {
+        id: OTHER,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: HALL_CELL,
+                frame: Frame {
+                    origin: Vec3::new(62.0, 240.0, -44.6),
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let script = script_with(
+        HALL_CELL,
+        HALL_AT,
+        Quat::IDENTITY,
+        std::slice::from_ref(&other),
+    );
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 6.0 {
+        step(&mut s);
+    }
+    let asked = |target: u64, behavior: u32| Behavior::Play {
+        object: PLAYER,
+        params: BehaviorParams {
+            behavior: PLAYED,
+            camera_target: target,
+            camera_behavior: behavior,
+            ..BehaviorParams::default()
+        },
+    };
+
+    s.scene
+        .carry_out_behavior(&asked(0x8130_1B05_CC00_0199, PLAYED));
+    for _ in 0..30 {
+        step(&mut s);
+    }
+    assert_ne!(s.scene.camera.targeting.parent, 0x8130_1B05_CC00_0199);
+    while s.scene.player_figure_plays(PLAYED) {
+        step(&mut s);
+    }
+
+    s.scene.carry_out_behavior(&asked(OTHER, PLAYED));
+    let mut hung = false;
+    for _ in 0..30 {
+        step(&mut s);
+        hung |= s.scene.camera.targeting.parent == OTHER
+            && s.scene.camera.targeting.parent_bone == 0x4000_0002;
+    }
+    assert!(hung, "the camera hangs from the object");
+    assert!(
+        s.scene.camera.no_ray_trace(),
+        "nothing keeps it off the world"
+    );
 }
 
 /// With the camera at the eyes the player's own body shows as the avatar option says: during
@@ -2002,11 +2631,256 @@ fn the_bodies_effects_place_lights_among_the_frames() {
     );
 }
 
+/// The day's wind blows on the world's missiles: while it rains the day's own wind, level (none on
+/// this install's rainy days); on a dry moment a wind that wanders, in all three directions.
+///
+/// Behaviour: desktop.world.the-days-wind-blows-in-the-world
+#[test]
+fn the_days_wind_blows_in_the_world() {
+    let at = Vec3 {
+        x: 122.842,
+        y: 89.758,
+        z: 80.0,
+    };
+    let script = script_at(0xC156_0035, at, Quat::IDENTITY);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with_sound(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let run = |s: &mut Shell<'_, DoubleHost>, game_time: f64, until: f64| {
+        while s.host.time < until {
+            let h = &mut s.host;
+            h.time += 1.0 / 60.0;
+            let t = LocalTime(1.0 + h.time);
+            for d in h.double.tick(t) {
+                h.inbox.push_back((d.from, d.bytes));
+            }
+            if let Some(c) = s.client.as_mut() {
+                c.sync_time(game_time);
+            }
+            s.frame();
+        }
+    };
+    let (world, _) = data();
+    let region = &world.region;
+    let (calendar, sky) = (
+        region.calendar.as_ref().expect("a calendar"),
+        region.sky.as_ref().expect("a sky"),
+    );
+    let rain_at = |at: f64| {
+        let c = auberean_world::sky::day_clock(calendar, at);
+        let day =
+            auberean_world::sky::day_for(sky, c.year * i64::from(calendar.days_per_year) + c.day);
+        day.and_then(|d| world.records.day(d))
+            .map_or((0.0, 0.0, 0.0), |d| {
+                auberean_world::sky::rain(&d, c.fraction)
+            })
+    };
+    run(&mut s, 0.0, 3.0);
+    let now = s.scene.game_time + 1000.0;
+    let mut times = (0..2000).map(|k| now + f64::from(k) * 300.0);
+    let dry = times
+        .find(|t| rain_at(*t).0 == 0.0 && rain_at(*t + 300.0).0 == 0.0)
+        .expect("a dry moment");
+    run(&mut s, dry, 5.0);
+    let w = s.scene.wind();
+    assert!(w.x != 0.0 && w.y != 0.0 && w.z != 0.0, "{w:?}");
+    let wet = times
+        .find(|t| rain_at(*t).0 == 1.0 && rain_at(*t + 300.0).0 == 1.0)
+        .expect("a wet moment");
+    run(&mut s, wet, 7.0);
+    let moment = s.scene.game_time;
+    let (_, x, y) = rain_at(moment);
+    assert_eq!(s.scene.wind(), auberean_primitives::Vec3::new(x, y, 0.0));
+}
+
+/// On a rainy day the rain falls about the camera: 2,500 streaks at the day's whole amount, its
+/// sound heard as loud; on a dry moment none, and the sound stops.
+///
+/// Behaviour: desktop.world.rain-falls-on-a-rainy-day
+#[test]
+fn rain_falls_on_a_rainy_day() {
+    let at = Vec3 {
+        x: 122.842,
+        y: 89.758,
+        z: 80.0,
+    };
+    let script = script_at(0xC156_0035, at, Quat::IDENTITY);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with_sound(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let run = |s: &mut Shell<'_, DoubleHost>, game_time: f64, until: f64| {
+        let mut streaks = 0;
+        let mut drawn = false;
+        while s.host.time < until {
+            let h = &mut s.host;
+            h.time += 1.0 / 60.0;
+            let t = LocalTime(1.0 + h.time);
+            for d in h.double.tick(t) {
+                h.inbox.push_back((d.from, d.bytes));
+            }
+            if let Some(c) = s.client.as_mut() {
+                c.sync_time(game_time);
+            }
+            let out = s.frame();
+            if let Some(f) = out.world {
+                drawn = true;
+                streaks = f
+                    .objects
+                    .iter()
+                    .filter(|b| {
+                        b.mesh == 0 && b.step == Some(auberean_draw::scene::Pass::Particles)
+                    })
+                    .filter(|b| b.vertices.len() == 10_000)
+                    .count();
+            }
+        }
+        assert!(drawn);
+        streaks
+    };
+    // The next moments the day's rain is none and all, by the region's own days.
+    let (world, _) = data();
+    let region = &world.region;
+    let (calendar, sky) = (
+        region.calendar.as_ref().expect("a calendar"),
+        region.sky.as_ref().expect("a sky"),
+    );
+    let rain_at = |at: f64| {
+        let c = auberean_world::sky::day_clock(calendar, at);
+        let day =
+            auberean_world::sky::day_for(sky, c.year * i64::from(calendar.days_per_year) + c.day);
+        day.and_then(|d| world.records.day(d))
+            .map_or(0.0, |d| auberean_world::sky::rain(&d, c.fraction).0)
+    };
+    assert_eq!(run(&mut s, 0.0, 3.0), 0, "whatever the moment, it is drawn");
+    let now = s.scene.game_time + 1000.0;
+    let mut times = (0..2000).map(|k| now + f64::from(k) * 300.0);
+    let dry = times
+        .find(|t| rain_at(*t) == 0.0 && rain_at(*t + 300.0) == 0.0)
+        .expect("a dry moment");
+    assert_eq!(run(&mut s, dry, 6.0), 0);
+    assert_eq!(s.scene.rain_heard(), 0.0);
+    const STEADY: u32 = 0x2A00_039E;
+    let plays = |s: &Shell<'_, DoubleHost>| {
+        s.sound
+            .manager
+            .playing()
+            .iter()
+            .any(|&(_, id, _)| id == STEADY)
+    };
+    assert!(!plays(&s), "no rain, no sound");
+    let wet = times
+        .find(|t| rain_at(*t) == 1.0 && rain_at(*t + 300.0) == 1.0)
+        .expect("a wet moment");
+    assert!(run(&mut s, wet, 8.0) >= 1, "it rains");
+    assert_eq!(s.scene.rain_heard(), 1.0);
+    assert!(plays(&s), "the rain is heard");
+    let dry_again = (0..4000)
+        .map(|k| s.scene.game_time + 1000.0 + f64::from(k) * 300.0)
+        .find(|t| rain_at(*t) == 0.0 && rain_at(*t + 300.0) == 0.0)
+        .expect("a dry moment");
+    assert_eq!(run(&mut s, dry_again, 10.0), 0);
+    assert!(!plays(&s), "the sound stops with the rain");
+}
+
+/// The objects placed on a landblock taken up fade in with it: put a block east of the camp, each
+/// of the frame's objects standing on the land is drawn no more opaque than its block's opacity,
+/// and whole a second on.
+///
+/// Behaviour: desktop.world.a-blocks-placed-objects-fade-in-with-it
+#[test]
+fn a_blocks_placed_objects_fade_in_with_it() {
+    let at = Vec3 {
+        x: 122.842,
+        y: 89.758,
+        z: 80.0,
+    };
+    let east = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: 0xC256_0035,
+        origin: at,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1,
+        force_position_stamp: 0,
+        teleport_stamp: 1,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let script = script_then(0xC156_0035, at, Quat::IDENTITY, &[], &[(5.5, east)]);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let (mut faded, mut whole) = (0, 0);
+    while s.host.time < 8.0 {
+        let h = &mut s.host;
+        h.time += 1.0 / 60.0;
+        let t = LocalTime(1.0 + h.time);
+        for d in h.double.tick(t) {
+            h.inbox.push_back((d.from, d.bytes));
+        }
+        let out = s.frame();
+        let Some(f) = out.world else {
+            continue;
+        };
+        let opacity_of = |x: i32, y: i32| {
+            out.fade
+                .iter()
+                .find(|(c, _)| (i32::from(c.0), i32::from(c.1)) == (x, y))
+                .map_or(1.0, |(_, o)| *o)
+        };
+        for b in &f.objects {
+            let Some((x, y)) = b.block else { continue };
+            let o = opacity_of(x, y);
+            assert!(b.tint.a <= o + 1e-4, "{} over {o}", b.tint.a);
+            if o < 1.0 && b.tint.a < 1.0 {
+                faded += 1;
+            }
+            if o >= 1.0
+                && b.visible
+                    .is_none_or(|v| b.distance_from(f.camera.position) < 0.9 * v)
+            {
+                assert_eq!(b.tint.a, 1.0);
+                whole += 1;
+            }
+        }
+    }
+    assert!(faded > 100 && whole > 100, "{faded} faded, {whole} whole");
+}
+
 /// A landblock's objects fade in over the second after the near window takes it up, made or found
 /// again among the free blocks: each frame lists the blocks taken up less than a second before
 /// (not at the very moment) with the time since as their objects' opacity, and a body standing on
-/// such a block's land is drawn at that opacity. The blocks the window keeps are not listed. (The
-/// player put one block east of block `0x0298`, then back; a creature on the land two blocks east.)
+/// such a block's land is drawn at that opacity. The blocks the window keeps are not listed, and
+/// the first window's second is over before portal space shows the world. (The player put one
+/// block east of block `0x0298`, then back; a creature on the land two blocks east.)
 ///
 /// Behaviour: desktop.world.a-landblocks-objects-fade-in-over-a-second-as-it-is-taken-up
 #[test]
@@ -2163,8 +3037,11 @@ fn a_landblocks_objects_fade_in_over_a_second_as_it_is_taken_up() {
             .filter(|(_, _, b)| !b.is_empty())
             .count()
     };
-    let first: Vec<(u8, u8)> = (bx - 1..=bx + 1).flat_map(&column).collect();
-    assert_eq!(blocks_in(0, east_from), first, "the first window taken up");
+    assert_eq!(
+        blocks_in(0, east_from),
+        [],
+        "the first window, in portal space"
+    );
     assert_eq!(
         blocks_in(east_from, back_from),
         column(bx + 2),
@@ -2192,6 +3069,62 @@ fn a_landblocks_objects_fade_in_over_a_second_as_it_is_taken_up() {
         creature_faded > 30,
         "the creature drawn faded: {creature_faded} frames"
     );
+}
+
+/// The player put in a cell that isn't there yet, with no portal space on the way: while its cells
+/// are waited for no world is drawn at all, and once they are in it is drawn from there.
+///
+/// Behaviour: desktop.world.no-world-is-drawn-from-a-cell-still-waited-for
+#[test]
+fn no_world_is_drawn_from_a_cell_still_waited_for() {
+    let (caverns, caverns_at) = (0x04AB_0101, Vec3::new(-205.86, 281.62, 0.5));
+    let put = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: caverns,
+        origin: caverns_at,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1,
+        force_position_stamp: 0,
+        teleport_stamp: 1,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &[(8.0, put)], 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 4.0 {
+        step(&mut s);
+    }
+    let (mut waited, mut drawn_while_waiting, mut drawn_there) = (0, 0, 0);
+    while s.host.time < 8.0 {
+        s.scene.portal_scene_playing = true;
+        step(&mut s);
+        let blocking = s.scene.seen.hearing.as_ref().is_some_and(|h| h.blocking);
+        let drawn = s.frame().world.is_some();
+        if blocking {
+            waited += 1;
+            drawn_while_waiting += i32::from(drawn);
+        } else if s.scene.status.cell == caverns && drawn {
+            drawn_there += 1;
+        }
+    }
+    assert!(waited > 0, "the cells were waited for");
+    assert_eq!(drawn_while_waiting, 0);
+    assert!(drawn_there > 0, "drawn once they are in");
 }
 
 /// What the ambient sound hears about the player follows the cells about it each frame: outdoors
@@ -2274,6 +3207,12 @@ fn what_the_ambient_sound_hears_follows_the_players_cells() {
     let hall = hall.expect("in the hall");
     assert!(!hall.outside && hall.blocks.is_empty(), "shut in");
     assert!(hall.cells.len() > 1, "its cell and those it sees");
+    let of_kind = |kind: u32| hall.cells.iter().filter(|(k, _)| *k == kind).count();
+    assert_eq!(
+        [of_kind(2), of_kind(0x8100_000F), of_kind(0x8100_001A)],
+        [12, 14, 1],
+        "the kinds its cells name"
+    );
     let cave = cave.expect("in the caverns");
     assert!(
         cave.outside && !cave.blocks.is_empty(),
@@ -2282,7 +3221,7 @@ fn what_the_ambient_sound_hears_follows_the_players_cells() {
     assert!(
         cave.cells
             .iter()
-            .any(|c| (c.x + 205.861).abs() < 0.01 && (c.y - 281.616).abs() < 0.01),
+            .any(|(_, c)| (c.x + 205.861).abs() < 0.01 && (c.y - 281.616).abs() < 0.01),
         "the cells' own places"
     );
     assert!(blocking > 0, "the placements' waits");
@@ -2538,18 +3477,18 @@ fn a_body_out_of_the_world_is_let_go_of_after_25_seconds() {
     assert!(!has(&s), "let go of");
 }
 
-/// The player moves while its body does, falling as much as running: dropped 150 m over the land
-/// of block `0x0298`, it moves as it falls straight down with no speed along the ground, and stops
+/// The player moves while its body does, falling as much as running: dropped 150 m over the dry land
+/// of block `0xC156`, it moves as it falls straight down with no speed along the ground, and stops
 /// moving once it stands there.
 ///
 /// Behaviour: desktop.bodies.the-player-moves-while-its-body-does-falling-too
 #[test]
 fn the_player_moves_while_its_body_does_falling_too() {
-    let cell = 0x0298_0001;
+    let cell = 0xC156_0035;
     let at = Vec3 {
-        x: 12.0,
-        y: 12.0,
-        z: 150.0,
+        x: 122.84,
+        y: 89.76,
+        z: 231.0,
     };
     let script = script_until(cell, at, Quat::IDENTITY, &[], &[], 30.0);
     let server =
@@ -2570,7 +3509,7 @@ fn the_player_moves_while_its_body_does_falling_too() {
         if !s.scene.has_player() || s.scene.cells_pending() {
             continue;
         }
-        if !st.contact && st.origin.z < 140.0 {
+        if !st.contact && st.origin.z < 221.0 {
             assert!(st.moving && st.speed < 0.01, "falling: {} m/s", st.speed);
             falling += 1;
         } else if st.contact && falling > 0 {
@@ -2583,6 +3522,1558 @@ fn the_player_moves_while_its_body_does_falling_too() {
     }
     assert!(falling > 60, "{falling} frames falling");
     assert!(!s.scene.status.moving, "standing");
+}
+
+/// Taken from the hall through the menhir portal to the training ground's second area, a closed
+/// room with no doorways (cell `0x0298014D`), the player stands where it is put and runs on the
+/// room's floor when the key is held, never leaving the cell or sinking through the floor.
+///
+/// Behaviour: desktop.world.the-player-arrives-and-runs-in-a-room-with-no-doorways
+#[test]
+fn the_player_arrives_and_runs_in_a_room_with_no_doorways() {
+    const ROOM: u32 = 0x0298_014D;
+    let arrival = Vec3::new(1.147_527_9, -7.586_839_7, 1.304_330_3);
+    let put = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: ROOM,
+        origin: arrival,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1,
+        force_position_stamp: 0,
+        teleport_stamp: 1,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let later = [(8.0, put)];
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let mut settled = None;
+    while s.host.time < 30.0 && settled.is_none() {
+        step(&mut s);
+        let st = &s.scene.status;
+        if st.cell == ROOM && st.contact && !s.scene.cells_pending() {
+            settled = Some(s.host.time);
+        }
+    }
+    let settled = settled.expect("it arrived and stands");
+    while s.host.time < settled + 1.0 {
+        step(&mut s);
+    }
+    let stood = s.scene.status.origin;
+    assert!(
+        (stood.y - arrival.y).abs() < 0.05,
+        "where it was put: {stood:?}"
+    );
+    assert!(
+        (stood.z - arrival.z).abs() < 0.05,
+        "on the floor: {stood:?}"
+    );
+    s.event(&Event::Key {
+        key: Key::W,
+        down: true,
+        repeat: false,
+    });
+    let until = s.host.time + 3.0;
+    while s.host.time < until {
+        step(&mut s);
+        let st = &s.scene.status;
+        assert_eq!(st.cell, ROOM, "still in the room");
+        assert!(st.origin.z > 0.95, "above the floor: {:?}", st.origin);
+    }
+    let ran = s.scene.status.origin.y - stood.y;
+    assert!(ran > 10.0, "it ran: {ran} m");
+    assert!(s.scene.status.contact, "on the floor");
+}
+
+/// What the server asks of the player's body, it does: a push takes it off the ground and up; a
+/// slider the network moves goes to its value, one the character template leaves to the client does
+/// not; a list of effects meant only for the player plays. Fixture: a server double playing the
+/// messages at set times, the player standing in the hall.
+///
+/// Behaviour: desktop.bodies.the-players-body-does-what-the-server-asks
+#[test]
+fn the_players_body_does_what_the_server_asks() {
+    use auberean_client_sdk::protocol::physics::{Impulse, ObjectEvent, Slide};
+    const NETWORK: u32 = 0x4000_001D;
+    const THE_CLIENTS: u32 = 0x4000_0016;
+    let sender = ObjectStamp {
+        id: PLAYER,
+        instance_stamp: 1,
+        other_stamp: 0,
+    };
+    let slide = |slider: u32, value: f32| {
+        ServerMessage::MoveSlider(ObjectEvent {
+            sender,
+            action: Slide {
+                slider,
+                value,
+                time: 0.0,
+            },
+        })
+    };
+    let later = [
+        (8.0, slide(NETWORK, 0.25)),
+        (8.0, slide(THE_CLIENTS, 0.25)),
+        (
+            9.0,
+            ServerMessage::Push(ObjectEvent {
+                sender,
+                action: Impulse {
+                    direction: Vec3::new(0.0, 0.0, 8.0),
+                    contact: 0,
+                },
+            }),
+        ),
+    ];
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let mut standing = None;
+    let mut highest = f32::MIN;
+    let mut left_the_ground = false;
+    while s.host.time < 14.0 {
+        step(&mut s);
+        let st = &s.scene.status;
+        if !s.scene.has_player() || s.scene.cells_pending() {
+            continue;
+        }
+        if st.contact && standing.is_none() {
+            standing = Some(st.origin.z);
+        }
+        if standing.is_some() {
+            highest = highest.max(st.origin.z);
+            left_the_ground |= !st.contact;
+        }
+    }
+    let before = standing.expect("it stood");
+    let figure = s.scene.player_figure().expect("the player's figure");
+    assert!(
+        (figure.sliders.desired(NETWORK) - 0.25).abs() < 1e-3,
+        "the network's slider moved: {}",
+        figure.sliders.desired(NETWORK)
+    );
+    let local = figure.sliders.desired(THE_CLIENTS);
+    assert!((local - 0.25).abs() > 1e-3, "the client's stays: {local}");
+    assert!(left_the_ground, "the push took it off the ground");
+    assert!(highest > before + 1.0, "up: {before} to {highest}");
+}
+
+/// An object the server creates takes up what its description says: a slider goes to its value at
+/// once when no speed is given.
+/// Fixture: the human figure created in the hall's cell.
+///
+/// Behaviour: desktop.bodies.an-object-takes-up-its-description
+#[test]
+fn an_object_takes_up_its_description() {
+    use auberean_client_sdk::protocol::types::SliderSetting;
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const CREATURE: u64 = 0x8130_1B05_CC00_0191;
+    const SLIDER: u32 = 0x4000_0016;
+    let start = Vec3 {
+        x: -3.9,
+        y: 337.5,
+        z: -44.7,
+    };
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION | PhysicsDesc::SLIDERS,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: DRUDGES_CELL,
+                frame: Frame {
+                    origin: start,
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            sliders: vec![SliderSetting {
+                slider: SLIDER,
+                value: 0.25,
+                time: 0.0,
+            }],
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -43.76,
+    };
+    let script = script_with(DRUDGES_CELL, at, Quat::IDENTITY, &[creature]);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 12.0 {
+        step(&mut s);
+    }
+    let figure = s.scene.figure(CREATURE).expect("its figure");
+    let value = figure.sliders.desired(SLIDER);
+    assert!((value - 0.25).abs() < 1e-3, "its slider: {value}");
+}
+
+/// A body is drawn in the color and at the opacity its sliders hold: red, green, blue and alpha
+/// multiply its draws, the opacity its alpha too; moved over a time they go there as it passes.
+/// Fixture: the human figure created in the hall's cell, its red slider 0.25.
+///
+/// Behaviour: desktop.bodies.a-body-is-drawn-in-the-color-its-sliders-hold
+#[test]
+fn a_body_is_drawn_in_the_color_its_sliders_hold() {
+    use auberean_client_sdk::protocol::types::SliderSetting;
+    use auberean_physics::body::parent::FADE_SLIDER;
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const CREATURE: u64 = 0x8130_1B05_CC00_0191;
+    const RED: u32 = 0x4000_0016;
+    const ALPHA: u32 = 0x4000_001A;
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION | PhysicsDesc::SLIDERS,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: DRUDGES_CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: -3.9,
+                        y: 337.5,
+                        z: -44.7,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            sliders: vec![SliderSetting {
+                slider: RED,
+                value: 0.25,
+                time: 0.0,
+            }],
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -43.76,
+    };
+    let script = script_with(DRUDGES_CELL, at, Quat::IDENTITY, &[creature]);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 12.0 {
+        step(&mut s);
+    }
+    // The player's own draws stay white; only the creature's red is 0.25.
+    fn reds(s: &mut Shell<'static, DoubleHost>) -> Vec<(f32, f32)> {
+        let now = s.host.time;
+        let frame = s.scene.frame(now).expect("the world drawn");
+        frame
+            .objects
+            .iter()
+            .filter(|b| b.mesh != 0 && b.tint.r < 0.99)
+            .map(|b| (b.tint.r, b.tint.a))
+            .collect()
+    }
+    let at_first = reds(&mut s);
+    assert!(
+        !at_first.is_empty() && at_first.iter().all(|(r, a)| *r == 0.25 && *a == 1.0),
+        "{at_first:?}"
+    );
+    let figure = s.scene.figure_mut(CREATURE).expect("its figure");
+    figure.sliders.do_slider(0, ALPHA, 0.5, 0.0);
+    figure.sliders.do_slider(0, FADE_SLIDER, 0.5, 0.0);
+    let faded = reds(&mut s);
+    assert!(
+        !faded.is_empty() && faded.iter().all(|(r, a)| *r == 0.25 && *a == 0.25),
+        "{faded:?}"
+    );
+}
+
+/// An effect aimed at another object acts on it: the entry that hides its target hides it, and it
+/// shows again when the effect is over. Fixture: the human figure created in the hall's cell, a
+/// server double asking the player's body for the effect at a set time.
+///
+/// Behaviour: desktop.bodies.an-aimed-effect-acts-on-its-target
+#[test]
+fn an_aimed_effect_acts_on_its_target() {
+    use auberean_client_sdk::protocol::physics::{ObjectEvent, TargetedFx};
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const CREATURE: u64 = 0x8130_1B05_CC00_0191;
+    const HIDES_ITS_TARGET: u32 = 0x8100_02AD;
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: DRUDGES_CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: -3.9,
+                        y: 337.5,
+                        z: -44.7,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -43.76,
+    };
+    let later = [(
+        9.0,
+        ServerMessage::DoTargetedFx(ObjectEvent {
+            sender: ObjectStamp {
+                id: PLAYER,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            action: TargetedFx {
+                fx: HIDES_ITS_TARGET,
+                scalar: 1.0,
+                target: CREATURE,
+            },
+        }),
+    )];
+    let script = script_until(DRUDGES_CELL, at, Quat::IDENTITY, &[creature], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let mut hid = false;
+    while s.host.time < 14.0 {
+        step(&mut s);
+        hid |= s.scene.body(CREATURE).is_some_and(|b| b.is_no_draw());
+    }
+    assert!(hid, "the effect hid what it aims at");
+    while s.host.time < 34.0 && s.scene.body(CREATURE).is_some_and(|b| b.is_no_draw()) {
+        step(&mut s);
+    }
+    assert!(
+        !s.scene.body(CREATURE).expect("its body").is_no_draw(),
+        "it shows again when the effect is over"
+    );
+}
+
+/// An effect that makes an object and names a behavior: the object hangs from the player at the
+/// entry's holding location, is hidden at once as its behavior ends, and goes three seconds later,
+/// past the effect's own second. Fixture: a server double asking the player's body for the effect
+/// at a set time.
+///
+/// Behaviour: desktop.bodies.an-object-an-effect-makes-goes-with-its-behavior
+#[test]
+fn an_object_an_effect_makes_goes_with_its_behavior() {
+    use auberean_client_sdk::protocol::physics::{Fx, ObjectEvent};
+    const MAKES_BLADES: u32 = 0x8100_0366;
+    const OPACITY: u32 = 0x4000_0015;
+    let later = [(
+        9.0,
+        ServerMessage::DoFx(ObjectEvent {
+            sender: ObjectStamp {
+                id: PLAYER,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            action: Fx {
+                fx: MAKES_BLADES,
+                scalar: 1.0,
+            },
+        }),
+    )];
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let mut made = None;
+    while made.is_none() && s.host.time < 20.0 {
+        step(&mut s);
+        made = s.scene.made_objects().first().copied();
+    }
+    let made = made.expect("the effect made its object");
+    assert!(
+        s.scene.body(made).is_some_and(|b| b.has_parent),
+        "it hangs from the player"
+    );
+    let start = s.host.time;
+    let shown = |s: &Shell<_>| {
+        s.scene
+            .figure(made)
+            .is_some_and(|f| f.sliders.current(OPACITY) > 0.0)
+    };
+    while shown(&s) && s.host.time < start + 20.0 {
+        step(&mut s);
+    }
+    let hidden_after = s.host.time - start;
+    assert!(
+        s.scene.made_objects().contains(&made),
+        "hidden, not yet gone"
+    );
+    assert!(
+        (0.3..2.0).contains(&hidden_after),
+        "hidden as its behavior ends, 0.6 s in: {hidden_after}"
+    );
+    let hidden_at = s.host.time;
+    while s.scene.made_objects().contains(&made) && s.host.time < hidden_at + 20.0 {
+        step(&mut s);
+    }
+    let gone_after = s.host.time - hidden_at;
+    assert!(
+        (2.5..3.5).contains(&gone_after),
+        "it goes three seconds later: {gone_after}"
+    );
+    let holder = s.scene.body(PLAYER).expect("the player's body");
+    assert!(
+        holder
+            .children
+            .as_ref()
+            .is_none_or(|c| c.children.iter().all(|c| c.id != made)),
+        "the player no longer holds it"
+    );
+}
+
+/// An effect whose entry makes an object, names no behavior and gives no lifetime has it for 15
+/// seconds, then it fades out; one giving a lifetime below zero keeps it. Fixture: a server double
+/// asking the player's body for each effect at a set time, in sessions of their own.
+///
+/// Behaviour: desktop.bodies.an-object-an-effect-makes-lasts-as-its-entry-says
+#[test]
+fn an_object_an_effect_makes_lasts_as_its_entry_says() {
+    use auberean_client_sdk::protocol::physics::{Fx, ObjectEvent};
+    const OPACITY: u32 = 0x4000_0015;
+    // How long after it was made the effect's object starts to fade, if within 30 s.
+    let fades_after = |effect: u32| -> Option<f64> {
+        let later = [(
+            9.0,
+            ServerMessage::DoFx(ObjectEvent {
+                sender: ObjectStamp {
+                    id: PLAYER,
+                    instance_stamp: 1,
+                    other_stamp: 0,
+                },
+                action: Fx {
+                    fx: effect,
+                    scalar: 1.0,
+                },
+            }),
+        )];
+        let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 60.0);
+        let server =
+            ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+        let mut s = shell_with(
+            script,
+            Box::new(DevLogin::new(
+                server,
+                "tester".into(),
+                "t".into(),
+                Some("tester".into()),
+            )),
+        );
+        let mut made = None;
+        while made.is_none() && s.host.time < 20.0 {
+            step(&mut s);
+            made = s.scene.made_objects().first().copied();
+        }
+        let made = made.expect("the effect made its object");
+        let start = s.host.time;
+        while s.host.time < start + 30.0 {
+            step(&mut s);
+            let figure = s.scene.figure(made).expect("its figure");
+            if figure.sliders.desired(OPACITY) == 0.0 {
+                return Some(s.host.time - start);
+            }
+        }
+        None
+    };
+    let fades = fades_after(0x4100_0672).expect("an entry that says nothing ends");
+    assert!((14.5..16.0).contains(&fades), "15 seconds: {fades}");
+    assert_eq!(fades_after(0x4100_05BE), None, "below zero: it stays");
+}
+
+/// A hold the server starts on the player loops until each of the ways the server has of ending it
+/// ends it: letting it go, stopping all behaviors (a hold still within the cycles it was asked for,
+/// as they stop only what someone waits on), stopping those a move cancels, ending its layer.
+/// Fixture: a server double asking at set times.
+///
+/// Behaviour: desktop.bodies.a-behavior-the-server-started-it-can-stop-or-let-go
+#[test]
+fn a_behavior_the_server_started_it_can_stop_or_let_go() {
+    use auberean_client_sdk::protocol::physics::{NoAction, ObjectEvent, Release, Word};
+    use auberean_client_sdk::protocol::types::BehaviorParams;
+    /// A hold of the human's, on layer 6.
+    const HOLD: u32 = 0x4100_0125;
+    const LAYER: u32 = 6;
+    const MOVE_TO_CANCELS_WORD: usize = 1;
+    // Each event newer than the last.
+    let sender = |n: u16| ObjectStamp {
+        id: PLAYER,
+        instance_stamp: 1,
+        other_stamp: n,
+    };
+    let hold = |n: u16, move_to_cancels: bool, waited_on: bool| {
+        let mut p = BehaviorParams {
+            bits: BehaviorParams::BEHAVIOR,
+            behavior: HOLD,
+            ..BehaviorParams::default()
+        };
+        if move_to_cancels {
+            p.bits |= BehaviorParams::WORD_BITS[MOVE_TO_CANCELS_WORD];
+            p.words[MOVE_TO_CANCELS_WORD] = 1;
+        }
+        if waited_on {
+            p.bits |= BehaviorParams::HOLD_CYCLES;
+            p.hold_cycles = 1000;
+        }
+        ServerMessage::PlayBehavior(ObjectEvent {
+            sender: sender(n),
+            action: p,
+        })
+    };
+    let ends: [ServerMessage; 4] = [
+        ServerMessage::LetGoBehavior(ObjectEvent {
+            sender: sender(2),
+            action: Release {
+                behavior: HOLD,
+                params: BehaviorParams::default(),
+            },
+        }),
+        ServerMessage::StopAllBehaviors(ObjectEvent {
+            sender: sender(4),
+            action: NoAction,
+        }),
+        ServerMessage::StopMoveCancelsBehaviors(ObjectEvent {
+            sender: sender(6),
+            action: NoAction,
+        }),
+        ServerMessage::EndLayer(ObjectEvent {
+            sender: sender(8),
+            action: Word(LAYER),
+        }),
+    ];
+    // A hold every ten seconds from 9 s, ended 5 s on.
+    let mut later = Vec::new();
+    let mut at = 9.0;
+    for (k, end) in (0u16..).zip(&ends) {
+        later.push((at, hold(2 * k + 1, k == 2, k == 1)));
+        later.push((at + 5.0, end.clone()));
+        at += 10.0;
+    }
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 60.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let doing = |s: &Shell<'_, DoubleHost>| {
+        s.scene
+            .figure(PLAYER)
+            .is_some_and(|f| f.is_doing_behavior(HOLD))
+    };
+    while !doing(&s) && s.host.time < 30.0 {
+        step(&mut s);
+    }
+    for k in 0..ends.len() {
+        assert!(doing(&s), "hold {k} plays");
+        let started = s.host.time;
+        // It is still looping a second before the end is asked for.
+        while s.host.time < started + 3.5 {
+            step(&mut s);
+        }
+        assert!(doing(&s), "hold {k} loops until it is ended");
+        while doing(&s) && s.host.time < started + 9.5 {
+            step(&mut s);
+        }
+        assert!(!doing(&s), "end {k} ended the hold");
+        while !doing(&s) && k + 1 < ends.len() && s.host.time < started + 20.0 {
+            step(&mut s);
+        }
+    }
+}
+
+/// The rest the server asks of a body by itself: an effect script plays on the figure, a new motion
+/// description takes over, and a private effect plays on the player: this one makes an object.
+/// Fixture: a server double asking at set times.
+///
+/// Behaviour: desktop.bodies.a-body-takes-a-script-a-motion-description-and-private-effects
+#[test]
+fn a_body_takes_a_script_a_motion_description_and_private_effects() {
+    use auberean_client_sdk::protocol::physics::{ObjectEvent, PrivateFx, Word};
+    const SCRIPT: u32 = 0x5700_0005;
+    const MOTION: u32 = 0x3200_0001;
+    const MAKES_BLADES: u32 = 0x8100_0366;
+    let sender = ObjectStamp {
+        id: PLAYER,
+        instance_stamp: 1,
+        other_stamp: 0,
+    };
+    let later = [
+        (
+            9.0,
+            ServerMessage::DoFxScript(ObjectEvent {
+                sender,
+                action: Word(SCRIPT),
+            }),
+        ),
+        (
+            9.0,
+            ServerMessage::MotionInterpChange(ObjectEvent {
+                sender,
+                action: Word(MOTION),
+            }),
+        ),
+        (9.0, ServerMessage::PrivateFx(PrivateFx(vec![MAKES_BLADES]))),
+    ];
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let (mut played, mut made) = (false, false);
+    while s.host.time < 14.0 {
+        step(&mut s);
+        played |= s
+            .scene
+            .figure(PLAYER)
+            .is_some_and(|f| f.scripts.tracks.iter().any(|t| t.script == SCRIPT));
+        made |= !s.scene.made_objects().is_empty();
+    }
+    assert!(played, "the effect script played");
+    assert!(made, "the private effect played on the player");
+    let body = s.scene.body(PLAYER).expect("the player's body");
+    assert_eq!(body.minterp.desc_id, MOTION, "the motion description");
+}
+
+/// A creature created with behaviors and effects in its description plays them: the hold plays on
+/// its figure and the effect makes its object. Fixture: the human figure created in the hall's cell.
+///
+/// Behaviour: desktop.bodies.an-object-starts-the-behaviors-and-effects-its-description-gives
+#[test]
+fn an_object_starts_the_behaviors_and_effects_its_description_gives() {
+    use auberean_client_sdk::protocol::types::{BehaviorParams, RunningFx};
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const CREATURE: u64 = 0x8130_1B05_CC00_0191;
+    const HOLD: u32 = 0x4100_0125;
+    const MAKES_BLADES: u32 = 0x8100_0366;
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION | PhysicsDesc::BEHAVIORS | PhysicsDesc::FX,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: DRUDGES_CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: -3.9,
+                        y: 337.5,
+                        z: -44.7,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            behaviors: vec![BehaviorParams {
+                bits: BehaviorParams::BEHAVIOR,
+                behavior: HOLD,
+                ..BehaviorParams::default()
+            }],
+            fx: vec![RunningFx {
+                fx: MAKES_BLADES,
+                scalar: 1.0,
+                target: 0,
+            }],
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -43.76,
+    };
+    let script = script_until(DRUDGES_CELL, at, Quat::IDENTITY, &[creature], &[], 30.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let (mut plays, mut made) = (false, false);
+    while s.host.time < 14.0 {
+        step(&mut s);
+        plays |= s
+            .scene
+            .figure(CREATURE)
+            .is_some_and(|f| f.is_doing_behavior(HOLD));
+        made |= !s.scene.made_objects().is_empty();
+    }
+    assert!(plays, "the behavior its description lists plays");
+    assert!(made, "the effect its description lists makes its object");
+}
+
+/// A behavior the server starts on one of its own objects that says to destroy it as it ends hides
+/// the object and takes it away three seconds on. Fixture: a server double asking at a set time.
+///
+/// Behaviour: desktop.bodies.a-behavior-that-destroys-its-object-takes-a-server-object-away
+#[test]
+fn a_behavior_that_destroys_its_object_takes_a_server_object_away() {
+    use auberean_client_sdk::protocol::physics::ObjectEvent;
+    use auberean_client_sdk::protocol::types::BehaviorParams;
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const CREATURE: u64 = 0x8130_1B05_CC00_018A;
+    const OPACITY: u32 = 0x4000_0015;
+    /// Flag 0x8000 is the twelfth of the flags followed by a word.
+    const DESTROYS_WORD: usize = 11;
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -43.76,
+    };
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: DRUDGES_CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: 4.0,
+                        y: 330.0,
+                        z: -44.7,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let mut once = BehaviorParams {
+        bits: BehaviorParams::BEHAVIOR | BehaviorParams::WORD_BITS[DESTROYS_WORD],
+        behavior: 0x4100_0083,
+        ..BehaviorParams::default()
+    };
+    once.words[DESTROYS_WORD] = 1;
+    let later = [(
+        9.0,
+        ServerMessage::PlayBehavior(ObjectEvent {
+            sender: ObjectStamp {
+                id: CREATURE,
+                instance_stamp: 1,
+                other_stamp: 1,
+            },
+            action: once,
+        }),
+    )];
+    let script = script_until(DRUDGES_CELL, at, Quat::IDENTITY, &[creature], &later, 60.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let mut hidden_at = None;
+    let mut gone_at = None;
+    let mut seen = false;
+    while s.host.time < 40.0 && gone_at.is_none() {
+        step(&mut s);
+        match s.scene.figure(CREATURE) {
+            Some(f) => {
+                seen = true;
+                if hidden_at.is_none() && f.sliders.desired(OPACITY) == 0.0 {
+                    hidden_at = Some(s.host.time);
+                }
+            }
+            None if seen => gone_at = Some(s.host.time),
+            None => {}
+        }
+    }
+    let hidden_at = hidden_at.expect("hidden as the behavior ends");
+    let gone_at = gone_at.expect("taken away");
+    let after = gone_at - hidden_at;
+    assert!((2.5..4.0).contains(&after), "three seconds on: {after}");
+}
+
+/// A behavior that fades its object's children fades what the body holds as it starts, and brings
+/// it back as it ends. Fixture: a server double asking at set times, the player holding a sword.
+///
+/// Behaviour: desktop.bodies.a-behavior-that-fades-children-fades-what-the-body-holds
+#[test]
+fn a_behavior_that_fades_children_fades_what_the_body_holds() {
+    use auberean_client_sdk::protocol::physics::{ObjectEvent, Release};
+    use auberean_client_sdk::protocol::types::{BehaviorParams, ParentLink};
+    const SWORD: u64 = 0x8130_1B05_CC00_0077;
+    const HOLD: u32 = 0x4100_0125;
+    const OPACITY: u32 = 0x4000_0015;
+    /// Flag 0x100 is the seventh of the flags followed by a word.
+    const FADES_WORD: usize = 6;
+    let sword = CreateObject {
+        id: SWORD,
+        visual: VisualDesc {
+            bits: VisualDesc::PARENT,
+            parent: 0x1F00_0056,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::PARENT,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            parent: ParentLink {
+                parent: PLAYER,
+                location: 1,
+                stamp: 1,
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let mut fades = BehaviorParams {
+        bits: BehaviorParams::BEHAVIOR | BehaviorParams::WORD_BITS[FADES_WORD],
+        behavior: HOLD,
+        ..BehaviorParams::default()
+    };
+    fades.words[FADES_WORD] = 1;
+    let again = fades.clone();
+    let sender = |other_stamp: u16| ObjectStamp {
+        id: PLAYER,
+        instance_stamp: 1,
+        other_stamp,
+    };
+    let later = [
+        (
+            9.0,
+            ServerMessage::PlayBehavior(ObjectEvent {
+                sender: sender(1),
+                action: fades,
+            }),
+        ),
+        (
+            12.0,
+            ServerMessage::LetGoBehavior(ObjectEvent {
+                sender: sender(2),
+                action: Release {
+                    behavior: HOLD,
+                    params: BehaviorParams::default(),
+                },
+            }),
+        ),
+        (
+            16.0,
+            ServerMessage::PlayBehavior(ObjectEvent {
+                sender: sender(3),
+                action: again,
+            }),
+        ),
+    ];
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[sword], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let asked = |s: &Shell<'_, DoubleHost>| {
+        s.scene
+            .figure(SWORD)
+            .map(|f| f.sliders.desired(OPACITY))
+            .expect("the sword")
+    };
+    while s.host.time < 8.0 {
+        step(&mut s);
+    }
+    while asked(&s) != 1.0 && s.host.time < 14.0 {
+        step(&mut s);
+    }
+    assert_eq!(asked(&s), 1.0, "back as the first ends");
+    while asked(&s) != 0.0 && s.host.time < 20.0 {
+        step(&mut s);
+    }
+    assert_eq!(asked(&s), 0.0, "faded as the second starts");
+}
+
+/// The ground under a body names a physics material whose properties give a terrain type: the body's
+/// motion takes it, and its effects play their variants for it. Fixture: a server double, the
+/// player at the camp.
+///
+/// Behaviour: desktop.bodies.the-ground-gives-a-body-its-terrain-type
+#[test]
+fn the_ground_gives_a_body_its_terrain_type() {
+    let at = Vec3 {
+        x: 122.842,
+        y: 89.758,
+        z: 79.968,
+    };
+    let script = script_until(0xC156_0035, at, Quat::IDENTITY, &[], &[], 30.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 8.0 {
+        step(&mut s);
+    }
+    s.event(&Event::Key {
+        key: Key::W,
+        down: true,
+        repeat: false,
+    });
+    let until = s.host.time + 2.0;
+    while s.host.time < until {
+        step(&mut s);
+    }
+    let (motion, effects) = s.scene.player_terrain().expect("the player");
+    assert_eq!(motion, effects, "both take the one terrain type");
+    assert_ne!(
+        motion >> 24,
+        0,
+        "the kinds are enumeration values: {motion:#x}"
+    );
+    assert_ne!(motion, 0x8000_0001, "not the no-terrain value");
+}
+
+/// An object fades in as it enters the world. Fixture: a server double making one object.
+///
+/// Behaviour: desktop.bodies.an-object-fades-in-as-it-enters-the-world
+#[test]
+fn an_object_fades_in_as_it_enters_the_world() {
+    const CREATURE: u64 = 0x8130_1B05_CC00_018A;
+    const OPACITY: u32 = 0x4000_0015;
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: HALL_CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: HALL_AT.x + 3.0,
+                        y: HALL_AT.y,
+                        z: HALL_AT.z,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[creature], &[], 30.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.scene.figure(CREATURE).is_none() && s.host.time < 10.0 {
+        step(&mut s);
+    }
+    let until = s.host.time + 1.0;
+    while s.host.time < until {
+        step(&mut s);
+    }
+    let f = s.scene.figure(CREATURE).expect("its figure");
+    assert_eq!(f.sliders.desired(OPACITY), 1.0);
+}
+
+/// A body run into the teaching stone at the start, a little to one side, slides round it and goes
+/// on, never inside it, though the stone reaches a cell beyond its own and was made before its cell
+/// was read; it holds against the stone a moment first and passes where retail's body does, from
+/// the rotation of exactly a quarter turn a new character is made with. Fixture: a server double
+/// making the stone at its place in the hall, the player facing it from where a new character
+/// starts; the points are the places retail's reports gave on the same walk.
+///
+/// Behaviour: desktop.bodies.a-body-goes-round-a-stone-in-the-way
+#[test]
+fn a_body_goes_round_a_stone_in_the_way() {
+    const STONE: u64 = 0x8130_1B05_CC00_018A;
+    const HALL: u32 = 0x0298_0109;
+    const STONE_AT: Vec3 = Vec3 {
+        x: 43.8744,
+        y: 240.1739,
+        z: -44.2061,
+    };
+    let stone = CreateObject {
+        id: STONE,
+        visual: VisualDesc {
+            bits: VisualDesc::PARENT,
+            parent: 0x1F00_02F4,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION | PhysicsDesc::MODE,
+            mode: 0x4000_0001,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: HALL,
+                frame: Frame {
+                    origin: STONE_AT,
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 59.060577,
+        y: 240.199,
+        z: -44.606205,
+    };
+    let facing = Quat {
+        w: std::f32::consts::FRAC_1_SQRT_2,
+        x: 0.0,
+        y: 0.0,
+        z: std::f32::consts::FRAC_1_SQRT_2,
+    };
+    let script = script_until(HALL, at, facing, &[stone], &[], 60.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 8.0 {
+        step(&mut s);
+    }
+    s.event(&Event::Key {
+        key: Key::W,
+        down: true,
+        repeat: false,
+    });
+    let until = s.host.time + 7.0;
+    let mut nearest = f32::MAX;
+    let mut retails = [
+        (52.7607, 240.1602, f32::MAX),
+        (45.6109, 240.1163, f32::MAX),
+        (45.5686, 239.7589, f32::MAX),
+        (45.4590, 239.4034, f32::MAX),
+        (42.7566, 238.5059, f32::MAX),
+        (31.7069, 238.4379, f32::MAX),
+    ];
+    while s.host.time < until {
+        step(&mut s);
+        let o = s.scene.status.origin;
+        let (dx, dy) = (o.x - STONE_AT.x, o.y - STONE_AT.y);
+        nearest = nearest.min((dx * dx + dy * dy).sqrt());
+        for (x, y, closest) in &mut retails {
+            let (dx, dy) = (o.x - *x, o.y - *y);
+            *closest = closest.min((dx * dx + dy * dy).sqrt());
+        }
+    }
+    let o = s.scene.status.origin;
+    assert!(nearest > 1.5, "never inside the stone: {nearest}");
+    for (x, y, closest) in retails {
+        assert!(closest < 0.01, "by retail's ({x}, {y}): {closest} off");
+    }
+    assert!(o.x < STONE_AT.x - 5.0, "it went on past: {o:?}");
+    assert!(o.y < STONE_AT.y - 1.5, "round its left: {o:?}");
+}
+
+/// An effect with a decal lays it where its object stands: on the land outdoors, on its cell's
+/// ground inside, and it is drawn with the frame. Fixture: the server double asks the player's body
+/// for the effect at a set time, at the camp and in the hall.
+///
+/// Behaviour: desktop.world.an-effects-decal-is-laid-where-its-object-stands
+#[test]
+fn an_effects_decal_is_laid_where_its_object_stands() {
+    use auberean_client_sdk::protocol::physics::{ObjectEvent, TargetedFx};
+    use auberean_draw::material::{draw_layers, instance_material_with, DEVICE_FLAGS};
+    const LAYS: u32 = 0x8100_02C7;
+    let (world, _) = data();
+    let of_the_effect: Vec<_> = [0x3100_03DC, 0x3100_0519]
+        .into_iter()
+        .filter_map(|m| instance_material_with(&world.records, m, None, &[]))
+        .flat_map(|m| draw_layers(&m, DEVICE_FLAGS))
+        .collect();
+    let drawn_with = |cell: u32, at: Vec3, asked: bool| {
+        let later = [(
+            9.0,
+            ServerMessage::DoTargetedFx(ObjectEvent {
+                sender: ObjectStamp {
+                    id: PLAYER,
+                    instance_stamp: 1,
+                    other_stamp: 0,
+                },
+                action: TargetedFx {
+                    fx: LAYS,
+                    scalar: 1.0,
+                    target: 0,
+                },
+            }),
+        )];
+        let later: &[_] = if asked { &later } else { &[] };
+        let script = script_until(cell, at, Quat::IDENTITY, &[], later, 40.0);
+        let server =
+            ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+        let mut s = shell_with(
+            script,
+            Box::new(DevLogin::new(
+                server,
+                "tester".into(),
+                "t".into(),
+                Some("tester".into()),
+            )),
+        );
+        let mut drawn = false;
+        while s.host.time < 14.0 {
+            step(&mut s);
+            let now = s.host.time;
+            drawn |= s.scene.frame(now).is_some_and(|f| {
+                f.decals
+                    .iter()
+                    .any(|b| !b.vertices.is_empty() && of_the_effect.contains(&b.layer))
+            });
+        }
+        drawn
+    };
+    for (cell, at) in [
+        (
+            0xC156_0035,
+            Vec3 {
+                x: 122.842,
+                y: 89.758,
+                z: 80.0,
+            },
+        ),
+        (
+            0x0298_0121,
+            Vec3 {
+                x: 2.0,
+                y: 330.0,
+                z: -43.76,
+            },
+        ),
+    ] {
+        assert!(
+            !drawn_with(cell, at, false),
+            "nothing asked, cell {cell:#x}"
+        );
+        assert!(drawn_with(cell, at, true), "asked, cell {cell:#x}");
+    }
+}
+
+/// The server asks the rest of what it can of a body, and the body does each: a global modifier and
+/// a terrain modifier are kept (and the terrain modifiers cleared), a new motion description is
+/// taken, a push toward an object gives it that speed away from the object, and a missile launched flies at the velocity given with
+/// a target to fly at. Fixture: a server double playing the messages at set times, the player
+/// standing in the hall, the human figure in the hall's cell.
+///
+/// Behaviour: desktop.bodies.a-body-does-the-rest-of-what-the-server-asks
+#[test]
+fn a_body_does_the_rest_of_what_the_server_asks() {
+    use auberean_client_sdk::protocol::physics::{
+        Missile, NoAction, ObjectEvent, TargetedImpulse, TerrainModifier, Word,
+    };
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const CREATURE: u64 = 0x8130_1B05_CC00_0191;
+    let sender = ObjectStamp {
+        id: CREATURE,
+        instance_stamp: 1,
+        other_stamp: 0,
+    };
+    let place = Placement {
+        cell: DRUDGES_CELL,
+        frame: Frame {
+            origin: Vec3 {
+                x: -3.9,
+                y: 337.5,
+                z: -44.7,
+            },
+            rotation: Quat::IDENTITY,
+        },
+    };
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: place,
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -43.76,
+    };
+    let event = |t: f64, m: ServerMessage| (t, m);
+    let later = [
+        event(
+            8.0,
+            ServerMessage::GlobalModifier(ObjectEvent {
+                sender,
+                action: Word(7),
+            }),
+        ),
+        event(
+            8.0,
+            ServerMessage::TerrainChange(ObjectEvent {
+                sender,
+                action: TerrainModifier {
+                    terrain: 0x4000_0002,
+                    modifier: 0x4000_0003,
+                },
+            }),
+        ),
+        event(
+            8.5,
+            ServerMessage::ClearTerrainChanges(ObjectEvent {
+                sender,
+                action: NoAction,
+            }),
+        ),
+        event(
+            9.0,
+            ServerMessage::PushToward(ObjectEvent {
+                sender,
+                action: TargetedImpulse {
+                    target: PLAYER,
+                    magnitude: 6.0,
+                    falloff: 0,
+                    vertical: 0.0,
+                },
+            }),
+        ),
+        event(
+            11.0,
+            ServerMessage::InitializeMissile(ObjectEvent {
+                sender,
+                action: Missile {
+                    position: place,
+                    velocity: Vec3::new(0.0, 5.0, 0.0),
+                    target: PLAYER,
+                    target_offset: place,
+                    target_velocity: Vec3::ZERO,
+                    initialized: 1,
+                },
+            }),
+        ),
+    ];
+    let script = script_until(DRUDGES_CELL, at, Quat::IDENTITY, &[creature], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let mut cleared = false;
+    let mut had_terrain = false;
+    let mut pushed = (0.0f32, 0.0f32);
+    while s.host.time < 11.0 {
+        step(&mut s);
+        if let Some(b) = s.scene.body(CREATURE) {
+            if pushed.0 == 0.0 {
+                pushed = (b.velocity.x, b.velocity.y);
+            }
+            let n = b.minterp.terrain_mods.len();
+            had_terrain |= n != 0;
+            cleared |= had_terrain && n == 0;
+        }
+    }
+    let b = s.scene.body(CREATURE).expect("its body");
+    assert_eq!(b.minterp.global_mod, 7, "the global modifier");
+    assert!(had_terrain, "the terrain modifier was kept");
+    assert!(cleared, "and cleared");
+    // The player stands 5.9 m east and 7.1 m south of it.
+    assert!(
+        (pushed.0 + 3.83).abs() < 0.01 && (pushed.1 - 4.58).abs() < 0.01,
+        "pushed away from the player at the speed asked: {pushed:?}"
+    );
+    while s.host.time < 13.0 {
+        step(&mut s);
+    }
+    let b = s.scene.body(CREATURE).expect("its body");
+    let g = b.missile.as_deref().expect("it flies");
+    assert!(g.moving, "in flight");
+    assert_eq!(g.target.object, PLAYER, "at its target");
+}
+
+/// What an object's description says of it beyond its sliders, it takes up: its four stamps, and,
+/// described as a missile, its aim and that it flies. Fixture: an object described so, created in
+/// the hall's cell.
+///
+/// Behaviour: desktop.bodies.an-object-takes-up-its-stamps-and-flight-from-its-description
+#[test]
+fn an_object_takes_up_its_stamps_and_flight_from_its_description() {
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const CREATURE: u64 = 0x8130_1B05_CC00_0191;
+    let place = Placement {
+        cell: DRUDGES_CELL,
+        frame: Frame {
+            origin: Vec3 {
+                x: -3.9,
+                y: 337.5,
+                z: -44.7,
+            },
+            rotation: Quat::IDENTITY,
+        },
+    };
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION
+                | PhysicsDesc::TARGET
+                | PhysicsDesc::TARGET_POSITION
+                | PhysicsDesc::TARGET_OFFSET
+                | PhysicsDesc::MISSILE_MOVING
+                | PhysicsDesc::MISSILE_ACTIVATED,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: place,
+            target: PLAYER,
+            target_position: place,
+            target_offset: Vec3::new(0.0, 0.0, 1.0),
+            stamps: [3, 4, 5, 6],
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -43.76,
+    };
+    let script = script_with(DRUDGES_CELL, at, Quat::IDENTITY, &[creature]);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 12.0 {
+        step(&mut s);
+    }
+    let b = s.scene.body(CREATURE).expect("its body");
+    assert_eq!(b.update_times, [3, 4, 5, 6], "its stamps");
+    let g = b.missile.as_deref().expect("it flies");
+    assert!(g.activated && g.moving, "lit and in flight");
+    assert_eq!(g.targeting.target, PLAYER, "at the object described");
+    assert_eq!(g.targeting.target_offset.z, 1.0, "and its offset");
+}
+
+/// A player in deep water swims: on the bottom of a lake 20 m deep (block `0x9889`, its surface at
+/// 139.45 m) the water lifts it, its water line coming to the surface, and holding the key moves it
+/// at the water's speed, its description's, not the ground's or none.
+///
+/// Behaviour: desktop.world.a-player-in-deep-water-rises-and-swims
+#[test]
+fn a_player_in_deep_water_rises_and_swims() {
+    const SURFACE: f32 = 139.45;
+    let at = Vec3::new(22.0, 50.0, 125.0);
+    let put = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: 0x9889_000B,
+        origin: at,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1,
+        force_position_stamp: 0,
+        teleport_stamp: 1,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &[(8.0, put)], 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 25.0 {
+        step(&mut s);
+    }
+    let floating = s.scene.status.origin;
+    assert!(
+        floating.z > SURFACE - 3.0 && floating.z < SURFACE,
+        "the water line near the surface: {floating:?}"
+    );
+    s.event(&Event::Key {
+        key: Key::W,
+        down: true,
+        repeat: false,
+    });
+    while s.host.time < 28.0 {
+        step(&mut s);
+    }
+    let swum = s.scene.status.origin;
+    let (dx, dy) = (swum.x - floating.x, swum.y - floating.y);
+    let far = (dx * dx + dy * dy).sqrt();
+    assert!(far > 8.0, "it swam {far} m: {floating:?} to {swum:?}");
+    assert!(
+        s.scene.status.speed > 4.0 && s.scene.status.speed < 5.0,
+        "at the water's speed: {}",
+        s.scene.status.speed
+    );
 }
 
 /// With the camera under water the fog is the water's at the camera's depth, the light the same:
@@ -2641,7 +5132,7 @@ fn under_water_the_fog_is_the_waters_at_the_cameras_depth() {
         let Some(f) = out.world.filter(|f| !f.terrain.is_empty()) else {
             continue;
         };
-        let (l, camera_z) = (f.light, f.camera.position.z);
+        let (l, camera_z, reflection) = (f.light, f.camera.position.z, f.reflection);
         // The block of the cell the camera stands in, before and after the frame's moment.
         let stands = s
             .scene
@@ -2654,6 +5145,7 @@ fn under_water_the_fog_is_the_waters_at_the_cameras_depth() {
         if block == lake >> 16 {
             let depth = SURFACE - camera_z;
             assert!(depth > 5.0 && depth < 25.0, "the camera {depth} m down");
+            assert!(reflection.is_none(), "no reflection under water");
             // Between the table's depths 0 and 30: the shallower's share (30 - depth) / 30.
             let k = (30.0 - depth) / 30.0;
             let max = 100.0 * k + 48.0 * (1.0 - k);
@@ -2678,7 +5170,7 @@ fn under_water_the_fog_is_the_waters_at_the_cameras_depth() {
 
 /// Outdoors the sky stands at the camera every frame, wherever the camera moves within its cell,
 /// and moves on with the moment every frame, as do the light and fog; the ground keeps the
-/// lighting it was lit with until the light's tick, 30 seconds of game time after the last.
+/// lighting it was lit with until the light's tick, 30 seconds after the last.
 /// (The player put 150 m up over the land of block `0x0298` in the morning, falling there; the
 /// world's frame read every frame for 40 seconds.)
 ///
@@ -2796,6 +5288,330 @@ fn the_sky_follows_the_camera_every_frame_and_the_ground_is_lit_on_the_lights_ti
     );
     let c = when(36.0);
     assert_ne!(b.ground, c.ground, "lit again on the light's tick");
+}
+
+/// An admin moving the time of day has the ground lit for it on the next frame, long before the
+/// light's tick, and the tick booked from there is shortened by the rate the world's time runs at:
+/// at twice the rate, 15 seconds. (The player put 150 m up over the land of block `0x0298`, the
+/// ground's first corner read every frame.)
+///
+/// Behaviour: desktop.world.a-moved-game-clock-relights-the-ground
+#[test]
+fn a_moved_game_clock_relights_the_ground_at_once_and_a_faster_one_more_often() {
+    let cell = 0x0298_0001;
+    let at = Vec3 {
+        x: 12.0,
+        y: 12.0,
+        z: 150.0,
+    };
+    let script = script_until(cell, at, Quat::IDENTITY, &[], &[], 45.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    const MOVED: f64 = 12.0;
+    let mut moved = false;
+    // The ground's first corner by frame, after the move.
+    let mut seen: Vec<(f64, [f32; 4])> = Vec::new();
+    while s.host.time < 32.0 {
+        let h = &mut s.host;
+        h.time += 1.0 / 60.0;
+        let t = LocalTime(1.0 + h.time);
+        for d in h.double.tick(t) {
+            h.inbox.push_back((d.from, d.bytes));
+        }
+        let now = s.host.time;
+        if now >= MOVED && !moved {
+            moved = true;
+            let c = s.client.as_mut().expect("a client");
+            let t = c.game_time();
+            let clock = c.game_clock_mut().expect("the world's clock");
+            assert!(clock.dilate(2.0, t), "the rate taken");
+            clock.use_time(t);
+            let to = (clock.time_of_day() + 0.25).fract();
+            clock.alter_time_of_day(to, t);
+        }
+        let out = s.frame();
+        let Some(f) = out.world else {
+            continue;
+        };
+        if now >= MOVED - 1.0 && !f.terrain.is_empty() {
+            seen.push((now, f.terrain[0].vertices[0].color));
+        }
+    }
+    let changes: Vec<f64> = seen
+        .windows(2)
+        .filter(|w| w[0].1 != w[1].1)
+        .map(|w| w[1].0)
+        .collect();
+    assert!(changes.len() >= 2, "lit again: {changes:?}");
+    assert!(
+        changes[0] >= MOVED && changes[0] - MOVED < 0.1,
+        "lit on the frame after the move, not at {changes:?}"
+    );
+    assert!(
+        (changes[1] - changes[0] - 15.0).abs() < 0.1,
+        "the next tick half of 30 s on, not at {changes:?}"
+    );
+    assert!(
+        !s.client
+            .as_ref()
+            .and_then(|c| c.game_clock())
+            .expect("the world's clock")
+            .needs_light(),
+        "the clock told the land has been lit"
+    );
+}
+
+/// A press of the pointer falls on the nearest body whose drawn triangles lie under it; failing any,
+/// on a body whose box lies under it, so a press just off a body's arm still finds it. The player's
+/// own body is found only by its triangles and behind everything else met, and not with the camera
+/// at its eyes. (A figure standing just ahead of the player on the land of block `0xC156`; every
+/// other pixel over their boxes.)
+///
+/// Behaviour: desktop.world.a-press-falls-on-the-body-under-it-or-failing-that-on-its-box
+#[test]
+fn a_press_falls_on_the_body_under_it_or_failing_that_on_its_box() {
+    use auberean_scene::camera::{AvatarInFirstPerson, Press};
+    use auberean_scene::seen::{self, SeenCamera};
+    const CREATURE: u64 = 0x8130_1B05_CC00_0078;
+    let cell = 0xC156_0035;
+    let at = Vec3 {
+        x: 122.84,
+        y: 87.98,
+        z: 80.2,
+    };
+    let creature = CreateObject {
+        id: CREATURE,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: 122.84,
+                        y: 90.98,
+                        z: 80.2,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let script = script_until(cell, at, Quat::IDENTITY, &[creature], &[], 20.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 6.0 {
+        step(&mut s);
+    }
+    let size = (s.size.0 as f32, s.size.1 as f32);
+    let screen_box = |camera: &SeenCamera, body: &seen::SeenBody| {
+        let (mut lo, mut hi) = ((f32::MAX, f32::MAX), (f32::MIN, f32::MIN));
+        for c in body.corners(body.bounds.expect("drawn")) {
+            let (x, y, _) = camera.project(c, size.0, size.1).expect("in front");
+            lo = (lo.0.min(x), lo.1.min(y));
+            hi = (hi.0.max(x), hi.1.max(y));
+        }
+        (lo, hi)
+    };
+    let (mut by_box, mut by_triangles, mut player_only, mut player_box, mut before_player) =
+        (0, 0, 0, 0, 0);
+    for _ in 0..600 {
+        step(&mut s);
+        let drawn = |id: u64| s.scene.seen.body(id).is_some_and(|b| b.bounds.is_some());
+        if drawn(CREATURE) && drawn(PLAYER) {
+            break;
+        }
+    }
+    let objects = s.frame().world.expect("the world").objects.clone();
+    let camera = s.scene.seen.camera.expect("a camera");
+    let body = |id: u64| s.scene.seen.body(id).cloned().expect("drawn");
+    let (them, me) = (body(CREATURE), body(PLAYER));
+    let range_of = |id: u64| vec![(id, s.scene.drawn_batches(id).expect("drawn"))];
+    let (theirs, mine) = (range_of(CREATURE), range_of(PLAYER));
+    let (a, b) = (screen_box(&camera, &them), screen_box(&camera, &me));
+    let lo = (a.0 .0.min(b.0 .0).max(1.0), a.0 .1.min(b.0 .1).max(1.0));
+    let hi = (
+        a.1 .0.max(b.1 .0).min(size.0 - 1.0),
+        a.1 .1.max(b.1 .1).min(size.1 - 1.0),
+    );
+    let inside = |r: ((f32, f32), (f32, f32)), p: (f32, f32), margin: f32| {
+        p.0 >= r.0 .0 + margin
+            && p.0 <= r.1 .0 - margin
+            && p.1 >= r.0 .1 + margin
+            && p.1 <= r.1 .1 - margin
+    };
+    let mut y = lo.1.floor();
+    while y <= hi.1 {
+        let mut x = lo.0.floor();
+        while x <= hi.0 {
+            let p = (x, y);
+            let picked = s.scene.pick_world(p, s.size);
+            let on_them = seen::pick(&camera, size, p, &objects, &theirs).is_some();
+            let on_me = seen::pick(&camera, size, p, &objects, &mine).is_some();
+            if on_them {
+                assert_eq!(picked, Some(CREATURE), "on the figure at {p:?}");
+                by_triangles += 1;
+                before_player += usize::from(on_me);
+            } else if on_me {
+                assert_eq!(picked, Some(PLAYER), "on the player alone at {p:?}");
+                player_only += 1;
+            } else if inside(a, p, 2.0) {
+                assert_eq!(picked, Some(CREATURE), "in the figure's box at {p:?}");
+                by_box += 1;
+            } else if inside(b, p, 2.0) && !inside(a, p, -2.0) {
+                assert_eq!(picked, None, "in the player's box alone at {p:?}");
+                player_box += 1;
+            }
+            x += 2.0;
+        }
+        y += 2.0;
+    }
+    assert!(
+        by_triangles > 20 && by_box > 20 && player_only > 20 && player_box > 20,
+        "{by_triangles} {by_box} {player_only} {player_box}"
+    );
+    assert!(before_player > 0, "the figure is met through the player");
+    // With the camera at the player's eyes looking down at its body, drawn: never the player.
+    s.scene.camera.options.avatar_in_first_person = AvatarInFirstPerson::Always;
+    s.scene.camera.press(Press::FirstPerson);
+    for _ in 0..30 {
+        step(&mut s);
+    }
+    s.scene.camera.press(Press::MouseLook);
+    s.scene.camera.mouse(0.0, 600.0);
+    for _ in 0..30 {
+        step(&mut s);
+    }
+    let objects = s.frame().world.expect("the world").objects.clone();
+    let camera = s.scene.seen.camera.expect("a camera");
+    let mine = range_of_at_eyes(&s);
+    let mut on_me = 0;
+    for y in (0..s.size.1).step_by(8) {
+        for x in (0..s.size.0).step_by(8) {
+            #[allow(clippy::cast_precision_loss)]
+            let p = (x as f32, y as f32);
+            on_me += usize::from(seen::pick(&camera, size, p, &objects, &mine).is_some());
+            assert_ne!(s.scene.pick_world(p, s.size), Some(PLAYER), "at {p:?}");
+        }
+    }
+    assert!(on_me > 0, "the ray meets the body drawn at {camera:?}");
+}
+
+/// The batches of the player's body in the last world frame.
+fn range_of_at_eyes(s: &Shell<'_, DoubleHost>) -> Vec<(u64, std::ops::Range<usize>)> {
+    vec![(PLAYER, s.scene.drawn_batches(PLAYER).expect("drawn"))]
+}
+
+/// The groove level the radar works out reaches the music: the play screen's request becomes a
+/// sound order, and the order sets the level the music's patterns follow.
+///
+/// Behaviour: desktop.sound.the-radars-groove-level-reaches-the-music
+#[test]
+fn the_radars_groove_level_reaches_the_music() {
+    use auberean_shell::interface::SoundOrder;
+    let server = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell(Box::new(DevLogin::new(
+        server,
+        "tester".into(),
+        "t".into(),
+        Some("tester".into()),
+    )));
+    step(&mut s);
+    assert_eq!(s.sound.manager.groove(), 0);
+    s.sound.request(SoundOrder::Groove(12));
+    assert_eq!(s.sound.manager.groove(), 12);
+}
+
+/// Outdoors the camera's own object keeps its sphere, a quarter of a meter, off the land: tilted to
+/// look up from under the ground, the camera stands that far above where its line of sight met the
+/// land. (The player on the land of block `0xC156`, the mouse pushing the view all the way up.)
+///
+/// Behaviour: desktop.camera.outdoors-the-cameras-own-object-keeps-it-off-the-land
+#[test]
+fn outdoors_the_cameras_own_object_keeps_it_off_the_land() {
+    use auberean_scene::camera::Press;
+    let cell = 0xC156_0035;
+    let at = Vec3 {
+        x: 122.84,
+        y: 87.98,
+        z: 80.2,
+    };
+    let script = script_until(cell, at, Quat::IDENTITY, &[], &[], 20.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 6.0 {
+        step(&mut s);
+    }
+    s.scene.camera.press(Press::MouseLook);
+    for _ in 0..120 {
+        s.scene.camera.mouse(0.0, -400.0);
+        step(&mut s);
+    }
+    let camera = s.scene.seen.camera.expect("a camera");
+    let feet = s.scene.status.origin;
+    let above = camera.position.z - feet.z;
+    assert!(camera.pitch > 10.0, "looking up: {}", camera.pitch);
+    // The land falls a little between the feet and the camera.
+    assert!(above > 0.1 && above < 0.5, "{above} m above the feet");
+}
+
+/// The world hidden while a story plays is not drawn, and is drawn again when shown.
+///
+/// Behaviour: desktop.world.the-world-hidden-is-not-drawn
+#[test]
+fn the_world_hidden_is_not_drawn_and_shown_again_is() {
+    let server = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell(Box::new(DevLogin::new(
+        server,
+        "tester".into(),
+        "t".into(),
+        Some("tester".into()),
+    )));
+    while s.host.time < 6.0 {
+        step(&mut s);
+    }
+    assert!(s.frame().world.is_some(), "drawn");
+    s.scene.show_world(false);
+    step(&mut s);
+    assert!(s.frame().world.is_none(), "hidden");
+    s.scene.show_world(true);
+    step(&mut s);
+    assert!(s.frame().world.is_some(), "drawn again");
 }
 
 /// The world's frame carries the client's running time every frame: the clouds' shadows slide, the
@@ -3010,13 +5826,14 @@ fn losing_the_keyboard_ends_a_held_strafe_and_keeps_the_latched_run() {
     }
 }
 
-/// In the hall, the interior cells' ambient kind dominates and its place music (`2C000168`, a
+/// In the hall, the kind most of its cells name dominates and its place music (`2C000169`, a
 /// primary piece) plays from an ambient sound's object, its piece on the performance.
 ///
 /// Behaviour: audio.ambient.a-session-hears-its-place
 #[test]
 fn in_the_hall_the_interiors_place_music_plays() {
-    const HALL_MUSIC: u32 = 0x2C00_0168;
+    const HALL_KIND: u32 = 0x8100_000F;
+    const HALL_MUSIC: u32 = 0x2C00_0169;
     let script = script();
     let server =
         ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
@@ -3032,10 +5849,7 @@ fn in_the_hall_the_interiors_place_music_plays() {
     while s.host.time < 8.0 {
         step(&mut s);
     }
-    assert_eq!(
-        s.sound.ambient().dominant_kind(),
-        Some(auberean_audio::ambient::INTERIOR_KIND)
-    );
+    assert_eq!(s.sound.ambient().dominant_kind(), Some(HALL_KIND));
     let playing = s.sound.manager.playing();
     assert!(
         playing.iter().any(|&(_, id, _)| id == HALL_MUSIC),
@@ -3141,7 +5955,12 @@ fn the_applied_graphics_preferences_reach_the_next_frame() {
         s.host.time += 1.0 / 60.0;
         let out = s.frame();
         let f = out.world.expect("the hall drawn");
-        let layers: Vec<_> = f.objects.iter().map(|b| b.layer.clone()).collect();
+        let layers: Vec<_> = f
+            .objects
+            .iter()
+            .filter(|b| b.shown())
+            .map(|b| b.layer.clone())
+            .collect();
         (f.textures, layers)
     };
     let (textures, high) = layers(&mut s);
@@ -3178,4 +5997,34 @@ fn the_applied_graphics_preferences_reach_the_next_frame() {
         "{changed} of {} changed",
         high.len()
     );
+}
+
+/// How the game is shown goes to the host and into the settings as the interface asks: a flip of
+/// full screen is the interface's to answer, and what it answers is carried out.
+///
+/// Behaviour: desktop.shell.the-host-shows-the-game-as-the-interface-asks
+#[test]
+fn the_host_shows_the_game_as_the_interface_asks() {
+    use auberean_shell::host::TestHost;
+    use auberean_shell::Presentation;
+    struct Flips;
+    impl Interface for Flips {
+        fn update(&mut self, _game: &Game<'_>, _requests: &mut Vec<Request>) {}
+        fn toggle_full_screen(&mut self, requests: &mut Vec<Request>) {
+            requests.push(Request::Presentation(Presentation {
+                size: (800, 600),
+                full_screen: true,
+                triple_buffering: true,
+                sync_to_display: false,
+                antialiasing: false,
+            }));
+        }
+    }
+    let (world, data) = data();
+    let mut s = Shell::new(TestHost::default(), world, data.clone(), Box::new(Flips));
+    s.toggle_full_screen();
+    assert_eq!(s.host.presentations.len(), 1);
+    assert_eq!(s.settings.presentation(), s.host.presentations[0]);
+    assert_eq!(s.settings.window, (800, 600));
+    assert!(s.settings.full_screen);
 }

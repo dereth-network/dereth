@@ -46,6 +46,8 @@ pub mod look {
     pub const GROUP_NAME: u32 = 0xE978_8992;
     /// A quest creature's name (a dye plant's).
     pub const QUEST_NAME: u32 = 0x3800_42FF;
+    /// The line saying an item binds.
+    pub const BINDS: u32 = 0xE9BC_E65B;
 }
 
 /// The strings of profiles (string ids) and their tables.
@@ -69,6 +71,8 @@ pub mod line {
     pub const LIFESTONE_RECALL: u32 = 0x0453_EA93;
     pub const REQUIREMENTS: u32 = 0x4F39_B658;
     pub const MINIMUM_LEVEL: u32 = 0x4ED2_0478;
+    pub const IN_AN_ALLEGIANCE: u32 = 0x9D7D_54C6;
+    pub const A_MONARCH: u32 = 0x8ADC_E384;
     /// The kingdoms' table, and the neutral kingdom's name.
     pub const KINGDOMS: u32 = 0x2500_000F;
     pub const NEUTRAL: u32 = 0x1268_95B3;
@@ -527,6 +531,7 @@ fn kingdom_lines(p: &mut Profile, faction: u32) {
 /// its race and sex, its level, its kingdom (the neutral one for a player in none), its health
 /// and vigor, its kingdom points and quest rating.
 #[must_use]
+#[allow(clippy::too_many_arguments)]
 pub fn player(
     asked: u32,
     world_name: &str,
@@ -535,6 +540,7 @@ pub fn player(
     level: i32,
     kingdom: Option<u32>,
     v: Vitals,
+    quest_rating: u32,
 ) -> Profile {
     let mut p = Profile::new(asked);
     let name = || literal(world_name);
@@ -592,10 +598,10 @@ pub fn player(
         with_vars(
             line::TABLE,
             line::QUEST_RATING,
-            vec![number(var::QUEST_RATING, 0)],
+            vec![number(var::QUEST_RATING, quest_rating)],
         ),
     );
-    p.int(GENERAL, look::VALUE, 0);
+    p.int(GENERAL, look::VALUE, quest_rating.cast_signed());
     p.brk(GENERAL);
     p.brk(GENERAL);
     p
@@ -657,6 +663,32 @@ pub fn npc(asked: u32, name: TextInfo, f: &Facts) -> Profile {
     p
 }
 
+/// What the requirements tab says of an object for monarchs alone.
+pub fn monarch_lines(p: &mut Profile) {
+    p.brk(REQUIREMENTS);
+    p.text(
+        REQUIREMENTS,
+        look::LABEL,
+        string(line::TABLE, line::REQUIREMENTS),
+    );
+    p.brk(REQUIREMENTS);
+    p.tab(REQUIREMENTS, 0);
+    p.text(
+        REQUIREMENTS,
+        look::LABEL,
+        string(line::TABLE, line::IN_AN_ALLEGIANCE),
+    );
+    p.brk(REQUIREMENTS);
+    p.tab(REQUIREMENTS, 0);
+    p.tab(REQUIREMENTS, 0);
+    p.text(
+        REQUIREMENTS,
+        look::VALUE,
+        string(line::TABLE, line::A_MONARCH),
+    );
+    p.brk(REQUIREMENTS);
+}
+
 /// An item's name composed of its template's name with no prefix or suffix.
 #[must_use]
 pub fn item_name(f: &Facts) -> TextInfo {
@@ -672,16 +704,59 @@ pub fn item_name(f: &Facts) -> TextInfo {
     )
 }
 
-/// A treasure potion's name: its template's name with its effect's suffix ("Potion of Revival"),
-/// the effect's name table holding the suffix.
+/// A made item's name: its template's name after the word its level gives it ("Crude Vine Shako").
 #[must_use]
-pub fn potion_name(f: &Facts, effect_table: u32) -> TextInfo {
+pub fn made_name(f: &Facts, level_word: u32) -> TextInfo {
     let name = || f.name.map_or_else(|| literal(""), |(s, t)| string(t, s));
     with_vars(
         line::ITEM_NAMES,
         line::ITEM_NAME,
         vec![
-            nested(var::PREFIX, literal("")),
+            nested(
+                var::PREFIX,
+                with_vars(
+                    line::ITEM_NAMES,
+                    level_word,
+                    vec![nested(var::SUFFIX_ITEM, name())],
+                ),
+            ),
+            nested(var::SUFFIX, literal("")),
+            nested(var::NAME, name()),
+        ],
+    )
+}
+
+/// A treasure potion's or piece of jewelry's name: its template's name with its effect's suffix
+/// ("Potion of Revival"), the effect's name table holding the suffix.
+#[must_use]
+pub fn potion_name(f: &Facts, effect_table: u32) -> TextInfo {
+    named_for(f, literal(""), effect_table)
+}
+
+/// A treasure item's name: the word treasure gives it, its template's name and the suffix of the
+/// effect it is named for.
+#[must_use]
+pub fn treasure_name(f: &Facts, effect_table: u32) -> TextInfo {
+    use crate::inventory::treasure_name::PREFIX_TEXT;
+    treasure_word_name(f, effect_table, PREFIX_TEXT.0)
+}
+
+/// A treasure item's name with the word it drew before it.
+#[must_use]
+pub fn treasure_word_name(f: &Facts, effect_table: u32, word: u32) -> TextInfo {
+    use crate::inventory::treasure_name::PREFIX_TEXT;
+    let name = f.name.map_or_else(|| literal(""), |(s, t)| string(t, s));
+    let word = with_vars(PREFIX_TEXT.1, word, vec![nested(var::SUFFIX_ITEM, name)]);
+    named_for(f, word, effect_table)
+}
+
+fn named_for(f: &Facts, prefix: TextInfo, effect_table: u32) -> TextInfo {
+    let name = || f.name.map_or_else(|| literal(""), |(s, t)| string(t, s));
+    with_vars(
+        line::ITEM_NAMES,
+        line::ITEM_NAME,
+        vec![
+            nested(var::PREFIX, prefix),
             nested(
                 var::SUFFIX,
                 with_vars(
@@ -759,8 +834,41 @@ pub fn chance_to_hit(attacker: i32, target: i32) -> u32 {
 /// The strings of item profiles (in the general table unless said).
 pub mod item_line {
     pub const VALUE_LABEL: u32 = 0x2F3E_4575;
+    /// "Inscription by: ", and the player.
+    pub const INSCRIPTION_BY: u32 = 0x8BB1_ECE2;
     pub const VALUE: u32 = 0xA828_186C;
     pub const WEAPON_STATS: u32 = 0xA4CC_8C3D;
+    pub const SHIELD_STATS: u32 = 0x06C6_0F68;
+    pub const TOOL_STATS: u32 = 0xEF43_9EA4;
+    /// "Increases yields for each successful attempt by {}."
+    pub const TOOL_YIELD: u32 = 0xC506_00E6;
+    /// "Requires a minimum craft skill level of {} in:", and each craft skill's line.
+    pub const CRAFT_LEVEL: u32 = 0x7386_AE0C;
+    pub const CRAFT_SKILL: u32 = 0x2651_2F1C;
+    pub const CRAFT_SKILL_MORE: u32 = 0x4357_AF0D;
+    pub const CRAFT_SKILL_LAST: u32 = 0xC197_AF2D;
+    pub const SHIELD_RATING: u32 = 0x71EF_5CCF;
+    /// "There is {} available enchantment slot on this item.", and more than one.
+    pub const SLOT: u32 = 0xD8FC_509F;
+    pub const SLOTS: u32 = 0x90AA_F593;
+    /// "This item can become harmonic."
+    pub const HARMONIC: u32 = 0xA0CE_495E;
+    /// "This item will bind itself to the first player that uses it in combat. ..."
+    pub const BINDS: u32 = 0x1BB0_CDB6;
+    /// "{The} {totem} has been imbued by a spellbinder and can be used to enchant {a} {kind}."
+    pub const TOTEM_IMBUED: u32 = 0xD937_4C67;
+    /// "The target item must have a minimum level of at least {}."
+    pub const TOTEM_LEVEL: u32 = 0xFAC7_2EC9;
+    /// "The target item must have an arcane lore of at least {}."
+    pub const TOTEM_LORE: u32 = 0xB873_5FB6;
+    /// "Permanent Enchantment Effect(s):"
+    pub const EFFECTS_PERMANENT: u32 = 0xF397_0BCA;
+    /// "Enchantment Effect(s):"
+    pub const EFFECTS_ENCHANTMENT: u32 = 0xC4E5_ED4C;
+    /// "Amount: ", and its value.
+    pub const AMOUNT: u32 = 0x0CA6_14AD;
+    pub const AMOUNT_VALUE: u32 = 0xCB4D_6AD4;
+    pub const AMOUNT_POINTS: u32 = 0x8B6B_C049;
     pub const DAMAGE: u32 = 0x9B6C_373C;
     pub const DAMAGE_VALUE: u32 = 0xA862_1B86;
     pub const COMBAT_DELAY: u32 = 0x3B4D_51EA;
@@ -803,7 +911,13 @@ pub mod item_line {
 
 /// The variables of item lines.
 pub mod item_var {
+    /// What a totem's enchantment goes on.
+    pub const TOTEM_KIND: u32 = 0x9352_2CD0;
+    /// The least a totem's target may have.
+    pub const LEAST: u32 = 0xA516_8800;
     pub const VALUE: u32 = 0x0D06_6558;
+    /// The player who inscribed it.
+    pub const INSCRIBER: u32 = 0x77D6_A489;
     pub const DAMAGE_LOW: u32 = 0x9B26_7000;
     pub const DAMAGE_HIGH: u32 = 0x9B06_C000;
     pub const COUNT: u32 = 0x073E_ACEA;
@@ -813,6 +927,12 @@ pub mod item_var {
     pub const QUANTITY: u32 = 0x9D56_6800;
     /// A durability now (its most is [`DAMAGE_HIGH`]'s variable).
     pub const DURABILITY: u32 = 0x34FC_9528;
+    /// How many enchantment slots.
+    pub const SLOTS: u32 = 0xC732_7D4A;
+    /// A tool's yield, the craft skill it asks of.
+    pub const YIELD: u32 = 0x5636_7D59;
+    pub const CRAFT_LEVEL: u32 = 0x1916_B459;
+    pub const CRAFT_SKILL: u32 = 0x272E_4CC9;
 }
 
 /// The looks an item's name is drawn with besides a plain value's: a rare item's, an item someone
@@ -835,15 +955,34 @@ pub enum When {
     Equipped,
     /// On what it hits.
     Hit,
+    /// On the item itself, always.
+    Permanent,
+    /// On the item itself for now: what its holder's auras hold on it.
+    Enchantment,
 }
 
 /// One effect an item's profile lists: when it applies, its name's table (the effect's own, which
 /// holds its name and description), and the spellcraft it is cast with when the profile shows one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ItemEffect {
     pub when: When,
     pub table: u32,
     pub spellcraft: Option<i32>,
+    /// Its amount, when it shows one.
+    pub amount: Option<Amount>,
+}
+
+/// How little above a whole number a percentage is still shown as one: (0.3 of a float reads 30.000002
+/// and shows 30; 0.8 taken from 1 reads 19.999998 and shows so.)
+const WHOLE_AMOUNT: f32 = 0.001;
+
+/// An effect's amount as a profile shows it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Amount {
+    /// In hundredths of what it changes.
+    Percent(f32),
+    /// A whole number of points.
+    Points(u32),
 }
 
 /// The template properties naming an item's effects and their spellcraft, by when they apply.
@@ -915,6 +1054,7 @@ pub fn item_effects(
                 when,
                 table: shown.table,
                 spellcraft: shown.spellcraft_shown.then_some(sc),
+                amount: None,
             });
         }
     }
@@ -923,6 +1063,9 @@ pub fn item_effects(
 
 /// The tab of an item's stats.
 pub const STATS: u32 = 8;
+
+/// The tab an item's inscription is on.
+pub const INSCRIPTION: u32 = 0x80;
 
 /// The script classes whose start-up makes their items destroyed on use (`true`) or not
 /// (`false`): an item is destroyed on use when the nearest of these its class derives from says
@@ -983,6 +1126,13 @@ pub const RACE_NAMES: [(u32, u32); 5] = [
     (16, 0x6C89_BCFE),
 ];
 
+/// What a tool's profile shows: what it adds to each use, the craft skill level it asks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ToolView {
+    pub yields: Option<u32>,
+    pub craft: u32,
+}
+
 /// What an item's profile shows of it.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ItemView {
@@ -999,6 +1149,8 @@ pub struct ItemView {
     /// Armor's rating, combat delay and the places it is worn on.
     pub armor: Option<(i32, i32, u32)>,
     pub destroyed_on_use: bool,
+    /// It is treasure jewelry: its effects are worn.
+    pub jewelry: bool,
     pub min_level: i32,
     pub max_level: i32,
     /// The races that may use it (bits; 0 for all).
@@ -1014,6 +1166,33 @@ pub struct ItemView {
     pub durability: Option<(i32, i32)>,
     /// Its effects, in the order listed.
     pub effects: Vec<ItemEffect>,
+    /// What a player inscribed on it, and the player's name.
+    pub inscription: Option<(String, String)>,
+    /// Its enchantment slots.
+    pub slots: u32,
+    /// It can be made harmonic.
+    pub harmonic: bool,
+    /// What it is as a tool.
+    pub tool: Option<ToolView>,
+    /// The names of the craft skills a tool's level asks of.
+    pub tool_skills: Vec<TextInfo>,
+    /// Its weapon stats are a shield's, with this rating.
+    pub shield: Option<i32>,
+    /// It binds to the first player that uses it in combat.
+    pub binds: bool,
+    /// Its own effects change its damage, its vigor cost: those lines are drawn as enchanted.
+    pub damage_changed: bool,
+    pub vigor_changed: bool,
+    /// It is a totem: what it goes on, and the least level and Arcane Lore its target must have.
+    pub totem: Option<TotemView>,
+}
+
+/// What a totem says of what it may enchant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TotemView {
+    pub kind: u32,
+    pub least_level: Option<i32>,
+    pub least_lore: Option<i32>,
 }
 
 impl ItemView {
@@ -1024,6 +1203,8 @@ impl ItemView {
         let worn = self.armor.is_some() && self.weapon.is_none();
         if self.rare {
             name_look::RARE
+        } else if self.binds {
+            look::QUEST_NAME
         } else if self.crafter.is_some()
             && !(worn && self.effects.iter().any(|e| e.when == When::Equipped))
         {
@@ -1150,8 +1331,28 @@ fn race_list(races: &[u32]) -> TextInfo {
     }
 }
 
+/// An inscription's lines, on their own tab: who wrote it, then its words (2017: 493 of 493 profiles
+/// holding one, on 23 items).
+pub fn inscription_lines(p: &mut Profile, said: &str, by: &str) {
+    p.brk(INSCRIPTION);
+    p.text(
+        INSCRIPTION,
+        look::LABEL,
+        with_vars(
+            line::TABLE,
+            item_line::INSCRIPTION_BY,
+            vec![nested(item_var::INSCRIBER, literal(by))],
+        ),
+    );
+    p.text(INSCRIPTION, look::VALUE, literal(by));
+    p.brk(INSCRIPTION);
+    p.tab(INSCRIPTION, 0);
+    p.text(INSCRIPTION, look::LABEL, literal(said));
+    p.brk(INSCRIPTION);
+}
+
 /// An item's profile: its icon (or picture), its name, its value, its description; a weapon's or
-/// armor's stats; what using it does to it, and what it takes to use.
+/// armor's stats; what using it does to it, and what it takes to use; what is inscribed on it.
 #[must_use]
 pub fn item(asked: u32, v: &ItemView) -> Profile {
     use item_line as l;
@@ -1196,6 +1397,17 @@ pub fn item(asked: u32, v: &ItemView) -> Profile {
         p.text(GENERAL, look::LABEL, literal(who));
         p.brk(GENERAL);
     }
+    if v.slots > 0 {
+        let line_of = if v.slots == 1 { l::SLOT } else { l::SLOTS };
+        p.brk(GENERAL);
+        p.text(
+            GENERAL,
+            look::LABEL,
+            with_vars(line::TABLE, line_of, vec![number(item_var::SLOTS, v.slots)]),
+        );
+        p.brk(GENERAL);
+        p.brk(GENERAL);
+    }
     if let Some((now, most)) = v.durability {
         p.tab(STATS, 0);
         p.text(STATS, look::LABEL, string(line::TABLE, l::DURABILITY));
@@ -1217,31 +1429,82 @@ pub fn item(asked: u32, v: &ItemView) -> Profile {
         p.tab(STATS, 0);
         p.text(STATS, look::LABEL, string(line::TABLE, label));
     };
+    if let Some(tool) = v.tool {
+        p.text(STATS, look::LABEL, string(line::TABLE, l::TOOL_STATS));
+        p.brk(STATS);
+        if let Some(n) = tool.yields {
+            p.brk(STATS);
+            p.tab(STATS, 0);
+            p.text(
+                STATS,
+                look::LABEL,
+                with_vars(line::TABLE, l::TOOL_YIELD, vec![number(item_var::YIELD, n)]),
+            );
+            p.brk(STATS);
+        }
+    }
     if let Some((damage, variance, delay, vigor)) = v.weapon {
-        p.text(STATS, look::LABEL, string(line::TABLE, l::WEAPON_STATS));
+        let heading = if v.shield.is_some() {
+            l::SHIELD_STATS
+        } else {
+            l::WEAPON_STATS
+        };
+        p.text(STATS, look::LABEL, string(line::TABLE, heading));
         p.brk(STATS);
-        stat(&mut p, l::DAMAGE);
-        #[allow(clippy::cast_precision_loss)]
-        let low = dereth_primitives::num::floor_to_i32(damage as f32 * (1.0 - variance));
-        p.text(
-            STATS,
-            look::VALUE,
-            with_vars(
-                line::TABLE,
-                l::DAMAGE_VALUE,
-                vec![
-                    number(item_var::DAMAGE_LOW, low.max(0).cast_unsigned()),
-                    number(item_var::DAMAGE_HIGH, damage.max(0).cast_unsigned()),
-                ],
-            ),
-        );
-        p.brk(STATS);
+        let damage_line = |p: &mut Profile| {
+            p.tab(STATS, 0);
+            p.text(STATS, look::LABEL, string(line::TABLE, l::DAMAGE));
+            #[allow(clippy::cast_precision_loss)]
+            let low = dereth_primitives::num::floor_to_i32(damage as f32 * (1.0 - variance));
+            p.text(
+                STATS,
+                if v.damage_changed {
+                    name_look::ENCHANTED
+                } else {
+                    look::VALUE
+                },
+                with_vars(
+                    line::TABLE,
+                    l::DAMAGE_VALUE,
+                    vec![
+                        number(item_var::DAMAGE_LOW, low.max(0).cast_unsigned()),
+                        number(item_var::DAMAGE_HIGH, damage.max(0).cast_unsigned()),
+                    ],
+                ),
+            );
+            p.brk(STATS);
+        };
+        // A shield's rating leads, and its damage comes last.
+        if let Some(rating) = v.shield {
+            stat(&mut p, l::SHIELD_RATING);
+            p.int(STATS, look::VALUE, rating);
+            p.brk(STATS);
+        } else {
+            damage_line(&mut p);
+        }
         stat(&mut p, l::COMBAT_DELAY);
         p.int(STATS, look::VALUE, delay);
         p.brk(STATS);
         stat(&mut p, l::VIGOR_COST);
-        p.int(STATS, look::VALUE, vigor);
+        p.int(
+            STATS,
+            if v.vigor_changed {
+                name_look::ENCHANTED
+            } else {
+                look::VALUE
+            },
+            vigor,
+        );
         p.brk(STATS);
+        if v.shield.is_some() {
+            damage_line(&mut p);
+        }
+        if v.harmonic {
+            p.brk(STATS);
+            p.text(STATS, look::LABEL, string(line::TABLE, l::HARMONIC));
+            p.brk(STATS);
+            p.brk(STATS);
+        }
     }
     if let Some((rating, delay, places)) = v.armor {
         p.text(STATS, look::LABEL, string(line::TABLE, l::ARMOR_STATS));
@@ -1263,6 +1526,7 @@ pub fn item(asked: u32, v: &ItemView) -> Profile {
             }
         }
     }
+    totem_lines(&mut p, v);
     effect_lines(&mut p, v);
     if v.destroyed_on_use {
         p.brk(REQUIREMENTS);
@@ -1358,30 +1622,112 @@ pub fn item(asked: u32, v: &ItemView) -> Profile {
             p.brk(REQUIREMENTS);
         }
     }
+    if let Some(tool) = v.tool {
+        p.brk(REQUIREMENTS);
+        p.text(
+            REQUIREMENTS,
+            look::LABEL,
+            with_vars(
+                line::TABLE,
+                l::CRAFT_LEVEL,
+                vec![number(item_var::CRAFT_LEVEL, tool.craft)],
+            ),
+        );
+        p.brk(REQUIREMENTS);
+        let many = v.tool_skills.len() > 1;
+        for (i, name) in v.tool_skills.iter().enumerate() {
+            let form = if !many {
+                l::CRAFT_SKILL
+            } else if i + 1 == v.tool_skills.len() {
+                l::CRAFT_SKILL_LAST
+            } else {
+                l::CRAFT_SKILL_MORE
+            };
+            p.tab(REQUIREMENTS, 0);
+            p.text(
+                REQUIREMENTS,
+                look::LABEL,
+                with_vars(
+                    line::TABLE,
+                    form,
+                    vec![nested(item_var::CRAFT_SKILL, name.clone())],
+                ),
+            );
+            if i + 1 < v.tool_skills.len() {
+                p.brk(REQUIREMENTS);
+            }
+        }
+    }
+    if v.binds {
+        p.tab(REQUIREMENTS, 0);
+        p.tab(REQUIREMENTS, 0);
+        p.text(REQUIREMENTS, look::BINDS, string(line::TABLE, l::BINDS));
+        p.brk(REQUIREMENTS);
+    }
+    if let Some((said, by)) = &v.inscription {
+        inscription_lines(&mut p, said, by);
+    }
     p
+}
+
+/// What a totem says of what it may enchant: the line naming it, each least its target must have.
+fn totem_lines(p: &mut Profile, v: &ItemView) {
+    use item_line as l;
+    let Some(t) = v.totem else {
+        return;
+    };
+    let mut vars = vec![nested(item_var::TOTEM_KIND, string(line::TABLE, t.kind))];
+    if let Some(name) = &v.name {
+        vars.push(nested(item_var::RACE, name.clone()));
+    }
+    p.text(
+        STATS,
+        look::LABEL,
+        with_vars(line::TABLE, l::TOTEM_IMBUED, vars),
+    );
+    p.brk(STATS);
+    for (id, least) in [
+        (l::TOTEM_LEVEL, t.least_level),
+        (l::TOTEM_LORE, t.least_lore),
+    ] {
+        if let Some(least) = least {
+            let least = number(item_var::LEAST, least.max(0).cast_unsigned());
+            p.text(STATS, look::LABEL, with_vars(line::TABLE, id, vec![least]));
+            p.brk(STATS);
+        }
+    }
+    p.brk(STATS);
 }
 
 /// An item's effects on their tab, by when they apply: a heading with how many, then each
 /// effect's name, description and the spellcraft it is cast with when shown. A weapon's
-/// equipped and hit effects head the tab after a break, unindented; armor's are worn, after a
-/// break; anything else's are indented once, with no break.
+/// equipped and hit effects head the tab after a break, unindented; armor's and jewelry's are worn,
+/// after a break; anything else's are indented once, with no break.
 fn effect_lines(p: &mut Profile, v: &ItemView) {
     use item_line as l;
     let weapon = v.weapon.is_some();
     let armor = v.armor.is_some();
     let mut first = true;
-    for when in [When::Used, When::Equipped, When::Hit] {
+    for when in [
+        When::Used,
+        When::Permanent,
+        When::Enchantment,
+        When::Equipped,
+        When::Hit,
+    ] {
         let list: Vec<&ItemEffect> = v.effects.iter().filter(|e| e.when == when).collect();
         if list.is_empty() {
             continue;
         }
         let (heading, indent, after_break) = match when {
             When::Used => (l::EFFECTS_USED, 1, false),
-            When::Equipped if armor && !weapon => (l::EFFECTS_WORN, 1, true),
+            When::Equipped if (armor || v.jewelry) && !weapon => (l::EFFECTS_WORN, 1, true),
             When::Equipped if weapon && !armor => (l::EFFECTS_WIELDED, 0, true),
             When::Equipped if armor => (l::EFFECTS_WIELDED, 1, true),
             When::Equipped => (l::EFFECTS_WIELDED, 1, false),
             When::Hit => (l::EFFECTS_ON_HIT, 0, true),
+            When::Permanent => (l::EFFECTS_PERMANENT, 0, true),
+            When::Enchantment => (l::EFFECTS_ENCHANTMENT, 0, true),
         };
         if after_break && first {
             p.brk(EFFECTS);
@@ -1420,6 +1766,34 @@ fn effect_lines(p: &mut Profile, v: &ItemView) {
                 p.tab(EFFECTS, indent + 1);
                 p.text(EFFECTS, look::LABEL, string(line::TABLE, l::SPELLCRAFT));
                 p.int(EFFECTS, look::VALUE, sc);
+                p.brk(EFFECTS);
+            }
+            if let Some(amount) = e.amount {
+                p.tab(EFFECTS, indent + 1);
+                p.text(EFFECTS, look::LABEL, string(line::TABLE, l::AMOUNT));
+                let (form, shown) = match amount {
+                    Amount::Points(n) => (l::AMOUNT_POINTS, number(item_var::QUANTITY, n)),
+                    Amount::Percent(n) if n - n.floor() < WHOLE_AMOUNT => (
+                        l::AMOUNT_VALUE,
+                        number(
+                            item_var::QUANTITY,
+                            dereth_primitives::num::to_i32(n).cast_unsigned(),
+                        ),
+                    ),
+                    Amount::Percent(n) => (
+                        l::AMOUNT_VALUE,
+                        Variable {
+                            id: item_var::QUANTITY,
+                            kind: 4,
+                            value: VariableValue::Double(f64::from(n).to_bits(), 2),
+                        },
+                    ),
+                };
+                p.text(
+                    EFFECTS,
+                    look::VALUE,
+                    with_vars(line::TABLE, form, vec![shown]),
+                );
                 p.brk(EFFECTS);
             }
         }

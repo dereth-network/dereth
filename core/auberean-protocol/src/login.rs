@@ -78,6 +78,30 @@ impl Field for DeleteCharacter {
     }
 }
 
+/// The client: bring back this deleted character of this account, while it is still greyed out.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RestoreCharacter {
+    pub character: u64,
+    pub name: WideString,
+    pub account: NarrowString,
+}
+
+impl Field for RestoreCharacter {
+    // D2-05343
+    fn read(r: &mut Reader<'_>) -> Result<Self> {
+        Ok(Self {
+            character: r.u64()?,
+            name: WideString::read(r)?,
+            account: NarrowString::read(r)?,
+        })
+    }
+    fn write(&self, w: &mut Writer) {
+        w.u64(self.character);
+        self.name.write(w);
+        self.account.write(w);
+    }
+}
+
 /// The client: create a character with these choices. A default one is a fresh result: no name,
 /// every number 0, no physique.
 // D2-11931
@@ -253,10 +277,22 @@ pub struct CharacterRefused {
 }
 
 impl CharacterRefused {
+    /// "The server has crashed."
+    pub const SERVER_CRASH: u32 = 3;
+    /// "You have been logged off."
+    pub const LOGGED_OFF: u32 = 4;
+    /// "There has been an error."
+    pub const ERROR: u32 = 9;
     /// The character is still in the world.
     pub const IN_WORLD: u32 = 11;
     /// The character is not on this account.
     pub const NOT_OWNED: u32 = 13;
+    /// "You are trying to enter with an old character."
+    pub const OLD_CHARACTER: u32 = 15;
+    /// "This character is corrupt. Contact tech support for help."
+    pub const CORRUPT_CHARACTER: u32 = 16;
+    /// The server found no place for the character.
+    pub const COULD_NOT_PLACE: u32 = 18;
     /// The server has no room.
     pub const SERVER_FULL: u32 = 19;
     /// The character was booted from the world (the reason a boot ends a login with).
@@ -290,6 +326,8 @@ impl CharacterCreated {
     pub const OK: u32 = 1;
     pub const NAME_IN_USE: u32 = 3;
     pub const NAME_REFUSED: u32 = 4;
+    /// The account may not make an admin character.
+    pub const ADMIN_REFUSED: u32 = 7;
     pub const NO_FREE_SLOT: u32 = 8;
 }
 
@@ -521,6 +559,7 @@ impl Field for DataQuery {
 }
 
 /// The iterations a client has of one data file.
+// D2-05165
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DataFileIterations {
     pub dat_file: u64,
@@ -528,6 +567,7 @@ pub struct DataFileIterations {
 }
 
 impl Field for DataFileIterations {
+    // D2-12845
     fn read(r: &mut Reader<'_>) -> Result<Self> {
         Ok(Self {
             dat_file: r.u64()?,
@@ -541,6 +581,7 @@ impl Field for DataFileIterations {
 }
 
 /// The client's answer: its language and, per data file, the iterations it has.
+// D2-05129
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct DataHeld {
     pub language: u32,

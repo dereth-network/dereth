@@ -37,13 +37,18 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use dereth_network_link::{is_key, Event, HubUrl, LinkClient};
+use dereth_network_protocol::verification;
 use empyrean_common::federation_configuration::FederationConfiguration;
 use empyrean_world::federation::{self, FederationSettings, NetworkStore, RoomSlot};
 use empyrean_world::World;
 
-/// How long `/dn verify` waits for the hub: it holds the call while it looks the world's host up
-/// and waits for the answer to its challenge.
-pub const VERIFY_TIMEOUT: Duration = Duration::from_secs(60);
+pub use dereth_network_link::verify::VERIFY_TIMEOUT;
+
+/// What a refusal of the world's key is answered with, and where the key is set.
+const KEY_UNKNOWN: &str = "The Dereth Network did not verify this world: the hub does not know this world's key. Check federation.key_file against the key the site gave you.";
+
+/// What the world's calls to the hub's verification routes name themselves.
+const USER_AGENT: &str = concat!("empyrean-server/", env!("CARGO_PKG_VERSION"));
 
 /// The least time between two saves of the store: a burst of changes is one save.
 pub const SAVE_EVERY: Duration = Duration::from_secs(2);
@@ -169,13 +174,8 @@ pub fn web_addresses(
 /// # Errors
 /// A name that is not one of the four rooms.
 fn global_room(named: Option<&str>) -> Result<Option<RoomSlot>, String> {
-    match named.map(str::trim) {
-        None => Ok(Some(RoomSlot::Roleplay)),
-        Some("") => Ok(None),
-        Some(name) => RoomSlot::parse(name).map(Some).ok_or_else(|| {
-            format!("federation.global_room {name:?}: general, trade, lfg, roleplay or empty")
-        }),
-    }
+    let word = dereth_network_protocol::rooms::read_setting(named, "roleplay")?;
+    Ok(word.and_then(RoomSlot::parse))
 }
 
 /// The saved records; none yet is an empty store.
@@ -219,44 +219,7 @@ fn saved(store: &NetworkStore) -> NetworkStore {
 /// The line a `/dn verify` answers with, from the hub's answer (`status` and its JSON body).
 #[must_use]
 pub fn verify_line(status: u16, body: &str) -> String {
-    let v: serde_json::Value = serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
-    if status == 200 {
-        return match v["approval"].as_str() {
-            Some("approved") => "The Dereth Network verified this world. It is on the network now; the link comes up within a minute.".to_owned(),
-            Some("rate_limited") => "The Dereth Network verified this world. Today's allowance of new worlds is spent: turn federation on from the site later.".to_owned(),
-            Some("not_network_slug") => "The Dereth Network verified this world. Its slug is too long, or reserved, to join the network.".to_owned(),
-            Some("locked") => "The Dereth Network verified this world, but the hub's operator has locked it.".to_owned(),
-            _ => "The Dereth Network verified this world.".to_owned(),
-        };
-    }
-    let message = v["error"]["message"].as_str().map(|m| {
-        m.chars()
-            .filter(|c| !c.is_control())
-            .take(200)
-            .collect::<String>()
-    });
-    match (status, message) {
-        (401, _) => "The Dereth Network did not verify this world: the hub does not know this world's key. Check federation.key_file against the key the site gave you.".to_owned(),
-        (429, _) => "The Dereth Network did not verify this world: too many attempts. Wait a while and try again.".to_owned(),
-        // The hub's own words, ended as a sentence unless they already are.
-        (_, Some(m)) if m.ends_with(['.', '?', '!']) => {
-            format!("The Dereth Network did not verify this world: {m}")
-        }
-        (_, Some(m)) => format!("The Dereth Network did not verify this world: {m}."),
-        (s, None) => format!("The Dereth Network did not verify this world: the hub answered {s}."),
-    }
-}
-
-/// The agent the world's calls to the hub's verification routes go through: no redirects, and
-/// the hub's status answered as it is.
-fn verify_agent() -> ureq::Agent {
-    ureq::Agent::config_builder()
-        .user_agent(concat!("empyrean-server/", env!("CARGO_PKG_VERSION")))
-        .timeout_global(Some(VERIFY_TIMEOUT))
-        .http_status_as_error(false)
-        .max_redirects(0)
-        .build()
-        .into()
+    verification::answer_line(status, body, KEY_UNKNOWN)
 }
 
 /// Posts the nonce of the hub's challenge (32 hex digits) to the hub's answer route with the
@@ -265,37 +228,19 @@ fn verify_agent() -> ureq::Agent {
 /// # Errors
 /// The hub could not be reached.
 pub fn send_answer(url: &str, key: &str, nonce: &str) -> Result<u16, String> {
-    let body = serde_json::json!({ "nonce": nonce }).to_string();
-    verify_agent()
-        .post(url)
-        .header("Authorization", &format!("Bearer {key}"))
-        .header("Content-Type", "application/json")
-        .send(body.as_str())
-        .map(|r| r.status().as_u16())
-        .map_err(|e| e.to_string())
+    dereth_network_link::verify::send_answer(url, key, nonce, USER_AGENT)
 }
 
 /// Sends one `/dn verify` to the hub and says how it went.
 fn send_verification(url: &str, key: &str, r: &federation::VerifyRequest) -> String {
-    let body = serde_json::json!({ "token": r.token, "by": r.by }).to_string();
-    match verify_agent()
-        .post(url)
-        .header("Authorization", &format!("Bearer {key}"))
-        .header("Content-Type", "application/json")
-        .send(body.as_str())
-    {
-        Ok(mut resp) => {
-            let status = resp.status().as_u16();
-            let text = resp
-                .body_mut()
-                .with_config()
-                .limit(64 * 1024)
-                .read_to_string()
-                .unwrap_or_default();
-            verify_line(status, &text)
-        }
-        Err(e) => format!("The Dereth Network's hub could not be reached: {e}."),
-    }
+    dereth_network_link::verify::send_verification(&dereth_network_link::verify::Verification {
+        url,
+        key,
+        token: &r.token,
+        by: &r.by,
+        user_agent: USER_AGENT,
+        key_unknown: KEY_UNKNOWN,
+    })
 }
 
 /// The running link.
@@ -448,7 +393,7 @@ impl FederationLink {
                     let _ = tx.send((r.who, line));
                 });
             if spawned.is_err() {
-                federation::on_verify_answer(w, None, "The verification could not be sent.");
+                federation::on_verify_answer(w, None, verification::NOT_SENT);
             }
         }
         for a in federation::take_challenge_answers(w) {

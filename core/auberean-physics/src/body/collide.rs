@@ -48,6 +48,8 @@ pub enum Notice {
     },
     /// Hold it on the object it struck.
     StickTo(u64),
+    /// What it stands on has a new terrain type: its effects' variants for that.
+    TerrainType(u32),
     /// It entered or left the world (its game object and the bookkeeping are told).
     EnteredWorld,
     LeftWorld,
@@ -93,10 +95,6 @@ impl Notice {
     }
 }
 
-/// The region's water and ground physics materials are not read yet: a body in water or on the
-/// landscape notes material 0.
-const UNREAD_MATERIAL: u32 = 0;
-
 /// The transition's contact plane is the landscape's ground or an interior's own floors and
 /// walls, not an object's.
 fn on_landscape(t: &Transition) -> bool {
@@ -134,7 +132,7 @@ impl Body {
             self.has_water = water.is_some();
             let o = self.position.frame.origin;
             let under = water.is_some_and(|p| 0.0 < -(p.normal.dot(o) + p.d));
-            self.set_contact_info(world, key, ci.contact_plane, under, on_landscape(t));
+            self.set_contact_info(land, world, key, ci.contact_plane, under, on_landscape(t));
         } else {
             world.set_no_contact(key);
         }
@@ -171,6 +169,7 @@ impl Body {
     // D2-05960
     pub fn set_contact_info(
         &mut self,
+        land: &Land,
         world: &mut World,
         key: BodyKey,
         plane: Plane,
@@ -183,8 +182,8 @@ impl Body {
         world.set_contact(
             key,
             plane,
-            in_water.then_some(UNREAD_MATERIAL),
-            landscape.then_some(UNREAD_MATERIAL),
+            in_water.then(|| land.water_material(self.position.cell)),
+            landscape.then(|| land.ground_material(self.position.cell, self.position.frame.origin)),
         );
         self.set_misc_active(true);
         true
@@ -192,7 +191,7 @@ impl Body {
 
     /// Reports what began and ended of the body's collisions (`end_all`: every touch ends): kept
     /// for the host, and heard by its guidance when it flies as a missile.
-    // D2-06244
+    // D2-06244, D2-06215
     pub fn report_collisions(
         &mut self,
         land: &Land,
@@ -226,7 +225,6 @@ impl Body {
 
     /// The body's other updates: its detection spheres checked (when a host for them is given),
     /// then its collisions reported.
-    // D2-06253
     pub fn update_misc(
         &mut self,
         land: &Land,
@@ -279,6 +277,7 @@ impl Body {
 
     /// One tick as [`Body::update`], its detection spheres checked against the world it moves in
     /// ([`World::detection`], with `game` answering for the game objects).
+    // D2-06253
     pub fn update_in(
         &mut self,
         land: &Land,

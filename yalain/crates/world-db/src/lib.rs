@@ -25,6 +25,7 @@
 //! <pack>/server/loot.toml         [[loot]]
 //! <pack>/server/stores.toml       [[keeper]], [[sale]]
 //! <pack>/server/quests/QQQQQQQQ.toml   [[quest]], [[step]] of one quest
+//! <pack>/server/gives/TTTTTTTT.toml    [[give]] of one template given to
 //! <pack>/server/talk/TTTTTTTT.toml     [[talk]] of one template
 //! <pack>/server/crafting.toml     [[craft]]
 //! <pack>/server/story.toml        [[scene]], [[shard]]

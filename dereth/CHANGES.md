@@ -16,6 +16,17 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 - Better Lighting: an art pack can draw the moons again as round worlds, lit from the sun's side as they wax and wane over months of their own, with lights twinkling on their night sides and clouds of their own.
 - /moon sets the phase of the moons this client draws, both or one at a time, until /moon reset.
+## 0.4.13 (2026-11-05)
+
+- Classic: resting the pointer on a button, bar or slot says what it does.
+- Refused stances and emotes now say why.
+- Launch worlds: Classic's spellbook, chat menu and messages match the 1999 client.
+- Web: the launcher opens much faster, fetching the game only when you play.
+- The client now updates on its own, apart from the launcher.
+- Launch worlds: the Charge bar and each spell's duration range.
+- Fixed spell components missing from the Components tab when they arrived before their pack.
+
+- macOS: Intel Macs are no longer supported; Apple silicon only.
 
 ## 0.4.12 (2026-11-03)
 
@@ -37,6 +48,9 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## 0.4.9 (2026-11-01)
 
 - Launcher: each realm lists only its own game's worlds.
+- Commands, help, travel routes and the character sheet follow the systems the world says it has.
+- Launcher: 1999 data files are their own kind, which Launch worlds need.
+- Launcher: a world shows its era and what it changes, and hosting offers the systems you'd look for by name.
 
 ## 0.4.8 (2026-10-28)
 

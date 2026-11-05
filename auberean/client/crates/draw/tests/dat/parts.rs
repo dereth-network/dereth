@@ -5,12 +5,15 @@
 use std::sync::Arc;
 
 use auberean_assets::mesh::Mesh;
+use auberean_assets::ui::UiScene;
 use auberean_draw::material::d3d;
 use auberean_draw::scene::{Camera, Cull, SceneBuilder, Spot};
 use auberean_primitives::{DataId, Vec3};
+use auberean_world::inside::{BlockLights, Light};
 use auberean_world::look::{MaterialAtom, PartLook, ANY_KIND};
 use auberean_world::math::{quat_axis_angle, Mat4};
-use auberean_world::place::Part;
+use auberean_world::place::{entity_parts, Part};
+use auberean_world::sky::DayLight;
 
 use crate::common::install;
 
@@ -82,7 +85,7 @@ fn a_part_draws_its_own_copy_when_its_look_changes_its_materials() {
     };
     let day = builder.day(&camp);
     let light = builder.light(&camp, day.as_ref());
-    let frame = builder.parts_frame(&parts, Vec::new(), camera, light);
+    let frame = builder.parts_frame(&parts, Vec::new(), camera, light, None);
     let of = |x: f32| -> Vec<_> {
         frame
             .objects
@@ -140,4 +143,72 @@ fn a_part_draws_its_own_copy_when_its_look_changes_its_materials() {
             }
         }
     }
+}
+
+/// The avatar hall's scene names lights of its own: each draw takes those it keeps where it stands
+/// in place of the sun, shining their colors times their intensities, not the one light the sun
+/// would be.
+///
+/// Behaviour: draw.view.a-scenes-own-lights-light-its-draws-in-place-of-the-sun
+#[test]
+fn a_scenes_own_lights_light_its_draws_in_place_of_the_sun() {
+    const HALL: u32 = 0x2100_000B;
+    const LIGHT: u32 = 0x4000_0006;
+    let r = &install().records;
+    let scene = r.get::<UiScene>(HALL).expect("the hall's scene");
+    let mut lights = Vec::new();
+    let mut parts = Vec::new();
+    for e in &scene.entities {
+        if e.kind == Some(LIGHT) {
+            let at = e.offset.map(|o| o.frame.origin).unwrap_or(Vec3::ZERO);
+            let props = e.properties.clone().unwrap_or_default();
+            lights.push(Light::of_properties(0, at, &props).0);
+        } else {
+            parts.extend(entity_parts(r, e));
+        }
+    }
+    assert!(lights.len() > 1, "the hall has lights of its own");
+    assert!(!parts.is_empty(), "the hall has things standing in it");
+    let shines: Vec<(f32, f32, f32)> = lights
+        .iter()
+        .map(|l| {
+            (
+                l.color.r * l.intensity,
+                l.color.g * l.intensity,
+                l.color.b * l.intensity,
+            )
+        })
+        .collect();
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let camera = Camera {
+        position: Vec3::ZERO,
+        heading: 0.0,
+        pitch: 0.0,
+        fov_y: 60.0,
+        near: 0.1,
+        far: 500.0,
+        orthographic: None,
+    };
+    let dark = DayLight {
+        ambient_brightness: 0.0,
+        direct_brightness: 0.0,
+        ..DayLight::DEFAULT
+    };
+    let all = BlockLights::of_scene(lights);
+    let lit = builder.parts_frame(&parts, Vec::new(), camera, dark, Some((&all, false)));
+    assert!(!lit.objects.is_empty());
+    let mut shone = 0;
+    for b in &lit.objects {
+        assert!(b.points.inside, "no draw takes the sun");
+        for l in &b.points.lights[..b.points.count] {
+            shone += 1;
+            let c = (l.diffuse.r, l.diffuse.g, l.diffuse.b);
+            assert!(shines.contains(&c), "a light of the scene shines: {c:?}");
+        }
+    }
+    assert!(shone > 0, "the lights reach what stands in the hall");
+
+    let sunlit = builder.parts_frame(&parts, Vec::new(), camera, dark, None);
+    assert!(sunlit.objects.iter().all(|b| !b.points.inside));
 }

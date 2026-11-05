@@ -1,6 +1,7 @@
 //! The basic attacks of each weapon: a bow shoots from afar and strikes within a meter, a stave
 //! strikes near and throws far; a run that stands is turned to its target before each swing, is
-//! told when it is too far or moving, and takes its combat mode with its first swing.
+//! told when it is too far or moving, and takes its combat mode with its first swing; a sword's run
+//! walks to its target with one order and is told nothing on the way.
 
 use auberean_primitives::Vec3;
 use auberean_protocol::{queue, ServerMessage};
@@ -8,10 +9,12 @@ use auberean_script::args::Arg;
 use yalain_testkit::play::{report, server_call};
 use yalain_testkit::{Harness, TEST_CREATURE};
 use yalain_world::calls::{self, Value};
-use yalain_world::combat::function;
+use yalain_world::combat::{function, next_swing_after, swing_seconds};
+use yalain_world::skill_use::implement as im;
 
 const BOW: u32 = 0x4700_051B;
 const STAVE: u32 = 0x4700_051D;
+const SWORD: u32 = 0x4700_051C;
 
 /// A player beside the test camp's beetle (made one that stands where it is put), the beetle put
 /// `d` meters east of the player; returns the client, the player and the beetle.
@@ -147,6 +150,37 @@ fn a_bow_shoots_from_afar_and_its_target_tells_each_arrival() {
         .all(|a| a.bits == 0x32 && a.attacker == me && [0xB81, 0x381].contains(&a.hooks[0].bits)));
 }
 
+/// A bow's shots go at its player's pace, and the next comes that much sooner.
+/// Behaviour: server.weapons.attack-speed-effects
+#[test]
+fn a_bows_shots_go_at_its_players_pace() {
+    let (mut h, b, me, beetle) = beetle_at(6.0);
+    h.arm(b, me, BOW);
+    super::attack_speed::speeded(&mut h, 27, 1.7, true);
+    let from = attack(&mut h, b, beetle);
+    let mut told = Vec::new();
+    for _ in 0..400 {
+        h.step();
+        let shots = stories(&h, b, from, me);
+        if shots.len() > told.len() {
+            let s = shots.last().expect("told");
+            told.push((h.now.0, s.attacker_behavior.time_scale));
+        }
+    }
+    assert!(told.len() > 3, "{} shots", told.len());
+    for (_, ts) in &told {
+        assert!((1.72..=2.12).contains(ts), "{ts}");
+    }
+    for w in told.windows(2) {
+        let gap = w[1].0 - w[0].0;
+        let due = next_swing_after(swing_seconds(Some(im::BOW), true), w[0].1);
+        assert!(
+            (gap - due).abs() <= 0.052,
+            "{gap:.3} where {due:.3} was due"
+        );
+    }
+}
+
 /// With a bow and a target within a meter between the bodies, the run strikes with the bow (skills
 /// 194-198, the melee behaviors), no weapon behavior and no thrown hook.
 /// Behaviour: server.weapons.bow-shoots
@@ -163,6 +197,50 @@ fn a_bow_strikes_a_target_within_a_meter() {
         assert_eq!(s.attacker_behavior.behavior, 0x4100_0089 + (s.skill - 194));
         assert!([0xB81, 0x381].contains(&s.hooks[1].bits));
     }
+}
+
+/// A sword's run on a target out of reach has one order to walk and is told nothing while it walks,
+/// however long it takes; arrived, it swings at once, with no second order for that swing.
+/// Behaviour: server.weapons.walking-run-walks-silently
+#[test]
+fn a_sword_run_out_of_reach_is_ordered_once_and_told_nothing_until_it_arrives() {
+    let (mut h, b, me, beetle) = beetle_at(25.0);
+    h.arm(b, me, SWORD);
+    let from = attack(&mut h, b, beetle);
+    h.run(100);
+    let orders = |h: &Harness, from: usize| {
+        h.world_messages(b, from)
+            .iter()
+            .filter(|m| matches!(m, ServerMessage::MoveTo(e) if e.sender.id == me))
+            .count()
+    };
+    assert_eq!(orders(&h, from), 1, "one order to walk");
+    assert_eq!(
+        failures(&h, b, from),
+        Vec::<u32>::new(),
+        "no line while it walks"
+    );
+    assert!(stories(&h, b, from, me).is_empty());
+    assert!(
+        h.server.players.values().any(|p| p.attacking.is_some()),
+        "the run goes on"
+    );
+    // It arrives.
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        if let Some(at) = t.at.as_mut() {
+            at.origin[0] -= 23.0;
+        }
+    }
+    h.run(3);
+    assert_eq!(
+        orders(&h, from),
+        1,
+        "no second order for the swing it arrives on"
+    );
+    assert_eq!(stories(&h, b, from, me).len(), 1);
+    // The swing after has its own.
+    h.run(60);
+    assert!(orders(&h, from) >= 2);
 }
 
 /// A bow run beyond its greatest range (80 m between the bodies) is told it is too far, about a

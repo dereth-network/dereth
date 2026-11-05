@@ -43,6 +43,8 @@ pub mod status {
     pub const ACTIONS_LOCKED: u32 = 1029;
     /// The item cannot be put there.
     pub const CANNOT_PLACE_IN_WORLD: u32 = 1033;
+    /// The item stays with its owner.
+    pub const ATTUNED: u32 = 1044;
 }
 
 /// How far above the player's feet the item is put, in meters.
@@ -119,6 +121,7 @@ pub fn requested(v: &[Value]) -> Option<Move> {
         split_item: long(28),
         no_anim: on(31),
         merge_container: long(32),
+        used_overflow: on(34),
         grab: on(35),
         actual_from: long(36),
         look_entity: int(38),
@@ -207,6 +210,10 @@ fn put_down<S: Store>(
         refuse(net, world, &m, status::CANNOT_PLACE_IN_WORLD);
         return;
     };
+    if crate::inventory::attunable(&s.catalog, t.template) {
+        refuse(net, world, &m, status::ATTUNED);
+        return;
+    }
     if m.quantity < t.quantity {
         s.unhandled.note("putting down part of a stack");
         refuse(net, world, &m, status::CANNOT_PLACE_IN_WORLD);
@@ -270,6 +277,43 @@ fn put_down<S: Store>(
             asked: Box::new(m),
         },
     );
+}
+
+/// A player leaves the world with an item still being put down: it is back in its pack, kept with
+/// it, and its timer forgotten.
+pub(crate) fn left<S: Store>(s: &mut Server<S>, world: ConnId) {
+    let mut pending = Vec::new();
+    s.timers.retain(|(_, t)| match t {
+        Timer::PutDown {
+            world: w,
+            slot,
+            asked,
+        } if *w == world => {
+            pending.push((*slot, asked.item));
+            false
+        }
+        _ => true,
+    });
+    for (slot, item) in pending {
+        let Some(me) = s.players.get(&world).map(|p| p.character) else {
+            return;
+        };
+        let Some(t) = s.things.get_mut(item) else {
+            continue;
+        };
+        t.container = Some((me, slot));
+        let (template, quantity) = (t.template, t.quantity);
+        if let Some(p) = s.players.get_mut(&world) {
+            crate::inventory::insert_at(&mut p.play.items, slot);
+            p.play.items.push(crate::state::Held {
+                id: item,
+                template,
+                slot,
+                location: 0,
+                quantity,
+            });
+        }
+    }
 }
 
 /// Where an item put down by a player standing at `at`, reaching `reach` meters, lands: straight
@@ -337,6 +381,8 @@ pub fn put<S: Store>(
     }
     place_item(s, net, item, place, clock);
     s.after(clock, SETTLE_SECONDS, Timer::Settle { item });
+    // It is out of the pack for good: a crash after another has picked it up finds it held once.
+    crate::world::keep_player(s, world);
 }
 
 /// The item put down comes to rest: [`REST`] above the feet of the player that put it down.

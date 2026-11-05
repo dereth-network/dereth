@@ -578,9 +578,12 @@ impl ReceiverData {
 /// eviction semantics.
 pub const SENT_CACHE_MAX_PACKETS: usize = 4096;
 
-/// And by age. ACE uses ~120 seconds for the same purpose
-/// (`cachedPacketRetentionTime`), which is a reasonable precedent.
-pub const SENT_CACHE_MAX_AGE: f64 = 120.0;
+/// And by age: as long as the connection can last. A peer that has heard nothing for just under
+/// the timeout can still come back and ask, and it takes a while to ask for everything (ten requests
+/// here, each a full list); a packet gone by then is lost for good, and everything ordered after it
+/// waits. It costs little, since a peer that is answering flushes the cache long before this.
+pub const SENT_CACHE_MAX_AGE: f64 =
+    crate::flow::CONNECTION_TIMEOUT + 10.0 * crate::flow::NAK_INTERVAL;
 
 /// `SentPacketHistory` — the retransmit cache.
 ///
@@ -1155,7 +1158,7 @@ mod tests {
         p.add_fragment(Fragment::new(FragmentHeader::default(), vec![0; 4]))
             .expect("frag");
         store.add_sent_packet(p, LocalTime(SENT_CACHE_MAX_AGE + 1.0));
-        assert_eq!(store.len(), 1, "the 120 s old packet aged out");
+        assert_eq!(store.len(), 1, "the oldest packet aged out");
         assert!(store.contains(2));
     }
 

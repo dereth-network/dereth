@@ -96,10 +96,6 @@ pub fn influences(v: &VertexArray) -> Option<Vec<Influences>> {
     )
 }
 
-fn add_scaled(acc: Vec3, v: Vec3, w: f32) -> Vec3 {
-    Vec3::new(acc.x + v.x * w, acc.y + v.y * w, acc.z + v.z * w)
-}
-
 /// Positions and normals moved by `palette`: each the weighted sum of its bones' transforms of it.
 /// A bone index outside the palette counts as the identity.
 #[must_use]
@@ -114,27 +110,41 @@ pub fn skin(
     for (i, p) in positions.iter().enumerate() {
         let inf = influences.get(i).copied().unwrap_or_default();
         let n = normals.get(i).copied().unwrap_or(Vec3::ZERO);
-        let (mut sp, mut sn) = (Vec3::ZERO, Vec3::ZERO);
-        let mut total = 0.0;
-        for k in 0..usize::from(inf.count) {
-            let w = inf.weights[k];
-            if w == 0.0 {
-                continue;
-            }
-            let m = palette
-                .get(usize::from(inf.bones[k]))
-                .copied()
-                .unwrap_or(Mat4::IDENTITY);
-            sp = add_scaled(sp, m.point(*p), w);
-            sn = add_scaled(sn, m.direction(n), w);
-            total += w;
-        }
-        if total == 0.0 {
-            sp = *p;
-            sn = n;
-        }
+        let (sp, sn) = skin_vertex(*p, n, &inf, palette);
         out_p.push(sp);
         out_n.push(sn);
     }
     (out_p, out_n)
+}
+
+/// One vertex's position and normal moved by its influences.
+#[must_use]
+#[inline]
+pub fn skin_vertex(p: Vec3, n: Vec3, inf: &Influences, palette: &[Mat4]) -> (Vec3, Vec3) {
+    let (mut sp, mut sn) = ([0.0f32; 4], [0.0f32; 4]);
+    let mut total = 0.0;
+    for k in 0..usize::from(inf.count) {
+        let w = inf.weights[k];
+        if w == 0.0 {
+            continue;
+        }
+        let m = &palette
+            .get(usize::from(inf.bones[k]))
+            .unwrap_or(&Mat4::IDENTITY)
+            .0;
+        // A column at a time, the four kept in step so that they go through together.
+        for i in 0..4 {
+            sp[i] += (p.x * m[0][i] + p.y * m[1][i] + p.z * m[2][i] + m[3][i]) * w;
+            sn[i] += (n.x * m[0][i] + n.y * m[1][i] + n.z * m[2][i]) * w;
+        }
+        total += w;
+    }
+    if total == 0.0 {
+        (p, n)
+    } else {
+        (
+            Vec3::new(sp[0], sp[1], sp[2]),
+            Vec3::new(sn[0], sn[1], sn[2]),
+        )
+    }
 }

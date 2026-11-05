@@ -54,6 +54,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "parts.body.a-body-that-turns-freely-takes-its-end-facing-first",
+        says: "A body whose setup lets it turn freely, or with no part group, goes into a move \
+               having taken its end facing; one whose setup does not turns along the way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-FREE-TURN"),
+        station: "auberean-physics::cpu::contact::objects::a_body_that_turns_freely_takes_its_end_facing_first",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "parts.bones.the-nearest-bone-and-the-bones-as-points",
         says: "The bone nearest a frame (by the bones' origins) gives its index and the turn from \
                the bone's rotation to the frame's, at the bone's origin; the bones as points (place \

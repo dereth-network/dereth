@@ -207,6 +207,11 @@ impl Editor<'_> {
             self.scene.ground(x, y).unwrap_or(g[2])
         };
         let (lb, at) = view::local([x, y, z]);
+        // A room's point is in its own block's frame, whichever block's ground it lies over.
+        let at = indoors.map_or(at, |c| {
+            #[allow(clippy::cast_possible_truncation)]
+            view::local_in((c >> 16) as u16, [x, y, z])
+        });
         let facing = if ahead == 0.0 { h } else { h + 180.0 };
         live::Entry {
             cell: indoors

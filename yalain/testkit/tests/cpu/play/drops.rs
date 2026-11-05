@@ -426,6 +426,44 @@ fn world_of(h: &Harness, me: u64) -> yalain_net::ConnId {
         .expect("in the world")
 }
 
+/// A picked up item with other numbers than the stack the pack holds stays an item of its own.
+/// Behaviour: server.inventory.stacks-join-only-with-like-numbers
+#[test]
+fn a_picked_up_item_with_other_numbers_stays_its_own() {
+    let (mut h, b, me, _, _) = two_players_and_an_item();
+    let mut props = yalain_content::Props::default();
+    props.set("Item_MaxStackSize", yalain_content::Prop::Int(1000));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(STACKING, 0x200, props));
+    let world = world_of(&h, me);
+    h.server.players.get_mut(&world).unwrap().play.items.clear();
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, STACKING, 1);
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, STACKING, 4);
+    h.run(5);
+    let (one, stack) = {
+        let items = &h.server.players[&world].play.items;
+        (items[0].id, items[1].id)
+    };
+    h.server.things.get_mut(one).expect("made").value = 500;
+    h.bots[b].send(true, queue::WEENIE, &put_down(me, one, 0));
+    h.run(steps(2.5));
+    h.bots[b].send(true, queue::WEENIE, &use_item(one, me));
+    h.run(4);
+    h.run(steps(1.9));
+    let mut held: Vec<(u64, u32)> = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .map(|x| (x.id, x.quantity.max(1)))
+        .collect();
+    held.sort_unstable();
+    let mut want = [(one, 1), (stack, 4)];
+    want.sort_unstable();
+    assert_eq!(held, want);
+    assert_eq!(h.server.things.get(one).expect("kept").value, 500);
+}
+
 /// An item of a template the player holds a stack of, picked up, joins the stack: the move
 /// answered as merged (no item split off, no slot to merge at), the stack's new quantity, the
 /// item destroyed and out of the world for every client that knew it; the pack still holds the
@@ -716,4 +754,266 @@ fn an_item_a_camp_keeps_lies_again_at_its_spot_once_its_period_after_the_taking_
         (stand.cell, spot),
         "at the same spot"
     );
+}
+
+/// Run a world's work on a thread of its own: `true` when it ends.
+fn ends(work: impl FnOnce() + Send + 'static) -> bool {
+    let (done, ended) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        work();
+        let _ = done.send(());
+    });
+    ended
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .is_ok()
+}
+
+/// Stepping a point onto its landblock, a block at a time: what any point on the land comes to.
+fn stepped(landblock: u32, x: f32, y: f32) -> (u32, f32, f32) {
+    let side = yalain_world::spawn::BLOCK_SIDE;
+    let (mut bx, mut by) = (
+        i64::from(landblock >> 8 & 0xFF),
+        i64::from(landblock & 0xFF),
+    );
+    let (mut x, mut y) = (x, y);
+    while x < 0.0 {
+        x += side;
+        bx -= 1;
+    }
+    while x >= side {
+        x -= side;
+        bx += 1;
+    }
+    while y < 0.0 {
+        y += side;
+        by -= 1;
+    }
+    while y >= side {
+        y -= side;
+        by += 1;
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let (cx, cy) = ((x / 20.0) as u32, (y / 20.0) as u32);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let block = ((bx.clamp(0, 255) as u32) << 8) | by.clamp(0, 255) as u32;
+    (block << 16 | (cx.min(7) * 8 + cy.min(7) + 1), x, y)
+}
+
+/// Any point within the land's side of its block is placed as stepping it there block by block
+/// places it: across the whole span, and on either side of every block's edge.
+/// Behaviour: server.places.a-place-off-the-land-is-no-place
+#[test]
+fn a_point_on_the_land_is_placed_as_stepping_it_block_by_block_places_it() {
+    let side = yalain_world::spawn::BLOCK_SIDE;
+    let land = yalain_world::spawn::LAND_SIDE;
+    let mut points = Vec::new();
+    let mut x = -land;
+    while x <= land {
+        points.push(x);
+        x += 1.37;
+    }
+    let mut edge = -land;
+    while edge <= land {
+        points.extend([edge.next_down(), edge, edge.next_up()]);
+        edge += side;
+    }
+    points.push(land);
+    points.retain(|x| x.abs() <= land);
+    for block in [0u32, 0x0299, 0x7F7F, 0xFFFF] {
+        for (i, x) in points.iter().enumerate() {
+            let y = points[(i * 7) % points.len()];
+            let got = yalain_world::spawn::outdoor(block, *x, y);
+            let want = stepped(block, *x, y);
+            assert_eq!(
+                (got.0, got.1.to_bits(), got.2.to_bits()),
+                (want.0, want.1.to_bits(), want.2.to_bits()),
+                "{block:04X} {x} {y}"
+            );
+        }
+    }
+}
+
+/// A point no land could hold still comes to a place on it, whatever its numbers.
+/// Behaviour: server.places.a-place-off-the-land-is-no-place
+#[test]
+fn a_point_far_off_the_land_comes_to_a_place_at_its_edge() {
+    assert!(ends(|| {
+        for x in [1.0e30, -1.0e30, f32::MAX, f32::MIN, 1.0e10, -1.0e10] {
+            let (cell, px, py) = yalain_world::spawn::outdoor(0x0299, x, 5.0);
+            assert!(!yalain_world::presence::indoors(cell), "{cell:08X}");
+            assert!(
+                (0.0..=yalain_world::spawn::BLOCK_SIDE).contains(&px),
+                "{px}"
+            );
+            assert!(
+                (0.0..=yalain_world::spawn::BLOCK_SIDE).contains(&py),
+                "{py}"
+            );
+        }
+        for x in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let _ = yalain_world::spawn::outdoor(0x0299, x, x);
+        }
+    }));
+}
+
+/// A place reported beyond the land's side from its block is not taken: the player stays where it
+/// was. Further than any of the 1,827,746 reports recorded (at most 720 m, indoors).
+/// Behaviour: server.places.a-place-off-the-land-is-no-place
+#[test]
+fn a_place_reported_far_off_the_land_is_not_taken() {
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Far");
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| c)
+        .expect("in the world");
+    let stamp = h.server.players[&world].teleport_stamp;
+    let report = |x: f32| {
+        yalain_testkit::play::report(
+            0x0299_0009,
+            auberean_primitives::Vec3::new(x, 10.0, 10.0),
+            0,
+            0x4100_0003,
+            stamp,
+        )
+    };
+    h.bots[b].send(true, queue::WEENIE, &report(100.0));
+    h.run(3);
+    assert_eq!(h.server.players[&world].position.origin[0], 100.0, "on it");
+    for x in [
+        yalain_world::spawn::LAND_SIDE.next_up(),
+        -yalain_world::spawn::LAND_SIDE.next_up(),
+        1.0e10,
+        1.0e30,
+        f32::MAX,
+    ] {
+        h.bots[b].send(true, queue::WEENIE, &report(x));
+        h.run(3);
+        assert_eq!(h.server.players[&world].position.origin[0], 100.0, "{x}");
+    }
+    h.bots[b].send(true, queue::WEENIE, &report(719.8));
+    h.run(3);
+    assert_eq!(
+        h.server.players[&world].position.origin[0], 719.8,
+        "the furthest recorded"
+    );
+}
+
+/// An item put down by a player kept far off the land (from before such a place was refused) ends
+/// on the land's edge.
+/// Behaviour: server.places.a-place-off-the-land-is-no-place
+#[test]
+fn an_item_put_down_from_far_off_the_land_lands_on_its_edge() {
+    assert!(ends(|| {
+        let (mut h, b, me, _, item) = two_players_and_an_item();
+        let world = *h
+            .server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == me)
+            .map(|(c, _)| c)
+            .expect("in the world");
+        let p = h.server.players.get_mut(&world).expect("in the world");
+        p.position.cell = 0x0299_0009;
+        p.position.origin = [1.0e30, 10.0, 10.0];
+        h.bots[b].send(true, queue::WEENIE, &put_down(me, item, 0));
+        h.run(steps(5.0));
+        assert!(h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .all(|i| i.id != item));
+    }));
+}
+
+/// An item picked up moves the quest its template names on being acquired.
+/// Behaviour: server.quests.an-item-acquired-moves-its-quest
+#[test]
+fn an_item_picked_up_moves_the_quest_its_template_names() {
+    const QUEST: u32 = 0x4000_0123;
+    let (mut h, b, me, _w, item) = two_players_and_an_item();
+    let world = world_of(&h, me);
+    let template = h.server.things.get(item).expect("the item").template;
+    let mut t = h
+        .server
+        .catalog
+        .get(template)
+        .cloned()
+        .expect("its template");
+    t.props.set(
+        "Item_AcquireEffect1",
+        yalain_content::Prop::Text("Eff_AdvanceQuestHuntPhase2".into()),
+    );
+    h.server.catalog.insert(t);
+    h.server.quest_ids.insert("QuestHunt".into(), QUEST);
+    h.server.quests.quests.push(super::kill_quests::quest(3));
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("there")
+        .play
+        .quests
+        .push(yalain_world::state::QuestState {
+            quest: QUEST,
+            status: yalain_world::quests::status::UNDERWAY,
+            phase: 1,
+            started: 0,
+            updated: 0,
+        });
+    h.bots[b].send(true, queue::WEENIE, &put_down(me, item, 0));
+    h.run(steps(2.5));
+    h.bots[b].send(true, queue::WEENIE, &use_item(item, me));
+    h.run(4);
+    h.run(steps(1.9));
+    let p = &h.server.players[&world];
+    assert!(p.play.items.iter().any(|i| i.id == item), "picked up");
+    assert_eq!(yalain_world::quests::phase_of(&p.play.quests, QUEST), 2);
+}
+
+/// A template its script makes attunable counts as one that says so, with nothing saved to tell.
+/// Behaviour: server.inventory.an-attunable-item-is-not-put-down
+#[test]
+fn a_template_attunable_by_its_script_says_so() {
+    let catalog = yalain_content::Catalog::default();
+    for template in [0x4700_11C8, 0x4700_187E, 0x4700_08CF, 0x4700_132D] {
+        assert!(yalain_world::inventory::attunable(&catalog, template));
+    }
+    assert!(!yalain_world::inventory::attunable(&catalog, 0x4700_051C));
+}
+
+/// An attunable item stays with its owner: asked to put it down, the server refuses at once, plays
+/// nothing, and the item stays in the pack. So its taking can't be repeated to move a quest again.
+/// Behaviour: server.inventory.an-attunable-item-is-not-put-down
+#[test]
+fn an_attunable_item_is_refused_at_once_and_stays_in_the_pack() {
+    let (mut h, b, me, _w, item) = two_players_and_an_item();
+    let world = world_of(&h, me);
+    let template = h.server.things.get(item).expect("the item").template;
+    let mut t = h
+        .server
+        .catalog
+        .get(template)
+        .cloned()
+        .expect("its template");
+    t.props
+        .set("Item_IsAttunable", yalain_content::Prop::Bool(true));
+    h.server.catalog.insert(t);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(true, queue::WEENIE, &put_down(me, item, 0));
+    h.run(4);
+    let refused = answers(&h, b, from);
+    assert_eq!(refused.len(), 1, "answered at once");
+    assert_eq!(refused[0][40].1, status::ATTUNED);
+    assert!(
+        !h.world_messages(b, from).iter().any(|m| matches!(m,
+            ServerMessage::PlayBehavior(e) if e.action.behavior == look::PUTTING_DOWN)),
+        "nothing played"
+    );
+    h.run(steps(2.5));
+    let p = &h.server.players[&world];
+    assert!(p.play.items.iter().any(|i| i.id == item), "still held");
+    assert_eq!(answers(&h, b, from).len(), 1, "and nothing more");
 }

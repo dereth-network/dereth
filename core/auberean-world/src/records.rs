@@ -8,9 +8,10 @@
 //! is missing until it comes.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use auberean_assets::entity::Entity;
+use auberean_assets::fx::FxTable;
 use auberean_assets::landblock::{Cell, Landblock, LandblockInfo, LightInfo};
 use auberean_assets::region::{
     DayDesc, FogDesc, GameTime, Landscape, Region, SceneDesc, SkyDesc, SurfaceDesc, TerrainDesc,
@@ -26,6 +27,7 @@ use auberean_primitives::DataId;
 use crate::land::{LandConstants, LandError};
 use crate::look::LookRecords;
 use crate::place::{LoadedSetup, PlaceRecords};
+use crate::property::BlockProperties;
 use crate::scenery::SceneSource;
 use crate::terrain::Surfaces;
 use crate::water::WaterSet;
@@ -37,17 +39,26 @@ pub const REGION_ID: u32 = 0x0F00_0000;
 /// its data cache.
 pub type CellReader = Arc<dyn Fn(u32, u32) -> Option<Vec<u8>> + Send + Sync>;
 
+/// Whether a record is a picture list or a picture made for one language: the upper parts of their
+/// id ranges, `0x40100000` and `0x41100000` up.
+const fn is_language_picture(id: u32) -> bool {
+    matches!(id >> 24, 0x40 | 0x41) && id & 0x00F0_0000 != 0
+}
+
 /// A world's data files and its decoded records.
 pub struct WorldRecords {
     portal: DatFile,
     cell: DatFile,
     highres: Option<DatFile>,
+    /// The language's file, for the pictures made for one language (a signpost's words).
+    language: OnceLock<DatFile>,
     ctx: Context,
     visuals: Mutex<HashMap<u32, Option<Arc<VisualDesc>>>>,
     setups: Mutex<HashMap<u32, Option<Arc<LoadedSetup>>>>,
     entities: Mutex<HashMap<u32, Option<Arc<Entity>>>>,
     scenes: Mutex<HashMap<u32, Option<Arc<Scene>>>>,
     appearances: Mutex<HashMap<u32, Option<Arc<Appearance>>>>,
+    fx_tables: Mutex<HashMap<u32, Option<Arc<FxTable>>>>,
     /// Whether each mesh asked about is weighted to bones.
     weighted: Mutex<HashMap<u32, bool>>,
     /// The client's reading of the cell file's records, when it gave one.
@@ -62,7 +73,8 @@ impl std::fmt::Debug for WorldRecords {
     }
 }
 
-/// The region and the descriptions the landscape is drawn from.
+/// The region and the descriptions the landscape is drawn from, let go of whole with the world.
+// D2-07474
 #[derive(Clone, Debug)]
 pub struct RegionSet {
     pub region: Region,
@@ -78,9 +90,18 @@ pub struct RegionSet {
     pub water: Option<WaterSet>,
     /// The fog kinds' block map.
     pub fog_kinds: Option<auberean_assets::region::BlockMap>,
+    /// The properties laid over the world, and the block map of each that has one.
+    pub properties: Option<Arc<BlockProperties>>,
 }
 
 impl RegionSet {
+    /// Whether a body may walk on block `(x, y)`: the world's passability map; a world without one
+    /// lets it.
+    #[must_use]
+    pub fn passable(&self, x: u32, y: u32) -> bool {
+        self.properties.as_ref().is_none_or(|p| p.passable(x, y))
+    }
+
     /// The surface descriptions, as the terrain builder takes them.
     #[must_use]
     pub fn surfaces(&self) -> Surfaces<'_> {
@@ -108,15 +129,28 @@ impl WorldRecords {
             portal,
             cell,
             highres,
+            language: OnceLock::new(),
             ctx,
             visuals: Mutex::default(),
             setups: Mutex::default(),
             entities: Mutex::default(),
             scenes: Mutex::default(),
             appearances: Mutex::default(),
+            fx_tables: Mutex::default(),
             weighted: Mutex::default(),
             cells: RwLock::new(None),
         }
+    }
+
+    /// The ids the portal file holds from `lo` to `hi`.
+    pub fn portal_ids(&self, lo: u32, hi: u32) -> impl Iterator<Item = u32> + '_ {
+        self.portal.entries_in(lo, hi).map(|e| e.id)
+    }
+
+    /// The language's file: a picture made for one language is read from it from now on. The first
+    /// given stays.
+    pub fn use_language_file(&self, file: DatFile) {
+        let _ = self.language.set(file);
     }
 
     /// Read the cell file's records through `reader` from now on (`None`: from the file).
@@ -140,17 +174,43 @@ impl WorldRecords {
         }
     }
 
-    /// The bytes of portal record `id`: from the high-resolution file first for pictures, else the
-    /// portal file. Landblocks and cells are read by their own methods, since their ids overlap
-    /// the portal's.
+    /// The bytes of portal record `id`: a picture made for one language from the language's file;
+    /// from the high-resolution file first for other pictures, else the portal file. Landblocks
+    /// and cells are read by their own methods, since their ids overlap the portal's.
     #[must_use]
     pub fn bytes(&self, id: u32) -> Option<Vec<u8>> {
+        if is_language_picture(id) {
+            return self.language.get()?.read(id).ok();
+        }
         if (id >> 24) == 0x41 {
             if let Some(Ok(b)) = self.highres.as_ref().map(|h| h.read(id)) {
                 return Some(b);
             }
         }
         self.portal.read(id).ok()
+    }
+
+    /// Whether the data holds portal record `id`, read from the files' directories alone.
+    #[must_use]
+    pub fn holds(&self, id: u32) -> bool {
+        if is_language_picture(id) {
+            return self.language.get().is_some_and(|l| l.entry(id).is_some());
+        }
+        ((id >> 24) == 0x41 && self.highres.as_ref().is_some_and(|h| h.entry(id).is_some()))
+            || self.portal.entry(id).is_some()
+    }
+
+    /// Effect table `id`, read once: the bodies' effects look in it every frame.
+    #[must_use]
+    pub fn fx_table(&self, id: u32) -> Option<Arc<FxTable>> {
+        let mut tables = self
+            .fx_tables
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        tables
+            .entry(id)
+            .or_insert_with(|| self.get::<FxTable>(id).map(Arc::new))
+            .clone()
     }
 
     /// Record `id` decoded as `T`, or `None` when it is missing or does not decode.
@@ -189,6 +249,7 @@ impl WorldRecords {
     /// # Errors
     /// When the region, the landscape constants, the terrain or the surface description is missing
     /// or does not decode, or the constants are out of range.
+    // D2-07497, D2-07498, D2-07473
     pub fn region(&self) -> Result<RegionSet, WorldError> {
         let region: Region = self.need(REGION_ID)?;
         // The region's current record of a kind: always the first of its list.
@@ -204,6 +265,7 @@ impl WorldRecords {
         let calendar = sky.as_ref().and_then(|s| self.get(s.game_time.0));
         let fog = first(&region.fogs).and_then(|id| self.get(id));
         let scenes = first(&region.scenes).and_then(|id| self.get(id));
+        // D2-03549
         let fog_kinds = fog
             .as_ref()
             .and_then(|f: &FogDesc| self.get(f.distance_map.0));
@@ -216,7 +278,9 @@ impl WorldRecords {
                     desc,
                 })
             });
+        let properties = self.properties_of(&region).map(Arc::new);
         Ok(RegionSet {
+            properties,
             region,
             land,
             terrain,
@@ -230,6 +294,25 @@ impl WorldRecords {
         })
     }
 
+    /// The properties the region lays over the world, read on their own.
+    #[must_use]
+    pub fn block_properties(&self) -> Option<BlockProperties> {
+        self.properties_of(&self.get::<Region>(REGION_ID)?)
+    }
+
+    /// `region`'s current property description and its block maps.
+    // D2-07487
+    fn properties_of(&self, region: &Region) -> Option<BlockProperties> {
+        let id = region.properties.first()?.record.0;
+        let desc = self.get::<auberean_assets::region::PropertyDesc>(id)?;
+        let maps = desc
+            .properties
+            .iter()
+            .map(|p| self.get(p.block_map.0))
+            .collect();
+        Some(BlockProperties { desc, maps })
+    }
+
     /// The landblock at block coordinates `(x, y)`.
     #[must_use]
     pub fn landblock(&self, x: i32, y: i32) -> Option<Landblock> {
@@ -238,6 +321,7 @@ impl WorldRecords {
     }
 
     /// The landblock info (placed objects) of block `(x, y)`, if it has one.
+    // D2-03622
     #[must_use]
     pub fn landblock_info(&self, x: i32, y: i32) -> Option<LandblockInfo> {
         let id = block_id(x, y)? | 0xFFFE;
@@ -343,7 +427,7 @@ impl LookRecords for WorldRecords {
 impl PlaceRecords for WorldRecords {
     /// A mesh's kind: the word after its id.
     fn mesh_kind(&self, id: DataId) -> Option<u32> {
-        let b = self.bytes(id.0)?;
+        let b = self.portal.read_start(id.0).ok()?;
         Some(u32::from_le_bytes(b.get(4..8)?.try_into().ok()?))
     }
 
@@ -351,11 +435,15 @@ impl PlaceRecords for WorldRecords {
     /// counted materials, names matrices. Kept once asked.
     // D2-05477
     fn mesh_weighted(&self, id: DataId) -> bool {
-        let read = || {
-            let b = self.bytes(id.0)?;
+        let format = |b: &[u8]| {
             let word = |at: usize| Some(u32::from_le_bytes(b.get(at..at + 4)?.try_into().ok()?));
             let materials = usize::try_from(word(8)?).ok()?;
-            let format = word(materials.checked_mul(4)?.checked_add(12)?)?;
+            word(materials.checked_mul(4)?.checked_add(12)?)
+        };
+        // A mesh's first block holds the word, unless it counts more materials than fit.
+        let read = || {
+            let format = format(&self.portal.read_start(id.0).ok()?)
+                .or_else(|| format(&self.bytes(id.0)?))?;
             Some(auberean_assets::mesh::matrix_count(format) != 0)
         };
         let lock = || match self.weighted.lock() {

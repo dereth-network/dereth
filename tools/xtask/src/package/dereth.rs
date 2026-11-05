@@ -2,13 +2,14 @@
 //! built the same way on a contributor's machine and in the release workflow.
 //!
 //! ```text
-//! cargo xtask package dereth [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
+//! cargo xtask package dereth --launcher <dir> [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
 //! cargo xtask package dereth --gather <dir>
 //! ```
 //!
 //! For each target (the host's own by default; each builds on its own operating system) it builds
-//! the client with cargo and the launcher with the Tauri CLI, then writes into
-//! `<target dir>/package/dereth-<version>/` (or `--out`):
+//! the client with cargo and puts it in the launcher's release file for the launcher version in
+//! the tree, from the folder `--launcher` names ([`super::launcher::take`]); nothing else is taken
+//! in its place. It writes into `<target dir>/package/dereth-<version>/` (or `--out`):
 //!
 //! | system | the release file |
 //! |---|---|
@@ -116,7 +117,7 @@ pub(super) fn about_page(
 }
 
 /// The launcher's Tauri app, a workspace of its own.
-pub const LAUNCHER_DIR: &str = "dereth/launcher";
+pub const LAUNCHER_DIR: &str = "launcher";
 
 /// cargo-about's configuration and template for Dereth.
 const ABOUT_CONFIG: &str = "dereth/about.toml";
@@ -127,12 +128,12 @@ pub const FONTS: &[(&str, &str, &str)] = &[
     (
         "Cinzel",
         "The launcher's page is set in Cinzel, which the launcher carries",
-        "dereth/launcher/assets/fonts/OFL-Cinzel.txt",
+        "launcher/assets/fonts/OFL-Cinzel.txt",
     ),
     (
         "EB Garamond",
         "The launcher's page is set in EB Garamond, which the launcher carries",
-        "dereth/launcher/assets/fonts/OFL-EBGaramond.txt",
+        "launcher/assets/fonts/OFL-EBGaramond.txt",
     ),
     (
         "Liberation",
@@ -224,8 +225,7 @@ pub fn archive_root(target: Target, version: &str) -> Option<String> {
 /// those it may (what the bundler writes on some machines and not others). Empty for the AppImage.
 /// The launcher's macOS bundle configuration, which names the icon the bundler copies into the
 /// bundle.
-const LAUNCHER_MACOS_CONFIG: &str =
-    include_str!("../../../../dereth/launcher/tauri.macos.conf.json");
+const LAUNCHER_MACOS_CONFIG: &str = include_str!("../../../../launcher/tauri.macos.conf.json");
 
 /// The `.icns` icon in the launcher's macOS bundle, by the name the bundler gives it there: the
 /// file name of the one the launcher's configuration lists, so renaming the icon never leaves the
@@ -241,6 +241,20 @@ pub fn launcher_icns() -> String {
         .and_then(|path| path.rsplit('/').next())
         .unwrap_or("icon.icns")
         .to_owned()
+}
+
+/// What the launcher's macOS bundle holds of each game client's icon, which a client's own bundle
+/// wears: below the bundle, as `tauri.macos.conf.json` lays them out.
+pub fn client_icons() -> Vec<String> {
+    let config: serde_json::Value = serde_json::from_str(LAUNCHER_MACOS_CONFIG).unwrap_or_default();
+    config["bundle"]["macOS"]["files"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(name, _)| name)
+        .filter(|name| name.starts_with("Resources/clients/"))
+        .map(|name| format!("Contents/{name}"))
+        .collect()
 }
 
 pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
@@ -275,6 +289,7 @@ pub fn contents(target: Target) -> (Vec<String>, Vec<String>) {
                 "Contents/_CodeSignature/CodeResources",
             ]));
             optional.push(format!("Contents/Resources/{}", launcher_icns()));
+            optional.extend(client_icons());
         }
     }
     required.sort();
@@ -360,10 +375,10 @@ struct Options {
     gather: Option<PathBuf>,
     allow_dirty: bool,
     moltenvk: Option<PathBuf>,
-    friends_dll: Option<PathBuf>,
+    launcher: Option<PathBuf>,
 }
 
-pub const USAGE: &str = "usage: cargo xtask package dereth [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>] [--friends-dll <file>]
+pub const USAGE: &str = "usage: cargo xtask package dereth --launcher <dir> [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
        cargo xtask package dereth --gather <dir>";
 
 fn parse_options(args: &[String]) -> Result<Options, String> {
@@ -380,7 +395,7 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
             "--out" => o.out = Some(PathBuf::from(value()?)),
             "--gather" => o.gather = Some(PathBuf::from(value()?)),
             "--moltenvk" => o.moltenvk = Some(PathBuf::from(value()?)),
-            "--friends-dll" => o.friends_dll = Some(PathBuf::from(value()?)),
+            "--launcher" => o.launcher = Some(PathBuf::from(value()?)),
             "--allow-dirty" => o.allow_dirty = true,
             other => return Err(format!("unexpected argument `{other}`\n{USAGE}")),
         }
@@ -389,10 +404,10 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
         && (!o.targets.is_empty()
             || o.out.is_some()
             || o.moltenvk.is_some()
-            || o.friends_dll.is_some())
+            || o.launcher.is_some())
     {
         return Err(format!(
-            "--gather builds nothing: it takes no --target, --out, --moltenvk or --friends-dll\n{USAGE}"
+            "--gather builds nothing: it takes no --target, --out, --moltenvk or --launcher\n{USAGE}"
         ));
     }
     Ok(o)
@@ -428,7 +443,7 @@ pub fn package(args: &[String]) -> i32 {
                 options.out.as_deref(),
                 options.allow_dirty,
                 options.moltenvk.as_deref(),
-                options.friends_dll.as_deref(),
+                options.launcher.as_deref(),
             )
         }
     };
@@ -500,10 +515,12 @@ pub fn build_packages(
     out: Option<&Path>,
     allow_dirty: bool,
     moltenvk: Option<&Path>,
-    friends_dll: Option<&Path>,
+    launcher: Option<&Path>,
 ) -> Result<PathBuf, String> {
     let version = Product::Dereth.version(ws)?;
     version::parse_release_version(&version)?;
+    let launcher_version = Product::Launcher.version(ws)?;
+    version::parse_release_version(&launcher_version)?;
     // Everything a host lacks is said before anything is built.
     let host = super::host();
     let mut plans = Vec::new();
@@ -522,16 +539,20 @@ pub fn build_packages(
                 .to_owned(),
         );
     }
-    if !succeeds("cargo", &["tauri", "--version"]) {
-        refusals.push(
-            "  the Tauri CLI is not installed, or does not run on this host; it builds the launcher: \
-             `cargo install --locked tauri-cli --version ^2`"
-                .to_owned(),
-        );
+    if launcher.is_none() {
+        refusals.push(format!("  {}", no_launcher_given(&launcher_version)));
     }
-    if let Some(why) = super::friends_dll::refusal(friends_dll, &host) {
-        refusals.push(format!("  {why}"));
-    }
+    let appimagetool = if plans.iter().any(|t| t.os == Os::Linux) {
+        match super::desktop::appimagetool() {
+            Ok(t) => Some(t),
+            Err(e) => {
+                refusals.push(format!("  {e}"));
+                None
+            }
+        }
+    } else {
+        None
+    };
     let mut moltenvk_found = None;
     if plans.iter().any(|t| t.os == Os::Mac) {
         let dir = moltenvk
@@ -573,29 +594,42 @@ pub fn build_packages(
         .map(Path::to_path_buf)
         .unwrap_or_else(|| base.join(format!("dereth-{version}")));
     std::fs::create_dir_all(&out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
-    let library = super::friends_dll::find(
-        ws,
-        &facts,
-        friends_dll,
-        &base.join("stage").join("friends-dll"),
-    )?;
+    let launcher = launcher.ok_or_else(|| no_launcher_given(&launcher_version))?;
     for target in plans {
-        println!("\n=== dereth {version} for {}", target.triple);
+        println!(
+            "\n=== dereth {version} (the launcher {launcher_version}) for {}",
+            target.triple
+        );
+        let stage = launcher_stage(&base, target);
+        fresh_dir(&stage)?;
+        let taken =
+            super::launcher::take(launcher, target, &launcher_version, &stage.join("launcher"))?;
         let job = Job {
             ws,
             target,
             facts: &facts,
             version: &version,
+            launcher_version: &launcher_version,
             out_dir: &out_dir,
-            stage: &launcher_stage(&base, target),
+            stage: &stage,
             signer: signer.as_ref(),
             moltenvk: moltenvk_found.as_ref(),
-            library: &library,
+            library: &taken.library,
+            appimagetool: appimagetool.as_deref(),
         };
-        job.run()?;
+        job.run(&taken)?;
     }
     write_index(ws, &out_dir, &version, &facts)?;
     Ok(out_dir)
+}
+
+/// What a package with a client says when it wasn't given the launcher's release files.
+pub(crate) fn no_launcher_given(version: &str) -> String {
+    format!(
+        "a game's package holds the launcher {version}, the version in this tree: get its release \
+         with `cargo xtask package launcher --fetch <dir>`, or build one with `cargo xtask package \
+         launcher --out <dir>`, and pass --launcher <dir>"
+    )
 }
 
 /// `--gather <dir>`: check the files there and write the index over them.
@@ -741,11 +775,11 @@ pub(super) fn crates_of(
 /// Auberean's package starts from this, so both packages carry the same launcher
 /// ([`super::auberean`]).
 pub(crate) struct BuiltLauncher {
-    /// What the Tauri CLI made: `dereth.exe` on Windows, `Dereth.app` on macOS, the AppImage on
-    /// Linux.
+    /// `dereth.exe` on Windows, `Dereth.app` on macOS, the AppImage on Linux.
     pub bundle: PathBuf,
-    /// The launcher program itself, as built.
-    pub program: PathBuf,
+    /// The retail client's friends library. A package needs it apart from the launcher only on
+    /// Windows, where it's a file beside the launcher's.
+    pub library: PathBuf,
 }
 
 /// The staging folder a target's launcher is built in, under the packages' folder `base`: the
@@ -772,23 +806,23 @@ pub(crate) fn build_launcher_as_dereth(
         target,
         facts,
         version,
+        launcher_version: version,
         out_dir: stage,
         stage,
         signer: None,
         moltenvk,
         library,
+        appimagetool: None,
     };
     fresh_dir(stage)?;
     let client = job.build_client()?;
     let tool = job.build_tool()?;
     let notices = job.notices()?;
     let bundle = job.build_launcher(&client, &tool, &notices)?;
-    let program = target_dir()
-        .join("launcher")
-        .join(target.triple)
-        .join("release")
-        .join(format!("dereth{}", target.exe_suffix()));
-    Ok(BuiltLauncher { bundle, program })
+    Ok(BuiltLauncher {
+        bundle,
+        library: library.to_path_buf(),
+    })
 }
 
 /// The build facts of a launcher build, with the repository it updates from: what
@@ -803,6 +837,8 @@ struct Job<'a> {
     target: Target,
     facts: &'a BuildFacts,
     version: &'a str,
+    /// The version of the launcher in the package, which its update signature is made for.
+    launcher_version: &'a str,
     out_dir: &'a Path,
     /// This target's staging folder, made anew.
     stage: &'a Path,
@@ -811,33 +847,72 @@ struct Job<'a> {
     moltenvk: Option<&'a (PathBuf, PathBuf)>,
     /// The retail client's friends library, checked ([`super::friends_dll`]).
     library: &'a Path,
+    /// The AppImage packer, for a Linux package.
+    appimagetool: Option<&'a str>,
 }
 
 impl Job<'_> {
-    fn run(&self) -> Result<(), String> {
-        fresh_dir(self.stage)?;
+    fn run(&self, launcher: &BuiltLauncher) -> Result<(), String> {
         let client = self.build_client()?;
         let tool = self.build_tool()?;
         let notices = self.notices()?;
-        let launcher = self.build_launcher(&client, &tool, &notices)?;
         match self.target.os {
             Os::Windows => {
                 let mut members = vec![
-                    ("dereth.exe".to_owned(), launcher),
+                    ("dereth.exe".to_owned(), launcher.bundle.clone()),
                     ("dereth-client.exe".to_owned(), client),
                     (tool_in_release(self.target), tool.clone()),
                     (
                         super::friends_dll::FILE.to_owned(),
-                        self.library.to_path_buf(),
+                        launcher.library.clone(),
                     ),
                 ];
                 members.extend(NOTICES.iter().map(|n| ((*n).to_owned(), notices.join(n))));
                 self.write_archive(&members)
             }
-            Os::Linux => self.write_appimage(&launcher, &client, &tool),
-            Os::Mac => self.write_bundle(&launcher),
+            Os::Linux => self.write_appimage(&launcher.bundle, &client, &tool, &notices),
+            Os::Mac => self.write_app(&launcher.bundle, &client, &tool, &notices),
         }?;
         self.package_tool(&tool)
+    }
+
+    /// macOS: the launcher's bundle with the client, the tool, MoltenVK and this package's notices
+    /// put in, and the whole signed again: what's added is signed first, then the bundle over it.
+    fn write_app(
+        &self,
+        launcher: &Path,
+        client: &Path,
+        tool: &Path,
+        notices: &Path,
+    ) -> Result<(), String> {
+        let app = self.stage.join("tree").join(LAUNCHER_APP);
+        fresh_dir(&app)?;
+        super::auberean::copy_tree(launcher, &app)?;
+        let (dylib, _) = self.moltenvk.ok_or("a macOS package needs MoltenVK")?;
+        let client_in = "Contents/MacOS/dereth-client".to_owned();
+        let tool_in = tool_in_release(self.target);
+        let library_in = "Contents/Frameworks/libMoltenVK.dylib".to_owned();
+        for (from, name) in [
+            (client, &client_in),
+            (tool, &tool_in),
+            (dylib.as_path(), &library_in),
+        ] {
+            copy(from, &app.join(name))?;
+            super::auberean::set_executable(&app.join(name))?;
+        }
+        for n in NOTICES {
+            copy(&notices.join(n), &app.join("Contents/Resources").join(n))?;
+        }
+        let identity = std::env::var("APPLE_SIGNING_IDENTITY").ok();
+        for args in super::auberean::codesign_runs_of(
+            &app.display().to_string(),
+            identity.as_deref(),
+            &[library_in.clone(), tool_in.clone(), client_in.clone()],
+        ) {
+            let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+            run_in(self.stage, "codesign", &refs, &[], &[])?;
+        }
+        self.write_bundle(&app)
     }
 
     /// The plugin author's tool, built with cargo in the workspace as the client is, and staged as
@@ -1245,15 +1320,32 @@ impl Job<'_> {
     }
 
     /// The AppImage, as the bundler wrote it, with the programs that went into it checked.
-    fn write_appimage(&self, appimage: &Path, client: &Path, tool: &Path) -> Result<(), String> {
+    fn write_appimage(
+        &self,
+        launcher: &Path,
+        client: &Path,
+        tool: &Path,
+        notices: &Path,
+    ) -> Result<(), String> {
         let t = self.target;
-        let launcher = target_dir()
-            .join("launcher")
-            .join(t.triple)
-            .join("release")
-            .join("dereth");
+        let file = release_file_name(t, self.version);
+        let packed = super::auberean::repack_appimage(&super::auberean::AppImageRepack {
+            ws: self.ws,
+            target: t,
+            facts: self.facts,
+            stage: self.stage,
+            appimagetool: self.appimagetool,
+            appimage: launcher,
+            added: &[("dereth-client", client, true), (TOOL, tool, true)],
+            notices,
+            file: &file,
+        })?;
+        let appimage = packed.file.as_path();
         let mut lines = Vec::new();
-        for (name, path) in [("dereth", launcher.as_path()), ("dereth-client", client)] {
+        for (name, path) in [
+            ("dereth", packed.launcher.as_path()),
+            ("dereth-client", client),
+        ] {
             let bytes = read(path)?;
             let d = self.check_program(name, &bytes)?;
             println!("  {name}: {d}");
@@ -1270,7 +1362,6 @@ impl Job<'_> {
             .collect();
         self.refuse_machine_folders(appimage, &named)?;
         let bytes = read(appimage)?;
-        let file = release_file_name(t, self.version);
         let findings = check_appimage(&file, &bytes);
         if !findings.is_empty() {
             return Err(format!(
@@ -1357,9 +1448,9 @@ impl Job<'_> {
             let _ = std::fs::remove_file(&piece_path);
             return Ok(());
         };
-        let signature = signer.sign(bytes, file, self.version, self.facts.epoch)?;
+        let signature = signer.sign(bytes, file, self.launcher_version, self.facts.epoch)?;
         let public_key = launcher_public_key(self.ws)?;
-        sign::verify(bytes, &signature, &public_key, self.version).map_err(|e| {
+        sign::verify(bytes, &signature, &public_key, self.launcher_version).map_err(|e| {
             format!(
                 "the update signature of {file} does not verify against the launcher's public key \
                  (plugins.updater.pubkey): {e}; is {} the launcher's key?",
@@ -1516,6 +1607,7 @@ pub(crate) fn write_index(
     version: &str,
     facts: &BuildFacts,
 ) -> Result<(), String> {
+    let launcher_version = Product::Launcher.version(ws)?;
     let mut names: Vec<String> = std::fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
         .filter_map(Result::ok)
@@ -1589,8 +1681,13 @@ pub(crate) fn write_index(
                 download_url(&facts.source_url, version, name)
             ));
         }
-        sign::verify(&read(&dir.join(name))?, signature, &public_key, version)
-            .map_err(|e| format!("{name}: {e}"))?;
+        sign::verify(
+            &read(&dir.join(name))?,
+            signature,
+            &public_key,
+            &launcher_version,
+        )
+        .map_err(|e| format!("{name}: {e}"))?;
         piece_values.push(value);
     }
     for (piece_file, t) in &pieces {
@@ -1601,8 +1698,10 @@ pub(crate) fn write_index(
     let latest_path = dir.join("latest.json");
     let signed = unsigned.is_empty();
     if signed {
+        // By the launcher's version: it's read only by installs from before the launcher had
+        // releases of its own, which install this package to move to them.
         let latest = sign::merge_latest(
-            version,
+            &launcher_version,
             &format!("Dereth {version}"),
             &facts.iso_time(),
             &piece_values,

@@ -56,6 +56,8 @@ fn hall(xs: &[f32]) -> (Harness, usize, u64) {
     let mut h = Harness::new();
     h.server.catalog = yalain_testkit::test_catalog();
     h.server.crafting.skills.push(CraftSkillDef {
+        bonus_stat: 0,
+        common_name: (0, 0),
         did: IRON,
         cap: 150,
         name: (0xA860_7CEC, 0x2500_13CA),

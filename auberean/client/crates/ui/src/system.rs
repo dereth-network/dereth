@@ -536,7 +536,7 @@ impl Ui {
 
     /// Remove an element and everything under it: each stops hearing anything and is forgotten
     /// by the manager.
-    // D2-11377, D2-11389, D2-11177
+    // D2-11377, D2-11389, D2-11177, D2-11249, D2-11245, D2-11209
     pub fn remove(&mut self, h: Handle) {
         if self
             .node(h)
@@ -567,7 +567,8 @@ impl Ui {
         self.free.push(h.index);
     }
 
-    /// The top-level elements, nearest first.
+    /// The top-level elements, nearest first, as the pointer meets them; of equal depths the first
+    /// put on the screen comes first.
     #[must_use]
     pub fn roots(&self) -> &[Handle] {
         &self.roots
@@ -588,9 +589,7 @@ impl Ui {
         if m.top == Some(h) {
             m.top = None;
         }
-        if m.tooltip_owner == Some(h) {
-            m.tooltip_owner = None;
-        }
+        let tip_owner = m.tooltip_owner == Some(h);
         if m.resizing == Some(h) {
             m.resizing = None;
         }
@@ -600,7 +599,6 @@ impl Ui {
                 l.retain(|x| *x != h);
             }
         }
-        self.mgr.delete_queue.retain(|x| *x != h);
         self.mgr.object_listeners.retain(|(r, _), _| *r != h);
         self.mgr.object_clean.retain(|(_, r, _)| *r != h);
         if self.mgr.drag == Some(h) {
@@ -610,6 +608,11 @@ impl Ui {
             self.mgr.drag_owner = None;
         }
         self.delete_listener_from_queues(crate::listener::Listener::Element(h));
+        // Its tooltip goes with it, the pointer unmoved.
+        if tip_owner {
+            self.mgr.tooltip_owner = None;
+            self.clear_tooltip();
+        }
     }
 
     /// Take a root off the screen: it stays made, but nothing draws it or reaches it.
@@ -655,7 +658,8 @@ impl Ui {
     // D2-11321
     fn create_element_with(&mut self, refdesc: DescIx, owns_object: bool) -> Option<Handle> {
         let desc = self.lib.dereference(refdesc)?;
-        let (id, kind) = (self.lib.get(refdesc).id, self.lib.get(desc).kind);
+        let kind = self.lib.referent_kind(refdesc)?;
+        let id = self.lib.get(refdesc).id;
         self.lib.add_ref(self.lib.get(desc).layout);
         let h = self.alloc(Node {
             desc,
@@ -761,9 +765,18 @@ impl Ui {
     pub fn add_root(&mut self, h: Handle) {
         self.roots.retain(|r| *r != h);
         let z = self.node(h).map_or(0, |n| n.z);
-        let at = self.insert_at(&self.roots, z);
+        let at = self.root_at(&self.roots, z);
         self.roots.insert(at, h);
         self.place_tree(h);
+    }
+
+    /// Where a top-level element of depth `z` goes in a list kept nearest first: after every one at
+    /// its depth or nearer, so of equal depths the first put on the screen stays nearest.
+    // D2-10386
+    fn root_at(&self, list: &[Handle], z: i32) -> usize {
+        list.iter()
+            .position(|c| self.node(*c).is_some_and(|n| n.z > z))
+            .unwrap_or(list.len())
     }
 
     /// Where an element of depth `z` goes in a list kept nearest first: after every nearer one,
@@ -1097,7 +1110,7 @@ impl Ui {
         if let Some(n) = self.node_mut(h) {
             n.visible = v;
         }
-        self.changing_element_visibility(h);
+        self.changing_element_visibility();
         let after = parent_shown && v;
         if before == after || !self.node(h).is_some_and(|n| n.ready) {
             return;
@@ -1112,7 +1125,8 @@ impl Ui {
             self.deactivate_element(h);
             return;
         }
-        if after && n.bool_attr(attr::ACTIVATE_ON_SHOW) {
+        // The use key held (it may be what showed this) would press what took the keyboard.
+        if after && n.bool_attr(attr::ACTIVATE_ON_SHOW) && !self.mgr.use_down {
             self.activate_element(h);
         }
     }
@@ -1149,10 +1163,11 @@ impl Ui {
         }
     }
 
-    /// An element hidden while its tooltip would show drops the tooltip.
+    /// An element hidden while its tooltip would show drops the tooltip, also when it went with
+    /// an element it lies in.
     // D2-11205
-    fn changing_element_visibility(&mut self, h: Handle) {
-        if !self.shown(h) && self.mgr.tooltip_owner == Some(h) {
+    fn changing_element_visibility(&mut self) {
+        if self.mgr.tooltip_owner.is_some_and(|o| !self.shown(o)) {
             self.mgr.tooltip_owner = None;
             self.clear_tooltip();
         }
@@ -1344,6 +1359,7 @@ impl Ui {
     // ---------------------------------------------------------------------------------------
 
     /// An element's rectangle on the screen.
+    // D2-11162, D2-11319, D2-11320
     #[must_use]
     pub fn screen_rect(&self, h: Handle) -> Option<Rect> {
         let n = self.node(h)?;
@@ -1549,7 +1565,7 @@ impl Ui {
                 if self.roots.contains(&h) {
                     let mut list = self.roots.clone();
                     list.retain(|c| *c != h);
-                    let at = self.insert_at(&list, z);
+                    let at = self.root_at(&list, z);
                     list.insert(at, h);
                     self.roots = list;
                 }

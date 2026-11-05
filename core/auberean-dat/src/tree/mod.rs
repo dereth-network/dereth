@@ -153,6 +153,16 @@ fn whole<T>(s: number::Scan<T>, t: &[u8]) -> Option<T> {
     s.whole(t).then_some(s.value)
 }
 
+/// A path's folder: up to and including its last `\\`, `/` or `:`; empty when it has none.
+// D2-17786
+#[must_use]
+pub fn directory_of(path: &[u8]) -> &[u8] {
+    match path.iter().rposition(|c| matches!(c, b'\\' | b'/' | b':')) {
+        Some(at) => &path[..=at],
+        None => &[],
+    }
+}
+
 /// The text of a binary name: its word and its bytes as two small hexadecimal digits a byte (the
 /// word low byte first), broken into lines of 100 characters, each full line ending in a line
 /// break.
@@ -174,25 +184,6 @@ fn binary_text(tag: u32, bytes: &[u8]) -> Vec<u8> {
         }
     }
     out
-}
-
-/// The bytes a binary name's text holds: its line breaks taken out, then two hexadecimal
-/// digits a byte (a last lone digit a byte of its own). None when a pair is not hexadecimal.
-// D2-17814, D2-17780
-fn binary_bytes(t: &[u8]) -> Option<Vec<u8>> {
-    let hex: Vec<u8> = t.iter().copied().filter(|&c| c != b'\n').collect();
-    let digit = |c: u8| char::from(c).to_digit(16);
-    let mut raw = Vec::with_capacity(hex.len() / 2 + 1);
-    for pair in hex.chunks(2) {
-        let hi = digit(pair[0])?;
-        let v = match pair.get(1).and_then(|&c| digit(c)) {
-            Some(lo) => hi * 16 + lo,
-            None if pair.len() == 1 => hi,
-            None => hi,
-        };
-        raw.push(u8::try_from(v).ok()?);
-    }
-    Some(raw)
 }
 
 /// The C library's case-blind comparison of two narrow strings (`_stricmp`), up to each one's
@@ -338,17 +329,6 @@ impl Node {
         self.name = Some(Name::InstanceId(v));
     }
 
-    /// Name the node by bytes and their word; none when there are no bytes.
-    // D2-14431, D2-14430
-    pub fn set_name_binary(&mut self, tag: u32, bytes: &[u8]) {
-        if !bytes.is_empty() {
-            self.name = Some(Name::Binary {
-                tag,
-                bytes: bytes.to_vec(),
-            });
-        }
-    }
-
     /// The name read as `kind`: as it is when it already is one; else its text read as one, and
     /// then the name **becomes** that value (the text form of it is what a later read or a writer
     /// sees). None when there is no name or its text does not read as `kind`.
@@ -405,54 +385,6 @@ impl Node {
     pub fn name_bool(&mut self) -> Option<bool> {
         match self.name_as(NameKind::Bool)? {
             Name::Bool(v) => Some(*v != 0),
-            _ => None,
-        }
-    }
-
-    // D2-14532
-    pub fn name_hex(&mut self) -> Option<u32> {
-        match self.name_as(NameKind::Hex)? {
-            Name::Hex(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    // D2-08733
-    pub fn name_i64(&mut self) -> Option<i64> {
-        match self.name_as(NameKind::I64)? {
-            Name::I64(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    // D2-08734
-    pub fn name_u64(&mut self) -> Option<u64> {
-        match self.name_as(NameKind::U64)? {
-            Name::U64(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    /// The name as bytes: a binary name as it is; a text name read as the hexadecimal it was
-    /// written as, which then becomes the name. The client sizes the bytes as half the text's
-    /// length, rounded up past its end, less the word: text of an even length gives one byte more
-    /// than it holds (zero here). None for any other kind, or empty text.
-    // D2-14466
-    pub fn name_binary(&mut self) -> Option<(u32, Vec<u8>)> {
-        if let Some(Name::Text(t)) = &self.name {
-            if t.is_empty() {
-                return None;
-            }
-            let hex: Vec<u8> = t.iter().copied().filter(|&c| c != b'\n').collect();
-            let size = (hex.len() + 2) / 2;
-            let mut raw = binary_bytes(&hex).unwrap_or_default();
-            raw.resize(size.max(4), 0);
-            let tag = u32::from_le_bytes([raw[0], raw[1], raw[2], raw[3]]);
-            let bytes = raw[4..].to_vec();
-            self.name = Some(Name::Binary { tag, bytes });
-        }
-        match &self.name {
-            Some(Name::Binary { tag, bytes }) => Some((*tag, bytes.clone())),
             _ => None,
         }
     }
@@ -520,18 +452,6 @@ impl Node {
         }
     }
 
-    /// The leaf's name as a float.
-    // D2-07459
-    pub fn leaf_f32(&mut self) -> Option<f32> {
-        self.leaf_mut()?.name_f32()
-    }
-
-    /// The leaf's name as a signed number.
-    // D2-07965
-    pub fn leaf_i32(&mut self) -> Option<i32> {
-        self.leaf_mut()?.name_i32()
-    }
-
     /// The leaf's name as text.
     // D2-14447
     pub fn leaf_text(&mut self) -> Option<Vec<u8>> {
@@ -544,31 +464,11 @@ impl Node {
         self.children.get_mut(i)?.name_text()
     }
 
-    /// The name of the child at `i`, as an unsigned number.
-    // D2-03563
-    pub fn child_u32(&mut self, i: usize) -> Option<u32> {
-        self.children.get_mut(i)?.name_u32()
-    }
-
-    /// The name of the child at `i`, as a float.
-    // D2-04208
-    pub fn child_f32(&mut self, i: usize) -> Option<f32> {
-        self.children.get_mut(i)?.name_f32()
-    }
-
     /// The first child named `word` (any case).
     // D2-14452
     #[must_use]
     pub fn find(&self, word: &[u8]) -> Option<&Node> {
         self.children.iter().find(|c| c.is_keyword(word))
-    }
-
-    /// The index of the first child at or after `from` named `word` (any case): the iterator's
-    /// search, which walks on from where it stands.
-    // D2-14474, D2-14475, D2-14460
-    #[must_use]
-    pub fn find_from(&self, from: usize, word: &[u8]) -> Option<usize> {
-        (from..self.children.len()).find(|&i| self.children[i].is_keyword(word))
     }
 
     /// Append a child.
@@ -626,19 +526,6 @@ impl Node {
         (i < self.children.len()).then(|| self.children.remove(i))
     }
 
-    /// Order the children by name, case-blind (a stable order for names that compare equal is
-    /// not promised: the client's sort is not stable).
-    // D2-14486, D2-14451
-    pub fn sort_children(&mut self) {
-        self.children.sort_by(|a, b| {
-            let (x, y) = (
-                a.name_text_now().unwrap_or_default(),
-                b.name_text_now().unwrap_or_default(),
-            );
-            stricmp(&x, &y)
-        });
-    }
-
     // ---- comments and place --------------------------------------------------------------------
 
     /// The node's comment: its lines, each ending in a line break.
@@ -688,13 +575,6 @@ impl Node {
         self.filename = f.into();
     }
 
-    /// Whether this is a root that keeps a record of its file.
-    // D2-14435
-    #[must_use]
-    pub const fn has_file_info(&self) -> bool {
-        self.file_info.is_some()
-    }
-
     /// The root's record of its file.
     // D2-14429
     #[must_use]
@@ -711,32 +591,6 @@ impl Node {
                 .get_or_insert_with(FileInfo::default)
                 .filename,
         );
-    }
-
-    /// The source file a root came from, or `<unknown>`.
-    // D2-14465
-    #[must_use]
-    pub fn source_file_name(&self) -> Vec<u8> {
-        self.file_info
-            .as_ref()
-            .map_or_else(|| b"<unknown>".to_vec(), |f| f.filename.clone())
-    }
-
-    /// A root begins a parse of itself: its file record named by its name, the counts and version
-    /// cleared.
-    // D2-14470
-    pub fn begin_parse(&mut self) -> bool {
-        let name = self.name_text().unwrap_or_default();
-        self.init_file_info(&name);
-        match &mut self.file_info {
-            Some(f) => {
-                f.errors = 0;
-                f.warnings = 0;
-                f.compatibility_version = 0;
-                true
-            }
-            None => false,
-        }
     }
 
     /// A root counts an error found in it.

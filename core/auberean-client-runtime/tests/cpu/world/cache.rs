@@ -236,6 +236,48 @@ fn an_objects_creation_asks_the_server_for_the_records_its_files_lack_and_a_refu
     assert!(!again.contains(&(RecordType::ENTITY.0, entity)));
 }
 
+/// A qualities record no file holds answers nothing until the server sends it, and from then on
+/// the object made from it reads its qualities there.
+///
+/// Behaviour: data.cache.a-qualities-record-that-comes-later-is-read
+#[test]
+fn a_qualities_record_the_server_sends_later_is_read_by_an_object_made_before_it() {
+    use auberean_client_runtime::repository::{answer, INT};
+    let mut c = client(true);
+    let id = 0x8130_0000_1000_0001;
+    c.take_message(
+        NOW,
+        ServerMessage::CreateObject(CreateObject {
+            id,
+            weenie: WeenieDesc {
+                mask: WeenieDesc::ENTITY,
+                entity_did: 0x4700_0005,
+                ..WeenieDesc::default()
+            },
+            ..CreateObject::default()
+        }),
+    );
+    let quality = |c: &mut Client| c.with_host(|h| answer(h, &INT, id, 7)).expect("a host");
+    assert_eq!(quality(&mut c), None, "no file holds it");
+    // A qualities record of one integer: its flags, its id, then its table.
+    let mut bytes = Vec::new();
+    for word in [0x2u32, 0x8100_0005, 1, 7, 42] {
+        bytes.extend_from_slice(&word.to_le_bytes());
+    }
+    c.take_message(
+        LOGIN | 1,
+        ServerMessage::DataRecord(DataRecord {
+            dat_file: PORTAL,
+            kind: RecordType::QUALITIES.0,
+            id: 0x8100_0005,
+            size: 0,
+            bytes,
+        }),
+    );
+    c.upkeep();
+    assert_eq!(quality(&mut c), Some(42), "it came");
+}
+
 /// An object whose records the files lack is made at once: its records are asked for behind it.
 ///
 /// Behaviour: data.cache.objects-made-before-their-records
@@ -386,4 +428,39 @@ fn each_asker_of_the_data_cache_has_a_number_of_its_own() {
         listeners::STRINGS
     );
     assert_eq!(listeners::CELLS, u32::MAX - 2);
+}
+
+/// Leaving the server resets the data cache: a goodbye goes out, the download is idle whatever it
+/// was doing, and every batch and kept get is let go, so nobody waits for a record the server will
+/// not send.
+///
+/// Behaviour: data.download.leaving-the-server-resets-the-cache
+#[test]
+fn leaving_the_server_resets_the_data_cache() {
+    use auberean_dat::disk::download::DddState;
+    let mut c = client(false);
+    let to = Listener { to: 1, user: 5 };
+    let record = QualifiedId {
+        id: 0x2800_0001,
+        kind: RecordType::ID_MAP.0,
+    };
+    c.data_download_mut().get(GATHER_NONE, record, Some(to));
+    c.upkeep();
+    assert_eq!(
+        asked(&c),
+        vec![(record.kind, record.id)],
+        "it waits on the server"
+    );
+    c.data_download_mut().download.state = DddState::Patching;
+    assert_eq!(
+        c.data_download().requests.live_batches(),
+        1,
+        "one batch waits"
+    );
+    assert!(c.data_download().requests.live() > 0, "for its record");
+    c.disconnect();
+    let d = c.data_download();
+    assert_eq!(d.download.state, DddState::Idle);
+    assert_eq!(d.requests.live_batches(), 0, "the batch let go");
+    assert!(d.requests.pending().is_empty(), "no get kept");
 }

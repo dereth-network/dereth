@@ -929,6 +929,37 @@ mod tests {
         assert_eq!(&block[4..8], &(seq + 50).to_le_bytes());
     }
 
+    /// A peer gone quiet for just under the connection's timeout comes back and asks for the first
+    /// packet it missed, after the packet is older than the timeout: it is sent again, not refused.
+    ///
+    /// Behaviour: link.flow.a-packet-stays-resendable-while-the-connection-can-last
+    #[test]
+    fn a_packet_is_sent_again_after_a_dropout_just_under_the_timeout() {
+        let mut fq = FlowQueue::new(0x0B, 1);
+        let mut crypto = CryptoSystem::new(0xDEAD_BEEF);
+        fq.enqueue_blob(blob(16, 5));
+        let sent = fq.transmit_new_packets(&mut crypto, LocalTime(0.0));
+        let seq = crate::ParsedPacket::parse(&sent[0])
+            .expect("parse")
+            .header
+            .seq_id;
+        // The peer's first request comes once the next packet reached it, a request's wait later.
+        let back = CONNECTION_TIMEOUT - 0.1 + NAK_INTERVAL;
+        fq.enqueue_blob(blob(16, 5));
+        fq.transmit_new_packets(&mut crypto, LocalTime(back));
+        fq.enqueue_acks(&[seq]);
+        let resends = fq.transmit_acks();
+        assert_eq!(resends.len(), 1, "still kept, {back} s on");
+        assert_eq!(
+            crate::ParsedPacket::parse(&resends[0])
+                .expect("parse")
+                .header
+                .seq_id,
+            seq
+        );
+        assert!(fq.compile_empty_acks().is_none(), "nothing refused");
+    }
+
     /// A resend carries the **current** `interval_`, not the one the packet was first sent under.
     ///
     /// Oracle: the ack transmit builds a fresh `ProtoHeader` and fills

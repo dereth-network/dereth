@@ -122,19 +122,6 @@ impl KeyStack {
                 .map(|b| (i, b.action))
         })
     }
-
-    /// The first input (and its map's modifier bits) that names an action, from the front.
-    // D2-04954
-    #[must_use]
-    pub fn input_of(&self, action: u32) -> Option<(u32, u32)> {
-        self.layers.iter().rev().find_map(|l| {
-            l.map
-                .bindings
-                .iter()
-                .find(|b| b.action == action)
-                .map(|b| (b.input, l.meta))
-        })
-    }
 }
 
 /// The data the keys need: the base map and the Defaults maps the files fall back to, the input

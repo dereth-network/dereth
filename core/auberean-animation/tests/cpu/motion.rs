@@ -14,7 +14,7 @@ use auberean_world::look::{Group, Look, LookRecords};
 
 const SETUP: u32 = 0x0400_0001;
 
-struct Records(Arc<Setup>);
+struct Records(Arc<Setup>, f32);
 
 impl Animations for Records {
     fn animation(&self, _id: DataId) -> Option<Arc<Animation>> {
@@ -35,6 +35,9 @@ impl BodyRecords for Records {
     fn setup(&self, id: DataId) -> Option<Arc<Setup>> {
         (id.0 == SETUP).then(|| self.0.clone())
     }
+    fn wind(&self) -> f32 {
+        self.1
+    }
     fn anim_map(&self, _id: DataId) -> Option<Arc<AnimMap>> {
         None
     }
@@ -51,7 +54,7 @@ fn body() -> Body {
         }],
         ..Setup::default()
     };
-    let records = Records(Arc::new(setup));
+    let records = Records(Arc::new(setup), 0.0);
     let mut look = Look::default();
     look.add_group(&Group {
         key: 1,
@@ -112,4 +115,22 @@ fn a_slider_just_past_still_moves_at_once() {
         (f - 6.25).abs() < 1e-3,
         "a small change, halfway in 0.05 s: {f}"
     );
+}
+
+/// Each body's wind slider follows how hard the wind blows, reaching a new strength over a second.
+///
+/// Behaviour: animation.body.its-wind-slider-follows-the-wind-over-a-second
+#[test]
+fn its_wind_slider_follows_the_wind_over_a_second() {
+    let mut b = body();
+    let blowing = Records(Arc::new(Setup::default()), 4.0);
+    b.advance(&blowing, 0.5);
+    assert!((b.sliders.current(slider::WIND) - 2.0).abs() < 1e-4);
+    b.advance(&blowing, 0.5);
+    assert!((b.sliders.current(slider::WIND) - 4.0).abs() < 1e-4);
+    b.advance(&blowing, 0.5);
+    assert!((b.sliders.current(slider::WIND) - 4.0).abs() < 1e-4);
+    let still = Records(Arc::new(Setup::default()), 0.0);
+    b.advance(&still, 0.25);
+    assert!((b.sliders.current(slider::WIND) - 3.0).abs() < 1e-4);
 }

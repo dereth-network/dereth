@@ -1,6 +1,8 @@
 //! The graphics preferences and the overall graphics quality.
 
-use auberean_draw::quality::{key, Graphics, Kind, GRAPHICS, HIGHEST, PREFERENCES};
+use auberean_draw::quality::{
+    brightness_ramp, key, Graphics, Kind, GRAPHICS, HIGHEST, PREFERENCES,
+};
 
 /// Each of the five overall qualities sets every graphics preference but the screen's brightness,
 /// values and defaults, and the preferences then match it; the first of the five that every
@@ -89,4 +91,26 @@ fn the_reflection_ripples_only_at_the_highest_water_reflections() {
         g.water_ripples()
     };
     assert_eq!([at(0.0), at(1.0), at(2.0)], [false, false, true]);
+}
+
+/// The screen's brightness makes each color's level 255 times itself plus twice the brightness of
+/// that, held to 16 bits, the brightness itself held to -0.2 to 1.
+///
+/// Behaviour: draw.quality.the-screen-brightness-sets-each-levels-ramp
+#[test]
+fn the_screen_brightness_sets_each_levels_ramp() {
+    let none = brightness_ramp(0.0);
+    assert_eq!(
+        (none[0], none[1], none[128], none[255]),
+        (0, 255, 32640, 65025)
+    );
+    let most = brightness_ramp(1.0);
+    assert_eq!(
+        (most[1], most[85], most[86], most[255]),
+        (765, 65025, 65535, 65535)
+    );
+    let least = brightness_ramp(-0.2);
+    assert_eq!((least[1], least[255]), (153, 39015));
+    assert_eq!(brightness_ramp(5.0), most, "held to 1");
+    assert_eq!(brightness_ramp(-5.0), least, "held to -0.2");
 }

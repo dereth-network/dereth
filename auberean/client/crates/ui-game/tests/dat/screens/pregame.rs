@@ -321,6 +321,45 @@ fn connecting_says_how_it_goes_and_the_list_leads_on() {
     );
 }
 
+/// The character named to play goes before the one named to make and play, which stands in when
+/// none is named to play; the names are asked after once, so the next list stays a list; a name
+/// the list lacks, or a deleted character's, leads to the list.
+///
+/// Behaviour: ui.datapatch.the-characters-named-on-the-line-are-asked-after-once
+#[test]
+fn the_characters_named_on_the_line_are_asked_after_once() {
+    let listed = |user: &str, create: &str| {
+        let mut r = Run::new();
+        r.show(|ui, data, out| Box::new(DataPatch::new(ui, data, out)));
+        r.take();
+        r.data = Run::new()
+            .with_characters(&[("Firstlight", 0), ("Embertail", 0), ("Gone", 5)], 4)
+            .data;
+        r.data.start_character = user.into();
+        r.data.create_character = create.into();
+        r.update();
+        (r.take(), r)
+    };
+    let play = |character| {
+        vec![
+            Request::Play { character },
+            Request::Mode(mode::GAMEPLAY, String::new()),
+        ]
+    };
+    let list = vec![Request::Mode(mode::CHARACTER_SELECTION, String::new())];
+    assert_eq!(listed("Embertail", "Firstlight").0, play(0x5000_0002));
+    assert_eq!(listed("", "Firstlight").0, play(0x5000_0001));
+    assert_eq!(
+        listed("nobody", "Firstlight").0,
+        list,
+        "the first name only"
+    );
+    assert_eq!(listed("gone", "").0, list);
+    let (_, r) = listed("Embertail", "Firstlight");
+    assert!(r.data.start_character.is_empty());
+    assert!(r.data.create_character.is_empty());
+}
+
 /// A login refused, or a login server letting its connection go, with an error leads from
 /// connecting to the disconnected screen with that error's own line; an address the client cannot
 /// understand names the host; an error with no line of its own leaves the screen as it is.
@@ -627,6 +666,8 @@ fn the_hall_describes_the_avatar_under_the_pointer_and_a_press_chooses_it() {
         behavior: creation::LEAVE_BEHAVIOR
     }));
     assert!(queued(&asked).is_empty(), "the behavior first");
+    r.step();
+    assert!(queued(&r.take()).is_empty(), "while the figure plays it");
     r.data.behaving.clear();
     r.step();
     assert_eq!(queued(&r.take()), vec![mode::AVATAR_MODIFICATION]);
@@ -759,6 +800,46 @@ fn the_appearance_shows_the_avatars_rows_and_shapes_it() {
     assert_eq!(queued(&r.take()), vec![mode::AVATAR_SELECTION]);
 }
 
+/// An administrator's client shows the administrator's button beside Cancel and Enter; lit, the
+/// character is asked for as an administrator's; let off again, as a player's.
+///
+/// Behaviour: ui.creation.an-admin-client-offers-the-admin-character
+#[test]
+fn an_admin_client_offers_the_admin_character() {
+    let asked = |presses: usize| {
+        let mut r = Run::new().with_characters(&[], 4);
+        r.data.admin_client = true;
+        r.data.avatar = Some(Avatar {
+            race: 1,
+            sex: 0x1000,
+        });
+        r.data.choices = human_rows();
+        r.show(|ui, data, out| Box::new(AvatarModification::new(ui, data, out)));
+        r.take();
+        r.press("NextButton");
+        assert!(r.ui.find(Token::of("EnterButton")).is_some());
+        assert!(r.ui.find(Token::of("CancelButton")).is_some());
+        for _ in 0..presses {
+            r.press("AdminButton");
+        }
+        r.press("NameEntry");
+        r.ui.type_text("Name");
+        r.step();
+        r.take();
+        r.press("EnterButton");
+        r.take()
+            .into_iter()
+            .find_map(|q| match q {
+                Request::Create { admin, .. } => Some(admin),
+                _ => None,
+            })
+            .expect("the character asked for")
+    };
+    assert!(!asked(0), "a player's unless lit");
+    assert!(asked(1), "lit");
+    assert!(!asked(2), "let off");
+}
+
 /// The name is asked with Cancel and Enter, the pair of buttons the player's client shows; the
 /// entry shows its hint and takes no keys until it is pressed, its hint goes then, it takes only
 /// a name's letters, and at most sixteen of them. Enter asks for the character; the server's
@@ -806,7 +887,8 @@ fn the_name_is_asked_with_cancel_and_enter() {
     assert_eq!(
         r.take(),
         vec![Request::Create {
-            name: "Rowanlightabcde".into()
+            name: "Rowanlightabcde".into(),
+            admin: false,
         }]
     );
     assert!(r.ghosted("EnterButton"), "waits for the server");

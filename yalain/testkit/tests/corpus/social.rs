@@ -33,7 +33,9 @@ fn library() -> Option<&'static Library> {
             .into_iter()
             .find(|(n, _)| *n == DatName::Portal)?;
         let dat = DatFile::open(&path).ok()?;
-        Library::from_record(&dat.read(RECORD).ok()?).ok()
+        dat.read_checked(RECORD, Library::from_record)
+            .ok()
+            .map(|c| c.value)
     })
     .as_ref()
 }
