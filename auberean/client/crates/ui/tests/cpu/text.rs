@@ -4,6 +4,7 @@
 use auberean_assets::ui::AttributeValue as V;
 use auberean_primitives::DataId;
 use auberean_ui::text::Color;
+use auberean_ui::types::button_id;
 use auberean_ui::types::text::key;
 use auberean_ui::{Token, Ui};
 
@@ -253,6 +254,21 @@ fn the_pointer_passes_through_a_tooltip() {
     let at = u.screen_rect(tip).expect("where it stands");
     assert!(at.contains(150, 150), "over the pointer: {at:?}");
     assert_eq!(u.hit(150, 150), Some(owner), "under it the owner");
+}
+
+/// The left button held back from anywhere holds a tooltip back: pressed where no element is (over
+/// the world) and dragged onto the owner, no tooltip shows while it is down.
+///
+/// Behaviour: ui.tooltip.the-left-button-down-anywhere-holds-a-tooltip-back
+#[test]
+fn the_left_button_down_over_the_world_holds_a_tooltip_back() {
+    let mut u = resting_on_a_tooltips_owner();
+    u.pointer_move(10, 10);
+    u.pointer_button(button_id::LEFT, true);
+    u.pointer_move(150, 150);
+    u.use_time(5.0);
+    u.use_time(6.0);
+    assert!(u.tooltip().is_none(), "held back while the button is down");
 }
 
 /// A tooltip is drawn in front of everything, also of the first on the screen at its own depth.

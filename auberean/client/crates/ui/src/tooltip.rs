@@ -6,7 +6,6 @@
 
 use crate::system::{Handle, Ui};
 use crate::token::{attr, Token};
-use crate::types::button_id;
 
 /// The tooltip shown, and when tooltips show.
 #[derive(Clone, Debug)]
@@ -69,7 +68,8 @@ impl Ui {
         let Some(owner) = self.mgr.tooltip_owner.filter(|h| self.node(*h).is_some()) else {
             return;
         };
-        if self.button_held(button_id::LEFT) {
+        // The left button down anywhere, on an element or not, holds a tooltip back.
+        if self.left_down() {
             return;
         }
         let Some(n) = self.node(owner) else { return };
@@ -231,14 +231,5 @@ impl Ui {
         if self.mgr.tooltip_owner == Some(h) && self.tooltip().is_some() {
             self.reset_tooltip();
         }
-    }
-
-    /// Whether a pointer button is down on any element.
-    fn button_held(&self, b: u32) -> bool {
-        fn walk(ui: &Ui, h: Handle, b: u32) -> bool {
-            ui.node(h)
-                .is_some_and(|n| n.holds(b) || n.children.iter().any(|c| walk(ui, *c, b)))
-        }
-        self.roots().iter().any(|r| walk(self, *r, b))
     }
 }

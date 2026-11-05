@@ -2517,6 +2517,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.tooltip.the-left-button-down-anywhere-holds-a-tooltip-back",
+        says: "With the left button down anywhere, on an element or over the world, no tooltip shows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-TOOLTIP-LEFT-DOWN"),
+        station: "auberean-ui::cpu::text::the_left_button_down_over_the_world_holds_a_tooltip_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.tooltip.the-players-delay-and-switch-rule-tooltips",
         says: "The player's tooltip delay is how long the pointer rests before a tooltip shows, one \
                shows at once when the delay comes down to the rest so far; switched off, none shows \
