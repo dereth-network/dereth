@@ -287,7 +287,7 @@
   // A Lyceum world as the backend lists it.
   const lyWorld = (path, home, extra = {}) => ({ path, home, key: path.split("\\").slice(-2, -1)[0], era: "eor", saved: Math.floor(Date.now() / 1000) - 3 * 86400, outdated: false, facts: null, ...extra });
   // The ACE world each era's world database is made from, as Get world database records it.
-  const BASES = { eor: { era: "eor", version: "v0.9.295" }, infiltration: { era: "infiltration", version: "v0.8.8" } };
+  const BASES = { eor: { era: "eor", version: "v0.9.295" }, infiltration: { era: "infiltration", version: "v0.8.8" }, launch: { era: "launch", version: "v0.1.0" } };
   const offerOf = (c) => c.checkout || !c.latest ? { kind: "none" } : !c.installed ? { kind: "download", version: c.latest } : c.installed.version !== c.latest ? { kind: "update", version: c.latest } : { kind: "none" };
   // Auberean's realm, as the backend shows it.
   const AC2_CHECK = {
@@ -393,9 +393,9 @@
       const needs = eras.find((e) => e.name === settings.era)?.needs ?? "modern";
       if (h.plays.dat_overlay && (settings.era !== h.settings.era || settings.dats !== h.settings.dats)) { h.message = "The Lyceum world this world plays was built for its era and game data, so those stay as they are."; return; }
       if (settings.federation?.enabled && !h.plays.network_key) { h.message = "Save the world's key before linking it to the Dereth Network."; return; }
-      if (!state.dat_sets.some((s) => s.path === settings.dats && s.kind === needs)) { h.message = needs === "classic" ? "Infiltration (February 2005) is drawn on the land from before Throne of Destiny: choose Classic data files (portal.dat and cell.dat) for it." : "End of Retail plays the Modern data files (client_portal.dat and the rest): choose those for it."; return; }
+      if (!state.dat_sets.some((s) => s.path === settings.dats && s.kind === needs)) { h.message = needs === "original" ? "Launch (1999, experimental) is drawn from the 1999 data files: choose a folder whose portal.dat and cell.dat are from 1999." : needs === "classic" ? "Infiltration (February 2005) is drawn on the land from before Throne of Destiny: choose Classic data files (portal.dat and cell.dat) for it." : "End of Retail plays the Modern data files (client_portal.dat and the rest): choose those for it."; return; }
       if (settings.era !== h.settings.era && h.plays.database === "era") {
-        h.plays.pack = settings.era === "infiltration" ? "world.pack.infiltration" : "world.pack";
+        h.plays.pack = { infiltration: "world.pack.infiltration", launch: "world.pack.launch" }[settings.era] ?? "world.pack";
         h.plays.base = h.plays.era_bases.find((b) => b.era === settings.era) ?? null;
         h.prepared = !!h.plays.base;
       }

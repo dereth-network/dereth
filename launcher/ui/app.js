@@ -3189,12 +3189,15 @@ document.addEventListener("focusin", (ev) => {
 });
 if (window.__TAURI__?.event) window.__TAURI__.event.listen("pad", (e) => onPad(e.payload));
 
-// A world page whose world's library changed underneath it (a private copy finished) reads its
-// options again, so the new set appears without the player having to reopen the page.
+// A world page whose world's library changed underneath it (a private copy finished), or whose
+// world has since said its era, reads its options again, so the sets it may play appear without the
+// player having to reopen the page.
 let lastSets = "";
 async function watchLibrary() {
   const sets = JSON.stringify(ui.snap?.state.dat_sets.map((d) => d.id) ?? []);
-  if (sets !== lastSets && ui.screen === "world" && ui.world) {
+  const shown = ui.screen === "world" ? ui.world?.view.world : null;
+  const eraSaid = shown && (worldBy(shown.slug)?.era ?? null) !== (shown.era ?? null);
+  if ((sets !== lastSets || eraSaid) && ui.screen === "world" && ui.world) {
     lastSets = sets;
     const view = await api("world_view", { slug: ui.world.view.world.slug }).catch(() => null);
     if (view) {
