@@ -601,6 +601,7 @@ impl Passage {
             fov_y: FOV * look.tunnel_fov,
             near: 0.1,
             far: 2000.0,
+            roll: 0.0,
             orthographic: None,
         };
         let mut light = DayLight::DEFAULT;

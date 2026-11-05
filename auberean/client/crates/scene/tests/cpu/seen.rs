@@ -8,6 +8,7 @@ fn camera() -> SeenCamera {
         position: Vec3::new(0.0, 0.0, 0.0),
         heading: 0.0,
         pitch: 0.0,
+        roll: 0.0,
         fov_y: 90.0,
         near: 0.1,
     }

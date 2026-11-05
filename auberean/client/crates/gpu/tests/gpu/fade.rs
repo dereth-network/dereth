@@ -101,6 +101,7 @@ fn frame_of(objects: Vec<ObjectBatch>) -> Frame {
         fov_y: 60.0,
         near: 0.1,
         far: 500.0,
+        roll: 0.0,
         orthographic: None,
     };
     let mut frame = builder.parts_frame(&[], Vec::new(), camera, DayLight::DEFAULT, None);

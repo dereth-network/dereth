@@ -64,7 +64,6 @@ use auberean_client_sdk::model::Object;
 use auberean_client_sdk::{Action, Client, Motion};
 use auberean_draw::body::BodyDrawer;
 use auberean_draw::effects::PlacedEffects;
-use auberean_draw::particles::camera_axes;
 use auberean_draw::portal::{Look as PortalLook, Passage};
 use auberean_draw::scene::{Frame, SceneBuilder, Spot};
 use auberean_draw::systems::ParticleSystems;
@@ -3861,6 +3860,7 @@ impl<'w> Scene<'w> {
             .to_degrees()
             .rem_euclid(360.0);
         let pitch = dereth_primitives::num::math::atan2f(l.z, flat).to_degrees();
+        let roll = camera::lean_of(&at);
         let (bx, by) = (i32::from(block.x()), i32::from(block.y()));
         let (time_of_day, day) = self.moment();
         let spot = Spot {
@@ -3990,6 +3990,7 @@ impl<'w> Scene<'w> {
         built.frame.camera.position = dv(eye);
         built.frame.camera.heading = heading;
         built.frame.camera.pitch = pitch;
+        built.frame.camera.roll = roll;
         built.frame.camera.fov_y = self.fov * fov_scale;
         // The client's running time: the clouds' shadows, the water's ripples and the flares'
         // fades follow it.
@@ -4520,6 +4521,7 @@ impl<'w> Scene<'w> {
             position: camera.position,
             heading: camera.heading,
             pitch: camera.pitch,
+            roll: camera.roll,
             fov_y: camera.fov_y,
             near: camera.near,
         });
@@ -4562,7 +4564,7 @@ impl<'w> Scene<'w> {
             }
         }
         // The effects the objects play: lit particles take the light the frame's objects do.
-        let axes = camera_axes(heading, pitch);
+        let axes = auberean_draw::particles::leaned_camera_axes(heading, pitch, roll);
         let l = built.frame.light;
         let light = auberean_world::color::Color::new(
             l.direct_color.r * l.direct_brightness,

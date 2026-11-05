@@ -2017,6 +2017,30 @@ pub fn look_of(at: &Position) -> Vec3 {
     Vec3::new(m[3], m[4], m[5])
 }
 
+/// How far a camera standing at `at` leans about the way it looks, in degrees: its right going up.
+// D2-10593
+#[must_use]
+pub fn lean_of(at: &Position) -> f32 {
+    let m = auberean_physics::geom::rotation_axes(at.frame.rotation);
+    let (right, forward) = (Vec3::new(m[0], m[1], m[2]), Vec3::new(m[3], m[4], m[5]));
+    let cross = |a: Vec3, b: Vec3| {
+        Vec3::new(
+            a.y * b.z - a.z * b.y,
+            a.z * b.x - a.x * b.z,
+            a.x * b.y - a.y * b.x,
+        )
+    };
+    let flat = normalize(cross(forward, Vec3::new(0.0, 0.0, 1.0)));
+    let up = cross(flat, forward);
+    let dot = |a: Vec3, b: Vec3| a.x * b.x + a.y * b.y + a.z * b.z;
+    let lean = math::atan2f(dot(right, up), dot(right, flat)).to_degrees();
+    if lean.abs() < 1e-3 {
+        0.0
+    } else {
+        lean
+    }
+}
+
 /// No objects at all.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoObjects;

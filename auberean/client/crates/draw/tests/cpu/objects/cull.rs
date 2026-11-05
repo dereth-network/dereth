@@ -200,6 +200,7 @@ fn camera(heading: f32) -> Camera {
         fov_y: 75.0,
         near: 0.1,
         far: 2000.0,
+        roll: 0.0,
         orthographic: None,
     }
 }

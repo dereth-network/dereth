@@ -22,6 +22,8 @@ pub struct SeenCamera {
     pub heading: f32,
     /// Degrees above level.
     pub pitch: f32,
+    /// How far it leans about the way it looks, degrees, its right going up.
+    pub roll: f32,
     /// The vertical field of view, degrees.
     pub fov_y: f32,
     pub near: f32,
@@ -37,8 +39,7 @@ impl SeenCamera {
             fm::cosf(h) * fm::cosf(p),
             fm::sinf(p),
         );
-        let r = math::normalize(math::cross(f, Vec3::new(0.0, 0.0, 1.0)));
-        let u = math::cross(r, f);
+        let (r, u) = auberean_draw::scene::view_axes(f, self.roll);
         (f, r, u)
     }
 

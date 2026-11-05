@@ -81,6 +81,7 @@ fn a_part_draws_its_own_copy_when_its_look_changes_its_materials() {
         fov_y: 60.0,
         near: 0.1,
         far: 500.0,
+        roll: 0.0,
         orthographic: None,
     };
     let day = builder.day(&camp);
@@ -188,6 +189,7 @@ fn a_scenes_own_lights_light_its_draws_in_place_of_the_sun() {
         fov_y: 60.0,
         near: 0.1,
         far: 500.0,
+        roll: 0.0,
         orthographic: None,
     };
     let dark = DayLight {
@@ -250,6 +252,7 @@ fn a_meshs_depth_writing_fragments_draw_first() {
         position: Vec3::new(0.0, -5.0, 2.0),
         heading: 0.0,
         pitch: 0.0,
+        roll: 0.0,
         fov_y: 60.0,
         near: 0.1,
         far: 500.0,

@@ -490,6 +490,46 @@ fn a_change_of_view_glides_over_the_transition_time() {
     assert!(closev(end, want, 1e-3), "there after the second: {end:?}");
 }
 
+/// A camera riding a bone or part way through a glide leans with its frame: a frame with no lean
+/// reads none, and one turned about the way it looks reads that turn, its right going up. The
+/// view's axes carry it: leaned a quarter turn, its right is the level view's up.
+///
+/// Behaviour: desktop.camera.the-view-leans-as-its-frame-does
+#[test]
+fn the_view_leans_as_its_frame_does() {
+    use auberean_draw::scene::view_axes;
+    use auberean_scene::camera::{lean_of, stand};
+    use dereth_primitives::{CellId, Quat};
+    let level = stand(CellId(0x7F7F_0001), Vec3::ZERO, Vec3::new(0.3, 0.9, -0.2));
+    assert_eq!(lean_of(&level), 0.0);
+    let (s, c) = (math::sinf(0.15), math::cosf(0.15));
+    // Turned about its own forward, y: the frame's x goes down for a positive turn, up for this.
+    let about_forward = Quat {
+        w: c,
+        x: 0.0,
+        y: -s,
+        z: 0.0,
+    };
+    let mut leaned = stand(CellId(0x7F7F_0001), Vec3::ZERO, Vec3::new(0.0, 1.0, 0.0));
+    leaned.frame.rotation = about_forward;
+    let want = 0.3_f32.to_degrees();
+    assert!(close(lean_of(&leaned), want, 1e-3), "{}", lean_of(&leaned));
+    let f = auberean_primitives::Vec3::new(0.0, 1.0, 0.0);
+    let (flat_right, flat_up) = view_axes(f, 0.0);
+    let (right, up) = view_axes(f, 90.0);
+    let near = |a: auberean_primitives::Vec3, b: auberean_primitives::Vec3| {
+        (a.x - b.x).abs() < 1e-5 && (a.y - b.y).abs() < 1e-5 && (a.z - b.z).abs() < 1e-5
+    };
+    assert!(near(right, flat_up), "{right:?}");
+    assert!(
+        near(
+            up,
+            auberean_primitives::Vec3::new(-flat_right.x, -flat_right.y, -flat_right.z)
+        ),
+        "{up:?}"
+    );
+}
+
 /// With the auto distance option a camera 1.5 m or nearer pulls back after 2.5 seconds of running,
 /// growing each frame until 4 m out, and comes back after a second standing.
 ///

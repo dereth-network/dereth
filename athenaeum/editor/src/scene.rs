@@ -184,6 +184,7 @@ pub fn picture_camera(lo: [f32; 3], hi: [f32; 3]) -> Camera {
         near: (distance - reach * 1.1).max(0.01),
         far: distance + reach * 1.1,
         orthographic: None,
+        roll: 0.0,
     }
 }
 

@@ -65,6 +65,7 @@ fn a_shiny_surface_shows_its_environment_map() {
         fov_y: 60.0,
         near: 0.05,
         far: 500.0,
+        roll: 0.0,
         orthographic: None,
     };
     let mut shiny = builder.parts_frame(&parts, Vec::new(), camera(Vec3::ZERO, 1.0), light, None);
@@ -164,6 +165,7 @@ fn a_surface_frame_that_is_not_a_number_is_lit_as_facing_the_light() {
         fov_y: 60.0,
         near: 0.05,
         far: 500.0,
+        roll: 0.0,
         orthographic: None,
     };
     let mut stored = builder.parts_frame(&parts, Vec::new(), camera(Vec3::ZERO, 1.0), light, None);

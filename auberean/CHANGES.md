@@ -82,6 +82,7 @@ not how it was done.
 - Fixed see-through parts of some objects being hidden by the rest of the object.
 - Fixed arrows flying level instead of pointing along their path.
 - Fixed the camera dipping at the ground as it glides between views.
+- In first person the view now leans with your head.
 
 ## 0.1.3 (2026-11-05)
 

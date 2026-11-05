@@ -437,9 +437,11 @@ fn mat(m: &Mat4) -> [[f32; 4]; 4] {
 /// perspective `fov_y` degrees high; straight on (`orthographic`), that many metres high and as
 /// wide as the picture's shape makes it.
 // D2-10574
+#[allow(clippy::too_many_arguments)]
 fn view_proj(
     eye: [f32; 3],
     forward: [f32; 3],
+    roll: f32,
     fov_y: f32,
     orthographic: Option<f32>,
     aspect: f32,
@@ -450,17 +452,9 @@ fn view_proj(
         let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
         [v[0] / l, v[1] / l, v[2] / l]
     };
-    let cross = |a: [f32; 3], b: [f32; 3]| {
-        [
-            a[1] * b[2] - a[2] * b[1],
-            a[2] * b[0] - a[0] * b[2],
-            a[0] * b[1] - a[1] * b[0],
-        ]
-    };
     let dot = |a: [f32; 3], b: [f32; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
     let f = norm(forward);
-    let r = norm(cross(f, [0.0, 0.0, 1.0]));
-    let u = cross(r, f);
+    let (r, u) = auberean_draw::scene::view_axes_of(f, roll);
     // View: world to camera space (x right, y up, z backward).
     let view = Mat4([
         [r[0], u[0], -f[0], 0.0],
@@ -2195,6 +2189,7 @@ impl Renderer {
         let vp = view_proj(
             eye,
             forward,
+            cam.roll,
             cam.fov_y,
             cam.orthographic,
             aspect,
@@ -3066,6 +3061,7 @@ impl Renderer {
             let m_vp = view_proj(
                 m_eye,
                 m_forward,
+                -cam.roll,
                 cam.fov_y,
                 cam.orthographic,
                 aspect,

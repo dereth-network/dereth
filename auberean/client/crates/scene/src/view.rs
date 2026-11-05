@@ -154,6 +154,7 @@ impl ViewCamera {
             fov_y: self.fov_y,
             near: self.near,
             far: self.far,
+            roll: 0.0,
             orthographic: self.orthographic.then_some(self.vertical_scale),
         }
     }

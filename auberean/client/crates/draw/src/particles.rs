@@ -1886,13 +1886,18 @@ pub fn approximate_lifetime(desc: &Particles) -> f32 {
 /// (degrees above the horizon), as the frame's camera looks.
 #[must_use]
 pub fn camera_axes(heading: f32, pitch: f32) -> (Vec3, Vec3, Vec3) {
+    leaned_camera_axes(heading, pitch, 0.0)
+}
+
+/// [`camera_axes`] for a view leaning `roll` degrees about the way it looks.
+#[must_use]
+pub fn leaned_camera_axes(heading: f32, pitch: f32, roll: f32) -> (Vec3, Vec3, Vec3) {
     let (h, p) = (heading.to_radians(), pitch.to_radians());
     let forward = Vec3::new(
         math::sinf(h) * math::cosf(p),
         math::cosf(h) * math::cosf(p),
         math::sinf(p),
     );
-    let right = unit_or_zero(cross(forward, Vec3::new(0.0, 0.0, 1.0)));
-    let up = cross(right, forward);
+    let (right, up) = crate::scene::view_axes(forward, roll);
     (right, forward, up)
 }

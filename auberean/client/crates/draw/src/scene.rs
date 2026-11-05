@@ -59,6 +59,8 @@ pub struct Camera {
     pub position: Vec3,
     pub heading: f32,
     pub pitch: f32,
+    /// How far it leans about the way it looks, degrees, its right going up.
+    pub roll: f32,
     /// Vertical field of view, degrees.
     pub fov_y: f32,
     pub near: f32,
@@ -66,6 +68,28 @@ pub struct Camera {
     /// Seen straight on (no perspective): the height seen, metres, from the picture's foot to its
     /// top; its width by the picture's shape.
     pub orthographic: Option<f32>,
+}
+
+/// The right and up of a view looking along unit `forward`, leaning `roll` degrees about it.
+// D2-10593
+#[must_use]
+pub fn view_axes(forward: Vec3, roll: f32) -> (Vec3, Vec3) {
+    use auberean_world::math::{add, cross, normalize, scale};
+    let right = normalize(cross(forward, Vec3::new(0.0, 0.0, 1.0)));
+    let up = cross(right, forward);
+    if roll == 0.0 {
+        return (right, up);
+    }
+    let (s, c) = dereth_primitives::num::math::sin_cosf(roll.to_radians());
+    let leaned = add(scale(right, c), scale(up, s));
+    (leaned, cross(leaned, forward))
+}
+
+/// [`view_axes`] by the three numbers of each axis.
+#[must_use]
+pub fn view_axes_of(forward: [f32; 3], roll: f32) -> ([f32; 3], [f32; 3]) {
+    let (r, u) = view_axes(Vec3::new(forward[0], forward[1], forward[2]), roll);
+    ([r.x, r.y, r.z], [u.x, u.y, u.z])
 }
 
 /// A terrain vertex: position, lit color, the ground picture's coordinates and the mask's.
@@ -2165,6 +2189,7 @@ impl<'a> SceneBuilder<'a> {
                 fov_y,
                 near: 0.1,
                 far: 2000.0,
+                roll: 0.0,
                 orthographic: None,
             },
             light,

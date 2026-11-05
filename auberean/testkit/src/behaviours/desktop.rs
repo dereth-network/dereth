@@ -657,6 +657,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.camera.the-view-leans-as-its-frame-does",
+        says: "The view leans as the camera's frame does, riding a bone or part way through a glide; the view of a frame with no lean stands level.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CAMERA-LEAN"),
+        station: "auberean-scene::cpu::camera::the_view_leans_as_its_frame_does",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.camera.the-wheel-steps-and-the-reset-returns-behind",
         says: "Each notch of the wheel moves the camera 1.5 m, between 0.11 m and 160 m; the reset \
                puts it behind at the default distance and tilt.",
