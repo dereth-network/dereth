@@ -572,6 +572,61 @@ fn vitals_indicators_and_effects_follow_the_scripts() {
     assert!(effect_icons(&s).is_empty());
 }
 
+/// A pulsed effect that misses its pulse runs its bar out over what is left of its time at that
+/// moment, however long ago the list last changed.
+///
+/// Behaviour: ui.statusbar.a-missed-pulse-runs-the-bar-out-over-the-time-left
+#[test]
+fn a_missed_pulse_runs_the_bar_out_over_the_time_left() {
+    let mut s = Play::new();
+    let effects = EffectList {
+        version: 1,
+        now: 100.0,
+        nodes: vec![EffectNode {
+            eid: 7,
+            name: "Bless".into(),
+            icon: ICON_A,
+            time_cast: 90.0,
+            duration: 60.0,
+            pulsed: true,
+        }],
+    };
+    let tick = |s: &mut Play, game_time: f64, n: &[Notice]| {
+        s.t += 0.05;
+        s.ui.use_time(s.t);
+        let view = View {
+            effects: Some(&effects),
+            game_time,
+            ..View::default()
+        };
+        let mut out = Vec::new();
+        s.p.tick(&mut s.ui, &view, n, &mut out);
+    };
+    tick(
+        &mut s,
+        100.0,
+        &[notice(status_notice::UPDATE_EFFECT, vec![])],
+    );
+    tick(
+        &mut s,
+        130.0,
+        &[notice(status_notice::PULSE_MISSED, vec![7])],
+    );
+    let icons =
+        s.p.child::<StatusBar>()
+            .and_then(StatusBar::child::<Effects>)
+            .expect("the effects")
+            .icons(&s.ui);
+    let meter =
+        s.ui.child_recursive(icons[0], Token::of("EffectTimeMeter"))
+            .expect("the bar");
+    let left =
+        s.ui.node(meter)
+            .and_then(|n| n.float_attr(Token::of("smooth_movement_duration")))
+            .expect("it runs out");
+    assert!((left - 20.0).abs() < 0.01, "{left} seconds, not 20");
+}
+
 /// With the player's latency graph option on, the network indicator's tooltip also gives the bytes
 /// in and out each second, and a graph is blended over the indicator inside its border: a column
 /// a measure, the newest at the right, the bytes sent a second as a bar down from the top and

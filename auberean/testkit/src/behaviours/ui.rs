@@ -2284,6 +2284,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.statusbar.a-missed-pulse-runs-the-bar-out-over-the-time-left",
+        says: "A pulsed effect that misses its pulse runs its bar out over what is left of its time at that moment.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PULSE-MISSED-CLOCK"),
+        station: "auberean-ui-game::dat::play::bar::a_missed_pulse_runs_the_bar_out_over_the_time_left",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.statusbar.the-effects-from-the-scripts-are-the-players-effects",
         says: "Each time a recorded session's scripts said an effect on the player changed, the effects the player's scripts list for the effects panel each have a number, a name and an icon, no number twice, and each was among the player's effects when the session started or was added by the server since, and was not taken off since.",
         since: RETAIL,

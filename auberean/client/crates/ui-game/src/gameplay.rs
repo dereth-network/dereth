@@ -241,6 +241,8 @@ pub struct View<'a> {
     pub atlas: Option<&'a std::sync::Arc<crate::map::Atlas>>,
     /// The game's date and time, from the calendar.
     pub clock: Option<crate::map::Clock>,
+    /// The game clock now, on which an effect is cast and runs out.
+    pub game_time: f64,
     /// The crafting page's craft skills and recipes, as the player's scripts last answered.
     pub craft: Option<&'a crate::craft::Facts>,
     /// What the scripts answer for the shop panels.
