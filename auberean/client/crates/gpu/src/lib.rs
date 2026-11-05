@@ -318,6 +318,7 @@ fn texture_bytes(textures: &[(u32, bool); 3]) -> [u8; 15] {
 struct Bound {
     pipeline: *const wgpu::RenderPipeline,
     env: Option<usize>,
+    uniforms: Option<pool::Slot>,
     textures: Option<wgpu::BindGroup>,
     vertices: Option<cache::Slice>,
     posed: Option<cache::Slice>,
@@ -329,6 +330,7 @@ impl Default for Bound {
         Self {
             pipeline: std::ptr::null(),
             env: None,
+            uniforms: None,
             textures: None,
             vertices: None,
             posed: None,
@@ -2983,7 +2985,10 @@ impl Renderer {
                     bound.env = Some(d.env as usize);
                 }
                 let slot: &pool::Slot = faint.map_or(&d.draw_group, |f| &f.1);
-                pass.set_bind_group(1, &slot.group, &[slot.offset]);
+                if bound.uniforms.as_ref() != Some(slot) {
+                    pass.set_bind_group(1, &slot.group, &[slot.offset]);
+                    bound.uniforms = Some(slot.clone());
+                }
                 if bound.textures.as_ref() != Some(&d.texture_group) {
                     pass.set_bind_group(2, &d.texture_group, &[]);
                     bound.textures = Some(d.texture_group.clone());

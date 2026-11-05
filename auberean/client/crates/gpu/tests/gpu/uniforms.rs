@@ -12,13 +12,14 @@ const SIDE: u32 = 64;
 const DRAWS: u32 = 2500;
 
 /// However many draws a frame has, each shows its own uniforms: here its own gray, on either side
-/// of where one buffer of uniforms gives way to the next.
+/// of where one buffer of uniforms gives way to the next, whether or not the draw before it asked
+/// for the same.
 ///
 /// Behaviour: draw.mesh.every-draw-of-a-frame-shows-its-own-uniforms
 #[test]
 fn every_draw_of_a_frame_shows_its_own_uniforms() {
     let mut device = renderer();
-    let gray = |i: u32| i % 100 + 20;
+    let gray = |i: u32| (i / 3) % 100 + 20;
     // A wall 10 m away fills a picture this tall, from a 60 degree view (the tangent of 30 degrees).
     let half = 10.0 * 0.577_350_3_f32;
     let cell = half / SIDE as f32;
