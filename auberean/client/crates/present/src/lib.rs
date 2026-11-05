@@ -159,6 +159,8 @@ pub struct Presenter {
     overlay_vertices: Option<wgpu::Buffer>,
     /// The size each picture is drawn at, scaled to fill the window.
     drawn: (u32, u32),
+    /// The last frame found the window can't be seen.
+    hidden: bool,
 }
 
 impl std::fmt::Debug for Presenter {
@@ -400,6 +402,7 @@ impl Presenter {
             _instance: instance,
             surface,
             drawn: (config.width, config.height),
+            hidden: false,
             config,
             present_modes,
             renderer,
@@ -640,6 +643,12 @@ impl Presenter {
         });
         self.renderer.queue().write_buffer(&buffer, 0, bytes);
         buffer
+    }
+
+    /// Whether the last frame found the window can't be seen, so nothing waited for the display.
+    #[must_use]
+    pub fn hidden(&self) -> bool {
+        self.hidden
     }
 
     /// Draw a frame: the world (when there is one), portal space laid over it (with how much of
@@ -924,7 +933,9 @@ impl Presenter {
         }
         let ms = lap.lap();
         self.renderer.note_work(|w| w.ms.compose += ms);
-        let frame = match self.surface.get_current_texture() {
+        let acquired = self.surface.get_current_texture();
+        self.hidden = matches!(acquired, wgpu::CurrentSurfaceTexture::Occluded);
+        let frame = match acquired {
             wgpu::CurrentSurfaceTexture::Success(t)
             | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
             // A window that can't be seen, or a picture that came late: the surface is as it was,

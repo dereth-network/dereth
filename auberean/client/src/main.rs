@@ -868,6 +868,9 @@ impl App<'_> {
             if let Some(log) = &mut self.perf {
                 log.frame(began, shell_took, self.shell.costs, work);
             }
+            if p.hidden() {
+                std::thread::sleep(hidden_rest(began.elapsed()));
+            }
         }
         self.set_cursor(el, cursor.as_deref());
         if quit {
@@ -1166,6 +1169,12 @@ fn no_window(
     }
 }
 
+/// How long a frame that took `took` rests in a window that can't be seen. Nothing there waits for
+/// the display, so without this it would draw as fast as it can.
+fn hidden_rest(took: std::time::Duration) -> std::time::Duration {
+    std::time::Duration::from_micros(16_667).saturating_sub(took)
+}
+
 fn main() -> ExitCode {
     // `--version` alone: what this build is, and nothing opened.
     if std::env::args().skip(1).eq(["--version"]) {
@@ -1202,6 +1211,23 @@ mod script_tests {
         assert!(from_the_devices(&WindowEvent::Focused(false)));
         assert!(!from_the_devices(&WindowEvent::CloseRequested));
         assert!(!from_the_devices(&WindowEvent::RedrawRequested));
+    }
+}
+
+#[cfg(test)]
+mod hidden_tests {
+    //! Behaviour: none (a window nobody can see, which retail's own loop isn't measured against)
+    use super::hidden_rest;
+    use std::time::Duration;
+
+    #[test]
+    fn a_hidden_window_rests_out_a_sixtieth_of_a_second_and_a_slow_frame_not_at_all() {
+        assert_eq!(hidden_rest(Duration::ZERO), Duration::from_micros(16_667));
+        assert_eq!(
+            hidden_rest(Duration::from_millis(10)),
+            Duration::from_micros(6_667)
+        );
+        assert_eq!(hidden_rest(Duration::from_millis(40)), Duration::ZERO);
     }
 }
 

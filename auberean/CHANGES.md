@@ -8,6 +8,7 @@ not how it was done.
 ## Unreleased
 
 - A click that brings the window forward no longer acts on the game.
+- A covered window on a Mac no longer runs flat out.
 
 ## 0.1.3 (2026-11-05)
 
