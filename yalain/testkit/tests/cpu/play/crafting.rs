@@ -2233,6 +2233,62 @@ fn made_recipe(product: u32, tables: &[u32]) -> yalain_world::craft::RecipeDef {
     }
 }
 
+/// An item a recipe makes without an item level, with a permanent effect, holds the effect after a
+/// logout and is not given numbers by it.
+/// Behaviour: server.craft.made-item-no-level-keeps-effects
+#[test]
+fn an_item_made_without_an_item_level_keeps_its_permanent_effect_across_a_logout() {
+    use auberean_protocol::login::CharacterRef;
+    use auberean_protocol::ClientMessage;
+    use yalain_world::craft::{item_effect, Action, Custom};
+    const EFFECT: u32 = 0x6F00_7001;
+    let (mut h, b, me, world) = in_world();
+    let mut def = made_recipe(SWORD, &[]);
+    for o in def.checks.iter_mut().flat_map(|c| c.outcomes.iter_mut()) {
+        o.actions.push(Action::ItemEffect {
+            ordinal: 10_001,
+            state: EFFECT,
+            kind: item_effect::STATIC,
+            spellcraft: 2.5,
+            by_spinner: None,
+        });
+    }
+    def.custom = Custom::None;
+    with_level_tables(&mut h);
+    with_own_recipe(&mut h, world, def, 50, &[SWORD, IRON, WOOD]);
+    let iron =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, IRON, 40).expect("iron");
+    let wood =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, WOOD, 40).expect("wood");
+    h.run(2);
+    execute_at(&mut h, b, SMALL_SWORD_RECIPE, &[(1, iron), (3, wood)], 20);
+    h.run(4);
+    wait(&mut h, 9.0);
+    let item = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == SWORD)
+        .map(|i| i.id)
+        .expect("made");
+    let t = h.server.things.get(item).expect("in the world");
+    assert_eq!(t.own.made, None, "no item level, no numbers");
+    assert_eq!(t.enchantments, vec![(EFFECT, 2.5)]);
+    let before = h.bots[b].inbox.len();
+    h.bots[b].send(
+        false,
+        queue::LOGON,
+        &ClientMessage::LogOff(CharacterRef { character: me }),
+    );
+    assert!(h.run_until(400, |h| h.bots[b].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+    h.enter_world(b, "one", me);
+    let t = h.server.things.get(item).expect("back in the world");
+    assert_eq!(t.own.made, None);
+    assert_eq!(t.enchantments, vec![(EFFECT, 2.5)]);
+}
+
 fn with_level_tables(h: &mut Harness) {
     use yalain_world::craft::LevelMap;
     let tables = &mut h.server.crafting.spinner_tables;

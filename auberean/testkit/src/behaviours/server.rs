@@ -1495,6 +1495,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.made-item-no-level-keeps-effects",
+        says: "An item with no numbers of its own, one a recipe makes without an item level, keeps its permanent effects across a logout and in the consignments' record.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECTS-KEPT"),
+        station: "yalain-testkit::cpu::play::crafting::an_item_made_without_an_item_level_keeps_its_permanent_effect_across_a_logout",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.made-item-own-effects",
         says: "A made item's permanent effects change it as it is made: more damage, a smaller span, less vigor, the changed lines marked; they are listed among its enchantments with their amounts.",
         since: RETAIL,
