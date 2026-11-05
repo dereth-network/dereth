@@ -13,6 +13,12 @@
 //! only unlocks, the key used up and the use answered, and is then opened by a plain use. A chest
 //! that locks on closing locks again as it closes.
 //!
+//! **Treasure.** What a chest draws, where its profile's row names a level, is treasure of that
+//! level as a corpse's is, each piece worth a draw from the row's band (2017: 205 pieces in 8 kinds of
+//! chest, each kind's values and least levels its own: least levels 8 to 16 worth 3 to 7 in the
+//! middle half, 15 to 20 worth 20 to 30, 41 to 50 worth 50 to 72 or 130 to 189). A profile's extras
+//! aren't.
+//!
 //! **Quests.** A chest a quest keeps refuses at once a player whose quest is not at the phase it
 //! names.
 //!
@@ -435,8 +441,9 @@ pub fn key_at_chest<S: Store>(
     );
 }
 
-/// What a chest holds at an opening: its profile's extras and its draw, at most its size.
-fn fill<S: Store>(s: &mut Server<S>, kind: &Kind) -> Vec<u32> {
+/// What a chest holds at an opening: its profile's extras and its draw, at most its size; each with
+/// the worth and level it holds of its own, if its profile's row says.
+fn fill<S: Store>(s: &mut Server<S>, kind: &Kind) -> Vec<(u32, Option<(u32, i32)>)> {
     let Some(p) = kind
         .profile
         .and_then(|v| s.catalog.profile_name(v))
@@ -452,11 +459,16 @@ fn fill<S: Store>(s: &mut Server<S>, kind: &Kind) -> Vec<u32> {
         let Some(i) = s.rng.weighted(p.items.iter().map(|(_, w)| *w as f32)) else {
             break;
         };
-        out.push(p.items[i].0);
+        let own = p.chest.map(|c| {
+            let width = c.value.1.saturating_sub(c.value.0) + 1;
+            let drawn = u32::try_from(s.rng.below(width as usize)).unwrap_or(0);
+            (c.value.0 + drawn, c.level)
+        });
+        out.push((p.items[i].0, own));
     }
     for (t, chance) in &p.extras {
         if s.rng.chance(*chance) {
-            out.push(*t);
+            out.push((*t, None));
         }
     }
     out.truncate(kind.most.unwrap_or(usize::MAX));
@@ -504,8 +516,12 @@ fn open<S: Store>(
         s.things.remove(item);
     }
     let mut contents = Vec::new();
-    for (slot, template) in fill(s, kind).into_iter().enumerate() {
-        if let Some(item) = crate::inventory::make_item(s, template, 1, 0) {
+    for (slot, (template, own)) in fill(s, kind).into_iter().enumerate() {
+        let value = own.map_or(0, |(value, _)| value);
+        if let Some(item) = crate::inventory::make_item(s, template, 1, value) {
+            if let Some((_, level)) = own {
+                crate::treasure::endow(s, item, level, None);
+            }
             if let Some(t) = s.things.get_mut(item) {
                 t.container = Some((id, u32::try_from(slot).unwrap_or(0)));
             }

@@ -127,6 +127,7 @@ fn hall(template: u32, lockable: bool, opens_on_unlock: bool) -> Harness {
         extras: vec![(CRYSTAL, 1.0)],
         placed: "authored for a test".into(),
         confidence: "authored".into(),
+        chest: None,
     });
     h
 }
@@ -919,4 +920,55 @@ fn a_chest_whose_opener_leaves_the_world_opens_for_the_next() {
             seen(&h, b, fb)
         );
     }
+}
+
+/// What a chest draws is treasure of the level its profile's row names, each piece worth a draw from
+/// the row's band and carrying what that level gives it; its extras aren't; a profile whose row names
+/// none leaves its draw as its template has it.
+/// Behaviour: server.places.a-chests-draw-is-treasure-of-its-level
+#[test]
+fn a_chests_draw_is_treasure_of_the_level_its_row_names() {
+    let opened = |chest: Option<yalain_content::ChestTreasure>| {
+        let mut h = hall(SMALL, false, false);
+        for p in &mut h.server.loot.profiles {
+            p.chest = chest;
+        }
+        h.server.treasure.equipment.insert(0x3A1);
+        let (a, me) = h.player_in_world("one", "Elara");
+        h.run(10);
+        let props = &mut h
+            .server
+            .catalog
+            .templates
+            .get_mut(&SMALL)
+            .expect("made")
+            .props;
+        props.set("Lock_Lockable", Prop::Bool(false));
+        send_use(&mut h, a, me, CHEST, 0, 1.6);
+        let c = h.server.chests.by_id[&CHEST].contents.clone();
+        c.iter()
+            .map(|i| {
+                let t = h.server.things.get(*i).expect("made");
+                (t.template, t.value, t.own.min_level)
+            })
+            .collect::<Vec<_>>()
+    };
+    let got = opened(Some(yalain_content::ChestTreasure {
+        level: 45,
+        value: (130, 189),
+    }));
+    assert!(got.iter().any(|(t, _, _)| *t == GEM), "{got:?}");
+    for (t, v, least) in &got {
+        if *t == GEM {
+            assert!((130..=189).contains(v), "{v}");
+            assert!(least.is_some_and(|l| (45..=48).contains(&l)), "{least:?}");
+        } else {
+            assert_eq!((*t, *v, *least), (CRYSTAL, 0, None), "an extra");
+        }
+    }
+    let plain = opened(None);
+    assert!(
+        plain.iter().all(|(_, v, least)| *v == 0 && least.is_none()),
+        "{plain:?}"
+    );
 }

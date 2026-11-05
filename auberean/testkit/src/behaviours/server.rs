@@ -7883,6 +7883,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-chests-draw-is-treasure-of-its-level",
+        says: "What a chest draws is treasure of the level its profile's row names, each piece worth a \\
+               draw from the row's band; its extras aren't, and a profile with no such row stays plain.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHEST-TREASURE"),
+        station: "yalain-testkit::cpu::play::chests::a_chests_draw_is_treasure_of_the_level_its_row_names",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-door-plays-its-scene",
         says: "A door played as a scene takes the player through it: teleporting, frozen, the scene \
                begun with no flash or glows; the scene ended, the use answered and the player at the \

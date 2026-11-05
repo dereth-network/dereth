@@ -282,6 +282,15 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
             Row::Loot(r) if r.counts.iter().any(|c| !(0.0..=1.0).contains(c)) => {
                 problems.push(at("counts: shares between 0 and 1".into()));
             }
+            Row::Loot(r)
+                if r.level.is_some()
+                    != matches!(r.value.as_slice(), [low, high] if low <= high && *low > 0)
+                    || (r.level.is_none() && !r.value.is_empty()) =>
+            {
+                problems.push(at(
+                    "level, value: a chest's draw names its level and [low, high]".into(),
+                ));
+            }
             _ => {}
         }
         if let Some(p) = l.row.prov() {

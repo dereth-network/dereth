@@ -738,6 +738,49 @@ fn a_portals_recall_flags_and_a_places_name_compile_for_the_server() {
 }
 
 #[test]
+fn a_chests_row_compiles_with_its_level_and_band_or_is_a_problem_without_both() {
+    let row = |extra: &str| {
+        let mut files = fixture();
+        let path = files
+            .keys()
+            .find(|k| k.ends_with("loot.toml"))
+            .expect("loot rows")
+            .clone();
+        let text = files.get(&path).expect("read").replacen(
+            "\nprov = ",
+            &format!("\n{extra}\nprov = "),
+            1,
+        );
+        files.insert(path, text);
+        files
+    };
+    let files = row("level = 45\nvalue = [130, 189]");
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let chest = t.loot.profiles[0].chest.expect("a chest's");
+    assert_eq!((chest.level, chest.value), (45, (130, 189)));
+    assert_eq!(
+        yalain_content::LootTable::from_text(&t.loot.to_text())
+            .unwrap()
+            .profiles[0]
+            .chest,
+        Some(chest),
+        "it reads back as written"
+    );
+    for bad in [
+        "level = 45",
+        "value = [130, 189]",
+        "level = 45\nvalue = [9, 3]",
+    ] {
+        assert!(
+            check(&row(bad))
+                .iter()
+                .any(|p| p.to_string().contains("level, value: a chest's")),
+            "{bad}"
+        );
+    }
+}
+
+#[test]
 fn a_places_row_of_rooms_compiles_with_where_each_ones_creature_stands() {
     let mut files = fixture();
     edit(

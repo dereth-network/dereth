@@ -424,6 +424,7 @@ fn a_chest_open_when_a_reload_takes_it_away_is_closed_for_its_opener() {
         extras: vec![(CRYSTAL, 1.0)],
         placed: "authored for a test".into(),
         confidence: "authored".into(),
+        chest: None,
     });
     let me = player_id(&h);
     let from = h.bots[b[0]].inbox.len();

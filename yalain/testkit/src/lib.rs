@@ -1474,6 +1474,7 @@ pub fn test_loot() -> yalain_content::LootTable {
             extras: Vec::new(),
             placed: "authored for the tests".into(),
             confidence: "authored".into(),
+            chest: None,
         }],
     }
 }

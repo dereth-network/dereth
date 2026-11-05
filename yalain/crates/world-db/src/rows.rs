@@ -208,6 +208,9 @@ pub struct Loot {
     pub counts: Vec<f32>,
     pub items: Vec<(u32, u32)>,
     pub extras: Vec<(u32, f32)>,
+    /// A chest's: the level its draw is treasure of, and the worth each piece draws from.
+    pub level: Option<i32>,
+    pub value: Vec<u32>,
     pub prov: Prov,
 }
 
@@ -700,6 +703,8 @@ pub const FIELDS: [(&str, &[&str]); 20] = [
             "counts",
             "items",
             "extras",
+            "level",
+            "value",
             "prov",
         ],
     ),
@@ -1220,6 +1225,8 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             counts: f.req_floats("counts")?,
             items: f.weighted("items"),
             extras: f.chances("extras"),
+            level: f.int("level").and_then(|v| i32::try_from(v).ok()),
+            value: f.ids("value"),
             prov: f.req_prov()?,
         }),
         "keeper" => Row::Keeper(Keeper {

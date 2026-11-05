@@ -25,8 +25,8 @@ use yalain_content::quests::{
 use yalain_content::stores::{Keeper as TableKeeper, Sale as TableSale, SaleGate, StoreTable};
 use yalain_content::talk::{Line, TalkTable};
 use yalain_content::{
-    describe, facts, Camp as TableCamp, ContentObject, ContentPack, FactIds, Kind, LootProfile,
-    LootTable, Place as TablePlace, SpawnTable, Words,
+    describe, facts, Camp as TableCamp, ChestTreasure, ContentObject, ContentPack, FactIds, Kind,
+    LootProfile, LootTable, Place as TablePlace, SpawnTable, Words,
 };
 
 use crate::merge::Merged;
@@ -710,6 +710,13 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     extras: r.extras.clone(),
                     placed: prov_text(&r.prov),
                     confidence: confidence_word(&r.prov),
+                    chest: match (r.level, r.value.as_slice()) {
+                        (Some(level), [low, high]) => Some(ChestTreasure {
+                            level,
+                            value: (*low, *high),
+                        }),
+                        _ => None,
+                    },
                 });
             }
             Row::Keeper(k) => {

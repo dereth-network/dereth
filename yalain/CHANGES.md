@@ -48,6 +48,7 @@ what they see, not how it was done.
 - Gauntlet players land in a free arena room.
 - Practice gems summon their dummy.
 - Fixed the error text when a glyph opens a vault.
+- Chests hold treasure of their own level.
 
 - Fixed a selected person showing empty health and vigor bars.
 
