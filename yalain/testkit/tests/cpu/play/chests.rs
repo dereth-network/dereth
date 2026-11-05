@@ -972,3 +972,187 @@ fn a_chests_draw_is_treasure_of_the_level_its_row_names() {
         "{plain:?}"
     );
 }
+
+/// A hidden quest of one phase, as a chest's own quest is, its id and its name in the install.
+const CHEST_QUEST: u32 = 0x8000_02CE;
+
+fn hidden_quest(h: &mut Harness) {
+    h.server
+        .quests
+        .quests
+        .push(yalain_content::quests::QuestDef {
+            id: CHEST_QUEST,
+            name: (0, 0),
+            description: (0, 0),
+            icon: 0,
+            play_fx: false,
+            journals: vec![(1, 0)],
+            challenge: 0,
+            duration: 0.0,
+            timed_phase: 0,
+            retry: 0.0,
+            xp: 0,
+            cancellable: false,
+            placed: "authored for a test".into(),
+            hidden: true,
+            effects: Vec::new(),
+            subquests: Vec::new(),
+            min_level: 0,
+            fails_on_death: false,
+            once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
+            hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
+            required: None,
+        });
+    h.server
+        .quest_ids
+        .insert("QuestTestChestControl".into(), CHEST_QUEST);
+}
+
+/// A chest kept by its own quest, whose use completes that quest; and a player holding it.
+fn control_chest() -> (Harness, usize, u64) {
+    let mut h = hall(SMALL, false, false);
+    hidden_quest(&mut h);
+    let mut chest = Props::default();
+    chest
+        .set("GeneratorProfile", Prop::Word(PROFILE))
+        .set("Usage_RequiredQuest", Prop::Word(CHEST_QUEST))
+        .set("Usage_RequiredQuestStatus", Prop::Word(0x1000_0000))
+        .set(
+            "Usage_Effect1",
+            Prop::Text("Eff_CompleteQuestTestChestControl".into()),
+        );
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(SMALL, PACKAGE, chest));
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    for p in h.server.players.values_mut() {
+        p.play.quests.push(yalain_world::state::QuestState {
+            quest: CHEST_QUEST,
+            status: yalain_world::quests::status::UNDERWAY,
+            phase: 1,
+            started: 0,
+            updated: 0,
+        });
+    }
+    (h, a, me)
+}
+
+/// A chest whose kind completes its own quest opens for its holder, the quest over as it begins, and
+/// refuses it after with the refusal of a hidden quest.
+/// Behaviour: server.places.a-chests-use-comes-on-its-opener
+#[test]
+fn a_chest_that_completes_its_own_quest_opens_once() {
+    let (mut h, a, me) = control_chest();
+    let fa = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, CHEST, 0, 0.1);
+    let held = |h: &Harness| {
+        let p = h.server.players.values().next().expect("in the world");
+        yalain_world::quests::phase_of(&p.play.quests, CHEST_QUEST)
+    };
+    assert_eq!(held(&h), 0, "over as it begins to open");
+    run_for(&mut h, 2.0);
+    assert!(seen(&h, a, fa).iter().any(|s| s.starts_with("opened")));
+    close(&mut h, a, 2.0);
+    let fa = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, CHEST, 0, 2.0);
+    assert_eq!(
+        seen(&h, a, fa),
+        [format!(
+            "done {} flags {}",
+            yalain_world::item_use::refusal::MYSTERIOUS_USE,
+            chests::WRONG_QUEST_FLAGS
+        )]
+    );
+}
+
+/// A use accepted on the way to a chest doesn't open it if another of its kind has completed the
+/// quest that keeps them both.
+/// Behaviour: server.places.a-chests-use-comes-on-its-opener
+#[test]
+fn a_chest_walked_to_refuses_once_its_quest_is_over() {
+    let (mut h, a, me) = control_chest();
+    const OTHER: u64 = CHEST + 1;
+    let mut far = h.server.content.objects[0].clone();
+    far.object = Some(OTHER);
+    far.origin[0] += 20.0;
+    h.server.content.objects.push(far);
+    h.run(10);
+    send_use(&mut h, a, me, OTHER, 0, 0.1);
+    let (&conn, p) = h.server.players.iter().next().expect("in the world");
+    assert!(p.walking_to.is_some(), "on its way");
+    let clock = h.clock();
+    let u = p.walking_to.clone().expect("walking").0;
+    let mut here = u.clone();
+    here.item = CHEST;
+    yalain_world::usable::chests::at_chest(&mut h.server, &mut h.net, conn, here, clock);
+    let fa = h.bots[a].inbox.len();
+    yalain_world::usable::chests::at_chest(&mut h.server, &mut h.net, conn, u, clock);
+    run_for(&mut h, 2.0);
+    assert!(
+        h.server
+            .chests
+            .by_id
+            .get(&OTHER)
+            .is_none_or(|c| c.contents.is_empty()),
+        "nothing made in the other"
+    );
+    assert!(seen(&h, a, fa).iter().any(|s| s.starts_with("done")));
+}
+
+/// What a chest's kind names by an effect the install holds comes on its opener with the opening,
+/// and once though its quest is named too.
+/// Behaviour: server.places.a-chests-use-comes-on-its-opener
+#[test]
+fn a_chests_quest_effect_held_as_a_state_moves_its_quest_once() {
+    use yalain_world::effect_defs::{EffectDef, Kind as EffectKind, Scale};
+    const STATE: u32 = 0x6F00_7700;
+    let (mut h, a, me) = control_chest();
+    let mut phases = h.server.quests.quests[0].clone();
+    phases.journals = vec![(1, 0), (2, 0), (3, 0)];
+    phases.hidden = false;
+    h.server.quests.quests[0] = phases;
+    let mut chest = h.server.catalog.get(SMALL).expect("the kind").props.clone();
+    chest.set(
+        "Usage_Effect1",
+        Prop::Text("Eff_IncrementQuestTestChestControl".into()),
+    );
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(SMALL, PACKAGE, chest));
+    h.server.item_uses.insert(
+        SMALL,
+        vec![yalain_world::item_use::UsageEffect {
+            state: STATE,
+            spellcraft: 1.0,
+        }],
+    );
+    h.server.effect_table.effects.insert(
+        STATE,
+        EffectDef {
+            state: STATE,
+            kind: EffectKind::Quest {
+                quest: CHEST_QUEST,
+                update: yalain_world::quests::update::INCREMENT,
+            },
+            duration: Scale::default(),
+            priority: Scale::default(),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0,
+            enum_value: 0,
+            eq_class: 0,
+            name: None,
+        },
+    );
+    send_use(&mut h, a, me, CHEST, 0, 0.1);
+    let p = h.server.players.values().next().expect("in the world");
+    assert_eq!(
+        yalain_world::quests::phase_of(&p.play.quests, CHEST_QUEST),
+        2,
+        "one move, not two"
+    );
+}

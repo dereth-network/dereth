@@ -20,7 +20,8 @@
 //! aren't.
 //!
 //! **Quests.** A chest a quest keeps refuses at once a player whose quest is not at the phase it
-//! names.
+//! names, and again at the chest. What its kind names for its use comes on its opener as it begins
+//! to open, so a kind that completes its own quest opens once for each giving.
 //!
 //! **Closing.** Asked to close, or its opener gone more than six meters from it, the chest plays its
 //! closing for everyone; when that has played the closer is told and everyone sees it shut.
@@ -277,26 +278,82 @@ fn quest_keeps_out<S: Store>(s: &Server<S>, world: ConnId, template: u32) -> boo
     })
 }
 
+/// Is a use of a chest refused because its quest keeps the player out? The player is told.
+fn refused_by_its_quest<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    u: &Use,
+    template: u32,
+) -> bool {
+    if !quest_keeps_out(s, world, template) {
+        return false;
+    }
+    // A hidden quest's refusal is the mysterious one.
+    let hidden = s
+        .catalog
+        .get(template)
+        .and_then(|t| t.props.word("Usage_RequiredQuest"))
+        .is_some_and(|q| crate::quests::hidden(s, q));
+    let why = if hidden {
+        crate::item_use::refusal::MYSTERIOUS_USE
+    } else {
+        WRONG_QUEST
+    };
+    let no = places::use_refused(u, 0, Some(WRONG_QUEST_FLAGS), 0.0, why);
+    progress::private(net, world, &no);
+    true
+}
+
+/// What a chest's kind names for its use comes on its opener: an effect the install holds as it
+/// holds any item's, and one it names only by what it does to a quest moves that quest.
+fn effects_on_opener<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    (chest, template): (u64, u32),
+    clock: Clock,
+) {
+    let Some(me) = s.players.get(&world).map(|p| p.character) else {
+        return;
+    };
+    let states = s.item_uses.get(&template).cloned().unwrap_or_default();
+    let moved_by_state = |s: &Server<S>, quest: u32| {
+        states.iter().any(|e| {
+            s.effect_table.get(e.state).is_some_and(
+                |d| matches!(d.kind, crate::effect_defs::Kind::Quest { quest: q, .. } if q == quest),
+            )
+        })
+    };
+    let named: Vec<crate::quests::QuestEffect> = s
+        .catalog
+        .get(template)
+        .map(|t| {
+            (1..=8)
+                .filter_map(|i| t.props.text(&format!("{}{i}", crate::item_use::USED.0)))
+                .filter_map(|n| crate::quests::effect_named(n, |q| s.quest_ids.get(q).copied()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let named: Vec<_> = named
+        .into_iter()
+        .filter(|e| !moved_by_state(s, e.quest))
+        .collect();
+    for e in named {
+        crate::quests::moves(s, net, world, e, true, clock);
+    }
+    for e in states {
+        crate::item_use::put_on(s, net, world, me, chest, e, clock);
+    }
+}
+
 /// A player asks to open a chest: refused at once when its quest keeps the player out; else walked
 /// to it, then opened (or refused, locked).
 pub fn used<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: Use, clock: Clock) {
     let Some((kind, at)) = chest(s, u.item) else {
         return;
     };
-    if quest_keeps_out(s, world, kind.template) {
-        // A hidden quest's refusal is the mysterious one.
-        let hidden = s
-            .catalog
-            .get(kind.template)
-            .and_then(|t| t.props.word("Usage_RequiredQuest"))
-            .is_some_and(|q| crate::quests::hidden(s, q));
-        let why = if hidden {
-            crate::item_use::refusal::MYSTERIOUS_USE
-        } else {
-            WRONG_QUEST
-        };
-        let no = places::use_refused(&u, 0, Some(WRONG_QUEST_FLAGS), 0.0, why);
-        progress::private(net, world, &no);
+    if refused_by_its_quest(s, net, world, &u, kind.template) {
         return;
     }
     let Some(here) = position(s, world) else {
@@ -322,6 +379,9 @@ pub fn at_chest<S: Store>(
     let Some((kind, at)) = chest(s, id) else {
         return;
     };
+    if refused_by_its_quest(s, net, world, &u, kind.template) {
+        return;
+    }
     let phase = s.chests.by_id.get(&id).map(|c| c.phase).unwrap_or_default();
     if phase != Phase::Closed {
         let busy = places::use_refused(&u, 0, None, 0.0, crate::places::ACTIONS_LOCKED);
@@ -486,6 +546,7 @@ fn open<S: Store>(
     waiting: Waiting,
     clock: Clock,
 ) {
+    effects_on_opener(s, net, waiting.world, (id, kind.template), clock);
     flash(s, net, id);
     let left = s
         .chests

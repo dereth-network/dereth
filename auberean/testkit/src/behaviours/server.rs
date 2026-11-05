@@ -7893,6 +7893,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-chests-use-comes-on-its-opener",
+        says: "What a chest's kind names for its use comes on its opener as it begins to open, a quest \
+               named by what it does to it moved once; a kind that completes the quest that keeps it \
+               refuses that player after, at the chest as well as at the asking.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHEST-USE-EFFECT"),
+        station: "yalain-testkit::cpu::play::chests::a_chest_that_completes_its_own_quest_opens_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-door-plays-its-scene",
         says: "A door played as a scene takes the player through it: teleporting, frozen, the scene \
                begun with no flash or glows; the scene ended, the use answered and the player at the \
