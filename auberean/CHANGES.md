@@ -8,6 +8,7 @@ not how it was done.
 ## Unreleased
 
 - Crowded places run faster.
+- Fixed bodies losing their walk or idle when the server sent them again.
 - Fixed the music falling silent when a piece waiting its turn was stopped.
 - Turning sound off and on again plays sounds from their start, as the original does.
 - A click that brings the window forward no longer acts on the game.

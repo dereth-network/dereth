@@ -646,7 +646,7 @@ impl Behaviors {
         true
     }
 
-    /// Play a behavior nobody waits on.
+    /// Play a behavior the object does of itself, which is no one else's to hear of.
     // D2-14964
     pub fn do_autonomous_behavior(
         &mut self,
@@ -655,7 +655,7 @@ impl Behaviors {
         host: &mut dyn Host,
     ) -> bool {
         let p = Params {
-            context: 0,
+            send_event: false,
             ..Params::behavior(behavior)
         };
         self.do_behavior(table, &p, host)
