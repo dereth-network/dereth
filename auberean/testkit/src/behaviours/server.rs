@@ -1245,6 +1245,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.a-target-is-in-reach",
+        says: "A recipe that asks for a target is made within thirty meters of its target's place; \
+               farther off the target is taken as none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-TARGET-REACH"),
+        station: "yalain-testkit::cpu::play::crafting::a_recipe_asking_for_a_target_is_refused_past_its_reach",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.butchery-finds-nothing",
         says: "A cut that draws its profile's share of nothing gathers no material and pays no experience; \
                the use is answered empty at the result and the corpse may be butchered again.",

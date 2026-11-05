@@ -1134,6 +1134,77 @@ fn a_recipe_asking_for_a_target_is_made_at_one_of_its_own_and_nowhere_else() {
     assert_eq!(r.charges, 2, "the refusals spent nothing");
 }
 
+/// A recipe that asks for a target is made within reach of it: a mine across the world's no target.
+///
+/// Behaviour: server.craft.a-target-is-in-reach
+#[test]
+fn a_recipe_asking_for_a_target_is_refused_past_its_reach() {
+    const AT_MINE: u32 = 0x6F00_0FF0;
+    const MINE: u32 = 0x4700_0B3D;
+    const THE_MINE: u64 = 0x4079_9500_0000_000C;
+    let (mut h, b, _me, world) = in_world();
+    let here = h.server.players[&world].position;
+    h.server
+        .content
+        .objects
+        .push(yalain_content::ContentObject {
+            object: Some(THE_MINE),
+            template: MINE,
+            description: yalain_content::Description {
+                name_text: None,
+                package: 0x103E,
+                look: 0x1F00_0100,
+                enter_fx: 0,
+                scale: None,
+                name: Some((0xA860_7CEC, 0x2500_1B44)),
+                numbers: [0; 6],
+                source: "authored for a test".into(),
+            },
+            cell: here.cell,
+            origin: here.origin,
+            rotation: [1.0, 0.0, 0.0, 0.0],
+            kind: yalain_content::Kind::Static,
+            label: String::new(),
+            placed: "authored for a test".into(),
+            destination: None,
+            facts: yalain_content::Facts::default(),
+            walks: None,
+            gate: None,
+        });
+    h.server
+        .crafting
+        .recipes
+        .insert(AT_MINE, charged(AT_MINE, 9, vec![MINE]));
+    let clock = h.clock();
+    yalain_world::craft::learn(&mut h.server, &mut h.net, world, AT_MINE, clock);
+    let stand = |h: &mut Harness, cell: u32, x: f32| {
+        let p = h.server.players.get_mut(&world).expect("in the world");
+        p.position.cell = cell;
+        p.position.origin[0] = here.origin[0] + x;
+    };
+    let reach = yalain_world::craft::TARGET_REACH;
+    stand(&mut h, here.cell, reach + 0.5);
+    let from = execute_on(&mut h, b, AT_MINE, THE_MINE);
+    wait(&mut h, 1.0);
+    assert_eq!(
+        answer(&h, b, from),
+        Some(error::WRONG_TARGET),
+        "past its reach"
+    );
+    stand(&mut h, 0x0100_0001, 0.0);
+    let from = execute_on(&mut h, b, AT_MINE, THE_MINE);
+    wait(&mut h, 1.0);
+    assert_eq!(
+        answer(&h, b, from),
+        Some(error::WRONG_TARGET),
+        "another block"
+    );
+    stand(&mut h, here.cell, reach - 0.5);
+    let from = execute_on(&mut h, b, AT_MINE, THE_MINE);
+    wait(&mut h, 8.0);
+    assert_eq!(answer(&h, b, from), Some(0), "within it");
+}
+
 /// A hidden quest given starts the step waiting on its giving, as a shown one's update and a recipe
 /// after it; the hidden quest kept from a player without what it requires starts nothing.
 /// Behaviour: server.quests.step-on-a-quest-given
