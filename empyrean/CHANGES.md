@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+- Fixed idle WebSocket connections shutting out browser players.
 
 ## 0.3.9 (2026-11-05)
 
