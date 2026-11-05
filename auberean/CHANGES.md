@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Your own character no longer loses detail too soon as the camera pulls back.
 - Fixed others' damage numbers ignoring the range option, and far targets not being refused.
 - Actions asked of you in portal space no longer play late when you arrive.
 - Selecting from the radar, a name or your pack no longer turns your head.

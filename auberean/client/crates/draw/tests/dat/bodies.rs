@@ -29,6 +29,36 @@ fn figure() -> (Figure, Mat4) {
     (figure, place)
 }
 
+/// The player's own meshes keep their detail farther from the camera than another's: at some
+/// distance the same figure is drawn with more triangles as the player, and at none with fewer.
+///
+/// Behaviour: draw.bodies.the-players-meshes-keep-their-detail-farther-out
+#[test]
+fn the_players_meshes_keep_their_detail_farther_out() {
+    let r = &install().records;
+    let recs = CachedRecords::new(r);
+    let (figure, place) = figure();
+    let poses = figure.pose(&recs);
+    let triangles = |player: bool, distance: f32| {
+        let mut drawer = BodyDrawer::default();
+        drawer.eye = Some(Vec3::new(10.0 + distance, 20.0, 30.0));
+        drawer.drawing_player = player;
+        drawer
+            .batches(r, &figure, &poses, &place)
+            .iter()
+            .map(|b| b.indices.len())
+            .sum::<usize>()
+    };
+    let mut kept = 0;
+    for d in 1..60_u16 {
+        let distance = f32::from(d);
+        let (mine, another) = (triangles(true, distance), triangles(false, distance));
+        assert!(mine >= another, "at {distance} m: {mine} against {another}");
+        kept += usize::from(mine > another);
+    }
+    assert!(kept > 0, "it keeps more at some distance");
+}
+
 /// A body's places are its mesh's vertices moved by its pose, with the rest of each vertex left to
 /// the mesh's own list.
 #[test]

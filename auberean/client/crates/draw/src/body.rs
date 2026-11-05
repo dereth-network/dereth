@@ -147,6 +147,8 @@ pub struct BodyDrawer {
     pub eye: Option<Vec3>,
     /// The frame has a water's reflection, which sees each body by its distances at 40%.
     pub reflecting: bool,
+    /// The next bodies drawn are the player's: its meshes keep their detail farther out.
+    pub drawing_player: bool,
     /// What the distances of a body both mobile and dynamic are scaled by: 1, or
     /// [`adaptive_scale`] with the adaptive degrade on.
     pub moving_scale: f32,
@@ -214,6 +216,7 @@ impl Default for BodyDrawer {
             material_detail: 2,
             eye: None,
             reflecting: false,
+            drawing_player: false,
             moving_scale: 1.0,
             still_scale: 1.0,
             scale: 1.0,
@@ -341,6 +344,17 @@ impl BodyDrawer {
         self.batches_without(records, body, poses, place, &[])
     }
 
+    /// The detail a mesh is drawn at for the detail its distance gives: half as much again for the
+    /// player's.
+    // D2-05510
+    fn detail_kept(&self, t: f32) -> f32 {
+        if self.drawing_player {
+            (t * 1.5).min(1.0)
+        } else {
+            t
+        }
+    }
+
     /// `body` in `poses`, placed by `place`, as it prints on the sun's shadow map: at full detail,
     /// each fragment once with its material's first layer, its vertices standing as they stand now.
     // D2-10929, D2-05492
@@ -418,6 +432,7 @@ impl BodyDrawer {
             let (t, material_detail) = degrade.map_or((1.0, self.material_detail), |g| {
                 (g.detail, g.material_detail)
             });
+            let t = self.detail_kept(t);
             // What the reflection sees of the part, when it is near enough to be seen there.
             let in_reflection = distance.filter(|_| self.reflecting).and_then(|d| {
                 crate::mesh::degrade_in(
@@ -474,7 +489,8 @@ impl BodyDrawer {
                 // The reflection takes the same level when its choice falls on it, else one of
                 // its own beside it.
                 let mirrored = in_reflection.and_then(|g| {
-                    level_at(&m.mesh, g.detail, self.model_detail).map(|l| (l, g.material_detail))
+                    level_at(&m.mesh, self.detail_kept(g.detail), self.model_detail)
+                        .map(|l| (l, g.material_detail))
                 });
                 let lod = self
                     .reflecting

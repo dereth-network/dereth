@@ -4037,6 +4037,7 @@ impl<'w> Scene<'w> {
             } else {
                 &[]
             };
+            self.drawer.drawing_player = true;
             built.frame.objects.extend(self.drawer.batches_without(
                 &self.world.records,
                 &p.figure,
@@ -4044,6 +4045,7 @@ impl<'w> Scene<'w> {
                 &place,
                 hidden,
             ));
+            self.drawer.drawing_player = false;
             noted.push((
                 p.id,
                 start..built.frame.objects.len(),

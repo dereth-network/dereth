@@ -7,6 +7,14 @@ use super::{Behaviour, Evidence, Tier, RETAIL};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "draw.bodies.the-players-meshes-keep-their-detail-farther-out",
+        says: "The player's own meshes are drawn at half as much detail again as their distance gives, up to full: they drop a level later than another figure's. What the player holds does not share this.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PLAYER-MESH-DETAIL"),
+        station: "auberean-draw::dat::bodies::the_players_meshes_keep_their_detail_farther_out",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.cells.a-cells-appearance-dresses-its-mesh-by-material-kind",
         says: "An interior cell that names an appearance key is drawn with that key's change set of the cells' appearance table: its mesh's materials are swapped by material kind, so one mesh serves a grassy hall and a sandy canyon.",
         since: RETAIL,
