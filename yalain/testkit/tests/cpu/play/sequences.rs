@@ -11,17 +11,19 @@ use auberean_script::args::Arg;
 use yalain_content::{ContentObject, ContentPack, Description, Facts, Kind as Placed, Props};
 use yalain_net::ConnId;
 use yalain_testkit::play::{report, use_of};
-use yalain_testkit::{test_camp, test_template, Harness, IRON, MINES_RECIPE, MINES_SWORD};
+use yalain_testkit::{
+    test_camp, test_template, Harness, IRON, MINES_RECIPE, MINES_SWORD, TEST_ITEM,
+};
 use yalain_world::effect_defs::{EffectDef, Kind, Scale, Share, Watcher};
 use yalain_world::effects::{self, Cast, On};
 use yalain_world::graph::{Builder, Slot};
 use yalain_world::inventory::{move_graph, Move};
 use yalain_world::market::{self, Broker};
 use yalain_world::player::quality;
-use yalain_world::state::SkillState;
+use yalain_world::state::{PlayState, SkillState};
 use yalain_world::{
-    allegiance, combat, craft, death, equip, fellowship, inventory, pack, pets, quals, requests,
-    skill_use, store, things,
+    allegiance, combat, craft, death, drops, equip, fellowship, inventory, pack, pets, quals,
+    requests, skill_use, store, things, trade,
 };
 
 use super::conservation::{self, ask, census, check, pass, restart, someone, world_of, Script};
@@ -897,4 +899,207 @@ fn whatever_order_players_do_things_in_nothing_panics_or_hangs_and_each_item_is_
         Ok(()),
         "a sequence ended"
     );
+}
+
+/// What is marked in a world, as everything that holds an item sees it.
+#[derive(Debug)]
+struct Marked {
+    /// Pieces of an attuned stack with its first holder, and with anyone else.
+    attuned: (u64, u64),
+    /// Items bound to the first holder that a character holds.
+    bound_held: Vec<u64>,
+    /// Marked items where none may be: on sale, on the ground, or bound to another.
+    wrong: Vec<String>,
+}
+
+fn marked(s: &mut Script, first: u64) -> Marked {
+    let mut wrong = Vec::new();
+    let on_sale: Vec<u64> = s.h.server.market.list.iter().map(|k| k.item).collect();
+    for t in s.h.server.things.by_id.values() {
+        if (t.own.bound_to != 0 || t.own.attuned) && on_sale.contains(&t.id) {
+            wrong.push(format!("{:#x} is on sale", t.id));
+        }
+        if t.own.attuned && t.at.is_some() {
+            wrong.push(format!("{:#x} is on the ground", t.id));
+        }
+        if t.own.bound_to != 0 && t.own.bound_to != first {
+            wrong.push(format!("{:#x} is bound to {:#x}", t.id, t.own.bound_to));
+        }
+    }
+    let mut attuned = (0, 0);
+    let mut bound_held = Vec::new();
+    for (_, id) in s.who.clone() {
+        let (items, states) = if let Some(w) = world_of(&s.h, id) {
+            let items = s.h.server.players[&w].play.items.clone();
+            let states = items
+                .iter()
+                .filter_map(|x| Some((x.id, s.h.server.things.get(x.id)?.own)))
+                .collect();
+            (items, states)
+        } else {
+            let st = yalain_world::saves::state_of(&mut s.h.server, id).expect("reads");
+            let Some(st) = st else { continue };
+            let play = PlayState::from_bytes(&st.play).expect("reads");
+            let states = play.item_states.iter().map(|k| (k.id, k.own)).collect();
+            (play.items, states)
+        };
+        let own: std::collections::BTreeMap<u64, _> = states;
+        for x in &items {
+            let Some(o) = own.get(&x.id) else { continue };
+            if o.attuned {
+                let n = u64::from(x.quantity);
+                if id == first {
+                    attuned.0 += n;
+                } else {
+                    attuned.1 += n;
+                }
+            }
+            if o.bound_to == first {
+                bound_held.push(x.id);
+            }
+        }
+    }
+    bound_held.sort_unstable();
+    Marked {
+        attuned,
+        bound_held,
+        wrong,
+    }
+}
+
+/// Its holder tries to part with something marked: puts it down, trades it, or puts it up for sale.
+fn try_to_part_with(s: &mut Script, first: u64) -> String {
+    let Some(w) = world_of(&s.h, first) else {
+        return "the holder is away".into();
+    };
+    let Some(b) = s.who.iter().find(|x| x.1 == first).and_then(|x| x.0) else {
+        return "the holder is away".into();
+    };
+    let mine: Vec<(u64, u32, i32)> = s.h.server.players[&w]
+        .play
+        .items
+        .iter()
+        .filter(|x| x.location == 0)
+        .filter(|x| {
+            s.h.server
+                .things
+                .get(x.id)
+                .is_some_and(|t| t.own.attuned || t.own.bound_to != 0)
+        })
+        .map(|x| (x.id, x.quantity, x.slot.cast_signed()))
+        .collect();
+    let Some((item, quantity, slot)) = s.dice.pick(&mine) else {
+        return "nothing marked in the pack".into();
+    };
+    let q = 1 + u32::try_from(s.dice.below(quantity as usize)).unwrap_or(0);
+    match s.dice.below(3) {
+        0 => {
+            let m = Move {
+                move_type: drops::DROP,
+                item,
+                quantity,
+                from: first,
+                from_slot: slot,
+                ..Move::default()
+            };
+            ask(s, b, drops::function::MOVE_ITEM, &[move_graph(&m)]);
+            format!("puts down {item:#x}")
+        }
+        1 => {
+            let other = s
+                .who
+                .iter()
+                .find(|x| x.1 != first && x.0.is_some() && world_of(&s.h, x.1).is_some())
+                .and_then(|x| Some((x.0?, x.1)));
+            let Some((ob, oid)) = other else {
+                return "nobody to trade with".into();
+            };
+            ask(s, b, trade::function::OPEN, &[Arg::LongInt(oid)]);
+            ask(s, ob, trade::function::OPEN, &[Arg::LongInt(first)]);
+            let args = [Arg::Int(q), Arg::LongInt(item)];
+            ask(s, b, trade::function::OFFER, &args);
+            ask(s, b, trade::function::ACCEPT, &[]);
+            ask(s, ob, trade::function::ACCEPT, &[]);
+            format!("trades {q} of {item:#x}")
+        }
+        _ => {
+            let args = [
+                Arg::Int(STORE),
+                Arg::Int(5),
+                Arg::Int(q),
+                Arg::LongInt(item),
+                Arg::LongInt(BROKER),
+            ];
+            ask(s, b, market::function::SELL, &args);
+            format!("puts up {q} of {item:#x}")
+        }
+    }
+}
+
+/// Through trades, a broker, the ground, stacks split, a corpse, a death, a log-off, a stop and a
+/// crash, an attuned stack stays with its holder whole, and a bound item stays bound to whom it was;
+/// neither is ever on sale, and a stop keeps both.
+/// Behaviour: server.inventory.conservation
+#[test]
+fn an_attuned_stack_stays_with_its_holder_and_a_bound_item_stays_bound_whatever_players_do() {
+    for seed in [0x5EED_7001, 0x5EED_7002, 0x5EED_7003] {
+        let mut s = start(seed);
+        let me = s.who[0].1;
+        let w = world_of(&s.h, me).expect("in the world");
+        let stack = inventory::give(&mut s.h.server, &mut s.h.net, w, conservation::GEM, 40);
+        let held = inventory::give(&mut s.h.server, &mut s.h.net, w, TEST_ITEM, 1);
+        let (stack, held) = (stack.expect("given"), held.expect("given"));
+        s.h.server.things.get_mut(stack).expect("made").own.attuned = true;
+        s.h.server.things.get_mut(held).expect("made").own.bound_to = me;
+        let c = census(&mut s);
+        s.wealth = c.wealth;
+        s.gems = c.gems;
+        yalain_world::world::keep_player(&mut s.h.server, w);
+        s.h.run(1);
+        let whole = marked(&mut s, me).attuned;
+        assert_eq!(whole, (40, 0));
+        for n in 0..300 {
+            if let Some((_, b, _, w)) = someone(&mut s) {
+                if s.dice.below(3) == 0 {
+                    place(&mut s, b, w);
+                }
+            }
+            let what = match s.dice.below(4) {
+                0 => try_to_part_with(&mut s, me),
+                1 => conservation::act(&mut s),
+                _ => step(&mut s),
+            };
+            s.log.push(what.clone());
+            let what = format!("{seed:#x} step {n}: {what}");
+            check(&mut s, &what);
+            let now = marked(&mut s, me);
+            let last = &s.log[s.log.len().saturating_sub(14)..];
+            assert!(now.wrong.is_empty(), "{what}: {now:?}\n{last:#?}");
+            assert_eq!(now.attuned, whole, "{what}\n{last:#?}");
+            if s.dice.below(60) == 0 {
+                ready(&mut s, false);
+            }
+            if s.dice.below(100) == 0 {
+                conservation::stop(&mut s);
+                ready(&mut s, false);
+                check(&mut s, &format!("{seed:#x} step {n}: a stop"));
+                let after = marked(&mut s, me);
+                assert_eq!(after.attuned, whole, "a stop at {what}");
+                assert!(after.wrong.is_empty(), "a stop at {what}: {after:?}");
+                // One on its way to the ground comes back to the hand that held it.
+                assert!(
+                    now.bound_held.iter().all(|i| after.bound_held.contains(i)),
+                    "a stop at {what}: {now:?} became {after:?}"
+                );
+            }
+            if s.dice.below(100) == 0 {
+                conservation::crash(&mut s);
+                ready(&mut s, false);
+                check(&mut s, &format!("{seed:#x} step {n}: a crash"));
+                let after = marked(&mut s, me);
+                assert!(after.wrong.is_empty(), "a crash at {what}: {after:?}");
+                assert_eq!(after.attuned, whole, "a crash at {what}");
+            }
+        }
+    }
 }
