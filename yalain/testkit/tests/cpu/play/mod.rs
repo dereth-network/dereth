@@ -11,6 +11,7 @@ mod books;
 mod butchery;
 mod chests;
 mod combinations;
+mod concealing;
 mod conservation;
 mod crafting;
 mod creature_effects;

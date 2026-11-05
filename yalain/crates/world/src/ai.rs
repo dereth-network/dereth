@@ -17,6 +17,10 @@
 //!   scale (2017's measured speed), facing it, its place sent to the clients that see it every
 //!   world step (no movement order: 2017 sent creatures none); within reach it strikes as often as
 //!   its attacks allow.
+//! - **Concealing effects.** A record on a player can change what creatures of a class make of it:
+//!   one that spares it doesn't take it on, come to its kin's fight with it, or turn to it, unless
+//!   it has hurt the creature; one that hates it is taken on even by a creature that never attacks
+//!   first ([`regard`]).
 //! - **Giving up.** When the player has been beyond its perception radius for a second (2017's gave
 //!   up a median 1.17 s after the player left the radius, at a distance beyond it about the same
 //!   for every radius), or is gone, it takes its peaceful mode and runs home; it is not made whole
@@ -102,6 +106,68 @@ pub const WALK_SPEED: f32 = 3.1;
 /// 1 1.62 to 1.63 m/s, the Skyport Attendants of scale 0.925 1.5 m/s, all with forward byte 0xBF).
 pub const PATROL_WALK_SPEED: f32 = 1.62;
 pub const PATROL_WALKING: u32 = crate::world::motion(0x80, 0xBF, 0x7F);
+
+/// What a concealing effect makes creatures of a class make of its holder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Regard {
+    /// They don't take it on unless it hurts them.
+    Spares,
+    /// They take it on, even those that never attack first.
+    Hates,
+}
+
+/// The concealing effects whose reach is known: each one's saved states, the class of creature it
+/// is for (none: every creature) and what they make of its holder. The install says so of each but
+/// the amulet of peace, whose description names its moarsmen (2017: under it, 0 of 8 moarsmen within
+/// 20 m came at the player; without it, 24 of 140 came at it first). The install says no class for
+/// the other effects of the kind, and they do nothing.
+const CONCEALING: [(u32, Option<u32>, Regard); 17] = [
+    (0x6F00_1C46, Some(0x17), Regard::Spares),
+    (0x6F00_1D4A, Some(0x1D), Regard::Spares),
+    (0x7000_0701, Some(0x1D), Regard::Spares),
+    (0x6F00_1EEB, Some(0x0E), Regard::Spares),
+    (0x7000_0713, Some(0x0E), Regard::Spares),
+    (0x6F00_0DC9, Some(0x3C), Regard::Spares),
+    (0x7000_1D76, Some(0x3C), Regard::Spares),
+    (0x6F00_1D4C, Some(0x16), Regard::Hates),
+    (0x7000_0703, Some(0x16), Regard::Hates),
+    (0x6F00_1EE8, Some(0x0E), Regard::Hates),
+    (0x7000_0710, Some(0x0E), Regard::Hates),
+    (0x6F00_1D2E, Some(0x6F), Regard::Hates),
+    (0x7000_1DAE, Some(0x6F), Regard::Hates),
+    (0x6F00_20BC, Some(0x06), Regard::Hates),
+    (0x7000_1EB8, Some(0x06), Regard::Hates),
+    (0x6F00_0D8C, None, Regard::Hates),
+    (0x7000_1CB3, None, Regard::Hates),
+];
+
+/// What a creature of a class makes of a player, by the concealing effects it holds; hate over
+/// sparing, where it holds both.
+#[must_use]
+pub fn regard(p: &crate::world::Player, class: Option<u32>) -> Option<Regard> {
+    let mut found = None;
+    for e in &p.play.effects {
+        let Some((_, of, how)) = CONCEALING.iter().find(|(state, ..)| *state == e.state) else {
+            continue;
+        };
+        if of.is_none() || *of == class {
+            if *how == Regard::Hates {
+                return Some(Regard::Hates);
+            }
+            found = Some(*how);
+        }
+    }
+    found
+}
+
+/// A creature's class of behavior.
+fn class_of<S: Store>(s: &Server<S>, id: u64) -> Option<u32> {
+    let t = s.things.get(id)?;
+    s.catalog
+        .get(t.template)?
+        .props
+        .word(yalain_content::props::creature_property::SUPER_CLASS)
+}
 
 /// How long a player must have been beyond a creature's perception radius for it to give up, in
 /// seconds (2017: a median 1.17 s, the bulk from 0.8 to 1.6).
@@ -293,9 +359,21 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
 
 /// The player a creature notices: the nearest within its perception that is in the world, out of
 /// portal space, alive and not under lifestone protection.
-fn notice<S: Store>(s: &Server<S>, at: &StoredPosition, radius: f32) -> Option<u64> {
+fn notice<S: Store>(
+    s: &Server<S>,
+    at: &StoredPosition,
+    radius: f32,
+    class: Option<u32>,
+    attacks_first: bool,
+) -> Option<u64> {
     notices_among(s, at, radius, |p| {
-        fightable(p) && p.admin.attackable == Attackable::Normal
+        fightable(p)
+            && p.admin.attackable == Attackable::Normal
+            && match regard(p, class) {
+                Some(Regard::Spares) => false,
+                Some(Regard::Hates) => true,
+                None => attacks_first,
+            }
     })
 }
 
@@ -323,7 +401,7 @@ pub fn notices_among<S: Store>(
 #[doc(hidden)]
 #[must_use]
 pub fn notices<S: Store>(s: &Server<S>, at: &StoredPosition, radius: f32) -> Option<u64> {
-    notice(s, at, radius)
+    notice(s, at, radius, None, true)
 }
 
 /// A creature's attack comes when it is due, not at the world's next step, for one that attacks
@@ -440,8 +518,12 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
                         c.joining = None;
                     }
+                    let class = class_of(s, id);
                     let here = s.players.values().any(|q| {
-                        q.character == p && !crate::combat::is_dead(q) && q.trip.is_none()
+                        q.character == p
+                            && !crate::combat::is_dead(q)
+                            && q.trip.is_none()
+                            && regard(q, class) != Some(Regard::Spares)
                     });
                     if here {
                         engage(s, net, id, p, clock);
@@ -449,11 +531,11 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     }
                 }
             }
-            if attacks_first && now >= next_look {
+            if now >= next_look {
                 if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
                     c.next_look = now + LOOK_EVERY;
                 }
-                if let Some(p) = notice(s, &at, perception) {
+                if let Some(p) = notice(s, &at, perception, class_of(s, id), attacks_first) {
                     go_after(s, net, id, p, clock);
                     return;
                 }
@@ -747,12 +829,18 @@ fn reconsider<S: Store>(
             None => harm.push((*who, *h)),
         }
     }
-    // The players it may fight, with how far each is.
+    // The players it may fight, with how far each is: it passes over one it spares that hasn't
+    // hurt it.
+    let class = class_of(s, id);
     let near: Vec<(u64, f32)> = s
         .players
         .values()
         .filter_map(|p| presence::distance(at, &p.position).map(|d| (p, d)))
         .filter(|(p, d)| *d <= perception && fightable(p))
+        .filter(|(p, _)| {
+            regard(p, class) != Some(Regard::Spares)
+                || harm.iter().any(|(q, h)| *q == p.character && *h > 0)
+        })
         .map(|(p, d)| (p.character, d))
         .collect();
     let harmers: Vec<(u64, f32, f64)> = harm
@@ -919,7 +1007,7 @@ fn rouse_turrets<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, cloc
         })
         .collect();
     for (turret, there, reach) in near {
-        if let Some(p) = notice(s, &there, reach) {
+        if let Some(p) = notice(s, &there, reach, class_of(s, turret), true) {
             engage(s, net, turret, p, clock);
         }
     }

@@ -1971,6 +1971,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.an-effect-makes-its-holder-hated",
+        says: "A creature that never attacks first comes at a player holding an effect its class \
+               hates, or one every creature hates; a creature of another class leaves it alone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CONCEAL-HATES"),
+        station: "yalain-testkit::cpu::play::concealing::a_creature_that_never_attacks_first_comes_at_a_player_it_hates",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.an-effect-spares-its-holder",
+        says: "A creature of the class an effect spares doesn't take on its holder, come to its kin's \
+               fight with it, or turn to it, until the holder hurts it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CONCEAL-SPARES"),
+        station: "yalain-testkit::cpu::play::concealing::a_creature_leaves_alone_a_player_it_spares_until_struck",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.armor-debuff-in-a-special",
         says: "What a landed special's effect takes from a creature's armor counts in the next hit \
                of a special, on the whole server with the install's own skills.",

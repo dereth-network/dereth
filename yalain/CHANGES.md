@@ -44,6 +44,7 @@ what they see, not how it was done.
 - A frozen world now stops itself so it can restart.
 - Players can't talk faster than ten lines a second.
 - A plain shield now shows Shield Stats.
+- Curses and peace amulets now change who creatures attack.
 
 - Fixed a selected person showing empty health and vigor bars.
 
