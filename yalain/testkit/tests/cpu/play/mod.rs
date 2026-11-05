@@ -55,6 +55,7 @@ mod recalls;
 mod regeneration;
 mod resting;
 mod rules;
+mod sequences;
 mod skills;
 mod specials;
 mod stack_numbers;

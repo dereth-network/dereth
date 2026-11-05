@@ -37,7 +37,7 @@ const USE_REFUSED: u32 = 0x8204_001A;
 const LASHER_NUMBERS: [i32; 6] = [0x80_0000 | 0x20, 0, 0x0220_0010, 0, 0x42A0_0090, 0];
 
 /// Nature's Aid, its pet effect and the Lasher, as the data defines them.
-fn with_natures_aid(h: &mut Harness) {
+pub(super) fn with_natures_aid(h: &mut Harness) {
     let usage = Usage {
         min_range: -1.0,
         max_range: 1.0,
