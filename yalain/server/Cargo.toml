@@ -1,7 +1,7 @@
 [package]
 name = "yalain"
 description = "The Asheron's Call 2 server executable: its settings, the data it reads at start, the sockets and the loop."
-version = "0.1.2" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
+version = "0.2.0" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -26,7 +26,7 @@ auberean-world.workspace = true
 dereth-primitives.workspace = true
 auberean-script.workspace = true
 yalain-content.workspace = true
-yalain-net = { workspace = true, features = ["udp"] }
+yalain-net = { workspace = true, features = ["udp", "websocket"] }
 yalain-world.workspace = true
 yalain-store = { workspace = true, features = ["sqlite"] }
 yalain-world-db.workspace = true
@@ -39,8 +39,12 @@ serde_json.workspace = true
 # over it.
 dereth-network-link.workspace = true
 yalain-federation.workspace = true
+# `yalain update` and `server.update`: the servers' updater.
+dereth-server-update.workspace = true
 # The players' friends service, served on TCP beside the login.
 yalain-friends.workspace = true
+# The settings of its WebSocket endpoint, the game servers' shared one.
+dereth-server-websocket.workspace = true
 # The operator's character recipes, read from TOML (character files are JSON, with serde_json).
 serde.workspace = true
 toml.workspace = true
@@ -60,14 +64,23 @@ zip = { version = "8", default-features = false, features = ["deflate-flate2-zli
 live = ["yalain-testkit/retail-dats"]
 
 [dev-dependencies]
+# The Global room's tests send and read the chat service's packets.
+auberean-protocol.workspace = true
+dereth-protocol.workspace = true
+# The updater's tests: a stand-in for a repository's releases on loopback.
+dereth-server-update = { workspace = true, features = ["testing"] }
+# The updater's tests read a database back.
+rusqlite.workspace = true
 # The live test's friends streams speak the stream's client half.
 auberean-friends.workspace = true
 auberean-client-sdk = { workspace = true, features = ["fs"] }
 auberean-dat = { workspace = true, features = ["test-support"] }
 yalain-content.workspace = true
 yalain-testkit.workspace = true
-# The live test's stand-in hub takes the world's link as a WebSocket.
+# The live test's stand-in hub takes the world's link as a WebSocket, and the WebSocket endpoint's
+# live test is its client, with the frame it carries.
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+dereth-transport.workspace = true
 
 [lints]
 workspace = true

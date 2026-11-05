@@ -7,7 +7,7 @@ rows. A world's rows replace the database's by key and take them away with `[[re
 serves the two together, so even the retail client sees what a world places.
 
 It is early work: the editor places, moves, turns, changes and takes away people, objects, camps
-and places, outdoors. It shares Asheron's Call 2's core (`core/auberean-*`) with
+and places, outdoors and in rooms and dungeons. It shares Asheron's Call 2's core (`core/auberean-*`) with
 [Auberean](../auberean/README.md) and Yalain, draws the world with Auberean's drawing crates, and
 runs Yalain as a program.
 
@@ -74,14 +74,43 @@ sessions, **D** the data files, **R** a rule, **A** a person. People and objects
 templates look, a camp's creature at its middle with its reach drawn round it, and a portal's way
 to where it leads.
 
-- Click a marker (or a row in the list on the left) to select it; its fields are on the right.
-- Drag a marker to move its row over the ground; R turns it (Shift+R the other way); Delete takes
-  it away; F flies to it.
-- **Place**, with a kind and a template along the top, puts a new row at the next click on the
-  ground.
+- Click a marker, what a row looks like (or a row in the list on the left) to select it; its fields are on the right.
+- Fly into a building or a dungeon, or Find a row in one and click it, and the rooms are drawn
+  around the camera as the client draws them. Placing and dragging go by the floor under the pointer,
+  and a row keeps track of the room it is in.
+- The selected row has handles: red, green and blue arrows move it east, north and up, and the
+  ring turns it. **Snap** along the top makes moves and turns go by steps, R landing on them too;
+  Shift while dragging does the other.
+- Drag a marker to move its row over the ground; R turns it (Shift+R the other way); Delete or
+  Backspace takes it away; F flies to it.
+- **Place**, with a kind and a template along the top, shows the new row under the pointer and puts
+  it at the next click: on the ground, or on the stones, platforms, buildings and objects
+  standing there. R turns it first; Shift+click keeps placing; Esc stops.
+- Shift+click adds a row to the selection. Then dragging, the handles, R, Duplicate and Delete take
+  them all together, keeping how they stand to each other, and one Undo takes it back.
+- A place's **key** on the right renames it, and what leads to it follows.
+- An object's **Lead to a place** list makes it a portal: this world's places first, then the
+  nearest others. A camp's creatures are listed by name, with how often each comes and **Add** for
+  the template along the top.
+- **Find** shows the templates as pictures, by name or id. Click one and click the ground to place
+  it; Shift+click keeps the window open for the next, and it opens again on the same search.
+  Things to carry stay out of the way until **Items** is ticked, or **Worn**, which shows what can
+  be worn on a body. **no picture** is something that shows only as effects, which play once it stands in the world.
+- **Map** or M shows the whole world, this world's rows on it and the camera as a cross. Click
+  to go there.
+- Ctrl+F or **Find rows** finds any row of the world by its name, template, kind or key, nearest
+  or not, and goes to a landblock (`5766` or `5766:123,45`) or a room (`03BB022C`). Enter takes
+  the first thing it offers.
+- G stands the selected rows on what is under them; Shift+G also leans objects with the ground.
+- Ctrl+C keeps the selected rows, and Ctrl+V puts copies down at the pointer, in any landblock,
+  standing as they stood to each other.
+- `=` and `-` make the selected objects larger and smaller, and **scale** on the right sets it; an
+  empty one goes back to their template's.
+- Ctrl+D or **Duplicate** copies the selected row beside it and selects the copy, whatever it is:
+  a person with their name and place, a camp with its creatures, a portal with where it leads.
 - A row of the database is never written: changing one writes this world's own row of its key,
   shown as changed, with what it was and **Put back**; taking one away writes a `[[remove]]`.
-- Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes. The world's problems are listed along the bottom as
+- Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes (Cmd on macOS, as well). The world's problems are listed along the bottom as
   the server's check finds them.
 - T sends the character playing on Live to the camera.
 

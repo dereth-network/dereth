@@ -7,12 +7,74 @@ use super::{Behaviour, Evidence, Tier, RETAIL};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "world.calendar.a-clock-with-no-calendar-is-one-long-day",
+        says: "A clock with no calendar is one 100,000 second day in a one-day year, and has no date \
+               to write.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-DEFAULT"),
+        station: "auberean-world::cpu::clock::a_clock_with_no_calendar_is_one_long_day",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.calendar.a-region-runs-by-its-skys-calendar",
+        says: "The world's region runs by its sky's calendar; a region number with no calendar keeps \
+               the clock it had, or one with no calendar.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-REGION"),
+        station: "auberean-client-runtime::corpus::calls::a_region_runs_by_its_skys_calendar",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "world.calendar.a-stamps-date-takes-the-present-year-and-day",
+        says: "A stamp's date takes the present year, day and season, as the client's does; only the \
+               part of the day comes from the stamp.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-STAMP"),
+        station: "auberean-world::cpu::clock::a_stamps_date_takes_the_present_year_day_and_season",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.calendar.dilating-time-keeps-the-time-of-day",
+        says: "Dilating time keeps the time of day where it was and runs it at the new rate; a rate \
+               at or below 0.0002 is refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-DILATE"),
+        station: "auberean-world::cpu::clock::dilating_time_keeps_the_time_of_day_and_runs_it_at_the_rate",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.calendar.moving-the-time-of-day-goes-straight-there",
+        says: "Moving the time of day goes straight to the value and asks for the land to be lit; a \
+               world offset below zero wraps forward a day.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-MOVE"),
+        station: "auberean-world::cpu::clock::moving_the_time_of_day_goes_straight_there_and_asks_for_light",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.calendar.the-running-clock-updates-at-a-change-of-the-part-of-the-day",
+        says: "The running clock works out the year, day, season and part of the day at a change of \
+               the part only; between changes only the time of day moves.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-RUN"),
+        station: "auberean-world::cpu::clock::the_running_clock_updates_at_a_change_of_the_part_of_the_day",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "world.chargen.a-2017-creations-values-are-stops",
         says: "Every physique value of a creation the 2017 client sent is one of its race and sex's \
                stops for the type, and the types the race and sex lack were sent as 0.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-CHARGEN-CAPTURE"),
         station: "auberean-world::dat::chargen::a_2017_creations_values_are_stops",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "world.chargen.a-new-avatars-defaults-are-what-the-scripts-set",
+        says: "The character generator's scripts, given a creation's race and sex, set its class,                implement and starting area to the race's, every type it has to one of its stops,                build and height to the middle stop, and a type it lacks to 0, as the client's own                creation does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-CHARGEN-DEFAULTS"),
+        station: "auberean-world::dat::chargen::a_new_avatars_defaults_are_what_the_scripts_set",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -79,6 +141,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "world.chargen.with-no-word-filter-the-scripts-leave-a-name-alone",
+        says: "The end-of-retail files hold no word filter, so the character generator's scripts \
+               leave a typed name's written form as it was and answer that nothing changed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-CHARGEN-NAME"),
+        station: "auberean-world::dat::chargen::with_no_word_filter_the_scripts_leave_a_name_alone",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "world.color.a-packed-color-is-alpha-red-green-blue",
         says: "A packed color word is read as alpha in its top byte, then red, green and blue, each byte \
                over 255.",
@@ -113,6 +184,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WORLD-FOG-BLOCKS"),
         station: "auberean-world::cpu::fog::a_blocks_corners_blend_their_fog_over_the_days",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.fog.the-days-light-is-scaled-only-past-its-range",
+        says: "The day's light as a fog kind takes it, sun and ambient added, stays as it is up to                two ten-thousandths past full; past that it is scaled so its brightest channel is                full.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-LIGHT-RANGE"),
+        station: "auberean-world::cpu::fog::the_days_light_is_scaled_only_past_its_range",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -164,6 +243,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "world.inside.a-lights-packed-list-reads-as-the-run-length-form",
+        says: "A light's packed list of lit vertices reads as the run-length form: single \
+               indices and runs in order, and a run whose length has its top bit set gives \
+               nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-LIT-LIST-RLE"),
+        station: "auberean-world::cpu::inside::a_lights_packed_list_reads_as_the_run_length_form",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "world.inside.a-lit-particle-takes-the-first-five-lights-kept",
         says: "A lit particle takes the first five lights its system keeps: a point light its color \
                times its intensity over 1 + 10 d squared / R squared, a directional light the same \
@@ -180,6 +269,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-WORLD-CARRIED-LIGHTS-KEPT"),
         station: "auberean-world::cpu::inside::carried_lights_join_the_lights_a_draw_keeps_by_their_weight",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.inside.no-cell-holds-a-light-of-its-own",
+        says: "No interior cell of the data holds a light of its own as an entity: every entity placed \n               in a cell is an object.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-CELL-NO-LIGHT"),
+        station: "auberean-world::dat::inside::no_cell_holds_a_light_entity",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "world.inside.the-halls-light-and-a-cells-lit-vertices",
@@ -661,6 +758,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WORLD-WATER-BLOCK"),
         station: "auberean-world::cpu::water::a_block_holds_water_above_its_lowest_ground",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "world.water.a-sky-object-shows-by-its-water-effect",
+        says: "A sky object's water effect word says when it shows: 0 always, 1 only with the camera \
+               under water, anything else never.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-SKY-WATER-EFFECT"),
+        station: "auberean-world::cpu::water::a_sky_object_shows_by_its_water_effect",
         tier: Tier::Cpu,
     },
     behaviour! {

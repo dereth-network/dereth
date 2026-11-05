@@ -36,6 +36,7 @@ pub mod controls;
 pub mod dev;
 pub mod host;
 pub mod input;
+pub mod input_manager;
 pub mod interface;
 pub mod keys;
 pub mod preferences;
@@ -57,7 +58,7 @@ pub use auberean_scene::view::ViewFrame;
 pub use host::{FriendsNews, Host};
 use input::Event;
 use interface::{CameraRequest, Game, Heard, Interface, Notice, Overlay, Phase, Request, Shown};
-pub use settings::Settings;
+pub use settings::{Presentation, Settings};
 
 /// The game as the interface sees it, from the shell's fields one by one (so the interface itself
 /// may be borrowed beside it).
@@ -74,9 +75,11 @@ macro_rules! game {
             heard: &$s.fresh,
             shown: &$s.shown,
             picked: &$s.scene.views.picked,
+            behaving: &$s.scene.views.behaving,
             notices: &$s.notices,
             seen: &$s.scene.seen,
             world_pick: $s.world_pick,
+            arrivals: $s.scene.arrivals(),
             keys: &$s.keys,
             screens_sound: $s
                 .sound
@@ -122,6 +125,8 @@ pub struct Shell<'w, H: Host> {
     pub scene: Scene<'w>,
     interface: Box<dyn Interface + 'w>,
     pub controls: controls::Controls,
+    /// What decides which events reach the interface and the world's controls.
+    input: input_manager::InputManager,
     /// The key maps and what their actions do.
     pub keys: keys::Keys,
     pub settings: Settings,
@@ -139,7 +144,7 @@ pub struct Shell<'w, H: Host> {
     /// How the last session ended under the player, when the server ended it.
     ended: Option<SessionEnd>,
     /// Seconds the last frame spent moving the world, in the client, and framing the world.
-    pub costs: [f64; 3],
+    pub costs: [f64; 9],
     quit: bool,
     last: f64,
     frames: VecDeque<f64>,
@@ -191,6 +196,9 @@ const FRIENDS_PORT: u16 = 2310;
 /// How the client names itself to the friends service.
 const FRIENDS_SOFTWARE: &str = concat!("auberean/", env!("CARGO_PKG_VERSION"));
 
+/// The web page where players ask for help.
+pub const ASSISTANCE_PAGE: &str = "https://github.com/dereth-network/dereth/issues";
+
 impl<H: Host> std::fmt::Debug for Shell<'_, H> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Shell")
@@ -206,7 +214,9 @@ pub const HEARD_CALLS: [u32; 3] = [0x8205_0016, 0x8205_0017, 0x8205_0011];
 
 impl<'w, H: Host> Shell<'w, H> {
     /// The application over `host`, showing `world`, with the client's `data`, and `interface`
-    /// over the world. Reads the settings the host kept.
+    /// over the world. Reads the settings the host kept; the sound starts, then the world and the
+    /// interface, and the key maps and the action interpreter are ready.
+    // D2-00141, D2-00027
     pub fn new(
         mut host: H,
         world: &'w WorldData,
@@ -249,6 +259,7 @@ impl<'w, H: Host> Shell<'w, H> {
             scene,
             interface,
             controls: controls::Controls::default(),
+            input: input_manager::InputManager::default(),
             keys,
             settings,
             selected: 0,
@@ -257,7 +268,7 @@ impl<'w, H: Host> Shell<'w, H> {
             refusals: 0,
             stopped: None,
             ended: None,
-            costs: [0.0; 3],
+            costs: [0.0; 9],
             quit: false,
             last,
             frames: VecDeque::new(),
@@ -296,6 +307,12 @@ impl<'w, H: Host> Shell<'w, H> {
 
     /// One event from the host: the interface first, then the world's controls.
     pub fn event(&mut self, e: &Event) {
+        if !self.input.admit(e) {
+            return;
+        }
+        if let Event::Pointer { x, y } = e {
+            self.scene.pointer = Some(((*x, *y), self.size));
+        }
         match e {
             Event::Resized { width, height } => {
                 self.size = ((*width).max(1), (*height).max(1));
@@ -313,10 +330,29 @@ impl<'w, H: Host> Shell<'w, H> {
         }
         let phase = self.phase();
         let game = game!(self, phase);
-        if self.interface.event(e, &game) {
-            return;
+        if !self.interface.event(e, &game) {
+            self.controls.event(e, &self.keys);
         }
-        self.controls.event(e, &self.keys);
+        if let Some((x, y)) = self.input.take_missed() {
+            self.event(&Event::Pointer { x, y });
+        }
+    }
+
+    /// The sizes the host's display can take, in pixels, from a host that lets the player choose
+    /// how the game is shown: the options window's rendering section lists them. A host that
+    /// does not say leaves that section empty.
+    pub fn set_display_modes(&mut self, modes: &[(u32, u32)]) {
+        self.interface.set_presentation(modes, &self.settings);
+    }
+
+    /// Full screen, or back to the window.
+    // D2-08327
+    pub fn toggle_full_screen(&mut self) {
+        let mut requests = Vec::new();
+        self.interface.toggle_full_screen(&mut requests);
+        for r in requests {
+            self.request(r);
+        }
     }
 
     fn request(&mut self, r: Request) {
@@ -334,13 +370,20 @@ impl<'w, H: Host> Shell<'w, H> {
                     c.act(a);
                 }
             }
-            Request::Disconnect => {
-                if self.client.take().is_some_and(|c| c.friends().is_some()) {
-                    self.host.friends_close();
+            Request::Disconnect => self.disconnect(),
+            Request::OpenAssistancePage => {
+                if let Err(code) = self.host.open_page(ASSISTANCE_PAGE) {
+                    let text = format!(
+                        "An error occurred while trying to launch your web browser. (Error code \
+                         {code})\nThe web site to submit an urgent assistance request is listed \
+                         below. Please go there to complete your request.\n{ASSISTANCE_PAGE}\n"
+                    );
+                    self.host.error_box("Auberean Error", &text);
                 }
-                self.entering = false;
             }
             Request::Quit => self.quit = true,
+            Request::ShowWorld(on) => self.scene.show_world(on),
+            Request::PortalScenePlaying(on) => self.scene.portal_scene_playing = on,
             Request::Camera(c) => self.camera(c),
             Request::PickWorld { x, y } => {
                 self.world_pick = Some(self.scene.pick_world((x, y), self.size));
@@ -348,6 +391,11 @@ impl<'w, H: Host> Shell<'w, H> {
             Request::Graphics(g) => {
                 self.scene.init_preferences(&g);
                 self.settings.graphics = Some(g);
+            }
+            Request::FxChannels(c) => self.scene.set_fx_channels(c),
+            Request::Presentation(p) => {
+                self.settings.set_presentation(&p);
+                self.host.set_presentation(&p);
             }
             Request::KeepPreferences(writes) => {
                 for (section, key, value) in &writes {
@@ -428,6 +476,7 @@ impl<'w, H: Host> Shell<'w, H> {
         self.entering = false;
     }
 
+    // D2-00098
     fn connect(&mut self, server: SocketAddr, account: &str, password: &str) {
         self.stopped = None;
         self.ended = None;
@@ -462,6 +511,21 @@ impl<'w, H: Host> Shell<'w, H> {
             ));
         }
         self.client = Some(client);
+        self.entering = false;
+    }
+
+    /// The player leaves the server: a goodbye on every connection, and the session goes.
+    // D2-00099
+    fn disconnect(&mut self) {
+        if let Some(c) = &mut self.client {
+            c.disconnect();
+            while let Some((to, bytes)) = c.poll_transmit() {
+                self.host.send(to, &bytes);
+            }
+        }
+        if self.client.take().is_some_and(|c| c.friends().is_some()) {
+            self.host.friends_close();
+        }
         self.entering = false;
     }
 
@@ -624,6 +688,7 @@ impl<'w, H: Host> Shell<'w, H> {
                     about: s.about,
                     text,
                     info: Some(auberean_client_sdk::runtime::text::from_script(&s.text)),
+                    notices_before: s.notices_before,
                 });
             }
         }
@@ -665,6 +730,7 @@ impl<'w, H: Host> Shell<'w, H> {
         }
         let local = LocalTime(1.0 + now);
         let stream_now = core::time::Duration::from_secs_f64(local.0);
+        let began = self.host.now();
         if let Some(c) = &mut self.client {
             while let Some((from, bytes)) = self.host.receive() {
                 c.handle_datagram(from, &bytes, local);
@@ -675,6 +741,8 @@ impl<'w, H: Host> Shell<'w, H> {
         if let Some(c) = &mut self.client {
             self.interface.prepare(c);
         }
+        self.costs[3] = self.host.now() - began;
+        let began = self.host.now();
         // The interface's requests.
         let mut requests = Vec::new();
         let phase = self.phase();
@@ -684,8 +752,11 @@ impl<'w, H: Host> Shell<'w, H> {
         for r in requests {
             self.request(r);
         }
+        self.costs[4] = self.host.now() - began;
         // The world's controls.
         let phase = self.phase();
+        self.controls
+            .set_text_mode(&self.keys, self.interface.text_mode());
         self.controls.steers = self.scene.camera.options.mouse_look_steers;
         let intent = self.controls.intent(&self.keys);
         let commands = self.controls.take_commands();
@@ -706,7 +777,7 @@ impl<'w, H: Host> Shell<'w, H> {
             while let Some((to, bytes)) = c.poll_transmit() {
                 self.host.send(to, &bytes);
             }
-            self.scene.game_time = c.game_time();
+            self.scene.game_time = c.world_time();
             // An entry refused: the client is back at the character list.
             if let Some((_, n)) = c.model.refused {
                 if n != self.refusals {
@@ -728,7 +799,16 @@ impl<'w, H: Host> Shell<'w, H> {
         let free = self.interface.wants_pointer(&game!(self, phase_now));
         let pointer = self.scene.camera.mouse_look && !free;
         self.controls.mouse_look = self.scene.camera.mouse_look;
-        self.host.hold_pointer(pointer);
+        if let Some(at) = self.input.set_mouse_look_mode(pointer, self.size) {
+            self.host.hold_pointer(pointer);
+            self.controls.mouse_look_switched(&self.keys);
+            if let Some((x, y)) = at {
+                // Past the gate: the pointer is held now, and it is the shell that moved it.
+                self.scene.pointer = Some(((x, y), self.size));
+                let game = game!(self, phase_now);
+                self.interface.event(&Event::Pointer { x, y }, &game);
+            }
+        }
         if now - self.title_at > 0.5 {
             self.title_at = now;
             let t = self.title();
@@ -738,6 +818,7 @@ impl<'w, H: Host> Shell<'w, H> {
         let t = self.host.now();
         self.scene.build_frames(now, phase == Phase::World);
         self.costs[2] = self.host.now() - t;
+        let t = self.host.now();
         let mut requests = Vec::new();
         let phase_now = self.phase();
         let game = game!(self, phase_now);
@@ -745,7 +826,11 @@ impl<'w, H: Host> Shell<'w, H> {
         for r in requests {
             self.request(r);
         }
+        self.costs[5] = self.host.now() - t;
+        let t = self.host.now();
         self.sound_frame(now, phase_now == Phase::World);
+        self.costs[6] = self.host.now() - t;
+        let t = self.host.now();
         // What to draw over the world.
         let mut overlay = std::mem::take(&mut self.overlay);
         overlay.quads.clear();
@@ -758,6 +843,7 @@ impl<'w, H: Host> Shell<'w, H> {
             dev::overlay(&mut overlay, &lines);
         }
         self.overlay = overlay;
+        self.costs[7] = self.host.now() - t;
         let quit = self.quit;
         if quit {
             // Closing, in the world or out of it: a goodbye on every connection, and the program
@@ -765,13 +851,17 @@ impl<'w, H: Host> Shell<'w, H> {
             // D2-08334, D2-00085
             if let Some(c) = &mut self.client {
                 c.disconnect();
+                c.end_friends();
                 while let Some((to, bytes)) = c.poll_transmit() {
                     self.host.send(to, &bytes);
                 }
             }
+            self.carry_friends(stream_now);
             self.host.save_settings(&self.settings.write());
         }
+        let t = self.host.now();
         let views = self.scene.view_frames(&self.overlay.scenes, dt);
+        self.costs[8] = self.host.now() - t;
         let frames = self.scene.frames(now, phase == Phase::World);
         Output {
             world: frames.world,
@@ -785,27 +875,44 @@ impl<'w, H: Host> Shell<'w, H> {
         }
     }
 
-    /// The sound's turn: the sounds the world's effects played or stopped, the sounds of objects no
-    /// longer in the world stopped, then the ambient sound's turn and the manager's with the
-    /// listener at the camera.
+    /// The sound's turn: the sounds the world's effects played or stopped, the sounds of objects
+    /// gone stopped and of objects out of the world silent, then the ambient sound's turn and the
+    /// manager's with the listener at the camera.
     fn sound_frame(&mut self, now: f64, in_world: bool) {
+        for order in self.scene.take_portal_sounds() {
+            let records = &self.world.records;
+            self.sound.portal(order, &|value| {
+                records.data_id_by_enum(value, auberean_draw::portal::SOUND_MAPPING)
+            });
+        }
         for (object, s) in self.scene.take_sounds() {
             self.sound.effect(object, s);
         }
+        let mut muted = std::collections::BTreeSet::new();
         for e in self.sound.manager.emitters() {
             // The ambient sound's objects are no objects of the world.
             if auberean_audio::ambient::is_emitter(e) {
                 continue;
             }
-            let here = self
-                .client
-                .as_ref()
-                .and_then(|c| c.model.object(e))
-                .is_some_and(|o| o.in_world);
-            if !here {
-                self.sound.object_gone(e);
+            let object = self.client.as_ref().and_then(|c| c.model.object(e));
+            match sound::heard(object.map(|o| o.in_world), self.scene.should_mute_sound(e)) {
+                sound::Heard::Gone => self.sound.object_gone(e),
+                sound::Heard::Silent => {
+                    muted.insert(e);
+                }
+                sound::Heard::Heard => {}
             }
         }
+        self.sound.manager.set_muted(muted);
+        let rain = if in_world {
+            self.scene.rain_heard()
+        } else {
+            0.0
+        };
+        let records = &self.world.records;
+        self.sound.rain(rain, now, &self.random, &|value| {
+            records.data_id_by_enum(value, auberean_draw::rain::MAPPING)
+        });
         self.sound
             .frame(now, &self.scene.seen, in_world, self.world, &self.random);
     }

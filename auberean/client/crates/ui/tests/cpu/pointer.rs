@@ -242,3 +242,25 @@ fn a_press_taken_in_front_is_not_held_behind() {
     );
     u.pointer_release();
 }
+
+/// A turned top-level element is drawn turned, but the pointer finds it by its unturned rectangle:
+/// the interface's walks test each region's rectangle and take nothing of the turn.
+///
+/// Behaviour: ui.pointer.a-turned-element-is-found-by-its-unturned-rectangle
+#[test]
+fn a_turned_element_is_found_by_its_unturned_rectangle() {
+    let mut u = ui(vec![button()], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let b = u.create_root(l, Token::of("Button")).unwrap();
+    u.set_rotation(b, 45);
+    assert!(
+        u.pointer_move(11, 11),
+        "the rectangle's corner, off the turned picture"
+    );
+    assert_eq!(u.hit(11, 11), Some(b));
+    assert!(
+        !u.pointer_move(35, 40),
+        "below the rectangle, on the turned picture"
+    );
+    assert_eq!(u.hit(35, 40), None);
+}

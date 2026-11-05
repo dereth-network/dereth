@@ -55,6 +55,8 @@ fn use_of(item: u64, me: u64) -> Arg {
 
 fn surveying() -> CraftSkillDef {
     CraftSkillDef {
+        bonus_stat: 0,
+        common_name: (0, 0),
         did: mining::SURVEYING,
         cap: 150,
         name: (0xA860_7CEC, 0x2500_13CA),
@@ -334,6 +336,7 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
         journals: vec![(3, 0x2500_14B4), (4, 0x2500_14B4)],
         challenge: 6,
         duration: 0.0,
+        timed_phase: 0,
         retry: 0.0,
         xp: 0,
         cancellable: true,
@@ -344,6 +347,11 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
         min_level: 0,
         fails_on_death: false,
         once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
+        hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
+        required: None,
     });
     h.server.quests.steps.push(Step {
         quest,
@@ -362,6 +370,7 @@ fn a_map_found_at_its_place_moves_on_the_quest_it_is_part_of() {
         to: None,
         races: Vec::new(),
         effects_last: false,
+        wants: None,
         fellows: false,
     });
     let (b, me, world, map) = with_map(&mut h);

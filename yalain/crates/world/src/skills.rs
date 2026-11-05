@@ -13,8 +13,9 @@
 //!   no experience, and is marked trained (and the player's to untrain when the skill may be).
 //! - **A skill's rating** is its granted level, plus a tenth of its trained parents' ratings (each
 //!   at most 50), plus the level its experience reaches in its advancement table (the highest level
-//!   whose experience it has: none still reaches level 1), at most its cap (for an active skill at
-//!   most 50 as well).
+//!   whose experience it has: none still reaches level 1), at most its cap (for an active skill of
+//!   a player who is no hero, at most 50 as well: 2017, 1,268 records above 50, all of heroes, 0 of
+//!   16,397 others').
 //! - **Raising** a skill costs the experience from what it holds to its table's next level (none at
 //!   the table's top). It is refused when the skill cannot be raised, is untrained, is at its cap,
 //!   or the player's available experience is short of the cost; raised, the experience moves from
@@ -135,6 +136,8 @@ pub mod flag {
     pub const CANNOT_RAISE: u32 = 0x4;
     pub const NOT_BY_PLAYER: u32 = 0x8;
     pub const HERO: u32 = 0x10;
+    /// At no vigor a player rates nothing in it.
+    pub const NOTHING_AT_NO_VIGOR: u32 = 0x40;
 }
 
 /// A skill information's mask.
@@ -145,7 +148,7 @@ pub mod mask {
 }
 
 /// One of a used skill's hooks: what lands on the target when the skill's animation reaches it.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Hook {
     /// A hook with its own damage numbers (the static kind), else one that plays effects only.
     pub damages: bool,
@@ -165,27 +168,46 @@ pub struct Hook {
     pub target_fx: [u32; 3],
     /// The attacker's effects on a hit, a miss and a critical.
     pub attacker_fx: [u32; 3],
-    /// The damage it adds by the user's rating in the skill (the linear kind's: its first and last
-    /// points, each a rating and the damage added there); none for a hook that adds none by rating.
-    pub add_by_rating: Option<[(f32, f32); 2]>,
+    /// The damage it adds by the user's rating in the skill (the linear kind's: its points, each a
+    /// rating and the damage added there); empty for a hook that adds none by rating.
+    pub add_by_rating: Vec<(f32, f32)>,
 }
 
 impl Hook {
-    /// The damage this hook adds at a rating in its skill: the line between its points, held at
-    /// the ends; the static kind's own add for a hook without points.
+    /// The damage this hook adds at a rating in its skill: along the lines between its points, held
+    /// at the ends, rounded down; the static kind's own add for a hook without points.
     #[must_use]
     pub fn added_at(&self, rating: f32) -> f32 {
-        let Some([(r0, v0), (r1, v1)]) = self.add_by_rating else {
+        let pts = &self.add_by_rating;
+        let (Some(first), Some(last)) = (pts.first(), pts.last()) else {
             return self.add;
         };
-        if rating <= r0 {
-            return v0;
+        if rating <= first.0 {
+            return first.1.floor();
         }
-        if rating >= r1 {
-            return v1;
+        if rating >= last.0 {
+            return last.1.floor();
         }
+        let i = pts
+            .iter()
+            .position(|p| rating < p.0)
+            .unwrap_or(pts.len() - 1);
+        let ((r0, v0), (r1, v1)) = (pts[i.saturating_sub(1)], pts[i]);
         let t = (rating - r0) / (r1 - r0).max(f32::EPSILON);
-        v0 + t * (v1 - v0)
+        (v0 + t * (v1 - v0)).floor()
+    }
+
+    /// What this hook adds to its user's hit at a rating: by its points; nothing for a hook without
+    /// (2017: the plain hits of 16 skills with points above the same player's unrated basic hits
+    /// on the same target within 6 s: 168 for 158 at a rating of 30, n 149; 143 for 140 at 35, n
+    /// 117; 160 for 160 at 40, n 45).
+    #[must_use]
+    pub fn rated_add(&self, rating: f32) -> i32 {
+        if self.add_by_rating.is_empty() {
+            0
+        } else {
+            dereth_primitives::num::to_i32(self.added_at(rating))
+        }
     }
 }
 
@@ -221,8 +243,14 @@ pub struct Usage {
     pub target_effects: Vec<u32>,
     pub user_effects: Vec<u32>,
     pub required_effects: Vec<u32>,
+    /// The effects whose carrier may not use it.
+    pub barring_effects: Vec<u32>,
+    /// The skills its user must have trained to use it, each at the rating named.
+    pub use_prereqs: Vec<(u32, u32)>,
     pub hooks: Vec<Hook>,
     pub ui_flags: u32,
+    /// How much faster its definition says it goes, for the few that say.
+    pub combat_speed: Option<f32>,
     /// Its use bars it for a while after (an effect the use leaves on its user blocks the skill):
     /// a creature's special waits 40 s before it is used again.
     pub barred_after: bool,
@@ -248,7 +276,7 @@ pub struct SkillDef {
     pub prereqs: Vec<(u32, u32)>,
     /// The races it is for (0: all).
     pub species: u32,
-    /// An active skill (one used), capped at 50 for players.
+    /// An active skill (one used), capped at 50 for players who are no heroes.
     pub active: bool,
     /// One of the basic attacks a run swings (it has weights to be drawn by).
     pub auto_attack: bool,
@@ -387,6 +415,18 @@ impl SkillDef {
     }
 }
 
+/// The skills a definition names to be trained before it is used, with their ratings.
+fn use_prereqs(nav: &Nav<'_>, o: &PackedObject) -> Vec<(u32, u32)> {
+    nav.field(o, "m_UsePrereqSkills")
+        .ok()
+        .filter(|r| *r != 0 && *r != NULL)
+        .and_then(|r| nav.entries(r).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(k, v)| Some((Nav::word(k).ok()?, Nav::word(v).ok()?)))
+        .collect()
+}
+
 impl Usage {
     /// Read how a skill is used from its definition's object.
     ///
@@ -426,8 +466,11 @@ impl Usage {
             target_effects,
             user_effects,
             required_effects,
+            barring_effects: nav.states(o, "m_BarringEffects").unwrap_or_default(),
+            use_prereqs: use_prereqs(nav, o),
             hooks,
             ui_flags: word("m_uiFlags")?,
+            combat_speed: num("m_fCombatSpeedModifier").ok().filter(|m| *m != 1.0),
             barred_after: !nav
                 .states(o, "m_BarringEffects")
                 .unwrap_or_default()
@@ -470,23 +513,17 @@ impl Hook {
                 word("mAttackerFXMiss")?,
                 word("mAttackerFXCrit")?,
             ],
-            add_by_rating: {
-                let pts: Vec<(f32, f32)> = nav
-                    .list(o, "m_addDmgData")
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|d| {
-                        Some((
-                            nav.number(d, "m_level").ok()?,
-                            nav.number(d, "m_value").ok()?,
-                        ))
-                    })
-                    .collect();
-                match (pts.first(), pts.last()) {
-                    (Some(a), Some(b)) => Some([*a, *b]),
-                    _ => None,
-                }
-            },
+            add_by_rating: nav
+                .list(o, "m_addDmgData")
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|d| {
+                    Some((
+                        nav.number(d, "m_level").ok()?,
+                        nav.number(d, "m_value").ok()?,
+                    ))
+                })
+                .collect(),
         })
     }
 }
@@ -590,19 +627,66 @@ pub fn held(starting: &[(u32, u32)], kept: &[SkillState]) -> Vec<Held> {
     out
 }
 
-impl SkillTable {
-    /// A held skill's rating (see the module's rules).
+impl SkillDef {
+    /// The most a player's rating in this skill may be: its cap, and for an active skill of a player
+    /// who is no hero, at most 50.
     #[must_use]
-    pub fn rating(&self, skills: &[Held], skill: u32) -> u32 {
-        self.rating_at(skills, skill, 0)
+    pub fn cap_for(&self, hero: bool) -> u32 {
+        if self.active && !hero {
+            self.cap.min(50)
+        } else {
+            self.cap
+        }
+    }
+}
+
+impl SkillTable {
+    /// The skills a player at no vigor still rates in: those that do not say otherwise. What it
+    /// rates nothing in adds nothing to the skills it is a parent of.
+    #[must_use]
+    pub fn at_no_vigor(&self, mut skills: Vec<Held>) -> Vec<Held> {
+        skills.retain(|h| {
+            self.skills
+                .get(&h.skill)
+                .is_none_or(|d| d.flags & flag::NOTHING_AT_NO_VIGOR == 0)
+        });
+        skills
     }
 
-    fn rating_at(&self, skills: &[Held], skill: u32, depth: u32) -> u32 {
+    /// A held skill's rating (see the module's rules), for a hero or a player who is none.
+    #[must_use]
+    pub fn rating(&self, skills: &[Held], skill: u32, hero: bool) -> u32 {
+        self.rating_at(skills, skill, hero, 0, &|_, raw| raw)
+    }
+
+    /// A held skill's rating with what its holder's effects make of each skill's own (`changed`,
+    /// given a skill and its rating, [`crate::effects::skill_rating`]): its parents' count as
+    /// changed, and the skill's cap still holds (2017: one character's skill at one experience,
+    /// rated 46 under an item's 6.82 and 40 without, 21 and 15 uses).
+    #[must_use]
+    pub fn rating_with(
+        &self,
+        skills: &[Held],
+        skill: u32,
+        hero: bool,
+        changed: &dyn Fn(u32, u32) -> u32,
+    ) -> u32 {
+        self.rating_at(skills, skill, hero, 0, changed)
+    }
+
+    fn rating_at(
+        &self,
+        skills: &[Held],
+        skill: u32,
+        hero: bool,
+        depth: u32,
+        changed: &dyn Fn(u32, u32) -> u32,
+    ) -> u32 {
         let Some(h) = skills.iter().find(|h| h.skill == skill) else {
             return 0;
         };
         let Some(d) = self.skills.get(&skill) else {
-            return h.granted;
+            return changed(skill, h.granted);
         };
         let trained = |p: u32| {
             skills
@@ -613,7 +697,7 @@ impl SkillTable {
             d.parents
                 .iter()
                 .filter(|(p, _)| trained(*p))
-                .map(|(p, _)| self.rating_at(skills, *p, depth + 1).min(50))
+                .map(|(p, _)| self.rating_at(skills, *p, hero, depth + 1, changed).min(50))
                 .sum()
         } else {
             0
@@ -623,8 +707,8 @@ impl SkillTable {
             .get(&d.table)
             .map_or(0, |t| table_level(t, h.xp));
         let bonus = parents / 10;
-        let cap = if d.active { d.cap.min(50) } else { d.cap };
-        (h.granted + bonus + level).min(cap)
+        let cap = d.cap_for(hero);
+        changed(skill, (h.granted + bonus + level).min(cap)).min(cap)
     }
 
     /// Why a player may not train a skill, if it may not: a hero skill only by a hero, paid in
@@ -668,7 +752,7 @@ impl SkillTable {
         }
         if d.prereqs
             .iter()
-            .any(|(p, at)| !trained(*p) || self.rating(skills, *p) < *at)
+            .any(|(p, at)| !trained(*p) || self.rating(skills, *p, credits.hero.is_some()) < *at)
         {
             return Some(refusal::PREREQUISITE);
         }
@@ -687,7 +771,13 @@ impl SkillTable {
     ///
     /// # Errors
     /// The refusal's code.
-    pub fn raise(&self, skills: &[Held], skill: u32, available: u64) -> Result<u64, u32> {
+    pub fn raise(
+        &self,
+        skills: &[Held],
+        skill: u32,
+        available: u64,
+        hero: bool,
+    ) -> Result<u64, u32> {
         let d = self.skills.get(&skill);
         if d.is_some_and(|d| d.flags & flag::CANNOT_RAISE != 0) {
             return Err(refusal::CANNOT_RAISE);
@@ -704,8 +794,7 @@ impl SkillTable {
         let Some(d) = d else {
             return Err(refusal::CANNOT_RAISE);
         };
-        let cap = if d.active { d.cap.min(50) } else { d.cap };
-        if self.rating(skills, skill) >= cap {
+        if self.rating(skills, skill, hero) >= d.cap_for(hero) {
             return Err(refusal::CAP);
         }
         let cost = self.tables.get(&d.table).map_or(0, |t| raise_cost(t, h.xp));
@@ -1000,20 +1089,21 @@ pub fn raise<S: Store>(
     let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
     let mut skills = held(&starting, &p.play.skills);
     let available = quals::long(&p.qualities, progress::q::AVAILABLE_XP).unwrap_or(0);
-    let cost = match s.skill_table.raise(&skills, skill, available) {
+    let hero = crate::focus::is_hero(&p.qualities);
+    let cost = match s.skill_table.raise(&skills, skill, available, hero) {
         Ok(c) => c,
         Err(code) => {
             refuse(net, world, &s.skill_table, skill, code);
             return;
         }
     };
-    let before = s.skill_table.rating(&skills, skill);
+    let before = s.skill_table.rating(&skills, skill, hero);
     let Some(h) = skills.iter_mut().find(|h| h.skill == skill) else {
         return;
     };
     h.xp += cost;
     let h = *h;
-    let after = s.skill_table.rating(&skills, skill);
+    let after = s.skill_table.rating(&skills, skill, hero);
     let time = net.game_time(clock.local);
     let name = skill_name(&s.skill_table, skill);
     let Some(p) = s.players.get_mut(&world) else {

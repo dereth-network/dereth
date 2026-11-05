@@ -28,6 +28,10 @@ its account and password. The launcher keeps itself and the client up to date. D
 carries the same launcher: in it, pick Auberean's portal above the rail and download Auberean on
 Play.
 
+**In a browser.** [The web page](../dereth/web/README.md) offers Auberean's realm beside Dereth's.
+Add your data files in its Library, and play any world with a WebSocket endpoint
+([Yalain's guide](../yalain/SETUP.md#41-websocket-connections) says how to turn one on).
+
 **By hand.** The client is `auberean` beside the launcher in the release (in `Dereth.app`, in
 `Contents/MacOS`; in the AppImage, `Auberean-<version>-linux-x86_64.AppImage --appimage-extract`
 unpacks it to `squashfs-root/usr/bin`). Start a world with Yalain, then:
@@ -49,6 +53,8 @@ own options work too (`-h` and `-p` for the server, `-a` for the account, `-z` f
 | [`client/crates/scene/`](client/crates/scene/) | `auberean-scene` | the world a window shows: the player's body, the bodies around it, the chase camera, the frame |
 | [`client/crates/draw/`](client/crates/draw/) | `auberean-draw` | what a frame of the world draws, with no device |
 | [`client/crates/gpu/`](client/crates/gpu/) | `auberean-gpu` | the wgpu device that draws it |
+| [`client/crates/present/`](client/crates/present/) | `auberean-present` | a frame composed and put on a surface, a window's or a canvas's |
+| [`web/`](web/) | `auberean-web` | the client in a web browser: the module [the web page](../dereth/web/README.md) loads for a world of Asheron's Call 2's |
 | [`viewer/`](viewer/) | `auberean-viewer` | the offline world viewer: the world at a spot and time of day, to a PNG |
 | [`headless/`](headless/) | `auberean-headless` | the client with no window, on the SDK alone |
 | [`testkit/`](testkit/) | `auberean-testkit` | the behaviour registry, where the tests find their data, and a server double |

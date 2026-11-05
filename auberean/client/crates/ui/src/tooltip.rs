@@ -81,13 +81,10 @@ impl Ui {
             // Measured as it writes now (the client's error message while a table is missing).
             (Some(i), _) => Some(String::from_utf16_lossy(&self.assets().element_text(i))),
             (None, Some(t)) => Some(t.clone()),
-            (None, None) => match n.attr(attr::TOOLTIP_ENTRY) {
-                Some(crate::Value::StringToken(tok)) => {
-                    let table = self.string_table(owner);
-                    self.assets().string(table, *tok)
-                }
-                _ => None,
-            },
+            (None, None) => n.string_id_attr(attr::TOOLTIP_ENTRY).and_then(|tok| {
+                let table = self.string_table(owner);
+                self.assets().string(table, tok)
+            }),
         };
         let Some(words) = words else { return };
         let layout = self.library().get(n.refdesc).layout;
@@ -161,6 +158,12 @@ impl Ui {
     pub fn reset_tooltip(&mut self) {
         self.clear_tooltip();
         self.start_tooltip();
+    }
+
+    /// Whether tooltips show at all, as the player set it.
+    #[must_use]
+    pub const fn tooltips_show(&self) -> bool {
+        self.tips.enable
     }
 
     /// The player's tooltip settings: the delay before one shows, and whether they show (either

@@ -1064,6 +1064,25 @@ fn clothing_and_town_dropdowns_use_the_art_face_at_their_screen_places() {
 }
 
 #[test]
+fn a_refused_new_character_is_told_why_and_a_taken_name_is_named() {
+    assert_eq!(
+        creation_refusal(3, "Asheron"),
+        "The name you have chosen for your character, Asheron, is already in use by another character.  Please choose another name."
+    );
+    assert_eq!(
+        creation_refusal(4, "Asheron"),
+        "Sorry, but that name is not permitted."
+    );
+    assert_eq!(
+        creation_refusal(6, "Asheron"),
+        "The server cannot create your new character at this time. Please try again later."
+    );
+    assert_eq!(
+        creation_refusal(99, "Asheron"),
+        "The character database is unavailable."
+    );
+}
+#[test]
 #[cfg(windows)]
 fn the_trademark_sign_sits_after_the_title_not_over_it() {
     use dereth_classic_gdi::fonts::{rasterize, FontSpec};
@@ -1198,6 +1217,59 @@ fn allocated_credits_and_raw_name_edits_reach_the_real_finish_action() {
             .event(ControlEvent::Activate("create-confirmed".into()), &c)
             .is_empty());
         assert_eq!(p.status, "Enter a character name.");
+    });
+}
+
+/// Behaviour: presentation.era.unspent-skill-credits-warn-where-they-are-lost
+/// Finishing with skill credits left asks first on a world that loses them, in the words of the
+/// world's own client; answered yes, the character goes.
+#[test]
+fn finishing_with_skill_credits_left_asks_first_where_they_are_lost() {
+    context(|base| {
+        let mut view = base.pregame.clone();
+        view.connected = true;
+        view.character_set = Some(dereth_client_contract::persist::CharacterSet::default());
+        view.era_features.creation_credit_carry_over = false;
+        let c = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
+            now: dereth_primitives::LocalTime(0.0),
+            pregame: &view,
+            ..*base
+        };
+        let mut p = Pregame::new(
+            "name-summary",
+            Ok(std::rc::Rc::new(data())),
+            dereth_primitives::LocalTime(0.0),
+        );
+        p.attribute(0, 80);
+        p.state.remaining_skill_credits = 4;
+        p.event(
+            ControlEvent::Edit {
+                id: "name".into(),
+                text: "probe walker".into(),
+            },
+            &c,
+        );
+        let asked = p.event(ControlEvent::Activate("create-submit".into()), &c);
+        assert!(
+            matches!(
+                asked.as_slice(),
+                [PanelAction::Confirm { text, .. }]
+                    if text == dereth_client_contract::era::LOST_SKILL_CREDITS_WARNING
+            ),
+            "{asked:?}"
+        );
+        let sent = p.event(ControlEvent::Activate("create-skills-confirmed".into()), &c);
+        assert!(
+            matches!(
+                sent.as_slice(),
+                [PanelAction::Game(UiRequest::CharGenAction(
+                    CharGenAction::SendCharGenResult(_)
+                ))]
+            ),
+            "{sent:?}"
+        );
     });
 }
 
@@ -1932,4 +2004,43 @@ fn the_wheel_scrolls_the_hair_grid_the_help_text_and_the_colour_strips_on_the_cr
         wheel(&mut p, swatch.0, swatch.1);
         assert_eq!(p.color_scroll[1], 32);
     });
+}
+
+#[cfg(test)]
+mod character_limit_tests {
+    use super::super::presentation::{characters, first_empty_slot};
+    use super::super::*;
+
+    fn view(held: u32) -> PregameView {
+        PregameView {
+            character_set: Some(dereth_client_contract::persist::CharacterSet {
+                set: (1..=held)
+                    .map(|id| dereth_client_contract::persist::CharacterIdentity {
+                        id: ObjectId(id),
+                        name: format!("C{id}"),
+                        seconds_grace_period: 0,
+                    })
+                    .collect(),
+                num_allowed_characters: 5,
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    /// Behaviour: none (the rows the screen lays out for a world's character limit)
+    #[test]
+    fn five_allowed_characters_fill_five_rows_and_more_than_that_all_stay_listed() {
+        let few = view(2);
+        assert_eq!(characters(&few).len(), 5, "two characters and three blanks");
+        assert_eq!(first_empty_slot(&few), Some(2));
+
+        let full = view(5);
+        assert_eq!(characters(&full).len(), 5);
+        assert_eq!(first_empty_slot(&full), None, "no room for a new one");
+
+        let over = view(7);
+        assert_eq!(characters(&over).len(), 7, "every one can still be played");
+        assert_eq!(first_empty_slot(&over), None);
+    }
 }

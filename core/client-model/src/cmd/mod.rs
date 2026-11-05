@@ -19,6 +19,7 @@ pub mod report;
 pub mod table;
 pub mod tod;
 pub mod weather;
+pub mod world_commands;
 
 pub use help::HelpType;
 pub use interp::{CommandInterp, CommandOutcome, TalkFocus, NOT_A_VALID_COMMAND};

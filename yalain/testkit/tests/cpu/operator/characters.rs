@@ -75,6 +75,7 @@ fn quest() -> QuestDef {
         journals: (1..=3).map(|n| (n, 0x2500_17EE)).collect(),
         challenge: 0,
         duration: 0.0,
+        timed_phase: 0,
         retry: 0.0,
         xp: 0,
         cancellable: false,
@@ -85,6 +86,11 @@ fn quest() -> QuestDef {
         min_level: 0,
         fails_on_death: false,
         once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
+        hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
+        required: None,
     }
 }
 
@@ -161,7 +167,7 @@ fn a_character_made_with_a_build_holds_what_a_player_who_earned_it_holds() {
         let p = h.server.players.get(&w).expect("in the world");
         let starting = h.server.start.skills.get(&1).cloned().unwrap_or_default();
         let held = yalain_world::skills::held(&starting, &p.play.skills);
-        h.server.skill_table.rating(&held, SKILL)
+        h.server.skill_table.rating(&held, SKILL, false)
     };
     for f in [0x8214_0002u32].into_iter().chain([0x8214_000C; 4]) {
         h.bots[b].send(true, queue::WEENIE, &server_call(f, &[Arg::Int(SKILL)]));
@@ -244,7 +250,7 @@ fn a_character_made_with_a_build_holds_what_a_player_who_earned_it_holds() {
         p.play
             .items
             .iter()
-            .any(|i| i.template == TEST_ITEM && i.quantity == 5 && i.location == 0),
+            .any(|i| i.template == TEST_ITEM && i.quantity == 1 && i.location == 0),
         "its item in its pack: {:?}",
         p.play.items
     );
@@ -257,6 +263,37 @@ fn a_character_made_with_a_build_holds_what_a_player_who_earned_it_holds() {
 
 /// A build that does not hold (a skill its level may not train), or one for a character that has
 /// played, is refused and keeps nothing: no character made, the played one as it was.
+/// A build's count of an item that does not stack is that many items, each of one, as a player
+/// holds them; of an item that stacks, one stack of that count.
+///
+/// Behaviour: server.operator.characters-made-with-a-build
+#[test]
+fn a_build_gives_a_stack_only_of_what_stacks() {
+    const STACKS: u32 = TEST_ITEM + 1;
+    let mut h = world();
+    let mut props = yalain_content::Props::default();
+    props.set("Item_MaxStackSize", yalain_content::Prop::Int(10));
+    h.server.catalog.insert(test_template(STACKS, 0x200, props));
+    let r = Recipe {
+        items: vec![(TEST_ITEM, 2), (STACKS, 3)],
+        account: "made".into(),
+        ..recipe("Two Of Each")
+    };
+    let unix = h.unix;
+    characters::make(&mut h.server, &r, unix).expect("made");
+    let made = id_of(&mut h, "Two Of Each");
+    let (_, play) = kept(&mut h, made);
+    let of = |t: u32| -> Vec<u32> {
+        play.items
+            .iter()
+            .filter(|i| i.template == t)
+            .map(|i| i.quantity)
+            .collect()
+    };
+    assert_eq!(of(TEST_ITEM), [1, 1], "each its own item");
+    assert_eq!(of(STACKS), [3], "one stack");
+}
+
 /// Behaviour: server.operator.characters-made-with-a-build
 #[test]
 fn a_build_that_does_not_hold_or_a_played_character_is_refused_and_nothing_kept() {
@@ -344,6 +381,98 @@ fn a_deleted_character_is_booted_and_grayed_out_for_the_hour_then_gone() {
         None,
         "gone after the hour"
     );
+}
+
+/// A character file carries every number an item holds of its own, in its state: imported under a
+/// new id, the item comes back with its value, what its level gave it, its effects, its maker, its
+/// wear, its map's place, its color and its inscription. The build beside it names items by template and count only;
+/// it isn't what the import reads.
+/// Behaviour: server.operator.character-files-keep-items-own-numbers
+#[test]
+fn a_character_file_keeps_what_each_item_holds_of_its_own() {
+    let mut a = world();
+    let (_, id) = a.player_in_world("one", "Wanderer");
+    let w = world_of(&a, id);
+    let made = yalain_world::made::Made {
+        prefix: yalain_world::made::prefix(20),
+        value: 41,
+        damage: Some((110, 0.2)),
+        delay: Some(13),
+        vigor: Some(5),
+        slots: 2,
+        harmonic: true,
+        durability: Some(200),
+        ..yalain_world::made::Made::default()
+    };
+    let place = StoredPosition {
+        cell: 0x0123_0045,
+        origin: [1.0, 2.0, 3.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let sword =
+        yalain_world::inventory::give(&mut a.server, &mut a.net, w, TEST_ITEM, 1).expect("given");
+    {
+        let t = a.server.things.get_mut(sword).expect("made");
+        t.value = 41;
+        t.own.made = Some(made);
+        t.own.min_level = Some(20);
+        t.own.arcane_lore = Some(9);
+        t.own.dye = Some((0x2000_036A, 0.573));
+        t.enchantments = vec![(0x6F00_0F2B, 20.0)];
+        t.bonuses = vec![(0x6F00_0F2C, 3.0)];
+        t.crafter = Some("Wanderer".to_owned());
+        t.durability = Some(150);
+        t.destination = Some(place);
+        t.binds_on_use = true;
+        t.inscription = Some(("Sharp".to_owned(), "Wanderer".to_owned()));
+    }
+    let treasure =
+        yalain_world::inventory::give(&mut a.server, &mut a.net, w, TEST_ITEM, 1).expect("given");
+    a.server.things.get_mut(treasure).expect("made").value = 77;
+    a.run(5);
+    let file = characters::export(&mut a.server, "Wanderer").expect("exported");
+
+    let mut b = world();
+    let unix = b.unix;
+    characters::import(&mut b.server, &file, "three", None, unix).expect("imported");
+    let new = id_of(&mut b, "Wanderer");
+    let bb = b.at_character_list("three");
+    b.enter_world(bb, "three", new);
+    b.run(10);
+    let items: Vec<_> = b
+        .server
+        .players
+        .values()
+        .find(|p| p.character == new)
+        .expect("in the world")
+        .play
+        .items
+        .iter()
+        .map(|h| h.id)
+        .collect();
+    let of = |value: u32| {
+        items
+            .iter()
+            .filter_map(|i| b.server.things.get(*i))
+            .find(|t| t.value == value)
+            .unwrap_or_else(|| panic!("no item is worth {value}"))
+    };
+    let t = of(41);
+    assert_eq!(t.own.made, Some(made));
+    assert_eq!(t.own.min_level, Some(20));
+    assert_eq!(t.own.arcane_lore, Some(9));
+    assert_eq!(t.own.dye, Some((0x2000_036A, 0.573)));
+    assert_eq!(t.enchantments, vec![(0x6F00_0F2B, 20.0)]);
+    assert_eq!(t.bonuses, vec![(0x6F00_0F2C, 3.0)]);
+    assert_eq!(t.crafter.as_deref(), Some("Wanderer"));
+    assert_eq!(t.durability, Some(150));
+    assert_eq!(t.destination, Some(place));
+    assert!(t.binds_on_use);
+    assert_eq!(
+        t.inscription,
+        Some(("Sharp".to_owned(), "Wanderer".to_owned()))
+    );
+    assert_eq!(of(77).own, yalain_world::treasure::Own::default());
 }
 
 /// A character exported from one world and imported onto an account of another, under a new
@@ -576,7 +705,7 @@ fn a_build_given_to_a_played_character_raises_it_as_play_would_and_keeps_the_res
         let p = h.server.players.get(&we).expect("in the world");
         let starting = h.server.start.skills.get(&1).cloned().unwrap_or_default();
         let held = yalain_world::skills::held(&starting, &p.play.skills);
-        h.server.skill_table.rating(&held, SKILL)
+        h.server.skill_table.rating(&held, SKILL, false)
     };
     assert!(reached >= 3, "trained and raised by requests: {reached}");
     yalain_world::world::keep_player(&mut h.server, we);

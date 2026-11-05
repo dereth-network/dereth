@@ -189,6 +189,10 @@ fn the_crafting_page_goes_from_craft_skills_to_categories_to_recipes() {
         })),
         "{out:?}"
     );
+    assert!(
+        !out.contains(&Request::OpenExaminationPanel),
+        "the examination window stays as it is: {out:?}"
+    );
     assert_eq!(state(&w.ui, page), Token::of("craftskillcategoryview"));
     let head = find(&w.ui, "CraftSkillCategoryHeader");
     assert_eq!(child_text(&w.ui, head, "Name"), "Smithing");

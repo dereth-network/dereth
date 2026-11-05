@@ -209,6 +209,52 @@ pub fn hex8(v: u32) -> Vec<u16> {
     format!("{v:08X}").encode_utf16().collect()
 }
 
+/// One float as the C library's `%f` reads it from `s` at `*at`: after any white space, a sign,
+/// digits with a point among them, and an exponent if a whole one follows; `None` (`*at` where the
+/// white space ended) when there are no digits.
+pub fn scan_float(s: &[u16], at: &mut usize) -> Option<f32> {
+    let digit = |i: usize| s.get(i).is_some_and(|c| is_digit(*c));
+    let is = |i: usize, c: u8| s.get(i) == Some(&u16::from(c));
+    while s.get(*at).is_some_and(|c| is_space(*c)) {
+        *at += 1;
+    }
+    let start = *at;
+    let mut i = start;
+    if is(i, b'+') || is(i, b'-') {
+        i += 1;
+    }
+    let mut digits = 0;
+    while digit(i) {
+        i += 1;
+        digits += 1;
+    }
+    if is(i, b'.') {
+        i += 1;
+        while digit(i) {
+            i += 1;
+            digits += 1;
+        }
+    }
+    if digits == 0 {
+        return None;
+    }
+    if is(i, b'e') || is(i, b'E') {
+        let mut e = i + 1;
+        if is(e, b'+') || is(e, b'-') {
+            e += 1;
+        }
+        if digit(e) {
+            while digit(e) {
+                e += 1;
+            }
+            i = e;
+        }
+    }
+    let text = String::from_utf16_lossy(&s[start..i]);
+    *at = i;
+    text.parse().ok()
+}
+
 /// A finite number as `%.*f` writes it with `decimals` decimals: the number's first seventeen
 /// significant digits, then rounded at the last decimal kept, a following digit of 5 or more
 /// rounding up (so `6.25` writes `6.3`, and `0.05`, whose seventeen digits are `5000...3`, `0.1`).

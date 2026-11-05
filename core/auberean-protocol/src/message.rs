@@ -10,7 +10,7 @@ use crate::login::{
     CharacterCreated, CharacterDeleted, CharacterList, CharacterNames, CharacterRef,
     CharacterRefused, ChatPacket, CreateCharacter, DataHeld, DataQuery, DataRecord, DataRefused,
     DataRequest, DeleteCharacter, DownloadBegins, Empty, Notice, PlayCharacter, PlayerObject,
-    PlayerQualities, Text, Value,
+    PlayerQualities, RestoreCharacter, Text, Value,
 };
 use crate::physics::{
     Attach, ClientPosition, CreateObject, Fx, HeadDirection, Impulse, Leave, Missile, MoveOrder,
@@ -184,6 +184,7 @@ messages! {
         DataRequest(DataRequest) = 0x10034,
         DataHeld(DataHeld) = 0x10038,
         DownloadEnds(Empty) = 0x1003B,
+        RestoreCharacter(RestoreCharacter) = 0x10051,
         ServerCall(ServerCall) = 0x10053,
         Position(ClientPosition) = 0x1008E,
         ForceCreate(Target) = 0x1008F,

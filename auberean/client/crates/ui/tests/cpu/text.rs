@@ -14,7 +14,7 @@ use auberean_text::StringInfo;
 use auberean_ui::types::text::text_msg;
 use auberean_ui::{Assets, Image};
 
-use crate::fixture::{element, records, state, ui, Records, FONT, LAYOUT};
+use crate::fixture::{element, image, records, solid, state, ui, Records, FONT, LAYOUT};
 
 /// A text element `name` at `rect` with these attributes and the test font.
 fn text(name: &str, rect: [i16; 4], attrs: Vec<(&str, V)>) -> auberean_assets::ui::Element {
@@ -201,6 +201,133 @@ fn the_view_scrolls_by_page_and_to_either_end() {
     );
 }
 
+/// A tooltip's owner and template, the pointer resting on the owner since time 0.
+fn resting_on_a_tooltips_owner() -> Ui {
+    let owner = element(
+        "Owner",
+        "field",
+        [100, 100, 199, 199],
+        5,
+        vec![state(
+            "stateless",
+            0,
+            vec![
+                ("tooltips_on", V::Bool(true)),
+                ("tooltip_ID", V::Id(Token::of("Tip").0)),
+            ],
+            vec![],
+            vec![],
+        )],
+    );
+    let tip = element(
+        "Tip",
+        "field",
+        [0, 0, 57, 27],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![("tooltip_text_ID", V::Id(Token::of("TipText").0))],
+            vec![],
+            vec![text("TipText", [4, 4, 53, 23], vec![])],
+        )],
+    );
+    let mut u = ui(vec![owner, tip], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let o = u.create_root(l, Token::of("Owner")).unwrap();
+    u.set_tooltip(o, "Hello");
+    u.use_time(0.0);
+    u.pointer_move(150, 150);
+    u
+}
+
+/// A tooltip is drawn in front of everything, also of the first on the screen at its own depth.
+///
+/// Behaviour: ui.draw.of-equal-depths-the-first-on-the-screen-is-drawn-in-front
+#[test]
+fn a_tooltip_stays_in_front_of_the_first_at_its_depth() {
+    let owner = element(
+        "Owner",
+        "field",
+        [0, 0, 99, 99],
+        10,
+        vec![state(
+            "stateless",
+            0,
+            vec![
+                ("tooltips_on", V::Bool(true)),
+                ("tooltip_ID", V::Id(Token::of("Tip").0)),
+            ],
+            vec![image(1, 0)],
+            vec![],
+        )],
+    );
+    let tip = element(
+        "Tip",
+        "field",
+        [0, 0, 57, 27],
+        10,
+        vec![state(
+            "stateless",
+            0,
+            vec![("tooltip_text_ID", V::Id(Token::of("TipText").0))],
+            vec![image(2, 0)],
+            vec![text("TipText", [4, 4, 53, 23], vec![])],
+        )],
+    );
+    let mut u = ui(
+        vec![owner, tip],
+        vec![
+            (1, solid(100, 100, [0, 0, 255, 255])),
+            (2, solid(58, 28, [0, 255, 0, 255])),
+        ],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    let o = u.create_root(l, Token::of("Owner")).unwrap();
+    u.set_tooltip(o, "Hello");
+    u.use_time(0.0);
+    u.pointer_move(10, 10);
+    u.use_time(0.3);
+    let shown = u.tooltip().expect("the tooltip");
+    let at = u.screen_rect(shown).unwrap();
+    let mut screen = auberean_ui::draw::Surface::new(1024, 768);
+    auberean_ui::draw::draw(&u, &mut screen);
+    assert_eq!(screen.get(at.x0 + 1, at.y0 + 1), [0, 255, 0, 255]);
+}
+
+/// The player's tooltip delay is how long the pointer rests: lengthened, nothing shows after the
+/// quarter second; shortened to no more than the rest so far, it shows at once.
+///
+/// Behaviour: ui.tooltip.the-players-delay-and-switch-rule-tooltips
+#[test]
+fn the_players_tooltip_delay_is_how_long_the_pointer_rests() {
+    let mut u = resting_on_a_tooltips_owner();
+    u.set_tooltip_preferences(Some(2.0), None);
+    u.use_time(1.0);
+    assert!(u.tooltip().is_none(), "two seconds now, not a quarter");
+    u.set_tooltip_preferences(Some(1.5), None);
+    assert!(u.tooltip().is_none(), "rested one second of one and a half");
+    u.set_tooltip_preferences(Some(1.0), None);
+    assert!(u.tooltip().is_some(), "rested exactly as long as asked");
+}
+
+/// Switched off, no tooltip shows however long the pointer rests, and the one up goes; switched
+/// back on, the element under the pointer shows its own at once.
+///
+/// Behaviour: ui.tooltip.the-players-delay-and-switch-rule-tooltips
+#[test]
+fn the_players_tooltip_switch_turns_them_off_and_back_on() {
+    let mut u = resting_on_a_tooltips_owner();
+    u.use_time(0.3);
+    assert!(u.tooltip().is_some());
+    u.set_tooltip_preferences(None, Some(false));
+    assert!(u.tooltip().is_none(), "the one up goes");
+    u.use_time(5.0);
+    assert!(u.tooltip().is_none(), "none shows, however long");
+    u.set_tooltip_preferences(None, Some(true));
+    assert!(u.tooltip().is_some(), "back on, at once");
+}
+
 /// Once the pointer has rested a quarter of a second on an element that shows tooltips, its
 /// tooltip template comes up in front with the element's tip text, below and right of the pointer;
 /// it goes when the pointer moves to another element.
@@ -266,6 +393,73 @@ fn a_tooltip_shows_once_the_pointer_rests_and_goes_when_it_leaves() {
     );
     u.pointer_move(350, 350);
     assert!(u.tooltip().is_none(), "gone once the pointer leaves");
+
+    u.pointer_move(150, 150);
+    u.use_time(0.7);
+    assert!(u.tooltip().is_some(), "shown again");
+    u.remove(o);
+    assert!(
+        u.tooltip().is_none(),
+        "gone with its element, the pointer unmoved"
+    );
+}
+
+/// A window hidden takes the tooltip of an element in it, the pointer unmoved.
+///
+/// Behaviour: ui.tooltip.a-tooltip-goes-with-the-window-its-owner-lies-in
+#[test]
+fn a_tooltip_goes_with_the_window_its_owner_lies_in() {
+    let owner = element(
+        "Owner",
+        "field",
+        [0, 0, 99, 99],
+        5,
+        vec![state(
+            "stateless",
+            0,
+            vec![
+                ("tooltips_on", V::Bool(true)),
+                ("tooltip_ID", V::Id(Token::of("Tip").0)),
+            ],
+            vec![],
+            vec![],
+        )],
+    );
+    let window = element(
+        "Window",
+        "field",
+        [100, 100, 199, 199],
+        5,
+        vec![state("stateless", 0, vec![], vec![], vec![owner])],
+    );
+    let tip = element(
+        "Tip",
+        "field",
+        [0, 0, 57, 27],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![("tooltip_text_ID", V::Id(Token::of("TipText").0))],
+            vec![],
+            vec![text("TipText", [4, 4, 53, 23], vec![])],
+        )],
+    );
+    let mut u = ui(vec![window, tip], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let o = u
+        .child_recursive(w, Token::of("Owner"))
+        .expect("in the window");
+    u.set_tooltip(o, "Hello");
+    u.use_time(0.0);
+    u.pointer_move(150, 150);
+    u.use_time(0.3);
+    assert!(u.tooltip().is_some(), "shown while the pointer rests");
+    u.set_visible(w, false);
+    assert!(u.tooltip().is_none(), "gone with the window");
+    u.use_time(5.0);
+    assert!(u.tooltip().is_none(), "and stays gone");
 }
 
 /// The test's records with string downloads: a reference to [`LACKING`] waits until the test
@@ -538,6 +732,37 @@ fn a_character_the_font_lacks_switches_to_a_fallback_font() {
     let bare = make(&mut u, "Bare");
     u.add_string(bare, "é");
     assert_eq!(font(&u, bare), 0, "an element without a font keeps none");
+}
+
+/// An element shown with `activate_on_show` takes the keyboard, unless the use key is held: it may
+/// be what showed the element, and letting it go would press what took the keyboard.
+///
+/// Behaviour: ui.element.the-use-key-held-keeps-a-shown-element-off-the-keyboard
+#[test]
+fn the_use_key_held_keeps_a_shown_element_off_the_keyboard() {
+    use auberean_ui::types::key_id;
+    let mut u = ui(
+        vec![text(
+            "Entry",
+            [10, 20, 109, 39],
+            vec![
+                ("editable", V::Bool(true)),
+                ("activate_on_show", V::Bool(true)),
+            ],
+        )],
+        vec![],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    let entry = u.create_root(l, Token::of("Entry")).unwrap();
+    u.set_visible(entry, false);
+    u.deactivate();
+    u.key(key_id::USE, true);
+    u.set_visible(entry, true);
+    assert_eq!(u.active(), None, "held, it stays off the keyboard");
+    u.key(key_id::USE, false);
+    u.set_visible(entry, false);
+    u.set_visible(entry, true);
+    assert_eq!(u.active(), Some(entry), "let go, it takes the keyboard");
 }
 
 /// An editable entry that takes the keyboard turns the host's input method on over the part of it

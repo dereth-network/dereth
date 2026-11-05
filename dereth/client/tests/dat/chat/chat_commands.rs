@@ -2077,6 +2077,7 @@ fn the_handler_names_with_no_arm_are_exactly_these() {
         H::Clouds,
         H::Report,
         H::PerfCapture,
+        H::Sepaku,
     ];
 
     let remaining: Vec<H> = names

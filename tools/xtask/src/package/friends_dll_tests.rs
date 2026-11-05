@@ -112,15 +112,13 @@ fn a_host_that_cannot_build_the_library_is_told_to_pass_one() {
     }
 }
 
-/// Both release workflows build the library once, on Windows with its target installed, and give
-/// that same file to every system's package job, whose smoke run finds it in the package.
+/// The launcher's release workflow builds the library once, on Windows with its target installed,
+/// and gives that same file to every system's package job, whose smoke run finds it in the package.
+/// The games' packages get it with the launcher.
 #[test]
 fn the_release_workflows_build_the_library_once_and_every_package_carries_it() {
     let ws = workspace_root();
-    for (file, product) in [
-        (".github/workflows/release-dereth.yml", "dereth"),
-        (".github/workflows/release-auberean.yml", "auberean"),
-    ] {
+    for (file, product) in [(".github/workflows/release-launcher.yml", "launcher")] {
         let workflow = std::fs::read_to_string(ws.join(file)).expect(file);
         for needed in [
             "  friends-library:\n".to_owned(),

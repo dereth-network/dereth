@@ -14,7 +14,8 @@
 //! A line of sight starts in a cell and is traced through it the way the cell traces it: inside,
 //! room by room, each stopping it at the solid side of its own walls, floors and ceilings and going
 //! on through its doorways into the room beyond or out onto the land; outside, landblock by
-//! landblock across the ground, cut where it leaves each one, stopping at the edge of a landblock
+//! landblock across the land cells, cut where it leaves each one, each cell stopping it at its ground
+//! and going in through the doorways of the rooms that touch it, stopping at the edge of a landblock
 //! that is not loaded. What stands in the world stops a line unless it is a kind the line passes
 //! through, or one the line names as passed through; a line that asks for the surroundings only
 //! passes every object.
@@ -36,18 +37,21 @@ use crate::detect::{
 use crate::ethereal::SightLine;
 use crate::geom::{self, cover, BBox, Ray};
 use crate::interior::is_interior;
-use crate::land::{cell_of, land_cell_id, Land};
+use crate::land::{
+    land_cell_id, solids_hit_in_cell, Block, Land, SolidNear, CELLS_PER_SIDE, CELL_LENGTH,
+};
 use crate::solid;
 
-/// The game objects for a host that has none: no object is of a kind a detection reports, and
-/// nothing is noted of any (an object's own note starts its sighting over with its own id, which
-/// the sighting already has).
+/// The game objects for a host that has none: an object with no game object is of every kind a
+/// detection reports, and nothing is noted of any (an object's own note starts its sighting over
+/// with its own id, which the sighting already has).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoGameObjects;
 
 impl GameObjects for NoGameObjects {
+    // D2-06131
     fn matches(&self, _object: u64, _report: &ReportType) -> bool {
-        false
+        true
     }
     // D2-08064
     fn note(&self, _object: u64, _sighting: &mut Sighting) {}
@@ -108,7 +112,7 @@ fn narrow(v: f64) -> f32 {
 
 /// Whether cell `cell` is loaded: its landblock for a land cell, the cell itself for an interior
 /// one.
-fn cell_loaded(land: &Land, cell: CellId) -> bool {
+pub(super) fn cell_loaded(land: &Land, cell: CellId) -> bool {
     if cell.0 == 0 {
         return false;
     }
@@ -123,27 +127,6 @@ fn cell_loaded(land: &Land, cell: CellId) -> bool {
 fn block_loaded(land: &Land, block: u32) -> bool {
     let lb = CellId(block).landblock();
     land.block(lb.x(), lb.y()).is_some() || !land.interior_cells_of(block & 0xFFFF_0000).is_empty()
-}
-
-/// The land cell of landblock `block` a point of its frame falls in, the point first brought
-/// inside the landblock.
-fn land_cell_at(block: u32, p: Vec3) -> u32 {
-    let mut v = p;
-    cells::move_into_block(&mut v);
-    let lb = CellId(block).landblock();
-    cell_of(v).map_or(0, |(cx, cy)| land_cell_id(lb.x(), lb.y(), cx, cy).0)
-}
-
-/// How far along the line from `from` to `to` point `p` lies, as a fraction.
-fn fraction(from: Vec3, to: Vec3, p: Vec3) -> f32 {
-    let d = Vec3::new(to.x - from.x, to.y - from.y, to.z - from.z);
-    let len = (d.x * d.x + d.y * d.y + d.z * d.z).sqrt();
-    if len > 0.0 {
-        let q = Vec3::new(p.x - from.x, p.y - from.y, p.z - from.z);
-        (q.x * q.x + q.y * q.y + q.z * q.z).sqrt() / len
-    } else {
-        0.0
-    }
 }
 
 fn end_of(r: &Ray) -> Vec3 {
@@ -161,9 +144,6 @@ fn find_interior_cell(land: &Land, block: u32, p: Vec3) -> Option<u32> {
         .into_iter()
         .find(|id| {
             land.cell(*id).is_some_and(|g| {
-                if g.portals.is_empty() {
-                    return false;
-                }
                 let local = dereth_physics::math::globaltolocal(&g.frame, p);
                 g.cell_bsp
                     .as_ref()
@@ -283,7 +263,7 @@ impl World {
 
     /// Entry `key` now stands in `cell` (0: none): out of the cell it stood in when that is
     /// another, into the new one.
-    // D2-05970, D2-05971
+    // D2-05970, D2-05971, D2-05968
     pub(super) fn refile(&mut self, key: BodyKey, cell: CellId) {
         let old = self.watching.cell_of.get(&key).copied();
         if old == Some(cell.0) {
@@ -384,6 +364,12 @@ impl World {
                 status: change,
             },
         ));
+    }
+
+    /// A cell let go of forgets who watched it.
+    // D2-03854, D2-03514
+    pub fn release_cell_watchers(&mut self, cell: CellId) {
+        self.watching.watchers.remove(&cell.0);
     }
 
     /// Body `watcher` watches `cell` for objects of the kinds `report` names: a watch it already
@@ -685,9 +671,25 @@ impl World {
         traced.then_some(place)
     }
 
+    /// The objects standing in cell `cell` (whose own cell it is), only those that move when
+    /// `moving`.
+    // D2-03889, D2-06100
+    #[must_use]
+    pub fn cell_objects(&self, cell: CellId, moving: bool) -> Vec<u64> {
+        self.watching
+            .objects
+            .get(&cell.0)
+            .into_iter()
+            .flatten()
+            .filter_map(|k| self.entries.get(k).map(|e| (*k, e)))
+            .filter(|(_, e)| !moving || !e.is_static)
+            .map(|(k, _)| self.object_id(k))
+            .collect()
+    }
+
     /// Traces line of sight `los` from its first cell through the surroundings and what stands in
     /// them. False, the line untouched, when it has no first cell or that cell is not loaded.
-    // D2-03851
+    // D2-03851, D2-05961
     pub fn los_check(&self, land: &Land, los: &mut SightLine) -> bool {
         let cell = CellId(los.initial_cell);
         if cell.0 == 0 {
@@ -700,73 +702,55 @@ impl World {
         if is_interior(cell) {
             self.trace_inside(land, cell, None, los, &mut Vec::new());
         } else {
-            self.trace_outside(land, cell, los);
+            self.trace_outside(land, cell, los, &mut Vec::new());
         }
         true
     }
 
     /// How far along the line from `from` to `to` (in the landblock frame of `cell`) entry `key`
-    /// first meets it, as a fraction: a solid part placed in an interior cell by the polygons of
-    /// its trees at its whole scale, anything else by its shape ([`crate::object::Shape::check_ray`]).
-    fn entry_hit(&self, key: BodyKey, cell: CellId, from: Vec3, to: Vec3) -> Option<f32> {
+    /// first meets it, as a fraction, and what the line meets facing: a solid part placed in an
+    /// interior cell by the polygons of its trees at its whole scale, anything else by its shape
+    /// ([`crate::object::Shape::check_ray`]).
+    fn entry_met(&self, key: BodyKey, cell: CellId, from: Vec3, to: Vec3) -> Option<(f32, Vec3)> {
         let e = self.entries.get(&key)?;
         let o = self.objects.get(e.handle)?;
         let shift = geom::block_offset(cell, o.position.cell);
         let a = Vec3::new(from.x - shift.x, from.y - shift.y, from.z - shift.z);
         let b = Vec3::new(to.x - shift.x, to.y - shift.y, to.z - shift.z);
+        let frame = &o.position.frame;
         if e.id == 0 && e.shape.has_physics_tree() {
-            e.shape.check_trees(&o.position.frame, e.tree_scale, a, b)
+            e.shape.check_trees_facing(frame, e.tree_scale, a, b)
         } else {
-            e.shape.check_ray(&o.position.frame, a, b)
+            e.shape.check_ray_facing(frame, a, b)
         }
     }
 
     /// How far along the line from `from` to `to` (in the landblock frame of `cell`) what stands
-    /// in `cell` first meets it, as a fraction: the objects whose own cell it is and those that
-    /// reach into it, each that blocks `los`.
-    // D2-03863
-    fn cell_objects_hit(&self, cell: CellId, from: Vec3, to: Vec3, los: &SightLine) -> Option<f32> {
+    /// in `cell` first meets it, as a fraction, and what the line meets facing: the objects whose own
+    /// cell it is and those that reach into it, each that blocks `los`.
+    // D2-03863, D2-06132
+    fn cell_objects_met(
+        &self,
+        cell: CellId,
+        from: Vec3,
+        to: Vec3,
+        los: &SightLine,
+    ) -> Option<(f32, Vec3)> {
         let own = self.watching.objects.get(&cell.0).into_iter().flatten();
         let reaching = self
-            .entries
-            .iter()
-            .filter(|(_, e)| e.cells.contains(&cell))
-            .map(|(k, _)| k);
-        let mut best: Option<f32> = None;
-        for key in own.chain(reaching) {
-            if !self.is_los_blocking(*key, los) {
+            .cells
+            .get(&cell.0)
+            .into_iter()
+            .flat_map(|c| c.shadow_object_list.iter())
+            .filter_map(|&h| self.key_of(h));
+        let mut best: Option<(f32, Vec3)> = None;
+        for key in own.copied().chain(reaching) {
+            if !self.is_los_blocking(key, los) {
                 continue;
             }
-            if let Some(t) = self.entry_hit(*key, cell, from, to) {
-                if best.is_none_or(|x| t < x) {
-                    best = Some(t);
-                }
-            }
-        }
-        best
-    }
-
-    /// How far along the line from `from` to `to` (in the landblock frame of `cell`) the objects
-    /// of the table that block `los` first meet it, as a fraction. The solid parts placed in the
-    /// interior cells are left to the cells' own traces.
-    fn objects_hit(&self, cell: CellId, from: Vec3, to: Vec3, los: &SightLine) -> Option<f32> {
-        let mut best: Option<f32> = None;
-        for (key, e) in &self.entries {
-            if e.id == 0 && e.shape.has_physics_tree() {
-                continue;
-            }
-            if !self.is_los_blocking(*key, los) {
-                continue;
-            }
-            let Some(o) = self.objects.get(e.handle) else {
-                continue;
-            };
-            let shift = geom::block_offset(cell, o.position.cell);
-            let a = Vec3::new(from.x - shift.x, from.y - shift.y, from.z - shift.z);
-            let b = Vec3::new(to.x - shift.x, to.y - shift.y, to.z - shift.z);
-            if let Some(t) = e.shape.check_ray(&o.position.frame, a, b) {
-                if best.is_none_or(|x| t < x) {
-                    best = Some(t);
+            if let Some(hit) = self.entry_met(key, cell, from, to) {
+                if best.is_none_or(|(x, _)| hit.0 < x) {
+                    best = Some(hit);
                 }
             }
         }
@@ -861,9 +845,9 @@ impl World {
                 }
             }
             if los.intersect == PHYSICS_SHAPES {
-                if let Some(t) = self
-                    .cell_objects_hit(cell, start, end, los)
-                    .filter(|t| *t < los.delta)
+                if let Some((t, _)) = self
+                    .cell_objects_met(cell, start, end, los)
+                    .filter(|(t, _)| *t < los.delta)
                 {
                     los.delta = t;
                     best = t;
@@ -912,7 +896,7 @@ impl World {
                     } else {
                         let (mut c, mut over) = (cell, at);
                         if adjust_to_outside(&mut c, &mut over) && cell_loaded(land, c) {
-                            return self.trace_outside(land, c, los);
+                            return self.trace_outside(land, c, los, tracing);
                         }
                     }
                 }
@@ -937,72 +921,164 @@ impl World {
         1
     }
 
-    /// How far along the line from `from` to `to` (in landblock `block`'s frame) the ground first
-    /// meets it and, unless the line traces the surroundings only, the solid parts placed outside
-    /// (as the kind of object the client makes of them) and the objects of the table.
-    fn first_hit_outside(
+    /// Landblock `block`'s own trace of the line's current ray: each land cell in the box around the
+    /// ray traces it in turn, x major. Stopped, the line ends where the last stop left it, reported
+    /// in the last land cell of the box; else it ends in the cell the last room left it in, or else
+    /// the land cell its end falls in, clear. The trace's result: 1 when stopped.
+    // D2-03647
+    fn trace_block(
         &self,
         land: &Land,
         block: u32,
-        from: Vec3,
-        to: Vec3,
-        los: &SightLine,
-    ) -> Option<f32> {
-        let lb = CellId(block).landblock();
-        let mut best: Option<f32> = None;
-        let mut take = |t: Option<f32>| {
-            if let Some(t) = t {
-                if best.is_none_or(|b| t < b) {
-                    best = Some(t);
-                }
-            }
-        };
-        take(
-            land.trace(lb, from, to, false)
-                .map(|(p, _)| fraction(from, to, p)),
-        );
-        if los.intersect != ENVIRONMENT_ONLY {
-            if solid::is_blocking(self.bit(STATIC_ETHEREAL), 0, &los.objects, &los.physics) {
-                take(
-                    land.trace(lb, from, to, true)
-                        .map(|(p, _)| fraction(from, to, p)),
-                );
-            }
-            take(self.objects_hit(CellId(block), from, to, los));
-        }
-        best
-    }
-
-    /// The line's current ray traced through landblock `block`: stopped, it ends in the land cell
-    /// where it was stopped; else it ends in the land cell its end falls in. The trace's result.
-    fn trace_block(&self, land: &Land, block: u32, los: &mut SightLine) -> u32 {
+        los: &mut SightLine,
+        tracing: &mut Vec<u32>,
+    ) -> u32 {
         let r = los.current_ray;
         let (from, to) = (r.point, end_of(&r));
+        let lb = CellId(block).landblock();
         los.final_cell = 0;
-        if let Some(t) = self
-            .first_hit_outside(land, block, from, to, los)
-            .filter(|t| *t < los.delta)
-        {
-            los.delta = t;
-            let hit = Vec3::new(
-                from.x + (to.x - from.x) * t,
-                from.y + (to.y - from.y) * t,
-                from.z + (to.z - from.z) * t,
-            );
-            los.final_cell = land_cell_at(block, hit);
-            los.trace_result = 1;
+        let mut stopped = false;
+        if let Some(b) = land.block(lb.x(), lb.y()) {
+            let last = i32::try_from(CELLS_PER_SIDE - 1).unwrap_or(0);
+            let line = |v: f32| dereth_primitives::num::floor_to_i32(v / CELL_LENGTH);
+            let range = |p: f32, q: f32| {
+                let (lo, hi) = (line(p).min(line(q)), line(p).max(line(q)));
+                (lo.clamp(0, last), hi.clamp(0, last))
+            };
+            let (x0, x1) = range(from.x, to.x);
+            let (y0, y1) = range(from.y, to.y);
+            let solids = self.solids_near(land, lb, from, to, los);
+            for cx in x0..=x1 {
+                for cy in y0..=y1 {
+                    let at = (cx.unsigned_abs() as usize, cy.unsigned_abs() as usize);
+                    if self.trace_land_cell(land, &b, at, &solids, los, tracing) == 1 {
+                        stopped = true;
+                    }
+                }
+            }
+        }
+        if stopped {
             los.calc_final_ray();
             return 1;
         }
-        let (mut c, mut end) = (CellId(block), to);
-        los.final_cell = if adjust_to_outside(&mut c, &mut end) {
-            c.0
-        } else {
-            0
-        };
+        if los.final_cell == 0 {
+            let (mut c, mut end) = (CellId(block), end_of(&los.current_ray));
+            los.final_cell = if adjust_to_outside(&mut c, &mut end) {
+                c.0
+            } else {
+                0
+            };
+        }
         los.trace_result = 0;
         los.calc_final_ray();
         0
+    }
+
+    /// The solid parts placed outside near the line from `from` to `to`, unless the line passes
+    /// through them or traces the surroundings only.
+    fn solids_near(
+        &self,
+        land: &Land,
+        block: dereth_primitives::LandblockId,
+        from: Vec3,
+        to: Vec3,
+        los: &SightLine,
+    ) -> Vec<SolidNear> {
+        if los.intersect != ENVIRONMENT_ONLY
+            && solid::is_blocking(self.bit(STATIC_ETHEREAL), 0, &los.objects, &los.physics)
+        {
+            land.solids_near(block, from, to)
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// Land cell `(cx, cy)` of block `b`'s own trace of the line, the trace's result. Its ground and
+    /// what stands in it stop the current ray where they meet it first. Then each room that touches
+    /// the cell is asked, along the line as far as it now goes: every doorway out of the room the
+    /// line crosses, ahead of its start, starts the current ray again from there, whole, and the room
+    /// traces it from that doorway. Rooms already being traced answer clear.
+    // D2-03836
+    fn trace_land_cell(
+        &self,
+        land: &Land,
+        b: &Block,
+        (cx, cy): (usize, usize),
+        solids: &[SolidNear],
+        los: &mut SightLine,
+        tracing: &mut Vec<u32>,
+    ) -> u32 {
+        let id = land_cell_id(b.x, b.y, cx, cy);
+        los.current_cell = id.0;
+        let mut result = 0;
+        let mut best = los.delta;
+        let ray = los.current_ray;
+        for poly in b.cell_triangles(cx, cy) {
+            if let Some(t) = geom::polygon_trace_ray(&poly, &ray).filter(|t| *t < best) {
+                best = t;
+                los.delta = t;
+                los.trace_result = 1;
+                los.impact_normal = poly.plane.normal;
+                result = 1;
+            }
+        }
+        // A line that traces doorways asks what stands here, and nothing answers it.
+        if los.intersect == PHYSICS_SHAPES || los.intersect == DRAWN_SURFACES {
+            let (from, to) = (ray.point, end_of(&ray));
+            let mut met = self.cell_objects_met(id, from, to, los);
+            for (t, n) in solids_hit_in_cell(solids, (cx, cy), from, to) {
+                if met.is_none_or(|(m, _)| t < m) {
+                    met = Some((t, n));
+                }
+            }
+            if let Some((t, n)) = met.filter(|(t, _)| *t < los.delta) {
+                los.delta = t;
+                los.impact_normal = n;
+                los.final_cell = id.0;
+                los.trace_result = 1;
+                result = 1;
+            }
+        }
+        let (start, end) = if los.trace_result == 0 {
+            (ray.point, end_of(&ray))
+        } else {
+            los.final_cell = id.0;
+            los.calc_final_ray();
+            (los.final_ray.point, end_of(&los.final_ray))
+        };
+        for room in land.touching_cells(id) {
+            let Some(g) = land.cell(room) else {
+                continue;
+            };
+            let (a, c) = (
+                geom::point_to_local(&g.frame, start),
+                geom::point_to_local(&g.frame, end),
+            );
+            let local = Ray::from_offset(a, Vec3::new(c.x - a.x, c.y - a.y, c.z - a.z));
+            for (i, p) in g.portals.iter().enumerate() {
+                if p.other_cell_id != cells::OUTDOORS {
+                    continue;
+                }
+                let Some(t) = geom::polygon_trace_ray(&p.portal, &local).filter(|t| *t > 0.0)
+                else {
+                    continue;
+                };
+                let at = Vec3::new(
+                    start.x + (end.x - start.x) * t,
+                    start.y + (end.y - start.y) * t,
+                    start.z + (end.z - start.z) * t,
+                );
+                let left = Vec3::new(end.x - at.x, end.y - at.y, end.z - at.z);
+                los.current_ray = Ray::from_offset(at, left);
+                los.delta = 1.0;
+                let r = self.trace_inside(land, room, Some(i), los, tracing);
+                if r != 0 {
+                    los.trace_result = r;
+                    result = r;
+                }
+            }
+        }
+        result
     }
 
     /// Land cell `this`'s own trace of the line, the trace's result. The line's start is first
@@ -1016,7 +1092,13 @@ impl World {
     /// starts over (clear, untouched, after that); 2, the line ending in its first cell, when there
     /// is nothing loaded to trace it in.
     // D2-03840, D2-03692
-    fn trace_outside(&self, land: &Land, this: CellId, los: &mut SightLine) -> u32 {
+    fn trace_outside(
+        &self,
+        land: &Land,
+        this: CellId,
+        los: &mut SightLine,
+        tracing: &mut Vec<u32>,
+    ) -> u32 {
         if los.checked_outside {
             return 0;
         }
@@ -1036,7 +1118,16 @@ impl World {
             if !cell_loaded(land, id) {
                 return 2;
             }
-            los.trace_result = self.trace_block(land, id.0 | BLOCK_CELL, los);
+            let lb = id.landblock();
+            los.trace_result = match land.block(lb.x(), lb.y()) {
+                Some(b) => {
+                    let k = usize::from(id.index()).saturating_sub(1);
+                    let place = (k / CELLS_PER_SIDE, k % CELLS_PER_SIDE);
+                    let solids = self.solids_near(land, lb, cur.point, end_of(&cur), los);
+                    self.trace_land_cell(land, &b, place, &solids, los, tracing)
+                }
+                None => 0,
+            };
             los.final_cell = id.0;
             los.calc_final_ray();
             return los.trace_result;
@@ -1053,13 +1144,13 @@ impl World {
             if !cells::block_ray_clip(&mut rest, &mut piece, &mut dir) {
                 los.current_ray = rest;
                 los.delta = 1.0;
-                los.trace_result = self.trace_block(land, block, los);
+                los.trace_result = self.trace_block(land, block, los, tracing);
                 return los.trace_result;
             }
             let next = cells::block_beside(block, dir);
             los.current_ray = piece;
             los.delta = 1.0;
-            let r = self.trace_block(land, block, los);
+            let r = self.trace_block(land, block, los, tracing);
             if r != 0 {
                 los.trace_result = r;
                 return r;

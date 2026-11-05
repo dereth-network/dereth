@@ -401,6 +401,12 @@ impl Vm {
         }
     }
 
+    /// Every process's place in the table, in order; an empty place is a process that ended.
+    #[must_use]
+    pub fn process_slots(&self) -> &[Option<Process>] {
+        &self.processes
+    }
+
     /// A process by id.
     #[must_use]
     // D2-16423

@@ -96,7 +96,6 @@ jobs:
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest }
           - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm }
           - { target: aarch64-apple-darwin, os: macos-latest }
-          - { target: x86_64-apple-darwin, os: macos-latest }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     defaults:
@@ -146,13 +145,6 @@ jobs:
             *-linux-gnu)
               images="almalinux:8 ubuntu:24.04"
               run() { docker run --rm -v "$PWD/$dir:/pkg" -w /pkg "$image" "${@/#$dir//pkg}"; } ;;
-            x86_64-apple-darwin)
-              if arch -x86_64 /usr/bin/true 2> /dev/null; then
-                run() { arch -x86_64 "$@"; }
-              else
-                echo "::notice::no Rosetta on this runner: $TARGET is checked by its headers only"
-                exit 0
-              fi ;;
           esac
           exe=""; case "$TARGET" in *windows*) exe=".exe" ;; esac
           smoke() {
@@ -247,7 +239,7 @@ jobs:
 
           ## Downloads
 
-          Yalain $VERSION, the Asheron's Call 2 server, for Windows, Linux (glibc 2.28 or newer, x86-64 and arm64) and macOS (11 or newer, Apple silicon and Intel).
+          Yalain $VERSION, the Asheron's Call 2 server, for Windows, Linux (glibc 2.28 or newer, x86-64 and arm64) and macOS (11 or newer, Apple silicon).
 
           **No game data is included**: the server reads the data files of your own Asheron's Call 2 install, and \`yalain world fetch\` downloads the world database it is built for. README.md in each archive says how to run it. The Dereth Network launcher downloads and runs it for you.
 
@@ -269,7 +261,6 @@ jobs:
                   x86_64-unknown-linux-gnu.tar.gz) label="Yalain server · Linux x86-64 (glibc 2.28+)" ;;
                   aarch64-unknown-linux-gnu.tar.gz) label="Yalain server · Linux arm64 (glibc 2.28+)" ;;
                   aarch64-apple-darwin.tar.gz) label="Yalain server · macOS Apple silicon" ;;
-                  x86_64-apple-darwin.tar.gz) label="Yalain server · macOS Intel" ;;
                 esac ;;
             esac
             if [ -n "$label" ]; then

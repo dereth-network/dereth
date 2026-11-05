@@ -224,8 +224,13 @@ fn open(install: &Path) -> Result<WorldRecords, String> {
     let portal = take(&DatName::Portal).ok_or("no portal file")?;
     let cell = take(&DatName::Cell(1)).ok_or("no cell file")?;
     let highres = take(&DatName::HighRes);
+    let language = take(&DatName::Local("English".to_owned()));
     let ctx = Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
-    Ok(WorldRecords::new(portal, cell, highres, ctx))
+    let records = WorldRecords::new(portal, cell, highres, ctx);
+    if let Some(file) = language {
+        records.use_language_file(file);
+    }
+    Ok(records)
 }
 
 /// The volumes of shadow the objects the world places cast in `frame` (those its builder marked

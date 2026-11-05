@@ -215,3 +215,30 @@ fn the_sun_lights_the_vertices_its_directions_list() {
     let dark = l.cell_vertices(cell, &Mat4::IDENTITY, &vertices, &[], &night, 4);
     assert_eq!(dark[first as usize].color, [0.0; 3]);
 }
+
+/// No interior cell of the data holds a light of its own as an entity: every entity placed in a
+/// cell is an object, so a cell's lights are all its block's light record's, and no cell has a
+/// corona to draw.
+///
+/// Behaviour: world.inside.no-cell-holds-a-light-of-its-own
+#[test]
+fn no_cell_holds_a_light_entity() {
+    let w = need_world!();
+    let r = &w.records;
+    let mut entities = 0usize;
+    for (x, y) in r.landblock_coordinates() {
+        let Some(info) = r.landblock_info(x, y) else {
+            continue;
+        };
+        for k in 0..info.cell_count {
+            let Some(c) = u16::try_from(k).ok().and_then(|k| r.cell(x, y, 0x100 + k)) else {
+                continue;
+            };
+            for e in c.entities.iter().flat_map(|g| g.entities.iter()) {
+                entities += 1;
+                assert_eq!(e.kind, Some(0x4000_0001), "block {x:x}{y:x} cell {k:#x}");
+            }
+        }
+    }
+    assert!(entities > 100_000, "{entities} entities");
+}

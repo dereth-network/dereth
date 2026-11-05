@@ -27,6 +27,7 @@ pub fn same_frame(a: &Frame, b: &Frame) -> bool {
 /// A value that varies over time: a shape (`kind`), and a base, amplitude, phase, frequency and
 /// roughness, each with the rate it changes at.
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
+// D2-03485
 pub struct Waveform {
     /// The shape: 1 none, 2 speed, 3 noise, 4 sine, 5 square, 6 bounce, 7 Perlin, 8 fractal,
     /// 9 frame loop.
@@ -57,8 +58,32 @@ const WAVEFORM_NAMES: [&str; 9] = [
 ];
 
 impl Waveform {
+    /// A steady value: no shape, base `base`, amplitude 1, frequency 1, every rate 0.
+    // D2-13340
+    #[must_use]
+    pub fn steady(base: f32) -> Self {
+        Self {
+            base,
+            ..Self::defaults()
+        }
+    }
+
+    /// A shape of its parts, no roughness and every rate 0.
+    // D2-13341
+    #[must_use]
+    pub fn shaped(kind: u32, base: f32, amplitude: f32, phase: f32, frequency: f32) -> Self {
+        Self {
+            kind,
+            base,
+            amplitude,
+            phase,
+            frequency,
+            ..Self::default()
+        }
+    }
+
     /// A new waveform: no shape, base 0, amplitude 1, frequency 1, every rate 0.
-    // D2-13335
+    // D2-13335, D2-13339
     #[must_use]
     pub fn defaults() -> Self {
         Self {

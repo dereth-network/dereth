@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 
 use athenaeum_foundry::edit::{NewKind, NewRow};
 use athenaeum_foundry::{build, new, world, Layer, Session};
-use auberean_dat::testing::{require_install, TARGET};
+use auberean_dat::locate::{install_dats, DatName};
+use auberean_dat::testing::{open_wrong_once, require_install, TARGET};
 use yalain_content::{ContentObject, Kind};
 use yalain_world_db::compile::{outdoor_cell, Tables};
 use yalain_world_db::release::{cache_dir_for, Host, PINNED_TAG};
@@ -120,4 +121,20 @@ fn a_person_placed_and_one_moved_in_a_world_are_where_the_server_puts_them() {
     assert_eq!(t.content.objects.len(), plain.content.objects.len() + 1);
     assert!(base_objects > 0);
     std::fs::remove_dir_all(&root).ok();
+}
+
+/// A script library read wrong once, over a file that did not change, is read again and a compile
+/// reads the install with it.
+/// Behaviour: data.read.script-library-reads-are-checked
+#[test]
+fn a_script_library_read_wrong_once_is_read_again_for_a_compile() {
+    let dir = require_install(TARGET);
+    let found = install_dats(&dir).expect("the install");
+    let (_, p) = found
+        .iter()
+        .find(|(n, _)| *n == DatName::Portal)
+        .expect("a portal file");
+    let portal = open_wrong_once(p, auberean_script::library::RECORD);
+    let files = build::InstallFiles::of(portal, None).expect("the install");
+    files.install().expect("the second read decodes");
 }

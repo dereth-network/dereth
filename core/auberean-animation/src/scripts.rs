@@ -79,6 +79,7 @@ impl ScriptTrack {
     }
 
     /// Whether it has reached its end: its weight is zero or less.
+    // D2-14951
     #[must_use]
     pub fn is_ramping_down(&self) -> bool {
         self.weight <= 0.0

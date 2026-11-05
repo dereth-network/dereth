@@ -74,8 +74,8 @@ fn a_swung_streak_leaves_a_ribbon_of_light() {
         far: 100.0,
         orthographic: None,
     };
-    let with = builder.parts_frame(&[], lit, camera, light);
-    let without = builder.parts_frame(&[], Vec::new(), camera, light);
+    let with = builder.parts_frame(&[], lit, camera, light, None);
+    let without = builder.parts_frame(&[], Vec::new(), camera, light, None);
     let mut device = renderer();
     let mut load = |id: u32| auberean_draw::picture::load(r, id);
     let [a, b] = checked(&mut device, |d| {

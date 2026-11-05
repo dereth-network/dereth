@@ -2,8 +2,8 @@
 //! folder, removed at the end.
 
 use yalain_store::{
-    backups, Ban, Character, Listed, MemoryStore, NetworkList, SqliteStore, Store, StoredPosition,
-    WorldState, KEEP_BACKUPS, SCHEMA_VERSION,
+    backups, restore, snapshot, Ban, Character, Listed, MemoryStore, NetworkList, SqliteStore,
+    Store, StoredPosition, WorldState, KEEP_BACKUPS, SCHEMA_VERSION,
 };
 
 fn character(id: u64, account: u64, name: &str) -> Character {
@@ -354,6 +354,70 @@ fn an_earlier_database_gains_the_friends_lists_and_keeps_them() {
     );
 }
 
+/// A rename changes every character's lists that hold the character, in any case, and no other: not
+/// another world's character of that name, nor a list that holds the new name already but for
+/// holding it once. Run on each store, and the file's survives reopening it.
+fn a_rename_reaches_the_lists(s: &mut impl Store) {
+    const OTHER: u64 = 8;
+    let listed = |character, list, entry: &str| Listed {
+        character,
+        list,
+        entry: entry.to_owned(),
+    };
+    s.insert_character(&character(7, 1, "Elara")).expect("made");
+    s.insert_character(&character(OTHER, 1, "Cara"))
+        .expect("made");
+    for (who, list, entry) in [
+        (OTHER, NetworkList::Friends, "elara"),
+        (OTHER, NetworkList::Ignored, "Elara"),
+        (OTHER, NetworkList::Ignored, "Renamed"),
+        (OTHER, NetworkList::Friends, "Elara@coldeve"),
+        (OTHER, NetworkList::Friends, "Elaran"),
+        (7, NetworkList::Friends, "Cara"),
+    ] {
+        s.set_listed(who, list, entry, true).expect("kept");
+    }
+    s.rename_character(7, "Renamed").expect("renamed");
+    assert_eq!(
+        s.network_lists().expect("reads"),
+        vec![
+            listed(7, NetworkList::Friends, "Cara"),
+            listed(OTHER, NetworkList::Friends, "Elara@coldeve"),
+            listed(OTHER, NetworkList::Friends, "Elaran"),
+            listed(OTHER, NetworkList::Friends, "Renamed"),
+            listed(OTHER, NetworkList::Ignored, "Renamed"),
+        ]
+    );
+    assert!(s.rename_character(99, "Nobody").is_err(), "no character");
+    assert_eq!(s.network_lists().expect("reads").len(), 5, "nothing else");
+}
+
+/// Behaviour: server.friends.lists-follow-a-rename
+#[test]
+fn a_rename_changes_the_name_in_every_characters_lists_on_the_memory_store() {
+    a_rename_reaches_the_lists(&mut MemoryStore::default());
+}
+
+/// Behaviour: server.friends.lists-follow-a-rename
+#[test]
+fn a_rename_changes_the_name_in_every_characters_lists_in_the_file() {
+    let file = TempFile(std::env::temp_dir().join(format!(
+        "yalain-store-test-rename-{}.sqlite",
+        std::process::id()
+    )));
+    let _ = std::fs::remove_file(&file.0);
+    {
+        let mut s = SqliteStore::open(&file.0).expect("opens");
+        s.create_account("Tester", Some(vec![1, 2, 3]), 100)
+            .expect("made");
+        a_rename_reaches_the_lists(&mut s);
+    }
+    let mut s = SqliteStore::open(&file.0).expect("opens again");
+    let lists = s.network_lists().expect("reads");
+    assert_eq!(lists.len(), 5);
+    assert!(lists.iter().all(|l| l.entry != "Elara"), "{lists:?}");
+}
+
 /// Behaviour: server.friends.lists-kept
 #[test]
 fn the_memory_store_keeps_the_friends_lists_alike() {
@@ -627,6 +691,52 @@ fn only_the_newest_three_backups_of_a_database_are_kept() {
     );
 }
 
+/// The backup before an update: a sibling of the file named for the update, whatever the file's
+/// schema, the newest three kept; putting it back removes what the file became, its write-ahead log
+/// with it; and a file that is not there has no backup.
+/// Behaviour: server.update.database-backup-and-restore
+#[test]
+fn an_updates_backup_is_named_for_it_and_puts_the_database_back() {
+    let file = temp("update-backup");
+    drop(SqliteStore::open(&file.0).expect("opens"));
+    let backup = snapshot(&file.0, "update-v0.1.0-v0.2.0").expect("backed up");
+    let name = backup
+        .file_name()
+        .expect("a name")
+        .to_string_lossy()
+        .into_owned();
+    assert!(
+        name.contains(".sqlite.backup-update-v0.1.0-v0.2.0-"),
+        "{name}"
+    );
+    assert_eq!(backups(&file.0), std::slice::from_ref(&backup));
+    assert_eq!(holds(&backup).0, SCHEMA_VERSION);
+
+    rusqlite::Connection::open(&file.0)
+        .expect("opens")
+        .pragma_update(None, "user_version", 99)
+        .expect("as a new program leaves it");
+    let mut wal = file.0.as_os_str().to_owned();
+    wal.push("-wal");
+    std::fs::write(&wal, b"what the new program left").expect("a write-ahead log");
+    restore(&backup, &file.0).expect("put back");
+    assert!(!std::path::Path::new(&wal).exists(), "its log goes");
+    assert_eq!(holds(&file.0).0, SCHEMA_VERSION);
+
+    let mut made = vec![backup];
+    for i in 0..3 {
+        made.push(snapshot(&file.0, &format!("update-{i}")).expect("backed up"));
+    }
+    assert_eq!(backups(&file.0).len(), KEEP_BACKUPS, "the newest three");
+    assert_eq!(
+        made.iter().filter(|b| b.exists()).count(),
+        KEEP_BACKUPS,
+        "and no more on disk"
+    );
+
+    assert!(snapshot(&file.0.with_extension("gone"), "update").is_err());
+}
+
 /// A database a newer Yalain kept (a schema version above this build's) is refused, naming its
 /// version, and left as it was, with no backup made.
 /// Behaviour: server.world.database-backed-up-before-a-schema-upgrade
@@ -703,7 +813,87 @@ fn the_database_is_kept_with_a_write_ahead_log_and_a_save_outlives_a_crash() {
     assert_eq!(again.world_state(5).expect("reads"), Some(world()));
 }
 
-/// The operator's moderation is kept, in SQLite and in memory alike: an account's access level
+/// A file kept with access levels takes the admin flag in their place: the highest level (5) with a
+/// secret is an admin; every level below it, and the highest with no secret, a player; and the levels
+/// themselves are gone from the file; the
+/// backup taken before the upgrade keeps them. A character's template is kept with it.
+/// Behaviour: server.operator.access-levels-become-the-admin-flag
+#[test]
+fn a_file_with_access_levels_takes_the_admin_flag_in_their_place() {
+    let file = temp("levels");
+    earlier_store(&file.0);
+    {
+        let mut sql = SqliteStore::open(&file.0).expect("to the current version");
+        sql.create_account("sentinel", None, 1).expect("made");
+        sql.create_account("admin", Some(vec![1]), 1).expect("made");
+        sql.create_account("above", Some(vec![1]), 1).expect("made");
+        sql.create_account("unclaimed", None, 1).expect("made");
+    }
+    {
+        // Put the file back as version 2 kept it, levels and all.
+        let db = rusqlite::Connection::open(&file.0).expect("opens");
+        db.execute_batch(
+            "ALTER TABLE account DROP COLUMN admin;
+             ALTER TABLE account DROP COLUMN admin_groups;
+             ALTER TABLE account ADD COLUMN access INTEGER NOT NULL DEFAULT 0;
+             UPDATE account SET access = 2 WHERE name = 'sentinel';
+             UPDATE account SET access = 5 WHERE name = 'admin';
+             UPDATE account SET access = 9 WHERE name = 'above';
+             UPDATE account SET access = 5 WHERE name = 'unclaimed';
+             PRAGMA user_version = 2;",
+        )
+        .expect("the earlier schema");
+    }
+    let mut sql = SqliteStore::open(&file.0).expect("an earlier file opens");
+    let admin = |sql: &mut SqliteStore, name: &str| {
+        sql.account_by_name(name)
+            .expect("reads")
+            .expect("kept")
+            .admin
+    };
+    assert!(!admin(&mut sql, "tester"), "a player stays one");
+    assert!(!admin(&mut sql, "sentinel"), "a level between is a player");
+    assert!(admin(&mut sql, "admin"), "the highest level is an admin");
+    assert!(admin(&mut sql, "above"), "a level above it too");
+    assert!(
+        !admin(&mut sql, "unclaimed"),
+        "the highest with no secret is a player"
+    );
+    sql.set_character_entity(7, 0x4700_0531).expect("kept");
+    assert!(
+        sql.set_character_entity(99, 1).is_err(),
+        "no such character"
+    );
+    assert_eq!(
+        sql.character(7).expect("reads").expect("kept").entity_did,
+        0x4700_0531
+    );
+    drop(sql);
+    assert_eq!(holds(&file.0).0, SCHEMA_VERSION);
+    let db = rusqlite::Connection::open(&file.0).expect("opens");
+    let levels: i64 = db
+        .query_row(
+            "SELECT count(*) FROM pragma_table_info('account') WHERE name = 'access'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("reads");
+    assert_eq!(levels, 0, "the levels are gone");
+    let backup = backups(&file.0).pop().expect("a backup");
+    let old = rusqlite::Connection::open(&backup).expect("opens");
+    let kept: i64 = old
+        .query_row(
+            "SELECT access FROM account WHERE name = 'sentinel'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("the backup keeps the levels");
+    assert_eq!(kept, 2);
+    drop(old);
+    std::fs::remove_file(&backup).expect("removed");
+}
+
+/// The operator's moderation is kept, in SQLite and in memory alike: an account's admin flag
 /// and ban (with who made it, when it ends and why), each change at once, a ban lifted; a
 /// character's gag with the seconds it has still to run, lifted, and forgotten with the character.
 /// The accounts list by name without regard to case. A file kept before them gains them: every
@@ -718,7 +908,7 @@ fn the_operators_moderation_is_kept_and_an_earlier_file_gains_it() {
         .account_by_name("tester")
         .expect("reads")
         .expect("the earlier account");
-    assert_eq!((tester.access, tester.ban.clone()), (0, None));
+    assert_eq!((tester.admin, tester.ban.clone()), (false, None));
     assert_eq!(sql.gag(7).expect("reads"), None);
     let ban = Ban {
         at: 1_000,
@@ -733,10 +923,16 @@ fn the_operators_moderation_is_kept_and_an_earlier_file_gains_it() {
         .expect("kept");
     for store in [&mut sql as &mut dyn Store, &mut memory] {
         store.create_account("alma", None, 5).expect("made");
-        store.set_account_access(1, 2).expect("set");
+        store.set_account_admin(1, true).expect("set");
+        store
+            .set_account_groups(1, &["leads".to_owned(), "support".to_owned()])
+            .expect("set");
         store.set_account_ban(1, Some(&ban)).expect("banned");
         store.set_gag(7, Some(250.5)).expect("gagged");
-        assert!(store.set_account_access(99, 1).is_err(), "no such account");
+        assert!(
+            store.set_account_admin(99, true).is_err(),
+            "no such account"
+        );
         assert!(store.set_account_ban(99, None).is_err(), "no such account");
         let names: Vec<String> = store
             .accounts()
@@ -753,7 +949,8 @@ fn the_operators_moderation_is_kept_and_an_earlier_file_gains_it() {
             .account_by_name("TESTER")
             .expect("reads")
             .expect("kept");
-        assert_eq!((a.access, a.ban), (2, Some(ban.clone())), "kept");
+        assert_eq!(a.groups, ["leads", "support"], "kept");
+        assert_eq!((a.admin, a.ban), (true, Some(ban.clone())), "kept");
         assert_eq!(store.gag(7).expect("reads"), Some(250.5));
         store.set_account_ban(1, None).expect("lifted");
         store.set_gag(7, None).expect("ungagged");
@@ -770,4 +967,64 @@ fn the_operators_moderation_is_kept_and_an_earlier_file_gains_it() {
         store.purge_character(7).expect("purged");
         assert_eq!(store.gag(7).expect("reads"), None, "forgotten with it");
     }
+}
+
+/// Keeping several characters' states and records is all or nothing: a failure at the last of them
+/// leaves the first as it was. One the store no longer has is left out, and does not stop the rest.
+/// Behaviour: server.operator.a-save-that-fails-is-held-and-tried-again
+#[test]
+fn keeping_several_at_once_is_all_or_nothing() {
+    let file = TempFile(
+        std::env::temp_dir().join(format!("yalain-store-save-all-{}.db", std::process::id())),
+    );
+    let mut s = SqliteStore::open(&file.0).expect("opens");
+    let account = s.create_account("one", None, 0).expect("made");
+    for id in [7, 8] {
+        s.insert_character(&character(id, account.id, &format!("c{id}")))
+            .expect("kept");
+    }
+    let state = |n: u8| WorldState {
+        qualities: vec![n],
+        ..WorldState::default()
+    };
+    let (one, two) = (state(1), state(2));
+    s.save_all(&[(7, &one), (8, &one), (99, &one)], &[("r", &[1])])
+        .expect("kept, and the one it has not left out");
+    // The file refuses the last write of the next.
+    let other = rusqlite::Connection::open(&file.0).expect("opens");
+    other
+        .execute_batch(
+            "CREATE TRIGGER full BEFORE UPDATE ON world_record \
+             BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END",
+        )
+        .expect("made");
+    drop(other);
+    assert!(s.save_all(&[(7, &two), (8, &two)], &[("r", &[2])]).is_err());
+    for id in [7, 8] {
+        assert_eq!(
+            s.world_state(id).expect("reads").expect("kept").qualities,
+            [1]
+        );
+    }
+    assert_eq!(s.world_record("r").expect("reads"), Some(vec![1]));
+    assert!(s.world_state(99).expect("reads").is_none());
+}
+
+/// Numbers set aside for the world's things are never set aside again, the file reopened or not.
+/// Behaviour: server.inventory.item-ids-never-given-twice
+#[test]
+fn numbers_set_aside_for_things_outlive_reopening_the_database() {
+    let file = TempFile(std::env::temp_dir().join(format!(
+        "yalain-store-thing-numbers-{}.db",
+        std::process::id()
+    )));
+    let mut s = SqliteStore::open(&file.0).expect("opens");
+    assert_eq!(s.reserve_thing_numbers(100), Ok(1));
+    assert_eq!(s.reserve_thing_numbers(10), Ok(101));
+    drop(s);
+    let mut s = SqliteStore::open(&file.0).expect("opens");
+    assert_eq!(s.reserve_thing_numbers(1), Ok(111));
+    let mut m = MemoryStore::default();
+    assert_eq!(m.reserve_thing_numbers(100), Ok(1));
+    assert_eq!(m.reserve_thing_numbers(1), Ok(101));
 }

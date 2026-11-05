@@ -67,7 +67,7 @@ fn a_shiny_surface_shows_its_environment_map() {
         far: 500.0,
         orthographic: None,
     };
-    let mut shiny = builder.parts_frame(&parts, Vec::new(), camera(Vec3::ZERO, 1.0), light);
+    let mut shiny = builder.parts_frame(&parts, Vec::new(), camera(Vec3::ZERO, 1.0), light, None);
     let (mid, side) = extent(&shiny);
     shiny.camera = camera(mid, side);
     let mut plain = shiny.clone();
@@ -166,7 +166,7 @@ fn a_surface_frame_that_is_not_a_number_is_lit_as_facing_the_light() {
         far: 500.0,
         orthographic: None,
     };
-    let mut stored = builder.parts_frame(&parts, Vec::new(), camera(Vec3::ZERO, 1.0), light);
+    let mut stored = builder.parts_frame(&parts, Vec::new(), camera(Vec3::ZERO, 1.0), light, None);
     let (mid, side) = extent(&stored);
     stored.camera = camera(mid, side);
     let mut whole = stored.clone();

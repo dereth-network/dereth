@@ -97,7 +97,6 @@ jobs:
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest, tests: true }
           - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm, tests: false }
           - { target: aarch64-apple-darwin, os: macos-latest, tests: true }
-          - { target: x86_64-apple-darwin, os: macos-latest, tests: false }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     defaults:
@@ -150,13 +149,6 @@ jobs:
             *-linux-gnu)
               images="almalinux:8 ubuntu:24.04"
               run() { docker run --rm -v "$PWD/$dir:/pkg" -w /pkg "$image" "${@/#$dir//pkg}"; } ;;
-            x86_64-apple-darwin)
-              if arch -x86_64 /usr/bin/true 2> /dev/null; then
-                run() { arch -x86_64 "$@"; }
-              else
-                echo "::notice::no Rosetta on this runner: $TARGET is checked by its headers only"
-                exit 0
-              fi ;;
           esac
           exe=""; case "$TARGET" in *windows*) exe=".exe" ;; esac
           smoke() {
@@ -258,7 +250,7 @@ jobs:
 
           ## Downloads
 
-          Empyrean $VERSION, the Asheron's Call server (a Rust port of ACE), for Windows, Linux (glibc 2.28 or newer, x86-64 and arm64) and macOS (11 or newer, Apple silicon and Intel).
+          Empyrean $VERSION, the Asheron's Call server (a Rust port of ACE), for Windows, Linux (glibc 2.28 or newer, x86-64 and arm64) and macOS (11 or newer, Apple silicon).
 
           **No game data is included**: the server reads the client's data files from your own install, and \`empyrean-import fetch --pack\` builds the world from ACE-World's database release. SETUP.md in each archive is the guide.
 
@@ -282,7 +274,6 @@ jobs:
                   x86_64-unknown-linux-gnu.tar.gz) label="Empyrean server · Linux x86-64 (glibc 2.28+)" ;;
                   aarch64-unknown-linux-gnu.tar.gz) label="Empyrean server · Linux arm64 (glibc 2.28+)" ;;
                   aarch64-apple-darwin.tar.gz) label="Empyrean server · macOS Apple silicon" ;;
-                  x86_64-apple-darwin.tar.gz) label="Empyrean server · macOS Intel" ;;
                 esac ;;
             esac
             if [ -n "$label" ]; then
@@ -299,6 +290,6 @@ jobs:
           PRE=""
           # A pre-release version carries a suffix (`0.2.0-rc.1`); the tag always holds a hyphen.
           case "$VERSION" in *-*) PRE="--prerelease" ;; esac
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $PRE \
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --latest=false $PRE \
             --title "Empyrean $VERSION" --notes-file ../notes.md \
             "${assets[@]}"

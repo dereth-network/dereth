@@ -23,7 +23,14 @@
 //! live | play | play-retail | stop   the editor's own Yalain, and a client in it (serve: live)
 //! teleport                           send the character in the world to the camera
 //! restart                            start Yalain again, the character where it stands
+//! point X Y                          the pointer to a pixel of the window
+//! button left|right down|up           a mouse button goes down / up
+//! click X Y | drag X Y X2 Y2          the pointer there, and the left button down and up
+//! wheel NOTCHES                      the mouse's wheel
+//! key KEY [ctrl] [shift]              a key pressed, as `KeyR`, `Delete` or `Digit1`
+//! type TEXT                          the rest of the line typed
 //! shot FILE                          save the window's picture
+//! close                              what the window's close button does
 //! quit
 //! ```
 //!
@@ -66,9 +73,20 @@ pub enum Step {
     Import(PathBuf, String),
     Teleport,
     Characters,
+    Point(f32, f32),
+    /// The left button or the right, down or up.
+    Button(bool, bool),
+    Wheel(f32),
+    /// A key by its name, with Ctrl and with Shift.
+    Key(String, bool, bool),
+    Type(String),
     Shot(PathBuf),
+    Close,
     Quit,
 }
+
+/// How long a script's click or drag keeps to each of its stages, seconds.
+const PRESS: f64 = 0.1;
 
 fn item(s: &str) -> String {
     s.replacen('_', " ", 1)
@@ -178,7 +196,42 @@ pub fn parse(text: &str, dir: &Path) -> Result<Vec<Step>, String> {
             ["import", f] => Step::Import(PathBuf::from(f), String::new()),
             ["import", f, n] => Step::Import(PathBuf::from(f), name(n)),
             ["characters"] => Step::Characters,
+            ["point", x, y] => Step::Point(num(x).map_err(bad)?, num(y).map_err(bad)?),
+            ["button", b @ ("left" | "right"), d @ ("down" | "up")] => {
+                Step::Button(*b == "left", *d == "down")
+            }
+            ["click", x, y] => {
+                let at = Step::Point(num(x).map_err(bad)?, num(y).map_err(bad)?);
+                out.extend([
+                    at,
+                    Step::Wait(PRESS),
+                    Step::Button(true, true),
+                    Step::Wait(PRESS),
+                ]);
+                Step::Button(true, false)
+            }
+            ["drag", x, y, x2, y2] => {
+                let from = Step::Point(num(x).map_err(bad)?, num(y).map_err(bad)?);
+                let to = Step::Point(num(x2).map_err(bad)?, num(y2).map_err(bad)?);
+                out.extend([
+                    from,
+                    Step::Wait(PRESS),
+                    Step::Button(true, true),
+                    Step::Wait(PRESS),
+                    to,
+                    Step::Wait(PRESS),
+                ]);
+                Step::Button(true, false)
+            }
+            ["wheel", n] => Step::Wheel(num(n).map_err(bad)?),
+            ["key", k, held @ ..] => Step::Key(
+                (*k).to_string(),
+                held.contains(&"ctrl"),
+                held.contains(&"shift"),
+            ),
+            ["type", t @ ..] => Step::Type(t.join(" ")),
             ["shot", f] => Step::Shot(dir.join(f)),
+            ["close"] => Step::Close,
             ["quit"] => Step::Quit,
             _ => return Err(bad(format!("not a step: {line}"))),
         };

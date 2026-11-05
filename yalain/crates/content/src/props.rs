@@ -32,6 +32,23 @@ pub struct Props {
 
 const CHAIN_LIMIT: usize = 16;
 
+/// The properties of what an item is called, and the qualities that say the same.
+const NAME_QUALITIES: [(&str, u32); 2] = [("Name", 0x10B), ("Description", 0x102)];
+
+/// The properties of where an item goes and what it is held as, and the qualities that say the
+/// same.
+const PLACE_QUALITIES: [(&str, u32); 9] = [
+    ("Item_ValidInventoryLocations", 0x113),
+    ("Item_PreferredInventoryLocation", 0x11A),
+    ("Item_PrecludedInventoryLocations", 0x11B),
+    ("Item_PrimaryParentingLocation", 0x114),
+    ("Item_SecondaryParentingLocation", 0x115),
+    ("Item_ImplementType", 0xFA0),
+    ("Weapon_SingleWeaponStance", 0x25A),
+    ("Weapon_ShieldStance", 0x25B),
+    ("Weapon_TwoWeaponStance", 0x25C),
+];
+
 impl Props {
     /// The properties along a template's chain: the template's own, then its parent's that it
     /// does not set, up to its class.
@@ -74,6 +91,68 @@ impl Props {
             }
         }
         out
+    }
+
+    /// The properties with where an item goes, what it is held as and what it is called taken from
+    /// its qualities record where its own properties do not say: some item templates (Initiate
+    /// Moccasins among them) keep those only there.
+    #[must_use]
+    pub fn with_places_of(mut self, q: Option<&auberean_assets::script::Qualities>) -> Self {
+        let Some(q) = q else { return self };
+        for (name, quality) in PLACE_QUALITIES {
+            if !self.values.contains_key(name) {
+                if let Some((_, v)) = q.ints.iter().find(|(k, _)| *k == quality) {
+                    self.values
+                        .insert(name.to_string(), Prop::Int(i64::from(*v)));
+                }
+            }
+        }
+        for (name, quality) in NAME_QUALITIES {
+            if !self.values.contains_key(name) {
+                if let Some((_, v)) = q.string_infos.iter().find(|(k, _)| *k == quality) {
+                    self.values
+                        .insert(name.to_string(), Prop::Str(v.token, v.table.0));
+                }
+            }
+        }
+        self
+    }
+
+    /// The properties with the worn appearances of template `template` taken from
+    /// [`crate::worn_table::WORN_IN_CODE`] where its own properties name none.
+    #[must_use]
+    pub fn with_worn_of(mut self, template: u32) -> Self {
+        if self.values.contains_key("Item_WornAppearanceFile1") {
+            return self;
+        }
+        let rows = crate::worn_table::WORN_IN_CODE
+            .iter()
+            .filter(|(t, ..)| *t == template);
+        for (n, (_, race, sex, file)) in rows.enumerate() {
+            let n = n + 1;
+            for (name, v) in [("File", *file), ("Race", *race), ("Sex", *sex)] {
+                self.values
+                    .insert(format!("Item_WornAppearance{name}{n}"), Prop::Word(v));
+            }
+        }
+        self
+    }
+
+    /// With the quest that keeps an item from being taken, for a template whose class names it in code.
+    #[must_use]
+    pub fn with_take_gate_of(mut self, template: u32) -> Self {
+        if let Some((_, quest, status)) = crate::take_gates::TAKE_GATES
+            .iter()
+            .find(|(t, ..)| *t == template)
+        {
+            self.values
+                .insert("Usage_RequiredQuest_ForTaking".into(), Prop::Word(*quest));
+            self.values.insert(
+                "Usage_RequiredQuestStatus_ForTaking".into(),
+                Prop::Word(*status),
+            );
+        }
+        self
     }
 
     /// Set a value (for content made by hand).

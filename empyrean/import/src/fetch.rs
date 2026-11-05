@@ -2,13 +2,17 @@
 //! and keeps the dump in the per-user cache the tests also look in.
 //!
 //! ```text
-//! empyrean-import fetch [--world <world>] [--version <n> | --latest] [--dir <folder>]
+//! empyrean-import fetch [--era <era> | --world <world>] [--version <n> | --latest] [--dir <folder>]
 //!             [--pack [--out <world.pack>] [--report <report.json>]]
 //! ```
 //!
-//! - `--world` names the world database (`empyrean_common::world_release::WORLDS`): `patches`, the
-//!   end-of-retail world and the default, or `16py`, the February 2005 world. Each has its own
-//!   repository and pin.
+//! - `--era` names the era to play, `launch`, `infiltration` or `eor`, and fetches that era's world.
+//! - `--world` names a world database instead (`empyrean_common::world_release::WORLDS`): `patches`, the
+//!   end-of-retail world and the default, `16py`, the February 2005 world, or `ac1999`, the world
+//!   as it launched in 1999. Each has its own repository.
+//! - `ac1999`'s releases carry a built pack, not a dump, and it has no pin: with no version it
+//!   fetches the newest published release. `--pack` copies that pack to `--out`; `--report` does
+//!   not apply, since the release's zip holds the report it was built with.
 //! - With no version it fetches the pinned release (`empyrean_common::world_release`) from its
 //!   stable download address and checks the zip against the committed SHA-256.
 //! - `--version <n>` (`0.9.294` or `v0.9.294`) fetches another release; `--latest` the newest.
@@ -28,7 +32,7 @@ use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use empyrean_common::world_release::{self, WorldLine, PATCHES};
+use empyrean_common::world_release::{self, ReleaseForm, WorldLine, PATCHES};
 use sha2::{Digest, Sha256};
 
 /// Which release to fetch.
@@ -56,7 +60,8 @@ pub struct Options {
 
 /// Reads `fetch`'s options (the arguments after `fetch`).
 pub fn parse_args(args: &[String]) -> Result<Options, String> {
-    let mut world = &PATCHES;
+    let mut world = None;
+    let mut era = None;
     let mut version = Version::Pinned;
     let mut dir = None;
     let mut pack = false;
@@ -83,10 +88,16 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
             }
             "--world" => {
                 let v = value()?;
-                world = WorldLine::by_id(&v).ok_or_else(|| {
+                world = Some(WorldLine::by_id(&v).ok_or_else(|| {
                     let known: Vec<&str> = world_release::WORLDS.iter().map(|w| w.id).collect();
                     format!("--world wants one of {known:?}, got {v:?}")
-                })?;
+                })?);
+            }
+            "--era" => {
+                let v = value()?;
+                era = Some(dereth_primitives::EraId::parse(&v).ok_or_else(|| {
+                    format!("--era wants launch, infiltration or eor, got {v:?}")
+                })?);
             }
             "--dir" => dir = Some(PathBuf::from(value()?)),
             "--pack" => pack = true,
@@ -97,6 +108,18 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
     }
     if !pack && (out.is_some() || report.is_some()) {
         return Err("--out and --report go with --pack".into());
+    }
+    let world = match (world, era) {
+        (Some(_), Some(_)) => return Err("give one of --era and --world".into()),
+        (Some(world), None) => world,
+        (None, Some(era)) => WorldLine::for_era(era),
+        (None, None) => &PATCHES,
+    };
+    if world.form == ReleaseForm::BuiltPack && report.is_some() {
+        return Err(format!(
+            "--report does not apply to {}: its release holds the report it was built with",
+            world.id
+        ));
     }
     let pack = pack.then(|| (out.unwrap_or_else(|| PathBuf::from("world.pack")), report));
     Ok(Options {
@@ -162,11 +185,17 @@ pub fn parse_release(world: &WorldLine, json: &str) -> Result<Release, String> {
         .ok_or("GitHub's release answer has no tag_name")?;
     let tag = world_release::parse_tag(raw_tag)
         .ok_or_else(|| format!("the release tag {raw_tag:?} is not a version such as v0.9.295"))?;
-    let name = world.zip_name(&tag);
     let asset = v["assets"]
         .as_array()
-        .and_then(|a| a.iter().find(|a| a["name"].as_str() == Some(name.as_str())))
-        .ok_or_else(|| format!("release {tag} has no asset named {name}"))?;
+        .and_then(|a| {
+            a.iter().find(|a| {
+                a["name"]
+                    .as_str()
+                    .is_some_and(|n| world.is_world_asset(n, &tag))
+            })
+        })
+        .ok_or_else(|| format!("release {tag} has no asset named {}", world.zip_name(&tag)))?;
+    let name = asset["name"].as_str().unwrap_or_default();
     let url = asset["browser_download_url"]
         .as_str()
         .ok_or_else(|| format!("{name} has no download address"))?
@@ -258,6 +287,37 @@ pub fn unzip_sql<R: Read + Seek>(zip: R, sql_name: &str, dir: &Path) -> Result<P
     Ok(dest)
 }
 
+/// Unzips a built-pack release's `world.pack` into `dir` as `pack_name`, writing beside it first and
+/// renaming it into place when complete. Returns its path.
+pub fn unzip_pack<R: Read + Seek>(zip: R, pack_name: &str, dir: &Path) -> Result<PathBuf, String> {
+    let mut archive =
+        zip::ZipArchive::new(zip).map_err(|e| format!("the download is not a zip: {e}"))?;
+    // A release keeps its files in one folder named for the world.
+    let name = archive
+        .file_names()
+        .find(|n| *n == "world.pack" || n.split('/').collect::<Vec<_>>()[1..] == ["world.pack"])
+        .map(str::to_owned)
+        .ok_or("the zip holds no world.pack")?;
+    let mut entry = archive
+        .by_name(&name)
+        .map_err(|e| format!("reading {name}: {e}"))?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let dest = dir.join(pack_name);
+    let partial = dir.join(format!("{pack_name}.partial"));
+    let written = (|| -> std::io::Result<()> {
+        let mut file = std::io::BufWriter::new(std::fs::File::create(&partial)?);
+        std::io::copy(&mut entry, &mut file)?;
+        file.flush()?;
+        file.into_inner().map_err(|e| e.into_error())?.sync_all()?;
+        std::fs::rename(&partial, &dest)
+    })();
+    if let Err(e) = written {
+        std::fs::remove_file(&partial).ok();
+        return Err(format!("unzipping {pack_name} into {}: {e}", dir.display()));
+    }
+    Ok(dest)
+}
+
 /// The largest zip `fetch` accepts (the releases are about 20 MB).
 const ZIP_LIMIT: u64 = 512 * 1024 * 1024;
 
@@ -283,6 +343,13 @@ fn http_error(world: &WorldLine, what: &str, url: &str, e: &ureq::Error) -> Stri
             "could not reach {url}: {other}. Check the network connection (a proxy is read from HTTPS_PROXY or ALL_PROXY)"
         ),
     };
+    if world.form == ReleaseForm::BuiltPack {
+        return format!(
+            "{what}: {why}\n  By hand: download the release's {}<commit>.zip from \
+             https://github.com/{}/releases, unzip it, and use its world.pack",
+            world.asset_prefix, world.repository
+        );
+    }
     format!(
         "{what}: {why}\n  By hand: download the release's {}<tag>.sql.zip from \
          https://github.com/{}/releases, unzip it, and build with --sql <dump> --era {} --out world.pack",
@@ -312,6 +379,9 @@ fn get_bytes(world: &WorldLine, agent: &ureq::Agent, url: &str) -> Result<Vec<u8
 fn resolve(world: &WorldLine, agent: &ureq::Agent, version: &Version) -> Result<Release, String> {
     let api = format!("https://api.github.com/repos/{}/releases", world.repository);
     match version {
+        Version::Pinned if !world.has_pin() => {
+            parse_release(world, &get_json(world, agent, &format!("{api}/latest"))?)
+        }
         Version::Pinned => Ok(pinned(world)),
         Version::Tag(t) if t == world.pinned_tag => Ok(pinned(world)),
         Version::Tag(t) => {
@@ -333,7 +403,12 @@ pub fn fetch(opts: &Options) -> Result<PathBuf, String> {
     let world = opts.world;
     let agent = agent();
     let release = resolve(world, &agent, &opts.version)?;
-    let sql_name = world.sql_name(&release.tag);
+    let built = world.form == ReleaseForm::BuiltPack;
+    let sql_name = if built {
+        world.pack_name(&release.tag)
+    } else {
+        world.sql_name(&release.tag)
+    };
     let dest = dir.join(&sql_name);
     let sha = if dest.is_file() {
         println!("{} is already cached: {}", release.tag, dest.display());
@@ -343,7 +418,8 @@ pub fn fetch(opts: &Options) -> Result<PathBuf, String> {
         let t0 = std::time::Instant::now();
         let zip = get_bytes(world, &agent, &release.url)?;
         let actual = sha256_of(&zip);
-        verify(&release, &world.zip_name(&release.tag), &actual)?;
+        let asset = release.url.rsplit('/').next().unwrap_or(&release.url);
+        verify(&release, asset, &actual)?;
         match &release.expected {
             Expected::Pinned(_) => println!("zip SHA-256 {actual} matches the pin"),
             Expected::Published(_) => println!("zip SHA-256 {actual} matches GitHub's digest"),
@@ -351,7 +427,11 @@ pub fn fetch(opts: &Options) -> Result<PathBuf, String> {
                 "warning: GitHub publishes no digest for this asset; its SHA-256 is {actual} (not verified)"
             ),
         }
-        let path = unzip_sql(std::io::Cursor::new(zip), &sql_name, &dir)?;
+        let path = if built {
+            unzip_pack(std::io::Cursor::new(zip), &sql_name, &dir)?
+        } else {
+            unzip_sql(std::io::Cursor::new(zip), &sql_name, &dir)?
+        };
         let len = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         println!(
             "cached {} ({len} bytes) in {:.1}s",
@@ -364,7 +444,9 @@ pub fn fetch(opts: &Options) -> Result<PathBuf, String> {
         let sha = sha.as_deref().unwrap_or("(not published)");
         println!("latest release: {}", release.tag);
         println!("zip SHA-256:    {sha}");
-        if release.tag == world.pinned_tag {
+        if !world.has_pin() {
+            println!("{} follows its newest release", world.id);
+        } else if release.tag == world.pinned_tag {
             println!("this is the pinned release");
         } else {
             println!(
@@ -389,6 +471,69 @@ mod tests {
         let d = std::env::temp_dir().join(format!("empyrean-fetch-{name}-{}", std::process::id()));
         std::fs::remove_dir_all(&d).ok();
         d
+    }
+
+    /// An era fetches its own world, and naming a world as well is refused.
+    #[test]
+    fn an_era_fetches_its_own_world() {
+        use dereth_primitives::EraId;
+        for (name, era, world) in [
+            ("launch", EraId::Launch, &world_release::AC1999),
+            (
+                "infiltration",
+                EraId::Infiltration,
+                &world_release::SIXTEEN_PY,
+            ),
+            ("eor", EraId::Eor, &PATCHES),
+        ] {
+            let o = parse_args(&args(&["--era", name])).unwrap();
+            assert_eq!(o.world, world, "{name}");
+            assert_eq!(o.world.era, era, "{name}");
+        }
+        for bad in [
+            &["--era", "launch", "--world", "ac1999"][..],
+            &["--world", "16py", "--era", "launch"],
+            &["--era", "tod"],
+            &["--era"],
+        ] {
+            assert!(parse_args(&args(bad)).is_err(), "{bad:?}");
+        }
+    }
+
+    /// The Launch world's release is a built pack: `--world ac1999` follows the newest release,
+    /// takes the world's zip and never its source zip, and writes the pack the zip holds.
+    #[test]
+    fn the_ac1999_world_is_a_built_pack_from_its_newest_release() {
+        let o = parse_args(&args(&["--world", "ac1999", "--pack", "--out", "w.pack"])).unwrap();
+        assert_eq!(o.world.id, "ac1999");
+        assert_eq!(o.version, Version::Pinned);
+        assert!(!o.world.has_pin());
+        assert!(parse_args(&args(&[
+            "--world", "ac1999", "--pack", "--report", "r.json"
+        ]))
+        .is_err());
+        let digest = "a".repeat(64);
+        let answer = serde_json::json!({"tag_name": "v0.1.0", "assets": [
+            {"name": "empyrean-world-launch-80adf514-source.zip",
+             "browser_download_url": "https://x/source.zip", "digest": "sha256:0"},
+            {"name": "empyrean-world-launch-80adf514.zip",
+             "browser_download_url": "https://x/world.zip",
+             "digest": format!("sha256:{digest}")},
+            {"name": "release.json", "browser_download_url": "https://x/r"},
+        ]});
+        let release = parse_release(o.world, &answer.to_string()).unwrap();
+        assert_eq!(release.url, "https://x/world.zip");
+        assert_eq!(release.expected, Expected::Published(digest));
+
+        let dir = scratch("built-pack");
+        let zip = zip_of(&[("manifest.json", b"{}"), ("world.pack", b"the pack")]);
+        let name = o.world.pack_name("v0.1.0");
+        let path = unzip_pack(std::io::Cursor::new(zip), &name, &dir).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"the pack");
+        assert!(!dir.join(format!("{name}.partial")).exists());
+        let none = zip_of(&[("manifest.json", b"{}")]);
+        assert!(unzip_pack(std::io::Cursor::new(none), "x.pack", &dir).is_err());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     fn zip_of(entries: &[(&str, &[u8])]) -> Vec<u8> {

@@ -56,6 +56,8 @@ pub enum CommandHandler {
     Leave,
     Lfg,
     Lifestone,
+    /// The 1999 client's other name for the `@lifestone` that kills.
+    Sepaku,
     Loadautoui,
     Loadfile,
     Loadui,
@@ -393,6 +395,11 @@ pub const INITIALIZE_COMMANDS: &[CommandEntry] = &[
         name: "die",
         handler: Some(CommandHandler::Die),
         help: Some("help_die"),
+    },
+    CommandEntry {
+        name: "sepaku",
+        handler: Some(CommandHandler::Sepaku),
+        help: None,
     },
     CommandEntry {
         name: "lifestone",

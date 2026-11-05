@@ -234,6 +234,8 @@ pub struct Options {
     pub look_at_camera: bool,
     /// The player looks at each new selection.
     pub look_at_selection: bool,
+    /// The player's own body turns see-through under the pointer.
+    pub avatar_hover_transparency: bool,
 }
 
 impl Default for Options {
@@ -256,6 +258,7 @@ impl Default for Options {
             look_around: true,
             look_at_camera: true,
             look_at_selection: true,
+            avatar_hover_transparency: false,
         }
     }
 }
@@ -367,12 +370,6 @@ fn heading_along(v: Vec3) -> Vec3 {
         return Vec3::new(0.0, 1.0, 0.0);
     }
     scale(v, 1.0 / len)
-}
-
-/// What mouse look asks of the character this frame: degrees to turn it (left positive).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Steer {
-    pub turn: f32,
 }
 
 /// The heading of a direction across the ground, degrees clockwise from +y; 0 for none.
@@ -1132,13 +1129,6 @@ impl CameraControl {
         }
     }
 
-    /// The direction the camera looks across its offset: straight back along it.
-    // D2-10685
-    #[must_use]
-    pub fn global_direction(&self) -> Vec3 {
-        scale(self.offset, -1.0)
-    }
-
     /// Whether first person has settled at the eyes: on, following the player itself, at its
     /// distance.
     // D2-10674
@@ -1407,6 +1397,7 @@ impl CameraControl {
     /// The held controls: each one newly held (or held on as Shift changes) starts its action at
     /// its key map extent, each let go stops it. The camera moves by them in
     /// [`CameraControl::update`].
+    // D2-09642, D2-09643
     pub fn hold(&mut self, h: Held) {
         let was = self.held;
         let pairs = [
@@ -1440,12 +1431,11 @@ impl CameraControl {
     }
 
     /// Mouse motion in mouse look, in counts (x right, y toward the player), smoothed over the
-    /// newest ten samples: the camera turns about the player and tilts. With steering the
-    /// character turns by the degrees returned, so the camera stays behind it.
-    // D2-10722
-    pub fn mouse(&mut self, dx: f32, dy: f32) -> Steer {
+    /// newest ten samples: the camera turns about the player and tilts.
+    // D2-10722, D2-09639, D2-04866
+    pub fn mouse(&mut self, dx: f32, dy: f32) {
         if !self.mouse_look {
-            return Steer::default();
+            return;
         }
         if self.samples.len() == MOUSE_SAMPLES {
             self.samples.pop_back();
@@ -1469,10 +1459,39 @@ impl CameraControl {
             let (x, y) = (self.offset.x, self.offset.y);
             self.offset = Vec3::new(x * c - y * s, x * s + y * c, -pitch);
         }
-        if self.options.mouse_look_steers {
-            Steer { turn: -turn }
-        } else {
-            Steer::default()
+    }
+
+    /// The way the camera looks across its offset: straight back along it.
+    // D2-10685
+    #[must_use]
+    pub fn global_direction(&self) -> Vec3 {
+        scale(self.offset, -1.0)
+    }
+
+    /// Whether mouse look steers the character: with the option, and always in first person.
+    // D2-09649
+    #[must_use]
+    pub fn steers(&self) -> bool {
+        self.mouse_look && (self.options.mouse_look_steers || self.first_person)
+    }
+
+    /// The heading mouse look gives the character this frame, when it steers it and no move the
+    /// server ordered has the heading (`moving_to`): the way the camera looks, whatever way it looks.
+    // D2-09649
+    #[must_use]
+    pub fn steering_heading(&self, moving_to: bool) -> Option<f32> {
+        (self.steers() && !moving_to).then(|| {
+            let d = self.global_direction();
+            heading_of(d.x, d.y)
+        })
+    }
+
+    /// The server forced the player's place: unless it is at the eyes, the camera glides to the
+    /// new place from where it stands.
+    // D2-06372, D2-10688
+    pub fn player_forced_elsewhere(&mut self) {
+        if !self.first_person() {
+            self.targeting.fake_transition();
         }
     }
 
@@ -1524,11 +1543,12 @@ impl CameraControl {
         (h - 180.0).to_radians()
     }
 
-    /// Whether the world leaves the camera where it wants to be: in first person.
+    /// Whether the world leaves the camera where it wants to be: in first person, or while it looks
+    /// at something other than the player.
     // D2-10676
     #[must_use]
     pub fn no_ray_trace(&self) -> bool {
-        self.first_person
+        self.first_person || self.targeting.player != self.targeting.target
     }
 
     /// Whether only the walls and the ground stop the camera, no object: in the map view.

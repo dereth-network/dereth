@@ -310,17 +310,36 @@ fn the_era_features_switch_names_the_servers_systems() {
 }
 
 /// `--era-features` also takes the shared bitfield, as the launcher passes it: every system of
-/// its table is set, and a newer table's systems past this client's are skipped.
+/// its table is set, a first-table bitfield leaves the second table's systems to the era, and a
+/// newer table's systems past this client's are skipped.
 ///
 /// Behaviour: presentation.era.the-worlds-systems-are-read-from-the-shared-bitfield
 #[test]
 fn the_era_features_switch_takes_the_bitfield() {
     use dereth_primitives::{EraFeatures, EraId};
-    let c = parse(&["--era-features", "1:0002de"]).expect("parses");
+    let c = parse(&["--era-features", "4:0002deffffffff00"]).expect("parses");
     let f = c.era_features.apply(EraFeatures::NONE);
     assert!(f.aetheria && !f.trade && f.housing && f.chess && !f.ratings);
+    assert!(f.pk_lite && f.lifestone_recall && f.item_enchantment_redirection);
+    assert!(f.spell_tabs && f.corpse_permissions && f.allegiance_name);
     assert_eq!(c.era_features.iter().count(), EraFeatures::COUNT);
-    let newer = parse(&["--era-features", "99:ffff5fff"]).expect("parses");
+    let second = parse(&["--era-features", "2:0002deff7f"]).expect("parses");
+    assert_eq!(
+        second.era_features.iter().count(),
+        EraFeatures::count_at_version(2)
+    );
+    assert_eq!(
+        second.era_features.get("spell_tabs"),
+        None,
+        "left to the era"
+    );
+    let old = parse(&["--era-features", "1:0002de"]).expect("parses");
+    assert_eq!(
+        old.era_features.iter().count(),
+        EraFeatures::count_at_version(1)
+    );
+    assert_eq!(old.era_features.get("pk_lite"), None, "left to the era");
+    let newer = parse(&["--era-features", "99:ffff5fffffffff02"]).expect("parses");
     assert_eq!(
         newer.era_features.apply(EraFeatures::NONE),
         EraId::Eor.features()

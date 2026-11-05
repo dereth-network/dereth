@@ -141,13 +141,131 @@ fn bar_over_water(builder: &mut SceneBuilder<'_>, ripples: bool) -> Frame {
     };
     let day = builder.day(&camp);
     let light = builder.light(&camp, day.as_ref());
-    let mut frame = builder.parts_frame(&[], vec![bar], camera, light);
+    let mut bar = bar;
+    bar.anchor = Some(Vec3::new(0.0, 20.0, 2.0));
+    let mut frame = builder.parts_frame(&[], vec![bar], camera, light, None);
     frame.water = vec![water];
     frame.reflection = Some(Reflection {
         height: 0.0,
         ripples,
     });
     frame
+}
+
+/// The reflection shows an object by where it stands: one standing above the water whole, even a
+/// part of it below the water, one standing below the water not at all.
+///
+/// Behaviour: draw.water.the-reflection-takes-objects-by-where-they-stand
+#[test]
+fn the_reflection_takes_objects_by_where_they_stand() {
+    let i = install();
+    let r = &i.records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let mut at = |height: f32| {
+        let mut f = bar_over_water(&mut builder, false);
+        for v in std::sync::Arc::make_mut(&mut f.objects[0].vertices).iter_mut() {
+            v.position[2] -= 3.0;
+        }
+        f.objects[0].anchor = Some(Vec3::new(0.0, 20.0, height));
+        f
+    };
+    let frames = [at(1.0), at(-1.0)];
+    let mut device = renderer();
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let p = checked(&mut device, |d| {
+        frames.each_ref().map(|f| {
+            d.render(
+                f,
+                u32::try_from(W).expect("a width"),
+                u32::try_from(H).expect("a height"),
+                &mut load,
+            )
+            .expect("read back")
+            .rgba
+        })
+    });
+    // the part under the water shows through it either way; its reflection only standing above
+    let above = bright(&p[0], 0..W, 0..H).len();
+    let below = bright(&p[1], 0..W, 0..H).len();
+    println!("bright texels: {above} standing above, {below} standing below");
+    assert!(
+        above > below + 20,
+        "standing above the water it shows in the reflection, its part below too: {above}, {below}"
+    );
+}
+
+/// The reflection shows all the land the mirrored camera can see, what lies under the water too.
+///
+/// Behaviour: draw.water.the-reflection-shows-the-land-under-the-water
+#[test]
+fn the_reflection_shows_the_land_under_the_water() {
+    let i = install();
+    let r = &i.records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let base = bar_over_water(&mut builder, false);
+    let ground = base.water[0].layer.stages.first().map_or(0, |s| s.texture);
+    // an upright wall of land 30 m ahead, all of it under the water, facing either way
+    let wall = |shade: f32| {
+        let v = |x: f32, z: f32| auberean_draw::scene::TerrainVertex {
+            position: [x, 30.0, z],
+            color: [shade, shade, shade, 1.0],
+            uv: [0.0, 0.0],
+            mask_uv: [0.0, 0.0],
+        };
+        auberean_draw::scene::TerrainBatch {
+            ground,
+            far: true,
+            vertices: Arc::new(vec![
+                v(-40.0, -0.1),
+                v(40.0, -0.1),
+                v(-40.0, -8.0),
+                v(40.0, -8.0),
+            ]),
+            indices: Arc::new(vec![0, 1, 2, 2, 1, 3, 0, 2, 1, 2, 3, 1]),
+            ..auberean_draw::scene::TerrainBatch::default()
+        }
+    };
+    let frame = |shade: f32, reflected: bool| {
+        let mut f = base.clone();
+        f.objects.clear();
+        f.terrain = vec![wall(shade)];
+        if !reflected {
+            f.reflection = None;
+        }
+        f
+    };
+    let frames = [
+        frame(1.0, true),
+        frame(0.0, true),
+        frame(1.0, false),
+        frame(0.0, false),
+    ];
+    let mut device = renderer();
+    let mut load = |id: u32| auberean_draw::picture::load(r, id);
+    let p = checked(&mut device, |d| {
+        frames.each_ref().map(|f| {
+            d.render(
+                f,
+                u32::try_from(W).expect("a width"),
+                u32::try_from(H).expect("a height"),
+                &mut load,
+            )
+            .expect("read back")
+            .rgba
+        })
+    });
+    // How much lighter the wall makes each texel, with its reflection and without.
+    let mut shows = 0;
+    for k in (0..W * H * 4).step_by(4) {
+        let lighter = |a: &[u8], b: &[u8]| i32::from(a[k]) - i32::from(b[k]);
+        if (lighter(&p[0], &p[1]) - lighter(&p[2], &p[3])).abs() > 10 {
+            shows += 1;
+        }
+    }
+    println!("{shows} texels show the wall in the reflection");
+    assert!(shows > 50, "{shows}");
 }
 
 /// The ripples push the reflection one way only: the picture they are laid in holds no offset

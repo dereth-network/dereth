@@ -584,6 +584,7 @@ impl Presenter {
             self.textures.remove(&id);
         }
         let _ = self.renderer.device().poll(wgpu::PollType::Poll);
+        self.renderer.end_frame();
         if let Some(path) = shot {
             match self.save(&composed, w, h, path) {
                 Ok(()) => tracing::info!("screenshot {}", path.display()),

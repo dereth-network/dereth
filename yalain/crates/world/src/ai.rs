@@ -80,6 +80,7 @@
 //! - **Idling.** At rest and standing, a creature of a class of behavior now and then plays one of
 //!   its two idle behaviors (2017: about 8 an hour near players, the second a little more often).
 
+use crate::admin_calls::Attackable;
 use auberean_protocol::physics::ObjectPosition;
 use auberean_protocol::types::ObjectStamp;
 use dereth_primitives::num::math;
@@ -88,6 +89,7 @@ use yalain_store::{Store, StoredPosition};
 
 use crate::things::Mode;
 use crate::usable::doors::Passage;
+use crate::walls::Asked;
 use crate::{presence, Clock, Server};
 
 /// How fast a creature of scale 1 runs, and how fast it walks when it wanders, in meters a second
@@ -193,13 +195,22 @@ pub(crate) const ON_GROUND: u32 = 0x4;
 /// Every creature acts.
 pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
     let now = clock.local.0;
-    let ids: Vec<u64> = s
-        .things
-        .by_id
-        .values()
-        .filter(|t| t.alive() && t.creature.is_some() && !s.pets.is_pet(t.id))
-        .map(|t| t.id)
-        .collect();
+    let mut ids = Vec::new();
+    s.fighting.clear();
+    if let Some(w) = s.walls.as_mut() {
+        w.new_pass();
+    }
+    for t in s.things.by_id.values() {
+        let Some(c) = t.creature.as_ref() else {
+            continue;
+        };
+        if t.alive() && !s.pets.is_pet(t.id) {
+            ids.push(t.id);
+            if c.mode == Mode::Chasing {
+                s.fighting.push(t.id);
+            }
+        }
+    }
     for id in ids {
         act(s, net, id, clock, now);
     }
@@ -208,24 +219,116 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
 /// The player a creature notices: the nearest within its perception that is in the world, out of
 /// portal space, alive and not under lifestone protection.
 fn notice<S: Store>(s: &Server<S>, at: &StoredPosition, radius: f32) -> Option<u64> {
+    notices_among(s, at, radius, |p| {
+        fightable(p) && p.admin.attackable == Attackable::Normal
+    })
+}
+
+/// The nearest player within `radius` that `may` passes. Where a player stands is known at once and
+/// `may` reads its state, so it is asked only of those near: the world's every creature looks every
+/// second, and nearly all have no player near.
+#[doc(hidden)]
+pub fn notices_among<S: Store>(
+    s: &Server<S>,
+    at: &StoredPosition,
+    radius: f32,
+    mut may: impl FnMut(&crate::world::Player) -> bool,
+) -> Option<u64> {
     s.players
         .values()
-        .filter(|p| fightable(p))
-        .filter_map(|p| presence::distance(at, &p.position).map(|d| (d, p.character)))
+        .filter_map(|p| presence::distance(at, &p.position).map(|d| (d, p)))
         .filter(|(d, _)| *d <= radius)
+        .filter(|(_, p)| may(p))
+        .map(|(d, p)| (d, p.character))
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, id)| id)
+}
+
+/// [`notice`] for tests of who is passed over.
+#[doc(hidden)]
+#[must_use]
+pub fn notices<S: Store>(s: &Server<S>, at: &StoredPosition, radius: f32) -> Option<u64> {
+    notice(s, at, radius)
+}
+
+/// A creature's attack comes when it is due, not at the world's next step, for one that attacks
+/// from where it stands: within reach of its target, shooting within range, or fixed where it is
+/// (2017: gaps between one creature's attacks don't fold on the step, a concentration of 0.06 or
+/// less over 15,575 melee gaps and 9,659 of missiles and magic; on a pet 0.03 over 20,994). Going
+/// toward its target stays on the step. Only those fighting at the last step are looked at: a
+/// creature's first attack comes long after it takes on a player, so none is due before the next
+/// step would list it.
+pub fn attacks_due<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
+    let now = clock.local.0;
+    let due: Vec<u64> = s
+        .fighting
+        .iter()
+        .filter_map(|id| s.things.get(*id))
+        .filter(|t| t.alive() && !s.pets.is_pet(t.id) && attacks_from_here(s, t, now))
+        .map(|t| t.id)
+        .collect();
+    for id in due {
+        // Its attack redraws its target: one it has to run to waits for the step.
+        if let Some((at, perception)) = s.things.get(id).and_then(|t| {
+            let c = t.creature.as_ref()?;
+            Some((t.at?, perception_of(c)))
+        }) {
+            reconsider(s, id, &at, perception, now);
+        }
+        if s.things
+            .get(id)
+            .is_some_and(|t| attacks_from_here(s, t, now))
+        {
+            act(s, net, id, clock, now);
+        }
+    }
+}
+
+/// Is a creature fighting a player or a pet, its attack due, attacking from where it stands: within
+/// reach, shooting within range, or fixed where it is?
+fn attacks_from_here<S: Store>(s: &Server<S>, t: &crate::things::Thing, now: f64) -> bool {
+    let Some(c) = t.creature.as_ref() else {
+        return false;
+    };
+    if c.mode != Mode::Chasing || !c.stats.fights || now < c.next_attack {
+        return false;
+    }
+    let (Some(at), Some(target)) = (t.at, c.target) else {
+        return false;
+    };
+    if s.pets.is_pet(target) {
+        return s
+            .things
+            .get(target)
+            .filter(|p| p.alive())
+            .and_then(|p| p.at)
+            .and_then(|p| presence::distance(&at, &p))
+            .is_some_and(|d| d <= MELEE_REACH);
+    }
+    let Some(p) = s.players.values().find(|p| p.character == target) else {
+        return false;
+    };
+    presence::distance(&at, &p.position).is_some_and(|d| {
+        d <= MELEE_REACH
+            || (c.ranged && d <= crate::missiles::MISSILE_RANGE)
+            || c.stats.turns_only()
+    })
+}
+
+/// How far a creature notices a player, and gives up beyond.
+fn perception_of(c: &crate::things::Creature) -> f32 {
+    if c.stats.movement.perception > 0.0 {
+        c.stats.movement.perception
+    } else {
+        DEFAULT_PERCEPTION
+    }
 }
 
 fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, now: f64) {
     let Some(t) = s.things.get(id) else { return };
     let Some(c) = t.creature.as_ref() else { return };
     let Some(at) = t.at else { return };
-    let perception = if c.stats.movement.perception > 0.0 {
-        c.stats.movement.perception
-    } else {
-        DEFAULT_PERCEPTION
-    };
+    let perception = perception_of(c);
     if !c.stats.fights {
         return;
     }
@@ -458,7 +561,11 @@ fn speed_scale<S: Store>(s: &Server<S>, id: u64) -> f32 {
 /// Is a player one a creature may fight: in the world, out of portal space, alive and not under
 /// lifestone protection?
 fn fightable(p: &crate::world::Player) -> bool {
-    p.scene_drawn && p.trip.is_none() && !crate::combat::is_dead(p) && !crate::effects::protected(p)
+    p.scene_drawn
+        && p.trip.is_none()
+        && !crate::combat::is_dead(p)
+        && !crate::effects::protected(p)
+        && p.admin.attackable != Attackable::Super
 }
 
 /// At one of its attacks (once for each), a creature fighting a player may draw its target again:
@@ -950,7 +1057,14 @@ fn wander<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Cloc
     });
     // Where the walls are known, only a point it can walk to, by the way it will walk.
     let (goal, way) = match (goal.filter(|_| go), s.walls.as_mut()) {
-        (Some(g), Some(w)) => match w.way(template, scale, &from, &g, ARRIVED) {
+        (Some(g), Some(w)) => match w.way_within(
+            template,
+            scale,
+            &from,
+            &g,
+            ARRIVED,
+            crate::walls::REST_WALK_MOVES,
+        ) {
             Some(places) => (Some(g), places),
             None => (None, Vec::new()),
         },
@@ -964,7 +1078,7 @@ fn wander<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Cloc
                 to: goal.filter(|_| !way.is_empty()),
                 places: way,
                 next_search: now,
-                no_way: false,
+                ..Way::default()
             };
         }
     }
@@ -1259,6 +1373,9 @@ pub struct Way {
     /// At its last step nothing led where it goes: its search found no way, or a closed door it
     /// cannot open stood in its way.
     pub no_way: bool,
+    /// Where it stood and where it was going when its last search found no way: searching again
+    /// from there to there would find none either.
+    pub none_found: Option<(StoredPosition, StoredPosition)>,
 }
 
 /// How far a goal may move from where a creature's way leads before the way is dropped, in meters.
@@ -1270,15 +1387,20 @@ pub const WAY_PLACE: f32 = 0.4;
 /// How often a creature held up with no way found searches again, in seconds.
 pub const SEARCH_EVERY: f64 = 1.0;
 
+/// How far a creature or its goal must move before a search that found no way is worth trying
+/// again, in meters.
+pub const NO_WAY_KEPT: f32 = 0.5;
+
 fn flat_gap(a: &StoredPosition, b: &StoredPosition) -> f32 {
     let (dx, dy, _) = offset(a, b);
     (dx * dx + dy * dy).sqrt()
 }
 
 /// A step of up to `go` meters through the walls toward a goal: along the creature's way to it
-/// when it has one, else straight; held up, it searches for a way around (at most once a
-/// [`SEARCH_EVERY`]) and steps along it. None when the walls cannot place the creature (its place
-/// was never read).
+/// when it has one, else straight; held up, it asks for a way around (at most once a
+/// [`SEARCH_EVERY`], and not again while it and its goal stay where a search found none) and steps
+/// along it, standing until it has an answer. None when the walls cannot place the creature (its
+/// place was never read).
 #[allow(clippy::too_many_arguments)]
 fn walk_through<S: Store>(
     s: &mut Server<S>,
@@ -1313,19 +1435,40 @@ fn walk_through<S: Store>(
     }
     let mut stepped = stride_to(s, id, at, way.places.first().unwrap_or(goal), go)?;
     let held = stepped.1 < go * BLOCKED_SHARE;
-    if held && now >= way.next_search {
-        way.next_search = now + SEARCH_EVERY;
+    // Held up on the way it found: a search's longer legs took it where a walk cannot go.
+    let careful = held && !way.places.is_empty();
+    let mut waiting = false;
+    if held
+        && way.none_found.is_some_and(|(from, to)| {
+            flat_gap(&from, at) <= NO_WAY_KEPT && flat_gap(&to, goal) <= NO_WAY_KEPT
+        })
+    {
+        way.no_way = true;
+    } else if held && now >= way.next_search {
         let close = short.max(ARRIVED);
-        let found = s
+        match s
             .walls
             .as_mut()
-            .and_then(|w| w.way(template, scale, at, goal, close));
-        way.no_way = true;
-        if let Some(places) = found.filter(|p| !p.is_empty()) {
-            way.no_way = false;
-            way.places = places;
-            way.to = Some(*goal);
-            stepped = stride_to(s, id, at, &way.places[0], go)?;
+            .map(|w| w.ask(id, template, scale, at, goal, close, careful))
+        {
+            // It stands while it waits, so the way it is told starts where it is.
+            Some(Asked::Waiting) => {
+                waiting = true;
+                stepped = (*at, 0.0, stepped.2);
+            }
+            Some(Asked::Way(places)) if !places.is_empty() => {
+                way.next_search = now + SEARCH_EVERY;
+                way.no_way = false;
+                way.none_found = None;
+                way.places = places;
+                way.to = Some(*goal);
+                stepped = stride_to(s, id, at, &way.places[0], go)?;
+            }
+            _ => {
+                way.next_search = now + SEARCH_EVERY;
+                way.no_way = true;
+                way.none_found = Some((*at, *goal));
+            }
         }
     }
     if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
@@ -1335,10 +1478,10 @@ fn walk_through<S: Store>(
     if moved < 0.01 {
         // Stopped where it is: it stands facing the goal (no running in place).
         face(s, net, id, goal, clock);
-        return Some(Step::Blocked);
+        return Some(if waiting { Step::Moved } else { Step::Blocked });
     }
     place(s, net, id, next, h, motion, clock);
-    Some(if moved < go * BLOCKED_SHARE {
+    Some(if moved < go * BLOCKED_SHARE && !waiting {
         Step::Blocked
     } else {
         Step::Moved

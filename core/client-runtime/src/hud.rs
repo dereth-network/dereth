@@ -471,8 +471,50 @@ pub struct AppliedKey {
 
 /// The host half of the HUD: the player module, the player's qualities and the chat
 /// stream, plus the derived values the read-only [`GameView`] hands to the panels.
+/// The charge on each spell the player knows, as the server's messages say: a value and when it
+/// was true. The server decides what spends charge, so this only follows.
+#[derive(Debug, Clone, Default)]
+pub struct SpellCharges {
+    by_spell: std::collections::BTreeMap<u32, (f32, f64)>,
+}
+
+impl SpellCharges {
+    /// The charges a login's spell book carries, in the first float of a three-float page. A book
+    /// without them has none here.
+    pub fn seed(&mut self, pages: impl Iterator<Item = (u32, Option<f32>)>, now: f64) {
+        self.by_spell.clear();
+        for (spell, charge) in pages {
+            if let Some(charge) = charge {
+                self.by_spell.insert(spell, (charge, now));
+            }
+        }
+    }
+
+    /// An update for a spell: a new one starts full, a known one has just been cast.
+    pub fn on_update(&mut self, spell: u32, newly_learned: bool, now: f64) {
+        use dereth_rules::spell_charge::{decayed, MAX};
+        let value = if newly_learned {
+            MAX
+        } else {
+            decayed(self.value(spell, now))
+        };
+        self.by_spell.insert(spell, (value, now));
+    }
+
+    /// The charge on a spell now: full if nothing has been said of it.
+    #[must_use]
+    pub fn value(&self, spell: u32, now: f64) -> f32 {
+        use dereth_rules::spell_charge::{regenerated, MAX};
+        self.by_spell
+            .get(&spell)
+            .map_or(MAX, |(value, at)| regenerated(*value, now - at))
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Hud {
+    /// The charges on the player's spells, on a world that has them.
+    pub spell_charges: SpellCharges,
     /// The player's qualities live in the object table's
     /// local-player row because that is the only place retail keeps them. Login creates a local
     /// player description for the player and no other object, then publishes that allocation as
@@ -867,3 +909,34 @@ fn int_opt(q: &dereth_client_model::qualities::Qualities, property: u32) -> Opti
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod spell_charge_tests {
+    //! Behaviour: none (the client's copy of what the server's messages say of a charge)
+    use super::SpellCharges;
+
+    #[test]
+    fn a_charge_follows_the_login_page_and_the_servers_updates_on_any_clock() {
+        let mut c = SpellCharges::default();
+        c.seed([(7, Some(0.94)), (8, None)].into_iter(), 100.0);
+        assert!((c.value(7, 100.0) - 0.94).abs() < 1e-6, "the page's float");
+        assert!((c.value(8, 100.0) - 1.0).abs() < 1e-6, "no float: full");
+        assert!((c.value(7, 106.0) - 0.99).abs() < 1e-2, "it regains");
+
+        // As a server sends it, whichever server: an update for a known spell is a cast.
+        c.on_update(7, false, 100.0);
+        assert!((c.value(7, 100.0) - 0.94 * 0.92).abs() < 1e-5);
+        c.on_update(9, true, 100.0);
+        assert!(
+            (c.value(9, 100.0) - 1.0).abs() < 1e-6,
+            "a new spell is full"
+        );
+        for _ in 0..20 {
+            c.on_update(7, false, 100.0);
+        }
+        assert!(
+            (c.value(7, 100.0) - 0.5).abs() < 1e-6,
+            "the least it can be"
+        );
+    }
+}

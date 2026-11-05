@@ -38,6 +38,7 @@ pub const fn default_values() -> MotionParams {
 /// sideways and vertical speeds, the turn rates standing and running, the accelerations and
 /// slowdowns, drag, terminal speed, sink offset, hover height and whether gravity holds).
 // D2-15465, D2-15466, D2-15468, D2-15469, D2-15470, D2-15471, D2-15472, D2-15473, D2-15474
+// D2-15467
 // D2-15475, D2-15476, D2-15477, D2-15478, D2-15479, D2-15502, D2-15503, D2-15504, D2-15505
 // D2-04271, D2-15438
 pub type MotionValues = MotionParams;

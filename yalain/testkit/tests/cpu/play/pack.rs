@@ -751,6 +751,121 @@ fn the_packs_segments_are_windows_that_tile_its_contents_in_order() {
     assert_eq!(contents[42], bag_item, "the first bag's window after it");
 }
 
+/// Past every segment an item goes to the pack itself, at its front, and no bag grows: the move
+/// names slot 0 and says it ran past the room, the pack's window lengthens, the bags' stay as they
+/// were and are told after it. The pack's own items past its places go into a bag with room like any
+/// other, and the pack closes up.
+/// Behaviour: server.inventory.past-every-segment-the-pack-itself-grows
+#[test]
+fn an_item_past_every_segment_goes_to_the_packs_front_and_no_bag_grows() {
+    let (mut h, b, me, world) = player();
+    let before = give(&mut h, world, TEST_ITEM, inventory::PACK_ROOM as usize);
+    let from = h.bots[b].inbox.len();
+    inventory::give(&mut h.server, &mut h.net, world, STACKING, 1);
+    h.run(2);
+    let slots = answers(&h, b, from);
+    assert_eq!(
+        (slots[0][11].1, slots[0][24].1, slots[0][34].1),
+        (0, 0, 1),
+        "to the front, past the room"
+    );
+    let (segments, contents) = windows(&h, world);
+    assert_eq!(segments, [(42, 43), (12, 12), (12, 12), (12, 12)]);
+    assert_eq!(contents.len(), 79, "the counts tile the list");
+    assert_eq!(contents[1..43], before[..42], "the pack's own moved on");
+    assert_eq!(
+        contents[43..],
+        before[42..],
+        "the bags' after them, in order"
+    );
+    let first = contents[0];
+    inventory::give(&mut h.server, &mut h.net, world, TEST_ITEM, 1);
+    h.run(2);
+    let (segments, contents) = windows(&h, world);
+    assert_eq!(segments[0], (42, 44), "and on");
+    assert_eq!(contents[1], first);
+    let last = contents[43];
+    // A bag with room takes the pack's last.
+    let gone = contents[44];
+    h.server
+        .players
+        .get_mut(&world)
+        .unwrap()
+        .play
+        .items
+        .retain(|x| x.id != gone);
+    h.ask(
+        b,
+        function::REORGANIZE,
+        &[move_request(me, last, 1, 43, 42)],
+        4,
+    );
+    let (segments, contents) = windows(&h, world);
+    assert_eq!(
+        segments[..2],
+        [(42, 43), (12, 12)],
+        "out of the pack, into the bag"
+    );
+    assert_eq!(contents[43], last, "the bag's first");
+    assert_eq!(contents.len(), 79);
+}
+
+/// A move to the slot just past a full last bag is refused: that slot is no way into the pack, though
+/// the pack has room.
+/// Behaviour: server.inventory.past-every-segment-the-pack-itself-grows
+#[test]
+fn a_move_past_a_full_last_bag_is_refused_though_the_pack_has_room() {
+    let (mut h, b, me, world) = player();
+    let items = give(&mut h, world, TEST_ITEM, 13);
+    let p = h.server.players.get_mut(&world).unwrap();
+    for (n, id) in items[1..].iter().enumerate() {
+        p.play.items.iter_mut().find(|x| x.id == *id).unwrap().slot =
+            66 + u32::try_from(n).unwrap_or(0);
+    }
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        function::REORGANIZE,
+        &[move_request(me, items[0], 1, 0, 78)],
+        4,
+    );
+    assert_eq!(reorganized(&h, b, from)[0][40].1, status::CONTAINER_FULL);
+    assert_eq!(pack_slots(&h, world)[0], (items[0], 0), "where it was");
+}
+
+/// A pack kept with an item past the last bag holds it in the pack itself, in its window: no slot
+/// past the bags names a bag.
+/// Behaviour: server.inventory.past-every-segment-the-pack-itself-grows
+#[test]
+fn an_item_kept_past_the_last_bag_is_told_in_the_pack_itself() {
+    let (mut h, _, _, world) = player();
+    let items = give(&mut h, world, TEST_ITEM, 3);
+    let p = h.server.players.get_mut(&world).unwrap();
+    p.play
+        .items
+        .iter_mut()
+        .find(|x| x.id == items[0])
+        .unwrap()
+        .slot = inventory::PACK_ROOM;
+    p.play
+        .items
+        .iter_mut()
+        .find(|x| x.id == items[1])
+        .unwrap()
+        .slot = 66;
+    assert_eq!(inventory::segment_of(inventory::PACK_ROOM), 0);
+    let (segments, contents) = windows(&h, world);
+    assert_eq!(segments, [(42, 2), (12, 0), (12, 0), (12, 1)]);
+    assert_eq!(contents, [items[2], items[0], items[1]], "the pack's first");
+    let p = h.server.players.get_mut(&world).unwrap();
+    inventory::close_up(&mut p.play.items);
+    assert_eq!(
+        pack_slots(&h, world),
+        [(items[2], 0), (items[0], 1), (items[1], 66)],
+        "closed up in its own place"
+    );
+}
+
 /// Coins used from the pack go into the money bag whole, one gold each, as a drag of them would:
 /// "Adding %1 pieces of Gold.", the money up by as many, the coins gone, and the drag's answer
 /// from the player at slot 0, with no answer to the use.
@@ -804,4 +919,82 @@ fn coins_used_from_the_pack_go_into_the_money_bag_whole() {
         "the money up by 500"
     );
     assert!(pack_order(&h, world).is_empty(), "the coins gone");
+}
+
+/// Coins taken out of the money bag into a full pack: nothing moves, the money stays.
+/// Behaviour: server.inventory.coins-out-of-the-bag-need-room
+#[test]
+fn coins_out_of_the_money_bag_into_a_full_pack_do_nothing() {
+    let (mut h, b, me, world) = player();
+    h.server.catalog.insert(yalain_testkit::test_template(
+        yalain_world::pack::COINS,
+        0x1067,
+        yalain_content::Props::default(),
+    ));
+    let room = inventory::PACK_ROOM as usize;
+    let have = h.server.players[&world].play.items.len();
+    give(&mut h, world, TEST_ITEM, room - have);
+    yalain_world::quals::set_int(
+        &mut h
+            .server
+            .players
+            .get_mut(&world)
+            .expect("in the world")
+            .qualities,
+        yalain_world::store::MONEY,
+        500,
+    );
+    h.ask(
+        b,
+        function::FROM_MONEY_BAG,
+        &[Arg::LongInt(me), Arg::Int(0), Arg::Int(100)],
+        5,
+    );
+    let p = &h.server.players[&world];
+    assert_eq!(p.play.items.len(), room, "no more than it holds");
+    assert_eq!(yalain_world::store::money(&p.qualities), 500);
+}
+
+/// A gift to a pack holding all its room is held all the same, past it, and its move says it took a
+/// place past the room; a move with room says it did not. What comes from a person may always.
+/// Behaviour: server.inventory.a-gift-runs-past-a-full-pack
+#[test]
+fn a_gift_past_a_full_pack_is_held_and_its_move_says_so() {
+    let (mut h, b, _me, world) = player();
+    let from = h.bots[b].inbox.len();
+    inventory::give_from(&mut h.server, &mut h.net, world, TEST_ITEM, 1, 7);
+    h.run(2);
+    let slots = answers(&h, b, from);
+    assert_eq!(
+        (slots[0][43].1, slots[0][34].1),
+        (1, 0),
+        "may, and did not need to"
+    );
+    let full: Vec<Held> = (0..inventory::PACK_ROOM)
+        .map(|n| Held {
+            id: 0x8130_0000_0FFF_0000 + u64::from(n),
+            template: TEST_ITEM,
+            slot: n,
+            location: 0,
+            quantity: 1,
+        })
+        .collect();
+    h.server.players.get_mut(&world).unwrap().play.items = full;
+    let from = h.bots[b].inbox.len();
+    inventory::give(&mut h.server, &mut h.net, world, TEST_ITEM, 1);
+    inventory::give_from(&mut h.server, &mut h.net, world, TEST_ITEM, 1, 7);
+    h.run(2);
+    let slots = answers(&h, b, from);
+    assert_eq!(slots.len(), 2);
+    for m in &slots {
+        assert_eq!(
+            (m[40].1, m[43].1, m[34].1),
+            (0, 1, 1),
+            "held, past the room"
+        );
+    }
+    assert_eq!(
+        h.server.players[&world].play.items.len(),
+        inventory::PACK_ROOM as usize + 2
+    );
 }

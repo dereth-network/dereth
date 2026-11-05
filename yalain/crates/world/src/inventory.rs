@@ -4,11 +4,13 @@
 //! **Opening a corpse** (in reach, 2 m; the player is walked there first): the corpse flashes and
 //! opens for every client that sees it; the opener gets the contents (in slot order) and then each
 //! item it does not know yet. No use answer is sent. **Closing** it: it closes for all, the closer
-//! gets the answer.
+//! gets the answer; it closes so too when the opener walks away from it, as from an open chest.
 //!
 //! **Taking an item** (the client uses the item inside the open corpse): the player plays its
 //! taking behavior, the item leaves the corpse, and once the behavior is through (1.8 s) the item
-//! is contained by the player and the move is answered. **Turning a corpse's items into money**:
+//! is contained by the player and the move is answered: into a stack it can join where there is
+//! one, into a place of its own where the pack has room, and otherwise it stays where it is and the
+//! taker is told. **Turning a corpse's items into money**:
 //! each item is contained and moved, the money goes up by its value, the item is destroyed in the
 //! pack; then the answer with the money earned, each item's object destroyed, and the pack's
 //! contents again.
@@ -22,8 +24,10 @@
 //!
 //! **Where an item comes in.** An item given, bought or taken goes to the front of the first
 //! segment with room (slot 0 while the pack itself has room), every item of that segment moving up
-//! one, and the move names that slot as both where it was sent and where it went; into a full pack
-//! it goes after the last.
+//! one, and the move names that slot as both where it was sent and where it went. Into a pack with
+//! no room in any segment it goes to the pack itself, at its front: the pack holds more than its
+//! places then, as it may, while a bag never does, and a slot past the bags names no segment to the
+//! client.
 
 use auberean_protocol::physics::{CreateObject, ObjectEvent, ObjectOnly, Word};
 use auberean_protocol::quality::VisualQuality;
@@ -101,7 +105,8 @@ pub const PACK_SLOTS: u32 = 42;
 /// The segments of a player's pack: the pack itself and its three bags, each segment's places.
 pub const SEGMENTS: [u32; 4] = [PACK_SLOTS, 12, 12, 12];
 
-/// The places of a player's pack and its bags together.
+/// The places of a player's pack and its bags together. The pack itself numbers its items past its
+/// own places from here on: the bags' numbers are fixed, and these are ours, never named to a client.
 pub const PACK_ROOM: u32 = PACK_SLOTS + 36;
 
 /// The first slot of each segment.
@@ -110,13 +115,41 @@ pub fn segment_start(segment: usize) -> u32 {
     SEGMENTS[..segment.min(SEGMENTS.len())].iter().sum()
 }
 
-/// The segment a slot is in (a slot past the last bag is in the last).
+/// The segment an item's slot is in (a slot past the last bag is the pack itself).
 #[must_use]
 pub fn segment_of(slot: u32) -> usize {
+    if slot >= PACK_ROOM {
+        return 0;
+    }
     (1..SEGMENTS.len())
         .rev()
         .find(|s| slot >= segment_start(*s))
         .unwrap_or(0)
+}
+
+/// The slot of the item at a place in its segment.
+fn slot_at(segment: usize, place: u32) -> u32 {
+    if segment == 0 && place >= PACK_SLOTS {
+        PACK_ROOM + (place - PACK_SLOTS)
+    } else {
+        segment_start(segment) + place
+    }
+}
+
+/// The order of a pack's items: each segment's in turn, in its slots' order.
+#[must_use]
+pub fn pack_order(slot: u32) -> (usize, u32) {
+    (segment_of(slot), slot)
+}
+
+/// A slot to name to a client: one past the bags names no segment there, so the pack's front.
+#[must_use]
+pub fn named_slot(slot: u32) -> u32 {
+    if slot >= PACK_ROOM {
+        0
+    } else {
+        slot
+    }
 }
 
 /// How many items each segment of a pack holds.
@@ -137,15 +170,14 @@ pub fn pack_segments(held: &[Held]) -> Vec<(u32, u32)> {
     SEGMENTS.iter().zip(n).map(|(room, n)| (*room, n)).collect()
 }
 
-/// The slot after the last item of the first segment with room (after the last bag's last item
-/// when every segment is full).
+/// The slot after the last item of the first segment with room (the pack's front when every
+/// segment is full).
 #[must_use]
 pub fn end_slot(held: &[Held]) -> u32 {
     let n = segment_counts(held);
-    let segment = (0..SEGMENTS.len())
+    (0..SEGMENTS.len())
         .find(|s| n[*s] < SEGMENTS[*s])
-        .unwrap_or(SEGMENTS.len() - 1);
-    segment_start(segment) + n[segment]
+        .map_or(0, |segment| segment_start(segment) + n[segment])
 }
 
 /// Make room at a slot of a pack: every item of the slot's segment at or after it moves up one.
@@ -155,7 +187,11 @@ pub fn insert_at(held: &mut [Held], slot: u32) {
         .iter_mut()
         .filter(|h| h.location == 0 && segment_of(h.slot) == segment && h.slot >= slot)
     {
-        h.slot += 1;
+        h.slot = if h.slot + 1 == PACK_SLOTS {
+            PACK_ROOM
+        } else {
+            h.slot + 1
+        };
     }
 }
 
@@ -225,7 +261,10 @@ pub struct Move {
     pub hidden: bool,
     pub no_anim: bool,
     pub no_move: bool,
+    /// The move may take a place past the pack's room.
     pub overflow: bool,
+    /// The move took one: the pack already held all its room.
+    pub used_overflow: bool,
     pub check_take: bool,
     pub played_anim: bool,
     pub template: u32,
@@ -284,6 +323,7 @@ pub fn move_graph(m: &Move) -> Arg {
     s[30] = Slot::Ref(None);
     s[31] = b(m.no_anim);
     put_long(&mut s, 32, m.merge_container);
+    s[34] = b(m.used_overflow);
     s[35] = b(m.grab);
     put_long(&mut s, 36, m.actual_from);
     s[38] = Slot::Int(m.look_entity);
@@ -386,11 +426,51 @@ fn nested(id: u32, s: StringInfo) -> Variable {
     }
 }
 
-/// A treasure item's name: its template's name, with no suffix.
-#[must_use]
-pub fn treasure_item_name(template_name: (u32, u32)) -> StringInfo {
+/// A name's suffix: an effect's own item name, the template's name inside it; none, empty.
+fn suffix_of(template_name: (u32, u32), effect_table: Option<u32>) -> StringInfo {
     use treasure_name as n;
-    let mut prefix = name_ref(n::PREFIX_TEXT);
+    let Some(table) = effect_table else {
+        return StringInfo::literal("");
+    };
+    let mut suffix = name_ref((n::EFFECT_SUFFIX, table));
+    suffix.variables = vec![nested(n::PREFIX_NAME, name_ref(template_name))];
+    suffix.variable_count = 1;
+    suffix
+}
+
+/// A treasure item's name: its template's name, with the suffix of the effect it is named for.
+#[must_use]
+pub fn treasure_item_name(template_name: (u32, u32), effect_table: Option<u32>) -> StringInfo {
+    treasure_word_name(template_name, effect_table, treasure_name::PREFIX_TEXT.0)
+}
+
+/// A treasure item's name with the word it drew before it.
+#[must_use]
+pub fn treasure_word_name(
+    template_name: (u32, u32),
+    effect_table: Option<u32>,
+    word: u32,
+) -> StringInfo {
+    use treasure_name as n;
+    let mut prefix = name_ref((word, n::PREFIX_TEXT.1));
+    prefix.variables = vec![nested(n::PREFIX_NAME, name_ref(template_name))];
+    prefix.variable_count = 1;
+    let vars = ordered(vec![
+        nested(n::PREFIX, prefix),
+        nested(n::SUFFIX, suffix_of(template_name, effect_table)),
+        nested(n::ITEM, name_ref(template_name)),
+    ]);
+    let mut s = name_ref(n::NAME);
+    s.variable_count = 3;
+    s.variables = vars;
+    s
+}
+
+/// A made item's name: its template's name after the word its level gives it.
+#[must_use]
+pub fn made_item_name(template_name: (u32, u32), level_word: u32) -> StringInfo {
+    use treasure_name as n;
+    let mut prefix = name_ref((level_word, n::PREFIX_TEXT.1));
     prefix.variables = vec![nested(n::PREFIX_NAME, name_ref(template_name))];
     prefix.variable_count = 1;
     let vars = ordered(vec![
@@ -408,13 +488,17 @@ pub fn treasure_item_name(template_name: (u32, u32)) -> StringInfo {
 /// effect}" (the effect's name table holds the suffix, the template's name inside it).
 #[must_use]
 pub fn potion_name(template_name: (u32, u32), effect_table: u32) -> StringInfo {
+    jewelry_name(template_name, Some(effect_table))
+}
+
+/// A piece of treasure jewelry's name: no word before it, with the suffix of the effect it is named
+/// for, if it has one (2017: 193 of 193, a suffix on the 73 with an effect).
+#[must_use]
+pub fn jewelry_name(template_name: (u32, u32), effect_table: Option<u32>) -> StringInfo {
     use treasure_name as n;
-    let mut suffix = name_ref((n::EFFECT_SUFFIX, effect_table));
-    suffix.variables = vec![nested(n::PREFIX_NAME, name_ref(template_name))];
-    suffix.variable_count = 1;
     let vars = ordered(vec![
         nested(n::PREFIX, StringInfo::literal("")),
-        nested(n::SUFFIX, suffix),
+        nested(n::SUFFIX, suffix_of(template_name, effect_table)),
         nested(n::ITEM, name_ref(template_name)),
     ]);
     let mut s = name_ref(n::NAME);
@@ -425,6 +509,10 @@ pub fn potion_name(template_name: (u32, u32), effect_table: u32) -> StringInfo {
 
 /// The whole-object appearance a treasure potion's color is set in, and its key there.
 pub const POTION_COLOR: (u32, u32) = (0x2000_011F, 2);
+
+/// The bits of an item's description naming its durability now and at most.
+const DURABILITY_NOW: u32 = 0x800_0000;
+const DURABILITY_MOST: u32 = 0x1000_0000;
 
 /// An item's object as a client is told of it: in its container with no place, or standing where
 /// it was put down; named and valued when it is a treasure item (one with a value); a treasure
@@ -451,7 +539,21 @@ pub fn item_create(t: &Thing) -> CreateObject {
         weenie.name = potion_name(name, e.table);
     } else if let Some(name) = t.facts.name.filter(|_| t.value > 0) {
         weenie.mask |= WeenieDesc::NAME;
-        weenie.name = treasure_item_name(name);
+        // Nothing of its own but its value: no word (2017: 120 of 120 plain pieces of jewelry, and
+        // the 39 weapons of a fixed template).
+        weenie.name = match (t.own.made, t.own.suffix) {
+            (None, suffix) => jewelry_name(name, suffix),
+            (Some(m), suffix) if m.prefix != 0 => treasure_word_name(name, suffix, m.prefix),
+            (Some(_), suffix) => treasure_item_name(name, suffix),
+        };
+    }
+    if let Some(most) = t.own.made.and_then(|m| m.durability) {
+        let number = |bit: u32| WeenieDesc::NUMBER_BITS.iter().position(|b| *b == bit);
+        if let (Some(now_at), Some(most_at)) = (number(DURABILITY_NOW), number(DURABILITY_MOST)) {
+            weenie.mask |= DURABILITY_NOW | DURABILITY_MOST;
+            weenie.numbers[now_at] = i32::try_from(t.durability.unwrap_or(most)).unwrap_or(0);
+            weenie.numbers[most_at] = i32::try_from(most).unwrap_or(0);
+        }
     }
     if t.value > 0 {
         weenie.mask |= WeenieDesc::NUMBER_BITS[1];
@@ -470,7 +572,7 @@ pub fn item_create(t: &Thing) -> CreateObject {
         0,
     );
     // A bow is made strung: its own mode is the bow's.
-    if crate::skill_use::implement_of(t.template) == Some(crate::skill_use::implement::BOW) {
+    if t.strung {
         physics.mode = crate::skill_use::mode::BOW;
     }
     if t.at.is_some() {
@@ -484,6 +586,26 @@ pub fn item_create(t: &Thing) -> CreateObject {
         parent: d.look,
         ..VisualDesc::default()
     };
+    if let Some(look) = t.own.look {
+        crate::equip::put_on(
+            &mut visual,
+            look.table,
+            auberean_protocol::table::Table::from_inserted(
+                auberean_protocol::table::SMALL,
+                look.keys(),
+            ),
+        );
+    }
+    if let Some((table, dye)) = t.own.dye {
+        crate::equip::put_on(
+            &mut visual,
+            table,
+            auberean_protocol::table::Table::from_inserted(
+                auberean_protocol::table::SMALL,
+                crate::equip::DYE_KEYS.map(|k| (k, dye)),
+            ),
+        );
+    }
     if let Some(e) = t.own.effect {
         let (table, key) = POTION_COLOR;
         crate::equip::put_on(
@@ -507,22 +629,165 @@ pub fn item_create(t: &Thing) -> CreateObject {
 /// it; in its hand, also with the player as its wielder and hung from the hand the weapon is held
 /// in (the player's object of instance `player_instance`).
 #[must_use]
-pub fn held_create(t: &Thing, player_instance: u16) -> CreateObject {
+pub fn held_create(
+    catalog: &yalain_content::Catalog,
+    t: &Thing,
+    player_instance: u16,
+) -> CreateObject {
     let mut o = item_create(t);
     if let Some((player, _)) = t.wielded {
         o.weenie.mask |= WeenieDesc::OBJECT_BITS[1];
         o.weenie.objects[1] = player;
     }
     // What is held in the hand hangs from it; what is worn on the body does not.
-    if let Some((player, crate::equip::PRIMARY_HAND)) = t.wielded {
+    if let Some((player, hand @ (crate::equip::PRIMARY_HAND | crate::equip::OFF_HAND))) = t.wielded
+    {
+        let hold = crate::equip::hold_of(catalog, t.template);
         o.physics.bits |= PhysicsDesc::PARENT;
         o.physics.parent = ParentLink {
             parent: player,
-            location: crate::equip::hold_of(t.template).primary,
+            location: if hand == hold.preferred {
+                hold.primary
+            } else {
+                hold.secondary
+            },
             stamp: player_instance,
         };
     }
     o
+}
+
+/// The templates whose script makes them attunable, with no saved property to say so.
+const ATTUNABLE_BY_SCRIPT: [u32; 118] = [
+    0x4700_0605,
+    0x4700_0606,
+    0x4700_0608,
+    0x4700_0609,
+    0x4700_060A,
+    0x4700_060B,
+    0x4700_060C,
+    0x4700_0615,
+    0x4700_0616,
+    0x4700_0617,
+    0x4700_0618,
+    0x4700_0619,
+    0x4700_061E,
+    0x4700_0620,
+    0x4700_0621,
+    0x4700_0675,
+    0x4700_080B,
+    0x4700_0895,
+    0x4700_0896,
+    0x4700_0897,
+    0x4700_0898,
+    0x4700_08CF,
+    0x4700_08D0,
+    0x4700_08D1,
+    0x4700_0AE9,
+    0x4700_0AEA,
+    0x4700_0AEB,
+    0x4700_0AEC,
+    0x4700_0AED,
+    0x4700_0AEE,
+    0x4700_11C7,
+    0x4700_11C8,
+    0x4700_11C9,
+    0x4700_11CA,
+    0x4700_11CB,
+    0x4700_11CC,
+    0x4700_11CD,
+    0x4700_11CE,
+    0x4700_11D1,
+    0x4700_11D4,
+    0x4700_11D5,
+    0x4700_11D6,
+    0x4700_11D7,
+    0x4700_11D8,
+    0x4700_11D9,
+    0x4700_11DA,
+    0x4700_11DB,
+    0x4700_11DC,
+    0x4700_132D,
+    0x4700_1330,
+    0x4700_1331,
+    0x4700_1332,
+    0x4700_1333,
+    0x4700_1334,
+    0x4700_1335,
+    0x4700_1345,
+    0x4700_1346,
+    0x4700_13F5,
+    0x4700_1469,
+    0x4700_146A,
+    0x4700_146B,
+    0x4700_146C,
+    0x4700_14CE,
+    0x4700_14CF,
+    0x4700_14D0,
+    0x4700_14D1,
+    0x4700_14D2,
+    0x4700_14D3,
+    0x4700_14D4,
+    0x4700_14D5,
+    0x4700_14D7,
+    0x4700_14D8,
+    0x4700_14DB,
+    0x4700_14DC,
+    0x4700_14DD,
+    0x4700_14DE,
+    0x4700_14DF,
+    0x4700_14E0,
+    0x4700_14E1,
+    0x4700_14E2,
+    0x4700_14E3,
+    0x4700_16C0,
+    0x4700_16C1,
+    0x4700_16C2,
+    0x4700_1863,
+    0x4700_1864,
+    0x4700_1865,
+    0x4700_1866,
+    0x4700_1868,
+    0x4700_1869,
+    0x4700_186A,
+    0x4700_186B,
+    0x4700_186C,
+    0x4700_186E,
+    0x4700_1870,
+    0x4700_1871,
+    0x4700_1872,
+    0x4700_1873,
+    0x4700_1874,
+    0x4700_1875,
+    0x4700_1876,
+    0x4700_1877,
+    0x4700_1878,
+    0x4700_187B,
+    0x4700_187C,
+    0x4700_187D,
+    0x4700_187E,
+    0x4700_188C,
+    0x4700_1A53,
+    0x4700_1A54,
+    0x4700_1A55,
+    0x4700_1AF1,
+    0x4700_1CE4,
+    0x4700_1CE5,
+    0x4700_1CE6,
+    0x4700_2056,
+    0x4700_2057,
+    0x4700_2058,
+];
+
+/// Is an item of this template bound to whoever holds it, so that it may not be put down or traded
+/// away (2017: of templates so marked, by their property or their script, 15 of 15 drops and 10 of
+/// 10 trades refused; of others none, 587 drops and 590 trades done)?
+#[must_use]
+pub fn attunable(catalog: &yalain_content::Catalog, template: u32) -> bool {
+    ATTUNABLE_BY_SCRIPT.contains(&template)
+        || catalog
+            .get(template)
+            .is_some_and(|d| d.props.flag("Item_IsAttunable"))
 }
 
 /// What a player wears and wields, as its session start lists it: each wielded item in the
@@ -533,6 +798,7 @@ pub fn held_create(t: &Thing, player_instance: u16) -> CreateObject {
 pub fn worn(
     catalog: &yalain_content::Catalog,
     items: &[Held],
+    kept: &[crate::state::ItemState],
     race: u32,
     sex: u32,
 ) -> Vec<session::Worn> {
@@ -548,14 +814,26 @@ pub fn worn(
                     location: h.location,
                     taken: h.location | fit.precluded,
                     implement: 0,
-                    look: props.and_then(|p| crate::equip::worn_look(p, race, sex)),
+                    look: props.and_then(|p| {
+                        crate::equip::worn_look(p, race, sex, &crate::equip::own_kept(kept, h.id))
+                    }),
                 }
             } else {
+                let off = h.location == crate::equip::OFF_HAND;
                 session::Worn {
                     item: h.id,
-                    location: crate::equip::PRIMARY_HAND,
-                    taken: crate::equip::hold_of(h.template).taken,
-                    implement: crate::skill_use::implement_of(h.template).unwrap_or(0),
+                    location: if off {
+                        crate::equip::OFF_HAND
+                    } else {
+                        crate::equip::PRIMARY_HAND
+                    },
+                    taken: if off {
+                        crate::equip::OFF_HAND
+                    } else {
+                        crate::equip::PRIMARY_HAND
+                            | crate::equip::hold_of(catalog, h.template).precluded
+                    },
+                    implement: crate::skill_use::implement_of(catalog, h.template).unwrap_or(0),
                     look: None,
                 }
             }
@@ -584,22 +862,107 @@ pub fn make_item<S: Store>(
     Some(id)
 }
 
+/// The icon an item is shown with: its template's, with what its dye or its potion's color does to
+/// it (2017: 8,032 of 8,038 profiles' icons so, from their items' appearance values).
+#[must_use]
+pub fn icon_of<S: Store>(s: &Server<S>, t: &Thing) -> Vec<[u32; 3]> {
+    let mut icon = s
+        .catalog
+        .icons
+        .get(&t.template)
+        .cloned()
+        .unwrap_or_default();
+    let mut apply = |table: u32, key: u32, value: f32| {
+        if let Some(tables) = s.catalog.icon_tables.get(&table) {
+            yalain_content::apply_icon_value(&mut icon, tables, key, value);
+        }
+    };
+    if let Some(look) = t.own.look {
+        for (key, value) in look.keys() {
+            apply(look.table, key, value);
+        }
+    }
+    if let Some((table, dye)) = t.own.dye {
+        for key in crate::equip::DYE_KEYS {
+            apply(table, key, dye);
+        }
+    }
+    if let Some(e) = t.own.effect {
+        apply(POTION_COLOR.0, POTION_COLOR.1, e.color);
+    }
+    icon
+}
+
+/// What one piece of an item is worth: its own value, else its template's.
+fn piece_worth<S: Store>(s: &Server<S>, t: &Thing) -> u32 {
+    if t.value > 0 {
+        t.value
+    } else {
+        item_value(s, t.template)
+    }
+}
+
+/// May two items share a stack? A stack holds one set of numbers, so they must be of one template,
+/// each piece worth the same and carrying the same of its own. The name of who made one is not
+/// among them: the kept stack keeps its maker.
+pub(crate) fn same_numbers<S: Store>(s: &Server<S>, a: u64, b: u64) -> bool {
+    let (Some(x), Some(y)) = (s.things.get(a), s.things.get(b)) else {
+        return false;
+    };
+    x.template == y.template
+        && piece_worth(s, x) == piece_worth(s, y)
+        && x.own == y.own
+        && x.enchantments == y.enchantments
+        && x.bonuses == y.bonuses
+        && x.inscription == y.inscription
+        && x.durability == y.durability
+        && x.destination == y.destination
+        && x.binds_on_use == y.binds_on_use
+}
+
+/// Does an item carry nothing beyond its template, so that new pieces of the template may join it?
+fn is_plain<S: Store>(s: &Server<S>, t: &Thing) -> bool {
+    piece_worth(s, t) == item_value(s, t.template)
+        && t.own.is_empty()
+        && t.enchantments.is_empty()
+        && t.bonuses.is_empty()
+        && t.inscription.is_none()
+        && t.durability.is_none()
+        && t.destination.is_none()
+        && !t.binds_on_use
+}
+
+/// So many pieces split from a stack make a new item (nowhere yet), holding all the stack holds of
+/// its own. The stack's count is the caller's to lower.
+pub(crate) fn split_off<S: Store>(s: &mut Server<S>, stack: u64, quantity: u32) -> Option<u64> {
+    let (template, kept) = s
+        .things
+        .get(stack)
+        .map(|t| (t.template, crate::state::ItemState::of(t)))?;
+    let id = make_item(s, template, quantity, 0)?;
+    if let Some(t) = s.things.get_mut(id) {
+        kept.restore(t);
+    }
+    Some(id)
+}
+
 /// Number each segment's items from its first slot in their order, as the client keeps its pack: a
 /// list that closes up when an item leaves it.
 pub fn close_up(items: &mut [Held]) {
     let mut order: Vec<usize> = (0..items.len())
         .filter(|i| items[*i].location == 0)
         .collect();
-    order.sort_by_key(|i| items[*i].slot);
+    order.sort_by_key(|i| pack_order(items[*i].slot));
     let mut next = [0u32; 4];
     for i in order {
         let segment = segment_of(items[i].slot);
-        items[i].slot = segment_start(segment) + next[segment];
+        items[i].slot = slot_at(segment, next[segment]);
         next[segment] += 1;
     }
 }
 
-/// Whether a player's pack and its bags hold an item in every place.
+/// Whether a player's pack and its bags hold an item in every place. What a player makes (a craft's
+/// product, a cut, what it mines) waits for a place then; what it is given or takes does not.
 pub(crate) fn pack_full(held: &[Held]) -> bool {
     !fits_in_pack(held, 1)
 }
@@ -612,13 +975,13 @@ pub fn fits_in_pack(held: &[Held], incoming: usize) -> bool {
 }
 
 /// Make room for an item coming into a pack: at the front of the first segment with room, its
-/// items each moving up one slot, as the client puts it at the slot the move names; after the
-/// last when every segment is full. Returns the slot.
+/// items each moving up one slot, as the client puts it at the slot the move names; at the pack's
+/// front when every segment is full, a gift held all the same. Returns the slot.
 pub(crate) fn room_for_one(held: &mut [Held]) -> u32 {
     let n = segment_counts(held);
-    let Some(segment) = (0..SEGMENTS.len()).find(|s| n[*s] < SEGMENTS[*s]) else {
-        return segment_start(SEGMENTS.len() - 1) + n[SEGMENTS.len() - 1];
-    };
+    let segment = (0..SEGMENTS.len())
+        .find(|s| n[*s] < SEGMENTS[*s])
+        .unwrap_or(0);
     let slot = segment_start(segment);
     insert_at(held, slot);
     slot
@@ -729,6 +1092,7 @@ pub fn give_from<S: Store>(
             no_move: true,
             grab: true,
             unlock: true,
+            overflow: true,
             ..Move::default()
         },
     );
@@ -755,8 +1119,9 @@ pub fn give_made<S: Store>(
     Some(id)
 }
 
-/// Add so many units of a template to a player's stack of it (its new quantity shown), else make
-/// a stack of them in the pack.
+/// Add so many units of a template to a player's plain stacks of it, each filled to the limit its
+/// template sets (its new quantity shown), and make stacks of the rest in the pack, none past that
+/// limit (2017: 0 of 1,419 stacks seen above it, 25 at it). Which stack fills first is our choice.
 pub fn give_stacked<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -764,28 +1129,54 @@ pub fn give_stacked<S: Store>(
     template: u32,
     n: u32,
 ) {
-    let stack = s.players.get_mut(&world).and_then(|p| {
-        let h = p
-            .play
-            .items
-            .iter_mut()
-            .find(|h| h.template == template && h.location == 0)?;
-        h.quantity = h.quantity.max(1) + n;
-        Some((h.id, h.quantity))
-    });
-    let Some((id, quantity)) = stack else {
-        give(s, net, world, template, n);
-        return;
-    };
-    if let Some(t) = s.things.get_mut(id) {
-        t.quantity = quantity;
+    let most = s
+        .catalog
+        .get(template)
+        .and_then(|t| t.props.int("Item_MaxStackSize"))
+        .and_then(|m| u32::try_from(m).ok())
+        .filter(|m| *m > 0)
+        .unwrap_or(u32::MAX);
+    let mut left = n;
+    while left > 0 {
+        let plain = s.players.get(&world).and_then(|p| {
+            p.play
+                .items
+                .iter()
+                .find(|h| {
+                    h.template == template
+                        && h.location == 0
+                        && h.quantity.max(1) < most
+                        && s.things.get(h.id).is_some_and(|t| is_plain(s, t))
+                })
+                .map(|h| h.id)
+        });
+        let stack = plain.and_then(|id| {
+            let p = s.players.get_mut(&world)?;
+            let h = p.play.items.iter_mut().find(|h| h.id == id)?;
+            let had = h.quantity.max(1);
+            let taken = left.min(most - had);
+            h.quantity = had + taken;
+            left -= taken;
+            Some((id, h.quantity))
+        });
+        let Some((id, quantity)) = stack else {
+            break;
+        };
+        if let Some(t) = s.things.get_mut(id) {
+            t.quantity = quantity;
+        }
+        let m = ServerMessage::UpdateIntVisual(VisualQuality {
+            object: visual(s, id),
+            quality: crate::craft::QUANTITY,
+            value: i32::try_from(quantity).unwrap_or(i32::MAX),
+        });
+        progress::private(net, world, &m);
     }
-    let m = ServerMessage::UpdateIntVisual(VisualQuality {
-        object: visual(s, id),
-        quality: crate::craft::QUANTITY,
-        value: i32::try_from(quantity).unwrap_or(i32::MAX),
-    });
-    progress::private(net, world, &m);
+    while left > 0 {
+        let part = left.min(most);
+        give(s, net, world, template, part);
+        left -= part;
+    }
     crate::world::keep_player(s, world);
 }
 
@@ -885,14 +1276,16 @@ pub mod refused {
     pub const CONTAINER_FULL: u32 = 1085;
 }
 
-/// The stack of a template in a player's pack an item of `quantity` would join, with its slot and
-/// its quantity: a template that stacks (one of more than one to a stack), with room for them all.
+/// The stack in a player's pack an item of `quantity` would join, with its slot and its quantity:
+/// of its template and its numbers, a template that stacks (one of more than one to a stack), with
+/// room for them all.
 pub(crate) fn stack_for<S: Store>(
     s: &Server<S>,
     world: ConnId,
-    template: u32,
+    item: u64,
     quantity: u32,
 ) -> Option<(u64, u32, u32)> {
+    let template = s.things.get(item)?.template;
     let most = s
         .catalog
         .get(template)
@@ -909,6 +1302,7 @@ pub(crate) fn stack_for<S: Store>(
         .find(|h| {
             h.template == template
                 && h.location == 0
+                && same_numbers(s, h.id, item)
                 && i64::from(h.quantity.max(1)) + i64::from(quantity) <= most
         })
         .map(|h| (h.id, h.slot, h.quantity.max(1)))
@@ -1031,7 +1425,7 @@ pub fn picked_up<S: Store>(
             stamp: stamp.wrapping_add(1),
         },
     });
-    if let Some((stack, slot, had)) = stack_for(s, world, template, quantity) {
+    if let Some((stack, slot, had)) = stack_for(s, world, item, quantity) {
         let slot = i32::try_from(slot).unwrap_or(0);
         let m = Move {
             split_item: 0,
@@ -1102,14 +1496,7 @@ pub fn picked_up<S: Store>(
         to_knowers(s, net, item, &held);
         to_knowers(s, net, item, &leave);
     }
-    crate::quests::triggered(
-        s,
-        net,
-        world,
-        yalain_content::quests::Trigger::Take(template),
-        None,
-        clock,
-    );
+    crate::quests::took(s, net, world, template, clock);
     crate::world::keep_player(s, world);
 }
 
@@ -1118,6 +1505,13 @@ fn arrive<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u
     let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
+    // Past the pack's room the move says so (2017: 7 of 7, at 78 items or more).
+    let past_room = s
+        .players
+        .get(&world)
+        .is_some_and(|p| pack_full(&p.play.items));
+    m.overflow |= past_room;
+    m.used_overflow = past_room;
     let Some(slot) = hold(s, world, id) else {
         return;
     };
@@ -1137,10 +1531,11 @@ fn arrive<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u
         m.target_slot = i32::try_from(slot).unwrap_or(0);
         m.actual_target_slot = i32::try_from(slot).unwrap_or(0);
         m.template = t.template;
+        // The answer first: its client has no such item yet, and calls it "the item".
+        progress::private(net, world, &move_done(&m));
         let create = ServerMessage::CreateObject(item_create(t));
         net.send(world, queue::EVENT, BlobKind::UNORDERED, create.encode());
     }
-    progress::private(net, world, &move_done(&m));
     knows(s, world, id);
     crate::world::keep_player(s, world);
 }
@@ -1153,10 +1548,14 @@ pub fn collected<S: Store>(
     template: u32,
     quantity: u32,
     from: u64,
+    kept: Option<&crate::state::ItemState>,
 ) {
     let Some(id) = make_item(s, template, quantity, 0) else {
         return;
     };
+    if let (Some(kept), Some(t)) = (kept, s.things.get_mut(id)) {
+        kept.restore(t);
+    }
     arrive(
         s,
         net,
@@ -1326,6 +1725,28 @@ pub fn close<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, co
     crate::death::closed(s, corpse);
 }
 
+/// A player has moved: the corpse it has open closes once it is farther than an open chest's
+/// opener may go from it.
+pub fn moved<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let Some(corpse) = open_corpse_of(s, world) else {
+        return;
+    };
+    let Some(here) = s.players.get(&world).map(|p| p.position) else {
+        return;
+    };
+    // A chest open is the chest's own to close.
+    let Some(thing) = s.things.get(corpse).filter(|t| t.corpse.is_some()) else {
+        return;
+    };
+    let far = thing
+        .at
+        .and_then(|at| crate::places::reach(&here, at.cell, at.origin))
+        .is_none_or(|d| d > crate::usable::chests::WALK_AWAY);
+    if far {
+        close(s, net, world, corpse);
+    }
+}
+
 /// The client asks to close a container.
 pub fn close_request<S: Store>(
     s: &mut Server<S>,
@@ -1338,12 +1759,10 @@ pub fn close_request<S: Store>(
         _ => None,
     });
     match id {
-        Some(id) if s.things.get(id).is_some_and(|t| t.corpse.is_some()) => {
-            close(s, net, world, id);
-        }
+        Some(id) if open_corpse_of(s, world) == Some(id) => close(s, net, world, id),
         _ => s
             .unhandled
-            .note("closing a container the world does not have"),
+            .note("closing a container the player does not have open"),
     }
 }
 
@@ -1402,15 +1821,54 @@ pub fn taken<S: Store>(
     item: u64,
     clock: Clock,
 ) {
-    let Some((corpse, from_slot)) = s.things.get(item).and_then(|t| t.container) else {
-        return;
-    };
-    if let Some(c) = s.things.get_mut(corpse).and_then(|t| t.corpse.as_mut()) {
-        c.contents.retain(|x| *x != item);
-    }
     let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
+    let Some((corpse, from_slot)) = s.things.get(item).and_then(|t| t.container) else {
+        return;
+    };
+    // Someone else may have got it meanwhile (the corpse closed and opened by another): one item,
+    // one holder. It leaves the corpse only for a pack with room.
+    let there = s
+        .things
+        .get(corpse)
+        .and_then(|t| t.corpse.as_ref())
+        .map(|c| c.contents.clone())
+        .or_else(|| crate::usable::chests::contents(s, corpse))
+        .is_some_and(|c| c.contains(&item));
+    let quantity = s.things.get(item).map_or(1, |t| t.quantity.max(1));
+    let stack = stack_for(s, world, item, quantity).filter(|_| there);
+    let full = stack.is_none()
+        && s.players
+            .get(&world)
+            .is_some_and(|p| pack_full(&p.play.items));
+    if !there || full {
+        let m = Move {
+            move_type: move_type::TAKE,
+            item,
+            split_item: item,
+            quantity: 1,
+            from: corpse,
+            actual_from: corpse,
+            target: player,
+            actual_target: player,
+            status: if there {
+                crate::pack::status::CONTAINER_FULL
+            } else {
+                refused::CANT_GET_THERE
+            },
+            ..Move::default()
+        };
+        progress::private(net, world, &move_done(&m));
+        return;
+    }
+    if let Some(c) = s.things.get_mut(corpse).and_then(|t| t.corpse.as_mut()) {
+        c.contents.retain(|x| *x != item);
+    }
+    if let Some((stack, _, had)) = stack {
+        joined_stack(s, net, world, item, corpse, from_slot, (stack, had), clock);
+        return;
+    }
     let Some(slot) = hold(s, world, item) else {
         return;
     };
@@ -1452,14 +1910,89 @@ pub fn taken<S: Store>(
         value: player,
     });
     to_knowers(s, net, item, &held);
-    crate::quests::triggered(
-        s,
-        net,
-        world,
-        yalain_content::quests::Trigger::Take(template),
-        None,
-        clock,
-    );
+    crate::quests::took(s, net, world, template, clock);
+    crate::world::keep_player(s, world);
+}
+
+/// A taken item joins a stack in the pack, which needs no place of its own: the move answered as a
+/// merge, the stack's new quantity shown and the item gone from all who knew it (2017: 162 of 773
+/// takes).
+#[allow(clippy::too_many_arguments)]
+fn joined_stack<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    item: u64,
+    from: u64,
+    from_slot: u32,
+    (stack, had): (u64, u32),
+    clock: Clock,
+) {
+    let Some(player) = s.players.get(&world).map(|p| p.character) else {
+        return;
+    };
+    let Some((instance, quantity, template, look)) = s.things.get(item).map(|t| {
+        (
+            t.instance,
+            t.quantity.max(1),
+            t.template,
+            t.description.look,
+        )
+    }) else {
+        return;
+    };
+    let m = Move {
+        move_type: move_type::TAKE,
+        item,
+        quantity,
+        from,
+        actual_from: from,
+        actual_from_slot: i32::try_from(from_slot).unwrap_or(0),
+        target: player,
+        actual_target: player,
+        merge_container: player,
+        merge: true,
+        merge_slot: -1,
+        split_quantity: quantity,
+        all_taken: true,
+        auto_merge: true,
+        contain: true,
+        grab: true,
+        unlock: true,
+        played_anim: true,
+        template,
+        look_entity: look,
+        ..Move::default()
+    };
+    progress::private(net, world, &move_done(&m));
+    let total = had + quantity;
+    if let Some(h) = s
+        .players
+        .get_mut(&world)
+        .and_then(|p| p.play.items.iter_mut().find(|h| h.id == stack))
+    {
+        h.quantity = total;
+    }
+    if let Some(t) = s.things.get_mut(stack) {
+        t.quantity = total;
+    }
+    let more = ServerMessage::UpdateIntVisual(VisualQuality {
+        object: visual(s, stack),
+        quality: crate::craft::QUANTITY,
+        value: i32::try_from(total).unwrap_or(i32::MAX),
+    });
+    progress::private(net, world, &more);
+    let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
+        id: item,
+        instance_stamp: instance,
+        other_stamp: 0,
+    }));
+    crate::presence::to_thing_knowers(s, net, item, BlobKind::UNORDERED, &gone);
+    s.things.remove(item);
+    for p in s.players.values_mut() {
+        p.known.remove(&item);
+    }
+    crate::quests::took(s, net, world, template, clock);
     crate::world::keep_player(s, world);
 }
 
@@ -1486,6 +2019,12 @@ pub fn transmute_all<S: Store>(
     let Some(player) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
+    // Its own viewer's alone, as taking everything is.
+    if open_corpse_of(s, world) != Some(corpse) {
+        s.unhandled
+            .note("turning into money a corpse the player does not have open");
+        return;
+    }
     let contents = s
         .things
         .get(corpse)
@@ -1495,6 +2034,12 @@ pub fn transmute_all<S: Store>(
     let mut earned = 0u32;
     let mut done = Vec::new();
     let mut refused = Vec::new();
+    // Each item passes through the pack, which holds it no longer than this answer: it needs no
+    // room, and into a full pack its move says it ran past (2017: 6 of 6).
+    let past_room = s
+        .players
+        .get(&world)
+        .is_some_and(|p| pack_full(&p.play.items));
     for (slot, item) in contents.iter().enumerate() {
         // A quest item, or one worth nothing, is not turned into money: it stays in the corpse.
         let kept = s.things.get(*item).is_none_or(|t| {
@@ -1520,16 +2065,18 @@ pub fn transmute_all<S: Store>(
         let Some(t) = s.things.get(*item) else {
             continue;
         };
+        let count = t.quantity.max(1);
         let worth = if t.value > 0 {
             t.value
         } else {
             item_value(s, t.template)
-        };
+        }
+        .saturating_mul(count);
         let m = Move {
             move_type: move_type::TAKE,
             item: *item,
             split_item: *item,
-            quantity: 1,
+            quantity: count,
             from: corpse,
             actual_from: corpse,
             actual_from_slot: i32::try_from(slot).unwrap_or(0),
@@ -1547,15 +2094,16 @@ pub fn transmute_all<S: Store>(
             no_move: true,
             quiet: true,
             overflow: true,
+            used_overflow: past_room,
             template: t.template,
             ..Move::default()
         };
         progress::private(net, world, &move_done(&m));
-        earned += worth;
+        earned = earned.saturating_add(worth);
         let Some(p) = s.players.get_mut(&world) else {
             return;
         };
-        let money = crate::store::money(&p.qualities) + worth;
+        let money = crate::store::money(&p.qualities).saturating_add(worth);
         crate::quals::set_int(&mut p.qualities, crate::store::MONEY, money.cast_signed());
         progress::send_int(net, world, crate::store::MONEY, money.cast_signed());
         let gone =
@@ -1657,7 +2205,7 @@ pub fn reset_contents<S: Store>(s: &Server<S>, world: ConnId) -> ServerMessage {
         .map(|p| p.play.items.clone())
         .unwrap_or_default();
     let mut pack: Vec<&Held> = held.iter().filter(|h| h.location == 0).collect();
-    pack.sort_by_key(|h| h.slot);
+    pack.sort_by_key(|h| pack_order(h.slot));
     let ids: Vec<u64> = pack.iter().map(|h| h.id).collect();
     session::call(
         function::RESET_CONTENTS,
@@ -1670,6 +2218,35 @@ pub fn reset_contents<S: Store>(s: &Server<S>, world: ConnId) -> ServerMessage {
     .expect("contents pack")
 }
 
+/// Items a character comes back with whose ids the world already has (saves made when an id could be
+/// given twice) are given fresh ones, so that each holder keeps its own. Returns whether any was.
+pub(crate) fn fresh_ids_for_clashes(
+    things: &mut crate::things::Things,
+    play: &mut crate::state::PlayState,
+    name: &str,
+) -> bool {
+    let mut any = false;
+    let mut seen = std::collections::HashSet::new();
+    for h in &mut play.items {
+        if seen.insert(h.id) && things.get(h.id).is_none() {
+            continue;
+        }
+        let new = things.new_id();
+        tracing::warn!(
+            "{name} came back with an item the world already has: {:#x} is now {new:#x}",
+            h.id
+        );
+        if let Some(k) = play.item_states.iter().find(|k| k.id == h.id).cloned() {
+            play.item_states
+                .push(crate::state::ItemState { id: new, ..k });
+        }
+        h.id = new;
+        seen.insert(new);
+        any = true;
+    }
+    any
+}
+
 /// The items a player holds become things again as it enters, in its pack, each with an instance
 /// stamp one more than when it was last kept. Returns them in slot order.
 pub fn enter<S: Store>(s: &mut Server<S>, world: ConnId) -> Vec<u64> {
@@ -1678,7 +2255,7 @@ pub fn enter<S: Store>(s: &mut Server<S>, world: ConnId) -> Vec<u64> {
     };
     let (owner, mut held) = (p.character, p.play.items.clone());
     let kept = p.play.item_states.clone();
-    held.sort_by_key(|h| h.slot);
+    held.sort_by_key(|h| pack_order(h.slot));
     let mut ids = Vec::new();
     for h in held {
         let Some(t) = s.catalog.get(h.template).cloned() else {
@@ -1692,14 +2269,13 @@ pub fn enter<S: Store>(s: &mut Server<S>, world: ConnId) -> Vec<u64> {
         item.position_stamp = 0;
         item.quantity = h.quantity;
         item.container = Some((owner, h.slot));
-        item.crafter = k.and_then(|k| k.crafter.clone());
-        item.durability = k.and_then(|k| k.durability);
-        item.destination = k.and_then(|k| k.destination);
-        item.bonuses = k.map(|k| k.bonuses.clone()).unwrap_or_default();
-        item.binds_on_use = k.is_some_and(|k| k.binds_on_use);
-        item.own = k.map(|k| k.own).unwrap_or_default();
+        if let Some(k) = k {
+            k.restore(&mut item);
+        }
         if h.location & crate::equip::BODY_PLACES != 0 {
             item.wielded = Some((owner, h.location));
+        } else if h.location == crate::equip::OFF_HAND {
+            item.wielded = Some((owner, crate::equip::OFF_HAND));
         } else if h.location != 0 {
             item.wielded = Some((owner, crate::equip::PRIMARY_HAND));
         }

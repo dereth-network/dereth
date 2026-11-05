@@ -18,8 +18,10 @@ pub fn target() -> Option<&'static (Arc<DatFile>, Library)> {
             .into_iter()
             .find(|(n, _)| *n == DatName::Portal)?;
         let dat = DatFile::open(&path).expect("open the portal file");
-        let bytes = dat.read(RECORD).expect("the script library record");
-        let lib = Library::from_record(&bytes).expect("the script library");
+        let lib = dat
+            .read_checked(RECORD, Library::from_record)
+            .expect("the script library")
+            .value;
         Some((Arc::new(dat), lib))
     })
     .as_ref()

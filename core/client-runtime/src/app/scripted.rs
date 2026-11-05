@@ -147,7 +147,11 @@ impl<S: Shell> App<S> {
             idle,
             land: land.as_ref(),
             store: &self.store,
-            character: nav_character(&self.objects.world, self.nav_spells.as_deref()),
+            character: nav_character(
+                &self.objects.world,
+                self.nav_spells.as_deref(),
+                self.hud.era.features(),
+            ),
             stance: nav_stance(&self.objects.world),
             portals,
             world,

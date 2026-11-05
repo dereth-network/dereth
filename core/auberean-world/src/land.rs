@@ -62,6 +62,32 @@ pub struct LandConstants {
     pub sky_height: f32,
 }
 
+/// The world's size: how many landblocks along each axis, how many in all, its land cells along
+/// each axis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WorldExtents {
+    pub blocks_long: u32,
+    pub blocks_wide: u32,
+    pub blocks: u32,
+    pub cells_long: u32,
+    pub cells_wide: u32,
+}
+
+impl WorldExtents {
+    /// The size a region gives, in land cells of `cells_per_block_side` to a block's side.
+    // D2-13320, D2-13214
+    #[must_use]
+    pub const fn of(blocks_long: u32, blocks_wide: u32, cells_per_block_side: u32) -> Self {
+        Self {
+            blocks_long,
+            blocks_wide,
+            blocks: blocks_long * blocks_wide,
+            cells_long: cells_per_block_side * blocks_long,
+            cells_wide: cells_per_block_side * blocks_wide,
+        }
+    }
+}
+
 /// Why a landscape record cannot be used.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LandError {
@@ -76,7 +102,7 @@ impl LandConstants {
     ///
     /// # Errors
     /// When the grid or the field widths are out of range.
-    // D2-13207, D2-13208, D2-13209
+    // D2-13207, D2-13208, D2-13209, D2-13312, D2-13313, D2-13319
     pub fn from_record(l: &Landscape) -> Result<Self, LandError> {
         let cells = usize::try_from(l.cells_per_block_side).map_err(|_| LandError::Grid)?;
         let steps = usize::try_from(l.pixels_per_cell_side).map_err(|_| LandError::Grid)?;
@@ -129,5 +155,25 @@ impl LandConstants {
     #[must_use]
     pub fn grid(&self) -> &LandGrid {
         &self.spec.grid
+    }
+}
+
+#[cfg(test)]
+mod extents_tests {
+    //! Behaviour: none (the world's size, held to hand-worked values)
+    use super::*;
+
+    #[test]
+    fn a_worlds_size_comes_from_its_blocks() {
+        assert_eq!(
+            WorldExtents::of(3, 4, 8),
+            WorldExtents {
+                blocks_long: 3,
+                blocks_wide: 4,
+                blocks: 12,
+                cells_long: 24,
+                cells_wide: 32,
+            }
+        );
     }
 }

@@ -100,6 +100,71 @@ fn scene_drawn(h: &mut Harness, b: usize) {
     h.run(5);
 }
 
+/// A camp as many as its spots fills every one, whatever the dice say, and a creature's replacement
+/// takes the spot that is free.
+/// Behaviour: server.creatures.spots-hold-one
+#[test]
+fn a_camp_as_many_as_its_spots_fills_every_one() {
+    #[allow(clippy::cast_possible_truncation)]
+    let place = |at: yalain_store::StoredPosition| (at.origin[0] * 10.0).round() as i32;
+    for seed in 1..40 {
+        let mut h = Harness::new();
+        h.server.rng = yalain_world::rng::Rng::new(seed);
+        h.add_creatures(2);
+        let camp = &mut h.server.spawns.camps[0];
+        camp.population = 3;
+        camp.spots.push((0x0299_0109, [70.0, 248.0, -44.6]));
+        h.player_in_world("one", "Elara");
+        let mut spots: Vec<i32> = h
+            .server
+            .things
+            .by_id
+            .values()
+            .filter(|t| t.template == TEST_CREATURE)
+            .filter_map(|t| t.creature.as_ref().map(|c| place(c.home)))
+            .collect();
+        spots.sort_unstable();
+        assert_eq!(spots, vec![650, 660, 700], "seed {seed}");
+    }
+}
+
+/// However many players are in the world, a creature's look reads the state only of those near it:
+/// the world's every creature looks once a second, so reading all of them costs a pass of the world
+/// about a millisecond a player.
+/// Behaviour: server.creatures.look-reads-near-players-only
+#[test]
+fn a_creature_looking_reads_the_state_of_the_players_near_it_only() {
+    let mut h = Harness::new();
+    let (_, near) = h.player_in_world("one", "Elara");
+    h.player_in_world("two", "Bran");
+    h.player_in_world("three", "Coll");
+    let here = yalain_store::StoredPosition {
+        cell: 0x6FA9_0025,
+        origin: [90.0, 90.0, 80.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    for p in h.server.players.values_mut() {
+        p.position = if p.character == near {
+            here
+        } else {
+            // One far in this block, one blocks away.
+            let far = p.character % 2 == 0;
+            yalain_store::StoredPosition {
+                cell: if far { 0x6FA9_0001 } else { 0x20A9_0025 },
+                origin: [if far { 5.0 } else { 90.0 }, 5.0, 80.0],
+                ..here
+            }
+        };
+    }
+    let mut read = Vec::new();
+    let noticed = yalain_world::ai::notices_among(&h.server, &here, 20.0, |p| {
+        read.push(p.character);
+        true
+    });
+    assert_eq!(noticed, Some(near));
+    assert_eq!(read, vec![near], "the far players' states stay unread");
+}
+
 /// A creature that attacks first notices a player within its perception and comes at it: its
 /// places reach the player's client, each nearer than the last, until it is within reach.
 /// Behaviour: server.creatures.notice-and-close-in

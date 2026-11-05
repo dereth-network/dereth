@@ -301,9 +301,11 @@ pub fn add(
     let mut result = AddEnchantmentResult::new();
 
     // check for existing spell in this category
-    let indices =
-        reg::get_enchantments_by_category_indices(Some(registry(obj(w, this))), spell.category())
-            .expect("the registry is not null");
+    let indices = reg::get_enchantments_by_category_indices(
+        Some(registry(obj(w, this))),
+        spell.stacking_category(),
+    )
+    .expect("the registry is not null");
 
     // if none, add new record
     if indices.is_empty() {
@@ -346,7 +348,10 @@ pub fn add(
         // for the same void caster re-casting the same DoT,
         // should be update the StatModVal here?
 
-        let mut duration = spell.duration();
+        // DIVERGE: V502, a cast's worth lengthens or shortens it, within the band.
+        let mut duration = w
+            .cast_potency
+            .map_or(spell.duration(), |p| p.duration(spell.duration()));
         if let Some(aug) = caster_player_augmentation_increased_spell_duration(w, caster) {
             if !is_weapon_spell && spell.dot_duration() == 0.0 {
                 duration *= f64::from(1.0f32 + aug as f32 * 0.2f32);
@@ -396,7 +401,7 @@ fn build_entry(
     let mut entry = PropertiesEnchantmentRegistry {
         enchantment_category: spell.meta_spell_type().0.cast_unsigned(),
         spell_id: spell.id().cast_signed(),
-        spell_category: spell.category(),
+        spell_category: spell.stacking_category(),
         power_level: spell.power(),
         ..PropertiesEnchantmentRegistry::default()
     };
@@ -406,7 +411,9 @@ fn build_entry(
         .is_some_and(WorldObject::is_creature);
 
     if caster_is_creature {
-        entry.duration = spell.duration();
+        entry.duration = w
+            .cast_potency
+            .map_or(spell.duration(), |p| p.duration(spell.duration()));
 
         if let Some(aug) = caster_player_augmentation_increased_spell_duration(w, caster) {
             if !is_weapon_spell && spell.dot_duration() == 0.0 {

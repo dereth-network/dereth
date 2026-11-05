@@ -62,6 +62,14 @@ use auberean_physics::world::{NoGameObjects, World, WorldObject};
 /// animates, and every position puts it in place, meters.
 pub const PHYSICS_RANGE: f32 = 96.0;
 
+/// Whether `at` is past the physics range of a player at `player`.
+// D2-06344
+#[must_use]
+pub fn out_of_physics_range(player: &Position, at: &Position) -> bool {
+    let o = geom::offset(player, at);
+    (o.x * o.x + o.y * o.y + o.z * o.z).sqrt() > PHYSICS_RANGE
+}
+
 /// Whether stamp `b` is newer than stamp `a`, the stamps counting round through 65536.
 // D2-05665
 #[must_use]
@@ -325,7 +333,7 @@ impl OtherBody {
     }
 
     /// The body leaves the world, to enter it again at `p`.
-    // D2-06057, D2-06161
+    // D2-06057, D2-06161, D2-06158
     pub fn leave_visibility(&mut self, p: Position) {
         self.body.stop_interpolating();
         self.body.in_world = false;
@@ -341,6 +349,16 @@ impl OtherBody {
         }
     }
 
+    /// A creation says the body stands at `p`: there at once, and in the world again if it was
+    /// lost in a cell not loaded.
+    // D2-05660, D2-06368, D2-06268
+    pub fn put_by_creation(&mut self, p: Position) {
+        if self.away.take().is_some() {
+            self.body.in_world = true;
+        }
+        self.put(p);
+    }
+
     /// Put the body at `p` at once, with nothing left to follow and nothing to draw it moving
     /// from.
     // D2-06369
@@ -350,6 +368,7 @@ impl OtherBody {
         self.body.place(p, heading);
         self.body.velocity = dereth_primitives::Vec3::ZERO;
         self.body.turn_rate = 0.0;
+        self.body.set_placement_position(p);
     }
 
     /// A position the server sent for this object, `player` where the player is, `loaded` whether
@@ -376,13 +395,10 @@ impl OtherBody {
         }
         let mut out = false;
         if let Some(me) = player {
-            let o = geom::offset(me, &p);
-            let d = (o.x * o.x + o.y * o.y + o.z * o.z).sqrt();
-            self.in_range = d <= PHYSICS_RANGE;
-            out = !self.in_range;
+            out = out_of_physics_range(me, &p);
+            self.in_range = !out;
             // In range the body moves and animates; out of it, neither.
-            self.body.set_movement_active(self.in_range);
-            self.body.set_animation_active(self.in_range);
+            self.body.set_out_of_physics_range(out);
         }
         let heading = Heading::new(place.heading());
         if is_newer(self.stamps.1, place.teleport_stamp) || out {
@@ -403,6 +419,16 @@ impl OtherBody {
         }
         self.stamps = (place.position_stamp, place.teleport_stamp);
         Received::Taken
+    }
+
+    /// The body's movement looks at the player's range, as it does every tick while it runs: past
+    /// it, the body stops where it is until a position for it comes.
+    // D2-06344, D2-06102
+    pub fn check_range(&mut self, player: &Position) {
+        if self.body.movement_checks_range() && out_of_physics_range(player, &self.body.position) {
+            self.in_range = false;
+            self.body.set_out_of_physics_range(true);
+        }
     }
 
     /// One physics tick against `land` and the world's other objects, with the game clock at
@@ -469,7 +495,11 @@ struct Other {
 #[derive(Default)]
 pub struct Others {
     bodies: BTreeMap<u64, Other>,
+    /// The objects the server described since last asked.
+    described: Vec<u64>,
     lost: LostCells,
+    /// The sounds of the effects of objects that went, not yet taken.
+    parting_sounds: Vec<(u64, auberean_draw::effects::FxSound)>,
     /// The bodies that left the world (`false`) or entered it again (`true`) since last taken.
     world_changes: Vec<(u64, bool)>,
     /// What each figure finished and the hooks it fired since last taken, by body.
@@ -502,6 +532,7 @@ fn heading_of(q: Quat) -> f32 {
 impl Others {
     /// The sounds every body's effects played or stopped since last taken, each with its object.
     pub(crate) fn take_sounds(&mut self, out: &mut Vec<(u64, auberean_draw::effects::FxSound)>) {
+        out.append(&mut self.parting_sounds);
         for fx in self.bodies.values_mut().filter_map(|b| b.effects.as_mut()) {
             out.extend(fx.sounds.drain(..).map(|s| (fx.id, s)));
         }
@@ -535,6 +566,12 @@ impl Others {
     }
 
     /// What each figure finished and the hooks it fired since last taken, by body.
+    /// The objects the server described since last asked (their creations): the scene brings each
+    /// body up to its description.
+    pub(crate) fn take_described(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.described)
+    }
+
     pub(crate) fn take_heard(&mut self) -> Vec<(u64, Vec<Completion>, Vec<u32>)> {
         std::mem::take(&mut self.heard)
     }
@@ -599,33 +636,49 @@ impl Others {
     }
 
     /// Notes every body in the world in `table`, as the bodies' guidance sees the others: where it
-    /// is and how it moves, or, for an object that does not move, where it stands.
-    pub fn note_objects(&self, table: &mut ObjectTable) {
+    /// is and how it moves, or, for an object that does not move, where it stands; and whether its
+    /// game object is a player or a creature, as `player_or_creature` answers.
+    pub fn note_objects(
+        &self,
+        table: &mut ObjectTable,
+        mut player_or_creature: impl FnMut(u64) -> bool,
+    ) {
         for (id, b) in &self.bodies {
             let Some(ob) = b.body.as_ref().filter(|ob| ob.in_world()) else {
                 continue;
             };
+            let asked = player_or_creature(*id);
             if b.shape.is_some() {
                 let s = ob.body.total_scale(None);
-                table.note_still(*id, ob.body.position, ob.body.height(), s);
+                table.note_still(*id, ob.body.position, ob.body.height(), s, asked);
             } else {
-                table.note(
-                    *id,
-                    &ob.body,
-                    auberean_client_sdk::model::ids::is_player(*id),
-                );
+                table.note(*id, &ob.body, asked);
             }
         }
     }
 
+    /// Object `id`'s entry in the world's table, if it stands in it.
+    pub(crate) fn key_of(&self, id: u64) -> Option<auberean_physics::collision::manager::BodyKey> {
+        let o = self.bodies.get(&id)?;
+        o.key.or_else(|| o.body.as_ref().and_then(|b| b.body.key()))
+    }
+
     /// Object `id`'s body goes: out of the cell it is lost in and out of the world's table.
     // D2-05725, D2-05638
+    // D2-06178, D2-06138
     pub(crate) fn destroy_object(&mut self, id: u64, world: &mut World) {
         self.lost.remove(id);
         if let Some(k) = self.bodies.get(&id).and_then(|b| b.key) {
             world.remove(k);
         }
-        if let Some(b) = self.bodies.remove(&id) {
+        if let Some(mut b) = self.bodies.remove(&id) {
+            if let Some(fx) = b.effects.as_mut() {
+                fx.fx.destroy();
+                self.parting_sounds
+                    .extend(fx.fx.take_sounds().into_iter().map(|s| (id, s)));
+                self.parting_sounds
+                    .extend(fx.sounds.drain(..).map(|s| (id, s)));
+            }
             if let Some(ob) = b.body {
                 let s = &ob.body;
                 self.kept.insert(
@@ -682,6 +735,23 @@ impl Others {
         self.goto_lost_cell(id, at.cell.0, has_parent);
         self.world_changes.push((id, false));
         true
+    }
+
+    /// Block `block` went among the free blocks, or came back: the static bodies standing in it
+    /// are told.
+    // D2-03634, D2-03633
+    pub(crate) fn set_block_on_free_list(&mut self, block: (u8, u8), on: bool) {
+        for b in self.bodies.values_mut() {
+            let Some(ob) = b.body.as_mut().filter(|ob| ob.body.is_static()) else {
+                continue;
+            };
+            let cell = ob.body.position.cell.0;
+            #[allow(clippy::cast_possible_truncation)]
+            // LINT-OK: the two high bytes of a cell id are its block.
+            if ((cell >> 24) as u8, (cell >> 16) as u8) == block {
+                ob.body.set_cell_on_free_list(on);
+            }
+        }
     }
 
     /// Whether object `id`'s body never moves (static).
@@ -821,7 +891,7 @@ impl Others {
                         && c.position.cell != 0
                     {
                         let (at, _) = creation_place(o, &place);
-                        ob.put(at);
+                        ob.put_by_creation(at);
                         ob.stamps = (c.stamps[0], c.stamps[1]);
                     }
                 }
@@ -844,12 +914,8 @@ impl Others {
                     if c.bits & Pd::MODE != 0 && c.mode != 0 {
                         f.set_mode(anims, c.mode);
                     }
-                    if c.bits & Pd::SLIDERS != 0 {
-                        for sl in &c.sliders {
-                            f.sliders.do_slider(0, sl.slider, sl.value, sl.time);
-                        }
-                    }
                 }
+                self.described.push(id);
             }
             b.standing = b.body.is_none() && is_loaded(place.cell, around, land);
             let Some(ob) = b.body.as_mut() else { continue };
@@ -913,6 +979,9 @@ impl Others {
                 }
                 (None, Some(_)) => {}
             }
+            if let Some((_, me)) = player.as_ref().filter(|_| ticks > 0 && b.shape.is_none()) {
+                ob.check_range(me);
+            }
             if ob.in_range {
                 if b.shape.is_none() {
                     for _ in 0..ticks {
@@ -930,7 +999,8 @@ impl Others {
                         }
                     }
                 }
-                if let (Some(f), Some(step)) = (&mut b.figure, anim) {
+                let frozen = ob.body.is_animation_frozen();
+                if let (Some(f), Some(step)) = (&mut b.figure, anim.filter(|_| !frozen)) {
                     // Feet that match how the body moved over its last tick.
                     let (moved, turn, size) = crate::figure_motion(&mut ob.body, step);
                     f.set_motion(moved, turn, size);
@@ -938,6 +1008,7 @@ impl Others {
                     f.ground = crate::ground_of(&ob.body);
                     look(id, &ob.body, f, step);
                     f.advance(anims, step);
+                    ob.body.figure_stands_in(f.modes.element());
                     self.heard
                         .push((id, f.take_completions(), crate::take_triggers(f).0));
                 }
@@ -1067,6 +1138,7 @@ impl Others {
             );
             let poses = f.pose(anims);
             let start = out.len();
+            drawer.next_body(ob.body.is_mobile());
             out.extend(drawer.batches(records, f, &poses, &place));
             noted.push((*id, start..out.len(), rel, heading));
         }
@@ -1077,6 +1149,19 @@ impl Others {
     /// their systems kept and drawn by `systems`, the water each stands over as `land` has it. A
     /// body's effects begin the first time it is drawn after it is put together. A body whose
     /// effects changed its appearance takes the new look (its parts' meshes read through `trees`).
+    /// The decals the bodies' effects laid since last asked, each with where its body stands.
+    pub(crate) fn take_decals(
+        &mut self,
+        out: &mut Vec<(Position, auberean_draw::effects::FxDecal)>,
+    ) {
+        for b in self.bodies.values_mut() {
+            if let (Some(fx), Some(ob)) = (&mut b.effects, &b.body) {
+                let place = ob.body.position;
+                out.extend(fx.fx.take_decals().into_iter().map(|d| (place, d)));
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn draw_effects(
         &mut self,
@@ -1145,6 +1230,11 @@ impl Others {
             }
         }
         out
+    }
+
+    /// The objects with a body here.
+    pub(crate) fn ids(&self) -> Vec<u64> {
+        self.bodies.keys().copied().collect()
     }
 
     /// The effects body `id` plays, when it has any.
@@ -1326,6 +1416,9 @@ fn take_look(
         if let Some(l) = look.as_ref() {
             crate::give_parts(&mut ob.body, records, trees, l);
         }
+        if let Some(f) = b.figure.as_ref() {
+            ob.body.set_mode(f.mode);
+        }
         crate::profile::init_physics(records, o, &mut ob.body);
         if let Some([v, a, j]) = scales {
             ob.body.set_velocity_scale(v);
@@ -1362,12 +1455,7 @@ pub(crate) fn ethereality(w: &WeenieDesc) -> auberean_physics::solid::Etherealit
             .filter(|_| w.mask & bit != 0)
             .map(|i| w.numbers[i])
     };
-    let mask = |low, high| auberean_physics::solid::Ethereality::mask(number(low), number(high));
-    auberean_physics::solid::Ethereality {
-        physics_type: mask(0x8000, 0x1_0000),
-        movement: mask(0x2_0000, 0x4_0000),
-        placement: mask(0x8_0000, 0x10_0000),
-    }
+    auberean_physics::solid::Ethereality::of_numbers(number)
 }
 
 /// Entry `key` takes the properties of the entity record `desc` its object is made from (an

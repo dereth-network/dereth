@@ -308,7 +308,7 @@ fn shape_of(m: &ServerMessage) -> String {
                 Some(Node::Text(_)) => "t".to_string(),
                 Some(Node::TextInfo(_)) => "x".to_string(),
                 Some(Node::Native { ty, .. }) => format!("n{ty:X}"),
-                Some(Node::Other) | None => "o".to_string(),
+                Some(Node::Other | Node::Singleton(_)) | None => "o".to_string(),
             },
         })
         .collect::<Vec<_>>()

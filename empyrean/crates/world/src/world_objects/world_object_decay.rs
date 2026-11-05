@@ -136,7 +136,9 @@ pub fn decay(w: &mut World, this: ObjectGuid, elapsed: TimeSpan) {
         }
 
         let inventory_count = container::inventory(obj(w, this)).len();
+        // DIVERGE: `EraFormulas::empty_corpses_rot_early` (V476).
         if inventory_count == 0
+            && w.era.formulas.empty_corpses_rot_early
             && obj(w, this)
                 .time_to_rot()
                 .is_some_and(|t| t > corpse::EMPTY_DECAY_TIME)
@@ -205,7 +207,12 @@ pub fn decay(w: &mut World, this: ObjectGuid, elapsed: TimeSpan) {
     obj_mut(w, this).wo.world_object_decay.decay_completed = true;
 
     // If this is a player corpse, puke out the corpses contents onto the landblock
-    if is_corpse && !corpse::fields(w, this).is_monster {
+    // DIVERGE: and a monster corpse's too before its loot decayed with it
+    // (`EraFormulas::monster_corpses`, V476).
+    if is_corpse
+        && (!corpse::fields(w, this).is_monster
+            || w.era.formulas.monster_corpses.loot_left_behind())
+    {
         let inventory_guids: Vec<ObjectGuid> =
             container::inventory(obj(w, this)).keys().copied().collect();
 

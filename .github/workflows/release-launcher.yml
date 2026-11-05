@@ -1,0 +1,381 @@
+name: Release Launcher
+
+# Builds, checks and drafts a release of the Dereth Network launcher: the launcher with no game
+# client beside it, for Windows, macOS and Linux. A pushed `launcher-v<version>` tag builds every
+# target and creates a DRAFT GitHub release, which `cargo xtask publish drafts` publishes before any
+# game's. Running it by hand (workflow_dispatch) is a dry run: the same builds and checks, the release
+# files kept as a workflow artifact for 7 days, nothing published.
+#
+# Every job runs `cargo xtask package launcher`, which builds the launcher exactly as
+# `cargo xtask package dereth` does (the same configuration and environment, from this commit, with
+# Dereth's client and tool as that build's inputs and MoltenVK on macOS), then takes the client out.
+#
+# Dereth's and Auberean's packages hold this release's files. The launcher carries the retail
+# client's friends library (auberean_friends.dll) beside it: one Windows job builds it (`cargo xtask package friends-dll`)
+# and every system's job takes that same file.
+#
+# The release's description starts with its notes, which `cargo xtask release-notes launcher` writes
+# from the tagged tree: the release's section of launcher/CHANGES.md, then the launcher's commits
+# since the previous launcher-v tag, grouped. A dry run writes the notes the next release would get.
+
+on:
+  push:
+    tags: ['launcher-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-launcher-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # The build tools, pinned: the same as Dereth's release, so the launcher is built the same way.
+  CARGO_ABOUT_VERSION: 0.9.2
+  TAURI_CLI_VERSION: 2.12.0
+  # MoltenVK, which the launcher's macOS build takes in as Dereth's does: pinned by its checksum.
+  MOLTENVK_URL: https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
+  MOLTENVK_SHA256: f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e
+  # The Linux AppImage's packer and the runtime it embeds, pinned by their checksums: the launcher's
+  # AppImage is unpacked and packed again with the client taken out.
+  APPIMAGETOOL_URL: https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage
+  APPIMAGETOOL_SHA256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+  APPIMAGE_RUNTIME_URL: https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64
+  APPIMAGE_RUNTIME_SHA256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+  # Where the release files are downloaded from, the repository whose releases the launcher
+  # updates from, and the source the notices name: this repository, as in Dereth's release.
+  DERETH_BUILD_SOURCE_URL: https://github.com/${{ github.repository }}
+
+jobs:
+  version:
+    name: version and tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install the workspace Rust version
+        shell: bash
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup override set "$toolchain"
+      - name: The tag names the version the launcher carries, on main
+        id: version
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=$(cargo xtask version launcher --tag "$GITHUB_REF_NAME")
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::$GITHUB_REF_NAME is not on main"
+              exit 1
+            fi
+          else
+            version=$(cargo xtask version launcher)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "The launcher $version"
+      - name: The release notes, from CHANGES.md and the commits since the previous release
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            cargo xtask release-notes launcher --version "$VERSION" --out target/release-notes.md
+          else
+            cargo xtask release-notes launcher --out target/release-notes.md
+          fi
+          cat target/release-notes.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-notes-launcher
+          path: target/release-notes.md
+          if-no-files-found: error
+          retention-days: 7
+
+  friends-library:
+    name: the retail client's friends library
+    # Built once, on Windows (the only host that links a 32-bit Windows DLL), and given to every
+    # system's package job: each package carries the same file beside the launcher.
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install the workspace Rust version and the retail client's target
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal --target i686-pc-windows-msvc
+          rustup override set "$toolchain"
+      - name: cargo xtask package friends-dll
+        run: cargo xtask package friends-dll --out friends-library
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: friends-library-launcher
+          path: friends-library/auberean_friends.dll
+          if-no-files-found: error
+          retention-days: 7
+
+  package:
+    name: package (${{ matrix.target }})
+    needs: [version, friends-library]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+          # Ubuntu 22.04's glibc (2.35) is the oldest a Linux release runs on.
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { target: aarch64-apple-darwin, os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          # The build number is the commit count.
+          fetch-depth: 0
+      - name: Install the workspace Rust version and the target
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal --target ${{ matrix.target }}
+          rustup override set "$toolchain"
+      - name: Install the Linux build dependencies (the web view, the AppImage tools, ALSA)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
+            libssl-dev libasound2-dev build-essential pkg-config curl wget file patchelf
+      - name: Fetch appimagetool and the AppImage runtime (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/appimagetool" "$APPIMAGETOOL_URL"
+          echo "$APPIMAGETOOL_SHA256  $RUNNER_TEMP/appimagetool" | sha256sum -c -
+          curl -fsSL -o "$RUNNER_TEMP/appimage-runtime" "$APPIMAGE_RUNTIME_URL"
+          echo "$APPIMAGE_RUNTIME_SHA256  $RUNNER_TEMP/appimage-runtime" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          echo "APPIMAGETOOL=$RUNNER_TEMP/appimagetool" >> "$GITHUB_ENV"
+          echo "APPIMAGE_RUNTIME=$RUNNER_TEMP/appimage-runtime" >> "$GITHUB_ENV"
+      - name: Fetch locked dependencies
+        run: |
+          cargo fetch --locked
+          cargo fetch --locked --manifest-path launcher/Cargo.toml
+      - name: Install cargo-about and the Tauri CLI
+        run: |
+          cargo install --locked "cargo-about@$CARGO_ABOUT_VERSION" --features cli
+          cargo install --locked "tauri-cli@$TAURI_CLI_VERSION"
+      - name: Fetch MoltenVK (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/MoltenVK-macos.tar" "$MOLTENVK_URL"
+          echo "$MOLTENVK_SHA256  $RUNNER_TEMP/MoltenVK-macos.tar" | shasum -a 256 -c -
+          tar -xf "$RUNNER_TEMP/MoltenVK-macos.tar" -C "$RUNNER_TEMP"
+          echo "DERETH_MOLTENVK_DIR=$RUNNER_TEMP/MoltenVK" >> "$GITHUB_ENV"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: friends-library-launcher
+          path: friends-library
+      - name: cargo xtask package launcher
+        env:
+          # The launcher's update-signing key, the same as Dereth's release signs with. Without it
+          # the files are built unsigned and no latest.json is written, which a tag refuses below.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: cargo xtask package launcher --target ${{ matrix.target }} --out dist --friends-dll friends-library/auberean_friends.dll
+      - name: A release is signed
+        if: github.ref_type == 'tag'
+        run: |
+          if ! ls dist/latest-*.json > /dev/null 2>&1; then
+            echo "::error::the release file is not signed for the launcher's updates: set the TAURI_SIGNING_PRIVATE_KEY secret"
+            exit 1
+          fi
+      - name: Smoke-run the packaged launcher
+        env:
+          TARGET: ${{ matrix.target }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          mkdir smoke
+          case "$TARGET" in
+            *windows*)
+              (cd smoke && 7z x "../dist/launcher-$VERSION-windows-x86_64.zip" > /dev/null)
+              dir="smoke/launcher-$VERSION"
+              launcher="$dir/dereth.exe"
+              clients="$dir/dereth-client.exe $dir/auberean.exe"
+              library="$dir/auberean_friends.dll" ;;
+            *linux*)
+              appimage="$PWD/dist/Launcher-$VERSION-linux-x86_64.AppImage"
+              (cd smoke && "$appimage" --appimage-extract > /dev/null)
+              launcher="smoke/squashfs-root/usr/bin/dereth"
+              clients="smoke/squashfs-root/usr/bin/dereth-client smoke/squashfs-root/usr/bin/auberean"
+              library=$(find smoke/squashfs-root -name auberean_friends.dll | head -n 1) ;;
+            *apple*)
+              arch=${TARGET%%-*}
+              tar -xzf "dist/Launcher-$VERSION-macos-$arch.app.tar.gz" -C smoke
+              codesign --verify --deep --strict smoke/Dereth.app
+              launcher="smoke/Dereth.app/Contents/MacOS/dereth"
+              clients="smoke/Dereth.app/Contents/MacOS/dereth-client smoke/Dereth.app/Contents/MacOS/auberean"
+              library="smoke/Dereth.app/Contents/Resources/auberean_friends.dll" ;;
+          esac
+          "$launcher" --version | tee version-launcher.txt
+          grep -qx "dereth $VERSION" version-launcher.txt
+          grep -qx "target: $TARGET" version-launcher.txt
+          # No game's client is carried.
+          for client in $clients; do test ! -e "$client"; done
+          # The retail client's friends library is beside the launcher: the one built for this release.
+          cmp "$library" "friends-library/auberean_friends.dll"
+          echo "::notice::the launcher has no headless mode, so its window is not opened here"
+      - name: Keep this target's files (the index is written by the gather job)
+        run: rm -f dist/SHA256SUMS dist/MANIFEST.txt dist/release.json dist/latest.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: launcher-${{ matrix.target }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  gather:
+    name: gather the release
+    needs: [version, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Install the workspace Rust version
+        run: |
+          toolchain=$(sed -n 's/^rust-version *= *"\([^"]*\)".*/\1/p' Cargo.toml)
+          test -n "$toolchain"
+          rustup toolchain install "$toolchain" --profile minimal
+          rustup override set "$toolchain"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: launcher-*
+          path: dist
+          merge-multiple: true
+      # Scans every file again, verifies every update signature, and writes MANIFEST.txt,
+      # release.json, latest.json and SHA256SUMS over them.
+      - name: cargo xtask package launcher --gather
+        run: cargo xtask package launcher --gather dist
+      - name: A release has its latest.json
+        if: github.ref_type == 'tag'
+        run: test -s dist/latest.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-launcher-${{ needs.version.outputs.version }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/*.AppImage
+            dist/SHA256SUMS
+            dist/MANIFEST.txt
+            dist/release.json
+            dist/latest.json
+          if-no-files-found: error
+          retention-days: 7
+
+  draft:
+    name: draft the GitHub release
+    if: github.ref_type == 'tag'
+    needs: [version, gather]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-launcher-${{ needs.version.outputs.version }}
+          path: dist
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-notes-launcher
+          path: notes
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          cd dist
+          sha256sum -c SHA256SUMS
+          # The notes first (highlights, then all changes), then how to install.
+          cp ../notes/release-notes.md ../notes.md
+          cat >> ../notes.md <<EOF
+
+          ## Downloads
+
+          The Dereth Network launcher $VERSION, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
+
+          | system | download | |
+          |---|---|---|
+          | Windows | \`launcher-$VERSION-windows-x86_64.zip\` | unzip anywhere and run \`dereth.exe\`; no installer |
+          | macOS | \`Launcher-$VERSION-macos-aarch64.app.tar.gz\` (Apple silicon) | unpack and move \`Dereth.app\` to Applications |
+          | Linux | \`Launcher-$VERSION-linux-x86_64.AppImage\` | mark it executable and run it |
+
+          The launcher finds and starts both games' clients, servers and world builders, and keeps them and itself up to date from this repository's releases.
+
+          **No game is included**: it fetches the clients you choose, and they play with the data files of your own install.
+
+          These builds are not code-signed yet. Windows SmartScreen asks once (More info, then Run anyway); macOS asks once (System Settings, Privacy & Security, Open Anyway).
+
+          Verifying a download: \`sha256sum -c SHA256SUMS --ignore-missing\`
+          EOF
+          # Every file gets a display label, computed from its platform; the file names stay as
+          # they are. A file with no label fails the job, so a new target cannot go unlabelled.
+          assets=()
+          unlabelled=()
+          for f in *; do
+            label=""
+            case "$f" in
+              SHA256SUMS) label="Checksums (SHA-256)" ;;
+              MANIFEST.txt) label="Release manifest" ;;
+              release.json) label="Release facts (JSON)" ;;
+              latest.json) label="Updater manifest" ;;
+              "launcher-$VERSION-"*)
+                case "${f#"launcher-$VERSION-"}" in
+                  windows-x86_64.zip) label="Launcher · Windows x64 (zip, no installer)" ;;
+                esac ;;
+              "Launcher-$VERSION-"*)
+                case "${f#"Launcher-$VERSION-"}" in
+                  macos-aarch64.app.tar.gz) label="Launcher · macOS Apple silicon" ;;
+                  linux-x86_64.AppImage) label="Launcher · Linux x86-64 AppImage (glibc 2.35+)" ;;
+                esac ;;
+            esac
+            if [ -n "$label" ]; then
+              assets+=("$f#$label")
+              echo "$f: $label"
+            else
+              unlabelled+=("$f")
+            fi
+          done
+          if [ ${#unlabelled[@]} -gt 0 ]; then
+            echo "::error::no label for ${unlabelled[*]}"
+            exit 1
+          fi
+          PRE=""
+          # A pre-release version carries a suffix (`0.2.0-rc.1`); the tag always holds a hyphen.
+          case "$VERSION" in *-*) PRE="--prerelease" ;; esac
+          # Dereth's release stays the repository's "Latest".
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --latest=false $PRE \
+            --title "Dereth Network launcher $VERSION" --notes-file ../notes.md \
+            "${assets[@]}"

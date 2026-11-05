@@ -53,7 +53,7 @@ pub fn bind(t: &mut NativeTable) {
 }
 
 /// Set the target's or the weapon's behavior: a copy of the parameters the argument names.
-// D2-08562, D2-08564
+// D2-08562, D2-08564, D2-15865, D2-15904
 fn set_behavior(c: &mut Call<'_>) -> Result<Status, Stop> {
     if c.receiver()? == NULL {
         return Ok(Status::Crash);

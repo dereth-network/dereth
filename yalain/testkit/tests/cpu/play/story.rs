@@ -121,6 +121,106 @@ fn a_new_character_is_given_the_starting_scenes_as_it_first_enters() {
         .contains(&yalain_world::calls::Value::Int(STARTING)));
 }
 
+/// A vault's shard that has a quest completes it as the player comes out, before its use is
+/// answered: the quest's pay and points, with no text and no update told; each time it is used, and
+/// the scene stays one. A shard without one pays nothing.
+/// Behaviour: server.story.shard-completes-its-quest
+#[test]
+fn a_vaults_shard_completes_its_quest_as_the_player_comes_out() {
+    const QUEST: u32 = 0x4000_0033;
+    let mut h = world();
+    h.server.quests.quests = vec![yalain_content::quests::QuestDef {
+        id: QUEST,
+        name: (1, 2),
+        description: (3, 4),
+        icon: 0,
+        play_fx: false,
+        journals: Vec::new(),
+        challenge: -999,
+        duration: 0.0,
+        timed_phase: 0,
+        retry: 0.0,
+        xp: 800,
+        cancellable: false,
+        placed: "authored for a test".into(),
+        hidden: true,
+        effects: Vec::new(),
+        subquests: Vec::new(),
+        min_level: 0,
+        fails_on_death: false,
+        once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
+        hero_only: false,
+        pay: yalain_content::quests::CompletionPay {
+            points: 400,
+            ..yalain_content::quests::CompletionPay::default()
+        },
+        required: None,
+    }];
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let conn = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == ida)
+        .expect("in the world")
+        .0;
+    let trip = |h: &mut Harness| {
+        put_beside_the_shard(h, ida);
+        let from = h.bots[a].inbox.len();
+        h.ask(
+            a,
+            yalain_world::requests::function::USE,
+            &[use_of(SHARD, ida)],
+            10,
+        );
+        let t = h.now.0;
+        h.run_to(yalain_net::LocalTime(t + 10.5));
+        h.run(3);
+        // Into portal space: nothing paid yet.
+        let paid = yalain_world::quals::long(&h.server.players[&conn].qualities, 300);
+        h.run_to(yalain_net::LocalTime(t + 14.0));
+        h.run(3);
+        (from, paid)
+    };
+    let total = |h: &Harness| yalain_world::quals::long(&h.server.players[&conn].qualities, 300);
+    let rating = |h: &Harness| h.server.players[&conn].play.quest_rating;
+    // No quest named.
+    let before = total(&h);
+    trip(&mut h);
+    assert_eq!((total(&h), rating(&h)), (before, 0), "no quest, no pay");
+    h.server.story.shard_quests.insert(SHARD, QUEST);
+    for times in 1..=2u32 {
+        let before = total(&h).unwrap_or(0);
+        let (from, at_scene) = trip(&mut h);
+        assert_eq!(at_scene.unwrap_or(0), before, "not as the scene plays");
+        assert_eq!(total(&h).unwrap_or(0), before + 800, "the quest's pay");
+        assert_eq!(rating(&h), 400 * times, "the quest's points, each time");
+        let f = h.functions(a, from);
+        assert!(
+            !f.contains(&yalain_world::quests::UPDATE_QUEST),
+            "no update"
+        );
+        let out = f
+            .iter()
+            .position(|x| *x == trip::EXIT_PORTAL_SPACE)
+            .expect("arrived");
+        let answered = f
+            .iter()
+            .rposition(|x| *x == 0x8216_0021)
+            .expect("the use answered");
+        assert!(out < answered, "{f:x?}");
+    }
+    let held: Vec<_> = h.server.players[&conn]
+        .play
+        .scenes
+        .iter()
+        .filter(|s| **s == SCENE)
+        .collect();
+    assert_eq!(held.len(), 1, "the scene once");
+}
+
 /// Using a story shard plays the shard's behavior; ten seconds later the scene is added, the
 /// player protected and played the scene and taken into portal space, coming out at the shard's
 /// destination; the scenes done, the protection ends three and a half seconds later; the scene is

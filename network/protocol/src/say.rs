@@ -78,6 +78,21 @@ pub fn without_mark(name: &str) -> &str {
     }
 }
 
+/// A name marked with where its line was said: `Ann (Discord)` for a line said in Discord, and
+/// for a place this version does not name, its word with its first letter capitalized.
+#[must_use]
+pub fn marked(name: &str, via: &str) -> String {
+    let place = if via == VIA_DISCORD {
+        "Discord".to_owned()
+    } else {
+        let mut c = via.chars();
+        c.next()
+            .map(|first| first.to_uppercase().chain(c).collect())
+            .unwrap_or_default()
+    };
+    format!("{name} ({place})")
+}
+
 /// Whether `s` may be a refusal's reason: 1 to [`MAX_REASON_CHARS`] of `a-z` and `_`.
 #[must_use]
 pub fn is_reason(s: &str) -> bool {

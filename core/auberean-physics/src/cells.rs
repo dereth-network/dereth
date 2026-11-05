@@ -666,14 +666,12 @@ pub fn in_same_block(a: CellId, b: CellId) -> bool {
 
 /// Whether a point in a landblock's frame lies over it: from 0 (included) to 160 m (excluded)
 /// east and north.
-// D2-03611
 #[must_use]
 pub fn within_block(v: Vec3) -> bool {
     0.0 <= v.x && 0.0 <= v.y && v.x < crate::rules::BLOCK_LENGTH && v.y < crate::rules::BLOCK_LENGTH
 }
 
 /// The whole-block cell of the landblock at block coordinates `(x, y)`; 0 off the map.
-// D2-10949
 #[must_use]
 pub fn block_id_at(x: i32, y: i32) -> u32 {
     let (lx, ly) = (x.wrapping_shl(BLOCK_SHIFT), y.wrapping_shl(BLOCK_SHIFT));

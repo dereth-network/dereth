@@ -409,7 +409,25 @@ pub fn settle_ethereality<S: Store>(s: &mut Server<S>, net: &mut ServerNet, worl
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
+    // An admin's override stands until the admin lifts it.
+    if p.admin.ethereality != crate::admin_calls::Ethereality::Normal {
+        return;
+    }
     let want = ethereality(status_of(p), of(&p.qualities));
+    tell_ethereality(s, net, world, want);
+}
+
+/// Set a player's movement ethereality: when it changes, every client that knows the player is
+/// told.
+pub fn tell_ethereality<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    want: i32,
+) {
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
     if kept_ethereality(&p.qualities) == want {
         return;
     }

@@ -633,11 +633,37 @@ fn a_collision_sets_a_missile_off_on_what_it_strikes() {
         g.should_detonate(&host, &report(&[(8, true, true)])),
         Some(Some(8))
     );
+    assert_eq!(
+        g.should_detonate(&host, &report(&[(7, true, true)])),
+        None,
+        "going off on a miss, its target is no more than any other object"
+    );
     let mut hit = report(&[]);
     hit.normal_state = state::BEGIN;
     assert_eq!(g.should_detonate(&host, &hit), Some(None));
     hit.normal_state = state::END;
     assert_eq!(g.should_detonate(&host, &hit), None);
+}
+
+/// What a missile knows of another object says whether its game object is a player or a
+/// creature, as the host noted it, for an object that moves and one that does not.
+///
+/// Behaviour: missile.detonate.an-object-noted-says-whether-it-is-a-player-or-a-creature
+#[test]
+fn an_object_noted_says_whether_it_is_a_player_or_a_creature() {
+    use auberean_physics::body::missile::{ObjectTable, Objects};
+    let body = crate::contact::objects::body(1.0, 1.0);
+    let one = Vec3::new(1.0, 1.0, 1.0);
+    let mut table = ObjectTable::default();
+    table.note(1, &body, true);
+    table.note(2, &body, false);
+    table.note_still(3, at(2.0, 2.0, 0.0), 1.0, one, true);
+    table.note_still(4, at(2.0, 2.0, 0.0), 1.0, one, false);
+    let asked = |id| table.object(id).map(|o| o.player_or_creature);
+    assert_eq!(asked(1), Some(true));
+    assert_eq!(asked(2), Some(false));
+    assert_eq!(asked(3), Some(true));
+    assert_eq!(asked(4), Some(false));
 }
 
 /// A missile that goes off stops flying (its flight effect and streak stop) and fades out over

@@ -12,19 +12,24 @@ use std::collections::BTreeMap;
 use auberean_animation::body::Body as Figure;
 use auberean_animation::look::{Desc, Look};
 use auberean_animation::CachedRecords;
-use auberean_assets::entity::Entity;
 use auberean_assets::property::{PropertyCollection, PropertyValue};
 use auberean_assets::ui::UiScene;
 use auberean_draw::body::BodyDrawer;
-use auberean_draw::scene::{Camera, Frame, ObjectBatch, SceneBuilder};
+use auberean_draw::effects::ViewEffects;
+use auberean_draw::particles::camera_axes;
+use auberean_draw::scene::{light_view_draw, Camera, Frame, ObjectBatch, SceneBuilder};
+use auberean_primitives::random::Random;
 use auberean_primitives::{Quat, Vec3};
 use auberean_world::color::Color;
+use auberean_world::inside::{BlockLights, Light, Outside};
 use auberean_world::math::{self, Mat4};
 use auberean_world::place::{entity_parts, Part};
 use auberean_world::records::WorldRecords;
 use auberean_world::sky::DayLight;
 use dereth_primitives::num::math as fm;
 
+/// The light of an appearance scene the screen stands behind the camera, shining along its view.
+const CAMERA_LIGHT: &str = "Light_1";
 /// The entity kinds of an interface scene: a camera, a light.
 pub const CAMERA_KIND: u32 = 0x4000_0005;
 pub const LIGHT_KIND: u32 = 0x4000_0006;
@@ -37,9 +42,6 @@ pub const FOV: u32 = 0x4000_001F;
 pub const VERTICAL_SCALE: u32 = 0x4000_0020;
 pub const NEAR: u32 = 0x4000_0021;
 pub const FAR: u32 = 0x4000_0022;
-/// A light's properties: its diffuse color and intensity.
-const LIGHT_COLOR: u32 = 0x4000_0008;
-const LIGHT_INTENSITY: u32 = 0x4000_0009;
 
 /// Where a viewport's camera stands and looks, and how it sees: through a perspective of its field
 /// of view, or straight on (orthographic), `vertical_scale` metres from the picture's foot to its
@@ -204,6 +206,10 @@ pub struct ViewScene {
     pub figures: Vec<ViewFigure>,
     /// A pick asked at the pointer (window pixels).
     pub pick: Option<(f32, f32)>,
+    /// Behaviors figures are to begin this frame: the figure's place in `figures`, the behavior.
+    pub behaviors: Vec<(usize, u32)>,
+    /// Drawn under the interface's picture behind the scenes, showing where that has no picture.
+    pub under: bool,
 }
 
 /// A viewport's frame: where it goes in the window, and what it shows.
@@ -211,18 +217,26 @@ pub struct ViewScene {
 pub struct ViewFrame {
     pub rect: [f32; 4],
     pub frame: Frame,
+    /// Drawn under the interface's picture behind the scenes.
+    pub under: bool,
 }
 
 struct Kept {
     figure: ViewFigure,
     body: Option<Figure>,
     scale: Vec3,
+    /// The behavior it was asked to play, while it plays it.
+    behavior: Option<u32>,
 }
 
 struct KeptScene {
     scene: u32,
     parts: Vec<Part>,
-    lights: Vec<(Vec3, Color, f32)>,
+    lights: BlockLights,
+    /// Its lights but the one a screen turns into a light from behind the camera.
+    other_lights: BlockLights,
+    fog: Option<(Color, f32, f32)>,
+    effects: ViewEffects,
     figures: Vec<Kept>,
 }
 
@@ -238,6 +252,12 @@ pub struct ViewHit {
 #[derive(Default)]
 pub struct Views {
     kept: BTreeMap<usize, KeptScene>,
+    /// The client's one generator of random numbers, which the scenes' effects draw from.
+    pub dice: Random,
+    /// How long the scenes have been drawn, the clock their effects run on.
+    clock: f64,
+    /// The figures still playing a behavior they were asked to: the scene, the figure.
+    pub behaving: Vec<(usize, usize)>,
     /// What each scene's last pick met (scene index, what it met).
     pub picked: Vec<(usize, Option<ViewHit>)>,
 }
@@ -248,20 +268,6 @@ impl std::fmt::Debug for Views {
             .field("scenes", &self.kept.len())
             .finish_non_exhaustive()
     }
-}
-
-fn float_of(e: &Entity, id: u32) -> Option<f32> {
-    e.properties.as_ref()?.iter().find_map(|p| match p.value {
-        PropertyValue::Float(v) if p.id == id => Some(v),
-        _ => None,
-    })
-}
-
-fn color_of(e: &Entity, id: u32) -> Option<Color> {
-    e.properties.as_ref()?.iter().find_map(|p| match p.value {
-        PropertyValue::Integer(v) if p.id == id => Some(Color::from_argb(v.cast_unsigned())),
-        _ => None,
-    })
 }
 
 fn forward_of(q: Quat) -> Vec3 {
@@ -334,16 +340,27 @@ impl Views {
         if fresh {
             let mut parts = Vec::new();
             let mut lights = Vec::new();
+            let mut other_lights = Vec::new();
+            let mut effects = ViewEffects::default();
+            let mut fog = None;
             if let Some(s) = (scene != 0)
                 .then(|| records.get::<UiScene>(scene))
                 .flatten()
             {
+                if s.fog {
+                    fog = Some((Color::from_argb(s.fog_color.0), s.fog_near, s.fog_far));
+                }
+                effects = ViewEffects::of_scene(records, &s.entities, &self.dice);
                 for e in &s.entities {
                     if e.kind == Some(LIGHT_KIND) {
                         let at = e.offset.map(|o| o.frame.origin).unwrap_or(Vec3::ZERO);
-                        let color = color_of(e, LIGHT_COLOR).unwrap_or(Color::WHITE);
-                        let k = float_of(e, LIGHT_INTENSITY).unwrap_or(0.5);
-                        lights.push((at, color, k));
+                        let none = PropertyCollection::default();
+                        let properties = e.properties.as_ref().unwrap_or(&none);
+                        let (light, _, _) = Light::of_properties(0, at, properties);
+                        if e.name.as_deref() != Some(CAMERA_LIGHT) {
+                            other_lights.push(light.clone());
+                        }
+                        lights.push(light);
                     } else {
                         parts.extend(entity_parts(records, e));
                     }
@@ -354,7 +371,10 @@ impl Views {
                 KeptScene {
                     scene,
                     parts,
-                    lights,
+                    lights: BlockLights::of_scene(lights),
+                    other_lights: BlockLights::of_scene(other_lights),
+                    fog,
+                    effects,
                     figures: Vec::new(),
                 },
             );
@@ -382,7 +402,10 @@ impl Views {
         dt: f32,
     ) -> Vec<ViewFrame> {
         self.release_gone(scenes.len());
+        self.clock += f64::from(dt);
+        let now = self.clock;
         let mut picked = Vec::new();
+        let mut behaving = Vec::new();
         let mut out = Vec::new();
         for (i, v) in scenes.iter().enumerate() {
             let kept = self.keep(records, i, v.scene);
@@ -390,6 +413,18 @@ impl Views {
             for (k, f) in v.figures.iter().enumerate() {
                 let same = kept.figures.get(k).is_some_and(|x| x.figure == *f);
                 if same {
+                    continue;
+                }
+                // Another mode alone: the figure goes over to it by its table's graph.
+                if let Some(x) = kept
+                    .figures
+                    .get_mut(k)
+                    .filter(|x| x.figure.mode != f.mode && same_but_mode(&x.figure, f))
+                {
+                    if let Some(b) = &mut x.body {
+                        b.do_mode(anims, 0, f.mode);
+                    }
+                    x.figure.mode = f.mode;
                     continue;
                 }
                 let look = Look::of(anims, &f.look).ok();
@@ -408,6 +443,7 @@ impl Views {
                     figure: f.clone(),
                     body,
                     scale,
+                    behavior: None,
                 };
                 if k < kept.figures.len() {
                     kept.figures[k] = kept_figure;
@@ -415,11 +451,26 @@ impl Views {
                     kept.figures.push(kept_figure);
                 }
             }
+            for &(k, behavior) in &v.behaviors {
+                if let Some(f) = kept.figures.get_mut(k) {
+                    if let Some(b) = &mut f.body {
+                        let params = auberean_animation::track::Params::behavior(behavior);
+                        if b.do_behavior(anims, &params) {
+                            f.behavior = Some(behavior);
+                        }
+                    }
+                }
+            }
             let mut bodies: Vec<(usize, Vec<ObjectBatch>)> = Vec::new();
+            let mut stand: Vec<(Vec3, f32)> = Vec::new();
             for (k, f) in kept.figures.iter_mut().enumerate() {
                 let Some(b) = &mut f.body else { continue };
                 if !f.figure.still {
                     b.advance(anims, dt);
+                }
+                match f.behavior {
+                    Some(id) if b.is_doing_behavior(id) => behaving.push((i, k)),
+                    _ => f.behavior = None,
                 }
                 let rot = auberean_physics::body::heading_rotation(f.figure.heading);
                 let place = Mat4::from_parts(
@@ -434,119 +485,166 @@ impl Views {
                 );
                 let poses = b.pose(anims);
                 bodies.push((k, drawer.batches(records, b, &poses, &place)));
+                stand.push((f.figure.origin, f.figure.heading));
             }
             if let Some(p) = v.pick {
-                let hit = pick(&v.camera, v.rect, p, &bodies);
+                let hit = pick(&v.camera, v.rect, p, &bodies, &stand);
                 picked.push((i, hit));
             }
-            let light = match v.light {
+            let (light, lit_by) = match v.light {
                 ViewLight::Camera => {
                     let (f, _, _) = v.camera.axes();
-                    DayLight {
+                    let light = DayLight {
                         ambient_brightness: 0.1,
                         ambient_color: Color::WHITE,
                         direct_brightness: 0.6,
                         direct_color: Color::WHITE,
                         light_direction: math::normalize(math::add(f, Vec3::new(0.0, 0.0, -0.5))),
-                        fog_min: 0.0,
-                        fog_max: 0.0,
-                        ..DayLight::DEFAULT
-                    }
+                        ..with_fog(kept.fog)
+                    };
+                    let others = !kept.other_lights.lights.is_empty();
+                    (light, others.then_some((&kept.other_lights, true)))
                 }
-                ViewLight::Scene => scene_light(&kept.lights, &v.camera),
+                ViewLight::Scene if kept.lights.lights.is_empty() => (default_light(), None),
+                ViewLight::Scene => (with_fog(kept.fog), Some((&kept.lights, false))),
             };
+            if let Some((lights, sun)) = lit_by {
+                let outside = Outside::of(&light);
+                let mut order = lights.scene();
+                for ((_, batches), (at, _)) in bodies.iter_mut().zip(&stand) {
+                    light_view_draw(batches, *at, lights, &mut order, &outside, sun);
+                }
+            }
             let camera = v.camera.drawn();
             let batches = bodies.into_iter().flat_map(|(_, b)| b).collect();
-            let frame = builder.parts_frame(&kept.parts, batches, camera, light);
+            let mut frame = builder.parts_frame(&kept.parts, batches, camera, light, lit_by);
+            let outside = Outside::of(&light);
+            let sun = Color::new(
+                light.direct_color.r * light.direct_brightness,
+                light.direct_color.g * light.direct_brightness,
+                light.direct_color.b * light.direct_brightness,
+                1.0,
+            );
+            frame.objects.extend(kept.effects.batches(
+                records,
+                now,
+                sun,
+                lit_by.map(|(lights, _)| (lights, &outside)),
+                camera.position,
+                camera_axes(camera.heading, camera.pitch),
+            ));
             out.push(ViewFrame {
                 rect: v.rect,
                 frame,
+                under: v.under,
             });
         }
         self.picked = picked;
+        self.behaving = behaving;
         out
     }
 }
 
-/// A scene lit by its own lights, as one light can stand for them: the brightest's color along
-/// its way to the camera's view, the others as ambient; with none, the default light.
-fn scene_light(lights: &[(Vec3, Color, f32)], camera: &ViewCamera) -> DayLight {
-    let Some((at, color, k)) = lights.iter().copied().max_by(|a, b| a.2.total_cmp(&b.2)) else {
-        return default_light();
-    };
-    let (f, _, _) = camera.axes();
-    let target = math::add(camera.position, math::scale(f, 3.0));
-    let rest: f32 = lights.iter().map(|l| l.2).sum::<f32>() - k;
-    // The other lights' colors, by their strength, light everything a little.
-    let mut tint = [0.0_f32; 3];
-    for (_, c, w) in lights.iter().filter(|l| l.0 != at) {
-        tint[0] += c.r * w;
-        tint[1] += c.g * w;
-        tint[2] += c.b * w;
-    }
-    let ambient_color = if rest > 0.0 {
-        Color {
-            r: tint[0] / rest,
-            g: tint[1] / rest,
-            b: tint[2] / rest,
-            a: 1.0,
-        }
-    } else {
-        Color::WHITE
-    };
+/// Whether two figures differ in nothing but the mode they stand in.
+fn same_but_mode(a: &ViewFigure, b: &ViewFigure) -> bool {
+    a.look == b.look && a.origin == b.origin && a.heading == b.heading && a.still == b.still
+}
+
+/// The day of a scene lit by its own lights alone: no sun and no ambient light, its own fog.
+fn with_fog(fog: Option<(Color, f32, f32)>) -> DayLight {
+    let (fog_color, fog_min, fog_max) = fog.unwrap_or((Color::WHITE, 0.0, 0.0));
     DayLight {
-        ambient_brightness: (0.25 * rest).min(1.0),
-        ambient_color,
-        direct_brightness: k.min(1.5),
-        direct_color: color,
-        light_direction: math::normalize(math::sub(target, at)),
-        fog_min: 0.0,
-        fog_max: 0.0,
+        ambient_brightness: 0.0,
+        ambient_color: Color::WHITE,
+        direct_brightness: 0.0,
+        direct_color: Color::WHITE,
+        fog_min,
+        fog_max,
+        fog_color,
         ..DayLight::DEFAULT
     }
 }
 
-/// The figure a ray from the camera through the pointer meets first, by its drawn triangles, and
-/// the kind of the mesh it meets there. The pointer is taken in pixels against the viewport's
-/// size: a panel that wants the viewport's own pixels takes its corner off first.
-// D2-10455, D2-10586, D2-10612, D2-06650
+/// The figure a press of the pointer falls on: of the figures under it by their boxes, the nearest
+/// whose drawn triangles the ray from the camera through the pointer meets, with the kind of the
+/// mesh it meets there; failing any, the one whose box reaches least deep, on no mesh (kind 0). The
+/// pointer is taken in pixels against the viewport's size: a panel that wants the viewport's own
+/// pixels takes its corner off first. `stand` says where each of `bodies` stands and its heading.
+// D2-10455, D2-10586, D2-10612, D2-10613, D2-06650, D2-10561
 #[must_use]
 pub fn pick(
     camera: &ViewCamera,
     rect: [f32; 4],
     pointer: (f32, f32),
     bodies: &[(usize, Vec<ObjectBatch>)],
+    stand: &[(Vec3, f32)],
 ) -> Option<ViewHit> {
     let (w, h) = (rect[2] - rect[0], rect[3] - rect[1]);
     if w <= 0.0 || h <= 0.0 {
         return None;
     }
-    let cx = (2.0 * pointer.0 - 1.0) / w - 1.0;
-    let cy = 1.0 - (2.0 * pointer.1 + 1.0) / h;
+    let bounds = crate::seen::selection_bounds((w, h), pointer);
+    let (cx, cy) = (bounds.0, bounds.1);
     let (f, r, u) = camera.axes();
+    let half = camera.vertical_scale * 0.5;
+    let t = fm::tanf((camera.fov_y * 0.5).to_radians());
+    let aspect = w / h;
     let (from, dir) = if camera.orthographic {
         // Straight on: every ray runs along the view, from the near plane at the pointer.
-        let half = camera.vertical_scale * 0.5;
-        let across = math::add(math::scale(r, cx * half * w / h), math::scale(u, cy * half));
+        let across = math::add(
+            math::scale(r, cx * half * aspect),
+            math::scale(u, cy * half),
+        );
         let from = math::add(
             camera.position,
             math::add(across, math::scale(f, camera.near)),
         );
         (from, f)
     } else {
-        let t = fm::tanf((camera.fov_y * 0.5).to_radians());
         let dir = math::normalize(math::add(
             f,
-            math::add(math::scale(r, cx * t * w / h), math::scale(u, cy * t)),
+            math::add(math::scale(r, cx * t * aspect), math::scale(u, cy * t)),
         ));
         (camera.position, dir)
     };
+    let project = |p: Vec3| {
+        let d = math::sub(p, camera.position);
+        let along = math::dot(d, f);
+        if camera.orthographic {
+            (
+                math::dot(d, r) / (half * aspect),
+                math::dot(d, u) / half,
+                along,
+            )
+        } else {
+            (
+                math::dot(d, r) / (along * t * aspect),
+                math::dot(d, u) / (along * t),
+                along,
+            )
+        }
+    };
     let mut best: Option<(f32, ViewHit)> = None;
-    for (k, batches) in bodies {
+    let mut boxed: Option<(f32, usize)> = None;
+    for ((k, batches), (origin, heading)) in bodies.iter().zip(stand) {
+        let body = crate::seen::SeenBody {
+            id: 0,
+            origin: *origin,
+            heading: *heading,
+            bounds: None,
+            faded: false,
+        };
+        let Some(depth) = crate::seen::render_box(&body, batches).and_then(|b| {
+            crate::seen::box_under_pointer(body.corners(b), camera.near, project, bounds)
+        }) else {
+            continue;
+        };
+        let mut met = false;
         for b in batches {
             // Each batch (a part's material) tried as the client tries a part's triangle lists:
             // from either side, the nearest of all kept.
             if let Some(hit) = ray_intersects_tri_list(from, dir, RAY_LENGTH, triangles(b), true) {
+                met = true;
                 if best.is_none_or(|(bd, _)| hit.fraction < bd) {
                     let hit_of = ViewHit {
                         figure: *k,
@@ -556,14 +654,22 @@ pub fn pick(
                 }
             }
         }
+        if !met && boxed.is_none_or(|(d, _)| depth < d) {
+            boxed = Some((depth, *k));
+        }
     }
-    best.map(|(_, hit)| hit)
+    best.map(|(_, hit)| hit).or_else(|| {
+        boxed.map(|(_, figure)| ViewHit {
+            figure,
+            mesh_type: 0,
+        })
+    })
 }
 
 /// A batch's triangles, each corner where the batch places it.
 pub(crate) fn triangles(b: &ObjectBatch) -> impl Iterator<Item = [Vec3; 3]> + '_ {
     let at = |i: u16| {
-        let v = b.vertices.get(usize::from(i))?.position;
+        let v = b.position(usize::from(i))?;
         Some(b.transform.point(Vec3::new(v[0], v[1], v[2])))
     };
     b.indices

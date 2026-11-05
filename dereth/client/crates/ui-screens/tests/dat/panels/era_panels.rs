@@ -636,6 +636,12 @@ fn magic_controls_and_favorite_navigation_follow_independent_profile_facts() {
         void_magic: false,
         spell_level_eight: true,
         spell_favorite_tabs: 7,
+        idle_scroll_thumb: true,
+        one_effects_panel: false,
+        launch_wording: false,
+        map_outdoors_only: false,
+        spell_filter_panel: true,
+        combat_keep_in_view: false,
     });
     book.update(&mut ui, &w);
     bar.update(&mut ui, &w);
@@ -753,12 +759,14 @@ fn character_section_refreshes_when_only_augmentation_availability_changes() {
     w.profile
         .announced_features
         .set("innate_augmentations", false);
+    w.profile.announced_features.set("augmentations", false);
     assert!(sheet.update(&mut ui, &w));
     assert_ne!(sheet.text, with);
     assert!(sheet.sections[4].is_empty());
     w.profile
         .announced_features
         .set("innate_augmentations", true);
+    w.profile.announced_features.set("augmentations", true);
     assert!(sheet.update(&mut ui, &w));
     assert_eq!(sheet.text, with);
 }
@@ -926,4 +934,131 @@ fn map_coordinate_widget_uses_empty_zero_suffix_and_preserves_tiny_signs() {
         ui.text_element_mut(text).unwrap().glyphs.inq_text(false),
         "0.0S, 0.0E"
     );
+}
+
+/// Behaviour: presentation.era.endurance-information-follows-the-world-profile
+#[test]
+fn character_endurance_section_refreshes_without_character_changes() {
+    let (mut ui, s) = screen();
+    let mut sheet = CharacterInfoPanel::default();
+    sheet.post_init(&mut ui, s.roots()[0]);
+    ui.set_visible(sheet.panel.unwrap(), true);
+    let mut w = facts();
+    assert!(sheet.update(&mut ui, &w));
+    let before = sheet.text.clone();
+    let bonus = sheet.sections[1].clone();
+    assert!(!bonus.is_empty());
+    let info = w.character_info();
+    // The announcement turns the benefits off on a world whose era has them.
+    w.profile
+        .announced_features
+        .set("endurance_benefits", false);
+    assert_eq!(w.character_info(), info);
+    assert!(sheet.update(&mut ui, &w));
+    assert_eq!(sheet.sections.len(), 5);
+    assert!(!sheet.text.contains(&bonus));
+    assert!(!sheet.update(&mut ui, &w));
+    w.profile.announced_features.set("endurance_benefits", true);
+    assert!(sheet.update(&mut ui, &w));
+    assert_eq!(sheet.text, before);
+}
+
+/// Behaviour: presentation.era.a-fellowship-always-shares-without-the-founders-choice
+/// A world without the founder's choice has no Share Experience box on the fellowship panel, and
+/// the box is back on a world with it.
+#[test]
+fn a_world_without_fellowship_options_has_no_share_box() {
+    use dereth_client_contract::PlayerOption;
+    use dereth_ui_screens::options::toggle::FELLOWSHIP_OPTION_BOXES;
+    let (mut ui, s) = screen();
+    let root = s.roots()[0];
+    let shown = |ui: &UiSystem, id| {
+        let h = ui.get_child_recursive(root, id).expect("in the layout");
+        ui.node(h).expect("alive").region.flags.visible
+    };
+    let boxes = |option| {
+        FELLOWSHIP_OPTION_BOXES
+            .iter()
+            .find(|(_, o)| *o == option)
+            .map(|(id, _)| *id)
+            .expect("a box of the panel")
+    };
+    let mut w = world(EraId::Eor);
+    w.0.announced_features.set("fellowship_options", false);
+    let mut panels = EraPanels::default();
+    panels.post_init(&ui, root);
+    assert!(panels.update(&mut ui, &w));
+    assert!(!shown(&ui, boxes(PlayerOption::FellowshipShareXP)));
+    assert!(shown(&ui, boxes(PlayerOption::FellowshipShareLoot)));
+    w.0.announced_features.set("fellowship_options", true);
+    assert!(panels.update(&mut ui, &w));
+    assert!(shown(&ui, boxes(PlayerOption::FellowshipShareXP)));
+    for (flag, gone) in [
+        (
+            "fellowship_share_loot",
+            boxes(PlayerOption::FellowshipShareLoot),
+        ),
+        (
+            "fellowship_auto_accept",
+            boxes(PlayerOption::FellowshipAutoAcceptRequests),
+        ),
+        (
+            "fellowship_open",
+            dereth_ui_screens::panels::fellowship::OPEN_BUTTON,
+        ),
+    ] {
+        w.0.announced_features.set(flag, false);
+        assert!(panels.update(&mut ui, &w));
+        assert!(!shown(&ui, gone), "{flag}");
+        assert!(
+            shown(&ui, boxes(PlayerOption::IgnoreFellowshipRequests)),
+            "{flag}"
+        );
+        w.0.announced_features.set(flag, true);
+        assert!(panels.update(&mut ui, &w));
+        assert!(shown(&ui, gone), "{flag}");
+    }
+}
+
+/// Behaviour: presentation.era.key-rows-and-option-keys-follow-the-world
+/// The key page's rows follow the world: built before the world says, they are built again when
+/// it does, without the keys of what it lacks; the binding itself is kept in the map.
+#[test]
+fn the_key_page_lists_only_what_the_world_has() {
+    let (mut ui, mut s) = screen();
+    let input = crate::common::manager();
+    let all = s.key_bindings_init_options(&mut ui, &input);
+    assert!(all > 0);
+    assert!(!s.key_bindings.take_era_change(), "built for what it knew");
+    let lacking = dereth_primitives::EraFeatures {
+        housing: false,
+        apartments: false,
+        ..dereth_primitives::EraFeatures::ALL
+    };
+    assert!(s.apply_era(&mut ui, lacking));
+    assert!(s.key_bindings.take_era_change(), "to be built again");
+    let fewer = s.key_bindings_init_options(&mut ui, &input);
+    assert!(fewer < all, "{fewer} of {all}");
+    assert!(!s.key_bindings.take_era_change());
+    assert!(s.apply_era(&mut ui, dereth_primitives::EraFeatures::ALL));
+    assert!(s.key_bindings.take_era_change());
+    assert_eq!(s.key_bindings_init_options(&mut ui, &input), all);
+}
+
+/// Behaviour: presentation.era.every-interface-refuses-what-the-world-lacks
+/// A rank is a fact about a world with chess: the line leaves the sheet without it.
+#[test]
+fn the_character_sheet_has_a_chess_rank_only_with_chess() {
+    let (mut ui, s) = screen();
+    let root = s.roots()[0];
+    let mut sheet = CharacterInfoPanel::default();
+    sheet.post_init(&mut ui, root);
+    let info = CharacterInfo::default();
+    sheet.era_features = dereth_primitives::EraFeatures::ALL;
+    sheet.write(&mut ui, Some(&info));
+    assert!(sheet.text.contains("Chess"), "{}", sheet.text);
+    sheet.era_features.chess = false;
+    sheet.write(&mut ui, Some(&info));
+    assert!(!sheet.text.contains("Chess"), "{}", sheet.text);
+    assert!(sheet.text.contains("Fishing"), "{}", sheet.text);
 }

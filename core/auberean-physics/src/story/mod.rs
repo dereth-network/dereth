@@ -122,52 +122,34 @@ impl StoryHookData {
         b
     }
 
-    // D2-15839
     pub fn set_weapon(&mut self, weapon: u64) {
         self.weapon = weapon;
     }
 
-    // D2-15840
-    pub fn set_target_health_change(&mut self, change: i32) {
-        self.target_health_change = change;
-    }
-
-    // D2-15841
-    pub fn set_attacker_health_change(&mut self, change: i32) {
-        self.attacker_health_change = change;
-    }
-
-    // D2-15842
     pub fn set_target_pk_damage(&mut self, change: i32) {
         self.target_pk_damage = change;
     }
 
-    // D2-15843
     pub fn set_attack_result(&mut self, result: u32) {
         self.attack_result = result;
     }
 
-    // D2-15844
     pub fn set_anim_hook(&mut self, hook: u32) {
         self.anim_hook = hook;
     }
 
-    // D2-15845
     pub fn set_attack_hook(&mut self, hook: u32) {
         self.attack_hook = hook;
     }
 
-    // D2-15846
     pub fn set_kind_damage(&mut self) {
         self.kind = kind::DAMAGE;
     }
 
-    // D2-15847
     pub fn set_kind_create_missiles(&mut self) {
         self.kind = kind::CREATE_MISSILES;
     }
 
-    // D2-15848
     pub fn set_kind_fire_missile(&mut self) {
         self.kind = kind::FIRE_MISSILE;
     }
@@ -305,17 +287,11 @@ impl<B: Behavior> PhysicsStory<B> {
         b
     }
 
-    // D2-15853
-    pub fn set_client_context(&mut self, context: u32) {
-        self.client_context = context;
-    }
-
     // D2-15854
     pub fn set_skill(&mut self, skill: u32) {
         self.skill = skill;
     }
 
-    // D2-15855
     pub fn set_basic_attack(&mut self, on: bool) {
         self.basic_attack = on;
     }
@@ -328,7 +304,6 @@ impl<B: Behavior> PhysicsStory<B> {
     }
 
     /// The first hook's attack result that is not 0, in hook order; 0 when none is.
-    // D2-15864
     #[must_use]
     pub fn overall_attack_result(&self) -> u32 {
         self.hooks
@@ -412,21 +387,6 @@ impl<B: Behavior> FxAndBehaviorInfo<B> {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
-    }
-
-    // D2-15900
-    pub fn set_weapon_fx(&mut self, fx: u32) {
-        self.weapon_fx = fx;
-    }
-
-    // D2-15865
-    pub fn set_target_behavior(&mut self, b: &B) {
-        self.target_behavior = b.clone();
-    }
-
-    // D2-15904
-    pub fn set_weapon_behavior(&mut self, b: &B) {
-        self.weapon_behavior = b.clone();
     }
 }
 

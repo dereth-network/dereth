@@ -165,6 +165,111 @@ fn a_tell_reaches_the_named_player_and_the_teller_is_shown_it_or_told_the_name_i
     assert_eq!(refused.string_id, chat::strings::UNAVAILABLE);
 }
 
+/// A tell that reaches no player in the world is kept for the friends service, as told, with its
+/// teller; one that reached a player, or from a gagged teller, is not.
+/// Behaviour: server.network.tell-away-linked
+#[test]
+fn a_tell_that_reaches_no_player_in_the_world_is_kept_for_the_friends_service() {
+    let mut h = Harness::new();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (_, _) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let tell = |to: &str| {
+        server_call(
+            function::TELL,
+            &[Arg::Int(0), literal("Psst."), literal(to)],
+        )
+    };
+    h.bots[a].send(true, queue::WEENIE, &tell("Babyfare"));
+    h.run(30);
+    assert!(h.server.unheard_tells.is_empty());
+    h.bots[a].send(true, queue::WEENIE, &tell("Nobody [F]"));
+    h.run(30);
+    assert_eq!(
+        std::mem::take(&mut h.server.unheard_tells),
+        vec![chat::UnheardTell {
+            character: ida,
+            name: "Elara".into(),
+            tellee: "nobody".into(),
+            text: "Psst.".into(),
+        }]
+    );
+    let gag = yalain_world::admin::parse("gag elara")
+        .expect("a moderation command")
+        .expect("it reads");
+    let clock = h.clock();
+    yalain_world::admin::run(
+        &mut h.server,
+        &mut h.net,
+        clock,
+        &yalain_world::admin::Issuer::Console,
+        &gag,
+    );
+    h.bots[a].send(true, queue::WEENIE, &tell("Nobody"));
+    h.run(30);
+    assert!(h.server.unheard_tells.is_empty());
+}
+
+/// A tell finds a character by its name as a client shows it, suffix and grammar mark and all, or by
+/// its name alone; where one character's name is another's name and suffix, it goes to the first.
+/// Behaviour: server.chat.tell-finds-a-suffixed-name
+#[test]
+fn a_tell_finds_a_character_by_its_name_with_or_without_its_suffix() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (b, idb) = h.player_in_world("two", "Babyfare");
+    let (c, _) = h.player_in_world("three", "Babyfare Bold");
+    h.run(10);
+    let suffix = |h: &mut Harness, id: u64, words: &str| {
+        let p = h
+            .server
+            .players
+            .values_mut()
+            .find(|p| p.character == id)
+            .expect("in the world");
+        words.clone_into(&mut p.play.suffix);
+    };
+    let told = |h: &mut Harness, name: &str, who: usize| {
+        let from = h.bots[who].inbox.len();
+        let tell = server_call(
+            function::TELL,
+            &[Arg::Int(0), literal("Psst."), literal(name)],
+        );
+        h.bots[a].send(true, queue::WEENIE, &tell);
+        h.run(30);
+        calls_of(h, who, from, chat::function::HEAR_TELL).len()
+    };
+    suffix(&mut h, idb, "the Grand");
+    assert_eq!(told(&mut h, "Babyfare the Grand [F]", b), 1, "as shown");
+    assert_eq!(told(&mut h, "babyfare the grand", b), 1, "without its mark");
+    assert_eq!(told(&mut h, "Babyfare", b), 1, "its name alone");
+    assert_eq!(
+        told(&mut h, "Babyfare the", b),
+        0,
+        "part of a suffix is no name"
+    );
+    h.server
+        .players
+        .values_mut()
+        .find(|p| p.character == idb)
+        .expect("in the world")
+        .admin
+        .cloaked = true;
+    assert_eq!(told(&mut h, "Babyfare the Grand", b), 0, "one it can't see");
+    h.server
+        .players
+        .values_mut()
+        .find(|p| p.character == idb)
+        .expect("in the world")
+        .admin
+        .cloaked = false;
+    suffix(&mut h, idb, "Bold");
+    assert_eq!(told(&mut h, "Babyfare Bold", c), 1, "the name itself first");
+    assert_eq!(told(&mut h, "Babyfare Bold", b), 0, "not the suffixed one");
+    suffix(&mut h, idb, "");
+    assert_eq!(told(&mut h, "Babyfare Bold", c), 1, "a suffix gone");
+}
+
 /// An emote plays its behavior on the emoter for it and every client that knows it, carrying the
 /// emote's id and a context, with the table's extra settings.
 /// Behaviour: server.chat.emote-plays-its-behavior
@@ -451,6 +556,47 @@ fn the_networks_command_said_aloud_is_heard_by_nobody_and_kept_for_the_friends_s
     assert_eq!(chat::network_words("hello @dn"), None);
 }
 
+/// `@derethnetwork` is `@dn` spelled out, and `@dng <text>` is `@dn global <text>` made short: each
+/// is heard by nobody and kept with its words. A word that only begins with the letters is said.
+/// Behaviour: server.friends.dn-spelled-out-and-dng
+#[test]
+fn derethnetwork_and_dng_are_the_networks_command_under_other_names() {
+    let mut h = Harness::new();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let fb = h.bots[b].inbox.len();
+    for line in [
+        "@DerethNetwork on",
+        "@derethnetwork",
+        "@dng hello all",
+        "@DNG",
+    ] {
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::SAY, &[Arg::Int(0), literal(line)]),
+        );
+    }
+    h.run(30);
+    assert_eq!(heard(&h, b, fb, ida), 0);
+    let kept: Vec<String> = h
+        .server
+        .network_commands
+        .drain(..)
+        .map(|c| c.words)
+        .collect();
+    assert_eq!(kept, ["on", "", "global hello all", "global"]);
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::SAY, &[Arg::Int(0), literal("@dngs is a word")]),
+    );
+    h.run(30);
+    assert_eq!(heard(&h, b, fb, ida), 1, "said as any other line");
+    assert!(h.server.network_commands.is_empty());
+}
+
 /// The Dereth Network's command said into a chat room is answered as the room's request, and
 /// reaches nobody, not even as the speaker's own echo.
 /// Behaviour: server.friends.dn-said-in-chat
@@ -584,4 +730,194 @@ fn a_system_line_the_world_writes_ends_its_line_as_the_clients_strings_do() {
             "Say @dn help for the commands.\n"
         ]
     );
+}
+
+/// What a client was sent by the chat service since `from`, read.
+fn service_packets(h: &Harness, b: usize, from: usize) -> Vec<IncomingPayload> {
+    h.bots[b].inbox[from..]
+        .iter()
+        .filter(|r| !r.world)
+        .filter_map(|r| match r.message() {
+            Some(ServerMessage::Chat(ChatPacket(p))) => decode_incoming(
+                &[
+                    &u32::try_from(p.len()).expect("small").to_le_bytes()[..],
+                    &p,
+                ]
+                .concat(),
+            )
+            .ok()
+            .map(|i| i.payload),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A note as the recorded clients attach it: its version, a zero word, its flags and its speaker's
+/// meta letters. These are the four forms 19,839 recorded lines carry.
+/// Behaviour: server.chat.speaker-note-as-recorded
+#[test]
+fn a_speakers_note_is_what_the_recorded_clients_attach() {
+    let head = [1, 0, 0, 0, 0, 0, 0, 0];
+    for (letters, rest) in [
+        ("M", &[0x01, 0x00, 0xD4, 0x00][..]),
+        ("F", &[0x01, 0x00, 0x64, 0x00][..]),
+        ("Mv", &[0x02, 0x00, 0xEC, 0x92, 0xE3, 0xE5, 0x00, 0x00][..]),
+        ("Fv", &[0x02, 0x00, 0x5C, 0x92, 0xE3, 0xE5, 0x00, 0x00][..]),
+    ] {
+        assert_eq!(chat::speaker_note(letters), [&head[..], rest].concat());
+    }
+    use yalain_world::chargen::FEMALE;
+    assert_eq!(chat::meta_letters("Elara", FEMALE), "Fv");
+    assert_eq!(chat::meta_letters("Babyfare", 0), "M");
+    let none = chat::speaker_note("");
+    assert_eq!(
+        none,
+        [&head[..], &[0, 0, 0, 0]].concat(),
+        "no letters, as a note"
+    );
+}
+
+/// A line from elsewhere reaches every player in the world as the room's own line under the name it
+/// is given, with no meta letters, except a player the rule says does not hear it. It is kept for
+/// nobody, and it answers no request.
+/// Behaviour: server.chat.line-from-afar-reaches-the-room
+#[test]
+fn a_line_from_afar_reaches_the_players_in_the_room_and_only_those_it_lets_hear() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (b, babyfare) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    chat::hear_from_afar(
+        &h.server,
+        &mut h.net,
+        chat::PVP_ROOM,
+        "Bob@coldeve",
+        "Ballroom at 8!",
+        |id, name| id != babyfare && name != "Babyfare",
+    );
+    h.run(20);
+    let to_a = service_packets(&h, a, fa);
+    let [IncomingPayload::RoomEvent(e)] = &to_a[..] else {
+        panic!("{to_a:?}")
+    };
+    assert_eq!(
+        (e.room, e.name.as_str(), e.text.as_str()),
+        (2, "Bob@coldeve", "Ballroom at 8!")
+    );
+    assert_eq!(e.extra, chat::speaker_note(""));
+    assert_eq!(service_packets(&h, b, fb), []);
+    assert_eq!(h.server.room_lines, [], "it goes no further");
+}
+
+/// `@dng` says a line as the client would: it comes back to its speaker as the room's own line
+/// under its name and note, reaches the others, and is kept for the world's link; no request is
+/// answered, since the client made none. A gagged character is told it may not talk, and nobody
+/// hears it.
+/// Behaviour: server.chat.said-from-anywhere-as-a-room-line
+#[test]
+fn a_line_said_from_anywhere_is_the_rooms_own_line_and_no_request_is_answered() {
+    let mut h = Harness::new();
+    let (a, elara) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let (fa, fb) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    chat::say_in_room(
+        &mut h.server,
+        &mut h.net,
+        elara,
+        chat::GENERAL_ROOM,
+        "Anyone near Arwic?",
+    );
+    h.run(20);
+    for (bot, from) in [(a, fa), (b, fb)] {
+        let got = service_packets(&h, bot, from);
+        let [IncomingPayload::RoomEvent(e)] = &got[..] else {
+            panic!("the room's line and nothing else: {got:?}")
+        };
+        assert_eq!(
+            (e.room, e.name.as_str(), e.text.as_str()),
+            (1, "Elara", "Anyone near Arwic?")
+        );
+        assert_eq!(e.extra, chat::speaker_note("Mv"), "a new human man");
+    }
+    assert_eq!(
+        h.server.room_lines,
+        [chat::RoomSaid {
+            character: elara,
+            name: "Elara".into(),
+            room: 1,
+            text: "Anyone near Arwic?".into(),
+        }]
+    );
+    h.server.room_lines.clear();
+
+    let gag = yalain_world::admin::parse("gag elara")
+        .expect("a moderation command")
+        .expect("it reads");
+    let clock = h.clock();
+    yalain_world::admin::run(
+        &mut h.server,
+        &mut h.net,
+        clock,
+        &yalain_world::admin::Issuer::Console,
+        &gag,
+    );
+    let from = h.bots[b].inbox.len();
+    chat::say_in_room(&mut h.server, &mut h.net, elara, chat::GENERAL_ROOM, "hush");
+    h.run(20);
+    assert_eq!(service_packets(&h, b, from), []);
+    assert_eq!(h.server.room_lines, []);
+}
+
+/// A line a client sends to a room every player has is kept for the world's link with the words as
+/// sent; one to a kingdom's room, which reaches its own members alone, or one refused, is not.
+/// Behaviour: server.chat.room-line-kept-for-the-link
+#[test]
+fn a_line_in_a_room_everyone_has_is_kept_for_the_link_and_a_kingdoms_is_not() {
+    let mut h = Harness::new();
+    let (a, elara) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let send = |h: &mut Harness, room: u32| {
+        let packet = SendToRoomById {
+            context: 7,
+            room,
+            text: "Anyone?".into(),
+            extra: ExtraBlob::Speaker {
+                sender: 1,
+                chat_type: 100 << 16 | 1,
+            },
+        }
+        .network_packet()
+        .expect("packs");
+        h.bots[a].send(false, 4, &ClientMessage::Chat(ChatPacket(packet)));
+        h.run(20);
+    };
+    for room in [chat::GENERAL_ROOM, chat::TRADE_ROOM, chat::PVP_ROOM] {
+        send(&mut h, room);
+        assert_eq!(
+            std::mem::take(&mut h.server.room_lines),
+            [chat::RoomSaid {
+                character: elara,
+                name: "Elara".into(),
+                room,
+                text: "Anyone?".into(),
+            }]
+        );
+    }
+    for room in [6, 77] {
+        send(&mut h, room);
+        assert_eq!(h.server.room_lines, [], "room {room}");
+    }
+    let names: Vec<&str> = [chat::GENERAL_ROOM, chat::TRADE_ROOM, chat::PVP_ROOM]
+        .iter()
+        .map(|r| {
+            chat::NEW_CHANNELS
+                .iter()
+                .find(|c| c.room == *r)
+                .expect("a new character's channel")
+                .name
+        })
+        .collect();
+    assert_eq!(names, ["General", "Trade 1", "PvP"]);
 }
