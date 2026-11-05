@@ -912,7 +912,7 @@ impl GamePlay {
                 action::ALL_UI => {
                     if self.resurrect == 0 && !self.ended && self.confirmation.is_none() {
                         let shown = ui.frame_shown(self.frame);
-                        self.framework_show(ui, !shown, out);
+                        self.show(ui, !shown, out);
                     }
                 }
                 action::USE => out.push(Request::UseSelected),

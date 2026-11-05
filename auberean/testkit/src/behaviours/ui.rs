@@ -2173,6 +2173,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.story.the-hide-all-key-waits-for-a-story",
+        says: "While a story is up, the key that hides the whole interface does nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-HIDE-ALL-GATE"),
+        station: "auberean-ui-game::dat::play::story::the_hide_all_key_waits_for_a_story",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.story.the-shortcut-strip-shows-in-front-of-the-storys-background",
         says: "The story's background stands at the shortcut strip's depth and came after it, so the strip is drawn in front of it, the only part of the play screen that shows through, and the pointer meets it there.",
         since: RETAIL,
