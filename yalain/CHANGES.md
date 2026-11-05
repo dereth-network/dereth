@@ -41,6 +41,7 @@ what they see, not how it was done.
 - Many weapons and armor that did nothing now work.
 - Fixed other players' movements and swings sticking after they arrive.
 - Fixed items being lost for no gold at the money bag; worthless items are now refused.
+- A frozen world now stops itself so it can restart.
 
 - Fixed a selected person showing empty health and vigor bars.
 

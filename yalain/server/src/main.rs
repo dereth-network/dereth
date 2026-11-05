@@ -45,6 +45,8 @@
 //!   --save-interval S     keep each character in the world every S seconds, 1 or more (default
 //!                         300); it is kept as it leaves, and at some events, besides
 //!   --shutdown-interval S how many seconds a shutdown counts down, 0 to 99999 (default 120)
+//!   --watchdog S          stop with a failure when the world has run no pass for S seconds, 0 for
+//!                         never (default 300)
 //!   --max-sessions N      how many logins the world holds at once (default 128); a login past
 //!                         them is told the server is full
 //!   --min-character-age S  seconds a character must have played before it sends to the Dereth
@@ -233,6 +235,8 @@ struct Options {
     serve_admin_library: bool,
     /// The bcrypt cost of account secrets (`--secret-cost`).
     secret_cost: u32,
+    /// Seconds with no pass of the world before it is stopped (`--watchdog`), 0 for never.
+    watchdog_seconds: u32,
     /// Seconds between a character's saves (`--save-interval`).
     save_seconds: u32,
     /// Seconds a shutdown counts down (`--shutdown-interval`).
@@ -376,6 +380,7 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         admin_commands: Vec::new(),
         serve_admin_library: false,
         secret_cost: yalain_world::login::SECRET_COST,
+        watchdog_seconds: yalain_world::guard::NO_PASS_SECONDS,
         save_seconds: yalain_world::saves::SAVE_SECONDS,
         shutdown_seconds: yalain_world::shutdown::LEAD,
         max_sessions: yalain_world::login::MAX_SESSIONS,
@@ -472,6 +477,9 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                     return Err("--save-interval takes seconds, 1 or more".into());
                 }
                 o.save_seconds = n;
+            }
+            "--watchdog" => {
+                o.watchdog_seconds = value()?.parse().map_err(|e| format!("--watchdog: {e}"))?;
             }
             "--shutdown-interval" => {
                 let n: u32 = value()?
@@ -1099,9 +1107,12 @@ fn run<S: Store>(
             ask,
         ),
     };
+    let passes = yalain_world::guard::Passes::default();
+    watch_the_world(&passes, o.watchdog_seconds);
     // A panic anywhere in the loop ends it the same way: see `yalain_world::guard`.
     let run_loop = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         loop {
+            passes.pass();
             if o.seconds
                 .is_some_and(|s| started.elapsed().as_secs_f64() >= s)
             {
@@ -1266,6 +1277,7 @@ fn run<S: Store>(
                 }
             }
             let now = local();
+            passes.at(yalain_world::guard::Part::Network);
             // The status ping is answered on the login port before the transport reads anything.
             let mut pinged = Vec::new();
             let seconds = started.elapsed().as_secs();
@@ -1296,7 +1308,9 @@ fn run<S: Store>(
             for a in asks.try_iter() {
                 update::answer(a, &mut server, &mut net, clock);
             }
+            passes.at(yalain_world::guard::Part::World);
             server.pump(&mut net, clock);
+            passes.at(yalain_world::guard::Part::Sending);
             if let Some(r) = &mut reporter {
                 let state = if server.shutdown == yalain_world::shutdown::Shutdown::No {
                     hub::State::Online
@@ -1369,6 +1383,7 @@ fn run<S: Store>(
             }
         }
     }));
+    passes.over();
     let panicked = run_loop
         .err()
         .map(|p| yalain_world::guard::words(p.as_ref()));
@@ -1412,6 +1427,32 @@ fn run<S: Store>(
         world_ended,
         typed,
     })
+}
+
+/// A thread outside the world's that stops the server when the world runs no pass for `seconds`: the
+/// failure's exit, so a service manager starts it again and no staged update goes in. It can reach
+/// nothing the world holds, so each character goes back to its last save.
+fn watch_the_world(passes: &yalain_world::guard::Passes, seconds: u32) {
+    if seconds == 0 {
+        return;
+    }
+    let passes = passes.clone();
+    std::thread::spawn(move || {
+        yalain_world::guard::watch(
+            &passes,
+            seconds,
+            || std::thread::sleep(Duration::from_secs(1)),
+            |part| {
+                tracing::error!(
+                    "THE WORLD HAS RUN NO PASS FOR {seconds} SECONDS, last in {}. It is stopping: \
+                     nothing since the last saves can be written, and characters go back to them. \
+                     This is a bug.",
+                    part.words()
+                );
+                std::process::exit(1);
+            },
+        );
+    });
 }
 
 /// How many times, a second apart, a server stopping tries to save what saves have not taken.
@@ -2007,7 +2048,7 @@ fn main() -> std::process::ExitCode {
         }
         Err(e) => {
             eprintln!("yalain: {e}");
-            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--download-rate N] [--motd TEXT] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--dat-overlay DIR] [--no-dat-overlay-patching] [--dat-overlay-records-per-minute N] [--enable-dat-patching] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation] [--global-room ROOM]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
+            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--watchdog S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--download-rate N] [--motd TEXT] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--dat-overlay DIR] [--no-dat-overlay-patching] [--dat-overlay-records-per-minute N] [--enable-dat-patching] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation] [--global-room ROOM]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
             eprintln!("       yalain world check|release|fetch|compile ...");
             eprintln!(
                 "       yalain update --check|--apply [--config FILE] [--policy off|patch|minor]"
@@ -2147,6 +2188,25 @@ fn version_text() -> String {
         option_env!("YALAIN_BUILD_TARGET").unwrap_or("unknown"),
         update::SOURCE_URL,
     )
+}
+
+#[cfg(test)]
+mod watchdog_tests {
+    //! Behaviour: none (the option's reading; the watch itself is held in the world's tests)
+    use super::parse_from;
+
+    fn with(more: &[&str]) -> Result<u32, String> {
+        let args = ["--dats", "here"].iter().chain(more);
+        parse_from(args.map(|a| (*a).to_owned())).map(|o| o.watchdog_seconds)
+    }
+
+    #[test]
+    fn the_watchdog_defaults_to_five_minutes_and_takes_a_number_of_seconds() {
+        assert_eq!(with(&[]), Ok(300));
+        assert_eq!(with(&["--watchdog", "0"]), Ok(0));
+        assert_eq!(with(&["--watchdog", "45"]), Ok(45));
+        assert!(with(&["--watchdog", "soon"]).is_err());
+    }
 }
 
 #[cfg(test)]

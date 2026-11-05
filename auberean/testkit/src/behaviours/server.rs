@@ -6725,6 +6725,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.a-world-that-runs-no-pass-is-stopped",
+        says: "A world that runs no pass for its limit is stopped once, from outside its thread, \
+               and a world still running passes never is; its limit is a setting, and nothing \
+               means never.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WORLD-WATCH"),
+        station: "yalain-testkit::cpu::operator::shutdown::a_world_that_runs_no_pass_for_the_limit_is_stopped_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.access-levels-become-the-admin-flag",
         says: "A database kept with access levels takes the admin flag in their place: the highest level \
                with a secret is an admin; every level below, and the highest with no secret, a player named \

@@ -81,6 +81,7 @@ const KEYS: &[(&str, &str, Takes)] = &[
         "player_save_interval",
         Takes::Value("--save-interval"),
     ),
+    ("server", "watchdog_seconds", Takes::Value("--watchdog")),
     ("server", "log_level", Takes::LogLevel),
     ("server", "status_address", Takes::Value("--status")),
     (

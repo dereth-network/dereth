@@ -46,6 +46,9 @@ shutdown_interval = 120
 # default: 300 (--save-interval; Yalain only)
 # Seconds between saves of each character in the world.
 player_save_interval = 300
+# Stop with a failure if the world runs no pass for this many seconds, so a service manager can
+# start it again. 0 for never.
+watchdog_seconds = 300
 
 # default: "info" (--verbose for "debug")
 # The server log's level: "info", or "debug" (and "trace") for every connection event and more.

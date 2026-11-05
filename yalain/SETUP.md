@@ -185,6 +185,7 @@ to others.
 | `--serve-admin-library` | serve admin accounts' retail clients the library their admin commands need (section 5) |
 | `--secret-cost <n>` | the bcrypt cost tickets are kept at, 4 to 31 (default 8; section 5) |
 | `--save-interval <s>` | save each character in the world every that many seconds, 1 or more (default 300; section 3.3) |
+| `--watchdog <s>` | stop with a failure if the world runs no pass for that many seconds, 0 for never (default 300) |
 | `--shutdown-interval <s>` | how long `shutdown` counts down, 0 to 99999 seconds (default 120; section 3.3) |
 | `--max-sessions <n>` | how many logins the world holds at once (default 128; section 3.7) |
 | `--max-sessions-per-address <n>` | how many logins one address holds at once (default `unlimited`; section 3.7) |
@@ -359,6 +360,7 @@ shard_db_path = "yalain.sqlite"
 | `[server] world_base_path` | `--world-base` | Yalain only |
 | `[server] shutdown_interval` | `--shutdown-interval` | seconds |
 | `[server] player_save_interval` | `--save-interval` | Yalain only; seconds |
+| `[server] watchdog_seconds` | `--watchdog` | Yalain only; seconds, 0 for never |
 | `[server] log_level` | `--verbose` | `debug` (or `trace`) logs at the debug level; others at `info` |
 | `[server] status_address` | `--status` | empty: off |
 | `[server] stop_at_console_end` | `--stop-at-console-end` | Yalain only |

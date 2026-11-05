@@ -27,6 +27,8 @@ yalain --dats <install folder> [options]
                         their commands in the clear
   --secret-cost N       the bcrypt cost account secrets are kept at, 4 to 31 (default 8)
   --save-interval S     keep each character in the world every S seconds (default 300)
+  --watchdog S          stop with a failure if the world runs no pass for S seconds, 0 for never
+                        (default 300)
   --shutdown-interval S how many seconds a shutdown counts down, 0 to 99999 (default 120)
   --max-sessions N      how many logins the world holds at once (default 128); a login past
                         them is told the server is full
