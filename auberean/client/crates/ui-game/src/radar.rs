@@ -489,6 +489,8 @@ impl Radar {
                 if let (Some(root), Some(heading)) = (self.root, self.heading) {
                     let (ax, ay) = ui.object_origin(root).unwrap_or((0, 0));
                     ui.move_to(heading, self.offset.0 + ax, self.offset.1 + ay);
+                    let shown = ui.shown(root);
+                    self.show(ui, shown, out);
                 }
             }
             Mail::Global {

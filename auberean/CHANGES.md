@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Fixed a radar kept hidden coming back as a bare dial.
 - Fixed layered icons showing soft fringes and hazy overlays.
 - Fixed a refused character's name reading as a corrupt character.
 - Fixed tooltips eating clicks on what lies under them.

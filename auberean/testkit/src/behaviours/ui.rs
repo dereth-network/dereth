@@ -1906,6 +1906,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.radar.a-radar-kept-hidden-comes-back-hidden",
+        says: "The radar's kept places put back with its field hidden hide the whole radar, dial and all, so it does not come back as a bare dial.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-RADAR-KEPT-HIDDEN"),
+        station: "auberean-ui-game::dat::play::radar::a_radar_kept_hidden_comes_back_hidden",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.radar.the-blip-under-the-pointer-names-and-selects-its-object",
         says: "The blip within four pixels of the pointer names its object in the radar's tooltip (none, an empty one), and a press on the radar selects that object.",
         since: RETAIL,

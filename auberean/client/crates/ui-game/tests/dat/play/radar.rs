@@ -277,3 +277,26 @@ fn the_panels_places_are_kept_when_moved_and_put_back_when_the_options_come() {
         "{out:?}"
     );
 }
+
+/// The radar's kept places put back with its field hidden hide the whole radar, dial and all, so it
+/// does not come back as a bare dial.
+///
+/// Behaviour: ui.radar.a-radar-kept-hidden-comes-back-hidden
+#[test]
+fn a_radar_kept_hidden_comes_back_hidden() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let w = world(0.0, false, Vec::new());
+    tick(&mut ui, &mut p, &mut t, &w);
+    let (root, heading) = {
+        let r = radar_of(&p);
+        (r.root.expect("the radar"), r.heading.expect("the dial"))
+    };
+    assert!(ui.shown(heading), "the dial shows");
+    ui.set_visible(root, false);
+    ui.frame_apply_locations(p.frame(), &Default::default());
+    tick(&mut ui, &mut p, &mut t, &w);
+    assert!(!ui.shown(heading), "the dial goes with it");
+    assert!(!ui.shown(root));
+}
