@@ -28,6 +28,9 @@ use yalain_world::{
 
 use super::conservation::{self, ask, census, check, pass, restart, someone, world_of, Script};
 
+/// An item whose use makes a creature for a few seconds, and the effect it names.
+const MAKES_A_CREATURE: u32 = 0x4700_7100;
+const SUMMONS: &str = "Eff_SequencesSummon";
 const BROKER: u64 = 0x40FE_FA00_0000_0003;
 const BROKER_TEMPLATE: u32 = 0x4700_2E8B;
 const STORE: u32 = 0x6F00_150B;
@@ -69,6 +72,12 @@ fn lasting(state: u32, class: u32, kind: Kind, harmful: bool) -> EffectDef {
 /// what nothing counts, a pet's skill, a recipe's iron, and effects that answer attacks.
 fn fixture(h: &mut Harness) {
     conservation::catalog(h);
+    let mut gem = Props::default();
+    gem.set("Usage_Effect1", yalain_content::Prop::Text(SUMMONS.into()))
+        .set("Item_IsDestroyOnUse", yalain_content::Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(test_template(MAKES_A_CREATURE, 0x777, gem));
     h.server.content = ContentPack {
         objects: vec![ContentObject {
             object: Some(BROKER),
@@ -748,12 +757,81 @@ fn step(s: &mut Script) -> String {
             pass(s, 3.0);
             format!("{me:#x} dies, busy, and comes back")
         }
+        29 => {
+            let what = match s.dice.below(2) {
+                0 => gem_used(s, b, me, w),
+                _ => kill_sends_on(s, me, w),
+            };
+            let seconds = 0.5 * s.dice.below(8) as f64;
+            pass(s, seconds);
+            what
+        }
         _ => {
             let seconds = 0.5 * (1 + s.dice.below(8)) as f64;
             pass(s, seconds);
             "time passes".into()
         }
     }
+}
+
+/// A gem that makes a creature for a few seconds is used.
+fn gem_used(s: &mut Script, b: usize, me: u64, w: ConnId) -> String {
+    let Some(template) = s.h.server.things.by_id.values().find_map(|t| {
+        (t.kind == things::Kind::Creature && !s.h.server.pets.is_pet(t.id)).then_some(t.template)
+    }) else {
+        return "no creature to make".into();
+    };
+    s.h.server.death_spawns.insert(
+        SUMMONS.into(),
+        yalain_content::DeathSpawn {
+            template,
+            count: 1,
+            chance: 1.0,
+            offset: [0.0, 2.0],
+            lasts: Some(3.0),
+        },
+    );
+    let Some(item) = inventory::give(&mut s.h.server, &mut s.h.net, w, MAKES_A_CREATURE, 1) else {
+        return "no room for a gem".into();
+    };
+    s.h.run(1);
+    ask(s, b, 0x8216_0016, &[use_of(item, me)]);
+    format!("{me:#x} uses a gem {item:#x}")
+}
+
+/// A creature dies by a player whose quest's step for that kill leads somewhere.
+fn kill_sends_on(s: &mut Script, me: u64, w: ConnId) -> String {
+    use super::kill_quests;
+    use yalain_world::state::QuestState;
+    const QUEST: u32 = 0x4000_0123;
+    let Some((beetle, template)) = s.h.server.things.by_id.values().find_map(|t| {
+        (t.kind == things::Kind::Creature && t.alive() && !s.h.server.pets.is_pet(t.id))
+            .then_some((t.id, t.template))
+    }) else {
+        return "no creature to kill".into();
+    };
+    let to = yalain_content::quests::Place {
+        cell: BROKER_CELL,
+        origin: NEAR_BROKER,
+        heading: 0,
+    };
+    let mut q = kill_quests::quest(3);
+    q.effects = Vec::new();
+    s.h.server.quests.quests = vec![q];
+    s.h.server.quests.steps = vec![kill_quests::leading_step(template, 1, to)];
+    if let Some(p) = s.h.server.players.get_mut(&w) {
+        p.play.quests.retain(|x| x.quest != QUEST);
+        p.play.quests.push(QuestState {
+            quest: QUEST,
+            status: yalain_world::quests::status::UNDERWAY,
+            phase: 1,
+            started: 0,
+            updated: 0,
+        });
+    }
+    let clock = s.h.clock();
+    combat::hurt_creature(&mut s.h.server, &mut s.h.net, beetle, me, 1_000_000, clock);
+    format!("{me:#x} kills {beetle:#x} for a step that leads on")
 }
 
 /// Something a player may do at any moment of its leaving, its dying or its trip.

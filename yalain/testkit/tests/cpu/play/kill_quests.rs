@@ -838,7 +838,7 @@ fn land(h: &mut Harness) {
 }
 
 /// A step of the test quest for a kill of this template, leading to this place.
-fn leading_step(template: u32, needs: u32, to: yalain_content::quests::Place) -> Step {
+pub(super) fn leading_step(template: u32, needs: u32, to: yalain_content::quests::Place) -> Step {
     Step {
         quest: QUEST,
         needs,
