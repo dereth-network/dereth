@@ -57,6 +57,7 @@ what they see, not how it was done.
 - Fixed uses being refused after dying or teleporting mid-walk.
 - Fixed a vault staying busy after its traveler was removed.
 - A client far behind has its requests put off until it catches up.
+- A large allegiance's export no longer slows the world.
 
 - Fixed a selected person showing empty health and vigor bars.
 

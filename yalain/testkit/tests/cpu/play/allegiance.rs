@@ -597,3 +597,67 @@ fn ranks_and_trees_read_at_once_come_out_as_a_walk_member_by_member() {
     assert!(a.ranks()[&5_001] >= 1);
     assert_eq!(a.tree(5_000), [5_000, 5_001]);
 }
+
+/// A long allegiance's export comes out of a connection's allowance of rows: one is answered as
+/// asked for, however long; one asked straight after it, past what's left, isn't; in time another
+/// is. An ordinary member's are all answered.
+/// Behaviour: server.allegiance.tree-export-out-of-an-allowance
+#[test]
+fn the_tree_export_comes_out_of_an_allowance_by_its_members() {
+    use yalain_world::allegiance::Node as Member;
+    use yalain_world::market::{PAGE_ROWS_A_SECOND, PAGE_ROWS_HELD};
+    let (mut h, a, b) = two();
+    let (ma, mid) = b;
+    sworn(&mut h, a, b);
+    let ask = [string_arg("allegianceexport.xml")];
+    let exports = |h: &Harness, from: usize| {
+        h.calls(ma, from)
+            .iter()
+            .filter(|(f, _)| *f == function::EXPORT)
+            .count()
+    };
+    let from = h.bots[ma].inbox.len();
+    for _ in 0..20 {
+        h.ask(ma, function::TREE_EXPORT, &ask, 2);
+    }
+    h.run(10);
+    assert_eq!(
+        exports(&h, from),
+        20,
+        "a small allegiance's are all answered"
+    );
+    // As long as what a connection holds takes.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let members = PAGE_ROWS_HELD as u64;
+    for i in 0..members {
+        let joined = i as f64;
+        h.server.allegiances.nodes.insert(
+            0x2130_0000_0100_0000 + i,
+            Member {
+                patron: mid,
+                joined,
+                ..Member::default()
+            },
+        );
+    }
+    h.step_by(PAGE_ROWS_HELD / PAGE_ROWS_A_SECOND + 1.0);
+    let from = h.bots[ma].inbox.len();
+    let call = yalain_testkit::play::server_call(function::TREE_EXPORT, &ask);
+    h.bots[ma].send(true, queue::WEENIE, &call);
+    h.bots[ma].send(true, queue::WEENIE, &call);
+    assert!(
+        h.run_until(50_000, |h| exports(h, from) >= 1),
+        "a long one comes"
+    );
+    assert!(
+        !h.run_until(5_000, |h| exports(h, from) >= 2),
+        "the next isn't answered"
+    );
+    h.step_by(PAGE_ROWS_HELD / PAGE_ROWS_A_SECOND + 1.0);
+    let from = h.bots[ma].inbox.len();
+    h.bots[ma].send(true, queue::WEENIE, &call);
+    assert!(
+        h.run_until(50_000, |h| exports(h, from) >= 1),
+        "back in time"
+    );
+}

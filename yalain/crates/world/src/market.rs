@@ -753,11 +753,22 @@ fn page_allowed<S: Store>(
     shown: usize,
     now: LocalTime,
 ) -> bool {
+    rows_allowed(s, world, shown + 1 + listed / LISTED_A_ROW, now)
+}
+
+/// May a connection be sent so many rows now, out of its allowance? A request for more than it can
+/// ever hold takes all it holds.
+pub(crate) fn rows_allowed<S: Store>(
+    s: &mut Server<S>,
+    world: ConnId,
+    rows: usize,
+    now: LocalTime,
+) -> bool {
     let Some(p) = s.players.get_mut(&world) else {
         return false;
     };
     #[allow(clippy::cast_precision_loss)]
-    let cost = ((shown + 1 + listed / LISTED_A_ROW) as f64).min(PAGE_ROWS_HELD);
+    let cost = (rows as f64).min(PAGE_ROWS_HELD);
     p.page_rows
         .get_or_insert_with(|| Bucket::with(PAGE_ROWS_HELD, PAGE_ROWS_A_SECOND, now))
         .allow_for(cost, now)

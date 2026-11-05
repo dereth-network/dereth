@@ -73,7 +73,7 @@ pub fn call<S: Store>(
             crate::allegiance::decline(s, net, world, &values);
         }
         crate::allegiance::function::TREE_EXPORT => {
-            crate::allegiance::export(s, net, world, &values);
+            crate::allegiance::export(s, net, world, &values, clock.local);
         }
         crate::fellowship::function::CREATE => {
             crate::fellowship::create(s, net, world, &values, clock);

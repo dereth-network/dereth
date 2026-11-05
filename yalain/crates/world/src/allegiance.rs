@@ -968,8 +968,16 @@ fn hierarchy<S: Store>(s: &mut Server<S>, monarch: u64) -> Builder {
 }
 
 /// The tree exported to a file: the asker is sent its whole allegiance and the file's name (one
-/// in no allegiance is refused by its own client before it asks).
-pub fn export<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
+/// in no allegiance is refused by its own client before it asks). Its rows come out of the
+/// connection's allowance for pages, as it reads a store's row for each (2 asked for in all the
+/// recordings).
+pub fn export<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    v: &[Value],
+    now: yalain_net::LocalTime,
+) {
     if !ensure(s) {
         return;
     }
@@ -984,6 +992,10 @@ pub fn export<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v
         s.unhandled.note("a tree export by one in no allegiance");
         return;
     };
+    let members = s.allegiances.tree(monarch).len();
+    if !crate::market::rows_allowed(s, world, members + 1, now) {
+        return;
+    }
     let hier = hierarchy(s, monarch);
     let mut f = Builder::new();
     f.native(STRING, NativeObject::Text(file.encode_utf16().collect()));
