@@ -531,6 +531,38 @@ fn open<S: Store>(
     );
 }
 
+/// A key gone from the pack of who turned it: used on nothing, and the use refused as the wrong key.
+fn refuse_gone_key(net: &mut ServerNet, w: &Waiting) {
+    let no = places::use_refused(
+        &w.used,
+        0,
+        None,
+        w.distance,
+        crate::usable::doors::refusal::WRONG_KEY,
+    );
+    progress::private(net, w.world, &no);
+}
+
+/// A chest plays its closing, whoever has it open or nobody.
+fn shut<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, kind: &Kind, clock: Clock) {
+    let Some(c) = s.chests.by_id.get_mut(&id) else {
+        return;
+    };
+    c.phase = Phase::Closing;
+    c.generation = c.generation.wrapping_add(1);
+    let generation = c.generation;
+    mode(s, net, id, look::CLOSED_MODE);
+    s.after(
+        clock,
+        animation(kind.template).1,
+        Timer::Chest {
+            chest: id,
+            generation,
+            step: Step::Closed,
+        },
+    );
+}
+
 /// The client asks to close a chest it has open: it plays its closing.
 pub fn close<S: Store>(
     s: &mut Server<S>,
@@ -548,19 +580,7 @@ pub fn close<S: Store>(
     if c.phase != Phase::Open || c.opener != Some(world) {
         return;
     }
-    c.phase = Phase::Closing;
-    c.generation = c.generation.wrapping_add(1);
-    let generation = c.generation;
-    mode(s, net, id, look::CLOSED_MODE);
-    s.after(
-        clock,
-        animation(kind.template).1,
-        Timer::Chest {
-            chest: id,
-            generation,
-            step: Step::Closed,
-        },
-    );
+    shut(s, net, id, &kind, clock);
 }
 
 /// The key that turned: used up, and the use answered that it fits.
@@ -625,12 +645,16 @@ pub fn step<S: Store>(
     }
     match step {
         Step::Turned => {
-            let Some(w) = s.chests.by_id.get_mut(&id).and_then(|c| {
-                c.unlocked = true;
-                c.waiting.take()
-            }) else {
+            let Some(w) = s.chests.by_id.get_mut(&id).and_then(|c| c.waiting.take()) else {
                 return;
             };
+            if !crate::usable::doors::key_kept(s, w.world, w.key) {
+                refuse_gone_key(net, &w);
+                return;
+            }
+            if let Some(c) = s.chests.by_id.get_mut(&id) {
+                c.unlocked = true;
+            }
             if kind.opens_on_unlock {
                 open(s, net, id, &kind, w, clock);
             } else {
@@ -641,8 +665,19 @@ pub fn step<S: Store>(
             let Some(c) = s.chests.by_id.get_mut(&id) else {
                 return;
             };
+            let Some(w) = c.waiting.take() else {
+                c.phase = Phase::Open;
+                return;
+            };
+            if !crate::usable::doors::key_kept(s, w.world, w.key) {
+                refuse_gone_key(net, &w);
+                shut(s, net, id, &kind, clock);
+                return;
+            }
+            let Some(c) = s.chests.by_id.get_mut(&id) else {
+                return;
+            };
             c.phase = Phase::Open;
-            let Some(w) = c.waiting.take() else { return };
             c.opener = Some(w.world);
             let contents = c.contents.clone();
             progress::private(net, w.world, &open_done(0, id, &contents));

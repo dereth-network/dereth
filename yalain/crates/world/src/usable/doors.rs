@@ -699,11 +699,11 @@ pub fn creature_passage<S: Store>(
     Passage::Waits
 }
 
-/// Is what a door waits for still so: no key, or the key still in the pack of who turned it?
-fn key_kept<S: Store>(s: &Server<S>, w: &Waiting) -> bool {
-    w.key.is_none_or(|key| {
+/// Is a use still good to go on: no key in it, or the key still held by who turned it?
+pub(crate) fn key_kept<S: Store>(s: &Server<S>, world: ConnId, key: Option<u64>) -> bool {
+    key.is_none_or(|key| {
         s.players
-            .get(&w.world)
+            .get(&world)
             .is_some_and(|p| p.play.items.iter().any(|h| h.id == key))
     })
 }
@@ -852,7 +852,7 @@ pub fn step<S: Store>(
     match step {
         Step::Turned => {
             if let Some(w) = s.doors.by_id.get_mut(&id).and_then(|d| d.waiting.take()) {
-                if key_kept(s, &w) {
+                if key_kept(s, w.world, w.key) {
                     open(s, net, id, kind, Some(w), clock);
                 } else {
                     if let Some(d) = s.doors.by_id.get_mut(&id) {
@@ -867,7 +867,7 @@ pub fn step<S: Store>(
                 d.phase = Phase::Open;
                 d.waiting.take()
             });
-            if let Some(w) = waiting.as_ref().filter(|w| !key_kept(s, w)) {
+            if let Some(w) = waiting.as_ref().filter(|w| !key_kept(s, w.world, w.key)) {
                 refuse(s, net, w.world, &w.used, refusal::WRONG_KEY);
                 close(s, net, id, kind, clock);
                 return;

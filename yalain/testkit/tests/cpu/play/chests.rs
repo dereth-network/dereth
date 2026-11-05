@@ -797,3 +797,68 @@ fn an_item_its_quest_keeps_is_refused_when_taken_until_the_quest_is_where_it_nee
         "an item naming no status: taken with the quest under way"
     );
 }
+
+/// A key put down while it turns opens nothing, shows nothing and is not used up; a key gone as the
+/// chest opens shows nothing, and the chest shuts locked.
+/// Behaviour: server.places.a-key-gone-opens-no-chest
+#[test]
+fn a_key_out_of_the_pack_before_a_chest_opens_shows_nothing_and_is_not_used_up() {
+    use yalain_world::inventory::{move_graph, Move};
+    let mut h = hall(CACHE, true, true);
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let key = give_key(&mut h, me);
+    let from = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, key, CHEST, 0.05);
+    let down = Move {
+        move_type: yalain_world::drops::DROP,
+        merge: true,
+        unlock: true,
+        check_take: true,
+        all_taken: true,
+        grab: true,
+        contain: true,
+        auto_merge: true,
+        from: me,
+        actual_from: me,
+        item: key,
+        split_item: key,
+        quantity: 1,
+        quantity_left: 1,
+        ..Move::default()
+    };
+    let call = server_call(
+        yalain_world::drops::function::MOVE_ITEM,
+        &[move_graph(&down)],
+    );
+    h.bots[a].send(true, auberean_protocol::queue::WEENIE, &call);
+    run_for(&mut h, 6.0);
+    assert!(h.server.things.get(key).is_some(), "not used up");
+    let told = seen(&h, a, from);
+    assert!(!told.iter().any(|t| t == "gem" || t == "crystal"), "{told:?}");
+    assert!(!told.contains(&"open".to_string()), "{told:?}");
+    assert!(!h.server.chests.by_id[&CHEST].unlocked, "still locked");
+
+    // The second way: gone as it opens.
+    let mut h = hall(CACHE, true, true);
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let key = give_key(&mut h, me);
+    let from = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, key, CHEST, 1.5);
+    assert!(seen(&h, a, from).contains(&"flash".to_string()), "it opens");
+    let world = *h.server.players.keys().next().expect("in");
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .play
+        .items
+        .retain(|i| i.id != key);
+    run_for(&mut h, 6.0);
+    let told = seen(&h, a, from);
+    assert!(!told.iter().any(|t| t == "gem" || t == "crystal"), "{told:?}");
+    assert!(h.server.things.get(key).is_some(), "not used up");
+    let c = &h.server.chests.by_id[&CHEST];
+    assert!(c.opener.is_none(), "nobody has it open");
+}

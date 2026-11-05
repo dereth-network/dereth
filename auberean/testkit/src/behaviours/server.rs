@@ -7668,6 +7668,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-key-gone-opens-no-chest",
+        says: "A key out of its turner's pack when it has turned, or by the time the chest has opened, \
+               is not used up, and the chest shows nothing and stays locked: the use is refused as the \
+               wrong key, and a chest already moving shuts. Our own rule: no recording tells.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-KEY-GONE-CHEST"),
+        station: "yalain-testkit::cpu::play::chests::a_key_out_of_the_pack_before_a_chest_opens_shows_nothing_and_is_not_used_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-key-gone-opens-nothing",
         says: "A key out of its turner's pack when it has turned, or by the time the door has opened, \
                is not used up, and leaves the door locked: the use is refused as the wrong key, and a \
