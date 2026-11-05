@@ -14,6 +14,16 @@ use std::fmt;
 use dereth_client_sdk::actions::{names, ActionId};
 use dereth_client_sdk::primitives::ObjectId;
 
+/// What a character `enter` creates is trained in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    Any,
+    /// War Magic.
+    Mage,
+    /// The bow.
+    Archer,
+}
+
 /// An object a `request` names: by its id, as the player, or as the first thing in the player's
 /// pack, or the nearest thing on the radar, whose name holds a word.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -183,7 +193,7 @@ pub enum Command {
     RunForever,
     /// `enter <name>` -- over a server connection, enter the world as the character, creating it
     /// first when the account has none of that name.
-    Enter(String, bool),
+    Enter(String, Role),
     /// `answer yes` / `answer no` -- the player's answer to the oldest question the game has on
     /// screen.
     Answer(bool),
@@ -502,9 +512,10 @@ fn parse_args(n: usize, verb: &str, args: &[&str]) -> Result<Command, ScriptErro
             .map(Command::Run)
             .ok_or_else(|| err(n, format!("run needs seconds, not {secs:?}"))),
         ("run", _) => Err(err(n, "run takes <secs> or forever")),
-        ("enter", [name]) => Ok(Command::Enter((*name).to_owned(), false)),
-        ("enter", [name, "mage"]) => Ok(Command::Enter((*name).to_owned(), true)),
-        ("enter", _) => Err(err(n, "enter takes <character> [mage]")),
+        ("enter", [name]) => Ok(Command::Enter((*name).to_owned(), Role::Any)),
+        ("enter", [name, "mage"]) => Ok(Command::Enter((*name).to_owned(), Role::Mage)),
+        ("enter", [name, "archer"]) => Ok(Command::Enter((*name).to_owned(), Role::Archer)),
+        ("enter", _) => Err(err(n, "enter takes <character> [mage|archer]")),
         ("request", args) => parse_request(args)
             .map(Command::Request)
             .ok_or_else(|| err(n, REQUEST_FORMS)),
@@ -667,12 +678,20 @@ mod tests {
     fn a_server_run_enters_a_character_and_runs_for_seconds() {
         assert_eq!(
             parse("enter Hunterbot\nrun 2.5\n").expect("parses"),
-            vec![Command::Enter("Hunterbot".into(), false), Command::Run(2.5)]
+            vec![
+                Command::Enter("Hunterbot".into(), Role::Any),
+                Command::Run(2.5)
+            ]
         );
         assert_eq!(
             parse("run forever").expect("parses"),
             vec![Command::RunForever]
         );
+        assert_eq!(
+            parse("enter Pell archer").expect("parses"),
+            vec![Command::Enter("Pell".into(), Role::Archer)]
+        );
+        assert!(parse("enter Pell cook").is_err());
         assert!(parse("enter").is_err());
         assert!(parse("run").is_err());
         assert!(parse("run -1").is_err());

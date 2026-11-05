@@ -402,7 +402,7 @@ impl<'a> Run<'a> {
                 Command::Replay(secs) => self.replay(*secs),
                 Command::Run(secs) => self.run_for(*secs),
                 Command::RunForever => self.run_forever(),
-                Command::Enter(name, mage) => self.enter(name, *mage),
+                Command::Enter(name, role) => self.enter(name, *role),
                 Command::Answer(yes) => self.answer(*yes),
                 Command::Quit => {
                     self.quit = true;
@@ -729,7 +729,7 @@ impl<'a> Run<'a> {
     /// `name`, creating the character first (an Aluvian soldier in Holtburg, or on a Launch world the
     /// character-creation table's first template) when the account has
     /// none of that name; then frames until the character stands in the world.
-    fn enter(&mut self, name: &str, mage: bool) -> Result<(), RunError> {
+    fn enter(&mut self, name: &str, role: crate::script::Role) -> Result<(), RunError> {
         use dereth_client_sdk::contract::pregame::CharGenAction;
         let listed = |run: &mut Self| run.app.host_state.received_set;
         if !self.paced_until(60.0, listed)? {
@@ -749,7 +749,7 @@ impl<'a> Run<'a> {
         if find(self).is_none() {
             let before = self.app.host_state.chargen_response_notices;
             let store = &self.app.store;
-            let character = new_character(self.opts.era, || creation_table(store), name, mage);
+            let character = new_character(self.opts.era, || creation_table(store), name, role);
             self.app
                 .run_chargen_actions(vec![CharGenAction::SendCharGenResult(Box::new(character))]);
             let answered = |run: &mut Self| run.app.host_state.chargen_response_notices != before;
@@ -937,7 +937,12 @@ impl<'a> Run<'a> {
             .map(|c| world.magic.catalogue.scid_to_wcid(*c).to_string())
             .collect();
         let name = base.name.clone();
-        self.line(format!("formula {spell} {name}: {}", classes.join(" ")))
+        let account = world.player_system.account.clone();
+        let version = base.formula_version;
+        self.line(format!(
+            "formula {spell} {name} version {version} for {account:?}: {}",
+            classes.join(" ")
+        ))
     }
 
     /// `delete <name>`: the character screen's Delete, once the list is up.
@@ -1406,19 +1411,25 @@ fn caster(name: &str) -> dereth_client_sdk::contract::pregame::CharGenResultData
 
 /// The character `enter` creates on a world of `era`. A world whose characters take a template
 /// whole (no credits to spend) is sent the character-creation table's template, read from `table`
-/// only then; any other world, or one whose table has no usable template, the soldier (with
-/// `mage`, the caster).
+/// only then; any other world, or one whose table has no usable template, the soldier (for a
+/// mage, the caster).
 fn new_character(
     era: Option<dereth_client_sdk::primitives::EraId>,
     table: impl FnOnce() -> Option<dereth_client_sdk::assets::tables::CharGen>,
     name: &str,
-    mage: bool,
+    role: crate::script::Role,
 ) -> dereth_client_sdk::contract::pregame::CharGenResultData {
     (era == Some(dereth_client_sdk::primitives::EraId::Launch))
         .then(table)
         .flatten()
-        .and_then(|cg| templated(&cg, name, mage))
-        .unwrap_or_else(|| if mage { caster(name) } else { soldier(name) })
+        .and_then(|cg| templated(&cg, name, role))
+        .unwrap_or_else(|| {
+            if role == crate::script::Role::Mage {
+                caster(name)
+            } else {
+                soldier(name)
+            }
+        })
 }
 
 /// The character-creation table: the 1999 one when the world's own files are the older ones
@@ -1434,17 +1445,25 @@ fn creation_table(
 }
 
 /// A new character for `enter` in a world whose characters take a template whole: an Aluvian
-/// male of the character-creation table's first template (with `mage`, the first that trains
-/// War Magic), its attributes and skills as the template gives them, at the heritage's first start.
+/// male of the character-creation table's first template that trains what `role` asks for, its attributes and skills as the template gives them, at the heritage's first start.
 fn templated(
     cg: &dereth_client_sdk::assets::tables::CharGen,
     name: &str,
-    mage: bool,
+    role: crate::script::Role,
 ) -> Option<dereth_client_sdk::contract::pregame::CharGenResultData> {
+    use crate::script::Role;
+    const BOW: u32 = 2;
     const WAR_MAGIC: u32 = 34;
+    let wanted = match role {
+        Role::Any => None,
+        Role::Mage => Some(WAR_MAGIC),
+        Role::Archer => Some(BOW),
+    };
     let heritage = cg.heritage_groups.get(&1)?;
     let (number, template) = heritage.templates.iter().enumerate().find(|(_, t)| {
-        !mage || t.normal_skills.contains(&WAR_MAGIC) || t.primary_skills.contains(&WAR_MAGIC)
+        wanted.is_none_or(|skill| {
+            t.normal_skills.contains(&skill) || t.primary_skills.contains(&skill)
+        })
     })?;
     let color = *heritage.sexes.get(&1)?.clothing_colors.first()?;
     let mut c = soldier(name);
@@ -1525,6 +1544,7 @@ fn soldier(name: &str) -> dereth_client_sdk::contract::pregame::CharGenResultDat
 #[cfg(test)]
 mod tests {
     use super::{caster, ended_why, new_character, settings_preferences, soldier};
+    use crate::script::Role;
     use dereth_client_sdk::net::client_session::DisconnectReason;
 
     use dereth_client_sdk::assets::tables::{
@@ -1589,6 +1609,7 @@ mod tests {
             templates: vec![
                 template("Fighter", [90, 80, 70, 60, 20, 10], vec![6], vec![45]),
                 template("Mage", [10, 40, 20, 30, 100, 100], vec![6], vec![34]),
+                template("Archer", [40, 40, 100, 60, 30, 30], vec![2], vec![6]),
             ],
             sex_order: vec![1],
             template_presentations: BTreeMap::new(),
@@ -1612,7 +1633,7 @@ mod tests {
             Some(EraId::Launch),
             || Some(creation_table()),
             "Pell",
-            false,
+            Role::Any,
         );
         assert_eq!(fighter.name, "Pell");
         assert_eq!(fighter.template_num, 0);
@@ -1648,12 +1669,29 @@ mod tests {
             ),
             (7, 7, 7, 7)
         );
-        let mage = new_character(Some(EraId::Launch), || Some(creation_table()), "Pell", true);
+        let mage = new_character(
+            Some(EraId::Launch),
+            || Some(creation_table()),
+            "Pell",
+            Role::Mage,
+        );
         assert_eq!(
             mage.template_num, 1,
             "the first template that trains War Magic"
         );
         assert_eq!(mage.skill_advancement_classes[34], 3);
+    }
+
+    #[test]
+    fn an_archer_is_the_first_template_that_trains_the_bow() {
+        let archer = new_character(
+            Some(EraId::Launch),
+            || Some(creation_table()),
+            "Pell",
+            Role::Archer,
+        );
+        assert_eq!(archer.template_num, 2);
+        assert_eq!(archer.skill_advancement_classes[2], 2);
     }
 
     #[test]
@@ -1665,7 +1703,7 @@ mod tests {
                 Some(creation_table())
             };
             assert_eq!(
-                new_character(era, table, "Pell", false),
+                new_character(era, table, "Pell", Role::Any),
                 soldier("Pell"),
                 "{era:?}"
             );
@@ -1674,16 +1712,16 @@ mod tests {
                 "{era:?}: the table is read only for a Launch world"
             );
             assert_eq!(
-                new_character(era, || Some(creation_table()), "Pell", true),
+                new_character(era, || Some(creation_table()), "Pell", Role::Mage),
                 caster("Pell")
             );
         }
         assert_eq!(
-            new_character(Some(EraId::Launch), || None, "Pell", false),
+            new_character(Some(EraId::Launch), || None, "Pell", Role::Any),
             soldier("Pell")
         );
         assert_eq!(
-            new_character(Some(EraId::Launch), || None, "Pell", true),
+            new_character(Some(EraId::Launch), || None, "Pell", Role::Mage),
             caster("Pell")
         );
     }
