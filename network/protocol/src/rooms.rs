@@ -33,6 +33,17 @@ pub const fn own_room_titles(game: Game) -> [&'static str; 4] {
     }
 }
 
+/// Whether the link's names `a` and `b` are one room of a world of `game`: the same name, or two
+/// of [`OWN_ROOMS`] the game calls alike.
+#[must_use]
+pub fn same_room(game: Game, a: &str, b: &str) -> bool {
+    let title = |name: &str| {
+        let at = OWN_ROOMS.iter().position(|room| *room == name)?;
+        Some(own_room_titles(game)[at])
+    };
+    a == b || title(a).is_some_and(|t| title(b) == Some(t))
+}
+
 /// The word that says a world carries the Global room in none of its rooms.
 pub const OFF: &str = "off";
 
@@ -279,6 +290,12 @@ mod tests {
     #[test]
     fn each_of_a_worlds_rooms_has_the_name_its_game_gives_it() {
         assert_eq!(OWN_ROOMS.len(), own_room_titles(Game::Dereth).len());
+        assert!(same_room(Game::Auberean, "lfg", "roleplay"));
+        assert!(same_room(Game::Auberean, "trade", "trade"));
+        assert!(!same_room(Game::Auberean, "trade", "general"));
+        assert!(!same_room(Game::Dereth, "lfg", "roleplay"));
+        assert!(!same_room(Game::Auberean, "lfg", "global"));
+        assert!(same_room(Game::Dereth, "global", "global"));
         assert_eq!(
             own_room_titles(Game::Dereth),
             ["General", "Trade", "LFG", "Roleplay"]

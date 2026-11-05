@@ -279,7 +279,7 @@ General, Trade or PvP, every character's, and the link's four names for a world'
 PvP is the room nobody needs: in every recorded session of every era, no line was sent to it and
 none was heard from it. Anyone may speak there: the client asks nothing of a speaker but the channel.
 Two of the link's names being one room, a world tells the hub the name it was given, and a room the
-hub mirrors under both goes under the first.
+hub mirrors under both, which it no longer lets an operator make, goes under the first.
 
 **The setting.** `[federation] global_room`, in the form of [03](03-world-behaviour.md) section 3's:
 `general`, `trade`, `lfg`, `roleplay` or empty; anything else stops the server. **Left out it is
