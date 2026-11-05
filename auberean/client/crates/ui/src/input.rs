@@ -252,8 +252,8 @@ impl Ui {
     }
 
     /// Resize by as much as the pointer moved since last time, by the border held: each edge it
-    /// moves stays within the element's least and greatest width and height; a corner moves its
-    /// two edges.
+    /// moves stays within the element's least and greatest width and height, and each edge within
+    /// the screen; a corner moves its two edges.
     // D2-11364
     fn mouse_resize_element(&mut self, h: Handle) {
         let (px, py) = self.pointer();
@@ -328,6 +328,9 @@ impl Ui {
             Border::Bottom => bottom(&mut b),
             Border::None => {}
         }
+        let (dw, dh) = self.display();
+        let (l, r) = (l.max(0), r.min(dw - 1));
+        let (t, b) = (t.max(0), b.min(dh - 1));
         if line {
             if let Some(n) = self.node_mut(h) {
                 n.resize_line = Some(Rect::new(l, t, r, b));

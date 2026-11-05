@@ -639,6 +639,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.element.a-window-resized-stops-at-the-screens-edges",
+        says: "A window resized by its grips stops at the edges of the screen: an edge \
+               dragged past one stands there, and its other edges stay where they are.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-RESIZE-ON-SCREEN"),
+        station: "auberean-ui::cpu::elements::a_window_resized_stops_at_the_screens_edges",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.element.an-elements-object-stands-where-its-top-level-element-stands",
         says: "The object an element is drawn with stands where its top-level element stands on the \
                screen: a child deep in a window answers the window's left and top, as the radar \
