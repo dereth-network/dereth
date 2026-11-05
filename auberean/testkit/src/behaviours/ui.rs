@@ -2236,6 +2236,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.trade.an-offered-item-shows-the-selection-and-the-targeting-cursor",
+        says: "An offered item's icon, on either side of a trade, takes the selected look while it is the player's selection, and the cursor its element names while an item waits to be used on a target.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TRADE-OFFERED-ITEMS"),
+        station: "auberean-ui-game::dat::play::trade::an_offered_item_shows_the_selection_and_the_targeting_cursor",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.trade.the-trade-window-offers-accepts-and-closes",
         says: "A trade the partner asks for puts up a question naming them, and yes opens it; the \
                window shows the partner's name; an item dragged from the pack onto the player's \
