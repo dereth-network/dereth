@@ -3842,6 +3842,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.follow.at-a-pace",
+        says: "A follow goes as movement orders to everyone who sees the player: asked again and again they come at a pace.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FOLLOW-PACED"),
+        station: "yalain-testkit::cpu::play::follow::a_follow_asked_again_and_again_reaches_those_who_see_it_at_a_pace",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.friends.channel-squelch-paced",
         says: "Squelching a channel's address, which on the network asks the hub to leave it, is held \
                to the character's pace of requests: past it the squelch is refused with the line, and \
