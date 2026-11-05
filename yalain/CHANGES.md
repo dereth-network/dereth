@@ -61,6 +61,7 @@ what they see, not how it was done.
 - A client far behind has its requests put off until it catches up.
 - A large allegiance's export no longer slows the world.
 - Recipes that cost money now ask for it.
+- A skill can't be untrained while a skill built on it is still trained.
 
 - Fixed a selected person showing empty health and vigor bars.
 

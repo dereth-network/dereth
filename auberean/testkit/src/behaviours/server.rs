@@ -10157,6 +10157,41 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.untrain-leaves-a-trained-child",
+        says: "A skill with a trained child isn't untrained, and its credits stay spent, until the \
+               child is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNTRAIN-CHILD"),
+        station: "yalain-testkit::cpu::play::untraining::a_skill_with_a_trained_child_is_not_untrained_until_the_child_is",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.untrain-leaves-a-trained-dependent",
+        says: "A skill a trained skill names as its prerequisite isn't untrained while that one \
+               stands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNTRAIN-DEPENDENT"),
+        station: "yalain-testkit::cpu::play::untraining::a_skill_a_trained_skill_depends_on_is_not_untrained",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.untrain-only-whats-the-players",
+        says: "A skill its definition says can't be untrained, or its holder's record says isn't \
+               its to untrain, stays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNTRAIN-WHOSE"),
+        station: "yalain-testkit::cpu::play::untraining::a_skill_not_the_players_to_untrain_stays",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.untraining-holds-its-skill",
+        says: "A skill being untrained takes no more experience, and no skill is trained on it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNTRAINING-HOLDS"),
+        station: "yalain-testkit::cpu::play::untraining::a_skill_being_untrained_is_not_raised_and_nothing_is_trained_on_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.used-skills-read-from-their-definitions",
         says: "Each used skill's definition gives how it is used: the distances it reaches, its \
                waits, its vigor, the implements it is used with, what it plays and its hooks \
