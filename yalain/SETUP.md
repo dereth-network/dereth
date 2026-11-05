@@ -71,7 +71,9 @@ https://github.com/dereth-network/yalain-world/releases, checks the archive's SH
 value built into `yalain`, checks the database, and unpacks it into a per-user cache folder, one
 folder per release. It needs an internet connection once. A release already in the cache is not
 downloaded again (`<tag> is already cached`). An archive whose SHA-256 does not match, or a
-database that does not check, stops it with an error, and nothing is cached.
+database that does not check, stops it with an error, and nothing is cached. A folder under the
+pinned release's name whose files are not that release is fetched again, and the old folder is
+kept beside it as `<tag>.replaced`.
 
 The cache is a per-user folder:
 
@@ -104,9 +106,10 @@ yalain world fetch --from yalain-world-<tag>.zip
 
 `--world-db` chooses:
 
-- **Nothing, or `--world-db pinned`:** the release this build pins, from the cache. If it has not
-  been fetched, the server stops and says to run `yalain world fetch`. A release fetched with
-  `--dir` is not looked for there: serve it as a folder (`--world-db <folder>/<tag>`).
+- **Nothing, or `--world-db pinned`:** the release this build pins, from the cache. If it is not
+  there, the server fetches it as it starts, as `yalain world fetch` does, and a world that lies
+  over a release does the same for that one. If that fails it stops and says why, and nothing is
+  changed. A release fetched with `--dir` is not looked for there: serve it as a folder (`--world-db <folder>/<tag>`).
 - **`--world-db <folder>`:** the database in that folder, as it is. This is how to serve an
   unreleased checkout of the database's repository, or a release you unpacked yourself.
 - **A world made in [Athenaeum](../athenaeum/README.md)** names a base database (its `[base]`) and
@@ -1157,7 +1160,7 @@ On an open world (section 5), the first login with a new name makes the account.
 | --- | --- |
 | `yalain: --dats names the install to read the data from` | Give `--dats <install folder>`. |
 | `yalain: reading the character data: no portal data file in <folder>` | `--dats` names a folder without `portal.dat`. Name the install's folder, the one holding the `.dat` files. |
-| `yalain: the world database: the world database <tag> is not in <folder>: run yalain world fetch ...` | The pinned release is not in the cache. Run `yalain world fetch` as the user the server runs as, or give `--world-db <folder>`. |
+| `yalain: the world database: could not download <tag>, which this world needs: ...` | The release is not in the cache and the server could not fetch it: the rest of the line says why. Run `yalain world fetch` as the user the server runs as when it can reach it, or give `--world-db <folder>`. |
 | `yalain: the world database: ... problems in <folder>` | The database does not check or merge. Run `yalain world check <folder>` for the list. |
 | `yalain: --config <file>: the configuration file does not exist` | `--config` names a missing file. |
 | `yalain: yalain.toml: ...` | The configuration file is not TOML, or a key's value is not one its setting takes (section 3.6). |

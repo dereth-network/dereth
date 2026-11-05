@@ -60,6 +60,40 @@ fn entries(zip: &[u8]) -> Vec<(String, u16, u16, u16)> {
     out
 }
 
+/// A release's folder, as a fetch unpacks it, hashes to its archive's SHA-256, one file changed or
+/// missing does not; and the archive's bytes for given files stay as they are, as every pinned
+/// hash depends on it.
+/// Behaviour: server.world-db.release-folder-holds-to-its-archive-hash
+#[test]
+fn a_release_folder_hashes_to_its_archive_and_the_archive_format_holds() {
+    let zip = build(&fixture(false), "v0.3.0");
+    let sha = release::sha256_hex(&zip);
+    let files = release::read_stored(&zip).expect("its files");
+    assert_eq!(release::unpacked_sha256(&files).as_deref(), Some(&*sha));
+    let mut changed = files.clone();
+    changed.insert("world.toml".into(), "changed".into());
+    assert_ne!(release::unpacked_sha256(&changed).as_deref(), Some(&*sha));
+    let mut missing = files.clone();
+    let pack = missing
+        .keys()
+        .find(|k| k.contains('/'))
+        .cloned()
+        .expect("a pack file");
+    missing.remove(&pack);
+    assert_ne!(release::unpacked_sha256(&missing).as_deref(), Some(&*sha));
+    let mut no_manifest = files;
+    no_manifest.remove("manifest.json");
+    assert_eq!(release::unpacked_sha256(&no_manifest), None);
+
+    let mut little = Files::new();
+    little.insert("world.toml".into(), "key = \"w\"\n".into());
+    little.insert("p/pack.toml".into(), "name = \"p\"\n".into());
+    assert_eq!(
+        release::sha256_hex(&release::archive(&little, "{}\n")),
+        "cd3587cf7fbff3f203fc746fa75ab6e5d36b627ba920b653cef734272288de22"
+    );
+}
+
 /// Behaviour: server.world-db.release-the-same-bytes-for-the-same-files
 #[test]
 fn a_release_built_twice_from_the_same_files_is_the_same_bytes() {

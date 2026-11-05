@@ -69,7 +69,7 @@
 //!                         first plays, then carry on (the `characters` module)
 //!   --world-db DIR        the world database to serve, compiled against --dats at start: a
 //!                         folder, or `pinned` (the default) for the release this build pins,
-//!                         fetched into the per-user cache with `yalain world fetch`; a world
+//!                         fetched into the per-user cache as it starts if it is not there; a world
 //!                         that names a base database (`[base]`, as Athenaeum's do) is served
 //!                         over that release in the cache
 //!   --world-base DIR      the base database a --world-db world lies over, in place of the
@@ -2011,7 +2011,9 @@ fn main() -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    let compiled = match compile_world(&portal, &o.world_db, o.world_base.as_deref()) {
+    let compiled = match world::fetch_for_start(&o.world_db, o.world_base.as_deref())
+        .and_then(|()| compile_world(&portal, &o.world_db, o.world_base.as_deref()))
+    {
         Ok((d, t)) => {
             for w in &t.warnings {
                 tracing::warn!("{w}");

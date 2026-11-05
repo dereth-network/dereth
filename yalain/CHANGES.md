@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed a rebuilt server refusing to start when its world database wasn't downloaded yet.
 
 ## 0.2.0 (2026-11-05)
 

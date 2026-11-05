@@ -10106,6 +10106,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.world-db.release-folder-holds-to-its-archive-hash",
+        says: "A release's folder, as a fetch unpacks it, hashes to its archive's SHA-256, one \
+               file changed or missing does not, and the archive's bytes for given files stay as \
+               they are.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-FOLDER-HASH"),
+        station: "yalain-world-db::cpu::release::a_release_folder_hashes_to_its_archive_and_the_archive_format_holds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.world-db.release-notes-from-the-change-log",
         says: "A world database release's notes are its change log's sections from after the \
                last release up to the release, newest first, with the archive's SHA-256; a \
@@ -10136,6 +10146,45 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.world.a-folder-that-is-not-the-pin-is-fetched-again",
+        says: "A cached folder named for a release whose hash is known, and holding something \
+               else, is fetched again with the other folder kept beside it; if the fetch fails it \
+               stays where it was and the world does not start on it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-WRONG-FOLDER"),
+        station: "yalain::bin.yalain::world::tests::a_cached_folder_that_is_not_the_release_it_is_named_for_is_fetched_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.a-missing-release-is-fetched-at-start",
+        says: "A world about to start on a release the cache lacks fetches it, beside the \
+               releases already there; one the cache has is not read from the source.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-START-FETCH"),
+        station: "yalain::bin.yalain::world::tests::a_world_starting_on_a_release_not_in_the_cache_fetches_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.a-release-fetched-twice-at-once-is-kept-whole",
+        says: "A release fetched by two programs at once is kept whole: the one that finishes \
+               second takes the first's and succeeds, and another's unfinished folder is left to \
+               it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-FETCH-TWICE"),
+        station: "yalain::bin.yalain::world::tests::a_release_that_appears_during_a_fetch_is_kept_and_the_fetch_succeeds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.a-release-not-fetched-at-start-changes-nothing",
+        says: "A fetch at the start of a world that fails, with no source or an archive whose \
+               hash is wrong, says so and what to do next, and leaves the cache exactly as it \
+               was.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-START-FETCH-FAILS"),
+        station: "yalain::bin.yalain::world::tests::a_fetch_at_start_that_fails_says_so_and_changes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.world.a-save-is-whole-or-not-at-all",
         says: "A character's save, and a purge, is kept whole or not at all: one that fails part \
                way leaves the save before it whole, as Empyrean keeps each batch of saves in one \
@@ -10154,6 +10203,34 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-KEEP-WIELDED"),
         station: "yalain-testkit::cpu::entry::keeping::a_bow_wielded_at_logoff_is_in_hand_again_at_the_next_entry",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.a-world-fetches-its-release-as-it-starts",
+        says: "The executable fetches the release a world lies over as it starts, when the cache \
+               lacks it, and serves it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-START-FETCH-LIVE"),
+        station: "yalain::live::configured::a_world_over_a_release_not_in_the_cache_fetches_it_and_starts",
+        tier: Tier::Live,
+    },
+    behaviour! {
+        id: "server.world.a-world-keeps-the-release-it-names",
+        says: "The release fetched at a start is the one the world reads: `pinned` follows the \
+               build's pin, a world over a version of its own keeps it, and a folder of its own \
+               reads nothing from the cache.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-START-WHICH"),
+        station: "yalain::bin.yalain::world::tests::the_release_fetched_at_start_is_the_one_the_world_reads",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world.a-world-that-cannot-fetch-its-release-does-not-start",
+        says: "The executable on a pin neither cached nor to be had stops at its start, says so, \
+               and makes no store.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WDB-START-NO-FETCH-LIVE"),
+        station: "yalain::live::configured::a_world_on_a_pin_it_cannot_fetch_says_so_and_does_not_start",
+        tier: Tier::Live,
     },
     behaviour! {
         id: "server.world.database-backed-up-before-a-schema-upgrade",

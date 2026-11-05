@@ -52,7 +52,7 @@ yalain --dats <install folder> [options]
                         first plays, then carry on
   --world-db DIR        the world database to serve, compiled against --dats at start: a
                         folder, or `pinned` (the default) for the release this build pins,
-                        fetched into the per-user cache with `yalain world fetch`; a world
+                        fetched into the per-user cache as it starts if it is not there; a world
                         that names a base database (`[base]`, as Athenaeum's do) is served
                         over that release in the cache
   --world-base DIR      the base database a --world-db world lies over, in place of the

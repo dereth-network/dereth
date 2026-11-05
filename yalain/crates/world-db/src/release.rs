@@ -290,6 +290,15 @@ pub fn archive(files: &Files, manifest: &str) -> Vec<u8> {
     stored_zip(&entries)
 }
 
+/// The SHA-256 of the archive `files` were unpacked from, `manifest.json` among them, so that a
+/// release's folder can be held to the hash of its archive. `None` with no manifest: no release's.
+#[must_use]
+pub fn unpacked_sha256(files: &Files) -> Option<String> {
+    let mut rest = files.clone();
+    let manifest = rest.remove("manifest.json")?;
+    Some(sha256_hex(&archive(&rest, &manifest)))
+}
+
 /// The DOS date of 1980-01-01 and the time 00:00.
 const DOS_DATE: u16 = (1 << 5) | 1;
 const DOS_TIME: u16 = 0;
