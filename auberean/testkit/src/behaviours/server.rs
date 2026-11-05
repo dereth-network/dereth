@@ -7658,6 +7658,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-chest-its-opener-left-opens-again",
+        says: "A chest whose opener leaves the world, open or still opening, is shut for the next to \
+               open. Our own rule: no recording shows a chest its opener left behind.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHEST-OPENER-LEFT"),
+        station: "yalain-testkit::cpu::play::chests::a_chest_whose_opener_leaves_the_world_opens_for_the_next",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-door-plays-its-scene",
         says: "A door played as a scene takes the player through it: teleporting, frozen, the scene \
                begun with no flash or glows; the scene ended, the use answered and the player at the \

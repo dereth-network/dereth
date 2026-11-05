@@ -674,6 +674,11 @@ pub fn step<S: Store>(
                 shut(s, net, id, &kind, clock);
                 return;
             }
+            // Who opened it has left the world: it shuts for the next to open.
+            if !s.players.contains_key(&w.world) {
+                shut(s, net, id, &kind, clock);
+                return;
+            }
             let Some(c) = s.chests.by_id.get_mut(&id) else {
                 return;
             };
@@ -724,6 +729,30 @@ pub fn step<S: Store>(
             }
             shown_open(s, net, id, false);
         }
+    }
+}
+
+/// A player has left the world: a chest it has open is shut at once, for the next to open.
+pub fn left<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let open: Vec<u64> = s
+        .chests
+        .by_id
+        .iter()
+        .filter(|(_, c)| c.opener == Some(world))
+        .map(|(id, _)| *id)
+        .collect();
+    for id in open {
+        let locks = chest(s, id).is_some_and(|(kind, _)| kind.locks_on_close);
+        if let Some(c) = s.chests.by_id.get_mut(&id) {
+            c.opener = None;
+            c.phase = Phase::Closed;
+            c.generation = c.generation.wrapping_add(1);
+            if locks {
+                c.unlocked = false;
+            }
+        }
+        mode(s, net, id, look::CLOSED_MODE);
+        shown_open(s, net, id, false);
     }
 }
 

@@ -862,3 +862,40 @@ fn a_key_out_of_the_pack_before_a_chest_opens_shows_nothing_and_is_not_used_up()
     let c = &h.server.chests.by_id[&CHEST];
     assert!(c.opener.is_none(), "nobody has it open");
 }
+
+/// A chest whose opener leaves the world is shut for the next to open, whether it stood open or was
+/// still opening.
+/// Behaviour: server.places.a-chest-its-opener-left-opens-again
+#[test]
+fn a_chest_whose_opener_leaves_the_world_opens_for_the_next() {
+    for still_opening in [false, true] {
+        let mut h = hall(SMALL, false, false);
+        let (a, me) = h.player_in_world("one", "Elara");
+        let (b, them) = h.player_in_world("two", "Babyfare");
+        h.run(10);
+        send_use(&mut h, a, me, CHEST, 0, if still_opening { 0.2 } else { 3.0 });
+        let world = *h
+            .server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == me)
+            .expect("in")
+            .0;
+        yalain_world::world::leave(&mut h.server, &mut h.net, world);
+        run_for(&mut h, 3.0);
+        let c = &h.server.chests.by_id[&CHEST];
+        assert!(c.opener.is_none(), "nobody has it open");
+        assert_eq!(
+            c.phase,
+            yalain_world::usable::chests::Phase::Closed,
+            "shut"
+        );
+        let fb = h.bots[b].inbox.len();
+        send_use(&mut h, b, them, CHEST, 0, 3.0);
+        assert!(
+            seen(&h, b, fb).contains(&"opened 0".to_string()),
+            "{:?}",
+            seen(&h, b, fb)
+        );
+    }
+}

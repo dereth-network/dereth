@@ -31,6 +31,7 @@ what they see, not how it was done.
 - A character's aliases and settings have a size limit.
 - A character holds up to 100 consignments.
 - Fixed a key opening a locked chest or door more than once.
+- Fixed a chest staying open for good when its opener leaves the world.
 
 - Fixed a selected person showing empty health and vigor bars.
 
