@@ -658,7 +658,7 @@ pub fn ticket<S: Store>(
     address: &str,
     now: i64,
 ) -> Ticket {
-    if !crate::login::may_check_secret(s, address) {
+    if !crate::login::may_check_secret(s, address, name) {
         return Ticket::Refused;
     }
     crate::login::secret_checked(s);

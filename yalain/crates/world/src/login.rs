@@ -107,6 +107,13 @@ pub const CHECKS_A_SECOND: f64 = 16.0;
 /// together, twice over. Past it, one is told the world has no room.
 pub const MOST_LOGINS_WAITING: usize = 256;
 
+/// How many new accounts one address may make at once on an open world, and a second after that:
+/// a household's, and each further one a minute. What an open world's accounts come to is bounded
+/// by this and [`WORLD_NEW_ACCOUNTS`].
+pub const ADDRESS_NEW_ACCOUNTS: (f64, f64) = (8.0, 1.0 / 60.0);
+/// How many new accounts the world makes at once, and a second after that.
+pub const WORLD_NEW_ACCOUNTS: (f64, f64) = (256.0, 1.0);
+
 /// The refused logins of each address, the addresses refused unchecked until a time, how many secrets
 /// each address may yet have checked, and the logins waiting their turn for theirs.
 #[derive(Debug, Default)]
@@ -114,6 +121,8 @@ pub struct LoginGuard {
     refusals: HashMap<String, Vec<f64>>,
     locked: HashMap<String, f64>,
     checks: HashMap<String, Bucket>,
+    new_accounts: HashMap<String, Bucket>,
+    world_new_accounts: Option<Bucket>,
     /// When the next secret may be checked.
     next_check: f64,
     waiting: VecDeque<(ConnId, GameLogin)>,
@@ -269,8 +278,9 @@ pub fn secret_is_current(secret: &[u8], cost: u32) -> bool {
 
 /// May a login or a friends ticket from this address go on to have its secret checked? Asked only of
 /// an address its client has answered from, so that nobody can spend another's. An address the
-/// operator exempts, or this machine's own, may.
-pub(crate) fn may_check_secret<S: Store>(s: &mut Server<S>, address: &str) -> bool {
+/// operator exempts, or this machine's own, may. A name with no account on an open world would make
+/// one: that has limits of its own, the world's for every address.
+pub(crate) fn may_check_secret<S: Store>(s: &mut Server<S>, address: &str, name: &str) -> bool {
     let now = s.saves.now;
     let exempt = address.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
         || address == address_key(IpAddr::V6(std::net::Ipv6Addr::LOCALHOST))
@@ -278,7 +288,23 @@ pub(crate) fn may_check_secret<S: Store>(s: &mut Server<S>, address: &str) -> bo
             .unlimited_addresses
             .iter()
             .any(|a| address_key(*a) == address);
-    exempt || spend_address(&mut s.login_guard.checks, address, ADDRESS_CHECKS, now)
+    if !exempt && !spend_address(&mut s.login_guard.checks, address, ADDRESS_CHECKS, now) {
+        return false;
+    }
+    let makes_one = s.cfg.accounts == AccountPolicy::Open
+        && matches!(s.store.account_by_name(name.trim()), Ok(None));
+    if !makes_one {
+        return true;
+    }
+    let guard = &mut s.login_guard;
+    if !exempt && !spend_address(&mut guard.new_accounts, address, ADDRESS_NEW_ACCOUNTS, now) {
+        return false;
+    }
+    let (burst, per_second) = WORLD_NEW_ACCOUNTS;
+    guard
+        .world_new_accounts
+        .get_or_insert_with(|| Bucket::with(burst, per_second, now))
+        .allow(now)
 }
 
 /// Is it time to check another secret?
@@ -451,7 +477,12 @@ pub(crate) fn logged_in<S: Store>(
     let locked = address
         .as_deref()
         .is_some_and(|a| s.login_guard.locked(a, now));
-    if !locked && address.as_deref().is_some_and(|a| !may_check_secret(s, a)) {
+    let name = login.account.trim();
+    if !locked
+        && address
+            .as_deref()
+            .is_some_and(|a| !may_check_secret(s, a, name))
+    {
         tracing::debug!(
             ?conn,
             ?address,

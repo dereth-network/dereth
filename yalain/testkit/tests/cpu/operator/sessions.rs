@@ -232,9 +232,18 @@ fn an_admins_account_is_held_back_by_its_address_limit() {
     assert_eq!(answer, refused(CharacterRefused::SERVER_FULL));
 }
 
+/// Accounts made beforehand, so that their logins make none.
+fn accounts(h: &mut Harness, names: impl IntoIterator<Item = String>) {
+    for name in names {
+        yalain_world::login::add_account(&mut h.server.store, &name, b"ticket", 4, 1)
+            .expect("made");
+    }
+}
+
 /// Logins from these addresses, all at the same moment: how many of them are told the world has no
-/// room, by the end. Each account its own.
+/// room, by the end. Each account its own, made beforehand.
 fn together(h: &mut Harness, from: &[(Ipv4Addr, String)]) -> usize {
+    accounts(h, from.iter().map(|(_, name)| name.clone()));
     let bots: Vec<usize> = from
         .iter()
         .map(|(ip, name)| {
@@ -255,8 +264,7 @@ fn together(h: &mut Harness, from: &[(Ipv4Addr, String)]) -> usize {
 }
 
 /// Many logins at once from one address: at least what the limit allows go through, a household's
-/// or a shared address's; what is past it is told the world has no room, its name not even looked
-/// at, and no account is made for it. Another address is not held back, the limit comes back with
+/// or a shared address's; what is past it is told the world has no room. Another address is not held back, the limit comes back with
 /// time, and an address the operator exempts, or this machine's own, is not held to it.
 /// Behaviour: server.accounts.secret-checks-bounded
 #[test]
@@ -275,15 +283,6 @@ fn logins_past_the_secrets_an_address_may_have_checked_are_told_the_world_has_no
     assert_eq!(together(&mut h, &names("few", HERE, burst)), 0, "a few");
     let over = together(&mut h, &names("many", HERE, burst));
     assert!(over >= burst - 2, "{over} of {burst} past the limit");
-    let made = (0..burst)
-        .filter(|i| {
-            h.server
-                .store
-                .account_by_name(&format!("many{i}"))
-                .is_ok_and(|a| a.is_some())
-        })
-        .count();
-    assert_eq!(made, burst - over, "none made for what was refused");
     assert_eq!(
         together(&mut h, &names("there", THERE, burst)),
         0,
@@ -318,6 +317,7 @@ fn logins_past_the_secrets_an_address_may_have_checked_are_told_the_world_has_no
 
 /// Logins from these addresses, each its own, at the same moment.
 fn all_at_once(h: &mut Harness, n: usize) -> Vec<usize> {
+    accounts(h, (0..n).map(|i| format!("p{i}")));
     (0..n)
         .map(|i| {
             let [_, _, a, b] = u32::try_from(i).expect("few").to_be_bytes();
@@ -356,8 +356,7 @@ fn logins_at_once_wait_their_turn_and_each_gets_in() {
     assert!(took >= least(9, 2.0), "{took} s, each counting for two");
 }
 
-/// A login that goes away while it waits its turn is not checked, holds no place in the world, and no
-/// account is made for it.
+/// A login that goes away while it waits its turn is not checked and holds no place in the world.
 /// Behaviour: server.accounts.secret-checks-bounded
 #[test]
 fn a_login_gone_before_its_turn_is_not_checked() {
@@ -368,15 +367,6 @@ fn a_login_gone_before_its_turn_is_not_checked() {
     h.bots[bots[2]].leave();
     h.run(40);
     assert_eq!(h.server.sessions.len(), 1);
-    for name in ["p1", "p2"] {
-        assert!(
-            h.server
-                .store
-                .account_by_name(name)
-                .is_ok_and(|a| a.is_none()),
-            "{name}: no account"
-        );
-    }
 }
 
 /// Past as many as may wait, a login is told the world has no room. An admin's account still gets
@@ -419,6 +409,90 @@ fn logins_past_as_many_as_may_wait_are_told_it_has_no_room_but_an_admins_goes_fi
         h.server.sessions.len() < waiting + 8,
         "ahead of those waiting"
     );
+}
+
+/// An open world makes a bounded number of accounts for one address, then tells it the world has no
+/// room and makes none, while its accounts already made still log in and another address still
+/// makes one; the limit comes back with time. A listed world makes none anyway, and looks no further.
+/// Behaviour: server.accounts.new-accounts-bounded
+#[test]
+fn new_names_past_what_an_address_may_make_are_told_the_world_has_no_room() {
+    let (burst, per_second) = yalain_world::login::ADDRESS_NEW_ACCOUNTS;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let burst = burst as usize;
+    let mut h = world(ServerConfig {
+        secret_cost: 4,
+        ..ServerConfig::default()
+    });
+    let made = |h: &mut Harness, name: &str| {
+        h.server
+            .store
+            .account_by_name(name)
+            .is_ok_and(|a| a.is_some())
+    };
+    for i in 0..burst {
+        let name = format!("mine{i}");
+        assert_ne!(log_in_from(&mut h, HERE, &name).1, refused(19), "{name}");
+        assert!(made(&mut h, &name), "{name}");
+    }
+    assert_eq!(log_in_from(&mut h, HERE, "one more").1, refused(19));
+    assert!(!made(&mut h, "one more"), "none made");
+    assert_ne!(log_in_from(&mut h, HERE, "mine0").1, refused(19), "its own");
+    assert_ne!(
+        log_in_from(&mut h, THERE, "theirs").1,
+        refused(19),
+        "another"
+    );
+    h.advance(1.0 / per_second);
+    assert_ne!(
+        log_in_from(&mut h, HERE, "one more").1,
+        refused(19),
+        "later"
+    );
+    assert!(made(&mut h, "one more"));
+}
+
+/// However many addresses bring new names at once, the world makes a bounded number of accounts,
+/// and an old name is not held back by it.
+/// Behaviour: server.accounts.new-accounts-bounded
+#[test]
+fn new_names_past_what_the_world_may_make_are_refused_and_old_ones_still_get_in() {
+    use yalain_world::admin::{ticket, Ticket};
+    let (burst, _) = yalain_world::login::WORLD_NEW_ACCOUNTS;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let burst = burst as usize;
+    let mut h = world(ServerConfig {
+        secret_cost: 4,
+        ..ServerConfig::default()
+    });
+    let unix = h.unix;
+    let ticket_from = |h: &mut Harness, name: &str, i: usize| {
+        let [_, _, a, b] = u32::try_from(i).expect("few").to_be_bytes();
+        ticket(&mut h.server, name, b"s", &format!("10.7.{a}.{b}"), unix)
+    };
+    let old = ticket_from(&mut h, "old", 0);
+    assert!(matches!(old, Ticket::Admitted(_)));
+    let mut admitted = 0;
+    for i in 1..burst + 100 {
+        if matches!(
+            ticket_from(&mut h, &format!("n{i}"), i),
+            Ticket::Admitted(_)
+        ) {
+            admitted += 1;
+        }
+    }
+    assert_eq!(admitted, burst - 1, "as many as it may make");
+    assert!(
+        h.server
+            .store
+            .account_by_name(&format!("n{}", burst + 50))
+            .is_ok_and(|a| a.is_none()),
+        "none past that"
+    );
+    assert!(matches!(
+        ticket_from(&mut h, "old", 40_000),
+        Ticket::Admitted(_)
+    ));
 }
 
 /// A friends ticket counts among the secrets checked as a login does: past its address's limit even

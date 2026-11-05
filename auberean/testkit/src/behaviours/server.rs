@@ -37,6 +37,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.accounts.new-accounts-bounded",
+        says: "An open world makes a bounded number of new accounts for each address and \
+               for the world; a login past it is told the world has no room and none is \
+               made, and accounts already made go on logging in.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NEW-ACCOUNTS-BOUNDED"),
+        station: "yalain-testkit::cpu::operator::sessions::new_names_past_what_an_address_may_make_are_told_the_world_has_no_room",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.accounts.older-secrets-kept-again-as-bcrypt",
         says: "A secret kept as earlier versions kept it (a salted SHA-256) admits its ticket \
                once more and is then kept as bcrypt at the world's cost, as Empyrean moves an \
