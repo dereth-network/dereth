@@ -8,6 +8,14 @@ use super::{Behaviour, Evidence, Tier, RETAIL};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "collision.body.a-fall-stopped-during-the-move-reports-no-impact",
+        says: "A fall stopped during the move, a landing that could not be kept, has no speed left when the body tells of the move, so it reports no collision normal or impact.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-COLLISION-KILL-VELOCITY"),
+        station: "auberean-physics::cpu::contact::solid::a_fall_stopped_during_the_move_reports_no_impact",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "collision.contact.a-body-on-the-ground-is-on-the-landscape",
         says: "After each move a body's collisions note what it touches: the plane, whether it is \
                under water, and whether the plane is the landscape's ground or an interior's own \
