@@ -1115,6 +1115,41 @@ fn an_effects_color_goes_back_as_it_ends() {
     assert!(white(&fx.take_sliders()), "put back all the same");
 }
 
+/// An effect that simply runs out leaves the color as it is, unless an entry's color lasts a time:
+/// `0x8100028E`, which takes the alpha to nothing and says to restore, keeps it, since only a stop
+/// asked for puts it back; `0x8100028F`, whose color lasts, goes back to white as it runs out.
+///
+/// Behaviour: draw.effects.an-effect-running-out-restores-only-a-color-that-lasts
+#[test]
+fn an_effect_running_out_restores_only_a_color_that_lasts() {
+    use auberean_draw::effects::{FxSpot, FxWho, NoRig};
+    let r = &install().records;
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let systems = ParticleSystems::default();
+    let spot = FxSpot {
+        home: (0, 0),
+        place: Mat4::IDENTITY,
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        now: 1.0,
+    };
+    let run_out = |effect: u32| {
+        let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+        let (took, _) = fx.do_fx(&systems, r, effect, 1.0, &spot, FxWho::default(), &NoRig);
+        assert!(took, "{effect:08X}");
+        fx.take_sliders();
+        fx.use_time(r, 1.0);
+        fx.use_time(r, 1_000.0);
+        let after = fx.take_sliders();
+        assert!(!fx.states().contains_key(&effect), "{effect:08X} ran out");
+        after.iter().any(|s| s.value == 1.0 && s.time == 0.1)
+    };
+    assert!(
+        !run_out(0x8100_028E),
+        "says to restore, but only a stop does"
+    );
+    assert!(run_out(0x8100_028F), "its color lasts a time");
+}
+
 /// An effect with a decal (`0x810002C7` of the shared table) lays it: its material, its life, its
 /// size and its color from the entry; with the decal effects preference off, none.
 ///

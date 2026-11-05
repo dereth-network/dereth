@@ -282,6 +282,8 @@ pub struct FxState {
     pub startup: bool,
     pub systems: Vec<u32>,
     pub end: Option<f64>,
+    /// An entry's color lasts a time, so the object's color goes back when the effect ends.
+    pub restore_color: bool,
 }
 
 /// Where an object stands as it plays an effect: in block `home`'s frame at `place` with `scale`,
@@ -1194,6 +1196,9 @@ impl ObjectEffects {
             let script = node.fx_script.filter(|d| !d.is_none()).map(|d| d.0);
             scripts.extend(script);
             self.sliders.extend(node_sliders(&node));
+            if node.color.is_some_and(|(on, _)| on) && node.color_lifetime.unwrap_or(0.0) != 0.0 {
+                state.restore_color = true;
+            }
             let mut looping = false;
             if node.particles.as_ref().is_some_and(|p| !p.is_empty()) {
                 if node.fire_and_forget == Some(true) {
@@ -1313,15 +1318,20 @@ impl ObjectEffects {
     fn restore_color(&mut self, records: &WorldRecords, effect: u32) {
         for data in self.table.fx_data(records, effect) {
             if node_for(&data, self.terrain).restore == Some(true) {
-                self.sliders
-                    .extend(COLOR_SLIDERS.into_iter().map(|slider| FxSlider {
-                        slider,
-                        value: 1.0,
-                        time: 0.1,
-                        children: false,
-                    }));
+                self.color_back();
             }
         }
+    }
+
+    /// The object's color back to white in a tenth of a second.
+    fn color_back(&mut self) {
+        self.sliders
+            .extend(COLOR_SLIDERS.into_iter().map(|slider| FxSlider {
+                slider,
+                value: 1.0,
+                time: 0.1,
+                children: false,
+            }));
     }
 
     /// The object is going: every effect it plays stops, its startup effects too, with the systems
@@ -1338,8 +1348,9 @@ impl ObjectEffects {
     /// time): each whose strength is not yet the one asked moves toward it, at each of its entries
     /// in turn (one that ramps by the time passed over its ramp's time, held at the strength
     /// asked; one that does not, to it at once), each entry's appearance laid over the object at
-    /// the strength it has then (or taken off at none); then those whose end has come stop, as a
-    /// forced [`ObjectEffects::stop_fx`] stops them, leaving their appearances.
+    /// the strength it has then (or taken off at none); then those whose end has come are over: their
+    /// systems go, what they lay over the object and the sounds they keep going stay, and the
+    /// color goes back only when an entry's color lasts a time.
     // D2-06924
     pub fn use_time(&mut self, records: &WorldRecords, now: f64) {
         #[allow(clippy::cast_possible_truncation)] // a frame's span
@@ -1381,7 +1392,13 @@ impl ObjectEffects {
             .map(|(k, _)| *k)
             .collect();
         for effect in ended {
-            self.stop_fx(records, effect, true);
+            let Some(state) = self.states.remove(&effect) else {
+                continue;
+            };
+            self.systems.retain(|c| !state.systems.contains(&c.id));
+            if state.restore_color {
+                self.color_back();
+            }
         }
     }
 

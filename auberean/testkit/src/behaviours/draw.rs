@@ -211,6 +211,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.effects.an-effect-running-out-restores-only-a-color-that-lasts",
+        says: "An effect that runs out of itself leaves the object's color, unless an entry's color lasts a time.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-RUN-OUT-COLOR"),
+        station: "auberean-draw::dat::effects::an_effect_running_out_restores_only_a_color_that_lasts",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.effects.an-effects-appearance-is-laid-over-its-object-until-it-stops",
         says: "An effect that names an appearance table lays that table's value over the whole \
                object at the strength the effect has (its key's strength times the effect's; at \
