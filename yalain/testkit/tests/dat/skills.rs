@@ -475,3 +475,40 @@ fn the_skills_aimed_at_items_read_with_what_they_take_and_do() {
         }
     }
 }
+
+/// Each contract is a template whose acquiring hires, and its mercenary a template that makes a pet;
+/// no pet a skill summons is of a mercenary's class, and what a mercenary tends with heals.
+/// Behaviour: server.pets.a-contract-hires-a-mercenary
+#[test]
+fn the_contracts_and_their_mercenaries_read_from_the_data() {
+    use yalain_world::effect_defs::Kind;
+    use yalain_world::pets::{kind_of, mercenary};
+    let portal = Portal::open();
+    for contract in [mercenary::CRAFTER, mercenary::KEEPER, mercenary::MEDIC] {
+        let t = portal.template(contract);
+        assert!(yalain_world::quests::acquiring_does_more_than_quests(
+            &t.props
+        ));
+        let pet = portal.template(kind_of(contract).expect("a kind").template);
+        let stats = yalain_content::CreatureStats::from_props(&pet.props).expect("a pet");
+        assert_eq!(stats.max_health, 150);
+    }
+    let table = portal.skills();
+    let summons: Vec<u32> = table
+        .skills
+        .values()
+        .filter_map(|d| d.usage.as_ref())
+        .flat_map(|u| u.user_effects.iter().copied())
+        .collect();
+    let effects = portal.effects(&summons);
+    for d in effects.effects.values() {
+        if let Kind::Pet { class, .. } = d.kind {
+            assert_eq!(class & mercenary::CLASS, 0, "{:08X}", d.state);
+        }
+    }
+    let heal = portal.effects(&[mercenary::TEND_EFFECT]);
+    assert!(matches!(
+        heal.get(mercenary::TEND_EFFECT).expect("known").kind,
+        Kind::InstantVital { .. }
+    ));
+}

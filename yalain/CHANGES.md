@@ -21,6 +21,7 @@ what they see, not how it was done.
 - Bound items now say whom they're bound to.
 - Emblem of Might, Galvanize and Bigger Board With Nail now work.
 - Some skills now draw a creature's attention a little more or less.
+- Contracts now hire mercenaries.
 
 - Fixed a selected person showing empty health and vigor bars.
 

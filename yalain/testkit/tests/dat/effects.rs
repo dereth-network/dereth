@@ -477,7 +477,11 @@ fn the_summoning_skills_pets_read_as_the_data_defines_them() {
         panic!("not a pet: {lasher:?}")
     };
     assert_eq!((*class, lifetime.is_empty()), (16, true));
-    for k in yalain_world::pets::KINDS {
+    // A mercenary's kind is known by its contract: no effect of the data summons it.
+    for k in yalain_world::pets::KINDS
+        .into_iter()
+        .filter(|k| !yalain_world::pets::is_contract(k.effect))
+    {
         assert!(
             matches!(t.get(k.effect).map(|d| &d.kind), Some(Kind::Pet { .. })),
             "{:08X}",

@@ -7221,6 +7221,42 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Live,
     },
     behaviour! {
+        id: "server.pets.a-contract-hires-a-mercenary",
+        says: "A contract bought hires its mercenary at once, dismisses the one before it and is used \
+               up. This server's own stand-in for summons in no data it holds.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MERC-HIRE"),
+        station: "yalain-testkit::cpu::play::trade::a_contract_hires_its_mercenary_at_once_and_is_used_up_and_the_next_takes_its_place",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.a-contract-that-cannot-hire-costs-nothing",
+        says: "A contract that can't hire now is refused, nothing paid; one kept in the pack stays until \
+               it can.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MERC-REFUSED"),
+        station: "yalain-testkit::cpu::play::trade::a_contract_that_cannot_hire_now_is_refused_and_costs_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.a-mercenary-ends",
+        says: "A mercenary goes after an hour, with its owner's death and with its owner leaving the \
+               world. The hour is this server's own number.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MERC-ENDS"),
+        station: "yalain-testkit::cpu::play::trade::a_mercenary_ends_with_its_time_its_owners_death_and_its_owner_leaving",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.a-mercenary-tends",
+        says: "A medic tends its owner when hurt below three quarters, a keeper its owner's other pets, \
+               at most each half minute. This server's own reading of their contracts' words.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MERC-TENDS"),
+        station: "yalain-testkit::cpu::play::trade::a_medic_tends_its_owner_and_a_keeper_its_owners_pets",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.aggressive-unprovoked",
         says: "An aggressive pet takes on the nearest creature within its reach without being told \
                to.",

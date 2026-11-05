@@ -922,6 +922,18 @@ fn use_held<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: 
         crate::usable::doors::key_used(s, net, world, u, clock);
         return;
     }
+    // A contract kept because it could not hire when it was bought tries again.
+    if crate::pets::is_contract(item) && in_the_pack(s, world, u.item) {
+        let hired = crate::pets::hire(s, net, world, item, clock);
+        let me = s.players.get(&world).map_or(0, |p| p.character);
+        let told = if hired {
+            use_done(&u, me, USE_FLAGS_PACK, false, 0.0)
+        } else {
+            use_refused(&u, 0, Some(USE_FLAGS_PACK), 0.0, USE_STATUS_OK)
+        };
+        send(net, world, BlobKind::PRIVATE, &told);
+        return;
+    }
     // A totem used on an item in the pack.
     if s.things
         .get(u.item)

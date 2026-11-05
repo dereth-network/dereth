@@ -376,11 +376,17 @@ pub fn purchase<S: Store>(
         return;
     };
     // What the world can't make isn't sold: nothing is paid for it. Nor what is bought for what its
-    // acquiring does, when the world can't do that.
-    if s.catalog
-        .get(sale.product)
-        .is_none_or(|t| crate::quests::acquiring_does_more_than_quests(&t.props))
-    {
+    // acquiring does, when the world can't do that, or not for this player now: a contract hires one
+    // mercenary, so it goes one at a time.
+    let hires = crate::pets::is_contract(sale.product);
+    let refused = if hires {
+        quantity > 1 || !crate::pets::may_hire(s, world, sale.product)
+    } else {
+        s.catalog
+            .get(sale.product)
+            .is_none_or(|t| crate::quests::acquiring_does_more_than_quests(&t.props))
+    };
+    if refused || s.catalog.get(sale.product).is_none() {
         s.unhandled.note(format!(
             "a purchase of template {:08X}, which the world can't make or carry out",
             sale.product
@@ -459,6 +465,9 @@ pub fn purchase<S: Store>(
         opened.encode(),
     );
     crate::inventory::bought(s, net, world, sale.product, quantity, keeper, clock);
+    if hires {
+        crate::pets::hire(s, net, world, sale.product, clock);
+    }
     let m = page(s, world, keeper, store, pos, function::UPDATE_STORE);
     progress::private(net, world, &m);
     let closed = open(s, 0);
