@@ -51,6 +51,88 @@ fn selecting_a_player_is_answered_with_its_vitals() {
     assert_eq!(words, [0x4000_0001, 100, 0, 100, 100, 0, 100]);
 }
 
+/// Selecting a person whose template names no health or vigor is answered with a person's own
+/// numbers, so the meters under its name show full rather than empty; a template that names them
+/// keeps them.
+///
+/// Behaviour: server.selection.a-person-with-no-vitals-of-its-own-has-30-and-130
+#[test]
+fn a_person_with_no_vitals_of_its_own_has_30_and_130() {
+    use yalain_content::{ContentObject, ContentPack, Description, Kind};
+    let mut h = Harness::new();
+    let (a, id) = h.player_in_world("one", "Elara");
+    let at = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == id)
+        .expect("in the world")
+        .position;
+    let person = |object: u64, facts: Facts| ContentObject {
+        object: Some(object),
+        template: 0x4700_2F80,
+        description: Description {
+            package: 0x13A4,
+            look: 0x1F00_0100,
+            enter_fx: 0,
+            scale: None,
+            name: None,
+            numbers: [0; 6],
+            source: "authored for a test".into(),
+        },
+        cell: at.cell,
+        origin: [at.origin[0] + 1.0, at.origin[1], at.origin[2]],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        kind: Kind::Npc,
+        label: String::new(),
+        placed: "authored for a test".into(),
+        destination: None,
+        facts,
+        walks: None,
+        gate: None,
+    };
+    let (plain, tough) = (0x40DF_8A00_0000_001E, 0x40DF_8A00_0000_001F);
+    h.server.content = ContentPack {
+        objects: vec![
+            person(plain, Facts::default()),
+            person(
+                tough,
+                Facts {
+                    max_health: Some(500),
+                    max_vigor: Some(600),
+                    ..Facts::default()
+                },
+            ),
+        ],
+        ..ContentPack::default()
+    };
+    let mut words_of = |who: u64| {
+        let from = h.bots[a].inbox.len();
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::SET_SELECTION, &[Arg::LongInt(who)]),
+        );
+        let values = h
+            .wait_for(a, from, |m| match m {
+                ServerMessage::PlayerCall(c) if c.function.0 == answered::SELECTION_INFO => {
+                    c.args.as_ref().and_then(|x| calls::values(&x.0).ok())
+                }
+                _ => None,
+            })
+            .expect("answered");
+        let Some(Node::Native { ty: 171, bytes }) = values[0].root() else {
+            panic!("a selection's information: {values:?}")
+        };
+        bytes
+            .chunks(4)
+            .map(|c| u32::from_le_bytes(c.try_into().expect("words")))
+            .collect::<Vec<u32>>()
+    };
+    assert_eq!(words_of(plain), [0x4000_0001, 30, 0, 30, 130, 0, 130]);
+    assert_eq!(words_of(tough), [0x4000_0001, 500, 0, 500, 600, 0, 600]);
+}
+
 /// The bytes of an examination request about an object, asking for the tabs given.
 fn about(object: u64, asked: u32) -> Arg {
     let mut bytes = Vec::new();

@@ -15,6 +15,8 @@ what they see, not how it was done.
 - How close a creature stops and how far it swings now go with its size.
 - Wasps, wisps and other flyers fly at their height and chase you indoors.
 
+- Fixed a selected person showing empty health and vigor bars.
+
 ## 0.2.0 (2026-11-05)
 
 - Creatures now go around what a world places.

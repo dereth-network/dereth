@@ -9134,6 +9134,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.selection.a-person-with-no-vitals-of-its-own-has-30-and-130",
+        says: "Selecting a person whose template names no health or vigor is answered with 30 health and 130 vigor, at their greatest; a template that names them keeps them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SELECTION-PERSON"),
+        station: "yalain-testkit::cpu::entry::examine::a_person_with_no_vitals_of_its_own_has_30_and_130",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.selection.examining-what-another-holds",
         says: "An item in another player's pack answers no examination until the examiner knows \
                of it, as an offer in a trade makes it known.",
