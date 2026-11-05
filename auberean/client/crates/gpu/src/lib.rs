@@ -219,6 +219,8 @@ enum Target {
 pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
+    /// Why the device was lost, once it has been: it draws nothing more, and another must be made.
+    lost: Arc<std::sync::Mutex<Option<String>>>,
     module: wgpu::ShaderModule,
     frame_layout: wgpu::BindGroupLayout,
     /// The sun's shadow map, as the vertices of a body standing on the land read it.
@@ -627,6 +629,27 @@ impl Renderer {
             })
             .await
             .map_err(|e| GpuError::NoDevice(e.to_string()))?;
+        let lost = Arc::new(std::sync::Mutex::new(None));
+        {
+            let lost = Arc::clone(&lost);
+            device.set_device_lost_callback(move |reason, message| {
+                let why = format!("{reason:?}: {message}");
+                if let Ok(mut lost) = lost.lock() {
+                    *lost = Some(why);
+                }
+            });
+        }
+        {
+            // What is asked of a device already lost, and of what it made, goes nowhere and is no
+            // fault of the asking. Any other error stops the game, as wgpu's own handler does.
+            let lost = Arc::clone(&lost);
+            device.on_uncaptured_error(Arc::new(move |e: wgpu::Error| {
+                assert!(
+                    lost.lock().is_ok_and(|lost| lost.is_some()),
+                    "wgpu error: {e}"
+                );
+            }));
+        }
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("world"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/world.wgsl").into()),
@@ -716,6 +739,7 @@ impl Renderer {
         let mut r = Self {
             device,
             queue,
+            lost,
             module,
             frame_layout,
             shadow_layout,
@@ -763,6 +787,12 @@ impl Renderer {
     #[must_use]
     pub fn device(&self) -> &wgpu::Device {
         &self.device
+    }
+
+    /// Why the device was lost, once it has been: it draws nothing more, and another must be made.
+    #[must_use]
+    pub fn device_lost(&self) -> Option<String> {
+        self.lost.lock().ok().and_then(|lost| lost.clone())
     }
 
     /// How the device takes the game's pictures, for a host that uploads more of them.

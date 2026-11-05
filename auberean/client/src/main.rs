@@ -789,6 +789,19 @@ impl App<'_> {
         });
     }
 
+    /// Another device for window `w`, as the game is now shown. The game ends without one.
+    fn make_device(&mut self, el: &ActiveEventLoop, w: &Arc<Window>) {
+        // The window's surface is let go before another is made on it.
+        self.present = None;
+        match presenter(w, &self.shown) {
+            Ok(made) => self.present = Some(made),
+            Err(e) => {
+                self.failed = Some(e);
+                el.exit();
+            }
+        }
+    }
+
     /// The game shown as the rendering preferences now ask: full screen fills the monitor as it
     /// is, which never changes its display mode, or the window at its size;
     /// the device made again for the edges smoothed or not; the way pictures reach the screen.
@@ -808,15 +821,7 @@ impl App<'_> {
             let _ = w.request_inner_size(window_size_for(p.size));
         }
         if p.antialiasing != was.antialiasing {
-            // The window's surface is let go before another is made on it.
-            self.present = None;
-            match presenter(&w, &p) {
-                Ok(made) => self.present = Some(made),
-                Err(e) => {
-                    self.failed = Some(e);
-                    el.exit();
-                }
-            }
+            self.make_device(el, &w);
         } else if let Some(present) = &mut self.present {
             present.set_presentation(p.full_screen, p.triple_buffering, p.sync_to_display);
         }
@@ -891,6 +896,14 @@ impl App<'_> {
             }
             if p.hidden() {
                 std::thread::sleep(hidden_rest(began.elapsed()));
+            }
+        }
+        if let Some(why) = self.present.as_ref().and_then(|p| p.renderer.device_lost()) {
+            tracing::error!(%why, "the graphics device was lost: making another");
+            if let Some(w) = self.shell.host.window.clone() {
+                self.make_device(el, &w);
+                let size = w.inner_size();
+                self.window_sized((size.width, size.height));
             }
         }
         self.set_cursor(el, cursor.as_deref());

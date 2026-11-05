@@ -808,6 +808,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.mesh.a-lost-device-is-noticed-and-does-not-stop-the-game",
+        says: "A device that goes away is noticed, and drawing on it asks for nothing it can't give; another device draws.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-DEVICE-LOST"),
+        station: "auberean-gpu::gpu::lost::a_lost_device_is_noticed_and_does_not_stop_the_game",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "draw.mesh.a-vertex-format-lays-its-elements-out-in-order",
         says: "A stored vertex holds its position, blend weights, normal, point size, diffuse and \
                specular colors, tangent-space vectors and coordinate pairs in that order, sized \

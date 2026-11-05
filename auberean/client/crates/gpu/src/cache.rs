@@ -11,7 +11,6 @@ use std::sync::Arc;
 use auberean_draw::mesh::{MeshVertex, PosedVertex};
 use auberean_draw::scene::TerrainVertex;
 use bytemuck::Pod;
-use wgpu::util::DeviceExt;
 
 use super::{MeshGpuVertex, TerrainGpuVertex};
 
@@ -177,6 +176,25 @@ struct Now {
     draw: u64,
 }
 
+/// A buffer of its own holding `bytes`. A device that has been lost makes no buffer to write them
+/// into, and the frame goes on without them until the device is made again.
+fn buffer_holding(device: &wgpu::Device, bytes: &[u8], usage: wgpu::BufferUsages) -> wgpu::Buffer {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        // Whole words, and never nothing, as a buffer mapped when it is made must be.
+        size: (bytes.len() as u64)
+            .next_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT)
+            .max(wgpu::COPY_BUFFER_ALIGNMENT),
+        usage,
+        mapped_at_creation: true,
+    });
+    if let Ok(mut held) = buffer.get_mapped_range_mut(..) {
+        held.slice(..bytes.len()).copy_from_slice(bytes);
+    }
+    buffer.unmap();
+    buffer
+}
+
 impl<T> Lists<T> {
     /// Where `list` is on the device. `gpu` is what the device reads of it.
     fn slice<B: Pod>(
@@ -219,11 +237,7 @@ impl<T> Lists<T> {
                 counts.buffers += 1;
                 counts.buffer_bytes += bytes.len() as u64;
                 let slice = Slice {
-                    buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: None,
-                        contents: bytes,
-                        usage,
-                    }),
+                    buffer: buffer_holding(device, bytes, usage),
                     offset: 0,
                     size: bytes.len() as u64,
                 };

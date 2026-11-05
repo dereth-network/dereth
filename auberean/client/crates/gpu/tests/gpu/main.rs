@@ -14,6 +14,7 @@
 mod common;
 mod fade;
 mod inside;
+mod lost;
 mod materials;
 mod pipelines;
 mod shadows;

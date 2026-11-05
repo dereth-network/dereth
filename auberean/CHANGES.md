@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Fixed a crash when the graphics device goes away, as when a driver resets.
 - Your own character no longer loses detail too soon as the camera pulls back.
 - Fixed the haze around gateway signs and other scaled objects being too wide.
 - Fixed others' damage numbers ignoring the range option, and far targets not being refused.
