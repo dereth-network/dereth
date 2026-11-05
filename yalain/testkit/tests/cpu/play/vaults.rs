@@ -333,3 +333,38 @@ fn a_glyph_cannot_be_put_down_on_its_trip_and_one_put_down_opens_nothing() {
         "it went nowhere"
     );
 }
+
+/// A player taken out of the world on its way through a vault leaves it free for the next.
+/// Behaviour: server.places.a-vault-is-free-once-its-traveler-has-left
+#[test]
+fn a_vault_is_free_for_the_next_once_its_traveler_has_left_the_world() {
+    let mut h = hall();
+    let (a, ida, _, glyph) = with_glyph(&mut h, "one", ESPER_GLYPH);
+    let (b, idb, _, second) = with_glyph(&mut h, "two", ESPER_GLYPH);
+    send_use(&mut h, a, ida, glyph, VAULT, 0.5);
+    let clock = h.clock();
+    let name = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == ida)
+        .expect("in")
+        .name
+        .clone();
+    yalain_world::characters::force_logoff(&mut h.server, &mut h.net, clock, &name)
+        .expect("out of the world");
+    run_for(&mut h, vaults::BETWEEN_TRIPS + 5.0);
+    let from = h.bots[b].inbox.len();
+    send_use(&mut h, b, idb, second, VAULT, 0.5);
+    assert!(
+        !answers(&h, b, from)
+            .iter()
+            .any(|(status, ..)| *status == refusal::IN_USE),
+        "not held for one no longer there"
+    );
+    assert!(h
+        .server
+        .players
+        .values()
+        .any(|p| p.character == idb && p.trip.is_some()));
+}

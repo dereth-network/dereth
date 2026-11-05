@@ -8035,6 +8035,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-vault-is-free-once-its-traveler-has-left",
+        says: "A player taken out of the world on its way through a vault leaves the vault free for \
+               the next.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-VAULT-LEFT"),
+        station: "yalain-testkit::cpu::play::vaults::a_vault_is_free_for_the_next_once_its_traveler_has_left_the_world",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-walk-ends-with-a-trip-or-a-death",
         says: "A player on its way to something that is taken into portal space or dies is on its way \
                no longer: its use is answered, and nothing is left refusing its next use.",

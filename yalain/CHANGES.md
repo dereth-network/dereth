@@ -55,6 +55,7 @@ what they see, not how it was done.
 - A knife stays in the pack while it cuts.
 - Broker stores now have pages.
 - Fixed uses being refused after dying or teleporting mid-walk.
+- Fixed a vault staying busy after its traveler was removed.
 
 - Fixed a selected person showing empty health and vigor bars.
 
