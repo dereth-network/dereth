@@ -569,6 +569,22 @@ pub struct Setup {
     pub base: Option<PathBuf>,
 }
 
+/// The world's overlay made for our client from the world's rows as the server has them, when
+/// they change any of the client's records; a world with no clearing is read as the install is.
+///
+/// # Errors
+/// The world does not read, or the overlay is not made.
+fn client_overlay(setup: &Setup, dats: &Path) -> Result<Option<PathBuf>, String> {
+    let dir = setup.world();
+    let files = athenaeum_foundry::world::load(&dir)?;
+    if !files.values().any(|text| text.contains("[[clearing]]")) {
+        return Ok(None);
+    }
+    let opened = athenaeum_foundry::world::open(&dir, setup.base.as_deref())?;
+    let (folder, built) = athenaeum_foundry::overlay::write(&opened, dats, &setup.folder)?;
+    Ok((built.blocks > 0).then_some(folder))
+}
+
 impl Setup {
     /// The world the server serves.
     #[must_use]
@@ -1210,6 +1226,7 @@ impl Live {
                 .ok_or("no install for the client: give --client-dats <install>")?;
             let settings = run.join("client-settings");
             std::fs::create_dir_all(&settings).map_err(|e| e.to_string())?;
+            let overlay = client_overlay(setup, dats)?;
             let log = File::create(run.join("client.log")).map_err(|e| e.to_string())?;
             let err = log.try_clone().map_err(|e| e.to_string())?;
             let mut c = Command::new(exe);
@@ -1225,6 +1242,11 @@ impl Live {
                 "--shots".into(),
                 run.join("shots").display().to_string(),
             ])
+            .args(
+                overlay
+                    .iter()
+                    .flat_map(|o| ["--overlay-dat-dir".to_string(), o.display().to_string()]),
+            )
             .args(&programs.client_args)
             .env("AUBEREAN_SETTINGS_DIR", &settings)
             .current_dir(run)

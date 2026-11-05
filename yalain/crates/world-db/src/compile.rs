@@ -1051,7 +1051,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     t.content.conflict.insert(r.landblock, r.conflict);
                 }
             }
-            Row::Talk(_) | Row::Route(_) | Row::Remove(_) => {}
+            Row::Talk(_) | Row::Route(_) | Row::Remove(_) | Row::Clearing(_) => {}
         }
     }
     for (l, scene) in door_scenes {

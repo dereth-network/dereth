@@ -1384,6 +1384,71 @@ fn a_person_names_a_route_it_walks_and_only_a_person_may() {
 }
 
 #[test]
+fn a_clearing_is_a_landblocks_row_with_one_shape_a_pack_can_take_away() {
+    let row = |body: &str| {
+        format!("[[clearing]]\nkey = \"yard\"\nat = [10.0, 20.0, \"ground\"]\n{body}prov = {{ from = \"authored\" }}\n")
+    };
+    let with = |file: &str, text: String| {
+        let mut files = fixture();
+        files.insert(format!("town/server/{file}"), text);
+        files
+    };
+    let at = "landblocks/1234.toml";
+    let db = read(&with(at, row("radius = 12.0\n"))).unwrap();
+    let merged = merge(&db).unwrap();
+    let found: Vec<_> = merged
+        .rows
+        .iter()
+        .filter_map(|l| match &l.row {
+            Row::Clearing(c) => Some((c.key.clone(), c.radius, c.size, l.landblock)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(found, [("yard".to_owned(), Some(12.0), None, Some(0x1234))]);
+    compile(&merged, &Fake::new()).expect("the server has no use for it");
+    let mut taken = with(
+        at,
+        row("radius = 12.0
+"),
+    );
+    taken.insert(
+        "town/server/gone.toml".to_owned(),
+        "[[remove]]
+item = \"clearing yard@1234\"
+"
+        .to_owned(),
+    );
+    let merged = merge(&read(&taken).unwrap()).unwrap();
+    assert!(!merged
+        .rows
+        .iter()
+        .any(|l| matches!(l.row, Row::Clearing(_))));
+    assert!(read(&with(at, row("size = [4.0, 5.0]\nheading = 30.0\n"))).is_ok());
+
+    for (file, text, says) in [
+        (at, row(""), "radius"),
+        (at, row("radius = 1.0\nsize = [1.0, 2.0]\n"), "radius"),
+        (at, row("radius = 0.0\n"), "radius"),
+        (at, row("radius = 241.0\n"), "radius"),
+        (at, row("size = [1.0]\n"), "size"),
+        ("places.toml", row("radius = 1.0\n"), "landblock"),
+        (at, row("radius = 1.0\n").replace("[10.0,", "[160.0,"), "at"),
+    ] {
+        let problems = read(&with(file, text.clone())).expect_err(&text);
+        assert!(
+            problems.iter().any(|p| p.to_string().contains(says)),
+            "{text}: {problems:?}"
+        );
+    }
+    let two = format!("{}{}", row("radius = 1.0\n"), row("radius = 2.0\n"));
+    let files = with(at, two);
+    assert!(
+        !yalain_world_db::check::check(&files).is_empty(),
+        "one key to a block"
+    );
+}
+
+#[test]
 fn an_objects_name_text_is_its_name_unless_it_has_a_recorded_one() {
     let mut files = fixture();
     edit(

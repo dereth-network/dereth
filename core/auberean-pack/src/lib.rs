@@ -104,7 +104,7 @@ impl Dialect for Ac2 {
     const ITEM_FORMS: &'static str = "object <key>@<XXYY>, camp <key>@<XXYY>, place <key>, \
          loot <value>, keeper <template>, sale <store> <ordinal>, quest <id>, \
          step <quest> <key>, talk <key>, weapon <name>, route <key>, area <XXYY>, \
-         or landblock <XXYY>";
+         clearing <key>@<XXYY>, or landblock <XXYY>";
     const NAMES_BASE: bool = true;
     type Kind = Kind;
     type Era = Era;
@@ -163,6 +163,8 @@ pub enum Item {
     Route { key: String },
     /// The kind of player conflict a landblock allows, by the landblock.
     Area { landblock: u16 },
+    /// Ground kept free of what the land grows, by its key in its landblock.
+    Clearing { key: String, landblock: u16 },
 }
 
 impl Item {
@@ -178,6 +180,10 @@ impl Item {
             ["camp", placed] => {
                 let (key, landblock) = placed_key(placed)?;
                 Self::Camp { key, landblock }
+            }
+            ["clearing", placed] => {
+                let (key, landblock) = placed_key(placed)?;
+                Self::Clearing { key, landblock }
             }
             ["place", key] => Self::Place { key: symbol(key)? },
             ["loot", v] => Self::Loot {
@@ -247,6 +253,7 @@ impl fmt::Display for Item {
             Self::Weapon { name } => write!(f, "weapon {name}"),
             Self::Route { key } => write!(f, "route {key}"),
             Self::Area { landblock } => write!(f, "area {landblock:04X}"),
+            Self::Clearing { key, landblock } => write!(f, "clearing {key}@{landblock:04X}"),
         }
     }
 }

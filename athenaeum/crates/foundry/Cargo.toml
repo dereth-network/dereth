@@ -25,6 +25,10 @@ yalain-content.workspace = true
 # The install a world is built against.
 auberean-dat = { workspace = true, features = ["fs"] }
 auberean-assets.workspace = true
+# What a vertex grows, to build a clearing, and the shared container an overlay is written in.
+auberean-world.workspace = true
+dereth-dat.workspace = true
+dereth-primitives.workspace = true
 # The script library a compile reads saved states with.
 auberean-script.workspace = true
 # Rows edited in place, their comments and layout kept.

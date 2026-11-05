@@ -10,6 +10,7 @@ see, not how it was done.
 
 - A covered window on a Mac no longer runs flat out.
 - People can be given a name of their own.
+- New [[clearing]] rows keep a spot free of trees, rocks and grass.
 
 ## 0.1.2 (2026-11-05)
 

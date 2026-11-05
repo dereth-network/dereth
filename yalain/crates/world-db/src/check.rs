@@ -334,6 +334,7 @@ fn scope_key(l: &Located) -> Option<String> {
     Some(match &l.row {
         Row::Object(r) => format!("{}@{lb:04X}", r.key),
         Row::Camp(r) => format!("{}@{lb:04X}", r.key),
+        Row::Clearing(r) => format!("clearing {}@{lb:04X}", r.key),
         Row::Place(r) => format!("place {}", r.key),
         Row::Talk(r) => format!("talk {}", r.key),
         Row::Route(r) => format!("route {}", r.key),

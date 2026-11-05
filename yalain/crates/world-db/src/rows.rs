@@ -422,6 +422,20 @@ pub enum Row {
     Weapon(Weapon),
     Route(Route),
     Area(Area),
+    Clearing(Clearing),
+}
+
+/// `[[clearing]]`: ground in a landblock kept free of what the land grows: a circle of `radius`
+/// meters, or a rectangle `size` meters along its own axes turned by `heading`. The world builder
+/// builds it into the client's data; the server has no use for it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Clearing {
+    pub key: String,
+    pub at: At,
+    pub heading: Option<f32>,
+    pub radius: Option<f32>,
+    pub size: Option<[f32; 2]>,
+    pub prov: Prov,
 }
 
 /// `[[area]]`: the kind of player conflict a landblock allows (a landblock no row names is a
@@ -534,6 +548,7 @@ impl Row {
             Self::Weapon(_) => "weapon",
             Self::Route(_) => "route",
             Self::Area(_) => "area",
+            Self::Clearing(_) => "clearing",
         }
     }
 
@@ -558,19 +573,20 @@ impl Row {
             Self::Weapon(r) => Some(&r.prov),
             Self::Route(r) => Some(&r.prov),
             Self::Area(r) => Some(&r.prov),
+            Self::Clearing(r) => Some(&r.prov),
             Self::Remove(_) => None,
         }
     }
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 18] = [
+pub const KINDS: [&str; 19] = [
     "object", "camp", "loot", "keeper", "sale", "quest", "step", "give", "place", "talk", "remove",
-    "craft", "butchery", "scene", "shard", "weapon", "route", "area",
+    "craft", "butchery", "scene", "shard", "weapon", "route", "area", "clearing",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 18] = [
+pub const FIELDS: [(&str, &[&str]); 19] = [
     (
         "object",
         &[
@@ -775,6 +791,10 @@ pub const FIELDS: [(&str, &[&str]); 18] = [
         &["key", "waypoints", "shape", "gait", "speed", "rest", "prov"],
     ),
     ("area", &["landblock", "conflict", "prov"]),
+    (
+        "clearing",
+        &["key", "at", "heading", "radius", "size", "prov"],
+    ),
 ];
 
 /// A shared-format error as a problem at its file and line.
@@ -990,7 +1010,7 @@ fn read_rows(
             ));
             continue;
         }
-        if matches!(kind.as_str(), "object" | "camp") && landblock.is_none() {
+        if matches!(kind.as_str(), "object" | "camp" | "clearing") && landblock.is_none() {
             problems.push(Problem::new(
                 path,
                 0,
@@ -1024,8 +1044,56 @@ fn read_rows(
     }
 }
 
+/// The most a clearing's `radius` or `size` may be, in meters: a block and a half.
+const CLEARING_MOST: f32 = 240.0;
+
 fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
     Some(match kind {
+        "clearing" => {
+            let key = f.req_symbol("key")?;
+            let at = f.req_at("at")?;
+            if !(0.0..160.0).contains(&at.x) || !(0.0..160.0).contains(&at.y) {
+                f.bad(
+                    "at",
+                    "x and y are meters in the landblock, from 0 up to 160",
+                );
+                return None;
+            }
+            let heading = f.float("heading").map(to_f32);
+            let radius = f.float("radius").map(to_f32);
+            let size = match f.t.contains_key("size") {
+                true => {
+                    let v = f.req_floats("size")?;
+                    let [x, y] = v[..] else {
+                        f.bad("size", "two numbers, [x, y] in meters");
+                        return None;
+                    };
+                    Some([x, y])
+                }
+                false => None,
+            };
+            let fits = |n: f32| n > 0.0 && n <= CLEARING_MOST;
+            let good = match (radius, size) {
+                (Some(r), None) => fits(r),
+                (None, Some([x, y])) => fits(x) && fits(y),
+                _ => false,
+            };
+            if !good {
+                f.bad(
+                    "radius",
+                    "a clearing is a radius or a size of two numbers, not both, above 0 and at most 240 meters",
+                );
+                return None;
+            }
+            Row::Clearing(Clearing {
+                key,
+                at,
+                heading,
+                radius,
+                size,
+                prov: f.req_prov()?,
+            })
+        }
         "object" => {
             let route_backward = f.route_direction()?;
             let kind = match f.req_str("kind")?.as_str() {
