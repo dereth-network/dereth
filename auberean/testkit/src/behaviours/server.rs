@@ -4359,6 +4359,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.a-new-characters-weapon-sells-for-its-scripts-value",
+        says: "A new character's starting weapon, whose value only its script sets, sells at the \
+               money bag for that value, on the executable reading the install.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-STARTING-WEAPON-VALUE"),
+        station: "yalain::live::session::a_new_characters_starting_sword_sold_at_the_money_bag_brings_its_gold",
+        tier: Tier::Live,
+    },
+    behaviour! {
         id: "server.inventory.a-part-split-off-holds-the-stacks-numbers",
         says: "Part of a stack split off, in the pack, to a trade or to a broker, is a new item \
                holding all the stack holds of its own.",
@@ -4414,6 +4423,15 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-SAVE-AT-ENTRY"),
         station: "yalain-testkit::cpu::operator::item_ids::a_save_made_as_a_character_enters_keeps_what_its_items_carry",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.a-scripts-value-stands-where-the-data-names-none",
+        says: "A template whose data names no value is worth what its class's code sets; a \
+               value in the data, though it be nothing, stands over the class's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SCRIPT-VALUE"),
+        station: "yalain-testkit::cpu::play::pack::an_item_only_its_class_values_sells_for_that_value",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -4626,12 +4644,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.money-bag-pays-for-part-of-a-stack",
+        says: "Part of a stack dragged to the money bag pays for the pieces that went, and the \
+               rest stays in the pack with its count told.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MONEY-BAG-PART"),
+        station: "yalain-testkit::cpu::play::pack::part_of_a_stack_dragged_to_the_money_bag_pays_for_what_went_and_the_rest_stays",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.money-bag-refused-while-busy",
         says: "An item dragged to the money bag while another action is under way is not sold: the player \
                is told it is too busy and the drag is answered with the item.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MONEY-BAG-BUSY"),
         station: "yalain-testkit::cpu::play::pack::a_drag_to_the_money_bag_while_busy_is_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.inventory.money-bag-refuses-an-item-of-no-worth",
+        says: "An item worth nothing dragged to the money bag is refused and kept: the player is \
+               told it cannot be transformed into money and nothing is paid.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MONEY-BAG-NO-WORTH"),
+        station: "yalain-testkit::cpu::play::pack::an_item_worth_nothing_dragged_to_the_money_bag_is_refused_and_kept",
         tier: Tier::Cpu,
     },
     behaviour! {

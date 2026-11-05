@@ -66,7 +66,7 @@ pub mod status {
 }
 
 /// "Adding %1 pieces of Gold.", the gold as its variable, shown as plain text; "You are too busy
-/// to do that.", shown as an error.
+/// to do that." and "That item cannot be transformed into money.", shown as errors.
 pub mod text {
     pub const ADDING_GOLD: (u32, u32) = (0x7D58_FE6D, 0x2500_05E4);
     pub const GOLD: u32 = 0xBB3E_745B;
@@ -74,6 +74,7 @@ pub mod text {
     pub const ADDING_SHOWN_AS: u32 = 8;
     pub const TOO_BUSY: (u32, u32) = (0x31AA_76FF, 0x2500_05E4);
     pub const TOO_BUSY_SHOWN_AS: u32 = 1;
+    pub const NO_WORTH: (u32, u32) = (0xD4B3_FC38, 0x2500_05E4);
 }
 
 /// The script package of a take-all's description and its slots.
@@ -432,7 +433,7 @@ fn worth<S: Store>(s: &Server<S>, template: u32, own_value: u32, n: u32) -> u32 
 
 /// So many of an item of the pack go into the money bag: "Adding %1 pieces of Gold.", the money
 /// up by their worth, the stack down by as many or the item gone, then `done` answered (with the
-/// item when some is left, else none).
+/// item when some is left, else none). An item worth nothing stays, refused.
 fn into_money_bag<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -447,6 +448,15 @@ fn into_money_bag<S: Store>(
     };
     let sold = quantity.clamp(1, have);
     let gold = worth(s, h.template, own_value, sold);
+    // An item of no worth is refused and kept, as a client refuses it (2017: none of 753 sold for
+    // nothing).
+    if gold == 0 {
+        let refused =
+            crate::chat::show_text(text::TOO_BUSY_SHOWN_AS, progress::text(text::NO_WORTH));
+        progress::private(net, world, &refused);
+        progress::private(net, world, &done(item));
+        return;
+    }
     let added = crate::chat::show_text(
         text::ADDING_SHOWN_AS,
         progress::text_with(

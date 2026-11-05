@@ -40,6 +40,7 @@ what they see, not how it was done.
 - Killing some creatures curses you, or brings their helpers.
 - Many weapons and armor that did nothing now work.
 - Fixed other players' movements and swings sticking after they arrive.
+- Fixed items being lost for no gold at the money bag; worthless items are now refused.
 
 - Fixed a selected person showing empty health and vigor bars.
 

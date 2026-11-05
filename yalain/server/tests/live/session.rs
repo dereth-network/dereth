@@ -550,3 +550,66 @@ mod starts {
         assert!(log.contains(&listening), "{log}");
     }
 }
+
+/// The human starting sword, whose script sets its value at 1.
+const STARTING_SWORD: u32 = 0x4700_051C;
+/// How long the sale may take, against a hang only.
+const HANG: f64 = 30.0;
+/// The money quality.
+const MONEY: u32 = 3100;
+
+/// A new character's starting sword dragged to the money bag brings its 1 gold and goes.
+/// Behaviour: server.inventory.a-new-characters-weapon-sells-for-its-scripts-value
+#[test]
+fn a_new_characters_starting_sword_sold_at_the_money_bag_brings_its_gold() {
+    let dir = scratch("yalain-live-money-bag");
+    let (port, _server, ()) = serving(&dir, |port| (start_server(&dir, port, LIFE), ()));
+    let login = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("a client socket");
+    socket.set_nonblocking(true).expect("nonblocking");
+    let mut s = Loopback {
+        socket,
+        client: play::client(login, "sellive"),
+        start: Instant::now(),
+        buf: vec![0; 65_536],
+    };
+    must(play::character_list(&mut s), &dir);
+    let me = must(play::create(&mut s, "Firstsale"), &dir);
+    must(play::enter(&mut s, me), &dir);
+    let money = |c: &Client| {
+        c.model
+            .player_object()
+            .and_then(|o| {
+                auberean_client_sdk::runtime::description::int(&o.weenie, MONEY)
+                    .or_else(|| o.qualities.ints.get(&MONEY).copied())
+            })
+            .unwrap_or(0)
+    };
+    let held = |c: &Client| {
+        c.model
+            .objects()
+            .find(|o| o.weenie.entity_did == STARTING_SWORD && o.container == Some(me))
+            .map(|o| o.id)
+    };
+    must(
+        play::until(&mut s, HANG, "the starting sword in the pack", |c| {
+            held(c).is_some()
+        }),
+        &dir,
+    );
+    let item = held(s.client_ref()).expect("held");
+    let before = money(s.client_ref());
+    s.client().act(auberean_client_sdk::Action::IntoMoney {
+        item,
+        quantity: 1,
+        slot: 1,
+        from: me,
+    });
+    must(
+        play::until(&mut s, HANG, "the sword gone and the gold in", |c| {
+            held(c).is_none() && money(c) > before
+        }),
+        &dir,
+    );
+    assert_eq!(money(s.client_ref()), before + 1, "its script's 1 gold");
+}
