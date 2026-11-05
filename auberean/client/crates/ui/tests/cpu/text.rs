@@ -550,6 +550,18 @@ fn a_reference_waits_for_its_string_tables_and_what_follows_waits_behind_it() {
     assert!(said_done(&mut u, h));
 }
 
+/// An element's entry of its string table goes in the way a string reference does, written by the
+/// client, not as the table stores it.
+///
+/// Behaviour: ui.text.an-entry-of-the-string-table-is-a-reference
+#[test]
+fn an_entry_of_the_string_table_is_a_reference() {
+    let (mut u, _) = downloading(text("Entry", [0, 0, 199, 19], vec![]));
+    let h = entry(&mut u);
+    u.set_string(h, 7);
+    assert_eq!(typed(&u, h), "t7");
+}
+
 /// A text element's waiting strings are dropped when its text is replaced, and when it goes:
 /// each lets go of the download it waits on.
 ///

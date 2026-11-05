@@ -799,12 +799,12 @@ impl Ui {
         self.add_string_with_font(h, s, 0, 0);
     }
 
-    /// Replace the text with an entry of the element's string table.
+    /// Replace the text with an entry of the element's string table, as a string reference:
+    /// written as the client writes one, once its tables have come.
     // D2-11833
     pub fn set_string(&mut self, h: Handle, token: u32) {
         let table = self.string_table(h);
-        let s = self.assets().string(table, token).unwrap_or_default();
-        self.set_text(h, &s);
+        self.set_string_info(h, &auberean_text::StringInfo::entry(table, token));
     }
 
     /// Add the strings that are ready, in order, each in its font and color; say so when any

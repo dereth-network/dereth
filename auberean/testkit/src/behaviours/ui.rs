@@ -2182,6 +2182,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.text.an-entry-of-the-string-table-is-a-reference",
+        says: "An element's entry of its string table is added as a string reference: written as \
+               the client writes one, waiting for its tables if the data lacks them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-ENTRY-REFERENCE"),
+        station: "auberean-ui::cpu::text::an_entry_of_the_string_table_is_a_reference",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.text.dropped-references-let-their-downloads-go",
         says: "A text element's waiting strings are dropped when its text is replaced and when it \
                goes, each letting go of the string download it waits on.",
