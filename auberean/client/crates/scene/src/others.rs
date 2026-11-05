@@ -663,7 +663,7 @@ impl Others {
             let asked = player_or_creature(*id);
             if b.shape.is_some() {
                 let s = ob.body.total_scale(None);
-                table.note_still(*id, ob.body.position, ob.body.height(), s, asked);
+                table.note_still(*id, &ob.body, s, asked);
             } else {
                 table.note(*id, &ob.body, asked);
             }
