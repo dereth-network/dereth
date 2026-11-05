@@ -32,7 +32,7 @@ const PACE: f32 = KERNEL_CENTER * 0.75;
 /// the integral of `q² e^(-q²)`, `√π / 4`.
 const KERNEL_CENTER: f32 = 0.443_113_5;
 /// How much of its motion the water loses a second.
-pub const DAMPING: f32 = 0.7;
+pub const DAMPING: f32 = 0.4;
 /// How far about a cell the water's vertical derivative is taken, cells: the shader's own.
 pub const REACH: usize = 5;
 /// The most bodies that disturb it.

@@ -58,18 +58,20 @@ const SPONGE: f32 = 14.0;
 // A body's legs, as the water feels them: how far out from where it stands, meters, and how deep
 // they push the water at the most.
 const LEGS: f32 = 0.35;
-const PUSH: f32 = 0.06;
+const PUSH: f32 = 0.1;
 // How much of the water a body pushes aside rises and falls as it sways, and how many times over
-// ten seconds; how far about it the water is sheltered, meters.
-const SWAY: f32 = 0.3;
+// ten seconds, in two motions that drift in and out of step; how far about it the water is
+// sheltered, meters.
+const SWAY: f32 = 0.45;
 const SWAYS: f32 = 9.0;
+const SWAYS_TOO: f32 = 13.0;
 const SHELTER: f32 = 0.9;
 // A moving body's bow: how far ahead of and behind where it stands the water is heaped and drawn
 // down, meters; how wide the heap is, meters; how much it heaps a step at a run, meters; and the
 // speed that counts as a run, meters a second.
 const BOW_OFF: f32 = 0.38;
 const BOW_WIDTH: f32 = 0.28;
-const BOW_RISE: f32 = 0.0035;
+const BOW_RISE: f32 = 0.008;
 const RUN: f32 = 4.0;
 // A step, seconds.
 const STEP_SECONDS: f32 = 1.0 / 60.0;
@@ -108,16 +110,18 @@ fn held(w: vec2<i32>) -> vec2<f32> {
 }
 
 // How far a body's legs at `at` stand in the water at the water's level `level`: none with its
-// feet out of it, all from a little over half a meter in.
+// feet out of it, all from knee deep.
 fn wet(at: vec4<f32>, level: f32) -> f32 {
-    return clamp((level + 0.05 - at.z) / 0.6, 0.0, 1.0);
+    return clamp((level + 0.05 - at.z) / 0.45, 0.0, 1.0);
 }
 
 // How much more or less of the water body `k` pushes aside as it sways, `count` steps into the
 // simulation: a whole number of sways every ten seconds, so the count's wrap is never seen.
 fn sway(k: i32, count: u32) -> f32 {
     let t = f32(count % 600u) / 600.0;
-    return 1.0 + SWAY * sin(6.2831853 * (t * SWAYS + f32(k) * 0.37));
+    let one = sin(6.2831853 * (t * SWAYS + f32(k) * 0.37));
+    let two = sin(6.2831853 * (t * SWAYS_TOO + f32(k) * 0.71));
+    return 1.0 + SWAY * (0.65 * one + 0.35 * two);
 }
 
 // How much a body moving from `was` to `at` in a step heaps the water at render space `q` ahead
@@ -204,8 +208,10 @@ fn cs_step(
         let r = length(q - S.end[k].xy);
         let there = wet(S.end[k], level) * min(S.end[k].w, 1.0);
         shelter = max(shelter, there * exp(-(r / SHELTER) * (r / SHELTER)));
-        let d = (r - LEGS * 1.1) / 0.05;
-        waterline = max(waterline, there * exp(-d * d));
+        // The line laps the legs: wider and brighter as the water there rises, narrower as it falls.
+        let lap = clamp(0.5 + now.x * 30.0, 0.15, 1.5);
+        let d = (r - LEGS * 1.1) / (0.04 + 0.04 * lap);
+        waterline = max(waterline, there * lap * exp(-d * d));
     }
     // Toward the square's edges the waves are taken up.
     let edge = min(min(rel.x, rel.y), min(f32(SIDE - 1) - rel.x, f32(SIDE - 1) - rel.y));

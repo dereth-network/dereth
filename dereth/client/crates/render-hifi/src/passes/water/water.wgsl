@@ -526,7 +526,7 @@ fn sim_height(q: vec2<f32>) -> f32 {
 fn sim_surface(q: vec2<f32>, foot: f32) -> vec4<f32> {
     let a = W.sim_area;
     let edge = min(min(q.x - a.x, q.y - a.y), min(a.z - q.x, a.w - q.y));
-    let shown = smoothstep(0.5, 2.0, edge) * (1.0 - smoothstep(0.12, 0.35, foot));
+    let shown = smoothstep(0.5, 2.0, edge) * (1.0 - smoothstep(0.16, 0.45, foot));
     if (shown <= 0.0) {
         return vec4<f32>(0.0);
     }
@@ -1034,7 +1034,7 @@ fn fs_water(in: FullscreenOut) -> @location(0) vec4<f32> {
     var under = below;
     var under_px = ip;
     let bend = slope * clamp(through, 0.0, 2.0) * W.viewport.w * 0.035
-        + stirred.xy * clamp(deep_here, 0.1, 1.5) * 1.2 / max(foot, 0.004);
+        + stirred.xy * clamp(deep_here, 0.1, 1.5) * 1.5 / max(foot, 0.004);
     if (dot(bend, bend) > 0.25) {
         let q = px + bend;
         let qi = vec2<i32>(clamp(q, W.viewport.xy, W.viewport.xy + W.viewport.zw - vec2<f32>(1.0)));
@@ -1064,7 +1064,7 @@ fn fs_water(in: FullscreenOut) -> @location(0) vec4<f32> {
     // and spread it under their crests: a crest's shadow and a bright line after it, as a wave
     // passing over a shallow bed casts.
     if (W.sun.w > 0.5 && stirred.w > 0.0) {
-        let focus = clamp(-stirred.z * clamp(deep_here, 0.0, 1.0) * 0.12, -0.4, 0.45);
+        let focus = clamp(-stirred.z * clamp(deep_here, 0.0, 1.0) * 0.2, -0.5, 0.6);
         under = under * (1.0 + focus * sunlit * W.fold.z * smoothstep(0.05, 0.3, W.sun.z));
     }
     // The water's own color: retail's water under the light the bed below takes, as the light
@@ -1078,11 +1078,11 @@ fn fs_water(in: FullscreenOut) -> @location(0) vec4<f32> {
     let kept = exp(-extinction * (through + deep));
     var c = under * kept + body * (vec3<f32>(1.0) - kept);
     // The sky and the land reflected, by the Fresnel share: off a surface bent half as much as
-    // the ripples bend the light through it, so the reflections waver rather than break up, and a
-    // little more by the simulated water, so a wave stirred near the eye shows in what it mirrors;
+    // the ripples bend the light through it, so the reflections waver rather than break up, and
+    // wholly by the simulated water, so a wave stirred near the eye shows in what it mirrors;
     // and only as the water deepens from its edge, so a film of water over the bank shows the wet
     // ground rather than a pale rim of sky.
-    let mirrored = (slope - stirred.xy) * 0.5 + stirred.xy * 0.6;
+    let mirrored = (slope - stirred.xy) * 0.5 + stirred.xy;
     let nr = normalize(vec3<f32>(-mirrored.x, -mirrored.y, 1.0));
     var r = reflect(-v, nr);
     r.z = max(r.z, 0.01);
@@ -1114,10 +1114,10 @@ fn fs_water(in: FullscreenOut) -> @location(0) vec4<f32> {
         let g = glint(n, W.sun.xyz, v, rough) * fresnel * sunlit;
         c = c + W.sun_light.rgb * min(g, 40.0);
     }
-    // The simulated water's crests, and the line where the water meets a body's legs, catch a
-    // little of the sky's light: enough to see them by, not a glow.
-    let crest = clamp(-stirred.z * 0.04, 0.0, 1.0);
-    c = c + sky_toward(vec3<f32>(0.0, 0.0, 1.0)) * (crest * 0.22 + bodies.y * 0.25);
+    // The simulated water's crests catch a little of the sky's light: enough to see them by, not a
+    // glow.
+    let crest = clamp(-stirred.z * 0.06, 0.0, 1.0);
+    c = c + sky_toward(vec3<f32>(0.0, 0.0, 1.0)) * crest * 0.35;
     // In the authored fog, the water fades into what the fog left of the world behind it.
     var fogged = 0.0;
     if (W.global.w > 0.5) {
@@ -1150,6 +1150,8 @@ fn fs_water(in: FullscreenOut) -> @location(0) vec4<f32> {
     if (W.surf.y > 0.0) {
         q = foam_share(folded, inside, foot, kinds, fetch, sea, waves.crest);
     }
+    // Where the water laps a body's legs it froths, in broken patches, more as the water moves.
+    q = max(q, min(bodies.y, 1.0) * (0.3 + clamp(length(stirred.xy) * 4.0, 0.0, 0.25)));
     var out = mix(below, c, edge);
     if (q > 0.0) {
         let cover = foam_cover(foam_texture(folded, foot, W.wake.x), q)
