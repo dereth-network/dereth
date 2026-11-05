@@ -23,7 +23,7 @@ use auberean_dat::overlay::WORLD_FOLDER;
 use auberean_dat::testing::require_target_install;
 use auberean_world::chargen;
 use yalain_world_db::compile::outdoor_cell;
-use yalain_world_db::release::{cache_dir_for, Host, PINNED_TAG};
+use yalain_world_db::release::{pinned_in_cache, PINNED_TAG};
 use yalain_world_db::Files;
 
 /// A guard against a hang, not the time a step is expected to take.
@@ -48,15 +48,11 @@ fn database() -> PathBuf {
     if let Some(v) = std::env::var_os(WORLD_DB_VAR).filter(|v| !v.is_empty()) {
         return PathBuf::from(v);
     }
-    let cached =
-        cache_dir_for(Host::current(), |n| std::env::var_os(n)).map(|c| c.join(PINNED_TAG));
-    match cached {
-        Some(d) if d.join("world.toml").is_file() => d,
-        _ => panic!(
-            "no world database: set {WORLD_DB_VAR} to a checkout, or fetch the pinned release \
-             ({PINNED_TAG}) with `yalain world fetch`"
-        ),
-    }
+    pinned_in_cache().unwrap_or_else(|why| {
+        panic!(
+            "no world database: {why}. Set {WORLD_DB_VAR} to a checkout, or fetch the pinned release ({PINNED_TAG}) with `yalain world fetch`"
+        )
+    })
 }
 
 /// A program: the variable that names it, else the file of that name beside this test binary's

@@ -441,34 +441,12 @@ fn known_sha256(tag: &str) -> Option<String> {
     (tag == PINNED_TAG).then(|| PINNED_ZIP_SHA256.to_string())
 }
 
-/// Every file of a release's folder, as a fetch unpacked them.
-fn unpacked(dir: &Path) -> Option<Files> {
-    let mut out = Files::new();
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(d) = stack.pop() {
-        for e in std::fs::read_dir(&d).ok()? {
-            let p = e.ok()?.path();
-            if p.is_dir() {
-                stack.push(p);
-            } else {
-                let rel = p
-                    .strip_prefix(dir)
-                    .ok()?
-                    .to_string_lossy()
-                    .replace('\\', "/");
-                out.insert(rel, std::fs::read_to_string(&p).ok()?);
-            }
-        }
-    }
-    Some(out)
-}
-
 /// Whether the folder `dest` holds a release: its world file, and when its SHA-256 is known, the
 /// very files of the archive with that SHA-256. A release of any other version is taken on trust.
 fn holds_release(dest: &Path, sha: Option<&str>) -> bool {
     dest.join("world.toml").is_file()
         && sha.is_none_or(|sha| {
-            unpacked(dest)
+            release::unpacked(dest)
                 .and_then(|files| release::unpacked_sha256(&files))
                 .is_some_and(|actual| actual == sha)
         })

@@ -21,7 +21,7 @@ use auberean_world::terrain::build_block;
 use dereth_primitives::num::math;
 use yalain_content::{ContentObject, Kind};
 use yalain_world_db::compile::{outdoor_cell, Tables};
-use yalain_world_db::release::{cache_dir_for, Host, PINNED_TAG};
+use yalain_world_db::release::{pinned_in_cache, PINNED_TAG};
 
 /// The variable naming a world database checkout for the tests.
 const WORLD_DB_VAR: &str = "YALAIN_TEST_WORLD_DB";
@@ -30,14 +30,11 @@ fn database() -> PathBuf {
     if let Some(v) = std::env::var_os(WORLD_DB_VAR).filter(|v| !v.is_empty()) {
         return PathBuf::from(v);
     }
-    let cached =
-        cache_dir_for(Host::current(), |n| std::env::var_os(n)).map(|c| c.join(PINNED_TAG));
-    match cached {
-        Some(d) if d.join("world.toml").is_file() => d,
-        _ => panic!(
-            "no world database: set {WORLD_DB_VAR} to a checkout, or fetch the pinned release ({PINNED_TAG}) with `yalain world fetch`"
-        ),
-    }
+    pinned_in_cache().unwrap_or_else(|why| {
+        panic!(
+            "no world database: {why}. Set {WORLD_DB_VAR} to a checkout, or fetch the pinned release ({PINNED_TAG}) with `yalain world fetch`"
+        )
+    })
 }
 
 /// A folder of the test's own, empty.

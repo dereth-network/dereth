@@ -18,7 +18,7 @@ use auberean_dat::testing::{require_install, TARGET};
 use dereth_builder::camera::FlyCamera;
 use dereth_primitives::Vec3;
 use winit::keyboard::KeyCode;
-use yalain_world_db::release::{cache_dir_for, Host, PINNED_TAG};
+use yalain_world_db::release::{pinned_in_cache, PINNED_TAG};
 use yalain_world_db::rows::Row;
 
 /// The variable naming a world database checkout for the tests.
@@ -32,14 +32,11 @@ fn database() -> PathBuf {
     if let Some(v) = std::env::var_os(WORLD_DB_VAR).filter(|v| !v.is_empty()) {
         return PathBuf::from(v);
     }
-    let cached =
-        cache_dir_for(Host::current(), |n| std::env::var_os(n)).map(|c| c.join(PINNED_TAG));
-    match cached {
-        Some(d) if d.join("world.toml").is_file() => d,
-        _ => panic!(
-            "no world database: set {WORLD_DB_VAR} to a checkout, or fetch the pinned release ({PINNED_TAG}) with `yalain world fetch`"
-        ),
-    }
+    pinned_in_cache().unwrap_or_else(|why| {
+        panic!(
+            "no world database: {why}. Set {WORLD_DB_VAR} to a checkout, or fetch the pinned release ({PINNED_TAG}) with `yalain world fetch`"
+        )
+    })
 }
 
 /// An editor on a new, empty world of the test's own, its camera over the town looking north. What

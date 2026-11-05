@@ -17,7 +17,7 @@ use yalain_testkit::play::server_call;
 use yalain_testkit::Harness;
 use yalain_world_db::compile::{compile, Tables};
 use yalain_world_db::install::DatInstall;
-use yalain_world_db::release::{cache_dir_for, Host, PINNED_TAG};
+use yalain_world_db::release::{pinned_in_cache, PINNED_TAG};
 use yalain_world_db::{check, merge, rows, Files};
 
 /// The variable naming a world database checkout for the tests.
@@ -27,14 +27,11 @@ fn database() -> PathBuf {
     if let Some(v) = std::env::var_os(WORLD_DB_VAR).filter(|v| !v.is_empty()) {
         return PathBuf::from(v);
     }
-    let cached =
-        cache_dir_for(Host::current(), |n| std::env::var_os(n)).map(|c| c.join(PINNED_TAG));
-    match cached {
-        Some(d) if d.join("world.toml").is_file() => d,
-        _ => panic!(
-            "no world database: set {WORLD_DB_VAR} to a checkout, or fetch the pinned release ({PINNED_TAG}) with `yalain world fetch`"
-        ),
-    }
+    pinned_in_cache().unwrap_or_else(|why| {
+        panic!(
+            "no world database: {why}. Set {WORLD_DB_VAR} to a checkout, or fetch the pinned release ({PINNED_TAG}) with `yalain world fetch`"
+        )
+    })
 }
 
 fn load(root: &Path) -> Files {
@@ -71,13 +68,6 @@ struct Compiled {
     tables: Tables,
 }
 
-/// The pinned release in the per-user cache, if it is there.
-fn pinned_database() -> Option<PathBuf> {
-    cache_dir_for(Host::current(), |n| std::env::var_os(n))
-        .map(|c| c.join(PINNED_TAG))
-        .filter(|d| d.join("world.toml").is_file())
-}
-
 /// The database, checked, merged and compiled against the install, once.
 fn compiled() -> &'static Compiled {
     static C: OnceLock<Compiled> = OnceLock::new();
@@ -87,8 +77,8 @@ fn compiled() -> &'static Compiled {
 /// The pinned release compiled, once (the database itself when it is the pinned release).
 fn pinned() -> &'static Compiled {
     static P: OnceLock<Compiled> = OnceLock::new();
-    let dir = pinned_database().unwrap_or_else(|| {
-        panic!("no pinned release: fetch it ({PINNED_TAG}) with `yalain world fetch`")
+    let dir = pinned_in_cache().unwrap_or_else(|why| {
+        panic!("no pinned release: {why}. Fetch it ({PINNED_TAG}) with `yalain world fetch`")
     });
     if dir == database() {
         return compiled();
