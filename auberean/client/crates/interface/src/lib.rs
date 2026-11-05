@@ -363,6 +363,7 @@ fn facts(
                         had: i.had,
                         worn: i.worn,
                         melts_at_once: i.melts_at_once,
+                        offered_name: i.offered_name.clone(),
                         data_id: model.object(*id).map_or(0, |o| o.weenie.entity_did),
                     },
                 )

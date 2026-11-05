@@ -2236,6 +2236,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.trade.an-offered-item-is-named-for-the-number-offered",
+        says: "An offered item's tooltip names it for the number offered, not the number its                owner holds.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TRADE-OFFERED-NAME"),
+        station: "auberean-ui-game::dat::play::trade::an_offered_item_is_named_for_the_number_offered",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.trade.an-offered-item-shows-the-selection-and-the-targeting-cursor",
         says: "An offered item's icon, on either side of a trade, takes the selected look while it is the player's selection, and the cursor its element names while an item waits to be used on a target.",
         since: RETAIL,

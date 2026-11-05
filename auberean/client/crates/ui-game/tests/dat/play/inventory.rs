@@ -41,6 +41,7 @@ fn item(name: &str, icon: u32, quantity: u32, stackable: bool) -> ItemFacts {
         had: true,
         worn: false,
         melts_at_once: false,
+        offered_name: None,
         data_id: 0,
     }
 }

@@ -125,6 +125,29 @@ fn the_trade_window_offers_accepts_and_closes() {
     assert!(!w.shown(field), "hidden after the delay");
 }
 
+/// An offered item's tooltip names it for the number offered, not the number its owner holds.
+///
+/// Behaviour: ui.trade.an-offered-item-is-named-for-the-number-offered
+#[test]
+fn an_offered_item_is_named_for_the_number_offered() {
+    let mut w = World::new();
+    w.inventory.version += 1;
+    w.inventory
+        .items
+        .get_mut(&ORE)
+        .expect("the ore")
+        .offered_name = Some("5 Ore".to_string());
+    w.tick(&[said(notice::OPENED, Vec::new(), Vec::new())]);
+    w.tick(&[said(
+        notice::OFFERED,
+        [ids(&[PLAYER, ORE]), vec![5]].concat(),
+        Vec::new(),
+    )]);
+    let row = w.ui.list_items(w.el("TradeListBoxSelf"))[0];
+    let icon = w.under(row, "ItemIcon");
+    assert_eq!(w.ui.element_tooltip(icon), Some("5 Ore"));
+}
+
 /// An offered item shows the player's selection as a pack's does: its icon takes the selected look
 /// when it becomes the selection and loses it when the selection moves on, on either side of the
 /// trade. An item waiting to be used on a target gives the icon the cursor its element names, and

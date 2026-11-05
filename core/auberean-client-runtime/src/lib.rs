@@ -379,7 +379,7 @@ pub struct Client {
     open_containers: std::collections::BTreeSet<u64>,
     /// The items offered in a trade, as the scripts told the trade window (each side's, the
     /// partner's still in the partner's pack): the window shows them as the inventory's items.
-    trade_items: std::collections::BTreeSet<u64>,
+    trade_items: std::collections::BTreeMap<u64, u32>,
     /// The friends service's layer, when the player was started with one.
     friends: Option<friends::Friends>,
     /// Rooms (lent to the scripts while a call runs).
@@ -514,7 +514,7 @@ impl Client {
             inventory_stale: false,
             inventory_seen: (0, 0),
             open_containers: std::collections::BTreeSet::new(),
-            trade_items: std::collections::BTreeSet::new(),
+            trade_items: std::collections::BTreeMap::new(),
             friends: None,
             rooms: Some(rooms::RoomChat::default()),
             login_secret_given,
@@ -1273,7 +1273,7 @@ impl Client {
             .values()
             .flat_map(|c| c.segments.iter().flat_map(|s| s.items.iter()))
             .chain(inv.worn.iter().map(|(_, id)| id))
-            .chain(self.trade_items.iter());
+            .chain(self.trade_items.keys());
         let mut listed = listed;
         listed.any(|id| self.model.object(*id).is_some() != inv.items.contains_key(id))
             || inv
@@ -1311,7 +1311,7 @@ impl Client {
     /// closed).
     fn trade_noticed(
         stale: &mut bool,
-        items: &mut std::collections::BTreeSet<u64>,
+        items: &mut std::collections::BTreeMap<u64, u32>,
         notices: &[host::PanelNotice],
     ) {
         let long = |n: &host::PanelNotice, at: usize| {
@@ -1321,7 +1321,7 @@ impl Client {
         for n in notices {
             match n.native {
                 store::trade::OFFERED => {
-                    items.insert(long(n, 2));
+                    items.insert(long(n, 2), n.words.get(4).copied().unwrap_or(0));
                 }
                 store::trade::REVOKED => {
                     items.remove(&long(n, 2));

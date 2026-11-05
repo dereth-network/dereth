@@ -409,10 +409,12 @@ const BE_OFFERED: u32 = 0x8215_0044;
 #[derive(Default, Debug)]
 struct Offers {
     captures: u64,
-    /// The partner's offers, those the client was sent, those shown with their name and icon.
+    /// The partner's offers, those the client was sent, those shown with their name and icon, and
+    /// those named for the number offered.
     offered: u64,
     sent: u64,
     shown: u64,
+    named: u64,
     /// Offers sent but not shown, and a few of them.
     hidden: u64,
     hiddens: Vec<(i64, u64)>,
@@ -502,6 +504,13 @@ fn a_trade_partners_offer_is_shown_with_its_name_and_icon() {
                     .items
                     .get(item)
                     .is_some_and(|f| f.icon != 0 && !f.name.is_empty());
+                let named = c
+                    .inventory()
+                    .items
+                    .get(item)
+                    .and_then(|f| f.offered_name.as_ref())
+                    .is_some_and(|n| !n.is_empty());
+                t.named += u64::from(named);
                 if shown {
                     t.shown += 1;
                 } else {
@@ -517,6 +526,7 @@ fn a_trade_partners_offer_is_shown_with_its_name_and_icon() {
     eprintln!("{t:?}");
     assert!(t.sent >= 100, "{t:?}");
     assert_eq!(t.hidden, 0, "{t:?}");
+    assert_eq!(t.named, t.sent, "{t:?}");
 }
 
 /// The player's own request selecting an object.

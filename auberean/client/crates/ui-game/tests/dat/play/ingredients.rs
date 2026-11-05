@@ -33,6 +33,7 @@ fn item(name: &str) -> ItemFacts {
         had: true,
         worn: false,
         melts_at_once: false,
+        offered_name: None,
         data_id: 0,
     }
 }

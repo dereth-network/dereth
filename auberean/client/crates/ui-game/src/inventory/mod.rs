@@ -266,6 +266,8 @@ pub struct ItemFacts {
     pub worn: bool,
     /// Dropped on the money bag it melts without a question.
     pub melts_at_once: bool,
+    /// A trade offers it: its name for the number offered.
+    pub offered_name: Option<String>,
     /// Its record: what kind of thing it is.
     pub data_id: u32,
 }
