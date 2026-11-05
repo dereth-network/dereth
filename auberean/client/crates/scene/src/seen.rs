@@ -181,6 +181,16 @@ pub fn bounds_of(body: &SeenBody, batches: &[ObjectBatch]) -> Option<(Vec3, Vec3
             continue;
         }
         done.push(this);
+        if b.posed.is_some() {
+            if let Some((l, h)) = b.turned_box(turn) {
+                let [x, y, z, _] = b.transform.0[3];
+                let at = body.to_body_turned(Vec3::new(x, y, z), turn);
+                widen(&mut lo, &mut hi, [l[0] + at.x, l[1] + at.y, l[2] + at.z]);
+                widen(&mut lo, &mut hi, [h[0] + at.x, h[1] + at.y, h[2] + at.z]);
+                any = true;
+            }
+            continue;
+        }
         b.each_position(|[x, y, z]| {
             let w = b.transform.point(Vec3::new(x, y, z));
             let p = body.to_body_turned(w, turn);

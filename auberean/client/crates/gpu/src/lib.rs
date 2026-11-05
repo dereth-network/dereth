@@ -2524,7 +2524,7 @@ impl Renderer {
                 let posed = b
                     .posed
                     .as_ref()
-                    .map(|list| this.meshes.posed_buffer(&this.device, list));
+                    .map(|list| this.meshes.posed_buffer(&this.device, list.shared()));
                 // The reflection gathers what stands on the land alone, no cell's.
                 // D2-11030
                 let in_reflection = b.reflected(frame.camera.position)

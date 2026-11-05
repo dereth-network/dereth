@@ -25,7 +25,7 @@ use auberean_world::records::WorldRecords;
 use crate::material::{
     device_flags, draw_layers, instance_material_with, material_kind, DrawLayer,
 };
-use crate::mesh::{level_at, vertices, MeshVertex, PosedVertex};
+use crate::mesh::{level_at, vertices, MeshVertex, PosedList, PosedVertex};
 use crate::scene::Lod;
 use crate::scene::ObjectBatch;
 
@@ -100,8 +100,8 @@ pub struct BodyDrawer {
     kinds: HashMap<u32, u32>,
     present: HashMap<u32, bool>,
     /// The lists of this frame's poses, and of the last frame's.
-    posed: HashMap<PosedKey, Arc<Vec<PosedVertex>>>,
-    posed_before: HashMap<PosedKey, Arc<Vec<PosedVertex>>>,
+    posed: HashMap<PosedKey, Arc<PosedList>>,
+    posed_before: HashMap<PosedKey, Arc<PosedList>>,
     /// The model detail preference, 0 (low) to 2 (high): which of each mesh's levels are drawn.
     pub model_detail: u32,
     /// The material detail preference, 0 (low) to 2 (high): which of each material's layers are
@@ -206,18 +206,14 @@ impl BodyDrawer {
 
     /// The list of a mesh in a pose: the one it had, if it stood so last frame or a body stands so
     /// already.
-    fn posed(
-        &mut self,
-        key: PosedKey,
-        make: impl FnOnce() -> Vec<PosedVertex>,
-    ) -> Arc<Vec<PosedVertex>> {
+    fn posed(&mut self, key: PosedKey, make: impl FnOnce() -> Vec<PosedVertex>) -> Arc<PosedList> {
         if let Some(list) = self.posed.get(&key) {
             return list.clone();
         }
         let list = self
             .posed_before
             .remove(&key)
-            .unwrap_or_else(|| Arc::new(make()));
+            .unwrap_or_else(|| Arc::new(PosedList::new(make())));
         self.posed.insert(key, list.clone());
         list
     }

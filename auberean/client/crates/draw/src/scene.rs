@@ -28,7 +28,7 @@ use crate::material::{
     device_flags, draw_layers, ground_picture, instance_material, instance_material_with,
     material_kind, shadow_layer, DrawLayer,
 };
-use crate::mesh::{level_at, marked_levels, vertices, MeshVertex, PosedVertex};
+use crate::mesh::{level_at, marked_levels, vertices, MeshVertex, PosedList};
 use crate::shadow::{CloudShadows, ShadowMap};
 
 mod interior;
@@ -99,7 +99,7 @@ pub struct ObjectBatch {
     pub vertices: Arc<Vec<MeshVertex>>,
     /// A body's: where each of `vertices` stands this frame and which way it faces, in place of
     /// the positions and normals they hold.
-    pub posed: Option<Arc<Vec<PosedVertex>>>,
+    pub posed: Option<Arc<PosedList>>,
     pub indices: Arc<Vec<u16>>,
     pub transform: Mat4,
     pub layer: DrawLayer,
@@ -528,6 +528,13 @@ impl ObjectBatch {
             Some(p) => p.get(i).map(|v| v.position),
             None => self.vertices.get(i).map(|v| v.position),
         }
+    }
+
+    /// The box a posed draw fills under its transform's turning and then `spin`, a sine and cosine
+    /// about z, its transform's place left out. `None` for a draw not posed or with no vertex.
+    #[must_use]
+    pub fn turned_box(&self, spin: (f32, f32)) -> Option<([f32; 3], [f32; 3])> {
+        self.posed.as_ref()?.turned_box(&self.transform, spin)
     }
 
     /// `f` of where each vertex stands in the draw's own frame, in order.
