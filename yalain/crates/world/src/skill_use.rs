@@ -1436,6 +1436,9 @@ pub fn slot<S: Store>(
     r: Request,
     clock: Clock,
 ) -> bool {
+    if toggles_off(s, net, world, r) {
+        return false;
+    }
     let u = match check(s, net, world, r, clock) {
         Ok(u) => u,
         Err(err) => {

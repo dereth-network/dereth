@@ -703,6 +703,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.auras.inside-a-run-as-from-rest",
+        says: "Asked inside an attack run, a toggled skill already on turns off as from rest.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-AURA-IN-RUN"),
+        station: "yalain-testkit::cpu::play::auras::a_toggled_skill_used_again_inside_a_run_turns_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.auras.off-in-portal-space",
         says: "Going into portal space turns every aura its player holds off: the toggle off, \
                its pulses' records and its own taken off, the appearance stopped.",
