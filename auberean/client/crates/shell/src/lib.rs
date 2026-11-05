@@ -235,6 +235,7 @@ impl<'w, H: Host> Shell<'w, H> {
         // from them and the world is drawn by them from its first frame.
         let graphics = settings.starting_graphics();
         let mut scene = Scene::new(world, &graphics);
+        scene.set_terrain_blending(settings.terrain_blending);
         scene.set_random(&random);
         interface.set_random(&random);
         scene.camera = auberean_scene::CameraControl::new(settings.camera);
@@ -346,6 +347,13 @@ impl<'w, H: Host> Shell<'w, H> {
         if let Some((x, y)) = self.input.take_missed() {
             self.event(&Event::Pointer { x, y });
         }
+    }
+
+    /// The settings the command line sets over those read.
+    pub fn apply_line(&mut self, line: &command_line::ClientLine) {
+        line.apply_to(&mut self.settings);
+        self.scene
+            .set_terrain_blending(self.settings.terrain_blending);
     }
 
     /// The sizes the host's display can take, in pixels, from a host that lets the player choose

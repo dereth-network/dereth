@@ -25,6 +25,8 @@ pub struct Settings {
     pub sync_to_display: bool,
     /// The edges smoothed.
     pub antialiasing: bool,
+    /// The land's squares blend their corners' grounds.
+    pub terrain_blending: bool,
     /// The files the key maps are kept in.
     pub key_files: crate::keys::KeyFiles,
     /// The text read, for writing back what this program does not use.
@@ -135,6 +137,7 @@ impl Default for Settings {
             triple_buffering: false,
             sync_to_display: true,
             antialiasing: true,
+            terrain_blending: true,
             key_files: crate::keys::KeyFiles::default(),
             profile: Profile::default(),
         }
@@ -160,6 +163,7 @@ const LOOK_AT_SELECTION: (&str, &str) = ("Avatar", "AvatarLookAtSelection");
 const HOVER_TRANSPARENCY: (&str, &str) = ("Avatar", "AvatarHoverTransparency");
 /// The display's size, its width above its height in one number, and full screen; an earlier
 /// version of this program kept the size as two numbers of its own, still read.
+const TERRAIN_BLENDING: &str = "LandscapeTerrainBlending";
 const DISPLAY_RESOLUTION: (&str, &str) = ("Rendering", "DisplayResolution");
 const FULL_SCREEN: (&str, &str) = ("Rendering", "FullScreen");
 const TRIPLE_BUFFERING: (&str, &str) = ("Rendering", "TripleBuffering");
@@ -332,6 +336,10 @@ impl Settings {
             if let Some(x) = value {
                 any |= graphics.set(p.key, x);
             }
+        }
+        // D2-10525
+        if let Some(on) = get(GRAPHICS, TERRAIN_BLENDING).and_then(|v| flag_value(v.trim())) {
+            s.terrain_blending = on;
         }
         // A kept overall quality (1 to 5) sets its own preferences over those read.
         if let Some(q) = get(GRAPHICS, OVERALL_NAME).and_then(|v| v.trim().parse::<u32>().ok()) {

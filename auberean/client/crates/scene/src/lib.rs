@@ -3237,6 +3237,11 @@ impl<'w> Scene<'w> {
         self.player.as_ref().is_some_and(|p| p.body.is_moving_to())
     }
 
+    /// Whether the land's squares blend their corners' grounds, from the next frame worked out.
+    pub fn set_terrain_blending(&mut self, on: bool) {
+        self.builder.terrain_blending = on;
+    }
+
     /// Whether the server moved the player to a new place in the latest update.
     #[must_use]
     pub fn player_teleported(&self) -> bool {

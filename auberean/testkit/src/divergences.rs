@@ -79,6 +79,11 @@ pub static DIVERGENCES: &[Divergence] = &[
                the monitor, so the picture was stretched.",
     },
     Divergence {
+        id: "CD2-input-method-is-always-offered",
+        says: "Wherever you can type, your system's input method is offered. The original client \
+               offered it only with its preference on or a command line switch.",
+    },
+    Divergence {
         id: "CD2-lists-iterations-it-need-not-hold",
         says: "Asked which data it holds, the client also lists the portal file iterations a server \
                gives what it adds for a retail client's script calls, which this client doesn't \

@@ -1780,4 +1780,12 @@ pub static ROWS: &[Behaviour] = &[
         station: "auberean-draw::dat::landscape::what_stands_on_the_land_takes_the_lands_shadow",
         tier: Tier::Dat,
     },
+    behaviour! {
+        id: "draw.world.with-blending-off-a-square-shows-one-ground",
+        says: "With the land's blending off a square shows one ground and no masked layer.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LANDSCAPE-BLENDING-OFF"),
+        station: "auberean-draw::dat::landscape::with_blending_off_a_square_shows_one_ground",
+        tier: Tier::Dat,
+    },
 ];

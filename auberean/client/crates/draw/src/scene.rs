@@ -18,7 +18,7 @@ use auberean_world::place::{cell_look, entity_parts, parts_of, Part};
 use auberean_world::records::{RegionSet, WorldRecords};
 use auberean_world::scenery::{block_scenery, KeptClear, SceneryInput, SceneryObject};
 use auberean_world::sky::{day_light, sky_pieces, DayLight};
-use auberean_world::terrain::{build_block, TerrainBlock};
+use auberean_world::terrain::{build_block_blending, TerrainBlock};
 use auberean_world::water::BlockWater;
 use dereth_landscape::{Detail, LandblockWindow, SlotAction, WindowSpec};
 
@@ -894,6 +894,8 @@ pub struct SceneBuilder<'a> {
     /// How long the client has been running, in seconds: scrolling pictures (the clouds'
     /// shadows) follow it, so frames match another client's only at the same running time.
     pub uptime: f64,
+    /// The land's squares blend their corners' grounds.
+    pub terrain_blending: bool,
     /// The static object shadows preference: the sun's shadow map of the near objects.
     pub static_shadows: bool,
     /// The cloud shadows preference. Clouds are drawn only with static shadows on, as the client
@@ -1066,6 +1068,7 @@ impl<'a> SceneBuilder<'a> {
             scenery_draw_distance: 2,
             textures: Textures::default(),
             uptime: 0.0,
+            terrain_blending: true,
             static_shadows: true,
             cloud_shadows: true,
             water_reflections: true,
@@ -1708,7 +1711,9 @@ impl<'a> SceneBuilder<'a> {
         let mut near_blocks: HashMap<(i32, i32), TerrainBlock> = HashMap::new();
         let mut water = Vec::new();
         for &(bx, by) in &wanted {
-            let Some(tb) = build_block(land, self.region.surfaces(), &blocks, bx, by) else {
+            let surfaces = self.region.surfaces();
+            let blending = self.terrain_blending;
+            let Some(tb) = build_block_blending(land, surfaces, &blocks, bx, by, blending) else {
                 continue;
             };
             counts.blocks += 1;

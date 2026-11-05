@@ -1619,6 +1619,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.settings.the-lands-blending-is-read-from-the-file-and-the-line",
+        says: "The land's blending is on unless the preferences file or the command line turns it off, the line's say going over the file's.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LANDSCAPE-BLENDING-PREF"),
+        station: "auberean-shell::cpu::settings::the_lands_blending_is_read_from_the_file_and_the_line",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.settings.the-rendering-options-read-by-the-clients-names-and-kept",
         says: "The rendering options are read by the client's own names, and written back by them: \
                a first start waits for the display's refresh and smooths its edges, with no third \

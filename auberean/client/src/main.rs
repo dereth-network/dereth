@@ -127,6 +127,8 @@ struct Options {
     gun_port: Option<u16>,
     gun_ticket: bool,
     gun_ticket_override: Option<String>,
+    /// What the command line sets over the settings read.
+    line: ClientLine,
     /// The preferences file named (else the settings folder's own).
     prefs: Option<String>,
     /// The language named.
@@ -350,6 +352,7 @@ fn options() -> Result<Options, String> {
     o.gun_port = (c.gun_port != 0).then_some(c.gun_port);
     o.gun_ticket = c.gun_ticket != 0;
     o.gun_ticket_override.clone_from(&c.gun_ticket_override);
+    o.line = c.clone();
     o.prefs.clone_from(&c.prefs);
     o.user.clone_from(&c.user);
     o.create.clone_from(&c.create);
@@ -1124,6 +1127,7 @@ fn run() -> Result<(), String> {
         sound: (!o.no_sound).then(dereth_audio_out::CpalOutput::default),
     };
     let mut shell = Shell::new(host, &world, data, interface);
+    shell.apply_line(&o.line);
     shell.dev_overlay = o.overlay;
     shell.friends = friends_service(&o);
     if let Some(s) = o.size {

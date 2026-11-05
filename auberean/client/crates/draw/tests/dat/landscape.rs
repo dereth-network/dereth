@@ -120,6 +120,27 @@ fn every_frill_is_drawn_with_its_spot_for_the_shadow_about_it() {
     );
 }
 
+/// With the land's blending off a square shows one ground and no masks, so the frame draws no
+/// masked layer of land.
+///
+/// Behaviour: draw.world.with-blending-off-a-square-shows-one-ground
+#[test]
+fn with_blending_off_a_square_shows_one_ground() {
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let masked = |blending: bool| {
+        let mut b = SceneBuilder::new(&i.records, &region);
+        b.static_shadows = false;
+        b.water_reflections = false;
+        b.set_far_radius(0);
+        b.terrain_blending = blending;
+        let f = b.frame(&spot(), 60.0);
+        f.terrain.iter().filter(|t| t.mask.is_some()).count()
+    };
+    assert!(masked(true) > 0, "blended, the land's squares are masked");
+    assert_eq!(masked(false), 0, "not blended, none is");
+}
+
 /// The fog blocks blended for the light are those of the block the viewer stands in, even when it
 /// stands past the edge of the block its place is given in: 145 m into block `0xC156` (fogged by its
 /// south-west corner's fog kind) gives the same light whether given from that block or as 15 m

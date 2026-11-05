@@ -371,3 +371,29 @@ fn a_mac_window_counts_its_size_in_points() {
         "the pointer lands on the same place in the picture"
     );
 }
+
+/// The land's blending is on unless the file says otherwise, and the command line's say goes over
+/// the file's.
+///
+/// Behaviour: desktop.settings.the-lands-blending-is-read-from-the-file-and-the-line
+#[test]
+fn the_lands_blending_is_read_from_the_file_and_the_line() {
+    use auberean_shell::command_line::{parse_command_line, ClientLine};
+    assert!(Settings::read("").terrain_blending);
+    let off = "[Graphics]\nLandscapeTerrainBlending=0\n";
+    assert!(!Settings::read(off).terrain_blending);
+    let on_line = |words: &str, text: &str| {
+        let mut line = ClientLine::default();
+        let said = format!("ac2client.exe -h host -a acct {words}");
+        assert!(parse_command_line(&mut line, &said, true), "{said}");
+        let mut s = Settings::read(text);
+        line.apply_to(&mut s);
+        s
+    };
+    assert!(on_line("-lb", off).terrain_blending, "the line turns it on");
+    assert!(!on_line("-nolb", "").terrain_blending, "and off");
+    assert!(
+        !on_line("", off).terrain_blending,
+        "saying nothing leaves it"
+    );
+}
