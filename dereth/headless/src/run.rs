@@ -391,6 +391,7 @@ impl<'a> Run<'a> {
                 Command::Say(text) => self.say(text),
                 Command::Request(request) => self.request(request),
                 Command::Delete(name) => self.delete(name),
+                Command::Formula(spell) => self.formula(*spell),
                 Command::Dump(what) => self.dump(*what),
                 Command::Snapshot => self.snapshot(),
                 Command::World(block) => self.world(*block),
@@ -812,10 +813,39 @@ impl<'a> Run<'a> {
     /// The object a `request` names, as it stands now.
     fn target(&mut self, target: &crate::script::Target) -> Result<ObjectId, RunError> {
         use crate::script::Target;
+        if let Target::Near(word) = target {
+            let word = word.to_ascii_lowercase();
+            // Nearest first.
+            let mut near: Vec<(f32, ObjectId)> = self
+                .app
+                .hud()
+                .snapshot(self.app.objects())
+                .radar_objects()
+                .iter()
+                .map(|r| {
+                    let (x, y, z) = r.player_space;
+                    (x * x + y * y + z * z, r.id)
+                })
+                .collect();
+            near.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let world = &self.app.objects().world;
+            return near
+                .into_iter()
+                .map(|(_, id)| id)
+                .find(|&id| {
+                    world.weenie(id).is_some_and(|w| {
+                        w.object_name(dereth_client_sdk::model::weenie::NameType::Singular)
+                            .to_ascii_lowercase()
+                            .contains(&word)
+                    })
+                })
+                .ok_or_else(|| RunError::Net(format!("request: nothing near named {word}")));
+        }
         let world = &self.app.objects().world;
         let found = match target {
             Target::Id(id) => Some(*id),
             Target::Me => world.player,
+            Target::Near(_) => None,
             Target::Pack(word) => {
                 let word = word.to_ascii_lowercase();
                 world
@@ -881,6 +911,33 @@ impl<'a> Run<'a> {
         self.app.submit_requests(vec![ask]);
         self.frame()?;
         self.line(format!("request {request:?}"))
+    }
+
+    /// `formula <spell>`: the spell's components for this account, as `request research` takes them.
+    fn formula(&mut self, spell: u32) -> Result<(), RunError> {
+        let world = &self.app.objects().world;
+        let base = world
+            .magic
+            .spell_table
+            .as_ref()
+            .and_then(|table| table.spells.get(&spell));
+        let Some(base) = base else {
+            return self.line(format!("formula {spell}: no such spell"));
+        };
+        let mut comps =
+            dereth_client_sdk::model::magic::decrypt_formula(&base.raw_comps, base.comp_key);
+        dereth_client_sdk::model::magic::randomize_for_name(
+            &mut comps,
+            &world.player_system.account,
+            base.formula_version,
+        );
+        let classes: Vec<String> = comps
+            .iter()
+            .filter(|c| **c != 0)
+            .map(|c| world.magic.catalogue.scid_to_wcid(*c).to_string())
+            .collect();
+        let name = base.name.clone();
+        self.line(format!("formula {spell} {name}: {}", classes.join(" ")))
     }
 
     /// `delete <name>`: the character screen's Delete, once the list is up.
@@ -952,6 +1009,17 @@ impl<'a> Run<'a> {
     fn snapshot(&mut self) -> Result<(), RunError> {
         let snap = self.app.hud().snapshot(self.app.objects());
         let id = |o: Option<ObjectId>| o.map_or("none".to_owned(), |o| format!("0x{:08X}", o.0));
+        let shortcuts = self
+            .app
+            .objects()
+            .world
+            .player_system
+            .shortcuts
+            .iter()
+            .flatten()
+            .map(|s| format!("{}:0x{:08X}", s.index, s.object_id.0))
+            .collect::<Vec<_>>()
+            .join(",");
         let rows = [
             format!("player={}", id(snap.player())),
             format!("character={}", snap.character_name().unwrap_or("none")),
@@ -967,6 +1035,7 @@ impl<'a> Run<'a> {
             format!("radar={}", snap.radar_objects().len()),
             format!("skills={}", snap.skills().len()),
             format!("now={:.6}", snap.now()),
+            format!("shortcuts={shortcuts}"),
         ];
         for r in rows {
             self.line(format!("snapshot {r}"))?;

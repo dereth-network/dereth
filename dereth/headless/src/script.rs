@@ -15,12 +15,13 @@ use dereth_client_sdk::actions::{names, ActionId};
 use dereth_client_sdk::primitives::ObjectId;
 
 /// An object a `request` names: by its id, as the player, or as the first thing in the player's
-/// pack whose name holds a word.
+/// pack, or the nearest thing on the radar, whose name holds a word.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Target {
     Id(ObjectId),
     Me,
     Pack(String),
+    Near(String),
 }
 
 impl Target {
@@ -30,6 +31,9 @@ impl Target {
         }
         if let Some(name) = word.strip_prefix("pack:").filter(|n| !n.is_empty()) {
             return Some(Self::Pack(name.to_owned()));
+        }
+        if let Some(name) = word.strip_prefix("near:").filter(|n| !n.is_empty()) {
+            return Some(Self::Near(name.to_owned()));
         }
         parse_u32(word).map(|v| Self::Id(ObjectId(v)))
     }
@@ -75,7 +79,7 @@ const REQUEST_FORMS: &str = "request takes select <target>, swear <target>, brea
                              book-write <target> <page> <text>, book-delete <target> <page>, \
                              research <class>..., forget-spell <spell>, shortcut-add <target>, \
                              shortcut-remove <target>, abuse <name> <complaint>, or \
-                             map-teleport <x> <y>; a <target> is an id, me or pack:<word>";
+                             map-teleport <x> <y>; a <target> is an id, me, pack:<word> or near:<word>";
 
 fn parse_request(args: &[&str]) -> Option<Request> {
     let target = Target::parse;
@@ -149,6 +153,9 @@ pub enum Command {
     Request(Request),
     /// `delete <character>` -- the character screen's Delete, once the list is up.
     Delete(String),
+    /// `formula <spell>` -- the components of a spell's formula, for this account, as `request
+    /// research` takes them.
+    Formula(u32),
     /// `dump events` / `dump steps` -- the last frame's event log, or only its fourteen steps.
     Dump(Dump),
     /// `snapshot` -- `GameSnapshot::from_view` over the HUD's view, as text.
@@ -503,6 +510,10 @@ fn parse_args(n: usize, verb: &str, args: &[&str]) -> Result<Command, ScriptErro
             .ok_or_else(|| err(n, REQUEST_FORMS)),
         ("delete", [name]) => Ok(Command::Delete((*name).to_owned())),
         ("delete", _) => Err(err(n, "delete takes <character>")),
+        ("formula", [spell]) => parse_u32(spell)
+            .map(Command::Formula)
+            .ok_or_else(|| err(n, format!("formula needs a spell id, not {spell:?}"))),
+        ("formula", _) => Err(err(n, "formula takes <spell>")),
         ("chat", []) => Ok(Command::Chat),
         ("chat", _) => Err(err(n, "chat takes no arguments")),
         ("answer", ["yes"]) => Ok(Command::Answer(true)),
@@ -627,15 +638,26 @@ mod tests {
                 Command::Delete("Old".into()),
             ]
         );
+        assert_eq!(
+            parse("request swear near:Rtester\nformula 0x1B\n").expect("parses"),
+            vec![
+                Command::Request(Request::Swear(Target::Near("Rtester".into()))),
+                Command::Formula(27),
+            ]
+        );
         for wrong in [
             "request",
             "request swear",
             "request swear pack:",
+            "request swear near:",
             "request research",
             "request abuse Name",
             "request train-skill 1",
             "delete",
             "delete a b",
+            "formula",
+            "formula Flame",
+            "formula 1 2",
         ] {
             assert!(parse(wrong).is_err(), "{wrong}");
         }
