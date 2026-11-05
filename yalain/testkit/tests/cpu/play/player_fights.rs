@@ -598,6 +598,120 @@ fn a_specials_effects_reach_the_other_player_it_lands_on() {
         .any(|(f, _)| *f == ADD_EFFECT));
 }
 
+/// A player's health, once a damage over time has brought it to nothing, whoever put it on: its
+/// death told by the killer's id, a creature's or none for its own.
+fn over_time_to_the_end(
+    caster: impl FnOnce(u64) -> u64,
+    pk: bool,
+) -> (Harness, usize, u64, u64, usize) {
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    with_player(&mut h, me, |p| {
+        quals::set_int(&mut p.qualities, quality::HEALTH, 3);
+    });
+    let world = yalain_world::social::world_of(&h.server, me).expect("in the world");
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    let caster = caster(me);
+    let (s, net) = (&mut h.server, &mut h.net);
+    yalain_world::effects::apply(
+        s,
+        net,
+        world,
+        CHARGED_AIR_EFFECT,
+        yalain_world::effects::Cast {
+            caster,
+            spellcraft: 1.0,
+            pk,
+            ..yalain_world::effects::Cast::default()
+        },
+        clock,
+    );
+    (h, b, me, caster, from)
+}
+
+fn killers_told(
+    h: &Harness,
+    b: usize,
+    me: u64,
+    from: usize,
+) -> Vec<Vec<yalain_world::calls::Value>> {
+    h.world_messages(b, from)
+        .into_iter()
+        .filter_map(|m| match m {
+            ServerMessage::VisualObjectCall(c)
+                if c.object.id == me && c.call.function.0 == WHO_KILLED =>
+            {
+                c.call
+                    .args
+                    .as_ref()
+                    .and_then(|a| yalain_world::calls::values(&a.0).ok())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// A damage over time a creature put on a player kills it when its health is gone, the creature its
+/// killer, as a hit would; the player doesn't stand at no health with nothing to end it.
+/// Behaviour: server.effects.harm-over-time-kills
+#[test]
+fn a_creatures_damage_over_time_kills_the_player_it_takes_the_last_health_of() {
+    const A_CREATURE: u64 = 0x8130_0000_0000_0042;
+    let (mut h, b, me, _, from) = over_time_to_the_end(|_| A_CREATURE, false);
+    assert!(
+        h.run_until(4000, |h| health_of(h, me) == 0),
+        "the ticks take its health"
+    );
+    h.run(5);
+    let told = killers_told(&h, b, me, from);
+    assert_eq!(told.len(), 1, "its death told once: {told:?}");
+    assert!(
+        told[0]
+            .iter()
+            .any(|v| matches!(v, yalain_world::calls::Value::Long(k) if *k == A_CREATURE)),
+        "{told:?}"
+    );
+}
+
+/// A player's own harm kills it too, with no killer: health at none is death, whoever took the last
+/// of it.
+/// Behaviour: server.effects.own-harm-kills
+#[test]
+fn a_players_own_harm_kills_it_with_no_killer() {
+    let (mut h, b, me, _, from) = over_time_to_the_end(|me| me, true);
+    assert!(
+        h.run_until(4000, |h| health_of(h, me) == 0),
+        "the ticks take its health"
+    );
+    h.run(5);
+    let told = killers_told(&h, b, me, from);
+    assert_eq!(told.len(), 1, "its death told once: {told:?}");
+    assert!(
+        told[0]
+            .iter()
+            .any(|v| matches!(v, yalain_world::calls::Value::Long(0))),
+        "{told:?}"
+    );
+}
+
+/// Never say die holds against a change over time as against a blow.
+/// Behaviour: server.admin.never-say-die-keeps-an-admin-alive
+#[test]
+fn never_say_die_holds_against_a_damage_over_time() {
+    const A_CREATURE: u64 = 0x8130_0000_0000_0042;
+    let (mut h, b, me, _, from) = over_time_to_the_end(|_| A_CREATURE, false);
+    with_player(&mut h, me, |p| p.admin.never_say_die = true);
+    assert!(
+        h.run_until(4000, |h| health_of(h, me) == 1),
+        "the ticks take its health"
+    );
+    h.run_to(yalain_net::LocalTime(h.now.0 + 20.0));
+    assert!(health_of(&h, me) >= 1, "it stops at one");
+    assert!(killers_told(&h, b, me, from).is_empty(), "no death");
+}
+
 /// A damage over time another player put on a player: each tick, told by the player with the
 /// caster as its attacker, gives the health lost as PK damage; with no health left the player dies
 /// at the caster's hand; dead, its ticks are still told and change nothing.

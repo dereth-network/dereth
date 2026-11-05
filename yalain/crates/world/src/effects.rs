@@ -1008,7 +1008,9 @@ fn harm_by_player(me: u64, amount: i32, (caster, pk): (u64, bool)) -> bool {
 
 /// Change a player's vital by an amount (a heal: positive), not past its greatest value; the
 /// story of a health change tells the whole amount. Harm another player did is told as PK damage
-/// too, and with no health left the player dies, the caster its killer.
+/// too. Harm that takes its last health kills it, the caster its killer, or none for its own: 2017,
+/// 4 of 4 players a creature's effect took to no health had their death told; no recording has a
+/// player's own harm do it.
 fn change_vital<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1023,7 +1025,8 @@ fn change_vital<S: Store>(
     };
     let max = max_vital(s, p, max_quality).max(1);
     let was = quals::int(&p.qualities, cur).unwrap_or(max);
-    let now = (was + amount).clamp(0, max.max(was));
+    let least = i32::from(cur == quality::HEALTH && p.admin.never_say_die);
+    let now = (was + amount).clamp(least.min(was), max.max(was));
     let by_player = cur == quality::HEALTH && harm_by_player(p.character, amount, (caster, pk));
     if cur == quality::HEALTH {
         let Some(p) = s.players.get_mut(&world) else {
@@ -1047,8 +1050,12 @@ fn change_vital<S: Store>(
         #[allow(clippy::cast_precision_loss)]
         let (share, before) = (now as f32 / max as f32, was as f32 / max as f32);
         crate::combat::wounded(s, net, me, share, before);
-        if by_player && now == 0 && was > 0 {
-            crate::combat::after_hurt(s, net, world, caster, clock);
+        if now == 0 && was > 0 {
+            if caster == me {
+                crate::death::player_dies(s, net, world, None, clock);
+            } else {
+                crate::combat::after_hurt(s, net, world, caster, clock);
+            }
         }
     }
 }

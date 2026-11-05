@@ -3193,6 +3193,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.effects.harm-over-time-kills",
+        says: "A change over time a creature put on a player kills it when it takes the last of its \
+               health, the creature its killer.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-HARM-KILLS"),
+        station: "yalain-testkit::cpu::play::player_fights::a_creatures_damage_over_time_kills_the_player_it_takes_the_last_health_of",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.effects.heal-at-the-hook",
         says: "A heal aimed at a creature or nothing heals its user, with no movement order; its \
                story is the skill's behavior on its user; at the skill's hook a health heal is \
@@ -3229,6 +3238,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-EFFECTS-OVER-TIME"),
         station: "yalain-testkit::cpu::play::effects::a_change_over_time_heals_every_few_seconds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.effects.own-harm-kills",
+        says: "A player's own harm kills it when it takes the last of its health, with no killer named.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-OWN-HARM"),
+        station: "yalain-testkit::cpu::play::player_fights::a_players_own_harm_kills_it_with_no_killer",
         tier: Tier::Cpu,
     },
     behaviour! {
