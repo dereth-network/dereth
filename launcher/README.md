@@ -259,7 +259,7 @@ shows its state, Empyrean version, players online and uptime
 
 | Section | What |
 |---|---|
-| World | name, era, data set, world base, the character screen's welcome, and port (the world takes the one after it too). Infiltration needs a Classic set, any other era a Modern one. Each era has its own world base (`world.pack`, `world.pack.infiltration`), which **Get world database** downloads |
+| World | name, era, data set, world base, the character screen's welcome, and port (the world takes the one after it too). Launch needs the 1999 pair, Infiltration a Classic set, the end of retail a Modern one. Each era has its own world base (`world.pack`, `world.pack.infiltration`, `world.pack.launch`), which **Get world database** downloads |
 | Players | the two switches, player limits overall and per IP address, and the shutdown warning |
 | Era systems | each of the era's systems; **Use defaults for** puts them back |
 | Websocket | for browser players: on or off, a TLS proxy or a certificate and key, the address, the pages allowed to connect (`https://play.dereth.network` to begin with) and the public address |

@@ -468,8 +468,8 @@ function programName(product) {
   if (c?.checkout) return `${title}${c.checkout_version ? ` ${vee(c.checkout_version)}` : ""} (Local Build)`;
   return c?.installed?.version ? `${title} ${vee(c.installed.version)}` : title;
 }
-// The ACE world each era's world base is.
-const BASE_NAMES = { eor: "ACE End of Retail", infiltration: "ACE Infiltration (2005)" };
+// The world each era's world base is.
+const BASE_NAMES = { eor: "ACE End of Retail", infiltration: "ACE Infiltration (2005)", launch: "ac1999 Launch (1999)" };
 // A world base in words: `ACE End of Retail v0.9.295`, or the era's world alone when its release
 // is not known.
 const baseName = (era, base) => `${BASE_NAMES[base?.era ?? era] ?? BASE_NAMES.eor}${base?.version ? ` ${base.version}` : ""}`;

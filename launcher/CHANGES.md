@@ -10,6 +10,8 @@ section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
 
+- A hosted world can now be saved in the Launch era.
+
 ## 0.5.0 (2026-11-05)
 
 - A Yalain world's settings can turn on WebSocket connections.
