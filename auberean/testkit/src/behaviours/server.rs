@@ -1870,6 +1870,29 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.a-detaunt-takes-from-the-draw",
+        says: "A detaunt on a creature takes its share of the creature's whole health, at the low end \
+               of its script's range, from its caster's weight at the draw for twenty seconds, down to \
+               nothing, where it isn't drawn. Our choice: too few cases to measure, so a taunt's rule \
+               with the sign turned.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DETAUNT"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_taunt_weighs_as_harm_at_the_draw_and_a_detaunt_takes_from_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.a-taunt-counts-at-the-draw",
+        says: "A landed taunt counts for its caster at a creature's draw as harm, for twenty seconds, \
+               each its script's share of the creature's whole health at the low end of its range. It \
+               forces no turn: the draw's chance and the nearest's weight stand. Rests on one player's \
+               1,041 taunts, of two skills alone (Soft Underbelly and Growl); the others' shares are \
+               their scripts'.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TAUNT-DRAW"),
+        station: "yalain-testkit::cpu::play::creature_tactics::a_taunt_landing_counts_for_its_caster_for_twenty_seconds_by_its_share_of_whole_health",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.armor-debuff-in-a-special",
         says: "What a landed special's effect takes from a creature's armor counts in the next hit \
                of a special, on the whole server with the install's own skills.",

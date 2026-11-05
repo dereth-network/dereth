@@ -198,6 +198,89 @@ fn a_basic_attack_that_names_a_target_effect_lands_it() {
     }
 }
 
+/// A special's taunt counts for each use that lands, and for none that doesn't.
+/// Behaviour: server.creatures.a-taunt-counts-at-the-draw
+#[test]
+fn a_specials_taunt_counts_only_for_the_uses_that_land() {
+    const TAUNT: u32 = 0x6F00_7306;
+    let (mut h, b, me, beetles) = beside_beetles(1);
+    let beetle = beetles[0];
+    place(&mut h, me, beetle, 6.0, 0.0);
+    h.arm(b, me, STAVE);
+    h.server.effect_table.effects.insert(
+        TAUNT,
+        yalain_world::effect_defs::EffectDef {
+            state: TAUNT,
+            kind: yalain_world::effect_defs::Kind::Taunt(0.05),
+            ..h.server
+                .effect_table
+                .get(VACUUM_EFFECT)
+                .cloned()
+                .expect("read")
+        },
+    );
+    h.server
+        .skill_table
+        .skills
+        .get_mut(&VACUUM)
+        .and_then(|d| d.usage.as_mut())
+        .expect("used")
+        .target_effects = vec![TAUNT];
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        t.health = 1_000_000;
+        t.max_health = 1_000;
+    }
+    let (mut landed, mut not) = (0, 0);
+    for id in 1..40 {
+        if let Some(c) = h
+            .server
+            .things
+            .get_mut(beetle)
+            .and_then(|t| t.creature.as_mut())
+        {
+            c.taunts.clear();
+        }
+        let from = use_skill(&mut h, b, id, VACUUM, beetle);
+        h.run(160);
+        let outcomes: Vec<u32> = h
+            .world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e) if e.action.attacker == me => Some(e),
+                _ => None,
+            })
+            .flat_map(|e| e.action.hooks.iter())
+            .filter(|k| k.target == beetle)
+            .map(|k| k.numbers[0].cast_unsigned())
+            .filter(|n| (0x4000_0007..=0x4000_000B).contains(n))
+            .collect();
+        // The use's own first hook only plays; the last says how it came out.
+        let lands = outcomes
+            .last()
+            .is_some_and(|n| matches!(n, 0x4000_0008 | 0x4000_0009));
+        let taunts = h
+            .server
+            .things
+            .get(beetle)
+            .and_then(|t| t.creature.as_ref())
+            .expect("a creature")
+            .taunts
+            .clone();
+        if lands {
+            landed += 1;
+            assert_eq!(
+                taunts.iter().map(|e| (e.1, e.2)).collect::<Vec<_>>(),
+                [(me, 50)],
+                "use {id}"
+            );
+        } else if !outcomes.is_empty() {
+            not += 1;
+            assert!(taunts.is_empty(), "use {id}: {taunts:?}");
+        }
+    }
+    assert!(landed > 0 && not > 0, "{landed} landed, {not} not");
+}
+
 /// The same debuff landed again while the first runs is a second record: the appearance is not
 /// shown again, and it stops only as the later one runs out.
 /// Behaviour: server.effects.creature-debuffs-stack

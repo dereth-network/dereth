@@ -302,6 +302,7 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
         joining: None,
         opening: None,
         harm: Vec::new(),
+        taunts: Vec::new(),
         considered: f64::NEG_INFINITY,
         target_since: 0.0,
         kin_helped: None,

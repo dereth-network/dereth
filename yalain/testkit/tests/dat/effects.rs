@@ -216,6 +216,32 @@ fn a_creatures_body_is_its_looks_setups() {
     );
 }
 
+/// A taunt reads at the low end of the range its data gives: Growl a twentieth of a creature's
+/// health, Ruse's and Taunt Force's a hundredth, Challenge's 0.15, Cragstone's Rebuke a quarter;
+/// a detaunt the same below nothing, Blinding Arrow's and Challenge's own.
+/// Behaviour: server.creatures.a-taunt-counts-at-the-draw
+#[test]
+fn a_taunt_reads_at_the_low_end_of_its_share_of_a_creatures_health() {
+    let p = Portal::open();
+    let wanted = [
+        (0x7000_090D, 0.05),
+        (0x7000_1FE3, 0.05),
+        (0x7000_07C9, 0.01),
+        (0x7000_1EDB, 0.01),
+        (0x7000_0872, 0.15),
+        (0x7000_1F3E, 0.25),
+        (0x7000_1F55, -0.10),
+        (0x7000_1F7A, -0.05),
+    ];
+    let t = p.effects(&wanted.map(|w| w.0));
+    for (state, share) in wanted {
+        match t.get(state).map(|d| &d.kind) {
+            Some(Kind::Taunt(s)) => assert!((s - share).abs() < 1e-6, "{state:08X}: {s}"),
+            other => panic!("{state:08X}: {other:?}"),
+        }
+    }
+}
+
 /// A recipe's attune outcome reads with the ordinal it names and its spinners: Armor Dyeing attunes
 /// what it dyes at any spinner of its own, the Atlan Bow its product at 45 to 85.
 /// Behaviour: server.craft.made-item-attuned
@@ -903,8 +929,8 @@ fn immolation_and_bladeskin_put_their_effects_on_their_user() {
 }
 
 /// Plan B, Immolation and Taunt Force answer what comes at them, of any class and always: Plan B and
-/// Immolation with fire over time. Taunt Force has no time to last and its Challenge does nothing
-/// here.
+/// Immolation with fire over time. Taunt Force has no time to last, so its Challenge doesn't come;
+/// the Challenge itself is a taunt.
 /// Behaviour: server.effects.replies-read
 #[test]
 fn the_effects_that_answer_what_comes_at_them_read_as_the_data_defines_them() {
@@ -930,10 +956,7 @@ fn the_effects_that_answer_what_comes_at_them_read_as_the_data_defines_them() {
             Kind::VitalOverTime { .. }
         ));
     }
-    assert!(matches!(
-        t.get(0x7000_1EDB).expect("read").kind,
-        Kind::Other
-    ));
+    assert_eq!(t.get(0x7000_1EDB).expect("read").kind, Kind::Taunt(0.01));
 }
 
 /// A recipe that binds its product names it by the product's ordinal over the whole spinner range

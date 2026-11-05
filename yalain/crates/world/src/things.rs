@@ -96,6 +96,9 @@ pub struct Creature {
     pub opening: Option<f64>,
     /// The harm players did it lately: when (world seconds), who (character id), how much.
     pub harm: Vec<(f64, u64, i64)>,
+    /// What taunts did to its mind lately: when (world seconds), who (character id), how much, in
+    /// harm's terms (less than nothing for a detaunt).
+    pub taunts: Vec<(f64, u64, i64)>,
     /// The attack (its due time) at which it last thought again about whom it fights.
     pub considered: f64,
     /// Since when (world seconds) it has fought its present target.

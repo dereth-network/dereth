@@ -149,6 +149,11 @@ pub const MELEE_REACH: f32 = 2.5;
 /// fights, in seconds.
 pub const HARM_REMEMBERED: f64 = 10.0;
 
+/// How long a taunt counts when a creature thinks again about whom it fights, in seconds (2017:
+/// one player's 1,041 taunts of two skills: turned on 130 of 630 attacks within this after one, 2
+/// of 72 in the 25 s after that).
+pub const TAUNT_REMEMBERED: f64 = 20.0;
+
 /// The chance, at one of its attacks, that a creature players have hurt lately draws its target
 /// again by their harm: while it has fought its target less than [`HELD_LONG`] seconds, and after
 /// (2017: 1,048 switches against 950 at the pooled 0.28 before fifteen seconds, 90 against 188
@@ -568,9 +573,38 @@ fn fightable(p: &crate::world::Player) -> bool {
         && p.admin.attackable != Attackable::Super
 }
 
+/// A taunt lands on a creature: for a while it counts for its caster as harm done, a share of the
+/// creature's whole health, or against it when below 0. It never forces a turn (2017: right after
+/// a taunt, turned on at 26%, under the draw's own chance).
+pub(crate) fn taunted<S: Store>(s: &mut Server<S>, id: u64, by: u64, share: f32, now: f64) {
+    let Some(t) = s.things.get_mut(id) else {
+        return;
+    };
+    let whole = t.max_health;
+    let Some(c) = t.creature.as_mut() else {
+        return;
+    };
+    c.taunts
+        .retain(|(when, _, _)| now - when < TAUNT_REMEMBERED);
+    let amount = (f64::from(share) * f64::from(whole)).round();
+    #[allow(clippy::cast_possible_truncation)]
+    c.taunts.push((now, by, amount as i64));
+}
+
+/// [`reconsider`] for tests: the creature thinks again now, where it stands.
+#[doc(hidden)]
+pub fn reconsider_for_test<S: Store>(s: &mut Server<S>, id: u64, now: f64) {
+    if let Some((at, perception)) = s.things.get(id).and_then(|t| {
+        let c = t.creature.as_ref()?;
+        Some((t.at?, perception_of(c)))
+    }) {
+        reconsider(s, id, &at, perception, now);
+    }
+}
+
 /// At one of its attacks (once for each), a creature fighting a player may draw its target again:
-/// by the harm players did it over the last ten seconds and their nearness while some did, else
-/// toward another player within its perception now and then.
+/// by the harm players did it over the last ten seconds, the taunts of the last twenty and their
+/// nearness while some did, else toward another player within its perception now and then.
 fn reconsider<S: Store>(
     s: &mut Server<S>,
     id: u64,
@@ -588,10 +622,9 @@ fn reconsider<S: Store>(
     let Some(target) = c.target else { return };
     let held_long = now - c.target_since >= HELD_LONG;
     let mut harm: Vec<(u64, i64)> = Vec::new();
-    for (when, who, h) in &c.harm {
-        if now - when >= HARM_REMEMBERED {
-            continue;
-        }
+    let harms = c.harm.iter().filter(|e| now - e.0 < HARM_REMEMBERED);
+    let taunts = c.taunts.iter().filter(|e| now - e.0 < TAUNT_REMEMBERED);
+    for (_, who, h) in harms.chain(taunts) {
         match harm.iter_mut().find(|(p, _)| p == who) {
             Some(e) => e.1 += h,
             None => harm.push((*who, *h)),
@@ -923,6 +956,7 @@ fn arrive_home<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock:
         c.damage_by.clear();
         c.taken_by.clear();
         c.harm.clear();
+        c.taunts.clear();
         c.unreached.clear();
         if let Some(p) = c.patrol.as_mut() {
             p.left_at = None;

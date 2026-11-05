@@ -619,6 +619,7 @@ pub fn summon<S: Store>(
         joining: None,
         opening: None,
         harm: Vec::new(),
+        taunts: Vec::new(),
         considered: f64::NEG_INFINITY,
         target_since: now,
         kin_helped: None,

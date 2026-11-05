@@ -11,6 +11,7 @@ what they see, not how it was done.
 - Bound and attuned items can't be put up for sale.
 - Recipes that attune an item now do.
 - Skills are refused under an effect that bars them.
+- Taunts now draw creatures in group fights.
 
 ## 0.2.0 (2026-11-05)
 

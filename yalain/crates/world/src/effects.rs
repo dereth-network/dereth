@@ -562,10 +562,15 @@ pub fn apply_on<S: Store>(
             crate::craft::forget(s, net, world, *recipe);
             true
         }
+        (Kind::Taunt(share), On::Creature(id)) => {
+            crate::ai::taunted(s, id, cast.caster, *share, clock.local.0);
+            true
+        }
         (
             Kind::Quest { .. } | Kind::GrantRecipe(_) | Kind::RemoveRecipe(_) | Kind::Teleport(_),
             On::Creature(_),
         )
+        | (Kind::Taunt(_), On::Player(_))
         | (Kind::Aura(_), _) => false,
         // A pet is summoned as its skill's use ends ([`crate::pets`]), never as an effect; a
         // recall is its skill's trip ([`crate::skill_use`]).
