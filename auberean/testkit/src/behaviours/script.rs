@@ -1174,6 +1174,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.model.an-object-in-a-pack-keeps-what-its-scripts-set-of-its-body",
+        says: "An object in a pack has a body as one in the world does: what its scripts set of it as it is made stays for when it comes out. One the client was not sent has none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CONTAINED-HAS-BODY"),
+        station: "auberean-client-runtime::cpu::scripts::physics_object::an_object_in_a_pack_keeps_what_its_scripts_set_of_its_body",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.model.an-object-without-a-template-derives-from-its-packages-qualities",
         says: "The qualities record an object's own qualities derive from is its entity template's \
                when its description names a template; with no template, its package's (the \
