@@ -1387,7 +1387,7 @@ impl<'w> Scene<'w> {
             &self.anims,
             figures::global(at.cell.0, dv(at.frame.origin)),
             pl.body.heading,
-            pl.scale,
+            dv(pl.body.total_scale(None)),
             now,
             auberean_draw::effects::FxWho {
                 player: true,
@@ -1807,6 +1807,37 @@ impl<'w> Scene<'w> {
                 .or_else(|| self.held.dress(id))
                 .or_else(|| self.temporaries.get(id).and_then(|t| t.dress.as_ref())),
         }
+    }
+
+    /// For each particle system object `id`'s effects carry, the scales it draws at this frame,
+    /// each with what they should come to: the object's whole scale times what its look gives its
+    /// systems when its description scales it with its object, that alone otherwise.
+    #[must_use]
+    pub fn system_scales(&self, id: u64) -> Vec<(Vec<Vec3>, Vec3)> {
+        let (fx, whole) = match &self.player {
+            Some(p) if p.id == id => (p.effects.as_ref(), Some(p.body.total_scale(None))),
+            _ => (
+                self.others.effects_of(id),
+                self.others.body(id).map(|b| b.total_scale(None)),
+            ),
+        };
+        let (Some(fx), Some(whole)) = (fx, whole) else {
+            return Vec::new();
+        };
+        let k = fx.fx.particle_scale();
+        fx.fx
+            .systems()
+            .iter()
+            .map(|c| {
+                let (drawn, with_object) = self.systems.drawn_scales(&c.system);
+                let whole = if with_object {
+                    dv(whole)
+                } else {
+                    Vec3::new(1.0, 1.0, 1.0)
+                };
+                (drawn, Vec3::new(whole.x * k, whole.y * k, whole.z * k))
+            })
+            .collect()
     }
 
     /// The figure of object `id`: the player's, another's, a held object's or one the client made.
@@ -4622,7 +4653,7 @@ impl<'w> Scene<'w> {
                     &self.anims,
                     global(&pos),
                     body_heading,
-                    pl.scale,
+                    dv(pl.body.total_scale(None)),
                     light,
                     now,
                     who(true),

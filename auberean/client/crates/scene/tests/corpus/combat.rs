@@ -749,6 +749,46 @@ fn the_animations_own_effects_play_on_the_bodies() {
     assert!(stopped >= 30, "{stopped} stopped");
 }
 
+/// A recorded session's bodies, frame by frame: the systems their effects carry draw at the body's
+/// whole scale, its look's times its own, however the look alone is scaled.
+///
+/// Behaviour: desktop.looks.a-bodys-systems-draw-at-its-whole-scale
+#[test]
+fn a_bodys_systems_draw_at_its_whole_scale() {
+    let mut t = f64::NEG_INFINITY;
+    let mut own_scale = std::collections::BTreeSet::new();
+    let mut wrong = Vec::new();
+    played_in_frames("aae4d0e791da97b9:1", 240.0, 0.125, &[], &mut |c, scene| {
+        t = if t.is_finite() { t + 0.125 } else { 0.0 };
+        let _ = scene.frame(t);
+        for o in c.model.objects() {
+            let Some(b) = scene.body(o.id) else { continue };
+            let own = b.object_scale;
+            for (drawn, want) in scene.system_scales(o.id) {
+                if !drawn.is_empty() && (own.x - 1.0).abs() > 1e-3 {
+                    own_scale.insert(o.id);
+                }
+                wrong.extend(drawn.into_iter().filter(|d| {
+                    (d.x - want.x).abs() > 1e-3
+                        || (d.y - want.y).abs() > 1e-3
+                        || (d.z - want.z).abs() > 1e-3
+                }));
+            }
+        }
+    });
+    eprintln!("{} bodies with their own scale", own_scale.len());
+    assert!(
+        !own_scale.is_empty(),
+        "a body with its own scale drew a system"
+    );
+    assert!(
+        wrong.is_empty(),
+        "{} drew at another scale: {:?}",
+        wrong.len(),
+        wrong.first()
+    );
+}
+
 /// A recorded session in which the player shoots a bow, played in frames an eighth of a second
 /// long (several physics ticks each): the missiles travel from where they were placed, and those
 /// that stick (2017's sticky arrows) stick in the target they struck.

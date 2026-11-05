@@ -516,6 +516,12 @@ impl ParticleSet {
         }
     }
 
+    /// Whether its description scales it with the object it stands on.
+    #[must_use]
+    pub fn scales_with_object(&self) -> bool {
+        self.desc.scale_type == SCALES_WITH_OBJECT
+    }
+
     /// The scale of the object it stands on.
     #[must_use]
     pub fn scale(&self) -> Vec3 {

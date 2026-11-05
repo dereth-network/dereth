@@ -1349,6 +1349,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.looks.a-bodys-systems-draw-at-its-whole-scale",
+        says: "The particle systems an object's effects carry draw at the object's whole scale, its                look's times its own, not its look's alone: a gateway sign's haze stays a thin rim                at its foot.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-SYSTEM-WHOLE-SCALE"),
+        station: "auberean-scene::corpus::combat::a_bodys_systems_draw_at_its_whole_scale",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "desktop.looks.an-effects-appearance-dresses-the-body-it-plays-on",
         says: "The appearance an object's effects lay over it or take off it changes the object's \
                own descriptions (its own with the effects' appearance laid on, kept when the \

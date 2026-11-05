@@ -1184,6 +1184,7 @@ impl Others {
                 continue;
             }
             let (at, heading) = ob.drawn(alpha);
+            let whole = ob.body.total_scale(None);
             let who = auberean_draw::effects::FxWho {
                 player: false,
                 night,
@@ -1199,7 +1200,7 @@ impl Others {
                 anims,
                 at,
                 heading,
-                b.scale,
+                Vec3::new(whole.x, whole.y, whole.z),
                 light,
                 now,
                 who,
@@ -1234,6 +1235,11 @@ impl Others {
     /// The objects with a body here.
     pub(crate) fn ids(&self) -> Vec<u64> {
         self.bodies.keys().copied().collect()
+    }
+
+    /// The effects body `id` plays, when it has any.
+    pub(crate) fn effects_of(&self, id: u64) -> Option<&crate::fx::BodyFx> {
+        self.bodies.get(&id)?.effects.as_ref()
     }
 
     /// The effects body `id` plays, when it has any.

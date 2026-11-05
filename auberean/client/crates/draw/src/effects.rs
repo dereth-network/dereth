@@ -746,6 +746,12 @@ impl ObjectEffects {
         &self.states
     }
 
+    /// What its look gives its systems' scale.
+    #[must_use]
+    pub fn particle_scale(&self) -> f32 {
+        self.particle_scale
+    }
+
     /// The particle systems the object carries.
     #[must_use]
     pub fn systems(&self) -> &[CarriedSystem] {
