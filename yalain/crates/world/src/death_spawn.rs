@@ -5,7 +5,9 @@
 //!
 //! **Where they appear.** Each stands at its offset from the killer, as the killer faces, on the
 //! ground (2017: the Drunken Drudge Sentry's two, 2 of the 3 tries at 70%, both exactly on their
-//! offsets about the killer at one heading, and neither about the corpse; one kill).
+//! offsets about the killer at one heading, and neither about the corpse; one kill). A killer who
+//! stands far from the death makes nothing: the kill goes to who did the most damage, wherever that
+//! one has gone since, and what a death makes belongs where it died.
 //!
 //! They stay until killed (the install's effect says they are permanent), or for the time their row
 //! gives. A world may let many such kills pass with no one to fight what they make, so no more than
@@ -29,6 +31,10 @@ use crate::{presence, Clock, Server};
 
 /// The most of one death effect's that live at once.
 pub const MOST: usize = 24;
+
+/// How far from a death its killer may stand for what the death makes to appear, in meters: half as
+/// far again as a missile reaches. (The one kill recorded had its killer at the creature's side.)
+pub const NEAR_THE_DEATH: f32 = crate::missiles::MISSILE_RANGE * 1.5;
 
 /// What a creature's death does to its killer, beyond its quests.
 pub fn killed<S: Store>(
@@ -59,6 +65,16 @@ pub fn killed<S: Store>(
             ..Cast::default()
         };
         crate::effects::apply_on(s, net, On::Player(killer), state, cast, clock);
+    }
+    let near = s
+        .things
+        .get(creature)
+        .and_then(|t| t.at)
+        .zip(s.players.get(&killer).map(|p| p.position))
+        .and_then(|(died, at)| presence::distance(&died, &at))
+        .is_some_and(|d| d <= NEAR_THE_DEATH);
+    if !near {
+        return;
     }
     for name in effects {
         if let Some(spawn) = s.death_spawns.get(name).copied() {

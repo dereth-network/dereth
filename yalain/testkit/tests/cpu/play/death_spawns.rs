@@ -175,6 +175,60 @@ fn a_death_spawn_stands_at_its_offset_from_the_killer_as_the_killer_faces() {
     }
 }
 
+/// The kill goes to who did the most damage, wherever it has gone since. What the death makes appears
+/// only if that one stands near the death: not beside whoever it now stands among, and not in other
+/// cells altogether. One at the edge of how near makes it.
+/// Behaviour: server.creatures.death-spawn-near-the-death
+#[test]
+fn a_killer_far_from_the_death_makes_nothing() {
+    let (mut h, me) = world();
+    let helper = beetle_template(&h);
+    h.server.death_spawns.insert(
+        EFFECT.into(),
+        DeathSpawn {
+            template: helper,
+            count: 1,
+            chance: 1.0,
+            offset: [0.0, 2.0],
+            lasts: None,
+        },
+    );
+    let beetle = *living(&h).last().expect("a beetle");
+    let there = h
+        .server
+        .things
+        .get(beetle)
+        .and_then(|t| t.at)
+        .expect("placed");
+    let at = |h: &mut Harness, from_it: f32, cell: Option<u32>| -> usize {
+        // Another of them, standing where the first stood.
+        let template = h.server.catalog.get(helper).expect("its template").clone();
+        let stats = yalain_content::CreatureStats::from_props(&template.props).expect("a creature");
+        let now = h.clock().local.0;
+        yalain_world::spawn::make(&mut h.server, &template, stats, (there, 0), None, None, now);
+        for p in h.server.players.values_mut() {
+            p.position = there;
+            p.position.origin[0] += from_it;
+            if let Some(c) = cell {
+                p.position.cell = c;
+            }
+        }
+        let before = living(h).len();
+        kill(h, me, &[EFFECT]);
+        // Less the one killed.
+        living(h).len() + 1 - before
+    };
+    let near = yalain_world::death_spawn::NEAR_THE_DEATH;
+    assert_eq!(at(&mut h, near + 1.0, None), 0, "past how near");
+    assert_eq!(
+        at(&mut h, 0.0, Some(0x0A98_0101)),
+        0,
+        "in another block's cells"
+    );
+    assert_eq!(at(&mut h, near - 1.0, None), 1, "within it");
+    assert_eq!(at(&mut h, 0.0, None), 1, "beside it");
+}
+
 /// Each is made by its chance: none at no chance.
 /// Behaviour: server.creatures.death-spawn-around-killer
 #[test]

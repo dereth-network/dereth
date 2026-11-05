@@ -2174,6 +2174,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.death-spawn-near-the-death",
+        says: "What a creature's death makes appears only where its killer stands near the death; a \
+               killer far from it, or in another block's cells, makes nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPAWN-NEAR-DEATH"),
+        station: "yalain-testkit::cpu::play::death_spawns::a_killer_far_from_the_death_makes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.death-spawns-limited",
         says: "Our choice: only so many of one death effect's creatures live at once.",
         since: TOOLING,
