@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Key map presets now take effect at once, and right Shift and Ctrl bind as themselves.
 - Fixed a radar kept hidden coming back as a bare dial.
 - Fixed layered icons showing soft fringes and hazy overlays.
 - Fixed a refused character's name reading as a corrupt character.

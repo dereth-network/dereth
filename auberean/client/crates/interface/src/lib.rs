@@ -586,6 +586,8 @@ pub struct Retail {
     cursor: Option<Arc<CursorImage>>,
     /// Shift and Ctrl held.
     mods: (bool, bool),
+    /// The modifier keys held: left Shift 1, right Shift 2, left Ctrl 4, right Ctrl 8.
+    held_mods: u8,
     /// Each key held for a play action: the modifier bits it was pressed with (its release ends
     /// the action its press began).
     play_keys: std::collections::HashMap<u32, u32>,
@@ -702,6 +704,7 @@ impl Retail {
             zoomed: false,
             cursor: None,
             mods: (false, false),
+            held_mods: 0,
             play_keys: std::collections::HashMap::new(),
             held_keys: std::collections::BTreeSet::new(),
             held_buttons: std::collections::BTreeSet::new(),
@@ -1743,6 +1746,7 @@ impl Retail {
         self.play_keys.clear();
         self.left_to_world = false;
         self.mods = (false, false);
+        self.held_mods = 0;
         self.ui.set_modifiers(false, false);
         self.ui.set_alt(false);
     }
@@ -1782,6 +1786,16 @@ impl Retail {
 
     /// The interface action a key pressed or let go names in the player's key maps, with Shift
     /// and Ctrl as held at its press.
+    /// A modifier key pressed or let go: Shift and Ctrl hold while either of their keys does.
+    fn hold_modifier(&mut self, bit: u8, down: bool) {
+        self.held_mods = if down {
+            self.held_mods | bit
+        } else {
+            self.held_mods & !bit
+        };
+        self.mods = (self.held_mods & 3 != 0, self.held_mods & 12 != 0);
+    }
+
     fn play_action(
         &mut self,
         keys: &auberean_shell::keys::Keys,
@@ -2091,8 +2105,7 @@ impl Interface for Retail {
                 };
                 let took = self.interface_button(id, *down);
                 if *down && *button == Button::Left && pregame {
-                    let (shift, ctrl) = self.mods;
-                    self.key_for_keyboard(pregame::LEFT_BUTTON_WORD, shift, ctrl);
+                    self.key_for_keyboard(pregame::LEFT_BUTTON_WORD, self.held_mods);
                 }
                 // The left button runs forward in mouse look: the world's controls see it too,
                 // even when it lands on the field over the world (or on a panel under a pointer
@@ -2142,15 +2155,17 @@ impl Interface for Retail {
                 // Shift, Ctrl and Alt as the interface reads them; Delete reaches the entry with the
                 // keyboard as the key it is.
                 match key {
-                    Key::ShiftLeft | Key::ShiftRight => self.mods.0 = *down,
-                    Key::ControlLeft | Key::ControlRight => self.mods.1 = *down,
+                    Key::ShiftLeft => self.hold_modifier(1, *down),
+                    Key::ShiftRight => self.hold_modifier(2, *down),
+                    Key::ControlLeft => self.hold_modifier(4, *down),
+                    Key::ControlRight => self.hold_modifier(8, *down),
                     Key::AltLeft | Key::AltRight => self.ui.set_alt(*down),
                     _ => {}
                 }
                 self.ui.set_modifiers(self.mods.0, self.mods.1);
                 if *down && pregame {
                     let w = pregame::input_word(*key);
-                    self.key_for_keyboard(w, self.mods.0, self.mods.1);
+                    self.key_for_keyboard(w, self.held_mods);
                 }
                 if *down && *key == Key::Delete && self.ui.character_input(0, DELETE_KEY) {
                     return true;

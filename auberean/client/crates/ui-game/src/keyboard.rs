@@ -73,6 +73,24 @@ pub mod meta {
     pub const RIGHT_SHIFT: u32 = 0x8100_0436;
     pub const LEFT_CTRL: u32 = 0x8100_041D;
     pub const RIGHT_CTRL: u32 = 0x8100_049D;
+
+    /// The modifier a key is held with, of those held (left Shift 1, right Shift 2, left Ctrl 4,
+    /// right Ctrl 8): the first in that order, none when none is.
+    // D2-04914
+    #[must_use]
+    pub const fn of_held(held: u8) -> u32 {
+        if held & 1 != 0 {
+            LEFT_SHIFT
+        } else if held & 2 != 0 {
+            RIGHT_SHIFT
+        } else if held & 4 != 0 {
+            LEFT_CTRL
+        } else if held & 8 != 0 {
+            RIGHT_CTRL
+        } else {
+            0
+        }
+    }
 }
 
 /// Whether an input is a modifier key, which is no key to bind by itself.
@@ -656,6 +674,9 @@ impl Keyboard {
                     base: self.maps.base.clone(),
                     ..m.clone()
                 };
+                // Bound at once and written with Apply, so Undo does not take it back.
+                // D2-01769
+                out.push(Request::LiveKeys(self.maps.clone()));
             }
             self.modified = true;
             self.update_buttons(ui);

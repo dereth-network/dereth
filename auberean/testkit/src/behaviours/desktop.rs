@@ -1202,6 +1202,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.keys.a-preset-binds-and-writes-nothing",
+        says: "A key map preset is bound at once and written to no file until Apply, so Undo does not take it back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEYBOARD-PRESET-LIVE"),
+        station: "auberean-shell::cpu::keys::a_preset_binds_and_writes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.keys.a-saved-key-map-file-is-bound-in-play",
         says: "A player's saved key map files are the keys in play: with the WoW preset saved as \
                the plain and Ctrl maps, Q strafes and C opens the inventory, and with no Shift \

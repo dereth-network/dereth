@@ -1120,6 +1120,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.keyboard.a-key-is-bound-with-the-first-modifier-held",
+        says: "A key on the key map is bound with the first of the modifiers held, left Shift, right Shift, left Ctrl, right Ctrl, left and right told apart.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEYBOARD-MODIFIERS"),
+        station: "auberean-ui-game::dat::screens::pregame::a_key_is_bound_with_the_first_modifier_held",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.keyboard.the-key-map-shows-each-actions-keys-and-rebinds-them",
         says: "The key map shows each action that has a name, its name and its two keys (a key \
                held with Ctrl or Shift written with it); a key cell pressed waits for a key: one \

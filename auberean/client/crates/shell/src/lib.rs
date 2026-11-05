@@ -433,6 +433,10 @@ impl<'w, H: Host> Shell<'w, H> {
             }
             Request::Sound(r) => self.sound.request(r),
             Request::InputMethod(area) => self.host.set_input_method(area),
+            Request::BindKeyMaps(maps) => {
+                let [n, s, c] = &maps;
+                self.keys.bind([n, s, c]);
+            }
             Request::KeyMaps(maps) => {
                 let [n, s, c] = &maps;
                 if !self

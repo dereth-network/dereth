@@ -195,19 +195,13 @@ pub(crate) enum Net {
 
 impl Retail {
     /// A key pressed (or the left button) while the key map is up: heard by it with the modifier
-    /// held (Ctrl before Shift), at its next tick.
+    /// held (left Shift, right Shift, left Ctrl, right Ctrl, the first of them), at its next tick.
     // D2-04867
-    pub(crate) fn key_for_keyboard(&mut self, word: u32, shift: bool, ctrl: bool) {
+    pub(crate) fn key_for_keyboard(&mut self, word: u32, held: u8) {
         if self.pre::<Keyboard>().is_none() {
             return;
         }
-        let m = if ctrl {
-            keyboard::meta::LEFT_CTRL
-        } else if shift {
-            keyboard::meta::LEFT_SHIFT
-        } else {
-            0
-        };
+        let m = keyboard::meta::of_held(held);
         self.flow.flow.data.pre.key_hits.push((word, m));
     }
 
@@ -593,6 +587,17 @@ impl Retail {
                 P::Keys(maps) => {
                     // Written to their files and bound from now on.
                     requests.push(Request::KeyMaps([
+                        maps.normal.clone(),
+                        maps.shift.clone(),
+                        maps.control.clone(),
+                    ]));
+                    if let Some(k) = &mut self.flow.flow.data.pre.keys {
+                        k.maps = maps;
+                    }
+                }
+                P::LiveKeys(maps) => {
+                    // Bound from now on, nothing written.
+                    requests.push(Request::BindKeyMaps([
                         maps.normal.clone(),
                         maps.shift.clone(),
                         maps.control.clone(),
