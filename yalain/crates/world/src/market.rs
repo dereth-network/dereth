@@ -33,7 +33,8 @@
 //! a page past that is not answered.
 //!
 //! **Buying a player's sale**: the price taken, the item moved from the broker into the buyer's
-//! pack, the sale's stock told as gone; the seller collects the price.
+//! pack, the sale's stock told as gone; the seller collects the price. A seller in the world is told
+//! of the sale, which its client marks on its reminder of that broker.
 
 use std::collections::BTreeMap;
 
@@ -70,6 +71,7 @@ pub mod function {
     pub const ENTER_CONSIGNMENT_DONE: u32 = 0x9B5E_0053;
     pub const UPDATE_CONSIGNMENT: u32 = 0x9B5E_0057;
     pub const SALE_REMINDERS: u32 = 0x9B5E_005D;
+    pub const UPDATE_SALE_REMINDERS: u32 = 0x9B5E_0060;
     pub const UPDATE_SALE: u32 = 0x9B5E_0046;
 }
 
@@ -77,6 +79,8 @@ pub mod function {
 pub const CONSIGNMENT: (u16, usize) = (0x1B65, 9);
 pub const PLAYER_SALE: (u16, usize) = (0x1B69, 10);
 pub const CONSIGNER: (u16, usize) = (0x1B64, 3);
+/// What has become of one consignment, by its sale: its package and size.
+pub const CONSIGNMENT_DESC: (u16, usize) = (0x1B66, 3);
 /// Native types: a table of words to words, a list of references, an icon, a string reference.
 const WORD_WORD_HASH: u16 = 0x1;
 const REF_LIST: u16 = 0x65;
@@ -588,6 +592,20 @@ fn reminders<S: Store>(s: &Server<S>, owner: u64, keeper: u64, br: Broker) -> Se
     call(
         function::SALE_REMINDERS,
         &[Arg::Object(b.graph()), Arg::LongInt(keeper)],
+    )
+}
+
+/// Tells a reminder its client holds of a consignment that this many of it have sold.
+fn reminder_of_a_sale(c: &Consignment) -> ServerMessage {
+    let mut b = Builder::new();
+    let list_id = b.next_id();
+    b.native(REF_LIST, list(Elem::Ref, Vec::new()));
+    let desc = b.reserve(CONSIGNMENT_DESC.0);
+    b.fill(desc, &[Slot::Int(c.sale), Slot::Int(0), Slot::Int(c.sold)]);
+    b.replace_native(list_id, list(Elem::Ref, vec![Item::Ref(desc)]));
+    call(
+        function::UPDATE_SALE_REMINDERS,
+        &[Arg::Object(b.graph()), Arg::LongInt(c.keeper)],
     )
 }
 
@@ -1230,6 +1248,18 @@ pub fn purchase<S: Store>(
     if let Some(t) = s.things.get(item) {
         let m = ServerMessage::CreateObject(inventory::item_create(t));
         net.send(world, queue::EVENT, BlobKind::UNORDERED, m.encode());
+    }
+    let seller = s
+        .players
+        .iter()
+        .find(|(_, q)| q.character == c.owner)
+        .map(|(w, _)| *w);
+    if let Some(seller) = seller {
+        let sold = Consignment {
+            sold: c.offered,
+            ..c
+        };
+        progress::private(net, seller, &reminder_of_a_sale(&sold));
     }
     keep(s);
     crate::world::keep_player(s, world);

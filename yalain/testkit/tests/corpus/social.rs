@@ -405,6 +405,7 @@ fn every_call_of_a_social_day_reads_back_against_the_client_library() {
         "WM_Store::PostCEvt_Store_InitSaleReminders",
         "WM_Store::PostCEvt_Store_EnterStore",
         "WM_Store::PostCEvt_Store_UpdateSale",
+        "WM_Store::PostCEvt_Store_UpdateSaleReminders",
     ] {
         assert!(checked.contains_key(want), "{want} was sent");
     }

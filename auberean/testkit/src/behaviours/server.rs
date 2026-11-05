@@ -5706,6 +5706,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.a-seller-is-told-of-a-sale",
+        says: "A sale bought while its seller is in the world tells the seller which sale and how \
+               many have sold, at that broker, and the buyer isn't told; the client's handler reads \
+               it. Our choice of when: no recording holds the message.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-SELLER-TOLD"),
+        station: "yalain-testkit::cpu::play::market::a_seller_in_the_world_is_told_of_a_sale_as_it_is_bought",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.an-attuned-item-is-not-sold",
         says: "An item attuned to its holder, by its template or a recipe, is refused its sale \
                (45009), nothing taken and the item kept. Our choice: an attunable template's item \

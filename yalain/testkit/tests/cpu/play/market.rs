@@ -399,6 +399,93 @@ fn a_seller_collecting_its_price_leaves_the_buyers_item_in_the_world() {
     assert_eq!(t.own.made.and_then(|m| m.armor), Some(33));
 }
 
+/// A player buys the one sale put up with a broker.
+fn buy(h: &mut Harness, b: usize, idb: u64, item: u64) {
+    let mut g = Builder::new();
+    g.object(
+        0x1B76,
+        &[
+            Slot::Long(item),
+            Slot::Ref(None),
+            Slot::Long(idb),
+            Slot::Int(1),
+            Slot::Long(BROKER),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    h.ask(b, PURCHASE, &[Arg::Object(g.graph())], 10);
+}
+
+/// A sale bought while its seller is in the world: the seller is told which sale and how many have
+/// sold, at that broker, and the buyer isn't.
+/// Behaviour: server.market.a-seller-is-told-of-a-sale
+#[test]
+fn a_seller_in_the_world_is_told_of_a_sale_as_it_is_bought() {
+    use yalain_world::calls::{Node, Value};
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    money(&mut h, ida, 1_000);
+    money(&mut h, idb, 5_000);
+    let sword = put_up_a_made_item(&mut h, a, ida);
+    let sale = h.server.market.list[0].sale;
+    let (from_a, from_b) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    buy(&mut h, b, idb, sword);
+    assert_eq!(h.server.market.list[0].sold, 1, "bought");
+    assert!(!h
+        .functions(b, from_b)
+        .contains(&function::UPDATE_SALE_REMINDERS));
+    let told: Vec<Vec<Value>> = h
+        .calls(a, from_a)
+        .into_iter()
+        .filter(|(f, _)| *f == function::UPDATE_SALE_REMINDERS)
+        .map(|(_, v)| v)
+        .collect();
+    assert_eq!(told.len(), 1, "told once");
+    assert!(told[0]
+        .iter()
+        .any(|v| matches!(v, Value::Long(k) if *k == BROKER)));
+    let desc: Vec<u32> = told[0]
+        .iter()
+        .find_map(|v| match v {
+            Value::Graph(g) => g.iter().find_map(|(_, n)| match n {
+                Node::Script { package, slots }
+                    if *package == yalain_world::market::CONSIGNMENT_DESC.0 =>
+                {
+                    Some(slots.iter().map(|(_, word)| *word).collect())
+                }
+                _ => None,
+            }),
+            _ => None,
+        })
+        .expect("the sale's words");
+    assert_eq!(desc, [sale, 0, 1], "the sale, not expired, one sold");
+}
+
+/// A sale whose seller is away goes as any other, and no one is told.
+/// Behaviour: server.market.a-seller-is-told-of-a-sale
+#[test]
+fn a_sale_bought_while_its_seller_is_away_tells_no_one() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    money(&mut h, ida, 1_000);
+    money(&mut h, idb, 5_000);
+    let sword = put_up_a_made_item(&mut h, a, ida);
+    h.server.market.list[0].owner = 0x2130_0000_0000_0FFF;
+    let (from_a, from_b) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    buy(&mut h, b, idb, sword);
+    assert_eq!(h.server.market.list[0].sold, 1, "bought");
+    for f in [h.functions(a, from_a), h.functions(b, from_b)] {
+        assert!(!f.contains(&function::UPDATE_SALE_REMINDERS));
+    }
+}
+
 /// The world forgets its market, as a restart does, and reads it back from the store.
 fn restart_the_market(h: &mut Harness, item: u64) {
     h.run(1);
