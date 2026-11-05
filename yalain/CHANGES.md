@@ -13,6 +13,7 @@ what they see, not how it was done.
 - Skills are refused under an effect that bars them.
 - Taunts now draw creatures in group fights.
 - How close a creature stops and how far it swings now go with its size.
+- Wasps, wisps and other flyers fly at their height and chase you indoors.
 
 ## 0.2.0 (2026-11-05)
 

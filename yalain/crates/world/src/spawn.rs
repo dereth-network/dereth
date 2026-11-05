@@ -258,7 +258,12 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
         .as_ref()
         .filter(|r| !r.waypoints.is_empty())
         .map(|r| crate::ai::Patrol::new(r.clone(), camp.moves.start, camp.moves.backward));
-    let (at, heading) = place(s, &camp, i);
+    let (mut at, heading) = place(s, &camp, i);
+    // A spot is where one was seen; on open ground one that flies appears at its height.
+    if camp.spots.is_empty() {
+        let hover = s.walls.as_ref().and_then(|w| w.hover_at_rest(template.id));
+        at.origin[2] += hover.unwrap_or(0.0);
+    }
     let max_health = if s.rng.chance(HEALTH_EXACT) {
         stats.max_health
     } else {

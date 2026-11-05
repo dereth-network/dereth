@@ -2035,6 +2035,56 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.flies-as-its-body-says",
+        says: "A body flies if its motion description gives it a height in the air: two meters at \
+               rest, one in a fight for the wasps.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FLIES-BODY"),
+        station: "yalain-testkit::dat::walls::a_bodys_motion_description_says_how_high_it_flies",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.creatures.flies-at-its-height",
+        says: "A creature that flies moves with no floor touching it, and keeps its height over \
+               what is under it. Our choice of how, from where 2017's flew.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FLIES-HEIGHT"),
+        station: "yalain-testkit::dat::walls::a_flyer_moves_where_no_floor_touches_it_and_keeps_its_height",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.creatures.flies-from-where-it-appears",
+        says: "A creature that flies, appearing on open ground, appears at its height.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FLIES-APPEARS"),
+        station: "yalain-testkit::dat::walls::a_flyer_of_a_camp_on_open_ground_appears_at_its_height",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.creatures.flies-lower-in-a-fight",
+        says: "A creature that flies goes at its fighting height while after a player.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FLIES-FIGHT"),
+        station: "yalain-testkit::dat::walls::a_flyer_after_a_player_comes_down_to_its_fighting_height",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.creatures.flyers-meet-walls",
+        says: "A creature that flies meets walls as one that walks does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FLYERS-WALLS"),
+        station: "yalain-testkit::dat::walls::a_flyer_never_goes_through_a_wall",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.creatures.flyers-through-doorways",
+        says: "A creature that flies goes after a player through a doorway, as one that walks does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-FLYERS-DOORS"),
+        station: "yalain-testkit::dat::walls::a_flyer_after_a_player_in_the_next_room_flies_through_the_doorway",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.creatures.free-range-no-home-leash",
         says: "A creature free of its home goes after a player however far from home the fight \
                takes it; one kept near home gives up past its distance from home.",

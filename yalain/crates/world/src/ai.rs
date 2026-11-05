@@ -1612,10 +1612,18 @@ fn stride_to<S: Store>(
         return Some((*at, 0.0, 0));
     }
     let go = go.min(len);
-    let stepped = s
-        .walls
-        .as_mut()?
-        .step(template, scale, at, [dx / len * go, dy / len * go])?;
+    let fighting = s
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .is_some_and(|c| c.mode == Mode::Chasing);
+    let walls = s.walls.as_mut()?;
+    let d = [dx / len * go, dy / len * go];
+    let stepped = if fighting {
+        walls.step_fighting(template, scale, at, d)?
+    } else {
+        walls.step(template, scale, at, d)?
+    };
     let h = heading_toward(dx, dy);
     let next = StoredPosition {
         rotation: crate::world::rotation_of_heading(h),
