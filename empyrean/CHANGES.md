@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 - Launch is no longer marked experimental.
+- Launch: spells ask for the tapers of the player's own account.
 
 ## 0.3.10 (2026-11-05)
 - New relay that lets Dereth play an ac1999 server.

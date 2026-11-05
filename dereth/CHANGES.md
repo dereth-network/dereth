@@ -13,6 +13,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`launcher/RELEASING.md`](launcher/RELEASING.md)).
 
 ## Unreleased
+- Launch: spells ask for the tapers of your own account.
 
 ## 0.4.14 (2026-11-05)
 

@@ -512,3 +512,4 @@ the evidence behind each row. Edit the register, not this file.
 | V505 | era | In Launch, spell rules work with the 1999 data's categories. | `empyrean-world::all::world::launch_content::spell_ranges::a_launch_spell_is_read_by_the_later_category_and_stacks_by_its_own` |
 | V506 | era | In Launch, items have no wield requirements. | `empyrean-world::all::world::launch_content::play::a_launch_lugian_mace_is_wielded_at_any_skill` |
 | V507 | robustness | A wield requirement on a stat the character lacks refuses the item. | `empyrean-world::all::inventory::player_inventory::a_wield_requirement_on_a_missing_stat_counts_it_as_zero` |
+| V509 | era | In Launch, a spell's tapers are the account's own. | `empyrean-dat::file_types::spell_table::tests::a_table_naming_no_formula_versions_takes_the_first`, `empyrean-dat::file_types::spell_table::tests::a_table_naming_a_formula_version_keeps_them` |
