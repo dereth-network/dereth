@@ -6701,6 +6701,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.imported-items-stay-bound-to-their-character",
+        says: "A character brought from another world has a new id, and what was bound to \
+               it is bound to that id: it may still wear it. An item bound to anyone else \
+               stays theirs.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-IMPORT-BOUND"),
+        station: "yalain-testkit::cpu::operator::characters::an_imported_characters_bound_items_stay_bound_to_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.moderation-answers-done-or-refused",
         says: "Each line of a moderation command's answer at the console is tagged as done or \
                refused under the command's own word ([ok boot], [refused boot], ...), its words \

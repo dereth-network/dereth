@@ -24,6 +24,7 @@ what they see, not how it was done.
 - Contracts now hire mercenaries.
 - Fixed players moving quickly between areas slowing the whole world.
 - A character file with a duplicated item is now refused.
+- Fixed imported characters being refused their own bound gear.
 
 - Fixed a selected person showing empty health and vigor bars.
 

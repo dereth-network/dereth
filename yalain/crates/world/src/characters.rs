@@ -826,6 +826,9 @@ pub fn import<S: Store>(
         None => false,
     });
     let me = |x: u64| if x == old { id } else { x };
+    for k in &mut play.item_states {
+        k.own.bound_to = me(k.own.bound_to);
+    }
     for e in &mut play.effects {
         e.caster = me(e.caster);
         e.acting = me(e.acting);
