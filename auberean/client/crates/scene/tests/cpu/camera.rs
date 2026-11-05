@@ -855,3 +855,39 @@ fn the_scripts_cameras_hang_from_look_at_and_come_back() {
         v.look
     );
 }
+
+/// A new default distance or tilt takes the camera there at once; another option, or the same
+/// ones again, leaves it where it was put.
+///
+/// Behaviour: desktop.camera.a-new-default-distance-or-tilt-applies-at-once
+#[test]
+fn a_new_default_distance_or_tilt_applies_at_once() {
+    let mut c = camera();
+    c.distance = 9.0;
+    let same = c.options;
+    c.set_options(same);
+    assert!(
+        close(c.distance, 9.0, 1e-6),
+        "the same options move nothing"
+    );
+    let quicker = Options {
+        zoom_speed: same.zoom_speed * 2.0,
+        ..same
+    };
+    c.set_options(quicker);
+    assert!(close(c.distance, 9.0, 1e-6), "another option moves nothing");
+    let further = Options {
+        distance: 6.0,
+        ..quicker
+    };
+    c.set_options(further);
+    assert!(close(c.distance, 6.0, 1e-6), "{}", c.distance);
+    let higher = Options {
+        tilt: 0.5,
+        ..further
+    };
+    c.distance = 9.0;
+    c.set_options(higher);
+    assert!(close(c.offset.z, 0.5, 1e-6), "{}", c.offset.z);
+    assert!(close(c.distance, 6.0, 1e-6), "{}", c.distance);
+}

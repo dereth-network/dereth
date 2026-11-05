@@ -939,6 +939,18 @@ impl CameraControl {
         c
     }
 
+    /// New options: a new default distance or tilt puts the camera there at once.
+    // D2-10711
+    #[allow(clippy::float_cmp)] // whether the preference changed at all
+    pub fn set_options(&mut self, o: Options) {
+        let moved = o.distance != self.options.distance || o.tilt != self.options.tilt;
+        self.options = o;
+        self.apply_options();
+        if moved {
+            self.set_defaults();
+        }
+    }
+
     /// The options taken into the camera's targeting.
     // D2-10711, D2-10697
     pub fn apply_options(&mut self) {

@@ -413,6 +413,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.camera.a-new-default-distance-or-tilt-applies-at-once",
+        says: "A new default camera distance or tilt takes the camera there at once; another option, or the same ones again, leaves it where it was put.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CAMERA-PREFS-LIVE"),
+        station: "auberean-scene::cpu::camera::a_new_default_distance_or_tilt_applies_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.camera.a-shake-moves-the-camera-by-the-clients-noise",
         says: "A shake under way moves the camera by the client's own noise (fractional Brownian \
                motion of three octaves over its gradient noise, sixty times the shake's seconds \

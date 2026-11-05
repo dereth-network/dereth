@@ -465,8 +465,7 @@ impl<'w, H: Host> Shell<'w, H> {
             }
             CameraRequest::Zoom { inward } => cam.press(Press::Wheel(if inward { 1 } else { -1 })),
             CameraRequest::Options(o) => {
-                cam.options = o;
-                cam.apply_options();
+                cam.set_options(o);
                 self.settings.camera = o;
             }
         }
