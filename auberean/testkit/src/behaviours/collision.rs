@@ -290,6 +290,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "collision.objects.a-body-in-step-passes-what-cannot-move",
+        says: "A body keeping in step with another passes a body that cannot move, which stops one that is not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-COLLISION-IN-STEP-STILL"),
+        station: "auberean-physics::cpu::contact::objects::a_body_in_step_passes_a_body_that_cannot_move",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "collision.objects.a-body-is-in-the-lists-of-cells-not-yet-in",
         says: "A moving object reaching over a block's edge stands in the lists of the next \
                block's cells whether or not that block is in.",

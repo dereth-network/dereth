@@ -71,6 +71,8 @@ struct Entry {
     shape: Arc<Shape>,
     cells: Vec<CellId>,
     is_static: bool,
+    /// It can be moved: a body's state says so, and all others can.
+    mobile: bool,
     /// The host says bodies pass through it.
     passable: bool,
     /// The physics types it is.
@@ -350,6 +352,7 @@ impl World {
                 shape: Arc::clone(shape),
                 cells: Vec::new(),
                 is_static: object.is_static,
+                mobile: true,
                 passable: object.passable,
                 physics_type: PhysicsTypes::default(),
                 collisions: None,
@@ -474,6 +477,13 @@ impl World {
     pub fn set_passable(&mut self, key: BodyKey, passable: bool) {
         if let Some(e) = self.entries.get_mut(&key) {
             e.passable = passable;
+        }
+    }
+
+    /// Whether entry `key` can be moved.
+    pub fn set_mobile(&mut self, key: BodyKey, mobile: bool) {
+        if let Some(e) = self.entries.get_mut(&key) {
+            e.mobile = mobile;
         }
     }
 
@@ -977,6 +987,7 @@ impl World {
                         shape: Arc::new(shape),
                         cells: reached,
                         is_static: true,
+                        mobile: true,
                         passable: false,
                         physics_type: PhysicsTypes::default(),
                         collisions: None,
@@ -1178,7 +1189,7 @@ impl ObjectCollisions for View<'_> {
         let mut by_temporary = false;
         let inter =
             e.passable || solid::interpermeable(&this, mover.as_ref(), false, &mut by_temporary);
-        let moves = !e.is_static;
+        let moves = !e.is_static && e.mobile;
         if self.synchronized && !moves {
             return TransitionState::Ok;
         }
