@@ -119,6 +119,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.decal.light-pools-show-from-a-room-that-looks-out",
+        says: "The lights standing outdoors lay their pools on the land whenever the land is drawn: with the camera outdoors or in a room that looks out, with light effects on.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LIGHT-POOLS-LOOKING-OUT"),
+        station: "auberean-scene::cpu::view::light_pools_show_from_a_room_that_looks_out",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.effects.a-carried-system-stands-at-the-holding-location-its-entry-names",
         says: "A particle system an effect's entry keeps going at a holding location stands at that location, on that location's bone.",
         since: RETAIL,

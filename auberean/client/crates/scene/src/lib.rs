@@ -4370,7 +4370,7 @@ impl<'w> Scene<'w> {
         // the land, and at the simple setting the bodies their discs, each drawn once.
         // D2-10588
         self.decals.think(now);
-        if self.light_effects && !is_interior(view) {
+        if lays_light_pools(self.light_effects, view, built.frame.outside.is_some()) {
             let frame_block = (bx, by);
             let builder = &self.builder;
             let material =
@@ -5095,6 +5095,15 @@ fn lay_fx_decals(
         };
         decals.create(cell.0, &decal.desc, now, triangles, true);
     }
+}
+
+/// Whether the lights standing outdoors lay their pools on the land this frame: with light effects
+/// on, whenever the land is drawn, as it is from `view` outdoors or from a room that looks out
+/// (`sees_outside`).
+// D2-11035
+#[must_use]
+pub fn lays_light_pools(light_effects: bool, view: u32, sees_outside: bool) -> bool {
+    light_effects && (!is_interior(view) || sees_outside)
 }
 
 /// The pools of light the point lights standing outdoors (`lights`, each at its place in its own
