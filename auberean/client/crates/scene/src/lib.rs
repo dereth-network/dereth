@@ -619,6 +619,9 @@ pub fn block_of(cell: u32) -> LandblockId {
     LandblockId::new((cell >> 24) as u8, (cell >> 16) as u8)
 }
 
+/// What a behavior asked of a body whose animation is frozen ends with.
+const BEHAVIOR_FROZEN: u32 = 0x5D;
+
 /// Whether a cell id names an interior cell.
 #[must_use]
 pub fn is_interior(cell: u32) -> bool {
@@ -1534,6 +1537,10 @@ impl<'w> Scene<'w> {
         let Some(p) = self.player.as_mut() else {
             return false;
         };
+        // D2-06203
+        if p.body.is_animation_frozen() {
+            return true;
+        }
         let took = p.figure.do_mode(anims, 0, mode);
         if took {
             p.body.set_mode(mode);
@@ -1828,6 +1835,7 @@ impl<'w> Scene<'w> {
         id: u64,
         params: &auberean_animation::track::Params,
     ) -> bool {
+        let frozen = self.body(id).is_some_and(|b| b.is_animation_frozen());
         let anims = &self.anims;
         let Some(f) = figure_in(
             &mut self.player,
@@ -1838,6 +1846,17 @@ impl<'w> Scene<'w> {
         ) else {
             return false;
         };
+        // A frozen body plays nothing: it is not kept for the thaw, and what waits on it hears so.
+        if frozen {
+            if params.context != 0 {
+                f.events
+                    .push(auberean_animation::host::Event::BehaviorDone {
+                        context: params.context,
+                        error: BEHAVIOR_FROZEN,
+                    });
+            }
+            return true;
+        }
         // A behavior that carries a mode puts the figure in it first (a death behavior, its body
         // then staying down in the dead mode); the object is told the mode it went into.
         if params.mode != 0 && f.do_mode(anims, 0, params.mode) {
@@ -1871,6 +1890,9 @@ impl<'w> Scene<'w> {
     /// goes there too. Whether the figure took it.
     // D2-06203
     pub(crate) fn do_mode(&mut self, id: u64, mode: u32) -> bool {
+        if self.body(id).is_some_and(|b| b.is_animation_frozen()) {
+            return true;
+        }
         let anims = &self.anims;
         let Some(f) = figure_in(
             &mut self.player,

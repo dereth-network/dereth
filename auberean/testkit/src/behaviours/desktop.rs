@@ -132,6 +132,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.a-frozen-body-drops-behaviors-and-modes",
+        says: "A body whose animation is frozen, as it is through a portal, plays no behavior and takes no mode, and neither waits for the thaw.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FROZEN-BODY"),
+        station: "auberean-shell::dat::session::a_frozen_body_drops_behaviors_and_modes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.a-held-object-takes-the-profile-its-qualities-give",
         says: "An object another holds takes the profile its own qualities give when its body is \
                made, as every object's body does: whether it slides along edges and ignores \

@@ -1733,6 +1733,71 @@ fn figures_animate_a_thirtieth_of_a_second_apart_at_any_frame_rate() {
     );
 }
 
+/// A body whose animation is frozen, as it is through a portal, plays no behavior and takes no
+/// mode, and neither waits for the thaw.
+///
+/// Behaviour: desktop.bodies.a-frozen-body-drops-behaviors-and-modes
+#[test]
+fn a_frozen_body_drops_behaviors_and_modes() {
+    use auberean_client_sdk::runtime::host::Behavior;
+    use auberean_client_sdk::script::native_object::BehaviorParams;
+    use auberean_physics::body::JUMP_BEHAVIOR;
+    const CROUCH: u32 = 0x4000_0013;
+    let server = ServerDouble::new(script(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell(Box::new(DevLogin::new(
+        server,
+        "tester".into(),
+        "t".into(),
+        Some("tester".into()),
+    )));
+    while s.host.time < 8.0 {
+        step(&mut s);
+    }
+    let player = s
+        .client
+        .as_ref()
+        .and_then(|c| c.model.player)
+        .expect("the player");
+    let doing = |s: &Shell<'_, DoubleHost>| {
+        s.scene
+            .player_figure()
+            .expect("the figure")
+            .is_doing_behavior(JUMP_BEHAVIOR)
+    };
+    let play = |s: &mut Shell<'_, DoubleHost>| {
+        s.scene.carry_out_behavior(&Behavior::Play {
+            object: player,
+            params: BehaviorParams {
+                behavior: JUMP_BEHAVIOR,
+                ..BehaviorParams::default()
+            },
+        });
+    };
+    let mode_before = s.scene.player_figure().expect("the figure").mode;
+    s.scene
+        .body_mut(player)
+        .expect("its body")
+        .set_animation_frozen(true);
+    play(&mut s);
+    assert!(s.scene.player_do_mode(CROUCH), "answered as if taken");
+    assert!(!doing(&s), "frozen, the behavior does not start");
+    assert_eq!(
+        s.scene.player_figure().expect("the figure").mode,
+        mode_before,
+        "nor the mode"
+    );
+    s.scene
+        .body_mut(player)
+        .expect("its body")
+        .set_animation_frozen(false);
+    for _ in 0..4 {
+        step(&mut s);
+        assert!(!doing(&s), "thawed, nothing was kept for it");
+    }
+    play(&mut s);
+    assert!(doing(&s), "thawed, a new one plays");
+}
+
 /// A behavior asked with its actions locked holds the player's own movement while it plays: forward
 /// held does not move the body until the behavior is over, then it does.
 ///
