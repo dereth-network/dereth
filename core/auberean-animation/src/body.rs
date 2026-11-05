@@ -274,8 +274,18 @@ impl Host for Ctx<'_> {
     /// The first part whose animation of the combination has a period gives the cycles a second.
     // D2-06569, D2-06672
     fn combo_cycle_velocity(&mut self, key: &BehaviorKey) -> f32 {
-        for id in self.combo_animations(key) {
-            let p = period(self.records, id, &self.state(key));
+        // Every behavior asks this every frame, and the first part with a period answers it.
+        let Some(table) = self.table else {
+            return 0.0;
+        };
+        let anim_key = table.combo(key).anim_key;
+        let state = self.state(key);
+        for part in self.parts.iter() {
+            let id = part.animator(anim_key);
+            if id.is_none() {
+                continue;
+            }
+            let p = period(self.records, id, &state);
             if p != 0.0 {
                 return 1.0 / p;
             }
