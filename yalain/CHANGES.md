@@ -42,7 +42,7 @@ what they see, not how it was done.
 - Killing some creatures curses you.
 - Many weapons and armor that did nothing now work.
 - Fixed other players' movements and swings sticking after they arrive.
-- Fixed items being lost for no gold at the money bag; worthless items are now refused.
+- Fixed items being lost for no gold at the money bag.
 - A frozen world now stops itself so it can restart.
 - Players can't talk faster than ten lines a second.
 - A plain shield now shows Shield Stats.

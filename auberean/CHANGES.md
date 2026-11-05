@@ -24,21 +24,20 @@ not how it was done.
 - Fixed the names key and resizing the bar undoing unapplied Character options.
 - Fixed the craft panel staying open after using a recipe's last charge.
 - Fixed a stack's name keeping its old count.
-- The LandscapeTerrainBlending preference and the -lb and -nolb switches now work.
+- The terrain blending preference and its switches now work.
 - Fixed auto-run carrying on through a portal.
-- Damage numbers now fade out as they rise.
 - The assistance page's kinds of call now list in their proper order.
 - The camera distance and tilt options now apply as soon as you change them.
 - Damage numbers now fade out as they rise, and show at their proper size.
 - Fixed pools of lamplight on the ground vanishing when you look out from a doorway.
 - Fixed other bodies not leaving the ground when an animation made them jump.
 - Jumping now interrupts the same actions walking does.
-- A world that changes the game's records now sends them to you as you log in.
+- Worlds that change the game's records now send them as you log in.
 - Fixed a weapon's trail staying on after the effect that started it stopped.
 - Fixed looping music from emotes stopping as soon as it started.
 - Fixed effects that fade a body out snapping it back at once.
 - Fixed mist on the ground in rain too light to see.
-- Fixed sunlit halls: the sun now falls across their floors and walls as the original's does.
+- Fixed sunlit halls: the sun now falls across their floors and walls.
 - The height slider now shows on the whole-body view when making a character.
 - The credits now stop the music that was playing and start their own.
 - Book pages no longer creep up a pixel per page.
@@ -61,11 +60,11 @@ not how it was done.
 - Fixed some effects on a body standing in the wrong place.
 - Fixed bodies losing their walk or idle when the server sent them again.
 - Fixed the music falling silent when a piece waiting its turn was stopped.
-- Turning sound off and on again plays sounds from their start, as the original does.
+- Turning sound off and on again plays sounds from their start.
 - Full screen at another shape now keeps its shape, with black bars.
 - Fixed not seeing a player who went through a door ahead of you.
-- The craft page now works on tall windows: rows can be clicked at any height.
-- New --overlay-dat-dir: reads a world's own records from a folder of theirs.
+- The craft page's rows can now be clicked on tall windows.
+- A world's own records can now be read from a folder.
 - A click that brings the window forward no longer acts on the game.
 - A covered window on a Mac no longer runs flat out.
 - Screenshots now follow the key you bind, not always Ctrl+P.

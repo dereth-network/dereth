@@ -15,7 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 - New relay that lets Dereth play an ac1999 server.
 - Fixed idle WebSocket connections shutting out browser players.
-- Infiltration worlds drop what came after February 2005: gems, arena recalls, allegiance names, titles and locks.
+- Infiltration worlds now leave out what came after February 2005.
 
 ## 0.3.9 (2026-11-05)
 
