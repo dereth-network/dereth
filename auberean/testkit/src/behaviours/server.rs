@@ -8035,6 +8035,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-walk-ends-with-a-trip-or-a-death",
+        says: "A player on its way to something that is taken into portal space or dies is on its way \
+               no longer: its use is answered, and nothing is left refusing its next use.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-WALK-ENDS"),
+        station: "yalain-testkit::cpu::play::dying::a_death_ends_a_walk_and_leaves_no_use_refused_after_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.actions-locked",
         says: "A use asked for while the player's earlier action is still carried out (in portal space, dead, walking to an earlier use's object, taking an item) is refused at once: its answer alone, with the status that actions are locked.",
         since: RETAIL,

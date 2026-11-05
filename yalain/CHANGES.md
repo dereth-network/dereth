@@ -54,6 +54,7 @@ what they see, not how it was done.
 - A too-long inscription is refused, not cut.
 - A knife stays in the pack while it cuts.
 - Broker stores now have pages.
+- Fixed uses being refused after dying or teleporting mid-walk.
 
 - Fixed a selected person showing empty health and vigor bars.
 

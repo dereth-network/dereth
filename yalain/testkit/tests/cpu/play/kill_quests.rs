@@ -968,6 +968,55 @@ fn a_quest_moved_meanwhile_stays_where_it_is_on_landing() {
     assert_eq!(p.position.cell, ARENA.cell);
 }
 
+/// A kill's trip takes a player off a walk it is on: its use is answered, and at the far end nothing
+/// is left to refuse its next use.
+/// Behaviour: server.places.a-walk-ends-with-a-trip-or-a-death
+#[test]
+fn a_kills_trip_ends_a_walk_and_leaves_no_use_refused_after_it() {
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, b, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    h.server.quests.steps = vec![leading_step(template, 1, ARENA)];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    let world = *h.server.players.keys().next().expect("in the world");
+    let beetle = h
+        .server
+        .catalog
+        .get(yalain_testkit::TEST_CREATURE)
+        .cloned()
+        .expect("the beetle");
+    let mut at = h.server.players[&world].position;
+    at.origin[0] += 100.0;
+    let id = h.server.things.new_id();
+    let mut corpse =
+        yalain_world::things::Thing::of(id, &beetle, yalain_world::things::Kind::Corpse);
+    corpse.at = Some(at);
+    corpse.corpse = Some(yalain_world::things::Corpse {
+        killer: me,
+        originator: 0,
+        contents: Vec::new(),
+        expires: f64::MAX,
+        creature: yalain_testkit::TEST_CREATURE,
+        butchered: false,
+        killer_level: 0,
+    });
+    h.server.things.insert(corpse);
+    h.bots[b].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &yalain_testkit::play::server_call(0x8216_0016, &[yalain_testkit::play::use_of(id, me)]),
+    );
+    h.run(4);
+    assert!(h.server.players[&world].walking_to.is_some(), "on its way");
+    kill(&mut h, me, &[]);
+    land(&mut h);
+    assert_eq!(h.server.players[&world].position.cell, ARENA.cell);
+    assert!(h.server.players[&world].walking_to.is_none(), "no longer");
+    assert!(!yalain_world::places::actions_locked(&h.server, world));
+}
+
 /// A step leading to a room of a row of like rooms sends the player to one with no player in it and
 /// its creature standing, at random among such; failing that, one with no player; failing that, any.
 /// Behaviour: server.quests.a-step-leads-to-one-of-its-rooms

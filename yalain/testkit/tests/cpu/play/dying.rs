@@ -1060,3 +1060,67 @@ fn a_second_death_is_not_cut_short_by_the_firsts_ten_minutes() {
     yalain_world::death::sent_back(&mut h.server, &mut h.net, world, second, clock);
     assert!(h.server.players[&world].trip.is_some(), "its own: yes");
 }
+
+/// A corpse 100 m off that the player has set out for: its walk, under way.
+fn walking_to_a_corpse(h: &mut Harness, b: usize, me: u64, world: yalain_net::ConnId) -> u64 {
+    let beetle = h
+        .server
+        .catalog
+        .get(yalain_testkit::TEST_CREATURE)
+        .cloned()
+        .expect("the beetle");
+    let mut at = h.server.players[&world].position;
+    at.origin[0] += 100.0;
+    let id = h.server.things.new_id();
+    let mut corpse =
+        yalain_world::things::Thing::of(id, &beetle, yalain_world::things::Kind::Corpse);
+    corpse.at = Some(at);
+    corpse.corpse = Some(yalain_world::things::Corpse {
+        killer: me,
+        originator: 0,
+        contents: Vec::new(),
+        expires: f64::MAX,
+        creature: yalain_testkit::TEST_CREATURE,
+        butchered: false,
+        killer_level: 0,
+    });
+    h.server.things.insert(corpse);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[yalain_testkit::play::use_of(id, me)]),
+    );
+    h.run(4);
+    assert!(h.server.players[&world].walking_to.is_some(), "on its way");
+    id
+}
+
+/// A player that dies on its way to something is on its way no longer: its use is answered, and back
+/// from the dead it may use things again without first moving by hand.
+/// Behaviour: server.places.a-walk-ends-with-a-trip-or-a-death
+#[test]
+fn a_death_ends_a_walk_and_leaves_no_use_refused_after_it() {
+    let mut h = Harness::new();
+    let (b, me) = about_to_die(&mut h);
+    let world = *h.server.players.keys().next().expect("the player");
+    walking_to_a_corpse(&mut h, b, me, world);
+    let from = h.bots[b].inbox.len();
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, None, clock);
+    h.run(2);
+    assert!(h.server.players[&world].walking_to.is_none(), "no longer");
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, _)| *f == yalain_world::places::function::USE_DONE),
+        "its use is answered"
+    );
+    wait(&mut h, 11.0);
+    h.bots[b].send(true, queue::WEENIE, &server_call(RESURRECT, &[]));
+    wait(&mut h, 3.0);
+    assert!(h.server.players[&world].dying.is_none(), "back");
+    assert!(
+        !yalain_world::places::actions_locked(&h.server, world),
+        "and free to use things"
+    );
+}

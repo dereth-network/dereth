@@ -976,6 +976,7 @@ pub fn player_dies<S: Store>(
         return;
     }
     let me = p.character;
+    crate::places::walk_cut_short(s, net, world);
     crate::fellowship::died(s, net, me);
     // A skill's use under way is cut short (2017: the use over, the move interrupted).
     crate::skill_use::interrupt(

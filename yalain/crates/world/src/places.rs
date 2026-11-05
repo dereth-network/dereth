@@ -1433,13 +1433,41 @@ pub fn walk_interrupted<S: Store>(
         return;
     }
     let goal = walk_goal(&u);
-    let here = p.position;
-    let thing = s.things.get(goal).map(|t| (t.at, t.kind, t.container));
-    if let Some((_, crate::things::Kind::Item, None)) = thing {
+    if let Some(crate::things::Kind::Item) = s
+        .things
+        .get(goal)
+        .filter(|t| t.container.is_none())
+        .map(|t| t.kind)
+    {
         return;
     }
-    let distance = match thing {
-        Some((at, _, _)) => at.and_then(|at| presence::distance(&here, &at)),
+    walk_cut_short(s, net, world);
+}
+
+/// A player on its way to an object goes no further: the walk ends, and its use is answered as cut
+/// short. A trip or a death takes a player off its walk as its own moving does; the player would
+/// otherwise stay walking to where it no longer is, and every later use would be refused.
+pub(crate) fn walk_cut_short<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let Some((u, _)) = p.walking_to.clone() else {
+        return;
+    };
+    let goal = walk_goal(&u);
+    let here = p.position;
+    let lying = s
+        .things
+        .get(goal)
+        .is_some_and(|t| t.kind == crate::things::Kind::Item && t.container.is_none());
+    if lying {
+        let cant = crate::inventory::refused::CANT_GET_THERE;
+        crate::inventory::pickup_refused(s, net, world, goal, cant);
+        stop_walking(s, net, world);
+        return;
+    }
+    let distance = match s.things.get(goal).map(|t| t.at) {
+        Some(at) => at.and_then(|at| presence::distance(&here, &at)),
         None => presence::content_by_id(&s.content.objects, goal).and_then(|i| {
             let o = &s.content.objects[i];
             reach(&here, o.cell, o.origin)
@@ -1787,13 +1815,15 @@ fn enter_portal_space<S: Store>(
     crate::effects::auras_off(s, net, world);
 }
 
-/// The player goes into portal space: its effects, its animation and movement frozen.
+/// The player goes into portal space: its effects, its animation and movement frozen, and any walk
+/// it was on over.
 fn goes_into_portal_space<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     teleport_fx: bool,
 ) {
+    walk_cut_short(s, net, world);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
