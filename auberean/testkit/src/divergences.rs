@@ -62,8 +62,14 @@ pub static DIVERGENCES: &[Divergence] = &[
         id: "CD2-full-screen-is-borderless",
         says: "Full screen is a borderless window over the whole monitor and never changes the \
                machine's display mode; the display's size says what the picture is drawn at, and \
-               it is scaled to fill the monitor. The original client took the monitor to a mode \
-               of that size.",
+               it is scaled to the monitor. The original client took the monitor to a mode of \
+               that size.",
+    },
+    Divergence {
+        id: "CD2-full-screen-keeps-its-shape",
+        says: "In full screen at a shape other than the monitor's, the picture keeps its shape in \
+               the middle with black bars around it. The original client's display mode filled \
+               the monitor, so the picture was stretched.",
     },
     Divergence {
         id: "CD2-lists-iterations-it-need-not-hold",

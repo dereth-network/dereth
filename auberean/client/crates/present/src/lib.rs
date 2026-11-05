@@ -157,10 +157,12 @@ pub struct Presenter {
     composed: Option<(wgpu::Texture, u32, u32)>,
     /// The overlay's vertices.
     overlay_vertices: Option<wgpu::Buffer>,
-    /// The size each picture is drawn at, scaled to fill the window.
+    /// The size each picture is drawn at, scaled to the window.
     drawn: (u32, u32),
     /// The last frame found the window can't be seen.
     hidden: bool,
+    /// Pictures keep their shape in the window, black bars around them, instead of filling it.
+    keep_shape: bool,
 }
 
 impl std::fmt::Debug for Presenter {
@@ -403,6 +405,7 @@ impl Presenter {
             surface,
             drawn: (config.width, config.height),
             hidden: false,
+            keep_shape: false,
             config,
             present_modes,
             renderer,
@@ -453,6 +456,12 @@ impl Presenter {
         if width != 0 && height != 0 {
             self.drawn = (width, height);
         }
+    }
+
+    /// Show each picture at its own shape in the window's middle, black bars around it, or filling
+    /// the window whatever its shape.
+    pub fn keep_shape(&mut self, keep: bool) {
+        self.keep_shape = keep;
     }
 
     fn bind(&self, view: &wgpu::TextureView) -> wgpu::BindGroup {
@@ -959,7 +968,11 @@ impl Presenter {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(BACKDROP),
+                        load: wgpu::LoadOp::Clear(if self.keep_shape {
+                            wgpu::Color::BLACK
+                        } else {
+                            BACKDROP
+                        }),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -968,6 +981,11 @@ impl Presenter {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            if self.keep_shape {
+                let window = (self.config.width, self.config.height);
+                let a = auberean_shell::interface::fitted((w, h), window);
+                pass.set_viewport(a[0], a[1], a[2], a[3], 0.0, 1.0);
+            }
             if let Some((_, ramp)) = &self.ramp {
                 pass.set_pipeline(&self.to_window_ramped);
                 pass.set_bind_group(1, ramp, &[]);

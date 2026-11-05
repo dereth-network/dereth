@@ -1543,14 +1543,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "desktop.settings.full-screen-fills-the-monitor-at-the-size-asked-for",
+        id: "desktop.settings.full-screen-keeps-the-pictures-shape-at-the-size-asked-for",
         says: "Full screen leaves the monitor's display mode alone: the picture is drawn at the \
-               display's size and scaled to fill the monitor, and the pointer lands on the same \
-               place in the picture.",
+               display's size and scaled as large as its shape goes in the middle of the monitor, \
+               black bars around it, and the pointer lands on the same place in the picture; on a \
+               bar it is held to the picture's edge and a press there is not heard.",
         since: THIS_CLIENT,
-        divergence: "CD2-full-screen-is-borderless",
+        divergence: "CD2-full-screen-keeps-its-shape",
         evidence: Evidence::Private("AC2-EVID-FULL-SCREEN-BORDERLESS"),
-        station: "auberean-shell::cpu::settings::full_screen_fills_the_monitor_at_the_size_asked_for",
+        station: "auberean-shell::cpu::settings::full_screen_keeps_the_pictures_shape_at_the_size_asked_for",
         tier: Tier::Cpu,
     },
     behaviour! {

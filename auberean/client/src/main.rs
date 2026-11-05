@@ -89,7 +89,7 @@ use auberean_scene::WorldData;
 use auberean_shell::command_line::{parse_args, set_error_text, Arg, ArgList, ClientLine, Reader};
 use auberean_shell::input::{Event, Key};
 use auberean_shell::interface::Interface;
-use auberean_shell::settings::{in_picture, in_picture_pixels};
+use auberean_shell::settings::{held_to_picture, in_picture_pixels, on_picture, on_window};
 use auberean_shell::{Host, Presentation, Shell};
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, ElementState, MouseScrollDelta, WindowEvent};
@@ -382,7 +382,7 @@ struct Desktop {
     /// How the game is to be shown, asked for and not yet carried out.
     presentation: Option<Presentation>,
     /// The window's drawing area and the size of the picture filling it.
-    picture_in_window: ((u32, u32), (u32, u32)),
+    picture_in_window: ([f32; 4], (u32, u32)),
     settings: PathBuf,
     /// The preferences file, in the settings folder unless named elsewhere.
     settings_file: PathBuf,
@@ -498,11 +498,15 @@ impl Host for Desktop {
         };
         w.set_ime_allowed(area.is_some());
         if let Some(a) = area {
-            let (window, drawn) = self.picture_in_window;
+            let (shown, drawn) = self.picture_in_window;
             #[allow(clippy::cast_precision_loss)]
-            let (x, y) = in_picture((a.x as f32, a.y as f32), drawn, window);
+            let (x, y) = on_window((a.x as f32, a.y as f32), shown, drawn);
             #[allow(clippy::cast_precision_loss)]
-            let (width, height) = in_picture((a.width as f32, a.height as f32), drawn, window);
+            let (width, height) = on_window(
+                (a.width as f32, a.height as f32),
+                [0.0, 0.0, shown[2], shown[3]],
+                drawn,
+            );
             w.set_ime_cursor_area(
                 winit::dpi::PhysicalPosition::new(x, y),
                 winit::dpi::PhysicalSize::new(width, height),
@@ -664,8 +668,11 @@ struct App<'w> {
     perf: Option<perf::PerfLog>,
     /// How the game is shown now.
     shown: Presentation,
+    /// The pointer is on a bar, off the picture.
+    pointer_on_bar: bool,
+    /// The buttons pressed on a bar and not yet let go.
+    pressed_on_bar: Vec<auberean_shell::input::Button>,
     /// The window's drawing area now.
-    window_size: (u32, u32),
     script: Option<script::Script>,
     marks: script::Marks,
     shots: PathBuf,
@@ -753,14 +760,14 @@ impl App<'_> {
     /// The window's drawing area is `size`: the device fills it, and the game is told the size of
     /// the picture it draws.
     fn window_sized(&mut self, size: (u32, u32)) {
-        self.window_size = size;
         let scale = self.shell.host.window.as_deref().map_or(1.0, window_scale);
         let drawn = self.shown.drawn_in(in_picture_pixels(size, scale));
         if let Some(p) = &mut self.present {
             p.resize(size.0, size.1);
             p.draw_at(drawn.0, drawn.1);
+            p.keep_shape(self.shown.full_screen);
         }
-        self.shell.host.picture_in_window = (size, drawn);
+        self.shell.host.picture_in_window = (self.shown.shown_in(drawn, size), drawn);
         self.send(&Event::Resized {
             width: drawn.0,
             height: drawn.1,
@@ -799,8 +806,8 @@ impl App<'_> {
             present.set_presentation(p.full_screen, p.triple_buffering, p.sync_to_display);
         }
         // In full screen the window stays as it is while the picture's size changes; a new device
-        // starts at the window's own size.
-        if p.full_screen || p.antialiasing != was.antialiasing {
+        // starts at the window's own size; a window leaving full screen fills again at once.
+        if p.full_screen || was.full_screen || p.antialiasing != was.antialiasing {
             let size = w.inner_size();
             self.window_sized((size.width, size.height));
         }
@@ -945,19 +952,26 @@ impl ApplicationHandler for App<'_> {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if let Some(button) = keys::button(button) {
-                    self.send(&Event::Button {
-                        button,
-                        down: state == ElementState::Pressed,
-                    });
+                    let down = state == ElementState::Pressed;
+                    // A press on a bar is off the picture, and so is its release.
+                    if down && self.pointer_on_bar {
+                        self.pressed_on_bar.push(button);
+                    } else if !down && self.pressed_on_bar.contains(&button) {
+                        self.pressed_on_bar.retain(|b| *b != button);
+                    } else {
+                        self.send(&Event::Button { button, down });
+                    }
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
                 #[allow(clippy::cast_possible_truncation)]
-                let (x, y) = in_picture(
+                let (x, y) = on_picture(
                     (position.x as f32, position.y as f32),
-                    self.window_size,
+                    self.shell.host.picture_in_window.0,
                     self.shell.size,
                 );
+                let ((x, y), on) = held_to_picture((x, y), self.shell.size);
+                self.pointer_on_bar = !on;
                 self.send(&Event::Pointer { x, y });
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -1056,7 +1070,7 @@ fn run() -> Result<(), String> {
         socket: None,
         window: None,
         presentation: None,
-        picture_in_window: ((1, 1), (1, 1)),
+        picture_in_window: ([0.0, 0.0, 1.0, 1.0], (1, 1)),
         settings_file,
         settings,
         install: o.dats.clone(),
@@ -1095,7 +1109,8 @@ fn run() -> Result<(), String> {
         world: &world,
         present: None,
         shown,
-        window_size: (1, 1),
+        pointer_on_bar: false,
+        pressed_on_bar: Vec::new(),
         script,
         marks: script::Marks::default(),
         shots,
