@@ -76,6 +76,7 @@ not how it was done.
 - Fixed objects from the server casting no shadow on the ground.
 - Fixed arrows lingering where they hit, and held effects trailing a moving body.
 - Added the puffs of cloud at the start of portal space.
+- Fixed discs and light pools stopping at holes in the land.
 
 ## 0.1.3 (2026-11-05)
 

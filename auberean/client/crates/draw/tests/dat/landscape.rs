@@ -141,6 +141,57 @@ fn with_blending_off_a_square_shows_one_ground() {
     assert_eq!(masked(false), 0, "not blended, none is");
 }
 
+/// A square of the land with a hole in it still takes what is laid on the ground: every square of a
+/// block with holes gives its corners, at the land's height. Fixture: the first block of the install
+/// with holes in its land.
+///
+/// Behaviour: draw.world.what-lies-on-the-ground-crosses-holes-in-it
+#[test]
+fn what_lies_on_the_ground_crosses_holes_in_it() {
+    use auberean_world::land::HOLE_TERRAIN;
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let (x, y) = r
+        .landblock_coordinates()
+        .into_iter()
+        .find(|(x, y)| {
+            r.landblock(*x, *y).is_some_and(|lb| {
+                lb.vertices
+                    .iter()
+                    .any(|&w| region.land.word.terrain.of(w) == HOLE_TERRAIN)
+            })
+        })
+        .expect("a block with holes");
+    let mut b = SceneBuilder::new(r, &region);
+    b.static_shadows = false;
+    b.water_reflections = false;
+    b.set_far_radius(0);
+    let _ = b.frame(
+        &Spot {
+            block: (x, y),
+            position: Vec3::new(96.0, 96.0, 100.0),
+            heading: 0.0,
+            pitch: 0.0,
+            time_of_day: 0.5,
+            day: None,
+        },
+        60.0,
+    );
+    let side = b.square_side();
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let squares = (192.0 / side) as u16;
+    for i in 0..squares {
+        for j in 0..squares {
+            let at = Vec3::new(
+                (f32::from(i) + 0.5) * side,
+                (f32::from(j) + 0.5) * side,
+                0.0,
+            );
+            assert!(b.ground_square((x, y), at).is_some(), "square {i} {j}");
+        }
+    }
+}
+
 /// Only an object whose drawing properties say so prints on the sun's shadow map: of block
 /// `0x76B8`'s placed objects, those that say so are on it and those that do not are not.
 ///

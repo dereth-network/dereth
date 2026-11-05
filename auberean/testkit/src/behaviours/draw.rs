@@ -1822,6 +1822,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.world.what-lies-on-the-ground-crosses-holes-in-it",
+        says: "What is laid on the ground, a disc or a pool of light, takes every square of the land at the land's height, holes included.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DECAL-OVER-HOLES"),
+        station: "auberean-draw::dat::landscape::what_lies_on_the_ground_crosses_holes_in_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.world.what-stands-on-the-land-takes-the-lands-shadow",
         says: "What stands on the land and is not seen through is drawn dark by the share of \n               the sun the land lets through at its spot.",
         since: RETAIL,

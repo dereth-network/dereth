@@ -1653,9 +1653,6 @@ impl<'a> SceneBuilder<'a> {
             return None;
         }
         let n = i * g.squares_per_side + j;
-        if g.holes.get(n).copied().unwrap_or(false) {
-            return None;
-        }
         let corner = |v: u32| -> Option<crate::decal::Corner> {
             let k = usize::try_from(v).ok()?;
             let p = g.vertices.get(k)?;
