@@ -566,6 +566,44 @@ fn a_person_takes_one_give_at_a_time() {
     assert_eq!(answers(&h, c, fc)[0].status, 0);
 }
 
+/// A person is held by the give being handed to it, not by one still on its way: a player walking
+/// to it from afar, however long, keeps no one else waiting.
+///
+/// Behaviour: server.gives.a-walk-holds-no-one
+#[test]
+fn a_give_still_on_its_way_keeps_no_one_from_the_person() {
+    let mut h = world();
+    let (b, me) = player(&mut h, "one", "Elara");
+    let (c, other) = player(&mut h, "two", "Bran");
+    let (mine, slot) = hold(&mut h, me, JUNK, 1);
+    let (theirs, their_slot) = hold(&mut h, other, JUNK, 1);
+    h.bots[b].send(true, queue::WEENIE, &give(me, mine, slot, FAR, 1));
+    h.run(steps(60.0));
+    assert!(
+        h.server.players[&world_of(&h, me)].giving.is_some(),
+        "on its way"
+    );
+    // The other stands no nearer: refused for that, in time, and never as the person being busy.
+    let from = h.bots[c].inbox.len();
+    h.bots[c].send(
+        true,
+        queue::WEENIE,
+        &give(other, theirs, their_slot, FAR, 1),
+    );
+    h.run(4);
+    assert!(
+        answers(&h, c, from)
+            .iter()
+            .all(|a| a.status != status::TARGET_BUSY),
+        "{:?}",
+        answers(&h, c, from)
+    );
+    assert!(
+        h.server.players[&world_of(&h, other)].giving.is_some(),
+        "on its way too"
+    );
+}
+
 /// A walk to give that ends at rest out of reach (the player stands where it last stood still) is
 /// refused as one that could not get there: no handing over, the item never leaves the pack.
 ///

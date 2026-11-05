@@ -4198,6 +4198,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.gives.a-walk-holds-no-one",
+        says: "A person is held by a give being handed to it, not by one still on its way, from \
+               however far and for however long.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GIVE-WALK-HOLDS"),
+        station: "yalain-testkit::cpu::play::gives::a_give_still_on_its_way_keeps_no_one_from_the_person",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.gives.any-count-taken-whole",
         says: "A give's step that names no count runs for whatever is given and takes all of it.",
         since: RETAIL,

@@ -4,7 +4,8 @@
 //! busy (another give, a drop, a use under way) is refused at once, actions locked; so is a give
 //! to a person (not an object) another player is giving something to (target busy: 2017, 1 of 1;
 //! eight gives to an object during another's were all taken). Otherwise the player is walked to
-//! the person (a movement order to 2 m, sent even when it is there: 360 of 360).
+//! the person (a movement order to 2 m, sent even when it is there: 360 of 360). A person is busy
+//! only with a give being handed to it: one still on its way, from however far, holds no one up.
 //!
 //! **Handed over.** In reach, the walk stops and the player plays its handing-over behavior with
 //! the item's look in its hand, in the walk's context, and the item's container is cleared; 1.31 s
@@ -164,7 +165,7 @@ pub fn asked<S: Store>(
             *w != world
                 && o.giving
                     .as_ref()
-                    .is_some_and(|g| g.asked.target == m.target)
+                    .is_some_and(|g| g.handed && g.asked.target == m.target)
         });
     if busy {
         refuse(net, world, &m, status::TARGET_BUSY);
