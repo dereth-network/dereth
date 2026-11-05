@@ -1215,6 +1215,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.model.an-objects-position-is-its-own",
+        says: "A script asking an object's position gets its own: another object's cell and place while it is in the world, the player's body for the player, the zero position for one with no place.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OBJECT-OWN-POSITION"),
+        station: "auberean-client-runtime::cpu::scripts::physics_object::an_objects_position_is_its_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.model.an-objects-waiting-calls-go-with-it",
         says: "An object that goes takes the calls of its scripts that wait with it: every call of \
                its process waiting to sleep out, or to go on after a wait was closed, is dropped; \

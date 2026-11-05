@@ -1612,16 +1612,21 @@ fn instance(c: &mut Call<'_>, id: u64) -> Result<u32, Stop> {
     Ok(i)
 }
 
-/// Where the player is: a new position (below the receiver), the player's cell and frame; the
-/// zero position before the player has a place.
+/// Where the receiver's object stands: a new position (below the receiver), its body's cell and
+/// frame; the zero position when it has no place.
 // D2-04671, D2-08172
 fn my_position(c: &mut Call<'_>) -> Result<Status, Stop> {
     if c.receiver()? == NULL {
         return Ok(Status::Crash);
     }
-    let (cell, o, q) = host(c)?
-        .my_position
-        .unwrap_or((0, [0.0; 3], [1.0, 0.0, 0.0, 0.0]));
+    let r = c.receiver()?;
+    let object = host(c)?.links.get(&r).copied();
+    let zero = (0, [0.0; 3], [1.0, 0.0, 0.0, 0.0]);
+    let (cell, o, q) = match object {
+        Some(id) if host(c)?.model.player == Some(id) => host(c)?.my_position.unwrap_or(zero),
+        Some(id) => crate::combat::standing(c, id)?.map_or(zero, |(cell, at)| (cell, at, zero.2)),
+        None => zero,
+    };
     let frame = [
         o[0].to_bits(),
         o[1].to_bits(),
