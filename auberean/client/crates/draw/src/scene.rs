@@ -932,6 +932,9 @@ pub struct SceneBuilder<'a> {
     /// The draws inside were lit with lights objects carry in the last frame that had any.
     pub(crate) carried_lit: bool,
     /// The placed objects that cast a volume of shadow numbered so far: the next one's number.
+    /// The objects the server made that cast on the land, as they stood when the light last
+    /// ticked, printed on the shadow map with the world's.
+    pub dynamic_land_casters: Vec<ObjectBatch>,
     placed_casters: u32,
     /// Each placed object's look when it plays startup effects, with its scale.
     effect_looks: HashMap<u32, Option<(Arc<Look>, Vec3)>>,
@@ -1087,6 +1090,7 @@ impl<'a> SceneBuilder<'a> {
             kept_lights: HashMap::new(),
             carried_lit: false,
             placed_casters: 0,
+            dynamic_land_casters: Vec::new(),
             effect_looks: HashMap::new(),
             cell_looks: HashMap::new(),
             sky_parts: HashMap::new(),
@@ -2070,6 +2074,7 @@ impl<'a> SceneBuilder<'a> {
             for (part, place) in &casters {
                 self.caster_batches(part, place, &mut batches);
             }
+            batches.extend(self.dynamic_land_casters.iter().cloned());
             counts.shadow_casters = batches.len();
             let ground: Vec<Vec3> = near_blocks
                 .values()

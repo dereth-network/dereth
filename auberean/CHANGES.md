@@ -72,6 +72,7 @@ not how it was done.
 - Fixed objects that retail leaves unshadowed casting shadows on the ground.
 - Fixed items not showing in hand when picked up, put down or handed over.
 - Fixed some creatures and objects missing the parts they carry.
+- Fixed objects from the server casting no shadow on the ground.
 
 ## 0.1.3 (2026-11-05)
 

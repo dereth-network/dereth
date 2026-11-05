@@ -1977,6 +1977,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.world.a-server-object-that-says-so-casts-on-the-land",
+        says: "An object the server made standing outdoors in the detailed blocks prints on the sun's shadow map when its drawing properties say it casts on the land. It prints as it stands when the light ticks and stays that way until the next tick.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LAND-CASTERS-DYNAMIC"),
+        station: "auberean-shell::dat::session::a_server_object_that_says_so_casts_on_the_land",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.world.an-effects-decal-is-laid-where-its-object-stands",
         says: "An effect with a decal lays it where its object stands, on the land outdoors and on its cell's ground inside, and it is drawn with the frame.",
         since: RETAIL,

@@ -1134,21 +1134,7 @@ impl Others {
             {
                 continue;
             }
-            // Drawn between its last two ticks, at its whole scale.
-            let (at, heading) = ob.drawn(alpha);
-            let rel = Vec3::new(at.x - ox, at.y - oy, at.z);
-            let rot = auberean_physics::body::heading_rotation(heading);
-            let s = ob.body.total_scale(None);
-            let place = Mat4::from_parts(
-                rel,
-                Quat {
-                    w: rot.w,
-                    x: rot.x,
-                    y: rot.y,
-                    z: rot.z,
-                },
-                Vec3::new(s.x, s.y, s.z),
-            );
+            let (place, rel, heading) = drawn_place(ob, alpha, (ox, oy));
             let poses = f.pose(anims);
             let start = out.len();
             drawer.next_body(ob.body.is_mobile());
@@ -1270,6 +1256,41 @@ impl Others {
             let at = drawn.then(|| (ob.body.drawn(alpha).0, ob.body.total_scale(None)));
             crate::held::object_streaks(&mut fx.fx, at.as_ref().map(|(p, s)| (p, *s)), frame);
         }
+    }
+
+    /// The bodies standing outdoors within the detailed blocks around the viewer (block `block`)
+    /// whose objects cast on the land, as they print on the sun's shadow map now.
+    // D2-03691, D2-06218
+    pub fn land_casters(
+        &self,
+        records: &WorldRecords,
+        anims: &CachedRecords<'_>,
+        drawer: &mut BodyDrawer,
+        world: &World,
+        block: (i32, i32),
+        alpha: f32,
+    ) -> Vec<ObjectBatch> {
+        use auberean_physics::world::graphics;
+        #[allow(clippy::cast_precision_loss)]
+        let (ox, oy) = (block.0 as f32 * BLOCK_LENGTH, block.1 as f32 * BLOCK_LENGTH);
+        let mut out = Vec::new();
+        for b in self.bodies.values() {
+            let (Some(f), Some(ob), Some(k)) = (&b.figure, &b.body, b.key) else {
+                continue;
+            };
+            let cell = ob.body.position.cell.0;
+            if !ob.in_world()
+                || !in_detail(cell, block)
+                || crate::is_interior(cell)
+                || ob.body.is_no_draw()
+                || !world.graphics_state(k, graphics::LANDSCAPE_SHADOW)
+            {
+                continue;
+            }
+            let place = drawn_place(ob, alpha, (ox, oy)).0;
+            out.extend(drawer.land_caster_batches(records, f, &f.pose(anims), &place));
+        }
+        out
     }
 
     /// The lights the effects of the bodies in the world within the detailed blocks around the
@@ -1469,6 +1490,26 @@ pub(crate) fn ethereality(w: &WeenieDesc) -> auberean_physics::solid::Etherealit
             .map(|i| w.numbers[i])
     };
     auberean_physics::solid::Ethereality::of_numbers(number)
+}
+
+/// Where a body is drawn between its last two ticks, at its whole scale, in the frame of the block
+/// whose corner is at `(ox, oy)`: its place, where it stands and its heading.
+fn drawn_place(ob: &OtherBody, alpha: f32, (ox, oy): (f32, f32)) -> (Mat4, Vec3, f32) {
+    let (at, heading) = ob.drawn(alpha);
+    let rel = Vec3::new(at.x - ox, at.y - oy, at.z);
+    let rot = auberean_physics::body::heading_rotation(heading);
+    let s = ob.body.total_scale(None);
+    let place = Mat4::from_parts(
+        rel,
+        Quat {
+            w: rot.w,
+            x: rot.x,
+            y: rot.y,
+            z: rot.z,
+        },
+        Vec3::new(s.x, s.y, s.z),
+    );
+    (place, rel, heading)
 }
 
 /// Entry `key` takes the properties of the entity record `desc` its object is made from (an

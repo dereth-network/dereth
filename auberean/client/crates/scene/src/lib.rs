@@ -358,6 +358,8 @@ pub struct Scene<'w> {
     sky_at: f64,
     light_at: f64,
     lightings: u32,
+    /// The block and the light's tick the dynamic objects' shadows were last taken at.
+    land_casters_at: Option<((i32, i32), u32)>,
     /// The vertical field of view, degrees.
     pub fov: f32,
     /// The last frame's facts.
@@ -1230,6 +1232,7 @@ impl<'w> Scene<'w> {
             sky_at: 0.0,
             light_at: 0.0,
             lightings: 0,
+            land_casters_at: None,
             fov: auberean_physics::camera::BASE_FOV + auberean_physics::camera::MIN_FOV_EFFECTS,
             status: Status::default(),
             game_time: 0.0,
@@ -1702,6 +1705,11 @@ impl<'w> Scene<'w> {
     #[must_use]
     pub fn table(&self) -> &World {
         &self.table
+    }
+
+    /// The world's table of what stands where, to change.
+    pub fn table_mut(&mut self) -> &mut World {
+        &mut self.table
     }
 
     /// The physics body of object `id`: the player's, another's, a held object's or one the client
@@ -3907,6 +3915,22 @@ impl<'w> Scene<'w> {
                 );
                 f
             } else {
+                // What the server made prints on the map as it stands when the light ticks, and
+                // stays that way until the next tick.
+                // D2-10929, D2-10921
+                if self.land_casters_at != Some(((bx, by), lightings))
+                    && self.builder.static_shadows
+                {
+                    self.land_casters_at = Some(((bx, by), lightings));
+                    self.builder.dynamic_land_casters = self.others.land_casters(
+                        &self.world.records,
+                        &self.anims,
+                        &mut self.drawer,
+                        &self.table,
+                        (bx, by),
+                        self.ticker.alpha(now),
+                    );
+                }
                 let mut f = self.builder.frame(&spot, self.fov);
                 // The cells looked into from the land are drawn under the interior light of the
                 // block the camera stands in: black when it has none.

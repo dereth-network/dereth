@@ -341,6 +341,39 @@ impl BodyDrawer {
         self.batches_without(records, body, poses, place, &[])
     }
 
+    /// `body` in `poses`, placed by `place`, as it prints on the sun's shadow map: at full detail,
+    /// each fragment once with its material's first layer, its vertices standing as they stand now.
+    // D2-10929, D2-05492
+    pub fn land_caster_batches(
+        &mut self,
+        records: &WorldRecords,
+        body: &Body,
+        poses: &[PartPose],
+        place: &Mat4,
+    ) -> Vec<ObjectBatch> {
+        let (eye, reflecting) = (self.eye.take(), std::mem::take(&mut self.reflecting));
+        let mut out = self.batches(records, body, poses, place);
+        self.eye = eye;
+        self.reflecting = reflecting;
+        let mut seen = std::collections::HashSet::new();
+        out.retain(|b| seen.insert((b.places(), Arc::as_ptr(&b.indices) as usize)));
+        for b in &mut out {
+            if let Some(posed) = b.posed.take() {
+                let standing = b
+                    .vertices
+                    .iter()
+                    .zip(posed.iter())
+                    .map(|(v, p)| MeshVertex {
+                        position: p.position,
+                        normal: p.normal,
+                        ..*v
+                    });
+                b.vertices = Arc::new(standing.collect());
+            }
+        }
+        out
+    }
+
     /// The batches of `body` in `poses`, placed by `place`, leaving out every mesh whose kind is
     /// in `hidden` (as the player's own head is left out with the camera at its eyes); each mesh
     /// at the level its distance gives for the model detail set, each material at the material

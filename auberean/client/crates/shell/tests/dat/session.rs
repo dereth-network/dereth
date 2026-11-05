@@ -4038,6 +4038,88 @@ fn an_aimed_effect_acts_on_its_target() {
     );
 }
 
+/// An object the server made prints on the sun's shadow map, where it stands, once the light ticks
+/// after its drawing properties say it casts on the land, and not otherwise. Fixture: a server
+/// double making a man beside the player at the camp, the property set on his entry in the world.
+///
+/// Behaviour: desktop.world.a-server-object-that-says-so-casts-on-the-land
+#[test]
+fn a_server_object_that_says_so_casts_on_the_land() {
+    use auberean_physics::world::graphics;
+    const CELL: u32 = 0xC156_0035;
+    const OBJECT: u64 = 0x8130_1B05_CC00_0191;
+    let printed = |casts: bool| {
+        let object = CreateObject {
+            id: OBJECT,
+            visual: VisualDesc {
+                bits: VisualDesc::DID,
+                did: HUMAN_MALE,
+                ..VisualDesc::default()
+            },
+            physics: PhysicsDesc {
+                bits: PhysicsDesc::POSITION,
+                instance_stamp: 1,
+                visual_ordering_stamp: 1,
+                position: Placement {
+                    cell: CELL,
+                    frame: Frame {
+                        origin: Vec3 {
+                            x: 126.0,
+                            y: 92.0,
+                            z: 80.0,
+                        },
+                        rotation: Quat::IDENTITY,
+                    },
+                },
+                ..PhysicsDesc::default()
+            },
+            ..CreateObject::default()
+        };
+        let at = Vec3 {
+            x: 122.842,
+            y: 89.758,
+            z: 80.0,
+        };
+        let script = script_until(CELL, at, Quat::IDENTITY, &[object], &[], 200.0);
+        let server =
+            ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+        let mut s = shell_with(
+            script,
+            Box::new(DevLogin::new(
+                server,
+                "tester".into(),
+                "t".into(),
+                Some("tester".into()),
+            )),
+        );
+        let mut set = false;
+        let mut seen = 0;
+        while s.host.time < 120.0 {
+            step(&mut s);
+            if !set {
+                if let Some(k) = s.scene.table().find(OBJECT) {
+                    set = true;
+                    s.scene
+                        .table_mut()
+                        .set_graphics_state(k, graphics::LANDSCAPE_SHADOW, casts);
+                }
+            }
+            let now = s.host.time;
+            if let Some(map) = s.scene.frame(now).and_then(|f| f.shadow.as_ref()) {
+                let here = map.casters.iter().filter(|c| {
+                    let o = c.transform.point(auberean_primitives::Vec3::ZERO);
+                    (o.x - 126.0).abs() < 0.01 && (o.y - 92.0).abs() < 0.01
+                });
+                seen = seen.max(here.count());
+            }
+        }
+        assert!(set, "he stands in the world");
+        seen
+    };
+    assert_eq!(printed(false), 0, "he does not say so");
+    assert!(printed(true) > 0, "he says so");
+}
+
 /// An object whose look's startup effects make objects has them as it arrives, each hanging from it
 /// at its holding location; one whose look's do not has none. Fixture: a server double making the
 /// object beside the player in the hall.
