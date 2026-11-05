@@ -235,6 +235,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "motion.element.a-position-too-far-to-follow-is-placed",
+        says: "A position more than 15 m from a body is placed by its next step, not only set: in the air it touches nothing and falls.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-QUICK-MOVES-PLACED"),
+        station: "auberean-physics::cpu::motion::moving::a_position_too_far_to_follow_is_placed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "motion.element.a-sent-hover-height-is-ignored",
         says: "A hover height set through the body changes nothing: the motion interpreter's \
                setter does nothing.",

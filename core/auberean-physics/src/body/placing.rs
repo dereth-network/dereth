@@ -144,6 +144,31 @@ impl Body {
             .turn_to(true, crate::geom::frame_heading(&p.frame));
     }
 
+    /// The body, set at `p` from where the world can't be reached, is placed there by its next step.
+    pub(super) fn place_soon(&mut self, p: Position) {
+        let was = self.placing.map_or(self.position, |(_, was)| was);
+        self.placing = Some((p, was));
+    }
+
+    /// The place set since the last step is placed: the body takes a free spot nearby and touches
+    /// only what is there, and with no room goes back where it stood.
+    // D2-06369
+    pub(super) fn take_placing(&mut self, land: &Land, world: &mut World, key: BodyKey) {
+        let Some((p, was)) = self.placing.take() else {
+            return;
+        };
+        // Placed through the entry this step moves it by, in the world it steps in.
+        let entry = self.key.replace(key);
+        // What was asked of the body after it was set there stands.
+        let velocity = self.velocity;
+        if self.set_position_simple(land, world, p, true) != error::OK {
+            self.position = was;
+        }
+        self.velocity = velocity;
+        self.key = entry;
+        self.set_placement_position(p);
+    }
+
     /// Puts the body at `p`, taking a free spot nearby when `slide`.
     // D2-06368
     pub fn set_position_simple(

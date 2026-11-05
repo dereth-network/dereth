@@ -904,3 +904,33 @@ mod holding {
         assert!(!sword.in_world && sword.has_parent && sword.parent == HOLDER);
     }
 }
+
+/// A position too far to follow is placed by the body's next step: in the air it touches nothing,
+/// and it falls.
+///
+/// Behaviour: motion.element.a-position-too-far-to-follow-is-placed
+#[test]
+fn a_position_too_far_to_follow_is_placed() {
+    let land = world();
+    let mut b = body();
+    b.tick(&land, 0.1);
+    assert!(b.contact, "it stands");
+    let mut far = b.position;
+    far.frame.origin.y += 20.0;
+    far.frame.origin.z = GROUND_Z + 3.0;
+    b.interpolate_to(
+        1.0,
+        far,
+        Vec3::ZERO,
+        auberean_physics::geom::Heading::new(0.0),
+        false,
+    );
+    b.tick(&land, 0.1);
+    assert!(!b.contact, "it touches nothing");
+    let z = b.position.frame.origin.z;
+    assert!(z > GROUND_Z + 2.0, "up there: {z}");
+    for _ in 0..30 {
+        b.tick(&land, 0.1);
+    }
+    assert!(b.contact, "it landed");
+}

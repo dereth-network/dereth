@@ -790,3 +790,30 @@ fn a_far_position_is_placed_like_a_teleport() {
     b.receive(&far, None, true, &land, &mut w);
     assert!(!b.body.contact, "put in the air, it touches nothing");
 }
+
+/// A body following a position it can't reach is put there when it gives up, and if that is in the
+/// air it falls.
+///
+/// Behaviour: desktop.others.a-body-put-in-the-air-falls
+#[test]
+fn a_body_put_where_it_could_not_follow_falls() {
+    let land = world();
+    let mut w = World::new();
+    let start = place(70.0, 20.0, 0.0, 0.0, 0.0, 1);
+    let mut b = OtherBody::new(7, config(), position_of(&start), 0.0, (1, 0));
+    let mut up = place(70.0, 20.0, 0.0, 0.0, 0.1, 2);
+    up.origin.z = GROUND_Z + 5.0;
+    let player = position_of(&start);
+    b.receive(&up, Some(&player), true, &land, &mut w);
+    let mut t = 0.1;
+    let mut highest = GROUND_Z;
+    for _ in 0..200 {
+        t += 0.1;
+        b.tick(&land, &mut w, &mut NoObjects, t);
+        highest = highest.max(b.body.position.frame.origin.z);
+    }
+    assert!(highest > GROUND_Z + 4.0, "it was put up there: {highest}");
+    assert!(b.body.contact, "it landed");
+    let z = b.body.position.frame.origin.z;
+    assert!((z - GROUND_Z).abs() < 1e-3, "on the ground: {z}");
+}

@@ -359,6 +359,9 @@ pub struct Body {
     /// there.
     world: World,
     own_key: Option<BodyKey>,
+    /// A place set at once from where the world can't be reached, to be placed by the next step,
+    /// with where the body stood before it.
+    placing: Option<(Position, Position)>,
     /// Its entry in the world it ticks in ([`Body::tick_in`]).
     pub(crate) key: Option<BodyKey>,
     /// Where it was last put that is to count as its placement.
@@ -485,6 +488,7 @@ impl Body {
             },
             world: World::new(),
             own_key: None,
+            placing: None,
             key: None,
             placement: None,
             parts: None,
@@ -619,6 +623,7 @@ impl Body {
         dt: f32,
     ) {
         self.tell_world(world, key);
+        self.take_placing(land, world, key);
         if self.material_cell != Some(self.position.cell) {
             let at = self.position;
             self.update_cell_material(land, world, key, &at);
@@ -677,6 +682,7 @@ impl Body {
         let now = self.clock;
         self.calc_element();
         self.update_motion(now, dt);
+        self.take_placing(land, world, key);
         self.calc_acceleration();
         self.turn_acceleration = self.minterp.omega_acceleration.z;
         self.take_pushers(world, key);
@@ -1161,6 +1167,7 @@ impl Owner for Body {
         true
     }
     fn blip_to(&mut self, p: Position) {
+        self.place_soon(p);
         self.position = p;
         self.heading = geom::frame_heading(&p.frame).degrees();
     }
