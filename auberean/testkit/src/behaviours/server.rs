@@ -2539,6 +2539,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.data.a-client-that-keeps-overlays-is-sent-what-it-lacks",
+        says: "A client that says it keeps overlays and lacks revisions of the world's overlay is                told them and sent their records after a pause, and sees its characters once it                has stored them; a client holding them is sent nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PATCH-SENT"),
+        station: "yalain-testkit::dat::world_patch::a_client_that_keeps_overlays_is_sent_what_it_lacks_and_then_its_characters",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.data.a-client-the-overlay-doesnt-suit-is-refused-with-the-reason",
+        says: "A client holding other files than the overlay was made against is refused with the                reason, unless it checks them itself; so is one patched to another world, and one                that keeps overlays while the operator has patching off.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PATCH-REFUSED"),
+        station: "yalain-testkit::dat::world_patch::a_client_holding_other_files_is_refused_unless_it_checks_them_itself",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.data.a-reload-answers-from-the-overlay-as-it-now-is",
         says: "A reload opens the files clients' requests are served from again, through the \
                world's overlay as it now is, and what the overlay holds is never answered as it \
@@ -2547,6 +2563,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-OVERLAY-RELOAD"),
         station: "yalain-testkit::cpu::entry::data_download::a_reload_answers_from_the_overlay_as_it_now_is",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.data.a-retail-client-lacking-a-worlds-overlay-is-refused-unless-patching-is-on",
+        says: "A client that says nothing of overlays and lacks the world's is refused with what                to play instead, unless the operator turned its patching on, when it is sent it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PATCH-RETAIL"),
+        station: "yalain-testkit::dat::world_patch::a_retail_client_lacking_the_overlay_is_refused_unless_the_operator_patches_it",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.data.a-world-with-clearings-and-no-overlay-is-told",
@@ -2606,6 +2630,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-DATA-LANDBLOCK"),
         station: "yalain-testkit::cpu::entry::data_download::a_landblock_sent_brings_its_landblock_information_right_after_it",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.data.patch-records-go-at-the-operators-rate",
+        says: "A client that keeps overlays is sent the world's records at the operator's rate,                and retail clients at the original servers' thousand a minute between them.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PATCH-RATE"),
+        station: "yalain-testkit::dat::world_patch::a_clients_records_go_at_its_rate_and_retail_clients_share_theirs",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "server.data.recorded-requests-answered-as-2017",
@@ -3176,6 +3208,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.a-rows-own-name",
+        says: "A placed row a world gave a name of its own is examined under that name, as it is                shown over its head; one with none under its template's.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-OWN-NAME"),
+        station: "yalain-testkit::cpu::entry::examine::a_row_with_a_name_of_its_own_is_examined_under_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.an-inscription-is-shown",
         says: "An inscribed item's profile shows, on a tab of its own, who wrote on it by its \
                name in the world, and the words.",
@@ -3277,14 +3317,6 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-AGAIN"),
         station: "yalain-testkit::cpu::entry::examine::an_examined_item_is_sent_again_when_it_changes_until_a_later_stop",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
-        id: "server.examination.a-rows-own-name",
-        says: "A placed row a world gave a name of its own is examined under that name, as it is                shown over its head; one with none under its template's.",
-        since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-OWN-NAME"),
-        station: "yalain-testkit::cpu::entry::examine::a_row_with_a_name_of_its_own_is_examined_under_it",
         tier: Tier::Cpu,
     },
     behaviour! {

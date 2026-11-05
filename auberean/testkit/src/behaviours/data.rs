@@ -1007,6 +1007,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "data.overlay.checks-its-files-against-what-it-is-told",
+        says: "Told the records a world's overlay was made over, the client holding them goes on                and one holding others stops, saying why.",
+        since: THIS_CLIENT,
+        divergence: "CD2-world-overlay",
+        evidence: Evidence::Private("AC2-EVID-OVERLAY-CHECKS-RECORDS"),
+        station: "auberean-client-runtime::cpu::world::download::a_client_told_records_it_doesnt_hold_stops_saying_why",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "data.overlay.none-reads-the-files",
         says: "A file with no overlay over it is read as it always was, in a folder that holds one                over another file too.",
         since: THIS_CLIENT,
@@ -1049,6 +1058,15 @@ pub static ROWS: &[Behaviour] = &[
         divergence: "CD2-world-overlay",
         evidence: Evidence::Private("AC2-EVID-OVERLAY-REVISIONS"),
         station: "auberean-dat::cpu::overlay::a_revision_of_the_overlay_is_among_the_data_versions_the_client_reports",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "data.overlay.says-it-keeps-them",
+        says: "Asked what it holds, the client first says it takes a world's records and names its                files by their layouts, in a message of its own that a server not knowing it skips. It takes no ordering \n               stamp, so what follows carries the stamps a retail client's would.",
+        since: THIS_CLIENT,
+        divergence: "CD2-world-overlay",
+        evidence: Evidence::Private("AC2-EVID-OVERLAY-SAYS-IT-KEEPS"),
+        station: "auberean-client-runtime::cpu::world::download::asked_what_it_holds_the_client_first_says_it_keeps_overlays_and_names_its_files",
         tier: Tier::Cpu,
     },
     behaviour! {

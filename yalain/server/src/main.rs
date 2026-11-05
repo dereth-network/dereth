@@ -74,6 +74,13 @@
 //!                         over that release in the cache; its `overlay` folder, which
 //!                         `athenaeum build` makes, is read over --dats, and one made against other
 //!                         files stops the server
+//!   --dat-overlay DIR     the world's overlay folder, in place of the world's own `overlay`
+//!   --no-dat-overlay-patching  a client that keeps overlays and lacks the world's is refused, not
+//!                         sent it
+//!   --dat-overlay-records-per-minute N  how fast such a client is sent it (default 60000; 0 for
+//!                         the original servers' rate)
+//!   --enable-dat-patching a retail client lacking the world's overlay is sent it, at the original
+//!                         servers' rate, not refused: it must run with its files writable
 //!   --world-base DIR      the base database a --world-db world lies over, in place of the
 //!                         release it names in the cache
 //!   --no-referral         carry the world on the login connection instead of referring the
@@ -255,6 +262,8 @@ struct Options {
     /// Recipe files of characters to make with their builds (`--make-character`).
     recipes: Vec<PathBuf>,
     world_db: String,
+    dat_overlay: Option<PathBuf>,
+    dat_overlay_settings: yalain_world::world_patch::DatOverlaySettings,
     world_base: Option<PathBuf>,
     referral: bool,
     echo: bool,
@@ -383,6 +392,8 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
         money: Vec::new(),
         recipes: Vec::new(),
         world_db: "pinned".into(),
+        dat_overlay: None,
+        dat_overlay_settings: yalain_world::world_patch::DatOverlaySettings::default(),
         world_base: None,
         referral: true,
         echo: true,
@@ -566,6 +577,14 @@ fn parse_from(args: impl IntoIterator<Item = String>) -> Result<Options, String>
                 ));
             }
             "--world-db" => o.world_db = value()?,
+            "--dat-overlay" => o.dat_overlay = Some(PathBuf::from(value()?)),
+            "--no-dat-overlay-patching" => o.dat_overlay_settings.patching = false,
+            "--dat-overlay-records-per-minute" => {
+                let v = value()?;
+                o.dat_overlay_settings.records_per_minute =
+                    v.parse().map_err(|e| format!("{a}: {v}: {e}"))?;
+            }
+            "--enable-dat-patching" => o.dat_overlay_settings.enable_dat_patching = true,
             "--world-base" => o.world_base = Some(PathBuf::from(value()?)),
             "--no-referral" => o.referral = false,
             "--no-echo" => o.echo = false,
@@ -872,6 +891,7 @@ fn run<S: Store>(
         echo_positions: o.echo,
         seed,
         secret_cost: o.secret_cost,
+        dat_overlay: o.dat_overlay_settings,
         admin_commands: o.admin_commands.clone(),
         save_seconds: o.save_seconds,
         shutdown_seconds: o.shutdown_seconds,
@@ -961,6 +981,7 @@ fn run<S: Store>(
         );
         server.admin_library = Some(library);
     }
+    server.world_patch = yalain_world::world_patch::WorldPatch::of(&files).map(std::sync::Arc::new);
     server.data = Some(Box::new(files));
     server.levels = play.levels;
     server.skill_table = play.skills;
@@ -1169,8 +1190,15 @@ fn run<S: Store>(
                         let dats = o.dats.clone().unwrap_or_default();
                         let (db, base) = (o.world_db.clone(), o.world_base.clone());
                         let banned = o.banned_names.clone();
+                        let overlay = o.dat_overlay.clone();
                         reloading = Some(console::start(move || {
-                            reload_world(&dats, &db, base.as_deref(), banned.as_deref())
+                            reload_world(
+                                &dats,
+                                &db,
+                                overlay.as_deref(),
+                                base.as_deref(),
+                                banned.as_deref(),
+                            )
                         }));
                     }
                     // The network's lines, as its own console has them.
@@ -1887,12 +1915,13 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
 fn reload_world(
     dats: &Path,
     world_db: &str,
+    dat_overlay: Option<&Path>,
     base: Option<&Path>,
     banned_names: Option<&Path>,
 ) -> Result<(PathBuf, WorldTables), String> {
     let names = banned_names.map(read_banned_names).transpose()?;
     // A portal file of its own: this reload is the only reader of it, on its own thread.
-    let portal = data::Portal::open(dats, world::overlay_of(world_db)?)?;
+    let portal = data::Portal::open(dats, world::overlay_of(world_db, dat_overlay)?)?;
     let (dir, compiled) = compile_world(&portal, world_db, base)?;
     for w in &compiled.warnings {
         tracing::warn!("{w}");
@@ -1926,6 +1955,7 @@ fn reload_world(
             chests: p.chests,
         }),
         ground: Some(Box::new(p.ground)),
+        patch: yalain_world::world_patch::WorldPatch::of(&p.files),
         files: Some(Box::new(p.files)),
     };
     Ok((dir, tables))
@@ -1968,7 +1998,7 @@ fn main() -> std::process::ExitCode {
         }
         Err(e) => {
             eprintln!("yalain: {e}");
-            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--download-rate N] [--motd TEXT] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation] [--global-room ROOM]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
+            eprintln!("usage: yalain --dats <install folder> [--bind IP] [--login-port P] [--world-port P] [--advertise IP] [--data FILE | --memory] [--world-name NAME] [--listed-accounts] [--banned-names FILE] [--add-account NAME:TICKET] [--secret-cost N] [--save-interval S] [--shutdown-interval S] [--max-sessions N] [--max-sessions-per-address N] [--unlimited-sessions-from IP] [--download-rate N] [--motd TEXT] [--status IP:PORT] [--no-status-ping] [--status-ping-hellos N] [--status-ping-asks N] [--status-ping-replies N] [--config FILE] [--add-character ACCOUNT:NAME:RACE:SEX] [--place ACCOUNT:NAME:CELL:X:Y:Z:HEADING] [--money ACCOUNT:NAME:AMOUNT] [--make-character FILE] [--world-db DIR|pinned] [--world-base DIR] [--dat-overlay DIR] [--no-dat-overlay-patching] [--dat-overlay-records-per-minute N] [--enable-dat-patching] [--no-referral] [--no-echo] [--game-time S] [--hold-clock] [--hub URL --hub-slug SLUG --hub-key-file FILE [--federation] [--global-room ROOM]] [--no-friends] [--seconds S] [--verbose] [--stop-at-console-end] [--update off|patch|minor] [--update-check-hours H] [--update-warning-seconds S] [--update-source URL]");
             eprintln!("       yalain world check|release|fetch|compile ...");
             eprintln!(
                 "       yalain update --check|--apply [--config FILE] [--policy off|patch|minor]"
@@ -1984,7 +2014,7 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::FAILURE;
     };
 
-    let loaded = world::overlay_of(&o.world_db)
+    let loaded = world::overlay_of(&o.world_db, o.dat_overlay.as_deref())
         .and_then(|overlay| {
             if let Some(w) = &overlay {
                 tracing::info!(

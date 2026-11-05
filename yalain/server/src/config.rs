@@ -215,6 +215,22 @@ const KEYS: &[(&str, &str, Takes)] = &[
         "replies_per_second",
         Takes::Value("--status-ping-replies"),
     ),
+    ("dat_overlay", "path", Takes::Path("--dat-overlay")),
+    (
+        "dat_overlay",
+        "patching",
+        Takes::Unless("--no-dat-overlay-patching"),
+    ),
+    (
+        "dat_overlay",
+        "records_per_minute",
+        Takes::Whole("--dat-overlay-records-per-minute"),
+    ),
+    (
+        "ddd",
+        "enable_dat_patching",
+        Takes::Flag("--enable-dat-patching"),
+    ),
     ("database", "shard_db_path", Takes::Path("--data")),
     ("database", "in_memory", Takes::Flag("--memory")),
     ("federation", "enabled", Takes::Hub),
@@ -267,14 +283,15 @@ pub const EMPYREAN_ONLY: &[&str] = &[
     "server.accounts.allow_character_import",
     "database.auth_db_path",
     "offline",
-    "ddd",
-    "dat_overlay",
+    "dat_overlay.bytes_per_second",
     "federation.store_path",
     "era",
 ];
 
 /// The sections [`KEYS`] holds keys of.
 const SECTIONS: &[&str] = &[
+    "dat_overlay",
+    "ddd",
     "server",
     "server.network",
     "server.websocket",

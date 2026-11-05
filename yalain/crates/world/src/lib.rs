@@ -4,7 +4,8 @@
 //! **Depends on** the messages (`auberean-protocol`), the script machine's values
 //! (`auberean-script`), the client's written form of names and its word patterns
 //! (`auberean-text`, `auberean-assets`), the client's table of record kinds and its data files
-//! (`auberean-dat`), `auberean-primitives`, the server's connections (`yalain-net`), the store's
+//! (`auberean-dat`), the overlay folder a world's own records are sent from (`dereth-dat`),
+//! `auberean-primitives`, the server's connections (`yalain-net`), the store's
 //! trait (`yalain-store`), the content (`yalain-content`), the shared physics its creatures move through
 //! (`auberean-physics`, `auberean-world`, `dereth-physics`), the chat service's packet
 //! (`dereth-protocol`), the original's float-to-integer conversion (`dereth-primitives`), the
@@ -143,6 +144,7 @@ pub mod walkers;
 pub mod walls;
 pub mod workshops;
 pub mod world;
+pub mod world_patch;
 pub mod xp;
 
 use std::collections::HashMap;
@@ -196,6 +198,8 @@ pub struct ServerConfig {
     pub echo_positions: bool,
     /// The seed of the world's dice.
     pub seed: u64,
+    /// What the operator chose for a world's overlay.
+    pub dat_overlay: world_patch::DatOverlaySettings,
     /// The bcrypt cost account secrets are kept at ([`login::SECRET_COST`] unless the operator
     /// gives another).
     pub secret_cost: u32,
@@ -230,6 +234,7 @@ impl Default for ServerConfig {
             referral: true,
             echo_positions: true,
             seed: 0x5EED_00A2,
+            dat_overlay: world_patch::DatOverlaySettings::default(),
             secret_cost: login::SECRET_COST,
             save_seconds: saves::SAVE_SECONDS,
             shutdown_seconds: shutdown::LEAD,
@@ -287,6 +292,11 @@ pub struct Server<S: Store> {
     /// and the logins waiting for it to be stored before they see their characters.
     pub admin_library: Option<admin_library::AdminLibrary>,
     pub storing_library: std::collections::HashSet<ConnId>,
+    /// The world's overlay as clients are patched to it, when it has one; the clients that said
+    /// they keep overlays, and those being patched.
+    pub world_patch: Option<std::sync::Arc<world_patch::WorldPatch>>,
+    pub overlay_clients: HashMap<ConnId, auberean_protocol::login::OverlayHeld>,
+    pub patches: world_patch::Patches,
     /// World connections and the login connection each belongs to.
     pub worlds: HashMap<ConnId, ConnId>,
     /// The characters in the world, by the connection their world travels on.
@@ -672,6 +682,9 @@ impl<S: Store> Server<S> {
             admin_rooms: admin_calls::Rooms::default(),
             admin_library: None,
             storing_library: std::collections::HashSet::new(),
+            world_patch: None,
+            overlay_clients: HashMap::new(),
+            patches: world_patch::Patches::default(),
             worlds: HashMap::new(),
             players: HashMap::new(),
             shutdown: shutdown::Shutdown::No,
@@ -815,6 +828,7 @@ impl<S: Store> Server<S> {
     /// Run what is due by now, and the world's step when one is due.
     pub fn tick(&mut self, net: &mut ServerNet, clock: Clock) {
         self.game_now = net.game_time(clock.local);
+        world_patch::send_due(self, net, clock);
         while let Some(i) = self.timers.iter().position(|(at, _)| at.0 <= clock.local.0) {
             let (_, t) = self.timers.remove(i);
             self.saves.piece_begins();

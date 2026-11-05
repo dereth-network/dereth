@@ -307,6 +307,34 @@ min_character_age_seconds = 0
 global_room = "general"
 
 # ----------------------------------------------------------------------------------------------
+[dat_overlay]
+# A world's overlay: the records it changes in the game's data files, which `athenaeum build` writes
+# to its `overlay` folder. The server reads its data files through it, and patches clients to it.
+
+# default: "" (--dat-overlay)
+# The overlay folder. Empty: the world's own `overlay` folder, when it has one.
+path = ""
+
+# default: true (--no-dat-overlay-patching when false)
+# Send a client that keeps overlays the world's records. Off, such a client lacking them is refused.
+patching = true
+
+# default: 60000 (--dat-overlay-records-per-minute)
+# How many records a minute such a client is sent, at most 32 a world tick. 0 keeps the original
+# servers' 1,000 a minute shared by every client; a retail client always has that.
+records_per_minute = 60000
+
+# ----------------------------------------------------------------------------------------------
+[ddd]
+# The data download to retail clients.
+
+# default: false (--enable-dat-patching)
+# Send a retail client that lacks a world's overlay its records, in place of refusing it. It must
+# run with its data files writable (-rodat off), on a copy kept for this world. Yalain doesn't patch
+# a client's own data files otherwise.
+enable_dat_patching = false
+
+# ----------------------------------------------------------------------------------------------
 [testing]
 # Setting up characters and the clock for trials (Yalain only; a world needs none of these).
 

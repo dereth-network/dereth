@@ -117,8 +117,11 @@ yalain world fetch --from yalain-world-<tag>.zip
   release its `[base]` names (or the pinned one, if it names none), from the cache. `--world-base
   <folder>` takes the base from that folder instead.
   If the world changes the game's own records, `athenaeum build` writes them to its `overlay`
-  folder, and the server reads its data files through that. An overlay built against another
-  install, or another world's, stops the server: build it again against this one's `--dats`.
+  folder (`--dat-overlay` names another), and the server reads its data files through that. An
+  overlay built against another install, or another world's, stops the server: build it again
+  against this one's `--dats`. Auberean is sent what it lacks as it logs in. A client holding other
+  data files is refused, and so is a retail client unless you turn on `[ddd] enable_dat_patching`:
+  then it must run with `-rodat off`, on a copy of its files kept for this world.
 
 Two commands help when you change a database:
 
@@ -391,11 +394,15 @@ shard_db_path = "yalain.sqlite"
 | `[federation] key_file` | `--hub-key-file` | default `network.key` |
 | `[federation] min_character_age_seconds` | `--min-character-age` | 0: seconds a character must have played before it sends to the network |
 | `[federation] global_room` | `--global-room` | `general` (the default), `trade`, `lfg`, `roleplay`, or empty for none (section 8.4) |
+| `[dat_overlay] path` | `--dat-overlay` | empty: the world's own `overlay` folder |
+| `[dat_overlay] patching` | `--no-dat-overlay-patching` when false | `true`: a client that keeps overlays is sent the world's records |
+| `[dat_overlay] records_per_minute` | `--dat-overlay-records-per-minute` | 60000; 0 for the original servers' 1,000 a minute, shared |
+| `[ddd] enable_dat_patching` | `--enable-dat-patching` | `false`: a retail client lacking a world's overlay is refused |
 | `[testing] add_characters`, `place_characters`, `character_money`, `make_characters` | `--add-character`, `--place`, `--money`, `--make-character` | Yalain only; lists |
 | `[testing] game_time`, `hold_clock`, `echo_positions`, `run_seconds` | `--game-time`, `--hold-clock`, `--no-echo` when false, `--seconds` | Yalain only |
 
 A relative path is read from the file's folder, not the working folder. Empyrean's keys that
-Yalain has no setting for (its world pack and overlay, its engine's caches and preloaded
+Yalain has no setting for (its world pack and content overlay, its engine's caches and preloaded
 landblocks, its WebSocket endpoint, its admin channel, the era, and the rest) are logged as warnings and ignored, so a file copied from an Empyrean world reads;
 so is any key the server does not know.
 

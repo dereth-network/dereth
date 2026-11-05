@@ -45,6 +45,22 @@ pub fn role_of(file: &DatFile) -> Option<ModernDat> {
     }
 }
 
+/// A file's layout, as it names the file a world's overlay lies over: always the file's own,
+/// whatever overlay is over it, and it costs next to nothing.
+#[must_use]
+pub fn layout_of(file: &DatFile) -> [u8; 32] {
+    dereth_dat::overlay::fingerprint(&file.shared().base())
+}
+
+/// The digest of a file's records, whatever their order: always the file's own. It reads the whole
+/// file.
+///
+/// # Errors
+/// A record that will not read.
+pub fn records_of(file: &DatFile) -> Result<[u8; 32], dereth_dat::DatError> {
+    dereth_dat::overlay::records_digest(&file.shared().base())
+}
+
 /// One world's overlay folder.
 #[derive(Clone, Debug)]
 pub struct WorldOverlay {

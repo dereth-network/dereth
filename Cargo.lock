@@ -7256,6 +7256,7 @@ dependencies = [
  "auberean-text",
  "auberean-world",
  "bcrypt",
+ "dereth-dat",
  "dereth-physics",
  "dereth-primitives",
  "dereth-protocol",

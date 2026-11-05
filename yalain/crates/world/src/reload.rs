@@ -90,6 +90,8 @@ pub struct WorldTables {
     /// The files clients' requests for records are served from, opened again through the world's
     /// overlay as it now is, when the host opened them.
     pub files: Option<Box<dyn crate::download::DataFiles + Send>>,
+    /// The world's overlay as clients are patched to it, as it now is, with those files.
+    pub patch: Option<crate::world_patch::WorldPatch>,
 }
 
 /// What the install says of the placed objects' script packages and templates: which are
@@ -324,6 +326,7 @@ impl<S: Store> Server<S> {
         }
         if let Some(f) = t.files {
             self.data = Some(f);
+            self.world_patch = t.patch.map(std::sync::Arc::new);
         }
         let changed = take_camps(self, net, clock, t.spawns);
         r.note(table::CAMPS, changed.is_some(), true);

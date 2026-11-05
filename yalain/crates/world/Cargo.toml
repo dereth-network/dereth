@@ -14,6 +14,7 @@ autotests = false
 auberean-assets.workspace = true
 # The client's table of record kinds, and the data files records are served from.
 auberean-dat.workspace = true
+dereth-dat.workspace = true
 # The walls, floors and solid things creatures meet, and the transition that moves them.
 auberean-physics.workspace = true
 auberean-world.workspace = true

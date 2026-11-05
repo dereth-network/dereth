@@ -605,6 +605,40 @@ fn admit<S: Store>(
     );
 }
 
+/// Answer a client that told of its data and lacks nothing of the world's: the script library if
+/// it's an admin's that lacks that, else the end of the download and its characters.
+fn answer_held<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    conn: ConnId,
+    held: &auberean_protocol::login::DataHeld,
+    clock: Clock,
+) {
+    let admin = s.sessions.get(&conn).is_some_and(|x| x.account.admin);
+    if let Some((begins, records)) = s
+        .admin_library
+        .as_ref()
+        .filter(|_| admin)
+        .and_then(|l| l.to_send(&held.files))
+    {
+        tracing::info!(?conn, "serving an admin's account the script library");
+        send(net, conn, queue::DATABASE, BlobKind::LOGIN, begins);
+        for record in records {
+            send(net, conn, queue::DATABASE, BlobKind::LOGIN, record);
+        }
+        s.storing_library.insert(conn);
+        return;
+    }
+    send(
+        net,
+        conn,
+        queue::DATABASE,
+        BlobKind::LOGIN,
+        &ServerMessage::DownloadEnds(Empty),
+    );
+    send_lists(s, net, conn, clock);
+}
+
 /// Does the world hold as many logins as it may, without the new one on `conn`? Counted before the
 /// ticket is checked, as Empyrean counts, since checking a ticket is slow by design.
 fn holds_as_many_as_it_may<S: Store>(s: &Server<S>, conn: ConnId) -> bool {
@@ -1210,30 +1244,13 @@ pub(crate) fn message<S: Store>(
         }
     };
     match m {
+        ClientMessage::OverlayHeld(held) => {
+            s.overlay_clients.insert(conn, held);
+        }
         ClientMessage::DataHeld(held) => {
-            let admin = s.sessions.get(&conn).is_some_and(|x| x.account.admin);
-            if let Some((begins, records)) = s
-                .admin_library
-                .as_ref()
-                .filter(|_| admin)
-                .and_then(|l| l.to_send(&held.files))
-            {
-                tracing::info!(?conn, "serving an admin's account the script library");
-                send(net, conn, queue::DATABASE, BlobKind::LOGIN, begins);
-                for record in records {
-                    send(net, conn, queue::DATABASE, BlobKind::LOGIN, record);
-                }
-                s.storing_library.insert(conn);
-                return;
+            if !crate::world_patch::on_held(s, net, conn, &held, clock) {
+                answer_held(s, net, conn, &held, clock);
             }
-            send(
-                net,
-                conn,
-                queue::DATABASE,
-                BlobKind::LOGIN,
-                &ServerMessage::DownloadEnds(Empty),
-            );
-            send_lists(s, net, conn, clock);
         }
         ClientMessage::DataRequest(r) => crate::download::answer(s, net, conn, r, clock),
         ClientMessage::CreateCharacter(c) => create(s, net, conn, &c, clock),
@@ -1242,6 +1259,12 @@ pub(crate) fn message<S: Store>(
         ClientMessage::PlayCharacter(p) => enter(s, net, conn, p.character, clock),
         ClientMessage::LogOff(_) => log_off(s, net, conn, clock),
         ClientMessage::DownloadEnds(_) => {
+            // It has stored the world's records it was sent: on as any client that told of its
+            // data.
+            if let Some(held) = s.patches.stored(conn) {
+                answer_held(s, net, conn, &held, clock);
+                return;
+            }
             // It has stored the library it was sent; its characters follow.
             if s.storing_library.remove(&conn) {
                 tracing::info!(?conn, "an admin's client has stored the script library");
@@ -1330,6 +1353,8 @@ pub(crate) fn closed<S: Store>(
         return;
     }
     s.storing_library.remove(&conn);
+    s.overlay_clients.remove(&conn);
+    s.patches.closed(conn);
     if let Some(session) = s.sessions.remove(&conn) {
         tracing::info!(?conn, ?why, account = %session.account.name, "login connection closed");
         if let Stage::InWorld { world, character } = session.stage {

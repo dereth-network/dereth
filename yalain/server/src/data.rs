@@ -1222,7 +1222,7 @@ mod tests {
                 .unwrap();
             w.flush(0).unwrap();
         });
-        let overlay = crate::world::overlay_of(&world.display().to_string())
+        let overlay = crate::world::overlay_of(&world.display().to_string(), None)
             .expect("reads")
             .expect("a world's overlay");
         let dir = auberean_dat::testing::require_target_install();
@@ -1251,9 +1251,11 @@ mod tests {
     fn a_world_with_no_overlay_is_served_the_installs_own_records() {
         use yalain_world::download::DataFiles as _;
 
-        assert!(crate::world::overlay_of("pinned").expect("reads").is_none());
+        assert!(crate::world::overlay_of("pinned", None)
+            .expect("reads")
+            .is_none());
         let world = world_with_overlay("none", "a-world", |_| {});
-        let none = crate::world::overlay_of(&world.display().to_string()).expect("reads");
+        let none = crate::world::overlay_of(&world.display().to_string(), None).expect("reads");
         assert!(none.is_none());
         let dir = auberean_dat::testing::require_target_install();
         let p = Portal::open(&dir, none).expect("opens");
@@ -1293,7 +1295,7 @@ mod tests {
             w.put(DataId(0x0101_FFFF), b"a record", 1, 0, 0).unwrap();
             w.flush(0).unwrap();
         });
-        let overlay = crate::world::overlay_of(&other_files.display().to_string())
+        let overlay = crate::world::overlay_of(&other_files.display().to_string(), None)
             .expect("its world is this one")
             .expect("an overlay");
         let Err(why) = Portal::open(&dir, Some(overlay)) else {
@@ -1314,7 +1316,7 @@ mod tests {
             w.put(DataId(0x0101_FFFF), b"a record", 1, 0, 0).unwrap();
             w.flush(0).unwrap();
         });
-        let Err(why) = crate::world::overlay_of(&other_world.display().to_string()) else {
+        let Err(why) = crate::world::overlay_of(&other_world.display().to_string(), None) else {
             panic!("another world's overlay was taken");
         };
         assert!(why.contains("another-world"), "{why}");

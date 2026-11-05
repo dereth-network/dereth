@@ -344,6 +344,8 @@ pub enum Effect {
     },
     /// The server asked which data the client has.
     DataQuery,
+    /// The records a world's overlay was made over, for this client to check its files against.
+    OverlayBases(auberean_protocol::login::OverlayBases),
     /// A data download begins.
     DownloadBegins(DownloadBegins),
     /// A data record came.
@@ -590,6 +592,7 @@ impl Model {
             // D2-03954, D2-03991
             S::CharacterDeleted(d) => fx.push(Effect::CharacterDeleted(d.character)),
             S::DataQuery(_) => fx.push(Effect::DataQuery),
+            S::OverlayBases(b) => fx.push(Effect::OverlayBases(b.clone())),
             S::DownloadBegins(b) => fx.push(Effect::DownloadBegins(b.clone())),
             S::DataRecord(r) => fx.push(Effect::DataRecord(r.clone())),
             S::DataRefused(r) => fx.push(Effect::DataRefused(*r)),

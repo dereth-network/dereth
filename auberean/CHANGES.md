@@ -9,6 +9,7 @@ not how it was done.
 
 - Fixed other bodies not leaving the ground when an animation made them jump.
 - Jumping now interrupts the same actions walking does.
+- A world that changes the game's records now sends them to you as you log in.
 - Fixed a weapon's trail staying on after the effect that started it stopped.
 - Fixed looping music from emotes stopping as soon as it started.
 - Fixed effects that fade a body out snapping it back at once.

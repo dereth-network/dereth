@@ -1236,6 +1236,20 @@ pub(crate) fn end_login<S: Store>(
     s.after(clock, BOOT_CLOSE_AFTER, Timer::Close { conn: login });
 }
 
+/// End a login with the server's own words: the message that ends it, the connection closed a
+/// moment later.
+pub(crate) fn end_login_saying<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    login: ConnId,
+    words: &str,
+    clock: Clock,
+) {
+    let m = ServerMessage::AccountBooted(Text(StringInfo::literal(words)));
+    net.send(login, queue::EVENT, BlobKind::LOGIN, m.encode());
+    s.after(clock, BOOT_CLOSE_AFTER, Timer::Close { conn: login });
+}
+
 /// End a login: its client told its character was booted, its connection closed a moment later.
 fn boot_login<S: Store>(s: &mut Server<S>, net: &mut ServerNet, login: ConnId, clock: Clock) {
     end_login(s, net, login, BOOTED, clock);

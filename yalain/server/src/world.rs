@@ -115,22 +115,32 @@ pub fn database_dir(arg: &str) -> Result<PathBuf, String> {
     }
 }
 
-/// The overlay of the world a `--world-db` argument names: `<folder>/overlay`, made for it by
-/// `athenaeum build`. A release of the database has none, and neither has a world that changes no
-/// record.
+/// The overlay of the world a `--world-db` argument names: the folder `given` (`--dat-overlay`), else
+/// `<folder>/overlay`, made for it by `athenaeum build`. A release of the database has none of its
+/// own, and neither has a world that changes no record.
 ///
 /// # Errors
 /// The folder holds what isn't an overlay, or the overlay of another world.
-pub fn overlay_of(world_db: &str) -> Result<Option<WorldOverlay>, String> {
-    if world_db == "pinned" {
-        return Ok(None);
-    }
+pub fn overlay_of(world_db: &str, given: Option<&Path>) -> Result<Option<WorldOverlay>, String> {
     let dir = Path::new(world_db);
-    let folder = || dir.join(WORLD_FOLDER).display().to_string();
-    let overlay = WorldOverlay::of_world(dir).map_err(|e| format!("{}: {e}", folder()))?;
+    let folder = || {
+        given
+            .map_or_else(|| dir.join(WORLD_FOLDER), Path::to_path_buf)
+            .display()
+            .to_string()
+    };
+    let overlay = match given {
+        Some(g) => WorldOverlay::open(g).map(Some),
+        None if world_db == "pinned" => return Ok(None),
+        None => WorldOverlay::of_world(dir),
+    }
+    .map_err(|e| format!("{}: {e}", folder()))?;
     let Some(overlay) = overlay else {
         return Ok(None);
     };
+    if world_db == "pinned" {
+        return Ok(Some(overlay));
+    }
     if let Some(db) = rows::read_partly(&load(dir)?).0 {
         if db.world.key != overlay.world() {
             return Err(format!(
@@ -735,7 +745,7 @@ fn compile_cmd(args: &[String]) -> Result<(), String> {
     };
     let db = db.unwrap_or_else(|| "pinned".to_owned());
     let dir = database_dir(&db)?;
-    let portal = data::Portal::open(&dats, overlay_of(&db)?)?;
+    let portal = data::Portal::open(&dats, overlay_of(&db, None)?)?;
     let t = compile_dir(&portal, &dir, base.as_deref())?;
     std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     for (name, text) in [

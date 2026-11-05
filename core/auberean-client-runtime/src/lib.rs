@@ -1838,6 +1838,7 @@ impl Client {
             match fx {
                 // The download's, taken above.
                 Effect::DataQuery
+                | Effect::OverlayBases(_)
                 | Effect::DownloadBegins(_)
                 | Effect::DataRecord(_)
                 | Effect::DataRefused(_)

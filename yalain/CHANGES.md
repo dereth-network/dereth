@@ -6,7 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
-- Yalain now serves a world's overlay folder over the data files.
+- A world can change the game's records and send them to clients.
 - Fixed a rebuilt server refusing to start when its world database wasn't downloaded yet.
 - Items now bind piece by piece as you fight, and tell you when they do.
 - Bound and attuned items can't be put up for sale.

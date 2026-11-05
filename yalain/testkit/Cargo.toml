@@ -19,6 +19,7 @@ retail-dats = [
     "dep:auberean-client-sdk",
     "dep:auberean-dat",
     "dep:auberean-script",
+    "dep:dereth-dat",
     "dep:yalain-world-db",
 ]
 # Tier switch: selects the `network` test binary, the Dereth Network end to end on loopback: the
