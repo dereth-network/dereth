@@ -1433,6 +1433,8 @@ mod tests {
         let attempt = |h: &mut Harness, f: &mut Friends, fed: &mut Federation| {
             f.pump(at(h), &mut h.server, &mut h.net, Some(fed));
             let t = h.now.0;
+            // Only the line counts: entering, it asks for its person view.
+            let _ = fed.take_frames(t);
             fed.room_said(&mut f.service, t, elara, "Elara", Room::General, "hi");
             let said = !fed.take_frames(t).is_empty();
             let m = SayMessage::Ask {

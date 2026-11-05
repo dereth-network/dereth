@@ -3305,20 +3305,20 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "server.examination.a-rows-own-name",
-        says: "A placed row a world gave a name of its own is examined under that name, as it is                shown over its head; one with none under its template's.",
-        since: TOOLING,
-        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-OWN-NAME"),
-        station: "yalain-testkit::cpu::entry::examine::a_row_with_a_name_of_its_own_is_examined_under_it",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
         id: "server.examination.a-plain-shield-shows-shield-stats",
         says: "A shield no one made shows its template's numbers under Shield Stats: its rating first, \
                the combat delay it wears with, its damage last; its effects when wielded indented once.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SHIELD-STATS-PLAIN"),
         station: "yalain-testkit::cpu::entry::examine::a_plain_shield_shows_shield_stats_from_its_template",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.examination.a-rows-own-name",
+        says: "A placed row a world gave a name of its own is examined under that name, as it is                shown over its head; one with none under its template's.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-OWN-NAME"),
+        station: "yalain-testkit::cpu::entry::examine::a_row_with_a_name_of_its_own_is_examined_under_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -6385,11 +6385,12 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.network.person-view-watched",
-        says: "A present character on the network asks for its person view, again at each welcome, \
-               and stops when it leaves or goes off the network.",
+        says: "A character in the world on the network asks for its person view, with a friends \
+               stream or not, again at each welcome, and stops when it leaves the world, is hidden \
+               or goes off the network.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-PERSON-VIEW"),
-        station: "yalain-federation::cpu::persons::the_person_view_is_watched_while_a_character_is_present_on_the_network",
+        station: "yalain-federation::cpu::persons::the_person_view_is_watched_while_a_character_is_in_the_world_on_the_network",
         tier: Tier::Cpu,
     },
     behaviour! {

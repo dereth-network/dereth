@@ -177,8 +177,28 @@ impl Federation {
         }
         self.tell_watchers(friends, name, Some(false));
         self.watch_friends_of(friends, name, false);
-        self.watch_person(name, false);
-        self.gone_rows.remove(&character);
+        // Still in the world, its stream gone: what its person view says still holds.
+        if !friends.in_sight(name) {
+            self.watch_person(name, false);
+            self.gone_rows.remove(&character);
+        }
+    }
+
+    /// A character in the world that is not present, having no friends stream, is on the network:
+    /// it watches its person view all the same, to hear of its link.
+    pub fn watch_view_of(&mut self, friends: &impl Friends, name: &str) {
+        if self.enabled() && self.is_on(name) && friends.in_sight(name) {
+            self.watch_person(name, true);
+        }
+    }
+
+    /// A character stops watching its person view: it left the world without a friends stream, or
+    /// is hidden now. What the view said is forgotten.
+    pub fn stop_view_of(&mut self, name: &str) {
+        if self.enabled() && self.is_on(name) {
+            self.watch_person(name, false);
+            self.gone_rows.remove(&name.to_lowercase());
+        }
     }
 
     /// Puts a character of this world on the network, or takes it off, at once: kept in the
@@ -213,6 +233,8 @@ impl Federation {
             );
             if present {
                 self.arrived(friends, name);
+            } else {
+                self.watch_view_of(friends, name);
             }
             self.want_profile(id, name);
         } else {
@@ -263,6 +285,8 @@ impl Federation {
         self.listing_renamed(id, old, new);
         if friends.present(new).is_some() {
             self.arrived(friends, new);
+        } else {
+            self.watch_view_of(friends, new);
         }
     }
 
@@ -277,11 +301,17 @@ impl Federation {
     }
 
     /// While a character is present, its watchers and friends on other worlds see it offline, and
-    /// it stops watching its friends.
+    /// it stops watching its friends. While it is in the world at all, it stops watching its person
+    /// view.
     fn out_of_sight(&mut self, friends: &impl Friends, name: &str) {
-        if self.enabled() && friends.present(name).is_some() {
+        if !self.enabled() {
+            return;
+        }
+        if friends.present(name).is_some() {
             self.tell_watchers(friends, name, Some(false));
             self.watch_friends_of(friends, name, false);
+        }
+        if friends.in_sight(name) {
             self.watch_person(name, false);
         }
     }

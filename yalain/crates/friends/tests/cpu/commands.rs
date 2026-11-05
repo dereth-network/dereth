@@ -83,6 +83,79 @@ fn dn_said_in_chat_shows_puts_on_and_takes_off_the_network() {
     assert_eq!(w.said("Ann", "frobnicate"), help);
 }
 
+/// A character in the world with no friends stream watches its person view all the same: told when
+/// its link comes, and `@dn` says so. It stops as it leaves the world, or is hidden, and watches
+/// again when it no longer is; a stream ending leaves it watching.
+/// Behaviour: server.network.person-view-watched
+#[test]
+fn a_character_with_no_friends_stream_is_told_of_its_link_and_dn_says_it_is_linked() {
+    let watches = |frames: Vec<Message>| -> Vec<bool> {
+        frames
+            .iter()
+            .filter_map(|m| match m {
+                Message::PersonWatch { on, .. } => Some(*on),
+                _ => None,
+            })
+            .collect()
+    };
+    let view = |linked| Message::PersonFriends {
+        to: addr("Ann@dawnsong"),
+        linked,
+        alts: Default::default(),
+        persons: Vec::new(),
+    };
+    let mut w = World::linked();
+    w.character("Ann");
+    w.enter("Ann");
+    w.on("Ann");
+    assert_eq!(watches(w.frames()), [true], "no stream, and it watches");
+
+    assert_eq!(w.said("Ann", "link"), Vec::<String>::new());
+    w.frames();
+    w.hub(&view(false));
+    assert!(w.lines_of("Ann").is_empty());
+    w.hub(&view(true));
+    assert_eq!(w.lines_of("Ann"), [yalain_federation::NOW_LINKED]);
+    assert!(
+        w.said("Ann", "")[0].ends_with("This character is linked to a Discord account."),
+        "@dn says so"
+    );
+
+    // Hidden, it watches nothing; back, it watches again.
+    let (_, id) = w.ids("Ann");
+    let hide = |w: &mut World, who: HashSet<u64>| {
+        let now = w.now;
+        w.service.set_hidden(now, who, &mut w.store, w.fed.as_mut());
+        w.flush();
+    };
+    hide(&mut w, HashSet::from([id]));
+    assert_eq!(watches(w.frames()), [false]);
+    hide(&mut w, HashSet::new());
+    assert_eq!(watches(w.frames()), [true]);
+
+    // A stream that comes and goes leaves the watch as it was, and hiding ends it just the same;
+    // leaving the world ends it.
+    let s = w.stream("Ann");
+    w.frames();
+    hide(&mut w, HashSet::from([id]));
+    assert_eq!(watches(w.frames()), [false]);
+    hide(&mut w, HashSet::new());
+    assert_eq!(watches(w.frames()), [true]);
+    w.drop_stream(s);
+    assert!(watches(w.frames()).is_empty(), "still in the world");
+    w.hub(&view(true));
+    assert!(
+        w.said("Ann", "")[0].ends_with("This character is linked to a Discord account."),
+        "still known"
+    );
+    w.leave("Ann");
+    assert_eq!(watches(w.frames()), [false]);
+
+    // On the network already, it watches as it enters.
+    w.enter("Ann");
+    assert_eq!(watches(w.frames()), [true]);
+}
+
 /// `@dn link` asks the hub and the answer comes as a line; `@dn status` reads as `@dn`, and says a
 /// linked character is linked and where its directory page is; `@dn off` says a linked character's
 /// link is paused; off the network `@dn link` and `@dn unlink` say so.
