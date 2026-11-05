@@ -766,6 +766,14 @@ impl Ui {
         if self.is_activatable(h) {
             self.register_activatable(h);
         }
+        // Being made is its first showing: one that takes the keyboard on showing takes it.
+        // D2-11248, D2-11360
+        let takes = self
+            .node(h)
+            .is_some_and(|n| n.bool_attr(attr::ACTIVATE_ON_SHOW));
+        if takes && !self.mgr.use_down {
+            self.activate_element(h);
+        }
         Some(h)
     }
 

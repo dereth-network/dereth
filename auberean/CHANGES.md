@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Dialogs now open with their button ready for the use key.
 - Fixed the names key and resizing the bar undoing unapplied Character options.
 - Fixed the craft panel staying open after using a recipe's last charge.
 - Fixed a stack's name keeping its old count.

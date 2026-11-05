@@ -481,6 +481,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.dialogs.the-use-key-answers-a-dialog-as-it-goes-up",
+        says: "An element that takes the keyboard on showing takes it as it is made: a message's or a question's button holds the keyboard when the dialog goes up, so the use key answers it, unless the use key is already down.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ACTIVATE-ON-FIRST-SHOW"),
+        station: "auberean-ui-game::dat::play::dialogs::the_use_key_answers_a_dialog_as_it_goes_up",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.disconnected.the-reason-shows-and-quit-leaves",
         says: "The disconnected screen shows why the session ended, and its button leaves the \
                game.",
