@@ -367,6 +367,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.credits.they-stop-the-song-and-open-on-their-second-picture",
+        says: "The credits stop the song playing as they open, once, and show the second of \
+               their pictures first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CREDITS-OPEN"),
+        station: "auberean-ui-game::dat::screens::pregame::they_stop_the_song_and_open_on_their_second_picture",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.datapatch.a-failed-connection-says-its-errors-own-line",
         says: "A login refused, or a login server letting its connection go, with an error leads \
                from connecting to the disconnected screen with that error's own line (the server \

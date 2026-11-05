@@ -14,6 +14,7 @@ not how it was done.
 - Fixed effects that fade a body out snapping it back at once.
 - Fixed mist on the ground in rain too light to see.
 - Fixed sunlit halls: the sun now falls across their floors and walls as the original's does.
+- The credits now stop the music that was playing and start their own.
 - Book pages no longer creep up a pixel per page.
 - A window's dropdown now closes when the window hides.
 - The journal scrolls to the quest that changed.
@@ -25,7 +26,6 @@ not how it was done.
 - A character the font lacks no longer changes the font of what you type next.
 - Windows you resize now stop at the edges of the screen.
 - Dropping a second item in the world no longer sends it to the last target.
-- Clicking the paper doll selects what you clicked, not what you clicked before.
 - A corpse's or chest's window now opens over it.
 - Auto-run no longer carries on after walking up to something you used.
 - Crowded places run faster.

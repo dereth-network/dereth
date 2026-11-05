@@ -924,6 +924,31 @@ fn the_name_is_asked_with_cancel_and_enter() {
     );
 }
 
+/// The credits stop the song playing as they open, once, and show the second of their pictures
+/// first.
+///
+/// Behaviour: ui.credits.they-stop-the-song-and-open-on-their-second-picture
+#[test]
+fn they_stop_the_song_and_open_on_their_second_picture() {
+    let mut r = Run::new();
+    let mut credits = Credits::open(&mut r.ui, false).expect("the credits open");
+    let silences = |out: &[Request]| out.iter().filter(|a| matches!(a, Request::Silence)).count();
+    let mut out = Vec::new();
+    credits.tick(&mut r.ui, &mut r.data, &mut out);
+    assert_eq!(silences(&out), 1, "{out:?}");
+    r.ui.use_time(1.0);
+    let mut out = Vec::new();
+    credits.tick(&mut r.ui, &mut r.data, &mut out);
+    assert_eq!(silences(&out), 0, "only as they open");
+    let field = r.ui.element(Token::of("PictureField")).expect("made");
+    let n = r.ui.node(field).unwrap();
+    assert_eq!(
+        n.picture.map(|p| p.id),
+        n.id_attr(Token::of("ID_Picture1")),
+        "the one after the first"
+    );
+}
+
 /// The credits scroll their text up from under the screen's foot until the last line has gone
 /// over its top, which takes about four minutes (the retail client's credits run 236 to 242
 /// seconds), and then close by themselves: please wait, and the character list; an interface key
