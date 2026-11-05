@@ -9,6 +9,11 @@
 //!
 //! A world with no clearing has no overlay: the folder is left empty and everything reads the
 //! install's own records.
+//!
+//! A build is numbered as the revision after the folder's last, so a client holding the last one
+//! is sent what changed alone. A build that changes nothing leaves the folder as it is, and one
+//! that does replaces it only once it is written whole, so a server reading the folder as it runs
+//! keeps what it has until it opens it again.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -20,8 +25,9 @@ use auberean_dat::overlay::WORLD_FOLDER;
 use auberean_dat::DatFile;
 use auberean_world::records::{RegionSet, WorldRecords};
 use auberean_world::scenery::barren_field;
-use dereth_dat::overlay::OverlayDir;
-use dereth_dat::ModernDat;
+use dereth_dat::overlay::{OverlayDir, OverlayError};
+use dereth_dat::revise::{revise_folder, ReviseError};
+use dereth_dat::{decompose, ModernDat};
 use dereth_primitives::num::math;
 use dereth_primitives::DataId;
 use yalain_world_db::merge::Merged;
@@ -113,6 +119,43 @@ fn to_block(c: f32) -> u32 {
     c as u32
 }
 
+/// The edge of a clearing as written, not widened: `steps` points round it, on the world's grid about
+/// `center`, for showing where it lies.
+#[must_use]
+pub fn outline(c: &Clearing, center: [f32; 2], steps: usize) -> Vec<[f32; 2]> {
+    #[allow(clippy::cast_precision_loss)]
+    let part = |k: usize| k as f32 / steps.max(1) as f32;
+    if let Some(r) = c.radius {
+        return (0..=steps)
+            .map(|k| {
+                let a = part(k) * std::f32::consts::TAU;
+                [center[0] + r * math::cosf(a), center[1] + r * math::sinf(a)]
+            })
+            .collect();
+    }
+    let [x, y] = c.size.unwrap_or([0.0, 0.0]);
+    let (hx, hy) = (x / 2.0, y / 2.0);
+    let turn = c.heading.unwrap_or(0.0).to_radians();
+    let (cos, sin) = (math::cosf(turn), math::sinf(turn));
+    // The way round its own axes, and the world's point of each: the shape's axes turned back.
+    let corners = [(-hx, -hy), (hx, -hy), (hx, hy), (-hx, hy), (-hx, -hy)];
+    let each = (steps / 4).max(1);
+    let mut out = Vec::new();
+    for w in corners.windows(2) {
+        for k in 0..each {
+            #[allow(clippy::cast_precision_loss)]
+            let t = k as f32 / each as f32;
+            let (u, v) = (
+                w[0].0 + (w[1].0 - w[0].0) * t,
+                w[0].1 + (w[1].1 - w[0].1) * t,
+            );
+            out.push([center[0] + u * cos + v * sin, center[1] - u * sin + v * cos]);
+        }
+    }
+    out.extend(out.first().copied());
+    out
+}
+
 /// The world's clearings, with the landblock each is written in.
 fn clearings(merged: &Merged) -> Vec<(&Clearing, u16)> {
     merged
@@ -170,7 +213,7 @@ fn clear_vertices(
 /// The landblock records the world's clearings change, by id, and what they come to.
 ///
 /// # Errors
-/// A clearing in a landblock the install does not hold, and a record that does not read.
+/// As [`cleared_rows`].
 pub fn cleared_blocks(
     merged: &Merged,
     cell: &DatFile,
@@ -178,8 +221,23 @@ pub fn cleared_blocks(
     region: &RegionSet,
     records: &WorldRecords,
 ) -> Result<(BTreeMap<u32, Vec<u8>>, Built), String> {
+    cleared_rows(&clearings(merged), cell, ctx, region, records)
+}
+
+/// The landblock records these clearings change, each with the landblock it is written in, by id;
+/// and what they come to. `cell` is the file as the install holds it.
+///
+/// # Errors
+/// A clearing in a landblock the install does not hold, and a record that does not read.
+pub fn cleared_rows(
+    rows: &[(&Clearing, u16)],
+    cell: &DatFile,
+    ctx: &Context,
+    region: &RegionSet,
+    records: &WorldRecords,
+) -> Result<(BTreeMap<u32, Vec<u8>>, Built), String> {
     let mut by_block: BTreeMap<(u32, u32), Vec<Shape>> = BTreeMap::new();
-    for (c, landblock) in clearings(merged) {
+    for &(c, landblock) in rows {
         let id = landblock_record(u32::from(landblock >> 8), u32::from(landblock & 0xFF));
         if cell.entry(id).is_none() {
             return Err(format!(
@@ -216,21 +274,35 @@ const fn landblock_record(x: u32, y: u32) -> u32 {
     (x << 24) | (y << 16) | 0xFFFF
 }
 
-/// Write the world's overlay into `out`'s [`FOLDER`], in place of any made before: the same rows
-/// and install make the same bytes. Answers the folder and what it holds; a world that changes no
-/// record makes no container.
+/// Write the world's overlay into `out`'s [`FOLDER`]: the revision after what the folder holds,
+/// when it reads otherwise. Answers the folder and what it holds; a world that changes no record
+/// and never did makes no container.
 ///
 /// # Errors
-/// As [`cleared_blocks`], the install not reading, and the container not writing.
+/// As [`write_rows`], and the world not checking.
 pub fn write(world: &Opened, dats: &Path, out: &Path) -> Result<(PathBuf, Built), String> {
     let merged = build::merged(world)?;
+    let key = rows::read(&world.files)
+        .map_err(|p| yalain_world_db::report(&p))?
+        .world
+        .key;
+    write_rows(&clearings(&merged), &key, dats, out)
+}
+
+/// [`write()`] for the clearings a world holds, each with the landblock it is written in, for a world
+/// whose rows are in hand.
+///
+/// # Errors
+/// As [`cleared_rows`], the install not reading, and the containers not writing.
+pub fn write_rows(
+    rows: &[(&Clearing, u16)],
+    key: &str,
+    dats: &Path,
+    out: &Path,
+) -> Result<(PathBuf, Built), String> {
     let folder = out.join(FOLDER);
     let dir = OverlayDir::new(&folder).map_err(|e| e.to_string())?;
-    if dir.holds(ModernDat::Cell) {
-        dir.remove(ModernDat::Cell)
-            .map_err(|e| format!("{}: {e}", folder.display()))?;
-    }
-    if clearings(&merged).is_empty() {
+    if rows.is_empty() && !dir.holds(ModernDat::Cell) {
         return Ok((folder, Built::default()));
     }
     let files = install_dats(dats).map_err(|e| format!("{}: {e}", dats.display()))?;
@@ -247,30 +319,67 @@ pub fn write(world: &Opened, dats: &Path, out: &Path) -> Result<(PathBuf, Built)
     let ctx = Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
     let records = WorldRecords::new(portal, cell.clone(), None, ctx.clone());
     let region = records.region().map_err(|e| format!("{e:?}"))?;
-    let (blocks, built) = cleared_blocks(&merged, &cell, &ctx, &region, &records)?;
-    if blocks.is_empty() {
-        return Ok((folder, built));
-    }
-    let key = rows::read(&world.files)
-        .map_err(|p| yalain_world_db::report(&p))?
-        .world
-        .key;
-    let mut writer = dir
-        .writer(
+    let (blocks, built) = cleared_rows(rows, &cell, &ctx, &region, &records)?;
+    publish(&folder, &cell, key, &blocks).map_err(|e| format!("{}: {e}", folder.display()))?;
+    Ok((folder, built))
+}
+
+/// Make `folder` read as `blocks` over `cell`, numbered as the revision after what it holds, which is
+/// left as it is when it reads so already. One of another world, or made over other files, is
+/// not followed: the revisions start again.
+fn publish(
+    folder: &Path,
+    cell: &DatFile,
+    key: &str,
+    blocks: &BTreeMap<u32, Vec<u8>>,
+) -> Result<(), ReviseError> {
+    let beside = |name: &str| folder.with_file_name(name);
+    let (fresh, next) = (beside(".overlay-fresh"), beside(".overlay-next"));
+    let clean = |dir: &Path| -> Result<(), ReviseError> {
+        if dir.exists() {
+            std::fs::remove_dir_all(dir).map_err(dereth_dat::DatError::from)?;
+        }
+        Ok(())
+    };
+    clean(&fresh)?;
+    clean(&next)?;
+    let fresh_dir = OverlayDir::new(&fresh)?;
+    if !blocks.is_empty() {
+        let mut writer = fresh_dir.writer(
             ModernDat::Cell,
             cell.shared(),
             role_file(ModernDat::Cell),
-            &key,
+            key,
             0,
-        )
-        .map_err(|e| e.to_string())?;
-    for (id, bytes) in &blocks {
-        writer
-            .put(DataId(*id), bytes, 1, 0, 0)
-            .map_err(|e| e.to_string())?;
+        )?;
+        let revision = decompose::revision_over(cell.shared());
+        for (id, bytes) in blocks {
+            writer.put(DataId(*id), bytes, 1, revision, 0)?;
+        }
+        writer.add_iteration(revision, 0)?;
+        writer.flush(0)?;
     }
-    writer.flush(0).map_err(|e| e.to_string())?;
-    Ok((folder, built))
+    let bases = [(ModernDat::Cell, cell.shared().clone())];
+    let last = OverlayDir::new(folder)?;
+    let next_dir = OverlayDir::new(&next)?;
+    let revised = match revise_folder(&bases, Some(&last), &fresh_dir, &next_dir, key) {
+        Err(ReviseError::Overlay(
+            OverlayError::OtherWorld { .. } | OverlayError::BaseMismatch { .. },
+        )) => {
+            clean(&next)?;
+            revise_folder(&bases, None, &fresh_dir, &next_dir, key)
+        }
+        other => other,
+    }?;
+    clean(&fresh)?;
+    if revised.iter().all(|(_, r)| r.revision.is_none()) && last.holds(ModernDat::Cell) {
+        return clean(&next);
+    }
+    clean(folder)?;
+    if next.exists() {
+        std::fs::rename(&next, folder).map_err(dereth_dat::DatError::from)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -301,6 +410,50 @@ mod tests {
         // An eighth clockwise: its east end swings south of east.
         let s = shape(45.0, [80.0, 4.0]);
         assert!(s.holds(120.0, 80.0) && !s.holds(120.0, 120.0));
+    }
+
+    fn row(radius: Option<f32>, size: Option<[f32; 2]>, heading: Option<f32>) -> Clearing {
+        Clearing {
+            key: "c".into(),
+            at: yalain_world_db::rows::At {
+                x: 0.0,
+                y: 0.0,
+                z: None,
+            },
+            heading,
+            radius,
+            size,
+            prov: yalain_world_db::rows::Prov::AUTHORED,
+        }
+    }
+
+    #[test]
+    fn a_clearings_outline_lies_on_the_edge_of_what_it_keeps_clear() {
+        for c in [
+            row(Some(20.0), None, None),
+            row(None, Some([80.0, 4.0]), Some(0.0)),
+            row(None, Some([80.0, 4.0]), Some(35.0)),
+        ] {
+            let outer = Shape::of(&c, 0);
+            let tight = Shape {
+                radius: outer.radius.map(|r| r - SPREAD + 0.01),
+                half: (outer.half.0 - SPREAD + 0.01, outer.half.1 - SPREAD + 0.01),
+                ..outer
+            };
+            let inner = Shape {
+                radius: outer.radius.map(|r| r - SPREAD - 0.5),
+                half: (outer.half.0 - SPREAD - 0.5, outer.half.1 - SPREAD - 0.5),
+                ..outer
+            };
+            let edge = outline(&c, [0.0, 0.0], 32);
+            assert!(edge.len() >= 32);
+            let (a, b) = (edge[0], edge[edge.len() - 1]);
+            assert!(math::hypotf(a[0] - b[0], a[1] - b[1]) < 0.01, "it closes");
+            for [x, y] in edge {
+                assert!(tight.holds(x, y), "{c:?} {x} {y}");
+                assert!(!inner.holds(x, y), "{c:?} {x} {y}");
+            }
+        }
     }
 
     #[test]

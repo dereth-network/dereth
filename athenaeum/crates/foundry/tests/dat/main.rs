@@ -312,3 +312,66 @@ fn a_clearing_takes_what_the_land_grows_out_of_its_shape() {
     assert_eq!(rebuilt, built);
     assert_eq!(bytes(&again), first);
 }
+
+/// Built again, a world's overlay is the revision after its last: a clearing changed goes into the
+/// next revision, the same rows change nothing, and a clearing taken away gives the land back. The
+/// folder is replaced whole under a reader that holds it open, as a running server does, which
+/// keeps what it read until it opens the folder again.
+#[test]
+fn a_world_built_again_is_the_next_revision_even_with_a_server_reading_the_folder() {
+    let root = scratch("revisions");
+    let dir = root.join("cleared");
+    let base = database();
+    new::new_world(&dir, None).unwrap();
+    let dats = require_install(TARGET);
+    let row = |radius: f32| {
+        format!("[[clearing]]\nkey = \"yard\"\nat = [75.0, 45.0, \"ground\"]\nradius = {radius:.1}\nprov = {{ from = \"authored\" }}\n")
+    };
+    let cell_file = DatFile::open(&DatName::Cell(1).in_dir(&dats)).unwrap();
+    let block = 0xB590_FFFF;
+    let in_block = format!("landblocks/{:04X}.toml", block >> 16);
+
+    with_rows(&dir, &in_block, &row(25.0));
+    let opened = world::open(&dir, Some(&base)).unwrap();
+    let (folder, _) = overlay::write(&opened, &dats, &dir).unwrap();
+    assert_eq!(folder, dir.join(overlay::FOLDER));
+    let over = |f: &Path| {
+        WorldOverlay::open(f)
+            .unwrap()
+            .over(DatFile::open(&DatName::Cell(1).in_dir(&dats)).unwrap())
+            .unwrap()
+    };
+    let held = over(&folder);
+    let small = held.read(block).unwrap();
+    assert_ne!(small, cell_file.read(block).unwrap());
+    let first = held.shared().layer().unwrap().own_iterations().to_vec();
+    assert_eq!(first.len(), 1, "{first:?}");
+
+    // The same rows leave the file as it is.
+    let path = folder.join("overlay_cell.dat");
+    let bytes = std::fs::read(&path).unwrap();
+    overlay::write(&opened, &dats, &dir).unwrap();
+    assert_eq!(std::fs::read(&path).unwrap(), bytes);
+
+    // A bigger clearing: the next revision, with the file still held open here.
+    with_rows(&dir, &in_block, &row(40.0));
+    let opened = world::open(&dir, Some(&base)).unwrap();
+    overlay::write(&opened, &dats, &dir).unwrap();
+    assert_eq!(held.read(block).unwrap(), small, "what it has, it keeps");
+    let next = over(&folder);
+    assert_ne!(next.read(block).unwrap(), small);
+    let revisions = next.shared().layer().unwrap().own_iterations().to_vec();
+    assert_eq!(revisions, [first[0], first[0] + 1]);
+
+    // Taken away: the install's record again, in a revision of its own for who held the last.
+    let file = dir.join("fill-cleared/server").join(&in_block);
+    std::fs::remove_file(file).unwrap();
+    let opened = world::open(&dir, Some(&base)).unwrap();
+    overlay::write(&opened, &dats, &dir).unwrap();
+    let last = over(&folder);
+    assert_eq!(last.read(block).unwrap(), cell_file.read(block).unwrap());
+    assert_eq!(last.shared().layer().unwrap().own_iterations().len(), 3);
+
+    drop((held, next, last));
+    std::fs::remove_dir_all(&root).ok();
+}

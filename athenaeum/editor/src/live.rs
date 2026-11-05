@@ -57,6 +57,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use auberean_dat::locate::DatName;
+use auberean_dat::overlay::{WorldOverlay, WORLD_FOLDER};
+use auberean_dat::DatFile;
+use yalain_world_db::rows::Clearing;
 use yalain_world_db::Files;
 
 use crate::characters::{self, Making, Recipe};
@@ -567,25 +571,47 @@ pub struct Setup {
     pub folder: PathBuf,
     /// The world's base, when it lies over one.
     pub base: Option<PathBuf>,
-}
-
-/// The world's overlay made for our client from the world's rows as the server has them, when
-/// they change any of the client's records; a world with no clearing is read as the install is.
-///
-/// # Errors
-/// The world does not read, or the overlay is not made.
-fn client_overlay(setup: &Setup, dats: &Path) -> Result<Option<PathBuf>, String> {
-    let dir = setup.world();
-    let files = athenaeum_foundry::world::load(&dir)?;
-    if !files.values().any(|text| text.contains("[[clearing]]")) {
-        return Ok(None);
-    }
-    let opened = athenaeum_foundry::world::open(&dir, setup.base.as_deref())?;
-    let (folder, built) = athenaeum_foundry::overlay::write(&opened, dats, &setup.folder)?;
-    Ok((built.blocks > 0).then_some(folder))
+    /// The world's key, and its clearings with the landblock each is written in.
+    pub key: String,
+    pub clearings: Vec<(Clearing, u16)>,
 }
 
 impl Setup {
+    /// Make the overlay of the world the server serves, over the install it reads, when it changes
+    /// or changed any of its records.
+    ///
+    /// # Errors
+    /// A clearing the install has no landblock for, or the overlay not writing.
+    pub fn write_overlay(&self) -> Result<(), String> {
+        let Some(dats) = &self.programs.server_dats else {
+            return Ok(());
+        };
+        let rows: Vec<(&Clearing, u16)> = self.clearings.iter().map(|(c, l)| (c, *l)).collect();
+        athenaeum_foundry::overlay::write_rows(&rows, &self.key, dats, &self.world())?;
+        Ok(())
+    }
+
+    /// The overlay our client reads over the install `dats`: the server's when it lies over those
+    /// files, else the same clearings made over them; none for a world that changes no record.
+    ///
+    /// # Errors
+    /// The overlay not reading or not writing.
+    fn client_overlay(&self, dats: &Path) -> Result<Option<PathBuf>, String> {
+        let world = self.world();
+        let Some(overlay) = WorldOverlay::of_world(&world).map_err(|e| e.to_string())? else {
+            return Ok(None);
+        };
+        let cell = DatName::Cell(1).in_dir(dats);
+        let file = DatFile::open(&cell).map_err(|e| format!("{}: {e}", cell.display()))?;
+        if overlay.over(file).is_ok() {
+            return Ok(Some(world.join(WORLD_FOLDER)));
+        }
+        let own = self.folder.join("client");
+        let rows: Vec<(&Clearing, u16)> = self.clearings.iter().map(|(c, l)| (c, *l)).collect();
+        let (folder, _) = athenaeum_foundry::overlay::write_rows(&rows, &self.key, dats, &own)?;
+        Ok(Some(folder))
+    }
+
     /// The world the server serves.
     #[must_use]
     pub fn world(&self) -> PathBuf {
@@ -797,6 +823,7 @@ impl Live {
         let _ = std::fs::remove_dir_all(&world);
         self.written.clear();
         write_world(&world, files, &mut self.written)?;
+        setup.write_overlay()?;
         characters::forget_unstored(&setup.folder)?;
         self.spawn(setup, port, 1)
     }
@@ -1170,6 +1197,8 @@ impl Live {
         if !self.up() || self.reloading() {
             return Ok(false);
         }
+        // Before the rows: a clearing that can't be made leaves the server on what it has.
+        setup.write_overlay()?;
         if write_world(&setup.world(), files, &mut self.written)? == 0 {
             return Ok(true);
         }
@@ -1226,7 +1255,7 @@ impl Live {
                 .ok_or("no install for the client: give --client-dats <install>")?;
             let settings = run.join("client-settings");
             std::fs::create_dir_all(&settings).map_err(|e| e.to_string())?;
-            let overlay = client_overlay(setup, dats)?;
+            let overlay = setup.client_overlay(dats)?;
             let log = File::create(run.join("client.log")).map_err(|e| e.to_string())?;
             let err = log.try_clone().map_err(|e| e.to_string())?;
             let mut c = Command::new(exe);

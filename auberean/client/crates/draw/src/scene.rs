@@ -2534,6 +2534,11 @@ impl<'a> SceneBuilder<'a> {
             .collect()
     }
 
+    /// Place block `(x, y)`'s scenery again when it is next drawn: its landblock changed.
+    pub fn forget_scenery(&mut self, x: i32, y: i32) {
+        self.scenery.remove(&(x, y));
+    }
+
     /// The scenery of one block, placed once and kept.
     fn block_scenery(
         &mut self,

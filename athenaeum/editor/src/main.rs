@@ -247,6 +247,7 @@ impl App<'_> {
                         "static" => NewKind::Static,
                         "camp" => NewKind::Camp,
                         "place" => NewKind::Place,
+                        "clearing" => NewKind::Clearing,
                         _ => NewKind::Person,
                     };
                     e.template = template;

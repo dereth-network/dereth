@@ -8,6 +8,7 @@ see, not how it was done.
 
 ## Unreleased
 
+- New clearing tool keeps a spot free of trees, rocks and grass.
 - A covered window on a Mac no longer runs flat out.
 - People can be given a name of their own.
 - New [[clearing]] rows keep a spot free of trees, rocks and grass.

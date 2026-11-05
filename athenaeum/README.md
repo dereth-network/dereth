@@ -110,10 +110,12 @@ to where it leads.
   they tell you. Examining them, and a shop's own title, still show the template's name.
 - Ctrl+D or **Duplicate** copies the selected row beside it and selects the copy, whatever it is:
   a person with their name and place, a camp with its creatures, a portal with where it leads.
-- A `[[clearing]]` row in a landblock's file keeps a spot free of trees, rocks and grass: `at` and a
-  `radius`, or a `size = [x, y]` and a `heading`. The editor has no tool for it yet and doesn't show
-  it; Play shows it in our client, and `athenaeum build` writes it to the world's `overlay` folder,
-  which Yalain reads and `auberean --overlay-dat-dir` takes. The retail client still grows what the land grew.
+- **Place** with the kind **clearing** keeps a spot free of trees, rocks and grass: drag on the
+  ground from the middle (**Round**) or corner to corner (**Rectangle**), and the land stops growing
+  there at once. Its marker moves it, and its fields change its size. It's a `[[clearing]]` row: `at`
+  and a `radius`, or a `size = [x, y]` and a `heading`. Play shows it in our client, and `athenaeum
+  build` writes it to the world's `overlay` folder, which Yalain reads and `auberean
+  --overlay-dat-dir` takes. The retail client still grows what the land grew.
 - A row of the database is never written: changing one writes this world's own row of its key,
   shown as changed, with what it was and **Put back**; taking one away writes a `[[remove]]`.
 - Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes (Cmd on macOS, as well). The world's problems are listed along the bottom as
