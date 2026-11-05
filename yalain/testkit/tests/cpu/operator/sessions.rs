@@ -231,3 +231,229 @@ fn an_admins_account_is_held_back_by_its_address_limit() {
     let (_, answer) = log_in_from(&mut h, HERE, "boss");
     assert_eq!(answer, refused(CharacterRefused::SERVER_FULL));
 }
+
+/// Logins from these addresses, all at the same moment: how many of them are told the world has no
+/// room, by the end. Each account its own.
+fn together(h: &mut Harness, from: &[(Ipv4Addr, String)]) -> usize {
+    let bots: Vec<usize> = from
+        .iter()
+        .map(|(ip, name)| {
+            let b = h.add_bot_from(*ip);
+            let now = h.now;
+            h.bots[b].log_in(name, b"ticket", now);
+            b
+        })
+        .collect();
+    h.run(10);
+    bots.iter()
+        .filter(|b| {
+            h.bots[**b].messages(false).iter().any(
+                |m| matches!(m, ServerMessage::CharacterRefused(r) if r.reason == CharacterRefused::SERVER_FULL),
+            )
+        })
+        .count()
+}
+
+/// Many logins at once from one address: at least what the limit allows go through, a household's
+/// or a shared address's; what is past it is told the world has no room, its name not even looked
+/// at, and no account is made for it. Another address is not held back, the limit comes back with
+/// time, and an address the operator exempts, or this machine's own, is not held to it.
+/// Behaviour: server.accounts.secret-checks-bounded
+#[test]
+fn logins_past_the_secrets_an_address_may_have_checked_are_told_the_world_has_no_room() {
+    let (burst, per_second) = yalain_world::login::ADDRESS_CHECKS;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let burst = burst as usize;
+    let cfg = ServerConfig {
+        secret_cost: 4,
+        ..ServerConfig::default()
+    };
+    let mut h = world(cfg.clone());
+    let names = |prefix: &str, ip: Ipv4Addr, n: usize| -> Vec<(Ipv4Addr, String)> {
+        (0..n).map(|i| (ip, format!("{prefix}{i}"))).collect()
+    };
+    assert_eq!(together(&mut h, &names("few", HERE, burst)), 0, "a few");
+    let over = together(&mut h, &names("many", HERE, burst));
+    assert!(over >= burst - 2, "{over} of {burst} past the limit");
+    let made = (0..burst)
+        .filter(|i| {
+            h.server
+                .store
+                .account_by_name(&format!("many{i}"))
+                .is_ok_and(|a| a.is_some())
+        })
+        .count();
+    assert_eq!(made, burst - over, "none made for what was refused");
+    assert_eq!(
+        together(&mut h, &names("there", THERE, burst)),
+        0,
+        "another address"
+    );
+    h.advance(10.0 / per_second);
+    assert_eq!(
+        together(&mut h, &names("later", HERE, 10)),
+        0,
+        "it comes back with time"
+    );
+
+    let exempt = |mut h: Harness, ip: Ipv4Addr, what: &str| {
+        let before = h.server.sessions.len();
+        for round in 0..3 {
+            let refused = together(&mut h, &names(&format!("r{round}x"), ip, burst));
+            assert_eq!(refused, 0, "{what}");
+        }
+        let all = before + 3 * burst;
+        assert!(
+            h.run_until(STEPS, |h| h.server.sessions.len() == all),
+            "{what}"
+        );
+    };
+    exempt(h, Ipv4Addr::LOCALHOST, "this machine");
+    let h = world(ServerConfig {
+        unlimited_addresses: vec![IpAddr::V4(HERE)],
+        ..cfg
+    });
+    exempt(h, HERE, "exempted by the operator");
+}
+
+/// Logins from these addresses, each its own, at the same moment.
+fn all_at_once(h: &mut Harness, n: usize) -> Vec<usize> {
+    (0..n)
+        .map(|i| {
+            let [_, _, a, b] = u32::try_from(i).expect("few").to_be_bytes();
+            let c = h.add_bot_from(Ipv4Addr::new(10, 7, a, b));
+            let now = h.now;
+            h.bots[c].log_in(&format!("p{i}"), b"ticket", now);
+            c
+        })
+        .collect()
+}
+
+/// However many addresses log in at once, secrets are checked at a pace with the world's work
+/// between them, nobody refused for waiting: each gets in as its turn comes. A higher cost goes
+/// slower, for the same share of the world's time.
+/// Behaviour: server.accounts.secret-checks-bounded
+#[test]
+fn logins_at_once_wait_their_turn_and_each_gets_in() {
+    use yalain_world::login::{CHECKS_A_SECOND, SECRET_COST};
+    let at_cost = |cost: u32, n: usize| -> f64 {
+        let mut h = world(ServerConfig {
+            secret_cost: cost,
+            ..ServerConfig::default()
+        });
+        all_at_once(&mut h, n);
+        assert!(h.run_until(STEPS, |h| !h.server.sessions.is_empty()));
+        let start = h.now.0;
+        let in_time = h.run_until(STEPS, |h| h.server.sessions.len() == n);
+        assert!(in_time, "all {n} in: {}", h.server.sessions.len());
+        h.now.0 - start
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let least = |n: usize, work: f64| (n as f64 - 2.0) * work / CHECKS_A_SECOND;
+    let took = at_cost(SECRET_COST, 8);
+    assert!(took >= least(8, 1.0), "{took} s at its pace");
+    let took = at_cost(SECRET_COST + 1, 9);
+    assert!(took >= least(9, 2.0), "{took} s, each counting for two");
+}
+
+/// A login that goes away while it waits its turn is not checked, holds no place in the world, and no
+/// account is made for it.
+/// Behaviour: server.accounts.secret-checks-bounded
+#[test]
+fn a_login_gone_before_its_turn_is_not_checked() {
+    let mut h = world(ServerConfig::default());
+    let bots = all_at_once(&mut h, 3);
+    assert!(h.run_until(STEPS, |h| !h.server.sessions.is_empty()));
+    h.bots[bots[1]].leave();
+    h.bots[bots[2]].leave();
+    h.run(40);
+    assert_eq!(h.server.sessions.len(), 1);
+    for name in ["p1", "p2"] {
+        assert!(
+            h.server
+                .store
+                .account_by_name(name)
+                .is_ok_and(|a| a.is_none()),
+            "{name}: no account"
+        );
+    }
+}
+
+/// Past as many as may wait, a login is told the world has no room. An admin's account still gets
+/// in, and goes first.
+/// Behaviour: server.accounts.secret-checks-bounded
+#[test]
+fn logins_past_as_many_as_may_wait_are_told_it_has_no_room_but_an_admins_goes_first() {
+    use yalain_world::login::MOST_LOGINS_WAITING;
+    let mut h = world(ServerConfig {
+        max_sessions: 4 * yalain_world::login::MAX_SESSIONS,
+        ..ServerConfig::default()
+    });
+    let store = &mut h.server.store;
+    let admin = yalain_world::login::add_account(store, "boss", b"ticket", 4, 1).expect("made");
+    store.set_account_admin(admin.id, true).expect("set");
+    let bots = all_at_once(&mut h, MOST_LOGINS_WAITING + 40);
+    h.run(8);
+    let refused_now = bots
+        .iter()
+        .filter(|b| {
+            h.bots[**b].messages(false).iter().any(
+                |m| matches!(m, ServerMessage::CharacterRefused(r) if r.reason == CharacterRefused::SERVER_FULL),
+            )
+        })
+        .count();
+    assert!(
+        (30..=40).contains(&refused_now),
+        "{refused_now} past the limit"
+    );
+    let waiting = h.server.sessions.len();
+    let c = h.add_bot_from(THERE);
+    let now = h.now;
+    h.bots[c].log_in("boss", b"ticket", now);
+    assert!(h.run_until(5, |h| h
+        .server
+        .sessions
+        .values()
+        .any(|x| x.account.id == admin.id)));
+    assert!(
+        h.server.sessions.len() < waiting + 8,
+        "ahead of those waiting"
+    );
+}
+
+/// A friends ticket counts among the secrets checked as a login does: past its address's limit even
+/// its right secret is refused unchecked, and the next waits its turn.
+/// Behaviour: server.accounts.secret-checks-bounded
+#[test]
+fn a_friends_ticket_past_the_secrets_an_address_may_have_checked_is_refused() {
+    use yalain_world::admin::{ticket, Ticket};
+    let mut h = world(ServerConfig {
+        secret_cost: 4,
+        ..ServerConfig::default()
+    });
+    let mut admitted = 0;
+    let unix = h.unix;
+    for _ in 0..200 {
+        if matches!(
+            ticket(&mut h.server, "one", b"its secret", "192.0.2.7", unix),
+            Ticket::Admitted(_)
+        ) {
+            admitted += 1;
+        }
+    }
+    let (burst, _) = yalain_world::login::ADDRESS_CHECKS;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let burst = burst as usize;
+    assert_eq!(admitted, burst, "as many as its limit");
+    assert!(
+        !yalain_world::login::secret_check_due(&h.server),
+        "the next waits its turn"
+    );
+    assert!(
+        matches!(
+            ticket(&mut h.server, "one", b"its secret", "198.51.100.9", unix),
+            Ticket::Admitted(_)
+        ),
+        "another address"
+    );
+}

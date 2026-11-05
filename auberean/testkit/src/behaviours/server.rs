@@ -80,6 +80,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.accounts.secret-checks-bounded",
+        says: "Secrets are checked one at a time at a pace, the world's work between them, \
+               logins waiting their turn and an admin's going first. Past as many as may wait, \
+               or what its address may ask, a login is told the world has no room, and a \
+               friends ticket is refused. An address the operator exempts and this machine's \
+               own have no limit of their own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SECRET-CHECKS-BOUNDED"),
+        station: "yalain-testkit::cpu::operator::sessions::logins_past_the_secrets_an_address_may_have_checked_are_told_the_world_has_no_room",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.accounts.secrets-kept-again-at-the-worlds-cost",
         says: "A secret kept at a bcrypt cost other than the world's is kept again at the \
                world's cost when its ticket logs in, as Empyrean rehashes a password whose work \

@@ -957,6 +957,8 @@ impl<S: Store> Server<S> {
             .last_step
             .is_none_or(|t| clock.local.0 - t.0 >= spawn::STEP_SECONDS);
         self.saves.piece_begins();
+        login::checks_due(self, net, clock);
+        self.saves.piece_begins();
         if due {
             self.last_step = Some(clock.local);
             spawn::step(self, net, clock);

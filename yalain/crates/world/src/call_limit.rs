@@ -48,14 +48,25 @@ impl Bucket {
 
     /// A call now: may it go on?
     pub fn allow(&mut self, now: LocalTime) -> bool {
+        self.allow_for(1.0, now)
+    }
+
+    /// Something that costs this much, now: may it go on?
+    pub fn allow_for(&mut self, cost: f64, now: LocalTime) -> bool {
         self.left = (self.left + (now.0 - self.at).max(0.0) * self.per_second).min(self.burst);
         self.at = now.0;
-        if self.left < 1.0 {
+        if self.left < cost {
             self.dropped += 1;
             return false;
         }
-        self.left -= 1.0;
+        self.left -= cost;
         true
+    }
+
+    /// Would it have all it may hold, now?
+    #[must_use]
+    pub fn full(&self, now: LocalTime) -> bool {
+        self.left + (now.0 - self.at).max(0.0) * self.per_second >= self.burst
     }
 }
 

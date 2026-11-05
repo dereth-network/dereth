@@ -647,9 +647,21 @@ pub enum Ticket {
     Banned,
 }
 
-/// Check a friends ticket by the login's rule ([`crate::login::admits`]): a banned account's is
-/// refused as banned, and only once its secret matched.
-pub fn ticket<S: Store>(s: &mut Server<S>, name: &str, secret: &[u8], now: i64) -> Ticket {
+/// Check a friends ticket by the login's rule ([`crate::login::admits`]), from an address as the
+/// login keeps it ([`crate::login::address_key`]): a banned account's is refused as banned, and only
+/// once its secret matched. It counts among the secrets checked as a login does: its host checks
+/// one only when [`crate::login::secret_check_due`] says.
+pub fn ticket<S: Store>(
+    s: &mut Server<S>,
+    name: &str,
+    secret: &[u8],
+    address: &str,
+    now: i64,
+) -> Ticket {
+    if !crate::login::may_check_secret(s, address) {
+        return Ticket::Refused;
+    }
+    crate::login::secret_checked(s);
     match crate::login::admits(
         s.cfg.accounts,
         s.cfg.secret_cost,

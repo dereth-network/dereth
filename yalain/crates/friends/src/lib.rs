@@ -159,6 +159,8 @@ pub struct TicketCheck {
     pub stream: StreamId,
     pub cx: Cx,
     pub ticket: Ticket,
+    /// The address it came from, as bounds count it.
+    pub peer: String,
 }
 
 /// The account a stream is bound to.
@@ -1164,6 +1166,7 @@ impl Service {
                 stream: id,
                 cx,
                 ticket,
+                peer: peer.clone(),
             }),
             Err(_) => {
                 // Counted as any refusal.

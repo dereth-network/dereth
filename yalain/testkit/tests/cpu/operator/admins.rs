@@ -204,13 +204,13 @@ fn an_admins_account_with_no_secret_is_not_claimed_by_the_first_ticket() {
         .expect("made");
     let unix = h.unix;
     assert_eq!(
-        admin::ticket(&mut h.server, "raised", b"a stranger", unix),
+        admin::ticket(&mut h.server, "raised", b"a stranger", "127.0.0.1", unix),
         admin::Ticket::Refused
     );
     let kept = h.server.store.account_by_name("raised").expect("reads");
     assert_eq!(kept.expect("kept").secret, None, "nothing kept for it");
     assert!(matches!(
-        admin::ticket(&mut h.server, "open", b"the first", unix),
+        admin::ticket(&mut h.server, "open", b"the first", "127.0.0.1", unix),
         admin::Ticket::Admitted(_)
     ));
 }
