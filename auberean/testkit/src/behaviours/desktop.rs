@@ -1415,6 +1415,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.others.a-body-put-in-the-air-falls",
+        says: "A body the server puts at once is placed: put in the air it touches nothing and falls, there or when it first stands in the world's table.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-PLACED"),
+        station: "auberean-scene::cpu::others::a_body_put_in_the_air_falls",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "desktop.others.a-body-put-on-another-takes-a-free-spot",
+        says: "A body the server puts at once where another stands takes a free spot nearby.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-PLACED-SLIDE"),
+        station: "auberean-scene::cpu::others::a_body_put_on_another_takes_a_free_spot",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.others.a-body-takes-the-profile-its-objects-qualities-give",
         says: "A body made for an object takes the profile the object's qualities give, asked as \
                the object answers them: its description's, then its own, then those of the \

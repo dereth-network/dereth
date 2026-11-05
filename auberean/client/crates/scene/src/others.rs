@@ -41,6 +41,7 @@ use auberean_draw::body::BodyDrawer;
 use auberean_draw::scene::ObjectBatch;
 use auberean_draw::systems::ParticleSystems;
 use auberean_physics::body::missile::{ObjectTable, Objects};
+use auberean_physics::body::placing::error as place_error;
 use auberean_physics::body::{Body, BodyConfig, Notice, TICK};
 use auberean_physics::geom::{self, Heading};
 use auberean_physics::land::Land;
@@ -270,6 +271,9 @@ pub enum Received {
     Lost(Position),
 }
 
+/// The squared distance beyond which a position is taken at once, not followed: 15 m.
+const FAR_SQUARED: f32 = 225.0;
+
 /// Another object's physics body, steered by the positions the server sends for it.
 #[derive(Debug)]
 pub struct OtherBody {
@@ -345,6 +349,13 @@ impl OtherBody {
         k
     }
 
+    /// The body, new in the world's table, is placed where it stands.
+    // D2-05660
+    pub fn settle(&mut self, land: &Land, world: &mut World) {
+        let at = self.body.position;
+        self.put(land, world, at);
+    }
+
     /// The body leaves the world, to enter it again at `p`.
     // D2-06057, D2-06161, D2-06158
     pub fn leave_visibility(&mut self, p: Position) {
@@ -355,30 +366,37 @@ impl OtherBody {
 
     /// The body enters the world again where it was last put.
     // D2-06058, D2-06059
-    pub fn re_enter_visibility(&mut self) {
+    pub fn re_enter_visibility(&mut self, land: &Land, world: &mut World) {
         if let Some(p) = self.away.take() {
             self.body.in_world = true;
-            self.put(p);
+            self.put(land, world, p);
         }
     }
 
     /// A creation says the body stands at `p`: there at once, and in the world again if it was
     /// lost in a cell not loaded.
     // D2-05660, D2-06368, D2-06268
-    pub fn put_by_creation(&mut self, p: Position) {
+    pub fn put_by_creation(&mut self, land: &Land, world: &mut World, p: Position) {
         if self.away.take().is_some() {
             self.body.in_world = true;
         }
-        self.put(p);
+        self.put(land, world, p);
     }
 
     /// Put the body at `p` at once, with nothing left to follow and nothing to draw it moving
-    /// from.
+    /// from. Once it stands in the world's table it is placed: it takes a free spot nearby and
+    /// touches only what is there, and with no room stays where it was.
     // D2-06369
-    pub fn put(&mut self, p: Position) {
+    pub fn put(&mut self, land: &Land, world: &mut World, p: Position) {
         self.body.stop_interpolating();
         let heading = geom::frame_heading(&p.frame).degrees();
-        self.body.place(p, heading);
+        let in_table = self.body.key().is_some_and(|k| world.position(k).is_some());
+        if !in_table {
+            self.body.place(p, heading);
+        } else if self.body.set_position_simple(land, world, p, true) == place_error::OK {
+            let at = self.body.position;
+            self.body.place(at, heading);
+        }
         self.body.velocity = dereth_primitives::Vec3::ZERO;
         self.body.turn_rate = 0.0;
         self.body.set_placement_position(p);
@@ -387,7 +405,14 @@ impl OtherBody {
     /// A position the server sent for this object, `player` where the player is, `loaded` whether
     /// the position's cell is loaded.
     // D2-06372, D2-06103, D2-06102
-    pub fn receive(&mut self, place: &Place, player: Option<&Position>, loaded: bool) -> Received {
+    pub fn receive(
+        &mut self,
+        place: &Place,
+        player: Option<&Position>,
+        loaded: bool,
+        land: &Land,
+        world: &mut World,
+    ) -> Received {
         if !is_newer(self.stamps.0, place.position_stamp) || place.cell == 0 {
             return Received::Ignored;
         }
@@ -402,7 +427,7 @@ impl OtherBody {
             // In a loaded cell again: there at once.
             self.away = None;
             self.body.in_world = true;
-            self.put(p);
+            self.put(land, world, p);
             self.stamps = (place.position_stamp, place.teleport_stamp);
             return Received::Taken;
         }
@@ -414,10 +439,12 @@ impl OtherBody {
             self.body.set_out_of_physics_range(out);
         }
         let heading = Heading::new(place.heading());
-        if is_newer(self.stamps.1, place.teleport_stamp) || out {
-            self.put(p);
+        let to = geom::offset(&self.body.position, &p);
+        let far = to.x * to.x + to.y * to.y + to.z * to.z > FAR_SQUARED;
+        if is_newer(self.stamps.1, place.teleport_stamp) || out || far {
+            self.put(land, world, p);
         } else if !place.jump() && !place.impulse() {
-            // A place more than 15 m away is taken at once; nearer, it is followed.
+            // Nearer than 15 m, a place is followed.
             self.body
                 .interpolate_to(place.time, p, pv(place.motion()), heading, place.contact());
         } else {
@@ -712,10 +739,10 @@ impl Others {
     }
 
     /// Cell `cell` is loaded: every object lost in it enters the world.
-    fn init_obj_cell(&mut self, cell: u32) {
+    fn init_obj_cell(&mut self, cell: u32, land: &Land, world: &mut World) {
         for id in self.lost.take(cell) {
             if let Some(ob) = self.bodies.get_mut(&id).and_then(|b| b.body.as_mut()) {
-                ob.re_enter_visibility();
+                ob.re_enter_visibility(land, world);
             }
         }
     }
@@ -864,7 +891,7 @@ impl Others {
             .filter(|c| is_loaded(*c, around, land))
             .collect();
         for c in found {
-            self.init_obj_cell(c);
+            self.init_obj_cell(c, land, world);
         }
         let ids: Vec<u64> = model.objects().map(|o| o.id).collect();
         for id in ids {
@@ -904,7 +931,7 @@ impl Others {
                         && c.position.cell != 0
                     {
                         let (at, _) = creation_place(o, &place);
-                        ob.put_by_creation(at);
+                        ob.put_by_creation(land, world, at);
                         ob.stamps = (c.stamps[0], c.stamps[1]);
                     }
                 }
@@ -934,7 +961,13 @@ impl Others {
             let Some(ob) = b.body.as_mut() else { continue };
             let mut lost_in = None;
             for r in &reports {
-                match ob.receive(r, player_at.as_ref(), is_loaded(r.cell, around, land)) {
+                match ob.receive(
+                    r,
+                    player_at.as_ref(),
+                    is_loaded(r.cell, around, land),
+                    land,
+                    world,
+                ) {
                     Received::Lost(p) => lost_in = Some(p.cell.0),
                     Received::Taken => lost_in = None,
                     Received::Ignored => {}
@@ -989,6 +1022,7 @@ impl Others {
                     world.set_ethereality(k, solid);
                     apply_description(records, world, k, o_desc);
                     b.key = Some(k);
+                    ob.settle(land, world);
                 }
                 (None, Some(_)) => {}
             }

@@ -10,6 +10,7 @@ not how it was done.
 - Fixed an effect's bar running out too slowly after a missed pulse.
 - Fixed screenshots overwriting the ones from earlier sessions.
 - Fixed the landing animation not playing over floors.
+- Fixed other players and creatures hanging in the air after a long move.
 
 ## 0.1.4 (2026-11-05)
 

@@ -117,10 +117,22 @@ fn run(stop_at: f64, until: f64) -> (Vec<(f64, Vec3, f32)>, OtherBody) {
             let y = 20.0 + 6.5 * s as f32;
             stamp += 1;
             if next >= stop_at {
-                b.receive(&place(70.0, y, 90.0, 0.0, s, stamp), None, true);
+                b.receive(
+                    &place(70.0, y, 90.0, 0.0, s, stamp),
+                    None,
+                    true,
+                    &land,
+                    &mut w,
+                );
                 stopped = true;
             } else {
-                b.receive(&place(70.0, y, 0.0, 1.0, s, stamp), None, true);
+                b.receive(
+                    &place(70.0, y, 0.0, 1.0, s, stamp),
+                    None,
+                    true,
+                    &land,
+                    &mut w,
+                );
             }
             next += EVERY;
         }
@@ -203,7 +215,7 @@ fn far_reports_and_stuck_bodies_are_put_in_place() {
     let mut b = OtherBody::new(7, config(), position_of(&start), 0.0, (1, 0));
     let far = place(70.0, 40.0, 180.0, 1.0, 0.05, 2);
     assert_eq!(
-        b.receive(&far, None, true),
+        b.receive(&far, None, true, &land, &mut w),
         Received::Taken,
         "a newer position is taken"
     );
@@ -212,13 +224,19 @@ fn far_reports_and_stuck_bodies_are_put_in_place() {
     assert!((h - 180.0).abs() < 1.0, "facing south: {h}");
     assert!(!b.body.minterp.is_interpolating(), "nothing to follow");
     assert!(
-        b.receive(&place(70.0, 39.0, 0.0, 0.0, 0.1, 2), None, true) == Received::Ignored,
+        b.receive(
+            &place(70.0, 39.0, 0.0, 0.0, 0.1, 2),
+            None,
+            true,
+            &land,
+            &mut w
+        ) == Received::Ignored,
         "the same stamp again is ignored"
     );
     // Sent running south, then silent: it runs on past the position, and 2 s on is put back.
     let mut g = OtherBody::new(8, config(), position_of(&start), 180.0, (1, 0));
     let last = place(70.0, 19.0, 180.0, 1.0, 0.1, 2);
-    g.receive(&last, None, true);
+    g.receive(&last, None, true, &land, &mut w);
     let mut ticker = Ticker::new(0.1);
     let mut t = 0.1;
     let mut farthest = 0.0f32;
@@ -265,14 +283,15 @@ fn objects_in_cells_not_loaded_wait_out_of_the_world() {
     );
     let start = place(70.0, 20.0, 0.0, 0.0, 0.0, 1);
     let mut b = OtherBody::new(7, config(), position_of(&start), 0.0, (1, 0));
+    let mut w = World::new();
     let mut far = place(70.0, 60.0, 90.0, 1.0, 0.3, 2);
     far.cell = 0x4240_0003;
     assert!(matches!(
-        b.receive(&far, None, loaded(far.cell, Some(here))),
+        b.receive(&far, None, loaded(far.cell, Some(here)), &land, &mut w),
         Received::Lost(_)
     ));
     assert!(!b.in_world(), "out of the world");
-    b.re_enter_visibility();
+    b.re_enter_visibility(&land, &mut w);
     assert!(b.in_world());
     assert_eq!(b.body.position.cell.0, 0x4240_0003, "where it was sent");
     let (_, h) = b.drawn(0.5);
@@ -507,7 +526,10 @@ fn an_object_moves_as_its_qualities_record_says() {
     for mobile in [true, false] {
         let mut b = OtherBody::new(7, config(), position_of(&at), 0.0, (1, 0));
         b.body.set_mobile(mobile);
-        assert_eq!(b.receive(&to, None, true), Received::Taken);
+        assert_eq!(
+            b.receive(&to, None, true, &land, &mut table),
+            Received::Taken
+        );
         for i in 1..=30 {
             b.tick(&land, &mut table, &mut NoObjects, 0.1 * f64::from(i));
         }
@@ -543,7 +565,7 @@ fn a_moving_body_past_the_range_stops_until_a_position_comes() {
     assert!(!ob.in_range);
     let again = place(70.0, 70.0, 0.0, 0.0, 2.0, 2);
     assert!(matches!(
-        ob.receive(&again, Some(&near), true),
+        ob.receive(&again, Some(&near), true, &world(), &mut World::new()),
         Received::Taken
     ));
     assert!(ob.in_range);
@@ -675,4 +697,96 @@ fn an_animations_jump_lifts_another_body() {
     assert!(b.body.is_movement_active(), "awake");
     assert!(b.body.velocity.z > 6.0, "up at the jump impulse");
     assert!(f.triggers.impulses.is_empty(), "it fires once");
+}
+
+/// A body standing on the ground and put in the air falls: its placement touches only what is
+/// there.
+///
+/// Behaviour: desktop.others.a-body-put-in-the-air-falls
+#[test]
+fn a_body_put_in_the_air_falls() {
+    let land = world();
+    let mut w = World::new();
+    let start = place(70.0, 20.0, 0.0, 0.0, 0.0, 1);
+    let mut b = OtherBody::new(7, config(), position_of(&start), 0.0, (1, 0));
+    let mut t = 0.0;
+    for _ in 0..5 {
+        t += 0.1;
+        b.tick(&land, &mut w, &mut NoObjects, t);
+    }
+    assert!(b.body.contact, "it stands on the ground");
+    let mut up = place(70.0, 25.0, 0.0, 0.0, t, 2);
+    up.origin.z = GROUND_Z + 3.0;
+    up.teleport_stamp = 1;
+    let player = position_of(&start);
+    assert_eq!(
+        b.receive(&up, Some(&player), true, &land, &mut w),
+        Received::Taken,
+        "a teleport is taken"
+    );
+    assert!((b.body.position.frame.origin.z - (GROUND_Z + 3.0)).abs() < 1e-3);
+    assert!(!b.body.contact, "put in the air, it touches nothing");
+    for _ in 0..30 {
+        t += 0.1;
+        b.tick(&land, &mut w, &mut NoObjects, t);
+    }
+    assert!(b.body.contact, "it landed");
+    assert!((b.body.position.frame.origin.z - GROUND_Z).abs() < 1e-3);
+}
+
+/// A body new in the world's table and made in the air falls.
+///
+/// Behaviour: desktop.others.a-body-put-in-the-air-falls
+#[test]
+fn a_body_made_in_the_air_falls_once_it_stands_in_the_table() {
+    let land = world();
+    let mut w = World::new();
+    let mut at = position_of(&place(70.0, 20.0, 0.0, 0.0, 0.0, 1));
+    at.frame.origin.z = GROUND_Z + 3.0;
+    let mut b = OtherBody::new(7, config(), at, 0.0, (1, 0));
+    w.insert_body(&land, 7, &mut b.body);
+    b.settle(&land, &mut w);
+    assert!(!b.body.contact, "it touches nothing");
+}
+
+/// A body put where another stands takes a free spot nearby.
+///
+/// Behaviour: desktop.others.a-body-put-on-another-takes-a-free-spot
+#[test]
+fn a_body_put_on_another_takes_a_free_spot() {
+    let land = world();
+    let mut w = World::new();
+    let spot = place(90.0, 90.0, 0.0, 0.0, 0.0, 1);
+    let mut d = OtherBody::new(9, config(), position_of(&spot), 0.0, (1, 0));
+    let mut e = OtherBody::new(
+        10,
+        config(),
+        position_of(&place(110.0, 90.0, 0.0, 0.0, 0.0, 1)),
+        0.0,
+        (1, 0),
+    );
+    w.insert_body(&land, 9, &mut d.body);
+    w.insert_body(&land, 10, &mut e.body);
+    let mut on = place(90.0, 90.0, 0.0, 0.0, 0.1, 2);
+    on.teleport_stamp = 1;
+    e.receive(&on, None, true, &land, &mut w);
+    let (a, b) = (e.body.position.frame.origin, d.body.position.frame.origin);
+    let apart = ((a.x - b.x).powi(2) + (a.y - b.y).powi(2)).sqrt();
+    assert!(apart > 0.5, "{apart} m apart");
+}
+
+/// A position more than 15 m away, with no teleport, is placed too.
+///
+/// Behaviour: desktop.others.a-body-put-in-the-air-falls
+#[test]
+fn a_far_position_is_placed_like_a_teleport() {
+    let land = world();
+    let mut w = World::new();
+    let start = place(70.0, 20.0, 0.0, 0.0, 0.0, 1);
+    let mut b = OtherBody::new(7, config(), position_of(&start), 0.0, (1, 0));
+    b.tick(&land, &mut w, &mut NoObjects, 0.1);
+    let mut far = place(70.0, 60.0, 0.0, 0.0, 0.2, 2);
+    far.origin.z = GROUND_Z + 3.0;
+    b.receive(&far, None, true, &land, &mut w);
+    assert!(!b.body.contact, "put in the air, it touches nothing");
 }
