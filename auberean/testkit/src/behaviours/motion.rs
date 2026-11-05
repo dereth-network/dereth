@@ -226,6 +226,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.element.a-placement-finishes-a-change-of-mode",
+        says: "A placement asks that a change of mode under way finish at once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PLACEMENT-SNAPS-MODE"),
+        station: "auberean-physics::cpu::motion::moving::a_placement_finishes_a_change_of_mode",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "motion.element.a-player-on-a-deep-bed-floats-up-and-the-camera-with-it",
         says: "A player put on the bed of deep water rises and floats with its water line at the \
                surface, and the camera looking up from under it stands where it wants.",

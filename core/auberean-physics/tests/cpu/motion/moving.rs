@@ -542,6 +542,22 @@ fn a_bodys_height_is_above_what_is_under_it() {
     assert!(near(under, -2.0), "under the land: {under}");
 }
 
+/// A placement asks that a change of mode under way finish at once.
+///
+/// Behaviour: motion.element.a-placement-finishes-a-change-of-mode
+#[test]
+fn a_placement_finishes_a_change_of_mode() {
+    use auberean_physics::body::{Animate, Notice};
+    let mut b = body();
+    let at = b.position;
+    b.notices.clear();
+    b.set_placement_position(at);
+    assert!(b
+        .notices
+        .iter()
+        .any(|n| matches!(n, Notice::Animate(Animate::SnapMode))));
+}
+
 /// A motion asked with a heading moves the body as asked and turns it to the heading (made a
 /// 255th of a turn), its movement woken.
 ///

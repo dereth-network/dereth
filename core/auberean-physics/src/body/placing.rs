@@ -136,12 +136,14 @@ impl Body {
     }
 
     /// Keeps `p` as the body's placement: the body turns at once to its heading, made to a 255th of
-    /// a turn.
+    /// a turn, and a change of mode under way finishes at once.
     // D2-06051
     pub fn set_placement_position(&mut self, p: Position) {
         self.placement = Some(p);
         self.minterp
             .turn_to(true, crate::geom::frame_heading(&p.frame));
+        self.notices
+            .push(super::Notice::Animate(super::Animate::SnapMode));
     }
 
     /// The body, set at `p` from where the world can't be reached, is placed there by its next step.
