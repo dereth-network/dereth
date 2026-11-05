@@ -659,3 +659,66 @@ fn a_damage_over_time_from_another_player_is_pk_damage_and_kills() {
     );
     assert_eq!(health_of(&h, idb), 0, "and they change nothing");
 }
+
+/// A dead player hurts no other player, whatever the place allows.
+/// Behaviour: server.player-fights.dead-attacker-harms-no-one
+#[test]
+fn a_dead_player_strikes_no_other_player() {
+    let (mut h, (a, ida), (_, idb)) = two_players(Conflict::FreeForAll);
+    with_player(&mut h, ida, |p| {
+        quals::set_int(&mut p.qualities, quality::HEALTH, 0);
+    });
+    let health = health_of(&h, idb);
+    attack(&mut h, a, idb);
+    h.run(400);
+    assert_eq!(health_of(&h, idb), health);
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == ida)
+        .expect("in");
+    assert!(p.attacking.is_none());
+}
+
+/// A player in portal space begins no run, and one it began before it left swings at nothing until
+/// it is out again.
+/// Behaviour: server.player-fights.no-swing-from-portal-space
+#[test]
+fn a_run_waits_while_its_player_is_in_portal_space() {
+    let (mut h, (a, ida), (_, idb)) = two_players(Conflict::FreeForAll);
+    let wa = yalain_world::social::world_of(&h.server, ida).expect("in the world");
+    let clock = h.clock();
+    let to = h.server.players[&wa].position;
+    yalain_world::places::resurrection_trip(&mut h.server, &mut h.net, wa, to, clock);
+    let from = h.bots[a].inbox.len();
+    let health = health_of(&h, idb);
+    attack(&mut h, a, idb);
+    h.run(4);
+    assert_eq!(health_of(&h, idb), health, "not struck");
+    assert!(h.server.players[&wa].attacking.is_none(), "no run begun");
+    assert!(
+        calls_of(&h, a, from)
+            .iter()
+            .any(|(f, _)| *f == ATTACKS_FAILED),
+        "told"
+    );
+    // A run under way as it goes: no stories while it is away.
+    let (mut h, (a, ida), (b, idb)) = two_players(Conflict::FreeForAll);
+    let wa = yalain_world::social::world_of(&h.server, ida).expect("in the world");
+    attack(&mut h, a, idb);
+    h.run(2);
+    let clock = h.clock();
+    let to = h.server.players[&wa].position;
+    yalain_world::places::resurrection_trip(&mut h.server, &mut h.net, wa, to, clock);
+    let from_b = h.bots[b].inbox.len();
+    let swung_while_away = |h: &Harness| {
+        h.world_messages(b, from_b)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::DoStory(e) if e.action.attacker == ida))
+    };
+    while h.server.players[&wa].trip.is_some() {
+        assert!(!swung_while_away(&h), "nothing swung from portal space");
+        h.step();
+    }
+}

@@ -1124,3 +1124,47 @@ fn a_death_ends_a_walk_and_leaves_no_use_refused_after_it() {
         "and free to use things"
     );
 }
+
+/// A dead player swings at nothing: a run asked for is refused as its other uses are, the creature
+/// beside it isn't hurt, and it pays nothing.
+/// Behaviour: server.death.dead-player-starts-no-attack
+#[test]
+fn a_dead_player_starts_no_attack_run() {
+    let mut h = Harness::new();
+    let (b, me) = dead_with_its_box_up(&mut h);
+    h.arm(b, me, 0x4700_051C);
+    let creature = h
+        .server
+        .things
+        .placed()
+        .find(|t| t.alive())
+        .map(|t| (t.id, t.health))
+        .expect("a creature");
+    let from = h.bots[b].inbox.len();
+    let start = yalain_world::combat::function::START_ATTACK;
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(start, &[auberean_script::args::Arg::LongInt(creature.0)]),
+    );
+    wait(&mut h, 8.0);
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .expect("in");
+    assert!(p.attacking.is_none(), "no run");
+    assert_eq!(
+        h.server.things.get(creature.0).map(|t| t.health),
+        Some(creature.1),
+        "not struck"
+    );
+    assert!(
+        calls_of(&h, b, from).contains(&(
+            yalain_world::combat::function::BASIC_ATTACKS_FAILED,
+            vec![Value::Int(yalain_world::skill_use::refusal::DEAD)]
+        )),
+        "told why"
+    );
+}

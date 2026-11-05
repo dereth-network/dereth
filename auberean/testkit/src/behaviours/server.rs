@@ -2893,6 +2893,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.death.dead-player-starts-no-attack",
+        says: "A dead player is refused an attack run, told why: what it aims at isn't struck.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEAD-NO-ATTACK"),
+        station: "yalain-testkit::cpu::play::dying::a_dead_player_starts_no_attack_run",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.death.experience-in-parts",
         says: "A kill's experience is paid in parts in the order its damagers first hurt it, each \
                the creature's experience times the health that damager took over all the health \
@@ -8794,6 +8802,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.player-fights.dead-attacker-harms-no-one",
+        says: "A dead player strikes no other player, whatever the place allows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEAD-HARMS-NO-ONE"),
+        station: "yalain-testkit::cpu::play::player_fights::a_dead_player_strikes_no_other_player",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.player-fights.death-names-the-killer",
         says: "A player killed by another is announced, to everyone who sees it, as killed by that \
                player: the killer's name as the world writes it, and its object.",
@@ -8821,6 +8837,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PVP-HIT"),
         station: "yalain-testkit::cpu::play::player_fights::a_hit_on_another_player_takes_its_health_and_tells_it_as_pk_damage",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.player-fights.no-swing-from-portal-space",
+        says: "A player in portal space begins no run; one under way swings at nothing until it is \
+               out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NO-SWING-AWAY"),
+        station: "yalain-testkit::cpu::play::player_fights::a_run_waits_while_its_player_is_in_portal_space",
         tier: Tier::Cpu,
     },
     behaviour! {

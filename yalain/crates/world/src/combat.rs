@@ -21,6 +21,9 @@
 //! hurt to 80% or less shows it. A run that ends is answered with the player not attacking and at
 //! peace.
 //!
+//! **Who swings.** A dead player, or one in portal space, is refused a run. One already under way
+//! ends at a death and waits out a trip.
+//!
 //! **On another player.** A run may target another player where who may harm whom allows it
 //! ([`crate::kingdoms::may_harm`]): it begins, and each swing goes on, only while it does, else the
 //! basic attacks fail with the reason and the run ends. Its stories are a run's on a creature, each
@@ -600,6 +603,27 @@ pub fn begin<S: Store>(
     target: u64,
     clock: Clock,
 ) {
+    // Nobody swings from death or from portal space.
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let (dead, away, was) = (
+        p.dying.is_some() || is_dead(p),
+        p.trip.is_some(),
+        p.attacking.is_some(),
+    );
+    if dead || away {
+        let why = if dead {
+            crate::skill_use::refusal::DEAD
+        } else {
+            crate::places::ACTIONS_LOCKED
+        };
+        progress::private(net, world, &failed(why));
+        if !was {
+            progress::private(net, world, &attack_state(false));
+        }
+        return;
+    }
     // Any living creature may be attacked: a practice target that never fights back (the halls'
     // Straw Drudges) is struck like any other. Another player, only as who may harm whom allows.
     let fightable = match player_target(s, world, target) {
@@ -755,6 +779,13 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
     let Some(run) = s.players.get(&world).and_then(|p| p.attacking) else {
         return;
     };
+    // In portal space the run waits for its player to come out.
+    if s.players.get(&world).is_some_and(|p| p.trip.is_some()) {
+        if let Some(r) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
+            r.next_swing = now + WALKING_CHECK;
+        }
+        return;
+    }
     // Another player or its pet: only while who may harm whom still allows it.
     let other = player_target(s, world, run.target);
     let allowed = other.map_or_else(

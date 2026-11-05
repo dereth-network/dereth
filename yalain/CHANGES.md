@@ -62,6 +62,7 @@ what they see, not how it was done.
 - A large allegiance's export no longer slows the world.
 - Recipes that cost money now ask for it.
 - A skill can't be untrained while a skill built on it is still trained.
+- The dead can't fight, and nobody fights from portal space.
 
 - Fixed a selected person showing empty health and vigor bars.
 
