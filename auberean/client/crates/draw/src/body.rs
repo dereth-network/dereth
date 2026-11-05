@@ -358,6 +358,28 @@ impl BodyDrawer {
         Some((list, lo, hi))
     }
 
+    /// Whether a body at `place` has a part past its visible distance from the eye, which is left
+    /// out as it is drawn. As [`Self::next_body`] leaves the scale for a body moving or not.
+    #[must_use]
+    pub fn leaves_out_a_part(&mut self, body: &Body, place: &Mat4, moving: bool) -> bool {
+        let Some(eye) = self.eye else {
+            return false;
+        };
+        self.next_body(moving);
+        let d =
+            auberean_world::math::length(auberean_world::math::sub(place.point(Vec3::ZERO), eye));
+        let model = usize::try_from(self.model_detail).unwrap_or(2).min(2);
+        body.parts.iter().any(|part| {
+            crate::mesh::degrade(
+                &part.setup.detail[model],
+                d,
+                self.scale,
+                self.material_detail,
+            )
+            .is_none()
+        })
+    }
+
     /// The next body drawn is (or is not) both mobile and dynamic.
     pub fn next_body(&mut self, moving: bool) {
         self.scale = if moving {

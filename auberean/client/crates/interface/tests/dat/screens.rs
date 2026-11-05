@@ -3293,3 +3293,51 @@ fn the_worlds_placed_objects_play_as_the_game_runs() {
     println!("{moved} of {} draws moved", before.len());
     assert!(moved > 0, "their poses moved on");
 }
+
+/// A body past its visible distance keeps the box what marks it stands on, as big as it is near:
+/// a creature drawn to 65 m is not drawn at all 150 m off, and a man (a human body is drawn to 90 m,
+/// some of what he has to 300 m) has only part of himself left to draw.
+///
+/// Behaviour: desktop.interface.a-body-past-its-visible-distance-keeps-its-box
+#[test]
+fn a_body_past_its_visible_distance_keeps_its_box() {
+    /// A creature of one part, drawn to 65 m.
+    const SHORT_SIGHTED: u32 = 0x1F00_0022;
+    let box_of = |look: u32, away: f32| {
+        let mut man = the_man();
+        man.visual.did = look;
+        man.physics.position.frame.origin.x += away;
+        let (mut s, _retail) = into_the_world_running(
+            script_with(vec![s2c(
+                6.43,
+                1,
+                1,
+                WORLD | 7,
+                &ServerMessage::CreateObject(man),
+            )]),
+            data_with_scripts(),
+        );
+        assert!(
+            until(&mut s, 2.0, |s| s.scene.seen.body(MAN).is_some()),
+            "known at {away} m"
+        );
+        step(&mut s);
+        let drawn = s.scene.drawn_batches(MAN).expect("noted").len();
+        let bounds = s.scene.seen.body(MAN).and_then(|b| b.bounds);
+        (drawn, bounds.map(|(lo, hi)| (hi.x - lo.x, hi.z - lo.z)))
+    };
+    for (look, none_left) in [(SHORT_SIGHTED, true), (HUMAN_MALE, false)] {
+        let (near_draws, near) = box_of(look, 0.0);
+        let (far_draws, far) = box_of(look, 150.0);
+        assert!(
+            far_draws < near_draws,
+            "{look:?}: {far_draws} of {near_draws}"
+        );
+        assert_eq!(far_draws == 0, none_left, "{look:#x}");
+        let (near, far) = (near.expect("a box near"), far.expect("a box far off"));
+        assert!(
+            (near.0 - far.0).abs() < 0.1 && (near.1 - far.1).abs() < 0.1,
+            "{look:#x}: {near:?} and {far:?}"
+        );
+    }
+}

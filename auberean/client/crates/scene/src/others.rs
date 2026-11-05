@@ -1143,6 +1143,49 @@ impl Others {
         }
     }
 
+    /// Whether body `id` has a part past its visible distance as it stands now.
+    pub(crate) fn leaves_out_a_part(
+        &self,
+        id: u64,
+        drawer: &mut BodyDrawer,
+        block: (i32, i32),
+        alpha: f32,
+    ) -> bool {
+        let Some(b) = self.bodies.get(&id) else {
+            return false;
+        };
+        let (Some(f), Some(ob)) = (&b.figure, &b.body) else {
+            return false;
+        };
+        #[allow(clippy::cast_precision_loss)]
+        let (ox, oy) = (block.0 as f32 * BLOCK_LENGTH, block.1 as f32 * BLOCK_LENGTH);
+        let (place, _, _) = drawn_place(ob, alpha, (ox, oy));
+        drawer.leaves_out_a_part(f, &place, ob.body.is_mobile())
+    }
+
+    /// Body `id`'s draws, wherever it stands from the eye: what it would be drawn as, for the box
+    /// it fills past its visible distance. `None` when it has no body.
+    pub(crate) fn draws_at_any_distance(
+        &self,
+        id: u64,
+        records: &WorldRecords,
+        anims: &CachedRecords<'_>,
+        drawer: &mut BodyDrawer,
+        block: (i32, i32),
+        alpha: f32,
+    ) -> Option<Vec<ObjectBatch>> {
+        let b = self.bodies.get(&id)?;
+        let (f, ob) = (b.figure.as_ref()?, b.body.as_ref()?);
+        #[allow(clippy::cast_precision_loss)]
+        let (ox, oy) = (block.0 as f32 * BLOCK_LENGTH, block.1 as f32 * BLOCK_LENGTH);
+        let (place, _, _) = drawn_place(ob, alpha, (ox, oy));
+        let poses = f.pose(anims);
+        let eye = drawer.eye.take();
+        let draws = drawer.batches(records, f, &poses, &place);
+        drawer.eye = eye;
+        Some(draws)
+    }
+
     /// Run the effects the bodies about block `block` play to `now` (the client's running
     /// time), each body where it is drawn `alpha` of a tick past its last tick, lit by `light`,
     /// their systems kept and drawn by `systems`, the water each stands over as `land` has it. A

@@ -952,6 +952,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.a-body-past-its-visible-distance-keeps-its-box",
+        says: "A body past its visible distance is not drawn but keeps the box what marks it stands on: the selection's name, marks and meters go on showing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FAR-MARKS"),
+        station: "auberean-interface::dat::screens::a_body_past_its_visible_distance_keeps_its_box",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.a-boot-at-login-shows-its-line-on-the-disconnected-screen",
         says: "An account the server ends with a boot as it logs in (before the character list) \
                goes from connecting to the disconnected screen, which shows the boot's line (the \

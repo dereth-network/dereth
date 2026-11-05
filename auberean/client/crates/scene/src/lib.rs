@@ -301,6 +301,8 @@ pub struct Scene<'w> {
     drawer: BodyDrawer,
     /// The bodies the world's placed objects play through, one for each look.
     placed_bodies: auberean_draw::placed::PlacedBodies,
+    /// The boxes of the bodies past their visible distance, in each one's own frame.
+    far_boxes: HashMap<u64, Option<(auberean_primitives::Vec3, auberean_primitives::Vec3)>>,
     /// The rain, and how hard it falls.
     weather: weather::Weather,
     /// The player's body seen through under the pointer.
@@ -1182,6 +1184,7 @@ impl<'w> Scene<'w> {
             builder: SceneBuilder::new(&world.records, &world.region),
             drawer: BodyDrawer::default(),
             placed_bodies: auberean_draw::placed::PlacedBodies::default(),
+            far_boxes: HashMap::new(),
             weather: weather::Weather::default(),
             hover: auberean_draw::body::HoverFade::default(),
             pointer: None,
@@ -4578,6 +4581,8 @@ impl<'w> Scene<'w> {
         });
         self.seen.block = (bx, by);
         let was_seen = std::mem::take(&mut self.seen.bodies);
+        let mut far_was = std::mem::take(&mut self.far_boxes);
+        let alpha = self.ticker.alpha(now);
         self.drawn.clear();
         for (id, range, at, heading) in noted {
             let mut body = seen::SeenBody {
@@ -4595,6 +4600,27 @@ impl<'w> Scene<'w> {
             };
             if let Some(b) = built.frame.objects.get(range.clone()) {
                 body.bounds = seen::bounds_of(&body, b);
+            }
+            // Past its visible distance a body, or a part of it, is not drawn, but it fills the box
+            // it would: what marks it stays. The box is worked out once while it stays that far off.
+            // D2-06119, D2-06626
+            if self
+                .others
+                .leaves_out_a_part(id, &mut self.drawer, (bx, by), alpha)
+            {
+                body.bounds = far_was.remove(&id).unwrap_or_else(|| {
+                    self.others
+                        .draws_at_any_distance(
+                            id,
+                            &self.world.records,
+                            &self.anims,
+                            &mut self.drawer,
+                            (bx, by),
+                            alpha,
+                        )
+                        .and_then(|draws| seen::bounds_of(&body, &draws))
+                });
+                self.far_boxes.insert(id, body.bounds);
             }
             self.seen.bodies.push(body);
             self.drawn.push((id, range));
