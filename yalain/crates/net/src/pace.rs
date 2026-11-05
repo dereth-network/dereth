@@ -3,7 +3,7 @@
 //!
 //! Sent all at once, such a message fills the client's socket and loses most of it, and the client
 //! asks for lost packets again only 114 at a time, once every 0.6 s, while a server keeps a sent
-//! packet for resending 120 s and its last 4,096 at most: the download never completes. So a
+//! packet for resending 120 s and only so many at most: the download never completes. So a
 //! message longer than one interval's budget leaves the connection's own queue for this one and is
 //! sent from it a part at a time:
 //!
@@ -37,7 +37,7 @@ pub const BYTES_PER_INTERVAL: usize = 32 * 1024;
 
 /// The most sequenced packets a server has out unacknowledged before its large messages wait: ten
 /// of the client's requests to send again, which it makes one each 0.6 s, so a whole window lost
-/// is asked for again within six seconds, far inside the time and the 4,096 packets a server keeps
+/// is asked for again within six seconds, far inside the time and the packets a server keeps
 /// for resending.
 #[allow(clippy::cast_possible_truncation)]
 pub const WINDOW: u32 = 10 * MAX_NAK_IDS as u32;
