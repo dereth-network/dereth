@@ -219,10 +219,12 @@ struct MusicEngine {
 impl Playing {
     // D2-07765
     fn budgeted(&self) -> bool {
-        matches!(
-            self.settings.kind,
-            PlayType::NonExclusiveBudgeted | PlayType::SelfExclusiveBudgeted
-        )
+        match self.settings.kind {
+            PlayType::NonExclusiveBudgeted => true,
+            // One at a time takes no place in the budget while its maker is silent.
+            PlayType::SelfExclusiveBudgeted => !self.muted,
+            _ => false,
+        }
     }
 
     // D2-07763

@@ -202,6 +202,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "audio.manager.a-silent-makers-sound-takes-no-budget",
+        says: "A sound that plays one at a time and counts against the budget takes no place in \
+               it while its maker is silent.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-AUDIO-ONE-AT-A-TIME"),
+        station: "auberean-audio::cpu::manager::a_silent_makers_one_at_a_time_sound_takes_no_place_in_the_budget",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "audio.manager.one-at-a-time",
         says: "A setting that plays one at a time is not played again while it plays, and plays \
                again once it has gone.",

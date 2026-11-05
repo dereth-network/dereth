@@ -107,6 +107,32 @@ fn a_non_looping_counted_sound_past_the_budget_is_refused() {
     assert!(m.play(&f, &uncounted).is_some());
 }
 
+/// Behaviour: audio.manager.a-silent-makers-sound-takes-no-budget
+#[test]
+fn a_silent_makers_one_at_a_time_sound_takes_no_place_in_the_budget() {
+    const MAKER: u64 = 7;
+    let at_the_listener = |_: u64| Some([0.0; 3]);
+    let run = |silent: bool| {
+        let f = files();
+        let mut m = SoundPlayer::new(Some(100));
+        m.set_playing_sounds(16.0);
+        let mut own = PlayRequest::new(ONE_AT_A_TIME);
+        own.emitter = Some(MAKER);
+        m.play(&f, &own).expect("accepted");
+        let others: Vec<u32> = (0..16)
+            .map(|_| m.play(&f, &PlayRequest::new(LONG_FLAT)).expect("accepted"))
+            .collect();
+        if silent {
+            m.set_muted(std::iter::once(MAKER).collect());
+        }
+        m.use_time(0.0, Listener::default(), &at_the_listener);
+        m.use_time(0.01, Listener::default(), &at_the_listener);
+        others.iter().filter(|h| !m.has_finished(**h)).count()
+    };
+    assert_eq!(run(false), 15, "heard, it is first and takes a place");
+    assert_eq!(run(true), 16, "silent, it leaves its place to the others");
+}
+
 /// Behaviour: audio.manager.one-at-a-time
 #[test]
 fn a_self_exclusive_setting_plays_once_at_a_time() {
