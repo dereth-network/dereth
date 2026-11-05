@@ -229,6 +229,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.craft.a-tall-window-grows-the-list-and-not-the-head",
+        says: "On a window taller than 768, the head of a craft skill's categories or a \
+               category's recipes keeps its height, the craft skill's display goes down with the \
+               page's foot and the list takes the rest, and a press on a row reaches the row.",
+        since: THIS_CLIENT,
+        divergence: "CD2-craft-page-list-takes-a-tall-window",
+        evidence: Evidence::Private("AC2-EVID-UI-CRAFT-TALL"),
+        station: "auberean-ui-game::dat::play::craft::a_tall_window_grows_the_list_and_not_the_head",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.craft.recipe-and-ingredient-names-wait-for-their-string-tables",
         says: "The ingredient panel gives its texts (the recipe's name, its cost and charges, its \
                ingredients' names, the craft button's label and tip) to their text elements as \
@@ -266,6 +277,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-INGREDIENTS"),
         station: "auberean-ui-game::dat::play::ingredients::the_ingredient_panel_takes_items_and_makes_the_recipe",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.craft.the-page-stands-as-laid-out-up-to-a-height-of-768",
+        says: "At a window height of 768 and below the crafting page is its layout's size, and \
+               the head, the list and the craft skill's display stand where the layout puts them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CRAFT-LAID-OUT"),
+        station: "auberean-ui-game::dat::play::craft::the_page_stands_as_laid_out_up_to_a_height_of_768",
         tier: Tier::Dat,
     },
     behaviour! {

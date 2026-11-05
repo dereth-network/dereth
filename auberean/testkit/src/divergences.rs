@@ -26,6 +26,13 @@ pub static DIVERGENCES: &[Divergence] = &[
                of crashing the game or going on with garbage.",
     },
     Divergence {
+        id: "CD2-craft-page-list-takes-a-tall-window",
+        says: "On a window taller than 768, a craft skill's page keeps its head at its own height \
+               and its display at the page's foot, and the list takes the rest, so rows can be \
+               clicked; the retail client stretches the head over the list, where it takes the \
+               clicks meant for the rows.",
+    },
+    Divergence {
         id: "CD2-data-cache-worker-in-frame",
         says: "The data the game loads in the background is read and stored at the end of each \
                frame, everything waiting at once, where the original client does it on a thread \

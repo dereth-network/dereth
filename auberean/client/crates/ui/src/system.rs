@@ -482,6 +482,15 @@ impl Ui {
         self.revision += 1;
     }
 
+    /// How the child named `child` of an element's state `state` follows its parent's size,
+    /// from its next placing on, for a panel that corrects its layout.
+    pub fn set_child_edges(&mut self, h: Handle, state: Token, child: Token, edges: [u8; 4]) {
+        let Some(n) = self.node(h) else { return };
+        let (desc, refdesc) = (n.desc, n.refdesc);
+        self.lib.set_child_edges(desc, state, child, edges);
+        self.lib.set_child_edges(refdesc, state, child, edges);
+    }
+
     /// Load a layout record by id (once); `None` if the install lacks it.
     pub fn load_layout(&mut self, id: u32) -> Option<LayoutIx> {
         if let Some(ix) = self.lib.layout_by_id(id) {
