@@ -52,6 +52,7 @@ dereth-primitives.workspace = true
 dereth-transport.workspace = true
 
 [dev-dependencies]
+auberean-text.workspace = true
 auberean-assets.workspace = true
 auberean-physics.workspace = true
 auberean-world.workspace = true

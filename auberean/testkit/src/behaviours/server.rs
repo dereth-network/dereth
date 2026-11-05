@@ -946,6 +946,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.chat.notice-as-written",
+        says: "A notice's text reaches the screen as it was written, brackets and backslashes among \
+               it, as the client reads a literal: cut at its first unescaped bracket, then unescaped.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NOTICE-AS-WRITTEN"),
+        station: "yalain-testkit::cpu::entry::chat::a_notice_with_brackets_and_backslashes_is_read_by_the_client_as_written",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.chat.room-line-echoed-answered-and-relayed",
         says: "A line a client sends to a chat room comes back to it as the room's line (its name \
                without the grammar mark, the words, and what its client said of it), then as the \

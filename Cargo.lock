@@ -7244,6 +7244,7 @@ dependencies = [
  "auberean-protocol",
  "auberean-script",
  "auberean-testkit",
+ "auberean-text",
  "auberean-world",
  "dereth-client-sdk",
  "dereth-dat",

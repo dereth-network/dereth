@@ -1374,7 +1374,7 @@ pub(crate) fn closed<S: Store>(
 /// adds each notice to the chat window as it comes, and the client's own strings end their lines,
 /// so a literal is given a line end unless it has one.
 pub fn notice(net: &mut ServerNet, conn: ConnId, text: &str) {
-    let mut line = text.to_owned();
+    let mut line = as_written(text);
     if !line.ends_with('\n') {
         line.push('\n');
     }
@@ -1383,6 +1383,19 @@ pub fn notice(net: &mut ServerNet, conn: ConnId, text: &str) {
         text: StringInfo::literal(&line),
     });
     send(net, conn, queue::EVENT, BlobKind::UNORDERED, &m);
+}
+
+/// A line as it must be sent for a client to show it as written: a client cuts a line given as it is
+/// at its first `[`, which it takes for the line's flags, and reads `\` as an escape.
+fn as_written(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        if matches!(c, '[' | '\\') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// Tell a player a whole answer, its lines in their order. It goes as one notice with inner line
