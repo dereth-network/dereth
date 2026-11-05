@@ -365,6 +365,33 @@ fn equipment_a_creature_drops_carries_a_least_level_of_its_own_by_the_creatures_
     }
 }
 
+/// Jewelry a creature leaves is worth what any treasure of its level is, whatever its template says
+/// (2017: the same bands, 198 pieces by their droppers' levels, against a template's 10).
+/// Behaviour: server.loot.treasure-value-by-level
+#[test]
+fn jewelry_a_creature_leaves_is_worth_what_treasure_of_its_level_is() {
+    let (mut h, b, _, _) = fight();
+    h.server.treasure.jewelry.insert(0x200);
+    if let Some(t) = h.server.catalog.templates.get_mut(&TEST_ITEM) {
+        t.props.set("Item_Value", yalain_content::Prop::Int(10));
+    }
+    assert!(h.run_until(200, |h| h.world_messages(b, 0).iter().any(
+        |m| matches!(m, ServerMessage::CreateObject(o) if o.weenie.entity_did == CORPSE)
+    )));
+    let values: Vec<_> = h
+        .server
+        .things
+        .by_id
+        .values()
+        .filter(|t| t.template == TEST_ITEM)
+        .map(|t| t.value)
+        .collect();
+    assert!(!values.is_empty(), "the corpse holds the piece");
+    for v in values {
+        assert!((1..=4).contains(&v), "a level 2 creature's: {v}");
+    }
+}
+
 /// A least level only its class says doesn't stop a drop having its own, and numbers by it; one its
 /// template sets does.
 /// Behaviour: server.loot.treasure-own-properties-over-a-class

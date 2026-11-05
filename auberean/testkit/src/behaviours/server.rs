@@ -5508,6 +5508,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.treasure-value-by-level",
+        says: "Treasure a creature leaves, jewelry among it, is worth what its dropper's level draws, \
+               whatever its template says.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-VALUE-JEWELRY"),
+        station: "yalain-testkit::cpu::play::fights::jewelry_a_creature_leaves_is_worth_what_treasure_of_its_level_is",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.treasure-word",
         says: "A treasure item's name has a word before it by its sort, its level and its combat \
                delay, in its create and its profile. Our choice, a fit to the recorded items.",
