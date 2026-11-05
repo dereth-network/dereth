@@ -14,6 +14,7 @@ not how it was done.
 - Fixed effects that fade a body out snapping it back at once.
 - Fixed mist on the ground in rain too light to see.
 - Fixed sunlit halls: the sun now falls across their floors and walls as the original's does.
+- A window's dropdown now closes when the window hides.
 - The journal scrolls to the quest that changed.
 - Pressing Shift or Ctrl alone no longer gets bound in the key map.
 - The hide-all key no longer works during a story.

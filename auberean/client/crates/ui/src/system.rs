@@ -1120,6 +1120,7 @@ impl Ui {
             n.visible = v;
         }
         self.changing_element_visibility();
+        self.close_hidden_menus(h);
         let after = parent_shown && v;
         if before == after || !self.node(h).is_some_and(|n| n.ready) {
             return;
@@ -1137,6 +1138,19 @@ impl Ui {
         // The use key held (it may be what showed this) would press what took the keyboard.
         if after && n.bool_attr(attr::ACTIVATE_ON_SHOW) && !self.mgr.use_down {
             self.activate_element(h);
+        }
+    }
+
+    /// Each open menu in an element, itself included, closes if it no longer shows.
+    // D2-11171
+    fn close_hidden_menus(&mut self, h: Handle) {
+        let Some(n) = self.node(h) else { return };
+        let kids = n.children.clone();
+        if n.kind == crate::token::kind::MENU {
+            self.menu_visibility_changed(h);
+        }
+        for k in kids {
+            self.close_hidden_menus(k);
         }
     }
 

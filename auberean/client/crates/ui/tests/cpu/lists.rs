@@ -457,6 +457,85 @@ fn an_emptied_list_keeps_its_cell_and_a_row_past_the_end_is_refused() {
     assert_eq!(y_view(&u, list), cell, "the view stays, on one cell of sheet");
 }
 
+/// An open menu closes as the window it stands in hides: its popup, its own top-level element,
+/// does not stay on the screen.
+///
+/// Behaviour: ui.menu.an-open-menu-closes-as-its-window-hides
+#[test]
+fn an_open_menu_closes_as_its_window_hides() {
+    let popup = element(
+        "Popup",
+        "field",
+        [0, 0, 79, 59],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![],
+            vec![],
+            vec![element(
+                "MenuList",
+                "listbox",
+                [0, 0, 79, 59],
+                0,
+                vec![state(
+                    "stateless",
+                    0,
+                    vec![("click_select", V::Bool(true))],
+                    vec![],
+                    vec![],
+                )],
+            )],
+        )],
+    );
+    let item = element(
+        "Item",
+        "text",
+        [0, 0, 79, 14],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    );
+    let menu = element(
+        "Menu",
+        "menu",
+        [10, 10, 89, 29],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![
+                ("popup", id("Popup")),
+                ("listbox", id("MenuList")),
+                ("text_item", id("Item")),
+            ],
+            vec![],
+            vec![],
+        )],
+    );
+    let win = element(
+        "Window",
+        "field",
+        [0, 0, 299, 299],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![menu])],
+    );
+    let mut u = ui(vec![popup, item, win], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let m = u.child(w, Token::of("Menu")).unwrap();
+    u.menu_insert_text(m, "One", 0).unwrap();
+    click(&mut u, 50, 20);
+    let popup = u
+        .roots()
+        .iter()
+        .copied()
+        .find(|r| u.node(*r).unwrap().id == Token::of("Popup"))
+        .expect("the popup is up");
+    assert!(u.shown(popup));
+    u.set_visible(w, false);
+    assert!(!u.shown(popup), "gone with its window");
+}
+
 /// A menu opens its popup under itself, sized to its rows; choosing a row selects it, the menu
 /// says what was chosen, and letting go on the list closes the popup.
 ///

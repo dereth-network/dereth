@@ -1313,6 +1313,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.menu.an-open-menu-closes-as-its-window-hides",
+        says: "An open menu closes as the window it stands in hides: its popup, its own \
+               top-level element, does not stay on the screen.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-MENU-HIDES"),
+        station: "auberean-ui::cpu::lists::an_open_menu_closes_as_its_window_hides",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.meter.a-meter-takes-its-goal-at-once-or-smoothly",
         says: "A meter takes a goal position at once, its fill following; a smooth meter moves toward it \
                over its movement time.",
