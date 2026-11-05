@@ -490,6 +490,58 @@ fn the_ground_under_a_body_is_its_height_above_walkable_below() {
     assert_eq!(b.ground_position(), b.position);
 }
 
+/// A body's height is above what is under it, not above the land: over something solid, how far
+/// down that stands; touching something, none; and under the land, how far up the land is, below
+/// nothing.
+///
+/// Behaviour: motion.element.a-bodys-height-is-above-what-is-under-it
+#[test]
+fn a_bodys_height_is_above_what_is_under_it() {
+    use auberean_physics::object::Shape;
+    use auberean_physics::world::{World, WorldObject};
+    use dereth_primitives::shape::CylSphere;
+    use std::sync::Arc;
+    let land = world();
+    let height = |z: f32, stands_under: bool, contact: bool| {
+        let mut b = body();
+        b.position.frame.origin.z = z;
+        b.contact = contact;
+        b.on_walkable = contact;
+        let mut table = World::new();
+        if stands_under {
+            let mut at = b.position;
+            at.frame.origin.z = GROUND_Z;
+            table.insert(
+                &land,
+                7,
+                &WorldObject {
+                    shape: Arc::new(Shape {
+                        cylinders: vec![CylSphere {
+                            low_pt: Vec3::ZERO,
+                            radius: 3.0,
+                            height: 5.0,
+                        }],
+                        ..(*crate::contact::objects::post()).clone()
+                    }),
+                    position: at,
+                    is_static: true,
+                    passable: false,
+                },
+            );
+        }
+        b.tick_in(&land, &mut table, 0.001);
+        b.height_above_walkable()
+    };
+    let near = |a: f32, b: f32| (a - b).abs() < 0.05;
+    let over_land = height(GROUND_Z + 8.0, false, false);
+    assert!(near(over_land, 8.0), "over the land: {over_land}");
+    let over_it = height(GROUND_Z + 8.0, true, false);
+    assert!(near(over_it, 3.0), "over the object: {over_it}");
+    assert_eq!(height(GROUND_Z + 8.0, false, true), 0.0, "touching");
+    let under = height(GROUND_Z - 2.0, false, false);
+    assert!(near(under, -2.0), "under the land: {under}");
+}
+
 /// A motion asked with a heading moves the body as asked and turns it to the heading (made a
 /// 255th of a turn), its movement woken.
 ///

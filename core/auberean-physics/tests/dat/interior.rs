@@ -37,6 +37,39 @@ pub(crate) fn body(w: &crate::common::World, at: Position, heading: f32) -> Body
     Body::new(config, at, heading)
 }
 
+/// In a room a body in the air is as high as the room's floor is below it, wherever the land is:
+/// where a body dropped in one of the hall's rooms lands, one 1.5 m above that has that height.
+///
+/// Behaviour: motion.interior.in-a-room-a-bodys-height-is-above-the-floor
+#[test]
+fn in_a_room_a_bodys_height_is_above_the_floor() {
+    let w = need_world!();
+    let land = Land::new();
+    add_block_cells(&land, &w.records, &mut Trees::default(), 0x02, 0x98);
+    let id = CellId(0x0298_010F);
+    let mut start = land.cell(id).expect("the room").frame.origin;
+    start.z += 1.0;
+    let mut b = body(
+        w,
+        Position::new(id, Frame::new(start, Quat::IDENTITY)),
+        180.0,
+    );
+    b.contact = false;
+    b.on_walkable = false;
+    for _ in 0..30 {
+        b.tick(&land, 0.1);
+    }
+    assert!(b.contact, "it lands");
+    let mut up = b.position;
+    up.frame.origin.z += 1.5;
+    let mut above = body(w, up, 180.0);
+    above.contact = false;
+    above.on_walkable = false;
+    above.tick(&land, 0.001);
+    let h = above.height_above_walkable();
+    assert!((h - 1.5).abs() < 0.1, "{h} m above the floor");
+}
+
 /// A body dropped in a hall cell lands on the cell's floor and stays on it; running, it moves
 /// from cell to cell through the doorways, never falls through a floor, and comes to rest against
 /// a wall.

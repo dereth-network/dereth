@@ -198,6 +198,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.element.a-bodys-height-is-above-what-is-under-it",
+        says: "A body's height is above what is under it, not above the land: a sight line straight down through cells and objects, and with nothing below, up, as a negative height.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-HEIGHT-ABOVE-WALKABLE"),
+        station: "auberean-physics::cpu::motion::moving::a_bodys_height_is_above_what_is_under_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "motion.element.a-fall-toward-deep-water-asks-for-the-air-mode",
         says: "A body falling faster than 2 m/s toward water nearer than the ground and more than \
                2 m below its water line asks its animation for the air's mode (unless swimming is \
@@ -432,6 +440,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-CELL-FLOOR-MATERIAL"),
         station: "auberean-physics::dat::walk::a_room_names_the_material_of_its_floor",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "motion.interior.in-a-room-a-bodys-height-is-above-the-floor",
+        says: "In a room a body in the air is as high as the room's floor is below it, wherever the land is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-HEIGHT-ABOVE-WALKABLE-ROOM"),
+        station: "auberean-physics::dat::interior::in_a_room_a_bodys_height_is_above_the_floor",
         tier: Tier::Dat,
     },
     behaviour! {

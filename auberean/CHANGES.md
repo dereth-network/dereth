@@ -9,6 +9,10 @@ not how it was done.
 - Examining a recipe shows its time and difficulty lines again.
 - Fixed an effect's bar running out too slowly after a missed pulse.
 - Fixed screenshots overwriting the ones from earlier sessions.
+- Fixed the landing animation not playing over floors.
+
+## 0.1.4 (2026-11-05)
+
 
 ## 0.1.4 (2026-11-05)
 

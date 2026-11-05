@@ -54,7 +54,8 @@ pub use state::{flags, transient};
 
 use crate::collision::manager::BodyKey;
 use crate::detect::manager::Detections;
-use crate::geom::{self, Heading};
+use crate::ethereal::{ObjectEthereality, PhysicsTypes, SightLine};
+use crate::geom::{self, Heading, Ray};
 use crate::land::Land;
 use crate::missile::Guidance;
 use crate::motion::moveto::TargetBody;
@@ -77,8 +78,8 @@ pub const JUMP_COOLDOWN: f64 = 0.5;
 pub const JUMP_BEHAVIOR: u32 = 0x4000_000A;
 /// Below this a value counts as zero.
 const EPS: f32 = 0.0002;
-/// Far above anything walkable.
-const HIGH_ABOVE: f32 = 1000.0;
+/// How far up and down a body looks for what is under it, in meters.
+const HEIGHT_REACH: f32 = 100_000.0;
 
 /// When physics ticks: in whole tenths of a second as the frames' time passes.
 // D2-13682, D2-13683
@@ -536,14 +537,40 @@ impl Body {
         self.contact && !self.on_walkable
     }
 
-    /// The body's height above the ground under it: none while touching it.
-    fn measure_height(&self, land: &Land) -> f32 {
-        if self.contact {
+    /// The body's height above what is under it: none while touching it or walking on air; else
+    /// how far a line straight down goes before it meets the land, a room's floor or something
+    /// solid, or, when it meets nothing, the opposite of how far one straight up goes.
+    // D2-06181
+    fn measure_height(&self, land: &Land, world: &World, key: BodyKey) -> f32 {
+        if self.contact || self.desired_element() == WALK_ON_AIR {
             return 0.0;
         }
-        let at = self.position.frame.origin;
-        land.ground(self.position.cell.landblock(), at)
-            .map_or(HIGH_ABOVE, |(z, _)| (at.z - z).max(0.0))
+        let mut objects = ObjectEthereality::default();
+        objects.add_to_ethereal_list(self.id);
+        let physics = world
+            .collisions(key)
+            .map_or_else(PhysicsTypes::default, |c| c.movement_physics());
+        let trace = |dz: f32| {
+            let mut ray = Ray {
+                length: HEIGHT_REACH,
+                ..Ray::default()
+            };
+            ray.init_from_offset(self.position.frame.origin, Vec3::new(0.0, 0.0, dz));
+            let mut line = SightLine::default();
+            line.set_los_params(&objects, physics);
+            line.set_ray(ray, self.position.cell.0);
+            line.set_blocked_by_water(world.properties(), false);
+            let traced = world.los_check(land, &mut line);
+            (traced, line)
+        };
+        let (traced, down) = trace(-HEIGHT_REACH);
+        if down.trace_result != 0 {
+            return if traced { down.final_ray.length } else { 0.0 };
+        }
+        match trace(HEIGHT_REACH) {
+            (true, up) if up.trace_result != 0 => -up.final_ray.length,
+            _ => 0.0,
+        }
     }
 
     /// One physics tick of `dt` seconds. A body out of the world, frozen, not mobile or carried by
@@ -645,7 +672,7 @@ impl Body {
         if self.contact {
             self.time_on_ground += f64::from(dt);
         }
-        self.height_above = self.measure_height(land);
+        self.height_above = self.measure_height(land, world, key);
         self.water = land.water_plane(self.position.cell);
         let now = self.clock;
         self.calc_element();
