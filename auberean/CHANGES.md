@@ -7,6 +7,8 @@ not how it was done.
 
 ## Unreleased
 
+## 0.1.4 (2026-11-05)
+
 - Fixed a crash when the graphics device goes away, as when a driver resets.
 - Fixed a far-off target losing its name, marks and health bar.
 - Your own character no longer loses detail too soon as the camera pulls back.
