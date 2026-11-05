@@ -1150,6 +1150,48 @@ fn an_effect_running_out_restores_only_a_color_that_lasts() {
     assert!(run_out(0x8100_028F), "its color lasts a time");
 }
 
+/// How long an effect lasts asks whether what it plays runs until stopped: an entry whose music
+/// loops (`0x810002B3` of table `0x1E00007A`) lasts until it is stopped, and so does one whose
+/// particle system does, even fired and forgotten; a system with a life of its own doesn't hold it.
+///
+/// Behaviour: draw.effects.an-effect-lasts-while-its-sound-or-system-runs-until-stopped
+#[test]
+fn an_effect_lasts_until_stopped_when_its_sound_or_system_does() {
+    use auberean_assets::fx::FxNode;
+    use auberean_draw::effects::{calc_duration, particle_is_looping, stored_fx_data};
+    let r = &install().records;
+    let dice = auberean_world::chargen::Random::default();
+    let list = stored_fx_data(r, 0x1E00_007A, 0x8100_02B3);
+    let music = &list.first().expect("the entry").default;
+    assert_eq!(calc_duration(r, music, &dice, None, false), None);
+    let system = |looping: bool| {
+        ids_of(0x39)
+            .into_iter()
+            .find(|id| particle_is_looping(r, *id) == looping)
+            .map(DataId)
+            .expect("a system")
+    };
+    let of = |p: DataId, fire_and_forget: bool| FxNode {
+        particles: Some(vec![p]),
+        fire_and_forget: Some(fire_and_forget),
+        ..FxNode::default()
+    };
+    let endless = system(true);
+    let finite = system(false);
+    assert_eq!(
+        calc_duration(r, &of(endless, false), &dice, None, false),
+        None
+    );
+    assert_eq!(
+        calc_duration(r, &of(endless, true), &dice, None, false),
+        None
+    );
+    assert_eq!(
+        calc_duration(r, &of(finite, false), &dice, None, false),
+        Some(0.0)
+    );
+}
+
 /// An effect with a decal (`0x810002C7` of the shared table) lays it: its material, its life, its
 /// size and its color from the entry; with the decal effects preference off, none.
 ///

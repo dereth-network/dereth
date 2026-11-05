@@ -193,6 +193,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.effects.an-effect-lasts-while-its-sound-or-system-runs-until-stopped",
+        says: "An effect lasts until it is stopped when its sound loops or its particle system runs until stopped; otherwise its entries' other times decide.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-DURATION"),
+        station: "auberean-draw::dat::effects::an_effect_lasts_until_stopped_when_its_sound_or_system_does",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.effects.an-effect-lays-the-decal-its-entry-names",
         says: "An effect's entry with a decal lays it, of its material, life and color, sized and turned by its waveforms at that moment, while the decal effects preference is on.",
         since: RETAIL,

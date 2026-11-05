@@ -1199,13 +1199,11 @@ impl ObjectEffects {
             if node.color.is_some_and(|(on, _)| on) && node.color_lifetime.unwrap_or(0.0) != 0.0 {
                 state.restore_color = true;
             }
-            let mut looping = false;
             if node.particles.as_ref().is_some_and(|p| !p.is_empty()) {
                 if node.fire_and_forget == Some(true) {
                     self.fire_particle_fx(systems, records, &node, &spot, rig);
                 } else if let Some(id) = self.particle_fx(systems, records, &node, &spot, rig) {
                     state.systems.push(id);
-                    looping = true;
                 }
             }
             if let Some((true, s)) = &node.streak {
@@ -1227,7 +1225,8 @@ impl ObjectEffects {
             if node.stop_streak == Some(true) {
                 self.streak_asks.push((false, location));
             }
-            state.end = calc_duration(records, &node, looping, script).map(|d| at.now + d);
+            state.end = calc_duration(records, &node, &systems.dice(), script, state.restore_color)
+                .map(|d| at.now + d);
         }
         if !applied {
             return (false, scripts);
@@ -1501,13 +1500,17 @@ const DEFAULT_LIFETIME: f32 = 15.0;
 /// lessens it, else never; an effect script, the script's length. (A color it restores is not
 /// played here.)
 // D2-06903
-fn calc_duration(
+#[must_use]
+pub fn calc_duration(
     records: &WorldRecords,
     node: &FxNode,
-    looping: bool,
+    dice: &Random,
     script: Option<u32>,
+    restore_color: bool,
 ) -> Option<f64> {
-    let mut d = if looping { None } else { Some(0.0) };
+    let sound = sound_id(node, dice).is_some_and(|s| sound_is_looping(records, s));
+    let particles = particle_id(node, dice).is_some_and(|p| particle_is_looping(records, p));
+    let mut d = if sound || particles { None } else { Some(0.0) };
     if node.visual_desc.is_some_and(|v| !v.is_none()) || node.retarget == Some(true) {
         let life = f64::from(node.lifetime.unwrap_or(DEFAULT_LIFETIME));
         if life != 0.0 {
@@ -1529,7 +1532,7 @@ fn calc_duration(
         }
     }
     // A color that lasts holds the effect for as long.
-    if node.color.is_some_and(|(on, _)| on) {
+    if restore_color {
         if let Some(life) = node.color_lifetime.filter(|l| *l > 0.0) {
             d = Some(f64::from(life));
         }
