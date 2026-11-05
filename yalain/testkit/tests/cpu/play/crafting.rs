@@ -610,6 +610,7 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
             }],
             steps: Vec::new(),
             gives: Vec::new(),
+            rooms: Vec::new(),
         };
         let step = Step {
             quest: QUEST,
@@ -1202,6 +1203,7 @@ fn a_quest_given_runs_the_step_waiting_on_it_and_one_withheld_runs_none() {
                 to: None,
             }],
             gives: Vec::new(),
+            rooms: Vec::new(),
         };
         if paid {
             let p = h.server.players.get_mut(&world).expect("in the world");

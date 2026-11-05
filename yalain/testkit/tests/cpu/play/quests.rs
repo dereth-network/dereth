@@ -230,6 +230,7 @@ fn an_item_used_on_an_object_takes_the_player_and_moves_the_quest_on_arrival() {
             )
         }],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = h.player_in_world("one", "Elara");
     at_phase(&mut h, HALL_QUEST, 6);
@@ -316,6 +317,7 @@ fn one_use_completes_a_quest_and_gives_the_next_that_requires_it() {
             ),
         ],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = h.player_in_world("one", "Elara");
     at_phase(&mut h, NEXT_QUEST, 1);
@@ -422,6 +424,7 @@ fn a_completion_adds_its_points_to_the_rating_every_time_whatever_the_level() {
         quests: vec![def],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (_, me) = h.player_in_world("one", "Elara");
     let world = conn_of(&h, me);
@@ -472,6 +475,7 @@ fn a_hidden_quests_completion_pays_with_no_text() {
         ],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = h.player_in_world("one", "Elara");
     let world = conn_of(&h, me);
@@ -621,6 +625,7 @@ fn completing_a_quest_that_pays_a_share_adds_it_to_the_players_experience() {
             Update::Complete,
         )],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = h.player_in_world("one", "Elara");
     at_phase(&mut h, HALL_QUEST, 1);
@@ -667,6 +672,7 @@ fn a_step_for_some_races_runs_only_for_a_player_of_one_of_them() {
             },
         ],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (_b, _me) = h.player_in_world("one", "Elara");
     let world = *h.server.players.keys().next().expect("a player");
@@ -696,6 +702,7 @@ fn explorer_world(quests: Vec<QuestDef>, steps: Vec<Step>) -> Harness {
         quests,
         steps,
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     h
 }
@@ -1188,6 +1195,7 @@ fn stepping(steps: Vec<Step>, level: i32) -> Harness {
         quests: vec![q, other],
         steps,
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let _ = h.player_in_world("one", "Elara");
     h.run(5);

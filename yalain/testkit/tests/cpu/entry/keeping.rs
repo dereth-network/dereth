@@ -564,6 +564,7 @@ fn every_quest_held_is_listed_at_entry_with_what_is_left_of_its_wait() {
             .collect(),
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let now = h.unix;
     let held = |quest, status, phase, ago: i64| QuestState {
@@ -828,6 +829,7 @@ fn a_hidden_quest_is_never_listed_at_entry() {
         ],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let now = h.unix;
     let held = |quest, status, phase| QuestState {
@@ -876,6 +878,7 @@ fn a_quest_with_no_time_left_when_its_player_left_is_listed_failed() {
         quests: vec![timed(TIMED), timed(STILL_TIMED)],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let now = h.unix;
     let given = |quest, ago: i64| QuestState {
@@ -932,6 +935,7 @@ fn a_timed_quests_time_stands_still_while_its_player_is_away() {
         ],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let given = h.unix - 100;
     for p in h.server.players.values_mut() {
@@ -1037,6 +1041,7 @@ fn a_wait_to_be_taken_again_runs_while_its_player_is_away() {
             .collect(),
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let now = h.unix;
     let held = |quest, status, ago: i64| QuestState {
@@ -1099,6 +1104,7 @@ fn a_quest_under_way_in_a_save_keeps_the_time_it_had_left_when_it_was_kept() {
         }],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     log_off(&mut h, b, me);
     // As a save holds it: given 3000 s before it was kept, of which 2800 s were not played, and
@@ -1168,6 +1174,7 @@ fn a_quest_at_a_phase_its_time_does_not_run_in_is_not_failed_at_entry() {
         quests: vec![timed(IN_FIRST, 1), timed(IN_SECOND, 2)],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let at = |quest, phase, updated| QuestState {
         quest,

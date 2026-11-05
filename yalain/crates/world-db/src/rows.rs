@@ -411,6 +411,9 @@ pub struct Place {
     pub heading: Option<f32>,
     pub named_by: Vec<u32>,
     pub destination: Option<String>,
+    /// The row of like rooms it is one of, and the cell its creature stands in.
+    pub row: Option<String>,
+    pub holds: Option<u32>,
     pub prov: Prov,
 }
 
@@ -791,6 +794,8 @@ pub const FIELDS: [(&str, &[&str]); 20] = [
             "heading",
             "named_by",
             "destination",
+            "row",
+            "holds",
             "prov",
         ],
     ),
@@ -1366,6 +1371,8 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             heading: f.float("heading").map(to_f32),
             named_by: f.ids("named_by"),
             destination: f.ident("destination"),
+            row: f.symbol("row"),
+            holds: f.id("holds"),
             prov: f.req_prov()?,
         }),
         "craft" => {

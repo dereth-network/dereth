@@ -298,6 +298,7 @@ fn a_character_entering_again_gives_the_journal_its_quests() {
         }],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     ok(play::character_list(&mut s));
     let me = ok(play::create(&mut s, "Aubrey"));

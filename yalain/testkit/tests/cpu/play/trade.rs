@@ -792,6 +792,7 @@ fn quests() -> QuestTable {
             step(1, LIEUTENANT_TEMPLATE, Update::Advance(2)),
         ],
         gives: Vec::new(),
+        rooms: Vec::new(),
     }
 }
 

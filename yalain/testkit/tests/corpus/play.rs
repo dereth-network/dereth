@@ -665,6 +665,7 @@ fn a_visit() -> Vec<ServerMessage> {
             to: None,
         }],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = h.player_in_world("two", "Rowan");
     for p in h.server.players.values_mut() {

@@ -827,3 +827,115 @@ fn a_kills_step_that_leads_somewhere_sends_the_killer() {
     kill(&mut h, me, &[]);
     assert_eq!(trip_to(&h), (None, 3), "the last leads nowhere");
 }
+
+/// A step leading to a room of a row of like rooms sends the player to one with no player in it and
+/// its creature standing, at random among such; failing that, one with no player; failing that, any.
+/// Behaviour: server.quests.a-step-leads-to-one-of-its-rooms
+#[test]
+fn a_kills_step_sends_the_killer_to_a_free_room_of_its_row() {
+    use yalain_content::quests::{Place, Room};
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, _, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    let room = |i: u32| Room {
+        place: Place {
+            cell: 0x049E_0138 + i,
+            #[allow(clippy::cast_precision_loss)]
+            origin: [-120.4 + 60.0 * i as f32, -84.7, 3.06],
+            heading: 127,
+        },
+        holds: 0x049E_0160 + i,
+    };
+    h.server.quests.rooms = vec![vec![room(0), room(1), room(2)]];
+    h.server.quests.steps = vec![Step {
+        quest: QUEST,
+        needs: 1,
+        trigger: Trigger::Kill(template),
+        tell: None,
+        update: Update::Advance(1),
+        xp: 0,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: Vec::new(),
+        to: Some(room(1).place),
+        races: Vec::new(),
+        effects_last: false,
+        fellows: false,
+        wants: None,
+        levels: None,
+        xp_share: 0.0,
+    }];
+    for p in h.server.players.values_mut() {
+        p.play.quests.push(QuestState {
+            quest: QUEST,
+            status: status::UNDERWAY,
+            phase: 1,
+            started: 0,
+            updated: 0,
+        });
+    }
+    let (_, other) = h.player_in_world("two", "Bran");
+    let sent_to = |h: &mut Harness| {
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..60 {
+            kill(h, me, &[]);
+            let p = h
+                .server
+                .players
+                .values_mut()
+                .find(|p| p.character == me)
+                .expect("in the world");
+            let to = p.trip.take().expect("sent").to;
+            seen.insert(to.cell - 0x049E_0138);
+            let at = room(to.cell - 0x049E_0138).place;
+            assert_eq!(to.origin, at.origin, "where it lands");
+            p.play.quests[0].phase = 1;
+        }
+        seen.into_iter().collect::<Vec<u32>>()
+    };
+    assert_eq!(sent_to(&mut h), [0, 1, 2], "all free, none standing");
+    let in_room = |h: &mut Harness, who: u64, i: u32| {
+        let p = h
+            .server
+            .players
+            .values_mut()
+            .find(|p| p.character == who)
+            .expect("in the world");
+        p.position.cell = room(i).place.cell;
+        p.position.origin = [
+            room(i).place.origin[0],
+            room(i).place.origin[1] - 40.0,
+            3.06,
+        ];
+    };
+    in_room(&mut h, other, 0);
+    assert_eq!(sent_to(&mut h), [1, 2], "not where a player is");
+    // Kept out of the next beetles' way: the highest id is the next to die.
+    let mut standing = h
+        .server
+        .things
+        .by_id
+        .values()
+        .find(|t| t.creature.is_some() && t.alive())
+        .cloned()
+        .expect("the camp's");
+    standing.id = 1;
+    standing.at = Some(yalain_store::StoredPosition {
+        cell: room(2).holds,
+        origin: [0.0, 0.0, 0.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    });
+    h.server.things.insert(standing);
+    assert_eq!(sent_to(&mut h), [2], "where its creature stands");
+    in_room(&mut h, other, 2);
+    assert_eq!(
+        sent_to(&mut h),
+        [0, 1],
+        "not though it stands, with a player there"
+    );
+}

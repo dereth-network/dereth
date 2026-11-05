@@ -235,6 +235,14 @@ pub fn check_database(db: &Database) -> Vec<Problem> {
                     None => {}
                 }
             }
+            Row::Place(r) => {
+                if r.row.is_some() != r.holds.is_some() {
+                    problems.push(at(
+                        "row, holds: a room of a row names both its row and its creature's cell"
+                            .into(),
+                    ));
+                }
+            }
             Row::Step(r) => {
                 if matches!(r.update, Update::Advance) && r.phase.is_none() {
                     problems.push(at("phase: an advance names the phase it moves to".into()));

@@ -595,6 +595,7 @@ fn an_item_in_the_pack_its_quest_keeps_is_refused_by_its_use() {
         quests: vec![def(false)],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (a, me) = h.player_in_world("one", "Elara");
     h.run(10);
@@ -718,6 +719,7 @@ fn an_item_its_quest_keeps_is_refused_when_taken_until_the_quest_is_where_it_nee
         quests: vec![def(false)],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (a, me) = h.player_in_world("one", "Elara");
     h.run(10);

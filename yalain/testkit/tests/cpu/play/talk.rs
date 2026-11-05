@@ -304,6 +304,7 @@ fn a_step_says_its_line_then_the_lines_heard_with_its_update_in_order() {
             xp_share: 0.0,
         }],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (mut h, b, me) = world(talk, quests);
     let from = use_person(&mut h, b, me);

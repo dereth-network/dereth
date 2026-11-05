@@ -45,6 +45,7 @@ what they see, not how it was done.
 - Players can't talk faster than ten lines a second.
 - A plain shield now shows Shield Stats.
 - Curses and peace amulets now change who creatures attack.
+- Gauntlet players land in a free arena room.
 
 - Fixed a selected person showing empty health and vigor bars.
 

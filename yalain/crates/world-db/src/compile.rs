@@ -20,7 +20,7 @@ use auberean_assets::script::Qualities;
 use dereth_primitives::num::math;
 use yalain_content::quests::{
     Give as TableGive, Need as TableNeed, Place as StepPlace, QuestDef, QuestTable,
-    Step as TableStep, Trigger as TableTrigger, Update as TableUpdate,
+    Room as TableRoom, Step as TableStep, Trigger as TableTrigger, Update as TableUpdate,
 };
 use yalain_content::stores::{Keeper as TableKeeper, Sale as TableSale, SaleGate, StoreTable};
 use yalain_content::talk::{Line, TalkTable};
@@ -506,6 +506,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             _ => {}
         }
     }
+    let mut rooms: BTreeMap<(String, String), Vec<TableRoom>> = BTreeMap::new();
     for l in &merged.rows {
         let lb = l.landblock.unwrap_or(0);
         match &l.row {
@@ -1042,6 +1043,23 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 }
             }
             Row::Place(p) => {
+                if let (Some(row), Some(holds), Some(at)) = (
+                    &p.row,
+                    p.holds,
+                    p.row.is_some().then(|| cx.place_row(l)).flatten(),
+                ) {
+                    rooms
+                        .entry((l.pack.clone(), row.clone()))
+                        .or_default()
+                        .push(TableRoom {
+                            place: StepPlace {
+                                cell: at.cell,
+                                origin: at.origin,
+                                heading: heading_byte(rotation_heading(at.rotation)),
+                            },
+                            holds,
+                        });
+                }
                 if p.named_by.is_empty() && p.destination.is_none() {
                     continue;
                 }
@@ -1133,6 +1151,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
         });
     }
     subquest_definitions(&mut t.quests, install);
+    t.quests.rooms = rooms.into_values().collect();
     if cx.problems.is_empty() {
         t.warnings = cx.warnings;
         Ok(t)

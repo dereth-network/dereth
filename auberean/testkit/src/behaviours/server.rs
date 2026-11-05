@@ -9029,6 +9029,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-step-leads-to-one-of-its-rooms",
+        says: "A step leading to a room of a row of like rooms sends the player to one with no player \
+               in it and its creature standing, else one with no player, else any.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GAUNTLET-ROOMS"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kills_step_sends_the_killer_to_a_free_room_of_its_row",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-step-may-fail-its-quest",
         says: "A step may fail a quest under way, told as a failure; a quest with no wait may be given again by the next use.",
         since: RETAIL,

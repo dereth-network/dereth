@@ -738,6 +738,41 @@ fn a_portals_recall_flags_and_a_places_name_compile_for_the_server() {
 }
 
 #[test]
+fn a_places_row_of_rooms_compiles_with_where_each_ones_creature_stands() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/places.toml",
+        "heading = 320.5",
+        "heading = 320.5\nrow = \"arena\"\nholds = 0x77B80010",
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.quests.rooms.len(), 1);
+    let room = t.quests.rooms[0][0];
+    assert_eq!(
+        (room.place.cell, room.place.origin, room.holds),
+        (0x77B8_0003, [1.18, 53.42, 183.82], 0x77B8_0010)
+    );
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text())
+            .unwrap()
+            .rooms,
+        t.quests.rooms,
+        "it reads back as written"
+    );
+    let mut bad = fixture();
+    edit(
+        &mut bad,
+        "town/server/places.toml",
+        "heading = 320.5",
+        "heading = 320.5\nrow = \"arena\"",
+    );
+    assert!(check(&bad)
+        .iter()
+        .any(|p| p.to_string().contains("row, holds: a room")));
+}
+
+#[test]
 fn a_place_names_the_templates_whose_maps_lead_there_and_a_line_may_refuse_a_map() {
     let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
     assert!(t.places_named.is_empty(), "no place names a template");

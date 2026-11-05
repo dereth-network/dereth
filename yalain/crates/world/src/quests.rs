@@ -82,7 +82,7 @@ use yalain_content::quests::{Need, QuestDef, Step, Trigger, Update};
 use yalain_content::QuestTable;
 use yalain_content::Words;
 use yalain_net::{ConnId, ServerNet};
-use yalain_store::Store;
+use yalain_store::{Store, StoredPosition};
 
 use crate::graph::Builder;
 use crate::levels::LevelTable;
@@ -745,7 +745,11 @@ fn run_triggered<S: Store>(
         moved.push(step.quest);
         let received = run_with(s, net, world, &step, who, given, clock);
         if let (Some(place), Some((by, _))) = (step.to, who) {
-            crate::places::sends_on(s, world, by, place, clock);
+            // One already on its way goes nowhere, whichever room.
+            if s.players.get(&world).is_some_and(|p| p.trip.is_none()) {
+                let place = room_for(s, place);
+                crate::places::sends_on(s, world, by, place, clock);
+            }
         }
         // The item given is kept by the first step that takes it.
         if given.is_some_and(|g| step.takes.contains(&g.template)) {
@@ -756,6 +760,73 @@ fn run_triggered<S: Store>(
             took(s, net, world, template, clock);
         }
     }
+}
+
+/// How far from where it lands a player may be and still be in that room, in meters.
+const ROOM_REACH: f32 = 80.0;
+
+/// The room of a row of like rooms a player is sent to, where a step leads to one of them: at random
+/// among those with no player and a creature standing, else with no player, else any (2017's
+/// landings fell across 3 to 6 rooms a row; how they were chosen isn't recorded, so the order is
+/// ours). A player is in the room whose landing is nearest it, within reach. A place in no row is
+/// that place.
+pub(crate) fn room_for<S: Store>(
+    s: &mut Server<S>,
+    place: yalain_content::quests::Place,
+) -> yalain_content::quests::Place {
+    let Some(row) = s
+        .quests
+        .rooms
+        .iter()
+        .find(|row| row.iter().any(|r| r.place == place))
+    else {
+        return place;
+    };
+    let at = |p: yalain_content::quests::Place| StoredPosition {
+        cell: p.cell,
+        origin: p.origin,
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    let taken: Vec<bool> = {
+        let mut taken = vec![false; row.len()];
+        for p in s.players.values() {
+            let nearest = row
+                .iter()
+                .enumerate()
+                .filter_map(|(i, r)| {
+                    crate::presence::distance(&at(r.place), &p.position)
+                        .filter(|d| *d <= ROOM_REACH)
+                        .map(|d| (i, d))
+                })
+                .min_by(|a, b| a.1.total_cmp(&b.1));
+            if let Some((i, _)) = nearest {
+                taken[i] = true;
+            }
+        }
+        taken
+    };
+    let mut standing = vec![false; row.len()];
+    for t in s.things.by_id.values() {
+        if t.creature.is_none() || !t.alive() {
+            continue;
+        }
+        let at = t.at.map(|a| a.cell);
+        if let Some(i) = row.iter().position(|r| Some(r.holds) == at) {
+            standing[i] = true;
+        }
+    }
+    let rank = |i: usize| match (taken[i], standing[i]) {
+        (false, true) => 2,
+        (false, false) => 1,
+        (true, _) => 0,
+    };
+    let best = (0..row.len()).map(rank).max().unwrap_or(0);
+    let among: Vec<yalain_content::quests::Place> = (0..row.len())
+        .filter(|i| rank(*i) == best)
+        .map(|i| row[i].place)
+        .collect();
+    let i = s.rng.below(among.len());
+    among[i]
 }
 
 /// What a quest effect does to its quest.

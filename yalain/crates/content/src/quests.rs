@@ -224,6 +224,13 @@ pub struct Place {
     pub heading: u8,
 }
 
+/// A room of a row of like rooms: where a player lands in it, and the cell its creature stands in.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Room {
+    pub place: Place,
+    pub holds: u32,
+}
+
 /// One step of a quest.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Step {
@@ -294,6 +301,8 @@ pub struct QuestTable {
     pub quests: Vec<QuestDef>,
     pub steps: Vec<Step>,
     pub gives: Vec<Give>,
+    /// Rows of like rooms: a step leading to one of a row's rooms leads to one of them.
+    pub rooms: Vec<Vec<Room>>,
 }
 
 fn hex(s: &str) -> Result<u32, String> {
@@ -554,6 +563,20 @@ impl QuestTable {
                 g.placed,
             );
         }
+        for row in &self.rooms {
+            let rooms = row
+                .iter()
+                .map(|r| {
+                    let p = r.place;
+                    format!(
+                        "{:08X}:{}:{}:{}:{}:{:08X}",
+                        p.cell, p.origin[0], p.origin[1], p.origin[2], p.heading, r.holds
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            let _ = writeln!(out, "rooms\t{rooms}");
+        }
         out
     }
 
@@ -570,6 +593,27 @@ impl QuestTable {
             let at = |e: String| format!("line {}: {e}", n + 1);
             let c: Vec<&str> = line.split('\t').collect();
             match c[0] {
+                "rooms" if c.len() == 2 => {
+                    let row = c[1]
+                        .split(',')
+                        .map(|r| {
+                            let f: Vec<&str> = r.split(':').collect();
+                            if f.len() != 6 {
+                                return Err(format!("a room is CELL:X:Y:Z:HEADING:HOLDS, not {r}"));
+                            }
+                            Ok(Room {
+                                place: Place {
+                                    cell: hex(f[0])?,
+                                    origin: [num(f[1])?, num(f[2])?, num(f[3])?],
+                                    heading: num(f[4])?,
+                                },
+                                holds: hex(f[5])?,
+                            })
+                        })
+                        .collect::<Result<_, _>>()
+                        .map_err(at)?;
+                    t.rooms.push(row);
+                }
                 "quest" if (13..=25).contains(&c.len()) => t.quests.push(QuestDef {
                     id: hex(c[1]).map_err(at)?,
                     name: pair(c[2]).map_err(at)?,

@@ -718,6 +718,8 @@ impl Session {
                     heading: Some(new.heading.rem_euclid(360.0)),
                     named_by: Vec::new(),
                     destination: None,
+                    row: None,
+                    holds: None,
                     prov: p.clone(),
                 };
                 let item = ItemKey::Place { key: key.clone() };

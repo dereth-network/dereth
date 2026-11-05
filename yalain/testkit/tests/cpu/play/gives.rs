@@ -169,6 +169,7 @@ fn world() -> Harness {
             },
         ],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     h.server.talk = TalkTable {
         lines: vec![
@@ -898,6 +899,7 @@ fn items_given_close_a_phases_subquests_and_the_last_moves_it_on() {
         quests,
         steps: steps_,
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, DOCTRINES, 1);
@@ -971,6 +973,7 @@ fn the_give_closing_a_phase_is_said_as_the_next_phase_where_a_line_says_it() {
         quests,
         steps: steps_,
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, MAIN, 1);
@@ -1021,6 +1024,7 @@ fn an_item_a_give_brings_moves_its_quest_on_after_the_step() {
             step(CLAIM_QUEST, 6, Trigger::Take(CLAIM), Update::Advance(7)),
         ],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, CLAIM_QUEST, 5);
@@ -1094,6 +1098,7 @@ fn a_give_that_makes_a_hero_does_so_when_the_transformation_is_through() {
             ..step(ELYSA, 4, Trigger::Give(GEM, OBJECT_T), Update::Complete)
         }],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, ELYSA, 4);
@@ -1142,6 +1147,7 @@ fn a_hero_step_under_way_runs_as_its_player_leaves() {
             ..step(ELYSA, 4, Trigger::Give(GEM, OBJECT_T), Update::Complete)
         }],
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = player(&mut h, "one", "Elara");
     at_phase(&mut h, ELYSA, 4);
