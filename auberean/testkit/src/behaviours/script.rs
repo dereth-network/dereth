@@ -181,6 +181,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.a-hash-table-optimizes-only-a-size-that-does-not-suit",
+        says: "A hash table asked to optimize its size keeps a bucket count within a factor of two of its entries and answers no; otherwise it moves to the smallest count that holds them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-HASH-OPTIMIZE-GUARD"),
+        station: "auberean-glue::cpu::natives::a_hash_table_optimizes_only_a_size_that_does_not_suit",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.glue.a-line-of-sight-is-set-up-and-read",
         says: "A line of sight is set up through its natives as the engine's own: what it passes through copied, its test kind set, its start from a ray in a cell, a place and an offset, or one place to another across landblocks, objects added to pass through but the invalid id; after a test it answers whether it was unblocked or reached an unloaded landblock, its final ray and cell, and its end less the final cell's landblock offset.",
         since: RETAIL,

@@ -254,6 +254,38 @@ fn call_native(package: u32, number: u32) -> [u32; 2] {
     [w(op::CALL_NATIVE), (package << 16) | number]
 }
 
+/// A hash table asked to optimize its size keeps a bucket count within a factor of two of its
+/// entries and answers no; otherwise it moves to the smallest count that holds them.
+///
+/// Behaviour: script.glue.a-hash-table-optimizes-only-a-size-that-does-not-suit
+#[test]
+fn a_hash_table_optimizes_only_a_size_that_does_not_suit() {
+    const FNS: &[&str] = &["add", "optimize_size"];
+    let mut b = Bench::with_packages(&[("AAHash", HASH, FNS)]);
+    let table = b.new_object(HASH);
+    let shape = |b: &Bench| match b.vm.heap.native(table) {
+        Ok(NativeObject::Hash(h)) => (h.len(), h.buckets.len()),
+        _ => panic!("a hash table"),
+    };
+    assert_eq!(shape(&b), (0, 47));
+    for key in 0..11 {
+        b.answer(HASH, 1, table, &[key, 1]);
+    }
+    assert_eq!(
+        b.answer(HASH, 2, table, &[]),
+        1,
+        "47 buckets for 11 entries"
+    );
+    assert_eq!(shape(&b), (11, 11));
+    b.answer(HASH, 1, table, &[11, 1]);
+    assert_eq!(
+        b.answer(HASH, 2, table, &[]),
+        0,
+        "11 buckets for 12 entries"
+    );
+    assert_eq!(shape(&b), (12, 11));
+}
+
 /// Behaviour: script.glue.hash-table-natives
 #[test]
 fn a_hash_table_adds_finds_and_walks_its_entries_in_bucket_order() {
