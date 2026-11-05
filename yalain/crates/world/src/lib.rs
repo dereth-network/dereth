@@ -535,10 +535,10 @@ pub enum Timer {
     SentBack { world: ConnId, corpse: u64 },
     /// A player's lifestone protection runs out.
     ProtectionEnds { world: ConnId, eid: u32 },
-    /// The next step of a player's use of a skill (the use's number).
+    /// The next step of a player's use of a skill (the server's number for the use).
     Skill {
         world: ConnId,
-        id: u32,
+        serial: u32,
         step: skill_use::Step,
     },
     /// A creature's opening opens, or closes.
@@ -905,8 +905,12 @@ impl<S: Store> Server<S> {
                     death::sent_back(self, net, world, corpse, clock);
                 }
                 Timer::ProtectionEnds { world, eid } => effects::runs_out(self, net, world, eid),
-                Timer::Skill { world, id, step } => {
-                    skill_use::step(self, net, world, id, step, clock);
+                Timer::Skill {
+                    world,
+                    serial,
+                    step,
+                } => {
+                    skill_use::step(self, net, world, serial, step, clock);
                 }
                 Timer::ItemEffectEnds { item, fx } => {
                     effects::item_effect_ends(self, net, item, fx, clock);

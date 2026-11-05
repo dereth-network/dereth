@@ -1610,3 +1610,50 @@ fn a_player_uses_only_a_skill_it_holds() {
         "its use is under way"
     );
 }
+
+/// A client numbers its own uses, and a number may come again. A use cut short leaves nothing behind
+/// to run another use of that number: each use asked and cut before its story tells no story, and the
+/// one left to run tells one and strikes once.
+/// Behaviour: server.skills.a-use-is-told-once-whatever-its-number
+#[test]
+fn a_use_is_told_once_however_often_its_number_comes_again() {
+    const STOP_ATTACK: u32 = 0x8204_0010;
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, BOW);
+    if let Some(u) = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&DEADEYE)
+        .and_then(|d| d.usage.as_mut())
+    {
+        u.ui_flags &= !yalain_world::skill_use::ui_flag::USE_WHILE_MOVING;
+    }
+    // Away from it: Deadeye has a least range.
+    h.run(5);
+    let told = |h: &Harness, from: usize| {
+        h.world_messages(b, from)
+            .iter()
+            .filter(|m| {
+                matches!(m, ServerMessage::DoStory(e) if e.action.attacker == me && e.action.skill == DEADEYE && e.sender.id == me)
+            })
+            .count()
+    };
+    let vigor_paid = |h: &Harness, from: usize| vigor_sent(h, b, from).len();
+    let from = h.bots[b].inbox.len();
+    for _ in 0..10 {
+        use_skill(&mut h, b, 7, DEADEYE, beetle);
+        h.bots[b].send(true, queue::WEENIE, &server_call(STOP_ATTACK, &[]));
+    }
+    use_skill(&mut h, b, 7, DEADEYE, beetle);
+    h.run(3);
+    assert_eq!(told(&h, from), 0, "nothing told before its time");
+    h.advance(0.2);
+    h.run(3);
+    assert_eq!(told(&h, from), 1, "one told, of the one that ran");
+    assert_eq!(vigor_paid(&h, from), 1, "and one paid");
+    h.advance(3.0);
+    h.run(5);
+    assert_eq!(told(&h, from), 1, "still one when it is over");
+}

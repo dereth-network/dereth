@@ -10156,6 +10156,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.a-use-is-told-once-whatever-its-number",
+        says: "A use goes by the server's own number: one cut short leaves nothing to run another of the client's same number.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILL-USE-NUMBER"),
+        station: "yalain-testkit::cpu::play::specials::a_use_is_told_once_however_often_its_number_comes_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.active-cap-for-who-is-no-hero",
         says: "An active skill stops at 50 for a player who is no hero, in its rating and in a \
                raise; a hero's goes on to the skill's own cap.",

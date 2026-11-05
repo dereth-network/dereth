@@ -455,6 +455,8 @@ pub enum Aim {
 /// A use under way.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Using {
+    /// The server's own number for it, which its steps go by: a client's number may come again.
+    pub serial: u32,
     pub req: Request,
     pub usage: Usage,
     /// When it began (game time), which the skill's information keeps.
@@ -490,6 +492,8 @@ pub struct Landing {
 /// A special's missile in flight: its request, how it is used, how it will come out.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Flying {
+    /// Its use's number, as [`Using::serial`].
+    pub serial: u32,
     pub req: Request,
     pub usage: Usage,
     pub outcome: Option<(Outcome, i32)>,
@@ -1263,8 +1267,12 @@ pub fn starts<S: Store>(
     } else {
         STORY_AFTER
     };
+    let mut serial = 0;
     if let Some(p) = s.players.get_mut(&world) {
+        p.uses = p.uses.wrapping_add(1);
+        serial = p.uses;
         p.using = Some(Using {
+            serial,
             req: r,
             usage: u,
             began,
@@ -1283,7 +1291,7 @@ pub fn starts<S: Store>(
         story_in,
         Timer::Skill {
             world,
-            id: r.id,
+            serial,
             step: Step::Story,
         },
     );
@@ -1443,7 +1451,10 @@ pub fn slot<S: Store>(
         run.next_swing = f64::INFINITY;
     }
     let powerup = (u.powerup > 0.0).then_some((u.powerup, u.powerup_behavior));
+    p.uses = p.uses.wrapping_add(1);
+    let serial = p.uses;
     p.using = Some(Using {
+        serial,
         req: r,
         usage: u,
         began,
@@ -1488,12 +1499,12 @@ pub fn slot<S: Store>(
                 f64::from(time) * POWERUP_SCALE,
                 Timer::Skill {
                     world,
-                    id: r.id,
+                    serial,
                     step: Step::Story,
                 },
             );
         }
-        None => story(s, net, world, r.id, clock),
+        None => story(s, net, world, serial, clock),
     }
     true
 }
@@ -1503,23 +1514,23 @@ pub fn step<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
-    id: u32,
+    serial: u32,
     st: Step,
     clock: Clock,
 ) {
     if st == Step::Arrives {
-        return arrives(s, net, world, id, clock);
+        return arrives(s, net, world, serial, clock);
     }
     let current = s
         .players
         .get(&world)
         .and_then(|p| p.using.as_ref())
-        .is_some_and(|u| u.req.id == id);
+        .is_some_and(|u| u.serial == serial);
     if !current {
         return;
     }
     match st {
-        Step::Story => story(s, net, world, id, clock),
+        Step::Story => story(s, net, world, serial, clock),
         Step::Strike => strike(s, net, world, clock),
         Step::Arrives => {}
         Step::Portal => recall_portal(s, net, world, clock),
@@ -1815,7 +1826,13 @@ pub(crate) fn story_params(behavior: u32, ts: f32) -> BehaviorParams {
 /// The story of a use: its vigor paid, the story told to all who see the player, the wielded
 /// things playing the behavior; then the strike's landing, the missile's arrival, the recall's
 /// portal, or the end.
-fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u32, clock: Clock) {
+fn story<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    serial: u32,
+    clock: Clock,
+) {
     let Some((r, u, ts, aim)) = s
         .players
         .get(&world)
@@ -1848,7 +1865,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
                     0.2,
                     Timer::Skill {
                         world,
-                        id,
+                        serial,
                         step: Step::Story,
                     },
                 );
@@ -1958,7 +1975,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
             crate::usable::portals::APPEARS_AFTER,
             Timer::Skill {
                 world,
-                id,
+                serial,
                 step: Step::Summon,
             },
         );
@@ -1976,7 +1993,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
             wait,
             Timer::Skill {
                 world,
-                id,
+                serial,
                 step: Step::Portal,
             },
         );
@@ -2010,7 +2027,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
                 after(hook_seconds(behavior, on_self)),
                 Timer::Skill {
                     world,
-                    id,
+                    serial,
                     step: Step::Hook,
                 },
             );
@@ -2020,6 +2037,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         if let Some(p) = s.players.get_mut(&world) {
             let spellcraft = p.using.as_ref().map_or(1.0, |x| x.spellcraft);
             p.flying.push(Flying {
+                serial,
                 req: r,
                 usage: u.clone(),
                 outcome,
@@ -2040,7 +2058,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
             MISSILE_WINDUP + f64::from(d / speed),
             Timer::Skill {
                 world,
-                id,
+                serial,
                 step: Step::Arrives,
             },
         );
@@ -2050,7 +2068,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
             after(STRIKE_LANDS),
             Timer::Skill {
                 world,
-                id,
+                serial,
                 step: Step::Strike,
             },
         );
@@ -2060,7 +2078,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         after(animation_seconds(behavior)),
         Timer::Skill {
             world,
-            id,
+            serial,
             step: Step::End,
         },
     );
@@ -2323,9 +2341,15 @@ pub(crate) fn put_target_effects<S: Store>(
 }
 
 /// A missile arrives: the target tells how it came out (its health first when it is hurt).
-fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u32, clock: Clock) {
+fn arrives<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    serial: u32,
+    clock: Clock,
+) {
     let Some(f) = s.players.get_mut(&world).and_then(|p| {
-        let i = p.flying.iter().position(|f| f.req.id == id)?;
+        let i = p.flying.iter().position(|f| f.serial == serial)?;
         Some(p.flying.remove(i))
     }) else {
         return;
@@ -2433,11 +2457,11 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
 /// A recall's story is over: into portal space toward its place (one of several at random), or,
 /// with none, told it failed (a city's recall, whose place the world lacks, says nothing).
 fn recall_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
-    let Some((id, skill)) = s
+    let Some((serial, skill)) = s
         .players
         .get(&world)
         .and_then(|p| p.using.as_ref())
-        .map(|u| (u.req.id, u.req.skill))
+        .map(|u| (u.serial, u.req.skill))
     else {
         return;
     };
@@ -2468,7 +2492,7 @@ fn recall_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
             FAILED_ENDS_AFTER,
             Timer::Skill {
                 world,
-                id,
+                serial,
                 step: Step::End,
             },
         );
@@ -2482,7 +2506,7 @@ fn recall_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
         RECALL_IN_PORTAL,
         Timer::Skill {
             world,
-            id,
+            serial,
             step: Step::Out,
         },
     );
@@ -2491,11 +2515,11 @@ fn recall_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
 /// A summoning's story is over: its portal appears (when the summoner keeps a place of its kind);
 /// its end follows.
 fn summon_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
-    let Some((id, skill)) = s
+    let Some((serial, skill)) = s
         .players
         .get(&world)
         .and_then(|p| p.using.as_ref())
-        .map(|u| (u.req.id, u.req.skill))
+        .map(|u| (u.serial, u.req.skill))
     else {
         return;
     };
@@ -2505,7 +2529,7 @@ fn summon_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
         crate::usable::portals::ENDS_AFTER,
         Timer::Skill {
             world,
-            id,
+            serial,
             step: Step::End,
         },
     );
@@ -2513,18 +2537,18 @@ fn summon_portal<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId
 
 /// A recall comes out of portal space at its place; its end follows.
 fn recall_out<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
-    let id = s
+    let serial = s
         .players
         .get(&world)
         .and_then(|p| p.using.as_ref())
-        .map_or(0, |u| u.req.id);
+        .map_or(0, |u| u.serial);
     crate::places::recall_arrives(s, net, world, clock);
     s.after(
         clock,
         RECALL_ENDS_AFTER,
         Timer::Skill {
             world,
-            id,
+            serial,
             step: Step::End,
         },
     );

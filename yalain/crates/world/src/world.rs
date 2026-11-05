@@ -154,8 +154,9 @@ pub struct Player {
     pub flying: Vec<crate::skill_use::Flying>,
     /// Its lifestone protection, while it lasts.
     pub protected: Option<crate::effects::Protected>,
-    /// The skill it is using, while the use runs.
+    /// The skill it is using, while the use runs, and the server's number for its last use.
     pub using: Option<crate::skill_use::Using>,
+    pub uses: u32,
     /// A skill's use waiting for the running one to end.
     pub queued: Option<crate::skill_use::Request>,
     /// A special waiting for its attack run's next swing.
@@ -509,6 +510,7 @@ pub fn enter<S: Store>(
         protected: None,
         passwd_at: None,
         using: None,
+        uses: 0,
         queued: None,
         in_run: None,
         last_used: std::collections::HashMap::new(),
