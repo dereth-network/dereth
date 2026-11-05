@@ -540,7 +540,8 @@ fn consignment(b: &mut Builder, c: &Consignment, name: (u32, u32), icon: &[[u32;
             Slot::Ref(Some(profile)),
             Slot::Long(c.owner),
             Slot::Int(c.sale),
-            Slot::Int(c.offered),
+            // How many are left: the client adds what has sold to it for how many went up.
+            Slot::Int(c.offered.saturating_sub(c.sold)),
             Slot::Int(c.sold),
             Slot::Tagged(0x84, t as u32),
             Slot::Tagged(tag::HIGH, (t >> 32) as u32),

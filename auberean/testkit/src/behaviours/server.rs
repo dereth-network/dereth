@@ -5706,6 +5706,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.a-consignment-says-how-many-are-left",
+        says: "A consignment tells its seller how many are left and how many have sold, as the                client reads them: it adds the two for how many went up, and shows a row in stock                while any are left.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-LEFT"),
+        station: "yalain-testkit::cpu::play::market::a_consignment_tells_its_seller_how_many_are_left_and_how_many_sold",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.a-seller-is-told-of-a-sale",
         says: "A sale bought while its seller is in the world tells the seller which sale and how \
                many have sold, at that broker, and the buyer isn't told; the client's handler reads \

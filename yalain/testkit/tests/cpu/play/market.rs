@@ -465,6 +465,46 @@ fn a_seller_in_the_world_is_told_of_a_sale_as_it_is_bought() {
     assert_eq!(desc, [sale, 0, 1], "the sale, not expired, one sold");
 }
 
+/// A consignment tells its seller how many are left and how many have sold, in the consignments'
+/// page and the reminder alike: all left before a sale, none after it.
+/// Behaviour: server.market.a-consignment-says-how-many-are-left
+#[test]
+fn a_consignment_tells_its_seller_how_many_are_left_and_how_many_sold() {
+    use yalain_world::calls::{Node, Value};
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    money(&mut h, ida, 1_000);
+    money(&mut h, idb, 5_000);
+    let sword = put_up_a_made_item(&mut h, a, ida);
+    // Each consignment's left and sold, in the page and the reminder the seller is sent.
+    let shown = |h: &mut Harness| -> Vec<(u32, u32)> {
+        let from = h.bots[a].inbox.len();
+        h.ask(a, function::ENTER_CONSIGNMENT, &[Arg::LongInt(BROKER)], 10);
+        let mut found = Vec::new();
+        for (_, values) in h.calls(a, from).into_iter().filter(|(f, _)| {
+            *f == function::ENTER_CONSIGNMENT_DONE || *f == function::SALE_REMINDERS
+        }) {
+            for v in &values {
+                let Value::Graph(g) = v else { continue };
+                for (_, n) in g {
+                    if let Node::Script { package, slots } = n {
+                        if *package == yalain_world::market::CONSIGNMENT.0 {
+                            found.push((slots[4].1, slots[5].1));
+                        }
+                    }
+                }
+            }
+        }
+        found
+    };
+    assert_eq!(shown(&mut h), [(1, 0), (1, 0)], "the page and the reminder");
+    buy(&mut h, b, idb, sword);
+    assert_eq!(shown(&mut h), [(0, 1), (0, 1)], "none left, one sold");
+}
+
 /// A sale whose seller is away goes as any other, and no one is told.
 /// Behaviour: server.market.a-seller-is-told-of-a-sale
 #[test]

@@ -6,6 +6,7 @@ Add a line under **Unreleased** when a change lands that an operator or a player
 what they see, not how it was done.
 
 ## Unreleased
+- Fixed sold consignments still showing as in stock.
 - Sellers in the world now get a reminder when their sale is bought.
 - Fixed a character without the friends service not hearing of its Discord link.
 - A world can change the game's records and send them to clients.
