@@ -43,6 +43,7 @@ what they see, not how it was done.
 - Fixed items being lost for no gold at the money bag; worthless items are now refused.
 - A frozen world now stops itself so it can restart.
 - Players can't talk faster than ten lines a second.
+- A plain shield now shows Shield Stats.
 
 - Fixed a selected person showing empty health and vigor bars.
 

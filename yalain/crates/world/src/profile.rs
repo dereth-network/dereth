@@ -1292,15 +1292,24 @@ impl ItemView {
         } else {
             text("Name")
         };
+        // Both a weapon's numbers and a rating make a shield: its stats are the weapon's, with its
+        // rating and combat delay, under their own heading.
+        let rating = int("Item_ArmorLevel");
+        let held = props.int("Weapon_Damage").is_some();
+        let shield = rating.filter(|_| held);
         let weapon = int("Weapon_Damage").map(|d| {
             (
                 d,
                 props.float("Weapon_Variance").unwrap_or(0.0),
-                int("Weapon_Speed").unwrap_or(0),
+                if shield.is_some() {
+                    int("Item_CombatDelay").unwrap_or(0)
+                } else {
+                    int("Weapon_Speed").unwrap_or(0)
+                },
                 int("Weapon_VigorCost").unwrap_or(0),
             )
         });
-        let armor = int("Item_ArmorLevel").map(|a| {
+        let armor = rating.filter(|_| !held).map(|a| {
             (
                 a,
                 int("Item_CombatDelay").unwrap_or(0),
@@ -1320,6 +1329,7 @@ impl ItemView {
             description: text("Description"),
             weapon,
             armor,
+            shield,
             destroyed_on_use: props.flag("Item_IsDestroyOnUse"),
             min_level: int("Usage_MinLevel").unwrap_or(0),
             max_level: int("Usage_MaxLevel").unwrap_or(0),
@@ -1758,7 +1768,7 @@ fn totem_lines(p: &mut Profile, v: &ItemView) {
 fn effect_lines(p: &mut Profile, v: &ItemView) {
     use item_line as l;
     let weapon = v.weapon.is_some();
-    let armor = v.armor.is_some();
+    let armor = v.armor.is_some() || v.shield.is_some();
     let mut first = true;
     for when in [
         When::Used,

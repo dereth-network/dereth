@@ -1259,6 +1259,49 @@ fn a_dyed_items_icon_takes_its_dyes_color() {
     );
 }
 
+/// A shield no one made shows its template's numbers as a shield's: its rating leading, the delay
+/// it wears with, and its effects when wielded indented once, under no heading of armor or weapons.
+/// Behaviour: server.examination.a-plain-shield-shows-shield-stats
+#[test]
+fn a_plain_shield_shows_shield_stats_from_its_template() {
+    use profile::{item_line as l, ItemEffect, ItemView, Node, When};
+    use yalain_content::Prop;
+    let mut props = yalain_content::Props::default();
+    props.set("Item_ArmorLevel", Prop::Int(69));
+    props.set("Weapon_Damage", Prop::Int(142));
+    props.set("Weapon_Variance", Prop::Float(0.21));
+    props.set("Weapon_Speed", Prop::Int(15));
+    props.set("Weapon_VigorCost", Prop::Int(15));
+    let mut view = ItemView::of(&props, 1, None);
+    assert_eq!(view.shield, Some(69));
+    assert_eq!(view.armor, None);
+    assert_eq!(view.weapon, Some((142, 0.21, 0, 15)), "no delay of its own");
+    props.set("Item_CombatDelay", Prop::Int(10));
+    assert_eq!(ItemView::of(&props, 1, None).weapon.map(|w| w.2), Some(10));
+
+    view.effects.push(ItemEffect {
+        when: When::Equipped,
+        table: 1,
+        spellcraft: None,
+        amount: None,
+        ends: None,
+    });
+    let nodes = profile::item(0x3FF, &view).nodes;
+    let line = |id: u32| {
+        nodes
+            .iter()
+            .position(|n| matches!(n, Node::Text { text, .. } if text.string_id == id))
+    };
+    assert!(line(l::SHIELD_STATS).is_some());
+    assert_eq!(line(l::ARMOR_STATS), None);
+    assert_eq!(line(l::WEAPON_STATS), None);
+    let rating = line(l::SHIELD_RATING).expect("its rating");
+    assert!(matches!(nodes[rating + 1], Node::Int { value: 69, .. }));
+    assert!(rating < line(l::DAMAGE).expect("its damage"), "it leads");
+    let heading = line(l::EFFECTS_WIELDED).expect("its effects");
+    assert!(matches!(nodes[heading - 1], Node::Tab { count: 1, .. }));
+}
+
 /// A stack with a value of its own shows what all its pieces are worth, as a sale of it pays.
 /// Behaviour: server.inventory.a-stack-pays-for-each-piece
 #[test]

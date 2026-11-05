@@ -454,8 +454,7 @@ pub fn apply_to_view(m: &Made, facts: &yalain_content::Facts, v: &mut crate::pro
     v.vigor_changed = m.vigor_changed;
     if let (Some(w), Some(delay), Some(vigor)) = (m.damage, m.delay, m.vigor) {
         v.weapon = Some((w.0, w.1, delay, vigor));
-        // A shield's stats are its weapon's, with its rating, under their own heading.
-        if v.armor.take().is_some() {
+        if v.shield.is_some() {
             v.shield = m.armor;
         }
     } else if let (Some(rating), Some(delay)) = (m.armor, m.delay) {

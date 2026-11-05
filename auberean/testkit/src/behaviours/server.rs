@@ -3286,6 +3286,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.a-plain-shield-shows-shield-stats",
+        says: "A shield no one made shows its template's numbers under Shield Stats: its rating first, \
+               the combat delay it wears with, its damage last; its effects when wielded indented once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SHIELD-STATS-PLAIN"),
+        station: "yalain-testkit::cpu::entry::examine::a_plain_shield_shows_shield_stats_from_its_template",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.an-inscription-is-shown",
         says: "An inscribed item's profile shows, on a tab of its own, who wrote on it by its \
                name in the world, and the words.",
