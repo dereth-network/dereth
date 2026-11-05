@@ -6920,6 +6920,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.a-save-of-the-last-release-reads-whole",
+        says: "A character's play state and the consignments' record, as the last release kept them, \
+               read whole under a later build: every field as it was, those added since empty, and \
+               kept again they read the same.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OLD-SAVES"),
+        station: "yalain-testkit::cpu::operator::old_saves::a_play_state_the_last_release_kept_reads_whole_and_is_kept_again_whole",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.a-save-that-fails-is-held-and-tried-again",
         says: "A save that fails loses nothing: what it was to keep stays held and is tried \
                again every few seconds, a character that leaves or comes back meanwhile \
