@@ -7922,6 +7922,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-keys-answer-names-it",
+        says: "A key's answer names the key, glyphs among them, whose names only their qualities record \\
+               holds; a key with no name opens with no text about the lock.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KEY-ANSWER-NAME"),
+        station: "yalain-testkit::dat::effects::a_glyph_and_treasure_are_named_though_only_their_qualities_say",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.places.a-land-cell-holds-its-point",
         says: "A land cell its reported point does not lie in is no place: the player stays where \
                it was.",

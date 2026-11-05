@@ -192,16 +192,17 @@ impl Portal {
         let class = Props::class_of(id, &|e| self.entity(e)).map_or_else(Vec::new, |c| {
             yalain_world_db::install::class_properties(&self.library(), c)
         });
+        let props = Props::of(id, &|e| self.entity(e), &name)
+            .with_places_of(self.qualities(yalain_content::qualities_id(id)).as_ref())
+            .with_worn_of(id)
+            .with_take_gate_of(id)
+            .with_class(&class);
         Template {
             id,
             description: describe(id, &|e| self.entity(e), &|q| self.qualities(q))
                 .expect("the template is described"),
-            facts: facts(id, &|e| self.entity(e), &self.fact_ids()),
-            props: Props::of(id, &|e| self.entity(e), &name)
-                .with_places_of(self.qualities(yalain_content::qualities_id(id)).as_ref())
-                .with_worn_of(id)
-                .with_take_gate_of(id)
-                .with_class(&class),
+            facts: facts(id, &|e| self.entity(e), &self.fact_ids()).named_by(&props),
+            props,
         }
     }
 

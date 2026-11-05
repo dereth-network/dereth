@@ -395,6 +395,20 @@ pub fn facts(template: u32, entity: &dyn Fn(u32) -> Option<Entity>, ids: &FactId
     f
 }
 
+impl Facts {
+    /// With the name its properties hold where its chain of entities says none: some item templates
+    /// keep theirs only in their qualities record.
+    #[must_use]
+    pub fn named_by(mut self, props: &Props) -> Self {
+        if self.name.is_none() {
+            if let Some(Prop::Str(string, table)) = props.get("Name") {
+                self.name = Some((*string, *table));
+            }
+        }
+        self
+    }
+}
+
 /// One object of the pack: what it is and where it stands.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ContentObject {

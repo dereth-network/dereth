@@ -803,6 +803,10 @@ pub(crate) fn fits_answer<S: Store>(
     locked_name: Option<(u32, u32)>,
 ) -> Use {
     let key_name = s.things.get(key).and_then(|t| t.facts.name);
+    // Its text can't be written without the key's name.
+    if key_name.is_none() {
+        return u.clone();
+    }
     let vars = [
         locked_name.map(|n| progress::nested(text::DOOR, progress::text(n))),
         key_name.map(|n| progress::nested(text::KEY, progress::text(n))),

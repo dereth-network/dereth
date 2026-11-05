@@ -417,7 +417,7 @@ pub fn catalog(
         c.insert(Template {
             id: t,
             description,
-            facts: yalain_content::facts(t, &|id| p.entity(id), &ids),
+            facts: yalain_content::facts(t, &|id| p.entity(id), &ids).named_by(&props),
             props,
         });
     }

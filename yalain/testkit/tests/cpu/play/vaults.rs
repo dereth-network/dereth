@@ -97,9 +97,13 @@ fn hall() -> Harness {
         },
     );
     for t in [ESPER_GLYPH, GEVOTH_GLYPH] {
-        h.server
-            .catalog
-            .insert(yalain_testkit::test_template(t, 0x18F, Props::default()));
+        h.server.catalog.insert(yalain_content::Template {
+            facts: yalain_content::Facts {
+                name: Some((0x2B0C_0002, 0x2500_0002)),
+                ..yalain_content::Facts::default()
+            },
+            ..yalain_testkit::test_template(t, 0x18F, Props::default())
+        });
     }
     h
 }

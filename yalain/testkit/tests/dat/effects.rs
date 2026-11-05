@@ -1590,6 +1590,21 @@ fn a_classs_value_is_its_own_though_it_be_nothing_else_its_bases() {
     );
 }
 
+/// Each glyph is named, though its entity says nothing and only its qualities record does, as each
+/// key's answer asks of it; and so is a piece of treasure kept the same way.
+/// Behaviour: server.places.a-keys-answer-names-it
+#[test]
+fn a_glyph_and_treasure_are_named_though_only_their_qualities_say() {
+    let p = Portal::open();
+    for (t, _) in yalain_world::usable::vaults::GLYPH_KEYS {
+        assert!(p.template(t).facts.name.is_some(), "{t:#x}");
+    }
+    assert_eq!(
+        p.template(0x4700_10A2).facts.name.map(|n| n.0),
+        Some(0xA860_7CEC)
+    );
+}
+
 /// A template whose least level is only its class's isn't one that sets it, as one whose entity says.
 /// Behaviour: server.loot.treasure-own-properties-over-a-class
 #[test]

@@ -87,9 +87,13 @@ fn hall(x: f32, y: f32) -> Harness {
         .insert(DOOR_PACKAGE, doors::Kind::Plain);
     let mut key = Props::default();
     key.set("Lock_KeyID", Prop::Word(KEY_ID));
-    h.server
-        .catalog
-        .insert(yalain_testkit::test_template(KEY, 0x18F, key));
+    h.server.catalog.insert(yalain_content::Template {
+        facts: yalain_content::Facts {
+            name: Some((0x2B0C_0002, 0x2500_0002)),
+            ..yalain_content::Facts::default()
+        },
+        ..yalain_testkit::test_template(KEY, 0x18F, key)
+    });
     h
 }
 
@@ -788,4 +792,40 @@ fn a_key_gone_as_the_door_opens_shuts_it_again_still_locked() {
     assert!(told.contains(&"solid".to_string()), "shuts: {told:?}");
     assert!(!h.server.doors.by_id[&DOOR].unlocked, "still locked");
     assert!(h.server.things.get(key).is_some(), "not used up");
+}
+
+/// A key with no name to put in it opens as any, its answer keeping the request's own message: the
+/// text can't be written without the name.
+/// Behaviour: server.places.a-keys-answer-names-it
+#[test]
+fn a_key_with_no_name_opens_its_door_with_no_text_about_the_lock() {
+    let mut h = hall(60.0, 239.0);
+    h.server
+        .locks
+        .objects
+        .insert(DOOR, Lock { key: Some(KEY_ID) });
+    h.server
+        .catalog
+        .templates
+        .get_mut(&KEY)
+        .expect("made")
+        .facts
+        .name = None;
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let world = *h.server.players.keys().next().expect("in");
+    let key =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, KEY, 1).expect("a key");
+    h.run(3);
+    let fa = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, key, DOOR, 1.2);
+    run_for(&mut h, 1.6);
+    let told = seen(&h, a, fa);
+    assert!(told.contains(&"open".to_string()), "{told:?}");
+    assert!(
+        !told
+            .iter()
+            .any(|x| x.contains(&format!("{:08X}", doors::text::FITS.0))),
+        "{told:?}"
+    );
 }
