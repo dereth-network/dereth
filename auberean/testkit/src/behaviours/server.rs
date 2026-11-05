@@ -9801,6 +9801,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.a-skill-on-an-item-lands-with-what-is-held",
+        says: "A skill's effect reaches an item later with a polearm in hand than with anything else, \
+               the look with it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-POLEARM"),
+        station: "yalain-testkit::cpu::play::item_effects::a_skills_effect_reaches_a_polearm_later_than_a_sword",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.active-cap-for-who-is-no-hero",
         says: "An active skill stops at 50 for a player who is no hero, in its rating and in a \
                raise; a hero's goes on to the skill's own cap.",

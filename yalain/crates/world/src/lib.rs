@@ -541,6 +541,13 @@ pub enum Timer {
     EffectEnds { world: ConnId, eid: u32 },
     /// The look of the effects on an item may be up.
     ItemEffectEnds { item: u64, fx: u32 },
+    /// A skill's effects reach the item it was aimed at, after its use is over.
+    SkillOnItemLands {
+        world: ConnId,
+        skill: u32,
+        item: u64,
+        spellcraft: f32,
+    },
     /// An effect on a player changes its vitals again (the last change at `since`, world
     /// seconds).
     EffectTick { world: ConnId, eid: u32, since: f64 },
@@ -894,6 +901,21 @@ impl<S: Store> Server<S> {
                 }
                 Timer::ItemEffectEnds { item, fx } => {
                     effects::item_effect_ends(self, net, item, fx, clock);
+                }
+                Timer::SkillOnItemLands {
+                    world,
+                    skill,
+                    item,
+                    spellcraft,
+                } => {
+                    if let Some(u) = self
+                        .skill_table
+                        .skills
+                        .get(&skill)
+                        .and_then(|d| d.usage.clone())
+                    {
+                        skill_use::lands_on_item(self, net, world, &u, item, spellcraft, clock);
+                    }
                 }
                 Timer::EffectEnds { world, eid } => {
                     if !mounts::record_ends(self, net, world, eid) {

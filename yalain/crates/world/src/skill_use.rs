@@ -206,10 +206,17 @@ pub fn hook_seconds(behavior: u32, on_self: bool) -> f64 {
         0x4100_00C2 => 0.722,
         0x4100_00C9 => 0.477,
         // An effect on an item: 20 stories 0.46 to 0.69 s, a median 0.56.
-        0x4100_009D => 0.56,
+        0x4100_009D => ON_ITEM_SECONDS,
         _ => 0.97,
     }
 }
+
+/// When a skill's effects reach an item after its story, at time scale 1.
+pub const ON_ITEM_SECONDS: f64 = 0.56;
+
+/// The same with a polearm in hand, whose stance plays that behavior longer (2017: all 4 of
+/// Galvanize's looks on its polearms 2.21 to 2.34 s, against 22 of Emblem's on shields, 0.46 to 0.69 s).
+pub const ON_ITEM_POLEARM_SECONDS: f64 = 2.27;
 /// A strike lands at this share of its animation, over the time scale (2017: Riposte's hits
 /// 0.70-0.72 s x time scale after the story).
 pub const STRIKE_LANDS: f64 = 0.71;
@@ -1960,15 +1967,38 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         return;
     }
     if (helpful(&u) || on_item) && !u.target_effects.is_empty() {
-        s.after(
-            clock,
-            after(hook_seconds(behavior, on_self)),
-            Timer::Skill {
-                world,
-                id,
-                step: Step::Hook,
-            },
-        );
+        let polearm = hands(s, me)
+            .right
+            .and_then(|(_, t)| implement_of(&s.catalog, t))
+            == Some(implement::POLEARM);
+        if let (true, Aim::Item(item)) = (polearm, aim) {
+            // After the use itself is over (2017: one such user's next story came at 1.78 s).
+            let spellcraft = s
+                .players
+                .get(&world)
+                .and_then(|p| p.using.as_ref())
+                .map_or(1.0, |x| x.spellcraft);
+            s.after(
+                clock,
+                after(ON_ITEM_POLEARM_SECONDS),
+                Timer::SkillOnItemLands {
+                    world,
+                    skill: r.skill,
+                    item,
+                    spellcraft,
+                },
+            );
+        } else {
+            s.after(
+                clock,
+                after(hook_seconds(behavior, on_self)),
+                Timer::Skill {
+                    world,
+                    id,
+                    step: Step::Hook,
+                },
+            );
+        }
     }
     if let Some(h) = missile_hook(&u) {
         if let Some(p) = s.players.get_mut(&world) {
@@ -2125,6 +2155,26 @@ pub const fn aimed_at(aim: Aim) -> Option<u64> {
     }
 }
 
+/// A skill's effects reach the item it was aimed at, if it is still where the skill may land on it.
+pub(crate) fn lands_on_item<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    u: &Usage,
+    item: u64,
+    spellcraft: f32,
+    clock: Clock,
+) {
+    let me = s.players.get(&world).map_or(0, |p| p.character);
+    // It may have left its user's hands since the use began.
+    if item_aim(s, me, u, item).is_ok() {
+        for state in &u.target_effects {
+            crate::effects::put_on_item(s, net, item, *state, spellcraft, clock);
+        }
+        crate::world::keep_player(s, world);
+    }
+}
+
 /// A helpful skill's effects reach its target: each of its target effects put on it, cast by the
 /// user at its rating.
 fn hook<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
@@ -2142,13 +2192,7 @@ fn hook<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: 
         Aim::Player(c, _) => c,
         Aim::Thing(_) => return,
         Aim::Item(item) => {
-            // It may have left its user's hands since the use began.
-            if item_aim(s, me, &u, item).is_ok() {
-                for state in &u.target_effects {
-                    crate::effects::put_on_item(s, net, item, *state, spellcraft, clock);
-                }
-                crate::world::keep_player(s, world);
-            }
+            lands_on_item(s, net, world, &u, item, spellcraft, clock);
             return;
         }
     };

@@ -306,6 +306,63 @@ fn a_skill_aimed_at_a_shield_lands_on_it_named_or_by_naming_its_user() {
     assert_eq!(t.timed.len(), 2);
 }
 
+/// With a polearm in hand a skill's effect reaches the item later than with a sword: the look and
+/// the effect wait on its longer play, and neither is lost.
+/// Behaviour: server.skills.a-skill-on-an-item-lands-with-what-is-held
+#[test]
+fn a_skills_effect_reaches_a_polearm_later_than_a_sword() {
+    const POLEARM: u32 = 0x4700_7A07;
+    let (mut h, b, me) = world();
+    let sword = h.arm(b, me, SWORD);
+    asked(&mut h, b, ON_WEAPON, sword);
+    h.run(steps(1.2));
+    let on_sword = h.server.things.get(sword).expect("it").timed.len();
+    assert_eq!(on_sword, 2, "a sword's by now");
+
+    let (mut h, b, me) = world();
+    let mut p = Props::default();
+    p.set("Item_ValidInventoryLocations", Prop::Word(64))
+        .set("Item_PreferredInventoryLocation", Prop::Word(64))
+        .set("Weapon_Damage", Prop::Int(92))
+        .set("Weapon_Variance", Prop::Float(0.27))
+        .set("Weapon_Speed", Prop::Int(7))
+        .set("Weapon_VigorCost", Prop::Int(6));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(POLEARM, 0x1067, p));
+    h.server
+        .catalog
+        .implements
+        .insert(POLEARM, implement::POLEARM);
+    for u in h
+        .server
+        .skill_table
+        .skills
+        .values_mut()
+        .filter_map(|d| d.usage.as_mut())
+    {
+        u.implements_right = -1;
+    }
+    let pole = h.arm(b, me, POLEARM);
+    let from = asked(&mut h, b, ON_WEAPON, pole);
+    h.run(steps(1.2));
+    let timed = |h: &Harness| h.server.things.get(pole).expect("it").timed.len();
+    assert_eq!(timed(&h), 0, "not yet");
+    assert_eq!(fx_played(&h, b, from, pole), 0);
+    h.run(steps(2.0));
+    assert_eq!(refusal_of(&h, b, from), None);
+    assert_eq!(timed(&h), 2, "landed, though the use is over");
+    assert_eq!(fx_played(&h, b, from, pole), 1);
+    h.server.things.get_mut(pole).expect("it").timed.clear();
+    let from = asked(&mut h, b, ON_WEAPON, pole);
+    h.run(steps(1.0));
+    h.server.things.get_mut(pole).expect("it").wielded = None;
+    h.server.things.get_mut(pole).expect("it").container = None;
+    h.run(steps(3.0));
+    assert_eq!(timed(&h), 0, "gone from its hands before it lands");
+    assert_eq!(fx_played(&h, b, from, pole), 0);
+}
+
 /// Its examination while it runs: the rating and the damage drawn as enchanted, the effect among
 /// its enchantments with its spellcraft and the countdown to its end; the attuning effect unlisted.
 /// A weapon given a rating shows it, on its own line.

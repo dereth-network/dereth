@@ -79,12 +79,12 @@ pub(super) fn catalog(h: &mut Harness) {
     h.server
         .catalog
         .insert(test_template(COINS, 0x1067, Props::default()));
-    // What a skill may be aimed at, stacks among them.
-    for t in [TEST_ITEM, GEM] {
-        h.server
-            .catalog
-            .implements
-            .insert(t, yalain_world::skill_use::implement::SWORD);
+    // What a skill may be aimed at, stacks among them; on a polearm its effects land after its use.
+    for (t, kind) in [
+        (TEST_ITEM, yalain_world::skill_use::implement::SWORD),
+        (GEM, yalain_world::skill_use::implement::POLEARM),
+    ] {
+        h.server.catalog.implements.insert(t, kind);
     }
     for (state, seconds, class) in [(ATTUNES, 7.0, 114), (LASTS, 40.0, 9)] {
         let d = yalain_world::effect_defs::EffectDef {
