@@ -256,6 +256,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.effects.an-effects-kept-sounds-follow-its-strength",
+        says: "An effect asked again while it plays moves the looping sounds it keeps to its new strength.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-KEPT-SOUND-VOLUME"),
+        station: "auberean-draw::dat::effects::an_effects_kept_sounds_follow_its_strength",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.effects.an-object-going-stops-its-effects",
         says: "An object going stops every effect it plays, startup or asked for, with the systems \n               they keep going and their sounds.",
         since: RETAIL,

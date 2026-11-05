@@ -706,6 +706,43 @@ fn an_object_going_stops_its_effects() {
     );
 }
 
+/// An effect asked again while it plays moves the looping sounds it keeps to its new strength;
+/// a sound it only played once is not kept, so nothing is asked of it.
+///
+/// Behaviour: draw.effects.an-effects-kept-sounds-follow-its-strength
+#[test]
+fn an_effects_kept_sounds_follow_its_strength() {
+    use auberean_draw::effects::FxSound;
+    const LOOPING: u32 = 0x8100_02B3;
+    let r = &install().records;
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let spot = FxSpot {
+        home: (2, 0x98),
+        place: Mat4::IDENTITY,
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        now: 0.0,
+    };
+    let systems = ParticleSystems::default();
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let (took, _) = fx.do_fx(&systems, r, LOOPING, 1.0, &spot, FxWho::default(), &NoRig);
+    assert!(took, "the effect plays");
+    let first = fx.take_sounds();
+    assert!(
+        first
+            .iter()
+            .any(|s| matches!(s, FxSound::Play { kept: true, .. })),
+        "it keeps a sound going: {first:?}"
+    );
+    let _ = fx.do_fx(&systems, r, LOOPING, 0.5, &spot, FxWho::default(), &NoRig);
+    assert_eq!(
+        fx.take_sounds(),
+        vec![FxSound::Volume {
+            effect: LOOPING,
+            volume: 0.5
+        }]
+    );
+}
+
 /// The wounded effect (`0x41000002`) of effect table `0x1E00012E` lays value 2 of four appearance
 /// tables over its object, at the strength it is played at: played at 0.3 the four go on at 0.3;
 /// played again at 0.6 while it plays, again at 0.6 (each time in the effect's order); its time

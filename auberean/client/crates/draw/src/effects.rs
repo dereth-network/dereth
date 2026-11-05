@@ -284,6 +284,8 @@ pub struct FxState {
     pub end: Option<f64>,
     /// An entry's color lasts a time, so the object's color goes back when the effect ends.
     pub restore_color: bool,
+    /// Sounds are kept going with it.
+    pub keeps_sounds: bool,
 }
 
 /// Where an object stands as it plays an effect: in block `home`'s frame at `place` with `scale`,
@@ -476,6 +478,8 @@ pub enum FxSound {
     },
     /// The sounds kept with effect `effect` stop.
     Stop { effect: u32 },
+    /// The sounds kept with effect `effect` go to `volume`.
+    Volume { effect: u32, volume: f32 },
 }
 
 /// A light an effect placed on an object: the light its entity describes, its range's and
@@ -831,6 +835,7 @@ impl ObjectEffects {
         state.desired = strength;
         state.current = strength;
         state.startup = true;
+        let mut keeps_sounds = false;
         for data in &list {
             let node = node_for(data, self.terrain).clone();
             if rest {
@@ -844,6 +849,7 @@ impl ObjectEffects {
                         volume: strength,
                         kept: true,
                     });
+                    keeps_sounds = true;
                 }
                 if let Some((true, d)) = &node.decal {
                     self.decal_fx(systems, d, at);
@@ -867,6 +873,9 @@ impl ObjectEffects {
                 let key = node.appearance_key.unwrap_or_default();
                 self.do_appearance_fx(apr.0, key, strength);
             }
+        }
+        if let Some(s) = self.states.get_mut(&effect) {
+            s.keeps_sounds = keeps_sounds;
         }
     }
 
@@ -1153,6 +1162,12 @@ impl ObjectEffects {
                 }
             }
             state.current = current;
+            if state.keeps_sounds {
+                self.sounds.push(FxSound::Volume {
+                    effect,
+                    volume: current,
+                });
+            }
             for (apr, key, scalar) in appearance {
                 self.do_appearance_fx(apr, key, scalar);
             }
@@ -1182,11 +1197,13 @@ impl ObjectEffects {
                 intensity
             };
             if let Some(sound) = sound_id(&node, &systems.dice()) {
+                let kept = sound_is_looping(records, sound) && node.fire_and_forget != Some(true);
+                state.keeps_sounds |= kept;
                 self.sounds.push(FxSound::Play {
                     effect,
                     sound,
                     volume: state.current,
-                    kept: sound_is_looping(records, sound) && node.fire_and_forget != Some(true),
+                    kept,
                 });
             }
             if let Some(apr) = node.appearance.filter(|a| !a.is_none()) {
@@ -1395,6 +1412,12 @@ impl ObjectEffects {
                 if let Some(apr) = n.appearance.filter(|a| !a.is_none()) {
                     appearance.push((apr.0, n.appearance_key.unwrap_or_default(), state.current));
                 }
+            }
+            if state.keeps_sounds {
+                self.sounds.push(FxSound::Volume {
+                    effect: *effect,
+                    volume: state.current,
+                });
             }
         }
         for (apr, key, scalar) in appearance {
