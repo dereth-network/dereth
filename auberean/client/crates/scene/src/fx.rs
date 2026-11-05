@@ -36,11 +36,7 @@ impl Rig for FigureRig<'_, '_> {
         self.water
     }
     fn holding_bone(&self, kind: u32) -> Option<Mat4> {
-        let figure = self.figure?;
-        figure
-            .holding_location(self.anims, kind)
-            .map(|(_, _, bone)| bone)
-            .or_else(|| figure.first_bone_matrix(self.anims))
+        self.figure?.carried_bone(self.anims, kind)
     }
     fn has_figure(&self) -> bool {
         self.figure.is_some()

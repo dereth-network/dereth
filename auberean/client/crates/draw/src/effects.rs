@@ -301,8 +301,9 @@ pub trait Rig {
     fn holding_location(&self, kind: u32) -> Option<Mat4>;
     fn bone(&self, kind: u32) -> Option<Mat4>;
     fn water_height(&self) -> Option<f32>;
-    /// The bone a system carried at a holding location of `kind` follows: the location's own, or
-    /// the first bone when the object has no such location; none with no bones at all.
+    /// The bone a system carried at a holding location of `kind` follows: the first part group's
+    /// of the location's number, or its first when the object has no such location; none when
+    /// that group has no such bone.
     fn holding_bone(&self, kind: u32) -> Option<Mat4>;
     /// Whether the object has a figure whose bones can be asked for. Without one, what an entry
     /// sets on a bone stands at the object.
@@ -363,10 +364,7 @@ impl Rig for RestRig {
     }
     fn holding_bone(&self, kind: u32) -> Option<Mat4> {
         let anims = auberean_animation::records::CachedRecords::default();
-        self.body
-            .holding_location(&anims, kind)
-            .map(|(_, _, bone)| bone)
-            .or_else(|| self.body.first_bone_matrix(&anims))
+        self.body.carried_bone(&anims, kind)
     }
     fn has_figure(&self) -> bool {
         true

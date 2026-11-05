@@ -8,15 +8,6 @@ use super::{Behaviour, Evidence, Tier, RETAIL};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
-        id: "animation.behaviors.what-an-object-does-of-itself-is-not-the-networks",
-        says: "A behavior an object does of itself is not among those told to the network, so a \
-               description that does not list it leaves it playing.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-ANIM-LAYERS"),
-        station: "auberean-animation::cpu::trackers::a_behavior_an_object_does_of_itself_is_not_among_those_told_to_the_network",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
         id: "animation.behaviors.a-new-behavior-takes-its-layer",
         says: "Playing a behavior on a layer another behavior holds stops the holder (whoever \
                waits on it hears it was stopped) and takes the layer; a behavior already playing \
@@ -34,6 +25,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-ANIM-ACTION"),
         station: "auberean-animation::cpu::trackers::an_action_ramps_in_plays_once_and_ends",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "animation.behaviors.what-an-object-does-of-itself-is-not-the-networks",
+        says: "A behavior an object does of itself is not among those told to the network, so a \
+               description that does not list it leaves it playing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ANIM-AUTONOMOUS-UNSENT"),
+        station: "auberean-animation::cpu::trackers::a_behavior_an_object_does_of_itself_is_not_among_those_told_to_the_network",
         tier: Tier::Cpu,
     },
     behaviour! {
