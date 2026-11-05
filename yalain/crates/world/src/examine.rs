@@ -146,12 +146,12 @@ pub const NO_ACCURACY: u32 = 2;
 /// How often what a player examines is looked at again, in seconds.
 pub const AGAIN_SECONDS: f64 = 3.5;
 
-/// What a player is examining: the request as it was asked, its number (a newer request's is
-/// higher), when it was asked, and the profile last sent.
+/// What a player is examining: the request as it was asked, when it was asked, when it is next
+/// looked at again, and the profile last sent.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Examining {
     pub request: Vec<u8>,
-    pub number: u32,
     pub asked_at: f64,
+    pub look_at: f64,
     pub sent: Vec<u8>,
 }

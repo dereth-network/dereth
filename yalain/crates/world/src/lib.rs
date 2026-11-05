@@ -148,7 +148,7 @@ pub mod world;
 pub mod world_patch;
 pub mod xp;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 
 use yalain_content::{Catalog, ContentPack, LootTable, SpawnTable};
@@ -396,6 +396,8 @@ pub struct Server<S: Store> {
     pub quest_ids: HashMap<String, u32>,
     /// What each player is examining.
     pub examining: HashMap<ConnId, examine::Examining>,
+    /// The players with a look at it waiting.
+    pub examine_waits: HashSet<ConnId>,
     /// The packages of the objects a player uses by walking into them (portals).
     pub walk_in_packages: std::collections::HashSet<u32>,
     /// The packages of the world's people and objects that answer a use as a person does (those
@@ -640,7 +642,7 @@ pub enum Timer {
     /// A player's basic attack lands (a missile arrives, a strike reaches).
     Landing(combat::Landing),
     /// Look again at what a player examines (the examination's number).
-    Examine { world: ConnId, number: u32 },
+    Examine { world: ConnId },
     /// A player's putting an item down is through: the item it asked to move, from its pack's slot.
     PutDown {
         world: ConnId,
@@ -756,6 +758,7 @@ impl<S: Store> Server<S> {
             worn_effects: HashMap::new(),
             quest_ids: HashMap::new(),
             examining: HashMap::new(),
+            examine_waits: HashSet::new(),
             walk_in_packages: std::collections::HashSet::new(),
             person_packages: std::collections::HashSet::new(),
             storms: storms::Storms::default(),
@@ -990,9 +993,7 @@ impl<S: Store> Server<S> {
                     drops::put(self, net, world, slot, &asked, clock);
                 }
                 Timer::Settle { item } => drops::settle(self, net, item, clock),
-                Timer::Examine { world, number } => {
-                    requests::examine_again(self, net, world, number, clock);
-                }
+                Timer::Examine { world } => requests::examine_again(self, net, world, clock),
                 Timer::ShardProtectionEnds { world, eid } => {
                     scenes::protection_ends(self, net, world, eid);
                 }

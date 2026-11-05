@@ -437,35 +437,44 @@ fn examine_object<S: Store>(
         BlobKind::PRIVATE,
         profile::message_of(&sent).encode(),
     );
-    let number = s.examining.get(&world).map_or(1, |e| e.number + 1);
     s.examining.insert(
         world,
         examine::Examining {
             request: bytes,
-            number,
             asked_at: clock.local.0,
+            look_at: clock.local.0 + examine::AGAIN_SECONDS,
             sent,
         },
     );
-    s.after(
-        clock,
-        examine::AGAIN_SECONDS,
-        crate::Timer::Examine { world, number },
-    );
+    // One look waits for a player, however often it asks.
+    if s.examine_waits.insert(world) {
+        s.after(
+            clock,
+            examine::AGAIN_SECONDS,
+            crate::Timer::Examine { world },
+        );
+    }
 }
 
 /// Look again at what a player examines: its profile sent again if it changed, and another look
-/// later; nothing more once the examination is over or replaced, or the object is gone.
+/// later; nothing more once the examination is over or the object is gone. An examination newer
+/// than the look was set for has its own first look, in its own time.
 pub fn examine_again<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
-    number: u32,
     clock: Clock,
 ) {
-    let Some(e) = s.examining.get(&world).filter(|e| e.number == number) else {
+    s.examine_waits.remove(&world);
+    let Some(e) = s.examining.get(&world) else {
         return;
     };
+    if e.look_at > clock.local.0 {
+        let left = e.look_at - clock.local.0;
+        s.examine_waits.insert(world);
+        s.after(clock, left, crate::Timer::Examine { world });
+        return;
+    }
     let req = profile::read_request(&e.request);
     let Some(now) = profile_bytes(s, world, &req, clock.local.0) else {
         s.examining.remove(&world);
@@ -481,11 +490,13 @@ pub fn examine_again<S: Store>(
             );
             e.sent = now;
         }
+        e.look_at = clock.local.0 + examine::AGAIN_SECONDS;
     }
+    s.examine_waits.insert(world);
     s.after(
         clock,
         examine::AGAIN_SECONDS,
-        crate::Timer::Examine { world, number },
+        crate::Timer::Examine { world },
     );
 }
 

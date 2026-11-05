@@ -1603,3 +1603,43 @@ fn a_row_with_a_name_of_its_own_is_examined_under_it() {
     let plain = says(&mut h, OTHER);
     assert!(plain.ends_with(&of_name(profile::string(template_name.1, template_name.0))));
 }
+
+/// However often a player asks to examine, one look waits for it: what the world keeps for it does
+/// not grow with what it asks, and the newest asked is the one looked at.
+/// Behaviour: server.examination.one-look-waits
+#[test]
+fn asking_to_examine_again_and_again_leaves_one_look_waiting() {
+    use yalain_testkit::STEP;
+    const STACK: u32 = 0x4700_7A01;
+    let mut h = Harness::new();
+    let (a, me) = h.player_in_world("one", "Elara");
+    let mut props = yalain_content::Props::default();
+    props.set("Item_Value", yalain_content::Prop::Int(3));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(STACK, 0x1145, props));
+    let item = h.arm(a, me, STACK);
+    for _ in 0..50 {
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::EXAMINE, &[about(item, 0x3FF)]),
+        );
+    }
+    h.run(5);
+    let waiting = h
+        .server
+        .timers
+        .iter()
+        .filter(|(_, t)| matches!(t, yalain_world::Timer::Examine { .. }))
+        .count();
+    assert_eq!(waiting, 1);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let period = (yalain_world::examine::AGAIN_SECONDS / STEP).ceil() as usize + 2;
+    if let Some(t) = h.server.things.get_mut(item) {
+        t.quantity = 5;
+    }
+    let from = h.bots[a].inbox.len();
+    h.run(period);
+    assert_eq!(profile_nodes(&h, a, from).len(), 1, "looked at again");
+}

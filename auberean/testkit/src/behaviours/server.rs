@@ -3551,6 +3551,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.examination.one-look-waits",
+        says: "However often a player asks to examine, one look at what it examines waits for it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-ONE-LOOK"),
+        station: "yalain-testkit::cpu::entry::examine::asking_to_examine_again_and_again_leaves_one_look_waiting",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.player-profile",
         says: "Examining a player is answered with its profile: the request repeated, then its \
                name, its first craft title, its race and sex, its level, its kingdom, its health \
