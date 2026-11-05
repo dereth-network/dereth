@@ -950,6 +950,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.particles.a-system-of-its-own-draws-without-its-places-turn",
+        says: "A system of its own draws at its place without the place's turn, so a swirl faces \
+               the camera however its object is turned.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-PARTICLE-NO-TURN"),
+        station: "auberean-draw::cpu::effects::particles::a_system_of_its_own_draws_without_its_places_turn",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.particles.a-system-without-limits-runs-until-stopped",
         says: "A particle system with a physics duration, or with an emitter that has neither an \n               emission limit nor a time limit, runs until it is stopped; any other lasts about its \n               longest emitter's start, lifespan and emitting time less its fast-forward.",
         since: RETAIL,

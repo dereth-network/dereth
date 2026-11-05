@@ -1567,8 +1567,9 @@ impl ParticleSet {
         if !self.no_fade && distance > self.desc.start_fade_distance && span > EPSILON {
             opacity = 1.0 - (distance - self.desc.start_fade_distance) / span;
         }
-        // A system in the world draws its particles where they are; one of its own draws them
-        // through its place and the object's scale.
+        // A system in the world draws its particles where they are; one of its own draws them at
+        // its place, by the object's scale, without the place's turn, so its quads face the camera
+        // however the object is turned.
         let (to_world, size_scale) = if self.desc.world_space {
             let s = scale3;
             (Mat4::IDENTITY, s.x.max(s.y).max(s.z))
@@ -1579,7 +1580,7 @@ impl ParticleSet {
                 [0.0, 0.0, scale3.z, 0.0],
                 [0.0, 0.0, 0.0, 1.0],
             ]);
-            (s.then(&place), 1.0)
+            (s.then(&Mat4::translation(place_origin)), 1.0)
         };
         let world_scale = if self.desc.world_space {
             scale3
