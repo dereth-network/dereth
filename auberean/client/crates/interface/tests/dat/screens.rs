@@ -310,6 +310,8 @@ struct DoubleHost {
     page_error: Option<i32>,
     /// The boxes of text shown: the title and the text.
     boxes: Vec<(String, String)>,
+    /// The files it keeps.
+    files: std::collections::HashMap<String, Vec<u8>>,
 }
 
 fn me() -> SocketAddr {
@@ -319,6 +321,13 @@ fn me() -> SocketAddr {
 impl Host for DoubleHost {
     fn now(&self) -> f64 {
         self.time
+    }
+    fn load_file(&self, name: &str) -> Option<Vec<u8>> {
+        self.files.get(name).cloned()
+    }
+    fn save_file(&mut self, name: &str, bytes: &[u8]) -> bool {
+        self.files.insert(name.to_owned(), bytes.to_vec());
+        true
     }
     fn unix_time(&self) -> u32 {
         0
@@ -479,6 +488,7 @@ fn shell_over(
         pages: Vec::new(),
         page_error: None,
         boxes: Vec::new(),
+        files: std::collections::HashMap::new(),
     };
     let mut s = Shell::new(
         host,
@@ -1193,6 +1203,7 @@ fn a_boot_at_login_shows_its_line_on_the_disconnected_screen() {
         pages: Vec::new(),
         page_error: None,
         boxes: Vec::new(),
+        files: std::collections::HashMap::new(),
     };
     let mut s = Shell::new(
         host,
@@ -1275,6 +1286,7 @@ fn a_record_that_cannot_be_stored_ends_the_session_on_the_disconnected_screen_wi
         pages: Vec::new(),
         page_error: None,
         boxes: Vec::new(),
+        files: std::collections::HashMap::new(),
     };
     let mut s = Shell::new(
         host,
@@ -1333,6 +1345,7 @@ fn the_screens_before_the_world_keep_1024_by_768_in_any_window() {
         pages: Vec::new(),
         page_error: None,
         boxes: Vec::new(),
+        files: std::collections::HashMap::new(),
     };
     let mut s = Shell::new(
         host,
@@ -3080,4 +3093,39 @@ fn ctrl_and_alt_held_open_the_other_credits() {
             retail.borrow().screen()
         );
     }
+}
+
+/// The screenshot key the player's key map names asks for a screenshot when it is let go, once:
+/// Ctrl+P does on the keys as they come, and so does a key the player binds to it. A key bound to
+/// something else does not.
+///
+/// Behaviour: desktop.interface.the-screenshot-key-asks-for-a-screenshot
+#[test]
+fn the_screenshot_key_asks_for_a_screenshot() {
+    let (mut s, _) = into_the_world();
+    let event = |s: &mut Shell<'_, DoubleHost>, key: Key, down: bool| {
+        s.event(&Event::Key {
+            key,
+            down,
+            repeat: false,
+        });
+        s.frame().screenshot
+    };
+    assert!(!event(&mut s, Key::ControlLeft, true), "Ctrl alone");
+    assert!(!event(&mut s, Key::P, true), "Ctrl+P held");
+    assert!(event(&mut s, Key::P, false), "Ctrl+P let go");
+    assert!(!s.frame().screenshot, "only once");
+    assert!(!event(&mut s, Key::ControlLeft, false), "Ctrl let go");
+    assert!(!event(&mut s, Key::P, true), "P alone");
+    assert!(!event(&mut s, Key::P, false), "P alone let go");
+
+    assert!(!event(&mut s, Key::F9, true), "F9, unbound");
+    assert!(!event(&mut s, Key::F9, false), "F9, unbound, let go");
+    let bound = [(Key::F9.input_word(), auberean_ui_game::flow::SCREENSHOT_KEY)];
+    assert!(s.keys.apply(
+        [&bound, &[], &[]],
+        &mut auberean_shell::host::HostFiles(&mut s.host)
+    ));
+    assert!(!event(&mut s, Key::F9, true), "F9 held");
+    assert!(event(&mut s, Key::F9, false), "F9, bound to it, let go");
 }

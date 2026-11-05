@@ -113,6 +113,8 @@ pub struct Output<'a> {
     pub fade: Vec<((u8, u8), f32)>,
     /// The program should close.
     pub quit: bool,
+    /// The player asked for a screenshot of this frame.
+    pub screenshot: bool,
 }
 
 /// The application.
@@ -146,6 +148,7 @@ pub struct Shell<'w, H: Host> {
     /// Seconds the last frame spent moving the world, in the client, and framing the world.
     pub costs: [f64; 9],
     quit: bool,
+    screenshot: bool,
     last: f64,
     frames: VecDeque<f64>,
     heard: VecDeque<String>,
@@ -270,6 +273,7 @@ impl<'w, H: Host> Shell<'w, H> {
             ended: None,
             costs: [0.0; 9],
             quit: false,
+            screenshot: false,
             last,
             frames: VecDeque::new(),
             heard: VecDeque::new(),
@@ -382,6 +386,7 @@ impl<'w, H: Host> Shell<'w, H> {
                 }
             }
             Request::Quit => self.quit = true,
+            Request::Screenshot => self.screenshot = true,
             Request::ShowWorld(on) => self.scene.show_world(on),
             Request::PortalScenePlaying(on) => self.scene.portal_scene_playing = on,
             Request::Camera(c) => self.camera(c),
@@ -863,6 +868,7 @@ impl<'w, H: Host> Shell<'w, H> {
         let t = self.host.now();
         let views = self.scene.view_frames(&self.overlay.scenes, dt);
         self.costs[8] = self.host.now() - t;
+        let screenshot = std::mem::take(&mut self.screenshot);
         let frames = self.scene.frames(now, phase == Phase::World);
         Output {
             world: frames.world,
@@ -873,6 +879,7 @@ impl<'w, H: Host> Shell<'w, H> {
             views,
             fade: frames.fade,
             quit,
+            screenshot,
         }
     }
 

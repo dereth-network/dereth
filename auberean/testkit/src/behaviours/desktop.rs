@@ -1140,6 +1140,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.the-screenshot-key-asks-for-a-screenshot",
+        says: "The key the player's key map names for screenshots asks for one when it is let go, once; the keys the map gives other jobs do not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DESKTOP-SCREENSHOT-KEY"),
+        station: "auberean-interface::dat::screens::the_screenshot_key_asks_for_a_screenshot",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.what-a-body-holds-is-picked-and-selected-as-itself",
         says: "What a body holds (a wielded bow) is drawn with its holder and a click on it \
                selects it as itself, its name and marks shown where it is drawn; a double press \

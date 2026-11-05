@@ -62,6 +62,8 @@ pub enum Request {
     OpenAssistancePage,
     /// Close the program.
     Quit,
+    /// Save a screenshot of this frame.
+    Screenshot,
     /// Set the camera: the interface's camera panel decides mouse look and first person, and
     /// zooms by the wheel over the world.
     Camera(CameraRequest),

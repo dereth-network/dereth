@@ -26,9 +26,10 @@
 //! in and enters the world by itself (making the character, a human, when the account has none of
 //! that name) while the screens follow; `--dev-overlay` writes the player's place and the
 //! session's state over the world; `--dev-script` plays a script of input and screenshots
-//! (`script.rs`). Screenshots (Ctrl+P, and a script's) go to `--shots`, by default the settings
-//! folder's `screenshots`. `--no-window` runs everything but the window and the device for that
-//! many seconds (the world is still framed, with no picture made), printing the status lines.
+//! (`script.rs`). Screenshots (the screenshot key's, and a script's) go to `--shots`, by default
+//! the settings folder's `screenshots`. `--no-window` runs everything but the window and the device
+//! for that many seconds (the world is still framed, with no picture made), printing the status
+//! lines.
 //! The game's sound plays through the default output device; `--no-sound` runs silent.
 //!
 //! `--glsticketdirect` gives the login its secret directly, as the September 2013 client's own option
@@ -670,7 +671,6 @@ struct App<'w> {
     shots: PathBuf,
     shot_next: Option<PathBuf>,
     shot_count: u32,
-    ctrl: bool,
     alt: bool,
     failed: Option<String>,
     /// The interface's cursor shown over the window (by its picture), and the cursors made.
@@ -730,11 +730,6 @@ impl App<'_> {
 
     fn send(&mut self, e: &Event) {
         match e {
-            Event::Key {
-                key: Key::ControlLeft | Key::ControlRight,
-                down,
-                ..
-            } => self.ctrl = *down,
             Event::Key {
                 key: Key::AltLeft | Key::AltRight,
                 down,
@@ -843,13 +838,17 @@ impl App<'_> {
                 }
             }
         }
-        let shot = self.shot_next.take();
+        let mut shot = self.shot_next.take();
         let world = self.world;
         let settings = &self.shell.settings;
         let brightness = settings.full_screen.then(|| settings.screen_brightness());
         let began = Instant::now();
         let out = self.shell.frame();
         let shell_took = began.elapsed();
+        if out.screenshot {
+            self.shot_count += 1;
+            shot = Some(self.shots.join(format!("shot-{:03}.png", self.shot_count)));
+        }
         let quit = out.quit;
         let cursor = out.overlay.cursor.clone();
         if let Some(p) = &mut self.present {
@@ -932,15 +931,6 @@ impl ApplicationHandler for App<'_> {
             WindowEvent::Focused(f) => self.send(&Event::Focus(f)),
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
-                    // Ctrl+P saves a screenshot, as the game's own key does.
-                    if code == winit::keyboard::KeyCode::KeyP
-                        && event.state == ElementState::Pressed
-                        && self.ctrl
-                    {
-                        self.shot_count += 1;
-                        self.shot_next =
-                            Some(self.shots.join(format!("shot-{:03}.png", self.shot_count)));
-                    }
                     if let Some(key) = keys::key(code) {
                         self.send(&Event::Key {
                             key,
@@ -1111,7 +1101,6 @@ fn run() -> Result<(), String> {
         shots,
         shot_next: None,
         shot_count: 0,
-        ctrl: false,
         alt: false,
         failed: None,
         cursor: None,

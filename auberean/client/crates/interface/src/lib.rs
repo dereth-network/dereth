@@ -2188,7 +2188,11 @@ impl Interface for Retail {
         self.keep_keys(game);
         self.dialog_notices();
         for e in self.flow.tick(&mut self.ui) {
-            tracing::debug!(?e, "not carried out yet");
+            match e {
+                auberean_ui_game::flow::Event::Screenshot => {
+                    requests.push(Request::Screenshot);
+                }
+            }
         }
         let out = std::mem::take(&mut self.flow.flow.data.out);
         self.carry_out(out, requests);
