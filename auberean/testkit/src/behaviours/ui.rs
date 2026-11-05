@@ -1822,6 +1822,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.pointer.the-pointer-passes-through-a-tooltip",
+        says: "A tooltip takes no part in the pointer: over one, moves, clicks and the wheel reach what lies beneath.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-TOOLTIP-POINTER"),
+        station: "auberean-ui::cpu::text::the_pointer_passes_through_a_tooltip",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.quests.a-quest-that-changed-is-marked-in-its-row",
         says: "A quest that changes has its row's name and time marked in the changed look, the                others keeping theirs; the whole list read at the session's start marks nothing.",
         since: RETAIL,

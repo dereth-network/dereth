@@ -154,7 +154,21 @@ impl Ui {
             }
             (contains && n.mouse_visible).then_some(h)
         }
-        self.roots().iter().find_map(|r| walk(self, *r, x, y, true))
+        self.pointer_roots()
+            .into_iter()
+            .find_map(|r| walk(self, r, x, y, true))
+    }
+
+    /// The top-level elements the pointer reaches, nearest first: all but the tooltip, which it
+    /// passes through.
+    // D2-11207, D2-11208, D2-11210
+    fn pointer_roots(&self) -> Vec<Handle> {
+        let tip = self.tips.shown;
+        self.roots()
+            .iter()
+            .copied()
+            .filter(|r| Some(*r) != tip)
+            .collect()
     }
 
     // -----------------------------------------------------------------------------------------
@@ -491,7 +505,7 @@ impl Ui {
         let mut top = None;
         let mut tip = None;
         let mut handled = false;
-        for r in self.roots().to_vec() {
+        for r in self.pointer_roots() {
             if handled {
                 break;
             }
@@ -567,7 +581,7 @@ impl Ui {
         let top = self.top();
         self.mgr.wheel_taken = false;
         let mut handled = false;
-        for r in self.roots().to_vec() {
+        for r in self.pointer_roots() {
             if handled {
                 break;
             }
@@ -594,7 +608,7 @@ impl Ui {
         }
         let (x, y) = (self.mgr.x, self.mgr.y);
         let mut handled = false;
-        for r in self.roots().to_vec() {
+        for r in self.pointer_roots() {
             if handled {
                 break;
             }

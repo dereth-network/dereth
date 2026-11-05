@@ -241,6 +241,20 @@ fn resting_on_a_tooltips_owner() -> Ui {
     u
 }
 
+/// The pointer passes through a tooltip: resting under it, it still finds what lies beneath.
+///
+/// Behaviour: ui.pointer.the-pointer-passes-through-a-tooltip
+#[test]
+fn the_pointer_passes_through_a_tooltip() {
+    let mut u = resting_on_a_tooltips_owner();
+    let owner = u.hit(150, 150).expect("the owner");
+    u.use_time(0.3);
+    let tip = u.tooltip().expect("the tooltip shows");
+    let at = u.screen_rect(tip).expect("where it stands");
+    assert!(at.contains(150, 150), "over the pointer: {at:?}");
+    assert_eq!(u.hit(150, 150), Some(owner), "under it the owner");
+}
+
 /// A tooltip is drawn in front of everything, also of the first on the screen at its own depth.
 ///
 /// Behaviour: ui.draw.of-equal-depths-the-first-on-the-screen-is-drawn-in-front
