@@ -56,6 +56,9 @@ use reshade::{Layer, ReshadeFilter, ReshadePlan, ReshadeTargets, Reshader};
 pub use snapshot::HifiFrame;
 use timing::GpuTimer;
 
+/// The longest a re-shaded frame waits for a build it needs before it is drawn the ordinary way.
+const SETTLE_FOR: std::time::Duration = std::time::Duration::from_millis(100);
+
 /// A quality level, as the options name them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub enum Level {
@@ -302,6 +305,8 @@ pub struct HifiRenderer {
     built_before_frame: u64,
     /// How this frame is re-shaded, when it is.
     plan: Option<ReshadePlan>,
+    /// Whether the frame before was re-shaded.
+    reshaded_before: bool,
     /// How the draws to re-shade stood this frame.
     readiness: reshade::Readiness,
     /// How many draws this frame's plan replays as recorded before the re-shade.
@@ -350,6 +355,7 @@ impl HifiRenderer {
             started: false,
             built_before_frame: 0,
             plan: None,
+            reshaded_before: false,
             readiness: reshade::Readiness::default(),
             recorded_draws: (0, 0),
             translucent_draws: 0,
@@ -481,7 +487,14 @@ impl HifiRenderer {
         let Some(plan) = ReshadePlan::new(cx.tables()) else {
             return Ok(());
         };
-        let ready = reshade::readiness(&plan, cx.tables(), &self.pipelines);
+        let mut ready = reshade::readiness(&plan, cx.tables(), &self.pipelines);
+        // Once frames are re-shaded, a build this one waits on is waited for, briefly: a frame
+        // drawn the ordinary way between re-shaded ones flashes.
+        if ready.waiting > 0 && ready.failed == 0 && self.reshaded_before {
+            self.pipelines.pump(&build);
+            self.pipelines.settle(SETTLE_FOR);
+            ready = reshade::readiness(&plan, cx.tables(), &self.pipelines);
+        }
         self.readiness = ready;
         if ready.failed > 0 {
             let why = self
@@ -1220,6 +1233,7 @@ impl FrameSidecar for HifiRenderer {
         if let Some(e) = failure {
             return Err(self.fail(&e));
         }
+        self.reshaded_before = self.plan.is_some();
         self.plan = None;
         if warming {
             // The derived pipelines are asked for meanwhile, on their own worker.

@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Better Lighting: something new coming into view, such as a block loading as you walk, no longer flashes the whole picture back to the standard look for a frame.
+
 ## 0.4.12 (2026-11-03)
 
 - Launcher: you can add a world by its address in Auberean's realm too.
