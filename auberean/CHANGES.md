@@ -12,6 +12,7 @@ not how it was done.
 - Fixed bodies losing their walk or idle when the server sent them again.
 - Fixed the music falling silent when a piece waiting its turn was stopped.
 - Turning sound off and on again plays sounds from their start, as the original does.
+- Fixed not seeing a player who went through a door ahead of you.
 - A click that brings the window forward no longer acts on the game.
 - A covered window on a Mac no longer runs flat out.
 - Screenshots now follow the key you bind, not always Ctrl+P.

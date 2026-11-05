@@ -278,6 +278,8 @@ impl Object {
                     flags: 0,
                     velocity: auberean_primitives::Vec3::ZERO,
                 });
+                // Being put in a cell brings back an object that had left the world.
+                self.in_world = true;
             }
         } else {
             self.parent = Some((parent, p.location_id()));

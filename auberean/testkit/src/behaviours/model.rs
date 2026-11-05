@@ -353,6 +353,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "model.state.a-creation-brings-back-an-object-that-left",
+        says: "A creation of an object the client still has puts it back in the world where the                creation says it stands, after it left the world: a player who went on ahead through                a door is there when the client arrives.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MODEL-CREATION-BRINGS-BACK"),
+        station: "auberean-client-model::cpu::model::a_creation_brings_back_an_object_that_left",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "model.state.a-let-go-names-the-item-and-its-holder-sends-it",
         says: "A held item is let go of by a message its holder sends: the item let go of is the \
                one the message names, in the incarnation it names, not the message's sender.",
