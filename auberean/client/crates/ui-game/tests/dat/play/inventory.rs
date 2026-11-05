@@ -543,6 +543,71 @@ fn an_opened_container_shows_its_contents() {
     );
 }
 
+/// An item pulled from the world comes from no container: let go over an open chest's cell it
+/// stays where it is; only the player's own pack takes it.
+///
+/// Behaviour: ui.inventory.an-item-from-the-world-goes-only-into-the-pack
+#[test]
+fn an_item_from_the_world_goes_only_into_the_pack() {
+    const STONE: u64 = 0x8000_0000_0000_0077;
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut f = facts();
+    f.items.insert(STONE, item("Stone", SWORD_ICON, 1, false));
+    f.selection = STONE;
+    f.containers.insert(
+        CORPSE,
+        Container {
+            size: 6,
+            segments: vec![Contents {
+                items: vec![BONE],
+                first: 0,
+                count: 1,
+            }],
+            slots: vec![(0, 1)],
+        },
+    );
+    f.items.insert(BONE, item("Bone", SWORD_ICON, 1, false));
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    let state = Notice {
+        about: Some(CORPSE),
+        ..said(
+            notice::CONTAINER_STATE_UPDATE,
+            &[split(CORPSE)[0], split(CORPSE)[1], 1],
+        )
+    };
+    tick(&mut ui, &mut p, &mut t, &f, &[state]);
+    let ext = p.child::<ExternalContainer>().unwrap();
+    let list = ext.display().unwrap().list().unwrap();
+    let cell = ui.list_item(list, 3).unwrap();
+    let world = (150, 420);
+    ui.pointer_move(world.0, world.1);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    assert_eq!(ui.top(), ui.element(Token::of("ItemSelectionField")));
+    ui.pointer_button(button_id::LEFT, true);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    ui.pointer_move(world.0 + 8, world.1 + 8);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    let copy = ui.dragged().expect("the selection's icon dragged");
+    assert_eq!(
+        ui.node(copy)
+            .unwrap()
+            .instance_id_attr(inventory::attr::FROM_ID),
+        None
+    );
+    let (x, y) = middle(&ui, cell);
+    ui.pointer_move(x, y);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    ui.pointer_button(button_id::LEFT, false);
+    let out = tick(&mut ui, &mut p, &mut t, &f, &[]);
+    assert!(
+        !asked(&out).iter().any(|a| matches!(a, Asked::Put { .. })),
+        "{:?}",
+        asked(&out)
+    );
+}
+
 /// The paper doll shows what is worn in its place's slot, its wear on the meter beside it; an
 /// item from the pack dropped on a slot (selected as it is pressed) is worn there; the money bag shows the player's money.
 ///

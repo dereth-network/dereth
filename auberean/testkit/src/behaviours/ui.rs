@@ -967,6 +967,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.inventory.an-item-from-the-world-goes-only-into-the-pack",
+        says: "An item pulled from the world comes from no container: let go over an open \
+               chest's cell it stays where it is; only the player's own pack takes it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-INVENTORY-WORLD-DROP-PACK"),
+        station: "auberean-ui-game::dat::play::inventory::an_item_from_the_world_goes_only_into_the_pack",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.inventory.an-item-given-as-the-pack-is-sent-shows-once",
         says: "An item given as the pack is sent again shows once: the contents laid out from the scripts' answers after the frame's notices already hold it, so its own notice adds nothing.",
         since: RETAIL,
