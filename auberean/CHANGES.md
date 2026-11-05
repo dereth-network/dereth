@@ -41,6 +41,7 @@ not how it was done.
 - Dropping a second item in the world no longer sends it to the last target.
 - A corpse's or chest's window now opens over it.
 - Auto-run no longer carries on after walking up to something you used.
+- Some stretched walls and scenery can now be walked through, as in retail.
 - Crowded places run faster.
 - Fixed some effects on a body standing in the wrong place.
 - Fixed bodies losing their walk or idle when the server sent them again.

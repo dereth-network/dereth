@@ -334,6 +334,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "collision.objects.a-cells-object-at-an-uneven-scale-holds-nothing-up",
+        says: "An object a cell places with a physics tree at an uneven scale holds nothing up: a \
+               body dropped on a flat one 6 x 6 x 0.1, its top 0.3 m above the cell's floor, falls \
+               past it to the floor.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-UNEVEN-CELL"),
+        station: "auberean-physics::dat::objects::a_cells_object_at_an_uneven_scale_holds_nothing_up",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "collision.objects.a-polygon-clips-to-a-plane",
         says: "A polygon clipped to a plane's positive side keeps its corners on that side and in \n               the plane and gains the crossing of each edge that leaves one side for the other; \n               one wholly behind is negative, one lying in the plane is in it only when corners \n               in the plane are kept.",
         since: RETAIL,
@@ -350,6 +360,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "collision.objects.a-tree-tested-at-a-scale-along-each-axis-reaches-that-far",
+        says: "A tree tested at a scale along each axis reaches that far: one at four times its \
+               length, its width and six tenths its height meets a sphere 16 m along its length \
+               but not 17 m, and 4.5 m across but not 5.5 m.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-TREE-AXES"),
+        station: "auberean-physics::dat::objects::a_tree_tested_at_a_scale_along_each_axis_reaches_that_far",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "collision.objects.an-object-outside-stands-in-every-land-cell-under-it",
         says: "An object outside stands in the collision list of every land cell the box around \n               its shape reaches, across a landblock's edge too; inside, of its own cell and of \n               each cell through a doorway whose polygon the box reaches.",
         since: RETAIL,
@@ -358,14 +378,13 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
-        id: "collision.objects.an-object-placed-at-a-scale-along-each-axis-collides-at-it",
-        says: "An object placed at a scale along each axis collides at it: one placed four times \
-               its length, its width and six tenths its height meets a body 16 m along its length \
-               but not 17 m, 4.5 m across but not 5.5 m, and a body dropped on it 10 m along its \
-               length lands on its top.",
+        id: "collision.objects.an-object-with-a-tree-at-an-uneven-scale-is-walked-through",
+        says: "An object with a physics tree at an uneven scale is walked through: a body runs \
+               through the arch of one placed four times its length, its width and six tenths its \
+               height, and through a wall section a tenth taller than its look.",
         since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-PHYS-TREE-AXES"),
-        station: "auberean-physics::dat::objects::an_object_placed_at_a_scale_along_each_axis_collides_at_it",
+        evidence: Evidence::Private("AC2-EVID-PHYS-UNEVEN-PASSED"),
+        station: "auberean-physics::dat::objects::an_object_with_a_tree_at_an_uneven_scale_is_walked_through",
         tier: Tier::Dat,
     },
     behaviour! {

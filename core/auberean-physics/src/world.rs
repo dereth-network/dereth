@@ -1161,7 +1161,8 @@ impl ObjectCollisions for View<'_> {
     /// tested, the pair passing through each other making it an obstruction that does not block.
     /// A missile that goes off near this object hits it, without its shape, anywhere within its
     /// reach of it. A hit (not stepping down) is recorded; one passed through does not stop the
-    /// move, and when it is scenery the mover takes on its physics types.
+    /// move, and when it is scenery the mover takes on its physics types. An object with a physics
+    /// tree at an uneven scale is never met at all.
     // D2-06214
     fn find_obj_collisions(
         &self,
@@ -1180,6 +1181,9 @@ impl ObjectCollisions for View<'_> {
         let (Some(e), Some(o)) = (self.entries.get(&key), ctx.objects.get(other)) else {
             return TransitionState::Ok;
         };
+        if o.state.has_physics_bsp() && crate::object::uneven(e.tree_scale) {
+            return TransitionState::Ok;
+        }
         let this = party(self.entries, key).unwrap_or(Party {
             id: 0,
             physics_type: PhysicsTypes::default(),
