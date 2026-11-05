@@ -73,6 +73,8 @@ struct Entry {
     is_static: bool,
     /// It can be moved: a body's state says so, and all others can.
     mobile: bool,
+    /// It reports its collisions: a body's state says so, and all others do.
+    reporting: bool,
     /// The host says bodies pass through it.
     passable: bool,
     /// The physics types it is.
@@ -353,6 +355,7 @@ impl World {
                 cells: Vec::new(),
                 is_static: object.is_static,
                 mobile: true,
+                reporting: true,
                 passable: object.passable,
                 physics_type: PhysicsTypes::default(),
                 collisions: None,
@@ -484,6 +487,13 @@ impl World {
     pub fn set_mobile(&mut self, key: BodyKey, mobile: bool) {
         if let Some(e) = self.entries.get_mut(&key) {
             e.mobile = mobile;
+        }
+    }
+
+    /// Whether entry `key` reports its collisions.
+    pub fn set_reporting(&mut self, key: BodyKey, on: bool) {
+        if let Some(e) = self.entries.get_mut(&key) {
+            e.reporting = on;
         }
     }
 
@@ -988,6 +998,7 @@ impl World {
                         cells: reached,
                         is_static: true,
                         mobile: true,
+                        reporting: true,
                         passable: false,
                         physics_type: PhysicsTypes::default(),
                         collisions: None,
@@ -1368,8 +1379,12 @@ impl CollisionHost for Host<'_> {
             e.terrain = Some(terrain);
         }
     }
+    // D2-06292
     fn reports_collisions(&self) -> bool {
-        true
+        self.world
+            .entries
+            .get(&self.key)
+            .is_none_or(|e| e.reporting)
     }
     fn physics_material(&self, id: u32) -> Option<PhysicsMaterial> {
         self.world.materials.get(&id).cloned()

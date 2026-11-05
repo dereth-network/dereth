@@ -456,6 +456,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "collision.solid.a-body-that-does-not-report-keeps-its-touches-unsaid",
+        says: "A body whose state says it does not report its collisions keeps its touches, and neither they nor its normal, water or ground are reported; turning it on begins the touches kept.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-COLLISION-REPORT-FLAG"),
+        station: "auberean-physics::cpu::contact::solid::a_body_that_does_not_report_keeps_its_touches_unsaid",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "collision.solid.a-bodys-collision-state-is-its-type-and-what-it-passes-through",
         says: "A body's collision settings as they stand are its physics type, what it passes \
                through being placed, and what it would pass through moving (its desired types, \

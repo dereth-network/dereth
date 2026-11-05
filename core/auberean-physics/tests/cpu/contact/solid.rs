@@ -188,6 +188,39 @@ fn a_body_and_what_it_runs_into_both_keep_the_touch() {
     );
 }
 
+/// A body that does not report its collisions keeps the touch and says nothing of it, and when it
+/// starts reporting again the touch begins.
+///
+/// Behaviour: collision.solid.a-body-that-does-not-report-keeps-its-touches-unsaid
+#[test]
+fn a_body_that_does_not_report_keeps_its_touches_unsaid() {
+    let land = crate::contact::objects::land();
+    let mut world = World::new();
+    let mut standing = body(70.0, 80.0);
+    world.insert_body(&land, 0x51, &mut standing);
+    let mut runner = body(70.0, 70.0);
+    let r = world.insert_body(&land, 0x50, &mut runner);
+    runner.set_report_collisions(false);
+    run_north(&mut runner, &land, &mut world, 40);
+    assert!(
+        world
+            .collisions(r)
+            .is_some_and(|c| c.contacts.contains_key(&0x51)),
+        "the runner keeps the touch"
+    );
+    world.report_collisions(r, false);
+    assert!(world.take_reports(r).is_empty(), "and says nothing of it");
+    runner.set_report_collisions(true);
+    run_north(&mut runner, &land, &mut world, 1);
+    world.report_collisions(r, false);
+    let begun = world
+        .take_reports(r)
+        .iter()
+        .flat_map(|p| p.records.iter())
+        .any(|c| c.object == 0x51 && c.begin);
+    assert!(begun, "reporting again, the touch begins");
+}
+
 /// An object whose description pushes moves what touches it: a body run into a post that pushes
 /// east is carried east for as long as it touches, and one that touches the same post with no
 /// push is not.

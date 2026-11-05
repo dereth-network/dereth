@@ -726,6 +726,7 @@ impl Body {
         }
         world.set_ignore_collisions(key, self.has(flags::IGNORE_COLLISIONS));
         world.set_mobile(key, self.has(flags::MOBILE));
+        world.set_reporting(key, self.has(flags::REPORT_COLLISIONS));
         if self.min_impact != (0.0, 0.0) {
             if let Some(c) = world.collisions_mut(key) {
                 c.set_min_reported_impact_xy(self.min_impact.0);
