@@ -7,6 +7,8 @@ not how it was done.
 
 ## Unreleased
 
+## 0.1.3 (2026-11-05)
+
 - Fixed Add on the friends page staying off when you selected a player.
 - Enter World on the character screen now shows its swirling portal.
 - Fixed an object's looping sounds not coming back when it does.
