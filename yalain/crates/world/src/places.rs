@@ -1594,6 +1594,12 @@ fn carry_out<S: Store>(
     through_portal(s, net, world, u, to, clock);
 }
 
+/// Is a player on its way somewhere already? What it is on its way for (a kill's step, a glyph's
+/// use) comes as it lands, so nothing else sends it anywhere first.
+fn on_a_trip<S: Store>(s: &Server<S>, world: ConnId) -> bool {
+    s.players.get(&world).is_some_and(|p| p.trip.is_some())
+}
+
 /// A player in reach of a portal goes through it: the portal flashes, the player is told it is
 /// teleporting and goes into portal space, and comes out at `to` a while later.
 pub(crate) fn through_portal<S: Store>(
@@ -1604,6 +1610,9 @@ pub(crate) fn through_portal<S: Store>(
     to: StoredPosition,
     clock: Clock,
 ) {
+    if on_a_trip(s, world) {
+        return;
+    }
     flash_and_go(s, net, world, u.item);
     if let Some(p) = s.players.get_mut(&world) {
         p.trip = Some(Trip {
@@ -1713,6 +1722,9 @@ fn through_door<S: Store>(
     scene: u32,
     clock: Clock,
 ) {
+    if on_a_trip(s, world) {
+        return;
+    }
     let teleporting = TextInfo {
         string_id: text::TELEPORTING.0,
         table: text::TELEPORTING.1,
@@ -1974,6 +1986,9 @@ pub fn recall_trip<S: Store>(
     to: StoredPosition,
     said: Option<TextInfo>,
 ) {
+    if on_a_trip(s, world) {
+        return;
+    }
     enter_portal_space(s, net, world, false);
     if let Some(p) = s.players.get_mut(&world) {
         p.trip = Some(Trip {

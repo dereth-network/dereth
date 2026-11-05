@@ -1086,6 +1086,9 @@ fn check<S: Store>(
     if combat::is_dead(p) {
         return Err(refusal::DEAD);
     }
+    if p.trip.is_some() {
+        return Err(refusal::INTERRUPTED);
+    }
     if !implement_allowed(&s.catalog, &u, hands(s, p.character)) {
         return Err(refusal::WRONG_IMPLEMENT);
     }

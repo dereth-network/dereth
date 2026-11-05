@@ -8849,6 +8849,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.player-fights.no-skill-from-portal-space",
+        says: "A player in portal space is refused a skill's use; what it aims at isn't struck.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NO-SKILL-AWAY"),
+        station: "yalain-testkit::cpu::play::player_fights::a_skill_is_refused_in_portal_space",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.player-fights.no-swing-from-portal-space",
         says: "A player in portal space begins no run; one under way swings at nothing until it is \
                out.",
@@ -9155,6 +9163,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-KILL-REFUSED"),
         station: "yalain-testkit::cpu::play::kill_quests::a_killer_is_told_why_a_kills_giving_was_refused_and_its_quest_stays_as_it_was",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.a-kills-trip-keeps-its-step",
+        says: "A trip keeps what it is for: nothing sends its player anywhere else on the way, and \
+               a kill's step moves its quest as it lands.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TRIP-KEPT"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_recall_on_a_kills_trip_leaves_it_and_its_step",
         tier: Tier::Cpu,
     },
     behaviour! {

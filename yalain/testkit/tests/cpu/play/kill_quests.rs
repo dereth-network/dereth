@@ -1128,3 +1128,34 @@ fn a_kills_step_sends_the_killer_to_a_free_room_of_its_row() {
         "not though it stands, with a player there"
     );
 }
+
+/// A kill's trip keeps its step: a recall coming due on the way takes it nowhere else, and the
+/// quest moves as it lands.
+/// Behaviour: server.quests.a-kills-trip-keeps-its-step
+#[test]
+fn a_recall_on_a_kills_trip_leaves_it_and_its_step() {
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, _b, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    h.server.quests.steps = vec![leading_step(template, 1, ARENA)];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    kill(&mut h, me, &[]);
+    let world = *h.server.players.keys().next().expect("in the world");
+    let elsewhere = yalain_store::StoredPosition {
+        cell: 0x0102_0003,
+        origin: [12.5, 34.5, 2.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    yalain_world::places::recall_trip(&mut h.server, &mut h.net, world, elsewhere, None);
+    let p = &h.server.players[&world];
+    assert_eq!(p.trip.as_ref().map(|t| t.to.cell), Some(ARENA.cell));
+    assert!(
+        p.trip.as_ref().is_some_and(|t| t.step.is_some()),
+        "its step"
+    );
+    land(&mut h);
+    assert_eq!(phase(&h, me), 2);
+    assert_eq!(h.server.players[&world].position.cell, ARENA.cell);
+}
