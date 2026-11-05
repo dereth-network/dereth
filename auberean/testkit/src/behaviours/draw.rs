@@ -1584,6 +1584,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.volume.a-placed-objects-volume-follows-its-pose",
+        says: "A placed object's volume of shadow is cast from it as it stands, and moves as it plays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PLACED-VOLUME-POSED"),
+        station: "auberean-draw::dat::placed::a_placed_objects_volume_follows_its_pose",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.volume.a-player-casts-a-closed-volume-of-shadow",
         says: "A player casts a volume of shadow: the entity a player is made from casts one among \
                its drawing properties, and the posed body casts a closed volume from each of its \
