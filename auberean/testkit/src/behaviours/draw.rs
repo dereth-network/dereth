@@ -173,6 +173,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.effects.a-slider-with-no-intensity-goes-to-full",
+        says: "An effect entry that moves a slider and stores no intensity moves it to full.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-SLIDER-DEFAULT"),
+        station: "auberean-draw::cpu::effects::a_slider_entry_with_no_intensity_goes_to_full",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.effects.an-appearances-effects-play-in-place-of-its-tables",
         says: "The effects an object's appearance lists for an effect id (each appearance atom's \
                effects for every id it names, gathered in order of their first ids, an atom of \

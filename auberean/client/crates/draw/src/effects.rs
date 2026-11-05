@@ -63,7 +63,7 @@ pub fn node_sliders(node: &FxNode) -> Vec<FxSlider> {
     if let Some(slider) = node.slider.filter(|s| *s != 0) {
         out.push(FxSlider {
             slider,
-            value: node.intensity.unwrap_or(0.0),
+            value: node.intensity.unwrap_or(1.0),
             time,
             children,
         });
