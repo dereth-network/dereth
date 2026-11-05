@@ -25,6 +25,14 @@ fn write_all(dir: &std::path::Path, files: &yalain_world_db::Files) {
 }
 
 #[test]
+fn a_base_that_names_no_release_is_refused() {
+    for tag in ["../v0.1.0", "..", "v0.1.0/../../x", "v1"] {
+        let why = world::base_dir(Some(tag), None).expect_err(tag);
+        assert!(why.contains("is not a release"), "{why}");
+    }
+}
+
+#[test]
 fn a_new_worlds_key_is_made_from_its_folders_name() {
     assert_eq!(key_from("My World"), "my-world");
     assert_eq!(key_from("Arwic (fill) 2"), "arwic-fill-2");

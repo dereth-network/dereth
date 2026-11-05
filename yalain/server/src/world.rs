@@ -193,6 +193,9 @@ pub fn uses_the_pin(world_db: &str, world_base: Option<&Path>) -> bool {
 /// # Errors
 /// No cache folder, or the release not fetched yet.
 pub fn release_dir(tag: &str) -> Result<PathBuf, String> {
+    if release::parse_tag(tag).as_deref() != Some(tag) {
+        return Err(format!("{tag} is not a release of the world database"));
+    }
     let dir = cache_dir()?.join(tag);
     if dir.join("world.toml").is_file() {
         Ok(dir)
@@ -994,6 +997,23 @@ mod tests {
     /// release gone wrong on disk, is not trusted where the hash is known: it is fetched again, and
     /// the folder that was there stays beside it. With the fetch failing, it stays where it was
     /// and the world does not start on it. The real release is left alone, and read from no source.
+    /// A world's base names a release: anything else, a way out of the cache among them, is none.
+    /// Behaviour: server.world.a-folder-that-is-not-the-pin-is-fetched-again
+    #[test]
+    fn a_base_that_names_no_release_is_refused() {
+        for tag in [
+            "../v0.1.0",
+            "v0.1.0/..",
+            "..",
+            "v1",
+            "/tmp/x",
+            "v0.1.0/../../x",
+        ] {
+            let why = release_dir(tag).expect_err(tag);
+            assert!(why.contains("is not a release"), "{why}");
+        }
+    }
+
     /// Behaviour: server.world.a-folder-that-is-not-the-pin-is-fetched-again
     #[test]
     fn a_cached_folder_that_is_not_the_release_it_is_named_for_is_fetched_again() {
