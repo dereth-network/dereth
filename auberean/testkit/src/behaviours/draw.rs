@@ -1145,6 +1145,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.portal.puffs-of-cloud-show-near-the-tunnels-start",
+        says: "With the tunnel more than 0.9 in view, each ring 40 to 49 ahead has one even chance of letting a puff of cloud go within 0.8 of its radius. The system has the usual fade, measured from the tube's start, so puffs draw only while the camera is within 60 m of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PORTAL-PUFFS"),
+        station: "auberean-draw::dat::effects::puffs_of_cloud_show_near_the_tunnels_start",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.portal.the-tunnel-is-rings-three-meters-apart-the-camera-rushes-along",
         says: "The tunnel is 150 rings 3 m apart along a winding tube, each of radius 10 + 6 sin(0.01 d) at its distance d; the camera rushes along at 120 m/s, the rings it passes made again at the far end; the rings fade from 1.0 nearest to 0.8 at the sixteenth and from there to nothing at the far end.",
         since: RETAIL,

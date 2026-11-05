@@ -5261,21 +5261,27 @@ fn an_effects_decal_is_laid_where_its_object_stands() {
         .flat_map(|m| draw_layers(&m, DEVICE_FLAGS))
         .collect();
     let drawn_with = |cell: u32, at: Vec3, asked: bool| {
-        let later = [(
-            9.0,
-            ServerMessage::DoTargetedFx(ObjectEvent {
-                sender: ObjectStamp {
-                    id: PLAYER,
-                    instance_stamp: 1,
-                    other_stamp: 0,
-                },
-                action: TargetedFx {
-                    fx: LAYS,
-                    scalar: 1.0,
-                    target: 0,
-                },
-            }),
-        )];
+        // Asked a few times: each is a random size, which may not reach the ground.
+        let later: Vec<_> = [9.0, 11.0, 13.0, 15.0]
+            .into_iter()
+            .map(|at| {
+                (
+                    at,
+                    ServerMessage::DoTargetedFx(ObjectEvent {
+                        sender: ObjectStamp {
+                            id: PLAYER,
+                            instance_stamp: 1,
+                            other_stamp: 0,
+                        },
+                        action: TargetedFx {
+                            fx: LAYS,
+                            scalar: 1.0,
+                            target: 0,
+                        },
+                    }),
+                )
+            })
+            .collect();
         let later: &[_] = if asked { &later } else { &[] };
         let script = script_until(cell, at, Quat::IDENTITY, &[], later, 40.0);
         let server =
@@ -5290,7 +5296,7 @@ fn an_effects_decal_is_laid_where_its_object_stands() {
             )),
         );
         let mut drawn = false;
-        while s.host.time < 14.0 {
+        while s.host.time < 20.0 {
             step(&mut s);
             let now = s.host.time;
             drawn |= s.scene.frame(now).is_some_and(|f| {
@@ -5310,14 +5316,7 @@ fn an_effects_decal_is_laid_where_its_object_stands() {
                 z: 80.0,
             },
         ),
-        (
-            0x0298_0121,
-            Vec3 {
-                x: 2.0,
-                y: 330.0,
-                z: -43.76,
-            },
-        ),
+        (HALL_CELL, HALL_AT),
     ] {
         assert!(
             !drawn_with(cell, at, false),

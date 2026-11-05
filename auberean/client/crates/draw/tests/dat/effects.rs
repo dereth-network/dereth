@@ -1555,3 +1555,52 @@ fn a_placed_objects_systems_stand_on_its_bones_at_rest() {
     assert!(drawn_along_y(0x1F00_00AE) > 5.0, "out on the bones");
     assert_eq!(drawn_along_y(0x1F00_002B), 0.0, "no bone, no system");
 }
+
+/// Puffs of cloud go by in portal space, drawn only while the camera is within the system's fade
+/// distance of the tube's start: entering at once they show in the first moment and not once the
+/// camera has rushed on. Coming in over a phase, none go until the tunnel is nearly in view.
+///
+/// Behaviour: draw.portal.puffs-of-cloud-show-near-the-tunnels-start
+#[test]
+fn puffs_of_cloud_show_near_the_tunnels_start() {
+    use auberean_draw::portal::Passage;
+    use auberean_draw::scene::{Pass, SceneBuilder};
+    use auberean_primitives::random::Random;
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut builder = SceneBuilder::new(r, &region);
+    let mut drawn = |at_once: bool| {
+        let mut portal = Passage::new(Random::default());
+        portal.want(true, at_once, 0.0);
+        let mut out = Vec::new();
+        for step in 0..300_u16 {
+            let now = f64::from(step) / 60.0;
+            let look = portal.think(now);
+            let Some(frame) = portal.frame(r, &mut builder, &look, now) else {
+                continue;
+            };
+            let puffs = frame
+                .objects
+                .iter()
+                .filter(|b| b.step == Some(Pass::Particles))
+                .count();
+            let eye = portal.rings().first().map_or(0.0, |(_, _, at)| {
+                (at.x * at.x + at.y * at.y + at.z * at.z).sqrt()
+            });
+            out.push((now, puffs, eye));
+        }
+        out
+    };
+    let at_once = drawn(true);
+    assert!(
+        at_once.iter().any(|(_, puffs, _)| *puffs > 0),
+        "they show as it starts"
+    );
+    for (now, puffs, eye) in &at_once {
+        assert!(*eye < 70.0 || *puffs == 0, "{puffs} at {now}, {eye} m out");
+    }
+    let coming_in = drawn(false);
+    for (now, puffs, _) in coming_in.iter().filter(|(now, _, _)| *now < 0.9) {
+        assert_eq!(*puffs, 0, "none at {now} while it comes into view");
+    }
+}
