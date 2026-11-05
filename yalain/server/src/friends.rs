@@ -617,12 +617,7 @@ fn character_named<S: Store>(server: &mut Server<S>, name: &str) -> Option<Chara
         .ok()
         .flatten()
         .filter(|c| c.deleted_at.is_none())?;
-    let account = server
-        .store
-        .accounts()
-        .ok()?
-        .into_iter()
-        .find(|a| a.id == c.account);
+    let account = server.store.account(c.account).ok()?;
     let banned =
         account.is_some_and(|a| yalain_world::admin::banned(&mut server.store, &a, unix_now()));
     // A gag holds whether or not the character is in the world.

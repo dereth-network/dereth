@@ -962,11 +962,7 @@ fn set_character_admin<S: Store>(
         return Err(format!("Character {name} does not exist."));
     }
     if admin {
-        let account = s
-            .store
-            .accounts()
-            .ok()
-            .and_then(|all| all.into_iter().find(|a| a.id == c.account));
+        let account = s.store.account(c.account).ok().flatten();
         if !account.is_some_and(|a| a.admin) {
             return Err(format!(
                 "{}'s account is not an admin's: set-accountadmin first.",
