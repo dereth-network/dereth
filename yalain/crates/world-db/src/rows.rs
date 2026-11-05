@@ -254,6 +254,13 @@ pub struct Quest {
     pub xp_share: Option<f64>,
     /// The level at and above which that share pays no more.
     pub xp_share_level: Option<i32>,
+    /// The least a row's share pays.
+    pub xp_least: Option<u64>,
+    /// The most a row's share pays.
+    pub xp_most: Option<u64>,
+    /// Its amount is paid whole, whatever its challenge against the player's level; left out, as
+    /// the quest's setup in the install says.
+    pub xp_whole: Option<bool>,
     /// What its completion adds to the player's quest rating; left out, as the quest's setup in the
     /// install says.
     pub qp: Option<u32>,
@@ -685,6 +692,9 @@ pub const FIELDS: [(&str, &[&str]); 19] = [
             "xp",
             "xp_share",
             "xp_share_level",
+            "xp_least",
+            "xp_most",
+            "xp_whole",
             "qp",
             "cancellable",
             "visible",
@@ -1190,6 +1200,9 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             xp: f.int("xp").and_then(|v| u64::try_from(v).ok()),
             xp_share: f.float("xp_share"),
             xp_share_level: f.int("xp_share_level").and_then(|v| i32::try_from(v).ok()),
+            xp_least: f.int("xp_least").and_then(|v| u64::try_from(v).ok()),
+            xp_most: f.int("xp_most").and_then(|v| u64::try_from(v).ok()),
+            xp_whole: f.bool("xp_whole"),
             qp: f.int("qp").and_then(|v| u32::try_from(v).ok()),
             cancellable: f.bool("cancellable"),
             visible: f.bool("visible"),

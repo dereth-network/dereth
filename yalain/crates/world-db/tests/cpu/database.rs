@@ -1742,6 +1742,22 @@ fn what_a_quest_pays_is_its_setups_unless_its_row_says() {
     );
     let (xp, row) = pay("xp = 12");
     assert_eq!((xp, row.share), (12, 0.0), "a row's amount, no share");
+    assert!(!row.flat, "weighed as the setup says");
+    assert!(
+        pay("xp = 12\nxp_whole = true").1.flat,
+        "whole where the row says so"
+    );
+    assert_eq!(
+        pay("xp_share = 0.02\nxp_least = 3\nxp_most = 9").1,
+        CompletionPay {
+            share: 0.02,
+            least: 3,
+            most: 9,
+            flat: true,
+            ..CompletionPay::default()
+        },
+        "the row's share, within its limits"
+    );
     let mut files = fixture();
     edit(
         &mut files,

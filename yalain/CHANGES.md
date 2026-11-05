@@ -36,6 +36,7 @@ what they see, not how it was done.
 - Fixed long lines of talk holding up what nearby players hear.
 - Other players can no longer hurt your pet while you're at peace.
 - Oaths in very large allegiances no longer stall the world.
+- Quests with no setup now pay what they should.
 
 - Fixed a selected person showing empty health and vigor bars.
 

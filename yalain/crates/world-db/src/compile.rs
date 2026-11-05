@@ -425,8 +425,9 @@ fn subquest_definitions(quests: &mut yalain_content::QuestTable, install: &dyn I
 }
 
 /// How a quest's completion pays: as its setup says, unless its row says otherwise. A row's amount
-/// is paid in place of the setup's share. A row's share is paid whole, as nearly every share a setup
-/// names is (89 of 91), and at most what it comes to at the row's level.
+/// is paid in place of the setup's share, weighed as the setup says unless the row says it is whole. A
+/// row's share is paid whole, as nearly every share a setup names is (89 of 91), and at most what it
+/// comes to at the row's level, within the row's least and most.
 fn quest_pay(
     setup: yalain_content::quests::CompletionPay,
     q: &crate::rows::Quest,
@@ -438,6 +439,8 @@ fn quest_pay(
         return CompletionPay {
             share,
             most_at_level: q.xp_share_level.map(|level| (share, level)),
+            least: q.xp_least.unwrap_or(0),
+            most: q.xp_most.unwrap_or(0),
             flat: true,
             ..CompletionPay::default()
         };
@@ -445,6 +448,7 @@ fn quest_pay(
     if q.xp.is_some() {
         return CompletionPay {
             share: 0.0,
+            flat: q.xp_whole.unwrap_or(setup.flat),
             ..setup
         };
     }
