@@ -4052,13 +4052,10 @@ impl<'w> Scene<'w> {
                 dv(origin),
                 body_heading,
             ));
-            let water = (!is_interior(pos.cell.0))
-                .then(|| water_height(&self.land, pos.cell))
-                .flatten();
-            player_bones = Some(weather::BodyBones {
+            player_bones = weather::BodyBones::outdoors(pos.cell.0, || weather::BodyBones {
                 bones: weather::bones_of(&p.figure, &poses),
                 place,
-                water,
+                water: water_height(&self.land, pos.cell),
             });
         }
         let first_other = noted.len();

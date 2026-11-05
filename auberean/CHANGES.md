@@ -78,6 +78,7 @@ not how it was done.
 - Added the puffs of cloud at the start of portal space.
 - Fixed discs and light pools stopping at holes in the land.
 - Fixed the sun's flare showing past leaves and rooflines.
+- Fixed rain steaming off a player standing indoors.
 
 ## 0.1.3 (2026-11-05)
 
