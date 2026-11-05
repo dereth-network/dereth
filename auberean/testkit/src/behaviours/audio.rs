@@ -229,6 +229,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "audio.manager.a-stopped-primary-piece-waits-no-longer",
+        says: "A piece waiting for the primary track that is stopped waits no longer, and the one \
+               playing starts again when it ends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-AUDIO-MUSIC-THREAD"),
+        station: "auberean-audio::cpu::music::a_waiting_primary_piece_that_is_stopped_leaves_the_one_playing_to_repeat",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "audio.manager.primary-track-queue",
         says: "Pieces on the primary track play one at a time: the one playing starts again when \
                it ends while none waits; one asked for meanwhile waits for it to end and then \

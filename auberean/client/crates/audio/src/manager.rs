@@ -1231,6 +1231,11 @@ impl SoundPlayer {
     }
 
     fn stop_voice(&mut self, i: usize) {
+        // A piece waiting for the primary track waits no longer.
+        // D2-07893
+        if self.music.next_primary == Some(self.playing[i].handle) {
+            self.music.next_primary = None;
+        }
         if let Some(run) = self.playing[i].music {
             self.end_piece(Some(run), false);
             if let Some(r) = self.playing[i].music.as_mut() {
