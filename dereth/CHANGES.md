@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+## 0.4.14 (2026-11-05)
+
 ## 0.4.13 (2026-11-05)
 
 - Classic: resting the pointer on a button, bar or slot says what it does.
