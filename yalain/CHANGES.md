@@ -53,6 +53,7 @@ what they see, not how it was done.
 - Gauntlet journal updates now come when you land.
 - A too-long inscription is refused, not cut.
 - A knife stays in the pack while it cuts.
+- Broker stores now have pages.
 
 - Fixed a selected person showing empty health and vigor bars.
 

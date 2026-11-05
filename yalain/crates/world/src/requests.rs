@@ -177,8 +177,12 @@ pub fn call<S: Store>(
             crate::skill_use::cut_by_transmute(s, net, world, clock);
             crate::inventory::transmute_all(s, net, world, &values);
         }
-        crate::store::function::NEXT_SALES => crate::store::turn_page(s, net, world, true),
-        crate::store::function::PREV_SALES => crate::store::turn_page(s, net, world, false),
+        crate::store::function::NEXT_SALES => {
+            crate::store::turn_page(s, net, world, true, clock.local);
+        }
+        crate::store::function::PREV_SALES => {
+            crate::store::turn_page(s, net, world, false, clock.local);
+        }
         crate::store::function::LEAVE_STORE => crate::store::leave(s, world),
         crate::store::function::PURCHASE => crate::store::purchase(s, net, world, &values, clock),
         crate::skills::function::TRAIN => crate::skills::train(s, net, world, &values),

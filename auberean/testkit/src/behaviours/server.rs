@@ -5654,6 +5654,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.a-brokers-store-goes-by-pages",
+        says: "A broker's store shows a page's sales at a time and names how many it lists, and its \
+               pages turn through them all.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BROKER-PAGES"),
+        station: "yalain-testkit::cpu::play::market::a_brokers_long_store_goes_by_pages_that_turn_through_it_all",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.a-character-holds-so-many-consignments",
         says: "A character holding the most consignments it may is told so and nothing is taken; one \
                collected makes room again.",
@@ -5729,9 +5738,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.market.pages-drawn-from-an-allowance",
-        says: "A connection's market pages come out of an allowance of rows, pages of a player's size \
-               always answered, a large one as its rows come back, and a store shows at most so many \
-               sales.",
+        says: "A connection's market pages come out of an allowance of rows, by the sales shown and \
+               the listing read for them: pages of a player's size always answered, one of a very long \
+               listing as its rows come back.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-MARKET-PAGES"),
         station: "yalain-testkit::cpu::play::market::market_pages_come_out_of_an_allowance_of_rows",

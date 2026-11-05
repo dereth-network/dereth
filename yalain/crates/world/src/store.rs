@@ -294,11 +294,21 @@ fn may_have<S: Store>(s: &Server<S>, world: ConnId, sale: &Sale) -> bool {
 }
 
 /// The client turns the store's page.
-pub fn turn_page<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, forward: bool) {
+pub fn turn_page<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    forward: bool,
+    now: dereth_primitives::LocalTime,
+) {
     let Some((keeper, store, pos)) = s.players.get(&world).and_then(|p| p.shopping) else {
         s.unhandled.note("a store page turned outside a store");
         return;
     };
+    if crate::market::is_broker(s, keeper) {
+        crate::market::turn_page(s, net, world, (keeper, store, pos), forward, now);
+        return;
+    }
     let size = u32::try_from(s.stores.sales_of(store).len()).unwrap_or(0);
     let pos = if forward {
         if pos + PAGE < size {

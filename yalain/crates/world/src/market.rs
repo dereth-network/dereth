@@ -23,9 +23,14 @@
 //! nothing taken and nothing moved. Nor anything by a character holding [`MOST_CONSIGNMENTS`] already,
 //! which is told so.
 //!
-//! **What a page costs.** A store's page shows at most its newest [`MOST_SHOWN`] sales, and a
-//! connection's pages are drawn from a store of [`PAGE_ROWS_HELD`] rows, filled at
-//! [`PAGE_ROWS_A_SECOND`]; a page past that is not answered.
+//! **A page** shows as many sales as a storekeeper's and names the whole listing's size; the client
+//! turns the pages as it does a storekeeper's (2017: no page of any store showed more than 7 of 510
+//! sales; no broker's store listed more than 3). So what one player's asking holds up is never more
+//! than a moment of its own connection's messages.
+//!
+//! **What a page costs.** A connection's pages are drawn from a store of [`PAGE_ROWS_HELD`] rows,
+//! filled at [`PAGE_ROWS_A_SECOND`], by the sales shown and the listing read for them ([`LISTED_A_ROW`]);
+//! a page past that is not answered.
 //!
 //! **Buying a player's sale**: the price taken, the item moved from the broker into the buyer's
 //! pack, the sale's stock told as gone; the seller collects the price.
@@ -98,11 +103,11 @@ pub const BROKER_REACH: f32 = 5.0;
 pub const MOST_CONSIGNMENTS: usize = 100;
 /// The words for a character at that maximum.
 pub const AT_THE_MOST: (u32, u32) = (0xCF60_26D2, 0x2500_0CEE);
-/// The most sales a store's page shows (the largest page recorded held 13).
-pub const MOST_SHOWN: usize = 2000;
 /// A connection's rows of pages, at once and each second (18 recorded asks, none of more than 13).
 pub const PAGE_ROWS_HELD: f64 = 2000.0;
 pub const PAGE_ROWS_A_SECOND: f64 = 1000.0;
+/// How many of a listing's sales read for a page cost as much as a row it shows.
+pub const LISTED_A_ROW: usize = 10;
 /// The world's record of the consignments.
 pub const RECORD: &str = "consignments";
 /// The record's encoding (1 held no item's own numbers).
@@ -623,17 +628,53 @@ pub fn enter_store<S: Store>(
     if !near(s, world, keeper) {
         return;
     }
-    let mut sales: Vec<Consignment> = s
+    let Some(m) = page_of(
+        s,
+        world,
+        keeper,
+        br.catalog,
+        store,
+        0,
+        store::function::ENTER_STORE,
+        now,
+    ) else {
+        return;
+    };
+    progress::private(net, world, &m);
+    if let Some(p) = s.players.get_mut(&world) {
+        p.shopping = Some((keeper, store, 0));
+    }
+}
+
+/// A store's page of sales at a place in its listing, with the whole listing's size; none if the
+/// connection's allowance doesn't stretch to it. A place past the listing's end is its last page.
+#[allow(clippy::too_many_arguments)]
+fn page_of<S: Store>(
+    s: &mut Server<S>,
+    world: ConnId,
+    keeper: u64,
+    catalog: u32,
+    store: u32,
+    pos: u32,
+    f: u32,
+    now: LocalTime,
+) -> Option<ServerMessage> {
+    let listed: Vec<&Consignment> = s
         .market
         .list
         .iter()
-        .filter(|c| c.catalog == br.catalog && c.store == store && c.sold < c.offered)
+        .filter(|c| c.catalog == catalog && c.store == store && c.sold < c.offered)
+        .collect();
+    let size = listed.len();
+    let pos = (pos as usize).min(size.saturating_sub(1));
+    let sales: Vec<Consignment> = listed
+        .into_iter()
+        .skip(pos)
+        .take(store::PAGE as usize)
         .copied()
         .collect();
-    let past = sales.len().saturating_sub(MOST_SHOWN);
-    sales.drain(..past);
-    if !page_allowed(s, world, sales.len(), now) {
-        return;
+    if !page_allowed(s, world, size, sales.len(), now) {
+        return None;
     }
     let mut b = Builder::new();
     let viewr = b.reserve(store::package::STORE_VIEW);
@@ -650,27 +691,73 @@ pub fn enter_store<S: Store>(
         &[
             Slot::Ref(Some(l)),
             Slot::Tagged(4, store),
-            Slot::Tagged(4, u32::try_from(sales.len()).unwrap_or(0)),
-            Slot::Int(0),
+            Slot::Tagged(4, u32::try_from(size).unwrap_or(0)),
+            Slot::Int(u32::try_from(pos).unwrap_or(0)),
         ],
     );
-    let m = call(
-        store::function::ENTER_STORE,
-        &[Arg::Object(b.graph()), Arg::LongInt(keeper)],
-    );
+    Some(call(f, &[Arg::Object(b.graph()), Arg::LongInt(keeper)]))
+}
+
+/// The client turns a broker's store's page: the next or the previous, by the page's sales; past
+/// the listing's end it stays. Answered as a storekeeper's turn is.
+pub fn turn_page<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    (keeper, store, pos): (u64, u32, u32),
+    forward: bool,
+    now: LocalTime,
+) {
+    let Some(br) = broker_of(s, keeper) else {
+        return;
+    };
+    if !near(s, world, keeper) {
+        return;
+    }
+    let size = s
+        .market
+        .list
+        .iter()
+        .filter(|c| c.catalog == br.catalog && c.store == store && c.sold < c.offered)
+        .count();
+    let size = u32::try_from(size).unwrap_or(u32::MAX);
+    let next = if !forward {
+        pos.saturating_sub(store::PAGE)
+    } else if pos.saturating_add(store::PAGE) < size {
+        pos + store::PAGE
+    } else {
+        pos
+    };
+    let f = store::function::UPDATE_STORE;
+    let Some(m) = page_of(s, world, keeper, br.catalog, store, next, f, now) else {
+        return;
+    };
     progress::private(net, world, &m);
     if let Some(p) = s.players.get_mut(&world) {
-        p.shopping = Some((keeper, store, 0));
+        p.shopping = Some((keeper, store, next));
     }
 }
 
-/// May a connection have a page of so many rows now?
-fn page_allowed<S: Store>(s: &mut Server<S>, world: ConnId, rows: usize, now: LocalTime) -> bool {
+/// Is this one a broker, whose store's sales are this market's?
+#[must_use]
+pub fn is_broker<S: Store>(s: &Server<S>, keeper: u64) -> bool {
+    broker_of(s, keeper).is_some()
+}
+
+/// May a connection have a page now, of a store listing so many sales? What it costs goes by the
+/// sales it shows and the listing read for it.
+fn page_allowed<S: Store>(
+    s: &mut Server<S>,
+    world: ConnId,
+    listed: usize,
+    shown: usize,
+    now: LocalTime,
+) -> bool {
     let Some(p) = s.players.get_mut(&world) else {
         return false;
     };
     #[allow(clippy::cast_precision_loss)]
-    let cost = ((rows + 1) as f64).min(PAGE_ROWS_HELD);
+    let cost = ((shown + 1 + listed / LISTED_A_ROW) as f64).min(PAGE_ROWS_HELD);
     p.page_rows
         .get_or_insert_with(|| Bucket::with(PAGE_ROWS_HELD, PAGE_ROWS_A_SECOND, now))
         .allow_for(cost, now)
@@ -698,7 +785,7 @@ pub fn enter_consignment<S: Store>(
         return;
     };
     let mine = s.market.list.iter().filter(|c| c.owner == me).count();
-    if !page_allowed(s, world, mine, now) {
+    if !page_allowed(s, world, 0, mine, now) {
         return;
     }
     progress::private(net, world, &reminders(s, me, keeper, br));

@@ -1070,31 +1070,18 @@ fn a_character_at_its_most_consignments_is_refused_and_told() {
     assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS, "room again");
 }
 
-/// A connection's market pages come out of an allowance of rows: pages of a player's size come as
-/// fast as they are asked for, a large one is answered only as the rows come back; and a store shows
-/// at most so many sales.
+/// A store's page comes out of a connection's allowance, by the sales it shows and the listing read
+/// for them: an ordinary player's are all answered, one past the allowance is not, and time brings
+/// them back.
 /// Behaviour: server.market.pages-drawn-from-an-allowance
 #[test]
 fn market_pages_come_out_of_an_allowance_of_rows() {
-    use yalain_world::market::{Consignment, MOST_SHOWN, PAGE_ROWS_A_SECOND, PAGE_ROWS_HELD};
+    use yalain_world::market::{LISTED_A_ROW, PAGE_ROWS_A_SECOND, PAGE_ROWS_HELD};
     let mut h = world();
     let (a, ida) = h.player_in_world("one", "Shopper");
     at_the_broker(&mut h, ida);
-    let row = |sale: u32| Consignment {
-        sale,
-        owner: 1,
-        keeper: BROKER,
-        catalog: CATALOG,
-        store: STORE,
-        item: 0x8131_0000_0000_0000 + u64::from(sale),
-        template: GEM,
-        price: 1.0,
-        offered: 1,
-        sold: 0,
-        entered: 0.0,
-    };
     h.server.market.loaded = true;
-    h.server.market.list = (1..=10).map(row).collect();
+    h.server.market.list = (1..=10).map(sale_row).collect();
     let page = [Arg::Int(STORE), Arg::LongInt(BROKER)];
     let pages = |h: &Harness, from: usize| {
         h.functions(a, from)
@@ -1110,9 +1097,9 @@ fn market_pages_come_out_of_an_allowance_of_rows() {
     assert_eq!(pages(&h, from), 50, "a player's pages are all answered");
     let full = PAGE_ROWS_HELD / PAGE_ROWS_A_SECOND + 1.0;
     h.step_by(full);
-    h.server.market.list = (1..=u32::try_from(MOST_SHOWN).expect("few") + 500)
-        .map(row)
-        .collect();
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let huge = (PAGE_ROWS_HELD as u32) * u32::try_from(LISTED_A_ROW).expect("few");
+    h.server.market.list = (1..=huge).map(sale_row).collect();
     // Two at once: the first takes all there is, and the second is not answered however long it waits.
     let from = h.bots[a].inbox.len();
     let ask = yalain_testkit::play::server_call(function::ENTER_STORE, &page);
@@ -1120,35 +1107,116 @@ fn market_pages_come_out_of_an_allowance_of_rows() {
     h.bots[a].send(true, auberean_protocol::queue::WEENIE, &ask);
     assert!(
         h.run_until(5_000, |h| pages(h, from) >= 1),
-        "a large page comes"
+        "a page of a long listing comes"
     );
     assert!(
         !h.run_until(5_000, |h| pages(h, from) >= 2),
         "the next is not answered"
     );
-    let largest = |h: &Harness, from: usize| {
-        h.world_messages(a, from)
-            .iter()
-            .map(|m| m.encode().len())
-            .max()
-            .expect("a page")
-    };
-    let capped = largest(&h, from);
     h.step_by(full);
     let from = h.bots[a].inbox.len();
     h.ask(a, function::ENTER_STORE, &page, 1);
     assert!(h.run_until(5_000, |h| pages(h, from) >= 1), "back in time");
-    // A store of just as many as are shown takes a page of that size.
-    h.server.market.list.truncate(MOST_SHOWN);
-    h.step_by(full);
+}
+
+/// A broker's store shows a page's sales at a time however many it lists, says how many it lists, and
+/// its pages turn through them all, to its end and back; no page holds a connection's other messages.
+/// Behaviour: server.market.a-brokers-store-goes-by-pages
+#[test]
+fn a_brokers_long_store_goes_by_pages_that_turn_through_it_all() {
+    use yalain_world::store::function::{NEXT_SALES, PREV_SALES, UPDATE_STORE};
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Shopper");
+    at_the_broker(&mut h, ida);
+    h.server.market.loaded = true;
+    // Long enough that a page of them all would go by the pace; sold-out sales aren't listed.
+    let mut list: Vec<_> = (1..=2001).map(sale_row).collect();
+    list[0].sold = 1;
+    h.server.market.list = list;
+    let page = [Arg::Int(STORE), Arg::LongInt(BROKER)];
+    // Each view's sales' ids, its size and its place.
+    let views = |h: &Harness, from: usize, f: u32| -> Vec<(Vec<u64>, u32, u32, usize)> {
+        h.world_messages(a, from)
+            .iter()
+            .filter_map(|m| {
+                let ServerMessage::PlayerCall(c) = m else {
+                    return None;
+                };
+                if c.function.0 != f {
+                    return None;
+                }
+                let len = m.encode().len();
+                let args = c.args.as_ref()?;
+                let v = yalain_world::calls::values(&args.0).ok()?;
+                let graph = v.iter().find_map(|x| match x {
+                    yalain_world::calls::Value::Graph(g) => Some(g),
+                    _ => None,
+                })?;
+                let (mut size, mut pos, mut sales) = (0, 0, Vec::new());
+                for (_, n) in graph {
+                    if let yalain_world::calls::Node::Script { package, slots } = n {
+                        if *package == yalain_world::store::package::STORE_VIEW {
+                            size = slots[2].1;
+                            pos = slots[3].1;
+                        } else {
+                            sales.push(u64::from(slots[3].1) << 32 | u64::from(slots[2].1));
+                        }
+                    }
+                }
+                Some((sales, size, pos, len))
+            })
+            .collect()
+    };
     let from = h.bots[a].inbox.len();
-    h.ask(a, function::ENTER_STORE, &page, 1);
-    assert!(h.run_until(5_000, |h| pages(h, from) >= 1), "again");
-    let at_most = largest(&h, from);
-    assert!(
-        capped.abs_diff(at_most) * 50 < at_most,
-        "as many rows either way: {capped}, {at_most}"
-    );
+    h.ask(a, function::ENTER_STORE, &page, 3);
+    let first = views(&h, from, ENTER_STORE);
+    assert_eq!(first.len(), 1);
+    let (sales, size, pos, len) = &first[0];
+    assert_eq!((*size, *pos), (2000, 0), "the whole listing's size");
+    assert_eq!(sales.len(), yalain_world::store::PAGE as usize);
+    assert_eq!(sales[0], sale_row(2).item, "in the listing's order");
+    assert!(*len < 32 * 1024, "a page is short: {len}");
+    let mut seen: Vec<u64> = sales.clone();
+    let mut last_pos = 0;
+    for _ in 0..300 {
+        let from = h.bots[a].inbox.len();
+        h.ask(a, NEXT_SALES, &[], 3);
+        let got = views(&h, from, UPDATE_STORE);
+        assert_eq!(got.len(), 1, "a turn is answered");
+        let (sales, size, pos, _) = &got[0];
+        assert_eq!(*size, 2000);
+        if *pos == last_pos {
+            break;
+        }
+        last_pos = *pos;
+        seen.extend(sales);
+        // As slowly as the allowance asks of so long a listing.
+        h.step_by(0.25);
+    }
+    assert_eq!(seen.len(), 2000, "every sale listed, once");
+    let want: Vec<u64> = (2..=2001).map(|i| sale_row(i).item).collect();
+    assert_eq!(seen, want);
+    let from = h.bots[a].inbox.len();
+    h.ask(a, PREV_SALES, &[], 3);
+    let got = views(&h, from, UPDATE_STORE);
+    assert_eq!(got[0].2, last_pos - yalain_world::store::PAGE);
+}
+
+/// A row of the broker's store.
+fn sale_row(sale: u32) -> yalain_world::market::Consignment {
+    yalain_world::market::Consignment {
+        sale,
+        owner: 1,
+        keeper: BROKER,
+        catalog: CATALOG,
+        store: STORE,
+        item: 0x8131_0000_0000_0000 + u64::from(sale),
+        template: GEM,
+        price: 1.0,
+        offered: 1,
+        sold: 0,
+        entered: 0.0,
+    }
 }
 
 /// An item is not put up for sale while a use under way counts on the pack.
