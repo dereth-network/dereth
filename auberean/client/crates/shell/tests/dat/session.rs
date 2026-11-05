@@ -4038,6 +4038,139 @@ fn an_aimed_effect_acts_on_its_target() {
     );
 }
 
+/// An object held by a body is drawn from where the holder is drawn, between its ticks, at a scale
+/// the holder's whole scale and child scale give it. One told to fade with no delay goes at once.
+/// Fixture: the look whose startup effects make two held objects, made beside the player; then the
+/// player running while an effect has it hold another.
+///
+/// Behaviour: desktop.bodies.what-a-body-holds-is-drawn-with-it
+#[test]
+fn what_a_body_holds_is_drawn_with_it() {
+    use auberean_client_sdk::protocol::physics::{Fx, ObjectEvent};
+    const CELL: u32 = 0xC156_0035;
+    const OBJECT: u64 = 0x8130_1B05_CC00_0191;
+    const MAKES_TWO: u32 = 0x1F00_0CBE;
+    const MAKES_BLADES: u32 = 0x8100_0366;
+    let object = CreateObject {
+        id: OBJECT,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: MAKES_TWO,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: 126.0,
+                        y: 92.0,
+                        z: 80.0,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 122.842,
+        y: 89.758,
+        z: 80.0,
+    };
+    let later = [(
+        22.0,
+        ServerMessage::DoFx(ObjectEvent {
+            sender: ObjectStamp {
+                id: PLAYER,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            action: Fx {
+                fx: MAKES_BLADES,
+                scalar: 1.0,
+            },
+        }),
+    )];
+    let script = script_until(CELL, at, Quat::IDENTITY, &[object], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 14.0 {
+        step(&mut s);
+    }
+    let held = s.scene.made_objects();
+    assert_eq!(held.len(), 2, "the object holds its two");
+    let first = held[0];
+
+    // Scale: the holder's whole scale reaches what it holds.
+    s.scene
+        .body_mut(OBJECT)
+        .expect("the holder")
+        .set_scale_vector(dereth_primitives::Vec3::new(2.0, 2.0, 2.0));
+    let holder = s.scene.body(OBJECT).expect("the holder");
+    let given = (holder.total_scale(None), holder.child_scale);
+    let own = s.scene.body(first).expect("what it holds");
+    let (alone, wanted) = (own.total_scale(None), own.total_scale(Some(given)));
+    assert!((wanted.x - alone.x).abs() > 0.1, "{wanted:?} {alone:?}");
+    let (_, _, scale) = s
+        .scene
+        .temporaries_placed(0.5, true)
+        .into_iter()
+        .find(|(id, _, _)| *id == first)
+        .expect("it is drawn");
+    assert!((scale.x - wanted.x).abs() < 1e-4, "{scale:?} {wanted:?}");
+
+    // Fading with no delay, it goes at once.
+    s.scene
+        .body_mut(first)
+        .expect("what it holds")
+        .delete_self(0.5, 0.0);
+    let start = s.host.time;
+    while s.scene.made_objects().contains(&first) && s.host.time < start + 2.0 {
+        step(&mut s);
+    }
+    assert!(
+        s.host.time - start < 0.1,
+        "gone after {} s",
+        s.host.time - start
+    );
+
+    // Place: what the running player holds moves between the player's ticks.
+    s.event(&Event::Key {
+        key: Key::W,
+        down: true,
+        repeat: false,
+    });
+    let mut between = false;
+    while s.host.time < 22.0 {
+        step(&mut s);
+        let at = |s: &Shell<_>, alpha: f32| {
+            s.scene
+                .temporaries_placed(alpha, true)
+                .into_iter()
+                .find(|(id, _, _)| *id != held[1])
+                .map(|(_, p, _)| p.frame.origin)
+        };
+        if let (Some(a), Some(b)) = (at(&s, 0.0), at(&s, 1.0)) {
+            between |= (a.x - b.x).abs() + (a.y - b.y).abs() > 0.05;
+        }
+    }
+    assert!(between, "what it holds is drawn between its ticks");
+}
+
 /// An object the server made prints on the sun's shadow map, where it stands, once the light ticks
 /// after its drawing properties say it casts on the land, and not otherwise. Fixture: a server
 /// double making a man beside the player at the camp, the property set on his entry in the world.

@@ -390,6 +390,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.what-a-body-holds-is-drawn-with-it",
+        says: "An object a body holds is drawn from where the holder is drawn between its ticks, at the scale the holder's whole scale and child scale give it. One told to fade with no delay goes at once, before the fade shows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-TEMPORARY-HELD-DRAWN"),
+        station: "auberean-shell::dat::session::what_a_body_holds_is_drawn_with_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.what-the-scripts-ask-of-a-body-is-carried-out",
         says: "What the scripts ask of a body is carried out the next frame, in order: its speed \
                and acceleration scales, drawn cloaked (and so not drawn), reporting and ignoring \

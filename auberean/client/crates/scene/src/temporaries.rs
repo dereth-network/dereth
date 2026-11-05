@@ -319,8 +319,8 @@ impl Temporaries {
         self.made.remove(&id)
     }
 
-    /// Fades object `id` out over half a second and removes it `delay` seconds from `now` (the
-    /// fade's time when 0).
+    /// Fades object `id` out over `fade` seconds and removes it `delay` seconds from `now`: with no
+    /// delay it goes at once, before the fade shows.
     // D2-05707
     pub(crate) fn fade_and_remove(&mut self, id: u64, now: f64, fade: f64, delay: f64) {
         let Some(t) = self.made.get_mut(&id) else {
@@ -330,7 +330,7 @@ impl Temporaries {
             #[allow(clippy::cast_possible_truncation)]
             f.sliders.do_slider(0, FADE_SLIDER, 0.0, fade as f32);
         }
-        let at = now + if delay == 0.0 { fade } else { delay };
+        let at = now + delay;
         t.removal = Some(t.removal.map_or(at, |r| r.min(at)));
     }
 
@@ -862,6 +862,18 @@ impl Scene<'_> {
 
     /// Where object `id` hangs from holder `holder`'s body as it stands now, when it is taken up.
     fn hanging_place(&self, id: u64, holder: u64) -> Option<Position> {
+        self.hanging(id, holder, None).map(|(at, _)| at)
+    }
+
+    /// Where object `id` hangs from `holder` and what the holder gives its scale: from where the
+    /// holder is drawn `alpha` of a tick past its last, or from where it stands.
+    // D2-06182
+    fn hanging(
+        &self,
+        id: u64,
+        holder: u64,
+        alpha: Option<f32>,
+    ) -> Option<(Position, (dereth_primitives::Vec3, f32))> {
         let (hb, hf) = match &self.player {
             Some(p) if p.id == holder => (&p.body, &p.figure),
             _ => {
@@ -875,7 +887,11 @@ impl Scene<'_> {
             .and_then(|c| c.children.iter().find(|c| c.id == id))?;
         let m = crate::held::hanging(hf, &self.anims, info);
         let whole = hb.total_scale(None);
-        Some(Body::child_place(&hb.position, whole, info, m.as_ref()))
+        let at = alpha.map_or(hb.position, |a| hb.drawn(a).0);
+        Some((
+            Body::child_place(&at, whole, info, m.as_ref()),
+            (whole, hb.child_scale),
+        ))
     }
 
     /// How much of an object the client made shows, 0 to 1, when it has a figure.
@@ -888,7 +904,9 @@ impl Scene<'_> {
     /// The objects the client made as they are drawn this frame `alpha` of a tick past their last:
     /// each with where it stands and its scale. One held by the player is left out when the player
     /// is not drawn.
-    pub(crate) fn temporaries_placed(
+    // D2-06149, D2-06182
+    #[must_use]
+    pub fn temporaries_placed(
         &self,
         alpha: f32,
         player_drawn: bool,
@@ -903,13 +921,14 @@ impl Scene<'_> {
                     if !player_drawn && self.player.as_ref().is_some_and(|p| p.id == h) {
                         continue;
                     }
-                    self.hanging_place(id, h)
+                    self.hanging(id, h, Some(alpha))
+                        .map(|(at, given)| (at, t.body.total_scale(Some(given))))
                 }
-                None if t.body.in_world => Some(t.body.drawn(alpha).0),
+                None if t.body.in_world => Some((t.body.drawn(alpha).0, t.body.total_scale(None))),
                 None => None,
             };
-            if let Some(at) = place {
-                out.push((id, at, t.body.total_scale(None)));
+            if let Some((at, scale)) = place {
+                out.push((id, at, scale));
             }
         }
         out
