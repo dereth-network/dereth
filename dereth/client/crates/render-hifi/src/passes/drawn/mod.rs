@@ -60,8 +60,12 @@ const PATCH_VERTICES: u32 = CELLS * CELLS * 6;
 pub const WORLD_METERS: f32 = 255.0 * 192.0;
 /// The level whose nodes the selection starts from: one node of it covers the world.
 const TOP: u32 = 11;
-/// How far a level's ring reaches, in nodes of its size.
+/// How far a level's ring reaches, in nodes of its size: a near level's, and from [`FAR_LEVEL`]
+/// on, farther, so a narrow peak kilometers off keeps its shape rather than a few vertices'.
 const RANGE_NODES: f32 = 2.5;
+const FAR_RANGE_NODES: f32 = 8.0;
+/// The first level whose ring reaches [`FAR_RANGE_NODES`]: 16 meters apart at the usual detail.
+const FAR_LEVEL: u32 = 4;
 /// The share of a level's ring past which its vertices slide onto the next level's grid.
 const MORPH_FROM: f32 = 0.8;
 /// The most bodies the fine relief is leveled under.
@@ -114,7 +118,11 @@ pub fn reach(level: u32, detail: f32) -> f32 {
     // LINT-OK: a level, at most a dozen.
     #[allow(clippy::cast_precision_loss)]
     let node = finest_spacing(detail) * CELLS as f32 * 2.0 * (1u32 << level.min(20)) as f32;
-    node * RANGE_NODES
+    node * if level >= FAR_LEVEL {
+        FAR_RANGE_NODES
+    } else {
+        RANGE_NODES
+    }
 }
 
 /// How far a patch vertex at world `p` has slid onto the next level's grid, `morph` its patch's

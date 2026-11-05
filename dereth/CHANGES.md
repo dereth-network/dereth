@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Better Lighting: far mountains keep their shape: a narrow peak a few kilometers off is no longer drawn as a pyramid.
+
 ## 0.4.12 (2026-11-03)
 
 - Launcher: you can add a world by its address in Auberean's realm too.
