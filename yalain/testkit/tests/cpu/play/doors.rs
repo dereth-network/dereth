@@ -674,3 +674,100 @@ fn a_use_that_cuts_a_closing_short_is_answered_when_the_closing_would_have_ended
         "answered as the closing would have ended"
     );
 }
+
+/// A locked door and a player holding its key, with what it needs to use it.
+fn locked_door_and_key() -> (Harness, usize, u64, yalain_net::ConnId, u64) {
+    let mut h = hall(60.0, 239.0);
+    h.server
+        .locks
+        .objects
+        .insert(DOOR, Lock { key: Some(KEY_ID) });
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let world = *h.server.players.keys().next().expect("in");
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, KEY, 1);
+    h.run(3);
+    let key = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == KEY)
+        .map(|i| i.id)
+        .expect("a key");
+    (h, a, me, world, key)
+}
+
+/// A key put down while it turns is not used up, and the door stays shut and locked.
+/// Behaviour: server.places.a-key-gone-opens-nothing
+#[test]
+fn a_key_put_down_while_it_turns_opens_nothing() {
+    use yalain_world::inventory::{move_graph, Move};
+    let (mut h, a, me, world, key) = locked_door_and_key();
+    let fa = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, key, DOOR, 0.05);
+    let down = Move {
+        move_type: yalain_world::drops::DROP,
+        merge: true,
+        unlock: true,
+        check_take: true,
+        all_taken: true,
+        grab: true,
+        contain: true,
+        auto_merge: true,
+        from: me,
+        actual_from: me,
+        item: key,
+        split_item: key,
+        quantity: 1,
+        quantity_left: 1,
+        ..Move::default()
+    };
+    let call = server_call(
+        yalain_world::drops::function::MOVE_ITEM,
+        &[move_graph(&down)],
+    );
+    h.bots[a].send(true, queue::WEENIE, &call);
+    run_for(&mut h, 4.0);
+    assert!(
+        !h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|i| i.id == key),
+        "put down"
+    );
+    assert!(h.server.things.get(key).is_some(), "and not used up");
+    assert_eq!(
+        seen(&h, a, fa),
+        [format!("done {}", refusal::WRONG_KEY)],
+        "nothing opens"
+    );
+    let d = &h.server.doors.by_id[&DOOR];
+    assert!(!d.unlocked, "still locked");
+}
+
+/// A key gone from the pack by the time the door has opened leaves it locked, and it shuts at once.
+/// Behaviour: server.places.a-key-gone-opens-nothing
+#[test]
+fn a_key_gone_as_the_door_opens_shuts_it_again_still_locked() {
+    let (mut h, a, me, world, key) = locked_door_and_key();
+    let fa = h.bots[a].inbox.len();
+    send_use(&mut h, a, me, key, DOOR, 1.5);
+    assert!(seen(&h, a, fa).contains(&"passable".to_string()), "it opens");
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("in")
+        .play
+        .items
+        .retain(|i| i.id != key);
+    run_for(&mut h, 3.0);
+    let told = seen(&h, a, fa);
+    assert!(
+        told.contains(&format!("done {}", refusal::WRONG_KEY)),
+        "{told:?}"
+    );
+    assert!(told.contains(&"solid".to_string()), "shuts: {told:?}");
+    assert!(!h.server.doors.by_id[&DOOR].unlocked, "still locked");
+    assert!(h.server.things.get(key).is_some(), "not used up");
+}

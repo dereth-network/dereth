@@ -7668,6 +7668,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-key-gone-opens-nothing",
+        says: "A key out of its turner's pack when it has turned, or by the time the door has opened, \
+               is not used up, and leaves the door locked: the use is refused as the wrong key, and a \
+               door already moving shuts at once. Our own rule: no recording tells.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-KEY-GONE"),
+        station: "yalain-testkit::cpu::play::doors::a_key_put_down_while_it_turns_opens_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-land-cell-holds-its-point",
         says: "A land cell its reported point does not lie in is no place: the player stays where \
                it was.",
