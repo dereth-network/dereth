@@ -989,6 +989,8 @@ impl<S: Store> Server<S> {
         self.saves.piece_begins();
         storms::look(self, net, clock);
         self.saves.piece_begins();
+        presence::views_owed(self, net, clock);
+        self.saves.piece_begins();
         saves::end_of_pass(self, net, clock);
     }
 

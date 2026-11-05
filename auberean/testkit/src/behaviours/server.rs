@@ -8303,6 +8303,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.presence.a-view-moves-at-the-worlds-pace",
+        says: "A player's own reports bring its view up to date no oftener than four times \
+               a second, however often they cross its lines; what is owed comes when that \
+               has passed.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-VIEW-PACE"),
+        station: "yalain-testkit::cpu::entry::presence::reports_crossing_the_view_bring_it_up_to_date_at_the_worlds_pace",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.presence.force-create-answered",
         says: "An object the client asks for again is made for it again when it is within the \
                player's view: another player, an object of the world, or the player itself.",

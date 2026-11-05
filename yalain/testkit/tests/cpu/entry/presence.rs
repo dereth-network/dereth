@@ -194,6 +194,51 @@ fn a_player_out_of_view_is_let_go_and_made_again_when_it_returns() {
     assert!(h.run_until(100, |h| created(h, b, from, ida)));
 }
 
+/// Reports that keep crossing the view's lines bring a player's view up to date no oftener than the
+/// world's pace: the second, straight after the first, is seen once that pace has passed, not before.
+/// Behaviour: server.presence.a-view-moves-at-the-worlds-pace
+#[test]
+fn reports_crossing_the_view_bring_it_up_to_date_at_the_worlds_pace() {
+    let mut h = Harness::new();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Babyfare");
+    h.run(40);
+    // Short steps, so that a report and all that follows it come within the pace.
+    let reported = |h: &mut Harness, cell: u32| {
+        for _ in 0..8 {
+            h.step_by(0.002);
+        }
+        assert!(h
+            .server
+            .players
+            .values()
+            .any(|p| p.character == ida && p.position.cell == cell));
+    };
+    let start = h.now.0;
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &report(0x7000_0001, Vec3::new(10.0, 10.0, 50.0), 0, IDLE_MOTION, 0),
+    );
+    reported(&mut h, 0x7000_0001);
+    let from = h.bots[b].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &report(
+            0x0299_0109,
+            Vec3::new(59.0, 240.0, -44.6),
+            0,
+            IDLE_MOTION,
+            0,
+        ),
+    );
+    reported(&mut h, 0x0299_0109);
+    assert!(h.now.0 - start < yalain_world::presence::VIEW_EVERY);
+    assert!(!created(&h, b, from, ida), "not yet");
+    assert!(h.run_until(100, |h| created(h, b, from, ida)), "owed");
+}
+
 /// A player that leaves the world (at the end of its linger after a logoff) is seen to leave by
 /// every client that held it, on its stream of the player's places, with the player's next
 /// position stamp.

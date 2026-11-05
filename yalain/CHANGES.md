@@ -22,6 +22,7 @@ what they see, not how it was done.
 - Emblem of Might, Galvanize and Bigger Board With Nail now work.
 - Some skills now draw a creature's attention a little more or less.
 - Contracts now hire mercenaries.
+- Fixed players moving quickly between areas slowing the whole world.
 
 - Fixed a selected person showing empty health and vigor bars.
 

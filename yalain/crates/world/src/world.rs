@@ -87,6 +87,9 @@ pub struct Player {
     pub heading_motion: u32,
     pub position_stream: u32,
     pub head_stream: u32,
+    /// When its place last brought its view up to date, and whether its place has moved it since.
+    pub view_brought: f64,
+    pub view_owed: bool,
     /// The objects and players its client has been told of, by id.
     pub known: BTreeMap<u64, Seen>,
     pub options: Options,
@@ -440,6 +443,8 @@ pub fn enter<S: Store>(
         position_stamp: 1,
         teleport_stamp: 0,
         force_position_stamp: 0,
+        view_brought: f64::NEG_INFINITY,
+        view_owed: false,
         heading_motion: u32::from(heading_of_rotation(position.rotation)) << 24 | IDLE_MOTION,
         position,
         position_stream: net.new_stream(world).unwrap_or(0),
@@ -1171,7 +1176,7 @@ fn moved<S: Store>(
         || presence::land_cell(c.cell, [c.origin.x, c.origin.y, c.origin.z])
             != presence::land_cell(before.cell, before.origin);
     if moved_view {
-        presence::refresh(s, net, world);
+        presence::view_moved(s, net, world, clock);
     }
     if c.cell >> 16 != before.cell >> 16 {
         crate::kingdoms::check(s, net, world);
