@@ -83,19 +83,38 @@ fn a_smaller_bodys_legs_cycle_faster_at_one_speed() {
 }
 
 /// A slider standing just past still (under 0.05 m/s) toward the side it is told to go moves there
-/// in 0.05 s however far that is; from still, or across a change of more than 0.75 m/s otherwise,
-/// it takes 0.3 s; a small change takes 0.1 s.
+/// in 0.05 s: sideways however far that is, forward only across no more than 0.75 m/s. From still,
+/// or across a change of more than 0.75 m/s otherwise, it takes 0.3 s; a small change takes 0.1 s.
 ///
 /// Behaviour: animation.body.a-slider-just-past-still-moves-at-once
 #[test]
 fn a_slider_just_past_still_moves_at_once() {
     let one = Vec3::new(1.0, 1.0, 1.0);
     let mut b = body();
+    b.sliders.set(slider::SIDEWAYS, 0.02);
+    b.set_motion(Vec3::new(6.5, 0.0, 0.0), 0.0, one);
+    b.sliders.update(0.05);
+    let f = b.sliders.get(slider::SIDEWAYS);
+    assert!((f - 6.5).abs() < 1e-4, "sideways from just past still: {f}");
+
+    // Forward, stopping and running again: the wide change wins, and it eases in.
+    let mut b = body();
     b.sliders.set(slider::FORWARD, 0.02);
     b.set_motion(Vec3::new(0.0, 6.5, 0.0), 0.0, one);
+    b.sliders.update(0.15);
+    let f = b.sliders.get(slider::FORWARD);
+    assert!(
+        (f - 3.26).abs() < 1e-3,
+        "forward across 0.75 from just past still, halfway in 0.15 s: {f}"
+    );
+
+    // Forward, a change of no more than 0.75 from just past still: at once.
+    let mut b = body();
+    b.sliders.set(slider::FORWARD, 0.02);
+    b.set_motion(Vec3::new(0.0, 0.7, 0.0), 0.0, one);
     b.sliders.update(0.05);
     let f = b.sliders.get(slider::FORWARD);
-    assert!((f - 6.5).abs() < 1e-4, "from just past still: {f}");
+    assert!((f - 0.7).abs() < 1e-4, "forward a small way: {f}");
 
     let mut b = body();
     b.set_motion(Vec3::new(0.0, 6.5, 0.0), 0.0, one);

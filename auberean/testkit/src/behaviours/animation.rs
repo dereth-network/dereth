@@ -61,8 +61,9 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "animation.body.a-slider-just-past-still-moves-at-once",
         says: "A locomotion slider standing just past still (under 0.05 m/s) toward the side the \
-               body moves is moved there in 0.05 s; from still, or across a change of more than \
-               0.75 m/s, in 0.3 s; otherwise in 0.1 s.",
+               body moves is moved there in 0.05 s, except that forward a change of more than \
+               0.75 m/s takes 0.3 s; from still, or across a change of more than 0.75 m/s, in \
+               0.3 s; otherwise in 0.1 s.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-ANIM-SLIDER-RATE"),
         station: "auberean-animation::cpu::motion::a_slider_just_past_still_moves_at_once",
