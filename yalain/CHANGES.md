@@ -23,6 +23,7 @@ what they see, not how it was done.
 - Some skills now draw a creature's attention a little more or less.
 - Contracts now hire mercenaries.
 - Fixed players moving quickly between areas slowing the whole world.
+- A character file with a duplicated item is now refused.
 
 - Fixed a selected person showing empty health and vigor bars.
 

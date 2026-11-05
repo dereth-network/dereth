@@ -6385,6 +6385,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.operator.a-file-with-an-item-twice-is-refused",
+        says: "A character file that holds one item id twice is refused whole, since each \
+               row would become an item of its own: no character, no account, no item comes \
+               of it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-IMPORT-ITEM-TWICE"),
+        station: "yalain-testkit::cpu::operator::characters::a_character_file_holding_one_item_id_twice_is_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.operator.a-flood-of-calls-is-dropped",
         says: "A client sending game calls past 2,000 at once and 200 a second has what is \
                over dropped unread, and the others go on as ever. No client of January 2017 \

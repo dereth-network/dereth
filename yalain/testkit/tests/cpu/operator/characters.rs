@@ -475,6 +475,42 @@ fn a_character_file_keeps_what_each_item_holds_of_its_own() {
     assert_eq!(of(77).own, yalain_world::treasure::Own::default());
 }
 
+/// A file that holds one item id twice is refused whole: no character, no account, no item.
+/// Behaviour: server.operator.a-file-with-an-item-twice-is-refused
+#[test]
+fn a_character_file_holding_one_item_id_twice_is_refused() {
+    let mut a = world();
+    let (_, id) = a.player_in_world("one", "Wanderer");
+    let w = world_of(&a, id);
+    yalain_world::inventory::give(&mut a.server, &mut a.net, w, TEST_ITEM, 3);
+    a.run(5);
+    let mut file = characters::export(&mut a.server, "wanderer").expect("exported");
+    let mut play = PlayState::from_bytes(&file.state.play).expect("reads");
+    let again = *play
+        .items
+        .iter()
+        .find(|x| x.template == TEST_ITEM)
+        .expect("held");
+    play.items.push(again);
+    file.state.play = play.to_bytes();
+
+    let mut b = world();
+    let unix = b.unix;
+    let said = characters::import(&mut b.server, &file, "three", None, unix);
+    assert!(said.is_err(), "{said:?}");
+    assert!(
+        b.server.store.name_taken("Wanderer").is_ok_and(|t| !t),
+        "no character kept"
+    );
+    assert!(
+        b.server
+            .store
+            .account_by_name("three")
+            .is_ok_and(|acc| acc.is_none()),
+        "no account made"
+    );
+}
+
 /// A character exported from one world and imported onto an account of another, under a new
 /// name, is a new character there holding what it held: its level and items (with new ids), its
 /// name shown as the new one. A name that is taken is refused and nothing is kept.
