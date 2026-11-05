@@ -1200,6 +1200,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.craft.a-knife-stays-while-it-cuts",
+        says: "A knife at work on a corpse stays in the pack until the cut is over: it isn't put down, \
+               sold or traded. One gone by the end all the same pays nothing and leaves the corpse.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-KNIFE-STAYS"),
+        station: "yalain-testkit::cpu::play::butchery::a_knife_is_not_put_down_while_it_cuts_and_one_gone_pays_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.a-product-wants-a-place-in-the-pack",
         says: "A recipe's product with no place in the pack is refused at the craft's result with its \
                own answer, and nothing is made or used up.",

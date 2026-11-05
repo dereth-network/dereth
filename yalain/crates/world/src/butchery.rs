@@ -16,7 +16,7 @@
 //! 11), twice that for an expert cut, which comes more often the more the player's butchery passes
 //! the creature's level. A profile may also hold a share of nothing: a cut that
 //! draws it gathers nothing, pays nothing, and is answered "empty" at the result, the corpse left
-//! to butcher again.
+//! to butcher again. The knife stays in the pack until the result; one gone by then cuts nothing.
 
 use auberean_protocol::physics::Release;
 use auberean_protocol::types::BehaviorParams;
@@ -312,6 +312,17 @@ pub fn done<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, w: 
         .and_then(|t| t.corpse.as_ref())
         .is_some_and(|c| c.butchered)
     {
+        return;
+    }
+    let holds_knife = s
+        .players
+        .get(&world)
+        .is_some_and(|p| p.play.items.iter().any(|i| i.id == w.used.item));
+    if !holds_knife {
+        // What cut is gone: nothing found, nothing paid, the corpse still to butcher.
+        let me = s.players.get(&world).map_or(0, |p| p.character);
+        let m = crate::places::use_answer_to(&w.used, me, 0, TARGET_KIND, 0.0, refusal::EMPTY);
+        progress::private(net, world, &m);
         return;
     }
     #[allow(clippy::cast_precision_loss)]
