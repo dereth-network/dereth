@@ -542,7 +542,12 @@ fn profile_bytes<S: Store>(
     } else if let Some(i) = crate::presence::content_by_id(&s.content.objects, req.object) {
         let o = &s.content.objects[i];
         let f = &o.facts;
-        let named = o.description.name.map(|(sid, t)| profile::string(t, sid));
+        let named = o
+            .description
+            .name_text
+            .as_deref()
+            .map(profile::literal)
+            .or_else(|| o.description.name.map(|(sid, t)| profile::string(t, sid)));
         match o.kind {
             yalain_content::Kind::Creature => profile::monster(
                 req.asked,

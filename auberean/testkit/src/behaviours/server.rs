@@ -3280,6 +3280,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.a-rows-own-name",
+        says: "A placed row a world gave a name of its own is examined under that name, as it is                shown over its head; one with none under its template's.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-EXAMINE-OWN-NAME"),
+        station: "yalain-testkit::cpu::entry::examine::a_row_with_a_name_of_its_own_is_examined_under_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.monarch-only-object",
         says: "A placed object for monarchs alone says so on its requirements tab.",
         since: RETAIL,

@@ -1495,3 +1495,68 @@ fn a_treasure_item_is_named_for_its_enchantment_in_its_create_and_its_profile() 
     assert!(!has(treasure_name::PREFIX_TEXT.0));
     assert_eq!(shape(&mut h, false, None), jewelry_name(NAME, None));
 }
+
+/// A person, or an object, a world gave a name of its own is examined under that name, as it is
+/// shown over its head; the template's stays for the rest.
+/// Behaviour: server.examination.a-rows-own-name
+#[test]
+fn a_row_with_a_name_of_its_own_is_examined_under_it() {
+    use yalain_content::{ContentObject, ContentPack, Description, Facts, Kind};
+
+    const PERSON: u64 = 0x40DF_8A00_0000_0021;
+    const OTHER: u64 = 0x40DF_8A00_0000_0022;
+    let template_name = (0x1111_2222, 0x2500_1E91);
+    let row = |object: u64, kind: Kind, name_text: Option<&str>| ContentObject {
+        object: Some(object),
+        template: 0x4700_2F80,
+        description: Description {
+            name_text: name_text.map(str::to_owned),
+            package: 0x13A4,
+            look: 0x1F00_0100,
+            enter_fx: 0,
+            scale: None,
+            name: None,
+            numbers: [0; 6],
+            source: "authored for a test".into(),
+        },
+        cell: 0x0299_0109,
+        origin: [61.0, 241.0, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        kind,
+        label: String::new(),
+        placed: "authored for a test".into(),
+        destination: None,
+        facts: Facts {
+            name: Some(template_name),
+            ..Facts::default()
+        },
+        walks: None,
+        gate: None,
+    };
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![
+            row(PERSON, Kind::Npc, Some("Old Tom")),
+            row(OTHER, Kind::Npc, None),
+        ],
+        ..ContentPack::default()
+    };
+    let (a, _) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let says = |h: &mut Harness, object: u64| {
+        let from = h.bots[a].inbox.len();
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::EXAMINE, &[about(object, 0x3FF)]),
+        );
+        h.run(30);
+        profile_nodes(h, a, from).concat()
+    };
+    // What follows the request repeated is the profile of a person of that name.
+    let of_name = |name| profile::npc(0, name, &Facts::default()).packed(&[]);
+    let own = says(&mut h, PERSON);
+    assert!(own.ends_with(&of_name(profile::literal("Old Tom"))));
+    let plain = says(&mut h, OTHER);
+    assert!(plain.ends_with(&of_name(profile::string(template_name.1, template_name.0))));
+}
