@@ -753,6 +753,56 @@ fn whom_an_item_is_bound_to_and_its_attunement_are_kept_across_a_logout() {
     assert_eq!(own(plain), Some((0, false)));
 }
 
+/// An effect a skill put on an item is kept across a logout, on its own time: its strength and its
+/// end as they were, the item one item, and a logout it has run out in leaves nothing.
+/// Behaviour: server.items.an-effect-on-an-item-is-kept
+#[test]
+fn an_effect_on_an_item_is_kept_across_a_logout_on_its_own_time() {
+    const SWORD: u32 = 0x4700_7A44;
+    const LONG: u32 = 0x7000_7A05;
+    const SHORT: u32 = 0x7000_7A06;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    scene_drawn(&mut h, b);
+    h.server.catalog.insert(yalain_testkit::test_template(
+        SWORD,
+        0x1067,
+        yalain_content::Props::default(),
+    ));
+    for state in [LONG, SHORT] {
+        h.server
+            .effect_table
+            .effects
+            .insert(state, yalain_testkit::plain_effect(state));
+    }
+    let sword = h.arm(b, me, SWORD);
+    let (long, short) = (h.server.game_now + 1000.0, h.server.game_now + 10.0);
+    let on = |state: u32, until: f64| yalain_world::things::TimedEffect {
+        state,
+        spellcraft: 30.0,
+        until,
+    };
+    h.server.things.get_mut(sword).expect("it").timed = vec![on(LONG, long), on(SHORT, short)];
+    log_off(&mut h, b, me);
+    h.advance(20.0);
+    h.enter_world(b, "one", me);
+    h.run(10);
+    let held = |h: &Harness| {
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == me)
+            .map_or(0, |p| p.play.items.iter().filter(|i| i.id == sword).count())
+    };
+    assert_eq!(held(&h), 1, "one item");
+    let t = h.server.things.get(sword).expect("it");
+    assert_eq!(t.timed, vec![on(LONG, long)], "as it was, the other gone");
+    assert_eq!(
+        yalain_world::effects::running_on_item(&h.server, t).len(),
+        1
+    );
+}
+
 /// A hidden quest a character holds is never in its session start's list, under way or done; the
 /// shown ones beside it are.
 /// Behaviour: server.quests.hidden-never-listed

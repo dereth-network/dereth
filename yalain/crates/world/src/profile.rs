@@ -976,6 +976,8 @@ pub struct ItemEffect {
     pub spellcraft: Option<i32>,
     /// Its amount, when it shows one.
     pub amount: Option<Amount>,
+    /// When it runs out, on the game clock, when it shows that.
+    pub ends: Option<f64>,
 }
 
 /// How little above a whole number a percentage is still shown as one: (0.3 of a float reads 30.000002
@@ -1061,6 +1063,7 @@ pub fn item_effects(
                 table: shown.table,
                 spellcraft: shown.spellcraft_shown.then_some(sc),
                 amount: None,
+                ends: None,
             });
         }
     }
@@ -1191,6 +1194,9 @@ pub struct ItemView {
     /// Its own effects change its damage, its vigor cost: those lines are drawn as enchanted.
     pub damage_changed: bool,
     pub vigor_changed: bool,
+    /// Effects change its shield rating, or give a weapon one of this much.
+    pub rating_changed: bool,
+    pub rating_given: Option<i32>,
     /// It is a totem: what it goes on, and the least level and Arcane Lore its target must have.
     pub totem: Option<TotemView>,
 }
@@ -1492,7 +1498,15 @@ pub fn item(asked: u32, v: &ItemView) -> Profile {
         // A shield's rating leads, and its damage comes last.
         if let Some(rating) = v.shield {
             stat(&mut p, l::SHIELD_RATING);
-            p.int(STATS, look::VALUE, rating);
+            p.int(
+                STATS,
+                if v.rating_changed {
+                    name_look::ENCHANTED
+                } else {
+                    look::VALUE
+                },
+                rating,
+            );
             p.brk(STATS);
         } else {
             damage_line(&mut p);
@@ -1511,6 +1525,11 @@ pub fn item(asked: u32, v: &ItemView) -> Profile {
             vigor,
         );
         p.brk(STATS);
+        if let Some(given) = v.rating_given {
+            stat(&mut p, l::SHIELD_RATING);
+            p.int(STATS, name_look::ENCHANTED, given);
+            p.brk(STATS);
+        }
         if v.shield.is_some() {
             damage_line(&mut p);
         }
@@ -1525,7 +1544,15 @@ pub fn item(asked: u32, v: &ItemView) -> Profile {
         p.text(STATS, look::LABEL, string(line::TABLE, l::ARMOR_STATS));
         p.brk(STATS);
         stat(&mut p, l::ARMOR_RATING);
-        p.int(STATS, look::VALUE, rating);
+        p.int(
+            STATS,
+            if v.rating_changed {
+                name_look::ENCHANTED
+            } else {
+                look::VALUE
+            },
+            rating,
+        );
         p.brk(STATS);
         stat(&mut p, l::COMBAT_DELAY);
         p.int(STATS, look::VALUE, delay);
@@ -1783,6 +1810,10 @@ fn effect_lines(p: &mut Profile, v: &ItemView) {
                     vec![nested(var::NAME, string(e.table, l::NAME))],
                 ),
             );
+            if let Some(at) = e.ends {
+                p.tab(EFFECTS, 0);
+                p.countdown(EFFECTS, look::LABEL, at);
+            }
             p.brk(EFFECTS);
             p.tab(EFFECTS, indent + 1);
             p.text(EFFECTS, look::LABEL, string(e.table, l::DESCRIPTION));

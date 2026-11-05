@@ -31,6 +31,7 @@ mod gives;
 mod holds;
 mod integrity;
 mod interactions;
+mod item_effects;
 mod items;
 mod kill_quests;
 mod kingdoms;

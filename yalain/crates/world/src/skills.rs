@@ -235,6 +235,8 @@ pub struct Usage {
     pub implements_left: i32,
     /// The kinds of target it takes.
     pub valid_targets: u32,
+    /// The kinds of object it may be aimed at, when it names them.
+    pub valid_object_kinds: Vec<u32>,
     /// What the user plays on another: a hit, a miss, a critical; and on itself: a hit, a miss.
     pub behavior_other: [u32; 3],
     pub behavior_self: [u32; 2],
@@ -457,6 +459,22 @@ impl Usage {
             implements_right: word("m_AllowedImplementsRight")?.cast_signed(),
             implements_left: word("m_AllowedImplementsLeft")?.cast_signed(),
             valid_targets: word("m_validTargets")?,
+            valid_object_kinds: nav
+                .field(o, "m_validWeenieTypes")
+                .ok()
+                .and_then(|r| nav.native(r).ok())
+                .map_or_else(Vec::new, |n| match n {
+                    NativeObject::HashSet(h) => h
+                        .buckets
+                        .iter()
+                        .flatten()
+                        .filter_map(|i| match i {
+                            Item::Word(w) => Some(*w),
+                            _ => None,
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                }),
             behavior_other: [
                 word("m_BehaviorOtherHit")?,
                 word("m_BehaviorOtherMiss")?,

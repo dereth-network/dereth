@@ -945,6 +945,45 @@ fn an_item_bound_by_use_is_refused_its_sale_and_one_still_to_bind_goes_up() {
     assert_eq!((error, up), (None, true));
 }
 
+/// An item under an effect that attunes it is refused its sale, nothing taken, and may go up when the
+/// effect has run out.
+/// Behaviour: server.market.an-item-under-an-attuning-effect-is-not-sold
+#[test]
+fn an_item_under_an_attuning_effect_is_refused_its_sale_until_it_ends() {
+    const STATE: u32 = 0x7000_7A02;
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 1_000);
+    h.server
+        .effect_table
+        .effects
+        .insert(STATE, yalain_testkit::attuning_effect(STATE));
+    let item = yalain_world::inventory::make_item(&mut h.server, GEM, 1, 41).expect("made");
+    let until = h.server.game_now + 100.0;
+    h.server
+        .things
+        .get_mut(item)
+        .expect("made")
+        .timed
+        .push(yalain_world::things::TimedEffect {
+            state: STATE,
+            spellcraft: 1.0,
+            until,
+        });
+    let refused = yalain_world::store::error::SALE_REFUSED;
+    assert_eq!(
+        sold(&mut h, a, ida, item),
+        (1_000, Some(refused), false),
+        "nothing taken"
+    );
+    h.advance(101.0);
+    h.run(1);
+    let (left, error, up) = sold(&mut h, a, ida, item);
+    assert!(left < 1_000, "its charge taken");
+    assert_eq!((error, up), (None, true));
+}
+
 /// An item attuned to its holder, by its template or by a recipe, is refused its sale: nothing
 /// taken, the item kept.
 /// Behaviour: server.market.an-attuned-item-is-not-sold

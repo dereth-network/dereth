@@ -347,6 +347,7 @@ pub fn effect_shown(
                 .spellcraft_shown
                 .then_some(dereth_primitives::num::to_i32(spellcraft)),
             amount: None,
+            ends: None,
         });
     };
     let at = magnitude.at(spellcraft).unwrap_or(0.0);
@@ -367,6 +368,7 @@ pub fn effect_shown(
         table: shown.table,
         spellcraft: None,
         amount: Some(amount),
+        ends: None,
     })
 }
 

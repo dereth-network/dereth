@@ -515,6 +515,8 @@ pub enum Timer {
     Opening { creature: u64, closes: bool },
     /// An effect on a player runs out.
     EffectEnds { world: ConnId, eid: u32 },
+    /// The look of the effects on an item may be up.
+    ItemEffectEnds { item: u64, fx: u32 },
     /// An effect on a player changes its vitals again (the last change at `since`, world
     /// seconds).
     EffectTick { world: ConnId, eid: u32, since: f64 },
@@ -855,6 +857,9 @@ impl<S: Store> Server<S> {
                 Timer::ProtectionEnds { world, eid } => effects::runs_out(self, net, world, eid),
                 Timer::Skill { world, id, step } => {
                     skill_use::step(self, net, world, id, step, clock);
+                }
+                Timer::ItemEffectEnds { item, fx } => {
+                    effects::item_effect_ends(self, net, item, fx, clock);
                 }
                 Timer::EffectEnds { world, eid } => {
                     if !mounts::record_ends(self, net, world, eid) {

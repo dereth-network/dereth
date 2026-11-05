@@ -403,3 +403,75 @@ fn a_new_characters_basic_attacks_want_nothing_it_lacks() {
         }
     }
 }
+
+/// The skills aimed at items read with what they take: a shield of the user's, a weapon in hand; their
+/// effects raise a rating and a damage by the amounts 2017's profiles show (a shield's rating 40 and
+/// damage 61 at spellcraft 30, a weapon's rating 67 at 48 and 70 at 51), for half an hour, and a second
+/// effect on each attunes the item for as long.
+/// Behaviour: server.skills.a-skill-aimed-at-an-item-lands-on-it
+#[test]
+fn the_skills_aimed_at_items_read_with_what_they_take_and_do() {
+    use yalain_world::made::stat;
+    use yalain_world::skill_use::{aims_at_item, object_kind, target_bit};
+    let portal = Portal::open();
+    let t = portal.skills();
+    let e = portal.effects(&[
+        0x7000_07D3,
+        0x7000_1F3A,
+        0x7000_1F7C,
+        0x7000_1F7D,
+        0x6F00_0039,
+    ]);
+    let at = |state: u32, spellcraft: f32, want: u32| {
+        e.get(state)
+            .expect("known")
+            .changes(spellcraft)
+            .iter()
+            .filter(|(s, m, _)| *s == want && !*m)
+            .map(|(_, _, by)| *by)
+            .sum::<f32>()
+            .floor()
+    };
+    let emblem = t.skills[&148].usage.clone().expect("used");
+    assert!(aims_at_item(&emblem));
+    assert_ne!(emblem.valid_targets & target_bit::OWN_ITEM, 0);
+    assert_eq!(emblem.valid_object_kinds, vec![object_kind::SHIELD]);
+    assert_eq!(emblem.target_effects, vec![0x7000_07D3, 0x7000_1F3A]);
+    assert_eq!(at(0x7000_07D3, 30.0, stat::ARMOR), 40.0);
+    assert_eq!(at(0x7000_07D3, 30.0, stat::DAMAGE), 61.0);
+    let galvanize = t.skills[&1259].usage.clone().expect("used");
+    assert_ne!(galvanize.valid_targets & target_bit::ITEM_IN_HAND, 0);
+    assert_eq!(galvanize.valid_object_kinds, vec![object_kind::WEAPON]);
+    assert_eq!(galvanize.target_effects, vec![0x7000_1F7C, 0x7000_1F7D]);
+    assert_eq!(at(0x7000_1F7C, 48.0, stat::ARMOR), 67.0);
+    assert_eq!(at(0x7000_1F7C, 51.0, stat::ARMOR), 70.0);
+    let board = t.skills[&2160].usage.clone().expect("used");
+    assert_eq!(board.valid_object_kinds, vec![object_kind::WEAPON]);
+    assert_eq!(board.target_effects, vec![0x6F00_0039]);
+    for state in [0x7000_07D3, 0x7000_1F7C, 0x7000_1F3A, 0x7000_1F7D] {
+        assert_eq!(e.get(state).expect("known").duration.at(30.0), Some(1800.0));
+    }
+    for state in [0x7000_1F3A, 0x7000_1F7D] {
+        assert_eq!(e.get(state).expect("known").eq_class, 114);
+    }
+    // What a skill names a weapon or a shield by is the class what a hand holds is known by.
+    let lib = portal.library();
+    let of = |class: &str, base: &str| {
+        lib.derives_from(
+            lib.package_id(class).expect("the class"),
+            lib.package_id(base).expect("its base"),
+        )
+    };
+    for (class, kind) in yalain_world::skill_use::IMPLEMENT_CLASSES {
+        use yalain_world::skill_use::implement::{NONE, SHIELD};
+        assert_eq!(of(class, "Shield"), kind == SHIELD, "{class}");
+        // A lute is a weapon by its class that a hand holds as nothing; it alone is told apart.
+        if class != "LuteTemplate" {
+            assert_eq!(
+                of(class, "Weapon"),
+                kind != SHIELD && kind != NONE,
+                "{class}"
+            );
+        }
+    }
+}

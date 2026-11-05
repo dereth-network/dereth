@@ -19,6 +19,7 @@ what they see, not how it was done.
 - Fixed heavy network traffic holding up the world.
 - Fixed a stuck connection holding up the status endpoint.
 - Bound items now say whom they're bound to.
+- Emblem of Might, Galvanize and Bigger Board With Nail now work.
 
 - Fixed a selected person showing empty health and vigor bars.
 

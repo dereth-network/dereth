@@ -512,6 +512,7 @@ fn an_item_names_its_maker_its_durability_and_its_effects() {
             table: EFFECT_TABLE,
             spellcraft: Some(50),
             amount: None,
+            ends: None,
         }],
     );
     let item = h.arm(a, me, BLADE);
@@ -661,6 +662,7 @@ fn an_effects_spellcraft_shows_unless_it_happens_at_once_or_never_varies() {
             table: 0x2500_7103,
             spellcraft: Some(100),
             amount: None,
+            ends: None,
         }]
     );
 }

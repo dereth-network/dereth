@@ -796,6 +796,13 @@ pub fn attuned(catalog: &yalain_content::Catalog, t: &Thing) -> bool {
     t.own.attuned || attunable(catalog, t.template)
 }
 
+/// Is this item bound to whoever holds it just now: as [`attuned`], or under an effect that attunes
+/// it while it runs?
+#[must_use]
+pub fn attuned_now<S: Store>(s: &crate::Server<S>, t: &Thing) -> bool {
+    attuned(&s.catalog, t) || crate::effects::attuned_by_effect(s, t)
+}
+
 /// What a player wears and wields, as its session start lists it: each wielded item in the
 /// primary hand, the hands it takes, its implement kind when the server knows it; each item worn
 /// on the body where it is, the places it takes, and the look it gives a body of this race and
@@ -919,6 +926,7 @@ pub(crate) fn same_numbers<S: Store>(s: &Server<S>, a: u64, b: u64) -> bool {
         && piece_worth(s, x) == piece_worth(s, y)
         && x.own == y.own
         && x.enchantments == y.enchantments
+        && x.timed == y.timed
         && x.bonuses == y.bonuses
         && x.inscription == y.inscription
         && x.durability == y.durability
@@ -931,6 +939,7 @@ fn is_plain<S: Store>(s: &Server<S>, t: &Thing) -> bool {
     piece_worth(s, t) == item_value(s, t.template)
         && t.own.is_empty()
         && t.enchantments.is_empty()
+        && t.timed.is_empty()
         && t.bonuses.is_empty()
         && t.inscription.is_none()
         && t.durability.is_none()
@@ -2277,6 +2286,7 @@ pub fn enter<S: Store>(s: &mut Server<S>, world: ConnId) -> Vec<u64> {
         item.container = Some((owner, h.slot));
         if let Some(k) = k {
             k.restore(&mut item);
+            item.timed.retain(|e| e.until > s.game_now);
         }
         if h.location & crate::equip::BODY_PLACES != 0 {
             item.wielded = Some((owner, h.location));

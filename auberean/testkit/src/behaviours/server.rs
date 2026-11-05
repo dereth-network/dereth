@@ -3135,6 +3135,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.an-item-shows-the-effects-skills-put-on-it",
+        says: "An item under a skill's effect shows it among its enchantments with its spellcraft and a \
+               countdown to its end, its rating and damage drawn as enchanted, and a rating a weapon \
+               is given on a line of its own; an attuning effect is not listed.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-LINES"),
+        station: "yalain-testkit::cpu::play::item_effects::an_items_profile_shows_what_a_skill_put_on_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.an-items-icon-takes-its-appearance",
         says: "An item's icon is its look's with what its appearance values give it through their \
                appearance tables, base tables first: a dye's color, a potion's.",
@@ -4318,6 +4328,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.an-item-under-an-attuning-effect-stays",
+        says: "An item under an effect that attunes it is refused its drop until the effect has run out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-DROP"),
+        station: "yalain-testkit::cpu::play::drops::an_item_under_an_attuning_effect_is_refused_its_drop_until_it_ends",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.armor-used-is-worn-and-seen",
         says: "Armor, clothing or jewelry used from the pack is worn where it belongs: the wearer \
                looks it to everyone who sees it, and used again it comes off to the pack's front.",
@@ -4712,6 +4730,14 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-BOUND-WEAPON"),
         station: "yalain-testkit::cpu::play::binding::a_weapon_binds_as_its_blows_land_and_armor_does_not",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.items.an-effect-on-an-item-is-kept",
+        says: "An effect a skill put on an item is kept with the item across a logout, on its own time.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-KEPT"),
+        station: "yalain-testkit::cpu::entry::keeping::an_effect_on_an_item_is_kept_across_a_logout_on_its_own_time",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -5330,6 +5356,14 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-ATTUNED-SALE"),
         station: "yalain-testkit::cpu::play::market::an_attuned_item_is_refused_its_sale_by_its_template_or_a_recipe",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.market.an-item-under-an-attuning-effect-is-not-sold",
+        says: "An item under an effect that attunes it is refused its sale until the effect has run out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-SALE"),
+        station: "yalain-testkit::cpu::play::market::an_item_under_an_attuning_effect_is_refused_its_sale_until_it_ends",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -9221,6 +9255,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.a-skill-aimed-at-an-item-lands-on-it",
+        says: "A skill aimed at an item lands on the item named, or naming its user on the first fit one in \
+               hand: a story naming it, its look at the first effect, its effects at the user's rating.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-LANDS"),
+        station: "yalain-testkit::cpu::play::item_effects::a_skill_aimed_at_a_shield_lands_on_it_named_or_by_naming_its_user",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.a-skill-aimed-at-an-item-refused",
+        says: "A skill aimed at an item is refused, by the client's own texts, anywhere else: a thing that \
+               is no item, another's item, an item in the pack when it asks for one in hand, one of \
+               another kind.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-REFUSED"),
+        station: "yalain-testkit::cpu::play::item_effects::a_skill_aimed_at_an_item_is_refused_elsewhere",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.active-cap-for-who-is-no-hero",
         says: "An active skill stops at 50 for a player who is no hero, in its rating and in a \
                raise; a hero's goes on to the skill's own cap.",
@@ -9237,6 +9290,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-SKILL-TABLE"),
         station: "yalain-testkit::cpu::play::skills::a_tables_level_and_raise_cost_follow_the_library",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.an-effect-on-an-item-ends-and-does-not-stack",
+        says: "An effect on an item ends with its time whoever holds it, and used again it does not stack: \
+               the stronger stands, its look played only at the first.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-ENDS"),
+        station: "yalain-testkit::cpu::play::item_effects::an_effect_on_an_item_does_not_stack_and_ends_with_its_time",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -9861,6 +9923,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TRADE-ATTUNED"),
         station: "yalain-testkit::cpu::play::trading::an_attuned_item_offered_fails_the_trade_and_nothing_moves",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.trade.an-item-under-an-attuning-effect-stays",
+        says: "An item under an effect that attunes it stops a trade until the effect has run out.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-EFFECT-TRADE"),
+        station: "yalain-testkit::cpu::play::trading::an_item_under_an_attuning_effect_stops_a_trade_until_it_ends",
         tier: Tier::Cpu,
     },
     behaviour! {

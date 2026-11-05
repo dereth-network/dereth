@@ -705,7 +705,7 @@ pub fn sell<S: Store>(
     // does not make, and the client's own check answers the same.
     if s.things
         .get(item)
-        .is_some_and(|t| inventory::attuned(&s.catalog, t) || t.own.bound_to != 0)
+        .is_some_and(|t| inventory::attuned_now(s, t) || t.own.bound_to != 0)
     {
         let m = call(
             store::function::REQUEST_DONE,

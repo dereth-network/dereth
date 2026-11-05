@@ -1248,6 +1248,18 @@ pub fn plain_effect(state: u32) -> yalain_world::effect_defs::EffectDef {
     }
 }
 
+/// An effect that attunes the item it is on to whoever holds it while it runs.
+#[must_use]
+pub fn attuning_effect(state: u32) -> yalain_world::effect_defs::EffectDef {
+    use yalain_world::effect_defs::Scale;
+    yalain_world::effect_defs::EffectDef {
+        duration: Scale(vec![(0.0, 1800.0)]),
+        priority: Scale(vec![(0.0, 1.0)]),
+        eq_class: 114,
+        ..plain_effect(state)
+    }
+}
+
 /// What the tests craft (see the constants above), as the September 2013 data defines it.
 #[must_use]
 pub fn test_crafting() -> yalain_world::craft::Crafting {

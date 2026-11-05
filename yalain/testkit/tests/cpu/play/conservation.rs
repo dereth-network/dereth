@@ -1,5 +1,5 @@
-//! Conservation: a random script of takes, trades, drops, stacks split and merged, money moved, deaths,
-//! log-offs, stops and crashes, from fixed seeds. After every action each item is held exactly once
+//! Conservation: a random script of takes, trades, drops, stacks split and merged, money moved, effects
+//! put on items, deaths, log-offs, stops and crashes, from fixed seeds. After every action each item is held exactly once
 //! across every record, in the world and in the store, and what a player has is neither more nor
 //! less than it was given: a stop loses only what lay on the ground or in a corpse; a crash, at most
 //! what the store had not taken.
@@ -23,6 +23,10 @@ use yalain_world::{drops, pack, requests, trade, Clock, ServerConfig, Timer};
 pub(super) const GEM: u32 = 0x4700_7002;
 const COINS: u32 = pack::COINS;
 const WORTH: u64 = 10;
+/// A skill on any item a player holds, an effect that attunes it for a while and one that lasts longer.
+const ON_ITEM: u32 = 7004;
+const ATTUNES: u32 = 0x7000_7A07;
+const LASTS: u32 = 0x7000_7A08;
 
 /// A small generator of its own, so that a seed is the same script everywhere.
 pub(super) struct Dice(u64);
@@ -75,6 +79,46 @@ pub(super) fn catalog(h: &mut Harness) {
     h.server
         .catalog
         .insert(test_template(COINS, 0x1067, Props::default()));
+    // What a skill may be aimed at, stacks among them.
+    for t in [TEST_ITEM, GEM] {
+        h.server
+            .catalog
+            .implements
+            .insert(t, yalain_world::skill_use::implement::SWORD);
+    }
+    for (state, seconds, class) in [(ATTUNES, 7.0, 114), (LASTS, 40.0, 9)] {
+        let d = yalain_world::effect_defs::EffectDef {
+            duration: yalain_world::effect_defs::Scale(vec![(0.0, seconds)]),
+            priority: yalain_world::effect_defs::Scale(vec![(0.0, 1.0)]),
+            eq_class: class,
+            fx: 0x4100_029A,
+            ..yalain_testkit::plain_effect(state)
+        };
+        h.server.effect_table.effects.insert(state, d);
+    }
+    h.server.skill_table.skills.insert(
+        ON_ITEM,
+        yalain_world::skills::SkillDef {
+            id: ON_ITEM,
+            active: true,
+            cap: 150,
+            usage: Some(yalain_world::skills::Usage {
+                implements_right: -1,
+                implements_left: -1,
+                valid_targets: yalain_world::skill_use::target_bit::OWN_ITEM
+                    | yalain_world::skill_use::target_bit::OF_KINDS,
+                valid_object_kinds: vec![yalain_world::skill_use::object_kind::WEAPON],
+                target_effects: vec![ATTUNES, LASTS],
+                hooks: vec![yalain_world::skills::Hook {
+                    chance: 1.0,
+                    ..yalain_world::skills::Hook::default()
+                }],
+                ui_flags: 0x12C1,
+                ..yalain_world::skills::Usage::default()
+            }),
+            ..yalain_world::skills::SkillDef::default()
+        },
+    );
 }
 
 pub(super) fn world_of(h: &Harness, id: u64) -> Option<ConnId> {
@@ -244,6 +288,13 @@ pub(super) fn check(s: &mut Script, what: &str) {
         bad.push(format!("held twice: {twice:?}"));
     }
     bad.extend(c.wrong.iter().cloned());
+    for t in s.h.server.things.by_id.values() {
+        for e in &t.timed {
+            if t.timed.iter().filter(|x| x.state == e.state).count() > 1 {
+                bad.push(format!("{:#x} holds an effect twice: {:?}", t.id, t.timed));
+            }
+        }
+    }
     if c.wealth > s.wealth || (c.wealth < s.wealth && !s.spends) {
         bad.push(format!("worth {}, should be {}", c.wealth, s.wealth));
     }
@@ -424,7 +475,7 @@ pub(super) fn act(s: &mut Script) -> String {
         .filter(|(j, (_, id))| *j != i && world_of(&s.h, *id).is_some())
         .map(|(j, x)| (j, x.0, x.1))
         .next();
-    let n = s.dice.below(25);
+    let n = s.dice.below(29);
     match n {
         0 | 1 => {
             let g = 1 + u32::try_from(s.dice.below(30)).unwrap_or(0);
@@ -706,6 +757,28 @@ pub(super) fn act(s: &mut Script) -> String {
             together(s);
             format!("{me:#x} dies and comes back")
         }
+        25 | 26 => {
+            // A skill on an item of its own, of another's, on what it names by a stale id.
+            let mine: Vec<u64> = pack_of(s, w).iter().map(|x| x.0).collect();
+            let theirs: Vec<u64> = other
+                .and_then(|(_, _, oid)| world_of(&s.h, oid))
+                .map(|ow| pack_of(s, ow).iter().map(|x| x.0).collect())
+                .unwrap_or_default();
+            let target = match s.dice.below(5) {
+                0 => s.dice.pick(&theirs).unwrap_or(me),
+                1 => me,
+                2 => 0,
+                _ => s.dice.pick(&mine).unwrap_or(me),
+            };
+            let number = 1 + u32::try_from(s.dice.below(100)).unwrap_or(0);
+            ask(
+                s,
+                b,
+                yalain_world::skill_use::function::USE,
+                &[Arg::Int(number), Arg::Int(ON_ITEM), Arg::LongInt(target)],
+            );
+            format!("{me:#x} uses a skill on {target:#x}")
+        }
         _ => {
             // Let what is under way finish.
             let seconds = 0.5 * (1 + s.dice.below(6)) as f64;
@@ -750,6 +823,7 @@ pub(super) fn crash(s: &mut Script) {
 /// Behaviour: server.inventory.conservation
 #[test]
 fn every_item_is_held_once_and_nothing_is_made_or_lost_over_random_scripts() {
+    let mut on_items = 0;
     for seed in [
         0x5EED_0001,
         0x5EED_0002,
@@ -762,6 +836,13 @@ fn every_item_is_held_once_and_nothing_is_made_or_lost_over_random_scripts() {
             let what = act(&mut s);
             s.log.push(what.clone());
             check(&mut s, &format!("{seed:#x} step {step}: {what}"));
+            on_items +=
+                s.h.server
+                    .things
+                    .by_id
+                    .values()
+                    .filter(|t| !t.timed.is_empty())
+                    .count();
             match s.dice.below(150) {
                 0 => {
                     stop(&mut s);
@@ -775,4 +856,5 @@ fn every_item_is_held_once_and_nothing_is_made_or_lost_over_random_scripts() {
             }
         }
     }
+    assert!(on_items > 0, "the scripts put effects on items");
 }

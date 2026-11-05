@@ -357,7 +357,7 @@ fn an_items_examination_says_whom_it_is_bound_to() {
         [
             has(item_line::BINDS),
             has(item_line::BOUND_TO_YOU),
-            has(item_line::BOUND_TO_ANOTHER),
+            has(item_line::BOUND_TO_ANOTHER) && has(profile::look::BOUND_TO_ANOTHER),
         ]
     };
     assert_eq!(lines(&mut h, b), [true, false, false]);

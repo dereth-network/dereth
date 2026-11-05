@@ -210,7 +210,7 @@ fn put_down<S: Store>(
         refuse(net, world, &m, status::CANNOT_PLACE_IN_WORLD);
         return;
     };
-    if crate::inventory::attuned(&s.catalog, t) {
+    if crate::inventory::attuned_now(s, t) {
         refuse(net, world, &m, status::ATTUNED);
         return;
     }

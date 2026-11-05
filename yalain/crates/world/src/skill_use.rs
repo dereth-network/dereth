@@ -103,6 +103,10 @@ pub mod refusal {
     pub const MOVE_INTERRUPTED: u32 = 54;
     pub const NOT_ENOUGH_VIGOR: u32 = 20_000;
     pub const TARGET_GONE: u32 = 20_002;
+    /// Not on an item of the pack, not on this item, not on another player's.
+    pub const NOT_ITEM_IN_PACK: u32 = 22_008;
+    pub const NOT_THIS_ITEM: u32 = 22_009;
+    pub const NOT_ANOTHERS_ITEM: u32 = 22_011;
     pub const TARGET_DEAD: u32 = 22_000;
     pub const NO_VIGOR: u32 = 30_016;
     pub const TOO_CLOSE: u32 = 30_018;
@@ -201,6 +205,8 @@ pub fn hook_seconds(behavior: u32, on_self: bool) -> f64 {
         0x4100_00C2 if on_self => 0.667,
         0x4100_00C2 => 0.722,
         0x4100_00C9 => 0.477,
+        // An effect on an item: 20 stories 0.46 to 0.69 s, a median 0.56.
+        0x4100_009D => 0.56,
         _ => 0.97,
     }
 }
@@ -435,6 +441,8 @@ pub enum Aim {
     Me,
     Player(ConnId, u64),
     Thing(u64),
+    /// An item its user holds.
+    Item(u64),
 }
 
 /// A use under way.
@@ -760,6 +768,79 @@ pub fn recall_places<S: Store>(s: &Server<S>, world: ConnId, r: &Recall) -> Vec<
     }
 }
 
+/// The kinds of target a skill aimed at items takes.
+pub mod target_bit {
+    /// An item its user holds, in the pack or in hand.
+    pub const OWN_ITEM: u32 = 0x2;
+    /// Only an object of the kinds the skill names.
+    pub const OF_KINDS: u32 = 0x80_0000;
+    /// An item its user has in hand.
+    pub const ITEM_IN_HAND: u32 = 0x1000_0000;
+}
+
+/// The kinds of object a skill may name: a shield, a weapon.
+pub mod object_kind {
+    pub const SHIELD: u32 = 0x1_0081;
+    pub const WEAPON: u32 = 0x2_0081;
+}
+
+/// Is this skill aimed at an item?
+#[must_use]
+pub fn aims_at_item(u: &Usage) -> bool {
+    u.valid_targets & target_bit::OF_KINDS != 0
+}
+
+/// Is a template's item of a kind this skill names?
+fn of_named_kind<S: Store>(s: &Server<S>, u: &Usage, template: u32) -> bool {
+    let holds = implement_of(&s.catalog, template);
+    u.valid_object_kinds.iter().any(|k| match *k {
+        object_kind::SHIELD => holds == Some(implement::SHIELD),
+        object_kind::WEAPON => {
+            holds.is_some_and(|i| i != implement::SHIELD && i != implement::NONE)
+        }
+        _ => false,
+    })
+}
+
+/// The item a use of a skill aimed at items lands on, or why it may not: the one named, when it is
+/// its user's, of a kind the skill names and where the skill asks; or, its user or nothing named,
+/// the first thing in hand of such a kind (2017: 3 of 3 aimed at the user landed on the shield in
+/// hand; 1 of 1 aimed at a creature refused as this item).
+fn item_aim<S: Store>(s: &Server<S>, me: u64, u: &Usage, target: u64) -> Result<u64, u32> {
+    if target == me || target == 0 {
+        return wielded(s, me)
+            .into_iter()
+            .find(|(_, template)| of_named_kind(s, u, *template))
+            .map(|(item, _)| item)
+            .ok_or(refusal::NOT_THIS_ITEM);
+    }
+    let t = s
+        .things
+        .get(target)
+        .filter(|t| t.kind == crate::things::Kind::Item)
+        .ok_or(refusal::NOT_THIS_ITEM)?;
+    let in_hand = t.wielded.is_some_and(|(holder, _)| holder == me);
+    let in_pack = t.container.is_some_and(|(holder, _)| holder == me);
+    if !in_hand && !in_pack {
+        let another = t
+            .wielded
+            .or(t.container)
+            .is_some_and(|(holder, _)| crate::social::world_of(s, holder).is_some());
+        return Err(if another {
+            refusal::NOT_ANOTHERS_ITEM
+        } else {
+            refusal::NOT_THIS_ITEM
+        });
+    }
+    if !of_named_kind(s, u, t.template) {
+        return Err(refusal::NOT_THIS_ITEM);
+    }
+    if u.valid_targets & target_bit::OWN_ITEM == 0 && !in_hand {
+        return Err(refusal::NOT_ITEM_IN_PACK);
+    }
+    Ok(target)
+}
+
 /// Is this use's skill used on its user alone?
 fn self_only(u: &Usage) -> bool {
     u.valid_targets == 1 || u.ui_flags & ui_flag::SELF_TARGETED != 0
@@ -777,6 +858,9 @@ pub fn helpful(u: &Usage) -> bool {
 #[must_use]
 pub fn aim_of<S: Store>(s: &Server<S>, world: ConnId, r: Request, u: &Usage) -> Aim {
     let me = s.players.get(&world).map_or(0, |p| p.character);
+    if aims_at_item(u) {
+        return Aim::Item(item_aim(s, me, u, r.target).unwrap_or(0));
+    }
     if self_only(u) || (r.target == me && helpful(u)) {
         return Aim::Me;
     }
@@ -1023,8 +1107,11 @@ fn check<S: Store>(
         return Err(refusal::BARRED_BY_EFFECT);
     }
     let walks = u.ui_flags & ui_flag::MOVE_TO != 0;
+    if aims_at_item(&u) {
+        item_aim(s, p.character, &u, r.target)?;
+    }
     match aim_of(s, world, r, &u) {
-        Aim::Me => {}
+        Aim::Me | Aim::Item(_) => {}
         Aim::Player(c, other) => {
             // A hostile skill at another player: only as who may harm whom allows.
             if !helpful(&u) {
@@ -1138,7 +1225,7 @@ pub fn starts<S: Store>(
         b.words[1] = 1;
         let plays = ServerMessage::PlayBehavior(player_event(p, b));
         to_all_seeing(s, net, me, &plays);
-    } else if let Some(target) = aimed_at(aim) {
+    } else if let Some(target) = aimed_at(aim).filter(|_| !matches!(aim, Aim::Item(_))) {
         let order = if missile_hook(&u).is_some() || u.max_range > 1.0 {
             turn_to(p, target, context)
         } else {
@@ -1720,10 +1807,11 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
     let rating = rating_of(s, world, r.skill);
     let held = wielded(s, me);
     let on_self = aim == Aim::Me;
+    let on_item = matches!(aim, Aim::Item(_));
     let target = aimed_at(aim).unwrap_or(me);
     // A strike that walks the player to its target does not reach from afar: wait for the player
     // to come into reach.
-    if !on_self && missile_hook(&u).is_none() && u.ui_flags & ui_flag::MOVE_TO != 0 {
+    if !on_self && !on_item && missile_hook(&u).is_none() && u.ui_flags & ui_flag::MOVE_TO != 0 {
         let at = position_of(s, aim, target);
         let d = at.and_then(|a| crate::presence::distance(&p.position, &a));
         match d {
@@ -1752,6 +1840,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
     pay(s, net, world, &u);
     // The outcome of its damaging hook (a strike's at once; a missile's as it arrives).
     let target_thing = match aim {
+        Aim::Item(_) => None,
         // Another player: its level, no armor.
         Aim::Player(c, _) if !helpful(&u) => s
             .players
@@ -1785,11 +1874,15 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         outcome = Some((o, dmg));
     }
     // A special used on another fights with what its user holds, if its blow lands.
-    if !on_self && !helpful(&u) && outcome.is_none_or(|(o, _): (Outcome, i32)| o.landed()) {
+    if !on_self
+        && !on_item
+        && !helpful(&u)
+        && outcome.is_none_or(|(o, _): (Outcome, i32)| o.landed())
+    {
         crate::equip::blow_landed(s, net, world);
     }
     let weapon = held.first().map_or(0, |(i, _)| *i);
-    let landings = if helpful(&u) {
+    let landings = if helpful(&u) || on_item {
         Vec::new()
     } else {
         landings_of(s, world, &u, aim, target, outcome, (me_hits, rating))
@@ -1863,7 +1956,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         );
         return;
     }
-    if helpful(&u) && !u.target_effects.is_empty() {
+    if (helpful(&u) || on_item) && !u.target_effects.is_empty() {
         s.after(
             clock,
             after(hook_seconds(behavior, on_self)),
@@ -1947,7 +2040,7 @@ fn landings_of<S: Store>(
             .players
             .get(&c)
             .map(|p| (p.position, crate::reach::PLAYER)),
-        Aim::Me => s
+        Aim::Me | Aim::Item(_) => s
             .players
             .get(&world)
             .map(|p| (p.position, crate::reach::PLAYER)),
@@ -2024,7 +2117,7 @@ fn position_of<S: Store>(s: &Server<S>, aim: Aim, target: u64) -> Option<StoredP
 pub const fn aimed_at(aim: Aim) -> Option<u64> {
     match aim {
         Aim::Me => None,
-        Aim::Player(_, id) | Aim::Thing(id) => Some(id),
+        Aim::Player(_, id) | Aim::Thing(id) | Aim::Item(id) => Some(id),
     }
 }
 
@@ -2044,6 +2137,16 @@ fn hook<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: 
         Aim::Me => world,
         Aim::Player(c, _) => c,
         Aim::Thing(_) => return,
+        Aim::Item(item) => {
+            // It may have left its user's hands since the use began.
+            if item_aim(s, me, &u, item).is_ok() {
+                for state in &u.target_effects {
+                    crate::effects::put_on_item(s, net, item, *state, spellcraft, clock);
+                }
+                crate::world::keep_player(s, world);
+            }
+            return;
+        }
     };
     for state in &u.target_effects {
         crate::effects::apply(

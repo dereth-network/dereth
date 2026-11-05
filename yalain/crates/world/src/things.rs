@@ -163,6 +163,16 @@ pub struct Node {
     pub public: bool,
 }
 
+/// An effect a skill put on an item for a while.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TimedEffect {
+    /// What it is (its saved state), and the spellcraft it was cast at.
+    pub state: u32,
+    pub spellcraft: f32,
+    /// When it runs out (game time).
+    pub until: f64,
+}
+
 /// One thing.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Thing {
@@ -232,6 +242,8 @@ pub struct Thing {
     pub own: crate::treasure::Own,
     /// Its own permanent effects (a made item's): each saved state and the spellcraft it is at.
     pub enchantments: Vec<(u32, f32)>,
+    /// The effects skills put on it for a while, at most one of each.
+    pub timed: Vec<TimedEffect>,
     /// It is a bow, made strung.
     pub strung: bool,
 }
@@ -282,6 +294,7 @@ impl Thing {
             binds_on_use: false,
             own: crate::treasure::Own::default(),
             enchantments: Vec::new(),
+            timed: Vec::new(),
             strung: crate::skill_use::is_bow(t),
         }
     }
