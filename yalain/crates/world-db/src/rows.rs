@@ -427,6 +427,7 @@ pub enum Row {
     Scene(Scene),
     Shard(Shard),
     Weapon(Weapon),
+    DeathSpawn(DeathSpawn),
     Route(Route),
     Area(Area),
     Clearing(Clearing),
@@ -451,6 +452,18 @@ pub struct Clearing {
 pub struct Area {
     pub landblock: u16,
     pub conflict: yalain_content::Conflict,
+    pub prov: Prov,
+}
+
+/// `[[death_spawn]]`: what a creature's death effect makes around its killer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeathSpawn {
+    /// The death effect, as a creature's template names it.
+    pub effect: String,
+    pub template: u32,
+    pub count: u32,
+    pub chance: f32,
+    pub offset: At,
     pub prov: Prov,
 }
 
@@ -553,6 +566,7 @@ impl Row {
             Self::Scene(_) => "scene",
             Self::Shard(_) => "shard",
             Self::Weapon(_) => "weapon",
+            Self::DeathSpawn(_) => "death_spawn",
             Self::Route(_) => "route",
             Self::Area(_) => "area",
             Self::Clearing(_) => "clearing",
@@ -578,6 +592,7 @@ impl Row {
             Self::Scene(r) => Some(&r.prov),
             Self::Shard(r) => Some(&r.prov),
             Self::Weapon(r) => Some(&r.prov),
+            Self::DeathSpawn(r) => Some(&r.prov),
             Self::Route(r) => Some(&r.prov),
             Self::Area(r) => Some(&r.prov),
             Self::Clearing(r) => Some(&r.prov),
@@ -587,13 +602,31 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 19] = [
-    "object", "camp", "loot", "keeper", "sale", "quest", "step", "give", "place", "talk", "remove",
-    "craft", "butchery", "scene", "shard", "weapon", "route", "area", "clearing",
+pub const KINDS: [&str; 20] = [
+    "object",
+    "camp",
+    "loot",
+    "keeper",
+    "sale",
+    "quest",
+    "step",
+    "give",
+    "place",
+    "talk",
+    "remove",
+    "craft",
+    "butchery",
+    "scene",
+    "shard",
+    "weapon",
+    "route",
+    "area",
+    "clearing",
+    "death_spawn",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 19] = [
+pub const FIELDS: [(&str, &[&str]); 20] = [
     (
         "object",
         &[
@@ -804,6 +837,10 @@ pub const FIELDS: [(&str, &[&str]); 19] = [
     (
         "clearing",
         &["key", "at", "heading", "radius", "size", "prov"],
+    ),
+    (
+        "death_spawn",
+        &["effect", "template", "count", "chance", "offset", "prov"],
     ),
 ];
 
@@ -1384,6 +1421,28 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 template: f.req_id("template")?,
                 two_share,
                 stance: f.id("stance"),
+                prov: f.req_prov()?,
+            })
+        }
+        "death_spawn" => {
+            if f.get("effect").is_none() {
+                return f.missing("effect");
+            }
+            let effect = f.ident("effect")?;
+            let chance = f.float("chance").map_or(1.0, to_f32);
+            if !(0.0..=1.0).contains(&chance) {
+                f.bad("chance", "a share is a number from 0 to 1");
+                return None;
+            }
+            Row::DeathSpawn(DeathSpawn {
+                effect,
+                template: f.req_id("template")?,
+                count: f
+                    .int("count")
+                    .and_then(|v| u32::try_from(v).ok())
+                    .unwrap_or(1),
+                chance,
+                offset: f.req_at("offset")?,
                 prov: f.req_prov()?,
             })
         }

@@ -339,6 +339,15 @@ impl Portal {
         self.named_effects(templates, yalain_world::item_use::WORN)
     }
 
+    /// The effects these templates' deaths name, as the server reads them at start.
+    ///
+    /// # Panics
+    /// The library does not read.
+    #[must_use]
+    pub fn death_effects(&self, templates: &[u32]) -> yalain_world::item_use::ItemUses {
+        self.named_effects(templates, yalain_world::item_use::DIED)
+    }
+
     fn named_effects(
         &self,
         templates: &[u32],

@@ -51,6 +51,9 @@ pub fn item(l: &Located) -> Option<Item> {
         Row::Weapon(r) => Item::Weapon {
             name: r.name.clone(),
         },
+        Row::DeathSpawn(r) => Item::DeathSpawn {
+            effect: r.effect.clone(),
+        },
         Row::Route(r) => Item::Route { key: r.key.clone() },
         Row::Area(r) => Item::Area {
             landblock: r.landblock,
@@ -91,6 +94,7 @@ fn value(row: &Row) -> String {
         Row::Scene(x) => x.prov = crate::rows::Prov::default(),
         Row::Shard(x) => x.prov = crate::rows::Prov::default(),
         Row::Weapon(x) => x.prov = crate::rows::Prov::default(),
+        Row::DeathSpawn(x) => x.prov = crate::rows::Prov::default(),
         Row::Route(x) => x.prov = crate::rows::Prov::default(),
         Row::Area(x) => x.prov = crate::rows::Prov::default(),
         Row::Clearing(x) => x.prov = crate::rows::Prov::default(),

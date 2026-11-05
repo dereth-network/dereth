@@ -79,6 +79,7 @@ pub mod chat;
 pub mod combat;
 pub mod craft;
 pub mod death;
+pub mod death_spawn;
 pub mod download;
 pub mod drops;
 pub mod effect_defs;
@@ -417,6 +418,12 @@ pub struct Server<S: Store> {
     pub creature_weapons: HashMap<String, u32>,
     /// What the world database says of those weapons beyond their templates, by the same names.
     pub creature_weapon_rules: HashMap<String, yalain_content::WeaponRule>,
+    /// What creatures' death effects make, by the effects' names.
+    pub death_spawns: HashMap<String, yalain_content::DeathSpawn>,
+    /// Those made so far that live, by the effects' names.
+    pub death_spawned: HashMap<String, Vec<u64>>,
+    /// The effects creatures' templates put on whoever kills them.
+    pub death_effects: item_use::ItemUses,
     /// The packages whose items are destroyed on use by their kind (keys, potions, ...).
     pub destroyed_on_use: std::collections::HashSet<u32>,
     /// The packages of the treasure items that carry properties of their own (equipment, potions).
@@ -749,6 +756,9 @@ impl<S: Store> Server<S> {
             vault_trips: usable::vaults::VaultTrips::new(),
             creature_weapons: HashMap::new(),
             creature_weapon_rules: HashMap::new(),
+            death_spawns: HashMap::new(),
+            death_spawned: HashMap::new(),
+            death_effects: HashMap::new(),
             destroyed_on_use: std::collections::HashSet::new(),
             treasure: treasure::Kinds::default(),
             tesserae: std::collections::HashSet::new(),

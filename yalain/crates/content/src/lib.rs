@@ -89,6 +89,19 @@ pub struct WeaponRule {
     pub stance: Option<u32>,
 }
 
+/// What a creature's death effect makes around its killer, in place of what the install can say.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DeathSpawn {
+    /// The template of what it makes.
+    pub template: u32,
+    /// How many it tries to make.
+    pub count: u32,
+    /// The chance that each is made.
+    pub chance: f32,
+    /// Where each is made, in meters from the killer, as the killer faces.
+    pub offset: [f32; 2],
+}
+
 /// The templates the world makes objects of, by id, and the names of the generator profiles
 /// (loot profiles among them) by value.
 #[derive(Debug, Clone, Default, PartialEq)]

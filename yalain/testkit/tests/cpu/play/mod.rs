@@ -17,6 +17,7 @@ mod creature_effects;
 mod creature_tactics;
 mod creature_weapons;
 mod creatures;
+mod death_spawns;
 mod doors;
 mod drops;
 mod dye_plants;

@@ -128,6 +128,8 @@ pub struct Tables {
     /// What a row says of a weapon beyond its template (the share of creatures given two, its
     /// stance), by the weapon's name.
     pub weapon_rules: BTreeMap<String, yalain_content::WeaponRule>,
+    /// What creatures' death effects make, by the effects' names.
+    pub death_spawns: BTreeMap<String, yalain_content::DeathSpawn>,
     /// The places templates name: where a person who sends players by a map sends the holder of
     /// a map of that template.
     pub places_named: BTreeMap<u32, TablePlace>,
@@ -1019,6 +1021,19 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                             },
                         );
                     }
+                }
+            }
+            Row::DeathSpawn(r) => {
+                if cx.template(l, "template", r.template) {
+                    t.death_spawns.insert(
+                        r.effect.clone(),
+                        yalain_content::DeathSpawn {
+                            template: r.template,
+                            count: r.count,
+                            chance: r.chance,
+                            offset: [r.offset.x, r.offset.y],
+                        },
+                    );
                 }
             }
             Row::Place(p) => {

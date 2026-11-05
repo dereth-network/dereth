@@ -1516,3 +1516,22 @@ fn immolation_turns_an_alchemists_basic_attacks_fiery() {
     apply(&mut h, DARK_SIDE);
     assert_eq!(told(&mut h), [1374, 1375, 1376]);
 }
+
+/// The Illuminated Drudge's curse as the install says: it lasts four hours and moves no quest; the
+/// other death effect of the template moves a quest.
+/// Behaviour: server.creatures.death-effect-on-killer
+#[test]
+fn the_illuminated_drudges_curse_lasts_four_hours() {
+    let p = Portal::open();
+    let drudge = 0x4700_2340;
+    let named = p.death_effects(&[drudge]);
+    let states: Vec<u32> = named[&drudge].iter().map(|e| e.state).collect();
+    let table = p.effects(&states);
+    let lasting: Vec<f32> = states
+        .iter()
+        .filter_map(|s| table.get(*s))
+        .filter(|d| d.lasts() && !matches!(d.kind, Kind::Quest { .. }))
+        .map(|d| d.duration.at(1.0).expect("a duration"))
+        .collect();
+    assert_eq!(lasting, vec![14_400.0], "{states:08X?}");
+}

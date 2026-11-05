@@ -2104,6 +2104,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.death-effect-on-killer",
+        says: "A creature's death effect that lasts and moves no quest goes on its killer, from the creature, for its whole duration, and on no one else.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-EFFECT-ON-KILLER"),
+        station: "yalain-testkit::cpu::play::death_spawns::a_death_effect_that_lasts_goes_on_the_killer_from_the_creature",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.death-spawn-around-killer",
+        says: "What a creature's death effect makes stands at its offset from the killer, as the killer faces, each by its chance.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-SPAWN-AROUND-KILLER"),
+        station: "yalain-testkit::cpu::play::death_spawns::a_death_spawn_stands_at_its_offset_from_the_killer_as_the_killer_faces",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.death-spawns-limited",
+        says: "Our choice: only so many of one death effect's creatures live at once.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-DEATH-SPAWNS-LIMITED"),
+        station: "yalain-testkit::cpu::play::death_spawns::only_so_many_of_a_death_effects_creatures_live_at_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.flies-as-its-body-says",
         says: "A body flies if its motion description gives it a height in the air: two meters at \
                rest, one in a fight for the wasps.",

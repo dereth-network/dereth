@@ -197,6 +197,7 @@ pub fn creature_dies<S: Store>(
         // A killer the creature could not reach moves no quest on.
         if !unfair {
             crate::quests::killed(s, net, world, template, &death_effects, clock);
+            crate::death_spawn::killed(s, net, world, id, template, &death_effects, clock);
         }
     }
     if let Some(w) = blow_fellow {

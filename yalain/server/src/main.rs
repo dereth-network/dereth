@@ -824,6 +824,8 @@ struct Play {
     held_answers: std::collections::HashMap<u32, (u32, u32)>,
     weapons: std::collections::HashMap<String, u32>,
     weapon_rules: std::collections::HashMap<String, yalain_content::WeaponRule>,
+    death_spawns: std::collections::HashMap<String, yalain_content::DeathSpawn>,
+    death_effects: yalain_world::item_use::ItemUses,
 }
 
 /// The exit code of a server whose ports another program holds, beside the line that says so
@@ -1020,6 +1022,8 @@ fn run<S: Store>(
     server.held_answers = play.held_answers;
     server.creature_weapons = play.weapons;
     server.creature_weapon_rules = play.weapon_rules;
+    server.death_spawns = play.death_spawns;
+    server.death_effects = play.death_effects;
     for path in &o.recipes {
         make_character(&mut server, path, unix_now());
     }
@@ -1621,6 +1625,7 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
         places_by_name,
         weapons: listed_weapons,
         weapon_rules,
+        death_spawns,
         ..
     } = compiled;
     let play = (|| {
@@ -1785,10 +1790,11 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             "the mounts read"
         );
         // The effects the items' uses put on, read with the rest.
-        let (item_uses, worn_effects) = data::item_uses(portal, &catalog)?;
+        let (item_uses, worn_effects, death_effects) = data::item_uses(portal, &catalog)?;
         states.extend(item_uses.values().flatten().map(|e| e.state));
         states.extend(yalain_world::item_use::FOOD_EFFECTS);
         states.extend(worn_effects.values().flatten().map(|e| e.state));
+        states.extend(death_effects.values().flatten().map(|e| e.state));
         // The treasure potions' effects, put on when they are drunk.
         states.extend(yalain_world::treasure::POTION_EFFECTS.iter().flatten());
         // What the practice dummies hold.
@@ -1906,6 +1912,8 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             held_answers,
             weapons,
             weapon_rules: weapon_rules.into_iter().collect(),
+            death_spawns: death_spawns.into_iter().collect(),
+            death_effects,
         })
     })();
     play.map(|p| (content, p))
@@ -1943,6 +1951,7 @@ fn reload_world(
         crafting: p.craft,
         weapons: p.weapons,
         weapon_rules: p.weapon_rules,
+        death_spawns: p.death_spawns,
         names,
         kinds: Some(yalain_world::reload::PlacedKinds {
             brokers: p.brokers,

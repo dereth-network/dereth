@@ -159,6 +159,8 @@ pub enum Item {
     Shard { object: u64 },
     /// The template of a weapon creatures wield, by the name their templates give it.
     Weapon { name: String },
+    /// What a creature's death effect makes around its killer, by the effect's name.
+    DeathSpawn { effect: String },
     /// A route creatures walk at rest, by its key.
     Route { key: String },
     /// The kind of player conflict a landblock allows, by the landblock.
@@ -214,6 +216,9 @@ impl Item {
             ["weapon", name] => Self::Weapon {
                 name: identifier(name)?,
             },
+            ["death_spawn", effect] => Self::DeathSpawn {
+                effect: identifier(effect)?,
+            },
             ["route", key] => Self::Route { key: symbol(key)? },
             ["area", lb] => Self::Area {
                 landblock: u16::from_str_radix(lb, 16).ok().filter(|_| lb.len() == 4)?,
@@ -251,6 +256,7 @@ impl fmt::Display for Item {
             Self::Scene { id } => write!(f, "scene {id:#010x}"),
             Self::Shard { object } => write!(f, "shard {object:#018x}"),
             Self::Weapon { name } => write!(f, "weapon {name}"),
+            Self::DeathSpawn { effect } => write!(f, "death_spawn {effect}"),
             Self::Route { key } => write!(f, "route {key}"),
             Self::Area { landblock } => write!(f, "area {landblock:04X}"),
             Self::Clearing { key, landblock } => write!(f, "clearing {key}@{landblock:04X}"),

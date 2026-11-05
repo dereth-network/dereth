@@ -37,6 +37,7 @@ what they see, not how it was done.
 - Other players can no longer hurt your pet while you're at peace.
 - Oaths in very large allegiances no longer stall the world.
 - Quests with no setup now pay what they should.
+- Killing some creatures curses you, or brings their helpers.
 
 - Fixed a selected person showing empty health and vigor bars.
 

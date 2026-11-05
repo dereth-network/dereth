@@ -87,6 +87,7 @@ pub(super) fn tables_of(h: &Harness) -> WorldTables {
         crafting: s.crafting.clone(),
         weapons: s.creature_weapons.clone(),
         weapon_rules: s.creature_weapon_rules.clone(),
+        death_spawns: s.death_spawns.clone(),
         names: None,
         kinds: None,
         ground: None,

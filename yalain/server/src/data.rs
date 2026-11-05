@@ -637,10 +637,11 @@ pub fn item_uses(
     (
         yalain_world::item_use::ItemUses,
         yalain_world::item_use::ItemUses,
+        yalain_world::item_use::ItemUses,
     ),
     String,
 > {
-    use yalain_world::item_use::{read_named, USED, WORN};
+    use yalain_world::item_use::{read_named, DIED, USED, WORN};
     let lib = library(p)?;
     let states: Vec<(u32, u32, Option<u32>)> = saved_states(p)?
         .iter()
@@ -650,6 +651,7 @@ pub fn item_uses(
     Ok((
         read_named(lib, states.iter().copied(), templates(), USED),
         read_named(lib, states.iter().copied(), templates(), WORN),
+        read_named(lib, states.iter().copied(), templates(), DIED),
     ))
 }
 

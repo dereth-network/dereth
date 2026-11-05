@@ -1,0 +1,144 @@
+//! What a creature's death does to its killer beyond its quests: an effect that lasts goes on the
+//! killer (2017: the Illuminated Drudge's curse on 4 of 4 killers who recorded the kill, at the death,
+//! from the creature, for its whole duration, and on none of 1 who watched), and a world's
+//! [`yalain_content::DeathSpawn`] makes creatures around the killer.
+//!
+//! **Where they appear.** Each stands at its offset from the killer, as the killer faces, on the
+//! ground (2017: the Drunken Drudge Sentry's two, 2 of the 3 tries at 70%, both exactly on their
+//! offsets about the killer at one heading, and neither about the corpse; one kill).
+//!
+//! They stay until killed (the install's effect says they are permanent). A world may let many
+//! such kills pass with no one to fight what they make, so no more than [`MOST`] of one effect's
+//! live at once.
+
+use dereth_primitives::num::math;
+use yalain_net::{ConnId, ServerNet};
+use yalain_store::{Store, StoredPosition};
+
+use crate::effect_defs::Kind;
+use crate::effects::{Cast, On};
+use crate::things::Mode;
+use crate::{presence, Clock, Server};
+
+/// The most of one death effect's that live at once.
+pub const MOST: usize = 24;
+
+/// What a creature's death does to its killer, beyond its quests.
+pub fn killed<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    killer: ConnId,
+    creature: u64,
+    template: u32,
+    effects: &[String],
+    clock: Clock,
+) {
+    let lasting: Vec<(u32, f32)> = s
+        .death_effects
+        .get(&template)
+        .into_iter()
+        .flatten()
+        .filter(|e| {
+            s.effect_table
+                .get(e.state)
+                .is_some_and(|d| d.lasts() && !matches!(d.kind, Kind::Quest { .. }))
+        })
+        .map(|e| (e.state, e.spellcraft))
+        .collect();
+    for (state, spellcraft) in lasting {
+        let cast = Cast {
+            caster: creature,
+            spellcraft,
+            ..Cast::default()
+        };
+        crate::effects::apply_on(s, net, On::Player(killer), state, cast, clock);
+    }
+    for name in effects {
+        if let Some(spawn) = s.death_spawns.get(name).copied() {
+            makes(s, net, killer, name, spawn, clock);
+        }
+    }
+}
+
+fn makes<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    killer: ConnId,
+    name: &str,
+    spawn: yalain_content::DeathSpawn,
+    clock: Clock,
+) {
+    let Some(killer_at) = s.players.get(&killer).map(|p| p.position) else {
+        return;
+    };
+    let Some(template) = s.catalog.get(spawn.template).cloned() else {
+        return;
+    };
+    let things = &s.things;
+    let live = s.death_spawned.entry(name.to_string()).or_default();
+    live.retain(|id| {
+        things
+            .get(*id)
+            .and_then(|t| t.creature.as_ref())
+            .is_some_and(|c| c.mode != Mode::Dead)
+    });
+    for _ in 0..spawn.count {
+        if s.death_spawned.get(name).map_or(0, Vec::len) >= MOST || !s.rng.chance(spawn.chance) {
+            continue;
+        }
+        let Some(stats) = yalain_content::CreatureStats::from_props(&template.props) else {
+            s.unhandled.note(format!(
+                "a death effect's template {:08X} is no creature",
+                spawn.template
+            ));
+            return;
+        };
+        let at = at_offset(s, &killer_at, spawn.offset);
+        let heading = crate::world::heading_of_rotation(at.rotation);
+        let id = crate::spawn::make(
+            s,
+            &template,
+            stats,
+            (at, heading),
+            None,
+            None,
+            clock.local.0,
+        );
+        s.death_spawned
+            .entry(name.to_string())
+            .or_default()
+            .push(id);
+        presence::thing_appears(s, net, id);
+    }
+}
+
+/// A place at an offset from another, as that one faces, on the ground.
+fn at_offset<S: Store>(s: &Server<S>, from: &StoredPosition, offset: [f32; 2]) -> StoredPosition {
+    let (x, y) = turned(from.rotation, offset);
+    let (x, y) = (from.origin[0] + x, from.origin[1] + y);
+    let (cell, x, y) = if presence::indoors(from.cell) {
+        (from.cell, x, y)
+    } else {
+        crate::spawn::outdoor(from.cell >> 16, x, y)
+    };
+    let z = if presence::indoors(from.cell) {
+        from.origin[2]
+    } else {
+        s.ground
+            .as_ref()
+            .and_then(|g| g.height(cell, [x, y, from.origin[2]]))
+            .unwrap_or(from.origin[2])
+    };
+    StoredPosition {
+        cell,
+        origin: [x, y, z],
+        rotation: from.rotation,
+    }
+}
+
+/// An offset as a rotation about the vertical turns it.
+fn turned(r: [f32; 4], [x, y]: [f32; 2]) -> (f32, f32) {
+    let angle = 2.0 * math::atan2f(r[3], r[0]);
+    let (sin, cos) = (math::sinf(angle), math::cosf(angle));
+    (x * cos - y * sin, x * sin + y * cos)
+}
