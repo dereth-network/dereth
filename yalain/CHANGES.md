@@ -17,6 +17,7 @@ what they see, not how it was done.
 - Fixed new players being unable to log in on a busy server.
 - Fixed many logins at once slowing the whole world.
 - Fixed heavy network traffic holding up the world.
+- Fixed a stuck connection holding up the status endpoint.
 
 - Fixed a selected person showing empty health and vigor bars.
 
