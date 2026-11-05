@@ -462,6 +462,8 @@ pub struct ObjectEffects {
     channels: Channels,
     /// The sounds its effects played or stopped, in order, not yet taken.
     sounds: Vec<FxSound>,
+    /// The startup effects' entries that make an object, each with its effect, not yet taken.
+    objects_to_make: Vec<(u32, FxNode)>,
 }
 
 /// A sound an object's effect played, or the sounds kept with an effect stopped. The object
@@ -610,6 +612,7 @@ impl ObjectEffects {
             decals: Vec::new(),
             channels: Channels::default(),
             sounds: Vec::new(),
+            objects_to_make: Vec::new(),
         })
     }
 
@@ -682,6 +685,11 @@ impl ObjectEffects {
     /// The sounds its effects played or stopped since last taken, in order.
     pub fn take_sounds(&mut self) -> Vec<FxSound> {
         std::mem::take(&mut self.sounds)
+    }
+
+    /// The startup effects' entries that make an object since last taken, each with its effect.
+    pub fn take_objects_to_make(&mut self) -> Vec<(u32, FxNode)> {
+        std::mem::take(&mut self.objects_to_make)
     }
 
     /// The appearances its effects laid over the object or took off it since last taken, in
@@ -790,7 +798,8 @@ impl ObjectEffects {
     /// The rest of every startup effect, played as the object's making ends, and again each time
     /// its look is brought up to date: its streaks, its sounds (each entry's, kept to stop with the
     /// effect; taken with [`ObjectEffects::take_sounds`]), its lights and its repulsors (another each
-    /// time). (The objects they make are not played here.)
+    /// time). The objects they make are left for the host ([`ObjectEffects::take_objects_to_make`]),
+    /// another each time too.
     // D2-06529
     pub fn object_end(
         &mut self,
@@ -859,6 +868,9 @@ impl ObjectEffects {
                 }
                 if let Some((true, l)) = &node.light {
                     self.light_fx(systems, l, node.bone_offset, at.now);
+                }
+                if node.visual_desc.is_some_and(|v| !v.is_none()) {
+                    self.objects_to_make.push((effect, node));
                 }
                 continue;
             }
@@ -1805,6 +1817,8 @@ impl PlacedEffects {
     /// Follow the objects now drawn, `placed`: those new to it begin their startup effects at
     /// `now`, their systems kept by `systems` and shared with the other objects placed with the
     /// world; those no longer drawn are dropped, letting go of their systems.
+    /// The objects their startup effects make are not made: an object placed with the world has no
+    /// body for them to hang from.
     pub fn sync(
         &mut self,
         systems: &ParticleSystems,

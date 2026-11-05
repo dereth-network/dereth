@@ -71,6 +71,7 @@ not how it was done.
 - Items in a trade now show when selected and when you target with an item.
 - Fixed objects that retail leaves unshadowed casting shadows on the ground.
 - Fixed items not showing in hand when picked up, put down or handed over.
+- Fixed some creatures and objects missing the parts they carry.
 
 ## 0.1.3 (2026-11-05)
 

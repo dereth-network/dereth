@@ -4038,6 +4038,78 @@ fn an_aimed_effect_acts_on_its_target() {
     );
 }
 
+/// An object whose look's startup effects make objects has them as it arrives, each hanging from it
+/// at its holding location; one whose look's do not has none. Fixture: a server double making the
+/// object beside the player in the hall.
+///
+/// Behaviour: desktop.bodies.an-objects-startup-effects-make-their-objects
+#[test]
+fn an_objects_startup_effects_make_their_objects() {
+    const CELL: u32 = 0x0298_0121;
+    const OBJECT: u64 = 0x8130_1B05_CC00_0191;
+    const MAKES_TWO: u32 = 0x1F00_0CBE;
+    let made_for = |look: u32| {
+        let object = CreateObject {
+            id: OBJECT,
+            visual: VisualDesc {
+                bits: VisualDesc::DID,
+                did: look,
+                ..VisualDesc::default()
+            },
+            physics: PhysicsDesc {
+                bits: PhysicsDesc::POSITION,
+                instance_stamp: 1,
+                visual_ordering_stamp: 1,
+                position: Placement {
+                    cell: CELL,
+                    frame: Frame {
+                        origin: Vec3 {
+                            x: -3.9,
+                            y: 337.5,
+                            z: -44.7,
+                        },
+                        rotation: Quat::IDENTITY,
+                    },
+                },
+                ..PhysicsDesc::default()
+            },
+            ..CreateObject::default()
+        };
+        let at = Vec3 {
+            x: 2.0,
+            y: 330.0,
+            z: -43.76,
+        };
+        let script = script_until(CELL, at, Quat::IDENTITY, &[object], &[], 40.0);
+        let server =
+            ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+        let mut s = shell_with(
+            script,
+            Box::new(DevLogin::new(
+                server,
+                "tester".into(),
+                "t".into(),
+                Some("tester".into()),
+            )),
+        );
+        while s.host.time < 14.0 {
+            step(&mut s);
+        }
+        let made = s.scene.made_objects();
+        let held = made
+            .iter()
+            .filter(|m| s.scene.body(**m).is_some_and(|b| b.has_parent))
+            .count();
+        (made.len(), held)
+    };
+    assert_eq!(made_for(HUMAN_MALE), (0, 0), "this look makes none");
+    assert_eq!(
+        made_for(MAKES_TWO),
+        (2, 2),
+        "this one makes two and holds them"
+    );
+}
+
 /// A behavior that names a target and a look to clone gives them to the effects its animation sets
 /// off: putting an item down, the player's effects hide the item and take a clone of it in hand. The
 /// clone has never stood in the world, so the entry that lets go of what it holds leaves it held.

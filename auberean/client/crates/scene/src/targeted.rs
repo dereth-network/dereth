@@ -102,6 +102,40 @@ impl Scene<'_> {
         }
     }
 
+    /// The objects the startup effects of the bodies about ask for: each hangs from or stands where
+    /// its body says, and goes when the effect or the body does.
+    // D2-06933, D2-06916
+    pub(crate) fn make_startup_objects(&mut self, client: &mut Client) {
+        let mut ids: Vec<u64> = self.player.iter().map(|p| p.id).collect();
+        ids.extend(self.others.ids());
+        ids.extend(self.held.ids());
+        ids.extend(self.temporaries.ids().into_iter().map(|(id, _)| id));
+        for object in ids {
+            let Some(asked) = self.fx_of(object).map(|f| f.fx.take_objects_to_make()) else {
+                continue;
+            };
+            for (effect, n) in asked {
+                let Some(look) = n.visual_desc else {
+                    continue;
+                };
+                let mut aimed = Aimed {
+                    object,
+                    effect,
+                    target: 0,
+                    hidden: Vec::new(),
+                    target_fx: Vec::new(),
+                    made: Vec::new(),
+                    seen: false,
+                    age: 0,
+                };
+                self.do_create_object_fx(client, &mut aimed, look.0, &n);
+                if !aimed.made.is_empty() {
+                    self.aimed.push(aimed);
+                }
+            }
+        }
+    }
+
     /// Whether `object` plays `effect` now.
     pub(crate) fn fx_is_playing(&mut self, object: u64, effect: u32) -> bool {
         self.fx_of(object)

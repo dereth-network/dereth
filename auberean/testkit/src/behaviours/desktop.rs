@@ -254,6 +254,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.bodies.an-objects-startup-effects-make-their-objects",
+        says: "An object whose look's startup effects name a look to make has those objects from the end of its making, each hanging from it at the entry's holding location or bone. They go when the effect or the object does.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-STARTUP-OBJECTS"),
+        station: "auberean-shell::dat::session::an_objects_startup_effects_make_their_objects",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.each-body-is-drawn-once-a-frame",
         says: "A body is drawn once in a frame, however many cells it reaches into.",
         since: RETAIL,

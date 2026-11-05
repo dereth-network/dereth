@@ -2932,6 +2932,7 @@ impl<'w> Scene<'w> {
         self.play_camera_effects(client, &played, now);
         let night = self.is_night();
         self.aim_fx(client, &played, hooks, night);
+        self.make_startup_objects(client);
         self.ask_body_fx();
         self.end_aimed_fx(now);
         self.do_sliders_on_children();
