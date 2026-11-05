@@ -84,6 +84,7 @@ not how it was done.
 - Fixed the camera dipping at the ground as it glides between views.
 - In first person the view now leans with your head.
 - Fixed a fog tint showing through gaps in sealed rooms.
+- Fixed a bow's killing shot showing no hit line or damage number.
 
 ## 0.1.3 (2026-11-05)
 

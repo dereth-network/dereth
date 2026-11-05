@@ -3160,3 +3160,96 @@ fn the_screenshot_key_asks_for_a_screenshot() {
     assert!(!event(&mut s, Key::F9, true), "F9 held");
     assert!(event(&mut s, Key::F9, false), "F9, bound to it, let go");
 }
+
+/// A killing arrow's hit, told by its target with the news of the death right behind it: the hit's
+/// line and number come first, and the target's scripts see it not yet dead. Told after the death,
+/// the same hit shows nothing, as the scripts ask.
+///
+/// Behaviour: desktop.interface.a-story-is-played-before-what-the-server-said-after-it
+#[test]
+fn a_killing_arrows_hit_is_shown_before_the_target_is_dead() {
+    use auberean_client_sdk::protocol::physics::ObjectEvent;
+    use auberean_client_sdk::protocol::quality::VisualQuality;
+    use auberean_client_sdk::protocol::types::{ObjectStamp, PhysicsStory, StoryHook};
+    /// The visual messages' ordering type.
+    const VISUAL: u64 = 0x0200_0000_0000_0000;
+    /// A hit, kind 1 with the target, result, animation hook and the target's health change.
+    const HIT: u32 = 0xB81;
+    /// A thrown attack's arrival: the attacker, the skill and that it is a basic attack.
+    const ARRIVAL: u32 = PhysicsStory::ATTACKER | PhysicsStory::SKILL | 0x20;
+    /// The result the scripts call a plain hit.
+    const HIT_RESULT: i32 = 0x4000_0008;
+    const DEAD: u32 = 279;
+    let man_stamp = |visual: u16| ObjectStamp {
+        id: MAN,
+        instance_stamp: 1,
+        other_stamp: visual,
+    };
+    let arrival = |damage: i32| {
+        let mut hook = StoryHook {
+            bits: HIT,
+            target: MAN,
+            ..StoryHook::default()
+        };
+        hook.numbers[0] = HIT_RESULT;
+        hook.numbers[3] = -damage;
+        ServerMessage::DoStory(ObjectEvent {
+            sender: man_stamp(0),
+            action: PhysicsStory {
+                bits: ARRIVAL,
+                attacker: PLAYER,
+                skill: 0x4000_0001,
+                hooks: vec![hook],
+                ..PhysicsStory::default()
+            },
+        })
+    };
+    let dead = ServerMessage::UpdateBoolVisual(VisualQuality {
+        object: man_stamp(9),
+        quality: DEAD,
+        value: 1,
+    });
+    let mut script = with_a_man_and(vec![
+        s2c(40.0, 1, 1, WORLD | 9, &arrival(123)),
+        s2c(40.0, 1, 1, VISUAL | 9, &dead),
+        s2c(45.0, 1, 1, WORLD | 10, &arrival(456)),
+    ]);
+    for e in &mut script.events {
+        if let Step::Msg { msg, .. } = e {
+            if msg.mtype == 0x10058 {
+                if let Ok(ServerMessage::CreateObject(mut man)) = ServerMessage::decode(&msg.raw) {
+                    if man.id == MAN {
+                        // A human's scripts, which show the damage done to him.
+                        man.weenie = player_weenie();
+                        msg.raw = ServerMessage::CreateObject(man).encode();
+                    }
+                }
+            }
+        }
+    }
+    let (mut s, _retail) = into_the_world_running(script, data_with_scripts());
+    // Every line the scripts write of a hit, and every number they raise over the man.
+    let (mut lines, mut numbers) = (Vec::new(), Vec::new());
+    while s.host.time < 47.0 {
+        step(&mut s);
+        let c = s.client.as_ref().expect("the client");
+        lines.extend(c.shown.iter().map(|l| format!("{:?}", l.text)));
+        numbers.extend(
+            c.notices
+                .iter()
+                .filter(|n| {
+                    n.native == auberean_client_sdk::runtime::combat::DO_3D_DAMAGE
+                        && n.about == Some(MAN)
+                })
+                .map(|n| format!("{n:?}")),
+        );
+    }
+    println!("{lines:?} {numbers:?}");
+    assert_eq!(lines.len(), 1, "the killing hit's line alone: {lines:?}");
+    assert!(lines[0].contains("123"), "its damage: {lines:?}");
+    assert_eq!(
+        numbers.len(),
+        1,
+        "the killing hit's number alone: {numbers:?}"
+    );
+}

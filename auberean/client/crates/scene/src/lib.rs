@@ -2597,8 +2597,15 @@ impl<'w> Scene<'w> {
         }
         // What the server asked of the bodies since the last frame; a body made this frame hears
         // it once it is made.
+        client.stories_in_order = true;
         let events = std::mem::take(&mut client.physics);
-        let waiting = self.play_server_events(client, events);
+        let mut waiting = self.play_server_events(client, events);
+        // A story is played before what the server said after it takes effect: a killing arrow's
+        // hit is shown on a target not yet dead, as the scripts ask.
+        while client.take_held_to_next_story() {
+            let events = std::mem::take(&mut client.physics);
+            waiting.extend(self.play_server_events(client, events));
+        }
         // One schedule of physics ticks for every body, and one animation step for every figure
         // (none this frame unless a thirtieth of a second has passed since the last).
         // While the cells the server put the player in are asked for, the world stands still.

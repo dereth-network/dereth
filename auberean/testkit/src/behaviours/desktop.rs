@@ -1054,6 +1054,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.interface.a-story-is-played-before-what-the-server-said-after-it",
+        says: "A story takes effect as it arrives, before what the server said after it: a killing arrow's hit, told by its target with its death right behind, writes its line and raises its number, while the same hit told on a target already dead shows neither.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STORY-ORDER"),
+        station: "auberean-interface::dat::screens::a_killing_arrows_hit_is_shown_before_the_target_is_dead",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.interface.an-inactive-window-lets-go-of-what-the-elements-hold",
         says: "With the window going inactive the elements let go of every key and button they \
                hold: mouse look held by the right button ends, a panel held by the left button is \

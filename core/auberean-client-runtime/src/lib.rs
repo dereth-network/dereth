@@ -339,6 +339,13 @@ pub struct Client {
     /// [`PHYSICS_KEPT`] go once twice that many are kept (the heads' directions come many times a
     /// second).
     pub physics: Vec<ServerMessage>,
+    /// A scene is playing the stories: what comes after each waits until it has played it
+    /// ([`Self::take_held_to_next_story`]), so a hit is shown as things stood when it was told.
+    pub stories_in_order: bool,
+    /// A story was told and the scene has not played it yet.
+    story_waits: bool,
+    /// What the server said after a story the scene has not played, in order.
+    held: std::collections::VecDeque<Item>,
     /// The object that last attacked the player with a harmful skill, as its story told it (0 for
     /// none yet).
     pub last_attacker: u64,
@@ -498,6 +505,9 @@ impl Client {
             shown: Vec::new(),
             notices: Vec::new(),
             physics: Vec::new(),
+            stories_in_order: false,
+            story_waits: false,
+            held: std::collections::VecDeque::new(),
             last_attacker: 0,
             look_at_selection: true,
             looking_at: 0,
@@ -1709,7 +1719,7 @@ impl Client {
         }
         self.queue.receive(self.now, Item { blob_id, message });
         while let Some(item) = self.queue.pop() {
-            self.take_effect(&item);
+            self.take_in_order(item);
         }
     }
 
@@ -1718,8 +1728,35 @@ impl Client {
     fn take_unread(&mut self, blob_id: u64, raw: &[u8]) {
         self.queue.receive_unread(self.now, blob_id, raw);
         while let Some(item) = self.queue.pop() {
-            self.take_effect(&item);
+            self.take_in_order(item);
         }
+    }
+
+    /// A message off the queue takes effect, unless it comes after a story still to be played.
+    fn take_in_order(&mut self, item: Item) {
+        if self.story_waits {
+            self.held.push_back(item);
+            return;
+        }
+        self.take_effect(&item);
+        self.story_waits =
+            self.stories_in_order && matches!(item.message, ServerMessage::DoStory(_));
+    }
+
+    /// The stories told so far have been played: what the server said after them takes effect,
+    /// as far as the next story. Whether any did.
+    pub fn take_held_to_next_story(&mut self) -> bool {
+        self.story_waits = false;
+        let any = !self.held.is_empty();
+        while !self.story_waits {
+            let Some(item) = self.held.pop_front() else {
+                break;
+            };
+            self.take_effect(&item);
+            self.story_waits =
+                self.stories_in_order && matches!(item.message, ServerMessage::DoStory(_));
+        }
+        any
     }
 
     fn take_effect(&mut self, item: &Item) {
