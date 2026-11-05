@@ -39,8 +39,7 @@ what they see, not how it was done.
 - Fixed long lines of talk holding up what nearby players hear.
 - Other players can no longer hurt your pet while you're at peace.
 - Oaths in very large allegiances no longer stall the world.
-- Quests with no setup now pay what they should.
-- Killing some creatures curses you, or brings their helpers.
+- Killing some creatures curses you.
 - Many weapons and armor that did nothing now work.
 - Fixed other players' movements and swings sticking after they arrive.
 - Fixed items being lost for no gold at the money bag; worthless items are now refused.
@@ -48,11 +47,7 @@ what they see, not how it was done.
 - Players can't talk faster than ten lines a second.
 - A plain shield now shows Shield Stats.
 - Curses and peace amulets now change who creatures attack.
-- Gauntlet players land in a free arena room.
-- Practice gems summon their dummy.
 - Fixed the error text when a glyph opens a vault.
-- Chests hold treasure of their own level.
-- Gauntlet journal updates now come when you land.
 - A too-long inscription is refused, not cut.
 - A knife stays in the pack while it cuts.
 - Broker stores now have pages.
