@@ -81,10 +81,15 @@ pub fn set_alias<S: Store>(s: &mut Server<S>, world: ConnId, v: &[Value]) {
         s.unhandled.note("an alias that does not read");
         return;
     };
-    if let Some(p) = s.players.get_mut(&world) {
-        p.options.set_alias(&alias, &text, *add != 0);
+    let kept = s
+        .players
+        .get_mut(&world)
+        .is_some_and(|p| p.options.set_alias(&alias, &text, *add != 0));
+    if kept {
+        crate::world::keep_player(s, world);
+    } else {
+        s.unhandled.note("an alias past what a character keeps");
     }
-    crate::world::keep_player(s, world);
 }
 
 /// May an item of a template take an inscription?

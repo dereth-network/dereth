@@ -9672,6 +9672,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.social.options-kept-within-bounds",
+        says: "A character keeps its aliases and options up to bounds well past what a player uses: \
+               what goes past them is not taken and changes nothing kept; a character already past \
+               them enters with what fits, aliases of a player's size all kept, in order.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OPTIONS-BOUNDS"),
+        station: "yalain-testkit::cpu::play::own_requests::a_character_with_options_past_the_bounds_enters_with_the_aliases_a_player_uses",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.social.recorded-families-by-shape",
         says: "The recorded 2017 families of these answers (an oath taken on each side, fellows \
                joining and leaving, a fellowship left or disbanded, a trade's items exchanged, a \

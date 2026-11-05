@@ -21,7 +21,7 @@
 //! stamp are not taken. A land cell its point does not lie in is no place at all.
 //!
 //! **Options.** The client sends its options as they change; the server keeps them for the next
-//! session start.
+//! session start, up to what a character keeps ([`crate::options`]).
 //!
 //! **Logging off.** A character whose player logs off stays in the world, its movement frozen,
 //! for about nineteen seconds: it glows at once (the portal effect, for all who see it), plays its
@@ -421,7 +421,7 @@ pub fn enter<S: Store>(
     let conflict = crate::kingdoms::status_at(&s.content.conflict, position.cell);
     crate::kingdoms::entering(&mut st.qualities, conflict, new_character);
     s.saves.hold(character, st.clone());
-    let options = Options::from_packed(&st.options).map_err(|e| {
+    let mut options = Options::from_packed(&st.options).map_err(|e| {
         tracing::error!(
             id = format_args!("{character:#x}"),
             "{}: a new character's options do not read: {e}",
@@ -429,6 +429,16 @@ pub fn enter<S: Store>(
         );
         CharacterRefused::CORRUPT_CHARACTER
     })?;
+    let left_out = options.keep_within_bounds();
+    if left_out.any() {
+        tracing::warn!(
+            id = format_args!("{character:#x}"),
+            aliases = left_out.aliases,
+            parts = left_out.parts,
+            "{}: options past what a character keeps were left out as it entered",
+            c.name
+        );
+    }
     // The template follows the account's flag at every entry: an admin character of an account no
     // longer an admin's enters as a player.
     let admin_character = c.entity_did == player::ADMIN_ENTITY
@@ -1299,6 +1309,9 @@ fn moved<S: Store>(
 
 /// Keep an option the client sends. Returns whether the call was one the server keeps.
 fn kept_call(p: &mut Player, function: u32, args: &[u8]) -> bool {
+    if args.len() > crate::options::MOST_PART_BYTES {
+        return false;
+    }
     let Ok(v) = uploads::values(args) else {
         return false;
     };
