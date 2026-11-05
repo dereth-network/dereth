@@ -18,6 +18,7 @@ what they see, not how it was done.
 - Fixed many logins at once slowing the whole world.
 - Fixed heavy network traffic holding up the world.
 - Fixed a stuck connection holding up the status endpoint.
+- Bound items now say whom they're bound to.
 
 - Fixed a selected person showing empty health and vigor bars.
 

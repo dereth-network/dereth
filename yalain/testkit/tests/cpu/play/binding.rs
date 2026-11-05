@@ -313,6 +313,65 @@ fn a_blow_binds_what_is_held_one_time_in_ten_and_never_what_is_worn() {
     assert!(h.server.things.get(chest).is_some_and(|t| t.binds_on_use));
 }
 
+/// A marked item's examination says it binds; once bound it says so instead, to its holder as bound
+/// to it, to anyone else as bound to another, and whichever of them holds it now.
+/// Behaviour: server.examination.an-item-says-whom-it-is-bound-to
+#[test]
+fn an_items_examination_says_whom_it_is_bound_to() {
+    use yalain_world::profile::{self, item_line};
+    let (mut h, b, me, _, chest) = marked_chest();
+    let lines = |h: &mut Harness, b: usize| {
+        let from = h.bots[b].inbox.len();
+        let mut bytes = profile::request::OBJECT.to_le_bytes().to_vec();
+        bytes.extend(0u32.to_le_bytes());
+        bytes.extend(chest.to_le_bytes());
+        bytes.extend(0x3FFu32.to_le_bytes());
+        let mut g = yalain_world::graph::Builder::new();
+        g.native(
+            profile::REQUEST_TYPE,
+            auberean_script::native_object::NativeObject::Packed {
+                ty: u32::from(profile::REQUEST_TYPE),
+                bytes,
+            },
+        );
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(
+                yalain_world::requests::function::EXAMINE,
+                &[Arg::Object(g.graph())],
+            ),
+        );
+        h.run(5);
+        let said = h
+            .world_messages(b, from)
+            .into_iter()
+            .find_map(|m| match m {
+                ServerMessage::PlayerCall(c) if c.function.0 == profile::EXAMINATION_PROFILE => {
+                    Some(c.args?.0)
+                }
+                _ => None,
+            })
+            .expect("the profile");
+        let has = |id: u32| said.windows(4).any(|w| w == id.to_le_bytes());
+        [
+            has(item_line::BINDS),
+            has(item_line::BOUND_TO_YOU),
+            has(item_line::BOUND_TO_ANOTHER),
+        ]
+    };
+    assert_eq!(lines(&mut h, b), [true, false, false]);
+    if let Some(t) = h.server.things.get_mut(chest) {
+        t.binds_on_use = false;
+        t.own.bound_to = me;
+    }
+    assert_eq!(lines(&mut h, b), [false, true, false]);
+    if let Some(t) = h.server.things.get_mut(chest) {
+        t.own.bound_to = me + 1;
+    }
+    assert_eq!(lines(&mut h, b), [false, false, true]);
+}
+
 /// An item bound to another player is refused its equip with the status that says so, by a use and
 /// by a directive; its own holder wears it.
 /// Behaviour: server.items.bound-to-another-is-not-equipped

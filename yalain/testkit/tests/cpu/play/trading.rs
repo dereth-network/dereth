@@ -435,7 +435,7 @@ fn a_trade_is_closed_by_either_side_by_distance_and_by_leaving() {
 }
 
 /// A bound item is no attuned one: it may be traded, and whom it is bound to goes with it, so its
-/// new holder may not equip it. A recipe's attunement stops the trade as a template's does.
+/// new holder may not equip it, and its examination says so. A recipe's attunement stops the trade as a template's does.
 /// Behaviour: server.trade.a-bound-item-may-be-traded
 #[test]
 fn a_bound_item_goes_in_a_trade_still_bound_and_an_attuned_one_stops_it() {

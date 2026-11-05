@@ -3126,6 +3126,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.examination.an-item-says-whom-it-is-bound-to",
+        says: "A bound item's examination says it is bound to the viewer, or to another player, in \
+               place of saying it binds, wherever it is held.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-BOUND-LINES"),
+        station: "yalain-testkit::cpu::play::binding::an_items_examination_says_whom_it_is_bound_to",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.examination.an-items-icon-takes-its-appearance",
         says: "An item's icon is its look's with what its appearance values give it through their \
                appearance tables, base tables first: a dye's color, a potion's.",
@@ -9838,9 +9847,9 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.trade.a-bound-item-may-be-traded",
-        says: "An item bound by use goes in a trade, still bound to who bound it. Our choice: 0 bound \
-               items offered in view; what the install says of a bound item is equipping and sales.",
-        since: TOOLING,
+        says: "An item bound by use goes in a trade, still bound to who bound it: 2 items that showed \
+               bound to their seller, 3 trades, each done with status 0, none refused.",
+        since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-BOUND-TRADE"),
         station: "yalain-testkit::cpu::play::trading::a_bound_item_goes_in_a_trade_still_bound_and_an_attuned_one_stops_it",
         tier: Tier::Cpu,

@@ -48,6 +48,8 @@ pub mod look {
     pub const QUEST_NAME: u32 = 0x3800_42FF;
     /// The line saying an item binds.
     pub const BINDS: u32 = 0xE9BC_E65B;
+    /// The line saying an item is bound to another player.
+    pub const BOUND_TO_ANOTHER: u32 = 0x5796_899D;
 }
 
 /// The strings of profiles (string ids) and their tables.
@@ -855,6 +857,10 @@ pub mod item_line {
     pub const HARMONIC: u32 = 0xA0CE_495E;
     /// "This item will bind itself to the first player that uses it in combat. ..."
     pub const BINDS: u32 = 0x1BB0_CDB6;
+    /// "This item is bound to you and cannot be used by another player."
+    pub const BOUND_TO_YOU: u32 = 0x8374_DB1F;
+    /// "This item is bound to another player.  You cannot use it."
+    pub const BOUND_TO_ANOTHER: u32 = 0x80F0_FB85;
     /// "{The} {totem} has been imbued by a spellbinder and can be used to enchant {a} {kind}."
     pub const TOTEM_IMBUED: u32 = 0xD937_4C67;
     /// "The target item must have a minimum level of at least {}."
@@ -1180,11 +1186,20 @@ pub struct ItemView {
     pub shield: Option<i32>,
     /// It binds to the first player that uses it in combat.
     pub binds: bool,
+    /// It is bound: to whoever examines it, or to another.
+    pub bound: Option<BoundTo>,
     /// Its own effects change its damage, its vigor cost: those lines are drawn as enchanted.
     pub damage_changed: bool,
     pub vigor_changed: bool,
     /// It is a totem: what it goes on, and the least level and Arcane Lore its target must have.
     pub totem: Option<TotemView>,
+}
+
+/// Whom an item is bound to, as who examines it reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoundTo {
+    You,
+    Another,
 }
 
 /// What a totem says of what it may enchant.
@@ -1662,6 +1677,16 @@ pub fn item(asked: u32, v: &ItemView) -> Profile {
         p.tab(REQUIREMENTS, 0);
         p.tab(REQUIREMENTS, 0);
         p.text(REQUIREMENTS, look::BINDS, string(line::TABLE, l::BINDS));
+        p.brk(REQUIREMENTS);
+    }
+    if let Some(bound) = v.bound {
+        let (how, said) = match bound {
+            BoundTo::You => (look::LABEL, l::BOUND_TO_YOU),
+            BoundTo::Another => (look::BOUND_TO_ANOTHER, l::BOUND_TO_ANOTHER),
+        };
+        p.tab(REQUIREMENTS, 0);
+        p.tab(REQUIREMENTS, 0);
+        p.text(REQUIREMENTS, how, string(line::TABLE, said));
         p.brk(REQUIREMENTS);
     }
     if let Some((said, by)) = &v.inscription {

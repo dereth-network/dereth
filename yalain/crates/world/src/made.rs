@@ -378,12 +378,12 @@ pub fn show<S: yalain_store::Store>(
     v: &mut crate::profile::ItemView,
 ) {
     use crate::profile::When;
+    v.binds = t.binds_on_use;
     if let Some(m) = t.own.made {
         apply_to_view(&m, &t.facts, v);
         if let (Some(now), Some(d)) = (t.durability, v.durability.as_mut()) {
             d.0 = i32::try_from(now).unwrap_or(i32::MAX);
         }
-        v.binds = t.binds_on_use;
         if m.craft_needed.is_some() {
             let worn: Vec<crate::effect_defs::EffectDef> = t
                 .bonuses

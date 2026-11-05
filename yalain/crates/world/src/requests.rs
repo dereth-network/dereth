@@ -504,7 +504,15 @@ fn profile_bytes<S: Store>(
                 thing_vitals(t),
                 profile::chance_to_hit(my_level, t.level()),
             ),
-            crate::things::Kind::Item => profile::item(req.asked, &item_view(s, t)),
+            crate::things::Kind::Item => {
+                let mut v = item_view(s, t);
+                v.bound = match t.own.bound_to {
+                    0 => None,
+                    who if who == me.character => Some(profile::BoundTo::You),
+                    _ => Some(profile::BoundTo::Another),
+                };
+                profile::item(req.asked, &v)
+            }
             crate::things::Kind::Plant => crate::plants::profile(s, req.asked, t, now),
             crate::things::Kind::Corpse
             | crate::things::Kind::Node
