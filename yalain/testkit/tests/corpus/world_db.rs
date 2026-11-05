@@ -241,6 +241,61 @@ fn what_the_rows_leave_out_is_read_from_the_install() {
     );
 }
 
+/// Nothing a store sells goes into the money bag for what it cost: every sale of the world is in
+/// coin, and each piece costs more than the install says it is worth.
+/// Behaviour: server.store.nothing-sold-pays-back-its-price
+#[test]
+fn nothing_a_store_sells_is_worth_what_it_costs() {
+    let portal = yalain_testkit::authored::Portal::open();
+    let mut worth = std::collections::HashMap::new();
+    let sales = &compiled().tables.stores.sales;
+    assert!(sales.len() > 100, "{}", sales.len());
+    for sale in sales {
+        assert_eq!(sale.currency, 0x4700_0538, "{:#x}", sale.product);
+        let value = *worth.entry(sale.product).or_insert_with(|| {
+            let t = portal.template(sale.product);
+            t.props.int("Item_Value").unwrap_or(0)
+        });
+        #[allow(clippy::cast_precision_loss)]
+        let value = value as f32;
+        assert!(
+            value < sale.cost,
+            "{:#x} costs {} and is worth {value}",
+            sale.product,
+            sale.cost
+        );
+    }
+}
+
+/// The chests recorded with treasure draw it at their kind's level and band; none pays more than
+/// its kind was seen to, and those of an unknown level stay as their templates have them.
+/// Behaviour: server.places.a-chests-draw-is-treasure-of-its-level
+#[test]
+fn the_recorded_chests_draw_treasure_within_what_2017_showed() {
+    let t = &compiled().tables;
+    let got: std::collections::BTreeMap<&str, (i32, (u32, u32))> = t
+        .loot
+        .profiles
+        .iter()
+        .filter_map(|p| p.chest.map(|c| (p.name.as_str(), (c.level, c.value))))
+        .collect();
+    // Each kind's greatest piece in 2017.
+    for (name, most) in [
+        ("GP_Chest_SigilHuman_Standard_LowHoard", 20),
+        ("GP_Chest_SigilHuman_Weapons_LowHoard", 11),
+        ("GP_Chest_SigilHuman_UberHoard", 35),
+        ("GP_Chest_SigilLugian_ArmorHoard", 86),
+        ("GP_Chest_SigilLugian_WeaponsHoard", 81),
+        ("GP_Chest_SigilLugian_UberHoard", 213),
+        ("GP_Chest_SigilTumerok_UberHoard", 95),
+        ("GP_SHRETHBaseUltraTreasureHoard", 231),
+    ] {
+        let (_, (low, high)) = got[name];
+        assert!(low > 0 && high <= most, "{name}: {low} to {high}");
+    }
+    assert_eq!(got.len(), 8);
+}
+
 /// Who a store's sales are for comes from the install: the honey shop and the fur trader hide
 /// what a player may not have, the sealed orders do not; the honey shop's last two sales need a
 /// quest finished, each of the fur trader's glasses its race, each sealed order its quest under
@@ -1331,6 +1386,262 @@ fn a_vaults_shard_completes_the_quest_of_its_vault() {
     ] {
         let d = def(&t.story.shard_quests[&object]);
         assert_eq!((d.xp, d.pay.points, d.challenge), (xp, points, challenge));
+    }
+}
+
+/// What creatures' death effects make are creatures, and those effects are what the install's
+/// creatures name.
+/// Behaviour: server.creatures.death-spawns-rows
+#[test]
+fn the_death_spawns_name_creatures() {
+    let t = &compiled().tables;
+    assert_eq!(t.death_spawns.len(), 9, "{:?}", t.death_spawns);
+    let portal = yalain_testkit::authored::Portal::open();
+    let stats = |id: u32| {
+        let template = portal.template(id);
+        yalain_content::CreatureStats::from_props(&template.props)
+    };
+    for (name, want) in [
+        ("Eff_FortTears_SpawnDrudgeHelper1", 0.7),
+        ("Eff_SpawnShrethHelpers", 1.0),
+    ] {
+        let spawn = t.death_spawns[name];
+        assert!((spawn.chance - want).abs() < f32::EPSILON, "{name}");
+        assert!(stats(spawn.template).is_some(), "{name} makes a creature");
+    }
+    let sentry = stats(0x4700_239B).expect("the sentry");
+    assert!(sentry
+        .death_effects
+        .iter()
+        .any(|e| t.death_spawns.contains_key(e)));
+}
+
+/// A Gauntlet: its band's use of the Master gives it, the Portal sends to the first arena, each kill
+/// the next, a use of the Master before the end fails it, and what it pays rises with the kills.
+/// Behaviour: server.quests.gauntlets
+#[test]
+fn the_gauntlets_lead_from_arena_to_arena_and_a_use_before_the_end_fails() {
+    use yalain_content::quests::{Trigger, Update};
+    const MASTER: u32 = 0x4700_2FD2;
+    const PORTAL: u32 = 0x4700_2FD4;
+    let t = &compiled().tables;
+    let ids = quest_ids();
+    let q = ids["QuestGauntlet45plus"];
+    let steps: Vec<_> = t.quests.steps.iter().filter(|s| s.quest == q).collect();
+    let give = steps
+        .iter()
+        .find(|s| s.update == Update::Bestow)
+        .expect("a giving");
+    assert_eq!(give.trigger, Trigger::Use(MASTER));
+    assert_eq!(give.levels, Some((45, i32::MAX)));
+    let enter = steps
+        .iter()
+        .find(|s| s.trigger == Trigger::Use(PORTAL))
+        .expect("the portal");
+    assert_eq!(enter.update, Update::Nothing);
+    assert_eq!(enter.needs, 1);
+    assert!(enter.to.is_some(), "leads to the first arena");
+    let kills: Vec<_> = steps
+        .iter()
+        .filter(|s| matches!(s.trigger, Trigger::Kill(_)))
+        .collect();
+    assert_eq!(kills.len(), 5);
+    assert_eq!(
+        kills.iter().filter(|s| s.to.is_some()).count(),
+        4,
+        "each but the last leads on"
+    );
+    // What 2017's failures paid, from the phase they failed at.
+    let fail_at = |phase: u32| {
+        steps
+            .iter()
+            .find(|s| s.update == Update::Fail && s.needs == phase)
+            .expect("a failing step")
+            .xp_share
+    };
+    assert!(fail_at(1).abs() < f32::EPSILON);
+    assert!((fail_at(4) - 0.01).abs() < 1e-6);
+    assert!((fail_at(5) - 0.0125).abs() < 1e-6);
+    let band = |n: &str, level: i32| {
+        t.quests.steps.iter().any(|s| {
+            s.quest == ids[n]
+                && s.update == Update::Bestow
+                && s.levels.is_some_and(|(a, b)| a <= level && level <= b)
+        })
+    };
+    assert!(band("QuestGauntlet20to24", 23));
+    assert!(band("QuestGauntlet30to34", 33));
+    assert!(!band("QuestGauntlet30to34", 35));
+    assert!(t.quests.quest(q).expect("a row").fails_on_death);
+    // Each arena is one of a row of rooms, and each room holds a camp of what's killed there.
+    assert_eq!(t.quests.rooms.len(), 16);
+    let rooms: usize = t.quests.rooms.iter().map(Vec::len).sum();
+    assert_eq!(rooms, 50);
+    let camps = |cell: u32| t.spawns.camps.iter().filter(|c| c.cell == cell).count();
+    for room in t.quests.rooms.iter().flatten() {
+        assert_eq!(camps(room.holds), 1, "{:#x}", room.holds);
+    }
+    let arenas = ids["QuestGauntlet20to24"]..=ids["QuestGauntlet45plus"];
+    for step in t
+        .quests
+        .steps
+        .iter()
+        .filter(|s| s.to.is_some() && arenas.contains(&s.quest))
+    {
+        let to = step.to.expect("led to");
+        assert!(
+            t.quests.rooms.iter().flatten().any(|r| r.place == to),
+            "{:#x} is one of a row",
+            to.cell
+        );
+    }
+}
+
+/// A practice gem goes by the nearest ten to the player's level, one in a week whatever the player
+/// does with it, by a hidden quest done as it is handed over; its use gives the gem's own quest.
+/// Behaviour: server.quests.practice-gems
+#[test]
+fn the_practice_gems_go_by_level() {
+    use yalain_content::quests::{Trigger, Update};
+    const PERSON: u32 = 0x4700_326D;
+    let t = &compiled().tables;
+    let control = quest_ids()["Quest_DeadlyDummyControl"];
+    let gem_at = |level: i32| -> Vec<u32> {
+        t.quests
+            .steps
+            .iter()
+            .filter(|s| {
+                s.quest == control
+                    && s.trigger == Trigger::Use(PERSON)
+                    && s.update == Update::Complete
+                    && s.needs == 0
+                    && s.levels.is_some_and(|(a, b)| a <= level && level <= b)
+            })
+            .flat_map(|s| s.gives.clone())
+            .collect()
+    };
+    assert_eq!(gem_at(26), vec![0x4700_1853]);
+    assert_eq!(gem_at(37), vec![0x4700_1854]);
+    assert_eq!(gem_at(41), vec![0x4700_1854]);
+    assert_eq!(gem_at(50), vec![0x4700_1855]);
+    assert_eq!(gem_at(70), vec![0x4700_1857]);
+    assert!(gem_at(24).is_empty());
+    let def = t.quests.quest(control).expect("a row");
+    assert!(def.hidden);
+    assert!((def.retry - 604_800.0).abs() < 1.0);
+    let portal = yalain_testkit::authored::Portal::open();
+    let gem = portal.template(0x4700_1853);
+    assert_eq!(
+        gem.props.text("Usage_Effect1"),
+        Some("Eff_BestowQuest_DeadlyDummy30")
+    );
+    // Each gem's use makes the dummy whose death moves that gem's own quest.
+    let portal = yalain_testkit::authored::Portal::open();
+    let spawns = &t.death_spawns;
+    for (gem, tier) in (0x4700_1853..=0x4700_1857).zip([30, 40, 50, 60, 70]) {
+        let summon = format!("Eff_SummonDeadlyDummy{tier}");
+        assert_eq!(
+            portal.template(gem).props.text("Usage_Effect2"),
+            Some(summon.as_str())
+        );
+        let row = spawns.get(&summon).expect("a row");
+        assert!((row.offset[1] - 2.0).abs() < 1e-6, "2 m ahead");
+        assert_eq!(
+            portal.template(row.template).props.text("NPC_DeathEffect1"),
+            Some(format!("Eff_AdvanceQuest_DeadlyDummy{tier}Phase2").as_str())
+        );
+    }
+}
+
+/// Cragstone's yard holds no camp of creatures seen there only on the servers' last day, or of the
+/// clones a player's item makes.
+/// Behaviour: server.camps.last-day-crowds-left-out
+#[test]
+fn cragstone_keeps_no_last_day_crowd() {
+    let t = &compiled().tables;
+    let in_yard = |template: u32| {
+        t.spawns
+            .camps
+            .iter()
+            .filter(|c| c.cell >> 16 == 0x6FA9)
+            .any(|c| c.templates.iter().any(|(id, _)| *id == template))
+    };
+    let anywhere = |template: u32| {
+        t.spawns
+            .camps
+            .iter()
+            .any(|c| c.templates.iter().any(|(id, _)| *id == template))
+    };
+    for (template, what) in [
+        (0x4700_3437, "a player's Grievver"),
+        (0x4700_0894, "a player's clones"),
+        (0x4700_3459, "a player's lights"),
+        (0x4700_21EE, "a player's balloons"),
+    ] {
+        assert!(!anywhere(template), "{what}");
+    }
+    assert!(!in_yard(0x4700_0826), "a perk's creatures");
+    assert!(anywhere(0x4700_0826), "the same creature in the wild stays");
+    let rabbits =
+        t.spawns.camps.iter().any(|c| {
+            c.cell >> 16 == 0x09F2 && c.templates.iter().any(|(id, _)| *id == 0x4700_29A5)
+        });
+    assert!(rabbits, "a camp of wild creatures seen on that day stays");
+}
+
+/// The install's level table.
+fn level_table() -> yalain_world::levels::LevelTable {
+    let dir = require_install(TARGET);
+    let found = install_dats(&dir).expect("the install");
+    let path = &found
+        .iter()
+        .find(|(m, _)| *m == DatName::Portal)
+        .expect("a data file")
+        .1;
+    let portal = DatFile::open(path).expect("opens");
+    let ctx = Context::from_portal(&portal).expect("context");
+    let lib = portal
+        .read_checked(RECORD, Library::from_record)
+        .expect("the library reads")
+        .value;
+    let id = yalain_world::levels::LEVEL_TABLE;
+    let st: auberean_assets::script::ScriptState =
+        auberean_assets::decode(id, &portal.read(id).expect("reads"), &ctx).expect("decodes");
+    let g = auberean_script::graph::Graph::decode(&st.graph, &lib).expect("graph");
+    yalain_world::levels::LevelTable::from_state(&lib, &g).expect("the levels")
+}
+
+/// A quest with no setup pays what 2017 paid for it, whole whatever the player's level, as an amount
+/// or a share up to its limit; one not recorded pays what a guide of the time gives.
+/// Behaviour: server.quests.pay-with-no-setup
+#[test]
+fn the_quests_with_no_setup_pay_what_2017_paid_whole() {
+    let t = &compiled().tables;
+    let ids = quest_ids();
+    let levels = level_table();
+    let paid = |name: &str, level: i32| {
+        let def = t
+            .quests
+            .quest(ids[name])
+            .unwrap_or_else(|| panic!("{name} has a row"));
+        yalain_world::quests::completion_pay(&levels, def, level)
+    };
+    for (name, level, want) in [
+        ("QuestBarnesLumari", 30, 43_000),
+        ("QuestBarnesLumari", 50, 43_000),
+        ("Quest_DankRelics_2", 42, 200_000),
+        ("QuestHeroicSlayer6", 49, 5_000_000),
+        ("QuestRytheransBane", 43, 25_000_000),
+        ("QuestImperatorWildHare", 42, 2_707_670),
+        ("QuestImperatorWildHare", 50, 6_352_899),
+        ("QuestStubby3", 42, 541_534),
+        ("QuestStubby5", 50, 5_007_346),
+        ("QuestStubby5", 48, 2_914_975),
+        ("QuestStubby1", 50, 1_251_836),
+        ("Quest_KQ3E_ShadeMatron", 60, 142_874_598),
+        ("Quest_KQ3E_ShadeMatron", 70, 142_874_598),
+    ] {
+        assert_eq!(paid(name, level), want, "{name} at {level}");
     }
 }
 
@@ -3160,8 +3471,8 @@ fn an_ulkas_mine_is_given_by_a_guard_after_its_toll_and_its_last_gem_ends_the_to
 }
 
 /// **Ryvenna's gems**: 33 in the order characters did them: each given at the use after the one
-/// before it is done, none given twice, any size taken, her fee paid (one for any size, or twice
-/// the gem's worth by size) and her next gem named.
+/// before it is done, none given twice, any size taken and paid twice what that size is worth (the
+/// one fee recorded, a plain jade's 900, is that), her next gem named, and her tool for the last.
 /// Behaviour: server.gives.ryvenna-gems
 #[test]
 fn ryvennas_gems_follow_one_another_in_the_order_characters_did_them() {
@@ -3175,7 +3486,11 @@ fn ryvennas_gems_follow_one_another_in_the_order_characters_did_them() {
     const GARNET: u32 = 0x4000_02ED;
     const STARSTONE: u32 = 0x4000_02FD;
     const OPAL: u32 = 0x4000_02F4;
+    const COIN: u32 = 0x4700_0538;
+    const CUTTER: u32 = 0x4700_14C0;
+    const PLAIN_JADE: u32 = 0x4700_1045;
     let t = &compiled().tables;
+    let portal = yalain_testkit::authored::Portal::open();
     let givings: Vec<_> = t
         .quests
         .steps
@@ -3208,7 +3523,6 @@ fn ryvennas_gems_follow_one_another_in_the_order_characters_did_them() {
         q = after(at);
     }
     assert_eq!(n, 33, "one chain");
-    let portal = yalain_testkit::authored::Portal::open();
     for g in &givings {
         let taken: Vec<_> = t
             .quests
@@ -3219,21 +3533,35 @@ fn ryvennas_gems_follow_one_another_in_the_order_characters_did_them() {
             })
             .collect();
         assert_eq!(taken.len(), 4, "{:08X}: every size", g.quest);
-        let fee = &taken[0].counts;
-        let one_fee = taken.iter().all(|s| &s.counts == fee);
-        let by_worth = taken.iter().all(|s| {
+        for s in taken {
             let Trigger::Give(gem, _) = s.trigger else {
-                return false;
+                unreachable!("kept for a give")
             };
-            let worth = portal.template(gem).props.int("Item_Value").unwrap_or(0);
-            s.counts.first() == u32::try_from(2 * worth).ok().as_ref()
-        });
-        assert!(
-            one_fee || by_worth,
-            "{:08X}: one fee for any size, or twice each gem's worth",
-            g.quest
-        );
+            let value = portal
+                .template(gem)
+                .props
+                .int("Item_Value")
+                .expect("a gem's value");
+            assert_eq!(s.gives.first(), Some(&COIN), "{gem:08X}");
+            let fee = u32::try_from(value * 2).expect("a fee");
+            assert_eq!(s.counts.first().copied(), Some(fee), "{gem:08X}");
+        }
     }
+    let recorded = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| matches!(s.trigger, Trigger::Give(PLAIN_JADE, RYVENNA)))
+        .expect("the jade recorded");
+    assert_eq!(recorded.counts, [900], "the fee recorded");
+    let last: Vec<_> = t
+        .quests
+        .steps
+        .iter()
+        .filter(|s| s.quest == STARSTONE && matches!(s.trigger, Trigger::Give(_, RYVENNA)))
+        .collect();
+    assert_eq!(last.len(), 4);
+    assert!(last.iter().all(|s| s.gives.contains(&CUTTER)), "her tool");
 
     let (mut h, b, me) = served(t);
     set_level(&mut h, 60);
@@ -3616,6 +3944,131 @@ fn the_rouge_mirra_goes_as_the_other_mirras() {
     assert_eq!(quest_state(&h, QUEST), Some((status::UNDERWAY, 3)));
     hand_in(&mut h, &portal, 0x4700_076A, 0x4700_3331);
     assert_eq!(quest_state(&h, QUEST).map(|q| q.0), Some(status::COMPLETED));
+}
+
+/// The Ultra Chest, the one chest standing whose kind names a use effect, names the completion of the
+/// quest that keeps it, by a name the server reads; no row of the world gives that quest.
+/// Behaviour: server.places.a-chests-use-comes-on-its-opener
+#[test]
+fn the_ultra_chests_effect_completes_the_quest_that_keeps_it() {
+    use yalain_world::quests::{effect_named, Move};
+    const ULTRA_CHEST: u32 = 0x4700_0F39;
+    let portal = yalain_testkit::authored::Portal::open();
+    let t = portal.template(ULTRA_CHEST);
+    let ids = quest_ids();
+    let quest = t
+        .props
+        .word("Usage_RequiredQuest")
+        .expect("kept by a quest");
+    let name = t.props.text("Usage_Effect1").expect("names an effect");
+    let e = effect_named(name, |q| ids.get(q).copied()).expect("a quest's");
+    assert_eq!((e.quest, e.act), (quest, Move::Complete));
+    assert_eq!(quest, ids["QuestSHRETHBaseUltraChest"]);
+    let tables = &compiled().tables;
+    assert!(
+        !tables.quests.steps.iter().any(|s| s.quest == quest),
+        "nothing gives it yet"
+    );
+}
+
+/// Each practice gem's dummy stands as long as its gem says and its quest runs, and on the real path
+/// a gem used at its place makes it, 2 m ahead, for that long; used elsewhere, it's refused and kept.
+/// Behaviour: server.creatures.a-gems-dummy-lasts-its-time
+#[test]
+fn a_practice_gem_makes_its_dummy_at_its_place_for_its_ninety_seconds() {
+    const GEM: u32 = 0x4700_1853;
+    const DUMMY: u32 = 0x4700_2DB0;
+    let t = &compiled().tables;
+    let ids = quest_ids();
+    for tier in [30, 40, 50, 60, 70] {
+        let row = t
+            .death_spawns
+            .get(&format!("Eff_SummonDeadlyDummy{tier}"))
+            .expect("a row");
+        let quest = t
+            .quests
+            .quest(ids[&format!("Quest_DeadlyDummy{tier}")])
+            .expect("its quest");
+        assert_eq!(row.lasts.map(f64::from), Some(quest.duration), "{tier}");
+    }
+    let portal = yalain_testkit::authored::Portal::open();
+    let (mut h, b, me) = served(t);
+    // Above the least level its quest is given at.
+    set_level(&mut h, 30);
+    h.server.catalog.insert(portal.template(GEM));
+    h.server.catalog.insert(portal.template(DUMMY));
+    h.server.item_uses = portal.item_uses(&[GEM]);
+    h.server.death_spawns = t
+        .death_spawns
+        .iter()
+        .map(|(k, v)| (k.clone(), *v))
+        .collect();
+    let quest = ids["Quest_DeadlyDummy30"];
+    h.server.quest_ids = ids;
+    let gem_template = h.server.catalog.get(GEM).expect("the gem");
+    assert!(
+        yalain_world::item_use::spends(GEM, &gem_template.props),
+        "its kind is used up"
+    );
+    h.run(4);
+    let world = *h.server.players.keys().next().expect("in");
+    let gem =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, GEM, 1).expect("given");
+    h.run(2);
+    let dummies = |h: &Harness| -> Vec<u64> {
+        h.server
+            .things
+            .by_id
+            .values()
+            .filter(|t| t.template == DUMMY)
+            .map(|t| t.id)
+            .collect()
+    };
+    let use_gem = |h: &mut Harness| {
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(0x8216_0016, &[use_of(gem, me)]),
+        );
+        h.run(10);
+    };
+    use_gem(&mut h);
+    assert!(dummies(&h).is_empty(), "not at its place");
+    assert!(h.server.things.get(gem).is_some(), "kept");
+    let at = {
+        let p = h.server.players.get_mut(&world).expect("in");
+        p.position.cell = 0xC6A2_001A;
+        p.position.origin = [62.0, 40.0, 135.0];
+        p.position
+    };
+    use_gem(&mut h);
+    h.run(100);
+    let made = dummies(&h);
+    assert_eq!(made.len(), 1, "at its place");
+    assert!(h.server.things.get(gem).is_none(), "spent");
+    let p = &h.server.players[&world];
+    assert_eq!(
+        yalain_world::quests::phase_of(&p.play.quests, quest),
+        1,
+        "its quest given"
+    );
+    let there = h
+        .server
+        .things
+        .get(made[0])
+        .and_then(|t| t.at)
+        .expect("stands");
+    let (dx, dy) = (
+        there.origin[0] - at.origin[0],
+        there.origin[1] - at.origin[1],
+    );
+    assert!(((dx * dx + dy * dy) - 4.0).abs() < 0.05, "{there:?}");
+    h.advance(80.0);
+    h.run(2);
+    assert_eq!(dummies(&h), made, "still there");
+    h.advance(11.0);
+    h.run(2);
+    assert!(dummies(&h).is_empty(), "gone");
 }
 
 /// What the best transmutation perk pays for what a store sells is no more than its price, so no
@@ -4078,4 +4531,145 @@ fn the_worlds_treasure_numbers_draw_the_seeded_drops_as_recorded() {
     println!("the world's treasure numbers, the server's own for: {fell_back:?}");
     let p = yalain_testkit::authored::Portal::open();
     yalain_testkit::treasure_drops::seeded_drops(&p, tables).hold_recorded();
+}
+
+/// Each practice gem's effect names a row of the world's that makes a creature, and a start asks
+/// for it, the tier-60 gem's dummy among them.
+/// Behaviour: server.makes.the-rows-name-what-they-make
+#[test]
+fn every_practice_gem_names_a_row_a_start_describes() {
+    let t = &compiled().tables;
+    let catalog = yalain_testkit::authored::Portal::open().catalog(t);
+    for tier in [30, 40, 50, 60, 70] {
+        let row = t
+            .death_spawns
+            .get(&format!("Eff_SummonDeadlyDummy{tier}"))
+            .unwrap_or_else(|| panic!("the row of the tier-{tier} gem"));
+        assert!(catalog.get(row.template).is_some(), "{tier}");
+    }
+    assert!(catalog.get(0x4700_2DAE).is_some(), "the tier-60 dummy");
+}
+
+/// The portal to the far continent stands where its recording does, and leads to the one landing
+/// recorded; its hub's gateway home leads back beside it.
+/// Behaviour: server.world-db.far-continent-portal-leads-in
+#[test]
+fn the_portal_to_the_far_continent_leads_to_its_recorded_landing() {
+    let t = &compiled().tables;
+    let of = |id: u64| {
+        t.content
+            .objects
+            .iter()
+            .find(|o| o.object == Some(id))
+            .unwrap_or_else(|| panic!("{id:016X}"))
+    };
+    let portal = of(0x40A0_9700_0000_0001);
+    assert_eq!(portal.cell, 0xA097_0024);
+    let landing = portal.destination.as_ref().expect("it leads somewhere");
+    assert_eq!(landing.cell, 0xAB57_002B);
+    assert_eq!(landing.origin, [110.0, 56.0, 151.5]);
+    let home = of(0x4006_C000_0000_0005);
+    assert_eq!(
+        home.destination.as_ref().expect("the way home").cell >> 16,
+        0xA097
+    );
+}
+
+/// Each hunt and bounty of the far continent these rows open has its giver standing, a use that
+/// gives it, a use that ends it, and a camp keeping alive the creature whose death moves it.
+/// Behaviour: server.world-db.far-continent-hunts-can-be-finished
+#[test]
+fn the_far_continents_hunts_each_have_a_giver_a_return_and_their_creature() {
+    use yalain_content::quests::{Trigger, Update};
+    let t = &compiled().tables;
+    let catalog = yalain_testkit::authored::Portal::open().catalog(t);
+    for (quest, giver, creature) in [
+        (0x8000_0182_u32, 0x4700_30B1_u32, 0x4700_2725_u32),
+        (0x8000_0185, 0x4700_30B7, 0x4700_2986),
+        (0x8000_0192, 0x4700_30D0, 0x4700_2D21),
+        (0x8000_0195, 0x4700_30D6, 0x4700_2306),
+        (0x8000_01F4, 0x4700_3124, 0x4700_286F),
+        (0x8000_01F5, 0x4700_3126, 0x4700_274D),
+        (0x8000_01F7, 0x4700_312A, 0x4700_2532),
+        (0x8000_01F8, 0x4700_312C, 0x4700_2B4E),
+        (0x8000_01F9, 0x4700_312E, 0x4700_27DA),
+        (0x8000_01FC, 0x4700_3134, 0x4700_2BA6),
+        (0x8000_01FF, 0x4700_313A, 0x4700_2552),
+        (0x8000_0202, 0x4700_3140, 0x4700_28D0),
+        (0x8000_0206, 0x4700_3148, 0x4700_2594),
+    ] {
+        let steps = || t.quests.steps.iter().filter(|s| s.quest == quest);
+        assert!(
+            steps().any(|s| s.needs == 0
+                && s.update == Update::Bestow
+                && s.trigger == Trigger::Use(giver)),
+            "{quest:08X} is given"
+        );
+        assert!(
+            steps().any(|s| s.needs > 0
+                && s.update == Update::Complete
+                && s.trigger == Trigger::Use(giver)),
+            "{quest:08X} is taken back"
+        );
+        assert!(
+            t.content.objects.iter().any(|o| o.template == giver),
+            "{quest:08X}'s giver stands"
+        );
+        assert!(
+            t.spawns
+                .camps
+                .iter()
+                .any(|c| c.templates.iter().any(|&(t, _)| t == creature)),
+            "{quest:08X}'s creature has a camp"
+        );
+        assert!(
+            catalog.get(creature).is_some(),
+            "{creature:08X} is described"
+        );
+    }
+}
+
+/// A mushroom hunt's five mushrooms each lie in a camp and go to the vendor, who gives the hunt and
+/// ends it with the stew; a start describes them all.
+/// Behaviour: server.world-db.mushrooms-go-to-their-vendor
+#[test]
+fn a_mushroom_hunt_gives_lies_hands_in_and_ends_with_its_stew() {
+    use yalain_content::quests::{Trigger, Update};
+    let t = &compiled().tables;
+    let catalog = yalain_testkit::authored::Portal::open().catalog(t);
+    const VENDOR: u32 = 0x4700_3156;
+    const ROOT: u32 = 0x8000_0276;
+    const STEW: u32 = 0x4700_08BC;
+    let end = t
+        .quests
+        .steps
+        .iter()
+        .find(|s| s.quest == ROOT && s.update == Update::Complete)
+        .expect("it ends");
+    assert_eq!(end.trigger, Trigger::Use(VENDOR));
+    assert_eq!(end.gives, [STEW]);
+    assert!(catalog.get(STEW).is_some());
+    for (sub, mushroom) in [
+        (0x8000_0263_u32, 0x4700_08B7_u32),
+        (0x8000_0260, 0x4700_08B8),
+        (0x8000_0264, 0x4700_08BA),
+        (0x8000_0261, 0x4700_08B9),
+        (0x8000_0262, 0x4700_08BB),
+    ] {
+        assert!(
+            t.quests.steps.iter().any(|s| s.quest == sub
+                && s.update == Update::Complete
+                && s.trigger == Trigger::Give(mushroom, VENDOR)
+                && s.takes == [mushroom]),
+            "{sub:08X}"
+        );
+        assert!(
+            t.spawns
+                .camps
+                .iter()
+                .any(|c| c.templates.iter().any(|&(t, _)| t == mushroom)),
+            "{mushroom:08X} lies somewhere"
+        );
+        assert!(catalog.get(mushroom).is_some(), "{mushroom:08X}");
+    }
 }

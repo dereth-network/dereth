@@ -969,6 +969,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.camps.last-day-crowds-left-out",
+        says: "Cragstone keeps no camp of the creatures and clones that only the servers' last day shows there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-LAST-DAY-CROWDS-2017"),
+        station: "yalain-testkit::corpus::world_db::cragstone_keeps_no_last_day_crowd",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.characters.banned-names-from-the-operator",
         says: "A server given a list of banned words refuses a new character whose name holds \
                one, its letters matched in small letters with spaces and marks between them \
@@ -2811,6 +2819,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-DEATH-SPAWNS-LIMITED"),
         station: "yalain-testkit::cpu::play::death_spawns::only_so_many_of_a_death_effects_creatures_live_at_once",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.death-spawns-rows",
+        says: "A world's death-effect rows make creatures of the install, for the effects its creatures name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-DEATH-SPAWNS-2017"),
+        station: "yalain-testkit::corpus::world_db::the_death_spawns_name_creatures",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.creatures.falls-to-the-floor",
@@ -5425,8 +5441,8 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "server.gives.ryvenna-gems",
-        says: "A jeweler's 33 gems come one after another in the order characters did them, any size taken, none \
-               given twice.",
+        says: "A jeweler's 33 gems come one after another in the order characters did them, any size taken and paid \
+               twice what it is worth, none given twice, and her tool for the last.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-WDB-GEM-CHAIN-2017"),
         station: "yalain-testkit::corpus::world_db::ryvennas_gems_follow_one_another_in_the_order_characters_did_them",
@@ -11792,6 +11808,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.gauntlets",
+        says: "The six Gauntlets are given by level, each kill leads on to the next arena, and a use of their Master before the end fails with a token reward by the phase reached.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-GAUNTLETS-2017"),
+        station: "yalain-testkit::corpus::world_db::the_gauntlets_lead_from_arena_to_arena_and_a_use_before_the_end_fails",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.quests.given-again-no-wait",
         says: "A done quest with no wait is given again at once; one its definition says is done \
                once is never given again.",
@@ -11940,6 +11964,14 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-ONE-AT-A-TIME"),
         station: "yalain-testkit::cpu::play::quest_uses::a_person_with_several_quests_gives_one_at_a_time_and_none_until_its_wait_is_over",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.pay-with-no-setup",
+        says: "A quest with no setup pays on completion what the recordings show it paid, whole; one not recorded pays what a player's guide of the time gives.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-QUEST-PAY-2017"),
+        station: "yalain-testkit::corpus::world_db::the_quests_with_no_setup_pay_what_2017_paid_whole",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.quests.points-a-pattern-supports",
@@ -13136,6 +13168,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.store.nothing-sold-pays-back-its-price",
+        says: "Every sale of the world's stores is in coin, and each piece costs more than it is worth.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-STORE-COST-OVER-WORTH"),
+        station: "yalain-testkit::corpus::world_db::nothing_a_store_sells_is_worth_what_it_costs",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "server.store.purchase",
         says: "Buying a sale with enough money takes its price from the player's money and makes \
                the item in the player's pack.",
@@ -14007,6 +14047,34 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-WDB-EVENT-GAME-EVENTS"),
         station: "yalain::bin.yalain::data::tests::an_event_row_names_a_game_event_of_the_install",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.world-db.far-continent-hunts-can-be-finished",
+        says: "Each hunt and bounty of the far continent the world's rows open has its giver standing, \
+               a use that gives it, a use that ends it, and a camp keeping alive the creature whose \
+               death moves it, on a real start's catalog.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-HUNTS"),
+        station: "yalain-testkit::corpus::world_db::the_far_continents_hunts_each_have_a_giver_a_return_and_their_creature",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world-db.far-continent-portal-leads-in",
+        says: "The portal to the far continent stands where its one recording does and leads to the \
+               one landing recorded; its hub's gateway home leads back beside it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-2017"),
+        station: "yalain-testkit::corpus::world_db::the_portal_to_the_far_continent_leads_to_its_recorded_landing",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.world-db.mushrooms-go-to-their-vendor",
+        says: "A mushroom hunt's five mushrooms each lie in a camp and go to the vendor, who gives the \
+               hunt and ends it with the stew; a start describes them all.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-KNORR-MUSHROOMS"),
+        station: "yalain-testkit::corpus::world_db::a_mushroom_hunt_gives_lies_hands_in_and_ends_with_its_stew",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "server.world-db.points-bonus-effects-from-the-install",
