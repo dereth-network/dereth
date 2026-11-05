@@ -433,8 +433,9 @@ impl Controls {
         }
     }
 
-    /// A latched run ended (its action dropped): by going forward, backward or stopping, and each
-    /// frame the player's body makes a move on its own, so the run does not go on when it arrives.
+    /// A latched run ended (its action dropped): by going forward, backward or stopping, by a
+    /// teleport, and each frame the player's body makes a move on its own, so the run does not go
+    /// on when it arrives.
     // D2-03454
     pub fn turn_off_run_lock(&mut self) {
         self.actions.retain(|a| a.action != movement::RUN_LOCK);

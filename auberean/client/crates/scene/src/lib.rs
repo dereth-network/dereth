@@ -382,6 +382,8 @@ pub struct Scene<'w> {
     pub entering: bool,
     /// The player's teleport stamp last seen.
     teleport_stamp: Option<u16>,
+    /// The server moved the player to a new place in the latest update.
+    player_teleported: bool,
     /// A scene on the way through a door plays: no portal space while it does.
     pub portal_scene_playing: bool,
     /// The player's body was placed with its cells loaded, last frame.
@@ -1217,6 +1219,7 @@ impl<'w> Scene<'w> {
             prepared: None,
             in_session: false,
             entering: false,
+            player_teleported: false,
             teleport_stamp: None,
             portal_scene_playing: false,
             ready_to_enter: false,
@@ -1282,6 +1285,7 @@ impl<'w> Scene<'w> {
             let server_ready = client.model.player_object().is_some() && !client.in_portal_space();
             let stamp = client.body.teleport_stamp;
             let teleported = self.teleport_stamp.is_some_and(|s| s != stamp);
+            self.player_teleported = teleported;
             if client.body.placed() {
                 self.teleport_stamp = Some(stamp);
             }
@@ -3231,6 +3235,12 @@ impl<'w> Scene<'w> {
     #[must_use]
     pub fn player_moving_to(&self) -> bool {
         self.player.as_ref().is_some_and(|p| p.body.is_moving_to())
+    }
+
+    /// Whether the server moved the player to a new place in the latest update.
+    #[must_use]
+    pub fn player_teleported(&self) -> bool {
+        self.player_teleported
     }
 
     /// Whether a behavior that locks actions holds the player's own movement.

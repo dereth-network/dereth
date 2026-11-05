@@ -770,6 +770,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.controls.a-teleport-ends-the-latched-run",
+        says: "A latched run ends when the server moves the player with a new teleport stamp, so it does not run on from where it arrives.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-TELEPORT-RUN-LOCK"),
+        station: "auberean-shell::dat::session::a_teleport_ends_the_latched_run",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.controls.autorun-latches-and-a-jump-is-one-press",
         says: "Q or Num Lock latches running; forward or backward turns it off, strafing and \
                turning do not. Space or J jumps once a press.",

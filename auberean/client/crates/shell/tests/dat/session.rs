@@ -5820,6 +5820,70 @@ fn a_move_ordered_ends_the_latched_run() {
     assert!(!s.controls.autorun(), "the move ended the run");
 }
 
+/// A teleport ends a latched run, so the player does not run on from where it arrives. Fixture: a
+/// server double putting the player down again with a new teleport stamp at a set time.
+///
+/// Behaviour: desktop.controls.a-teleport-ends-the-latched-run
+#[test]
+fn a_teleport_ends_the_latched_run() {
+    let put = ServerMessage::Position(ObjectPosition {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        time: 0.0,
+        cell: HALL_CELL,
+        origin: HALL_AT,
+        heading_motion: u32::from_be_bytes([0, 127, 127, 127]),
+        flags: 0,
+        position_stamp: 1,
+        force_position_stamp: 0,
+        teleport_stamp: 1,
+        velocity: Vec3::new(0.0, 0.0, 0.0),
+    });
+    let script = script_until(
+        HALL_CELL,
+        HALL_AT,
+        Quat::IDENTITY,
+        &[],
+        &[(12.0, put)],
+        30.0,
+    );
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    while s.host.time < 6.0 {
+        step(&mut s);
+    }
+    assert_eq!(s.phase(), Phase::World);
+    for down in [true, false] {
+        s.event(&Event::Key {
+            key: Key::Q,
+            down,
+            repeat: false,
+        });
+    }
+    step(&mut s);
+    assert!(s.controls.autorun(), "Q latched the run");
+    let stamp = |s: &Shell<'_, DoubleHost>| s.client.as_ref().map_or(0, |c| c.body.teleport_stamp);
+    while stamp(&s) == 0 {
+        assert!(s.controls.autorun(), "only the teleport ends the run");
+        assert!(s.host.time < 20.0, "the teleport never came");
+        step(&mut s);
+    }
+    step(&mut s);
+    assert!(!s.controls.autorun(), "the teleport ended the run");
+}
+
 /// The window losing the keyboard lets each action in force go as its key would: a strafe held
 /// then ends, and the next reports carry no sideways motion; the run Q latched goes on, its
 /// reports still running forward.

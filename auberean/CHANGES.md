@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Fixed auto-run carrying on through a portal.
 - Fixed other bodies not leaving the ground when an animation made them jump.
 - Jumping now interrupts the same actions walking does.
 - A world that changes the game's records now sends them to you as you log in.

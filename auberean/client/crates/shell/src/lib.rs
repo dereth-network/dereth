@@ -782,8 +782,8 @@ impl<'w, H: Host> Shell<'w, H> {
             let t0 = self.host.now();
             self.scene.entering = self.entering;
             self.scene.update(c, &intent, now, dt);
-            // D2-09649
-            if self.scene.player_moving_to() {
+            // D2-09649, D2-10665
+            if self.scene.player_moving_to() || self.scene.player_teleported() {
                 self.controls.turn_off_run_lock();
             }
             let t1 = self.host.now();
