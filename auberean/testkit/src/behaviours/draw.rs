@@ -1759,6 +1759,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.world.only-objects-that-say-so-cast-on-the-land",
+        says: "An object prints on the sun's shadow map only when its drawing properties say it casts on the land. Those without the property, placed or scenery, leave no shadow there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LAND-CASTERS-0930"),
+        station: "auberean-draw::dat::landscape::only_objects_that_say_so_cast_on_the_land",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.world.the-far-landscape-and-the-frills-reach-as-far-as-set",
         says: "The far landscape reaches as many blocks past the detailed ones as its radius, the detailed blocks drawn at every radius; frills are drawn only in the land cells within their radius of the viewer's, none when turned off, fading out over the last eight meters of their reach.",
         since: RETAIL,

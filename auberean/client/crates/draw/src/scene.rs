@@ -7,6 +7,7 @@ use dereth_primitives::num::floor_to_i32;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use auberean_assets::entity::Entity;
 use auberean_assets::landblock::Landblock;
 use auberean_assets::mesh::{CellMesh, Mesh};
 use auberean_primitives::{DataId, Vec3};
@@ -1219,7 +1220,7 @@ impl<'a> SceneBuilder<'a> {
     /// plays startup effects.
     pub(crate) fn placed_look(
         &mut self,
-        e: &auberean_assets::entity::Entity,
+        e: &Entity,
         block: (i32, i32),
         cell: u16,
         index: usize,
@@ -1248,7 +1249,7 @@ impl<'a> SceneBuilder<'a> {
     // D2-06038, D2-06187
     pub(crate) fn placed_caster(
         &mut self,
-        e: &auberean_assets::entity::Entity,
+        e: &Entity,
         parts: &[Part],
         place: &Mat4,
         toward: Option<Vec3>,
@@ -1278,10 +1279,24 @@ impl<'a> SceneBuilder<'a> {
         })
     }
 
+    /// Whether an object made from entity `e` casts a shadow on the land, as its drawing properties
+    /// say.
+    // D2-06038, D2-06218
+    fn casts_on_land(&self, e: &Entity) -> bool {
+        use auberean_physics::world::{entity_graphics_state, graphics};
+        use auberean_world::place::PlaceRecords;
+        if !self.static_shadows {
+            return false;
+        }
+        let records = self.records;
+        let lookup = |id: u32| records.entity(DataId(id));
+        entity_graphics_state(e, &lookup) & graphics::LANDSCAPE_SHADOW != 0
+    }
+
     /// Whether an object the world places from entity `e` is drawn with those seen through, as
     /// its drawing properties say.
     // D2-06038
-    pub(crate) fn placed_seen_through(&self, e: &auberean_assets::entity::Entity) -> bool {
+    pub(crate) fn placed_seen_through(&self, e: &Entity) -> bool {
         use auberean_physics::world::{entity_graphics_state, graphics};
         use auberean_world::place::PlaceRecords;
         let records = self.records;
@@ -1803,6 +1818,9 @@ impl<'a> SceneBuilder<'a> {
             // objects farthest first, an object's parts together.
             let mut anchors: Vec<Vec3> = Vec::new();
             let mut frill_parts: Vec<Part> = Vec::new();
+            // The parts of the block's objects that cast on the land.
+            // D2-06218
+            let mut land_casters: Vec<Part> = Vec::new();
             if let Some(tb) = near_blocks.get(&(bx, by)) {
                 for s in self.block_scenery(tb, &blocks, info.as_ref()).iter() {
                     let cell = (
@@ -1828,6 +1846,12 @@ impl<'a> SceneBuilder<'a> {
                         frill_parts.extend(p);
                     } else {
                         anchors.extend(std::iter::repeat_n(s.origin, p.len()));
+                        if self.casts_on_land(&Entity {
+                            object: Some(s.object.0),
+                            ..Entity::default()
+                        }) {
+                            land_casters.extend(p.iter().cloned());
+                        }
                         parts.extend(p);
                     }
                 }
@@ -1848,7 +1872,7 @@ impl<'a> SceneBuilder<'a> {
                 }
             }
             let Some(info) = info else {
-                casters.extend(parts.iter().map(|p| (p.clone(), place)));
+                casters.extend(land_casters.into_iter().map(|p| (p, place)));
                 for (part, anchor) in parts.iter().zip(&anchors) {
                     let at = part.transform.then(&place).point(Vec3::ZERO);
                     let d =
@@ -1877,6 +1901,9 @@ impl<'a> SceneBuilder<'a> {
                 if let Some(c) = self.placed_caster(e, &p, &place, None) {
                     part_casters.push((parts.len()..parts.len() + p.len(), c));
                 }
+                if self.casts_on_land(e) {
+                    land_casters.extend(p.iter().cloned());
+                }
                 if self.placed_seen_through(e) {
                     seen_through.push(parts.len()..parts.len() + p.len());
                 }
@@ -1888,9 +1915,9 @@ impl<'a> SceneBuilder<'a> {
                 }
                 parts.extend(p);
             }
-            // The block's objects and its scenery cast shadows; the interiors seen from outside
+            // Only those objects and that scenery cast on the land; the interiors seen from outside
             // do not.
-            casters.extend(parts.iter().map(|p| (p.clone(), place)));
+            casters.extend(land_casters.into_iter().map(|p| (p, place)));
             let outdoors = parts.len();
             // The interior cells seen from outside, each once (the list may name a cell again),
             // lit as cells: each part's cell, and for an object standing in one its key, place

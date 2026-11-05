@@ -141,6 +141,107 @@ fn with_blending_off_a_square_shows_one_ground() {
     assert_eq!(masked(false), 0, "not blended, none is");
 }
 
+/// Only an object whose drawing properties say so prints on the sun's shadow map: of block
+/// `0x76B8`'s placed objects, those that say so are on it and those that do not are not.
+///
+/// Behaviour: draw.world.only-objects-that-say-so-cast-on-the-land
+#[test]
+fn only_objects_that_say_so_cast_on_the_land() {
+    use auberean_physics::world::{entity_graphics_state, graphics};
+    use auberean_primitives::DataId;
+    use auberean_world::place::{entity_parts, PlaceRecords};
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut b = SceneBuilder::new(r, &region);
+    b.static_shadows = true;
+    b.water_reflections = false;
+    b.set_far_radius(0);
+    let f = b.frame(
+        &Spot {
+            block: (0x76, 0xB8),
+            position: Vec3::new(105.154, 75.968, 182.506),
+            heading: 0.0,
+            pitch: 0.0,
+            time_of_day: 0.5,
+            day: None,
+        },
+        60.0,
+    );
+    let map = f.shadow.as_ref().expect("the sun's shadow map");
+    let printed = |at: Vec3| {
+        map.casters.iter().any(|c| {
+            auberean_world::math::length(auberean_world::math::sub(
+                c.transform.point(Vec3::ZERO),
+                at,
+            )) < 1e-3
+        })
+    };
+    let lookup = |id: u32| r.entity(DataId(id));
+    let info = r.landblock_info(0x76, 0xB8).expect("the block");
+    let mut seen = std::collections::BTreeMap::<(bool, bool), usize>::new();
+    for e in &info.entities.entities {
+        let casts = entity_graphics_state(e, &lookup) & graphics::LANDSCAPE_SHADOW != 0;
+        for p in entity_parts(r, e) {
+            let at = p.transform.point(Vec3::ZERO);
+            *seen.entry((casts, printed(at))).or_default() += 1;
+        }
+    }
+    assert!(
+        seen.get(&(true, true)).is_some_and(|&n| n >= 30),
+        "{seen:?}"
+    );
+    assert!(
+        seen.get(&(false, false)).is_some_and(|&n| n >= 10),
+        "{seen:?}"
+    );
+    assert_eq!(seen.get(&(false, true)), None, "{seen:?}");
+
+    // The scenery about the camp of block `0xC156` differs the same way, by what it is: of the
+    // objects drawn that no block places, some are on the map and some are not.
+    let f = b.frame(&spot(), 60.0);
+    let map = f.shadow.as_ref().expect("the sun's shadow map");
+    let near =
+        |a: Vec3, b: Vec3| auberean_world::math::length(auberean_world::math::sub(a, b)) < 1e-3;
+    let mut placed = Vec::new();
+    for x in 0xC0..=0xC2_i32 {
+        for y in 0x55..=0x57_i32 {
+            let Some(info) = r.landblock_info(x, y) else {
+                continue;
+            };
+            #[allow(clippy::cast_precision_loss)]
+            let off = Vec3::new((x - 0xC1) as f32 * 192.0, (y - 0x56) as f32 * 192.0, 0.0);
+            for e in &info.entities.entities {
+                placed.extend(
+                    entity_parts(r, e)
+                        .iter()
+                        .map(|p| auberean_world::math::add(p.transform.point(Vec3::ZERO), off)),
+                );
+            }
+        }
+    }
+    let (mut on, mut off) = (0, 0);
+    for o in f
+        .objects
+        .iter()
+        .filter(|o| o.block.is_some() && o.shade.is_none())
+    {
+        let at = o.transform.point(Vec3::ZERO);
+        if placed.iter().any(|&p| near(p, at)) {
+            continue;
+        }
+        if map
+            .casters
+            .iter()
+            .any(|c| near(c.transform.point(Vec3::ZERO), at))
+        {
+            on += 1;
+        } else {
+            off += 1;
+        }
+    }
+    assert!(on >= 10 && off >= 10, "{on} on the map, {off} not");
+}
+
 /// The fog blocks blended for the light are those of the block the viewer stands in, even when it
 /// stands past the edge of the block its place is given in: 145 m into block `0xC156` (fogged by its
 /// south-west corner's fog kind) gives the same light whether given from that block or as 15 m

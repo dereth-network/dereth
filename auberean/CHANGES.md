@@ -69,6 +69,7 @@ not how it was done.
 - The paper doll no longer shows your mount while you ride.
 - Items in a trade now name the number offered.
 - Items in a trade now show when selected and when you target with an item.
+- Fixed objects that retail leaves unshadowed casting shadows on the ground.
 
 ## 0.1.3 (2026-11-05)
 
