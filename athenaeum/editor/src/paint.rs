@@ -546,6 +546,9 @@ impl Presenter {
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t)
             | wgpu::CurrentSurfaceTexture::Suboptimal(t) => Some(t),
+            // A window that can't be seen, or a picture that came late: the surface is as it was,
+            // and configuring it again would wait for the device.
+            wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout => None,
             _ => {
                 self.surface.configure(device, &self.config);
                 None
