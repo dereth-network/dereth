@@ -9,6 +9,7 @@ see, not how it was done.
 ## Unreleased
 
 - A covered window on a Mac no longer runs flat out.
+- People can be given a name of their own.
 
 ## 0.1.2 (2026-11-05)
 

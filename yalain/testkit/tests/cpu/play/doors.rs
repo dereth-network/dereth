@@ -59,6 +59,7 @@ fn hall(x: f32, y: f32) -> Harness {
             object: Some(DOOR),
             template: DOOR_TEMPLATE,
             description: Description {
+                name_text: None,
                 package: DOOR_PACKAGE,
                 look: 0x1F00_0FCE,
                 enter_fx: 0,

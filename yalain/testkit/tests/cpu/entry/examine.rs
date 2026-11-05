@@ -72,6 +72,7 @@ fn a_person_with_no_vitals_of_its_own_has_30_and_130() {
         object: Some(object),
         template: 0x4700_2F80,
         description: Description {
+            name_text: None,
             package: 0x13A4,
             look: 0x1F00_0100,
             enter_fx: 0,
@@ -239,6 +240,7 @@ fn an_object_for_monarchs_alone_says_so_when_examined() {
         object: Some(SIGN),
         template,
         description: yalain_content::Description {
+            name_text: None,
             package: 0x13C1,
             look: 0x1F00_0ED5,
             enter_fx: 0,

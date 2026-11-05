@@ -1110,6 +1110,7 @@ fn a_pet_goes_with_its_owner_through_a_portal() {
             object: Some(PORTAL),
             template: 0x4700_1154,
             description: yalain_content::Description {
+                name_text: None,
                 package: 0x1A00,
                 look: 0x1F00_0ED5,
                 enter_fx: 0,

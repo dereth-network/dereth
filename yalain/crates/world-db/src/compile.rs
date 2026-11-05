@@ -6,8 +6,9 @@
 //!
 //! What is said (a step's line, a keeper's greeting, a person's line) goes out as the string
 //! reference a row gives; a row with only new prose (`tell_text`, `greeting_text`, `line_text`)
-//! has it said as literal text, which the client shows unchanged. Names are still the install's:
-//! an object's or a sale's `name_text` alone is served under the template's own name.
+//! has it said as literal text, which the client shows unchanged. An object's `name_text` alone is
+//! its name as literal text too, as a player's is told; a sale's alone is served under the
+//! template's own name.
 //!
 //! Each table row's `placed` column carries its provenance, so a running server can say where a
 //! creature or a sale came from.
@@ -524,8 +525,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                 if let Some(n) = o.name {
                     d.name = Some(pair(n));
                     d.source.push_str(", name as recorded");
-                } else if o.name_text.is_some() {
-                    cx.warn(l, "name_text: served without it until the world's overlay holds the text; give a string reference");
+                }
+                if o.name.is_none() {
+                    d.name_text.clone_from(&o.name_text);
                 }
                 let destination = match &o.to {
                     None => None,

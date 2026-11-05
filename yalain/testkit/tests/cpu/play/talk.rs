@@ -31,6 +31,7 @@ fn person(origin: [f32; 3]) -> ContentObject {
         object: Some(PERSON),
         template: TEMPLATE,
         description: Description {
+            name_text: None,
             package: 0x13A4,
             look: 0x1F00_0100,
             enter_fx: 0,

@@ -461,7 +461,7 @@ pub fn tell<S: Store>(
     net: &mut ServerNet,
     world: ConnId,
     teller: u64,
-    teller_name: Option<(u32, u32)>,
+    teller_name: TextInfo,
     line: &Words,
 ) {
     let Some(p) = s.players.get(&world) else {
@@ -473,7 +473,7 @@ pub fn tell<S: Store>(
         &[
             Arg::Int(0),
             crate::chat::text_arg(msg),
-            crate::chat::text_arg(teller_name.map_or_else(TextInfo::default, progress::text)),
+            crate::chat::text_arg(teller_name),
             Arg::LongInt(teller),
         ],
     )
@@ -1204,7 +1204,10 @@ fn run_with<S: Store>(
 ) -> Vec<u32> {
     if let Some((teller, name)) = who {
         if let Some(line) = &step.tell {
-            tell(s, net, world, teller, name, line);
+            let told = crate::presence::content_by_id(&s.content.objects, teller)
+                .map(|i| crate::talk::content_speaker(s, i).told_as())
+                .unwrap_or_else(|| name.map_or_else(TextInfo::default, progress::text));
+            tell(s, net, world, teller, told, line);
         }
         if let Some(i) = crate::presence::content_by_id(&s.content.objects, teller) {
             let template = s.content.objects[i].template;

@@ -565,6 +565,7 @@ fn a_visit() -> Vec<ServerMessage> {
         object: Some(id),
         template,
         description: Description {
+            name_text: None,
             package: 0x13A4,
             look: 0x1F00_0100,
             enter_fx: 0,

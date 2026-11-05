@@ -427,6 +427,7 @@ fn field_text(row: &Row, field: &str) -> String {
     match (row, field) {
         (Row::Object(o), "template") => hex(o.template),
         (Row::Object(o), "scale") => o.scale.map(num).unwrap_or_default(),
+        (Row::Object(o), "name_text") => o.name_text.clone().unwrap_or_default(),
         (Row::Object(o), "kind") => if o.kind == ObjectKind::Npc {
             "npc"
         } else {
@@ -490,9 +491,9 @@ fn is_indoors(row: &Row) -> bool {
 #[must_use]
 pub fn field_toml(field: &str, typed: &str) -> String {
     let t = typed.trim();
-    let words = matches!(field, "to" | "destination" | "kind");
+    let words = matches!(field, "to" | "destination" | "kind" | "name_text");
     if words && !t.is_empty() && !t.starts_with('"') {
-        format!("\"{t}\"")
+        format!("\"{}\"", t.replace('\\', "\\\\").replace('"', "\\\""))
     } else {
         t.to_string()
     }
@@ -510,7 +511,16 @@ fn kind_shown(kind: &str) -> &'static str {
 /// The fields the inspector lets a person change, by kind.
 fn editable(row: &Row) -> &'static [&'static str] {
     match row {
-        Row::Object(_) => &["template", "kind", "scale", "to", "name", "id", "cell"],
+        Row::Object(_) => &[
+            "template",
+            "kind",
+            "scale",
+            "to",
+            "name_text",
+            "name",
+            "id",
+            "cell",
+        ],
         Row::Camp(_) => &["radius", "population", "regen", "cell"],
         Row::Place(_) => &["key", "cell", "destination"],
         _ => &[],

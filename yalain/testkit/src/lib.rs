@@ -1381,6 +1381,7 @@ pub fn test_template(
     yalain_content::Template {
         id,
         description: yalain_content::Description {
+            name_text: None,
             package,
             look: 0x1F00_0000 | (id & 0xFFFF),
             enter_fx: 0x4100_0010,

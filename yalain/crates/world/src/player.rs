@@ -372,6 +372,10 @@ pub fn content_object(id: u64, o: &yalain_content::ContentObject) -> CreateObjec
             ..StringInfo::default()
         };
     }
+    if let Some(n) = &d.name_text {
+        weenie.mask |= WeenieDesc::NAME;
+        weenie.name = StringInfo::literal(n);
+    }
     let at = placement(&StoredPosition {
         cell: o.cell,
         origin: o.origin,

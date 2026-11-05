@@ -68,6 +68,7 @@ fn hall(template: u32, lockable: bool, opens_on_unlock: bool) -> Harness {
             object: Some(CHEST),
             template,
             description: Description {
+                name_text: None,
                 package: PACKAGE,
                 look: 0x1F00_0F58,
                 enter_fx: 0,

@@ -23,6 +23,7 @@ what they see, not how it was done.
 
 ## 0.2.0 (2026-11-05)
 
+- A world can give a person it places a name of its own.
 - Creatures now go around what a world places.
 - Players in a browser now have their friends list.
 - A world's objects can have a scale of their own.

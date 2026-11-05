@@ -109,6 +109,7 @@ pub fn talk<S: Store>(
                 || crate::talk::Speaker {
                     id,
                     name,
+                    name_text: None,
                     stamp: auberean_protocol::types::ObjectStamp {
                         id,
                         instance_stamp: 1,
@@ -127,6 +128,7 @@ pub fn talk<S: Store>(
                 || crate::talk::Speaker {
                     id,
                     name,
+                    name_text: None,
                     stamp: auberean_protocol::types::ObjectStamp {
                         id,
                         instance_stamp: 1,
@@ -142,12 +144,17 @@ pub fn talk<S: Store>(
     let keeper = s.stores.keeper(o.template).cloned();
     let greeting = keeper.as_ref().and_then(|k| k.greeting.clone());
     if let Some(g) = &greeting {
-        crate::quests::tell(s, net, world, id, name, g);
+        let told = object.map_or_else(
+            || name.map_or_else(Default::default, crate::progress::text),
+            |i| crate::talk::content_speaker(s, i).told_as(),
+        );
+        crate::quests::tell(s, net, world, id, told, g);
     } else if let Some(line) = crate::talk::at_use(s, world, o.template, object) {
         let speaker = object.map_or(
             crate::talk::Speaker {
                 id,
                 name,
+                name_text: None,
                 stamp: auberean_protocol::types::ObjectStamp {
                     id,
                     instance_stamp: 1,

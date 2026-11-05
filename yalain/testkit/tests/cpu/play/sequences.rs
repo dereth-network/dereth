@@ -72,6 +72,7 @@ fn fixture(h: &mut Harness) {
             object: Some(BROKER),
             template: BROKER_TEMPLATE,
             description: Description {
+                name_text: None,
                 package: 0x13A3,
                 look: 0x1F00_0100,
                 enter_fx: 0,

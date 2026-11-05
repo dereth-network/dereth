@@ -281,6 +281,7 @@ fn static_object(id: u64, cell: u32) -> ContentObject {
         object: Some(id),
         template: 0x4700_1154,
         description: Description {
+            name_text: None,
             package: 0xF0C,
             look: 0x1F00_031E,
             enter_fx: 0,

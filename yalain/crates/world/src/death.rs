@@ -1125,6 +1125,7 @@ pub fn player_corpse<S: Store>(
             .unwrap_or_else(|| yalain_content::Template {
                 id: CORPSE_TEMPLATE,
                 description: yalain_content::Description {
+                    name_text: None,
                     package: CORPSE_PACKAGE,
                     look: 0,
                     enter_fx: 0,

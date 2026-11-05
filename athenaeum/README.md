@@ -106,6 +106,8 @@ to where it leads.
   standing as they stood to each other.
 - `=` and `-` make the selected objects larger and smaller, and **scale** on the right sets it; an
   empty one goes back to their template's.
+- **name_text** on the right gives a person or object a name of its own: over their head and in what
+  they tell you. Examining them, and a shop's own title, still show the template's name.
 - Ctrl+D or **Duplicate** copies the selected row beside it and selects the copy, whatever it is:
   a person with their name and place, a camp with its creatures, a portal with where it leads.
 - A row of the database is never written: changing one writes this world's own row of its key,

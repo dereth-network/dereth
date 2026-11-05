@@ -38,6 +38,7 @@ fn someone(template: u32, name: u32, cell: u32, origin: [f32; 3]) -> ContentObje
         object: None,
         template,
         description: Description {
+            name_text: None,
             package: 0x13A4,
             look: 0x1F00_0100,
             enter_fx: 0,
@@ -319,6 +320,7 @@ fn standing(object: u64, template: u32, package: u32, origin: [f32; 3]) -> Conte
         object: Some(object),
         template,
         description: Description {
+            name_text: None,
             package,
             look: 0x1F00_0F58,
             enter_fx: 0,

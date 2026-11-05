@@ -341,6 +341,7 @@ fn with_quest_mines(h: &mut Harness, quest: u32) -> (u64, u64) {
         object: Some(id),
         template,
         description: Description {
+            name_text: None,
             package: 0x3A0,
             look: 0x1F00_0001,
             enter_fx: 0,
@@ -526,6 +527,7 @@ fn with_hoard_vein(h: &mut Harness) -> u64 {
             object: None,
             template: HOARD_VEIN,
             description: Description {
+                name_text: None,
                 package: 0x1BFC,
                 look: 0x1F00_0001,
                 enter_fx: 0,

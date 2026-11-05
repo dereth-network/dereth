@@ -231,6 +231,7 @@ fn a_placed_object_whose_template_names_an_effect_is_a_workshop() {
         object: Some(WORKSHOP),
         template: 0x4700_7003,
         description: yalain_content::Description {
+            name_text: None,
             package: 0xA21,
             look: 0x1F00_0100,
             enter_fx: 0,

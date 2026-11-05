@@ -1384,6 +1384,42 @@ fn a_person_names_a_route_it_walks_and_only_a_person_may() {
 }
 
 #[test]
+fn an_objects_name_text_is_its_name_unless_it_has_a_recorded_one() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "heading = 165.0",
+        "heading = 165.0\nname_text = \"Old Tom\"",
+    );
+    edit(
+        &mut files,
+        "town/server/landblocks/77B7.toml",
+        "to = \"inn\"\nprov = { from = \"authored\" }",
+        "to = \"inn\"\nname_text = \"Ignored\"\nprov = { from = \"authored\" }",
+    );
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    assert_eq!(
+        yalain_content::ContentPack::from_text(&t.content.to_text()).unwrap(),
+        t.content,
+        "the content's text keeps it"
+    );
+    let named = |template: u32| {
+        t.content
+            .objects
+            .iter()
+            .find(|o| o.template == template)
+            .unwrap()
+            .description
+            .name_text
+            .clone()
+    };
+    assert_eq!(named(0x4700_33D0).as_deref(), Some("Old Tom"));
+    assert_eq!(named(0x4700_115B), None, "its recorded name stands");
+}
+
+#[test]
 fn an_objects_own_scale_is_served_in_place_of_its_templates() {
     let scale_with = |row: &str| {
         let mut files = fixture();

@@ -171,6 +171,8 @@ pub struct Description {
     /// objects of one template each their own way (a portal by where it leads), so a name comes
     /// with a placement, not from the template.
     pub name: Option<(u32, u32)>,
+    /// The name it is shown with, as literal text, in place of its template's.
+    pub name_text: Option<String>,
     /// The physics type, the movement ethereality and the placement ethereality, each as its low
     /// and high word.
     pub numbers: [i32; 6],
@@ -638,6 +640,7 @@ pub fn describe(
         let _ = write!(source, ", qualities {:08X}", qualities_id(template));
     }
     Ok(Description {
+        name_text: None,
         package,
         look,
         enter_fx: enter_fx.unwrap_or(0),
@@ -674,9 +677,10 @@ pub const COLUMNS: [&str; NCOLS] = [
     "facts",
     "route",
     "gate",
+    "name_text",
 ];
 
-const NCOLS: usize = 24;
+const NCOLS: usize = 25;
 
 fn hex32(s: &str) -> Result<u32, String> {
     u32::from_str_radix(s, 16).map_err(|e| format!("{s}: {e}"))
@@ -696,7 +700,7 @@ impl ContentPack {
             let d = &o.description;
             let _ = writeln!(
                 out,
-                "{}\t{:08X}\t{:08X}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:X}\t{:08X}\t{:08X}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{:08X}\t{:08X}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:X}\t{:08X}\t{:08X}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 o.object.map(|i| format!("{i:016X}")).unwrap_or_default(),
                 o.template,
                 o.cell,
@@ -721,6 +725,7 @@ impl ContentPack {
                 o.facts.to_text(),
                 o.walks.as_ref().map(crate::movement::CampMoves::route_text).unwrap_or_default(),
                 o.gate.map(|g| g.to_text()).unwrap_or_default(),
+                d.name_text.as_deref().unwrap_or_default().replace(['\t', '\n'], " "),
             );
         }
         out
@@ -737,8 +742,8 @@ impl ContentPack {
                 continue;
             }
             let c: Vec<&str> = line.split('\t').collect();
-            // A pack written before destinations, facts, routes and gates had fewer columns.
-            if !(NCOLS - 4..=NCOLS).contains(&c.len()) {
+            // A pack written before destinations, facts, routes, gates and names had fewer columns.
+            if !(NCOLS - 5..=NCOLS).contains(&c.len()) {
                 return Err(format!("line {}: {} columns, not {NCOLS}", n + 1, c.len()));
             }
             let at = |e: String| format!("line {}: {e}", n + 1);
@@ -784,6 +789,7 @@ impl ContentPack {
                 kind: Kind::from_word(c[10]).ok_or_else(|| at(format!("kind {}", c[10])))?,
                 label: c[11].to_string(),
                 description: Description {
+                    name_text: c.get(24).filter(|n| !n.is_empty()).map(|n| (*n).to_owned()),
                     package: hex32(c[12]).map_err(at)?,
                     look: hex32(c[13]).map_err(at)?,
                     enter_fx: hex32(c[14]).map_err(at)?,
