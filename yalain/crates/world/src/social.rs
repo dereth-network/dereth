@@ -39,6 +39,13 @@ pub const GIVE_UP_TRADE: f32 = 6.0;
 /// The client ends a walk by its own measure; a report this much past the reach still counts.
 pub const SLACK: f32 = 1.0;
 
+/// How many questions a player may put to others at once, and how many a second after that: an oath
+/// offered, a place in a fellowship, a trade. (2017: the quickest two of 62 recruitments came 1.87 s
+/// apart, of 101 trades asked 4.01 s, of 6 oaths none in a session; our figures.)
+pub const ASKS_AT_ONCE: f64 = 5.0;
+/// See [`ASKS_AT_ONCE`].
+pub const ASKS_PER_SECOND: f64 = 1.0;
+
 /// Chat-window kinds of the social texts: a refusal or a rank's change, a notice.
 pub const REFUSED: u32 = 1;
 pub const NOTICE: u32 = 8;
@@ -179,6 +186,18 @@ fn carry_out<S: Store>(
     what: Approach,
     clock: Clock,
 ) {
+    // Each of these puts a question before the other player: past the pace it isn't asked.
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let asks = p.asks.get_or_insert_with(|| {
+        crate::call_limit::Bucket::with(ASKS_AT_ONCE, ASKS_PER_SECOND, clock.local)
+    });
+    if !asks.allow(clock.local) {
+        s.unhandled
+            .note("a question to another player past the pace");
+        return;
+    }
     match what {
         Approach::Swear => crate::allegiance::ask_patron(s, net, world, other),
         Approach::Recruit => crate::fellowship::ask_recruit(s, net, world, other, clock),

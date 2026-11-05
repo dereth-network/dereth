@@ -783,3 +783,29 @@ fn a_place_offered_by_one_no_longer_a_leader_takes_no_one() {
     let i = h.server.fellowships.of(b.1).expect("the other's");
     assert_eq!(h.server.fellowships.list[i].fellows.len(), 2);
 }
+
+/// A question put to another player has a pace: asked again and again it reaches the other a few at
+/// once, and again once the pace has filled.
+/// Behaviour: server.social.questions-at-a-pace
+#[test]
+fn a_question_asked_again_and_again_reaches_the_other_at_a_pace() {
+    let (mut h, [(a, _), (b, bid), _]) = three();
+    create(&mut h, a, "Band");
+    let fb = h.bots[b].inbox.len();
+    let asked = |h: &Harness, from: usize| {
+        h.calls(b, from)
+            .iter()
+            .filter(|(f, _)| *f == function::REQUEST_RECRUITMENT)
+            .count()
+    };
+    for _ in 0..30 {
+        h.ask(a, function::RECRUIT, &[Arg::LongInt(bid)], 1);
+    }
+    h.run(5);
+    let first = asked(&h, fb);
+    assert!((5..30).contains(&first), "{first} of 30");
+    h.advance(10.0);
+    let fb = h.bots[b].inbox.len();
+    h.ask(a, function::RECRUIT, &[Arg::LongInt(bid)], 10);
+    assert_eq!(asked(&h, fb), 1, "the pace has filled");
+}

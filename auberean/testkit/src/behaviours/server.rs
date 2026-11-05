@@ -10414,6 +10414,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.social.questions-at-a-pace",
+        says: "A question put to another player, an oath, a place in a fellowship or a trade, reaches it at a pace: a few at once, then one a second.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUESTIONS-PACED"),
+        station: "yalain-testkit::cpu::play::fellowships::a_question_asked_again_and_again_reaches_the_other_at_a_pace",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.social.recorded-families-by-shape",
         says: "The recorded 2017 families of these answers (an oath taken on each side, fellows \
                joining and leaving, a fellowship left or disbanded, a trade's items exchanged, a \

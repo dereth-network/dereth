@@ -162,6 +162,8 @@ pub struct Player {
     pub in_run: Option<crate::skill_use::Request>,
     /// How fast it may talk, once it has, and when it was last told it is past that.
     pub talk: Option<(crate::call_limit::Bucket, Option<f64>)>,
+    /// How fast it may put questions to other players, once it has.
+    pub asks: Option<crate::call_limit::Bucket>,
     /// When it last used each skill (game time), from which the skill's recovery counts.
     pub last_used: std::collections::HashMap<u32, f64>,
     /// Another player it is walked to, and what for.
@@ -509,6 +511,7 @@ pub fn enter<S: Store>(
         in_run: None,
         last_used: std::collections::HashMap::new(),
         talk: None,
+        asks: None,
         approaching: None,
         shard_protection: None,
         riding: None,
