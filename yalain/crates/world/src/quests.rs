@@ -980,6 +980,15 @@ pub fn killed<S: Store>(
     }
 }
 
+/// What a template's properties name for its use by what it does to a quest, by name.
+#[must_use]
+pub fn named_for_use<S: Store>(s: &Server<S>, props: &yalain_content::Props) -> Vec<QuestEffect> {
+    (1..=8)
+        .filter_map(|i| props.text(&format!("{}{i}", crate::item_use::USED.0)))
+        .filter_map(|n| effect_named(n, |q| s.quest_ids.get(q).copied()))
+        .collect()
+}
+
 /// The world connections of a player's fellows in the world.
 fn fellows_of<S: Store>(s: &Server<S>, world: ConnId) -> Vec<ConnId> {
     let Some(me) = s.players.get(&world).map(|p| p.character) else {

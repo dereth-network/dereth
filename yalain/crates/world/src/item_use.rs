@@ -398,6 +398,7 @@ pub fn begin<S: Store>(
         && !examined
         && !seed
         && !own
+        && !crate::death_spawn::names_one(s, &t.props)
     {
         return false;
     }
@@ -744,6 +745,13 @@ fn carry_out<S: Store>(
     }));
     for e in list {
         put_on(s, net, world, me, u.item, e, clock);
+    }
+    // One that makes what a world's row names moves the quest it names too, before it's answered
+    // (2017: a practice gem's quest 0.06 s before its answer, 4 of 4).
+    if crate::death_spawn::names_one(s, &t.props) {
+        for e in crate::quests::named_for_use(s, &t.props) {
+            crate::quests::moves(s, net, world, e, true, clock);
+        }
     }
     // A Tessera's hero skill credit.
     let behavior = item_behavior(s, u.item, template, &t.props);

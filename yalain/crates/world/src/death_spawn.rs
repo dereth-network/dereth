@@ -7,13 +7,16 @@
 //! ground (2017: the Drunken Drudge Sentry's two, 2 of the 3 tries at 70%, both exactly on their
 //! offsets about the killer at one heading, and neither about the corpse; one kill).
 //!
-//! They stay until killed (the install's effect says they are permanent). A world may let many
-//! such kills pass with no one to fight what they make, so no more than [`MOST`] of one effect's
-//! live at once.
+//! They stay until killed (the install's effect says they are permanent), or for the time their row
+//! gives. A world may let many such kills pass with no one to fight what they make, so no more than
+//! [`MOST`] of one effect's made by kills live at once.
 //!
 //! **An item's use** may name such an effect too: what it makes stands before its user as the use
 //! is done (2017: 4 of 4 practice gems used by the player recording it, a dummy of the gem's own tier
-//! 2 m ahead at its heading, within 0.05 m, with the use's answer and the gem gone).
+//! 2 m ahead at its heading, within 0.05 m, with the use's answer and the gem gone). The limit is
+//! none of its business: an item is used up for what it makes, and what others have made doesn't
+//! take that from its user. What a use makes takes an item each time, so it is held to the items
+//! there are.
 
 use dereth_primitives::num::math;
 use yalain_net::{ConnId, ServerNet};
@@ -59,9 +62,19 @@ pub fn killed<S: Store>(
     }
     for name in effects {
         if let Some(spawn) = s.death_spawns.get(name).copied() {
-            makes(s, net, killer, name, spawn, clock);
+            let most = Some((name.as_str(), MOST));
+            makes(s, net, killer, most, spawn, clock);
         }
     }
+}
+
+/// Does a template name for its use what a world's row makes?
+#[must_use]
+pub fn names_one<S: Store>(s: &Server<S>, props: &yalain_content::Props) -> bool {
+    let (name, _) = crate::item_use::USED;
+    (1..=8)
+        .filter_map(|i| props.text(&format!("{name}{i}")))
+        .any(|e| s.death_spawns.contains_key(e))
 }
 
 /// What an item's use makes around its user, by the effects its template names.
@@ -78,16 +91,26 @@ pub fn used<S: Store>(
             continue;
         };
         if let Some(spawn) = s.death_spawns.get(effect).copied() {
-            makes(s, net, user, effect, spawn, clock);
+            makes(s, net, user, None, spawn, clock);
         }
     }
 }
 
+/// What a row makes has stood its time: it goes, as a pet whose lifetime is over goes, with no fall
+/// and no corpse (2017 shows none go so: all 6 dummies seen were killed within 71 s of their 90). One
+/// killed already is left to its death's own course.
+pub fn ends<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64) {
+    if s.things.get(id).is_some_and(crate::things::Thing::alive) {
+        crate::death::vanish(s, net, id);
+    }
+}
+
+/// What a row makes around a player, up to `most` live (by name, the limit) if a limit holds.
 fn makes<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     killer: ConnId,
-    name: &str,
+    most: Option<(&str, usize)>,
     spawn: yalain_content::DeathSpawn,
     clock: Clock,
 ) {
@@ -97,16 +120,19 @@ fn makes<S: Store>(
     let Some(template) = s.catalog.get(spawn.template).cloned() else {
         return;
     };
-    let things = &s.things;
-    let live = s.death_spawned.entry(name.to_string()).or_default();
-    live.retain(|id| {
-        things
-            .get(*id)
-            .and_then(|t| t.creature.as_ref())
-            .is_some_and(|c| c.mode != Mode::Dead)
-    });
+    if let Some((name, _)) = most {
+        let things = &s.things;
+        let live = s.death_spawned.entry(name.to_string()).or_default();
+        live.retain(|id| {
+            things
+                .get(*id)
+                .and_then(|t| t.creature.as_ref())
+                .is_some_and(|c| c.mode != Mode::Dead)
+        });
+    }
     for _ in 0..spawn.count {
-        if s.death_spawned.get(name).map_or(0, Vec::len) >= MOST || !s.rng.chance(spawn.chance) {
+        let full = most.is_some_and(|(name, n)| s.death_spawned.get(name).map_or(0, Vec::len) >= n);
+        if full || !s.rng.chance(spawn.chance) {
             continue;
         }
         let Some(stats) = yalain_content::CreatureStats::from_props(&template.props) else {
@@ -127,10 +153,19 @@ fn makes<S: Store>(
             None,
             clock.local.0,
         );
-        s.death_spawned
-            .entry(name.to_string())
-            .or_default()
-            .push(id);
+        if let Some((name, _)) = most {
+            s.death_spawned
+                .entry(name.to_string())
+                .or_default()
+                .push(id);
+        }
+        if let Some(seconds) = spawn.lasts {
+            s.after(
+                clock,
+                f64::from(seconds),
+                crate::Timer::MadeEnds { creature: id },
+            );
+        }
         presence::thing_appears(s, net, id);
     }
 }

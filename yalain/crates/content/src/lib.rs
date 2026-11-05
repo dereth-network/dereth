@@ -100,6 +100,8 @@ pub struct DeathSpawn {
     pub chance: f32,
     /// Where each is made, in meters from the killer, as the killer faces.
     pub offset: [f32; 2],
+    /// How long each stands, in seconds, where it doesn't stay until killed.
+    pub lasts: Option<f32>,
 }
 
 /// The templates the world makes objects of, by id, and the names of the generator profiles

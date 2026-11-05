@@ -1949,6 +1949,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.a-gems-dummy-lasts-its-time",
+        says: "What a practice gem makes goes when the time its row gives is up, and its use makes it \
+               however many stand; the place a gem may be used holds no rooms.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-GEM-DUMMY-TIME"),
+        station: "yalain-testkit::cpu::play::death_spawns::a_gems_dummy_is_gone_when_its_time_is_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.a-skills-harm-counts-by-its-points",
         says: "A skill's taunt bonus or damage-notice figure counts its harm for that many percent more \
                at a creature's draw. This server's own stand-in: nothing recorded says what the \

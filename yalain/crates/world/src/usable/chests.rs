@@ -328,12 +328,7 @@ fn effects_on_opener<S: Store>(
     let named: Vec<crate::quests::QuestEffect> = s
         .catalog
         .get(template)
-        .map(|t| {
-            (1..=8)
-                .filter_map(|i| t.props.text(&format!("{}{i}", crate::item_use::USED.0)))
-                .filter_map(|n| crate::quests::effect_named(n, |q| s.quest_ids.get(q).copied()))
-                .collect()
-        })
+        .map(|t| crate::quests::named_for_use(s, &t.props))
         .unwrap_or_default();
     let named: Vec<_> = named
         .into_iter()

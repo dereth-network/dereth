@@ -1045,6 +1045,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                             count: r.count,
                             chance: r.chance,
                             offset: [r.offset.x, r.offset.y],
+                            lasts: r.lasts,
                         },
                     );
                 }

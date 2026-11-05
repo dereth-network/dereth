@@ -477,6 +477,8 @@ pub struct DeathSpawn {
     pub count: u32,
     pub chance: f32,
     pub offset: At,
+    /// How long each stands, in seconds; it stays until killed when left out.
+    pub lasts: Option<f32>,
     pub prov: Prov,
 }
 
@@ -860,7 +862,9 @@ pub const FIELDS: [(&str, &[&str]); 20] = [
     ),
     (
         "death_spawn",
-        &["effect", "template", "count", "chance", "offset", "prov"],
+        &[
+            "effect", "template", "count", "chance", "offset", "lasts", "prov",
+        ],
     ),
 ];
 
@@ -1462,6 +1466,11 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 f.bad("chance", "a share is a number from 0 to 1");
                 return None;
             }
+            let lasts = f.float("lasts").map(to_f32);
+            if lasts.is_some_and(|t| t <= 0.0) {
+                f.bad("lasts", "a time is a number of seconds above 0");
+                return None;
+            }
             Row::DeathSpawn(DeathSpawn {
                 effect,
                 template: f.req_id("template")?,
@@ -1471,6 +1480,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                     .unwrap_or(1),
                 chance,
                 offset: f.req_at("offset")?,
+                lasts,
                 prov: f.req_prov()?,
             })
         }

@@ -1106,3 +1106,27 @@ fn a_flyer_after_a_player_comes_down_to_its_fighting_height() {
         "{lower} m under its height at rest"
     );
 }
+
+/// The place a practice gem may be used has no rooms: no landblock within its 100 meters holds an
+/// interior cell, so what a gem makes stands outdoors.
+/// Behaviour: server.creatures.a-gems-dummy-lasts-its-time
+#[test]
+fn the_place_a_practice_gem_may_be_used_has_no_rooms() {
+    let records = records();
+    let hall = records
+        .landblock_info(0x02, 0x98)
+        .expect("the training hall");
+    assert!(hall.cell_count > 0, "it has rooms");
+    // The place is at (62, 40) of landblock C6A2, a landblock being 192 m on a side.
+    for (x, y) in [
+        (0xC5, 0xA1),
+        (0xC5, 0xA2),
+        (0xC6, 0xA1),
+        (0xC6, 0xA2),
+        (0xC7, 0xA1),
+        (0xC7, 0xA2),
+    ] {
+        let cells = records.landblock_info(x, y).map_or(0, |i| i.cell_count);
+        assert_eq!(cells, 0, "{x:02X}{y:02X}");
+    }
+}

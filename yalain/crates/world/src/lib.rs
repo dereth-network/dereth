@@ -506,6 +506,8 @@ pub enum Timer {
     },
     /// A pet's lifetime is over.
     PetExpires { pet: u64 },
+    /// What a world's row makes has stood its time.
+    MadeEnds { creature: u64 },
     /// A creature's heal or buff on itself takes effect.
     CreatureHelps { creature: u64, skill: u32, on: u64 },
     /// A creature's strike reaches the player it was at.
@@ -872,6 +874,7 @@ impl<S: Store> Server<S> {
                     pets::lands(self, net, pet, target, skill, clock);
                 }
                 Timer::PetExpires { pet } => pets::expires(self, net, pet),
+                Timer::MadeEnds { creature } => death_spawn::ends(self, net, creature),
                 Timer::CreatureHelps {
                     creature,
                     skill,

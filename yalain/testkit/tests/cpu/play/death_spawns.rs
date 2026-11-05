@@ -146,6 +146,7 @@ fn a_death_spawn_stands_at_its_offset_from_the_killer_as_the_killer_faces() {
             count: 2,
             chance: 1.0,
             offset: [0.0, -3.0],
+            lasts: None,
         },
     );
     // A quarter turn about the vertical.
@@ -187,6 +188,7 @@ fn a_death_spawn_with_no_chance_makes_nothing() {
             count: 3,
             chance: 0.0,
             offset: [0.0, 2.0],
+            lasts: None,
         },
     );
     let before = living(&h).len();
@@ -208,6 +210,7 @@ fn only_so_many_of_a_death_effects_creatures_live_at_once() {
             count: 5,
             chance: 1.0,
             offset: [0.0, 2.0],
+            lasts: None,
         },
     );
     for _ in 0..yalain_world::death_spawn::MOST {
@@ -255,6 +258,7 @@ fn an_items_use_makes_what_its_effect_names_before_its_user() {
             count: 1,
             chance: 1.0,
             offset: [0.0, 2.0],
+            lasts: None,
         },
     );
     let mut props = Props::default();
@@ -324,4 +328,161 @@ fn an_items_use_makes_what_its_effect_names_before_its_user() {
         "{got:?} from {at:?}"
     );
     assert!(h.server.things.get(gem).is_none(), "spent");
+}
+
+/// Sends a use of an item the player holds.
+fn uses(h: &mut Harness, b: usize, me: u64, item: u64) {
+    use yalain_world::graph::{Builder, Slot};
+    let mut use_of = Builder::new();
+    use_of.object(
+        0x245,
+        &[
+            Slot::Ref(None),
+            Slot::Ref(None),
+            Slot::Long(item),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Long(me),
+            Slot::Int((-1.0f32).to_bits()),
+            Slot::Long(0),
+            Slot::Int(0),
+            Slot::Long(0),
+            Slot::Int(0),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Int(316),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    let arg = auberean_script::args::Arg::Object(use_of.graph());
+    h.bots[b].send(
+        true,
+        auberean_protocol::queue::WEENIE,
+        &yalain_testkit::play::server_call(0x8216_0016, &[arg]),
+    );
+    h.run(20);
+}
+
+/// A gem that names only what a row makes, as a real gem does, and the player holding one.
+fn gem(h: &mut Harness, lasts: Option<f32>) -> u64 {
+    use yalain_content::{Prop, Props};
+    const GEM: u32 = 0x4700_1853;
+    let helper = beetle_template(h);
+    h.server.death_spawns.insert(
+        "Eff_Summons".into(),
+        DeathSpawn {
+            template: helper,
+            count: 1,
+            chance: 1.0,
+            offset: [0.0, 2.0],
+            lasts,
+        },
+    );
+    let mut props = Props::default();
+    props
+        .set("Usage_Effect2", Prop::Text("Eff_Summons".into()))
+        .set("Item_IsDestroyOnUse", Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(GEM, 0x777, props));
+    let world = *h.server.players.keys().next().expect("in");
+    let item =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, GEM, 1).expect("given");
+    h.run(2);
+    item
+}
+
+/// What a gem makes goes when its time is up, told to those who see it, not before; one killed just
+/// before has its death's course.
+/// Behaviour: server.creatures.a-gems-dummy-lasts-its-time
+#[test]
+fn a_gems_dummy_is_gone_when_its_time_is_up() {
+    let (mut h, _) = world();
+    let me = h.server.players.values().next().expect("in").character;
+    let item = gem(&mut h, Some(90.0));
+    let before = living(&h);
+    uses(&mut h, 0, me, item);
+    let made: Vec<u64> = living(&h)
+        .into_iter()
+        .filter(|id| !before.contains(id))
+        .collect();
+    assert_eq!(made.len(), 1);
+    let dummy = made[0];
+    let from = h.bots[0].inbox.len();
+    let t = h.now.0;
+    while h.now.0 < t + 80.0 {
+        h.step();
+    }
+    assert!(
+        h.server.things.get(dummy).is_some(),
+        "still standing at 80 s"
+    );
+    while h.now.0 < t + 91.0 {
+        h.step();
+    }
+    assert!(h.server.things.get(dummy).is_none(), "gone by 91 s");
+    let told = h
+        .world_messages(0, from)
+        .into_iter()
+        .any(|m| matches!(m, auberean_protocol::ServerMessage::ForgetObject(o) if o.0.id == dummy));
+    assert!(told, "those who see it are told");
+    let item = gem(&mut h, Some(90.0));
+    let before = living(&h);
+    uses(&mut h, 0, me, item);
+    let dummy = living(&h)
+        .into_iter()
+        .find(|id| !before.contains(id))
+        .expect("another");
+    let t = h.now.0;
+    while h.now.0 < t + 88.0 {
+        h.step();
+    }
+    let clock = h.clock();
+    h.server.things.get_mut(dummy).expect("it").health = 1;
+    yalain_world::combat::hurt_creature(&mut h.server, &mut h.net, dummy, me, 50, clock);
+    h.run(2);
+    assert!(!living(&h).contains(&dummy), "killed");
+    while h.now.0 < t + 89.5 {
+        h.step();
+    }
+    assert!(
+        h.server.things.get(dummy).is_some(),
+        "its death has its course past its time"
+    );
+}
+
+/// A gem makes what it names however many of them stand: what others have made takes nothing from
+/// its user, nor does the kills' limit reach it.
+/// Behaviour: server.creatures.a-gems-dummy-lasts-its-time
+#[test]
+fn a_gem_makes_its_dummy_however_many_stand() {
+    let (mut h, _) = world();
+    let me = h.server.players.values().next().expect("in").character;
+    let helper = beetle_template(&h);
+    let mut standing = Vec::new();
+    for _ in 0..=yalain_world::death_spawn::MOST {
+        let before = living(&h);
+        let item = gem(&mut h, Some(90.0));
+        uses(&mut h, 0, me, item);
+        assert!(h.server.things.get(item).is_none(), "spent");
+        let made: Vec<u64> = living(&h)
+            .into_iter()
+            .filter(|id| !before.contains(id))
+            .collect();
+        assert_eq!(made.len(), 1, "each use makes one");
+        assert_eq!(
+            h.server.things.get(made[0]).map(|t| t.template),
+            Some(helper)
+        );
+        standing.push(made[0]);
+    }
+    assert!(standing.len() > yalain_world::death_spawn::MOST);
+    assert!(
+        h.server
+            .death_spawned
+            .get("Eff_Summons")
+            .is_none_or(Vec::is_empty),
+        "uses don't count against what kills may make"
+    );
 }
