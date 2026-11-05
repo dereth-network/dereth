@@ -282,6 +282,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.a-strings-case-changes-accented-letters-too",
+        says: "A string changes case as the C library does in the English locale: accented letters change too, and a letter with no single partner stays as it is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRING-CASE-LOCALE"),
+        station: "auberean-glue::cpu::strings::a_strings_case_changes_accented_letters_too",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.glue.a-word-is-found-among-a-texts-words",
         says: "A word is one of a text's words when a piece of the text, split at spaces, commas and semicolons with the empty pieces dropped, is the word, ASCII letters compared without their case; part of a piece is not.",
         since: RETAIL,

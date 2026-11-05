@@ -679,22 +679,22 @@ fn parse_float(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
-/// Upper-case the string's ASCII letters, in place.
+/// Upper-case the string's letters in place, as the C library does in the English locale, up
+/// to its first zero.
 // D2-09602
 fn upper(c: &mut Call<'_>) -> Result<Status, Stop> {
-    for u in text_or_crash!(c).iter_mut() {
-        if (u16::from(b'a')..=u16::from(b'z')).contains(u) {
-            *u -= 32;
-        }
+    for u in text_or_crash!(c).iter_mut().take_while(|u| **u != 0) {
+        *u = fmt::crt::to_upper(*u);
     }
     Ok(Status::Success)
 }
 
-/// Lower-case the string's ASCII letters, in place.
+/// Lower-case the string's letters in place, as the C library does in the English locale, up
+/// to its first zero.
 // D2-09601
 fn lower(c: &mut Call<'_>) -> Result<Status, Stop> {
-    for u in text_or_crash!(c).iter_mut() {
-        *u = fold(*u);
+    for u in text_or_crash!(c).iter_mut().take_while(|u| **u != 0) {
+        *u = fmt::crt::to_lower(*u);
     }
     Ok(Status::Success)
 }

@@ -450,3 +450,18 @@ fn a_string_reference_reads_itself_from_a_text_tree_by_its_keywords() {
 
     assert!(!text_from_node(&mut TextInfo::default(), None, &mut names));
 }
+
+/// **A string changes case as the C library does in the English locale**: accented letters
+/// change too, and a letter with no single partner stays as it is.
+///
+/// Behaviour: script.glue.a-strings-case-changes-accented-letters-too
+#[test]
+fn a_strings_case_changes_accented_letters_too() {
+    let mut b = Bench::new();
+    let lower = b.text("HELLO ÉÖ");
+    b.call(TEXT, 0x1F, lower, &[], 0);
+    assert_eq!(s(&b, lower), "hello éö");
+    let upper = b.text("hello éßÿ");
+    b.call(TEXT, 0x1E, upper, &[], 0);
+    assert_eq!(s(&b, upper), "HELLO ÉßŸ");
+}
