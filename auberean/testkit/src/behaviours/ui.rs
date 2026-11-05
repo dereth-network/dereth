@@ -1414,6 +1414,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.names.an-item-that-changes-is-named-anew",
+        says: "An item changing, its quantity among others, names it anew: the name over its head as well as the selection's, so a stack's count does not go stale.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ITEM-UPDATE-NAMES"),
+        station: "auberean-ui-game::dat::play::names::an_item_that_changes_is_named_anew",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.names.damage-text-rises-over-the-struck-object-and-goes",
         says: "A hit's damage text stands over the struck object's box in the color the scripts \
                gave it and rises three of its own heights over its duration, then goes; texts at \

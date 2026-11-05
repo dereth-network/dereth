@@ -1155,9 +1155,12 @@ impl Names {
             {
                 self.reload_options(ui, world);
             }
+            // An item changing (a stack's count among others) names it anew, as a new look does.
             // D2-02061
-            notice::ITEM_UPDATE if n.about == Some(self.selection) => {
-                self.check_name(ui, world);
+            notice::ITEM_UPDATE => {
+                if let Some(o) = n.about {
+                    self.change_radar_look(ui, world, o);
+                }
             }
             notice::DO_3D_DAMAGE => {
                 if let (Some(o), Some(Some(Record::DamageText(b)))) = (n.about, n.records.first()) {

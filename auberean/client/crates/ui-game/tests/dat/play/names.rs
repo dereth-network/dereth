@@ -438,6 +438,59 @@ fn a_renamed_object_is_named_anew_once_its_string_table_comes() {
     assert!(selected.starts_with("From the server"), "{selected:?}");
 }
 
+/// An item changing names it anew, the name over its head as well as the selection's, so a stack's
+/// count does not go stale; another object's name stays as it was made.
+///
+/// Behaviour: ui.names.an-item-that-changes-is-named-anew
+#[test]
+fn an_item_that_changes_is_named_anew() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut thing = body_at(7, 0.0, 10.0, [1.0; 4]);
+    thing.name_info = Some(StringInfo::literal("5 Ore"));
+    let mut other = body_at(8, 3.0, 10.0, [1.0; 4]);
+    other.name_info = Some(StringInfo::literal("Pick"));
+    let mut w = world(vec![thing, other]);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, true);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, false);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    let over = |ui: &Ui, p: &GamePlay, id: u64| {
+        names_of(p)
+            .names()
+            .iter()
+            .find(|x| x.object == id)
+            .map(|x| ui.text(x.element).unwrap_or_default())
+    };
+    assert_eq!(over(&ui, &p, 7).as_deref(), Some("5 Ore"));
+    w.things[1].name_info = Some(StringInfo::literal("3 Ore"));
+    w.things[2].name_info = Some(StringInfo::literal("Renamed"));
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    assert_eq!(
+        over(&ui, &p, 7).as_deref(),
+        Some("5 Ore"),
+        "nothing said yet"
+    );
+    let changed = Notice {
+        native: names::notice::ITEM_UPDATE,
+        about: Some(7),
+        ..Notice::default()
+    };
+    tick(&mut ui, &mut p, &mut t, &w, &[changed]);
+    assert_eq!(
+        over(&ui, &p, 7).as_deref(),
+        Some("3 Ore"),
+        "the stack's new count"
+    );
+    assert_eq!(
+        over(&ui, &p, 8).as_deref(),
+        Some("Pick"),
+        "the other as it was"
+    );
+}
+
 /// Boxes overlap when they share a texel; a box moved off another goes the shortest way it may
 /// and may not come straight back.
 ///

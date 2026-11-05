@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Fixed a stack's name keeping its old count.
 - The LandscapeTerrainBlending preference and the -lb and -nolb switches now work.
 - Fixed auto-run carrying on through a portal.
 - Fixed other bodies not leaving the ground when an animation made them jump.
