@@ -34,6 +34,8 @@ const FADE: f32 = 0.1;
 /// The least height on screen a far tree is drawn at, pixels: smaller, it fades out, and the
 /// forest cover takes its place.
 const LEAST_PIXELS: f32 = 2.0;
+/// The models more than those it is made with that the buffers have room for, as cards are baked.
+const MODEL_ROOM: usize = 1024;
 
 /// The far trees' layouts and pipelines, made with the pack's.
 #[derive(Debug)]
@@ -124,6 +126,8 @@ pub(super) struct FarModel {
     pub(super) lod: usize,
     /// The centre of its bounds in its own space, and their radius.
     pub(super) bounds: (Vec3, f32),
+    /// Cut-out growth, which thins out with distance; nothing else does.
+    pub(super) foliage: bool,
 }
 
 /// One block's trees in the buffers: its landblock, the list they were written from, where they
@@ -346,8 +350,9 @@ pub(super) struct FarGpu {
     pub(super) serial: u64,
     /// What they hold.
     held: Slots,
-    /// The models drawn, by their place in `draws`.
+    /// The models drawn, by their place in `draws`, and how many there is room for.
     pub(super) models: Vec<FarModel>,
+    model_room: usize,
     trees: wgpu::Buffer,
     model_buffer: wgpu::Buffer,
     cull_uniform: wgpu::Buffer,
@@ -393,17 +398,18 @@ impl FarGpu {
             storage,
             u64::from(capacity) * TREE_BYTES as u64,
         );
+        let model_room = models.len() + MODEL_ROOM;
         let model_buffer = buffer(
             "far tree models",
             storage,
-            (models.len() * MODEL_BYTES) as u64,
+            (model_room * MODEL_BYTES) as u64,
         );
         let visible = buffer("far trees kept", storage, u64::from(capacity) * 8);
         let excluded = buffer("far trees left out", storage, (EXCLUDED_WORDS * 4) as u64);
         let draws = buffer(
             "far tree draws",
             storage | wgpu::BufferUsages::INDIRECT,
-            DRAW_BYTES * models.len() as u64,
+            DRAW_BYTES * model_room as u64,
         );
         let cull_uniform = buffer(
             "far trees cull",
@@ -440,13 +446,14 @@ impl FarGpu {
             ],
         });
         let bytes = u64::from(capacity) * (TREE_BYTES as u64 + 8)
-            + (models.len() * MODEL_BYTES) as u64
+            + (model_room * MODEL_BYTES) as u64
             + (EXCLUDED_WORDS * 4) as u64
-            + DRAW_BYTES * models.len() as u64;
+            + DRAW_BYTES * model_room as u64;
         Self {
             serial: 0,
             held: Slots::new(capacity, models.len()),
             models,
+            model_room,
             trees,
             model_buffer,
             cull_uniform,
@@ -460,6 +467,17 @@ impl FarGpu {
             standing: 0,
             bytes,
         }
+    }
+
+    /// `new` drawn too, after the models drawn; `false` when there is no room for them, and the
+    /// buffers are to be made again.
+    pub(super) fn add_models(&mut self, new: &[FarModel]) -> bool {
+        if self.models.len() + new.len() > self.model_room {
+            return false;
+        }
+        self.models.extend_from_slice(new);
+        self.held.per_model.resize(self.models.len(), 0);
+        true
     }
 
     /// The trees `set` holds that have a model (by `of`, a retail object's place among the
@@ -494,7 +512,7 @@ impl FarGpu {
                 m.bounds.0.z,
                 m.bounds.1,
             ]));
-            for word in [base, 0, 0, 0] {
+            for word in [base, u32::from(m.foliage), 0, 0] {
                 model_bytes.extend(word.to_le_bytes());
             }
         }

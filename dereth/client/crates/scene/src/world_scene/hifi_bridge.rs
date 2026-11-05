@@ -78,6 +78,12 @@ pub(crate) struct Shadow {
         u64,
         std::sync::Arc<dereth_render_hifi::snapshot::HifiFarTrees>,
     )>,
+    /// The cards baked from retail objects as the presentation draws them, made again as more
+    /// are baked (by how many there are).
+    far_cards: Option<(
+        usize,
+        std::sync::Arc<dereth_render_hifi::snapshot::HifiFarCards>,
+    )>,
     /// The forest cover as the presentation draws it, made once per cover (by its serial).
     cover: Option<(
         u64,
@@ -443,6 +449,15 @@ fn ground_knobs(k: &Knobs) -> HifiGroundKnobs {
 /// each block's list is handed over as it is.
 pub(crate) type FarTree = dereth_render_hifi::snapshot::HifiFarTree;
 
+/// How far the far objects are drawn, meters: as far as the landscape's `land_radius` blocks
+/// round the eye reach.
+pub(crate) fn scenery_reach(land_radius: u32) -> f32 {
+    // LINT-OK: a block count, far inside f32's exact range.
+    #[allow(clippy::cast_precision_loss)]
+    let blocks = land_radius as f32 + 0.5;
+    blocks * dereth_terrain::land::drawn::BLOCK_METERS
+}
+
 /// How the far trees and the forest cover are drawn, from the knobs.
 fn far_knobs(k: &Knobs) -> dereth_render_hifi::snapshot::HifiFarKnobs {
     dereth_render_hifi::snapshot::HifiFarKnobs {
@@ -453,6 +468,48 @@ fn far_knobs(k: &Knobs) -> dereth_render_hifi::snapshot::HifiFarKnobs {
         soften: k.get(Knob::TreeSoften),
         cover: k.get(Knob::ForestCover),
         canopy: k.get(Knob::ForestCanopy),
+    }
+}
+
+/// A card baked from a retail object as the presentation draws it: a model of its one level of
+/// pictures, naming its colour picture 0 and its normal picture 1.
+fn far_card(c: &super::far_cards::RetailCard) -> dereth_render_hifi::snapshot::HifiFarCard {
+    let lod = &c.card.lod;
+    dereth_render_hifi::snapshot::HifiFarCard {
+        model: HifiPackModel {
+            id: c.id,
+            foliage: false,
+            lods: vec![HifiPackLod {
+                distance: lod.distance,
+                views: lod.views.map(|v| (v.count, v.columns)),
+                shadows_only: false,
+                primitives: lod
+                    .primitives
+                    .iter()
+                    .map(|p| HifiPackPrimitive {
+                        vertices: std::sync::Arc::clone(&p.vertices),
+                        indices: std::sync::Arc::clone(&p.indices),
+                        material: HifiPackMaterial {
+                            base_color: p.material.base_color,
+                            base_color_image: Some(0),
+                            normal_image: Some(1),
+                            normal_scale: p.material.normal_scale,
+                            metal_rough_image: None,
+                            metallic: p.material.metallic,
+                            roughness: p.material.roughness,
+                            occlusion_image: None,
+                            occlusion_strength: p.material.occlusion_strength,
+                            alpha_cutoff: p.material.alpha_cutoff,
+                            double_sided: p.material.double_sided,
+                        },
+                    })
+                    .collect(),
+            }],
+            bounds: c.bounds,
+            glow: (0.0, 0.0),
+        },
+        colour: picture(&c.card.colour),
+        normal: picture(&c.card.normal),
     }
 }
 
@@ -1076,6 +1133,10 @@ fn snapshot(
         .as_ref()
         .and_then(|_| sky_knobs(&draw.drawn.knobs));
     frame.far = far_knobs(&draw.drawn.knobs);
+    // The far objects reach as far as the scenery is drawn.
+    if draw.far.active {
+        frame.far.reach = frame.far.reach.min(draw.far.reach);
+    }
     frame.far_trees = if draw.far.active && frame.art_pack.is_some() {
         if sh
             .far_trees
@@ -1090,6 +1151,34 @@ fn snapshot(
         sh.far_trees.as_ref().map(|(_, t)| std::sync::Arc::clone(t))
     } else {
         sh.far_trees = None;
+        None
+    };
+    frame.far_cards = if frame.far_trees.is_some() {
+        let made = &draw.far.cards.made;
+        match sh.far_cards.as_ref() {
+            Some((n, cards)) if *n == made.len() => Some(std::sync::Arc::clone(cards)),
+            _ => {
+                let mut cards = sh
+                    .far_cards
+                    .take()
+                    .map(|(_, c)| (*c).clone())
+                    .unwrap_or_default();
+                if cards.cards.len() > made.len() {
+                    cards.cards.clear();
+                }
+                let from = cards.cards.len();
+                cards.cards.extend(
+                    made[from..]
+                        .iter()
+                        .map(|c| std::sync::Arc::new(far_card(c))),
+                );
+                let cards = std::sync::Arc::new(cards);
+                sh.far_cards = Some((made.len(), std::sync::Arc::clone(&cards)));
+                Some(cards)
+            }
+        }
+    } else {
+        sh.far_cards = None;
         None
     };
     // --- the art pack's materials for retail pictures ---------------------------------------

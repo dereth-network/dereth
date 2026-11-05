@@ -28,7 +28,7 @@ impl SceneDraw {
     /// level has to be checked against `get_degrade`'s own answer.
     #[must_use]
     pub fn part_degrade_probe(&self, ws: &WorldState) -> Vec<PartLevelProbe> {
-        let globals = self.degrade_globals(ws);
+        let globals = self.shape_globals(ws);
         let cam = detail_viewer(ws);
         let share = self.degrade.governor.level();
         let mut out = Vec::new();

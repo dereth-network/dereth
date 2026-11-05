@@ -43,7 +43,7 @@ impl SceneDraw {
     /// thresholds slide by is the one the loop just produced, and after the re-centre, because
     /// `block.origin` moves with it.
     pub(super) fn refresh_degrade_levels(&mut self, ws: &mut WorldState) -> u32 {
-        let globals = self.degrade_globals(ws);
+        let globals = self.shape_globals(ws);
         let cam = detail_viewer(ws);
         // Every baked placement belongs to an ordinary object, never a particle emitter.
         let share_2dsq = self.degrade.governor.level().share_distance_2dsq(false);
@@ -112,7 +112,7 @@ impl SceneDraw {
     /// It is stored per part here and submitted by `draw_part`, gated on
     /// [`SceneConfig::part_billboards`] so that submitting `part.pos` instead is a control arm.
     pub(super) fn refresh_part_levels(&mut self, ws: &mut WorldState) -> u32 {
-        let globals = self.degrade_globals(ws);
+        let globals = self.shape_globals(ws);
         let billboards = self.cfg.part_degrade_levels && self.cfg.part_billboards;
         let cam = detail_viewer(ws);
         let share = self.degrade.governor.level();
@@ -322,6 +322,23 @@ impl SceneDraw {
         self.stats.part_billboards = part_billboards;
         self.stats.part_billboards_turned = part_turns;
         switches
+    }
+
+    /// The degrade inputs an object's shapes are chosen with: [`Self::degrade_globals`], with
+    /// retail's simpler stand-ins off while the better lighting draws, whose far cards stand in
+    /// past the loaded blocks instead.
+    #[must_use]
+    pub fn shape_globals(
+        &self,
+        ws: &WorldState,
+    ) -> dereth_world_render::objects::degrade::DegradeGlobals {
+        #[allow(unused_mut)] // set only with the presentation built in
+        let mut g = self.degrade_globals(ws);
+        #[cfg(feature = "hifi")]
+        {
+            g.degrades_disabled |= self.whole_shapes;
+        }
+        g
     }
 
     /// The current degrade inputs read this frame.

@@ -62,6 +62,9 @@ pub struct HifiFrame {
     /// models are drawn: retail's scenery out to the reach, past the blocks whose own objects
     /// stand in the world.
     pub far_trees: Option<Arc<HifiFarTrees>>,
+    /// The cards baked from retail's own objects that the far objects draw, in the order they
+    /// were baked: a list that only grows, so the presentation takes in the cards new to it.
+    pub far_cards: Option<Arc<HifiFarCards>>,
     /// How the far trees and the forest cover are drawn, as the scene's tuning has it.
     pub far: HifiFarKnobs,
     /// The Remastered sky, as the scene's tuning has it, while an art pack is open and its sky
@@ -133,6 +136,25 @@ impl Default for HifiSkyKnobs {
     }
 }
 
+/// The cards baked from retail's own static objects, for the far objects an art pack has no model
+/// for.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct HifiFarCards {
+    /// Each card, in the order it was baked.
+    pub cards: Vec<Arc<HifiFarCard>>,
+}
+
+/// One retail object's card: a model of one level of pictures, its colour picture 0 and its
+/// normal picture 1.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HifiFarCard {
+    /// The model, its `id` the retail object's.
+    pub model: HifiPackModel,
+    /// Its colour picture, coverage in alpha.
+    pub colour: HifiPackImage,
+    /// Its normal picture, depth in alpha.
+    pub normal: HifiPackImage,
+}
 /// The trees an art pack draws far off: retail's scenery of the models the pack has far pictures
 /// for, in every block out to the reach. A block whose own objects stand in the world draws its
 /// trees itself, so the presentation leaves that block's far trees out. Each block's trees are

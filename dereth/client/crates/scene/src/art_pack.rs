@@ -30,7 +30,11 @@
 //! occlusion in BC5 at half its size, a quarter of the memory or less of eight bits a channel.
 //! A model's picture whose sides are not whole blocks of four is first stretched to the next
 //! whole block on each side.
+//!
+//! **A model with no pictures of its own gets a card** ([`cards`]): drawn from round it as the pack
+//! opens, and drawn in place of its shape far off.
 
+pub mod cards;
 pub mod gltf;
 pub mod images;
 pub mod materials;
@@ -936,10 +940,14 @@ impl ArtPack {
             problems.push(format!("{}: {e}", gltf::label(m.id)));
             false
         });
-        let images: Vec<Image> = decoded
+        let mut images: Vec<Image> = decoded
             .into_iter()
             .map(|d| d.unwrap_or_else(|_| images::with_levels(1, 1, vec![0; 4], false, None)))
             .collect();
+        // Cards for the models with none of their own, worked out here rather than packed.
+        if recording.is_none() {
+            cards::add_cards(&mut models, &mut images, &std::collections::HashSet::new());
+        }
         if models.is_empty() && !manifest.models.is_empty() {
             return Err(format!(
                 "no model of the pack would read: {}",
@@ -1218,12 +1226,14 @@ file = "rock/missing.gltf"
         );
         let tree = &pack.models[0];
         assert!(tree.foliage);
+        // Its card takes over past the cards' distance, its two pictures after the pack's.
         assert_eq!(
             tree.lods.iter().map(|l| l.distance).collect::<Vec<_>>(),
-            [30.0, f32::INFINITY]
+            [30.0, cards::cards_from(), f32::INFINITY]
         );
+        assert_eq!(tree.lods[2].views, Some(cards::VIEWS));
         // Both levels name the same picture: it is read once.
-        assert_eq!(pack.images.len(), 1);
+        assert_eq!(pack.images.len(), 1 + 2);
         assert_eq!(asked.iter().filter(|p| *p == "tree/bark.png").count(), 1);
         assert_eq!(
             tree.lods[1].primitives[0].material.base_color_image,
@@ -1233,7 +1243,8 @@ file = "rock/missing.gltf"
         // One texel: stretched to a whole block and compressed.
         assert_eq!(pack.images[0].format, Some(images::BlockFormat::Bc7));
         assert_eq!((pack.images[0].width, pack.images[0].height), (4, 4));
-        assert_eq!(pack.triangles(), 2);
+        // The triangle, and its card's two.
+        assert_eq!(pack.triangles(), 2 + 2);
         // The triangle stands three metres high, upright.
         let (centre, radius) = tree.bounds;
         assert!((centre[2] - 1.5).abs() < 1e-6, "{centre:?}");

@@ -212,11 +212,11 @@ fn at_night_under_a_still_camera_the_traced_top_level_is_built_once_and_kept() {
     );
 }
 
-/// Walking twenty metres through the forest, its objects' detail levels change: each change lists
-/// again the vertices the shadow geometry draws, of the copies whose objects draw otherwise, the
-/// others' lists kept as they were, and no block's geometry is copied again.
+/// Walking twenty metres through the forest with the better lighting on, its objects keep their
+/// finest levels (retail's simpler stand-ins are off): the vertices the shadow geometry draws are
+/// neither listed again nor looked over, and no block's geometry is copied again.
 #[test]
-fn walking_through_a_forest_lists_its_shadow_geometry_again_and_copies_none_of_it() {
+fn walking_through_a_forest_keeps_its_shadow_geometry_lists_and_copies_none_of_it() {
     let _gpu = crate::common::gpu_lock();
     let store = crate::common::dats();
     let station = hifi_stations::stations(&store)
@@ -267,23 +267,20 @@ fn walking_through_a_forest_lists_its_shadow_geometry_again_and_copies_none_of_i
     }
     let (copied_after, listed_after, kept_after) = at(&gpu);
     assert_eq!(copied_after, copied, "shadow geometry copied again");
-    assert!(
-        listed_after > listed,
-        "no detail level changed on the walk: listed {listed} then {listed_after}"
-    );
-    assert!(
-        kept_after > kept,
-        "every copy's list was made again: kept {kept} then {kept_after}"
+    assert_eq!(
+        (listed_after, kept_after),
+        (listed, kept),
+        "a detail level changed on the walk, and the lists were looked over"
     );
 }
 
-/// Walking a dungeon's corridors, its objects' detail levels change, and none of it is made again
-/// for them: the lamps' traced scene, which takes each object at its finest level, builds none of
-/// its structures again, and the vertices the sun's shadow geometry and the rain's shelter draw,
-/// which a dungeon casts and shelters none of, are neither listed again nor looked over. The
-/// dungeon is one block, and making any of it again costs milliseconds.
+/// Walking a dungeon's corridors with the better lighting on, its objects keep their finest
+/// levels (retail's simpler stand-ins are off), and none of it is made again: the lamps' traced
+/// scene builds none of its structures again, and the vertices the sun's shadow geometry and the
+/// rain's shelter draw, which a dungeon casts and shelters none of, are neither listed again nor
+/// looked over. The dungeon is one block, and making any of it again costs milliseconds.
 #[test]
-fn walking_a_dungeon_builds_the_traced_scene_once_whatever_its_objects_levels() {
+fn walking_a_dungeon_keeps_its_objects_finest_levels_and_builds_the_traced_scene_once() {
     let _gpu = crate::common::gpu_lock();
     assert!(
         device(W, H).hifi_rays() == Some(true),
@@ -342,13 +339,13 @@ fn walking_a_dungeon_builds_the_traced_scene_once_whatever_its_objects_levels() 
         shot.step(&mut gpu);
     }
     let (built_after, levels_after, lists_after) = at(&gpu);
-    assert!(
-        levels_after > levels,
-        "no detail level changed on the walk: {levels} then {levels_after} handed over"
+    assert_eq!(
+        levels_after, levels,
+        "a detail level changed on the walk: {levels} then {levels_after} handed over"
     );
     assert_eq!(
         built_after, built,
-        "the traced scene was built again as the levels changed"
+        "the traced scene was built again on the walk"
     );
     assert_eq!(
         lists_after, lists,

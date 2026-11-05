@@ -284,6 +284,17 @@ fn leaf_out(albedo: vec3<f32>, n: vec3<f32>, local: vec3<f32>, at: vec2<f32>) ->
     return o;
 }
 
+// A card's solid surface of colour `albedo`, facing `n` (render space): lit as a lit surface of
+// the model's own, its roughness the card's.
+fn solid_out(albedo: vec3<f32>, n: vec3<f32>) -> Out {
+    let share = max(dot(n, frame.sun_dir.xyz), 0.0);
+    var o: Out;
+    o.colour = vec4<f32>(albedo * object_light(share), 1.0);
+    let view_n = normalize((frame.view_from_render * vec4<f32>(n, 0.0)).xyz);
+    o.normal = vec4<f32>(view_n, 1.02 + 0.16 * clamp(material.pbr.y, 0.0, 1.0));
+    return o;
+}
+
 // A level of pictures of the model seen from round it: an upright quad across the model's axis,
 // turned to face the eye, showing the two views nearest the eye's bearing.
 
@@ -475,13 +486,13 @@ fn fs_impostor(in: ImpostorOut) -> ImpostorFrag {
     let grid = vec2<f32>(columns, rows);
     let at = (tile + clamp(in.uv, vec2<f32>(0.0), vec2<f32>(1.0))) / grid;
     // The pictures are read at the level of detail the quad itself calls for, whichever view, or
-    // coarser for a far tree. Their coverage is cut as it is, with no dither: its smaller levels
-    // hold the share of each texel the model covers.
+    // coarser for a far tree. Their smaller levels hold the share of each texel the model covers,
+    // kept as that share of the pixels by the dither, so a sparse crown shows what lies behind.
     let bias = exp2(in.coarser);
     let gx = dpdx(in.uv) / grid * bias;
     let gy = dpdy(in.uv) / grid * bias;
     let base = textureSampleGrad(base_tex, samp, at, gx, gy) * material.base_color;
-    if (base.a < material.flags.x) {
+    if (base.a < mix(0.1, 0.9, dither_at(in.position.xy + vec2<f32>(11.0, 53.0)))) {
         discard;
     }
     let nd = textureSampleGrad(normal_tex, samp, at, gx, gy);
@@ -496,8 +507,14 @@ fn fs_impostor(in: ImpostorOut) -> ImpostorFrag {
         + vec3<f32>(0.0, 0.0, mix(material.quad.z, material.quad.y, in.uv.y))
         + inward * ((nd.w - 0.5) * 2.0 * half_width);
     let n = vec3<f32>(dot(in.r0.xyz, normal), dot(in.r1.xyz, normal), dot(in.r2.xyz, normal));
-    var leaf = leaf_out(base.rgb, normalize(n), local, in.position.xy);
-    if (in.far > 0.5) {
+    let foliage = material.flags.y > 0.5;
+    var leaf: Out;
+    if (foliage) {
+        leaf = leaf_out(base.rgb, normalize(n), local, in.position.xy);
+    } else {
+        leaf = solid_out(base.rgb, normalize(n));
+    }
+    if (foliage && in.far > 0.5) {
         // A far tree casts no shadow, so its own crown shades it as the solid stand-in in the
         // sun's shadows shades a tree nearer: drawn with that much less of the sun, which the
         // light per pixel's new light keeps in proportion.

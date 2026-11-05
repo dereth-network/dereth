@@ -1,6 +1,8 @@
-//! The far trees, the scene's half: retail's scenery of the trees an art pack has far pictures
-//! for, worked out off the frame for every block out to the reach, so Better Lighting draws them
-//! to the horizon.
+//! The far objects, the scene's half: retail's scenery, the statics and the buildings of every
+//! block out to the reach, worked out off the frame, so Better Lighting draws them to the horizon
+//! as cards: an art pack's model's, or one baked from the retail object itself ([`super::far_cards`]).
+//! A block's list is handed on holding the objects with a card, and handed on again as more cards
+//! are baked.
 //!
 //! Retail's scenery is placed from the land alone: each block's terrain words and heights, the
 //! region's scenes and the cells its buildings own. So a block far off grows its trees where it
@@ -38,8 +40,6 @@ struct Sources {
     table: [f32; 256],
     world: Arc<World>,
     knobs: Knobs,
-    /// The retail objects the art pack has far pictures for.
-    ids: Arc<HashSet<u32>>,
 }
 
 /// What the thread reads once and keeps: each scene, and each object's shape for the scenery's
@@ -73,8 +73,15 @@ fn foot(world: &World, knobs: &Knobs, x: f32, y: f32) -> f32 {
         .fold(f32::MAX, f32::min)
 }
 
-/// Block `(bx, by)`'s trees that the art pack has far pictures for, where retail's scenery
-/// places them.
+/// The height a building or static at world `(x, y)`, standing at retail's height `z`, is drawn
+/// at: lowered as far as the drawn ground's far surface lies below retail's ground there.
+fn standing(world: &World, knobs: &Knobs, x: f32, y: f32, z: f32) -> f32 {
+    let p = Point::at(world, x, y);
+    z + drawn::far_offset(&p, x, y, knobs).min(0.0)
+}
+
+/// Block `(bx, by)`'s static objects: its scenery where retail places it, and its statics and
+/// buildings where its block's information stands them.
 fn block_trees(src: &Sources, reads: &mut Reads, bx: i32, by: i32) -> Vec<FarTree> {
     use dereth_client_runtime::world_build::{read_landblock, read_lbi, read_scene};
     let Some(lb) = read_landblock(&src.store, bx, by) else {
@@ -91,7 +98,8 @@ fn block_trees(src: &Sources, reads: &mut Reads, bx: i32, by: i32) -> Vec<FarTre
     );
     // A cell that owns a building grows no scenery.
     let mut owned = [false; 65];
-    if let Some(info) = read_lbi(&src.store, bx, by) {
+    let info = read_lbi(&src.store, bx, by);
+    if let Some(info) = info.as_ref() {
         for b in &info.buildings {
             owned[usize::from(outside_cell_index(b.frame.origin.x, b.frame.origin.y))] = true;
         }
@@ -121,9 +129,8 @@ fn block_trees(src: &Sources, reads: &mut Reads, bx: i32, by: i32) -> Vec<FarTre
     // LINT-OK: block coordinates, far inside f32's exact range.
     #[allow(clippy::cast_precision_loss)]
     let (ox, oy) = (bx as f32 * BLOCK_METERS, by as f32 * BLOCK_METERS);
-    placed
+    let mut out: Vec<FarTree> = placed
         .iter()
-        .filter(|p| src.ids.contains(&p.gfxobj.0))
         .map(|p| {
             let (x, y) = (ox + p.frame.origin.x, oy + p.frame.origin.y);
             let q = p.frame.rotation;
@@ -135,7 +142,23 @@ fn block_trees(src: &Sources, reads: &mut Reads, bx: i32, by: i32) -> Vec<FarTre
                 seed: mix(x.to_bits() ^ mix(y.to_bits()) ^ p.gfxobj.0),
             }
         })
-        .collect()
+        .collect();
+    if let Some(info) = info {
+        let statics = info.objects.iter().map(|o| (o.id, o.frame));
+        let buildings = info.buildings.iter().map(|b| (b.id, b.frame));
+        for (id, frame) in statics.chain(buildings) {
+            let (x, y) = (ox + frame.origin.x, oy + frame.origin.y);
+            let q = frame.rotation;
+            out.push(FarTree {
+                at: glam::Vec3::new(x, y, standing(&src.world, &src.knobs, x, y, frame.origin.z)),
+                rotation: glam::Quat::from_xyzw(q.x, q.y, q.z, q.w),
+                scale: 1.0,
+                id: id.0,
+                seed: mix(x.to_bits() ^ mix(y.to_bits()) ^ id.0),
+            });
+        }
+    }
+    out
 }
 
 /// The blocks still to work out, nearest first, and the signal that more are asked for.
@@ -234,8 +257,16 @@ pub(crate) struct FarTrees {
     /// How many covers have been worked out: the next one's serial.
     covers: u64,
     worker: Option<Worker>,
-    /// Each block's trees, once worked out.
+    /// Each block's objects, once worked out, every one of them.
+    raw: HashMap<(i32, i32), Arc<Vec<FarTree>>>,
+    /// Each block's objects with a card, as handed on.
     made: HashMap<(i32, i32), Arc<Vec<FarTree>>>,
+    /// The retail objects the art pack has a model for, and those of them with far pictures.
+    pack_ids: Arc<HashSet<u32>>,
+    pack_cards: Arc<HashSet<u32>>,
+    /// The cards baked from retail's own objects, and the files they are baked from.
+    pub(crate) cards: super::far_cards::FarCards,
+    store: Option<Arc<RetailDatStore>>,
     /// The blocks asked for and not yet done.
     asked: HashSet<(i32, i32)>,
     key: Option<Key>,
@@ -245,6 +276,8 @@ pub(crate) struct FarTrees {
     wanted_for: Option<((i32, i32), u32)>,
     /// Bumped whenever the trees within reach change.
     pub(crate) serial: u64,
+    /// How far they are drawn this frame, meters.
+    pub(crate) reach: f32,
     /// Whether the far trees are drawn this frame.
     pub(crate) active: bool,
     /// How many blocks have been worked out, the milliseconds the thread spent on them, and
@@ -256,6 +289,7 @@ impl std::fmt::Debug for FarTrees {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("FarTrees")
             .field("made", &self.made.len())
+            .field("cards", &self.cards)
             .field("asked", &self.asked.len())
             .field("serial", &self.serial)
             .field("active", &self.active)
@@ -290,9 +324,9 @@ pub(crate) fn blocks_within(eye: (f32, f32), reach: f32) -> Vec<(i32, i32)> {
 }
 
 impl FarTrees {
-    /// One frame's upkeep. `wanted` when the far trees are drawn at all; the art pack `pack` (its
-    /// serial and the retail objects it has far pictures for), the world's vertices and their
-    /// serial, the knobs, and the eye in world meters.
+    /// One frame's upkeep. `wanted` when the far objects are drawn at all; the art pack `pack`,
+    /// the world's vertices and their serial, the knobs, the eye in world meters, and how far the
+    /// scenery is drawn, `scenery` meters.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn step(
         &mut self,
@@ -304,6 +338,7 @@ impl FarTrees {
         region: &dyn Fn() -> Arc<Region>,
         table: &[f32; 256],
         eye: (f32, f32),
+        scenery: f32,
     ) {
         let (Some(pack), Some((world, world_serial)), true) = (pack, world, wanted) else {
             if self.active || self.worker.is_some() || self.cover.is_some() {
@@ -336,28 +371,27 @@ impl FarTrees {
                 .map(|k| knobs.get(k).to_bits()),
         };
         if self.key.as_ref() != Some(&key) || self.worker.is_none() {
-            let ids: HashSet<u32> = pack
-                .models
-                .iter()
-                .filter(|m| m.lods.iter().any(|l| l.views.is_some()))
-                .map(|m| m.id.0)
-                .collect();
+            self.pack_ids = Arc::new(pack.models.iter().map(|m| m.id.0).collect());
+            self.pack_cards = Arc::new(
+                pack.models
+                    .iter()
+                    .filter(|m| m.lods.iter().any(|l| l.views.is_some()))
+                    .map(|m| m.id.0)
+                    .collect(),
+            );
+            self.store = Some(Arc::clone(store));
+            self.raw.clear();
             self.made.clear();
             self.asked.clear();
             self.wanted_for = None;
             self.serial += 1;
-            self.worker = if ids.is_empty() {
-                None
-            } else {
-                Worker::start(Sources {
-                    store: Arc::clone(store),
-                    region: region(),
-                    table: *table,
-                    world: Arc::clone(world),
-                    knobs: knobs.clone(),
-                    ids: Arc::new(ids),
-                })
-            };
+            self.worker = Worker::start(Sources {
+                store: Arc::clone(store),
+                region: region(),
+                table: *table,
+                world: Arc::clone(world),
+                knobs: knobs.clone(),
+            });
             self.key = Some(key);
         }
         let Some(worker) = self.worker.as_ref() else {
@@ -365,14 +399,19 @@ impl FarTrees {
         };
         let started = web_time::Instant::now();
         let mut changed = false;
-        while let Ok((block, trees, ms)) = worker.done.try_recv() {
+        let done: Vec<_> = worker.done.try_iter().collect();
+        for (block, trees, ms) in done {
             self.asked.remove(&block);
-            self.made.insert(block, Arc::new(trees));
+            self.took(block, trees);
             self.taken.0 += 1;
             self.taken.1 += ms;
             changed = true;
         }
-        let reach = knobs.get(Knob::TreeReach);
+        let fresh = self.cards.take();
+        changed |= self.carded(&fresh);
+        // As far as the scenery's reach, no farther than the knob's.
+        let reach = knobs.get(Knob::TreeReach).min(scenery);
+        self.reach = reach;
         let eye_block = (
             dereth_primitives::num::floor_to_i32(eye.0 / BLOCK_METERS),
             dereth_primitives::num::floor_to_i32(eye.1 / BLOCK_METERS),
@@ -394,6 +433,7 @@ impl FarTrees {
                 .into_iter()
                 .collect();
             self.made.retain(|b, _| margin.contains(b));
+            self.raw.retain(|b, _| margin.contains(b));
             let todo: Vec<(i32, i32)> = self
                 .wanted
                 .iter()
@@ -401,7 +441,9 @@ impl FarTrees {
                 .filter(|b| !self.made.contains_key(b))
                 .collect();
             self.asked = todo.iter().copied().collect();
-            worker.ask(todo);
+            if let Some(worker) = self.worker.as_ref() {
+                worker.ask(todo);
+            }
             changed = true;
         }
         if changed {
@@ -459,7 +501,7 @@ impl FarTrees {
             self.covers += 1;
             self.cover = Some((self.covers, Arc::new(cover)));
         }
-        let Some(worker) = self.worker.as_ref() else {
+        let Some(worker) = self.worker.take() else {
             return;
         };
         let started = web_time::Instant::now();
@@ -467,7 +509,7 @@ impl FarTrees {
             match worker.done.recv_timeout(std::time::Duration::from_secs(30)) {
                 Ok((block, trees, ms)) => {
                     self.asked.remove(&block);
-                    self.made.insert(block, Arc::new(trees));
+                    self.took(block, trees);
                     self.taken.0 += 1;
                     self.taken.1 += ms;
                 }
@@ -477,7 +519,61 @@ impl FarTrees {
                 break;
             }
         }
+        self.worker = Some(worker);
+        let fresh = self.cards.wait();
+        self.carded(&fresh);
         self.serial += 1;
+    }
+
+    /// Whether `id` is drawn far off: an art pack's model with far pictures, or, for an object
+    /// the pack has no model for, a card baked from it.
+    fn has_card(&self, id: u32) -> bool {
+        self.pack_cards.contains(&id)
+            || (!self.pack_ids.contains(&id) && self.cards.carded.contains(&id))
+    }
+
+    /// Block `block`'s objects `trees`, worked out: kept, handed on holding those with a card, and
+    /// the cards of the rest asked for.
+    fn took(&mut self, block: (i32, i32), trees: Vec<FarTree>) {
+        if let Some(store) = self.store.as_ref() {
+            let asked: Vec<u32> = trees
+                .iter()
+                .map(|t| t.id)
+                .filter(|id| !self.pack_ids.contains(id))
+                .collect();
+            self.cards.ask(store, asked);
+        }
+        let shown: Vec<FarTree> = trees
+            .iter()
+            .copied()
+            .filter(|t| self.has_card(t.id))
+            .collect();
+        self.made.insert(block, Arc::new(shown));
+        self.raw.insert(block, Arc::new(trees));
+    }
+
+    /// The blocks holding any of `fresh`, newly carded, handed on again with them; whether any
+    /// was.
+    fn carded(&mut self, fresh: &[u32]) -> bool {
+        if fresh.is_empty() {
+            return false;
+        }
+        let fresh: HashSet<u32> = fresh.iter().copied().collect();
+        let blocks: Vec<(i32, i32)> = self
+            .raw
+            .iter()
+            .filter(|(_, t)| t.iter().any(|t| fresh.contains(&t.id)))
+            .map(|(b, _)| *b)
+            .collect();
+        for block in &blocks {
+            let shown: Vec<FarTree> = self.raw[block]
+                .iter()
+                .copied()
+                .filter(|t| self.has_card(t.id))
+                .collect();
+            self.made.insert(*block, Arc::new(shown));
+        }
+        !blocks.is_empty()
     }
 }
 

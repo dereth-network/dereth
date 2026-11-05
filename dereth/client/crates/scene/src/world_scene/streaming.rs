@@ -271,6 +271,8 @@ impl SceneDraw {
             drawn: drawn_ground::DrawnGround::default(),
             #[cfg(feature = "hifi")]
             far: far_trees::FarTrees::default(),
+            #[cfg(feature = "hifi")]
+            whole_shapes: false,
             // Region installation applies the detail-texturing preference to
             // both enabled detail classes; this scene's equivalent is the
             // `apply_detail_texturing` below, once `gpu` is reachable.

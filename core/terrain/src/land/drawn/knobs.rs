@@ -336,7 +336,7 @@ pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
     num(Knob::TreeReach, "tree_reach", 6000.0, (0.0, 8000.0), "m", "far", "how far from the eye the far trees are drawn"),
     num(Knob::TreeThinFrom, "tree_thin_from", 3000.0, (0.0, 8000.0), "m", "far", "how far every far tree is drawn: past it they thin out, fewer and fewer to the reach"),
     num(Knob::TreeWiden, "tree_widen", 0.5, (0.0, 1.0), "", "far", "how much of a thinned forest's coverage the trees left standing make up by standing wider: 1 all of it, up to half as wide again"),
-    num(Knob::TreeSoften, "tree_soften", 1.0, (0.0, 3.0), "", "far", "how much softer the far trees are drawn than their size on screen calls for, in halvings of their pictures' detail: up, still more under a still camera and blurrier; 0 sharpest, their finest leaves stirring"),
+    num(Knob::TreeSoften, "tree_soften", 0.0, (0.0, 3.0), "", "far", "how much softer the far trees are drawn than their size on screen calls for, in halvings of their pictures' detail: up, still more under a still camera and blurrier; 0 sharpest, their finest leaves stirring"),
     num(Knob::ForestCover, "forest_cover", 1.0, (0.0, 2.0), "", "far", "how strongly the forest cover tints the far ground where the far trees thin out and past them: 0 none"),
     num(Knob::ForestCanopy, "forest_canopy", 0.5, (0.0, 1.0), "", "far", "how high the forest cover raises the far ground at the skyline, a share of its trees' height"),
     switch(Knob::Slope, "slope", true, "slope", "scree and rock laid on the ground by its drawn slope"),

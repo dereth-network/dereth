@@ -37,6 +37,9 @@ mod cells;
 #[path = "drawn_ground.rs"]
 mod drawn_ground;
 #[cfg(feature = "hifi")]
+#[path = "far_cards.rs"]
+mod far_cards;
+#[cfg(feature = "hifi")]
 #[path = "far_trees.rs"]
 mod far_trees;
 #[cfg(feature = "hifi")]
@@ -1148,6 +1151,10 @@ pub struct SceneDraw {
     /// The art pack's trees far off, while the presentation draws them.
     #[cfg(feature = "hifi")]
     far: far_trees::FarTrees,
+    /// Whether the better lighting draws, whose far cards stand in for objects past the loaded
+    /// blocks: the objects within them keep their finest shapes.
+    #[cfg(feature = "hifi")]
+    whole_shapes: bool,
     /// The four generated detail surfaces and their tiling values.
     detail: dereth_world_render::detail::DetailTexturing,
     /// The device texture each generated detail surface wraps, loaded from database type

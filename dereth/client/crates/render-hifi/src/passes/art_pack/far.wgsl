@@ -7,7 +7,7 @@
 // drawn to, the trees thin out toward the reach: a tree's own number says how soon it goes, and it
 // shrinks away over a short stretch rather than popping. The trees left standing stand wider,
 // making up part of the coverage the thinning takes, and a tree too small for the screen to hold
-// shrinks away too.
+// shrinks away too. Only growth thins.
 
 struct Cull {
     // The view's six planes in render space, each the inward normal and its offset.
@@ -38,7 +38,8 @@ struct Tree {
 struct Model {
     bounds: vec4<f32>,
     base: u32,
-    spare0: u32,
+    // 1 for cut-out growth, which thins out.
+    foliage: u32,
     spare1: u32,
     spare2: u32,
 };
@@ -76,16 +77,20 @@ fn cs_cull(@builtin(global_invocation_id) id: vec3<u32>) {
     if (d > cull.reach.z) {
         return;
     }
-    // The thinning: a tree goes once the share left standing falls below its own number, over
-    // a short stretch.
-    let left = standing(d);
+    let m = models[t.model];
+    let growth = m.foliage != 0u;
+    // The thinning, of growth alone: a tree goes once the share left standing falls below its
+    // own number, over a short stretch.
+    var left = standing(d);
+    if (!growth) {
+        left = 1.0;
+    }
     let own = f32(t.seed >> 8u) / 16777216.0;
     let band = max(cull.look.y, 1e-3);
     var keep = clamp((left - own) / band + 1.0, 0.0, 1.0);
     if (left >= 1.0) {
         keep = 1.0;
     }
-    let m = models[t.model];
     let radius = m.bounds.w * t.scale;
     // A tree smaller on the screen than the least height fades out.
     let pixels = 2.0 * radius * cull.look.z / max(d, 1.0);

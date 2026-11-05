@@ -243,6 +243,14 @@ struct PackGpu {
     /// retail object's model among them.
     far_models: Vec<far::FarModel>,
     far_of: HashMap<u32, usize>,
+    /// What a card baked from a retail object is put on the device with: the materials' layout
+    /// and sampler and one-texel pictures, the cards' pictures, and how many of the frames'
+    /// cards are taken in.
+    material_layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+    card_fallbacks: Fallbacks,
+    card_textures: Vec<wgpu::Texture>,
+    cards_taken: usize,
 }
 
 fn uniform_entry(binding: u32, dynamic: bool) -> wgpu::BindGroupLayoutEntry {
@@ -608,6 +616,7 @@ fn material_constants(
 }
 
 /// The one-texel pictures a material that names none of its own is drawn with.
+#[derive(Debug)]
 struct Fallbacks {
     /// White, for a base colour.
     base: wgpu::Texture,
@@ -946,6 +955,7 @@ impl PackGpu {
                     model: k,
                     lod,
                     bounds: model.bounds,
+                    foliage: model.foliage,
                 });
                 far_models.len() - 1
             });
@@ -1060,7 +1070,73 @@ impl PackGpu {
             view_far,
             far_models,
             far_of,
+            card_fallbacks: Fallbacks {
+                base: one_texel(device, queue, [255; 4], true),
+                data: one_texel(device, queue, [255; 4], false),
+                normal: one_texel(device, queue, [128, 128, 255, 255], false),
+            },
+            material_layout,
+            sampler,
+            card_textures: Vec::new(),
+            cards_taken: 0,
         }
+    }
+
+    /// The cards of `set` not taken in yet, put on the device and drawn by the far objects; the
+    /// far models they add. A card of a retail object already drawn far off is passed over.
+    fn add_far_cards(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        set: &crate::snapshot::HifiFarCards,
+    ) -> Vec<far::FarModel> {
+        if set.cards.len() < self.cards_taken {
+            self.cards_taken = 0;
+        }
+        let mut added = Vec::new();
+        for card in &set.cards[self.cards_taken..] {
+            let model = &card.model;
+            let Some(part) = model.lods.first().and_then(|l| l.primitives.first()) else {
+                continue;
+            };
+            if self.far_of.contains_key(&model.id) {
+                continue;
+            }
+            let pictures = [
+                upload_image(device, queue, &card.colour),
+                upload_image(device, queue, &card.normal),
+            ];
+            let far = self.far_models.len();
+            let primitive = Materials {
+                layout: &self.material_layout,
+                sampler: &self.sampler,
+                images: &pictures,
+                fallbacks: &self.card_fallbacks,
+            }
+            .upload(device, queue, part, model, None, model.lods[0].views, far);
+            self.card_textures.extend(pictures);
+            self.models.push(GpuModel {
+                lods: vec![GpuLod {
+                    distance: f32::INFINITY,
+                    primitives: vec![primitive],
+                    pictures: true,
+                    shadows_only: false,
+                }],
+                bounds: model.bounds,
+                proxy: None,
+            });
+            let made = far::FarModel {
+                model: self.models.len() - 1,
+                lod: 0,
+                bounds: model.bounds,
+                foliage: model.foliage,
+            };
+            self.far_of.insert(model.id, far);
+            self.far_models.push(made);
+            added.push(made);
+        }
+        self.cards_taken = set.cards.len();
+        added
     }
 }
 
@@ -1701,6 +1777,13 @@ impl HifiPass for ArtPack {
             write_instances(&device, &queue, &mut gpu.view_instances, &rows);
         }
         let started = std::time::Instant::now();
+        // The cards baked from retail objects since the last frame, drawn by the far objects too.
+        if let (Some(gpu), Some(cards)) = (s.gpu.as_mut(), cx.frame.far_cards.as_ref()) {
+            let added = gpu.add_far_cards(&device, &queue, cards);
+            if !added.is_empty() && s.far.as_mut().is_some_and(|f| !f.add_models(&added)) {
+                s.far = None;
+            }
+        }
         s.prepare_far(&device, &queue, cx.frame, clip_from_render);
         s.far_prepare_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX);
         Ok(())
