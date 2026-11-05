@@ -5019,6 +5019,7 @@ fn cast_volumes(
         placed_casters, setting, Caster, VolumeRoom, Volumes, VOLUME_REACH,
     };
     frame.volumes.volumes.clear();
+    maker.begin_frame();
     // A body its drawing properties make seen through is drawn with those seen through.
     for (id, range, _, _) in noted {
         let seen_through = c.table.find(*id).is_some_and(|k| {

@@ -5,9 +5,10 @@
 //! A mesh's volume is built from its triangles facing the light: each such triangle once pushed a
 //! hair's breadth along the light (the near cap), once pushed sixty meters along it (the far cap,
 //! turned to face out), and along each edge it shares with no other triangle facing the light, a
-//! side joining the two. Every frame the volumes are built afresh from the meshes as posed, near
-//! objects first, until the frame's room for them is spent; an object farther than forty meters
-//! from the camera casts none. Drawn after the opaque objects that cast none, the volumes count
+//! side joining the two. Every frame takes the volumes of the meshes as posed, near objects first,
+//! until the frame's room for them is spent; a mesh standing as it did in the frame before, under
+//! the same light, keeps the volume it had. An object farther than forty meters from the camera
+//! casts none. Drawn after the opaque objects that cast none, the volumes count
 //! where the camera's sight to the nearest surface passes through them, and those places are
 //! darkened by the shadow's strength; the objects casting them are drawn after that, so their own
 //! shadows never fall on them.
@@ -318,8 +319,8 @@ pub fn volume_level(mesh: &Mesh, detail: f32, model_detail: u32) -> Option<usize
 /// One mesh's volume of shadow, in the frame of the draw it shadows, and where that frame stands.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Volume {
-    pub vertices: Vec<[f32; 3]>,
-    pub indices: Vec<u16>,
+    pub vertices: Arc<Vec<[f32; 3]>>,
+    pub indices: Arc<Vec<u16>>,
     pub transform: Mat4,
 }
 
@@ -385,11 +386,37 @@ fn direction_preimage(m: &Mat4, d: Vec3) -> Option<Vec3> {
     ))
 }
 
-/// Makes the frame's volumes, keeping each mesh level's connectivity once it is first built.
+/// What a volume is made from: the mesh level, the list its vertices stand in, the light along its
+/// own frame and how far its near cap is pushed.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct Asked {
+    mesh: u32,
+    level: usize,
+    places: usize,
+    toward: [u32; 3],
+    near: u32,
+}
+
+/// A volume's vertices and indices.
+type Lists = (Arc<Vec<[f32; 3]>>, Arc<Vec<u16>>);
+
+/// A volume made, or that the mesh throws none, and the lists it was made from, held so that their
+/// addresses stay theirs while it is kept.
+struct Made {
+    volume: Option<Lists>,
+    _posed: Option<Arc<crate::mesh::PosedList>>,
+    _vertices: Arc<Vec<crate::mesh::MeshVertex>>,
+    used: u64,
+}
+
+/// Makes the frame's volumes, keeping each mesh level's connectivity once it is first built, and
+/// the volumes the frame before took.
 #[derive(Default)]
 pub struct VolumeMaker {
     meshes: HashMap<u32, Option<Arc<Mesh>>>,
     connectivity: HashMap<(u32, usize), Option<Arc<Connectivity>>>,
+    made: HashMap<Asked, Made>,
+    frame: u64,
 }
 
 impl std::fmt::Debug for VolumeMaker {
@@ -401,6 +428,13 @@ impl std::fmt::Debug for VolumeMaker {
 }
 
 impl VolumeMaker {
+    /// A frame starts: the volumes the one before it did not take are let go.
+    pub fn begin_frame(&mut self) {
+        let last = self.frame;
+        self.made.retain(|_, m| m.used == last);
+        self.frame += 1;
+    }
+
     fn mesh(&mut self, records: &WorldRecords, id: u32) -> Option<Arc<Mesh>> {
         self.meshes
             .entry(id)
@@ -483,54 +517,85 @@ impl VolumeMaker {
             let Some(level) = level_of(&mesh) else {
                 continue;
             };
-            let walked: Vec<Vec3>;
-            let positions: &[Vec3] = if let Some(list) = &b.posed {
-                list.positions()
-            } else {
-                walked = {
-                    let mut all = Vec::with_capacity(b.vertices.len());
-                    b.each_position(|[x, y, z]| all.push(Vec3::new(x, y, z)));
-                    all
-                };
-                &walked
-            };
-            let Some(c) = self
-                .connectivity
-                .entry((b.mesh, level))
-                .or_insert_with(|| {
-                    let stored: Vec<Vec3> = crate::mesh::vertices(&mesh.vertices)?
-                        .iter()
-                        .map(|v| Vec3::new(v.position[0], v.position[1], v.position[2]))
-                        .collect();
-                    Connectivity::of(
-                        &stored,
-                        mesh.levels[level]
-                            .fragments
-                            .iter()
-                            .map(|f| f.indices.as_slice()),
-                    )
-                    .map(Arc::new)
-                })
-                .clone()
-            else {
-                continue;
-            };
             // the light along the mesh's own frame, its place's movement left out
             let Some(local) = direction_preimage(&b.transform, toward) else {
                 continue;
             };
             let local = normalize(local);
-            let Some(v) =
-                shadow_volume(&c, positions, local, 0.0, near, room.vertices, room.indices)
+            let asked = Asked {
+                mesh: b.mesh,
+                level,
+                places: b.places(),
+                toward: [local.x.to_bits(), local.y.to_bits(), local.z.to_bits()],
+                near: near.to_bits(),
+            };
+            let frame = self.frame;
+            if let Some(m) = self.made.get_mut(&asked) {
+                m.used = frame;
+            } else {
+                let c = self
+                    .connectivity
+                    .entry((b.mesh, level))
+                    .or_insert_with(|| {
+                        let stored: Vec<Vec3> = crate::mesh::vertices(&mesh.vertices)?
+                            .iter()
+                            .map(|v| Vec3::new(v.position[0], v.position[1], v.position[2]))
+                            .collect();
+                        Connectivity::of(
+                            &stored,
+                            mesh.levels[level]
+                                .fragments
+                                .iter()
+                                .map(|f| f.indices.as_slice()),
+                        )
+                        .map(Arc::new)
+                    })
+                    .clone();
+                let Some(c) = c else {
+                    continue;
+                };
+                let walked: Vec<Vec3>;
+                let positions: &[Vec3] = if let Some(list) = &b.posed {
+                    list.positions()
+                } else {
+                    walked = {
+                        let mut all = Vec::with_capacity(b.vertices.len());
+                        b.each_position(|[x, y, z]| all.push(Vec3::new(x, y, z)));
+                        all
+                    };
+                    &walked
+                };
+                // Whether it fits is the frame's to say, taking it.
+                let volume = shadow_volume(&c, positions, local, 0.0, near, usize::MAX, usize::MAX)
+                    .map(|v| {
+                        (
+                            Arc::new(v.vertices.iter().map(|p| [p.x, p.y, p.z]).collect()),
+                            Arc::new(v.indices),
+                        )
+                    });
+                self.made.insert(
+                    asked,
+                    Made {
+                        volume,
+                        _posed: b.posed.clone(),
+                        _vertices: Arc::clone(&b.vertices),
+                        used: frame,
+                    },
+                );
+            }
+            let Some((vertices, indices)) = self.made.get(&asked).and_then(|m| m.volume.as_ref())
             else {
                 continue;
             };
+            if vertices.len() > room.vertices || indices.len() > room.indices {
+                continue;
+            }
             room.volumes -= 1;
-            room.vertices = room.vertices.saturating_sub(v.vertices.len());
-            room.indices = room.indices.saturating_sub(v.indices.len());
+            room.vertices -= vertices.len();
+            room.indices -= indices.len();
             out.push(Volume {
-                vertices: v.vertices.iter().map(|p| [p.x, p.y, p.z]).collect(),
-                indices: v.indices,
+                vertices: Arc::clone(vertices),
+                indices: Arc::clone(indices),
                 transform: b.transform,
             });
         }

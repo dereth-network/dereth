@@ -2797,10 +2797,10 @@ impl Renderer {
                 (
                     self.meshes
                         .passing_vertices
-                        .put(&self.device, bytemuck::cast_slice(&v.vertices)),
+                        .put(&self.device, bytemuck::cast_slice(v.vertices.as_slice())),
                     self.meshes
                         .passing_indices
-                        .put(&self.device, bytemuck::cast_slice(&v.indices)),
+                        .put(&self.device, bytemuck::cast_slice(v.indices.as_slice())),
                     u32::try_from(v.indices.len()).unwrap_or(0),
                     group,
                 )

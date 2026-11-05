@@ -1562,6 +1562,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.volume.a-mesh-standing-as-it-did-keeps-its-volume",
+        says: "A mesh standing as it did in the frame before, under the same light, keeps its volume, and what fits the frame's room is what a volume made afresh would give.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-VOLUMES-KEPT"),
+        station: "auberean-draw::dat::volumes::a_mesh_standing_as_it_did_keeps_its_volume",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.volume.a-placed-object-takes-its-drawing-properties-from-its-entities",
         says: "An object a landblock or a cell places takes its drawing properties as any object \
                made from an entity does: the entities it is made from first, innermost first, then \
