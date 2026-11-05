@@ -19,6 +19,8 @@
 // crate's shared views are shared within a thread there.
 #![cfg_attr(target_arch = "wasm32", allow(clippy::arc_with_non_send_sync))]
 
+mod canvas;
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -126,6 +128,16 @@ pub fn present_mode(
         .unwrap_or(wgpu::PresentMode::Fifo)
 }
 
+/// An interface picture on the device: the revision and size it holds, and a copy of its texels to
+/// find what the next one changes.
+struct KeptCanvas {
+    revision: u64,
+    width: u32,
+    height: u32,
+    texture: wgpu::Texture,
+    bgra: Vec<u8>,
+}
+
 /// The window's device and what it keeps between frames.
 pub struct Presenter {
     _instance: wgpu::Instance,
@@ -150,8 +162,8 @@ pub struct Presenter {
     /// Texel for texel: the interface's pictures are the window's size.
     nearest: wgpu::Sampler,
     /// The interface's pictures on the device: behind the world, in front, over the world and
-    /// under the scenes; each with the revision and size it holds.
-    canvases: [Option<(u64, u32, u32, wgpu::Texture)>; 3],
+    /// under the scenes.
+    canvases: [Option<KeptCanvas>; 3],
     white: wgpu::TextureView,
     pictures: HashMap<u32, Option<Arc<wgpu::TextureView>>>,
     composed: Option<(wgpu::Texture, u32, u32)>,
@@ -514,61 +526,84 @@ impl Presenter {
         if c.width == 0 || c.height == 0 || c.bgra.len() != (c.width * c.height * 4) as usize {
             return None;
         }
-        let fresh = match &self.canvases[slot] {
-            Some((rev, w, h, _)) => *rev != c.revision || *w != c.width || *h != c.height,
-            None => true,
-        };
-        if fresh {
-            let same_size = self.canvases[slot]
-                .as_ref()
-                .is_some_and(|(_, w, h, _)| *w == c.width && *h == c.height);
-            let texture = if same_size {
-                self.canvases[slot].take().map(|(_, _, _, t)| t)
-            } else {
-                None
-            }
-            .unwrap_or_else(|| {
-                self.renderer
-                    .device()
-                    .create_texture(&wgpu::TextureDescriptor {
-                        label: Some("interface"),
-                        size: wgpu::Extent3d {
-                            width: c.width,
-                            height: c.height,
-                            depth_or_array_layers: 1,
-                        },
-                        mip_level_count: 1,
-                        sample_count: 1,
-                        dimension: wgpu::TextureDimension::D2,
-                        format: self.renderer.pictures().format(),
-                        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                        view_formats: &[],
-                    })
+        let same_size = self.canvases[slot]
+            .as_ref()
+            .is_some_and(|k| k.width == c.width && k.height == c.height);
+        if !same_size {
+            let texture = self
+                .renderer
+                .device()
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some("interface"),
+                    size: wgpu::Extent3d {
+                        width: c.width,
+                        height: c.height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: self.renderer.pictures().format(),
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                    view_formats: &[],
+                });
+            self.canvases[slot] = Some(KeptCanvas {
+                revision: c.revision,
+                width: c.width,
+                height: c.height,
+                texture,
+                bgra: Vec::new(),
             });
-            self.renderer.queue().write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                &self.renderer.pictures().bytes(&c.bgra),
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(c.width * 4),
-                    rows_per_image: Some(c.height),
-                },
-                wgpu::Extent3d {
+        }
+        let kept = self.canvases[slot].as_mut()?;
+        if !same_size || kept.revision != c.revision {
+            kept.revision = c.revision;
+            // A new texture holds nothing yet: all of it goes up. Otherwise what changed.
+            let spans = if kept.bgra.len() == c.bgra.len() {
+                canvas::changed_spans(&kept.bgra, &c.bgra, c.width, c.height)
+            } else {
+                kept.bgra = vec![0; c.bgra.len()];
+                vec![canvas::Span {
+                    x: 0,
+                    y: 0,
                     width: c.width,
                     height: c.height,
-                    depth_or_array_layers: 1,
-                },
-            );
-            self.canvases[slot] = Some((c.revision, c.width, c.height, texture));
+                }]
+            };
+            let pictures = self.renderer.pictures();
+            for s in &spans {
+                let start = ((s.y * c.width + s.x) * 4) as usize;
+                let end = (((s.y + s.height - 1) * c.width + s.x + s.width) * 4) as usize;
+                self.renderer.queue().write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &kept.texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d {
+                            x: s.x,
+                            y: s.y,
+                            z: 0,
+                        },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &pictures.bytes(&c.bgra[start..end]),
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(c.width * 4),
+                        rows_per_image: Some(s.height),
+                    },
+                    wgpu::Extent3d {
+                        width: s.width,
+                        height: s.height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+            }
+            canvas::copy_spans(&mut kept.bgra, &c.bgra, c.width, &spans);
         }
-        self.canvases[slot]
-            .as_ref()
-            .map(|(_, _, _, t)| t.create_view(&wgpu::TextureViewDescriptor::default()))
+        Some(
+            kept.texture
+                .create_view(&wgpu::TextureViewDescriptor::default()),
+        )
     }
 
     fn composed(&mut self, w: u32, h: u32) -> wgpu::Texture {
