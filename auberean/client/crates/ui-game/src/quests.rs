@@ -619,7 +619,10 @@ impl Child for Journal {
                     let w = ui.node(from).map_or(0, |n| n.rect.width());
                     let h = ui.text_state(from).map_or(0, |t| t.paper_h);
                     ui.resize_to(from, w, h);
-                    for list in [self.underway_list, self.finished_list].into_iter().flatten() {
+                    for list in [self.underway_list, self.finished_list]
+                        .into_iter()
+                        .flatten()
+                    {
                         ui.list_update_and_draw(list);
                     }
                 }

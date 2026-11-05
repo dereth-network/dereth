@@ -1517,18 +1517,15 @@ impl Ui {
         let (w, hh) = n.clamp_size(x1 - x0 + 1, y1 - y0 + 1);
         x1 = x0 + w - 1;
         y1 = y0 + hh - 1;
-        // A top-level element reaching past the screen's right or bottom edge is moved back onto
-        // it, when it fits.
-        if n.parent.is_none() {
+        // A top-level element is kept on the screen, as any move does: never past its left or top
+        // edge, and moved back from its right and bottom ones.
+        // D2-11356
+        if n.owns_object {
             let (w, h) = (x1 - x0 + 1, y1 - y0 + 1);
-            if x1 >= self.display.0 && w <= self.display.0 {
-                x0 = self.display.0 - w;
-                x1 = self.display.0 - 1;
-            }
-            if y1 >= self.display.1 && h <= self.display.1 {
-                y0 = self.display.1 - h;
-                y1 = self.display.1 - 1;
-            }
+            x0 = x0.max(0).min(self.display.0 - w);
+            x1 = x0 + w - 1;
+            y0 = y0.max(0).min(self.display.1 - h);
+            y1 = y0 + h - 1;
         }
         let old_z = n.z;
         let parent = n.parent;

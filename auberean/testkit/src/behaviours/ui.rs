@@ -612,6 +612,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.element.a-placed-element-stays-off-no-edge-of-the-screen",
+        says: "A top-level element placed past the screen's left or top edge comes back to \
+               it, as one past the right or bottom edge does; a child is not held to the \
+               screen.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PLACE-ON-SCREEN"),
+        station: "auberean-ui::cpu::elements::a_placed_element_stays_off_no_edge_of_the_screen",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.element.a-reference-is-its-template-placed-where-the-reference-stands",
         says: "An element made from a reference takes its kind from the template it names, its \
                place from where the layout puts the reference, and its children from both.",

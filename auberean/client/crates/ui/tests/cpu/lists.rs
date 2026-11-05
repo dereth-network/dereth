@@ -445,7 +445,11 @@ fn an_emptied_list_keeps_its_cell_and_a_row_past_the_end_is_refused() {
     u.list_insert(list, extra, 6);
     assert_eq!(u.list_items(list).len(), 5, "past the end: none");
     u.list_insert_before(list, extra, Some(list));
-    assert_eq!(u.list_items(list).len(), 5, "before no row of its own: none");
+    assert_eq!(
+        u.list_items(list).len(),
+        5,
+        "before no row of its own: none"
+    );
     u.list_insert_before(list, extra, None);
     assert_eq!(u.list_items(list).len(), 6, "before nothing: at the end");
     u.list_remove(list, 5);
@@ -454,7 +458,11 @@ fn an_emptied_list_keeps_its_cell_and_a_row_past_the_end_is_refused() {
     for _ in 0..5 {
         u.list_remove(list, 0);
     }
-    assert_eq!(y_view(&u, list), cell, "the view stays, on one cell of sheet");
+    assert_eq!(
+        y_view(&u, list),
+        cell,
+        "the view stays, on one cell of sheet"
+    );
 }
 
 /// An open menu closes as the window it stands in hides: its popup, its own top-level element,
