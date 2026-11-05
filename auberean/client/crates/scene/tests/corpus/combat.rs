@@ -602,7 +602,7 @@ fn the_scripts_scale_hide_and_slide_the_bodies() {
         before.1
     );
     scene.frame(t);
-    assert!(!scene.seen.bodies.iter().any(|s| s.id == id), "not drawn");
+    assert!(scene.drawn_batches(id).is_none(), "not drawn");
 }
 
 /// A minute in the world of a 2017 session in which the server scales the speed and the

@@ -342,6 +342,9 @@ pub struct Body {
     /// The object its targeted effects aim at, and the look its effects clone (none: 0).
     pub fx_target: u64,
     pub look_to_clone: u32,
+    /// The appearance table and values laid over the look its effects clone.
+    pub clone_appearance: u32,
+    pub clone_values: Vec<(u32, f32)>,
     /// Its setup's radius and height, unscaled: what it measures itself by (its spheres' until
     /// the host gives them).
     pub setup_radius: f32,
@@ -470,6 +473,8 @@ impl Body {
             notices: Vec::new(),
             fx_target: 0,
             look_to_clone: 0,
+            clone_appearance: 0,
+            clone_values: Vec::new(),
             setup_radius,
             setup_height,
             update_times: [0; 4],

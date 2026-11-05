@@ -790,7 +790,7 @@ impl ObjectEffects {
     /// The rest of every startup effect, played as the object's making ends, and again each time
     /// its look is brought up to date: its streaks, its sounds (each entry's, kept to stop with the
     /// effect; taken with [`ObjectEffects::take_sounds`]), its lights and its repulsors (another each
-    /// time). (Their decals and objects made are not played here.)
+    /// time). (The objects they make are not played here.)
     // D2-06529
     pub fn object_end(
         &mut self,

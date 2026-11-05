@@ -496,6 +496,24 @@ fn water_light(
     auberean_world::fog::water_fog(light, water.lighting(x, y), depth)
 }
 
+/// Whether object `id` has a body told not to be drawn.
+fn hidden_body(
+    player: Option<&Player>,
+    others: &others::Others,
+    held: &held::HeldObjects,
+    temporaries: &temporaries::Temporaries,
+    id: u64,
+) -> bool {
+    let body = match player {
+        Some(p) if p.id == id => Some(&p.body),
+        _ => others
+            .body(id)
+            .or_else(|| held.body(id))
+            .or_else(|| temporaries.get(id).map(|t| &t.body)),
+    };
+    body.is_some_and(Body::is_no_draw)
+}
+
 /// Whether object `id`'s figure (the player's, another's, a held object's or one the client
 /// made) has faded out of sight.
 fn faded_figure(
@@ -1863,6 +1881,19 @@ impl<'w> Scene<'w> {
             self.told_modes.push((id, params.mode));
         }
         let took = f.do_behavior(anims, params);
+        // What the body's effects aim at and clone from now on, until a behavior names others.
+        if let Some(b) = self.body_mut(id) {
+            if params.target != 0 {
+                b.set_fx_target(params.target);
+            }
+            if params.clone_visual != 0 {
+                b.set_look_to_clone(
+                    params.clone_visual,
+                    params.clone_appearance,
+                    &params.clone_strengths,
+                );
+            }
+        }
         if params.propagate {
             let held: Vec<u64> = self
                 .held
@@ -2890,6 +2921,7 @@ impl<'w> Scene<'w> {
                 .into_iter()
                 .map(|e| (e.object, e.effect, e.intensity)),
         );
+        let hooks = played.len();
         self.route_figure_events(asked_of, &mut played, now);
         self.forget_those_gone(client, now);
         // The scripts' effects and the figures' play on the bodies too (those asked through the
@@ -2899,7 +2931,7 @@ impl<'w> Scene<'w> {
         }
         self.play_camera_effects(client, &played, now);
         let night = self.is_night();
-        self.aim_fx(client, &played, night);
+        self.aim_fx(client, &played, hooks, night);
         self.ask_body_fx();
         self.end_aimed_fx(now);
         self.do_sliders_on_children();
@@ -4462,7 +4494,7 @@ impl<'w> Scene<'w> {
             near: camera.near,
         });
         self.seen.block = (bx, by);
-        self.seen.bodies.clear();
+        let was_seen = std::mem::take(&mut self.seen.bodies);
         self.drawn.clear();
         for (id, range, at, heading) in noted {
             let mut body = seen::SeenBody {
@@ -4483,6 +4515,21 @@ impl<'w> Scene<'w> {
             }
             self.seen.bodies.push(body);
             self.drawn.push((id, range));
+        }
+        // A body told not to be drawn keeps its place on the screen: what marks it stays, though
+        // nothing can be picked there.
+        // D2-02108
+        for body in was_seen {
+            let hidden = hidden_body(
+                self.player.as_ref(),
+                &self.others,
+                &self.held,
+                &self.temporaries,
+                body.id,
+            );
+            if hidden && !self.seen.bodies.iter().any(|b| b.id == body.id) {
+                self.seen.bodies.push(body);
+            }
         }
         // The effects the objects play: lit particles take the light the frame's objects do.
         let axes = camera_axes(heading, pitch);

@@ -4038,6 +4038,141 @@ fn an_aimed_effect_acts_on_its_target() {
     );
 }
 
+/// A behavior that names a target and a look to clone gives them to the effects its animation sets
+/// off: putting an item down, the player's effects hide the item and take a clone of it in hand. The
+/// clone has never stood in the world, so the entry that lets go of what it holds leaves it held.
+/// As the effect ends the item shows again, its marks having stayed, and the clone fades out in the
+/// hand and goes three seconds later. Fixture: the human figure in the hall's cell
+/// standing in for the item, a server double asking the player's body for the behavior at a set
+/// time.
+///
+/// Behaviour: desktop.bodies.a-behaviors-target-and-clone-go-to-its-effects
+#[test]
+fn a_behaviors_target_and_clone_go_to_its_effects() {
+    use auberean_client_sdk::protocol::physics::ObjectEvent;
+    use auberean_client_sdk::protocol::types::BehaviorParams;
+    const DRUDGES_CELL: u32 = 0x0298_0121;
+    const ITEM: u64 = 0x8130_1B05_CC00_0191;
+    const ITEM_LOOK: u32 = 0x1F00_0069;
+    const PUTTING_DOWN: u32 = 0x4100_0021;
+    const PUT_DOWN_SCRIPT: u32 = 0x5700_0005;
+    let item = CreateObject {
+        id: ITEM,
+        visual: VisualDesc {
+            bits: VisualDesc::DID,
+            did: HUMAN_MALE,
+            ..VisualDesc::default()
+        },
+        physics: PhysicsDesc {
+            bits: PhysicsDesc::POSITION,
+            instance_stamp: 1,
+            visual_ordering_stamp: 1,
+            position: Placement {
+                cell: DRUDGES_CELL,
+                frame: Frame {
+                    origin: Vec3 {
+                        x: -3.9,
+                        y: 337.5,
+                        z: -44.7,
+                    },
+                    rotation: Quat::IDENTITY,
+                },
+            },
+            ..PhysicsDesc::default()
+        },
+        ..CreateObject::default()
+    };
+    let at = Vec3 {
+        x: 2.0,
+        y: 330.0,
+        z: -43.76,
+    };
+    let later = [(
+        9.0,
+        ServerMessage::PlayBehavior(ObjectEvent {
+            sender: ObjectStamp {
+                id: PLAYER,
+                instance_stamp: 1,
+                other_stamp: 0,
+            },
+            action: BehaviorParams {
+                bits: BehaviorParams::BEHAVIOR
+                    | BehaviorParams::FX_SCRIPT
+                    | BehaviorParams::TARGET
+                    | BehaviorParams::CLONE,
+                behavior: PUTTING_DOWN,
+                fx_script: PUT_DOWN_SCRIPT,
+                target: ITEM,
+                clone_visual: ITEM_LOOK,
+                ..BehaviorParams::default()
+            },
+        }),
+    )];
+    let script = script_until(DRUDGES_CELL, at, Quat::IDENTITY, &[item], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let (mut hid, mut held, mut clone) = (false, false, None);
+    let mut marked = true;
+    let mut let_go = false;
+    let (mut faded_from, mut faded_out) = (None, None);
+    let mut gone_at = None;
+    while s.host.time < 34.0 {
+        step(&mut s);
+        let hidden = s.scene.body(ITEM).is_some_and(|b| b.is_no_draw());
+        hid |= hidden;
+        if hidden {
+            marked &= s.scene.seen.body(ITEM).is_some_and(|b| b.bounds.is_some());
+        }
+        if clone.is_none() {
+            clone = s.scene.made_objects().first().copied();
+        }
+        let Some(m) = clone else { continue };
+        if !s.scene.made_objects().contains(&m) {
+            gone_at = gone_at.or(Some(s.host.time));
+            if !hidden {
+                break;
+            }
+            continue;
+        }
+        let b = s.scene.body(m);
+        held |= b.is_some_and(|b| b.has_parent);
+        let_go |= held && b.is_some_and(|b| !b.has_parent || b.in_world);
+        let opacity = s.scene.temporary_opacity(m).unwrap_or(1.0);
+        if opacity < 1.0 {
+            faded_from = faded_from.or(Some(s.host.time));
+        }
+        if opacity <= 0.01 {
+            faded_out = faded_out.or(Some(s.host.time));
+        }
+    }
+    assert!(hid, "the behavior's effects hide the item");
+    assert!(clone.is_some(), "they make a clone of it");
+    assert!(held, "and take the clone up");
+    assert!(!let_go, "it stays in the hand");
+    assert!(marked, "what marks the item stays while it is hidden");
+    let from = faded_from.expect("it fades out");
+    let out = faded_out.expect("all the way");
+    assert!(
+        (0.3..=0.7).contains(&(out - from)),
+        "over half a second: {}",
+        out - from
+    );
+    assert!(gone_at.is_some(), "the clone goes");
+    assert!(
+        !s.scene.body(ITEM).expect("its body").is_no_draw(),
+        "and the item shows again"
+    );
+}
+
 /// An effect that makes an object and names a behavior: the object hangs from the player at the
 /// entry's holding location, is hidden at once as its behavior ends, and goes three seconds later,
 /// past the effect's own second. Fixture: a server double asking the player's body for the effect

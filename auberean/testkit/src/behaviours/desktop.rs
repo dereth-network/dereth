@@ -51,6 +51,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.bodies.a-behaviors-target-and-clone-go-to-its-effects",
+        says: "A behavior that names a target and a look to clone gives them to the body, and the effects its animation and script set off aim there: they hide the item and take a clone of it up. The clone has no place of its own, so the entry that lets go leaves it held; as the effect ends the item shows again and the clone fades out in the hand and goes three seconds later.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-BEHAVIOR-AIM"),
+        station: "auberean-shell::dat::session::a_behaviors_target_and_clone_go_to_its_effects",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.bodies.a-body-does-the-rest-of-what-the-server-asks",
         says: "A body keeps a global and a terrain modifier, clears the terrain modifiers, is moved \n               by a push toward an object, and flies when a missile is launched.",
         since: RETAIL,
