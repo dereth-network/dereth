@@ -250,13 +250,22 @@ pub fn is_admin_word(words: &str) -> bool {
         .is_some_and(|w| w.eq_ignore_ascii_case(ADMIN))
 }
 
-/// Keeps a line said as the network's command for the friends service: true when it was one. The
-/// operator's words from a player's account are logged and go on as the friends service's, which
-/// reads them as no word it knows.
-fn network_command<S: Store>(s: &mut Server<S>, world: ConnId, text: &str) -> bool {
+/// Keeps a line said as the network's command for the friends service: true when it was one. Each
+/// is a line of talk: past how fast a player may talk it goes nowhere, and a gagged player's stays
+/// its to give, since it may be to ask how it stands. The operator's words from a player's account
+/// are logged and go on as the friends service's, which reads them as no word it knows.
+fn network_command<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    text: &str,
+) -> bool {
     let Some(words) = said_network_words(text) else {
         return false;
     };
+    if talks_too_fast(s, net, world) {
+        return true;
+    }
     let Some(p) = s.players.get(&world) else {
         return true;
     };
@@ -315,7 +324,7 @@ pub fn say<S: Store>(
         .and_then(|t| t.literal)
         .map(|l| String::from_utf16_lossy(&l));
     if let Some(t) = said {
-        if crate::admin::said(s, net, world, &t, clock) || network_command(s, world, &t) {
+        if crate::admin::said(s, net, world, &t, clock) || network_command(s, net, world, &t) {
             return;
         }
     }
@@ -541,9 +550,11 @@ const TOO_FAST_EVERY: f64 = 5.0;
 /// told the player, the second at most every few seconds.
 #[must_use]
 pub fn refuses_talk<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) -> bool {
-    if crate::admin::refuse_gagged(s, net, world) {
-        return true;
-    }
+    crate::admin::refuse_gagged(s, net, world) || talks_too_fast(s, net, world)
+}
+
+/// Is this line past how fast this player may talk? It is told, at most every few seconds.
+fn talks_too_fast<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) -> bool {
     let now = s.saves.now;
     let Some(p) = s.players.get_mut(&world) else {
         return false;
@@ -1110,7 +1121,7 @@ pub fn service<S: Store>(
     if let Some(world) = world {
         let text = String::from_utf16_lossy(&line.text);
         if crate::admin::said(s, net, world, &text, clock)
-            || network_command(s, world, &text)
+            || network_command(s, net, world, &text)
             || refuses_talk(s, net, world)
         {
             send_chat(

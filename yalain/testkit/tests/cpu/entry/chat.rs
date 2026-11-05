@@ -1076,3 +1076,37 @@ fn a_notice_with_brackets_and_backslashes_is_read_by_the_client_as_written() {
         .collect();
     assert_eq!(read, ["back [soon] now", r"a\b \[c] {d|e} #f ^g !h"]);
 }
+
+/// A line said as the network's command counts as talk: past how fast a player may talk it is not
+/// kept, the player is told, and once the pace has filled it is kept again.
+/// Behaviour: server.chat.talk-has-a-limit
+#[test]
+fn the_networks_command_said_past_how_fast_one_may_talk_goes_nowhere() {
+    use yalain_world::chat::TOO_FAST;
+    // Past the burst of ten, however little time the run takes.
+    let lines = 40;
+    let mut h = Harness::new();
+    let (b, _) = h.player_in_world("one", "Elara");
+    let from = h.bots[b].inbox.len();
+    for _ in 0..lines {
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::SAY, &[Arg::Int(0), literal("@dn on")]),
+        );
+    }
+    h.run(5);
+    let kept = h.server.network_commands.len();
+    assert!((10..lines).contains(&kept), "{kept} of {lines} kept");
+    h.run(5);
+    assert!(h.bots[b].notices(from).iter().any(|n| n.contains(TOO_FAST)));
+    h.server.network_commands.clear();
+    h.advance(10.0);
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::SAY, &[Arg::Int(0), literal("@dn on")]),
+    );
+    h.run(5);
+    assert_eq!(h.server.network_commands.len(), 1, "the pace has filled");
+}
