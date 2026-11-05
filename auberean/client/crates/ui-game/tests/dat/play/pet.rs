@@ -59,6 +59,35 @@ fn the_options_bit_hides_the_pet_panel() {
     }
 }
 
+/// The mode buttons step from the mode last asked, not the one the pet has taken: Next twice before
+/// the pet answers is two steps on, and Previous then one back.
+///
+/// Behaviour: ui.pet.the-mode-buttons-step-from-the-mode-asked
+#[test]
+fn the_mode_buttons_step_from_the_mode_asked() {
+    let mut w = World::new();
+    w.tick(&[]);
+    let panel = w.el("PetPanel");
+    let name = Some(Record::Text(StringInfo::literal("Rufus (Ann's pet)")));
+    let [hi, lo] = long(PET);
+    w.tick(&[said(
+        notice::ADD_PET,
+        vec![hi, lo, 0, ICON, MODES[0].0],
+        vec![None, None, name],
+    )]);
+    let list = w.under(panel, "PetPanelListBox");
+    let row = w.ui.list_items(list)[0];
+    let (x, y) = w.middle(row);
+    w.ui.pointer_move(x, y);
+    w.click(w.under(row, "NextMode"));
+    w.ui.pointer_move(x, y);
+    w.click(w.under(row, "NextMode"));
+    assert_eq!(w.state(w.under(row, "Mode")), Token::of(MODES[2].1));
+    w.ui.pointer_move(x, y);
+    w.click(w.under(row, "PreviousMode"));
+    assert_eq!(w.state(w.under(row, "Mode")), Token::of(MODES[1].1));
+}
+
 /// With the player's option on, a pet the scripts add shows in a row (its name without its
 /// owner's part, its mode's look) and the panel shows, its commands lit. The next-mode button
 /// shows the next mode at once and asks the scripts for it within five seconds, again every five

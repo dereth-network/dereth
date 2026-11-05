@@ -14,6 +14,7 @@ not how it was done.
 - Fixed effects that fade a body out snapping it back at once.
 - Fixed mist on the ground in rain too light to see.
 - Fixed sunlit halls: the sun now falls across their floors and walls as the original's does.
+- The pet mode buttons now step from the mode you last chose.
 - Fixed the pet panel and fellows on the map options being the wrong way round.
 - Long text in a one-line entry no longer goes blank when you press End.
 - A character the font lacks no longer changes the font of what you type next.

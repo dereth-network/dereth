@@ -1685,6 +1685,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.pet.the-mode-buttons-step-from-the-mode-asked",
+        says: "The mode buttons step from the mode last asked, not the one the pet has taken: \
+               Next twice before the pet answers is two steps on, and Previous then one back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PET-MODE-STEP"),
+        station: "auberean-ui-game::dat::play::pet::the_mode_buttons_step_from_the_mode_asked",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.pet.the-modes-turn-in-order-and-names-lose-their-owner",
         says: "A pet's mode turns through the nine modes in order and back round (one not among \
                them goes to the first going on and the last going back); a pet's name loses its \

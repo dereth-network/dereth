@@ -487,7 +487,7 @@ impl Pets {
         else {
             return;
         };
-        let Some(mode) = self.pets.get(&pet).map(|p| p.mode) else {
+        let Some(mode) = self.pets.get(&pet).map(|p| p.next_mode) else {
             return;
         };
         let to = if next {
