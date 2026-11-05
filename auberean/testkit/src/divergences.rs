@@ -186,6 +186,10 @@ pub static DIVERGENCES: &[Divergence] = &[
                as Dereth's does, so several clients open at once can be told apart on the task \
                bar; the retail client's title is the game's name alone.",
     },
+    Divergence {
+        id: "CD2-world-overlay",
+        says: "A world can change the game's records with a folder of its own laid over the data                files, which this client reads through and never writes; the original client knew                only its own files, which a download changed in place.",
+    },
 ];
 
 /// The divergence with an id.

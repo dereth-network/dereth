@@ -11,7 +11,8 @@
 //! it is the `auberean` program.
 //!
 //! ```text
-//! auberean --dats <install folder> [--server 127.0.0.1:9000] [--account ACCOUNT[:PASSWORD]]
+//! auberean --dats <install folder> [--overlay-dat-dir DIR] [--server 127.0.0.1:9000]
+//!          [--account ACCOUNT[:PASSWORD]]
 //!          [--glsticketdirect SECRET]
 //!          [--gunserver HOST [--gunport PORT] [--gunticket] [--gunticketoverride TICKET]]
 //!          [--size 1280x960] [--dev-login ACCOUNT:PASSWORD [--dev-character NAME]]
@@ -20,7 +21,9 @@
 //! ```
 //!
 //! The install folder is the September 2013 client's: its data files are the world and the
-//! interface's records, and answer the server's question of which data the client has. The
+//! interface's records, and answer the server's question of which data the client has.
+//! `--overlay-dat-dir` names a world's overlay to read them through; the files are never written,
+//! and an overlay made against other files stops the client before it starts. The
 //! interface is the game's own (`auberean-interface`): with `--account` it logs in as the launcher
 //! would have it log in, and the character screens take it from there. `--dev-login` instead logs
 //! in and enters the world by itself (making the character, a human, when the account has none of
@@ -82,7 +85,8 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use auberean_client_sdk::dat::locate::install_dats;
+use auberean_client_sdk::dat::locate::{install_dats, DatName};
+use auberean_client_sdk::dat::overlay::WorldOverlay;
 use auberean_client_sdk::dat::DatFile;
 use auberean_interface::data::{open_data, ui_assets, Install};
 use auberean_scene::WorldData;
@@ -105,6 +109,7 @@ const SETTINGS_FILE: &str = "Preferences.ini";
 #[derive(Debug, Default)]
 struct Options {
     dats: PathBuf,
+    world_overlay: Option<PathBuf>,
     server: Option<SocketAddr>,
     size: Option<(u32, u32)>,
     login: Option<(String, String)>,
@@ -138,7 +143,7 @@ struct Options {
 
 /// This program's own options, beside the September 2013 client's: each one's form (what it takes
 /// and keeps), long name, help and a switch's value.
-const OWN_OPTIONS: [(u32, &str, &str, i32); 13] = [
+const OWN_OPTIONS: [(u32, &str, &str, i32); 14] = [
     (
         0x11,
         "adminclient",
@@ -149,6 +154,12 @@ const OWN_OPTIONS: [(u32, &str, &str, i32); 13] = [
         0x32,
         "dats",
         "<folder>: The September 2013 client's install folder.",
+        0,
+    ),
+    (
+        0x32,
+        "overlay-dat-dir",
+        "<folder>: A world's overlay to read the data files through.",
         0,
     ),
     (0x32, "server", "<IP:port>: The server to log in to.", 0),
@@ -230,6 +241,7 @@ impl Reader for Line {
         match arg.name.as_str() {
             "adminclient" => self.o.admin_client = true,
             "dats" => self.o.dats = PathBuf::from(value),
+            "overlay-dat-dir" => self.o.world_overlay = Some(PathBuf::from(value)),
             "server" => match value.parse() {
                 Ok(a) => self.o.server = Some(a),
                 Err(e) => return self.fail(&format!("--server: {e} (want IP:PORT)")),
@@ -1009,6 +1021,27 @@ impl ApplicationHandler for App<'_> {
     }
 }
 
+/// The world's overlay named on the command line, checked against every file it would lie over: a
+/// world's overlay the client can't take is not played with the installed files instead.
+fn world_overlay(
+    dir: Option<&Path>,
+    found: &[(DatName, PathBuf)],
+) -> Result<Option<WorldOverlay>, String> {
+    let Some(dir) = dir else {
+        return Ok(None);
+    };
+    let overlay = WorldOverlay::open(dir).map_err(|e| e.to_string())?;
+    for (_, path) in found {
+        let file = DatFile::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        overlay.over(file).map_err(|e| e.to_string())?;
+    }
+    tracing::info!(
+        world = overlay.world(),
+        "reading the data files through a world's overlay"
+    );
+    Ok(Some(overlay))
+}
+
 // D2-00130, D2-01703
 fn run() -> Result<(), String> {
     let o = options()?;
@@ -1025,11 +1058,16 @@ fn run() -> Result<(), String> {
     let settings_file = settings.join(o.prefs.as_deref().unwrap_or(SETTINGS_FILE));
     let preferences = std::fs::read_to_string(&settings_file).unwrap_or_default();
     let found = install_dats(&o.dats).map_err(|e| format!("{}: {e}", o.dats.display()))?;
+    let overlay = world_overlay(o.world_overlay.as_deref(), &found)?;
     let install = Install {
         found: found.iter().map(|(n, _)| n.clone()).collect(),
         open: &|name| {
             let (_, path) = found.iter().find(|(n, _)| n == name)?;
-            DatFile::open(path).ok()
+            let file = DatFile::open(path).ok()?;
+            match &overlay {
+                Some(w) => w.over(file).ok(),
+                None => Some(file),
+            }
         },
     };
     let (world, data, language) = open_data(&install, o.language.as_deref(), &preferences)?;

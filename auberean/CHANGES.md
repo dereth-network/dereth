@@ -20,6 +20,7 @@ not how it was done.
 - Full screen at another shape now keeps its shape, with black bars.
 - Fixed not seeing a player who went through a door ahead of you.
 - The craft page now works on tall windows: rows can be clicked at any height.
+- New --overlay-dat-dir: reads a world's own records from a folder of theirs.
 - A click that brings the window forward no longer acts on the game.
 - A covered window on a Mac no longer runs flat out.
 - Screenshots now follow the key you bind, not always Ctrl+P.
