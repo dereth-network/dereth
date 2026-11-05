@@ -116,6 +116,11 @@ publish_portals = false
 # service or in a container with no terminal.
 interactive_console = true
 
+# default: 300 (Empyrean only)
+# Stop with a failure if the world runs no pass for this many seconds, so a service
+# manager can start it again. 0 for never.
+watchdog_seconds = 300
+
 # default: true (Empyrean only)
 # A console for programs on this computer, such as the Dereth launcher: it listens on
 # loopback only, and writes its address and a new secret to admin-channel.json in the
