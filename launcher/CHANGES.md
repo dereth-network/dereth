@@ -10,6 +10,8 @@ section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
 
+## 0.5.0 (2026-11-05)
+
 - A Yalain world's settings can turn on WebSocket connections.
 - A Yalain world's update backups are now kept and trimmed with its own.
 - The launcher now has its own releases and updates apart from the games.
