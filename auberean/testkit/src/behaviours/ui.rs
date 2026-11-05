@@ -2153,6 +2153,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.text.a-one-line-entry-keeps-the-caret-in-view",
+        says: "A one-line entry keeps the caret in view: the view stays while the caret is within \
+               the width past it, then stands one width before the caret, and going back past its \
+               start puts the view at the caret.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-HORIZONTAL-VIEW"),
+        station: "auberean-ui::cpu::text::a_one_line_entry_keeps_the_caret_in_view",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.text.an-entry-taking-the-keyboard-turns-the-input-method-on",
         says: "An editable text element that takes the keyboard turns the host's input method on \
                over the part of the element that shows, in the element's font and color; giving the \

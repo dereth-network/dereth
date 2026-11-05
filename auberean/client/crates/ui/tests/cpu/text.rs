@@ -734,6 +734,47 @@ fn a_character_the_font_lacks_switches_to_a_fallback_font() {
     assert_eq!(font(&u, bare), 0, "an element without a font keeps none");
 }
 
+/// A one-line entry keeps the caret in view: the view stays while the caret is within the width
+/// past it, then stands one width before the caret; going back past its start puts the view at
+/// the caret.
+///
+/// Behaviour: ui.text.a-one-line-entry-keeps-the-caret-in-view
+#[test]
+fn a_one_line_entry_keeps_the_caret_in_view() {
+    let e = text(
+        "Entry",
+        [0, 0, 19, 19],
+        vec![("editable", V::Bool(true)), ("one_line", V::Bool(true))],
+    );
+    let mut u = ui(vec![e], vec![]);
+    let h = entry(&mut u);
+    let view = |u: &Ui| u.text_state(h).unwrap().view_x;
+    u.pointer_move(10, 10);
+    u.pointer_press();
+    u.pointer_release();
+    let advance = {
+        u.type_text("a");
+        let w = u.text_state(h).unwrap().glyphs.glyphs[0].width;
+        u.backspace();
+        w
+    };
+    let width = 20;
+    let fit = width / advance;
+    for _ in 0..fit {
+        u.type_text("a");
+        assert_eq!(view(&u), 0, "within the width the view stays");
+    }
+    for _ in 0..4 {
+        u.type_text("a");
+    }
+    let at_end = (fit + 4) * advance - width;
+    assert_eq!(view(&u), at_end, "one width before the caret");
+    u.character_input(0, key::HOME);
+    assert_eq!(view(&u), 0, "back at the start");
+    u.character_input(0, key::END);
+    assert_eq!(view(&u), at_end, "at the end again");
+}
+
 /// An element shown with `activate_on_show` takes the keyboard, unless the use key is held: it may
 /// be what showed the element, and letting it go would press what took the keyboard.
 ///

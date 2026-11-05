@@ -1096,8 +1096,8 @@ impl Ui {
         };
         if x < t.view_x {
             t.view_x = x.max(0);
-        } else if x > w + 1 + t.view_x {
-            t.view_x = (w - 1 + x).max(0);
+        } else if x > w + t.view_x {
+            t.view_x = (x - w).max(0);
         }
     }
 
