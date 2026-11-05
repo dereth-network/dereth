@@ -1909,6 +1909,22 @@ fn story<S: Store>(
             Some(_) => {}
         }
     }
+    // As each swing of a run does, it asks again who it may harm: it may have walked or powered up
+    // a while. A target dead by now tells its story still, as a miss.
+    let allowed = match aim {
+        Aim::Player(c, _) if !helpful(&u) => combat::may_attack_player(s, world, c),
+        Aim::Thing(t) => combat::may_attack_thing(s, world, t),
+        _ => Ok(()),
+    };
+    if let Err(err) = allowed.or_else(|err| {
+        if err == crate::kingdoms::refusal::DEAD {
+            Ok(())
+        } else {
+            Err(err)
+        }
+    }) {
+        return interrupt(s, net, world, err, clock);
+    }
     if u.powerup > 0.0 {
         if let Some(p) = s.players.get_mut(&world) {
             let stop = ServerMessage::StopBehavior(player_event(p, Word(u.powerup_behavior)));

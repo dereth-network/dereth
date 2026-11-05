@@ -9003,6 +9003,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.player-fights.special-asks-again-as-it-is-told",
+        says: "A special that walks to another player ends with the reason if who may harm whom no longer allows it when it gets there.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-ASKS-AGAIN"),
+        station: "yalain-testkit::cpu::play::player_fights::a_special_walking_to_another_player_ends_if_it_may_no_longer_harm_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.player-fights.special-effects-reach",
         says: "A special's target effects reach the other player it lands on, cast by its user.",
         since: RETAIL,

@@ -748,6 +748,38 @@ fn a_skill_is_refused_in_portal_space() {
     assert_eq!(health_of(&h, idb), health);
 }
 
+/// A special that walks to another player is told only if who may harm whom still allows it when it
+/// gets there, as each swing of a run: one protected on the way is not struck, and the use ends with
+/// the reason.
+/// Behaviour: server.player-fights.special-asks-again-as-it-is-told
+#[test]
+fn a_special_walking_to_another_player_ends_if_it_may_no_longer_harm_it() {
+    let (mut h, (a, ida), (b, idb)) = two_players(Conflict::KingdomVsKingdom);
+    rested(&mut h, ida);
+    let wb = yalain_world::social::world_of(&h.server, idb).expect("in the world");
+    let at = h.server.players[&wb].position;
+    with_player(&mut h, idb, |p| p.position.origin[0] += 20.0);
+    let from_b = h.bots[b].inbox.len();
+    let from = use_skill(&mut h, a, 1, RIPOSTE, idb);
+    h.run(10);
+    assert!(
+        hooks_at(&h, b, from_b, ida, idb).is_empty(),
+        "not there yet"
+    );
+    let clock = h.clock();
+    yalain_world::effects::protect(&mut h.server, &mut h.net, wb, clock);
+    with_player(&mut h, idb, |p| p.position = at);
+    h.run(60);
+    assert!(hooks_at(&h, b, from_b, ida, idb).is_empty(), "not struck");
+    assert!(
+        calls_of(&h, a, from)
+            .iter()
+            .any(|(f, v)| *f == yalain_world::skill_use::function::REFUSED
+                && v.contains(&Value::Int(refusal::PROTECTED))),
+        "told why"
+    );
+}
+
 /// A special's strike or missile does not hurt a player gone into portal space by the time it lands,
 /// as a basic attack's does not.
 /// Behaviour: server.player-fights.special-spares-one-gone-into-portal-space
