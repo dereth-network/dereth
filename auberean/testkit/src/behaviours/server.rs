@@ -4654,6 +4654,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.an-item-put-down-lies-ten-minutes",
+        says: "An item a player put down lies ten minutes from its landing and is then gone: \
+               whoever knows it is told to forget it and that it left. One taken up is out of its \
+               time, and put down again starts it anew.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-DROP-LIES"),
+        station: "yalain-testkit::cpu::play::drops::an_item_put_down_is_gone_ten_minutes_after_it_lands",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.an-item-put-down-stands-ahead-of-the-player",
         says: "Asked to put an item down, the server has the player play its putting-down \
                behavior with the item in its hand and clears the item's container at once; when \

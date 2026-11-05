@@ -10,13 +10,17 @@
 //! above the ground where the player stands. A drop asked while another is under
 //! way is refused at once (actions locked); so is one of an item the pack does not hold, or of part
 //! of a stack.
+//!
+//! An item put down lies [`LIES_SECONDS`] from its landing and is then gone, for everyone.
+
+use std::collections::{BTreeMap, VecDeque};
 
 use auberean_protocol::physics::{ObjectEvent, ObjectPosition};
 use auberean_protocol::quality::VisualQuality;
 use auberean_protocol::types::{BehaviorParams, ObjectStamp};
 use auberean_protocol::ServerMessage;
 use dereth_primitives::num::math;
-use yalain_net::{ConnId, ServerNet};
+use yalain_net::{ConnId, LocalTime, ServerNet};
 use yalain_store::{Store, StoredPosition};
 
 use crate::calls::{Node, Value};
@@ -55,8 +59,24 @@ pub const LIFT: f32 = 0.5;
 pub const REST: f32 = 0.05;
 pub const SETTLE_SECONDS: f64 = 0.3;
 
+/// How long an item put down lies, from its landing, in seconds (2017: the 10 of 786 placed items
+/// nobody took while a client could see them were told gone 599.95 to 600.09 s after they landed; of
+/// the rest, none was told gone later).
+pub const LIES_SECONDS: f64 = 600.0;
+
 /// The flag of a position touching the ground.
 const ON_GROUND: u32 = 4;
+
+/// The items put down and when each goes, soonest first: each lies as long, so the first to land is
+/// the first to go, and a pass of the world looks at no more than what is due.
+#[derive(Debug, Default)]
+pub struct Lying {
+    /// When it goes, the item, and its place's stamp when it came to rest: one taken up and put down
+    /// again since has a later place, and a later turn.
+    due: VecDeque<(LocalTime, u64, u16)>,
+    /// How many of each template have gone by their time, what's left of them nowhere.
+    pub gone: BTreeMap<u32, u64>,
+}
 
 /// How long the putting-down behavior takes, by race and sex, in seconds (2017: the medians of
 /// 584 drops; Drudges take about twice as long as the rest).
@@ -396,6 +416,29 @@ pub fn settle<S: Store>(s: &mut Server<S>, net: &mut ServerNet, item: u64, clock
         ..at
     };
     place_item(s, net, item, rested, clock);
+    if let Some(stamp) = s.things.get(item).map(|t| t.position_stamp) {
+        let goes = LocalTime(clock.local.0 + LIES_SECONDS - SETTLE_SECONDS);
+        s.lying.due.push_back((goes, item, stamp));
+    }
+}
+
+/// Those whose time is up go, unless a player has them or has put them down again since.
+pub fn look<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
+    while let Some(&(goes, item, stamp)) = s.lying.due.front() {
+        if goes.0 > clock.local.0 {
+            return;
+        }
+        s.lying.due.pop_front();
+        let still = s
+            .things
+            .get(item)
+            .filter(|t| t.at.is_some() && t.container.is_none() && t.position_stamp == stamp)
+            .map(|t| (t.template, t.quantity.max(1)));
+        if let Some((template, quantity)) = still {
+            *s.lying.gone.entry(template).or_default() += u64::from(quantity);
+            crate::inventory::gone_from_where_it_lay(s, net, item);
+        }
+    }
 }
 
 /// The item stands at `place`: its place sent to those who know it, and it made for those who

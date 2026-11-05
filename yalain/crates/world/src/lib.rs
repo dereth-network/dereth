@@ -444,6 +444,8 @@ pub struct Server<S: Store> {
     /// The workshops standing in the world.
     pub workshops: workshops::Workshops,
     pub market: market::Market,
+    /// The items players have put down, and when each goes.
+    pub lying: drops::Lying,
     /// The pets players have summoned.
     pub pets: pets::Pets,
     /// The dye plants players have planted, and the species' ripe looks.
@@ -779,6 +781,7 @@ impl<S: Store> Server<S> {
             brokers: std::collections::BTreeMap::new(),
             workshops: workshops::Workshops::default(),
             market: market::Market::default(),
+            lying: drops::Lying::default(),
             pets: pets::Pets::default(),
             plants: plants::Plants::default(),
             locks: yalain_content::LockTable::default(),
@@ -1041,6 +1044,8 @@ impl<S: Store> Server<S> {
         trade::look(self, net, clock);
         self.saves.piece_begins();
         market::look(self, net, clock);
+        self.saves.piece_begins();
+        drops::look(self, net, clock);
         self.saves.piece_begins();
         storms::look(self, net, clock);
         self.saves.piece_begins();

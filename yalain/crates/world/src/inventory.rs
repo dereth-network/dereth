@@ -1398,6 +1398,38 @@ pub fn pickup_refused<S: Store>(
     }
 }
 
+/// An item lying in the world leaving it.
+fn left_the_ground(item: u64, instance: u16, stamp: u16) -> ServerMessage {
+    ServerMessage::ObjectLeaves(ObjectEvent {
+        sender: ObjectStamp {
+            id: item,
+            instance_stamp: instance,
+            other_stamp: 0,
+        },
+        action: auberean_protocol::physics::Leave {
+            stamp: stamp.wrapping_add(1),
+        },
+    })
+}
+
+/// An item lying in the world is gone from it: whoever knows it is told, and forgets it.
+pub(crate) fn gone_from_where_it_lay<S: Store>(s: &mut Server<S>, net: &mut ServerNet, item: u64) {
+    let Some((instance, stamp)) = s.things.get(item).map(|t| (t.instance, t.position_stamp)) else {
+        return;
+    };
+    let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
+        id: item,
+        instance_stamp: instance,
+        other_stamp: 0,
+    }));
+    crate::presence::to_thing_knowers(s, net, item, BlobKind::UNORDERED, &gone);
+    crate::presence::leaves(s, net, item, &left_the_ground(item, instance, stamp));
+    s.things.remove(item);
+    for p in s.players.values_mut() {
+        p.known.remove(&item);
+    }
+}
+
 /// The picking-up behavior is through: the item is contained in the pack, the move answered, its
 /// holder told everyone who knows it, and it leaves the world. An item of a template the player
 /// holds a stack of joins the stack instead (the move answered, the stack's quantity, the item
@@ -1430,16 +1462,7 @@ pub fn picked_up<S: Store>(
     }) else {
         return;
     };
-    let leave = ServerMessage::ObjectLeaves(ObjectEvent {
-        sender: ObjectStamp {
-            id: item,
-            instance_stamp: instance,
-            other_stamp: 0,
-        },
-        action: auberean_protocol::physics::Leave {
-            stamp: stamp.wrapping_add(1),
-        },
-    });
+    let leave = left_the_ground(item, instance, stamp);
     if let Some((stack, slot, had)) = stack_for(s, world, item, quantity) {
         let slot = i32::try_from(slot).unwrap_or(0);
         let m = Move {
@@ -1468,17 +1491,7 @@ pub fn picked_up<S: Store>(
             value: i32::try_from(total).unwrap_or(i32::MAX),
         });
         to_holder(s, net, world, stack, &more);
-        let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
-            id: item,
-            instance_stamp: instance,
-            other_stamp: 0,
-        }));
-        crate::presence::to_thing_knowers(s, net, item, BlobKind::UNORDERED, &gone);
-        crate::presence::leaves(s, net, item, &leave);
-        s.things.remove(item);
-        for p in s.players.values_mut() {
-            p.known.remove(&item);
-        }
+        gone_from_where_it_lay(s, net, item);
     } else {
         let full = s
             .players

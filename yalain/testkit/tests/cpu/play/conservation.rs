@@ -276,6 +276,13 @@ pub(super) fn census(s: &mut Script) -> Census {
 }
 
 pub(super) fn check(s: &mut Script, what: &str) {
+    // What lay on the ground its whole time has gone, as it should.
+    let mut gone = Census::default();
+    for (template, n) in std::mem::take(&mut s.h.server.lying.gone) {
+        gone.count(template, u32::try_from(n).expect("a count"), false);
+    }
+    s.wealth -= gone.wealth;
+    s.gems -= gone.gems;
     let c = census(s);
     let twice: Vec<String> = c
         .places
