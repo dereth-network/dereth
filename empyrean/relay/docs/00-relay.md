@@ -4,6 +4,9 @@
 protocol, and towards ac1999 it is a November 1999 client, so Dereth's own tree carries one wire
 format. It is AGPL, like the rest of Empyrean. Nothing in `core/` or `dereth/` depends on it.
 
+A launcher that lists a world played this way starts the relay when the player presses Play and stops
+it when the client ends. It ships in Empyrean's package, beside the server.
+
 **Run it on the player's machine.** It sees the player's password. Towards Dereth it listens on the
 loopback address and refuses any other. Towards the server it listens for nothing: each session has
 one ephemeral socket `connect()`ed to the server, so it hears that peer alone; that socket binds the

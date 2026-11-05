@@ -50,13 +50,41 @@ pub fn listen(host: IpAddr, port: u16) -> io::Result<UdpDriver> {
     UdpDriver::bind(host, port)
 }
 
-/// Run until `done` says to stop: `done` is told each session that ends.
+/// When the relay has nothing left to do: no session has run and Dereth has sent nothing for
+/// `limit`. A relay a launcher started outlives a launcher that went away by no more than that.
+#[derive(Debug)]
+struct Idle {
+    limit: Option<f64>,
+    since: f64,
+}
+
+impl Idle {
+    fn new(limit: Option<Duration>, now: f64) -> Self {
+        Self {
+            limit: limit.map(|l| l.as_secs_f64()),
+            since: now,
+        }
+    }
+
+    /// Whether the relay has been idle for its limit, at `now`, with `busy` saying whether it is
+    /// doing anything this turn.
+    fn over(&mut self, busy: bool, now: f64) -> bool {
+        if busy {
+            self.since = now;
+        }
+        self.limit.is_some_and(|limit| now - self.since >= limit)
+    }
+}
+
+/// Run until `done` says to stop (`done` is told each session that ends), or until nothing has
+/// happened for `idle_exit`.
 ///
 /// # Errors
 /// A socket that does not bind.
 pub fn run(
     config: Config,
     fresh_secret: empyrean_net::status_ping::SecretSource,
+    idle_exit: Option<Duration>,
     mut done: impl FnMut(&Finished) -> bool,
 ) -> io::Result<()> {
     let clock = SystemClock::new();
@@ -64,6 +92,7 @@ pub fn run(
     let mut relay = Relay::new(config, fresh_secret);
     let mut sockets: BTreeMap<SessionId, UdpSocket> = BTreeMap::new();
     let mut buffer = [0u8; 2048];
+    let mut idle = Idle::new(idle_exit, clock.monotonic().as_secs_f64());
     log::info!(
         "listening on {} and {}",
         driver.local_addr(PortKind::C2S)?,
@@ -73,7 +102,9 @@ pub fn run(
         let snapshot = |clock: &SystemClock| -> ClockSnapshot {
             ClockSnapshot::take(clock, clock.monotonic().as_secs_f64())
         };
+        let mut heard = false;
         if let Some(d) = driver.recv_timeout(TURN) {
+            heard = true;
             let now = snapshot(&clock);
             relay.on_later_datagram(d.port_kind, d.from, &d.bytes, now);
             while let Some(d) = driver.try_recv() {
@@ -117,7 +148,12 @@ pub fn run(
         for finished in relay.take_finished() {
             stop |= done(&finished);
         }
-        if stop {
+        if stop
+            || idle.over(
+                heard || !sockets.is_empty(),
+                clock.monotonic().as_secs_f64(),
+            )
+        {
             driver.shutdown();
             return Ok(());
         }
@@ -129,6 +165,23 @@ mod tests {
     //! Behaviour: none (where the relay's sockets may listen).
 
     use super::*;
+
+    #[test]
+    fn a_relay_stops_only_after_its_limit_with_nothing_happening() {
+        let limit = Some(Duration::from_secs(600));
+        let mut idle = Idle::new(limit, 0.0);
+        assert!(!idle.over(false, 599.0));
+        assert!(idle.over(false, 600.0), "nothing since it started");
+        let mut idle = Idle::new(limit, 0.0);
+        assert!(!idle.over(true, 599.0), "a session");
+        assert!(
+            !idle.over(false, 1198.0),
+            "counted from the session's last turn"
+        );
+        assert!(idle.over(false, 1199.0));
+        let mut never = Idle::new(None, 0.0);
+        assert!(!never.over(false, 1e9), "no limit: it runs until stopped");
+    }
 
     #[test]
     fn the_listener_refuses_anything_but_the_loopback_address() {

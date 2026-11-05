@@ -18,7 +18,9 @@ empyrean-relay -- Dereth to an ac1999 server
   --world <name>          the world's name, which names its overlay folder (default: the
                           upstream address)
   --once                  stop when the first session ends
+  --idle-exit <seconds>   stop when no session has run and Dereth has sent nothing for this long
   --report <file>         write what each session exchanged, by opcode
+  --version               the relay's version
   -h, --help              this text";
 
 struct Log;
@@ -48,6 +50,7 @@ fn real_main() -> Result<ExitCode, String> {
     let mut port = 9000u16;
     let mut world = None;
     let mut once = false;
+    let mut idle_exit = None;
     let mut report_file: Option<PathBuf> = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -64,6 +67,17 @@ fn real_main() -> Result<ExitCode, String> {
             }
             "--world" => world = Some(value("--world")?),
             "--once" => once = true,
+            "--idle-exit" => {
+                let v = value("--idle-exit")?;
+                let seconds: u64 = v
+                    .parse()
+                    .map_err(|_| format!("--idle-exit {v}: want a number of seconds"))?;
+                idle_exit = Some(std::time::Duration::from_secs(seconds));
+            }
+            "--version" => {
+                println!("empyrean-relay {}", env!("CARGO_PKG_VERSION"));
+                return Ok(ExitCode::SUCCESS);
+            }
             "--report" => report_file = Some(PathBuf::from(value("--report")?)),
             other => return Err(format!("{other}: not an option\n\n{USAGE}")),
         }
@@ -97,7 +111,8 @@ fn real_main() -> Result<ExitCode, String> {
         }
         once
     };
-    empyrean_relay::serve::run(config, Box::new(secret), done).map_err(|e| e.to_string())?;
+    empyrean_relay::serve::run(config, Box::new(secret), idle_exit, done)
+        .map_err(|e| e.to_string())?;
     Ok(ExitCode::SUCCESS)
 }
 

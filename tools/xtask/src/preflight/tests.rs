@@ -1634,6 +1634,7 @@ fn workspaces() -> plan::Built {
             "dereth-network-hub",
             "empyrean-server",
             "empyrean-import",
+            "empyrean-relay",
             "empyrean-content",
             "empyrean-testkit",
             "dereth-client-runtime",
@@ -1670,6 +1671,11 @@ fn workspaces() -> plan::Built {
                 "empyrean-import",
                 Some("empyrean/import"),
                 &["empyrean-content"],
+            ),
+            (
+                "empyrean-relay",
+                Some("empyrean/relay"),
+                &["dereth-primitives"],
             ),
             (
                 "empyrean-content",
@@ -1758,6 +1764,7 @@ fn workspace_lock() -> Vec<(&'static str, &'static str, bool, &'static [&'static
             &["dereth-primitives", "embed-resource", "empyrean-testkit"],
         ),
         ("empyrean-import", "0.3.4", false, &["empyrean-content"]),
+        ("empyrean-relay", "0.3.4", false, &["dereth-primitives"]),
         ("empyrean-content", "0.3.4", false, &["dereth-primitives"]),
         (
             "empyrean-testkit",
@@ -1813,6 +1820,7 @@ fn a_product_is_built_from_what_it_ships_through_normal_and_build_dependencies_a
                 set(&[
                     "empyrean-server",
                     "empyrean-import",
+                    "empyrean-relay",
                     "empyrean-content",
                     "dereth-primitives"
                 ])

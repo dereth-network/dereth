@@ -141,6 +141,12 @@ fetches at most once a day (the refresh button fetches again) and keeps the copy
 `world-list.json`. `DERETH_SERVERS_LIST` names a `Servers.xml` to read instead, and
 `DERETH_HUB_LIST` another hub's list.
 
+**A world played through a relay** speaks another wire format than Dereth's. The launcher keeps
+these in a table of its own, and lists them only when `--relayed-worlds on` has turned them on
+(`--relayed-worlds off` turns them off; the choice is kept). Play starts `empyrean-relay`, which comes
+with Empyrean, on this computer's loopback address and starts the client towards it; the relay goes
+when the client does. Nothing else contacts such a world.
+
 **A world's era and systems** come from its Empyrean status, else the launcher's table of worlds
 that run a client of their own, else the end of retail.
 

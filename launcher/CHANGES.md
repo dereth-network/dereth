@@ -11,6 +11,7 @@ section, dated, and opens a new empty one in the same commit as the version.
 ## Unreleased
 
 - A hosted world can now be saved in the Launch era.
+- AC1999 can be listed and played through a relay; off unless turned on.
 
 ## 0.5.0 (2026-11-05)
 
