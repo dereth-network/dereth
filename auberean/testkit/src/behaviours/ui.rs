@@ -2134,8 +2134,8 @@ pub static ROWS: &[Behaviour] = &[
         says: "A string with a character the text element's font lacks switches the element to the \
                first of the two fallback fonts the font mapping names (the Unicode font, then the \
                second) that holds every character of it; when neither does, or the element has no \
-               font, the font stays. Each string starts from the element's own font, and measuring \
-               one switches the font as adding it does.",
+               font, the font stays. The fallback lasts for that string: the next string, a typed \
+               character or a measured string starts from the element's own font.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-TEXT-FALLBACK-FONT"),
         station: "auberean-ui::cpu::text::a_character_the_font_lacks_switches_to_a_fallback_font",

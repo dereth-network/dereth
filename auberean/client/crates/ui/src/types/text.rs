@@ -664,7 +664,8 @@ impl Ui {
     }
 
     /// Before a string is added or measured: when the element's font lacks one of its characters,
-    /// the first of the fallback fonts that holds every one of them becomes the element's font
+    /// the first of the fallback fonts that holds every one of them becomes the element's font for
+    /// that string
     /// (an element without a font keeps none).
     // D2-11776, D2-10050
     fn determine_font(&mut self, h: Handle, units: &[u16]) {
@@ -826,10 +827,11 @@ impl Ui {
         }
     }
 
-    /// Add `text` at the caret in the font and color of now, the caret after it: an editable
-    /// element first drops what is selected, another stops selecting. (A one-line element keeps
-    /// the caret in view.) Without a font the glyphs take no room and are not drawn, but are
-    /// kept for when one comes.
+    /// Add `text` at the caret in the font and color of now, or in a fallback font when the
+    /// element's lacks one of its characters, the caret after it: an editable element first drops
+    /// what is selected, another stops selecting. (A one-line element keeps the caret in view.)
+    /// The element's own font is back for what comes next. Without a font the glyphs take no room
+    /// and are not drawn, but are kept for when one comes.
     // D2-11816
     fn add_text_internal(&mut self, h: Handle, units: &[u16]) {
         if units.is_empty() {
@@ -841,12 +843,14 @@ impl Ui {
         } else {
             self.set_selecting(h, false);
         }
+        let own_font = self.text_state(h).map_or(0, |t| t.font);
         self.determine_font(h, units);
         let font = self.current_font(h);
         let Some(t) = self.ts_mut(h) else { return };
         let moved = t
             .glyphs
             .add_text(t.cursor, units, t.font_color, font, t.font_outline);
+        t.font = own_font;
         t.cursor += moved;
         clamp_position(t);
         if t.has(bits::ONE_LINE) {
@@ -939,11 +943,15 @@ impl Ui {
         if units.is_empty() {
             return Some((0, 0));
         }
+        let own_font = self.text_state(h)?.font;
         self.determine_font(h, &units);
+        let font = self.current_font(h);
+        if let Some(t) = self.ts_mut(h) {
+            t.font = own_font;
+        }
         let t = self.text_state(h)?;
-        let font = self.current_font(h)?;
         let mut temp = GlyphRun::default();
-        temp.add_text(0, &units, t.font_color, Some(font), t.font_outline);
+        temp.add_text(0, &units, t.font_color, Some(font?), t.font_outline);
         let max_w = self
             .node(h)
             .and_then(|n| n.int_attr(attr::MAX_WIDTH))

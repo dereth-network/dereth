@@ -650,8 +650,8 @@ fn font_of(chars: impl IntoIterator<Item = u16>, width: u32) -> Arc<auberean_ass
 
 /// A string with a character the element's font lacks switches the element to the first fallback
 /// font that holds all of it (the Unicode font, then the second); when neither holds it, or the
-/// element has no font, the font stays. Each string starts from the element's own font, and
-/// measuring a string switches the font as adding it does.
+/// element has no font, the font stays. The fallback lasts for that string: the next one, a typed
+/// character or a measured string starts from the element's own font.
 ///
 /// Behaviour: ui.text.a-character-the-font-lacks-switches-to-a-fallback-font
 #[test]
@@ -695,7 +695,7 @@ fn a_character_the_font_lacks_switches_to_a_fallback_font() {
     u.add_string(a, "ab");
     assert_eq!(font(&u, a), FONT, "a string the font holds keeps it");
     u.add_string(a, "café");
-    assert_eq!(font(&u, a), UNICODE);
+    assert_eq!(font(&u, a), FONT, "the font is back after the string");
     assert_eq!(
         widths(&u, a),
         [6, 6, 7, 7, 7, 7],
@@ -703,16 +703,16 @@ fn a_character_the_font_lacks_switches_to_a_fallback_font() {
     );
     u.add_string(a, "x");
     assert_eq!(
-        font(&u, a),
-        FONT,
-        "each string is added in the element's own font first"
+        widths(&u, a),
+        [6, 6, 7, 7, 7, 7, 6],
+        "the next string in the element's own font"
     );
 
     let b = make(&mut u, "B");
     u.add_string(b, "\u{416}");
     assert_eq!(
-        font(&u, b),
-        SECOND,
+        widths(&u, b),
+        [9],
         "the first fallback lacks it: the second"
     );
 
@@ -726,8 +726,8 @@ fn a_character_the_font_lacks_switches_to_a_fallback_font() {
 
     let e = make(&mut u, "E");
     let measured = u.inq_size_with_margins(e, "é");
-    assert_eq!(font(&u, e), UNICODE, "measuring switches the font too");
-    assert_eq!(measured.map(|m| m.0), Some(7));
+    assert_eq!(font(&u, e), FONT, "measuring leaves the font as it was");
+    assert_eq!(measured.map(|m| m.0), Some(7), "measured in the fallback font");
 
     let bare = make(&mut u, "Bare");
     u.add_string(bare, "é");
