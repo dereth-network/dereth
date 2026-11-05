@@ -252,8 +252,10 @@ impl NewSale {
             return;
         };
         #[allow(clippy::cast_precision_loss)]
-        let total = self.chosen_price as f32 * self.quantity as f32 * self.shop.consignment_charge;
-        let cost = dereth_primitives::num::to_i32(total.ceil())
+        let total = f64::from(self.chosen_price as f32)
+            * f64::from(self.quantity as f32)
+            * f64::from(self.shop.consignment_charge);
+        let cost = dereth_primitives::num::to_i32_f64(total.ceil())
             .cast_unsigned()
             .max(1);
         let s = entry(

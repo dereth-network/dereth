@@ -251,8 +251,8 @@ fn consignments_are_collected_put_up_and_restocked() {
     let (_, out) = w.split(10);
     let (q, text) = dialog(&out).expect("the restock question");
     assert!(
-        text.contains('6'),
-        "ten at twelve with a five-hundredths charge: {text}"
+        text.contains('7'),
+        "ten at twelve with a five-hundredths charge just over its decimal value: {text}"
     );
     let out = w.tick(&[answer(q, true)]);
     assert_eq!(
