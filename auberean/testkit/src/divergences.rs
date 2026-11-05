@@ -164,6 +164,10 @@ pub static DIVERGENCES: &[Divergence] = &[
                chose full screen and, below the top quality, no antialiasing.",
     },
     Divergence {
+        id: "CD2-wheel-scrolls-the-window",
+        says: "The wheel over any part of a window turns its nearest scroll bar; the retail client scrolls only when the pointer is on a list, a text or a bar.",
+    },
+    Divergence {
         id: "CD2-window-title-names-the-account",
         says: "The window's title names the account the player logged in with (`Auberean | kara`), \
                as Dereth's does, so several clients open at once can be told apart on the task \

@@ -201,6 +201,63 @@ fn the_wheel_scrolls_a_list_through_its_scroll_bar() {
     assert_eq!(y_view(&u, list), 0);
 }
 
+/// The wheel over a window's bare ground, or over something in it that is not a list, scrolls the
+/// window's list by its bar.
+///
+/// Behaviour: ui.scrollbar.the-wheel-scrolls-the-window-under-the-pointer
+#[test]
+fn the_wheel_scrolls_the_window_under_the_pointer() {
+    let label = element("Label", "field", [200, 200, 280, 280], 0, vec![]);
+    let (mut u, list, _) = five_rows(vec![
+        row(),
+        window(vec![("vertical_scrollbar", id("Bar"))], vec![bar(), label]),
+    ]);
+    u.pointer_move(150, 150);
+    u.pointer_button(button_id::WHEEL_DOWN, true);
+    assert_eq!(y_view(&u, list), 20, "over the window's ground");
+    u.pointer_move(250, 250);
+    u.pointer_button(button_id::WHEEL_DOWN, true);
+    assert_eq!(y_view(&u, list), 40, "over a label in it");
+    u.pointer_button(button_id::WHEEL_UP, true);
+    assert_eq!(y_view(&u, list), 20, "back up");
+}
+
+/// The wheel over another window, or nothing, leaves a window's list alone, and so does a wheel
+/// over a window whose bar is hidden.
+///
+/// Behaviour: ui.scrollbar.the-wheel-leaves-other-windows-alone
+#[test]
+fn the_wheel_leaves_other_windows_alone() {
+    let other = element("Other", "field", [400, 0, 499, 99], 0, vec![]);
+    let mut u = ui(
+        vec![
+            row(),
+            window(vec![("vertical_scrollbar", id("Bar"))], vec![bar()]),
+            other,
+        ],
+        vec![],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let list = u.child(w, Token::of("List")).unwrap();
+    for _ in 0..5 {
+        let r = u.create(l, Token::of("Row")).unwrap();
+        u.list_add(list, r);
+    }
+    u.create_root(l, Token::of("Other")).unwrap();
+    u.pointer_move(450, 50);
+    u.pointer_button(button_id::WHEEL_DOWN, true);
+    assert_eq!(y_view(&u, list), 0, "over another window");
+    u.pointer_move(600, 600);
+    u.pointer_button(button_id::WHEEL_DOWN, true);
+    assert_eq!(y_view(&u, list), 0, "over nothing");
+    let b = u.child(w, Token::of("Bar")).unwrap();
+    u.set_visible(b, false);
+    u.pointer_move(150, 150);
+    u.pointer_button(button_id::WHEEL_DOWN, true);
+    assert_eq!(y_view(&u, list), 0, "its bar hidden");
+}
+
 /// Dragging a scroll bar's widget moves the bar to the widget's share of the way, and the list
 /// takes that share of its hidden rows (kept on a row's edge).
 ///

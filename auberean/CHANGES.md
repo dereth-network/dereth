@@ -9,6 +9,7 @@ not how it was done.
 
 - A click that brings the window forward no longer acts on the game.
 - A covered window on a Mac no longer runs flat out.
+- The mouse wheel now scrolls whatever window the pointer is over.
 - Chat now says "the item" when someone hands you something.
 - The paper doll no longer shows your mount while you ride.
 - Items in a trade now name the number offered.

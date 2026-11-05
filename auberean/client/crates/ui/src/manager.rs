@@ -77,6 +77,8 @@ pub(crate) struct Manager {
     pub now: f64,
     /// The pointer moved since the elements under it were last worked out.
     pub moved: bool,
+    /// A scroll bar took the wheel step under way.
+    pub wheel_taken: bool,
     // The screen flow's part: listeners outside the tree, removals waiting, elements by name,
     // the drag in progress.
     /// Listeners outside the tree: the next number, what each registered for, its mail.
@@ -562,12 +564,19 @@ impl Ui {
             }
         }
         let (x, y) = (self.mgr.x, self.mgr.y);
+        let top = self.top();
+        self.mgr.wheel_taken = false;
         let mut handled = false;
         for r in self.roots().to_vec() {
             if handled {
                 break;
             }
             self.notify_mouse_down(r, x, y, button, &mut handled);
+        }
+        if (button == button_id::WHEEL_UP || button == button_id::WHEEL_DOWN)
+            && !self.mgr.wheel_taken
+        {
+            self.wheel_the_window(top, x, y, button);
         }
         self.flush_pending();
         self.update_mouse();
