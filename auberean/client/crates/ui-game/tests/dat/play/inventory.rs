@@ -716,6 +716,66 @@ fn an_item_dropped_in_the_world_goes_to_what_lies_there() {
     }
 }
 
+/// A press on the paper doll's figure waits for its own search: what the last press found, still
+/// there as the search is asked, is not selected, and what the search finds is.
+///
+/// Behaviour: ui.inventory.a-press-on-the-doll-waits-for-its-own-answer
+#[test]
+fn a_press_on_the_doll_waits_for_its_own_answer() {
+    /// The kind of mesh on the head, where the helm is worn.
+    const HEAD_MESH: u64 = 0x8100_0003;
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut f = facts();
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    key(&mut ui, &mut p, &mut t, &f, tb::INVENTORY_PANEL);
+    let figure = window(&p)
+        .paper_doll()
+        .and_then(|d| d.viewport())
+        .expect("the figure's viewport");
+    let (x, y) = middle(&ui, figure);
+    ui.pointer_move(x, y);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    // Only the search's answer is under test: the press goes straight to the figure.
+    while let Some(over) = ui.top().filter(|o| *o != figure) {
+        ui.set_attr(
+            over,
+            auberean_ui::token::attr::MOUSE_INVISIBLE,
+            auberean_ui::Value::Bool(true),
+        );
+        ui.pointer_move(x, y);
+        tick(&mut ui, &mut p, &mut t, &f, &[]);
+    }
+    assert_eq!(ui.top(), Some(figure));
+    let press = |ui: &mut Ui, p: &mut GamePlay, t: &mut f64, f: &Facts| {
+        ui.pointer_button(button_id::LEFT, true);
+        tick(ui, p, t, f, &[])
+    };
+
+    // The first press finds nothing where it pressed.
+    let out = press(&mut ui, &mut p, &mut t, &f);
+    assert!(asked(&out).contains(&Asked::Pick), "{:?}", asked(&out));
+    f.picked = Some(0);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    ui.pointer_button(button_id::LEFT, false);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+
+    // The second finds the head. The nothing from before stands as it is asked.
+    let out = press(&mut ui, &mut p, &mut t, &f);
+    assert!(asked(&out).contains(&Asked::Pick), "{:?}", asked(&out));
+    f.picked = None;
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    f.picked = Some(HEAD_MESH);
+    let mut out = tick(&mut ui, &mut p, &mut t, &f, &[]);
+    out.extend(tick(&mut ui, &mut p, &mut t, &f, &[]));
+    assert!(
+        asked(&out).contains(&Asked::Select(HELM)),
+        "what is worn there selected: {:?}",
+        asked(&out)
+    );
+}
+
 /// A second item dropped in the world goes to what the world answers for it, not to what the last
 /// drop's search found, which is still there as the search is asked.
 ///

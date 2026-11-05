@@ -928,6 +928,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.inventory.a-press-on-the-doll-waits-for-its-own-answer",
+        says: "A press on the paper doll's figure waits for its own search: what the last \
+               press found is not selected, and what this one finds is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PAPER-DOLL-CLICK-ANSWER"),
+        station: "auberean-ui-game::dat::play::inventory::a_press_on_the_doll_waits_for_its_own_answer",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.inventory.an-item-coming-back-as-another-leaves-shows",
         says: "An item added to the pack at the slot past its last as another leaves in the same frame shows in its slot, though by the scripts' answers after the frame the pack holds no more than before.",
         since: RETAIL,

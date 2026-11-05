@@ -106,6 +106,8 @@ pub struct PaperDoll {
     clicked: bool,
     last_location: u32,
     facts: Facts,
+    /// The last answer heard from the search of the figure.
+    answer: Option<u64>,
 }
 
 impl PaperDoll {
@@ -130,6 +132,7 @@ impl PaperDoll {
             clicked: false,
             last_location: 0,
             facts: facts.cloned().unwrap_or_default(),
+            answer: facts.and_then(|f| f.picked),
         };
         me.init_slots(ui);
         me
@@ -366,6 +369,7 @@ impl PaperDoll {
         }
         self.clicked = true;
         self.last_location = 0;
+        self.facts.picked = None;
         out.push(gameplay::Request::Inventory(Request::Pick));
     }
 
@@ -545,12 +549,15 @@ impl Child for PaperDoll {
             self.init_paper_doll(out);
         }
         if let Some(f) = view.inventory {
+            let picked = self.facts.picked;
             if f.player != self.facts.player {
                 self.facts = f.clone();
+                self.facts.picked = picked;
                 self.init_paper_doll(out);
                 self.get_inventory(ui);
             } else if f.version != self.facts.version {
                 self.facts = f.clone();
+                self.facts.picked = picked;
                 let worn: Vec<(u64, u32)> = self.locations.iter().map(|(i, l)| (*i, *l)).collect();
                 for (item, location) in worn {
                     self.show_wear(ui, item, location);
@@ -558,7 +565,11 @@ impl Child for PaperDoll {
                 for d in self.items.values_mut() {
                     d.refresh(ui, Some(&self.facts));
                 }
-            } else if f.picked != self.facts.picked {
+            }
+            // An answer counts when it comes: the last search's, still there as this one is
+            // asked, does not answer it.
+            if f.picked != self.answer {
+                self.answer = f.picked;
                 self.facts.picked = f.picked;
             }
         }
