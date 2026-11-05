@@ -376,13 +376,18 @@ impl Profile {
         w.buf
     }
 
-    /// A line added: its tabs noted, and the line kept at the end when it shows on a tab the
-    /// request asks for or on the first tab.
+    /// A line added: its tabs noted, and the line kept when it shows on a tab the request asks for
+    /// or on the first tab, after every line whose tabs are no greater.
     // D2-12198
     pub fn add(&mut self, node: Node) {
         self.tabs |= node.tabs;
         if node.tabs & (self.asked() | FIRST_TAB) != 0 {
-            self.nodes.push(node);
+            let at = self
+                .nodes
+                .iter()
+                .position(|n| n.tabs > node.tabs)
+                .unwrap_or(self.nodes.len());
+            self.nodes.insert(at, node);
         }
     }
 
