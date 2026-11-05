@@ -13,6 +13,7 @@
 //! - [`cull`]: what a frame seen from inside shows at the moment, walked through the doorways.
 //! - [`decal`]: pictures laid over the ground for a moment.
 //! - [`body`]: a posed body, skinned, as mesh batches.
+//! - [`placed`]: the objects the world places that play, one body for each look.
 //! - [`material`]: a material instance resolved to the layers a device draws.
 //! - [`mesh`]: a mesh's vertices and the detail level at a distance.
 //! - [`picture`]: a picture list's levels, expanded to texels.
@@ -36,6 +37,7 @@ pub mod material;
 pub mod mesh;
 pub mod particles;
 pub mod picture;
+pub mod placed;
 pub mod portal;
 pub mod quality;
 pub mod rain;

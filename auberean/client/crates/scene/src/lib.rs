@@ -299,6 +299,8 @@ pub struct Scene<'w> {
     anims: CachedRecords<'w>,
     builder: SceneBuilder<'w>,
     drawer: BodyDrawer,
+    /// The bodies the world's placed objects play through, one for each look.
+    placed_bodies: auberean_draw::placed::PlacedBodies,
     /// The rain, and how hard it falls.
     weather: weather::Weather,
     /// The player's body seen through under the pointer.
@@ -1179,6 +1181,7 @@ impl<'w> Scene<'w> {
             anims: CachedRecords::new(&world.records),
             builder: SceneBuilder::new(&world.records, &world.region),
             drawer: BodyDrawer::default(),
+            placed_bodies: auberean_draw::placed::PlacedBodies::default(),
             weather: weather::Weather::default(),
             hover: auberean_draw::body::HoverFade::default(),
             pointer: None,
@@ -2884,6 +2887,9 @@ impl<'w> Scene<'w> {
         }
         heard.extend(self.others.take_heard());
         self.update_held(client, anim);
+        if let Some(step) = anim {
+            self.placed_bodies.advance(&self.anims, step);
+        }
         let leftover = self.play_server_events(client, waiting);
         self.combat.without_body += leftover
             .iter()
@@ -3989,6 +3995,13 @@ impl<'w> Scene<'w> {
         // How opaque the world's objects are from here, as their blocks fade in.
         // D2-03691
         auberean_draw::scene::fade_objects(&mut built.frame.objects, dv(eye), &self.near.fade(now));
+        // D2-05768
+        self.placed_bodies.pose(
+            &self.world.records,
+            &self.anims,
+            &mut self.drawer,
+            &mut built.frame.objects,
+        );
         self.drawer.eye = Some(dv(eye));
         self.drawer.reflecting = built.frame.reflection.is_some();
         self.drawer.moving_scale = self.adaptive_degrade.map_or(1.0, |bias| {

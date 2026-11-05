@@ -7,7 +7,7 @@
 //! cells, the human male); a hand-written login.
 
 use std::cell::RefCell;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
@@ -3252,4 +3252,44 @@ fn a_killing_arrows_hit_is_shown_before_the_target_is_dead() {
         1,
         "the killing hit's number alone: {numbers:?}"
     );
+}
+
+/// The placed objects about the player play as the game runs: every frame of the world stands
+/// those that play in their bodies' poses, and a moment later the poses have moved on.
+///
+/// Behaviour: draw.world.a-placed-look-with-a-behavior-table-plays-through-one-shared-body
+#[test]
+fn the_worlds_placed_objects_play_as_the_game_runs() {
+    let (mut s, _retail) = into_the_world();
+    // Where the first vertex of each draw that stands in a pose is, by its mesh and object.
+    let stands = |s: &mut Shell<'static, DoubleHost>| -> HashMap<(u32, [u32; 3]), [u32; 3]> {
+        step(s);
+        let frame = s.frame();
+        frame.world.map_or(HashMap::new(), |world| {
+            world
+                .objects
+                .iter()
+                .filter(|b| b.played.is_some())
+                .filter_map(|b| {
+                    let [x, y, z, _] = b.transform.0[3];
+                    let at = b.position(0).filter(|_| b.posed.is_some())?;
+                    Some(((b.mesh, [x, y, z].map(f32::to_bits)), at.map(f32::to_bits)))
+                })
+                .collect()
+        })
+    };
+    let before = (0..300)
+        .map(|_| stands(&mut s))
+        .find(|l| !l.is_empty())
+        .expect("objects that play stand in their bodies' poses about the player");
+    for _ in 0..30 {
+        step(&mut s);
+    }
+    let after = stands(&mut s);
+    let moved = before
+        .iter()
+        .filter(|(k, at)| after.get(*k).is_some_and(|now| now != *at))
+        .count();
+    println!("{moved} of {} draws moved", before.len());
+    assert!(moved > 0, "their poses moved on");
 }

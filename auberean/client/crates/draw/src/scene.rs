@@ -125,6 +125,9 @@ pub struct ObjectBatch {
     /// A body's: where each of `vertices` stands this frame and which way it faces, in place of
     /// the positions and normals they hold.
     pub posed: Option<Arc<PosedList>>,
+    /// For a placed object that plays, the body it takes its pose from each frame
+    /// ([`crate::placed::PlacedBodies`]); until then it stands as stored.
+    pub played: Option<Arc<crate::placed::Played>>,
     pub indices: Arc<Vec<u16>>,
     pub transform: Mat4,
     pub layer: DrawLayer,
@@ -1371,6 +1374,7 @@ impl<'a> SceneBuilder<'a> {
             out.push(ObjectBatch {
                 vertices: verts.clone(),
                 posed: None,
+                played: None,
                 indices: frag.indices.clone(),
                 transform,
                 layer,
@@ -1543,6 +1547,16 @@ impl<'a> SceneBuilder<'a> {
             );
             Cull::Box { lo, hi }
         };
+        // Frills are gathered into one mesh as they stand, and never play.
+        // D2-10859
+        let played = part.played.filter(|_| !frill).map(|p| {
+            Arc::new(crate::placed::Played {
+                look: p.look,
+                group: p.group,
+                setup_mesh: p.mesh,
+                frame: p.object.then(place),
+            })
+        });
         let mut out = Vec::new();
         for (at, materials) in choices {
             let lod = lod.map(|l: Lod| {
@@ -1575,6 +1589,7 @@ impl<'a> SceneBuilder<'a> {
                     out.push(ObjectBatch {
                         vertices: verts.clone(),
                         posed: None,
+                        played: played.clone(),
                         indices: indices.clone(),
                         transform,
                         layer,
@@ -1620,6 +1635,7 @@ impl<'a> SceneBuilder<'a> {
             .map(|layer| ObjectBatch {
                 vertices: vertices.clone(),
                 posed: None,
+                played: None,
                 indices: indices.clone(),
                 transform: Mat4::IDENTITY,
                 layer,
@@ -1989,6 +2005,7 @@ impl<'a> SceneBuilder<'a> {
                     transform: frame,
                     detail: None,
                     look,
+                    played: None,
                 });
                 let looked = Cull::Looked {
                     block: (bx, by),
@@ -2310,6 +2327,7 @@ impl<'a> SceneBuilder<'a> {
                         .into_iter()
                         .map(|part| Part {
                             detail: None,
+                            played: None,
                             ..part
                         })
                         .collect(),
@@ -2473,6 +2491,7 @@ impl<'a> SceneBuilder<'a> {
                 .map(|layer| ObjectBatch {
                     vertices: d.shore.vertices.clone(),
                     posed: None,
+                    played: None,
                     indices: indices.clone(),
                     transform: Mat4::IDENTITY,
                     layer,
@@ -2580,6 +2599,7 @@ impl<'a> SceneBuilder<'a> {
             .map(|layer| ObjectBatch {
                 vertices: verts.clone(),
                 posed: None,
+                played: None,
                 indices: indices.clone(),
                 transform: *place,
                 layer,

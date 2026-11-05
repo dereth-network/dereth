@@ -134,6 +134,12 @@ pub static DIVERGENCES: &[Divergence] = &[
                refused. Scripts find it at once, except a move's answer asking for the item it moves, which finds it from the next upkeep.",
     },
     Divergence {
+        id: "CD2-placed-boxes-hold-the-animation",
+        says: "Seen through a doorway, a placed object that moves is left out only when the box \
+               about its pose is out of sight. The original's box for such an object stands where \
+               its mesh is stored, however far its animation takes it.",
+    },
+    Divergence {
         id: "CD2-qualities-dump-answers",
         says: "Asked to write out an object's own qualities without its record's, this client \
                writes them once; the original never answers, repeating them until it runs out of \

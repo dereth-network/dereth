@@ -1751,6 +1751,7 @@ impl ParticleSet {
                 out.push(ObjectBatch {
                     vertices: v.clone(),
                     posed: None,
+                    played: None,
                     indices: i.clone(),
                     transform: Mat4::IDENTITY,
                     layer: layer.clone(),

@@ -547,6 +547,7 @@ impl SceneBuilder<'_> {
                     ),
                     detail: None,
                     look,
+                    played: None,
                 },
                 Cull::Cell(low),
                 None,

@@ -35,9 +35,60 @@ struct Loaded {
     /// Where each of `vertices` stands at rest and which way it faces.
     rest: Vec<(Vec3, Vec3)>,
     influences: Option<Vec<Influences>>,
+    /// The bones that move any of its vertices.
+    moved_by: Vec<u8>,
+}
+
+/// What the skinned meshes of one part keep of its pose: the hash of what moves them and the pose
+/// those worked out later are worked out from, each the first time one needs it.
+#[derive(Default)]
+struct KeptPose {
+    hash: Option<u64>,
+    pose: Option<Arc<PartPose>>,
 }
 
 impl Loaded {
+    /// A box about where the mesh stands in `pose`: its stored box's corners carried by each bone
+    /// that moves a vertex, since a vertex moved by several bones stands among where each of them
+    /// alone would put it. An unweighted mesh's box is carried by the bone at its place `at`.
+    fn posed_box(&self, at: usize, pose: &PartPose) -> (Vec3, Vec3) {
+        let b = self.mesh.bounding_box();
+        let corner = |k: u32| {
+            Vec3::new(
+                if k & 1 == 0 { b.min.x } else { b.max.x },
+                if k & 2 == 0 { b.min.y } else { b.max.y },
+                if k & 4 == 0 { b.min.z } else { b.max.z },
+            )
+        };
+        let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+        let mut widen = |p: Vec3| {
+            for (k, v) in [p.x, p.y, p.z].into_iter().enumerate() {
+                lo[k] = lo[k].min(v);
+                hi[k] = hi[k].max(v);
+            }
+        };
+        if self.influences.is_some() {
+            for bone in &self.moved_by {
+                let Some(m) = pose.palette.get(usize::from(*bone)) else {
+                    continue;
+                };
+                for k in 0..8 {
+                    widen(pose.world.point(m.point(corner(k))));
+                }
+            }
+        } else {
+            let bone = pose.bones.get(at).copied().unwrap_or(Mat4::IDENTITY);
+            let m = bone.then(&pose.world);
+            for k in 0..8 {
+                widen(m.point(corner(k)));
+            }
+        }
+        (
+            Vec3::new(lo[0], lo[1], lo[2]),
+            Vec3::new(hi[0], hi[1], hi[2]),
+        )
+    }
+
     /// Where the vertices stand on a skinned mesh, in its pose.
     fn skinned(&self, pose: &PartPose) -> Vec<PosedVertex> {
         let none = Influences::default();
@@ -256,6 +307,57 @@ impl BodyDrawer {
         list
     }
 
+    /// The list of mesh `id` in a part's pose: skinned to it, or carried whole by the bone of its
+    /// place `at` in the setup.
+    fn posed_mesh(
+        &mut self,
+        m: &Arc<Loaded>,
+        id: u32,
+        at: usize,
+        pose: &PartPose,
+        kept: &mut KeptPose,
+    ) -> Arc<PosedList> {
+        if m.influences.is_some() {
+            let hash = *kept.hash.get_or_insert_with(|| {
+                hash_matrices(std::iter::once(&pose.world).chain(&pose.palette))
+            });
+            self.posed((id, hash), || {
+                let pose = kept
+                    .pose
+                    .get_or_insert_with(|| Arc::new(pose.clone()))
+                    .clone();
+                let m = m.clone();
+                PosedList::made_by(move || m.skinned(&pose))
+            })
+        } else {
+            let bone = pose
+                .bones
+                .get(at)
+                .copied()
+                .unwrap_or(Mat4::IDENTITY)
+                .then(&pose.world);
+            self.posed((id, hash_matrices([&bone])), || {
+                let m = m.clone();
+                PosedList::made_by(move || m.carried(&bone))
+            })
+        }
+    }
+
+    /// The list of mesh `id` in a part's pose and the box that holds it however the pose has it,
+    /// for a placed object's draws, which are told apart by what their boxes meet.
+    pub(crate) fn placed_mesh(
+        &mut self,
+        records: &WorldRecords,
+        id: u32,
+        at: usize,
+        pose: &PartPose,
+    ) -> Option<(Arc<PosedList>, Vec3, Vec3)> {
+        let m = self.mesh(records, id)?;
+        let list = self.posed_mesh(&m, id, at, pose, &mut KeptPose::default());
+        let (lo, hi) = m.posed_box(at, pose);
+        Some((list, lo, hi))
+    }
+
     /// The next body drawn is (or is not) both mobile and dynamic.
     pub fn next_body(&mut self, moving: bool) {
         self.scale = if moving {
@@ -276,11 +378,22 @@ impl BodyDrawer {
                     .iter()
                     .map(|v| (v3(v.position), v3(v.normal)))
                     .collect();
+                let mut moved_by: Vec<u8> = influences
+                    .iter()
+                    .flatten()
+                    .flat_map(|i| {
+                        let n = usize::from(i.count).min(i.bones.len());
+                        i.bones[..n].iter().copied()
+                    })
+                    .collect();
+                moved_by.sort_unstable();
+                moved_by.dedup();
                 Some(Arc::new(Loaded {
                     mesh: Arc::new(mesh),
                     vertices: Arc::new(vertices),
                     rest,
                     influences,
+                    moved_by,
                 }))
             })
             .clone()
@@ -443,10 +556,8 @@ impl BodyDrawer {
                     self.material_detail,
                 )
             });
-            // The hash of what moves the part's skinned meshes, the first time one asks, and the
-            // pose those worked out later are worked out from, the first time one needs it.
-            let mut skin_hash = None;
-            let mut kept_pose: Option<Arc<PartPose>> = None;
+            // What the part's skinned meshes keep of its pose, the first time one asks.
+            let mut kept = KeptPose::default();
             for (i, setup_mesh) in part.setup.meshes.iter().enumerate() {
                 let mesh_id = part.look.mesh(*setup_mesh, &mut |id| {
                     self.mesh(records, id.0).map(|m| m.mesh.kind)
@@ -460,32 +571,7 @@ impl BodyDrawer {
                 let Some(level) = level_at(&m.mesh, t, self.model_detail) else {
                     continue;
                 };
-                let posed = match &m.influences {
-                    Some(_) => {
-                        let pose_hash = *skin_hash.get_or_insert_with(|| {
-                            hash_matrices(std::iter::once(&pose.world).chain(&pose.palette))
-                        });
-                        self.posed((mesh_id.0, pose_hash), || {
-                            let pose = kept_pose
-                                .get_or_insert_with(|| Arc::new(pose.clone()))
-                                .clone();
-                            let m = m.clone();
-                            PosedList::made_by(move || m.skinned(&pose))
-                        })
-                    }
-                    None => {
-                        let bone = pose
-                            .bones
-                            .get(i)
-                            .copied()
-                            .unwrap_or(Mat4::IDENTITY)
-                            .then(&pose.world);
-                        self.posed((mesh_id.0, hash_matrices([&bone])), || {
-                            let m = m.clone();
-                            PosedList::made_by(move || m.carried(&bone))
-                        })
-                    }
-                };
+                let posed = self.posed_mesh(&m, mesh_id.0, i, pose, &mut kept);
                 // The reflection takes the same level when its choice falls on it, else one of
                 // its own beside it.
                 let mirrored = in_reflection.and_then(|g| {
@@ -524,6 +610,7 @@ impl BodyDrawer {
                             out.push(ObjectBatch {
                                 vertices: m.vertices.clone(),
                                 posed: Some(posed.clone()),
+                                played: None,
                                 indices: indices.clone(),
                                 transform: *place,
                                 layer,

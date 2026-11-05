@@ -72,6 +72,7 @@ fn a_part_draws_its_own_copy_when_its_look_changes_its_materials() {
         transform: at(x),
         detail: None,
         look,
+        played: None,
     };
     let parts = [part(0.0, None), part(100.0, Some(look)), part(200.0, None)];
     let camera = Camera {
@@ -265,6 +266,7 @@ fn a_meshs_depth_writing_fragments_draw_first() {
         transform: Mat4::IDENTITY,
         detail: None,
         look: None,
+        played: None,
     };
     let frame = builder.parts_frame(&[part], Vec::new(), camera, light, None);
     let placed: Vec<bool> = frame.objects.iter().map(|b| b.layer.depth_write).collect();

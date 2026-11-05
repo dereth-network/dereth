@@ -593,6 +593,7 @@ impl Passage {
             transform: turn,
             detail: None,
             look: None,
+            played: None,
         };
         let camera = Camera {
             position: Vec3::new(0.0, 0.0, 0.0),
@@ -623,6 +624,7 @@ impl Passage {
                 frame.objects.push(ObjectBatch {
                     vertices: v.clone(),
                     posed: None,
+                    played: None,
                     indices: i.clone(),
                     transform: Mat4::IDENTITY,
                     layer,

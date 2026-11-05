@@ -549,6 +549,7 @@ fn a_body_takes_the_sun_shadow_about_its_spot() {
     let mut at = |device: &mut auberean_gpu::Renderer, ground: Option<Vec3>| {
         frame.objects = vec![auberean_draw::scene::ObjectBatch {
             posed: None,
+            played: None,
             ground,
             ..wall.clone()
         }];

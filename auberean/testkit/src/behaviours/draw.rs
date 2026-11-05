@@ -2,7 +2,7 @@
 //!
 //! A row claims what the September 2013 client does when it draws a mesh or a terrain layer.
 
-use super::{Behaviour, Evidence, Tier, RETAIL};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -1807,6 +1807,23 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.world.a-placed-look-with-a-behavior-table-plays-through-one-shared-body",
+        says: "An object the world places whose look has a behavior table plays it through one body kept for the look, stepped once a frame, so every object showing the look stands in one pose and moves with the others; a look with no behavior table stands as stored.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PLACED-PLAYS"),
+        station: "auberean-draw::dat::placed::a_placed_school_of_fish_swims_and_every_object_showing_it_moves_together",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.world.a-placed-objects-box-holds-it-where-its-animation-takes-it",
+        says: "The box a placed object that plays is culled by holds every vertex wherever its animation takes it, not only where the mesh is stored.",
+        since: THIS_CLIENT,
+        divergence: "CD2-placed-boxes-hold-the-animation",
+        evidence: Evidence::Private("AC2-EVID-PLACED-BOX"),
+        station: "auberean-draw::dat::placed::a_placed_objects_box_holds_it_wherever_its_animation_takes_it",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.world.only-objects-that-say-so-cast-on-the-land",
         says: "An object prints on the sun's shadow map only when its drawing properties say it casts on the land. Those without the property, placed or scenery, leave no shadow there.",
         since: RETAIL,
@@ -1851,6 +1868,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-DRAW-LENS-FLARE"),
         station: "auberean-draw::dat::landscape::the_sun_throws_a_lens_flare",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.world.the-wind-moves-a-placed-object-that-plays",
+        says: "The world's wind blows on the body a placed object plays through, as on any other: a tree that plays travels further in a gale than in still air.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PLACED-WIND"),
+        station: "auberean-draw::dat::placed::the_wind_moves_a_placed_tree_further_than_still_air_does",
         tier: Tier::Dat,
     },
     behaviour! {

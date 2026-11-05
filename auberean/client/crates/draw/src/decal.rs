@@ -583,6 +583,7 @@ pub fn decal_batches(
             out.push(ObjectBatch {
                 vertices: vertices.clone(),
                 posed: None,
+                played: None,
                 indices: indices.clone(),
                 transform: Mat4::IDENTITY,
                 layer,
