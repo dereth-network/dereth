@@ -13,7 +13,7 @@
 //! tables (`yalain-world-db`, `yalain-content`), the pack format (`dereth-pack`), the world as the
 //! client draws it (`auberean-world`, `auberean-assets`, `auberean-dat`, `auberean-animation`,
 //! `auberean-physics`, `auberean-primitives`, `auberean-draw`, `auberean-gpu`), the free camera
-//! (`dereth-builder`), the shared math (`dereth-primitives`), the panels (`egui`), and the window
+//! (`dereth-builder`), the shared math and collision (`dereth-primitives`, `dereth-physics`), the panels (`egui`), and the window
 //! system (`winit`) and device (`wgpu`, `pollster`, `bytemuck`, `png`), with `toml` for the
 //! playtest characters' recipes, `serde_json` for the character files the server exports and
 //! `auberean-protocol` for the qualities a file of the first version holds, and `tracing` and
@@ -25,9 +25,11 @@
 
 pub mod app;
 pub mod characters;
+pub mod gizmo;
 pub mod gui;
 pub mod icon;
 pub mod live;
+pub mod map;
 pub mod paint;
 pub mod scene;
 pub mod script;

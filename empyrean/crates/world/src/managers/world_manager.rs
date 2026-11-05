@@ -586,7 +586,7 @@ pub fn do_player_enter_world(
         if let Some(letter) = letter {
             crate::dispatch::act_on_use::act_on_use(w, letter, player_guid);
         }
-    } else if total_logins <= 1 {
+    } else if total_logins <= 1 && !(popup_welcome.is_empty() && popup_motd.is_empty()) {
         let text = if is_olthoi_player {
             append_lines(&[&popup_welcome, &popup_motd])
         } else {

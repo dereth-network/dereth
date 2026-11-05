@@ -5,8 +5,9 @@
 //! removed; the server answers nothing and hands the table back with the options at the next
 //! entry.
 //!
-//! **Inscribing.** A weapon, armor, a shield, jewelry or a tool takes an inscription: the player is
-//! told it is inscribed; anything else is refused with a text. Nothing else is sent.
+//! **Inscribing.** A weapon, armor, a shield, jewelry or a tool the player holds takes an
+//! inscription: the player is told it is inscribed; anything else is refused with a text. Nothing
+//! else is sent.
 //!
 //! **Trained skills.** Asked, the server lists each skill the player trained (not those its race
 //! gives it), one line each with the skill's experience and what it cost.
@@ -107,10 +108,12 @@ pub fn inscribe<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId,
         return;
     };
     let template = s.things.get(*item).map_or(0, |t| t.template);
-    let Some(name) = s.players.get(&world).map(|p| p.name.clone()) else {
+    let Some(p) = s.players.get(&world) else {
         return;
     };
-    let said = if inscribable(s, template) {
+    let held = p.play.items.iter().any(|h| h.id == *item);
+    let name = crate::player::world_name(&p.name, p.sex);
+    let said = if held && inscribable(s, template) {
         let mut literal = String::from_utf16_lossy(words.literal.as_deref().unwrap_or_default());
         if let Some((cut, _)) = literal.char_indices().nth(MAX_INSCRIPTION) {
             literal.truncate(cut);
@@ -118,6 +121,7 @@ pub fn inscribe<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId,
         if let Some(t) = s.things.get_mut(*item) {
             t.inscription = Some((literal, name));
         }
+        crate::world::keep_player(s, world);
         text::INSCRIBED
     } else {
         text::CANNOT_INSCRIBE

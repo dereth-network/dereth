@@ -23,7 +23,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "audio.ambient.a-session-hears-its-place",
-        says: "In a session in the hall, the interior cells' ambient kind dominates and its place                music plays from an ambient sound's object, its piece started on the performance.",
+        says: "In a session in the hall, the ambient kind most of its cells name dominates and its place                music plays from an ambient sound's object, its piece started on the performance.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-AUDIO-AMBIENT-SESSION"),
         station: "auberean-shell::dat::session::in_the_hall_the_interiors_place_music_plays",
@@ -31,7 +31,7 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "audio.ambient.cells-and-the-landscape",
-        says: "Every interior cell in view names ambient kind 2; the landscape's points are weighed only when the landscape is heard, muffled from indoors, and a place's kind is described the first time it is met.",
+        says: "Every interior cell in view names the ambient kind its own properties say, kind 2 when they say none; the landscape's points are weighed only when the landscape is heard, muffled from indoors, and a place's kind is described the first time it is met.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-AUDIO-AMBIENT-PLACES"),
         station: "auberean-audio::cpu::ambient::interior_cells_name_their_kind_and_the_landscape_is_heard_only_when_it_can_be",
@@ -118,6 +118,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-AUDIO-EFFECTS"),
         station: "auberean-shell::dat::session::effects_played_on_objects_play_their_sounds",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "audio.manager.a-silent-makers-sounds-stop-and-play-again",
+        says: "A sound whose maker has gone silent stops and is kept; it plays again when its \
+               maker can be heard. Sounds of other makers are not touched.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-AUDIO-MAKER-SILENT"),
+        station: "auberean-audio::cpu::manager::a_silent_makers_sounds_stop_and_play_again",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "audio.manager.a-sound-starts-on-the-next-turn-at-its-level",

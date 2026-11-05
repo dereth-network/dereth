@@ -185,6 +185,7 @@ pub fn look(weight: f32, sliders: &Sliders, bone_types: &[u32], out: &mut Pose) 
     if full.x.is_nan() || full.y.is_nan() || full.z.is_nan() {
         return;
     }
+    // D2-12874
     let ty = |i: usize| bone_types.get(i).copied().unwrap_or(0);
     for (i, bone) in out.bones.iter_mut().enumerate() {
         let by = if LOOK_FULL.contains(&ty(i)) {

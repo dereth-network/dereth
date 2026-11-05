@@ -55,6 +55,8 @@ fn use_of(item: u64, me: u64) -> Arg {
 
 fn gathering(did: u32) -> CraftSkillDef {
     CraftSkillDef {
+        bonus_stat: 0,
+        common_name: (0, 0),
         did,
         cap: 150,
         name: (0xA860_7CEC, 0x2500_13CA),
@@ -401,6 +403,7 @@ fn a_quest_mine_gives_its_material_and_moves_its_quest_on_and_a_recipe_mine_refu
             journals: vec![(3, 0x2500_14B4); 5],
             challenge: 0,
             duration: 3600.0,
+            timed_phase: 0,
             retry: 86_400.0,
             xp: 0,
             cancellable: true,
@@ -411,6 +414,11 @@ fn a_quest_mine_gives_its_material_and_moves_its_quest_on_and_a_recipe_mine_refu
             min_level: 0,
             fails_on_death: false,
             once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
+            hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
+            required: None,
         });
     let (barium, ruby) = with_quest_mines(&mut h, quest);
     let (b, me, world) = in_world(&mut h, "Elara");
@@ -701,6 +709,7 @@ fn the_hoards_time_runs_out_and_its_miner_is_sent_out() {
             journals: Vec::new(),
             challenge: -999,
             duration: 300.0,
+            timed_phase: 0,
             retry: 0.0,
             xp: 0,
             cancellable: false,
@@ -711,8 +720,14 @@ fn the_hoards_time_runs_out_and_its_miner_is_sent_out() {
             min_level: 0,
             fails_on_death: false,
             once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
+            hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
+            required: None,
         }],
         steps: Vec::new(),
+        gives: Vec::new(),
     };
     let def = |state, kind, seconds: f32| EffectDef {
         state,
@@ -808,4 +823,49 @@ fn the_hoards_time_runs_out_and_its_miner_is_sent_out() {
             .contains(&yalain_world::quests::UPDATE_QUEST),
         "nothing of the quest told"
     );
+}
+
+/// A node refuses a player with no place in its pack for what it would give, and is not worn by it.
+/// Behaviour: server.craft.mining-wants-a-place-in-the-pack
+#[test]
+fn a_node_refuses_a_player_with_no_place_in_its_pack() {
+    let mut h = world();
+    let (b, me, world) = in_world(&mut h, "Elara");
+    give(&mut h, world, PICKAXE);
+    let stone = give(&mut h, world, STONE);
+    let from = send_use(&mut h, b, me, stone, 0.5);
+    let (node, _) = node_made(&h, b, from).expect("the node");
+    let items = &mut h.server.players.get_mut(&world).expect("there").play.items;
+    for n in u32::try_from(items.len()).expect("few")..mining_room() {
+        items.push(yalain_world::state::Held {
+            id: 0x8130_0000_0FFF_0000 + u64::from(n),
+            template: STONE,
+            slot: n,
+            location: 0,
+            quantity: 1,
+        });
+    }
+    let from = send_use(&mut h, b, me, node, mining::WORK_SECONDS + 0.5);
+    assert_eq!(
+        use_answers(&h, b, from).first().map(|a| a.0),
+        Some(refusal::NO_ROOM)
+    );
+    assert!(!h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .any(|i| i.template == ORE));
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("there")
+        .play
+        .items
+        .retain(|i| i.template != STONE);
+    let from = send_use(&mut h, b, me, node, mining::WORK_SECONDS + 0.5);
+    assert_eq!(use_answers(&h, b, from).first().map(|a| a.0), Some(0));
+}
+
+fn mining_room() -> u32 {
+    yalain_world::inventory::PACK_ROOM
 }

@@ -1225,6 +1225,7 @@ const NAV_RECALL_KINDS: [u32; 2] = [6, 8];
 fn nav_character(
     world: &dereth_client_model::world::World,
     spells: Option<&dereth_assets::tables::SpellTable>,
+    features: dereth_primitives::era::EraFeatures,
 ) -> dereth_navigation::CharacterState {
     /// The character's level.
     const LEVEL: u32 = 25;
@@ -1278,17 +1279,21 @@ fn nav_character(
             }
         }
     }
-    // Every character may recall to its lifestone and to the marketplace by command.
-    out.recall_commands = vec![
-        (
+    // A route may use only the recall commands the world has: `@lifestone` recalls only where
+    // it is not a death, and `@marketplace` only where the world has the Marketplace recall.
+    out.recall_commands = Vec::new();
+    if features.lifestone_recall {
+        out.recall_commands.push((
             dereth_navigation::Recall::Lifestone,
             String::from("lifestone"),
-        ),
-        (
+        ));
+    }
+    if features.marketplace_recall {
+        out.recall_commands.push((
             dereth_navigation::Recall::Marketplace,
             String::from("marketplace"),
-        ),
-    ];
+        ));
+    }
     // Casting needs the magic stance, which needs a caster in hand or in the pack to take up.
     // (Being busy is a moment's matter: the cast waits it out.)
     let stance = nav_stance(world);

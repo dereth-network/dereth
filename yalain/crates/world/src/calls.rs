@@ -21,8 +21,9 @@ pub enum Node {
     TextInfo(TextInfo),
     /// A native object of another kind, as its packed bytes.
     Native { ty: u16, bytes: Vec<u8> },
-    /// Something the graph does not carry (a singleton, an object packed elsewhere, a reference
-    /// into a slot).
+    /// A singleton: the id of its saved state.
+    Singleton(u32),
+    /// Something the graph does not carry (an object packed elsewhere, a reference into a slot).
     Other,
 }
 
@@ -159,10 +160,7 @@ fn graph(r: &mut In<'_>) -> Result<Vec<(u32, Node)>, String> {
     for id in ids {
         let f = r.u32().map_err(e)?;
         let n = match f & field::KIND {
-            field::OBJECT if f & field::SINGLETON != 0 => {
-                r.u32().map_err(e)?;
-                Node::Other
-            }
+            field::OBJECT if f & field::SINGLETON != 0 => Node::Singleton(r.u32().map_err(e)?),
             field::OBJECT if f & field::PROCESS == 0 || f & field::ROOT != 0 => node(r)?,
             field::OBJECT => Node::Other,
             field::RELATIVE => {

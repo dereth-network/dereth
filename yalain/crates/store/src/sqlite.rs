@@ -21,7 +21,12 @@
 //! 1. makes the tables: a file kept before versions gains those it lacks (the Dereth Network's,
 //!    the friends service's), empty;
 //! 2. the operator's moderation: each account's access level (every account a player's) and its
-//!    ban (none), and the gagged characters (none).
+//!    ban (none), and the gagged characters (none);
+//! 3. the admin flag in place of the levels: an account at the highest level (5) with a secret is an
+//!    admin; one between (1 to 4), or at the highest with no secret (an open world gives such an
+//!    account to the first ticket it sees), is a player, each named in the log, for the operator to
+//!    raise if it should be an admin; the levels are gone from the file (the backup keeps them);
+//! 4. the named groups an account's admin commands are checked against (none).
 
 use std::path::{Path, PathBuf};
 
@@ -121,11 +126,67 @@ fn moderation(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch(GAGS)
 }
 
+/// The highest of the levels migration 3 replaces: an admin's.
+const LEVEL_ADMIN: i64 = 5;
+
+fn admin_flag(db: &Connection) -> rusqlite::Result<()> {
+    let columns = |c: &str| -> rusqlite::Result<i64> {
+        db.query_row(
+            "SELECT count(*) FROM pragma_table_info('account') WHERE name = ?1",
+            [c],
+            |r| r.get(0),
+        )
+    };
+    if columns("admin")? == 0 {
+        db.execute_batch("ALTER TABLE account ADD COLUMN admin INTEGER NOT NULL DEFAULT 0")?;
+    }
+    if columns("access")? == 0 {
+        return Ok(());
+    }
+    {
+        let mut between = db.prepare(
+            "SELECT name, access FROM account WHERE access > 0 \
+             AND (access < ?1 OR secret IS NULL) ORDER BY name",
+        )?;
+        let rows = between.query_map([LEVEL_ADMIN], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+        })?;
+        for row in rows {
+            let (name, level) = row?;
+            tracing::warn!(
+                account = %name,
+                level,
+                "access levels are gone: this account is now a player; set-accountadmin makes it                  an admin"
+            );
+        }
+    }
+    db.execute(
+        "UPDATE account SET admin = 1 WHERE access >= ?1 AND secret IS NOT NULL",
+        [LEVEL_ADMIN],
+    )?;
+    db.execute_batch("ALTER TABLE account DROP COLUMN access")
+}
+
+fn admin_groups(db: &Connection) -> rusqlite::Result<()> {
+    let has: i64 = db.query_row(
+        "SELECT count(*) FROM pragma_table_info('account') WHERE name = 'admin_groups'",
+        [],
+        |r| r.get(0),
+    )?;
+    if has == 0 {
+        db.execute_batch("ALTER TABLE account ADD COLUMN admin_groups TEXT NOT NULL DEFAULT ''")?;
+    }
+    Ok(())
+}
+
 /// The schema's migrations, in order: a file at version `n` has had the first `n`.
-const MIGRATIONS: &[Migration] = &[tables, moderation];
+const MIGRATIONS: &[Migration] = &[tables, moderation, admin_flag, admin_groups];
 
 /// The schema version this build keeps its files at.
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 4;
+
+/// How long a call waits for a lock another program holds on the file.
+const BUSY_WAIT: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// How many backups of a file are kept (the newest), as Empyrean keeps.
 pub const KEEP_BACKUPS: usize = 3;
@@ -134,7 +195,7 @@ pub const KEEP_BACKUPS: usize = 3;
 const BACKUP_MARKER: &str = ".backup-";
 
 const ACCOUNT_COLUMNS: &str =
-    "id, name, secret, created_at, access, banned_at, banned_until, banned_by, ban_reason";
+    "id, name, secret, created_at, admin, banned_at, banned_until, banned_by, ban_reason, admin_groups";
 
 const CHARACTER_COLUMNS: &str =
     "id, account, name, race, sex, class, implement, start_area, entity_did, physique, look, created_at, deleted_at, last_played";
@@ -167,7 +228,13 @@ fn account(r: &Row<'_>) -> rusqlite::Result<Account> {
         name: r.get(1)?,
         secret: r.get(2)?,
         created_at: r.get(3)?,
-        access: u32::try_from(r.get::<_, i64>(4)?).unwrap_or(0),
+        admin: r.get::<_, i64>(4)? != 0,
+        groups: r
+            .get::<_, String>(9)?
+            .split(',')
+            .filter(|g| !g.is_empty())
+            .map(str::to_owned)
+            .collect(),
         ban: match (at, until) {
             (Some(at), Some(until)) => Some(Ban {
                 at,
@@ -213,8 +280,9 @@ impl SqliteStore {
         db.pragma_update(None, "journal_mode", "WAL").map_err(err)?;
         db.pragma_update(None, "synchronous", "NORMAL")
             .map_err(err)?;
-        db.busy_timeout(std::time::Duration::from_secs(5))
-            .map_err(err)?;
+        // Saves are tried again, so one that finds the file locked gives way soon: the world's loop
+        // does not stand still behind it.
+        db.busy_timeout(BUSY_WAIT).map_err(err)?;
         upgrade(&db, Some(path))?;
         Ok(Self { db })
     }
@@ -305,6 +373,56 @@ fn back_up(db: &Connection, file: &Path, from: i64) -> StoreResult<PathBuf> {
         ))
     })?;
     Ok(target)
+}
+
+/// Back up the database file at `file` as the schema upgrade does (SQLite's online backup, a sibling
+/// named `<file>.backup-<label>-<UTC timestamp>`), whatever its schema, and keep the newest
+/// [`KEEP_BACKUPS`] backups of it. Used before a release is installed over the file. The backup's
+/// path.
+///
+/// # Errors
+/// The file cannot be opened or copied; no backup is left behind.
+pub fn snapshot(file: &Path, label: &str) -> StoreResult<PathBuf> {
+    if !file.is_file() {
+        return Err(StoreError(format!(
+            "{}: no such database file",
+            file.display()
+        )));
+    }
+    let db = Connection::open(file).map_err(err)?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(0));
+    let target = backup_path(file, &format!("{label}-{}", utc_stamp(now)));
+    db.backup(DatabaseName::Main, &target, None).map_err(|e| {
+        let _ = std::fs::remove_file(&target);
+        StoreError(format!("{}: {e}", target.display()))
+    })?;
+    drop(db);
+    let all = backups(file);
+    for old in &all[..all.len().saturating_sub(KEEP_BACKUPS)] {
+        let _ = std::fs::remove_file(old);
+    }
+    Ok(target)
+}
+
+/// Put the backup at `backup` back as the database file `file`: the file's `-wal` and `-shm`
+/// companions are removed first (they belong to the file being replaced), then the backup is copied
+/// over it. The database must not be open.
+///
+/// # Errors
+/// A file cannot be removed or copied.
+pub fn restore(backup: &Path, file: &Path) -> std::io::Result<()> {
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let mut companion = file.as_os_str().to_owned();
+        companion.push(suffix);
+        match std::fs::remove_file(PathBuf::from(companion)) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e),
+        }
+    }
+    std::fs::copy(backup, file).map(|_| ())
 }
 
 /// Where a backup of `file` named for `label` goes: beside it, and not the name of anything
@@ -475,7 +593,8 @@ impl Store for SqliteStore {
             name: name.to_string(),
             secret,
             created_at: now,
-            access: 0,
+            admin: false,
+            groups: Vec::new(),
             ban: None,
         })
     }
@@ -502,15 +621,67 @@ impl Store for SqliteStore {
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(err)
     }
 
-    fn set_account_access(&mut self, account: u64, access: u32) -> StoreResult<()> {
+    fn set_account_admin(&mut self, account: u64, admin: bool) -> StoreResult<()> {
         let n = self
             .db
             .execute(
-                "UPDATE account SET access = ?2 WHERE id = ?1",
-                params![account as i64, i64::from(access)],
+                "UPDATE account SET admin = ?2 WHERE id = ?1",
+                params![account as i64, i64::from(admin)],
             )
             .map_err(err)?;
         one_account(n, account)
+    }
+
+    fn set_account_groups(&mut self, account: u64, groups: &[String]) -> StoreResult<()> {
+        let n = self
+            .db
+            .execute(
+                "UPDATE account SET admin_groups = ?2 WHERE id = ?1",
+                params![account as i64, groups.join(",")],
+            )
+            .map_err(err)?;
+        one_account(n, account)
+    }
+
+    fn set_character_entity(&mut self, character: u64, entity: u32) -> StoreResult<()> {
+        let n = self
+            .db
+            .execute(
+                "UPDATE character SET entity_did = ?2 WHERE id = ?1",
+                params![character as i64, i64::from(entity)],
+            )
+            .map_err(err)?;
+        if n == 0 {
+            return Err(StoreError(format!("no character {character}")));
+        }
+        Ok(())
+    }
+
+    fn rename_character(&mut self, character: u64, name: &str) -> StoreResult<()> {
+        let tx = self.db.transaction().map_err(err)?;
+        let old: Option<String> = tx
+            .query_row(
+                "SELECT name FROM character WHERE id = ?1",
+                [character as i64],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(err)?;
+        let Some(old) = old else {
+            return Err(StoreError(format!("no character {character}")));
+        };
+        tx.execute(
+            "UPDATE character SET name = ?2 WHERE id = ?1",
+            params![character as i64, name],
+        )
+        .map_err(err)?;
+        // A list that holds both names holds the new one once. The column ignores case.
+        tx.execute(
+            "UPDATE OR REPLACE network_list SET entry = ?2 WHERE entry = ?1",
+            params![old, name],
+        )
+        .map_err(err)?;
+        tx.commit().map_err(err)
     }
 
     fn set_account_ban(&mut self, account: u64, ban: Option<&Ban>) -> StoreResult<()> {
@@ -597,6 +768,22 @@ impl Store for SqliteStore {
             )
             .map(|n| n > 0)
             .map_err(err)
+    }
+
+    fn reserve_thing_numbers(&mut self, n: u64) -> StoreResult<u64> {
+        let tx = self.db.transaction().map_err(err)?;
+        tx.execute(
+            "INSERT INTO counter (name, value) VALUES ('thing', ?1) ON CONFLICT (name) DO UPDATE SET value = value + ?1",
+            [n as i64],
+        )
+        .map_err(err)?;
+        let top: i64 = tx
+            .query_row("SELECT value FROM counter WHERE name = 'thing'", [], |r| {
+                r.get(0)
+            })
+            .map_err(err)?;
+        tx.commit().map_err(err)?;
+        Ok(top as u64 - n + 1)
     }
 
     fn next_character_number(&mut self) -> StoreResult<u64> {
@@ -726,6 +913,38 @@ impl Store for SqliteStore {
     fn set_world_state(&mut self, id: u64, s: &WorldState) -> StoreResult<()> {
         let tx = self.db.transaction().map_err(err)?;
         write_state(&tx, id, s)?;
+        tx.commit().map_err(err)
+    }
+
+    fn save_all(
+        &mut self,
+        states: &[(u64, &WorldState)],
+        records: &[(&str, &[u8])],
+    ) -> StoreResult<()> {
+        // Taken at once, so that a lock another program holds a moment is waited out.
+        let tx = self
+            .db
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(err)?;
+        for (id, state) in states {
+            let held: i64 = tx
+                .query_row(
+                    "SELECT count(*) FROM character WHERE id = ?1",
+                    [*id as i64],
+                    |r| r.get(0),
+                )
+                .map_err(err)?;
+            if held > 0 {
+                write_state(&tx, *id, state)?;
+            }
+        }
+        for (name, value) in records {
+            tx.execute(
+                "INSERT INTO world_record (name, value) VALUES (?1, ?2) ON CONFLICT (name) DO UPDATE SET value = ?2",
+                params![name, value],
+            )
+            .map_err(err)?;
+        }
         tx.commit().map_err(err)
     }
 

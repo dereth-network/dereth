@@ -400,6 +400,7 @@ struct Place {
 
 /// Something placement keeps clear of: a placed object, a group while and after it places its
 /// members, or a scene's own vertex.
+// D2-12446, D2-12447, D2-12449, D2-12450, D2-12451, D2-12452, D2-12453, D2-03875
 #[derive(Clone, Copy, Debug)]
 struct Clearance {
     origin: Vec3,
@@ -550,43 +551,20 @@ impl Placer<'_> {
     }
 
     /// Whether `(x, y)` is on the road.
-    // D2-03618
     fn on_road(&self, x: f32, y: f32) -> bool {
-        let land = self.input.land;
-        let step = land.grid().vertex_spacing();
-        let side = self.input.block.geometry.vertices_per_side;
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let (sx, sy) = (
-            (x * (1.0 / step)).floor() as i64,
-            (y * (1.0 / step)).floor() as i64,
-        );
-        let road = |i: i64, j: i64| {
-            let (Ok(i), Ok(j)) = (usize::try_from(i), usize::try_from(j)) else {
-                return false;
-            };
-            if i >= side || j >= side {
-                return false;
-            }
-            land.word.road.of(self.input.vertices[i * side + j]) != 0
-        };
-        #[allow(clippy::cast_precision_loss)]
-        let (dx, dy) = (x - sx as f32 * step, y - sy as f32 * step);
-        dereth_terrain::road::on_road_cell_with(
-            road(sx, sy),
-            road(sx, sy + 1),
-            road(sx + 1, sy),
-            road(sx + 1, sy + 1),
-            dx,
-            dy,
-            step,
-            land.road_width,
+        on_road(
+            self.input.land,
+            self.input.block.geometry.vertices_per_side,
+            self.input.vertices,
+            x,
+            y,
         )
     }
 
     /// Whether every piece of ground a circle of radius `r` about the place reaches is within the
     /// group's slopes in radius (and, for an aligned group, turned within its heading limits);
     /// a circle reaching off the block fails.
-    // D2-03644, D2-03831, D2-12424, D2-12428
+    // D2-03644, D2-03831, D2-12424, D2-12428, D2-03611
     fn check_radius(&self, g: &ScatterGroup, place: &Place, scale: Vec3) -> bool {
         let r = if g.scale_check_radius {
             scale.x.max(scale.y) * g.check_slope_radius
@@ -654,7 +632,7 @@ impl Placer<'_> {
     }
 
     /// Whether a circle about `at` of radius `r` reaches anything already kept clear.
-    // D2-03642, D2-12455
+    // D2-03642, D2-12455, D2-12450
     fn collides(&self, at: Vec3, r: f32, in_3d: bool) -> bool {
         self.clear.iter().any(|c| {
             if c.group && !c.done {
@@ -676,7 +654,7 @@ impl Placer<'_> {
 
     /// Start keeping a group (or a scene's vertex, with no group) clear; frills keep nothing
     /// clear.
-    // D2-03676
+    // D2-03676, D2-12447, D2-12451
     fn start_group(
         &mut self,
         place: &Place,
@@ -698,6 +676,7 @@ impl Placer<'_> {
         Some(self.clear.len() - 1)
     }
 
+    // D2-12449
     fn end_group(&mut self, k: Option<usize>) {
         if let Some(c) = k.and_then(|k| self.clear.get_mut(k)) {
             c.done = true;
@@ -705,7 +684,7 @@ impl Placer<'_> {
     }
 
     /// Place one object: a frill is only drawn; anything else is also kept clear.
-    // D2-03677, D2-03643
+    // D2-03677, D2-03643, D2-12446, D2-03891
     fn entity(&mut self, id: DataId, place: &Place, scale: Vec3, frill: bool) {
         if !frill {
             self.clear.push(Clearance {
@@ -1254,4 +1233,38 @@ pub fn block_scenery(input: &SceneryInput<'_>, source: &dyn SceneSource) -> Vec<
         }
     }
     p.out
+}
+
+/// Whether point `(x, y)` of a block is on the road: its `side` by `side` landscape `words` say
+/// which vertices are, and a road reaches out from them by its width.
+// D2-03618
+#[must_use]
+pub fn on_road(land: &LandConstants, side: usize, words: &[u32], x: f32, y: f32) -> bool {
+    let step = land.grid().vertex_spacing();
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let (sx, sy) = (
+        (x * (1.0 / step)).floor() as i64,
+        (y * (1.0 / step)).floor() as i64,
+    );
+    let road = |i: i64, j: i64| {
+        let (Ok(i), Ok(j)) = (usize::try_from(i), usize::try_from(j)) else {
+            return false;
+        };
+        if i >= side || j >= side {
+            return false;
+        }
+        land.word.road.of(words[i * side + j]) != 0
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let (dx, dy) = (x - sx as f32 * step, y - sy as f32 * step);
+    dereth_terrain::road::on_road_cell_with(
+        road(sx, sy),
+        road(sx, sy + 1),
+        road(sx + 1, sy),
+        road(sx + 1, sy + 1),
+        dx,
+        dy,
+        step,
+        land.road_width,
+    )
 }

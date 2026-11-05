@@ -90,7 +90,8 @@ Script: one command per line, `#` starts a comment.
   run <secs>                      frames at the wall clock's pace (for --connect)
   run forever                     the same until stopped (Ctrl+C) or the connection is lost
   enter <character> [mage]        enter the world as it (for --connect), created if missing
-                                  (a soldier, or with mage a caster)
+                                  (a soldier, or with mage a caster; with --era launch,
+                                  the 1999 table's own template)
 An <action> is a retail action name (MovementForward, CameraRotateLeft) or an id.";
 
 fn main() -> ExitCode {

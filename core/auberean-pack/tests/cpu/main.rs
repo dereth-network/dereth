@@ -40,6 +40,7 @@ fn every_item_form_reads_and_is_written_one_way() {
         ("sale 0x6F0016F6 3", "sale 0x6f0016f6 3"),
         ("quest 0x40000088", "quest 0x40000088"),
         ("step 0x40000088 s1", "step 0x40000088 s1"),
+        ("give mirra-beryl", "give mirra-beryl"),
         ("talk t-335b-1cf7eb76", "talk t-335b-1cf7eb76"),
         ("route patrol-1", "route patrol-1"),
         ("area 41aa", "area 41AA"),

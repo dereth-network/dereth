@@ -34,7 +34,12 @@ pub mod quests;
 pub mod spawns;
 pub mod stores;
 pub mod story;
+pub mod take_gates;
 pub mod talk;
+pub mod treasure_effects;
+pub mod treasure_looks;
+pub mod treasure_words;
+pub mod worn_table;
 
 pub use locks::{Lock, LockTable};
 pub use loot::{LootProfile, LootTable};
@@ -92,9 +97,13 @@ pub struct Catalog {
     pub profiles: BTreeMap<u32, String>,
     /// The icons of the item templates whose looks give one: each layer, its picture and color.
     pub icons: BTreeMap<u32, Vec<[u32; 3]>>,
+    /// What the appearance tables of those items do to an icon, by table: its base tables first.
+    pub icon_tables: BTreeMap<u32, Vec<IconTable>>,
     /// The bodies of the templates whose looks give one: the radius and height of the look's
     /// cylinder (before the object's own scale).
     pub bodies: BTreeMap<u32, [f32; 2]>,
+    /// What the templates of a class that says so are wielded as (their implement kinds).
+    pub implements: BTreeMap<u32, u32>,
 }
 
 impl Catalog {
@@ -854,6 +863,91 @@ pub fn icon_layers(
         }
     }
     layers.into_values().collect()
+}
+
+/// What one appearance table does to an icon: per key, its steps in order, each with the value it
+/// starts at and the layers it changes.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct IconTable {
+    pub keys: Vec<(u32, Vec<IconStep>)>,
+}
+
+/// One step of an appearance key: the value it starts at, and the layers it changes (each its
+/// layer, its picture and color, 0 for what it leaves alone).
+pub type IconStep = (f32, Vec<[u32; 3]>);
+
+/// What an appearance table and its base tables do to an icon, the base tables first. Those that
+/// change no icon are left out.
+#[must_use]
+pub fn icon_tables(
+    table: u32,
+    appearance: &dyn Fn(u32) -> Option<auberean_assets::visual::Appearance>,
+) -> Vec<IconTable> {
+    fn gather(
+        table: u32,
+        appearance: &dyn Fn(u32) -> Option<auberean_assets::visual::Appearance>,
+        out: &mut Vec<IconTable>,
+        depth: usize,
+    ) {
+        let Some(t) = appearance(table) else {
+            return;
+        };
+        if depth < CHAIN_LIMIT {
+            for base in &t.base {
+                gather(*base, appearance, out, depth + 1);
+            }
+        }
+        let keys: Vec<(u32, Vec<IconStep>)> = t
+            .keys
+            .iter()
+            .filter(|(_, sets)| sets.iter().any(|s| !s.icon_layers.is_empty()))
+            .map(|(key, sets)| {
+                let steps = sets
+                    .iter()
+                    .map(|s| {
+                        let layers = s
+                            .icon_layers
+                            .iter()
+                            .map(|l| [l.layer, l.picture.0, l.shift_color.0])
+                            .collect();
+                        (s.intensity, layers)
+                    })
+                    .collect();
+                (*key, steps)
+            })
+            .collect();
+        if !keys.is_empty() {
+            out.push(IconTable { keys });
+        }
+    }
+    let mut out = Vec::new();
+    gather(table, appearance, &mut out, 0);
+    out
+}
+
+/// An icon takes what an appearance key gives it at a value: in each table, the last step whose
+/// value is not above it. A layer of the same number takes its picture and its color, when it has
+/// them; else it goes in by its number.
+pub fn apply_icon_value(icon: &mut Vec<[u32; 3]>, tables: &[IconTable], key: u32, value: f32) {
+    for t in tables {
+        let Some((_, steps)) = t.keys.iter().find(|(k, _)| *k == key) else {
+            continue;
+        };
+        let picked = steps.iter().take_while(|(from, _)| value >= *from).last();
+        for l in picked.iter().flat_map(|(_, layers)| layers) {
+            if let Some(x) = icon.iter_mut().find(|x| x[0] == l[0]) {
+                if l[1] != 0 {
+                    x[1] = l[1];
+                }
+                if l[2] != 0 {
+                    x[2] = l[2];
+                }
+            } else {
+                let at = icon.iter().position(|x| x[0] > l[0]).unwrap_or(icon.len());
+                icon.insert(at, *l);
+            }
+        }
+    }
 }
 
 /// The root part groups of looks: a creature's or a player's, and an object's.

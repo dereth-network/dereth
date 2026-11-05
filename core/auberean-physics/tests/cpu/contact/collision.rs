@@ -307,8 +307,8 @@ fn pushes_sum_and_walking_on_air_doubles() {
     assert_eq!(v, Vec3::new(0.0, 0.0, 6.0));
 }
 
-/// A contact property marked ended goes; one touched again with the same value is unchanged, with
-/// a new value of its kind changed.
+/// A contact property marked ended goes; one touched again with the same value, a vector's parts
+/// within a tolerance, is unchanged, with a new value of its kind changed.
 ///
 /// Behaviour: collision.contact.a-held-property-is-unchanged-or-changed
 #[test]
@@ -319,6 +319,9 @@ fn a_held_property_is_unchanged_or_changed() {
     assert_eq!(p.change, change::SAME);
     p.update_value(&vector(push::VELOCITY, 2.0, 0.0, 0.0));
     assert_eq!(p.change, change::CHANGED);
+    assert_eq!(p.vector(), Some(Vec3::new(2.0, 0.0, 0.0)));
+    p.update_value(&vector(push::VELOCITY, 2.0001, 0.0, 0.0));
+    assert_eq!(p.change, change::SAME, "within the tolerance");
     assert_eq!(p.vector(), Some(Vec3::new(2.0, 0.0, 0.0)));
     p.set_as_same();
     p.update_value(&Property {
@@ -383,4 +386,43 @@ fn collision_state_survives_packing() {
     s.reset_state();
     s.impact_normal = Vec3::new(0.0, 1.0, 0.0);
     round_trip(&s, &ctx);
+}
+
+/// A body running at a block the world's map says may not be walked on stops short of it, its
+/// spheres never reaching the block's first land cell: it is turned back at the land cell's edge,
+/// and told it collided along that axis. A block that may be walked on lets it through.
+///
+/// Behaviour: motion.collision.a-body-stops-at-the-edge-of-a-block-it-may-not-walk-on
+#[test]
+fn a_body_stops_at_the_edge_of_a_block_it_may_not_walk_on() {
+    use auberean_physics::land::{Block, Land};
+    use auberean_physics::motion::MotionInput;
+    let east = |passable: bool| {
+        let land = Land::new();
+        land.insert(Block::flat(0x40, 0x40, 10.0));
+        let mut next = Block::flat(0x41, 0x40, 10.0);
+        next.passable = passable;
+        land.insert(next);
+        let mut b = crate::contact::objects::body(150.0, 80.0);
+        b.position.frame.origin.z = 10.0;
+        b.heading = 90.0;
+        b.steer(MotionInput {
+            forward: 1.0,
+            ..MotionInput::default()
+        });
+        let mut furthest = 0.0_f32;
+        let mut cells = std::collections::BTreeSet::new();
+        for _ in 0..40 {
+            b.tick(&land, auberean_physics::body::tick_seconds());
+            furthest = furthest.max(b.position.frame.origin.x);
+            cells.insert(b.position.cell.0 >> 16);
+        }
+        (furthest, cells, b.contact)
+    };
+    let (_, cells, _) = east(true);
+    assert!(cells.contains(&0x4140), "through: {cells:x?}");
+    let (shut, cells, standing) = east(false);
+    assert_eq!(cells.into_iter().collect::<Vec<_>>(), [0x4040]);
+    assert!(shut < 160.0 && shut > 158.0, "at the edge: {shut}");
+    assert!(standing, "standing");
 }

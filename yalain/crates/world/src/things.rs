@@ -17,7 +17,10 @@ use crate::player;
 
 /// The first id the world gives the things it makes (the runtime objects' range, above the content
 /// pack's numbering).
-pub const FIRST_THING_ID: u64 = 0x8130_0000_1000_0001;
+pub const THING_IDS: u64 = 0x8131_0000_0000_0000;
+
+/// How many numbers are set aside in the store at a time.
+pub const ID_BLOCK: u64 = 1 << 20;
 
 /// What a thing is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -221,6 +224,10 @@ pub struct Thing {
     pub binds_on_use: bool,
     /// What a treasure item carries of its own (its least level, Arcane Lore, a potion's effect).
     pub own: crate::treasure::Own,
+    /// Its own permanent effects (a made item's): each saved state and the spellcraft it is at.
+    pub enchantments: Vec<(u32, f32)>,
+    /// It is a bow, made strung.
+    pub strung: bool,
 }
 
 impl Thing {
@@ -268,6 +275,8 @@ impl Thing {
             bonuses: Vec::new(),
             binds_on_use: false,
             own: crate::treasure::Own::default(),
+            enchantments: Vec::new(),
+            strung: crate::skill_use::is_bow(t),
         }
     }
 
@@ -289,35 +298,33 @@ impl Thing {
 }
 
 /// Every thing of the world, by id.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Things {
     pub by_id: BTreeMap<u64, Thing>,
+    /// The numbers of the block set aside in the store still to give, the first of them next.
     next: u64,
-}
-
-impl Default for Things {
-    fn default() -> Self {
-        Self::starting_at(0)
-    }
+    end: u64,
 }
 
 impl Things {
-    /// The things of a run whose ids start in a range of their own, picked by a seed: the items
-    /// players keep carry their ids across runs, and a later run's new things must not take them.
-    #[must_use]
-    pub fn starting_at(seed: u64) -> Self {
-        let region = (seed & 0x00FF_FFFF).max(1) << 24;
-        Self {
-            by_id: BTreeMap::new(),
-            next: FIRST_THING_ID + region,
-        }
+    /// Ids from this block of numbers the store has set aside.
+    pub fn add_block(&mut self, first: u64, n: u64) {
+        // What has been given past the end of a block (the store would not answer) stays given.
+        self.next = self.next.max(first);
+        self.end = first + n;
     }
 
-    /// A fresh id.
+    /// Is the block running low, so another should be set aside?
+    #[must_use]
+    pub const fn low(&self) -> bool {
+        self.end <= self.next || self.end - self.next < ID_BLOCK / 2
+    }
+
+    /// A fresh id. Nothing a store holds has it, or will be given it: its number was set aside in
+    /// the store before it was given, and every id of the runs before there were blocks is lower.
     pub fn new_id(&mut self) -> u64 {
-        let id = self.next;
         self.next += 1;
-        id
+        THING_IDS + self.next - 1
     }
 
     #[must_use]
@@ -329,9 +336,21 @@ impl Things {
         self.by_id.get_mut(&id)
     }
 
-    pub fn insert(&mut self, t: Thing) {
-        self.next = self.next.max(t.id + 1);
+    /// A thing joins the world, unless its id is one the world already has, which is left as it is:
+    /// no thing ever takes another's place. Whether it joined.
+    pub fn insert(&mut self, t: Thing) -> bool {
+        if self.by_id.contains_key(&t.id) {
+            tracing::error!(
+                "an id given twice: {:#x}, template {:08X}, is not put in place of the one the world \
+                 has, template {:08X}",
+                t.id,
+                t.template,
+                self.by_id[&t.id].template
+            );
+            return false;
+        }
         self.by_id.insert(t.id, t);
+        true
     }
 
     pub fn remove(&mut self, id: u64) -> Option<Thing> {

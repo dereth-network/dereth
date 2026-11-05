@@ -635,6 +635,39 @@ pub const ARMOR_RESISTANCE_ROWS: [(u32, usize, u32); 8] = [
     (0x400, 6, 0xA5), // Nether   <- mod_vs_nether
 ];
 
+/// The armor rows as they read at Launch, in their order: the name, the slot of the armor's
+/// modifiers, and the modifier's key.
+const LAUNCH_ARMOR_ROWS: [(&str, usize, u32); 7] = [
+    ("Slashing", 0, 0x0D),
+    ("Piercing", 1, 0x0E),
+    ("Bludgeon", 2, 0x0F),
+    ("Cold", 3, 0x10),
+    ("Fire", 4, 0x11),
+    ("Acid", 5, 0x12),
+    ("Electrical", 7, 0x13),
+];
+
+/// How good an armor's protection against a damage type reads at Launch; nothing below zero.
+fn launch_protection_word(modifier: f64) -> Option<&'static str> {
+    if modifier < 0.0 {
+        None
+    } else if modifier == 0.0 {
+        Some("No")
+    } else if modifier <= 0.4 {
+        Some("Poor")
+    } else if modifier <= 0.8 {
+        Some("Below average")
+    } else if modifier < 1.2 {
+        Some("Average")
+    } else if modifier < 1.6 {
+        Some("Above average")
+    } else if modifier < 2.0 {
+        Some("Excellent")
+    } else {
+        Some("Unparalleled")
+    }
+}
+
 /// `MISSILE_RANGE_CAP` and the two roundings of the weapon-and-armour block's range block.
 ///
 /// The range is `max_velocity^2 * (1/9.8)` metres, times `1.094` for yards, capped at `85.0`
@@ -819,7 +852,7 @@ fn weapon_and_armor_lines_for(
         return out;
     }
     let Some(w) = p.weapon else {
-        push_ammunition_line(&mut out, loc, p.ammo_type);
+        push_ammunition_line(&mut out, loc, p.ammo_type, p.launch_wording);
         return out;
     };
     // "Is a launcher that takes ammunition".
@@ -841,7 +874,9 @@ fn weapon_and_armor_lines_for(
     } else {
         "Damage: "
     };
-    if w.weapon_damage < 0 {
+    // A launcher at Launch says nothing of damage: what it shoots does.
+    if launcher && p.launch_wording {
+    } else if w.weapon_damage < 0 {
         out.push((format!("{label}Unknown"), 0));
     } else {
         let suffix = if launcher {
@@ -885,7 +920,7 @@ fn weapon_and_armor_lines_for(
 
     // 5. The damage modifier, launcher only. `0x3F`, and the failed-assess arm sets the colour to
     //    a literal `0` before it picks its string.
-    if launcher {
+    if launcher && !p.launch_wording {
         if p.success {
             out.push((
                 format!("Damage Modifier: {}.", modifier_to_string(w.damage_mod)),
@@ -945,13 +980,16 @@ fn weapon_and_armor_lines_for(
     }
 
     // 8. The ammunition sentence.
-    push_ammunition_line(&mut out, loc, p.ammo_type);
+    push_ammunition_line(&mut out, loc, p.ammo_type, p.launch_wording);
     out
 }
 
 /// The ammunition arm produces six sentences over two slots and three ammunition types.
-fn push_ammunition_line(out: &mut Vec<(String, u8)>, loc: u32, ammo: u16) {
+fn push_ammunition_line(out: &mut Vec<(String, u8)>, loc: u32, ammo: u16, launch_wording: bool) {
     let line = if loc & equip::MISSILE_WEAPON != 0 {
+        if launch_wording {
+            out.push(("Cannot be used with shields.".to_string(), 0));
+        }
         match ammo {
             ammo_type::ARROW => "Uses arrows as ammunition.",
             ammo_type::BOLT => "Uses quarrels as ammunition.",
@@ -988,6 +1026,17 @@ pub fn armor_mod_lines(p: &AppraisalView) -> Vec<(String, u8)> {
         return out;
     };
     if level <= 0 {
+        return out;
+    }
+    if p.launch_wording {
+        for (name, slot, key) in LAUNCH_ARMOR_ROWS {
+            if let Some(word) = launch_protection_word(f64::from(mods[slot])) {
+                out.push((
+                    format!("{word} protection against {name} Damage."),
+                    mod_color(p, &[key]),
+                ));
+            }
+        }
         return out;
     }
     // Int modifier `0x1C`, the armour level's own key.
@@ -1522,7 +1571,7 @@ fn magic_info_lines_for(p: &AppraisalView, variant: crate::DisplayVariant) -> Ve
             out.push((format!("Mana Cost: 1 point per {seconds} seconds."), true));
         } else if let Some(cost) = m.mana_cost {
             // A cost of zero or less gets the bare sentence.
-            let text = if cost > 0 {
+            let text = if cost > 0 && !p.launch_wording {
                 format!("Mana Cost: {cost}.\n(Can be reduced by the Mana Conversion skill)")
             } else {
                 format!("Mana Cost: {cost}.")
@@ -1966,7 +2015,9 @@ pub fn level_limit_lines(p: &AppraisalView) -> Vec<ItemInfo> {
     let max = p.level_limits.1.unwrap_or(-1);
     let text = if min < 1 {
         if max < 1 {
-            None
+            // At Launch a place open to all says so.
+            (p.launch_wording && (p.level_limits.0.is_some() || p.level_limits.1.is_some()))
+                .then(|| "No level restrictions.".to_owned())
         } else {
             Some(format!("Restricted to characters of Level {max} or below."))
         }
@@ -1976,6 +2027,8 @@ pub fn level_limit_lines(p: &AppraisalView) -> Vec<ItemInfo> {
         ))
     } else if min == max {
         Some(format!("Restricted to characters of Level {min}."))
+    } else if p.launch_wording {
+        Some(format!("Restricted to characters of Levels {min} - {max}."))
     } else {
         Some(format!(
             "Restricted to characters of Levels {min} to {max}."
@@ -2012,6 +2065,10 @@ pub fn level_limit_lines(p: &AppraisalView) -> Vec<ItemInfo> {
 #[must_use]
 pub fn wield_requirement_lines(p: &AppraisalView) -> Vec<ItemInfo> {
     let mut out = Vec::new();
+    // At Launch anything can be wielded; only an item's magic asks anything of the wielder.
+    if p.launch_wording {
+        return out;
+    }
     if p.has_allowed_wielder {
         let who = p.craftsman_name.as_deref().unwrap_or("the original owner");
         push_item_info(&mut out, format!("Wield requires {who}"), true, 0);
@@ -2084,7 +2141,11 @@ pub fn usage_limit_lines(p: &AppraisalView) -> Vec<ItemInfo> {
         blank(&mut out, &mut drew);
         push_item_info(
             &mut out,
-            format!("Use requires {name} of at least {level}."),
+            if p.launch_wording {
+                format!("Your {name} skill must be {level} or greater to use this item.")
+            } else {
+                format!("Use requires {name} of at least {level}.")
+            },
             true,
             0,
         );
@@ -2197,6 +2258,90 @@ pub fn activation_requirement_lines(p: &AppraisalView) -> Vec<ItemInfo> {
     activation_requirement_lines_for(p, crate::DisplayVariant::Modern)
 }
 
+/// What an item says it is for at Launch, from where it goes and what it is.
+#[must_use]
+pub fn launch_use_hints(p: &AppraisalView) -> Vec<&'static str> {
+    use dereth_rules::weenie::item_type;
+    /// Armor and clothing slots; weapon, shield and ammunition slots; jewelry slots.
+    const WORN: u32 = 0x7FFF;
+    const HELD: u32 = 0x01F0_0000;
+    const JEWELRY: u32 = 0x000F_8000;
+    const SHIELD: u32 = 0x0020_0000;
+    const AMMUNITION: u32 = equip::AMMUNITION;
+    let at = p.valid_locations;
+    let mut out = Vec::new();
+    if at & JEWELRY != 0 {
+        out.push(if p.wielded {
+            "Use this item to take it off."
+        } else {
+            "Use this item, or drag it to the appropriate jewelry slot on the Inventory Panel, to wear it."
+        });
+        if at & 0x8000 != 0 {
+            out.push("Worn on neck.");
+        }
+        if at & 0x0003_0000 != 0 {
+            out.push("Worn on wrist.");
+        }
+        if at & 0x000C_0000 != 0 {
+            out.push("Worn on finger.");
+        }
+    } else if at & HELD != 0 {
+        out.push(if p.wielded {
+            "Use this item to unwield it."
+        } else if at & AMMUNITION != 0 {
+            "Use this item, or drag it to the ammunition slot on the Inventory Panel, to wield it."
+        } else if at & SHIELD != 0 {
+            "Use this item, or drag it onto the shield slot in the Inventory Panel, to wield it."
+        } else {
+            "Use this item, or drag it to the weapon slot on the Inventory Panel, to wield it."
+        });
+    } else if at & WORN != 0 {
+        out.push(if p.wielded {
+            "Use this item to take it off."
+        } else {
+            "Use this item, or drag it onto the character in the Inventory Panel, to wear it."
+        });
+    } else if p.obj_type & item_type::FOOD != 0 {
+        out.push("Use this item to eat it.");
+    } else if p.obj_type & item_type::WRITABLE != 0 {
+        out.push("Use this item to read it or write in it.");
+    }
+    out
+}
+
+/// An item's activation requirements as they read at Launch: a sentence each.
+fn launch_activation_lines(p: &AppraisalView) -> Vec<ItemInfo> {
+    let mut out = Vec::new();
+    if let Some(v) = p.item_difficulty.filter(|v| *v > 0) {
+        push_item_info(&mut out, format!("Difficulty: {v}."), true, 0);
+    }
+    if let Some(v) = p.allegiance_rank_limit.filter(|v| *v > 1) {
+        push_item_info(
+            &mut out,
+            format!("You must be of Allegiance Rank {v} or greater to use this item."),
+            true,
+            0,
+        );
+    }
+    if let Some(h) = p.heritage_group.as_deref() {
+        push_item_info(
+            &mut out,
+            format!("You must be {h} to use this item's magic."),
+            true,
+            0,
+        );
+    }
+    if let Some((name, level)) = &p.activation_skill {
+        push_item_info(
+            &mut out,
+            format!("Your {name} skill must be {level} or greater to use this item."),
+            true,
+            0,
+        );
+    }
+    out
+}
+
 fn activation_requirement_lines_for(
     p: &AppraisalView,
     variant: crate::DisplayVariant,
@@ -2204,6 +2349,9 @@ fn activation_requirement_lines_for(
     let mut out = Vec::new();
     if !p.success {
         return out;
+    }
+    if p.launch_wording {
+        return launch_activation_lines(p);
     }
     let mut terms: Vec<String> = Vec::new();
     if let Some(v) = p.item_difficulty {
@@ -2913,6 +3061,11 @@ pub fn item_description_runs_for(
                 }
             }
             Use => {
+                if p.launch_wording {
+                    for text in launch_use_hints(p) {
+                        push_item_info(&mut out, text.to_owned(), false, 0);
+                    }
+                }
                 if let Some(text) = &p.use_text {
                     push_item_info(&mut out, text.clone(), false, 0);
                 }
@@ -4706,5 +4859,180 @@ mod tests {
         assert_eq!(char_misc_rows(&p).last().unwrap().label, "");
         assert_eq!(crate::spell::school_name_in(5, Some(&p.world_rules)), "Any");
         assert_eq!(crate::spell::school_name_in(5, None), "Void Magic");
+    }
+}
+
+#[cfg(test)]
+mod launch_wording_tests {
+    //! Behaviour: none (the words, as the 1999 client's panel has them)
+    use super::*;
+
+    fn texts(lines: Vec<ItemInfo>) -> Vec<String> {
+        lines.into_iter().map(|l| l.text).collect()
+    }
+
+    #[test]
+    fn a_launch_item_says_what_it_is_for_from_where_it_goes_and_what_it_is() {
+        let hints = |valid_locations, obj_type, wielded| {
+            launch_use_hints(&AppraisalView {
+                valid_locations,
+                obj_type,
+                wielded,
+                ..Default::default()
+            })
+        };
+        assert_eq!(
+            hints(0x000C_0000, 0, false),
+            [
+                "Use this item, or drag it to the appropriate jewelry slot on the Inventory Panel, to wear it.",
+                "Worn on finger."
+            ]
+        );
+        assert_eq!(hints(0x8000, 0, true)[0], "Use this item to take it off.");
+        assert_eq!(hints(0x8000, 0, true)[1], "Worn on neck.");
+        assert_eq!(
+            hints(0x0010_0000, 1, false),
+            ["Use this item, or drag it to the weapon slot on the Inventory Panel, to wield it."]
+        );
+        assert_eq!(
+            hints(0x0020_0000, 2, false),
+            ["Use this item, or drag it onto the shield slot in the Inventory Panel, to wield it."]
+        );
+        assert_eq!(
+            hints(equip::AMMUNITION, 0x100, false),
+            ["Use this item, or drag it to the ammunition slot on the Inventory Panel, to wield it."]
+        );
+        assert_eq!(
+            hints(0x0010_0000, 1, true),
+            ["Use this item to unwield it."]
+        );
+        assert_eq!(
+            hints(0x1, 2, false),
+            ["Use this item, or drag it onto the character in the Inventory Panel, to wear it."]
+        );
+        assert_eq!(hints(0, 0x20, false), ["Use this item to eat it."]);
+        assert_eq!(
+            hints(0, 0x2000, false),
+            ["Use this item to read it or write in it."]
+        );
+        assert!(hints(0, 0x800, false).is_empty());
+    }
+
+    #[test]
+    fn launch_armor_says_how_well_it_protects_in_a_sentence_each() {
+        let view = |launch_wording| AppraisalView {
+            launch_wording,
+            armor_level: Some(50),
+            armor_mods: Some([0.0, 0.3, 0.7, 1.0, 1.3, 1.7, 9.0, 2.0]),
+            ..Default::default()
+        };
+        let lines: Vec<_> = armor_mod_lines(&view(true))
+            .into_iter()
+            .map(|l| l.0)
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "No protection against Slashing Damage.",
+                "Poor protection against Piercing Damage.",
+                "Below average protection against Bludgeon Damage.",
+                "Average protection against Cold Damage.",
+                "Above average protection against Fire Damage.",
+                "Excellent protection against Acid Damage.",
+                "Unparalleled protection against Electrical Damage.",
+            ]
+        );
+        assert!(armor_mod_lines(&view(false))[0].0.contains("Armor Level"));
+    }
+
+    #[test]
+    fn a_launch_level_range_uses_a_dash_and_a_place_open_to_all_says_so() {
+        let view = |launch_wording, level_limits| AppraisalView {
+            launch_wording,
+            level_limits,
+            ..Default::default()
+        };
+        let text = |p: &AppraisalView| {
+            level_limit_lines(p)
+                .into_iter()
+                .map(|l| l.text)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            text(&view(true, (Some(5), Some(10)))),
+            ["Restricted to characters of Levels 5 - 10."]
+        );
+        assert_eq!(
+            text(&view(false, (Some(5), Some(10)))),
+            ["Restricted to characters of Levels 5 to 10."]
+        );
+        assert_eq!(
+            text(&view(true, (Some(0), Some(-1)))),
+            ["No level restrictions."]
+        );
+        assert!(text(&view(true, (None, None))).is_empty());
+        assert!(text(&view(false, (Some(0), Some(-1)))).is_empty());
+    }
+
+    #[test]
+    fn a_launch_launcher_says_nothing_of_damage_and_no_shields() {
+        let view = |launch_wording| AppraisalView {
+            launch_wording,
+            success: true,
+            valid_locations: equip::MISSILE_WEAPON,
+            ammo_type: ammo_type::ARROW,
+            weapon: Some(Default::default()),
+            ..Default::default()
+        };
+        let text = |p: &AppraisalView| {
+            weapon_and_armor_lines(p)
+                .into_iter()
+                .map(|l| l.0)
+                .collect::<Vec<_>>()
+        };
+        let launch = text(&view(true));
+        assert!(
+            !launch.iter().any(|l| l.starts_with("Damage")),
+            "{launch:?}"
+        );
+        assert!(launch.iter().any(|l| l == "Cannot be used with shields."));
+        assert!(launch.iter().any(|l| l == "Uses arrows as ammunition."));
+        let later = text(&view(false));
+        assert!(
+            later.iter().any(|l| l.starts_with("Damage Bonus")),
+            "{later:?}"
+        );
+        assert!(later.iter().any(|l| l.starts_with("Damage Modifier")));
+        assert!(!later.iter().any(|l| l == "Cannot be used with shields."));
+    }
+
+    #[test]
+    fn a_launch_item_says_its_requirements_in_sentences_and_a_later_one_as_before() {
+        let view = |launch_wording| AppraisalView {
+            success: true,
+            launch_wording,
+            item_difficulty: Some(150),
+            allegiance_rank_limit: Some(3),
+            heritage_group: Some("Sho".into()),
+            activation_skill: Some(("Mana Conversion".into(), 200)),
+            use_requires_skill: Some((Some("Sword".into()), 40)),
+            ..Default::default()
+        };
+        let launch = view(true);
+        assert_eq!(
+            texts(activation_requirement_lines(&launch)),
+            [
+                "Difficulty: 150.",
+                "You must be of Allegiance Rank 3 or greater to use this item.",
+                "You must be Sho to use this item's magic.",
+                "Your Mana Conversion skill must be 200 or greater to use this item.",
+            ]
+        );
+        assert!(texts(usage_limit_lines(&launch))
+            .contains(&"Your Sword skill must be 40 or greater to use this item.".to_owned()));
+        let later = view(false);
+        assert!(texts(activation_requirement_lines(&later))[0].starts_with("Activation requires "));
+        assert!(texts(usage_limit_lines(&later))
+            .contains(&"Use requires Sword of at least 40.".to_owned()));
     }
 }

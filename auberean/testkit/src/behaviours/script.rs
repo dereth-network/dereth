@@ -7,6 +7,17 @@ use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
     behaviour! {
+        id: "script.admin.client-side-commands-run-the-admin-natives",
+        says: "An admin character's client-side commands run the game's scripts to their end through every \
+               native only they reach: physics properties, the script machine's tables, the object table, \
+               the time, the quests and acts, the places, test scripts, a file of lines, a report and the \
+               debugger; none stops for want of a port.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-ADMIN-NATIVES"),
+        station: "yalain-testkit::dat::admin::an_admin_characters_client_side_commands_run_to_their_end",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "script.args.every-captured-call-round-trips",
         says: "Every script call recorded in 2013 and 2017, either way, carries a buffer of tagged \
                values that reads to its last byte, writes back to the same bytes, and holds exactly \
@@ -121,6 +132,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.chat.the-layout-commands-reach-the-panels-with-their-file",
+        says: "The player's commands to save and load the panels' places reach the play screen as \
+               notices naming the file, and the player's files are written and read back by a bare \
+               name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-LAYOUT-COMMANDS"),
+        station: "auberean-client-runtime::corpus::chat::the_layout_commands_reach_the_panels_with_their_file",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.chat.the-loc-alias-says-the-players-map-coordinates",
         says: "The predefined alias ;loc is said as the player's map coordinates, north or south \
                to a tenth then east or west, and /loc shows the place line with the same \
@@ -152,6 +173,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.a-creations-choices-are-set-and-read",
+        says: "A creation's race, sex, class and physique values read back what was set; a physique                type with no value reads as -1; setting a physique value, the class or the implement                answers 1, and setting the race, the sex or the starting area answers nothing; through                the null reference each crashes the script.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-CHARGEN-RESULT"),
+        station: "auberean-glue::cpu::natives::a_creations_fields_read_back_what_was_set",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.glue.a-line-of-sight-is-set-up-and-read",
         says: "A line of sight is set up through its natives as the engine's own: what it passes through copied, its test kind set, its start from a ray in a cell, a place and an offset, or one place to another across landblocks, objects added to pass through but the invalid id; after a test it answers whether it was unblocked or reached an unloaded landblock, its final ray and cell, and its end less the final cell's landblock offset.",
         since: RETAIL,
@@ -168,6 +197,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.a-name-is-left-alone-with-no-word-filter",
+        says: "Writing a name for its audience with data files that hold no word filter leaves the \
+               string it goes into alone and answers 0.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-NAME-NO-WORD-FILTER"),
+        station: "auberean-glue::cpu::natives::a_name_is_left_alone_with_no_word_filter",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.a-package-by-name-makes-an-instance",
+        says: "A package's name comes as a new string, empty for no package; a new instance comes of a \
+               package by name, and a name no package has stops the call with the null reference; a \
+               validated new type always answers -1.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-TYPE-INFO"),
+        station: "auberean-glue::cpu::natives::a_package_by_name_makes_an_instance",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.glue.a-positions-parts-distances-and-text",
         says: "A position's cell, origin and height are read and set whole and its frame copied \
                from another; two are in one landblock by their cells' top halves, equal when their \
@@ -178,6 +226,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-POSITION"),
         station: "auberean-glue::cpu::natives::a_positions_parts_are_read_and_set_and_its_distances_kept_as_floats",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.a-quest-dumps-as-the-client-writes-it",
+        says: "A quest dumps its id, status and phase, then, under way, the time left and its cancel line only when it runs out; otherwise when it was done, the time before it may be taken again and whether it may be taken no more. The client's formats for the challenge and the cancel line take no value. A list numbers its quests from 1.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-QUEST-DUMP"),
+        station: "auberean-glue::cpu::quests::dumps::a_quest_dumps_as_the_client_writes_it",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -199,6 +255,22 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-RECORD-IDS"),
         station: "auberean-glue::cpu::natives::the_records_a_saved_state_needs_are_gathered_once_each_in_id_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.a-storys-records-dump-as-the-client-writes-them",
+        says: "A keyframe dumps its number, its duration in the C library's exponent form and only the tracks it defines; a scene its id, its act and its flags, then its keyframes; an act its flags and its scenes under headings numbered from 1, or a line saying it has none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STORY-DUMP"),
+        station: "auberean-glue::cpu::quests::dumps::a_storys_records_dump_as_the_client_writes_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.a-string-reference-reads-from-a-text-tree",
+        says: "A string reference reads itself from a text tree by its children's keywords: the table's name found by its record, the token's text hashed as a string's token, an unknown keyword warned of and passed over, and a keyword with no one text beneath it an error that ends the reading and keeps what was read.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRINGINFO-TREE"),
+        station: "auberean-glue::cpu::strings::a_string_reference_reads_itself_from_a_text_tree_by_its_keywords",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -360,6 +432,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.named-places-are-found-in-lower-case",
+        says: "A named place is found by its name put in lower case and copied into a position, or written out into a string; not found leaves either as it was, and a table's name with a capital is never found.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PLACES-LOOKUP"),
+        station: "auberean-glue::cpu::natives::places::a_named_place_is_found_by_its_name_in_lower_case",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.named-places-dump",
+        says: "The named places' dump is a line for each place, its name, a colon and the position's own text with a stop, or a line saying it could not get the list when the install holds no table.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PLACES-DUMP"),
+        station: "auberean-glue::cpu::natives::places::the_named_places_dump_lists_each_place_or_says_it_could_not_get_the_list",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.glue.quest-list-natives",
         says: "The player's quest list keeps copies of quest records, newest given first: updating a quest copies the record over the first one with its id, in place, or else adds it before the first record given earlier than it (after those given at the same time), saying through its out argument whether it was new; erasing takes out the last record with the id; finding copies the first into the out argument's record, leaving it alone when there is none; popping copies out and removes the first; pushing adds at the end.",
         since: RETAIL,
@@ -453,6 +541,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.the-machine-counts-its-processes",
+        says: "The process table's text gives how many processes it holds and its room, 128 until full \
+               and then doubled; the contexts' text counts the contexts each keeps and the one running; \
+               a process asked after is there or not, with an empty text.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-VM-QUERY-PROCESSES"),
+        station: "auberean-glue::cpu::natives::the_machine_counts_its_processes_and_contexts",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.glue.the-machines-other-listings-say-little",
+        says: "The performance listing is a heading and a blank line; the listings of references are \
+               empty and answer true; a null string stops the call.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-VM-QUERY-LISTINGS"),
+        station: "auberean-glue::cpu::natives::the_machines_other_listings_say_little",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.glue.the-normal-and-skewed-dice-roll-as-the-client-does",
         says: "The normal dice draw two numbers a try by the ratio of uniforms until one is taken, \
                the percentile is 1 to 100 from one draw, and a skewed roll is a normal number about \
@@ -538,6 +645,17 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SCRIPT-ITERATOR-PACK"),
         station: "auberean-script::cpu::codec::an_iterator_packs_its_container_and_its_steps_and_stands_there_again_when_read_in",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.graph.an-object-copied-keeps-its-icons-layers",
+        says: "An object holding an icon description, copied whole as a script's copy does it, \
+               holds the same layers in the same order: the count, then each layer's number, \
+               picture and color (the products of the sales recorded in January 2017, read from \
+               the calls that list them).",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-ICON-COPY"),
+        station: "auberean-script::corpus::icons::a_recorded_sale_copied_keeps_the_layers_of_its_products_icon",
+        tier: Tier::Corpus,
     },
     behaviour! {
         id: "script.graph.behavior-params-pack-what-differs",
@@ -802,6 +920,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.model.a-collision-ends-in-the-scripts-without-reading-the-profile",
+        says: "A collision handed to the scripts of an object in a recorded world runs to its                end: the library's answer to the interface's collision function only says it was                handled, and no function that reads a collision profile has a caller.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-COLLISION-ANSWER"),
+        station: "auberean-client-runtime::corpus::calls::a_collision_handed_to_recorded_objects_scripts_runs_to_its_end",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.model.a-data-id-loaded-by-a-files-name-finds-nothing-on-the-relaunched-game",
         says: "Setting an object's data id from a file's name asks the client's table of file \
                names for the record, typed by its extension; a name the table does not hold sets \
@@ -810,6 +936,71 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-LOAD-DATA-ID"),
         station: "auberean-client-runtime::cpu::scripts::repository::a_data_id_loaded_by_a_files_name_sets_nothing_when_the_table_has_no_names",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-dump-lists-a-descriptions-contents-in-order",
+        says: "An object's description written out lists what it has set in the client's own order, \
+               under a heading for each level; a record with no description says so.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-DESC"),
+        station: "auberean-client-runtime::cpu::scripts::dumps::a_description_lists_what_it_has_set_in_the_clients_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-dump-lists-a-value-the-data-does-not-name-under-the-last-name",
+        says: "A value whose number its kind's enumeration does not name is listed under the last \
+               name found, nothing before the first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-NAMES"),
+        station: "auberean-client-runtime::cpu::scripts::dumps::a_value_the_data_does_not_name_is_listed_under_the_last_name",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-dump-lists-each-level-of-a-kind-in-hash-order",
+        says: "An object's qualities of one kind written out list the object's own level then its \
+               record's, each saying how many it holds, a table in hash order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-LEVELS"),
+        station: "auberean-client-runtime::cpu::scripts::dumps::a_dump_lists_the_object_then_its_record_in_hash_order",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-dump-native-answers-a-new-string",
+        says: "A dump native takes whether to go on to the record and answers a new string; a null \
+               receiver crashes the call and an object the client does not hold gets its own line.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-NATIVES"),
+        station: "auberean-client-runtime::cpu::scripts::dumps::the_natives_answer_a_new_string_and_a_missing_object_says_so",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-dump-of-the-objects-own-level-answers-once",
+        says: "Asked not to go on to the record, a dump lists the object's own level once and \
+               answers.",
+        since: THIS_CLIENT,
+        divergence: "CD2-qualities-dump-answers",
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-ONE-LEVEL"),
+        station: "auberean-client-runtime::cpu::scripts::dumps::a_dump_of_the_objects_own_level_answers_once",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-dump-writes-a-string-reference-for-a-log",
+        says: "A string reference written out is its text for a log in parentheses, or a line saying \
+               it cannot show.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-STRINGINFO"),
+        station: "auberean-client-runtime::cpu::scripts::dumps::a_string_reference_is_written_for_a_log_or_says_it_cannot_show",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-dump-writes-each-kind-in-its-format",
+        says: "Each kind of quality writes in its own format: yes or no as true or false, data ids in \
+               eight hexadecimal digits, object ids in sixteen, floats and times to two decimals, \
+               whole numbers unsigned, 64-bit numbers by their low half.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-FORMATS"),
+        station: "auberean-client-runtime::cpu::scripts::dumps::each_kind_writes_its_values_in_its_format",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -834,6 +1025,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-PHYSICS-READ"),
         station: "auberean-client-runtime::cpu::scripts::physics_object::a_physics_object_reads_its_body_and_none_reads_zero",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.model.a-physics-objects-properties-are-its-bodys-material",
+        says: "A physics object's current properties are what the cells its body has been in made \
+               of it: an object whose body has stood in none, or with no body, has none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-PHYSICS-PROPERTIES"),
+        station: "auberean-client-runtime::cpu::scripts::physics_object::a_physics_objects_properties_are_its_bodys_material",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -972,7 +1172,7 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "script.model.an-objects-kind-mobility-and-detection-words",
         says: "An object's physics record is its data id 1 (none: 0); it moves unless its \
-               mobile flag says not; it is a creature when its kind holds every creature bit; a \
+               mobile flag says not; it is a player or a creature when its kind holds every bit of that kind; a \
                detection reports it when the report's mask meets its two detection words, low \
                word first.",
         since: RETAIL,
@@ -1114,6 +1314,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "script.model.the-end-of-retail-data-names-no-quality",
+        says: "The enumerations the qualities are named by are in the end-of-retail data and hold \
+               no names, so a dump lists each value under an empty name.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-DUMP-NO-NAMES"),
+        station: "auberean-client-runtime::corpus::calls::the_end_of_retail_data_names_no_quality",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
         id: "script.model.the-ingredient-panel-reads-every-recorded-recipe",
         says: "Before each ingredient a recorded client put in a slot, the recipe opened as the \
                crafting page opens one (the scripts then open the ingredient panel on it) and read \
@@ -1216,6 +1425,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.natives.a-file-reads-as-narrow-text",
+        says: "A file a script reads comes as narrow text in the Windows Latin code page: a carriage \
+               return before a line feed goes, a Ctrl+Z ends the text, a line stops at a zero, and a \
+               line over 4095 characters goes on as a next one.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-FILE-READ"),
+        station: "auberean-client-runtime::cpu::scripts::files::a_file_reads_as_narrow_text_a_line_at_a_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.natives.a-log-line-is-stamped-with-the-local-time",
         says: "A line written with a timestamp starts with the local time, month day year, hours \
                minutes seconds, in angle brackets and two spaces; a host with no files opens and \
@@ -1223,6 +1442,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-LOG-STAMP"),
         station: "auberean-client-runtime::cpu::scripts::files::a_log_line_is_stamped_with_the_local_time_and_nothing_opens_without_a_disk",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.a-new-icon-packs-a-count-of-nothing",
+        says: "A new icon description has no layers and packs as a count of zero, so an object \
+               holding one can be copied and sent.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-ICON-NEW"),
+        station: "auberean-script::cpu::codec::a_new_icon_description_packs_a_count_of_nothing",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1327,6 +1555,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.natives.reading-a-file-uses-it-up",
+        says: "Reading a file that is not open opens it to read, and fails when there is none; reading \
+               closes the stream while its name stays open, so it gives nothing more until it is \
+               closed, and a file open to write gives nothing and is used up too.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-FILE-READ-USED-UP"),
+        station: "auberean-client-runtime::cpu::scripts::files::reading_a_file_opens_it_and_uses_it_up",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.natives.selection-packs-its-numbers-by-type",
         says: "A selection packs its type, then, only for the type that carries them, its current health, the damage taken from other players, its maximum health, its current vigor, the vigor lost to other players and its maximum vigor; a new selection is all zeros.",
         since: RETAIL,
@@ -1380,6 +1618,34 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SCRIPT-HOST-STANDINS"),
         station: "auberean-client-runtime::cpu::scripts::natives::the_stand_ins_left_to_a_host_are_the_natives_the_client_binds_from_its_model",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.the-world-clock-answers-the-calendars-values",
+        says: "The world clock's natives answer whether it is night, the time of day, the day's and \
+               year's lengths, the day and the year; a null receiver crashes each but the night's, \
+               and with no clock each answers 0.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-NATIVES"),
+        station: "auberean-client-runtime::cpu::scripts::game_time::the_clocks_natives_answer_its_values",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.the-world-clock-takes-an-admins-commands",
+        says: "An admin's two commands move the time of day and dilate time, answering whether they \
+               could: a rate at or below 0.0002 is refused and with no clock neither is done.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-COMMANDS"),
+        station: "auberean-client-runtime::cpu::scripts::game_time::an_admins_commands_move_the_clock_and_answer_whether_they_could",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "script.natives.the-world-clock-writes-the-date-and-time-as-string-references",
+        says: "The date and time are written into two string references with the calendar's strings' \
+               ids and their variables; with no clock nothing is written and the answer is 0.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CQUALITY-CLOCK-STRINGS"),
+        station: "auberean-client-runtime::cpu::scripts::game_time::the_clock_writes_the_date_and_time_as_string_references",
         tier: Tier::Cpu,
     },
     behaviour! {

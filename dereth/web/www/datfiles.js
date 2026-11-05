@@ -1,7 +1,7 @@
-// The player's files in this browser, as the module reads them: the data files (a positional read
+// The player's files in this browser, as a module reads them: the data files (a positional read
 // the module calls synchronously, over the dev server's ranged reads, files picked for one visit,
 // or a data set kept in the origin's private file system), the data sets kept there, and a world's
-// overlay kept there too. The worker that loads the module imports it.
+// overlay kept there too. The workers import it: a game's to play, the launcher's to keep sets.
 //
 // The six data files: the four of the later set, then the two of the set from before Throne of
 // Destiny (`portal.dat` and `cell.dat`), which the classic interface and the early worlds draw from.
@@ -9,10 +9,12 @@
 //
 // The origin's private file system holds:
 //   sets/<name>/       one data set the player added: any of the six files
+//   auberean/sets/<name>/  one data set of Asheron's Call 2's: its files, by the names its modules say
 //   dats/              the files an earlier version of this page kept (read as a set like the rest)
 //   overlays/<folder>/ one world's overlay: overlay_portal.dat, overlay_cell.dat, ... (the folder
 //                      is the world's address, as the desktop client names its per-server folder)
 //   settings.bin       the client's own files (preferences, keymaps, the overlay blocklist)
+//   auberean/settings.bin  Auberean's own files
 
 export const NAMES = [
   'client_portal.dat',
@@ -22,6 +24,9 @@ export const NAMES = [
   'portal.dat',
   'cell.dat',
 ];
+
+// Where Asheron's Call 2's data sets are kept.
+const AUBEREAN_SETS = 'auberean/sets';
 
 const OVERLAY_NAMES = [
   'overlay_portal.dat',
@@ -94,9 +99,9 @@ function counted(reader) {
 
 // The dev server's ranged GETs, synchronous because a worker may block. Development only: the
 // server binds 127.0.0.1 and serves nothing but the data files from the developer's own folder.
-function httpReader(name) {
+function httpReader(name, under = 'dats') {
   const head = new XMLHttpRequest();
-  head.open('HEAD', `/dats/${name}`, false);
+  head.open('HEAD', `/${under}/${name}`, false);
   head.send();
   if (head.status !== 200) return null;
   const size = Number(head.getResponseHeader('Content-Length'));
@@ -104,7 +109,7 @@ function httpReader(name) {
     size,
     read(offset, length) {
       const x = new XMLHttpRequest();
-      x.open('GET', `/dats/${name}`, false);
+      x.open('GET', `/${under}/${name}`, false);
       x.responseType = 'arraybuffer';
       x.setRequestHeader('Range', `bytes=${offset}-${offset + length - 1}`);
       x.send();
@@ -239,6 +244,50 @@ export async function openFiles(msg) {
   return readers[0] !== null || readers[4] !== null;
 }
 
+// Asheron's Call 2's data files, numbered as `names`, from `{ mode: 'http' }` (the dev runner's),
+// `{ mode: 'files', files }` (picked for this visit) or `{ mode: 'sets', set }` (the folder of a kept
+// set). A worker that plays this game reads nothing else through these readers.
+export async function openAubereanFiles(msg, names) {
+  const t0 = performance.now();
+  releaseHeld();
+  const same = (a, b) => a.toLowerCase() === b.toLowerCase();
+  readers = names.map(() => null);
+  if (msg.mode === 'http') {
+    readers = names.map((n) => {
+      const r = httpReader(n, 'auberean-dats');
+      return r && paged(counted(r), PAGE_HTTP);
+    });
+  } else if (msg.mode === 'files') {
+    readers = names.map((n) => {
+      const f = msg.files.find((x) => same(x.name, n));
+      return f ? paged(counted(fileReader(f))) : null;
+    });
+  } else if (msg.mode === 'sets') {
+    const dir = msg.set && (await folderOrNull(msg.set));
+    if (dir) {
+      for (const [i, n] of names.entries()) {
+        const h = await handleOn(dir, n);
+        if (!h) continue;
+        held.push(h);
+        readers[i] = paged(counted(handleReader(h)));
+      }
+    }
+  }
+  const present = names.filter((_, i) => readers[i]);
+  log(`dats: ${msg.mode}, ${present.length} of ${names.length} present (${present.join(', ')}); ` +
+    `${(performance.now() - t0).toFixed(0)} ms to reach them`);
+}
+
+// What the files open now are: where they came from and how long each is. A store opened over them
+// may be used again while this says the same.
+export const filesStamp = (msg) => JSON.stringify([
+  msg.mode === 'files' ? msg.files.map((f) => f.name) : msg,
+  readers.map((r) => r?.size ?? null),
+]);
+
+// How the reads went, for the log.
+export const readStats = () => `${stats.calls} reads from the module, ${stats.rawReads} from storage in all, ${(stats.rawBytes / 1048576).toFixed(1)} MiB`;
+
 // Open the files the world is drawn from as the module's store: `args` are what the launcher says
 // about the world, and `overlay` the folder its overlay is held in ('' for none). Throws when a file
 // the world needs is missing.
@@ -262,8 +311,9 @@ globalThis.derethProbeRead = (file, offset, buf) => {
   return h.read(buf, { at: offset }) === buf.length;
 };
 
-// Read the set kept in folder `path` into the launcher's state: answers its sets' ids.
-async function readSet(dereth, path) {
+// Read the set kept in folder `path` into the launcher's state with `add` (the module's reading of
+// one game's sets): answers its sets' ids.
+async function readSet(add, path) {
   const dir = await folderOrNull(path);
   if (!dir) return [];
   const names = [];
@@ -278,7 +328,7 @@ async function readSet(dereth, path) {
       names.push(name);
       sizes.push(h.getSize());
     }
-    return dereth.frontAddSets(path, names, sizes);
+    return add(path, names, sizes);
   } finally {
     close(probing);
     probing = [];
@@ -299,7 +349,7 @@ export async function scanSets(dereth, known, again = false) {
       bytes += (await entry.getFile()).size;
     }
     if (!any) return;
-    if (again || !known.includes(path)) await readSet(dereth, path);
+    if (again || !known.includes(path)) await readSet(dereth.frontAddSets, path);
     out.push({ path, bytes });
   };
   const legacy = await folderOrNull('dats');
@@ -313,15 +363,56 @@ export async function scanSets(dereth, known, again = false) {
   return out;
 }
 
+// Every set of Asheron's Call 2's kept in this browser, read, as `scanSets` reads Asheron's Call's.
+export async function scanAubereanSets(dereth, known, again = false) {
+  const out = [];
+  const names = dereth.frontAubereanFiles();
+  const sets = await folderOrNull(AUBEREAN_SETS);
+  if (!sets) return out;
+  for await (const [name, entry] of sets.entries()) {
+    if (entry.kind !== 'directory') continue;
+    const path = `${AUBEREAN_SETS}/${name}`;
+    let bytes = 0;
+    let any = false;
+    for await (const [file, f] of entry.entries()) {
+      if (f.kind !== 'file') continue;
+      if (names.includes(file)) any = true;
+      bytes += (await f.getFile()).size;
+    }
+    if (!any) continue;
+    if (again || !known.includes(path)) await readSet(dereth.frontAddAubereanSets, path);
+    out.push({ path, bytes });
+  }
+  return out;
+}
+
+// Keep the files of a set of Asheron's Call 2's as `auberean/sets/<name>`, under the names its
+// modules say, and read it: answers its set's id.
+export async function storeAubereanSet(dereth, name, files) {
+  const names = dereth.frontAubereanFiles();
+  const named = files.flatMap((file) => {
+    const kept = names.find((n) => n.toLowerCase() === file.name.toLowerCase());
+    return kept ? [{ file, kept }] : [];
+  });
+  const path = `${AUBEREAN_SETS}/${name}`;
+  await storeFiles(path, named);
+  return readSet(dereth.frontAddAubereanSets, path);
+}
+
 // Keep the files the player picked as a set in `sets/<name>`, and read it: answers its sets' ids.
 export async function storeSet(dereth, name, files) {
-  releaseHeld();
   const path = `sets/${name}`;
+  await storeFiles(path, files.flatMap((file) => (NAMES.includes(file.name) ? [{ file, kept: file.name }] : [])));
+  return readSet(dereth.frontAddSets, path);
+}
+
+// Keep each `{ file, kept }` in the folder `path` under the name `kept`.
+async function storeFiles(path, named) {
+  releaseHeld();
   const dir = await folder(path, true);
-  for (const file of files) {
-    if (!NAMES.includes(file.name)) continue;
+  for (const { file, kept } of named) {
     const t0 = performance.now();
-    const h = await handleOn(dir, file.name, true);
+    const h = await handleOn(dir, kept, true);
     try {
       h.truncate(0);
       const CHUNK = 16 * 1024 * 1024;
@@ -333,15 +424,14 @@ export async function storeSet(dereth, name, files) {
     } catch (e) {
       close([h]);
       if (isFull(e)) {
-        await dir.removeEntry(file.name).catch(() => {});
+        await dir.removeEntry(kept).catch(() => {});
         throw new Error(FULL);
       }
       throw e;
     }
     close([h]);
-    log(`stored ${file.name} (${(file.size / 1048576).toFixed(0)} MiB) in ${path} in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
+    log(`stored ${kept} (${(file.size / 1048576).toFixed(0)} MiB) in ${path} in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
   }
-  return readSet(dereth, path);
 }
 
 // Remove the set kept in folder `path`, files and all.
@@ -365,7 +455,7 @@ export async function removeSetFiles(dereth, path, names) {
   for (const name of names) await dir.removeEntry(name).catch(() => {});
   for await (const [name, entry] of dir.entries()) {
     if (entry.kind === 'file' && NAMES.includes(name)) {
-      await readSet(dereth, path);
+      await readSet(dereth.frontAddSets, path);
       return;
     }
   }
@@ -430,6 +520,12 @@ function closeOverlay() {
   flushOverlay();
   close(Object.values(overlay.handles));
   overlay = { path: '', handles: {}, dirty: false };
+}
+
+// Let go of every file this worker holds: another worker of this page is to have them.
+export function releaseFiles() {
+  releaseHeld();
+  closeOverlay();
 }
 
 // Hold the overlay folder `path` (`overlays/<address>`) open for the client: answers the path, or

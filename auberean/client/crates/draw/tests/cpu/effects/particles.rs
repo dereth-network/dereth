@@ -496,3 +496,75 @@ fn a_repulsor_pushes_the_particles_in_its_range() {
     drop(again);
     assert_eq!(systems.repulsors(), 0, "the last hold gone");
 }
+
+/// An effect entry moves its slider to its intensity over its ramp time, and an entry with a color
+/// moves the object's four color sliders to that color's parts; an entry with neither moves none.
+///
+/// Behaviour: draw.effects.an-effect-moves-its-sliders-over-its-ramp
+#[test]
+fn an_effect_moves_its_sliders_over_its_ramp() {
+    use auberean_assets::fx::FxNode;
+    use auberean_draw::effects::{node_sliders, FxSlider};
+    let slider = |slider, value| FxSlider {
+        slider,
+        value,
+        time: 2.0,
+        children: false,
+    };
+    let node = FxNode {
+        slider: Some(0x4000_0015),
+        intensity: Some(0.25),
+        ramp_time: Some(2.0),
+        ..FxNode::default()
+    };
+    assert_eq!(node_sliders(&node), [slider(0x4000_0015, 0.25)]);
+    let node = FxNode {
+        color: Some((
+            true,
+            auberean_primitives::Rgba {
+                r: 0.1,
+                g: 0.2,
+                b: 0.3,
+                a: 0.4,
+            },
+        )),
+        ramp_time: Some(2.0),
+        ..FxNode::default()
+    };
+    assert_eq!(
+        node_sliders(&node),
+        [
+            slider(0x4000_0016, 0.1),
+            slider(0x4000_0017, 0.2),
+            slider(0x4000_0018, 0.3),
+            slider(0x4000_001A, 0.4),
+        ]
+    );
+    assert!(node_sliders(&FxNode::default()).is_empty());
+}
+
+/// A system draws with its look's particle scale, times its object's scale when its description
+/// scales it with its object; a system that does not draws by the particle scale alone.
+///
+/// Behaviour: draw.particles.a-looks-particle-scale-sizes-its-systems
+#[test]
+fn a_looks_particle_scale_sizes_its_systems() {
+    let object = Vec3::new(1.5, 1.5, 3.0);
+    let with_object = system(Emitter::default());
+    assert_eq!(with_object.desc().scale_type, 2);
+    assert_eq!(
+        with_object.drawn_scale(object, 2.0),
+        Vec3::new(3.0, 3.0, 6.0)
+    );
+    let mut desc = with_object.desc().clone();
+    desc.scale_type = 1;
+    let alone = ParticleSet::new(
+        desc,
+        Vec::new(),
+        Mat4::IDENTITY,
+        object,
+        0.0,
+        &Random::new(),
+    );
+    assert_eq!(alone.drawn_scale(object, 2.0), Vec3::new(2.0, 2.0, 2.0));
+}

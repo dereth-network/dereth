@@ -1,5 +1,50 @@
 use super::*;
 
+/// Behaviour: presentation.era.commands-follow-the-world-profile
+#[test]
+fn navigation_offers_only_the_recall_commands_the_world_announces() {
+    use dereth_primitives::era::{EraFeatures, EraId};
+    let mut world = dereth_client_model::World::new();
+    world.player = Some(dereth_primitives::ObjectId(1));
+    let has = |features: EraFeatures, recall: dereth_navigation::Recall| {
+        nav_character(&world, None, features)
+            .recall_commands
+            .iter()
+            .any(|(r, _)| *r == recall)
+    };
+    for era in EraId::ALL {
+        let later = era != EraId::Launch;
+        let f = era.features();
+        assert_eq!(has(f, dereth_navigation::Recall::Lifestone), later, "{era}");
+        assert_eq!(
+            has(f, dereth_navigation::Recall::Marketplace),
+            later,
+            "{era}"
+        );
+    }
+    // The announcement decides, not the era's name.
+    let launch_with_recalls = EraFeatures {
+        lifestone_recall: true,
+        marketplace_recall: true,
+        ..EraId::Launch.features()
+    };
+    assert!(has(
+        launch_with_recalls,
+        dereth_navigation::Recall::Lifestone
+    ));
+    assert!(has(
+        launch_with_recalls,
+        dereth_navigation::Recall::Marketplace
+    ));
+    let eor_without = EraFeatures {
+        lifestone_recall: false,
+        marketplace_recall: false,
+        ..EraId::Eor.features()
+    };
+    assert!(!has(eor_without, dereth_navigation::Recall::Lifestone));
+    assert!(!has(eor_without, dereth_navigation::Recall::Marketplace));
+}
+
 /// The landblock line prints when any number in it moves under a held block.
 #[test]
 fn the_landblock_line_prints_when_any_number_in_it_moves_under_a_held_block() {

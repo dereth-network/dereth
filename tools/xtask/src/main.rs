@@ -127,14 +127,13 @@ Release and packaging:
                             the allowlist, runs the deny scan and the header checks, and writes
                             the archives, MANIFEST.txt, release.json and SHA256SUMS
                             (empyrean/RELEASING.md)
-  package dereth [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
-                 [--friends-dll <file>] | --gather <dir>
-                            Dereth's release files: builds the client and the launcher (Tauri) for
-                            this host, and writes the launcher (Windows zip, macOS Dereth.app,
-                            Linux AppImage), with the client and the retail AC2 client's friends
-                            library inside it, checked and scanned, and signed for the launcher's
+  package dereth --launcher <dir> [--target <triple>]... [--out <dir>] [--allow-dirty]
+                 [--moltenvk <dir>] | --gather <dir>
+                            Dereth's release files: builds the client for this host, and puts it in
+                            the launcher release the tree names (Windows zip, macOS Dereth.app,
+                            Linux AppImage), checked and scanned, and signed for the launcher's
                             updater (latest.json) when TAURI_SIGNING_PRIVATE_KEY is set
-                            (dereth/launcher/RELEASING.md)
+                            (launcher/RELEASING.md)
   package lyceum [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
                  | --gather <dir>
                             Lyceum's release files: builds the editor and the lyceum command for
@@ -142,17 +141,20 @@ Release and packaging:
                             (Windows zip, macOS Lyceum.app, Linux tarball with a desktop entry),
                             checked and scanned, with MANIFEST.txt, release.json and SHA256SUMS
                             (lyceum/RELEASING.md)
-  package auberean [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
-                 [--friends-dll <file>] | --gather <dir>
-                            Auberean's release files: the launcher built exactly as `package
-                            dereth` builds it, with the Auberean client and launcher-defaults.json
-                            beside it in place of Dereth's client (Windows zip, macOS Dereth.app,
-                            Linux AppImage), checked and scanned, and signed for the launcher's
-                            updater (latest.json, version <launcher>+auberean.<client>) when
+  package launcher [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>]
+          [--friends-dll <file>] | --gather <dir> | --fetch <dir> [--wait] [--repo <owner/name>]
+                            the launcher's own release files, with no game client beside it;
+                            --fetch gets the release of the version in the tree
+  package auberean --launcher <dir> [--target <triple>]... [--out <dir>] [--allow-dirty]
+                 | --gather <dir>
+                            Auberean's release files: the launcher release the tree names, with the
+                            Auberean client and launcher-defaults.json beside it (Windows zip,
+                            macOS Dereth.app, Linux AppImage), checked and scanned, and signed for the launcher's
+                            updater (latest.json, by the launcher's version) when
                             TAURI_SIGNING_PRIVATE_KEY is set (auberean/RELEASING.md)
   package friends-dll [--out <dir>] [--allow-dirty]
                             the retail AC2 client's friends library (auberean_friends.dll), which
-                            both launcher packages carry: built on Windows for
+                            the launcher's package carries: built on Windows for
                             i686-pc-windows-msvc with the C runtime linked in, and checked; a
                             launcher package on another host takes it with --friends-dll
   package athenaeum [--target <triple>]... [--out <dir>] [--allow-dirty] | --gather <dir>
@@ -166,13 +168,18 @@ Release and packaging:
                             built, stages the allowlist, runs the deny scan and the header check,
                             and writes the archives, MANIFEST.txt, release.json and SHA256SUMS
   package web [--out <dir>] [--tag <tag>] [--no-build] [--allow-dirty]
-                            the web client's release files: builds the module, stages the page's
+                            the web client's release files: builds the modules, stages the page's
                             allowlist, runs the deny scan, and writes dereth-web-<version>.zip,
                             web.json (the update manifest) and SHA256SUMS (dereth/web/DEPLOY.md)
   package plugins [--out <dir>]
                             Dereth's plugin source: each sample of dereth/plugins packed into a zip
                             and listed in plugins.json, as the web release publishes it beside
                             the page (docs/plugins/sources.md)
+  publish drafts [<tag>...] [--wait] [--repo <owner/name>] [--yes]
+                            publish the whole drafts the release workflows left, Dereth's final
+                            release as Latest; --wait stays until the tags named (else those on
+                            main's head) are published, and names any workflow that failed. A dry
+                            run unless --yes.
   publish dereth|empyrean|web|lyceum <version> --upload <dir> | --finish | --publish
           [--repo <owner/name>] [--yes]
                             the GitHub release without the release workflows: each machine
@@ -220,13 +227,13 @@ Release and packaging:
                             process, and the web client tagged with Dereth; --skip-checks does not
                             ask CI, --allow-failing ships despite failed checks, --local-tier0 runs
                             tier 0 here first
-  release-notes dereth|empyrean|lyceum|auberean|yalain|athenaeum [--since <tag>] [--version <v>]
+  release-notes dereth|empyrean|lyceum|auberean|yalain|athenaeum|launcher [--since <tag>] [--version <v>]
                 [--out <file>]
                             print a release's notes without releasing: the highlights of the
                             product's CHANGES.md, then its commits since the previous final
                             <product>-v tag, grouped (the release workflow writes them the same
                             way); a first release has its highlights alone
-  version empyrean|dereth|lyceum|auberean|yalain|athenaeum [--tag <tag>]
+  version empyrean|dereth|lyceum|auberean|yalain|athenaeum|launcher [--tag <tag>]
                             print the product's version; with --tag, fail unless the tag names it
   bundle-macos              the client as a macOS `Dereth.app` (--dat-dir <dir> links the retail
                             dats in; --debug bundles the dev profile)
@@ -590,9 +597,16 @@ fn tier1_first_game(args: &[String], profile: Profile, game: Game) -> Vec<Report
              `cargo run -p empyrean-import -- fetch` once, or set EMPYREAN_WORLD_SQL."
         ),
     }
+    match server::launch_fixture() {
+        Some(p) => println!("the Launch world fixture found at {}", p.display()),
+        None => println!(
+            "the Launch world fixture NOT found; the Launch world row reports NO-ORACLE. Set              EMPYREAN_TEST_LAUNCH_FIXTURE to its manifest (the 1999 dats and an ac1999 pack)."
+        ),
+    }
     let mut reports = gates::gates(threads(args), profile, gates::GpuTier::Exclude);
     reports.extend(server::real_content(profile, dats.as_deref()));
     reports.push(server::real_dump(profile));
+    reports.push(server::launch_content(profile));
     reports
 }
 

@@ -1800,7 +1800,15 @@ impl ObjectStream {
                         m.volume
                     );
                 }
-                if m.sound_type == SOUND_OPEN_FAIL_DUE_TO_LOCK {
+                // The server names the row in the world's own files; this is the client's own
+                // reading of that row.
+                let locked = dereth_world_data::effect_numbering::sound_in_files(
+                    self.store
+                        .as_ref()
+                        .map_or(dereth_primitives::ContainerEra::Modern, |s| s.era()),
+                    SOUND_OPEN_FAIL_DUE_TO_LOCK.cast_unsigned(),
+                );
+                if m.sound_type.cast_unsigned() == locked {
                     self.lock_answers.push(m.id);
                 }
                 self.sound_events.push(m);
@@ -1847,6 +1855,10 @@ impl ObjectStream {
                     script: DataId(m.script_id),
                 });
             }
+            // Received beside this stream: the teleport state reads the same events and takes
+            // this one up. It has nothing to say to the object tables, the player's own position
+            // arriving as a position event.
+            Opcode::EFFECTS_PLAYER_TELEPORT => {}
             // `stats.unhandled` says *how many*, not *which*, and "which" is the whole
             // question when chasing a dropped message. The ledger names the opcode once, in
             // the log, the first time it is dropped.
@@ -2967,6 +2979,107 @@ mod tests {
         assert!(objects.take_lock_answers().is_empty(), "drained");
         // Both are still sounds to play.
         assert_eq!(objects.take_sound_events().len(), 2);
+    }
+
+    /// A world on older files names the locked sound by those files' own number, and the travel
+    /// hears it as the same answer; the later number is another sound there.
+    /// Behaviour: plugins.nav.a-door-that-will-not-open-ends-the-journey-and-says-so
+    #[test]
+    #[cfg_attr(
+        not(feature = "retail-dats"),
+        ignore = "reads the retail dats: --features retail-dats"
+    )]
+    fn on_older_files_the_locked_sound_is_heard_by_those_files_number() {
+        let store = dereth_dat::testing::open_classic_store_or_fail();
+        let mut objects = ObjectStream::with_store(Arc::new(store));
+        let sound = |id: u32, sound_type: i32| {
+            ev(
+                Opcode::EFFECTS_SOUND_EVENT,
+                write_body(&EffectsSoundEvent {
+                    id: ObjectId(id),
+                    sound_type,
+                    volume: 1.0,
+                })
+                .expect("encode"),
+            )
+        };
+        objects.apply_event(&sound(0x7016_3024, 0x7F), LocalTime(1.0));
+        objects.apply_event(&sound(0x7016_3025, 0x94), LocalTime(1.1));
+        assert_eq!(objects.take_lock_answers(), vec![ObjectId(0x7016_3024)]);
+    }
+
+    /// A script or sound number arrives as a server sent it and finds the row with that number in
+    /// older files' tables, unshifted: a server that speaks those files' numbers is played right.
+    /// Behaviour: none (the client plays what it receives as sent)
+    #[test]
+    fn a_raw_older_script_and_sound_number_play_the_rows_of_that_number() {
+        use dereth_assets::{Decode, PhysicsScriptTable, SoundTable};
+        use dereth_primitives::{ContainerEra, DataId};
+        const CREATE_IN_THOSE_FILES: u32 = 87;
+        const PICK_UP_IN_THOSE_FILES: u32 = 0x7A;
+        const SCRIPT: u32 = 0x3300_0123;
+        const WAVE: u32 = 0x0A00_0123;
+
+        let mut objects = ObjectStream::new();
+        objects.apply_event(
+            &ev(
+                Opcode::EFFECTS_PLAY_SCRIPT_TYPE,
+                write_body(&EffectsPlayScriptType {
+                    id: ObjectId(5),
+                    script_type: CREATE_IN_THOSE_FILES.cast_signed(),
+                    intensity: 1.0,
+                })
+                .expect("encode"),
+            ),
+            LocalTime(1.0),
+        );
+        objects.apply_event(
+            &ev(
+                Opcode::EFFECTS_SOUND_EVENT,
+                write_body(&EffectsSoundEvent {
+                    id: ObjectId(5),
+                    sound_type: PICK_UP_IN_THOSE_FILES.cast_signed(),
+                    volume: 1.0,
+                })
+                .expect("encode"),
+            ),
+            LocalTime(1.0),
+        );
+        let script = match objects.take_script_events().as_slice() {
+            [ScriptEvent::Type { script_type, .. }] => *script_type,
+            other => panic!("{other:?}"),
+        };
+        let sound = objects.take_sound_events()[0].sound_type;
+
+        let id = DataId(0x3400_0004);
+        let mut bytes = Vec::new();
+        for v in [id.0, 1, CREATE_IN_THOSE_FILES, 1] {
+            bytes.extend(v.to_le_bytes());
+        }
+        bytes.extend(1.0f32.to_le_bytes());
+        bytes.extend(SCRIPT.to_le_bytes());
+        let table = PhysicsScriptTable::decode_payload_in(ContainerEra::Classic, id, &bytes)
+            .expect("decodes");
+        let row = &table.script_table[&script.cast_unsigned()];
+        assert_eq!(
+            row[0].script_id,
+            DataId(SCRIPT),
+            "the row of the number sent"
+        );
+
+        let id = DataId(0x2000_0001);
+        let mut bytes = Vec::new();
+        for v in [id.0, 0, 0, 1, PICK_UP_IN_THOSE_FILES, 1, WAVE] {
+            bytes.extend(u32::to_le_bytes(v));
+        }
+        for v in [1.0f32, 1.0, 1.0] {
+            bytes.extend(v.to_le_bytes());
+        }
+        bytes.extend(0u32.to_le_bytes());
+        let table =
+            SoundTable::decode_payload_in(ContainerEra::Classic, id, &bytes).expect("decodes");
+        let rows = dereth_audio::table::lookup(&table, sound.cast_unsigned()).expect("the row");
+        assert_eq!(rows[0].sound_id, DataId(WAVE), "the row of the number sent");
     }
 
     /// Behaviour: none (actual session reset preserves only spell receipt counters).

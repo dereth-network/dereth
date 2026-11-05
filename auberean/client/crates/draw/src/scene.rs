@@ -11,6 +11,7 @@ use auberean_assets::landblock::Landblock;
 use auberean_assets::mesh::{CellMesh, Mesh};
 use auberean_primitives::{DataId, Vec3};
 use auberean_world::color::Color;
+use auberean_world::inside::{BlockLights, Outside};
 use auberean_world::look::{Look, PartLook};
 use auberean_world::math::Mat4;
 use auberean_world::place::{cell_look, entity_parts, parts_of, Part};
@@ -21,17 +22,18 @@ use auberean_world::terrain::{build_block, TerrainBlock};
 use auberean_world::water::BlockWater;
 use dereth_landscape::{Detail, LandblockWindow, SlotAction, WindowSpec};
 
+use crate::cull::LookIn;
 use crate::effects::{entity_place, object_effect_look, PlacedLook};
 use crate::material::{
     device_flags, draw_layers, ground_picture, instance_material, instance_material_with,
     material_kind, shadow_layer, DrawLayer,
 };
-use crate::mesh::{level_at, vertices, MeshVertex};
+use crate::mesh::{level_at, marked_levels, vertices, MeshVertex, PosedVertex};
 use crate::shadow::{CloudShadows, ShadowMap};
 
 mod interior;
 
-pub use interior::{Outlook, LIT_IN_VERTICES};
+pub use interior::{inside_light, light_view_draw, Outlook, LIT_IN_VERTICES};
 
 /// Where a frame is seen from and when.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -86,8 +88,8 @@ pub struct TerrainBatch {
     pub layer: u8,
     /// Whether this is the far landscape (one picture added to the lit color).
     pub far: bool,
-    pub vertices: Vec<TerrainVertex>,
-    pub indices: Vec<u32>,
+    pub vertices: Arc<Vec<TerrainVertex>>,
+    pub indices: Arc<Vec<u32>>,
 }
 
 /// One drawn piece of a mesh: its vertices, one fragment's triangles, where it stands, and one
@@ -95,6 +97,9 @@ pub struct TerrainBatch {
 #[derive(Clone, Debug)]
 pub struct ObjectBatch {
     pub vertices: Arc<Vec<MeshVertex>>,
+    /// A body's: where each of `vertices` stands this frame and which way it faces, in place of
+    /// the positions and normals they hold.
+    pub posed: Option<Arc<Vec<PosedVertex>>>,
     pub indices: Arc<Vec<u16>>,
     pub transform: Mat4,
     pub layer: DrawLayer,
@@ -137,7 +142,89 @@ pub struct ObjectBatch {
     /// The step it is drawn in whatever its object: a frill's, a particle's, or one of the
     /// draws that are not the world's objects (portal space's).
     pub step: Option<Pass>,
+    /// How far off its object is seen, when it degrades with distance: past this it is gone, and
+    /// it fades over the last 7.5% of it ([`fade_objects`]).
+    pub visible: Option<f32>,
+    /// The landblock its object stands on, for an object standing on the land: it fades in with
+    /// the block ([`fade_objects`]).
+    pub block: Option<(i32, i32)>,
+    /// Its object stands more than 40 m from the camera: a draw of it not wholly opaque is not
+    /// tested against its alpha reference ([`crate::material::DrawLayer::faded`]).
+    pub far: bool,
+    /// Where a body stands on the land: its light and specular take the sun's shadow map about
+    /// that spot, as they take the shadow the land throws in the tint's color.
+    pub ground: Option<Vec3>,
+    /// Which of its object's levels of detail and material it is, for an object that degrades with
+    /// distance; its object has a draw for each it may need before the frame is built again.
+    pub lod: Option<Lod>,
 }
+
+/// One choice of a part's detail and materials among those its distance may give, shown or not
+/// from where the camera stands this frame ([`fade_objects`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Lod {
+    distances: auberean_assets::setup::DetailDistances,
+    /// What the distances are scaled by.
+    scale: f32,
+    /// The material detail preference.
+    material_detail: u32,
+    /// The last of the levels the model detail marks.
+    last: usize,
+    /// This draw's place among those levels.
+    level: usize,
+    /// This draw's materials.
+    materials: u32,
+    /// It is what the camera sees of the object this frame.
+    pub shown: bool,
+    /// It is what the water's reflection shows of the object this frame.
+    pub reflected: bool,
+}
+
+impl Lod {
+    /// A draw of a body, built afresh each frame: what the camera sees of it, what the reflection
+    /// does, or both.
+    #[must_use]
+    pub fn of_body(shown: bool, reflected: bool) -> Self {
+        Self {
+            distances: auberean_assets::setup::DetailDistances::default(),
+            scale: 1.0,
+            material_detail: 0,
+            last: 0,
+            level: 0,
+            materials: 0,
+            shown,
+            reflected,
+        }
+    }
+
+    /// Whether this draw is the choice for an object at `distance`, in a picture taking its
+    /// distances at `share`.
+    fn is_choice(&self, distance: f32, share: f32) -> bool {
+        crate::mesh::degrade_in(
+            &self.distances,
+            distance,
+            self.scale,
+            share,
+            self.material_detail,
+        )
+        .is_some_and(|g| {
+            crate::mesh::level_place(g.detail, self.last) == self.level
+                && g.material_detail == self.materials
+        })
+    }
+
+    fn update(&mut self, distance: f32) {
+        self.shown = self.is_choice(distance, 1.0);
+        self.reflected = self.is_choice(distance, REFLECTED_DISTANCE);
+    }
+}
+
+/// How much of an object's distances the water's reflection sees it by.
+pub const REFLECTED_DISTANCE: f32 = 0.4;
+
+/// How much farther or nearer the camera may stand from a part before the frame is built again: the
+/// diagonal of the land cell the frame is built for, and a little.
+const CELL_REACH: f32 = 36.0;
 
 /// A placed object that casts a volume of shadow, as each of its draws carries it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -186,6 +273,37 @@ pub enum Cull {
     InCell { cell: u16, lo: Vec3, hi: Vec3 },
     /// An object standing outdoors, its box: drawn when the box meets a view out.
     Box { lo: Vec3, hi: Vec3 },
+    /// An interior cell's own mesh seen from outside, by its block and low word: drawn when a view
+    /// onto the land looks into it.
+    Looked { block: (i32, i32), cell: u16 },
+    /// An object standing in an interior cell seen from outside: drawn when the cell is, and the
+    /// object's box (twice its size about its middle) meets a view the cell was entered by.
+    LookedIn {
+        block: (i32, i32),
+        cell: u16,
+        lo: Vec3,
+        hi: Vec3,
+    },
+    /// A body standing in interior cells of a block, by their low words (0 past the last): drawn
+    /// when one of them is, and the body's box (twice its size about its middle) meets a view that
+    /// cell was entered by.
+    Body {
+        block: (i32, i32),
+        cells: [u16; crate::cull::BODY_CELLS],
+        lo: Vec3,
+        hi: Vec3,
+    },
+}
+
+impl Cull {
+    /// Whether it culls something standing in a cell, seen from the land.
+    #[must_use]
+    pub const fn is_looked_in(&self) -> bool {
+        matches!(
+            self,
+            Self::Looked { .. } | Self::LookedIn { .. } | Self::Body { .. }
+        )
+    }
 }
 
 /// The box about the box from `lo` to `hi` carried by `m`: about its eight corners.
@@ -314,7 +432,166 @@ impl Pass {
     }
 }
 
+/// How far past which a faded draw is no longer tested against its layer's alpha reference.
+const FAR_FADE: f32 = 40.0;
+
+/// How opaque each object of the world is drawn from `eye` this frame: at the edge of its visible
+/// distance it fades out, and on a landblock of `blocks` (each with its opacity) it fades in with
+/// the block. Its visible distance past, it is wholly transparent, and not drawn. Each object's
+/// level of detail and materials are chosen here too, from among its draws.
+// D2-03680, D2-03691, D2-03784, D2-03789, D2-06658, D2-06218, D2-06330, D2-06576
+pub fn fade_objects(objects: &mut [ObjectBatch], eye: Vec3, blocks: &[((u8, u8), f32)]) {
+    for b in objects {
+        let d = b.distance_from(eye);
+        if let Some(lod) = &mut b.lod {
+            lod.update(d);
+        }
+        let mut opacity = b.visible.map_or(1.0, |v| crate::mesh::edge_opacity(v, d));
+        if let Some((x, y)) = b.block {
+            if let Some((_, o)) = blocks
+                .iter()
+                .find(|((bx, by), _)| i32::from(*bx) == x && i32::from(*by) == y)
+            {
+                opacity *= o;
+            }
+        }
+        b.tint.a = opacity.clamp(0.0, 1.0);
+        b.far = d > FAR_FADE;
+    }
+}
+
+/// A place in the frame of block `home` as a place in the frame of `block`.
+#[allow(clippy::cast_precision_loss)] // a few blocks
+fn sub_block(p: Vec3, block: (i32, i32), home: (i32, i32), block_len: f32) -> Vec3 {
+    Vec3::new(
+        p.x - (block.0 - home.0) as f32 * block_len,
+        p.y - (block.1 - home.1) as f32 * block_len,
+        p.z,
+    )
+}
+
+/// How much of the sun the land lets through at a place of a detailed block: the mean of the four
+/// corners of the square holding it, each lit or not by the land's own shadow; nothing under a
+/// tenth, whole over nine tenths.
+// D2-10970, D2-10925
+#[must_use]
+pub fn land_shadow(tb: &TerrainBlock, local: Vec3, square_side: f32, light_direction: Vec3) -> f32 {
+    let bit = auberean_world::sky::self_shadow_bit(light_direction);
+    let side = tb.geometry.squares_per_side;
+    let square = |v: f32| {
+        usize::try_from(floor_to_i32(v / square_side))
+            .unwrap_or(0)
+            .min(side - 1)
+    };
+    let (i, j) = (square(local.x), square(local.y));
+    let mean: f32 = [(0, 0), (1, 0), (0, 1), (1, 1)]
+        .iter()
+        .map(|&(a, b)| {
+            auberean_world::sky::sun_reaches(tb.shadow_bits[tb.vertex(i + a, j + b)], bit)
+        })
+        .sum::<f32>()
+        * 0.25;
+    if mean < 0.1 {
+        0.0
+    } else if mean > 0.9 {
+        1.0
+    } else {
+        mean
+    }
+}
+
+/// `lo` and `hi` widened to take in `p`. What is not a number widens nothing.
+#[inline]
+pub fn widen(lo: &mut [f32; 3], hi: &mut [f32; 3], p: [f32; 3]) {
+    for i in 0..3 {
+        lo[i] = if p[i] < lo[i] { p[i] } else { lo[i] };
+        hi[i] = if p[i] > hi[i] { p[i] } else { hi[i] };
+    }
+}
+
 impl ObjectBatch {
+    /// What tells the list of places its vertices stand at from another draw's: draws with the
+    /// same one, under the same transform, stand in the same place.
+    #[must_use]
+    pub fn places(&self) -> usize {
+        self.posed
+            .as_ref()
+            .map_or(Arc::as_ptr(&self.vertices) as usize, |p| {
+                Arc::as_ptr(p) as usize
+            })
+    }
+
+    /// Where vertex `i` stands in the draw's own frame.
+    #[must_use]
+    pub fn position(&self, i: usize) -> Option<[f32; 3]> {
+        match &self.posed {
+            Some(p) => p.get(i).map(|v| v.position),
+            None => self.vertices.get(i).map(|v| v.position),
+        }
+    }
+
+    /// `f` of where each vertex stands in the draw's own frame, in order.
+    pub fn each_position(&self, mut f: impl FnMut([f32; 3])) {
+        match &self.posed {
+            Some(p) => p.iter().for_each(|v| f(v.position)),
+            None => self.vertices.iter().for_each(|v| f(v.position)),
+        }
+    }
+
+    /// Whether the draw shows at all: an object fades out to nothing, an opaque layer included.
+    // D2-06658
+    #[must_use]
+    pub fn drawn(&self) -> bool {
+        let seen = self.lod.is_none_or(|l| l.shown || l.reflected);
+        seen && ((self.visible.is_none() && self.block.is_none()) || self.tint.a > 0.0)
+    }
+
+    /// Whether the draw is what the camera sees of its object from where it stands this frame, as
+    /// against a level of detail only the reflection shows.
+    #[must_use]
+    pub fn shown(&self) -> bool {
+        self.lod.is_none_or(|l| l.shown)
+    }
+
+    /// Whether the draw is seen in the water's reflection, which takes its object's distances at
+    /// 40%: it reaches 40% of its visible distance, and its detail falls that much sooner.
+    // D2-06658
+    #[must_use]
+    pub fn reflected(&self, eye: Vec3) -> bool {
+        self.lod.map_or_else(
+            || {
+                self.visible
+                    .is_none_or(|v| self.distance_from(eye) <= v * REFLECTED_DISTANCE)
+            },
+            |l| l.reflected,
+        )
+    }
+
+    /// How opaque the water's reflection draws it: it takes the distances at 40%, so it fades over
+    /// the last 7.5% of its reach there, as it does in the frame over the last of its own.
+    // D2-06658
+    #[must_use]
+    pub fn reflected_alpha(&self, eye: Vec3) -> f32 {
+        let Some(v) = self.visible else {
+            return self.tint.a;
+        };
+        let d = self.distance_from(eye);
+        let frame = crate::mesh::edge_opacity(v, d);
+        if frame <= 0.0 {
+            return 0.0;
+        }
+        (self.tint.a * crate::mesh::edge_opacity(v * REFLECTED_DISTANCE, d) / frame).clamp(0.0, 1.0)
+    }
+
+    /// Whether its object stands above `height`, as the objects the water's reflection shows do.
+    #[must_use]
+    pub fn stands_above(&self, height: f32) -> bool {
+        self.anchor
+            .unwrap_or_else(|| self.transform.point(Vec3::ZERO))
+            .z
+            > height
+    }
+
     /// The step an object's draw belongs to, by its object, never its layer: the step it is
     /// given ([`Self::step`]); an interior cell's own mesh, every layer of it in turn, before the
     /// decals; an object seen through, every layer of it with those seen through; another, every
@@ -397,6 +674,9 @@ pub struct Frame {
     pub light: DayLight,
     pub sky_before: Vec<ObjectBatch>,
     pub terrain: Vec<TerrainBatch>,
+    /// The land as the water's reflection shows it: all of it as the far landscape, the detailed
+    /// blocks too.
+    pub reflection_land: Option<TerrainBatch>,
     pub objects: Vec<ObjectBatch>,
     pub sky_after: Vec<ObjectBatch>,
     /// Where frills fade out, from the camera: fully drawn nearer than the first distance, gone
@@ -432,6 +712,11 @@ pub struct Frame {
     /// Inside: the camera's cell and the cells it sees, which the device walks through each
     /// frame to draw only what the doorways show ([`crate::cull::Rooms::sight`]).
     pub rooms: Option<Arc<crate::cull::Rooms>>,
+    /// The blocks' cells a view onto the land may look into.
+    pub look_in: Arc<Vec<crate::cull::LookIn>>,
+    /// The light those cells are drawn under, with the camera on the land: the interior ambient
+    /// and fog of the camera's own block.
+    pub looked_light: Option<DayLight>,
     /// The dynamic objects' volumes of shadow, drawn after the opaque objects that cast none.
     pub volumes: crate::volume::Volumes,
     /// The decals laid on the ground this frame, drawn after the landscape.
@@ -466,6 +751,22 @@ impl Default for Textures {
 }
 
 impl Frame {
+    /// What the frame shows at the moment, in a picture `aspect` times as wide as it is high: none
+    /// when it draws everything, on the land with no cell to look into.
+    // D2-03646
+    #[must_use]
+    pub fn sight(&self, aspect: f32) -> Option<crate::cull::Sight> {
+        if let Some(rooms) = &self.rooms {
+            let mut sight = rooms.sight(&self.camera, aspect);
+            sight.look_out(&self.look_in);
+            return Some(sight);
+        }
+        (!self.look_in.is_empty()).then(|| {
+            let view = crate::cull::Frustum::of_camera(&self.camera, aspect);
+            crate::cull::Sight::on_land(view, &self.look_in)
+        })
+    }
+
     /// Every draw's layer as it is drawn `t` seconds into the client's run (pictures sliding,
     /// turning and stretching, specular power and alpha reference moving), rolling `rng` for any
     /// noise, in the frame's drawing order.
@@ -571,6 +872,9 @@ pub struct SceneBuilder<'a> {
     shadow_layers: HashMap<u32, Option<DrawLayer>>,
     /// The model detail preference, 0 to 2.
     pub model_detail: u32,
+    /// Whether a frame is drawn from a camera moving on until the next is built: an object that
+    /// degrades with distance then has a draw for each level it may come to meanwhile.
+    pub camera_moves: bool,
     /// The material detail preference, 0 (low) to 2 (high): which of each material's layers are
     /// drawn.
     pub material_detail: u32,
@@ -592,6 +896,9 @@ pub struct SceneBuilder<'a> {
     /// reflection ripples (only at its highest setting).
     pub water_reflections: bool,
     pub water_ripples: bool,
+    /// The camera stands under water: the water reflects nothing, and the sky shows only what
+    /// shows from there.
+    pub camera_in_water: bool,
     /// The landscape shore effects preference: 0 none, 1 the shores' alpha, 2 that and their foam.
     pub shore_effects: u32,
     /// The light coronas preference: the sky objects' lens flares.
@@ -689,6 +996,18 @@ pub fn mask_uv(cx: f32, cy: f32, rotation: u8) -> [f32; 2] {
     }
 }
 
+/// How many vertices apart a far block's squares are laid, `ring` blocks past the detailed ones: 1
+/// in the first ring, then 2, 2, 4, 4, 8, 8, 16, no more than the block's `squares`.
+// D2-10962, D2-10984
+#[must_use]
+pub fn far_stride(ring: i32, squares: usize) -> usize {
+    if ring <= 1 {
+        return 1;
+    }
+    let steps = u32::try_from((ring - 2) / 2 + 1).unwrap_or(0).min(30);
+    (1usize << steps).min(squares.max(1))
+}
+
 /// The two triangles of a square, as corner slots, for its split.
 fn square_triangles(cut: bool) -> [u32; 6] {
     if cut {
@@ -735,6 +1054,7 @@ impl<'a> SceneBuilder<'a> {
             frill_vertices: HashMap::new(),
             shadow_layers: HashMap::new(),
             model_detail: 2,
+            camera_moves: false,
             material_detail: 2,
             scenery_draw_distance: 2,
             textures: Textures::default(),
@@ -742,6 +1062,7 @@ impl<'a> SceneBuilder<'a> {
             static_shadows: true,
             cloud_shadows: true,
             water_reflections: true,
+            camera_in_water: false,
             water_ripples: true,
             shore_effects: 2,
             light_coronas: true,
@@ -989,7 +1310,8 @@ impl<'a> SceneBuilder<'a> {
             };
             out.push(ObjectBatch {
                 vertices: verts.clone(),
-                indices: Arc::new(frag.indices.clone()),
+                posed: None,
+                indices: frag.indices.clone(),
                 transform,
                 layer,
                 tint: Color::WHITE,
@@ -1005,6 +1327,11 @@ impl<'a> SceneBuilder<'a> {
                 kept_by: None,
                 anchor: None,
                 step: None,
+                visible: None,
+                block: None,
+                far: false,
+                ground: None,
+                lod: None,
             });
         }
     }
@@ -1068,25 +1395,78 @@ impl<'a> SceneBuilder<'a> {
         // A placed object degrades with distance (its distances drawn in by the scenery draw
         // distance, its materials lowered); a frill keeps the material detail as set.
         let model_detail = usize::try_from(self.model_detail).unwrap_or(2).min(2);
-        let (t, material_detail) = match &part.detail {
-            Some(d) => {
-                let scale = if frill {
-                    1.0
-                } else {
-                    crate::mesh::scenery_scale(self.scenery_draw_distance)
-                };
-                match crate::mesh::degrade(&d[model_detail], distance, scale, self.material_detail)
-                {
-                    Some(g) if frill => (g.detail, self.material_detail),
-                    Some(g) => (g.detail, g.material_detail),
+        let scale = if frill {
+            1.0
+        } else {
+            crate::mesh::scenery_scale(self.scenery_draw_distance)
+        };
+        let marked = marked_levels(&mesh, self.model_detail);
+        let Some(last) = marked.len().checked_sub(1) else {
+            return Vec::new();
+        };
+        // One choice unless the object degrades with distance: then each it may come to before the
+        // frame is built again, in the frame and in the water's reflection.
+        let mut choices: Vec<(usize, u32)> = Vec::new();
+        let mut visible = None;
+        let mut lod = None;
+        match &part.detail {
+            Some(d) if frill => {
+                match crate::mesh::degrade(&d[model_detail], distance, 1.0, self.material_detail) {
+                    Some(g) => choices.push((
+                        crate::mesh::level_place(g.detail, last),
+                        self.material_detail,
+                    )),
                     None => return Vec::new(),
                 }
             }
-            None => (1.0, self.material_detail),
-        };
-        let Some(level) = level_at(&mesh, t, self.model_detail) else {
-            return Vec::new();
-        };
+            Some(d) => {
+                let d = &d[model_detail];
+                let reach = if self.camera_moves { CELL_REACH } else { 0.0 };
+                let mut high: Option<(usize, u32)> = None;
+                let mut low: Option<(usize, u32)> = None;
+                for share in [1.0, REFLECTED_DISTANCE] {
+                    let near_end = (distance - reach).max(0.0);
+                    // just short of where it is gone
+                    let far_end =
+                        (distance + reach).min((scale * d.visible).max(20.0) * share * 0.999);
+                    if near_end > far_end {
+                        continue;
+                    }
+                    let ends = [near_end, far_end].map(|at| {
+                        crate::mesh::degrade_in(d, at, scale, share, self.material_detail)
+                    });
+                    for g in ends.into_iter().flatten() {
+                        let at = crate::mesh::level_place(g.detail, last);
+                        high = Some(high.map_or((at, g.material_detail), |(p, m)| {
+                            (p.min(at), m.max(g.material_detail))
+                        }));
+                        low = Some(low.map_or((at, g.material_detail), |(p, m)| {
+                            (p.max(at), m.min(g.material_detail))
+                        }));
+                    }
+                }
+                let (Some((first, top)), Some((end, bottom))) = (high, low) else {
+                    return Vec::new();
+                };
+                for at in first..=end {
+                    for materials in bottom..=top {
+                        choices.push((at, materials));
+                    }
+                }
+                visible = Some((scale * d.visible).max(20.0));
+                lod = Some(Lod {
+                    distances: *d,
+                    scale,
+                    material_detail: self.material_detail,
+                    last,
+                    level: 0,
+                    materials: 0,
+                    shown: false,
+                    reflected: false,
+                });
+            }
+            None => choices.push((crate::mesh::level_place(1.0, last), self.material_detail)),
+        }
         counts.parts += 1;
         let transform = part.transform.then(place);
         // Frills are never culled; anything else standing outdoors by its box: its mesh's box
@@ -1104,41 +1484,118 @@ impl<'a> SceneBuilder<'a> {
             Cull::Box { lo, hi }
         };
         let mut out = Vec::new();
-        for frag in &mesh.levels[level].fragments {
-            let Some(mat) = usize::try_from(frag.material)
-                .ok()
-                .and_then(|k| mesh.materials.get(k))
-            else {
-                continue;
-            };
-            let layers = match &part.look {
-                Some(look) => self.looked_material(look, mesh.kind, mat.0, material_detail),
-                None => self.material_at(mat.0, material_detail),
-            };
-            let indices = Arc::new(frag.indices.clone());
-            for layer in layers {
-                out.push(ObjectBatch {
-                    vertices: verts.clone(),
-                    indices: indices.clone(),
-                    transform,
-                    layer,
-                    tint,
-                    points: PointLights::NONE,
-                    mesh_type: mesh.kind,
-                    shade: None,
-                    outside: false,
-                    cull,
-                    mesh: part.mesh.0,
-                    casts_volume: false,
-                    caster: None,
-                    seen_through: false,
-                    kept_by: None,
-                    anchor: None,
-                    step: None,
-                });
+        for (at, materials) in choices {
+            let lod = lod.map(|l: Lod| {
+                let mut l = Lod {
+                    level: at,
+                    materials,
+                    ..l
+                };
+                l.update(distance);
+                l
+            });
+            for frag in &mesh.levels[marked[at]].fragments {
+                let Some(mat) = usize::try_from(frag.material)
+                    .ok()
+                    .and_then(|k| mesh.materials.get(k))
+                else {
+                    continue;
+                };
+                let layers = match &part.look {
+                    Some(look) => self.looked_material(look, mesh.kind, mat.0, materials),
+                    None => self.material_at(mat.0, materials),
+                };
+                let indices = frag.indices.clone();
+                for layer in layers {
+                    out.push(ObjectBatch {
+                        vertices: verts.clone(),
+                        posed: None,
+                        indices: indices.clone(),
+                        transform,
+                        layer,
+                        tint,
+                        points: PointLights::NONE,
+                        mesh_type: mesh.kind,
+                        shade: None,
+                        outside: false,
+                        cull,
+                        mesh: part.mesh.0,
+                        casts_volume: false,
+                        caster: None,
+                        seen_through: false,
+                        kept_by: None,
+                        anchor: None,
+                        step: None,
+                        visible,
+                        block: None,
+                        far: distance > FAR_FADE,
+                        ground: None,
+                        lod,
+                    });
+                }
             }
         }
         out
+    }
+
+    /// The rain's streaks as the last update left them, one draw for each layer of its material,
+    /// standing right before the particle systems.
+    // D2-10900
+    pub fn rain_batches(&mut self, rain: &crate::rain::Rain) -> Vec<ObjectBatch> {
+        let (vertices, indices) = rain.drawn();
+        if indices.is_empty() {
+            return Vec::new();
+        }
+        let id = self
+            .records
+            .data_id_by_enum(crate::rain::MATERIAL, crate::rain::MAPPING);
+        let detail = self.material_detail;
+        self.material_at(id, detail)
+            .into_iter()
+            .map(|layer| ObjectBatch {
+                vertices: vertices.clone(),
+                posed: None,
+                indices: indices.clone(),
+                transform: Mat4::IDENTITY,
+                layer,
+                tint: Color::WHITE,
+                points: PointLights::NONE,
+                mesh_type: 0,
+                shade: None,
+                outside: true,
+                cull: Cull::Never,
+                mesh: 0,
+                casts_volume: false,
+                caster: None,
+                seen_through: false,
+                kept_by: None,
+                anchor: None,
+                step: Some(Pass::Particles),
+                visible: None,
+                block: None,
+                far: false,
+                ground: None,
+                lod: None,
+            })
+            .collect()
+    }
+
+    /// How much of the sun the land lets through at `at` (a place in the frame of block
+    /// `frame_block`), as the last frame outdoors built the detailed blocks; whole off them.
+    // D2-10925
+    #[must_use]
+    pub fn land_shadow_at(&self, at: Vec3, frame_block: (i32, i32), light_direction: Vec3) -> f32 {
+        let len = self.region.land.grid().block_length();
+        let (dx, dy) = (floor_to_i32(at.x / len), floor_to_i32(at.y / len));
+        let block = (frame_block.0 + dx, frame_block.1 + dy);
+        self.ground.get(&block).map_or(1.0, |tb| {
+            land_shadow(
+                tb,
+                sub_block(at, block, frame_block, len),
+                self.square_side(),
+                light_direction,
+            )
+        })
     }
 
     /// The two triangles of the landscape square holding `at` (a point in the frame of block
@@ -1211,7 +1668,7 @@ impl<'a> SceneBuilder<'a> {
         let light = self.light(spot, day.as_ref());
 
         // The blocks in the window, and one more ring for their normals.
-        let far = self.far_radius.max(NEAR_RADIUS);
+        let far = NEAR_RADIUS + self.far_radius;
         let mut window = LandblockWindow::<()>::with_spec(
             u32::try_from(far).unwrap_or(4),
             WindowSpec {
@@ -1240,6 +1697,7 @@ impl<'a> SceneBuilder<'a> {
         }
 
         let mut terrain: HashMap<(u32, Option<u32>, u8, bool), TerrainBatch> = HashMap::new();
+        let mut near_land: HashMap<(u32, Option<u32>, u8, bool), TerrainBatch> = HashMap::new();
         let mut near_blocks: HashMap<(i32, i32), TerrainBlock> = HashMap::new();
         let mut water = Vec::new();
         for &(bx, by) in &wanted {
@@ -1258,6 +1716,9 @@ impl<'a> SceneBuilder<'a> {
             let near = (bx - spot.block.0).abs().max((by - spot.block.1).abs()) <= NEAR_RADIUS;
             if near {
                 self.near_terrain(&tb, offset, &light, &mut terrain, &mut counts);
+                if self.water_reflections {
+                    self.far_terrain(&tb, offset, &light, spot.block, &mut near_land);
+                }
             } else {
                 self.far_terrain(&tb, offset, &light, spot.block, &mut terrain);
                 // The far blocks' water: one surface each, with the far water material.
@@ -1272,11 +1733,18 @@ impl<'a> SceneBuilder<'a> {
                         ..w
                     };
                     counts.water_blocks += 1;
+                    // Its one set of coordinates runs a quarter of a block over the tile width
+                    // from corner to corner.
+                    let tile = if w.tile_width > 0.0 {
+                        block_len * w.tile_width / (block_len * NEAR_WATER_SHARE)
+                    } else {
+                        block_len
+                    };
                     water.extend(self.water_batches(
                         &w,
                         &Mat4::translation(offset),
                         block_len,
-                        w.tile_width,
+                        tile,
                     ));
                 }
             }
@@ -1296,6 +1764,7 @@ impl<'a> SceneBuilder<'a> {
         let mut objects = Vec::new();
         let mut placed = Vec::new();
         let mut casters: Vec<(Part, Mat4)> = Vec::new();
+        let mut look_in = Vec::new();
         for &(bx, by) in &wanted {
             #[allow(clippy::cast_precision_loss)]
             let place = Mat4::translation(Vec3::new(
@@ -1329,7 +1798,7 @@ impl<'a> SceneBuilder<'a> {
                         by * cells + floor_to_i32(s.origin.y / cell_len),
                     );
                     // Frills only in the cells about the viewer's, and none when turned off.
-                    // D2-10843, D2-10858
+                    // D2-10843, D2-10858, D2-03855
                     if s.frill
                         && (!self.frills
                             || (cell.0 - viewer_cell.0).abs() > self.frill_radius
@@ -1378,6 +1847,7 @@ impl<'a> SceneBuilder<'a> {
                     for b in &mut objects[first..] {
                         b.kept_by = Some(kept_by);
                         b.anchor = Some(place.point(*anchor));
+                        b.block = Some((bx, by));
                     }
                 }
                 continue;
@@ -1413,8 +1883,9 @@ impl<'a> SceneBuilder<'a> {
             // The interior cells seen from outside, each once (the list may name a cell again),
             // lit as cells: each part's cell, and for an object standing in one its key, place
             // and reach.
-            let mut in_cells: Vec<(u32, Option<interior::ObjectReach>)> = Vec::new();
+            let mut in_cells: Vec<(u32, Option<interior::ObjectReach>, Cull)> = Vec::new();
             let mut taken: Vec<u32> = Vec::new();
+            let mut order: Vec<u16> = Vec::new();
             for &low in &info.outside_visible {
                 #[allow(clippy::cast_sign_loss)]
                 let id = ((bx as u32) << 24) | ((by as u32) << 16) | (low & 0xFFFF);
@@ -1428,6 +1899,7 @@ impl<'a> SceneBuilder<'a> {
                 else {
                     continue;
                 };
+                order.push(cell_low(low));
                 counts.cells += 1;
                 let frame = Mat4::from_parts(
                     cell.frame.origin,
@@ -1442,7 +1914,11 @@ impl<'a> SceneBuilder<'a> {
                     detail: None,
                     look,
                 });
-                in_cells.push((id, None));
+                let looked = Cull::Looked {
+                    block: (bx, by),
+                    cell: cell_low(low),
+                };
+                in_cells.push((id, None, looked));
                 for (i, e) in cell
                     .entities
                     .iter()
@@ -1471,7 +1947,16 @@ impl<'a> SceneBuilder<'a> {
                         let key = (id, u32::try_from(i + 1).unwrap_or(u32::MAX));
                         (key, at, self.object_reach(&p))
                     });
-                    in_cells.extend(p.iter().map(|_| (id, reach)));
+                    let cull = match self.object_cull(cell_low(low), &p, &place) {
+                        Cull::InCell { cell, lo, hi } => Cull::LookedIn {
+                            block: (bx, by),
+                            cell,
+                            lo,
+                            hi,
+                        },
+                        _ => looked,
+                    };
+                    in_cells.extend(p.iter().map(|_| (id, reach, cull)));
                     if let Some(first) = p.first() {
                         anchors.extend(std::iter::repeat_n(
                             first.transform.point(Vec3::ZERO),
@@ -1482,6 +1967,11 @@ impl<'a> SceneBuilder<'a> {
                 }
             }
             let outside = auberean_world::inside::Outside::of(&light);
+            let mut cell_lights = self.block_lights((bx, by)).map(|l| {
+                let scene = l.scene();
+                let sky = scene.sky_alone(&l);
+                (scene, sky, l)
+            });
             for (k, part) in parts.iter().enumerate() {
                 let at = part.transform.then(&place).point(Vec3::ZERO);
                 let d = auberean_world::math::length(auberean_world::math::sub(at, spot.position));
@@ -1508,17 +1998,30 @@ impl<'a> SceneBuilder<'a> {
                     let kept_by = self.outdoor_kept_by((bx, by), part);
                     for b in &mut objects[first..] {
                         b.kept_by = Some(kept_by);
+                        b.block = Some((bx, by));
                     }
-                } else if let Some(&(id, reach)) = in_cells.get(k - outdoors) {
+                } else if let Some(&(id, reach, cull)) = in_cells.get(k - outdoors) {
                     self.light_seen_from_outside(
                         &mut objects[first..],
                         part,
                         (bx, by),
                         id,
                         reach,
+                        cell_lights.as_mut(),
                         &outside,
                     );
+                    for b in &mut objects[first..] {
+                        b.cull = cull;
+                    }
                 }
+            }
+            if !order.is_empty() {
+                let rooms = self.block_rooms(spot, (bx, by), &order);
+                look_in.push(LookIn {
+                    block: (bx, by),
+                    rooms,
+                    order,
+                });
             }
         }
 
@@ -1543,15 +2046,36 @@ impl<'a> SceneBuilder<'a> {
                         .map(move |v| Vec3::new(v.x + ox, v.y + oy, v.z))
                 })
                 .collect();
+            // D2-10999
             ShadowMap::new(light.light_direction, ground, light.shadow_color, batches)
         } else {
             None
         };
-        let reflection = if self.water_reflections {
+        let reflection = if self.water_reflections && !self.camera_in_water {
             self.reflection_plane(&near_blocks, spot)
         } else {
             None
         };
+        // What stands on the land and is not seen through takes the land's shadow there.
+        // D2-06220
+        for b in &mut objects {
+            let Some(block) = b.block else { continue };
+            if b.seen_through {
+                continue;
+            }
+            let Some(tb) = near_blocks.get(&block) else {
+                continue;
+            };
+            #[allow(clippy::cast_precision_loss)]
+            let at = sub_block(
+                b.anchor.unwrap_or_else(|| b.transform.point(Vec3::ZERO)),
+                block,
+                spot.block,
+                block_len,
+            );
+            let s = land_shadow(tb, at, self.square_side(), light.light_direction);
+            b.tint = Color::new(s, s, s, b.tint.a);
+        }
         let (shore, foam) = self.shore_batches(spot.block, &near_blocks);
         self.ground = near_blocks
             .iter()
@@ -1576,6 +2100,15 @@ impl<'a> SceneBuilder<'a> {
             _ => Vec::new(),
         };
 
+        // D2-10950
+        let reflection_land = near_land.into_values().next().map(|mut land| {
+            if let Some(far) = terrain.values().find(|b| b.far) {
+                let base = u32::try_from(land.vertices.len()).unwrap_or(u32::MAX);
+                Arc::make_mut(&mut land.vertices).extend_from_slice(&far.vertices);
+                Arc::make_mut(&mut land.indices).extend(far.indices.iter().map(|i| i + base));
+            }
+            land
+        });
         let mut terrain: Vec<TerrainBatch> = terrain.into_values().collect();
         terrain.sort_by_key(|b| (b.far, b.layer, b.ground, b.mask));
         Frame {
@@ -1591,6 +2124,7 @@ impl<'a> SceneBuilder<'a> {
             light,
             sky_before,
             terrain,
+            reflection_land,
             objects,
             sky_after,
             frill_fade: {
@@ -1610,6 +2144,8 @@ impl<'a> SceneBuilder<'a> {
             flares,
             outside: None,
             rooms: None,
+            look_in: Arc::new(look_in),
+            looked_light: None,
             volumes: crate::volume::Volumes::default(),
             decals: Vec::new(),
             textures: self.textures,
@@ -1631,7 +2167,7 @@ impl<'a> SceneBuilder<'a> {
     /// The light and fog at `spot` on day `day`: the day's at the moment (or the light with no
     /// sky), with the region's fog blocks about the viewer combined and blended by where it stands,
     /// in the block it stands in (which may be beside the block `spot` names).
-    // D2-10903, D2-10904, D2-10865, D2-10866
+    // D2-10903, D2-10904, D2-10865, D2-10866, D2-10880
     #[must_use]
     pub fn light(&self, spot: &Spot, day: Option<&auberean_assets::region::DayDesc>) -> DayLight {
         let light = day.map_or(DayLight::NO_SKY, |d| day_light(d, spot.time_of_day));
@@ -1676,6 +2212,9 @@ impl<'a> SceneBuilder<'a> {
             return (before, after);
         };
         for piece in sky_pieces(day, t) {
+            if !piece.shows(self.camera_in_water) {
+                continue;
+            }
             counts.sky_objects += 1;
             let world = Mat4::from_parts(viewer, piece.rotation, Vec3::new(1.0, 1.0, 1.0));
             let records = self.records;
@@ -1720,17 +2259,20 @@ impl<'a> SceneBuilder<'a> {
         bodies: Vec<ObjectBatch>,
         camera: Camera,
         light: DayLight,
+        lights: Option<(&BlockLights, bool)>,
     ) -> Frame {
         let mut counts = Counts::default();
         let mut objects = Vec::new();
+        let outside = Outside::of(&light);
+        let mut order = lights.map(|(l, _)| l.scene());
         for part in parts {
-            objects.extend(self.part_batches(
-                part,
-                &Mat4::IDENTITY,
-                0.0,
-                Color::WHITE,
-                &mut counts,
-            ));
+            let mut batches =
+                self.part_batches(part, &Mat4::IDENTITY, 0.0, Color::WHITE, &mut counts);
+            if let (Some((lights, sun)), Some(order)) = (lights, order.as_mut()) {
+                let at = part.transform.point(Vec3::ZERO);
+                interior::light_view_draw(&mut batches, at, lights, order, &outside, sun);
+            }
+            objects.extend(batches);
         }
         counts.objects = parts.len();
         objects.extend(bodies);
@@ -1739,6 +2281,7 @@ impl<'a> SceneBuilder<'a> {
             light,
             sky_before: Vec::new(),
             terrain: Vec::new(),
+            reflection_land: None,
             objects,
             sky_after: Vec::new(),
             frill_fade: [f32::MAX, f32::MAX],
@@ -1754,6 +2297,8 @@ impl<'a> SceneBuilder<'a> {
             flares: Vec::new(),
             outside: None,
             rooms: None,
+            look_in: Arc::default(),
+            looked_light: None,
             volumes: crate::volume::Volumes::default(),
             decals: Vec::new(),
             textures: self.textures,
@@ -1761,7 +2306,7 @@ impl<'a> SceneBuilder<'a> {
     }
 
     /// The plane the water reflects about: the viewer's own block's water when it lies below the
-    /// camera, else the first detailed block's that does.
+    /// camera, else the first detailed block's that does; none with the camera under water.
     // D2-10921
     fn reflection_plane(
         &self,
@@ -1849,6 +2394,7 @@ impl<'a> SceneBuilder<'a> {
                 .into_iter()
                 .map(|layer| ObjectBatch {
                     vertices: d.shore.vertices.clone(),
+                    posed: None,
                     indices: indices.clone(),
                     transform: Mat4::IDENTITY,
                     layer,
@@ -1865,6 +2411,11 @@ impl<'a> SceneBuilder<'a> {
                     kept_by: None,
                     anchor: None,
                     step: None,
+                    visible: None,
+                    block: None,
+                    far: false,
+                    ground: None,
+                    lod: None,
                 })
                 .collect::<Vec<_>>()
         };
@@ -1902,12 +2453,10 @@ impl<'a> SceneBuilder<'a> {
     }
 
     /// A block's water surface: flat across the whole block at the water's height, in square
-    /// polygons `poly` meters wide, its picture repeating every `tile` meters (the first
-    /// coordinate set) and 0..1 across each polygon (the second, which the reflection's ripples
-    /// follow), drawn with the material seen from above. A detailed block's water is four
-    /// polygons by four, a quarter of the block wide, its picture once across each (whatever the
-    /// water's own sizes say); a far block's one polygon with the picture repeating every tile
-    /// width.
+    /// polygons `poly` meters wide, its picture and the reflection's ripples on the one set of
+    /// coordinates, repeating every `tile` meters, drawn with the material seen from above. A
+    /// detailed block's water is four polygons by four, a quarter of the block wide, its picture
+    /// once across each (whatever the water's own sizes say); a far block's is one polygon.
     // D2-10986, D2-10977, D2-10975
     fn water_batches(
         &mut self,
@@ -1932,13 +2481,7 @@ impl<'a> SceneBuilder<'a> {
                     position: [x, y, water.height],
                     normal: [0.0, 0.0, 1.0],
                     diffuse: 0xFFFF_FFFF,
-                    // the picture's repeats, then each polygon's own 0..1 (the ripples' set)
-                    uv: [
-                        [x / tile, y / tile],
-                        [x / step, y / step],
-                        [x / tile, y / tile],
-                        [x / tile, y / tile],
-                    ],
+                    uv: [[x / tile, y / tile]; 4],
                     tangent_u: [1.0, 0.0, 0.0],
                     tangent_v: [0.0, 1.0, 0.0],
                     to_light: [0.0; 3],
@@ -1958,6 +2501,7 @@ impl<'a> SceneBuilder<'a> {
             .into_iter()
             .map(|layer| ObjectBatch {
                 vertices: verts.clone(),
+                posed: None,
                 indices: indices.clone(),
                 transform: *place,
                 layer,
@@ -1974,6 +2518,11 @@ impl<'a> SceneBuilder<'a> {
                 kept_by: None,
                 anchor: None,
                 step: None,
+                visible: None,
+                block: None,
+                far: false,
+                ground: None,
+                lod: None,
             })
             .collect()
     }
@@ -2088,21 +2637,20 @@ impl<'a> SceneBuilder<'a> {
                         let p = tb.geometry.vertices[k];
                         let own = tb.terrain[k].color;
                         let lit = auberean_world::sky::sun_reaches(tb.shadow_bits[k], sun_bit);
-                        // D2-10946
+                        // D2-10946, D2-10542
                         let c = auberean_world::sky::lit_vertex(light, tb.normals[k], own, lit);
                         #[allow(clippy::cast_precision_loss)] // vertex indices within a block
                         let (u, v) = ((i + cx) as f32 * t, (j + 1 - cy) as f32 * t);
                         #[allow(clippy::cast_precision_loss)]
                         let (fx, fy) = (cx as f32, cy as f32);
-                        batch.vertices.push(TerrainVertex {
+                        Arc::make_mut(&mut batch.vertices).push(TerrainVertex {
                             position: [p.x + offset.x, p.y + offset.y, p.z],
                             color: [c.r, c.g, c.b, 1.0],
                             uv: [u, v],
                             mask_uv: mask.map_or([0.0, 0.0], |(_, rot)| mask_uv(fx, fy, rot)),
                         });
                     }
-                    batch
-                        .indices
+                    Arc::make_mut(&mut batch.indices)
                         .extend(square_triangles(cut).iter().map(|&s| base + s));
                 }
             }
@@ -2116,7 +2664,7 @@ impl<'a> SceneBuilder<'a> {
         tb: &TerrainBlock,
         offset: Vec3,
         light: &DayLight,
-        _center: (i32, i32),
+        center: (i32, i32),
         out: &mut HashMap<(u32, Option<u32>, u8, bool), TerrainBatch>,
     ) {
         let surface = &self.region.surface;
@@ -2130,31 +2678,61 @@ impl<'a> SceneBuilder<'a> {
             ..TerrainBatch::default()
         });
         let n = tb.geometry.vertices_per_side;
+        let squares_here = n - 1;
+        // The block's own squares, every `stride` vertices by how far off it lies.
+        let ring = |x: i32, y: i32| (x - center.0).abs().max((y - center.1).abs());
+        let stride = far_stride(ring(tb.x, tb.y) - NEAR_RADIUS, squares_here);
+        let side = squares_here / stride + 1;
         let base = u32::try_from(batch.vertices.len()).unwrap_or(u32::MAX);
-        for k in 0..n * n {
-            let p = tb.geometry.vertices[k];
-            let lit = auberean_world::sky::sun_reaches(tb.shadow_bits[k], sun_bit);
-            let c =
-                auberean_world::sky::lit_vertex(light, tb.normals[k], tb.terrain[k].far_color, lit);
-            let (x, y) = (p.x + offset.x, p.y + offset.y);
-            batch.vertices.push(TerrainVertex {
-                position: [x, y, p.z],
-                color: [c.r, c.g, c.b, 1.0],
-                uv: [x * scale, y * scale],
-                mask_uv: [0.0, 0.0],
-            });
+        for i in 0..side {
+            for j in 0..side {
+                let k = i * stride * n + j * stride;
+                let p = tb.geometry.vertices[k];
+                let lit = auberean_world::sky::sun_reaches(tb.shadow_bits[k], sun_bit);
+                let c = auberean_world::sky::lit_vertex(
+                    light,
+                    tb.normals[k],
+                    tb.terrain[k].far_color,
+                    lit,
+                );
+                let (x, y) = (p.x + offset.x, p.y + offset.y);
+                Arc::make_mut(&mut batch.vertices).push(TerrainVertex {
+                    position: [x, y, p.z],
+                    color: [c.r, c.g, c.b, 1.0],
+                    uv: [x * scale, y * scale],
+                    mask_uv: [0.0, 0.0],
+                });
+            }
         }
-        let squares = n - 1;
-        for i in 0..squares {
-            for j in 0..squares {
-                let v = |a: usize, b: usize| base + u32::try_from(a * n + b).unwrap_or(0);
+        let v = |a: usize, b: usize| base + u32::try_from(a * side + b).unwrap_or(0);
+        for i in 0..side - 1 {
+            for j in 0..side - 1 {
                 let (sw, se, nw, ne) = (v(i, j), v(i + 1, j), v(i, j + 1), v(i + 1, j + 1));
-                let tri = if tb.geometry.sw_to_ne_cut[i * squares + j] {
-                    [nw, sw, ne, sw, se, ne]
-                } else {
-                    [sw, se, nw, se, ne, nw]
-                };
-                batch.indices.extend(tri);
+                Arc::make_mut(&mut batch.indices).extend([nw, sw, se, nw, se, ne]);
+            }
+        }
+        // Where the block next door has half the vertices along their shared edge, a triangle over
+        // each pair of its squares fills what its coarser edge leaves open, going round this block.
+        // Its index runs along x, then y; a neighbor's stride comes of its own ring.
+        let coarser = |x: i32, y: i32| {
+            far_stride(ring(x, y) - NEAR_RADIUS, squares_here) == stride * 2
+                && stride < squares_here
+        };
+        let last = side - 1;
+        let (bx, by) = (tb.x, tb.y);
+        let indices = Arc::make_mut(&mut batch.indices);
+        for k in (0..last.saturating_sub(1)).step_by(2) {
+            if coarser(bx + 1, by) {
+                indices.extend([v(last, k), v(last, k + 2), v(last, k + 1)]);
+            }
+            if coarser(bx, by - 1) {
+                indices.extend([v(k, 0), v(k + 2, 0), v(k + 1, 0)]);
+            }
+            if coarser(bx, by + 1) {
+                indices.extend([v(k + 2, last), v(k, last), v(k + 1, last)]);
+            }
+            if coarser(bx - 1, by) {
+                indices.extend([v(0, k + 2), v(0, k), v(0, k + 1)]);
             }
         }
     }

@@ -70,6 +70,7 @@ pub fn takes(ui: &Ui, item: Handle, _container: Handle) -> bool {
 
 /// A container's cells.
 #[derive(Debug)]
+// D2-03007
 pub struct ContainerCells {
     frame: FrameId,
     container: u64,
@@ -392,13 +393,17 @@ impl ContainerCells {
             change::ADDED | change::REMOVED if shown => false,
             change::ADDED => {
                 let slot = n.word_at(5);
+                // The answers are the frame's end: an item coming back as another leaves (a swap
+                // of what is wielded) was within the segment when it was added, though the
+                // segment holds no more of them by now. Its cells reach at least that far.
                 let (_, count) = facts
                     .containers
                     .get(&self.container)
                     .and_then(|c| c.slots.get(self.segment as usize))
                     .copied()
                     .unwrap_or((0, 0));
-                if slot < self.first_slot || count + self.first_slot <= slot {
+                let reach = count.max(self.max_size);
+                if slot < self.first_slot || reach + self.first_slot <= slot {
                     return;
                 }
                 self.add_item(ui, item, slot - self.first_slot, facts);

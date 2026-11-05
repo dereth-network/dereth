@@ -505,6 +505,7 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
         journals: vec![(5, 6); 5],
         challenge: 4,
         duration: 0.0,
+        timed_phase: 0,
         retry: 0.0,
         xp: 0,
         cancellable: true,
@@ -515,6 +516,11 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
         min_level: 0,
         fails_on_death: false,
         once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
+        hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
+        required: None,
     });
     let step = Step {
         quest,
@@ -532,6 +538,7 @@ fn a_quest_steps_effects_come_after_its_gifts_and_before_its_update() {
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        wants: None,
         fellows: false,
         to: None,
     };

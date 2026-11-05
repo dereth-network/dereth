@@ -3,7 +3,7 @@
 //! as test paths; divergences named exactly on this-client rows.
 //! Behaviour: none (the registry's own consistency)
 
-use auberean_testkit::behaviours::{all, Evidence, RETAIL, SUBJECTS, THIS_CLIENT, TOOLING};
+use auberean_testkit::behaviours::{all, Evidence, Tier, RETAIL, SUBJECTS, THIS_CLIENT, TOOLING};
 use auberean_testkit::divergences::{self, DIVERGENCES};
 
 fn is_id_part(s: &str) -> bool {
@@ -80,6 +80,10 @@ fn every_station_is_a_test_path_in_its_tier() {
             b.id,
             b.station
         );
+        // A test of an executable's own private parts lives in that executable, on the cpu tier.
+        if b.tier == Tier::Cpu && parts[1].starts_with("bin.") {
+            continue;
+        }
         assert_eq!(parts[1], b.tier.binary(), "{}: {}", b.id, b.station);
     }
 }

@@ -96,7 +96,7 @@ impl Light {
     /// 5, white, at intensity 0.5, taking the properties of its light group (its kind, direction,
     /// range, color, intensity and specular color). With it, its range's and its intensity's
     /// waveforms.
-    // D2-13329, D2-13330, D2-13327
+    // D2-13329, D2-13330, D2-13327, D2-03486, D2-13322
     #[must_use]
     pub fn of_properties(
         cell: u32,
@@ -402,8 +402,7 @@ fn unit(w: f32) -> f32 {
     }
 }
 
-/// The vertex indices a packed list names: each 16-bit word an index, or with its high bit set
-/// the first of a run whose length is the next word.
+/// The vertex indices a packed list names, as 16-bit words in the run-length form.
 // D2-03526
 #[must_use]
 pub fn unpack_indices(packed: &[u8]) -> Vec<u32> {
@@ -413,21 +412,10 @@ pub fn unpack_indices(packed: &[u8]) -> Vec<u32> {
         .iter()
         .map(|w| u16::from_le_bytes(*w))
         .collect();
-    let mut out = Vec::new();
-    let mut k = 0;
-    while k < words.len() {
-        let w = words[k];
-        if w & 0x8000 != 0 {
-            let start = u32::from(w & 0x7FFF);
-            let n = u32::from(words.get(k + 1).copied().unwrap_or(0));
-            out.extend(start..start + n);
-            k += 2;
-        } else {
-            out.push(u32::from(w));
-            k += 1;
-        }
-    }
-    out
+    auberean_assets::rle::decode(&words)
+        .into_iter()
+        .map(u32::from)
+        .collect()
 }
 
 /// The length of a landblock's side, in meters.
@@ -624,6 +612,21 @@ pub struct SceneLights {
 }
 
 impl SceneLights {
+    /// The lights linked while the cells' own meshes are drawn: the sky lights alone. The rest are
+    /// linked after them, for what stands in the cells.
+    // D2-03520, D2-03519
+    #[must_use]
+    pub fn sky_alone(&self, lights: &BlockLights) -> Self {
+        Self {
+            order: self
+                .order
+                .iter()
+                .copied()
+                .filter(|&k| lights.lights[k].kind == LightKind::Sky)
+                .collect(),
+        }
+    }
+
     /// The lights a draw at `at` reaching `radius` around it keeps, by their place in the block's
     /// lights, strongest first: the frame's lights sorted by their weight there (and left in that
     /// order for the next draw), then those whose most range reaches the draw, at most six.
@@ -830,8 +833,23 @@ fn adjust_heap<T: Copy>(
 }
 
 impl BlockLights {
+    /// The lights of an interface scene: its light entities, all linked for each draw, with no
+    /// ambient light of their own and nothing from outside.
+    // D2-10618
+    #[must_use]
+    pub fn of_scene(lights: Vec<Light>) -> Self {
+        let all = (0..lights.len()).collect();
+        Self {
+            ambient: Color::new(0.0, 0.0, 0.0, 1.0),
+            fog_paint: Color::new(1.0, 1.0, 1.0, 1.0),
+            lights,
+            lookup: HashMap::from([(0, all)]),
+            ..Self::default()
+        }
+    }
+
     /// The light of block `(x, y)`'s interior cells, from its information and its light record.
-    // D2-11007, D2-13327, D2-03578, D2-13330, D2-13329, D2-03899
+    // D2-11007, D2-13327, D2-03578, D2-13330, D2-13329, D2-03899, D2-03734, D2-03740, D2-03746
     #[must_use]
     pub fn of(records: &WorldRecords, x: i32, y: i32) -> Option<Self> {
         let info = records.landblock_info(x, y)?;
@@ -1084,7 +1102,7 @@ impl BlockLights {
     /// not directional light every vertex (`max(n·l, 0)` over `1 + 10 d² / R²`) and lean its
     /// direction toward themselves, each by `max(1 - d² / R², 0)`; the direction is made a unit at
     /// the end.
-    // D2-03609, D2-03517, D2-03526, D2-03494, D2-03495, D2-03559, D2-03567, D2-13326
+    // D2-03609, D2-03517, D2-03526, D2-03559, D2-03567, D2-13326
     #[must_use]
     pub fn cell_vertices(
         &self,
@@ -1104,7 +1122,7 @@ impl BlockLights {
     /// intensity at that moment, `at` (the client's running time, and its generator for a light
     /// whose intensity is noise, rolled afresh for each vertex), or at its intensity's start with
     /// none; and the lean toward each listed light.
-    // D2-03609, D2-03526, D2-13326, D2-13338
+    // D2-03609, D2-03526, D2-03494, D2-03495, D2-13326, D2-13338, D2-03898, D2-03915, D2-03916
     #[must_use]
     pub fn cell_bake(
         &self,

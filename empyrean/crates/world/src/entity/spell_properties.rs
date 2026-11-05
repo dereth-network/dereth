@@ -59,6 +59,12 @@ impl Spell {
     // ACE: Spell.Category
     #[must_use]
     pub fn category(&self) -> SpellCategory {
+        SpellCategory(self.rules_category.unwrap_or(self.base().category))
+    }
+
+    /// Not ACE: the number spells stack by, and tell the client: the spell table's own.
+    #[must_use]
+    pub fn stacking_category(&self) -> SpellCategory {
         SpellCategory(self.base().category)
     }
 

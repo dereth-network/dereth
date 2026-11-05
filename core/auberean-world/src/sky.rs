@@ -67,13 +67,6 @@ pub fn day_for(sky: &SkyDesc, n: i64) -> Option<DataId> {
     Some(sky.days[last].day)
 }
 
-/// The day at place `index` in the sky's list, if the list is that long.
-// D2-07456
-#[must_use]
-pub fn day_by_index(sky: &SkyDesc, index: usize) -> Option<DataId> {
-    sky.days.get(index).map(|d| d.day)
-}
-
 /// An interval `share` of the way from the longest to the shortest: the shortest below a share of
 /// 0, the longest above a share of 1 (the client's own test lets a share of exactly 1 through to
 /// the sum, which gives the shortest).
@@ -384,6 +377,18 @@ pub struct SkyPiece {
     pub after: bool,
     /// Its rotation: `R_Y(-pitch) · R_Z(-heading)` in the world's axes.
     pub rotation: Quat,
+    /// Whether it is drawn with the camera under water: 0 always, 1 only then, anything else never.
+    pub water_effect: u32,
+}
+
+impl SkyPiece {
+    /// Whether it is drawn with the camera under water or not (no object of the September 2013
+    /// data shows only under water).
+    // D2-10942
+    #[must_use]
+    pub const fn shows(&self, in_water: bool) -> bool {
+        self.water_effect == 0 || self.water_effect == in_water as u32
+    }
 }
 
 /// Whether object `o` shows at `t`.
@@ -410,7 +415,7 @@ fn travel(v0: f32, v1: f32, r: f32, west_to_east: bool) -> f32 {
 }
 
 /// The sky's objects at fraction `t` of day `day`.
-// D2-07600, D2-10937, D2-10943
+// D2-07600, D2-10937, D2-10943, D2-06003, D2-06004
 #[must_use]
 pub fn sky_pieces(day: &DayDesc, t: f32) -> Vec<SkyPiece> {
     let around = bracket(&day.times, t);
@@ -427,7 +432,7 @@ pub fn sky_pieces(day: &DayDesc, t: f32) -> Vec<SkyPiece> {
                 travel(o.begin_pitch, o.end_pitch, r, wte),
             )
         };
-        // D2-07570
+        // D2-07570, D2-07596
         let mut color = Color::WHITE;
         if let Some((b, a, r)) = around {
             let find = |s: &SkyTime| find_replacement(s, o.name).copied();
@@ -470,6 +475,7 @@ pub fn sky_pieces(day: &DayDesc, t: f32) -> Vec<SkyPiece> {
             color,
             after: o.after != 0,
             rotation: q,
+            water_effect: o.water_effect,
         });
     }
     out

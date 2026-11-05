@@ -56,18 +56,8 @@ impl<H: Copy + PartialEq> Registry<H> {
         }
     }
 
-    /// `handler` no longer hears `notice`.
-    // D2-03971, D2-08106, D2-03968
-    pub fn unregister(&mut self, notice: u32, handler: H) {
-        if let Some(list) = self.lists.get_mut(&notice) {
-            if let Some(i) = list.iter().position(|h| *h == handler) {
-                list.remove(i);
-            }
-        }
-    }
-
     /// `handler` hears nothing more: it goes.
-    // D2-03972, D2-08108, D2-03973
+    // D2-03972, D2-08108, D2-03973, D2-01905, D2-03971, D2-03968
     pub fn unregister_all(&mut self, handler: H) {
         for list in self.lists.values_mut() {
             list.retain(|h| *h != handler);

@@ -990,6 +990,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "physics.cells.a-world-chooses-whether-a-cell-with-no-portals-holds-points",
+        says: "A cell with no portals holds no point in this client, whatever its cell tree says; \
+               a world whose closed rooms are stood in takes the tree's word for it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-PHYS-CELL-NO-PORTALS"),
+        station: "dereth-physics::cpu::transition::rules::a_world_chooses_whether_a_cell_with_no_portals_holds_points",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "physics.cells.an-outdoor-object-registers-every-land-cell-its-part-boxes-reach",
         says: "An object standing outdoors is counted as present in exactly the squares of ground \
                its parts reach: a small object inside one square is in that square alone, and a \
@@ -1149,6 +1158,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC-EVID-PHYS-WORLD-SLIDE"),
         station: "dereth-physics::cpu::transition::rules::a_world_may_slide_by_its_own_slide",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "physics.transition.a-world-may-take-an-interior-collision-as-straight-up",
+        says: "A mover in the air that an interior cell's tree moves or stops has collided with \
+               it; a world may make that a collision straight up when nothing has named another \
+               normal. This client names none.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC-EVID-PHYS-ENV-NORMAL-UP"),
+        station: "dereth-physics::cpu::transition::rules::a_world_may_take_an_interior_collision_as_straight_up",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -97,17 +97,17 @@ pub fn test_loot_gen_monster(
 
     println!("Creating {num_corpses} corpses.");
 
-    let Some(death_treasure) = w.content.get_cached_death_treasure(death_treasure_did) else {
+    let Some(death_treasure) = lgf::death_loot_profile(w, death_treasure_did, None) else {
         display_header += &format!(" DID {death_treasure_did} you specified is invalid. \n");
         return display_header;
     };
     display_header += &format!(
         " Loot profile {} (a Tier {} profile) from DID {death_treasure_did} was used for creating {num_corpses} corpses. \n",
-        death_treasure.id, death_treasure.tier
+        death_treasure.id(), death_treasure.tier()
     );
 
     for _ in 0..num_corpses {
-        let corpse_container = lgf::create_random_loot_objects(w, &death_treasure);
+        let corpse_container = lgf::create_death_loot(w, &death_treasure);
 
         let count =
             i32::try_from(corpse_container.len()).expect("a corpse's item count fits an int");

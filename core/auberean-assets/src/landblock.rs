@@ -121,6 +121,7 @@ pub struct LitCell {
     pub packed: Vec<u8>,
 }
 
+// D2-03910
 fn lit_cells(r: &mut Reader<'_>) -> Result<Vec<LitCell>> {
     r.list(8, |r| {
         let cell = r.u32()?;
@@ -196,6 +197,7 @@ impl Decode for LightInfo {
 }
 
 /// A doorway from one interior cell to another (or to the outside).
+// D2-04237, D2-04238
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct CellPortal {
     pub flags: u16,
@@ -307,6 +309,7 @@ impl Decode for Cell {
     }
 }
 
+// D2-03910
 fn write_lit_cells(w: &mut Writer, cells: &[LitCell]) {
     w.list(cells, |w, c| {
         w.u32(c.cell);
@@ -365,7 +368,7 @@ impl Encode for LightInfo {
 }
 
 impl Encode for Cell {
-    // D2-03569, D2-04243
+    // D2-03569, D2-04243, D2-04241, D2-04242
     fn encode(&self, id: u32, w: &mut Writer) {
         w.u32(id);
         w.frame(self.frame);

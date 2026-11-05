@@ -38,6 +38,7 @@ pub mod desktop;
 pub mod friends_dll;
 mod guard;
 mod headers;
+pub mod launcher;
 pub mod lyceum;
 mod notice;
 pub mod plugins;
@@ -56,6 +57,8 @@ mod dereth_tests;
 mod desktop_tests;
 #[cfg(test)]
 mod friends_dll_tests;
+#[cfg(test)]
+mod launcher_tests;
 #[cfg(test)]
 mod lyceum_tests;
 #[cfg(test)]
@@ -116,6 +119,10 @@ const ABOUT_TEMPLATE: &str = "empyrean/about.hbs";
 
 /// The Lifestoned data model's MIT notice.
 const LIFESTONED_NOTICE: &str = "empyrean/licenses/Lifestoned-MIT.txt";
+
+/// ac1999's notice, for the Launch-era world base and loot rules that come from it. Spelled in
+/// two halves for the same reason as [`notice::SERVER_LICENCE`].
+const AC1999_NOTICE: &str = concat!("empyrean/licenses/ac1999-A", "GPL-NOTICE.txt");
 
 /// Every file a package for `target` holds, and nothing else.
 pub fn allowlist(target: Target) -> Vec<String> {
@@ -391,12 +398,13 @@ fn parse_options(args: &[String]) -> Result<Options, String> {
         Some("empyrean") => {}
         _ => {
             return Err(format!(
-                "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+                "{USAGE}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
                 dereth::USAGE,
                 lyceum::USAGE,
                 web::USAGE,
                 plugins::USAGE,
                 auberean::USAGE,
+                launcher::USAGE,
                 yalain::USAGE,
                 desktop::usage("athenaeum"),
                 friends_dll::USAGE,
@@ -445,6 +453,7 @@ pub fn package(args: &[String]) -> i32 {
     }
     match args.first().map(String::as_str) {
         Some("auberean") => return auberean::package(&args[1..]),
+        Some("launcher") => return launcher::package(&args[1..]),
         Some("yalain") => return yalain::package(&args[1..]),
         Some("athenaeum") => return athenaeum::package(&args[1..]),
         _ => {}
@@ -657,6 +666,7 @@ fn package_target(
     let crates = notice::parse_cargo_tree(&String::from_utf8_lossy(&tree.stdout));
     let mit = String::from_utf8_lossy(&read(&ws.join("LICENSE"))?).into_owned();
     let lifestoned = String::from_utf8_lossy(&read(&ws.join(LIFESTONED_NOTICE))?).into_owned();
+    let ac1999 = String::from_utf8_lossy(&read(&ws.join(AC1999_NOTICE))?).into_owned();
     let text = notice::notice(&notice::Facts {
         version,
         target: target.triple,
@@ -665,6 +675,7 @@ fn package_target(
         crates: &crates,
         mit_licence: &mit,
         lifestoned_notice: &lifestoned,
+        ac1999_notice: &ac1999,
     });
     write(&stage.join("NOTICE.txt"), text.as_bytes())?;
     let mut pages = Vec::new();
@@ -928,11 +939,11 @@ pub(crate) fn write_index(
     Ok(())
 }
 
-/// `cargo xtask version empyrean|dereth|lyceum|auberean|yalain|athenaeum [--tag <tag>]`: print the
+/// `cargo xtask version empyrean|dereth|lyceum|auberean|yalain|athenaeum|launcher [--tag <tag>]`: print the
 /// product's version; with `--tag`, fail unless the tag names exactly that version.
 pub fn version_command(args: &[String]) -> i32 {
     let usage =
-        "usage: cargo xtask version empyrean|dereth|lyceum|auberean|yalain|athenaeum [--tag <tag>]";
+        "usage: cargo xtask version empyrean|dereth|lyceum|auberean|yalain|athenaeum|launcher [--tag <tag>]";
     let Some(product) = args
         .first()
         .and_then(|a| version::Product::from_command_name(a))

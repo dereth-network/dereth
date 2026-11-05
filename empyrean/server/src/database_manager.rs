@@ -174,6 +174,17 @@ pub fn initialize<S: ShardDatabase + 'static>(
             return true;
         }
 
+        if w.era.loot_rules == empyrean_common::era::LootRules::Ac1999 {
+            let Some(policy) = w.content.get_source_loot_policy() else {
+                log::error!("ac1999 loot requires a source loot policy; rebuild the pack with its Empyrean extension.");
+                return true;
+            };
+            if let Err(error) = empyrean_world::source_loot::validate_local_inputs(w, &policy) {
+                log::error!("ac1999 loot inputs: {error}");
+                return true;
+            }
+        }
+
         // Not ACE (which logs nothing here): the evidence that the checks ran.
         log::info!("World database: start-up checks passed (instance GUIDs in the static range, the human weenie exists, built for era \"{pack_era}\")");
     } else {

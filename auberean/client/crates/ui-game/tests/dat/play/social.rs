@@ -615,6 +615,35 @@ fn breaking_and_swearing_ask_first() {
     assert!(social(&out).contains(&Social::Swear), "{out:?}");
 }
 
+/// A player selected with the friends page showing lights Add at once, though the notice of the
+/// new selection comes before the frame's view of it, and Add then asks for that player.
+///
+/// Behaviour: ui.social.the-friends-page-lists-friends-by-state
+#[test]
+fn selecting_a_player_with_the_friends_page_showing_lights_add() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let none = world(0);
+    open(&mut ui, &mut p, &mut t, &none);
+    let tab = friends_tab(&ui);
+    click(&mut ui, &mut p, &mut t, &none, tab);
+    let page = el(&ui, "FriendsPage");
+    let add = child(&ui, page, "FriendsAddButton");
+    assert!(ghosted(&ui, add), "no one selected");
+    let picked = Notice {
+        native: notice::SELECTION_CHANGED,
+        about: Some(ME),
+        words: vec![hi(OTHER), lo(OTHER)],
+        ..Notice::default()
+    };
+    let w = world(OTHER);
+    tick(&mut ui, &mut p, &mut t, &w, &[picked]);
+    assert!(!ghosted(&ui, add), "another player selected");
+    let out = click(&mut ui, &mut p, &mut t, &w, add);
+    assert_eq!(social(&out), [Social::AddFriend("Other".to_owned())]);
+}
+
 /// The chat service's friends: those online (lit by their state) under one heading, those
 /// offline under another; a friend's row selected lights Remove, which asks to take that friend
 /// off; another player selected lights Add; the state menu sets the player's state with its

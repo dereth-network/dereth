@@ -15,10 +15,10 @@
 //!
 //! **Specified in** `docs/network/02-link-protocol.md` (the messages, the order of a link, who
 //! answers what, the rate limits), `03-world-behaviour.md` (the rules a world keeps: sections 1, 2,
-//! 5, 7, 8 and 10) and `04-text-rules.md`. It carries `hello`, `welcome`, `world`, `watch`,
-//! `presence`, `tell`, `tell.result`, `error` and the directory's `listing`, `listing.result` and
-//! `listing.off`, and skips every other family (rooms, channels, persons, reach, say), as a world
-//! that does not carry a family may.
+//! 3, 4, 5, 7, 8, 9 and 10) and `04-text-rules.md`. It carries `hello`, `welcome`, `world`, `watch`,
+//! `presence`, `tell`, `tell.result`, `error`, the channels', the persons', `reach`, the directory's `listing`, `listing.result` and `listing.off`, and the rooms'
+//! `rooms`, `rooms.global`, `room.join`, `room.say`, `room.line`, `room.result`, `say` and
+//! `say.result`.
 //!
 //! - **On the network.** Every character starts off it; its player puts it on (and the setting is
 //!   kept in the store). Only a character on the network is seen online by other worlds, may tell
@@ -28,7 +28,8 @@
 //!   then is it online to other worlds, and only then can a tell be shown to it.
 //! - **Tells** ([`Federation::tell`]) go to the hub and end, once its answer comes, with the
 //!   outcome and the line the teller is shown ([`TellEnd`]). A tell from another world is shown
-//!   by the friends service ([`Friends::show_tell`]) and answered at once.
+//!   by the friends service ([`Friends::show_tell`]) and answered at once. A tell to an away,
+//!   linked character of this world goes the same way ([`Federation::away_linked`]).
 //! - **Presence.** While a character on the network is present, its world watches each friend
 //!   it lists on another linked world; the friend's world answers, and each change reaches the
 //!   character ([`Friends::show_presence`]). Another world's watch of one of this world's
@@ -38,6 +39,14 @@
 //! - **The directory** (`directory`): a character on the network is listed with its profile, which
 //!   the world composes and hands in at login, while it plays and at logout; it is taken out when
 //!   it goes off the network.
+//! - **Persons** (`persons`): `@dn link` and `@dn unlink` ask the hub on a character's behalf, the
+//!   person view says whether it is linked and whom its person friends list, and `reach` lets a tell
+//!   to it, away, go on to its person's Discord.
+//! - **Channels** (`channels`): `@dn channel ...` asks the hub, and an invitation or a channel's
+//!   line is shown as a tell would be.
+//! - **Rooms** (`rooms`): the Global room in the chat room the hub, or else the world's settings,
+//!   name, a line each way, `@dn global` and the world's own rooms mirrored into Discord. The host
+//!   carries the lines to and from the game's chat service.
 //! - **Verifying the world** (`verify`): the operator's `dn verify <token>`, at the console or
 //!   said by an admin in game, goes to the hub through the host, and while it waits the world
 //!   answers the hub's challenge to its game port, which the host hands in.
@@ -46,24 +55,34 @@
 //! [`Federation::on_link_down`], [`Federation::take_frames`], [`Federation::tick`] and
 //! [`Federation::keep`]; a test drives the same calls on virtual time.
 
+mod channels;
 mod chatter;
 pub mod directory;
 mod operator;
+mod persons;
+mod rooms;
 mod social;
 mod tells;
 mod verify;
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use dereth_network_protocol::limits::{Bucket, Limits, Rate};
+use dereth_network_protocol::rooms::KeptRooms;
 use dereth_network_protocol::wire::{WireError, PROTOCOL};
-use dereth_network_protocol::{Address, DirectoryMessage, Message, WorldInfo};
+use dereth_network_protocol::{
+    Address, ChannelOp, DirectoryMessage, Message, PersonOp, ReachMessage, RoomsMessage,
+    SayMessage, WorldInfo,
+};
 use yalain_store::{Store, StoreResult};
 
 use chatter::Chatter;
 use directory::Directory;
 
-pub use operator::HELP;
+pub use dereth_network_protocol::rooms::NOT_CARRIED;
+pub use operator::{HELP, IN_GAME_HELP};
+pub use persons::{ASKED_RECORD, NOW_LINKED, PAUSED};
+pub use rooms::{Character, GlobalLine, Heard, Room, SayAsk, Speaker, DEFAULT_ROOM};
 pub use verify::{
     answer_line, is_verification_token, unreachable_line, ChallengeAnswer, VerifyRequest, ASKING,
     KEY_UNKNOWN, MAX_BY_CHARS, MAX_MESSAGE_CHARS, NOT_SENT, ON_ITS_WAY, VERIFY_HELP,
@@ -106,6 +125,9 @@ pub const NOT_ON: &str = "You are not on the Dereth Network. Say @dn on to join 
 /// What a character is told when it reaches for another world from a world off the network.
 pub const WORLD_OFF: &str = "This world is not on the Dereth Network.";
 
+/// What a character younger than its operator asks is told when it sends to the network.
+pub const TOO_NEW: &str = "This character is too new to send to the Dereth Network yet.";
+
 /// What a character sending faster than its own share of the hub's limits is told.
 pub const TOO_QUICKLY: &str =
     "You are sending to the Dereth Network too quickly. Wait a moment and try again.";
@@ -126,6 +148,14 @@ pub struct Settings {
     pub slug: String,
     /// What the world calls itself in its `hello` (its program and version).
     pub software: String,
+    /// Where a browser reaches the world, told to the hub in its `hello`: its WebSocket endpoint,
+    /// when it serves one.
+    pub websocket_url: Option<String>,
+    /// The link's name for the room that carries the Global room until the hub keeps one
+    /// (`federation.global_room`); none carries no room.
+    pub global_room: Option<&'static str>,
+    /// The settings name [`Settings::global_room`] themselves, rather than leave it to its default.
+    pub global_room_named: bool,
 }
 
 /// A character of this world present with a friends stream.
@@ -165,17 +195,47 @@ pub trait Friends {
     /// whole world).
     fn ignores(&self, character: &str, who: &Address) -> bool;
 
-    /// Show a present character a tell from another world. The sender and the text have passed
-    /// the network's text rules.
+    /// Whether a character of this world ignores `who`, a character of this world (by name), whether
+    /// or not the character is present.
+    fn ignores_here(&self, character: &str, who: &str) -> bool;
+
+    /// Show a present character a tell from another world, or one its own world's character
+    /// answered from elsewhere. The sender and the text have passed the network's text rules.
     fn show_tell(&mut self, to: &str, from: &Address, text: &str);
 
     /// Show a present character the state of a friend on another world, named as it listed the
     /// friend. `news`: a change from a state it was already shown; otherwise the first state
-    /// after the friend was added, or after its world (or the hub) came back.
+    /// after the friend was added, after the character arrived, or after its world (or the hub)
+    /// came back.
     fn show_presence(&mut self, to: &str, friend: &Address, online: bool, news: bool);
 
     /// A tell a character sent another world has ended ([`Federation::tell`]).
     fn tell_ended(&mut self, tell: TellId, end: TellEnd);
+
+    /// Whether a character of this world (by name, any case) is in the world, with a friends
+    /// stream or not.
+    fn in_world(&self, name: &str) -> bool;
+
+    /// How many names a character keeps on its friends list, of any world.
+    fn kept_count(&self, character: &str) -> usize;
+
+    /// A friend a character kept is its person's now: it keeps it no longer. The link's half lists
+    /// it from here on, and nothing changes for the character.
+    fn release_friend(&mut self, character: &str, friend: &Address);
+
+    /// A friend the hub handed back to a character that was unlinked: it keeps it from now on.
+    fn keep_friend(&mut self, character: &str, friend: &Address);
+
+    /// The hub answered a linked character's add. Its client's own add, when one waits on it, is
+    /// answered if the hub `refused` it; true when one waited.
+    fn befriend_answered(&mut self, character: &str, friend: &Address, refused: bool) -> bool;
+
+    /// A person view came for a character: what its person friends list is known, so what waited
+    /// for it may go.
+    fn person_view_came(&mut self, character: &str);
+
+    /// Show a character of this world one of the network's lines, if it is in the world.
+    fn show_line(&mut self, character: u64, line: &str);
 }
 
 /// The friends service's mark for one of its tells, handed back when it ends.
@@ -214,6 +274,10 @@ pub enum Ended {
     WorldOff,
     /// Not sent: the teller sends faster than its own pace.
     TooQuickly,
+    /// The teller is younger than its operator asks.
+    TooNew,
+    /// Not shown: the teller is not a member of the channel it told (the line says so).
+    NotMember,
     /// Not sent, or not answered: the link was down too long (the line says the network is
     /// unavailable), or no answer came in time (the line says the recipient's world cannot be
     /// reached).
@@ -276,6 +340,31 @@ struct Pending {
     sent: Option<f64>,
 }
 
+/// A player's request of the hub not yet answered.
+#[derive(Debug, Clone)]
+struct Ask {
+    character: u64,
+    kind: AskKind,
+    /// When it was handed to the link; none while it waits for one.
+    sent: Option<f64>,
+}
+
+/// What a request asks, which decides what its answer shows.
+#[derive(Debug, Clone)]
+enum AskKind {
+    /// A person request. Quiet: the world's own, whose answer shows nothing. With the character's
+    /// name and the friend it names, when it names one.
+    Person {
+        op: PersonOp,
+        quiet: bool,
+        target: Option<(String, Address)>,
+    },
+    Channel {
+        op: ChannelOp,
+        who: Option<Address>,
+    },
+}
+
 /// What a local character has been shown of one friend on another world, beside what the
 /// friend's world last said. See [`PRESENCE_PACE`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -336,6 +425,49 @@ pub struct Federation {
     directory: Directory,
     /// The operator's `dn verify` waiting for the hub.
     verification: verify::Verification,
+    /// Person and channel requests not yet answered.
+    asks: HashMap<String, Ask>,
+    /// The characters that asked for a link (by id), kept: a link holds only for them.
+    asked_link: BTreeSet<u64>,
+    /// What the person view last said of each present character on the network, by its name in
+    /// small letters: whether it is linked.
+    linked: HashMap<String, bool>,
+    /// What each present character's person friends list, by its name in small letters: never kept.
+    person_rows: HashMap<String, Vec<persons::PersonRow>>,
+    /// The friends listed through a person friend that went in play, by the character's name in small
+    /// letters: its client may show each until it next asks for its friends.
+    gone_rows: HashMap<String, BTreeSet<String>>,
+    /// Person view requests: sent after the tells and answers, only while the link is up (a welcome
+    /// sends them again).
+    person_watches: VecDeque<Message>,
+    /// The world's rooms as its hub last told them, kept in the store; none until one has.
+    rooms: Option<KeptRooms>,
+    /// [`Federation::rooms`] changed since the store was written.
+    rooms_dirty: bool,
+    /// This link's hub has told the world its rooms: it keeps them.
+    rooms_told: bool,
+    /// This link's hub, holding no room for the world, has been told the one it carries.
+    seeded: bool,
+    /// The log has said that the hub's room is not the one the settings name.
+    settings_differ_logged: bool,
+    /// When each of the world's own rooms the hub does not mirror may try the hub again, by name.
+    uncarried: HashMap<String, f64>,
+    /// The characters in the world younger than the operator asks, by their names in lower case.
+    too_new: HashSet<String>,
+    /// `rooms.global` frames: sent first, and only while the link is up.
+    requests: VecDeque<String>,
+    /// Who asked the hub to move the Global room, by the request's id (none: the console).
+    global_asks: HashMap<String, Option<u64>>,
+    /// Room lines handed to the hub and not yet answered.
+    pending_rooms: HashMap<String, rooms::PendingRoom>,
+    /// Each local character's own room lines, paced as the hub paces them.
+    room_sends: HashMap<String, Bucket>,
+    /// Lines for the players in a room, for the host to show.
+    heard: Vec<Heard>,
+    /// `@dng` lines for the host to say.
+    global_lines: Vec<GlobalLine>,
+    /// The hub's asks to say a line, for the host to look each character up.
+    says: Vec<SayAsk>,
 }
 
 impl Federation {
@@ -368,12 +500,32 @@ impl Federation {
             pace: None,
             directory: Directory::default(),
             verification: verify::Verification::default(),
+            asks: HashMap::new(),
+            asked_link: BTreeSet::new(),
+            linked: HashMap::new(),
+            person_rows: HashMap::new(),
+            gone_rows: HashMap::new(),
+            person_watches: VecDeque::new(),
+            rooms: None,
+            rooms_dirty: false,
+            rooms_told: false,
+            seeded: false,
+            settings_differ_logged: false,
+            uncarried: HashMap::new(),
+            too_new: HashSet::new(),
+            requests: VecDeque::new(),
+            global_asks: HashMap::new(),
+            pending_rooms: HashMap::new(),
+            room_sends: HashMap::new(),
+            heard: Vec::new(),
+            global_lines: Vec::new(),
+            says: Vec::new(),
         }
     }
 
     /// The network's state as the store keeps it: the characters on the network (those deleted
-    /// left out), the operator's blocks, and the listings owed that take characters out of the
-    /// directory.
+    /// left out), the operator's blocks, the rooms the hub last told the world, and the listings
+    /// owed that take characters out of the directory.
     ///
     /// # Errors
     /// The store failed.
@@ -386,6 +538,8 @@ impl Federation {
         }
         f.blocked = store.network_blocks()?.into_iter().collect();
         f.directory = Directory::load(store.world_record(directory::RECORD)?.as_deref());
+        f.asked_link = persons::read_asked(store.world_record(ASKED_RECORD)?.as_deref());
+        f.load_rooms(store)?;
         Ok(f)
     }
 
@@ -405,6 +559,17 @@ impl Federation {
     #[must_use]
     pub fn link(&self) -> LinkState {
         self.link
+    }
+
+    /// The characters in the world younger than the operator asks of one sending to the network,
+    /// by their names in lower case, as the host says.
+    pub fn set_too_new(&mut self, names: HashSet<String>) {
+        self.too_new = names;
+    }
+
+    /// Is a character in the world younger than the operator asks?
+    pub(crate) fn too_new(&self, name: &str) -> bool {
+        self.too_new.contains(&name.to_lowercase())
     }
 
     /// Whether a character of this world (by name, any case) is on the network.
@@ -520,13 +685,15 @@ impl Federation {
 
     /// Queues an answer owed to `world`.
     fn owe(&mut self, t: f64, world: &str, message: &Message) {
+        self.owe_frame(t, world, message.to_json());
+    }
+
+    /// Queues an answer owed to `world`, as its frame.
+    fn owe_frame(&mut self, t: f64, world: &str, frame: String) {
         self.answers
             .entry(world.to_owned())
             .or_default()
-            .push_back(Owed {
-                at: t,
-                frame: message.to_json(),
-            });
+            .push_back(Owed { at: t, frame });
     }
 
     /// The next answer owed, from the world after the one answered last.
@@ -567,7 +734,7 @@ impl Federation {
         self.control = vec![Message::Hello {
             proto: PROTOCOL,
             software: self.settings.software.clone(),
-            websocket_url: None,
+            websocket_url: self.settings.websocket_url.clone(),
             status_url: None,
         }];
         tracing::info!("Dereth Network: connected to the hub; greeting");
@@ -580,18 +747,31 @@ impl Federation {
         if self.link == LinkState::Down {
             return;
         }
+        self.rooms_link_down(friends);
         self.link = LinkState::Down;
         self.control.clear();
         self.chatter.clear();
         self.directory_down();
         // The hub answers for this world every tell it had not answered when the link went.
         self.answers.clear();
+        self.person_watches.clear();
         for m in std::mem::take(&mut self.in_flight).into_iter().rev() {
-            if let Message::Tell { id, .. } = &m {
-                if let Some(p) = self.pending.get_mut(id) {
-                    p.sent = None;
-                    self.outbox.push_front(Queued { at: t, message: m });
+            let waiting = match &m {
+                Message::Tell { id, .. } => {
+                    self.pending.get_mut(id).map(|p| p.sent = None).is_some()
                 }
+                Message::Channel { id, .. } | Message::Person { id, .. } => {
+                    self.asks.get_mut(id).map(|a| a.sent = None).is_some()
+                }
+                Message::RoomSay { id, .. } => self
+                    .pending_rooms
+                    .get_mut(id)
+                    .map(|p| p.sent = None)
+                    .is_some(),
+                _ => false,
+            };
+            if waiting {
+                self.outbox.push_front(Queued { at: t, message: m });
             }
         }
         tracing::info!("Dereth Network: the link to the hub is down");
@@ -632,13 +812,33 @@ impl Federation {
                 let mut pace = *self.pace.get_or_insert_with(|| Bucket::new(rate, t));
                 let mut out = Vec::new();
                 while pace.has(t) {
+                    if let Some(frame) = self.requests.pop_front() {
+                        pace.take(t);
+                        out.push(frame);
+                        continue;
+                    }
                     if let Some(q) = self.outbox.pop_front() {
                         pace.take(t);
-                        if let Message::Tell { id, .. } = &q.message {
-                            if let Some(p) = self.pending.get_mut(id) {
-                                p.sent = Some(t);
+                        match &q.message {
+                            Message::Tell { id, .. } => {
+                                if let Some(p) = self.pending.get_mut(id) {
+                                    p.sent = Some(t);
+                                }
+                                self.in_flight.push(q.message.clone());
                             }
-                            self.in_flight.push(q.message.clone());
+                            Message::Channel { id, .. } | Message::Person { id, .. } => {
+                                if let Some(a) = self.asks.get_mut(id) {
+                                    a.sent = Some(t);
+                                }
+                                self.in_flight.push(q.message.clone());
+                            }
+                            Message::RoomSay { id, .. } => {
+                                if let Some(p) = self.pending_rooms.get_mut(id) {
+                                    p.sent = Some(t);
+                                }
+                                self.in_flight.push(q.message.clone());
+                            }
+                            _ => {}
                         }
                         out.push(q.message.to_json());
                         continue;
@@ -646,6 +846,11 @@ impl Federation {
                     if let Some(frame) = self.next_answer() {
                         pace.take(t);
                         out.push(frame);
+                        continue;
+                    }
+                    if let Some(m) = self.person_watches.pop_front() {
+                        pace.take(t);
+                        out.push(m.to_json());
                         continue;
                     }
                     if let Some(m) = self.chatter.pop_ready(t, share) {
@@ -671,14 +876,33 @@ impl Federation {
     /// One frame from the hub. A message of a family this world does not carry, or of a type it
     /// does not know, is skipped; one that does not read is logged and skipped.
     pub fn on_frame(&mut self, friends: &mut impl Friends, t: f64, text: &str) {
+        let skipped = |e: &WireError| {
+            tracing::debug!("Dereth Network: skipped a frame from the hub: {e}");
+        };
         match Message::from_json(text) {
-            Ok(m) => self.on_message(friends, t, m),
-            Err(WireError::Unknown(_)) => match DirectoryMessage::from_json(text) {
-                Ok(m) => self.on_directory(friends, t, m),
-                Err(WireError::Unknown(_)) => {}
-                Err(e) => tracing::debug!("Dereth Network: skipped a frame from the hub: {e}"),
-            },
-            Err(e) => tracing::debug!("Dereth Network: skipped a frame from the hub: {e}"),
+            Ok(m) => return self.on_message(friends, t, m),
+            Err(WireError::Unknown(_)) => {}
+            Err(e) => return skipped(&e),
+        }
+        match DirectoryMessage::from_json(text) {
+            Ok(m) => return self.on_directory(friends, t, m),
+            Err(WireError::Unknown(_)) => {}
+            Err(e) => return skipped(&e),
+        }
+        match ReachMessage::from_json(text) {
+            Ok(m) => return self.on_reach(friends, t, m),
+            Err(WireError::Unknown(_)) => {}
+            Err(e) => return skipped(&e),
+        }
+        match SayMessage::from_json(text) {
+            Ok(m) => return self.on_say_message(m),
+            Err(WireError::Unknown(_)) => {}
+            Err(e) => return skipped(&e),
+        }
+        match RoomsMessage::from_json(text) {
+            Ok(m) => self.on_rooms_message(friends, t, m),
+            Err(WireError::Unknown(_)) => {}
+            Err(e) => skipped(&e),
         }
     }
 
@@ -687,6 +911,7 @@ impl Federation {
             Message::Welcome {
                 world,
                 worlds,
+                rooms,
                 limits,
                 ..
             } => {
@@ -708,7 +933,9 @@ impl Federation {
                     "Dereth Network: welcomed; {} world(s) online",
                     self.worlds_online()
                 );
+                self.rooms_welcomed(t, &rooms);
                 self.directory_welcomed(t);
+                self.watch_every_person(friends);
                 // What was queued goes first (it is in the outbox already); the watches of
                 // everyone present, for the worlds online now, after. A world the hub names
                 // later is watched when it does.
@@ -746,10 +973,56 @@ impl Federation {
                 outcome,
                 message,
             } => self.on_result(friends, &id, outcome, message.as_deref()),
+            Message::PersonResult {
+                id,
+                outcome,
+                code,
+                expires_secs,
+                url,
+                ..
+            } => self.on_person_result(
+                friends,
+                &id,
+                outcome,
+                code.as_deref(),
+                url.as_deref(),
+                expires_secs,
+            ),
+            Message::PersonFriends {
+                to,
+                linked,
+                persons,
+                ..
+            } => self.on_person_view(friends, t, &to, linked, &persons),
+            Message::ChannelResult {
+                id,
+                outcome,
+                channel,
+                members,
+                channels,
+            } => self.on_channel_result(friends, &id, outcome, &channel, &members, &channels),
+            Message::ChannelInvite { channel, by, to } => {
+                self.on_channel_invite(friends, t, &channel, &by, &to);
+            }
+            Message::ChannelLine {
+                channel,
+                from,
+                to,
+                text,
+            } => self.on_channel_line(friends, t, &channel, &from, &to, &text),
+            Message::RoomLine {
+                room,
+                from,
+                text,
+                via,
+            } => self.on_room_line(t, &room, &from, &text, via.as_deref()),
+            Message::RoomResult { id, outcome } => {
+                self.on_room_result(friends, t, &id, outcome);
+            }
             Message::Error { code, message } => {
                 tracing::warn!("Dereth Network: the hub reports {code}: {message}");
             }
-            // Families this world does not carry, and messages only a world sends.
+            // Messages only a world sends.
             _ => {}
         }
     }
@@ -772,8 +1045,15 @@ impl Federation {
             keep
         });
         for m in expired {
-            if let Message::Tell { id, .. } = m {
-                self.give_up(friends, &id);
+            match m {
+                Message::Tell { id, .. } => self.give_up(friends, &id),
+                Message::Channel { id, .. } | Message::Person { id, .. } => {
+                    self.give_up_ask(friends, &id);
+                }
+                Message::RoomSay { id, .. } => {
+                    self.pending_rooms.remove(&id);
+                }
+                _ => {}
             }
         }
         // An answer the hub has stopped waiting for is of no use to anyone.
@@ -793,9 +1073,21 @@ impl Federation {
         for id in late {
             self.give_up(friends, &id);
         }
-        let pending = &self.pending;
+        let late: Vec<String> = self
+            .asks
+            .iter()
+            .filter(|(_, a)| a.sent.is_some_and(|s| t - s >= timeout))
+            .map(|(k, _)| k.clone())
+            .collect();
+        for id in late {
+            self.give_up_ask(friends, &id);
+        }
+        self.rooms_tick(t, timeout);
+        let (pending, asks, lines) = (&self.pending, &self.asks, &self.pending_rooms);
         self.in_flight.retain(|m| match m {
             Message::Tell { id, .. } => pending.contains_key(id),
+            Message::Channel { id, .. } | Message::Person { id, .. } => asks.contains_key(id),
+            Message::RoomSay { id, .. } => lines.contains_key(id),
             _ => false,
         });
         self.sends.retain(|_, b| !b.full_at(t));

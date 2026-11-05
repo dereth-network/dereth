@@ -69,6 +69,7 @@ fn a_doorway_out_shows_the_land_under_the_light_outdoors() {
     let outdoors = builder.frame(&spot(block, at), 60.0);
     let (f, _) = builder.inside_frame(&spot(block, at), 60.0, block, 0x0100);
     assert!(f.outside.is_some(), "the light outdoors");
+    assert!(f.reflection.is_none(), "no reflection from inside");
     assert!(!f.sky_before.is_empty(), "the sky");
     assert_eq!(
         f.terrain.len(),
@@ -83,6 +84,47 @@ fn a_doorway_out_shows_the_land_under_the_light_outdoors() {
     );
     assert!(rooms > 0 && out > 0);
     assert!(out <= outdoors.objects.len());
+}
+
+/// A cave's own meshes take its sky light alone of the lights it keeps, from inside and from the
+/// land: its one sky light, not the point lights their vertices already carry; what stands in its
+/// rooms may take those too.
+///
+/// Behaviour: draw.inside.a-cells-own-mesh-keeps-the-sky-lights-alone
+#[test]
+fn a_cells_own_mesh_keeps_the_sky_lights_alone() {
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let mut builder = SceneBuilder::new(&i.records, &region);
+    let block = (0x69, 0x67);
+    let lights = builder.block_lights(block).expect("the cave's lights");
+    let sky: Vec<Vec3> = lights
+        .lights
+        .iter()
+        .filter(|l| l.kind == auberean_world::inside::LightKind::Sky)
+        .map(|l| l.origin)
+        .collect();
+    assert_eq!(sky.len(), 1, "the cave has one");
+    let at = Vec3::new(109.75, 112.97, 100.8);
+    let (inside, _) = builder.inside_frame(&spot(block, at), 60.0, block, 0x0100);
+    let outdoors = builder.frame(&spot(block, Vec3::new(109.75, 92.0, 101.0)), 60.0);
+    for frame in [&inside, &outdoors] {
+        let meshes: Vec<_> = frame
+            .objects
+            .iter()
+            .filter(|b| {
+                b.kept_by
+                    .is_some_and(|k| k.key.1 == 0 && k.cell & 0xFFFF >= 0x100)
+            })
+            .collect();
+        assert!(!meshes.is_empty());
+        for b in meshes {
+            assert!(b.points.count <= 1, "{}", b.points.count);
+            for l in &b.points.lights[..b.points.count] {
+                assert!((l.origin.z - sky[0].z).abs() < 0.01, "{:?}", l.origin);
+            }
+        }
+    }
 }
 
 /// A room that sees neither the sky nor a doorway out draws nothing outdoors: no sky, no land, no
@@ -165,9 +207,9 @@ fn frills_take_the_carried_lights_that_reach_them() {
 /// The rooms of a cave seen from the land outside its mouth (block `0x6967`, the frame outdoors at
 /// noon) are lit as rooms, not by the sun: each room named in the block's list of rooms seen from
 /// outside is drawn once (the list names some twice), its mesh by the light its vertices carry (the
-/// lights its record lists, and the sun's share through its openings), with no light of its own
-/// besides; a torch carried inside the first room reaches its draws (and still no sun), while the
-/// same torch carried on the land outside reaches none of them.
+/// lights its record lists, and the sun's share through its openings) and the lights it keeps where
+/// it stands; a torch carried inside the first room joins them (and still no sun), while the same
+/// torch carried on the land outside does not.
 ///
 /// Behaviour: draw.inside.rooms-seen-from-outside-are-lit-as-rooms
 #[test]
@@ -204,11 +246,8 @@ fn rooms_seen_from_outside_are_lit_as_rooms() {
     for &k in &walls {
         let b = &frame.objects[k];
         assert_ne!(b.layer.switches & LIT_IN_VERTICES, 0, "lit in its vertices");
-        assert!(
-            b.points.inside && b.points.count == 0,
-            "no sun, no light of its own"
-        );
-        assert!(!b.kept_by.expect("kept").own);
+        assert!(b.points.inside, "no sun");
+        assert!(b.kept_by.expect("kept").own);
     }
     let in_rooms = frame
         .objects
@@ -235,15 +274,16 @@ fn rooms_seen_from_outside_are_lit_as_rooms() {
     };
     let outside = Outside::of(&frame.light);
     builder.light_carried(&s, &mut frame.objects, &[torch_in(0x6967_0029)], &outside);
-    let lit = |f: &auberean_draw::scene::Frame| {
+    let took = |f: &auberean_draw::scene::Frame| {
         walls
             .iter()
-            .filter(|&&k| f.objects[k].points.count > 0)
+            .filter(|&&k| f.objects[k].kept_by.is_some_and(|kb| kb.took_carried))
             .count()
     };
-    assert_eq!(lit(&frame), 0, "a torch on the land reaches no room");
+    builder.light_carried(&s, &mut frame.objects, &[torch_in(0x6967_0029)], &outside);
+    assert_eq!(took(&frame), 0, "a torch on the land reaches no room");
     builder.light_carried(&s, &mut frame.objects, &[torch_in(mouth)], &outside);
-    assert!(lit(&frame) > 0, "a torch in the room reaches it");
+    assert!(took(&frame) > 0, "a torch in the room reaches it");
     assert!(walls.iter().all(|&k| frame.objects[k].points.inside));
     println!("{in_rooms} draws in {} rooms", rooms.len());
 }

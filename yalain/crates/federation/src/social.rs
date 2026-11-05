@@ -25,12 +25,15 @@ pub(crate) fn covers(key: &str, who: &str) -> bool {
 }
 
 impl Federation {
-    /// The friends a character lists on other worlds.
-    fn remote_of(&self, friends: &impl Friends, name: &str) -> Vec<Address> {
+    /// The friends a character lists on other worlds: those it keeps, and those its person friends
+    /// list.
+    #[must_use]
+    pub fn remote_of(&self, friends: &impl Friends, name: &str) -> Vec<Address> {
         friends
             .remote_friends(name)
             .into_iter()
             .filter(|f| f.world() != self.settings.slug && !f.is_channel())
+            .chain(self.person_friends(name))
             .collect()
     }
 
@@ -62,8 +65,8 @@ impl Federation {
         }
     }
 
-    /// A world (or the whole hub) is gone: its characters show offline, as a state rather than
-    /// news, and are unknown until their world says again. Its watchers are forgotten too; it
+    /// A world (or the whole hub) is gone: its characters show offline, and are unknown until their
+    /// world says again. Its watchers are forgotten too; it
     /// watches again when it is back.
     pub(crate) fn world_gone(&mut self, friends: &mut impl Friends, slug: &str) {
         let suffix = format!("@{slug}");
@@ -75,7 +78,7 @@ impl Federation {
     }
 
     /// Forgets what local characters were told of the friends whose identity keys `which`
-    /// accepts, and shows those shown online offline, as a state rather than news.
+    /// accepts, and shows those shown online offline.
     fn forget_presence(&mut self, friends: &mut impl Friends, which: impl Fn(&str) -> bool) {
         let known: Vec<((String, String), bool)> = self
             .presence
@@ -97,7 +100,7 @@ impl Federation {
                 .into_iter()
                 .find(|f| f.key() == key);
             if let Some(f) = listed {
-                friends.show_presence(&present.name, &f, false, false);
+                friends.show_presence(&present.name, &f, false, true);
             }
         }
     }
@@ -157,6 +160,7 @@ impl Federation {
         }
         self.tell_watchers(friends, name, None);
         self.watch_friends_of(friends, name, true);
+        self.watch_person(name, true);
     }
 
     /// A character is no longer present: what its friends' worlds told it is forgotten, and if
@@ -173,6 +177,8 @@ impl Federation {
         }
         self.tell_watchers(friends, name, Some(false));
         self.watch_friends_of(friends, name, false);
+        self.watch_person(name, false);
+        self.gone_rows.remove(&character);
     }
 
     /// Puts a character of this world on the network, or takes it off, at once: kept in the
@@ -216,17 +222,68 @@ impl Federation {
         Ok(true)
     }
 
+    /// A character is about to take a new name, the friends service still knowing it by this one:
+    /// while it is present and on the network, its address's watchers and its friends on other
+    /// worlds see that address offline, and it stops watching under it.
+    pub fn renaming(&mut self, friends: &impl Friends, name: &str) {
+        self.out_of_sight(friends, name);
+    }
+
+    /// A character has taken a new name, which the friends service knows it by now. An address is a
+    /// name, so to other worlds this is another character: nobody keeps watching the old one, and
+    /// it is taken out of the directory. It stays on the network under the new name, and is listed
+    /// and watches its friends again under it. What its friends' worlds told it stands, so its
+    /// client is shown nothing new of them when they answer again. A character the hub holds out
+    /// stays held out.
+    pub fn renamed(&mut self, friends: &impl Friends, old: &str, new: &str) {
+        let (from, to) = (old.to_lowercase(), new.to_lowercase());
+        self.watchers.remove(&from);
+        self.gone_rows.remove(&from);
+        let Some(mut on) = self.on.remove(&from) else {
+            return;
+        };
+        let id = on.id;
+        new.clone_into(&mut on.name);
+        self.on.insert(to.clone(), on);
+        let told: Vec<(String, String)> = self
+            .presence
+            .keys()
+            .filter(|(c, _)| *c == from)
+            .cloned()
+            .collect();
+        for key in told {
+            let moved = (to.clone(), key.1.clone());
+            if self.presence_due.remove(&key) {
+                self.presence_due.insert(moved.clone());
+            }
+            if let Some(status) = self.presence.remove(&key) {
+                self.presence.insert(moved, status);
+            }
+        }
+        self.listing_renamed(id, old, new);
+        if friends.present(new).is_some() {
+            self.arrived(friends, new);
+        }
+    }
+
     /// A character is off the network now, its setting kept: while it is present, its watchers
     /// and friends on other worlds see it offline, and it stops watching its friends.
     pub(crate) fn went_off(&mut self, friends: &impl Friends, name: &str) {
-        if self.enabled() && friends.present(name).is_some() {
-            self.tell_watchers(friends, name, Some(false));
-            self.watch_friends_of(friends, name, false);
-        }
+        self.out_of_sight(friends, name);
         let character = name.to_lowercase();
         self.presence.retain(|(c, _), _| *c != character);
         self.presence_due.retain(|(c, _)| *c != character);
         self.on.remove(&character);
+    }
+
+    /// While a character is present, its watchers and friends on other worlds see it offline, and
+    /// it stops watching its friends.
+    fn out_of_sight(&mut self, friends: &impl Friends, name: &str) {
+        if self.enabled() && friends.present(name).is_some() {
+            self.tell_watchers(friends, name, Some(false));
+            self.watch_friends_of(friends, name, false);
+            self.watch_person(name, false);
+        }
     }
 
     /// A present character on the network added a friend on another world: it is watched while
@@ -274,7 +331,7 @@ impl Federation {
     /// Keeps `owner` as a watcher of `name`, within the caps (a watcher the character lists is
     /// always kept).
     fn keep_watcher(&mut self, friends: &impl Friends, name: &str, owner: &Address) {
-        let listed = friends.remote_friends(name).iter().any(|f| f.same(owner));
+        let listed = self.remote_of(friends, name).iter().any(|f| f.same(owner));
         let m = self.watchers.entry(name.to_lowercase()).or_default();
         if m.contains_key(&owner.key()) {
             return;
@@ -410,6 +467,14 @@ impl Federation {
             status.online,
             status.shown.is_some(),
         );
+        // A character a person friend listed, other than its handle, comes online as its person.
+        if status.online && status.shown.is_some() {
+            let handle = self.person_handle(&present.name, &listed);
+            let id = self.on.get(&key.0).map(|o| o.id);
+            if let (Some(h), Some(id)) = (handle.filter(|h| !h.same(&listed)), id) {
+                friends.show_line(id, &format!("{h} is online as {listed}."));
+            }
+        }
     }
 
     /// Shows each state whose time has come its latest.

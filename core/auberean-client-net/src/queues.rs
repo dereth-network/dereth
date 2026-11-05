@@ -51,6 +51,7 @@ pub fn queue_of(m: &ClientMessage) -> u16 {
         ClientMessage::PlayCharacter(_)
         | ClientMessage::LogOff(_)
         | ClientMessage::DeleteCharacter(_)
+        | ClientMessage::RestoreCharacter(_)
         | ClientMessage::CreateCharacter(_)
         | ClientMessage::Chat(_) => queue::LOGON,
         ClientMessage::ServerCall(_)

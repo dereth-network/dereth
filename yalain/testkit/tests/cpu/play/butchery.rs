@@ -253,18 +253,29 @@ fn a_knife_used_on_a_corpse_butchers_it_once_for_a_material_and_experience() {
     );
 }
 
-/// How many units a knife cuts: a crude knife 11 from any creature; a hunting knife 16 from
-/// creatures below level 17 and more from stronger ones; an item that is not a knife none. An
-/// expert cut comes more often the more the butcher's level passes the creature's.
+/// How many units a knife cuts: ten above its own yield, whatever the creature: a crude knife's 1
+/// gives 11; an item that is not a knife cuts nothing. An expert cut comes more often the more the
+/// butcher's level passes the creature's.
 /// Behaviour: server.craft.butchery-units-by-knife
 #[test]
-fn a_knife_cuts_its_units_by_the_creatures_level() {
-    assert_eq!(butchery::units(CRUDE_KNIFE, 5), Some(11));
-    assert_eq!(butchery::units(CRUDE_KNIFE, 50), Some(11));
-    assert_eq!(butchery::units(0x4700_0CBB, 16), Some(16));
-    assert_eq!(butchery::units(0x4700_0CBB, 17), Some(32));
-    assert_eq!(butchery::units(0x4700_0CBB, 43), Some(35));
-    assert_eq!(butchery::units(BONE, 5), None);
+fn a_knife_cuts_ten_units_above_its_own_yield() {
+    assert_eq!(
+        butchery::units(butchery::knife_yield(CRUDE_KNIFE, None)),
+        11
+    );
+    assert_eq!(
+        butchery::units(butchery::knife_yield(0x4700_0CBB, None)),
+        16
+    );
+    // 2017's examined knives: yield 16 cut 26, 22 cut 32, 25 cut 35, 28 cut 38, 33 cut 43.
+    for (own, cut) in [(16, 26), (22, 32), (25, 35), (28, 38), (33, 43)] {
+        assert_eq!(
+            butchery::units(butchery::knife_yield(0x4700_0CBB, Some(own))),
+            cut
+        );
+    }
+    assert!(butchery::is_knife(CRUDE_KNIFE) && butchery::is_knife(0x4700_0CBB));
+    assert!(!butchery::is_knife(BONE));
     assert!(butchery::expert_chance(-5) < butchery::expert_chance(10));
     assert!(butchery::expert_chance(10) < butchery::expert_chance(45));
 }
@@ -471,4 +482,101 @@ fn a_worn_knife_keeps_its_durability_across_a_logout() {
         h.server.things.get(knife).and_then(|t| t.durability),
         Some(7)
     );
+}
+
+/// A made knife cuts ten above its own yield, whatever its template, and wears down from its own
+/// durability.
+/// Behaviour: server.craft.butchery-units-by-knife
+#[test]
+fn a_made_knife_cuts_by_its_own_yield_and_wears_from_its_own_durability() {
+    let (mut h, b, me, world, knife, corpse) = at_a_corpse();
+    h.server.things.get_mut(knife).expect("the knife").own.made = Some(yalain_world::made::Made {
+        tool_yield: Some(25),
+        durability: Some(200),
+        craft_needed: Some(1),
+        ..yalain_world::made::Made::default()
+    });
+    let from = butcher(&mut h, b, me, knife, corpse, 5.0);
+    let p = &h.server.players[&world];
+    let got = p
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == BONE)
+        .map_or(0, |i| i.quantity);
+    assert!(got == 35 || got == 70, "ten above 25, or twice that: {got}");
+    for left in wear_updates(&h, b, from, knife) {
+        assert_eq!(left, 199, "from its own 200");
+    }
+}
+
+/// A knife that asks more of the player's craft skill than it has is refused, and cuts nothing.
+/// Behaviour: server.craft.tool-asks-its-craft-skill
+#[test]
+fn a_knife_asking_more_craft_skill_than_the_player_has_is_refused() {
+    let (mut h, b, me, world, knife, corpse) = at_a_corpse();
+    h.server.things.get_mut(knife).expect("the knife").own.made = Some(yalain_world::made::Made {
+        tool_yield: Some(25),
+        durability: Some(100),
+        craft_needed: Some(60),
+        ..yalain_world::made::Made::default()
+    });
+    let from = butcher(&mut h, b, me, knife, corpse, 5.0);
+    assert!(
+        use_answers(&h, b, from)
+            .iter()
+            .any(|(status, _)| *status == refusal::CRAFT_TOO_LOW),
+        "{:?}",
+        use_answers(&h, b, from)
+    );
+    let p = &h.server.players[&world];
+    assert!(!p.play.items.iter().any(|i| i.template == BONE));
+}
+
+/// A cut with no place in the pack for its material is refused at the result, as the work ends: no
+/// material, the corpse still to butcher, nothing paid. With a place, the same corpse is cut.
+/// Behaviour: server.craft.butchery-wants-a-place-in-the-pack
+#[test]
+fn a_cut_with_no_place_in_the_pack_is_refused_and_leaves_the_corpse_to_butcher() {
+    let (mut h, b, me, world, knife, corpse) = at_a_corpse();
+    let items = &mut h.server.players.get_mut(&world).expect("there").play.items;
+    for n in u32::try_from(items.len()).expect("few")..yalain_world::inventory::PACK_ROOM {
+        items.push(yalain_world::state::Held {
+            id: 0x8130_0000_0FFF_0000 + u64::from(n),
+            template: BONE - 1,
+            slot: n,
+            location: 0,
+            quantity: 1,
+        });
+    }
+    let from = butcher(&mut h, b, me, knife, corpse, 2.5);
+    assert_eq!(
+        use_answers(&h, b, from).first().map(|a| a.0),
+        Some(refusal::NO_ROOM)
+    );
+    let held = |h: &Harness, t: u32| {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .filter(|i| i.template == t)
+            .count()
+    };
+    assert_eq!(held(&h, BONE), 0, "no material");
+    assert!(
+        wear_updates(&h, b, from, knife).is_empty(),
+        "the knife unworn"
+    );
+    let open = h.server.things.get(corpse).and_then(|t| t.corpse.as_ref());
+    assert!(open.is_some_and(|c| !c.butchered), "still to butcher");
+    h.server
+        .players
+        .get_mut(&world)
+        .expect("there")
+        .play
+        .items
+        .retain(|i| i.template != BONE - 1);
+    let from = butcher(&mut h, b, me, knife, corpse, 2.5);
+    assert_eq!(use_answers(&h, b, from).first().map(|a| a.0), Some(0));
+    assert_eq!(held(&h, BONE), 1);
 }

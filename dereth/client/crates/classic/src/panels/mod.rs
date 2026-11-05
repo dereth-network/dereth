@@ -552,6 +552,8 @@ pub struct Control {
     pub keyed: bool,
     /// An edit field that selects all its text when it gains the focus.
     pub select_on_focus: bool,
+    /// What an empty edit field shows while it does not have the focus.
+    pub idle_text: Option<String>,
     /// A dropdown whose list is the chat's destination list art.
     pub chat_popup: bool,
     /// A dropdown drawn from the interface art, as the creation screens' are: a 117x25 face on
@@ -620,6 +622,69 @@ impl ListSkin {
         top: Some(("06001278", 3)),
         bottom: Some(("06001277", 5)),
     };
+}
+
+/// A panel's frame as its world draws it: a world whose scroll bars draw no thumb with nothing to
+/// scroll has those thumbs taken off.
+pub fn era_frame(panel: &mut dyn Panel, context: &Context<'_>) -> PanelFrame {
+    let mut frame = panel.frame(context);
+    frame.apply_era_facts(context.game.era_ui());
+    frame
+}
+
+impl PanelFrame {
+    fn apply_era_facts(&mut self, facts: dereth_client_contract::era::EraUiFacts) {
+        if facts.idle_scroll_thumb {
+            return;
+        }
+        for control in &mut self.controls {
+            if let ControlKind::ScrollBar {
+                min,
+                max,
+                thumb_size,
+                ..
+            } = &mut control.kind
+            {
+                if *max <= *min {
+                    *thumb_size = 0;
+                }
+            }
+        }
+    }
+}
+
+/// Where the pointer rests in a window: the control there, the point in the window, and the item
+/// in the control's slot under it.
+#[derive(Clone, Copy, Debug)]
+pub struct HoverPoint<'a> {
+    pub id: &'a str,
+    pub x: i32,
+    pub y: i32,
+    pub item: Option<ObjectId>,
+    /// The row of the control's open list under the pointer.
+    pub row: Option<usize>,
+}
+/// What the viewport's name and hint lines say while the pointer rests on a control.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Hover {
+    pub name: String,
+    pub hint: Option<String>,
+}
+impl Hover {
+    /// One line.
+    pub fn line(name: impl Into<String>) -> Option<Self> {
+        Some(Self {
+            name: name.into(),
+            hint: None,
+        })
+    }
+    /// Two lines.
+    pub fn lines(name: impl Into<String>, hint: impl Into<String>) -> Option<Self> {
+        Some(Self {
+            name: name.into(),
+            hint: Some(hint.into()),
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -737,6 +802,7 @@ impl PanelFrame {
             endcaps: None,
             keyed: true,
             select_on_focus: false,
+            idle_text: None,
             chat_popup: false,
             choice_art: false,
             slot: false,
@@ -901,6 +967,10 @@ impl PanelFrame {
 }
 
 pub trait Panel: std::fmt::Debug {
+    /// What the control under the pointer says of itself.
+    fn hover(&self, _at: HoverPoint<'_>, _context: &Context<'_>) -> Option<Hover> {
+        None
+    }
     fn pointer_art(&self, _x: i32, _y: i32) -> Option<(String, u32, u32)> {
         None
     }
@@ -1076,10 +1146,49 @@ pub fn configure_keyboard() -> PanelAction {
         id: "configure-keyboard".into(),
         text: "\n\nTo configure your keyboard, you need to leave the world.\nProceed?".into(),
         accept: vec![
+            PanelAction::Host(HostAction::LocalFeedback {
+                severity: FeedbackSeverity::Information,
+                text: "Logging out to configure keys.".into(),
+            }),
             PanelAction::Game(UiRequest::EndCharacterSession { ask: false }),
             PanelAction::Host(HostAction::KeyboardOnLeaving),
         ],
     }
+}
+
+/// The system the classic panel `id` belongs to, if it follows one.
+#[must_use]
+pub fn era_surface_of(id: &str) -> Option<dereth_client_contract::era::EraSurface> {
+    use dereth_client_contract::era::EraSurface as S;
+    Some(match id {
+        "journal" => S::Journal,
+        "contracts" => S::Contracts,
+        "titles" => S::Titles,
+        "house" | "maintenance" => S::House,
+        "game-center" => S::Chess,
+        "trade" | "trade-intro" => S::Trade,
+        "salvage" => S::Salvage,
+        "spell-research" => S::SpellResearch,
+        _ => return None,
+    })
+}
+
+/// The system the paper doll's accessory at `index` belongs to, if it follows one of its own: the
+/// cloak and the trinket. The sigils follow the character's unlocks.
+#[must_use]
+pub fn accessory_surface(index: usize) -> Option<dereth_client_contract::era::EraSurface> {
+    use dereth_client_contract::era::EraSurface as S;
+    match index {
+        0 => Some(S::CloakSlot),
+        1 => Some(S::TrinketSlot),
+        _ => None,
+    }
+}
+
+/// Whether a world playing `features` refuses the classic panel `id`.
+#[must_use]
+pub fn era_refuses(id: &str, features: dereth_primitives::EraFeatures) -> bool {
+    era_surface_of(id).is_some_and(|s| !s.offered(features))
 }
 
 /// Every classic panel, by id.
@@ -1097,4 +1206,62 @@ pub fn factory(
         .or_else(|| game::make(id))
         .or_else(|| services::make(id))
         .or_else(|| crate::help::make(id, resources.help.as_ref()))
+}
+
+#[cfg(test)]
+mod idle_scroll_thumb_tests {
+    use super::*;
+    use dereth_client_contract::era::EraUiFacts;
+    use dereth_primitives::EraId;
+
+    fn bar_frame(max: i32) -> PanelFrame {
+        let mut frame = PanelFrame::new(100, 100);
+        frame.control(
+            "bar",
+            Rect {
+                x: 0,
+                y: 0,
+                w: 20,
+                h: 100,
+            },
+            ControlKind::ScrollBar {
+                min: 0,
+                max,
+                value: 0,
+                page: 100,
+                step: 10,
+                vertical: true,
+                arrow_size: 20,
+                thumb_size: 28,
+            },
+            true,
+        );
+        frame
+    }
+
+    fn thumb(frame: &PanelFrame) -> i32 {
+        match frame.controls[0].kind {
+            ControlKind::ScrollBar { thumb_size, .. } => thumb_size,
+            _ => unreachable!("a scroll bar"),
+        }
+    }
+
+    /// Behaviour: none (how a Launch world's bars differ from the later ones)
+    #[test]
+    fn a_launch_bar_with_nothing_to_scroll_has_no_thumb_and_a_later_one_keeps_it() {
+        let launch = EraUiFacts::for_profile(EraId::Launch);
+        let mut frame = bar_frame(0);
+        frame.apply_era_facts(launch);
+        assert_eq!(thumb(&frame), 0, "the list fits");
+
+        let mut frame = bar_frame(32);
+        frame.apply_era_facts(launch);
+        assert_eq!(thumb(&frame), 28, "the list overflows");
+
+        for later in [EraId::Infiltration, EraId::Eor] {
+            let mut frame = bar_frame(0);
+            frame.apply_era_facts(EraUiFacts::for_profile(later));
+            assert_eq!(thumb(&frame), 28, "{later:?}");
+        }
+    }
 }

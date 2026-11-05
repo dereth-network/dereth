@@ -250,6 +250,38 @@ fn a_body_runs_and_jumps_at_its_own_scale_not_its_looks() {
     }
 }
 
+/// A body with a figure stays in its old element through the step that takes the figure to the
+/// new one, while the element it is going to leads: it may not jump again until the figure stands
+/// on the ground, and going back asks its animation again.
+///
+/// Behaviour: motion.element.a-body-with-a-figure-is-in-the-element-its-figure-stands-in
+#[test]
+fn a_body_with_a_figure_is_in_the_element_its_figure_stands_in() {
+    let mut b = body(0.0, 0.0);
+    b.contact = true;
+    b.figure_stands_in(EARTH);
+    b.notices.clear();
+    b.do_element(AIR);
+    assert_eq!((b.element(), b.desired_element()), (EARTH, AIR));
+    let asked = |b: &mut Body| {
+        std::mem::take(&mut b.notices)
+            .into_iter()
+            .filter(|n| matches!(n, Notice::Animate(Animate::Element(_))))
+            .count()
+    };
+    assert_eq!(asked(&mut b), 1);
+    b.do_element(AIR);
+    assert_eq!(asked(&mut b), 0, "asked once");
+    b.figure_stands_in(AIR);
+    assert_eq!(b.element(), AIR, "the figure got there");
+    b.do_element(EARTH);
+    assert_eq!((b.element(), b.desired_element()), (AIR, EARTH));
+    assert_eq!(asked(&mut b), 1);
+    assert!(!b.jump(), "not yet on the ground");
+    b.figure_stands_in(EARTH);
+    assert!(b.jump(), "on the ground");
+}
+
 /// A body that goes into another element asks its animation to go there too, once: jumping, into
 /// the air; landing, back onto the earth.
 ///

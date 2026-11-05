@@ -527,7 +527,7 @@ impl CharacterPage {
                     else {
                         return;
                     };
-                    ui.update(list);
+                    ui.list_update_and_draw(list);
                 }
                 self.update_buttons(ui);
             }
@@ -558,7 +558,7 @@ impl CharacterPage {
 
     /// The player's options as the client last read them: shown again when read again (the
     /// scripts read them again, the radar's coordinates were shown or hidden, the bar's rows set).
-    // D2-02832
+    // D2-02832, D2-00158
     pub fn update(&mut self, ui: &mut Ui, v: Option<&Values>) {
         let Some(v) = v else { return };
         if self.shown.is_none_or(|s| s.read != v.read) {

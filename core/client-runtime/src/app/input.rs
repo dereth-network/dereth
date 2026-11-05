@@ -164,10 +164,19 @@ impl<S: Shell> App<S> {
         if transient.is_empty() {
             return;
         }
-        if let Some(c) = self.world.as_mut().and_then(|w| w.character.as_mut()) {
-            for (cmd, start) in transient {
-                c.command_motion(start, dereth_animation::MotionCommand(cmd));
-            }
+        let Some(c) = self.world.as_mut().and_then(|w| w.character.as_mut()) else {
+            return;
+        };
+        let mut refusals = Vec::new();
+        for (cmd, start) in transient {
+            let refusal = c.command_motion(start, dereth_animation::MotionCommand(cmd));
+            refusals.extend(crate::actions::emote::refusal_text(refusal).filter(|_| start));
+        }
+        for text in refusals {
+            self.objects
+                .world
+                .scroll
+                .on_display_string_info(dereth_client_model::scroll::LOCAL_ERROR_TYPE, text);
         }
     }
 

@@ -20,8 +20,8 @@ use dereth_physics::source::{CellPortal, EnvCellGeometry};
 use dereth_physics::V3;
 use dereth_primitives::{CellId, Frame, Quat, Vec3};
 
-use crate::land::{segment_distance, segment_polygon, Land, Solid};
-use crate::mesh::{convert, physics_tree, positions, Trees};
+use crate::land::{segment_distance, segment_polygon, CellMaterial, Land, Solid};
+use crate::mesh::{convert, physics_polygons, physics_tree, positions, Trees};
 
 /// The lowest cell index of an interior cell; land cells are numbered 1 to 64.
 pub const FIRST_INTERIOR: u32 = 0x100;
@@ -39,8 +39,10 @@ fn v3(v: auberean_primitives::Vec3) -> Vec3 {
 }
 
 /// Cell `low` of block `(x, y)` as the shared core's interior cell, from the cell's record and its
-/// mesh; `None` when the mesh has no physics tree. A doorway flagged as having no cell beyond leads
-/// outdoors.
+/// mesh; `None` when the mesh's vertices store no positions. A cell mesh with no physics tree is
+/// open air: nothing in it stops a body but the objects standing there, and its polygons are its
+/// doorways. A doorway flagged as having no cell beyond leads outdoors. A cell with no doorways
+/// still holds what its cell tree says it does: the training ground's closed rooms are stood in.
 // D2-04243, D2-03490, D2-03492
 #[must_use]
 pub fn cell_geometry(
@@ -51,9 +53,8 @@ pub fn cell_geometry(
     low: u16,
 ) -> Option<EnvCellGeometry> {
     let block = u32::from(x) << 24 | u32::from(y) << 16;
-    let physics = physics_tree(&mesh.mesh)?;
     let at = positions(&mesh.mesh.vertices)?;
-    let polygons = physics.polygons.clone();
+    let polygons = physics_polygons(&mesh.mesh)?;
     let by_id: HashMap<u16, u32> = mesh
         .mesh
         .physics_polygons
@@ -79,6 +80,7 @@ pub fn cell_geometry(
                         .collect();
                     v.filter(|v| v.len() >= 3).map(Polygon::new)
                 })?;
+            // D2-04239, D2-04240, D2-04233
             let other = if p.flags & NO_OTHER_CELL != 0 {
                 crate::cells::OUTDOORS
             } else {
@@ -99,7 +101,7 @@ pub fn cell_geometry(
         frame: Frame::new(v3(cell.frame.origin), Quat::new(q.w, q.x, q.y, q.z)),
         portals,
         physics_polygons: polygons,
-        physics_bsp: Some(Arc::new(physics)),
+        physics_bsp: physics_tree(&mesh.mesh).map(Arc::new),
         cell_bsp: Some(Arc::new(inside)),
         stab_list: cell
             .visible
@@ -107,6 +109,7 @@ pub fn cell_geometry(
             .map(|&c| CellId(block | u32::from(c)))
             .collect(),
         seen_outside: cell.flags & 0x1 != 0,
+        holds_without_portals: true,
         static_objects: Vec::new(),
     })
 }
@@ -124,6 +127,7 @@ fn cell_solids(records: &WorldRecords, trees: &mut Trees, cell: &Cell, id: CellI
 /// Add every interior cell of block `(x, y)` to `land`, with the solid parts of the entities
 /// placed in each and the entities that collide through cylinders or spheres; returns how many
 /// cells were added.
+// D2-03581, D2-03574
 pub fn add_block_cells(
     land: &Land,
     records: &WorldRecords,
@@ -135,6 +139,8 @@ pub fn add_block_cells(
     let Some(info) = records.landblock_info(bx, by) else {
         return 0;
     };
+    land.properties_or(|| records.block_properties().map(Arc::new));
+    let block_properties = Arc::new(info.properties.clone());
     let mut meshes: HashMap<u32, Option<Arc<CellMesh>>> = HashMap::new();
     let mut added = 0;
     for k in 0..info.cell_count {
@@ -159,12 +165,20 @@ pub fn add_block_cells(
                 .filter_map(|e| crate::object::placed_entity(records, trees, e, g.id))
                 .map(|(p, s)| (p, Arc::new(s)))
                 .collect();
+            land.insert_cell_material(
+                g.id,
+                CellMaterial {
+                    block: Arc::clone(&block_properties),
+                    own: cell.properties.clone(),
+                },
+            );
             land.insert_cell_objects(g.id, objects);
             land.insert_cell_solids(g.id, cell_solids(records, trees, &cell, g.id));
             land.insert_cell(g);
             added += 1;
         }
     }
+    land.connect_cells(x, y, &info.outside_visible);
     added
 }
 

@@ -41,6 +41,8 @@ use crate::{Scene, BLOCK_LENGTH};
 
 /// How long a fading object takes to fade out, and the opacity it fades to, seconds.
 pub const FADE_TIME: f64 = 0.5;
+/// How long after a behavior asks that its object go it goes, hidden until then, seconds.
+pub(crate) const REMOVED_GONE: f64 = 3.0;
 
 /// One object the client made.
 pub(crate) struct Temporary {
@@ -124,6 +126,19 @@ fn body_of(id: u64, figure: Option<&Figure>, scale: f32, at: Position) -> Body {
 }
 
 impl Temporaries {
+    /// The decals the bodies' effects laid since last asked, each with where its body stands.
+    pub(crate) fn take_decals(
+        &mut self,
+        out: &mut Vec<(Position, auberean_draw::effects::FxDecal)>,
+    ) {
+        for b in self.made.values_mut() {
+            if let Some(fx) = b.effects.as_mut() {
+                let place = b.body.position;
+                out.extend(fx.fx.take_decals().into_iter().map(|d| (place, d)));
+            }
+        }
+    }
+
     /// The sounds every body's effects played or stopped since last taken, each with its object.
     pub(crate) fn take_sounds(&mut self, out: &mut Vec<(u64, auberean_draw::effects::FxSound)>) {
         for fx in self.made.values_mut().filter_map(|b| b.effects.as_mut()) {
@@ -274,9 +289,36 @@ impl Temporaries {
         t.removal = Some(t.removal.map_or(at, |r| r.min(at)));
     }
 
+    /// What every object's figure asked beyond its animation since last taken, with its id. A
+    /// behavior that destroys its object as it ends hides it at once, and it goes three seconds on.
+    // D2-06097
+    pub(crate) fn take_figure_events(
+        &mut self,
+        now: f64,
+    ) -> Vec<(u64, auberean_animation::host::Event)> {
+        use auberean_animation::host::Event;
+        let mut out = Vec::new();
+        let mut removed = Vec::new();
+        for (id, t) in &mut self.made {
+            if let Some(f) = &mut t.figure {
+                for e in f.take_events() {
+                    if e == Event::Remove {
+                        removed.push(*id);
+                    } else {
+                        out.push((*id, e));
+                    }
+                }
+            }
+        }
+        for id in removed {
+            self.fade_and_remove(id, now, 0.0, REMOVED_GONE);
+        }
+        out
+    }
+
     /// The objects whose timeout has passed by `now` fade out; those whose time to go has come are
-    /// removed (their ids given back).
-    pub(crate) fn use_time(&mut self, now: f64) -> Vec<u64> {
+    /// removed (their ids given back, with their holders).
+    pub(crate) fn use_time(&mut self, now: f64) -> Vec<(u64, Option<u64>)> {
         let due: Vec<u64> = self
             .made
             .iter()
@@ -292,13 +334,13 @@ impl Temporaries {
             );
             self.fade_and_remove(id, now, FADE_TIME, FADE_TIME);
         }
-        let gone: Vec<u64> = self
+        let gone: Vec<(u64, Option<u64>)> = self
             .made
             .iter()
             .filter(|(_, t)| t.removal.is_some_and(|r| r <= now))
-            .map(|(id, _)| *id)
+            .map(|(id, t)| (*id, t.holder.map(|(h, _)| h)))
             .collect();
-        for id in &gone {
+        for (id, _) in &gone {
             self.made.remove(id);
         }
         gone
@@ -332,6 +374,7 @@ impl Temporaries {
             let g = crate::figures::global(at.cell.0, Vec3::new(o.x, o.y, o.z));
             let rel = Vec3::new(g.x - ox, g.y - oy, g.z);
             let q = at.frame.rotation;
+            // D2-05981
             let place = Mat4::from_parts(
                 rel,
                 Quat {
@@ -342,9 +385,12 @@ impl Temporaries {
                 },
                 Vec3::new(scale.x, scale.y, scale.z),
             );
-            let poses = f.pose(anims);
             let start = out.len();
-            out.extend(drawer.batches(records, f, &poses, &place));
+            if crate::figures::is_visible(f) {
+                let poses = f.pose(anims);
+                drawer.next_body(false);
+                out.extend(drawer.batches(records, f, &poses, &place));
+            }
             let heading = auberean_physics::geom::frame_heading(&at.frame).degrees();
             noted.push((*id, start..out.len(), rel, heading));
         }
@@ -398,9 +444,25 @@ impl Scene<'_> {
             if let Some(k) = t.body.key() {
                 self.table.remove(k);
             }
+            self.holder_lets_go(t.holder.map(|(h, _)| h), id);
             self.stories.remove(&id);
             client.model.deallocate_temporary_id(id);
             client.queue.remove_object(id);
+        }
+    }
+
+    /// A holder takes an object the client made off its list as the object goes, so that the id,
+    /// when used again, is not taken for it.
+    fn holder_lets_go(&mut self, holder: Option<u64>, id: u64) {
+        let Some(holder) = holder else {
+            return;
+        };
+        let body = match self.player.as_mut() {
+            Some(p) if p.id == holder => Some(&mut p.body),
+            _ => self.others.holder_mut(holder).map(|(b, _)| b),
+        };
+        if let Some(b) = body {
+            b.remove_child(id);
         }
     }
 
@@ -452,6 +514,45 @@ impl Scene<'_> {
         };
         m.body
             .missile_initialize(&self.land, &mut self.table, &mut self.objects, p, t);
+    }
+
+    /// Object `id` (one an effect made) hangs from object `holder` at holding location `location`
+    /// (none: at the bone of kind `bone`), `offset` from there: it is no longer to be destroyed.
+    // D2-05997
+    pub(crate) fn fx_hold_temporary(
+        &mut self,
+        client: &mut Client,
+        id: u64,
+        holder: u64,
+        (location, bone): (u32, u32),
+        offset: dereth_primitives::Vec3,
+        remove_rotation: bool,
+    ) {
+        let Some(t) = self.temporaries.get_mut(id) else {
+            return;
+        };
+        let holder_body = match self.player.as_mut() {
+            Some(p) if p.id == holder => &mut p.body,
+            _ => match self.others.holder_mut(holder) {
+                Some((b, _)) => b,
+                None => return,
+            },
+        };
+        let taken = auberean_physics::body::parent::fx_set_parent(
+            &mut t.body,
+            holder_body,
+            location,
+            bone,
+            offset,
+            remove_rotation,
+            &self.land,
+            &mut self.table,
+            &mut self.objects,
+        );
+        if taken {
+            t.holder = Some((holder, if location != 0 { location } else { bone }));
+            client.queue.remove_object_to_be_destroyed(id);
+        }
     }
 
     /// Object `id` (one the client made) is taken up by `holder`'s body at holding location
@@ -519,10 +620,11 @@ impl Scene<'_> {
         heard: &mut Vec<(u64, Vec<Completion>, Vec<u32>)>,
     ) {
         let now = client.local_time();
-        for id in self.temporaries.use_time(now) {
+        for (id, holder) in self.temporaries.use_time(now) {
             if let Some(k) = self.table.find(id) {
                 self.table.remove(k);
             }
+            self.holder_lets_go(holder, id);
             self.stories.remove(&id);
             client.model.deallocate_temporary_id(id);
             client.queue.remove_object(id);
@@ -537,6 +639,26 @@ impl Scene<'_> {
             .collect();
         for id in gone {
             self.destroy_temporary(client, id);
+        }
+        // Past the player's range, an object the client made goes, as its movement finds it there.
+        // D2-06102
+        if let Some(me) = self.player.as_ref().map(|p| p.body.position) {
+            let far: Vec<u64> = self
+                .temporaries
+                .ids()
+                .into_iter()
+                .map(|(id, _)| id)
+                .filter(|id| {
+                    self.temporaries.get(*id).is_some_and(|t| {
+                        t.body.movement_checks_range()
+                            && !t.body.has_parent
+                            && crate::others::out_of_physics_range(&me, &t.body.position)
+                    })
+                })
+                .collect();
+            for id in far {
+                self.destroy_temporary(client, id);
+            }
         }
         let game_now = client.game_time();
         for (id, holder) in self.temporaries.ids() {

@@ -61,6 +61,23 @@ pub struct WorldObjectNetworkingFields {
 
 // ================================================================================ serialisation
 
+/// Not ACE: an object's default script as the row in the world's own files, which a client plays as
+/// sent. ACE's world holds the later number, which older files number lower. The Launch world base
+/// holds the number just below the row that plays on its creatures (with the row itself, its Olthoi
+/// breathe frost rather than acid).
+#[must_use]
+pub fn default_script_on_the_wire(w: &World, o: &WorldObject) -> u32 {
+    use dereth_world_data::effect_numbering::script_in_files;
+    let stored = o.default_script_id().unwrap_or(0);
+    if stored == 0 {
+        return 0;
+    }
+    if w.era.id == empyrean_common::era::EraId::Launch {
+        return if o.is_creature() { stored + 1 } else { stored };
+    }
+    script_in_files(w.dats.portal_dat().container_era(), stored).unwrap_or(0)
+}
+
 // ACE: WorldObject.SerializeUpdateObject
 /// `SerializeUpdateObject(BinaryWriter writer, bool adminvision = false, bool changenodraw =
 /// false)`: the same body as a create object ("content of these 2 is the same? TODO: Validate
@@ -264,6 +281,12 @@ fn serialize_create_object(
     if has(WeenieHeaderFlag::PScript) {
         desc.pscript = Some(
             o.get_property(PropertyDataId::RestrictionEffect)
+                .and_then(|v| {
+                    dereth_world_data::effect_numbering::script_in_files(
+                        w.dats.portal_dat().container_era(),
+                        v,
+                    )
+                })
                 .map_or(0, |v| v.cs_cast()),
         );
     }
@@ -609,7 +632,7 @@ fn serialize_physics_data(
 
     let o = obj(w, this);
     if has(PhysicsDescriptionFlag::DefaultScript) {
-        desc.default_script = Some(o.default_script_id().unwrap_or(0));
+        desc.default_script = Some(default_script_on_the_wire(w, o));
     }
 
     if has(PhysicsDescriptionFlag::DefaultScriptIntensity) {

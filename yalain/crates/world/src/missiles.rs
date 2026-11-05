@@ -566,16 +566,22 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
     } else {
         0
     };
+    let harm = if outcome.landed() {
+        crate::effects::answer_harm(s, crate::effects::On::Player(world), damage, false)
+    } else {
+        crate::effects::Harm::default()
+    };
     let hurt = outcome
         .landed()
-        .then(|| combat::lose_health(s, net, world, damage));
+        .then(|| combat::lose_health(s, net, world, harm.left));
     let swing = combat::Swing {
         skill: f.skill.skill,
         behavior: f.skill.behavior,
         time_scale: 1.0,
         target: f.target,
         outcome,
-        damage,
+        damage: harm.left,
+        back: harm.back,
     };
     let Some(p) = s.players.get_mut(&world) else {
         return;
@@ -598,6 +604,10 @@ pub fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, f: Flight, cloc
         drain(s, net, world, f.creature, level);
     }
     combat::after_hurt(s, net, world, f.creature, clock);
+    if outcome.landed() {
+        crate::effects::answer_attack(s, net, world, f.creature, clock);
+        crate::effects::harm_back(s, net, f.creature, f.target, harm.back, clock);
+    }
 }
 
 /// How much a harming missile's drain takes at the attacker's level: 2 at level 1 to 150 at level

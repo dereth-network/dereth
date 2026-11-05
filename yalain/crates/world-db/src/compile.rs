@@ -18,8 +18,8 @@ use auberean_assets::entity::Entity;
 use auberean_assets::script::Qualities;
 use dereth_primitives::num::math;
 use yalain_content::quests::{
-    Need as TableNeed, Place as StepPlace, QuestDef, QuestTable, Step as TableStep,
-    Trigger as TableTrigger, Update as TableUpdate,
+    Give as TableGive, Need as TableNeed, Place as StepPlace, QuestDef, QuestTable,
+    Step as TableStep, Trigger as TableTrigger, Update as TableUpdate,
 };
 use yalain_content::stores::{Keeper as TableKeeper, Sale as TableSale, SaleGate, StoreTable};
 use yalain_content::talk::{Line, TalkTable};
@@ -46,7 +46,7 @@ pub struct InstallSale {
 /// A quest's definition, as the install holds it: name and description (string, table), icon,
 /// whether updates play an effect, the journal entry of each phase from the first, and the effects
 /// each kind of update puts on the player (the kind, the effect's saved state).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct QuestDefinition {
     pub state: u32,
     pub name: (u32, u32),
@@ -59,6 +59,24 @@ pub struct QuestDefinition {
     pub subquests: Vec<yalain_content::quests::Subquests>,
     /// Done once: its package's setup says it may be done one time.
     pub once: bool,
+    /// How a kill's move on it reaches the killer's fellows, as its package's setup says.
+    pub fellows: yalain_content::quests::Fellows,
+    /// Its last phase waits for something other than a kill to end it: the phase's range is more
+    /// than one.
+    pub last_waits: bool,
+    /// The least level a player is given it at (0: any), as its package's setup says.
+    pub min_level: i32,
+    /// Given only to heroes, as its package's setup says.
+    pub hero_only: bool,
+    /// For the monarch of an allegiance alone, as its package's setup says. Read, and nothing yet
+    /// holds a quest to it.
+    pub monarch_only: bool,
+    /// The experience its completion pays, as its package's setup says.
+    pub xp: u64,
+    /// How its completion's experience is worked out, as its package's setup says.
+    pub pay: yalain_content::quests::CompletionPay,
+    /// A quest a player is to have at a status to be given it, as its package's setup says.
+    pub required: Option<(u32, u32)>,
 }
 
 /// What a compile reads from the user's install.
@@ -120,9 +138,9 @@ pub struct Tables {
 }
 
 impl Tables {
-    /// Rows by table: content, spawns, loot, keepers, sales, quests, steps, lines.
+    /// Rows by table: content, spawns, loot, keepers, sales, quests, steps, gives, lines.
     #[must_use]
-    pub fn counts(&self) -> [(&'static str, usize); 8] {
+    pub fn counts(&self) -> [(&'static str, usize); 9] {
         [
             ("content", self.content.objects.len()),
             ("spawns", self.spawns.camps.len()),
@@ -131,6 +149,7 @@ impl Tables {
             ("sales", self.stores.sales.len()),
             ("quests", self.quests.quests.len()),
             ("steps", self.quests.steps.len()),
+            ("gives", self.quests.gives.len()),
             ("talk", self.talk.lines.len()),
         ]
     }
@@ -384,6 +403,7 @@ fn subquest_definitions(quests: &mut yalain_content::QuestTable, install: &dyn I
             journals: def.journals,
             challenge: -999,
             duration: 0.0,
+            timed_phase: 0,
             retry: 0.0,
             xp: 0,
             cancellable: false,
@@ -391,11 +411,43 @@ fn subquest_definitions(quests: &mut yalain_content::QuestTable, install: &dyn I
             hidden: true,
             effects: def.effects,
             subquests: def.subquests,
-            min_level: 0,
+            min_level: def.min_level,
             fails_on_death: false,
             once: def.once,
+            fellows: def.fellows,
+            last_waits: def.last_waits,
+            hero_only: def.hero_only,
+            required: def.required,
+            pay: yalain_content::quests::CompletionPay::default(),
         });
     }
+}
+
+/// How a quest's completion pays: as its setup says, unless its row says otherwise. A row's amount
+/// is paid in place of the setup's share. A row's share is paid whole, as nearly every share a setup
+/// names is (89 of 91), and at most what it comes to at the row's level.
+fn quest_pay(
+    setup: yalain_content::quests::CompletionPay,
+    q: &crate::rows::Quest,
+) -> yalain_content::quests::CompletionPay {
+    use yalain_content::quests::CompletionPay;
+    if let Some(share) = q.xp_share {
+        #[allow(clippy::cast_possible_truncation)]
+        let share = share as f32;
+        return CompletionPay {
+            share,
+            most_at_level: q.xp_share_level.map(|level| (share, level)),
+            flat: true,
+            ..CompletionPay::default()
+        };
+    }
+    if q.xp.is_some() {
+        return CompletionPay {
+            share: 0.0,
+            ..setup
+        };
+    }
+    setup
 }
 
 /// Compile a merged database against an install.
@@ -464,6 +516,11 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         continue;
                     }
                 };
+                match o.scale {
+                    Some(s) if s > 0.0 => d.scale = Some(s),
+                    Some(s) => cx.warn(l, format!("scale {s}: not above zero, left as it was")),
+                    None => {}
+                }
                 if let Some(n) = o.name {
                     d.name = Some(pair(n));
                     d.source.push_str(", name as recorded");
@@ -747,8 +804,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     journals: def.journals,
                     challenge: q.challenge.unwrap_or(-999),
                     duration: q.duration.unwrap_or(0.0),
+                    timed_phase: q.timed_phase.unwrap_or(0),
                     retry: q.retry.unwrap_or(0.0),
-                    xp: q.xp.unwrap_or(0),
+                    xp: q.xp.unwrap_or(def.xp),
                     cancellable: q.cancellable.unwrap_or(false),
                     placed: prov_text(&q.prov),
                     // A quest is shown when its row says so, else when its definition has a
@@ -756,9 +814,29 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     hidden: !q.visible.unwrap_or(def.description.0 != 0),
                     effects: def.effects,
                     subquests: def.subquests,
-                    min_level: q.min_level.unwrap_or(0),
+                    min_level: q.min_level.unwrap_or(def.min_level),
                     fails_on_death: q.fails_on_death.unwrap_or(false),
                     once: q.once.unwrap_or(def.once),
+                    // A row says whether; left out, the setup does, and a quest with no setup
+                    // stays the killer's. A row that shares a quest whose setup says nothing has
+                    // the limits most quests' setups name (205 of the 226 that share name both).
+                    fellows: match q.fellows {
+                        None => def.fellows,
+                        Some(false) => yalain_content::quests::Fellows::default(),
+                        Some(true) if def.fellows.shared => def.fellows,
+                        Some(true) => yalain_content::quests::Fellows {
+                            shared: true,
+                            near_level: true,
+                            near_by: true,
+                        },
+                    },
+                    last_waits: def.last_waits,
+                    hero_only: def.hero_only,
+                    required: def.required,
+                    pay: yalain_content::quests::CompletionPay {
+                        points: q.qp.unwrap_or(def.pay.points),
+                        ..quest_pay(def.pay, q)
+                    },
                 });
             }
             Row::Step(s) => {
@@ -770,6 +848,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     Trigger::Take(x) => (TableTrigger::Take(x), vec![x]),
                     Trigger::Kill(x) => (TableTrigger::Kill(x), vec![x]),
                     Trigger::Done(q) => (TableTrigger::Done(q), Vec::new()),
+                    Trigger::Given(q) => (TableTrigger::Given(q), Vec::new()),
                 };
                 let mut ok = true;
                 for tpl in named {
@@ -801,6 +880,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         Update::Bestow => TableUpdate::Bestow,
                         Update::Advance => TableUpdate::Advance(s.phase.unwrap_or(0)),
                         Update::Complete => TableUpdate::Complete,
+                        Update::Fail => TableUpdate::Fail,
                     },
                     xp: s.xp.unwrap_or(0),
                     gives: s.gives.clone(),
@@ -817,6 +897,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                                 match n {
                                     Need::Phase(p) => TableNeed::Phase(*p),
                                     Need::Done => TableNeed::Done,
+                                    Need::Free => TableNeed::Free,
                                 },
                             )
                         })
@@ -825,7 +906,42 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     races: s.races.clone(),
                     effects_last: s.effects_last,
                     fellows: s.fellows,
+                    wants: s.wants,
                     to,
+                });
+            }
+            Row::Give(g) => {
+                let mut ok = cx.template(l, "to", g.to);
+                for tpl in g.item.iter().chain(&g.gives) {
+                    ok &= cx.template(l, "item, gives", *tpl);
+                }
+                if !ok {
+                    continue;
+                }
+                t.quests.gives.push(TableGive {
+                    to: g.to,
+                    item: g.item,
+                    wants: g.wants,
+                    gives: g.gives.clone(),
+                    counts: g.counts.clone(),
+                    effects: g.effects.clone(),
+                    text: g.text.map(|r| (r.string, r.table)),
+                    fx: g.fx,
+                    requires: g
+                        .requires
+                        .iter()
+                        .map(|(q, n)| {
+                            (
+                                *q,
+                                match n {
+                                    Need::Phase(p) => TableNeed::Phase(*p),
+                                    Need::Done => TableNeed::Done,
+                                    Need::Free => TableNeed::Free,
+                                },
+                            )
+                        })
+                        .collect(),
+                    placed: prov_text(&g.prov),
                 });
             }
             Row::Craft(c) => {
@@ -881,6 +997,9 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
             }
             Row::Shard(r) => {
                 t.story.shards.insert(r.object, r.scene);
+                if let Some(quest) = r.quest {
+                    t.story.shard_quests.insert(r.object, quest);
+                }
             }
             Row::Weapon(r) => {
                 if cx.template(l, "template", r.template) {

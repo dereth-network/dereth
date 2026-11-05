@@ -29,7 +29,9 @@ fn library() -> Option<&'static Library> {
             .into_iter()
             .find(|(n, _)| *n == DatName::Portal)?;
         let dat = DatFile::open(&path).ok()?;
-        Library::from_record(&dat.read(RECORD).ok()?).ok()
+        dat.read_checked(RECORD, Library::from_record)
+            .ok()
+            .map(|c| c.value)
     })
     .as_ref()
 }
@@ -254,6 +256,7 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
             journals: vec![(5, 6); 5],
             challenge: 4,
             duration: 0.0,
+            timed_phase: 0,
             retry: 0.0,
             xp: 0,
             cancellable: true,
@@ -264,6 +267,11 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
             min_level: 0,
             fails_on_death: false,
             once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
+            hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
+            required: None,
         });
     let step = Step {
         quest,
@@ -281,6 +289,7 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        wants: None,
         fellows: false,
         to: None,
     };
@@ -613,6 +622,7 @@ fn a_visit() -> Vec<ServerMessage> {
             journals: vec![(0x2E5C_1E52, 0x2500_17EE)],
             challenge: -999,
             duration: 72000.0,
+            timed_phase: 0,
             retry: 0.0,
             xp: 0,
             cancellable: false,
@@ -623,6 +633,11 @@ fn a_visit() -> Vec<ServerMessage> {
             min_level: 0,
             fails_on_death: false,
             once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
+            hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
+            required: None,
         }],
         steps: vec![Step {
             quest: 0x4000_0088,
@@ -640,9 +655,11 @@ fn a_visit() -> Vec<ServerMessage> {
             takes: Vec::new(),
             races: Vec::new(),
             effects_last: false,
+            wants: None,
             fellows: false,
             to: None,
         }],
+        gives: Vec::new(),
     };
     let (b, me) = h.player_in_world("two", "Rowan");
     for p in h.server.players.values_mut() {
@@ -1145,5 +1162,491 @@ fn the_recorded_play_families_hold_the_shapes_this_server_sends() {
                 f.name
             );
         }
+    }
+}
+
+mod crafts {
+    //! Every recorded craft of January 2017 played through the server at its spinner, with the recipes
+    //! as the data defines them: the slots it sent are the ones the spinner asks for, the server
+    //! answers as the recording did, and each ingredient goes down by what the recording shows.
+
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+    use auberean_protocol::{queue, ServerMessage};
+    use auberean_script::args::Arg;
+    use auberean_script::library::Elem;
+    use auberean_script::native_object::Item;
+    use auberean_testkit::captures::{self, carrier, Message};
+    use auberean_testkit::data::require_capture_index;
+    use yalain_testkit::authored::Portal;
+    use yalain_testkit::play::server_call;
+    use yalain_testkit::Harness;
+    use yalain_world::calls::{self, Value};
+    use yalain_world::craft::{self, error, function, Action, RecipeDef};
+    use yalain_world::state::EffectState;
+
+    /// The message types the recording is read from, beside the script calls.
+    const UPDATE_INT_VISUAL: u32 = 0x1_006A;
+    const CREATE_OBJECT: u32 = 0x1_0058;
+
+    /// One recorded craft: what it asked, how it was answered, what each slot went down by.
+    #[derive(Debug, Default)]
+    struct Recorded {
+        recipe: u32,
+        spinner: u32,
+        slots: Vec<(u32, u64)>,
+        answer: Option<u32>,
+        answered_at: f64,
+        used: BTreeMap<u32, u32>,
+        templates: BTreeMap<u32, u32>,
+    }
+
+    /// The crafts of the recordings, in order.
+    fn recorded() -> Vec<Recorded> {
+        let index = require_capture_index();
+        let mut with_crafts = BTreeSet::new();
+        captures::messages(&index, &[carrier::TO_SERVER], &[2017], |m| {
+            if m.script_call()
+                .is_some_and(|c| c.function == function::EXECUTE)
+            {
+                with_crafts.insert(m.capture);
+            }
+        })
+        .expect("the capture index reads");
+        let mut out = Vec::new();
+        for capture in with_crafts {
+            let mut quantity: HashMap<u64, u32> = HashMap::new();
+            let mut template: HashMap<u64, u32> = HashMap::new();
+            let mut open: Option<Recorded> = None;
+            let types = [
+                carrier::TO_SERVER,
+                carrier::TO_PLAYER,
+                UPDATE_INT_VISUAL,
+                CREATE_OBJECT,
+            ];
+            captures::capture_by_id_in_time_order(&index, &types, capture, |m: Message| {
+                if open
+                    .as_ref()
+                    .is_some_and(|o| o.answer.is_some() && m.time > o.answered_at + 1.0)
+                {
+                    out.extend(open.take());
+                }
+                match m.message_type {
+                    carrier::TO_SERVER | carrier::TO_PLAYER => {
+                        let Some(c) = m.script_call() else { return };
+                        if c.function == function::EXECUTE {
+                            let values = calls::values(&c.args).expect("a craft's values read");
+                            let [Value::Long(_), Value::Graph(g), Value::Int(spinner), Value::Int(recipe)] =
+                                values.as_slice()
+                            else {
+                                panic!("a craft's request: {values:?}");
+                            };
+                            out.extend(open.take());
+                            let slots = craft::slots_in(g);
+                            let templates = slots
+                                .iter()
+                                .filter_map(|(o, i)| template.get(i).map(|t| (*o, *t)))
+                                .collect();
+                            open = Some(Recorded {
+                                recipe: *recipe,
+                                spinner: *spinner,
+                                slots,
+                                templates,
+                                ..Recorded::default()
+                            });
+                        } else if c.function == function::EXECUTED {
+                            let values = calls::values(&c.args).expect("an answer's values read");
+                            if let (Some(o), Some(Value::Int(err))) = (open.as_mut(), values.get(1)) {
+                                if o.answer.is_none() {
+                                    o.answer = Some(*err);
+                                    o.answered_at = m.time;
+                                }
+                            }
+                        }
+                    }
+                    UPDATE_INT_VISUAL => {
+                        let Ok(ServerMessage::UpdateIntVisual(q)) = ServerMessage::decode(&m.raw)
+                        else {
+                            return;
+                        };
+                        if q.quality != craft::QUANTITY {
+                            return;
+                        }
+                        let id = q.object.id;
+                        let value = u32::try_from(q.value).unwrap_or(0);
+                        if let Some(o) = open.as_mut() {
+                            if let (Some(slot), Some(before)) = (
+                                o.slots.iter().find(|(_, i)| *i == id).map(|(s, _)| *s),
+                                quantity.get(&id),
+                            ) {
+                                *o.used.entry(slot).or_default() += before.saturating_sub(value);
+                            }
+                        }
+                        quantity.insert(id, value);
+                    }
+                    CREATE_OBJECT => {
+                        if let Ok(ServerMessage::CreateObject(o)) = ServerMessage::decode(&m.raw) {
+                            template.insert(o.id, o.weenie.entity_did);
+                        }
+                    }
+                    _ => {}
+                }
+            })
+            .expect("the capture reads");
+            out.extend(open.take());
+        }
+        out
+    }
+
+    /// Ask to make a recipe, as the client packs it.
+    fn ask(h: &mut Harness, b: usize, recipe: u32, spinner: u32, slots: &[(u32, u64)]) -> usize {
+        let mut g = yalain_world::graph::Builder::new();
+        let entries: Vec<(Item, Item)> = slots
+            .iter()
+            .map(|(s, i)| (Item::Word(*s), Item::Long(*i)))
+            .collect();
+        g.native(
+            8,
+            yalain_world::graph::hash(Elem::Word, Elem::Long, 0, &entries),
+        );
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(
+                function::EXECUTE,
+                &[
+                    Arg::LongInt(0),
+                    Arg::Object(g.graph()),
+                    Arg::Int(spinner),
+                    Arg::Int(recipe),
+                ],
+            ),
+        );
+        from
+    }
+
+    /// The answer the server gave since `from`.
+    fn answered(h: &Harness, b: usize, from: usize) -> Option<u32> {
+        h.calls(b, from)
+            .into_iter()
+            .find(|(f, _)| *f == function::EXECUTED)
+            .and_then(|(_, v)| match v.get(1) {
+                Some(Value::Int(e)) => Some(*e),
+                _ => None,
+            })
+    }
+
+    fn workshop_record(state: u32) -> EffectState {
+        EffectState {
+            eid: 0xFFFF_0000,
+            state,
+            cast: 0.0,
+            timeout: f32::MAX,
+            caster: 0x4057_6600_0000_0025,
+            spellcraft: 1.0,
+            pk: false,
+            acting: 0,
+            skill: 0,
+            item: 0x4057_6600_0000_0025,
+            flags: yalain_world::workshops::RECORD_FLAGS,
+            categories: yalain_world::workshops::RECORD_CATEGORIES,
+        }
+    }
+
+    /// Every recorded craft with an answer the server makes goes through the server at its spinner:
+    /// its slots are what the spinner asks for when it was made; it is answered as recorded (made or
+    /// failed its check alike: the roll is its own); and made, each slot goes down by what the
+    /// recording shows.
+    /// Behaviour: server.craft.recorded-crafts-play
+    #[test]
+    fn every_recorded_craft_plays_at_its_spinner_as_recorded() {
+        let crafts = recorded();
+        let portal = Portal::open();
+        let recipes: Vec<u32> = crafts
+            .iter()
+            .map(|c| c.recipe)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let mut crafting = portal.crafting(&[], &recipes);
+        // Where a craft is made is not what is played here: the world here holds no mines.
+        for r in crafting.recipes.values_mut() {
+            r.targets.clear();
+        }
+        let lib = portal.library();
+
+        let mut h = Harness::new();
+        let (b, me) = h.player_in_world("one", "Elara");
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &auberean_protocol::ClientMessage::SceneRenderingComplete(
+                auberean_protocol::login::Empty,
+            ),
+        );
+        h.run(5);
+        let world = *h
+            .server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == me)
+            .expect("in the world")
+            .0;
+
+        // What the recipes ask for and make, and what the recordings put in slots that take a class.
+        let mut templates: BTreeSet<u32> = crafting
+            .recipes
+            .values()
+            .flat_map(|r: &RecipeDef| r.ingredients.iter())
+            .flat_map(|i| i.items.iter().copied())
+            .collect();
+        let in_class: BTreeSet<u32> = crafts
+            .iter()
+            .flat_map(|c| c.templates.values().copied())
+            .collect();
+        let packages: Vec<(u32, u32)> = in_class
+            .iter()
+            .map(|t| (*t, portal.template(*t).description.package))
+            .collect();
+        crafting.resolve_classes(&packages, &|package, class| {
+            lib.derives_from(package, class)
+        });
+        templates.extend(
+            crafting
+                .recipes
+                .values()
+                .flat_map(|r| r.ingredients.iter())
+                .flat_map(|i| i.items.iter().copied()),
+        );
+        templates.extend(
+            crafting
+                .recipes
+                .values()
+                .flat_map(|r| r.checks.iter())
+                .flat_map(|c| c.outcomes.iter())
+                .flat_map(|o| o.actions.iter())
+                .filter_map(|a| match a {
+                    Action::Produce { template, .. } => Some(*template),
+                    _ => None,
+                }),
+        );
+        for t in &templates {
+            h.server.catalog.insert(yalain_testkit::test_template(
+                *t,
+                0x200,
+                yalain_content::Props::default(),
+            ));
+        }
+        let tables = crafting.clone();
+        h.server.crafting = crafting;
+
+        let mut tally: BTreeMap<String, usize> = BTreeMap::new();
+        let mut count = |k: &str| *tally.entry(k.to_owned()).or_default() += 1;
+        let mut wrong = Vec::new();
+        for c in &crafts {
+            let Some(answer) = c.answer else {
+                count("no answer recorded");
+                continue;
+            };
+            if ![
+                0,
+                error::FAILED,
+                error::INVALID_INGREDIENTS,
+                error::MISSING_EFFECT,
+            ]
+            .contains(&answer)
+            {
+                count("an answer this test does not make");
+                continue;
+            }
+            let Some(def) = tables.recipes.get(&c.recipe) else {
+                count("a recipe that does not read");
+                continue;
+            };
+            // The slots a making sent are the ones its spinner asks for.
+            let asked: BTreeSet<u32> = def.ingredients_at(c.spinner).map(|i| i.ordinal).collect();
+            let sent: BTreeSet<u32> = c.slots.iter().map(|(o, _)| *o).collect();
+            if answer == 0 || answer == error::FAILED {
+                count("made or failed its check");
+                if asked != sent {
+                    wrong.push(format!("{c:x?}: asked for {asked:?}"));
+                }
+            }
+            let items: BTreeSet<u64> = c.slots.iter().map(|(_, i)| *i).collect();
+            if items.len() < c.slots.len() {
+                count("one item named for two slots");
+            }
+            // Stocked for it, its workshop's record on but where the recording had it off, and a
+            // pack with room for what it makes: one character here makes what many did.
+            h.server
+                .players
+                .get_mut(&world)
+                .expect("in the world")
+                .play
+                .items
+                .clear();
+            let mut slots = Vec::new();
+            let mut unknown = false;
+            let mut wanted_of: BTreeMap<u32, u32> = BTreeMap::new();
+            for (ordinal, _) in &c.slots {
+                let Some(ing) = def.ingredients.iter().find(|i| i.ordinal == *ordinal) else {
+                    unknown = true;
+                    break;
+                };
+                let Some(t) = c
+                    .templates
+                    .get(ordinal)
+                    .filter(|t| ing.items.contains(t))
+                    .or_else(|| ing.items.first())
+                    .copied()
+                else {
+                    unknown = true;
+                    break;
+                };
+                // The slots of one template share a stack here, where the recording held an item for
+                // each: it holds enough for them all.
+                let need = tables
+                    .required(ing, c.spinner)
+                    .max(c.used.get(ordinal).copied().unwrap_or(0))
+                    .max(1);
+                let need = {
+                    let wanted = wanted_of.entry(t).or_insert(0);
+                    *wanted += need;
+                    *wanted
+                };
+                let held = h.server.players[&world]
+                    .play
+                    .items
+                    .iter()
+                    .find(|i| i.template == t)
+                    .map_or(0, |i| i.quantity.max(1));
+                if held < need {
+                    yalain_world::inventory::give_stacked(
+                        &mut h.server,
+                        &mut h.net,
+                        world,
+                        t,
+                        need - held,
+                    );
+                }
+                let id = h.server.players[&world]
+                    .play
+                    .items
+                    .iter()
+                    .find(|i| i.template == t)
+                    .map(|i| i.id)
+                    .expect("the stack");
+                slots.push((*ordinal, id));
+            }
+            if unknown {
+                count("a slot's item not known from the recording");
+                continue;
+            }
+            h.run(1);
+            // What is taken apart held an enchantment: the recording doesn't always say which.
+            if def.custom == yalain_world::craft::Custom::Spellbind {
+                if let Some(t) = slots.first().and_then(|(_, i)| h.server.things.get_mut(*i)) {
+                    t.enchantments = vec![(0x6F00_0394, 1.0)];
+                }
+            }
+            {
+                let p = h.server.players.get_mut(&world).expect("in the world");
+                p.play.recipes.retain(|r| r.recipe != c.recipe);
+                p.play.recipes.push(craft::new_recipe(c.recipe));
+                p.play.effects.retain(|e| e.eid != 0xFFFF_0000);
+                if let (Some(effect), true) = (def.required_effect, answer != error::MISSING_EFFECT)
+                {
+                    p.play.effects.push(workshop_record(effect));
+                }
+                // Skilled enough that its check does not fail: what it uses up is what is compared.
+                p.play.craft_skills.retain(|k| k.skill != def.skill);
+                p.play
+                    .craft_skills
+                    .push(yalain_world::state::CraftSkillState {
+                        skill: def.skill,
+                        level: 1_000,
+                        today: 0,
+                        available: 0,
+                    });
+            }
+            let before: BTreeMap<u32, u32> = slots
+                .iter()
+                .map(|(o, i)| {
+                    let held = h.server.players[&world]
+                        .play
+                        .items
+                        .iter()
+                        .find(|x| x.id == *i)
+                        .map_or(0, |x| x.quantity);
+                    (*o, held)
+                })
+                .collect();
+            let from = ask(&mut h, b, c.recipe, c.spinner, &slots);
+            let until = h.now.0 + craft::timing(def.cycles).1 + 1.0;
+            while h.now.0 < until && answered(&h, b, from).is_none() {
+                h.step();
+            }
+            let ours = answered(&h, b, from);
+            let same = match answer {
+                0 | error::FAILED => matches!(ours, Some(0 | error::FAILED)),
+                a => ours == Some(a),
+            };
+            if !same {
+                wrong.push(format!("{c:x?}: answered {ours:?}"));
+                continue;
+            }
+            count(&format!("answered as recorded: {answer}"));
+            h.run(2);
+            // What a recipe whose outcomes use up different things uses up is its roll's.
+            let uses: BTreeSet<Vec<(u32, u32)>> = def
+                .checks
+                .iter()
+                .flat_map(|k| k.outcomes.iter())
+                .map(|o| {
+                    let mut used: Vec<(u32, u32)> = o
+                        .actions
+                        .iter()
+                        .filter_map(|a| tables.destroyed(a, c.spinner))
+                        .collect();
+                    used.sort_unstable();
+                    used
+                })
+                .collect();
+            if answer != 0 {
+                continue;
+            }
+            if uses.len() > 1 {
+                count("its outcomes use up different things: not compared");
+                continue;
+            }
+            for (ordinal, recorded_used) in &c.used {
+                let id = slots.iter().find(|(o, _)| o == ordinal).map(|(_, i)| *i);
+                let left = h.server.players[&world]
+                    .play
+                    .items
+                    .iter()
+                    .find(|x| Some(x.id) == id)
+                    .map_or(0, |x| x.quantity);
+                let used = before.get(ordinal).copied().unwrap_or(0) - left;
+                count("a slot's amount used compared");
+                if used != *recorded_used {
+                    wrong.push(format!(
+                        "{c:x?}: slot {ordinal} used {used}, recorded {recorded_used}"
+                    ));
+                }
+            }
+        }
+        println!("{tally:#?}");
+        assert!(
+            wrong.is_empty(),
+            "{} of them off, the first: {:#?}",
+            wrong.len(),
+            &wrong[..wrong.len().min(10)]
+        );
+        assert!(tally["made or failed its check"] >= 950, "{tally:#?}");
+        assert!(tally["a slot's amount used compared"] >= 300, "{tally:#?}");
+        assert!(tally[&format!("answered as recorded: {}", error::INVALID_INGREDIENTS)] >= 10);
+        assert!(tally[&format!("answered as recorded: {}", error::MISSING_EFFECT)] >= 4);
     }
 }

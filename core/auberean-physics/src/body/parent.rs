@@ -153,7 +153,6 @@ pub fn frame_from_matrix(m: &[[f32; 4]; 4]) -> Frame {
 
 impl Body {
     /// How many children it holds.
-    // D2-06340
     #[must_use]
     pub fn num_children(&self) -> usize {
         self.children.as_ref().map_or(0, |c| c.children.len())
@@ -177,7 +176,6 @@ impl Body {
 
     /// Whether object `id` is among what it holds or, in turn, what they hold (`children_of` gives
     /// another body's children).
-    // D2-06229
     #[must_use]
     pub fn look_up_in_all_children(
         &self,
@@ -272,7 +270,7 @@ impl Body {
 
     /// Lets go of its holder, if it has one: the holder takes it off its list, and it goes back
     /// to the game's default mode.
-    // D2-06223
+    // D2-06223, D2-06340
     pub fn unset_parent(&mut self) {
         if self.parent == 0 {
             return;
@@ -291,7 +289,6 @@ impl Body {
 
     /// Lets go of every child, the first each time: the host has each let go of it
     /// (`let_go`, which calls the child's [`Body::unset_parent`]) and it comes off the list.
-    // D2-06224
     pub fn unparent_children(&mut self, mut let_go: impl FnMut(u64)) {
         while let Some(first) = self.child(0).map(|c| c.id) {
             let_go(first);
@@ -301,7 +298,6 @@ impl Body {
 
     /// The object at the top of its holders (`parent_of` gives another body's holder; 0 for
     /// none); none when it is held by nothing.
-    // D2-06147
     #[must_use]
     pub fn top_parent(&self, parent_of: &dyn Fn(u64) -> u64) -> Option<u64> {
         let mut top = None;
@@ -366,19 +362,10 @@ impl Body {
         }
     }
 
-    /// The server says the body is held by `parent` at `location`, its position stamp `stamp`:
-    /// when the stamp is newer the host takes it up ([`set_parent`]) and, once taken up, it takes
-    /// placement `placement`. Whether the stamp was newer.
-    // D2-06192
-    pub fn receive_parent(&mut self, stamp: u16) -> bool {
-        self.is_newer_than_update(super::POSITION_STAMP, stamp)
-    }
-
     /// The server says the body is let go of (or put in a container, which only the player
     /// hears), with its position stamp `stamp`; the host has checked the instance stamp is the
     /// body's. When the stamp is newer it lets go of its holder and leaves the world. Whether the
     /// stamp was newer.
-    // D2-06193, D2-06194
     pub fn receive_deparent(
         &mut self,
         land: &Land,
@@ -432,6 +419,33 @@ pub struct TakeUp {
     pub child_is_temporary: bool,
 }
 
+/// Body `child`, an object an effect made, hangs from `parent` at holding location `location` (none:
+/// at the bone of kind `bone`), `offset` from there, keeping only the place of that point when
+/// `remove_rotation`: the holder adds it, then it lets go of any holder it had and leaves the world.
+/// It takes no mode from the holder. Whether it was taken up.
+// D2-05997
+#[allow(clippy::too_many_arguments)]
+pub fn fx_set_parent(
+    child: &mut Body,
+    parent: &mut Body,
+    location: u32,
+    bone: u32,
+    offset: Vec3,
+    remove_rotation: bool,
+    land: &Land,
+    world: &mut World,
+    objects: &mut dyn Objects,
+) -> bool {
+    if !parent.add_child(child, location, bone, offset, remove_rotation, true) {
+        return false;
+    }
+    child.unset_parent();
+    child.leave_world(land, world, objects, None);
+    child.parent = parent.id;
+    child.has_parent = true;
+    true
+}
+
 /// Body `child` is taken up by `parent` (see [`TakeUp`]; the holder's own frame always, another
 /// holding location only when the holder's setup has it): the holder adds it, then it lets go of
 /// any holder it had and leaves the world, and changes to the holder's mode. Whether it was
@@ -466,24 +480,9 @@ pub fn set_parent(
     true
 }
 
-/// Body `child` is taken up by the object the host finds by `holder`'s id ([`set_parent`]); not
-/// taken up when the host finds none.
-// D2-05999
-pub fn set_parent_by_id(
-    child: &mut Body,
-    holder: Option<&mut Body>,
-    how: TakeUp,
-    land: &Land,
-    world: &mut World,
-    objects: &mut dyn Objects,
-) -> bool {
-    holder.is_some_and(|h| set_parent(child, h, how, land, world, objects))
-}
-
 /// Body `child` is taken up by `parent` as a part group of its own asks: only when the child has
 /// a part group of key `group`, and then at location 0, whatever frame was asked ([`set_parent`];
 /// `how` says whether the holder holds things there).
-// D2-06000
 #[allow(clippy::too_many_arguments)]
 pub fn set_parent_in_group(
     child: &mut Body,

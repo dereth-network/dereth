@@ -3,4 +3,5 @@
 mod decal;
 mod particles;
 mod portal;
+mod rain;
 mod streak;

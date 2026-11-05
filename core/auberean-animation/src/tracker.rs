@@ -108,9 +108,10 @@ pub fn start_flags(t: &Track, host: &mut dyn Host) {
     if p.camera_restore {
         host.event(Event::CameraBack);
     }
-    if p.camera_target != 0 && host.do_behavior_on_object(p.camera_target, p.camera_behavior) {
+    if p.camera_target != 0 {
         host.event(Event::TargetedCamera {
             target: p.camera_target,
+            behavior: p.camera_behavior,
             words: (0x4000_0002, 0x4000_0001),
             time: 1.0 / t.cycle_velocity,
             ramp: 0.5,
@@ -522,7 +523,7 @@ impl Behaviors {
     /// waits at once. Otherwise its starting effect fires; it takes its layer from the behavior that
     /// held it (stopped) and from one that let it go (ended at once); its weight starts at 0
     /// rising over its ramp time (at 1 without one); a hold without a loop plays as an action.
-    // D2-14963
+    // D2-14963, D2-06443, D2-06442
     pub fn do_behavior(
         &mut self,
         table: &BehaviorTable,

@@ -119,6 +119,60 @@ pub(crate) fn run_north(b: &mut Body, land: &Land, world: &mut World, ticks: u32
     farthest
 }
 
+/// A solid standing near a block's edge and reaching over it is met from the land cells it reaches
+/// in the block next to it, and only those, once that block is in; a solid well inside its block
+/// reaches no other.
+///
+/// Behaviour: collision.objects.a-solid-over-a-block-edge-is-in-the-next-blocks-cells
+#[test]
+fn a_solid_over_a_block_edge_is_in_the_next_blocks_cells() {
+    use auberean_physics::land::Solid;
+    let solid = |x: f32, r: f32| Solid {
+        part: dereth_physics::source::PhysicsPart::default(),
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        bounds: Sphere::new(Vec3::new(x, 90.0, GROUND_Z), r),
+        render_box: BBox::default(),
+        properties: Vec::new(),
+        marked: false,
+    };
+    let land = Land::new();
+    let mut west = Block::flat(0x40, 0x40, GROUND_Z);
+    west.add_solid(solid(159.0, 3.0));
+    west.add_solid(solid(80.0, 3.0));
+    land.insert(west);
+    land.insert(Block::flat(0x41, 0x40, GROUND_Z));
+    let (near, far) = ((0, 4), (1, 4));
+    let over = |cx, cy| land.overhanging(0x41, 0x40, cx, cy);
+    assert_eq!(over(near.0, near.1).len(), 1, "the cell next to the edge");
+    assert_eq!(over(near.0, near.1)[0].1, 0, "the solid by the edge");
+    assert!(over(far.0, far.1).is_empty(), "beyond its reach");
+    assert!(over(near.0, 0).is_empty(), "north and south of its reach");
+    assert!(
+        land.overhanging(0x40, 0x40, 7, 4).is_empty(),
+        "its own block's cells hold it themselves"
+    );
+    assert!(
+        land.block(0x40, 0x40).expect("in").cell_solids[7 * 8 + 4].contains(&0),
+        "and it is in them"
+    );
+}
+
+/// A moving object reaching over a block's edge stands in the lists of the next block's cells
+/// whether or not that block is in, so nothing is to be done for it when the block comes in.
+///
+/// Behaviour: collision.objects.a-body-is-in-the-lists-of-cells-not-yet-in
+#[test]
+fn a_body_is_in_the_lists_of_cells_not_yet_in() {
+    let land = land();
+    let mut world = World::new();
+    let mut near_edge = body(159.8, 70.0);
+    world.insert_body(&land, 0x50, &mut near_edge);
+    let at = land_cell_id(0x41, 0x40, 0, 3);
+    assert_eq!(world.collision_list(at), vec![0x50], "before it comes in");
+    land.insert(Block::flat(0x41, 0x40, GROUND_Z));
+    assert_eq!(world.collision_list(at), vec![0x50], "and after");
+}
+
 /// A body running at an object the host put in the world stops against it, its sphere outside
 /// the object's cylinder; with the object taken out, a body making the same run goes on past
 /// where it stood.
@@ -837,6 +891,31 @@ pub(crate) fn body_parts() -> PartGroup {
     let mut g = PartGroup::default();
     assert!(g.init_look(&kit(), &body_look(MAP)));
     g
+}
+
+/// A body whose setup lets it turn freely (and one with no part group) goes into a move having
+/// taken its end facing; one whose setup does not turns along the way.
+///
+/// Behaviour: parts.body.a-body-that-turns-freely-takes-its-end-facing-first
+#[test]
+fn a_body_that_turns_freely_takes_its_end_facing_first() {
+    use dereth_physics::transition::{ObjectInfoState, Transition};
+    let free =
+        |b: &Body| b.object_info(&mut Transition::default()) & ObjectInfoState::FREE_ROTATE != 0;
+    assert!(free(&body(50.0, 50.0)));
+    let mut turning = body(50.0, 50.0);
+    turning.set_parts(body_parts());
+    assert!(free(&turning), "the setup turns freely");
+    let mut k = kit();
+    let mut setup = (*k.setups[&BODY].get()).clone();
+    setup.flags &= !0x4;
+    k.setups
+        .insert(BODY, Arc::new(LoadedSetup::new(Arc::new(setup))));
+    let mut g = PartGroup::default();
+    assert!(g.init_look(&k, &body_look(MAP)));
+    let mut stiff = body(50.0, 50.0);
+    stiff.set_parts(g);
+    assert!(!free(&stiff), "this setup does not");
 }
 
 /// A body put together from its look steps as its setup says, and a change to its step-down

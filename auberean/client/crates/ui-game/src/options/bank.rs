@@ -132,13 +132,6 @@ impl Bank {
         }
     }
 
-    /// Keep the preferences in another file.
-    // D2-16017
-    pub fn choose_file(&mut self, name: &str) -> bool {
-        name.clone_into(&mut self.file);
-        !name.is_empty()
-    }
-
     /// The preferences file's name.
     #[must_use]
     pub fn file(&self) -> &str {
@@ -317,16 +310,6 @@ impl Bank {
                 true
             }
         }
-    }
-
-    /// A key's handler gone.
-    // D2-16029
-    pub fn unlink(&mut self, key: u32) -> bool {
-        if key == 0 {
-            return false;
-        }
-        self.handlers.retain(|(k, _)| *k != key);
-        true
     }
 
     /// A section's monitor (none taken while another has the section), and the section listed for

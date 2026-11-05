@@ -76,6 +76,7 @@ impl UiLocations {
     }
 
     /// Read a packed table; `None` when it does not read to its end.
+    // D2-01954, D2-01948
     #[must_use]
     pub fn read(bytes: &[u8]) -> Option<Self> {
         let mut r = In::new(bytes);
@@ -111,6 +112,7 @@ impl UiLocations {
     }
 
     /// The packed form.
+    // D2-01954, D2-01948
     #[must_use]
     pub fn write(&self) -> Vec<u8> {
         fn count<T>(b: &Buckets<T>) -> usize {

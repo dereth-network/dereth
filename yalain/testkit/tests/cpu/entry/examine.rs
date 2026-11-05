@@ -122,6 +122,7 @@ fn examining_a_player_is_answered_with_its_profile_and_stopping_is_not_answered(
             pk_damage: 0,
             pk_vigor_loss: 0,
         },
+        0,
     );
     assert_eq!(bytes[..], want.packed(&request)[..]);
     let from = h.bots[a].inbox.len();
@@ -142,6 +143,162 @@ fn examining_a_player_is_answered_with_its_profile_and_stopping_is_not_answered(
     assert!(
         profile_nodes(&h, a, from).is_empty(),
         "stopping is not answered"
+    );
+}
+
+/// A placed object for monarchs alone says so on its requirements tab, as 2017's Allegiance Sign's
+/// profile did word for word.
+/// Behaviour: server.examination.monarch-only-object
+#[test]
+fn an_object_for_monarchs_alone_says_so_when_examined() {
+    const SIGN: u64 = 0x400D_FA00_0000_0003;
+    const TEMPLATE: u32 = 0x4700_11C4;
+    let build = |template: u32, name: Option<(u32, u32)>| yalain_content::ContentObject {
+        object: Some(SIGN),
+        template,
+        description: yalain_content::Description {
+            package: 0x13C1,
+            look: 0x1F00_0ED5,
+            enter_fx: 0,
+            scale: None,
+            name: None,
+            numbers: [0; 6],
+            source: "authored for a test".into(),
+        },
+        cell: 0x0299_0109,
+        origin: [61.0, 241.0, -44.6],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+        kind: yalain_content::Kind::Static,
+        label: String::new(),
+        placed: "authored for a test".into(),
+        destination: None,
+        facts: yalain_content::Facts {
+            name,
+            description: Some((0x6C45_9364, 0x2500_1E91)),
+            ..yalain_content::Facts::default()
+        },
+        walks: None,
+        gate: None,
+    };
+    let mut h = Harness::new();
+    let mut props = yalain_content::Props::default();
+    props.set("Usage_MonarchOnly", yalain_content::Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(TEMPLATE, 0x13C1, props));
+    h.server.content = yalain_content::ContentPack {
+        objects: vec![build(TEMPLATE, Some((0xA860_7CEC, 0x2500_1E91)))],
+        ..yalain_content::ContentPack::default()
+    };
+    let (a, _) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(SIGN, 0x3FF)]),
+    );
+    h.run(30);
+    let got = profile_nodes(&h, a, from);
+    assert_eq!(got.len(), 1, "one profile");
+    let recorded: [u32; 49] = [
+        0x0000_000E,
+        0x4000_0004,
+        0x02,
+        0xBE5B_6513,
+        0xA860_7CEC,
+        0x2500_1E91,
+        0,
+        0x4000_0006,
+        0x02,
+        0x4000_0004,
+        0x02,
+        0x33BE_4035,
+        0x6C45_9364,
+        0x2500_1E91,
+        0,
+        0x4000_0006,
+        0x02,
+        0x4000_0006,
+        0x20,
+        0x4000_0004,
+        0x20,
+        0x33BE_4035,
+        0x4F39_B658,
+        0x2500_0011,
+        0,
+        0x4000_0006,
+        0x20,
+        0x4000_0007,
+        0x20,
+        0,
+        0x4000_0004,
+        0x20,
+        0x33BE_4035,
+        0x9D7D_54C6,
+        0x2500_0011,
+        0,
+        0x4000_0006,
+        0x20,
+        0x4000_0007,
+        0x20,
+        0,
+        0x4000_0007,
+        0x20,
+        0,
+        0x4000_0004,
+        0x20,
+        0xBE5B_6513,
+        0x8ADC_E384,
+        0x2500_0011,
+    ];
+    let got: Vec<u32> = got[0][20..]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|c| u32::from_le_bytes(*c))
+        .collect();
+    assert_eq!(got[..recorded.len()], recorded[..]);
+    assert_eq!(got[recorded.len()..], [0, 0x4000_0006, 0x20, 0x22][..]);
+}
+
+/// A player's profile names the quest rating its completed quests have added.
+/// Behaviour: server.examination.player-quest-rating
+#[test]
+fn examining_a_player_names_its_quest_rating() {
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let (_, idb) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    h.server
+        .players
+        .values_mut()
+        .find(|p| p.character == idb)
+        .expect("in the world")
+        .play
+        .quest_rating = 104_295;
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(idb, 0x203)]),
+    );
+    h.run(30);
+    let got = profile_nodes(&h, a, from);
+    assert_eq!(got.len(), 1, "one profile");
+    let at = got[0]
+        .windows(4)
+        .position(|w| w == yalain_world::profile::var::QUEST_RATING.to_le_bytes())
+        .expect("the rating's variable");
+    assert_eq!(
+        got[0][at + 8..at + 12],
+        104_295u32.to_le_bytes(),
+        "its value in the line"
+    );
+    let shown = 104_295i32.to_le_bytes();
+    assert!(
+        got[0][at + 12..].windows(4).any(|w| w == shown),
+        "and on its own beside it"
     );
 }
 
@@ -270,6 +427,7 @@ fn an_item_names_its_maker_its_durability_and_its_effects() {
             when: profile::When::Equipped,
             table: EFFECT_TABLE,
             spellcraft: Some(50),
+            amount: None,
         }],
     );
     let item = h.arm(a, me, BLADE);
@@ -417,7 +575,8 @@ fn an_effects_spellcraft_shows_unless_it_happens_at_once_or_never_varies() {
         [profile::ItemEffect {
             when: profile::When::Used,
             table: 0x2500_7103,
-            spellcraft: Some(100)
+            spellcraft: Some(100),
+            amount: None,
         }]
     );
 }
@@ -520,7 +679,7 @@ fn a_treasure_items_own_requirements_and_the_hero_credits_are_kept_across_a_logo
     let own = yalain_world::treasure::Own {
         min_level: Some(33),
         arcane_lore: Some(17),
-        effect: None,
+        ..yalain_world::treasure::Own::default()
     };
     h.server.things.get_mut(item).expect("made").own = own;
     h.server
@@ -817,4 +976,436 @@ fn an_item_lists_the_skills_and_arcane_lore_it_takes() {
         "skills, then the Arcane Lore"
     );
     assert_eq!(got[0][20..], p.packed(&got[0][..20])[20..], "as built");
+}
+
+/// An inscribed item's profile ends with who wrote on it and the words, on their own tab; one asked
+/// without that tab leaves them out and still notes the tab.
+/// Behaviour: server.examination.an-inscription-is-shown
+#[test]
+fn an_inscribed_item_shows_who_wrote_it_and_the_words_when_examined() {
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("a player");
+    let item = yalain_world::inventory::give(
+        &mut h.server,
+        &mut h.net,
+        world,
+        yalain_testkit::TEST_ITEM,
+        1,
+    )
+    .expect("given");
+    h.server.things.get_mut(item).expect("made").inscription =
+        Some(("Sharp".to_owned(), "Elara [F]".to_owned()));
+    h.run(2);
+    let ask = |h: &mut Harness, asked: u32| {
+        let from = h.bots[a].inbox.len();
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::EXAMINE, &[about(item, asked)]),
+        );
+        h.run(10);
+        profile_nodes(h, a, from).pop().expect("answered")
+    };
+    let mut lines = profile::Profile::new(0x3FF);
+    profile::inscription_lines(&mut lines, "Sharp", "Elara [F]");
+    let lines = lines.packed(&[]);
+    let want = &lines[4..lines.len() - 4];
+    let all = ask(&mut h, 0x3FF);
+    assert!(
+        all[..all.len() - 4].ends_with(want),
+        "the profile ends with the lines"
+    );
+    assert_ne!(
+        u32::from_le_bytes(all[all.len() - 4..].try_into().expect("a word")) & 0x80,
+        0
+    );
+    let without = ask(&mut h, 0x203);
+    assert!(
+        !without.windows(want.len()).any(|w| w == want),
+        "not asked for"
+    );
+    assert_ne!(
+        u32::from_le_bytes(without[without.len() - 4..].try_into().expect("a word")) & 0x80,
+        0,
+        "the tab is still noted"
+    );
+}
+
+/// An item in another player's pack answers no examination until the other side knows of it, as
+/// an offer in a trade makes it known.
+/// Behaviour: server.selection.examining-what-another-holds
+#[test]
+fn an_item_in_another_players_pack_answers_only_once_offered() {
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (b, idb) = h.player_in_world("two", "Birch");
+    let world_of = |h: &Harness, id: u64| {
+        *h.server
+            .players
+            .iter()
+            .find(|(_, p)| p.character == id)
+            .expect("in the world")
+            .0
+    };
+    let (owner, viewer) = (world_of(&h, ida), world_of(&h, idb));
+    let mut at = h.server.players[&owner].position;
+    at.origin[0] += 1.0;
+    h.server.players.get_mut(&viewer).expect("in").position = at;
+    let item = yalain_world::inventory::give(
+        &mut h.server,
+        &mut h.net,
+        owner,
+        yalain_testkit::TEST_ITEM,
+        1,
+    )
+    .expect("given");
+    h.run(2);
+    let ask = |h: &mut Harness| {
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::EXAMINE, &[about(item, 0x3FF)]),
+        );
+        h.run(10);
+        profile_nodes(h, b, from).len()
+    };
+    assert_eq!(ask(&mut h), 0, "a stranger's pack");
+    use yalain_world::trade::function as trade;
+    h.ask(a, trade::OPEN, &[Arg::LongInt(idb)], 10);
+    h.ask(b, trade::OPEN, &[Arg::LongInt(ida)], 10);
+    h.ask(a, trade::OFFER, &[Arg::Int(1), Arg::LongInt(item)], 10);
+    assert_eq!(ask(&mut h), 1, "offered to it");
+}
+
+/// A dyed item's profile shows its icon with what its dye gives it through its appearance table,
+/// and a potion's its color through the potions' table.
+/// Behaviour: server.examination.an-items-icon-takes-its-appearance
+#[test]
+fn a_dyed_items_icon_takes_its_dyes_color() {
+    const TABLE: u32 = 0x2000_7001;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    h.server.catalog.icons.insert(
+        yalain_testkit::TEST_ITEM,
+        vec![
+            [1000, 0x4100_0001, 0xFFFF_FFFF],
+            [2000, 0x4100_0002, 0xFFFF_FFFF],
+        ],
+    );
+    let steps = |key: u32| {
+        vec![yalain_content::IconTable {
+            keys: vec![(
+                key,
+                vec![
+                    (0.0, vec![[2000, 0, 0xFF00_0001]]),
+                    (0.1, vec![[2000, 0, 0xFF00_0002]]),
+                    (0.2, vec![[2000, 0, 0xFF00_0003]]),
+                ],
+            )],
+        }]
+    };
+    let (potions, key) = yalain_world::inventory::POTION_COLOR;
+    h.server.catalog.icon_tables.insert(TABLE, steps(2));
+    h.server.catalog.icon_tables.insert(potions, steps(key));
+    let (a, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("a player");
+    let item = yalain_world::inventory::give(
+        &mut h.server,
+        &mut h.net,
+        world,
+        yalain_testkit::TEST_ITEM,
+        1,
+    )
+    .expect("given");
+    h.server.things.get_mut(item).expect("made").own.dye = Some((TABLE, 0.15));
+    h.run(2);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(item, 0x3FF)]),
+    );
+    h.run(10);
+    let got = profile_nodes(&h, a, from);
+    let t = h.server.things.get(item).expect("held");
+    let icon = yalain_world::inventory::icon_of(&h.server, t);
+    assert_eq!(
+        icon,
+        [
+            [1000, 0x4100_0001, 0xFFFF_FFFF],
+            [2000, 0x4100_0002, 0xFF00_0002]
+        ],
+        "the color of the step its dye falls in"
+    );
+    let mut view = profile::ItemView::of(
+        &h.server
+            .catalog
+            .get(yalain_testkit::TEST_ITEM)
+            .expect("made")
+            .props,
+        1,
+        None,
+    );
+    view.icon = icon;
+    let mut request = Vec::new();
+    for w in [0x4000_0002u32, 0] {
+        request.extend(w.to_le_bytes());
+    }
+    request.extend(item.to_le_bytes());
+    request.extend(0x3FFu32.to_le_bytes());
+    assert_eq!(got, vec![profile::item(0x3FF, &view).packed(&request)]);
+    let t = h.server.things.get_mut(item).expect("held");
+    t.own.dye = None;
+    t.own.effect = Some(yalain_world::treasure::OwnEffect {
+        state: 0,
+        spellcraft: 0.0,
+        table: 0,
+        color: 0.25,
+    });
+    let t = h.server.things.get(item).expect("held");
+    assert_eq!(
+        yalain_world::inventory::icon_of(&h.server, t)[1],
+        [2000, 0x4100_0002, 0xFF00_0003]
+    );
+}
+
+/// A stack with a value of its own shows what all its pieces are worth, as a sale of it pays.
+/// Behaviour: server.inventory.a-stack-pays-for-each-piece
+#[test]
+fn a_stack_with_its_own_value_shows_the_value_of_all_its_pieces() {
+    const STACK: u32 = 0x4700_7002;
+    let mut h = Harness::new();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("a player");
+    let mut props = yalain_content::Props::default();
+    props.set("Item_MaxStackSize", yalain_content::Prop::Int(1000));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(STACK, 0x200, props));
+    let item =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, STACK, 3).expect("given");
+    h.server.things.get_mut(item).expect("made").value = 40;
+    h.run(2);
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(item, 0x3FF)]),
+    );
+    h.run(10);
+    let got = profile_nodes(&h, a, from);
+    let view = profile::ItemView::of(
+        &h.server.catalog.get(STACK).expect("made").props,
+        3,
+        Some(120),
+    );
+    let mut request = Vec::new();
+    for w in [0x4000_0002u32, 0] {
+        request.extend(w.to_le_bytes());
+    }
+    request.extend(item.to_le_bytes());
+    request.extend(0x3FFu32.to_le_bytes());
+    assert_eq!(got, vec![profile::item(0x3FF, &view).packed(&request)]);
+}
+
+/// A treasure item keeps the value it was drawn across a logout: it is still named and valued as
+/// one on its next entry.
+/// Behaviour: server.world.treasure-value-kept-across-sessions
+#[test]
+fn a_treasure_items_drawn_value_is_kept_across_a_logout() {
+    use auberean_protocol::login::CharacterRef;
+    use auberean_protocol::ClientMessage;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let (a, me) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let item = yalain_world::inventory::give(
+        &mut h.server,
+        &mut h.net,
+        world,
+        yalain_testkit::TEST_ITEM,
+        1,
+    )
+    .expect("given");
+    h.server.things.get_mut(item).expect("made").value = 77;
+    let shown = yalain_world::inventory::item_create(h.server.things.get(item).expect("made"));
+    let before = h.bots[a].inbox.len();
+    h.bots[a].send(
+        false,
+        queue::LOGON,
+        &ClientMessage::LogOff(CharacterRef { character: me }),
+    );
+    assert!(h.run_until(400, |h| h.bots[a].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+    h.enter_world(a, "one", me);
+    let t = h.server.things.get(item).expect("back in the world");
+    assert_eq!(t.value, 77, "the value it was drawn");
+    assert_eq!(
+        yalain_world::inventory::item_create(t).weenie,
+        shown.weenie,
+        "named and valued as before"
+    );
+}
+
+/// What a recipe's item level gave an item, its value and its permanent effects are kept across a
+/// logout, its name still its level's.
+/// Behaviour: server.craft.made-item-kept
+#[test]
+fn a_made_items_own_numbers_are_kept_across_a_logout() {
+    use auberean_protocol::login::CharacterRef;
+    use auberean_protocol::ClientMessage;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let (a, me) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let item = yalain_world::inventory::give(
+        &mut h.server,
+        &mut h.net,
+        world,
+        yalain_testkit::TEST_ITEM,
+        1,
+    )
+    .expect("given");
+    let made = yalain_world::made::Made {
+        prefix: yalain_world::made::prefix(20),
+        value: 7,
+        damage: Some((110, 0.2)),
+        delay: Some(13),
+        vigor: Some(5),
+        slots: 2,
+        harmonic: true,
+        damage_changed: true,
+        durability: Some(200),
+        tool_yield: Some(25),
+        craft_needed: Some(60),
+        ..yalain_world::made::Made::default()
+    };
+    let drawn = yalain_world::treasure::Look {
+        table: 0x2000_0122,
+        values: [(2, 0.31), (14, 0.02), (0, 0.0)],
+    };
+    {
+        let t = h.server.things.get_mut(item).expect("made");
+        t.own.made = Some(made);
+        t.own.min_level = Some(20);
+        t.value = 7;
+        t.enchantments = vec![(0x6F00_0F2B, 20.0)];
+        t.own.dye = Some((0x2000_036A, 0.573));
+        t.own.look = Some(drawn);
+        t.own.suffix = Some(0x2500_1292);
+    }
+    let before = h.bots[a].inbox.len();
+    h.bots[a].send(
+        false,
+        queue::LOGON,
+        &ClientMessage::LogOff(CharacterRef { character: me }),
+    );
+    assert!(h.run_until(400, |h| h.bots[a].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+    h.enter_world(a, "one", me);
+    let t = h.server.things.get(item).expect("back in the world");
+    assert_eq!(t.own.made, Some(made));
+    assert_eq!(t.own.min_level, Some(20));
+    assert_eq!(t.value, 7);
+    assert_eq!(t.enchantments, vec![(0x6F00_0F2B, 20.0)]);
+    assert_eq!(t.own.dye, Some((0x2000_036A, 0.573)));
+    assert_eq!(t.own.look, Some(drawn));
+    assert_eq!(t.own.suffix, Some(0x2500_1292));
+}
+
+/// A treasure item with an enchantment is named for it: in the name it is made with and in its
+/// profile, the suffix in the effect's own table with the item's name inside it; a piece of jewelry
+/// has no word before it.
+/// Behaviour: server.loot.treasure-named-for-an-enchantment
+#[test]
+fn a_treasure_item_is_named_for_its_enchantment_in_its_create_and_its_profile() {
+    use yalain_world::inventory::{
+        item_create, jewelry_name, treasure_item_name, treasure_name, treasure_word_name,
+    };
+    const NAME: (u32, u32) = (0x1234_5678, 0x2500_0777);
+    const TABLE: u32 = 0x2500_1292;
+    let mut h = Harness::new();
+    h.server.catalog = yalain_testkit::test_catalog();
+    let (a, _) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("in the world");
+    let item = yalain_world::inventory::give(
+        &mut h.server,
+        &mut h.net,
+        world,
+        yalain_testkit::TEST_ITEM,
+        1,
+    )
+    .expect("given");
+    let shape = |h: &mut Harness, made: bool, suffix: Option<u32>| {
+        let t = h.server.things.get_mut(item).expect("made");
+        t.facts.name = Some(NAME);
+        t.value = 7;
+        t.own.made = made.then(yalain_world::made::Made::default);
+        t.own.suffix = suffix;
+        item_create(h.server.things.get(item).expect("made"))
+            .weenie
+            .name
+    };
+    assert_eq!(shape(&mut h, true, None), treasure_item_name(NAME, None));
+    assert_eq!(
+        shape(&mut h, false, Some(TABLE)),
+        jewelry_name(NAME, Some(TABLE))
+    );
+    let named = shape(&mut h, true, Some(TABLE));
+    assert_eq!(named, treasure_item_name(NAME, Some(TABLE)));
+    let suffix = named
+        .variables
+        .iter()
+        .find(|v| v.id == treasure_name::SUFFIX)
+        .expect("a suffix");
+    let auberean_protocol::text::VariableValue::Nested(suffix) = &suffix.value else {
+        panic!("a nested string");
+    };
+    assert_eq!(
+        (suffix.string_id, suffix.table_id),
+        (treasure_name::EFFECT_SUFFIX, TABLE)
+    );
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(item, 0x3FF)]),
+    );
+    h.run(10);
+    let got = profile_nodes(&h, a, from);
+    assert_eq!(got.len(), 1, "answered once");
+    let has = |id: u32| got[0].windows(4).any(|w| w == id.to_le_bytes());
+    assert!(has(treasure_name::EFFECT_SUFFIX) && has(TABLE), "named");
+    assert!(has(treasure_name::PREFIX_TEXT.0), "with treasure's word");
+    // A word it drew, in its create and its profile; none at all with nothing of its own.
+    const STEADY: u32 = 0xEF4F_89B9;
+    let t = h.server.things.get_mut(item).expect("made");
+    t.own.made = Some(yalain_world::made::Made {
+        prefix: STEADY,
+        ..yalain_world::made::Made::default()
+    });
+    assert_eq!(
+        item_create(h.server.things.get(item).expect("made"))
+            .weenie
+            .name,
+        treasure_word_name(NAME, Some(TABLE), STEADY)
+    );
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::EXAMINE, &[about(item, 0x3FF)]),
+    );
+    h.run(10);
+    let got = profile_nodes(&h, a, from);
+    let has = |id: u32| got[0].windows(4).any(|w| w == id.to_le_bytes());
+    assert!(has(STEADY) && has(TABLE), "its word and its suffix");
+    assert!(!has(treasure_name::PREFIX_TEXT.0));
+    assert_eq!(shape(&mut h, false, None), jewelry_name(NAME, None));
 }

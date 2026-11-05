@@ -43,15 +43,21 @@ pub struct CharacterSet {
 }
 
 impl CharacterSet {
-    /// A row's character.
+    /// A row's character; none for a row that holds the invalid id.
+    // D2-13097, D2-13098, D2-13099
     #[must_use]
     pub fn identity(&self, row: usize) -> Option<&Character> {
-        self.characters.get(row)
+        self.characters.get(row).filter(|c| c.id != INVALID_ID)
     }
 
-    /// The seconds until a row's character is purged (0: not deleted, or no such row).
+    /// The seconds until a row's character is purged: 0 when it is not deleted, for no such
+    /// character, and for a row past the number the account may have (when it may have any).
+    // D2-13101
     #[must_use]
     pub fn greyed_out_for(&self, row: usize) -> u32 {
+        if self.slots >= 1 && i32::try_from(row).map_or(true, |r| r >= self.slots) {
+            return 0;
+        }
         self.identity(row).map_or(0, |c| c.greyed)
     }
 
@@ -89,11 +95,17 @@ pub struct Data {
     pub choices: Vec<crate::creation::Choice>,
     pub choices_version: u64,
     /// The character to enter the world with as soon as the account's characters are listed
-    /// (empty: none), as a developer's login names one.
+    /// (empty: none), as the command line or a developer's login names one.
     pub start_character: String,
+    /// The character the command line named to make and play, read when it named none to play.
+    pub create_character: String,
+    /// The creation screen offers the administrator's character.
+    pub admin_client: bool,
     /// The answer to the last selection in a screen's scene: the figure the pointer was over, or
     /// none; `None` while it is asked or when none was.
     pub selection: Option<Option<usize>>,
+    /// The figure of the hall under the pointer.
+    pub under: Option<usize>,
     /// The figures of the hall still playing a behavior they were asked to.
     pub behaving: Vec<usize>,
     /// The pointer, in the screen's pixels.
@@ -178,9 +190,10 @@ pub enum Request {
         character: u64,
         name: String,
     },
-    /// Make a character of the avatar chosen with this name.
+    /// Make a character of the avatar chosen with this name, an administrator's when asked.
     Create {
         name: String,
+        admin: bool,
     },
     /// Find the figure under the pointer in the screen's scene: the answer comes in
     /// [`Data::selection`].

@@ -13,7 +13,10 @@ use auberean_script::opcode::op;
 use auberean_script::value::{tag, FunctionId, NULL};
 use auberean_script::{Program, Status, Vm};
 
+use auberean_glue::chargen::{CreationChoices, CREATION_CHOICES};
+
 use crate::asm::{i, library, small, w, Pkg, TestHost};
+use crate::call::Bench;
 
 const THING: u32 = 0x10;
 const HASH: u32 = 1;
@@ -1278,4 +1281,344 @@ fn an_array_of_references_made_longer_holds_no_reference_in_its_new_places() {
         panic!("an array")
     };
     assert_eq!(items.len(), 1, "made shorter");
+}
+
+const MACHINE_PACKAGE: u32 = 0x72;
+const TYPE_INFO_PACKAGE: u32 = 0x6E;
+const THING_PACKAGE: u32 = 0x80;
+
+fn listing(b: &Bench, id: u32) -> String {
+    String::from_utf16(&b.text_of(id)).expect("text")
+}
+
+/// The table's text gives how many processes it holds and its room, 128 until it is full; the
+/// contexts' text counts each process's suspended ones; a process asked after is there or not, its
+/// text empty.
+///
+/// Behaviour: script.glue.the-machine-counts-its-processes
+#[test]
+fn the_machine_counts_its_processes_and_contexts() {
+    let mut b = Bench::new();
+    let out = b.text("before");
+    let (status, slots) = b.call_with_local(MACHINE_PACKAGE, 8, NULL, out, &[None], 1);
+    assert_eq!((status, slots[0].0), (Status::Success, 1));
+    assert_eq!(listing(&b, out), "process table:\n  total: 0, size: 128\n");
+    for _ in 0..129 {
+        b.vm.create_process(NULL);
+    }
+    b.call_with_local(MACHINE_PACKAGE, 8, NULL, out, &[None], 1);
+    assert_eq!(
+        listing(&b, out),
+        "process table:\n  total: 129, size: 256\n"
+    );
+    b.call_with_local(MACHINE_PACKAGE, 9, NULL, out, &[Some(0), None], 1);
+    assert_eq!(listing(&b, out), "contexts:\n  total: 0\n");
+    b.vm.running_process = 3;
+    let (_, slots) = b.call_with_local(MACHINE_PACKAGE, 9, NULL, out, &[Some(0), None], 1);
+    assert_eq!(listing(&b, out), "contexts:\n  total: 1\n");
+    assert_eq!(slots[0].0, 1);
+    let (_, slots) = b.call_with_local(MACHINE_PACKAGE, 0xA, NULL, out, &[Some(5), None], 1);
+    assert_eq!((slots[0].0, listing(&b, out).as_str()), (1, ""));
+    let (_, slots) = b.call_with_local(MACHINE_PACKAGE, 0xA, NULL, out, &[Some(500), None], 1);
+    assert_eq!(slots[0].0, 0);
+    let (_, slots) = b.call_with_local(MACHINE_PACKAGE, 0xA, NULL, out, &[Some(NULL), None], 1);
+    assert_eq!(slots[0].0, 0, "the id that is no process");
+}
+
+/// The performance listing is a heading and a blank line; the listings of references are empty and
+/// answer true; a null string stops the call.
+///
+/// Behaviour: script.glue.the-machines-other-listings-say-little
+#[test]
+fn the_machines_other_listings_say_little() {
+    let mut b = Bench::new();
+    let out = b.text("before");
+    let (status, slots) = b.call_with_local(MACHINE_PACKAGE, 0xC, NULL, out, &[None], 1);
+    assert_eq!((status, slots[0].0), (Status::Success, 1));
+    assert_eq!(listing(&b, out), "perf:\n\n");
+    for (number, args) in [
+        (0xB, vec![None]),
+        (0x16, vec![None, Some(1)]),
+        (0x17, vec![None, Some(1)]),
+        (0x17, vec![None, Some(NULL)]),
+    ] {
+        let out = b.text("before");
+        let (status, slots) = b.call_with_local(MACHINE_PACKAGE, number, NULL, out, &args, 1);
+        assert_eq!((status, slots[0].0), (Status::Success, 1), "{number:#x}");
+        assert_eq!(listing(&b, out), "", "{number:#x}");
+    }
+    let (status, _) = b.call_with_local(MACHINE_PACKAGE, 0xC, NULL, NULL, &[None], 1);
+    assert_eq!(status, Status::Crash);
+}
+
+/// A package's name comes as a new string, empty for no package; a new instance comes of a package
+/// by name, and a name no package has stops the call with the null reference; a validated new type
+/// always answers -1.
+///
+/// Behaviour: script.glue.a-package-by-name-makes-an-instance
+#[test]
+fn a_package_by_name_makes_an_instance() {
+    let mut b = Bench::with_packages(&[("Thing", THING_PACKAGE, &[])]);
+    let (_, slots) = b.call(TYPE_INFO_PACKAGE, 1, NULL, &[THING_PACKAGE], 1);
+    assert_eq!(slots[0].1, tag::REFERENCE);
+    assert_eq!(listing(&b, slots[0].0), "Thing");
+    let (_, slots) = b.call(TYPE_INFO_PACKAGE, 1, NULL, &[0x7777], 1);
+    assert_eq!(listing(&b, slots[0].0), "");
+    let name = b.text("Thing");
+    let (status, slots) = b.call(TYPE_INFO_PACKAGE, 2, NULL, &[name], 1);
+    assert_eq!(status, Status::Success);
+    let mut host = TestHost::default();
+    let prog = std::sync::Arc::clone(b.vm.program());
+    assert_eq!(
+        b.vm.package_of(&mut host, slots[0].0, &prog),
+        Ok(THING_PACKAGE),
+        "an instance of the package"
+    );
+    let name = b.text("No Such Thing");
+    let (status, slots) = b.call(TYPE_INFO_PACKAGE, 2, NULL, &[name], 1);
+    assert_eq!((status, slots[0].0), (Status::Crash, NULL));
+    let name = b.text("Thing");
+    let (status, slots) = b.call(TYPE_INFO_PACKAGE, 3, NULL, &[name, 0], 1);
+    assert_eq!((status, slots[0].0), (Status::Success, u32::MAX));
+}
+
+/// The named places' table: its natives called as the machine calls one, over a table put in the
+/// host's records.
+mod places {
+    use auberean_assets::common::Position;
+    use auberean_assets::tables::Places;
+    use auberean_assets::Database;
+    use auberean_primitives::{CellId, Frame, Quat, Vec3};
+    use auberean_script::native_object::NativeObject;
+    use auberean_script::value::tag;
+    use auberean_script::Status;
+
+    use crate::call::Bench;
+
+    const PLACES_TABLE: u32 = 0x58;
+    const POSITION: u32 = 0x5A;
+    const RECORD: u32 = 0x0E00_0004;
+
+    fn table() -> Places {
+        Places {
+            places: vec![
+                (
+                    "the keep".to_owned(),
+                    Position {
+                        cell: CellId(0x5D3A_0101),
+                        frame: Frame {
+                            origin: Vec3::new(1.0, 2.0, 3.0),
+                            rotation: Quat {
+                                w: 1.0,
+                                x: 0.0,
+                                y: 0.0,
+                                z: 0.0,
+                            },
+                        },
+                    },
+                ),
+                ("Upper".to_owned(), Position::default()),
+            ],
+        }
+    }
+
+    fn bench_with_table() -> (Bench, Database) {
+        let db = Database::new(Vec::new());
+        let held = db.put(RECORD, table()).expect("not loaded yet");
+        drop(held);
+        let mut b = Bench::new();
+        b.host.enum_ids.insert((0x4000_0054, 0x4000_0002), RECORD);
+        (b, db)
+    }
+
+    const KEEP_TEXT: &str =
+        "0x5D3A0101 [1.000000 2.000000 3.000000] 1.000000 0.000000 0.000000 0.000000";
+
+    /// **A named place is found by its name in lower case, whatever case it is asked in**, and copied
+    /// into the position an out reference holds; a name in the table with a capital is never found
+    /// (only the name asked is put in lower case); not found leaves the position as it was. Written
+    /// out, it is the position's own text, in the string an out reference holds, which stays as it was
+    /// when the place is not found.
+    ///
+    /// Behaviour: script.glue.named-places-are-found-in-lower-case
+    #[test]
+    fn a_named_place_is_found_by_its_name_in_lower_case() {
+        let (mut b, db) = bench_with_table();
+        b.host.database = Some(db);
+        let name = b.text("The KEEP");
+        let at = b.object(
+            POSITION,
+            NativeObject::Position {
+                cell: 7,
+                frame: [0; 7],
+            },
+        );
+        let (status, r) = b.call_with_local(PLACES_TABLE, 1, 0, at, &[Some(name), None], 1);
+        assert_eq!(status, Status::Success);
+        assert_eq!(r[0], (1, tag::MIXED));
+        let NativeObject::Position { cell, frame } = b.vm.heap.native(at).unwrap() else {
+            panic!("a position")
+        };
+        assert_eq!(*cell, 0x5D3A_0101);
+        assert_eq!(
+            frame.map(f32::from_bits),
+            [1.0, 2.0, 3.0, 1.0, 0.0, 0.0, 0.0]
+        );
+
+        for gone in ["upper", "Upper", "nowhere"] {
+            let name = b.text(gone);
+            let at = b.object(
+                POSITION,
+                NativeObject::Position {
+                    cell: 7,
+                    frame: [0; 7],
+                },
+            );
+            let (_, r) = b.call_with_local(PLACES_TABLE, 1, 0, at, &[Some(name), None], 1);
+            assert_eq!(r[0], (0, tag::MIXED), "{gone}");
+            let NativeObject::Position { cell, .. } = b.vm.heap.native(at).unwrap() else {
+                panic!("a position")
+            };
+            assert_eq!(*cell, 7, "{gone} leaves the position");
+        }
+
+        let name = b.text("the keep");
+        let out = b.text("before");
+        let (_, r) = b.call_with_local(PLACES_TABLE, 2, 0, out, &[Some(name), None], 1);
+        assert_eq!(r[0], (1, tag::MIXED));
+        assert_eq!(String::from_utf16_lossy(&b.text_of(out)), KEEP_TEXT);
+        let name = b.text("nowhere");
+        let out = b.text("before");
+        let (_, r) = b.call_with_local(PLACES_TABLE, 2, 0, out, &[Some(name), None], 1);
+        assert_eq!(r[0], (0, tag::MIXED));
+        assert_eq!(String::from_utf16_lossy(&b.text_of(out)), "before");
+    }
+
+    /// **The named places' dump is a line for each place, or says it could not get the list**: the
+    /// name, a colon and the position's own text, with a stop; the install holding no table says so.
+    ///
+    /// Behaviour: script.glue.named-places-dump
+    #[test]
+    fn the_named_places_dump_lists_each_place_or_says_it_could_not_get_the_list() {
+        let (mut b, db) = bench_with_table();
+        let (_, none) = b.call(PLACES_TABLE, 3, 0, &[], 1);
+        assert_eq!(
+            String::from_utf16_lossy(&b.text_of(none[0].0)),
+            "Couldn't get places list.\n"
+        );
+        b.host.database = Some(db);
+        let (_, r) = b.call(PLACES_TABLE, 3, 0, &[], 1);
+        assert_eq!(
+            String::from_utf16_lossy(&b.text_of(r[0].0)),
+            format!(
+                "the keep: {KEEP_TEXT}.\nUpper: 0x00000000 [0.000000 0.000000 0.000000] 1.000000 0.000000 0.000000 0.000000.\n"
+            )
+        );
+    }
+}
+
+// A creation's natives, by number.
+const GET_RACE: u32 = 0x03;
+const SET_RACE: u32 = 0x04;
+const GET_SEX: u32 = 0x05;
+const SET_SEX: u32 = 0x06;
+const SET_CLASS: u32 = 0x07;
+const GET_CLASS: u32 = 0x08;
+const SET_IMPLEMENT: u32 = 0x09;
+const SET_VALUE: u32 = 0x0B;
+const GET_VALUE: u32 = 0x0C;
+const SET_START_AREA: u32 = 0x0E;
+
+fn result_of(b: &Bench, r: u32) -> CreationChoices {
+    CreationChoices::of(b.vm.heap.native(r).expect("the object"))
+        .expect("a creation's choices")
+        .clone()
+}
+
+/// Race, sex and class read back what was set; setting the class or the implement answers 1, and
+/// setting the race, the sex or the starting area answers nothing, leaving the slot alone.
+///
+/// Behaviour: script.glue.a-creations-choices-are-set-and-read
+#[test]
+fn a_creations_fields_read_back_what_was_set() {
+    let mut b = Bench::new();
+    let r = b.object(CREATION_CHOICES, CreationChoices::default().native());
+    for (set, get, v) in [(SET_RACE, GET_RACE, 4), (SET_SEX, GET_SEX, 0x2000)] {
+        let (status, slots) = b.call(CREATION_CHOICES, set, r, &[v], 1);
+        assert_eq!(status, Status::Success);
+        assert_eq!(slots[0].0, 0, "a setter that answers nothing");
+        assert_eq!(b.answer(CREATION_CHOICES, get, r, &[]), v);
+    }
+    assert_eq!(b.answer(CREATION_CHOICES, SET_CLASS, r, &[7]), 1);
+    assert_eq!(b.answer(CREATION_CHOICES, GET_CLASS, r, &[]), 7);
+    assert_eq!(b.answer(CREATION_CHOICES, SET_IMPLEMENT, r, &[9]), 1);
+    let (status, slots) = b.call(CREATION_CHOICES, SET_START_AREA, r, &[3], 1);
+    assert_eq!((status, slots[0].0), (Status::Success, 0));
+    let got = result_of(&b, r);
+    assert_eq!(
+        (got.race, got.sex, got.class, got.implement, got.start_area),
+        (4, 0x2000, 7, 9, 3)
+    );
+}
+
+/// A physique type with no value reads as -1; setting one answers 1, whether or not the type had a
+/// value, and the last value set is the one read.
+///
+/// Behaviour: script.glue.a-creations-choices-are-set-and-read
+#[test]
+fn a_physique_type_with_no_value_reads_as_minus_one() {
+    let mut b = Bench::new();
+    let r = b.object(CREATION_CHOICES, CreationChoices::default().native());
+    let half = 0.5f32.to_bits();
+    let quarter = 0.25f32.to_bits();
+    assert_eq!(
+        b.answer(CREATION_CHOICES, GET_VALUE, r, &[4]),
+        (-1.0f32).to_bits()
+    );
+    assert_eq!(b.answer(CREATION_CHOICES, SET_VALUE, r, &[4, half]), 1);
+    assert_eq!(b.answer(CREATION_CHOICES, SET_VALUE, r, &[4, quarter]), 1);
+    assert_eq!(b.answer(CREATION_CHOICES, GET_VALUE, r, &[4]), quarter);
+    assert_eq!(
+        b.answer(CREATION_CHOICES, GET_VALUE, r, &[8]),
+        (-1.0f32).to_bits()
+    );
+}
+
+/// Through the null reference, each crashes the script.
+///
+/// Behaviour: script.glue.a-creations-choices-are-set-and-read
+#[test]
+fn a_creation_through_the_null_reference_crashes() {
+    let mut b = Bench::new();
+    for n in [
+        GET_RACE,
+        SET_RACE,
+        GET_SEX,
+        SET_SEX,
+        SET_CLASS,
+        GET_CLASS,
+        SET_IMPLEMENT,
+        SET_VALUE,
+        GET_VALUE,
+        SET_START_AREA,
+    ] {
+        let (status, _) = b.call(CREATION_CHOICES, n, NULL, &[1, 2], 1);
+        assert_eq!(status, Status::Crash, "native {n:#x}");
+    }
+}
+
+/// Data files with no word filter leave the string alone and answer 0.
+///
+/// Behaviour: script.glue.a-name-is-left-alone-with-no-word-filter
+#[test]
+fn a_name_is_left_alone_with_no_word_filter() {
+    let mut b = Bench::new();
+    let name = b.text("  jOHN ");
+    let held = b.text("before");
+    let (status, slots) = b.call_with_local(0x6B, 3, NULL, held, &[Some(1), Some(name), None], 1);
+    assert_eq!((status, slots[0].0), (Status::Success, 0));
+    assert_eq!(
+        b.text_of(held),
+        "before".encode_utf16().collect::<Vec<u16>>()
+    );
 }
