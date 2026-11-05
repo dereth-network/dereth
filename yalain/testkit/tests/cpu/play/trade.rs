@@ -990,6 +990,34 @@ fn buy_contracts(h: &mut Harness, b: usize, me: u64, ordinal: u32, quantity: u32
         .any(|(f, v)| *f == REQUEST_DONE && v.contains(&Value::Int(45001)))
 }
 
+/// A storekeeper opening and closing for a sale shows to everyone beside it, who take the keeper's
+/// visual messages in turn with the buyer.
+/// Behaviour: server.store.a-keeper-opens-for-all-who-see-it
+#[test]
+fn a_keeper_opening_for_a_sale_is_told_to_those_beside_it() {
+    let (mut h, b, me, _) = merc_shop(1000);
+    let (w, _) = h.player_in_world("two", "Bran");
+    h.run(10);
+    for sale in 1_u16..=2 {
+        let from = h.bots[w].inbox.len();
+        assert!(!buy_contract(&mut h, b, me, 0), "bought");
+        let opened: Vec<(i32, u16)> = h
+            .world_messages(w, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::UpdateBoolVisual(q)
+                    if q.object.id == KEEPER && q.quality == yalain_world::store::OPEN =>
+                {
+                    Some((q.value, q.object.other_stamp))
+                }
+                _ => None,
+            })
+            .collect();
+        let first = 2 * sale;
+        assert_eq!(opened, [(1, first), (0, first + 1)], "sale {sale}");
+    }
+}
+
 fn steps(seconds: f64) -> usize {
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let n = (seconds / yalain_testkit::STEP).round() as usize;

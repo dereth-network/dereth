@@ -951,7 +951,7 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
             net.send(
                 world,
                 queue::EVENT,
-                BlobKind::PRIVATE,
+                BlobKind::UNORDERED,
                 ServerMessage::ForgetObject(stamp).encode(),
             );
         }

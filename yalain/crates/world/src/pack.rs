@@ -97,14 +97,20 @@ fn item_slot(slot: u32) -> i32 {
 }
 
 /// The container of an item changed in its holder's sight: cleared, then the player.
-fn contained_again<S: Store>(s: &mut Server<S>, net: &mut ServerNet, item: u64, player: u64) {
+fn contained_again<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    item: u64,
+    player: u64,
+) {
     for value in [0, player] {
         let m = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
             object: inv::visual(s, item),
             quality: q::CONTAINER,
             value,
         });
-        inv::to_knowers(s, net, item, &m);
+        inv::to_holder(s, net, world, item, &m);
     }
 }
 
@@ -115,7 +121,7 @@ fn quantity_shown<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
         quality: crate::craft::QUANTITY,
         value: i32::try_from(n).unwrap_or(i32::MAX),
     });
-    progress::private(net, world, &m);
+    inv::to_holder(s, net, world, item, &m);
 }
 
 fn destroyed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, item: u64) {
@@ -273,7 +279,7 @@ pub fn reorganize<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnI
     if let Some(t) = s.things.get_mut(h.id) {
         t.container = Some((player, slot));
     }
-    contained_again(s, net, h.id, player);
+    contained_again(s, net, world, h.id, player);
     finish(s, world, held);
 }
 
@@ -795,7 +801,7 @@ pub fn took_all<S: Store>(
                 ..m
             };
             progress::private(net, world, &move_done(&m));
-            contained_again(s, net, item, player);
+            contained_again(s, net, world, item, player);
         }
         taken.push(item);
         if let Some(c) = s.things.get_mut(container).and_then(|t| t.corpse.as_mut()) {

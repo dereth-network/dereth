@@ -132,8 +132,7 @@ pub fn show_name<S: yalain_store::Store>(
         value: shown,
     });
     let me = p.character;
-    crate::progress::private(net, world, &m);
-    crate::places::to_knowers(s, net, me, &m);
+    crate::places::to_all_knowing(s, net, me, &m);
 }
 
 /// Make a player's encoded qualities name the admin template's record, or the player's.

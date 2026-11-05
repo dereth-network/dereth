@@ -700,7 +700,7 @@ fn wear<S: Store>(
         (q::CONTAINER, player),
     ] {
         let m = iid_update(s, item, quality, value);
-        net.send(world, queue::EVENT, BlobKind::VISUAL, m.encode());
+        crate::inventory::to_holder(s, net, world, item, &m);
     }
     if let Some(t) = s.things.get_mut(item) {
         t.wielded = Some((player, location));
@@ -830,7 +830,7 @@ fn take_off_to<S: Store>(
         show_look(s, net, world);
     }
     let m = iid_update(s, item, q::EQUIPPER, 0);
-    net.send(world, queue::EVENT, BlobKind::VISUAL, m.encode());
+    crate::inventory::to_holder(s, net, world, item, &m);
     if let Some(t) = s.things.get_mut(item) {
         t.wielded = None;
         t.container = Some((player, slot));
@@ -1009,7 +1009,7 @@ fn wield<S: Store>(
         net.send_ephemeral(world, queue::EVENT, stream, attach.clone());
     }
     for (c, _) in watching.iter().filter(|(_, knows)| *knows) {
-        net.send(*c, queue::EVENT, BlobKind::VISUAL, attach.clone());
+        crate::presence::on_its_stream(s, net, *c, item, attach.clone());
     }
     if let Some(p) = s.players.get_mut(&world) {
         if let Some(h) = p.play.items.iter_mut().find(|h| h.id == item) {
@@ -1159,9 +1159,11 @@ fn put_away<S: Store>(
         });
         to_all_seeing(s, net, player, &sheathed);
     }
-    let m = iid_update(s, item, q::EQUIPPER, 0);
-    net.send(world, queue::EVENT, BlobKind::VISUAL, m.encode());
-    // Those who see it see the item let go of: the holder lets go of the item.
+    let m = iid_update(s, item, q::EQUIPPER, 0).encode();
+    net.send(world, queue::EVENT, BlobKind::VISUAL, m.clone());
+    // Those who see it see the item let go of: the holder lets go of the item, and those who know
+    // the item are told it has no holder (2017: 543 of 659 of the next visual messages about an item
+    // after its holder let go of it took the next stamp, those read holding no wearer).
     let player_stamp = s.players.get(&world).map(crate::world::Player::stamp);
     let item_stamp = s.things.get(item).map(|t| ObjectStamp {
         id: item,
@@ -1177,8 +1179,11 @@ fn put_away<S: Store>(
             action: child,
         })
         .encode();
-        for (c, _) in crate::presence::watching(s, world, player, item) {
-            net.send(c, queue::EVENT, BlobKind::VISUAL, gone.clone());
+        for (c, knows) in crate::presence::watching(s, world, player, item) {
+            net.send(c, queue::EVENT, BlobKind::UNORDERED, gone.clone());
+            if knows {
+                net.send(c, queue::EVENT, BlobKind::VISUAL, m.clone());
+            }
         }
     }
     if let Some(p) = s.players.get_mut(&world) {

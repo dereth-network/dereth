@@ -6,9 +6,10 @@ use auberean_protocol::login::{CharacterRef, Empty};
 use auberean_protocol::physics::{HeadDirection, Target};
 use auberean_protocol::{queue, ClientMessage, ServerMessage};
 use yalain_content::{ContentObject, ContentPack, Description, Kind};
+use yalain_testkit::invariants::VisualOrder;
 use yalain_testkit::play::report;
 use yalain_testkit::{Harness, TestGround};
-use yalain_world::world::{motion, IDLE_MOTION};
+use yalain_world::world::{motion, ARRIVAL_FX, IDLE_MOTION};
 
 fn created(h: &Harness, b: usize, from: usize, id: u64) -> bool {
     h.world_messages(b, from)
@@ -143,6 +144,98 @@ fn head_turns_and_looking_at_reach_the_clients_that_know_the_player() {
         _ => None,
     });
     assert_eq!(looked, Some(idb));
+}
+
+/// The end of a player's arrival effect reaches a client already watching it, which then takes the
+/// player's later visual messages at once.
+/// Behaviour: server.presence.a-players-arrival-ends-for-all-who-see-it
+#[test]
+fn the_end_of_an_arrival_reaches_a_client_already_watching_and_nothing_after_it_waits() {
+    let mut h = Harness::new();
+    let (w, _) = h.player_in_world("two", "Babyfare");
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let from = h.bots[w].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &ClientMessage::SceneRenderingComplete(Empty),
+    );
+    let ended = h.wait_for(w, from, |m| match m {
+        ServerMessage::StopFx(e) if e.sender.id == me => Some(e.action.0),
+        _ => None,
+    });
+    assert_eq!(ended, Some(ARRIVAL_FX));
+    h.bots[a].send(true, queue::WEENIE, &ClientMessage::LookAt(Target(me)));
+    let looked = h.wait_for(w, from, |m| match m {
+        ServerMessage::LookAt(e) if e.sender.id == me => Some(e.action.0),
+        _ => None,
+    });
+    assert_eq!(looked, Some(me));
+    let mut order = VisualOrder::new();
+    for r in h.bots[w].inbox.iter().filter(|r| r.world) {
+        order.see(r.blob_id, &r.bytes);
+    }
+    assert_eq!(order.held(), Vec::new(), "nothing waits for a stamp");
+}
+
+/// Taken as a client takes them, a visual message waits for the stamps before its own and for its
+/// object; one at a stamp already passed is dropped; a visual stamp under a private message counts for
+/// nothing, and is told as wrong.
+/// Behaviour: server.presence.a-check-of-visual-order-waits-as-a-client-waits
+#[test]
+fn the_check_of_visual_order_waits_as_a_client_waits() {
+    use auberean_protocol::physics::{ObjectEvent, Word};
+    use auberean_protocol::types::ObjectStamp;
+    use yalain_net::blob::{blob_id, BlobKind};
+    use yalain_testkit::invariants::Held;
+    const ID: u64 = 0x2130_0000_0000_0001;
+    let stop = |other_stamp: u16| {
+        ServerMessage::StopFx(ObjectEvent {
+            sender: ObjectStamp {
+                id: ID,
+                instance_stamp: 1,
+                other_stamp,
+            },
+            action: Word(7),
+        })
+        .encode()
+    };
+    let visual = blob_id(BlobKind::VISUAL, 1, 0, 0);
+    let made = ServerMessage::CreateObject(auberean_protocol::physics::CreateObject {
+        id: ID,
+        physics: auberean_protocol::types::PhysicsDesc {
+            instance_stamp: 1,
+            visual_ordering_stamp: 5,
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+    .encode();
+    let mut order = VisualOrder::new();
+    order.see(visual, &stop(6));
+    assert!(order.held().is_empty(), "waits for its object, not a stamp");
+    order.see(blob_id(BlobKind::UNORDERED, 1, 0, 0), &made);
+    assert!(order.held().is_empty(), "taken once its object is made");
+    order.see(visual, &stop(8));
+    let held = Held {
+        object: ID,
+        current: 6,
+        stamp: 8,
+        kind: "0x100a1".to_owned(),
+    };
+    assert_eq!(order.held(), [held]);
+    order.see(visual, &stop(7));
+    assert!(order.held().is_empty(), "the missing stamp frees it");
+    order.see(visual, &stop(3));
+    assert_eq!(order.dropped.get("0x100a1"), Some(&1), "passed: dropped");
+    assert!(order.misrouted().is_empty());
+    order.see(blob_id(BlobKind::PRIVATE, 1, 1, 0), &stop(9));
+    assert_eq!(
+        order.misrouted(),
+        ["0x100a1"],
+        "a visual stamp, sent private"
+    );
 }
 
 /// A player that walks out of another's view is not taken away from that client (the client lets

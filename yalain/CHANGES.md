@@ -39,6 +39,7 @@ what they see, not how it was done.
 - Quests with no setup now pay what they should.
 - Killing some creatures curses you, or brings their helpers.
 - Many weapons and armor that did nothing now work.
+- Fixed other players' movements and swings sticking after they arrive.
 
 - Fixed a selected person showing empty health and vigor bars.
 

@@ -16,7 +16,7 @@ use auberean_protocol::quality::VisualQuality;
 use auberean_protocol::types::{BehaviorParams, ObjectStamp};
 use auberean_protocol::ServerMessage;
 use dereth_primitives::num::math;
-use yalain_net::{BlobKind, ConnId, ServerNet};
+use yalain_net::{ConnId, ServerNet};
 use yalain_store::{Store, StoredPosition};
 
 use crate::calls::{Node, Value};
@@ -265,7 +265,7 @@ fn put_down<S: Store>(
         quality: q::CONTAINER,
         value: 0,
     });
-    crate::presence::to_thing_knowers(s, net, m.item, BlobKind::VISUAL, &left);
+    crate::inventory::to_holder(s, net, world, m.item, &left);
     if let Some(t) = s.things.get_mut(m.item) {
         t.container = None;
     }

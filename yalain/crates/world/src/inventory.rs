@@ -1185,7 +1185,7 @@ pub fn give_stacked<S: Store>(
             quality: crate::craft::QUANTITY,
             value: i32::try_from(quantity).unwrap_or(i32::MAX),
         });
-        progress::private(net, world, &m);
+        to_holder(s, net, world, id, &m);
     }
     while left > 0 {
         let part = left.min(most);
@@ -1467,14 +1467,14 @@ pub fn picked_up<S: Store>(
             quality: crate::craft::QUANTITY,
             value: i32::try_from(total).unwrap_or(i32::MAX),
         });
-        progress::private(net, world, &more);
+        to_holder(s, net, world, stack, &more);
         let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
             id: item,
             instance_stamp: instance,
             other_stamp: 0,
         }));
         crate::presence::to_thing_knowers(s, net, item, BlobKind::UNORDERED, &gone);
-        to_knowers(s, net, item, &leave);
+        crate::presence::leaves(s, net, item, &leave);
         s.things.remove(item);
         for p in s.players.values_mut() {
             p.known.remove(&item);
@@ -1508,8 +1508,8 @@ pub fn picked_up<S: Store>(
             quality: q::CONTAINER,
             value: player,
         });
-        to_knowers(s, net, item, &held);
-        to_knowers(s, net, item, &leave);
+        to_holder(s, net, world, item, &held);
+        crate::presence::leaves(s, net, item, &leave);
     }
     crate::quests::took(s, net, world, template, clock);
     crate::world::keep_player(s, world);
@@ -1637,6 +1637,24 @@ pub fn bought<S: Store>(
 /// Send a visual event about a thing to every client that knows it.
 pub(crate) fn to_knowers<S: Store>(s: &Server<S>, net: &mut ServerNet, id: u64, m: &ServerMessage) {
     crate::presence::to_thing_knowers(s, net, id, BlobKind::VISUAL, m);
+}
+
+/// Send a visual event about an item to its holder and to any other client that knows it: each of
+/// them takes the item's visual stamps in turn, so none may miss one.
+pub(crate) fn to_holder<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    holder: ConnId,
+    item: u64,
+    m: &ServerMessage,
+) {
+    let bytes = m.encode();
+    net.send(holder, queue::EVENT, BlobKind::VISUAL, bytes.clone());
+    for (conn, p) in &s.players {
+        if *conn != holder && p.known.contains_key(&item) {
+            net.send(*conn, queue::EVENT, BlobKind::VISUAL, bytes.clone());
+        }
+    }
 }
 
 /// The corpse a player has open.
@@ -1824,7 +1842,7 @@ pub fn take<S: Store>(
         quality: q::CONTAINER,
         value: 0,
     });
-    to_knowers(s, net, item, &left);
+    to_holder(s, net, world, item, &left);
     s.after(clock, TAKING_SECONDS, Timer::Take { world, item });
 }
 
@@ -1924,7 +1942,7 @@ pub fn taken<S: Store>(
         quality: q::CONTAINER,
         value: player,
     });
-    to_knowers(s, net, item, &held);
+    to_holder(s, net, world, item, &held);
     crate::quests::took(s, net, world, template, clock);
     crate::world::keep_player(s, world);
 }
@@ -1996,7 +2014,7 @@ fn joined_stack<S: Store>(
         quality: crate::craft::QUANTITY,
         value: i32::try_from(total).unwrap_or(i32::MAX),
     });
-    progress::private(net, world, &more);
+    to_holder(s, net, world, stack, &more);
     let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {
         id: item,
         instance_stamp: instance,
@@ -2175,7 +2193,7 @@ pub fn transmute_all<S: Store>(
                 quality: q::CONTAINER,
                 value: 0,
             });
-            net.send(world, queue::EVENT, BlobKind::VISUAL, left.encode());
+            to_holder(s, net, world, *item, &left);
         }
         if let Some(t) = s.things.remove(*item) {
             let gone = ServerMessage::ForgetObject(ObjectOnly(ObjectStamp {

@@ -24,7 +24,7 @@ use auberean_script::native_object::{Item, NativeObject};
 use yalain_content::quests::Trigger;
 use yalain_content::stores::Sale;
 use yalain_content::ContentObject;
-use yalain_net::{BlobKind, ConnId, ServerNet};
+use yalain_net::{ConnId, ServerNet};
 use yalain_store::Store;
 
 use crate::calls::{Node, Value};
@@ -437,12 +437,7 @@ pub fn purchase<S: Store>(
     if !room {
         for v in [1, 0] {
             let m = open(s, v);
-            net.send(
-                world,
-                auberean_protocol::queue::EVENT,
-                BlobKind::VISUAL,
-                m.encode(),
-            );
+            crate::places::to_knowers(s, net, keeper, &m);
         }
         let m = session::call(function::REQUEST_DONE, &[Arg::Int(error::NO_ROOM)]).expect("packs");
         progress::private(net, world, &m);
@@ -458,12 +453,7 @@ pub fn purchase<S: Store>(
     // The money first (2017: before the storekeeper opened in 9 of 10 purchases).
     progress::send_int(net, world, MONEY, left.cast_signed());
     let opened = open(s, 1);
-    net.send(
-        world,
-        auberean_protocol::queue::EVENT,
-        BlobKind::VISUAL,
-        opened.encode(),
-    );
+    crate::places::to_knowers(s, net, keeper, &opened);
     crate::inventory::bought(s, net, world, sale.product, quantity, keeper, clock);
     if hires {
         crate::pets::hire(s, net, world, sale.product, clock);
@@ -471,11 +461,6 @@ pub fn purchase<S: Store>(
     let m = page(s, world, keeper, store, pos, function::UPDATE_STORE);
     progress::private(net, world, &m);
     let closed = open(s, 0);
-    net.send(
-        world,
-        auberean_protocol::queue::EVENT,
-        BlobKind::VISUAL,
-        closed.encode(),
-    );
+    crate::places::to_knowers(s, net, keeper, &closed);
     crate::world::keep_player(s, world);
 }

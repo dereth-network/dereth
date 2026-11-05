@@ -481,13 +481,12 @@ fn open<S: Store>(
         .get(&id)
         .map(|c| c.contents.clone())
         .unwrap_or_default();
-    let chest = places::object_stamp(s, id);
     for item in left {
         if s.things.get(item).and_then(|t| t.container).map(|c| c.0) != Some(id) {
             continue;
         }
         let m = ServerMessage::VisualObjectCall(ObjectCall {
-            object: chest,
+            object: places::object_stamp(s, id),
             call: ClientCall {
                 function: FunctionId(DESTROY_CONTAINED),
                 args: Some(

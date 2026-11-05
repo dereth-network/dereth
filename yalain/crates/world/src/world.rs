@@ -1091,9 +1091,12 @@ pub fn message<S: Store>(
                     },
                     action: Word(ARRIVAL_FX),
                 });
-                send(net, world, BlobKind::VISUAL, &stop);
-                // The things of the other cells of an interior, held back until now.
+                let id = p.character;
                 s.players.insert(world, p);
+                // For all who see it, whose next visual message waits on this stamp (2017: 7,175
+                // of the 8,186 of these a client took were about someone else).
+                crate::combat::to_all_seeing(s, net, id, &stop);
+                // The things of the other cells of an interior, held back until now.
                 presence::refresh(s, net, world);
                 // Arrived: the status of where it now is.
                 return crate::kingdoms::check(s, net, world);

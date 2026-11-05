@@ -456,6 +456,6 @@ pub fn wear_tool_by<S: Store>(
         quality: wear::DURABILITY,
         value: i32::try_from(left).unwrap_or(i32::MAX),
     });
-    progress::private(net, world, &m);
+    crate::inventory::to_holder(s, net, world, item, &m);
     crate::world::keep_player(s, world);
 }

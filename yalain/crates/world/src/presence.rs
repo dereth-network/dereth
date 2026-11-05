@@ -688,6 +688,29 @@ pub fn to_thing_knowers<S: Store>(
     }
 }
 
+/// Send a message about an object to a client that knows it, on its stream of that object.
+pub(crate) fn on_its_stream<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    conn: ConnId,
+    id: u64,
+    bytes: Vec<u8>,
+) {
+    if let Some(seen) = s.players.get(&conn).and_then(|p| p.known.get(&id)) {
+        net.send_ephemeral(conn, queue::EVENT, seen.position_stream, bytes);
+    }
+}
+
+/// An object leaves: every client that knows it is told, on its stream of that object.
+pub(crate) fn leaves<S: Store>(s: &Server<S>, net: &mut ServerNet, id: u64, m: &ServerMessage) {
+    let bytes = m.encode();
+    for (conn, p) in &s.players {
+        if let Some(seen) = p.known.get(&id) {
+            net.send_ephemeral(*conn, queue::EVENT, seen.position_stream, bytes.clone());
+        }
+    }
+}
+
 /// A content object (a person walking its route) moved: told to every client that knows it and
 /// still sees it, made for one that now sees it, let go by one that no longer does.
 pub fn content_moves<S: Store>(

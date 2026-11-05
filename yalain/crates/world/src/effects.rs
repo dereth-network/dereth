@@ -2066,14 +2066,9 @@ fn tell_of_item<S: Store>(s: &mut Server<S>, net: &mut ServerNet, item: u64, m: 
     let Some(t) = s.things.get(item) else {
         return;
     };
-    match (t.wielded, t.container) {
-        (Some((holder, _)), _) => crate::combat::to_all_seeing(s, net, holder, m),
-        (None, Some((holder, _))) => {
-            if let Some(world) = crate::social::world_of(s, holder) {
-                progress::private(net, world, m);
-            }
-        }
-        (None, None) => {}
+    let holder = t.wielded.or(t.container).map(|(holder, _)| holder);
+    if let Some(world) = holder.and_then(|h| crate::social::world_of(s, h)) {
+        crate::inventory::to_holder(s, net, world, item, m);
     }
 }
 

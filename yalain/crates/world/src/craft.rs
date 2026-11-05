@@ -2773,5 +2773,5 @@ pub(crate) fn use_up<S: Store>(
         quality: QUANTITY,
         value: i32::try_from(left).unwrap_or(i32::MAX),
     });
-    progress::private(net, world, &m);
+    crate::inventory::to_holder(s, net, world, item, &m);
 }

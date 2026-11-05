@@ -8613,6 +8613,26 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.presence.a-check-of-visual-order-waits-as-a-client-waits",
+        says: "The check every world test ends with takes visual messages as a client does: each \
+               waits for its object and the stamps before its own, one at a stamp already passed \
+               is dropped, and a visual stamp under a private message is told as wrong.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-VISUAL-ORDER-CHECK"),
+        station: "yalain-testkit::cpu::entry::presence::the_check_of_visual_order_waits_as_a_client_waits",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.presence.a-players-arrival-ends-for-all-who-see-it",
+        says: "The end of a player's arrival effect reaches every client that knows the player, \
+               so that a client already watching takes the player's later visual messages at \
+               once.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ARRIVAL-ENDS-FOR-ALL"),
+        station: "yalain-testkit::cpu::entry::presence::the_end_of_an_arrival_reaches_a_client_already_watching_and_nothing_after_it_waits",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.presence.a-view-moves-at-the-worlds-pace",
         says: "A player's own reports bring its view up to date no oftener than four times \
                a second, however often they cross its lines; what is owed comes when that \
@@ -10079,6 +10099,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-VIGOR-HELD-AURA"),
         station: "yalain-testkit::cpu::play::specials::an_aura_on_what_is_held_lowers_its_cost_rounded_down",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.store.a-keeper-opens-for-all-who-see-it",
+        says: "A storekeeper opening and closing for a sale is told to every client that knows \
+               it, each taking the keeper's visual messages in turn.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-KEEPER-OPENS-FOR-ALL"),
+        station: "yalain-testkit::cpu::play::trade::a_keeper_opening_for_a_sale_is_told_to_those_beside_it",
         tier: Tier::Cpu,
     },
     behaviour! {

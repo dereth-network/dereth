@@ -786,7 +786,7 @@ fn give<S: Store>(
             quality: QUANTITY,
             value: i32::try_from(left).unwrap_or(i32::MAX),
         });
-        progress::private(net, gw, &m);
+        inventory::to_holder(s, net, gw, item, &m);
         new
     };
     // Into the receiver's pack at its first slot, the rest moved down; into the first bag with room
@@ -847,7 +847,7 @@ fn give<S: Store>(
                 quality: CONTAINER,
                 value: owner,
             });
-            progress::private(net, rw, &m);
+            inventory::to_holder(s, net, rw, moved, &m);
         }
     } else if let Some(x) = s.things.get(moved) {
         let m = ServerMessage::CreateObject(inventory::item_create(x));
