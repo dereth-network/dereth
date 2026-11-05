@@ -707,6 +707,27 @@ fn closing_a_section_leaves_the_pages_scroll_widget_long() {
     assert_eq!(ui.screen_rect(widget).expect("placed").height(), whole);
 }
 
+/// "Other" on the assistance page is a kind of call like the rest, one that asks for a description,
+/// so Send doesn't pass it over.
+///
+/// Behaviour: ui.options.assistance-other-asks-a-description
+#[test]
+fn assistance_other_asks_a_description() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let _p = play(&mut ui);
+    let menu = ui
+        .element(Token::of("CallTypeMenu"))
+        .expect("the kinds of call");
+    let other = (0..ui.menu_len(menu))
+        .filter_map(|at| ui.menu_item(menu, at))
+        .find(|i| ui.text(*i).as_deref() == Some("Other"))
+        .expect("the row");
+    let kind = ui
+        .node(other)
+        .and_then(|n| n.int_attr(Token::of("GUNCallType")));
+    assert_eq!(kind, Some(0x8008));
+}
+
 /// The assistance page's kinds of call read with each new row put first: "Other" last.
 ///
 /// Behaviour: ui.options.assistance-lists-other-last

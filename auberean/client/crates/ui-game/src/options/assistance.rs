@@ -27,7 +27,7 @@ mod name {
 /// The kinds of call, in the menu's order: their label and their kind. A kind with `0x4000`
 /// needs the name of the one the call is about; one with `0x8000`, a description.
 pub const CALL_TYPES: [(&str, u32); 9] = [
-    ("ID_Assistance_CallType_Other", 0),
+    ("ID_Assistance_CallType_Other", 0x8008),
     ("ID_Assistance_CallType_OtherCOC", 0xE007),
     ("ID_Assistance_CallType_Stuck", 0x8003),
     ("ID_Assistance_CallType_Spam", 0x6002),
@@ -137,7 +137,7 @@ impl AssistancePage {
         }));
     }
 
-    /// Send pressed: with a kind chosen (not "other"), the message up taken down; a call that
+    /// Send pressed: with a kind chosen, the message up taken down; a call that
     /// needs a name without one, or a description without one, says so; else the call is sent
     /// and the page emptied.
     // D2-02891

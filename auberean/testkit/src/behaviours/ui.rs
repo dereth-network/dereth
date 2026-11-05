@@ -1620,6 +1620,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.options.assistance-other-asks-a-description",
+        says: "The assistance page's Other is a kind of call that asks for a description, so Send                doesn't pass it over.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ASSISTANCE-OTHER"),
+        station: "auberean-ui-game::dat::play::options::assistance_other_asks_a_description",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.options.closing-a-section-leaves-the-pages-scroll-widget-long",
         says: "The page's bar shows no widget when first opened with every section closed; a \
                section opened makes the widget the share in view; closed again, every row showing, \
