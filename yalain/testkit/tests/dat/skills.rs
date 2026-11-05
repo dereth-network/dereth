@@ -476,6 +476,51 @@ fn the_skills_aimed_at_items_read_with_what_they_take_and_do() {
     }
 }
 
+/// No skill aimed at a weapon can come to a lute: each asks its user's right hand to hold something,
+/// and a lute, which is held as nothing, goes in the right hand and nowhere else.
+/// Behaviour: server.skills.a-skill-aimed-at-an-item-refused
+#[test]
+fn no_skill_aimed_at_a_weapon_can_come_to_a_lute() {
+    use yalain_world::skill_use::{implement, object_kind};
+    const RIGHT_HAND: u32 = 64;
+    let p = Portal::open();
+    let aimed: Vec<_> = p
+        .skills()
+        .skills
+        .values()
+        .filter_map(|d| d.usage.clone())
+        .filter(|u| u.valid_object_kinds.contains(&object_kind::WEAPON))
+        .collect();
+    assert_eq!(aimed.len(), 2);
+    for u in &aimed {
+        assert_eq!(u.implements_right.cast_unsigned() & implement::NONE, 0);
+    }
+    // Each of the kinds of lute and flute 2017 examined.
+    for id in [
+        0x4700_065B,
+        0x4700_065D,
+        0x4700_065E,
+        0x4700_065F,
+        0x4700_0660,
+        0x4700_0661,
+        0x4700_0662,
+        0x4700_0663,
+        0x4700_0664,
+        0x4700_0673,
+        0x4700_0674,
+        0x4700_1148,
+        0x4700_114B,
+        0x4700_1A3A,
+    ] {
+        assert!(p.derives(id, &["LuteTemplate"]), "{id:#x}");
+        assert_eq!(
+            p.template(id).props.word("Item_ValidInventoryLocations"),
+            Some(RIGHT_HAND),
+            "{id:#x}"
+        );
+    }
+}
+
 /// Each contract is a template whose acquiring hires, and its mercenary a template that makes a pet;
 /// no pet a skill summons is of a mercenary's class, and what a mercenary tends with heals.
 /// Behaviour: server.pets.a-contract-hires-a-mercenary
