@@ -39,8 +39,9 @@ pub static ROWS: &[Behaviour] = &[
                Display, after the Performance Panel, ticked at first. Ticked, a frame drawn while \
                the window is not the active one comes at least 99 milliseconds after the last, \
                about ten a second, as the original client always did; unticked, the client keeps \
-               its full frame rate in the background. A frame in the foreground never waits. The \
-               change applies to the next frame and is kept in the profile. In a browser, which \
+               its full frame rate in the background. A frame in the foreground never waits, except \
+               in a window that can't be seen, where a frame at full rate rests to about sixty a \
+               second. The change applies to the next frame and is kept in the profile. In a browser, which \
                slows a background tab itself, the box changes nothing.",
         since: THIS_CLIENT,
         divergence: "CD-background-frame-rate",

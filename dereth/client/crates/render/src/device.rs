@@ -729,6 +729,12 @@ impl Gpu {
         dispatch!(self, g => g.end_frame())
     }
 
+    /// Whether the last frame found its window can't be seen, so nothing waited for the display.
+    #[must_use]
+    pub fn window_hidden(&self) -> bool {
+        dispatch!(self, g => g.window_hidden())
+    }
+
     /// # Errors
     /// The backend's own.
     pub fn wait_idle(&mut self) -> Result<(), RenderError> {

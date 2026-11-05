@@ -648,6 +648,8 @@ pub struct Gpu {
     probe_pass: Option<probes::ProbePass>,
 
     frame_open: bool,
+    /// The last frame found the window can't be seen.
+    window_hidden: bool,
     /// Bumped once per presented frame.
     pub frame_stamp: u64,
     /// How many portal depth stamps this device has issued.
@@ -904,6 +906,7 @@ impl Gpu {
             probe_pass: None,
             upload_high_water: 0,
             frame_open: false,
+            window_hidden: false,
             frame_stamp: 0,
             portal_stamps: 0,
             draw_calls: 0,
@@ -980,12 +983,14 @@ impl Gpu {
             } => match surface.get_current_texture() {
                 wgpu::CurrentSurfaceTexture::Success(t)
                 | wgpu::CurrentSurfaceTexture::Suboptimal(t) => {
+                    self.window_hidden = false;
                     let view = t
                         .texture
                         .create_view(&wgpu::TextureViewDescriptor::default());
                     (Some(t), view)
                 }
                 other => {
+                    self.window_hidden = matches!(other, wgpu::CurrentSurfaceTexture::Occluded);
                     // A window that can't be seen, or a picture that came late, leaves the surface
                     // as it was; configuring it again would wait for the device.
                     if !matches!(
@@ -1227,6 +1232,12 @@ impl Gpu {
             .poll(wgpu::PollType::wait_indefinitely())
             .map_err(|e| RenderError::Device(format!("wait: {e}")))?;
         Ok(())
+    }
+
+    /// Whether the last frame found its window can't be seen.
+    #[must_use]
+    pub fn window_hidden(&self) -> bool {
+        self.window_hidden
     }
 
     #[must_use]

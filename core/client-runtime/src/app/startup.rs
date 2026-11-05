@@ -342,6 +342,7 @@ impl<S: Shell> App<S> {
             perf: crate::perf::FramePerf::default(),
             perf_steps: [0.0; crate::frame::STEPS],
             perf_font: false,
+            window_has_no_extent: false,
             perf_capture: None,
             build_commit: "unknown",
             playable_at: None,

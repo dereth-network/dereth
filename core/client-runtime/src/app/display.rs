@@ -81,6 +81,7 @@ impl<S: Shell> App<S> {
             }
         }
         if let HostEvent::Resized { width, height } = event {
+            self.window_has_no_extent = *width == 0 || *height == 0;
             if *width > 0 && *height > 0 {
                 // A monitor/DPI change can resize the host without a preference change. Keep
                 // the backbuffer and UI/hit-test extent in the host's same physical coordinates.

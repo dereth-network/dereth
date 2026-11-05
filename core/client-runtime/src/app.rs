@@ -904,6 +904,9 @@ pub struct App<S: Shell> {
     perf_steps: [f32; crate::frame::STEPS],
     /// Whether the performance panel's font is on the device.
     perf_font: bool,
+    /// The host's last size for the window had no extent: it is minimized, where a display shows
+    /// nothing and some renderers can't tell.
+    window_has_no_extent: bool,
     /// The performance capture `@perfcapture` started, while it records.
     pub perf_capture: Option<crate::perf_capture::PerfCapture>,
     /// The commit the program was built from, as its host names it, for `@report`.

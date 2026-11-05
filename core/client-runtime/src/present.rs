@@ -196,6 +196,10 @@ pub trait Presentation: std::fmt::Debug {
         world: Option<&crate::world_state::WorldState>,
     ) -> Result<(), PresentError>;
     fn end_frame(&mut self) -> Result<(), PresentError>;
+    /// Whether the last frame found its window can't be seen, so nothing waited for the display.
+    fn window_hidden(&self) -> bool {
+        false
+    }
     /// The last release of the shutdown sequence.
     fn wait_idle(&mut self) -> Result<(), PresentError>;
 

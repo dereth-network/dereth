@@ -517,6 +517,86 @@ fn a_background_frame_is_paced_as_the_active_window_s_only_while_the_option_is_o
     store::clear();
 }
 
+/// A minimized window, which the host reports as having no extent, rests a frame at full rate, and
+/// goes back to full rate when it is restored. The world goes on running throughout.
+///
+/// Behaviour: frame.pace.slowing-down-in-the-background-is-an-option-on-at-first
+#[test]
+#[cfg_attr(
+    not(feature = "retail-dats"),
+    ignore = "reads the retail dats: --features retail-dats"
+)]
+fn a_minimized_window_rests_its_frames_until_it_is_restored() {
+    use crate::platform::clock::Pacer;
+    use dereth_client_contract::options::{background, store};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    /// What each frame's pace was asked for, never sleeping.
+    struct Told(Rc<RefCell<Vec<&'static str>>>);
+    impl Pacer for Told {
+        fn frame_sleep(&mut self, _is_active_app: bool) -> u32 {
+            self.0.borrow_mut().push("full rate");
+            0
+        }
+        fn hidden_frame_sleep(&mut self) -> u32 {
+            self.0.borrow_mut().push("rests");
+            0
+        }
+    }
+
+    let store_ = std::sync::Arc::new(dereth_dat::testing::open_store().unwrap_or_else(|| {
+        panic!(
+            "the retail dats are this test's oracle and they are not under {}",
+            dereth_dat::testing::dat_dir().display()
+        )
+    }));
+    let told = Rc::new(RefCell::new(Vec::new()));
+    let pacer = Told(Rc::clone(&told));
+    let cfg = Config {
+        headless: true,
+        frames: None,
+        connect: false,
+        sound: false,
+        dat_dir: std::path::PathBuf::from("a directory that does not exist"),
+        ..Config::default()
+    };
+    let mut app = App::<NullShell>::bring_up_with_store(
+        cfg,
+        Some(store_),
+        move |_| {
+            Ok(Platform {
+                pacer: Box::new(pacer),
+                ..Platform::headless(64, 64)
+            })
+        },
+        |_, _, _, _| Ok(Box::new(crate::present::NullPresentation::new(64, 64))),
+    )
+    .expect("bring-up");
+    let mut shell = NullShell;
+    store::init();
+    assert!(store::set_value(
+        background::SLOW_DOWN_IN_BACKGROUND,
+        dereth_client_contract::PrefValue::Bool(false)
+    ));
+    app.pump.state.is_active_app = false;
+    assert!(app.frame(&mut shell));
+    let minimized = HostEvent::Resized {
+        width: 0,
+        height: 0,
+    };
+    app.handle_window_event(&mut shell, &minimized, 0);
+    assert!(app.frame(&mut shell));
+    let restored = HostEvent::Resized {
+        width: 64,
+        height: 64,
+    };
+    app.handle_window_event(&mut shell, &restored, 0);
+    assert!(app.frame(&mut shell));
+    assert_eq!(*told.borrow(), ["full rate", "rests", "full rate"]);
+    store::clear();
+}
+
 /// A window that draws full screen at a share of its screen's pixels offers the render scale: the
 /// preferences, once read, hold it at the share the window starts at, whatever the profile says. A
 /// window that cannot leaves it out.

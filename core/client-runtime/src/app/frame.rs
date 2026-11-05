@@ -474,7 +474,11 @@ impl<S: Shell> App<S> {
         spans.step(FrameStep::PaceFrame);
         self.events.push(FrameEvent::Step(FrameStep::PaceFrame));
         if draw {
-            crate::platform::clock::pace_frame(self.pacer.as_mut(), self.pump.state.is_active_app);
+            crate::platform::clock::pace_frame(
+                self.pacer.as_mut(),
+                self.pump.state.is_active_app,
+                self.window_has_no_extent || self.present.window_hidden(),
+            );
         }
         self.perf_steps = spans.times();
 
