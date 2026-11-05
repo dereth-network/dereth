@@ -702,6 +702,10 @@ impl Client {
                 self.ask(function::SET_SELECTION, &[InterfaceArg::Long(target)]);
                 self.look_at_selection(target);
             }
+            // D2-00419, D2-01254
+            Action::SetSelection { target } => {
+                self.ask(function::SET_SELECTION, &[InterfaceArg::Long(target)]);
+            }
             // D2-00423, D2-01285
             Action::UseSelected => self.ask(function::USE_SELECTION, &[]),
             // D2-00424, D2-01286

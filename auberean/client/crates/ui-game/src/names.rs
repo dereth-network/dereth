@@ -892,7 +892,7 @@ impl Names {
         let far = self.max_selection_distance;
         #[allow(clippy::cast_precision_loss)]
         if ((far * far) as f32) < y * y + x * x {
-            out.push(Request::Select(0));
+            out.push(Request::SetSelection(0));
             return;
         }
         let (w, h) = ui.display();
@@ -1116,7 +1116,7 @@ impl Names {
                     .and_then(|n| n.instance_id_attr(name::OBJECT_ID))
                     .unwrap_or(0);
                 if id != 0 && world.player != 0 {
-                    out.push(Request::Select(id));
+                    out.push(Request::SetSelection(id));
                 }
             }
             Mail::Global {

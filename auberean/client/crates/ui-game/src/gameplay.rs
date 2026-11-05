@@ -297,6 +297,9 @@ pub enum Request {
     UseSelected,
     /// Select an object (0: nothing): the player's scripts take it and the player looks at it.
     Select(u64),
+    /// Select an object (0: nothing) from a panel: the player's scripts take it and the player's
+    /// head stays as it is.
+    SetSelection(u64),
     /// Find the object under the pointer in the world as last drawn (the answer comes with a
     /// later frame's world).
     Pick {

@@ -64,6 +64,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.interface.a-panels-selection-is-not-looked-at",
+        says: "A selection made from a panel (the radar, a name, the pack, a fellow) sends no look: the head stays on what the selection keys and the world's clicks last chose.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SELECT-NO-LOOK"),
+        station: "auberean-headless::cpu::world_entry::a_panels_selection_is_not_looked_at",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.interface.looking-at-the-selection",
         says: "Selecting an object turns the player to look at it, and the client tells the server \
                what the player looks at with each selection; with the option to look at the \

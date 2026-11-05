@@ -149,7 +149,7 @@ fn the_blip_under_the_pointer_names_and_selects_its_object() {
     ui.pointer_button(button_id::LEFT, true);
     let out = tick(&mut ui, &mut p, &mut t, &w);
     ui.pointer_button(button_id::LEFT, false);
-    assert!(out.contains(&Request::Select(7)), "{out:?}");
+    assert!(out.contains(&Request::SetSelection(7)), "{out:?}");
     ui.pointer_move(rx + 71 - 30, ry + 69);
     tick(&mut ui, &mut p, &mut t, &w);
     assert_eq!(

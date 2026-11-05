@@ -485,7 +485,7 @@ fn inventory_action(r: inventory::Request) -> Option<Action> {
             container,
             open: false,
         },
-        I::Select(target) => Action::Select { target },
+        I::Select(target) => Action::SetSelection { target },
         r @ (I::Help { .. } | I::Pick | I::PickWorld | I::ShowDoll { .. }) => {
             tracing::debug!(?r, "not carried out yet");
             return None;
@@ -1218,6 +1218,9 @@ impl Retail {
                 R::Select(target) => {
                     tracing::debug!(target = format_args!("{target:#x}"), "select");
                     requests.push(Request::Act(Action::Select { target }));
+                }
+                R::SetSelection(target) => {
+                    requests.push(Request::Act(Action::SetSelection { target }));
                 }
                 // The play screen's display is the window's own size.
                 #[allow(clippy::cast_precision_loss)]

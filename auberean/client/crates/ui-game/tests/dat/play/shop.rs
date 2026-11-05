@@ -99,7 +99,7 @@ fn a_shop_shows_its_sales_and_buys_them() {
 
     // The axe selected and bought: one may be bought.
     let out = w.press(r[0], button_id::LEFT);
-    assert!(out.contains(&Request::Select(AXE)), "{out:?}");
+    assert!(out.contains(&Request::SetSelection(AXE)), "{out:?}");
     assert!(!w.ghosted(purchase));
     w.shop.version = 1;
     w.shop.max_purchase.insert(AXE, 1);

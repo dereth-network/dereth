@@ -257,7 +257,7 @@ fn an_arrow_points_to_a_selection_off_the_screen() {
     let mut far = world(vec![body_at(8, 0.0, 450.0, [1.0; 4])]);
     far.selection = 8;
     let out = tick(&mut ui, &mut p, &mut t, &far, &[]);
-    assert!(out.contains(&Request::Select(0)), "{out:?}");
+    assert!(out.contains(&Request::SetSelection(0)), "{out:?}");
 }
 
 /// Placed after the world moves on, the clock only asks for the marks to be placed: they stay
@@ -345,7 +345,7 @@ fn names_over_heads_stand_clear_of_each_other() {
     ui.pointer_button(button_id::LEFT, true);
     let out = tick(&mut ui, &mut p, &mut t, &w, &[]);
     ui.pointer_button(button_id::LEFT, false);
-    assert!(out.contains(&Request::Select(id)), "{out:?}");
+    assert!(out.contains(&Request::SetSelection(id)), "{out:?}");
 
     ui.key(action::SHOW_NAMES, true);
     let out = tick(&mut ui, &mut p, &mut t, &w, &[]);

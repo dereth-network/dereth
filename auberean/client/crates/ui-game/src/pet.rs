@@ -437,7 +437,7 @@ impl Pets {
         else {
             return;
         };
-        out.push(Request::Select(pet));
+        out.push(Request::SetSelection(pet));
         if button != button_id::RIGHT {
             return;
         }
