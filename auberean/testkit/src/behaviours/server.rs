@@ -2300,6 +2300,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.spots-doubled-when-short",
+        says: "A camp with fewer spots than creatures places them all: each spot is held, and the rest \
+               share them. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SPOTS-SHORT"),
+        station: "yalain-testkit::cpu::play::creatures::a_camp_with_fewer_spots_than_creatures_still_places_them_all",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.spots-hold-one",
         says: "A camp's next creature appears at a spot none of its living creatures holds, while one \
                is free, so a camp as many as its spots fills every one.",

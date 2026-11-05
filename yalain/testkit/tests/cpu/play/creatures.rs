@@ -128,6 +128,35 @@ fn a_camp_as_many_as_its_spots_fills_every_one() {
     }
 }
 
+/// A camp keeps its population with fewer spots than creatures: each spot is held, and the rest
+/// share them.
+/// Behaviour: server.creatures.spots-doubled-when-short
+#[test]
+fn a_camp_with_fewer_spots_than_creatures_still_places_them_all() {
+    #[allow(clippy::cast_possible_truncation)]
+    let place = |at: yalain_store::StoredPosition| (at.origin[0] * 10.0).round() as i32;
+    for seed in 1..40 {
+        let mut h = Harness::new();
+        h.server.rng = yalain_world::rng::Rng::new(seed);
+        h.add_creatures(2);
+        h.server.spawns.camps[0].population = 5;
+        h.player_in_world("one", "Elara");
+        let spots: Vec<i32> = h
+            .server
+            .things
+            .by_id
+            .values()
+            .filter(|t| t.template == TEST_CREATURE)
+            .filter_map(|t| t.creature.as_ref().map(|c| place(c.home)))
+            .collect();
+        assert_eq!(spots.len(), 5, "seed {seed}");
+        let mut held = spots.clone();
+        held.sort_unstable();
+        held.dedup();
+        assert_eq!(held, vec![650, 660], "seed {seed}");
+    }
+}
+
 /// However many players are in the world, a creature's look reads the state only of those near it:
 /// the world's every creature looks once a second, so reading all of them costs a pass of the world
 /// about a millisecond a player.
