@@ -26,7 +26,10 @@ is `ci tier1 --game auberean`.
   comment and test lints, the seams, the crate headers.
 - **`ci tier0` is exactly what CI runs. Run it before you push.** It builds everything, runs every
   test that needs no game data, clippy with every warning an error (over the tests that need the
-  game data too: clippy only reads them), every rule and the documentation check.
+  game data too: clippy only reads them), every rule and the documentation check. CI runs the build,
+  the tests and clippy on every system and the rules and the documentation check once, on Linux;
+  `--only build,test,clippy,docs,rules` runs those parts alone. So documentation on code only Windows
+  or macOS compiles is checked when you run `ci tier0` on that system, not by GitHub's CI.
 - **`ci tier1`** runs every crate's data tier and the server's real-content tests, then
   Asheron's Call 2's crates' tests and its data tiers. A game whose data is not found reports its
   rows as NO-ORACLE and the run fails; the other game's rows still run. Without one game's data,
