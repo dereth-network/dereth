@@ -78,7 +78,7 @@ pub mod q {
     /// An object's name.
     pub const NAME: u32 = 256;
     /// A thing's scale.
-    pub const SCALE: u32 = 298;
+    pub use auberean_physics::body::profile::quality::SCALE;
 }
 
 /// The death's look.

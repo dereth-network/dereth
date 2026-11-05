@@ -267,7 +267,7 @@ pub mod story_hook {
     /// A missile: kind 3 with the target, the weapon throwing it, the animation hook.
     pub const MISSILE: u32 = 0x323;
     /// The bit of a hook after the first: its index follows.
-    pub const ATTACK_HOOK: u32 = 0x400;
+    pub use auberean_physics::story::hook_bits::ATTACK_HOOK;
 }
 
 /// Implement kinds (bits a skill's definition allows).

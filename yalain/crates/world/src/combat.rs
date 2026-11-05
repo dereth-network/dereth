@@ -74,7 +74,7 @@ pub mod error {
 
 /// Modes.
 pub mod mode {
-    pub const PEACE: u32 = 0x4000_0001;
+    pub use auberean_physics::motion::PEACE;
     /// A player with a one-handed melee weapon (or none).
     pub const ONE_HANDED: u32 = 0x4100_000A;
     /// A creature without a weapon.
@@ -499,12 +499,11 @@ pub fn may_attack_thing<S: Store>(s: &Server<S>, world: ConnId, thing: u64) -> R
     }
 }
 
-/// The bits of a hook's target health change and target PK damage change.
-const TARGET_HEALTH: u32 = 0x800;
-const TARGET_PK_DAMAGE: u32 = 0x2000;
 /// The bits of a hook's attacker health change and attacker PK damage change.
-pub(crate) const ATTACKER_HEALTH: u32 = 0x1000;
-const ATTACKER_PK_DAMAGE: u32 = 0x4000;
+pub(crate) use auberean_physics::story::hook_bits::ATTACKER_HEALTH;
+use auberean_physics::story::hook_bits::ATTACKER_PK_DAMAGE;
+/// The bits of a hook's target health change and target PK damage change.
+use auberean_physics::story::hook_bits::{TARGET_HEALTH, TARGET_PK_DAMAGE};
 
 /// A story's hits on another player are told as PK damage too: each hook that takes that player's
 /// health gives the same amount as PK damage (2017: every harmful hook between two players, 109 of

@@ -140,7 +140,7 @@ pub fn level_of(qualities: &[u8]) -> i32 {
 pub const LEVEL: u32 = 302;
 
 /// The combat mode an examiner without a weapon is in, and the accuracy it reports.
-pub const PEACE_MODE: u32 = 0x4000_0001;
+pub const PEACE_MODE: u32 = auberean_physics::motion::PEACE;
 pub const NO_ACCURACY: u32 = 2;
 
 /// How often what a player examines is looked at again, in seconds.

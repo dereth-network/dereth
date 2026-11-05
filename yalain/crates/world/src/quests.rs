@@ -99,10 +99,11 @@ pub const QUEST_INFO_LIST: u16 = 0xA1;
 
 /// Quest statuses and update kinds (the client's values).
 pub mod status {
-    pub const UNDERWAY: u32 = 0x1000_0000;
-    pub const FAILED: u32 = 0x2000_0000;
-    pub const COMPLETED: u32 = 0x3000_0000;
-    pub const CANCELLED: u32 = 0x8000_0000;
+    use auberean_script::native_object::QuestInfo;
+    pub const UNDERWAY: u32 = QuestInfo::UNDERWAY;
+    pub const FAILED: u32 = QuestInfo::FAILED;
+    pub const COMPLETED: u32 = QuestInfo::COMPLETED;
+    pub const CANCELLED: u32 = QuestInfo::CANCELLED;
 }
 pub mod update {
     pub const BESTOW: u32 = 0x1000_0000;
