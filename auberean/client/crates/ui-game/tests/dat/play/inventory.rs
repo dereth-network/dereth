@@ -716,6 +716,71 @@ fn an_item_dropped_in_the_world_goes_to_what_lies_there() {
     }
 }
 
+/// A second item dropped in the world goes to what the world answers for it, not to what the last
+/// drop's search found, which is still there as the search is asked.
+///
+/// Behaviour: ui.inventory.a-drop-in-the-world-waits-for-its-own-answer
+#[test]
+fn a_drop_in_the_world_waits_for_its_own_answer() {
+    const MAN: u64 = 0x8000_0000_0000_0042;
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut f = facts();
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    key(&mut ui, &mut p, &mut t, &f, tb::INVENTORY_PANEL);
+    let ground = (150, 420);
+    let drop_sword = |ui: &mut Ui, p: &mut GamePlay, t: &mut f64, f: &Facts| {
+        let sword = window(p)
+            .backpack()
+            .and_then(|b| b.packs()[0].item_display(SWORD))
+            .and_then(|d| d.icon())
+            .expect("the sword in the pack");
+        let (x, y) = middle(ui, sword);
+        ui.pointer_move(x, y);
+        tick(ui, p, t, f, &[]);
+        ui.pointer_button(button_id::LEFT, true);
+        tick(ui, p, t, f, &[]);
+        ui.pointer_move(x + 8, y + 8);
+        tick(ui, p, t, f, &[]);
+        ui.pointer_move(ground.0, ground.1);
+        tick(ui, p, t, f, &[]);
+        ui.pointer_button(button_id::LEFT, false);
+        tick(ui, p, t, f, &[])
+    };
+    let out = drop_sword(&mut ui, &mut p, &mut t, &f);
+    assert!(asked(&out).contains(&Asked::PickWorld));
+    f.picked = Some(MAN);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+
+    // The last answer stands as the second search is asked, then goes as the search starts.
+    let out = drop_sword(&mut ui, &mut p, &mut t, &f);
+    assert!(asked(&out).contains(&Asked::PickWorld));
+    f.picked = None;
+    let mut out = tick(&mut ui, &mut p, &mut t, &f, &[]);
+    out.extend(tick(&mut ui, &mut p, &mut t, &f, &[]));
+    assert!(
+        !asked(&out).iter().any(|a| matches!(a, Asked::Put { .. })),
+        "nothing moves before its own answer: {:?}",
+        asked(&out)
+    );
+    f.picked = Some(0);
+    let mut out = tick(&mut ui, &mut p, &mut t, &f, &[]);
+    out.extend(tick(&mut ui, &mut p, &mut t, &f, &[]));
+    assert_eq!(
+        asked(&out),
+        vec![Asked::Put {
+            item: SWORD,
+            from: PLAYER,
+            to: 0,
+            old_slot: 0,
+            new_slot: 0,
+            quantity: 1,
+        }],
+    );
+}
+
 /// A press on the world held and moved drags the selection's icon (the object selected in the
 /// world, wherever it lies), not an item of the pack the pointer then passes over; let go over the
 /// pack, the selection is asked to be put in it.

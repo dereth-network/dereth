@@ -919,6 +919,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.inventory.a-drop-in-the-world-waits-for-its-own-answer",
+        says: "A second item dropped in the world goes to what the world answers for it, not \
+               to what the last search found.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-INVENTORY-DROP-ANSWER"),
+        station: "auberean-ui-game::dat::play::inventory::a_drop_in_the_world_waits_for_its_own_answer",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.inventory.an-item-coming-back-as-another-leaves-shows",
         says: "An item added to the pack at the slot past its last as another leaves in the same frame shows in its slot, though by the scripts' answers after the frame the pack holds no more than before.",
         since: RETAIL,
