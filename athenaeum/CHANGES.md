@@ -8,6 +8,8 @@ see, not how it was done.
 
 ## Unreleased
 
+- A covered window on a Mac no longer runs flat out.
+
 ## 0.1.2 (2026-11-05)
 
 - New map of the whole world: click to go there.
