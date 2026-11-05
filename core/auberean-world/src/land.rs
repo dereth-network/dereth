@@ -35,6 +35,20 @@ impl Field {
         };
         (word >> self.offset) & mask
     }
+
+    /// `word` with the field holding `value`, cut to the field's width.
+    #[must_use]
+    pub fn with(self, word: u32, value: u32) -> u32 {
+        if self.bits == 0 || self.offset + self.bits > 32 {
+            return word;
+        }
+        let mask = if self.bits == 32 {
+            u32::MAX
+        } else {
+            (1u32 << self.bits) - 1
+        };
+        (word & !(mask << self.offset)) | ((value & mask) << self.offset)
+    }
 }
 
 /// The six fields of a vertex word, lowest first: terrain, scene, encounter, color, road, replace.

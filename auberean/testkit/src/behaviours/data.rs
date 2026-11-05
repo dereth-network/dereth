@@ -814,6 +814,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "data.landblock-info.every-record-packs-back-to-its-bytes",
+        says: "Every landblock and every landblock's record of its placed objects, read and written \
+               again, are their own bytes.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-LANDBLOCK-PACKS-BACK"),
+        station: "auberean-assets::dat::world::landblock::every_landblock_and_landblock_info_packs_back_to_its_bytes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "data.landblock.every-record-decodes",
         says: "Every landblock reads as 17 by 17 height bytes and 17 by 17 vertex words.",
         since: RETAIL,

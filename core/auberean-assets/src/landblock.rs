@@ -327,6 +327,20 @@ fn write_u16_list(w: &mut Writer, v: &[u16]) {
     w.align();
 }
 
+impl Encode for Landblock {
+    /// As [`Landblock::decode`] reads it.
+    // D2-03712, D2-03724
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(id);
+        w.data_id(self.info);
+        w.data_id(self.path_map);
+        w.count(self.heights.len());
+        w.bytes(&self.heights);
+        w.list(&self.vertices, |w, v| w.u32(*v));
+        w.align();
+    }
+}
+
 impl Encode for LandblockInfo {
     // D2-03739
     fn encode(&self, id: u32, w: &mut Writer) {
