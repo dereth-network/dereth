@@ -145,7 +145,8 @@ fetches at most once a day (the refresh button fetches again) and keeps the copy
 these in a table of its own, and lists them only when `--relayed-worlds on` has turned them on
 (`--relayed-worlds off` turns them off; the choice is kept). Play starts `empyrean-relay`, which comes
 with Empyrean, on this computer's loopback address and starts the client towards it; the relay goes
-when the client does. Nothing else contacts such a world.
+when the client does. Otherwise the launcher only asks such a world whether it is up, as it asks any
+world.
 
 **A world's era and systems** come from its Empyrean status, else the launcher's table of worlds
 that run a client of their own, else the end of retail.

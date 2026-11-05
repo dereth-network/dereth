@@ -6,8 +6,8 @@
 //! for such a world, and nothing says it needs a relay, so the launcher keeps them here.
 //!
 //! They are off unless the player's settings turn them on: [`shown`]. Until then a launcher never
-//! lists them and never sends them anything. On, a launcher still asks them nothing until the
-//! player presses Play: nobody reports their status, so each reads as not having said.
+//! lists them and never sends them anything. On, a launcher asks whether each is up as it asks any
+//! world, with the server-tracker login in the form that wire reads ([`crate::probe::request_1999`]).
 
 use dereth_primitives::{EraFeatureOverrides, EraId};
 
