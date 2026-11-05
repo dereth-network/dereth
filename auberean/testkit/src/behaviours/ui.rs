@@ -1777,6 +1777,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.quests.the-journal-scrolls-to-the-quest-that-changed",
+        says: "The quest that changed comes into view: with more quests than the list shows, \
+               the list scrolls to it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-JOURNAL-SCROLL"),
+        station: "auberean-ui-game::dat::play::examination::the_journal_scrolls_to_the_quest_that_changed",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.quests.the-quest-button-keeps-its-look-as-it-opens-the-window",
         says: "The quest window's button opens it and stays on the toolbar: shown, the window \
                puts its button in its unchanged look, the picture it shows when nothing changed.",
