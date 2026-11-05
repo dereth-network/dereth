@@ -200,6 +200,27 @@ fn standing_turns_at_the_still_rate() {
     assert!((b.turn_rate - 90.0).abs() < 1e-3);
 }
 
+/// A jump stops the behaviors a move cancels: leaving the ground is a move. A jump the body may
+/// not make stops nothing.
+///
+/// Behaviour: motion.jump.a-jump-stops-the-behaviors-a-move-cancels
+#[test]
+fn a_jump_stops_the_behaviors_a_move_cancels() {
+    let stops =
+        auberean_physics::body::Notice::Animate(auberean_physics::body::Animate::StopMoveToCancels);
+    let land = world();
+    let mut b = body();
+    for _ in 0..5 {
+        b.tick(&land, dt());
+    }
+    b.notices.clear();
+    assert!(b.jump());
+    assert!(b.notices.contains(&stops));
+    b.notices.clear();
+    assert!(!b.jump(), "already off the ground");
+    assert!(!b.notices.contains(&stops));
+}
+
 /// A jump leaves the ground at 6.26 m/s and follows `6.26 t - 4.9 t^2` at each tick until it lands
 /// back on the ground; the body cannot jump again until it has stood half a second.
 ///

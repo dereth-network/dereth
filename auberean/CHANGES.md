@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Jumping now interrupts the same actions walking does.
 - Fixed a weapon's trail staying on after the effect that started it stopped.
 - Fixed looping music from emotes stopping as soon as it started.
 - Fixed effects that fade a body out snapping it back at once.

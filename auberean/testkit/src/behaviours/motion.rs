@@ -466,6 +466,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "motion.jump.a-jump-stops-the-behaviors-a-move-cancels",
+        says: "A jump stops the behaviors a move cancels; a jump the body may not make stops                nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MOTION-JUMP-CANCELS"),
+        station: "auberean-physics::cpu::motion::moving::a_jump_stops_the_behaviors_a_move_cancels",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "motion.jump.a-slow-player-leads-in-before-jumping",
         says: "Asked to jump, the player's body moving under 2 m/s along the ground plays the \
                jump's lead-in and stays down until it ends; faster, or anyone else's body, jumps \
