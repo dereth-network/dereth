@@ -437,6 +437,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.camera.a-glide-turns-the-whole-view",
+        says: "A glide between two views turns the camera's whole frame, not the way it looks: on the way it swings round and leans, where a turn of the look alone would dip through the ground.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CAMERA-GLIDE-TURN"),
+        station: "auberean-scene::cpu::camera::a_glide_turns_the_whole_view_rather_than_its_look",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.camera.a-new-default-distance-or-tilt-applies-at-once",
         says: "A new default camera distance or tilt takes the camera there at once; another option, or the same ones again, leaves it where it was put.",
         since: RETAIL,

@@ -716,6 +716,7 @@ impl Objects for TwoObjects {
             OTHER => Some(Viewer {
                 origin: Vec3::new(10.0, 0.0, 0.0),
                 look: Vec3::new(1.0, 0.0, 0.0),
+                rotation: None,
             }),
             _ => None,
         }
@@ -746,6 +747,86 @@ fn run(c: &mut CameraControl, world: &TwoObjects, seconds: f32) -> Viewer {
         c.last = Some(v);
     }
     v
+}
+
+/// The player and an object facing back at it, south of its look.
+struct FacingBack {
+    player: Subject,
+}
+
+impl Objects for FacingBack {
+    fn place(&self, id: u64, bone: u32) -> Option<Viewer> {
+        match id {
+            PLAYER => self.player.place(id, bone),
+            OTHER => Some(Viewer {
+                origin: Vec3::new(0.0, 10.0, 0.0),
+                look: Vec3::new(0.0, -1.0, 0.0),
+                rotation: None,
+            }),
+            _ => None,
+        }
+    }
+
+    fn facts(&self, id: u64) -> Option<Facts> {
+        match id {
+            PLAYER => self.player.facts(id),
+            OTHER => Some(Facts {
+                height: 1.5,
+                scale_z: 1.2,
+                ..Facts::default()
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// A glide to a view facing back the other way turns the whole frame, swinging round to the side
+/// and leaning on the way, where a turn of the look alone would dip straight at the ground.
+///
+/// Behaviour: desktop.camera.a-glide-turns-the-whole-view
+#[test]
+fn a_glide_turns_the_whole_view_rather_than_its_look() {
+    use auberean_physics::geom::{rotation_axes, set_vector_heading, slerp_rotation};
+    use dereth_primitives::{Frame, Quat};
+    let world = FacingBack { player: player() };
+    let mut c = camera();
+    let mut v = c.viewer_with(&world.player, &world);
+    for _ in 0..10 {
+        c.update_with(0.01, &world.player, &world);
+        v = c.viewer_with(&world.player, &world);
+        c.last = Some(v);
+    }
+    let before = v.look;
+    c.set_free_camera(&world, OTHER, 30.0, 1.0);
+    for _ in 0..50 {
+        c.update_with(0.01, &world.player, &world);
+        v = c.viewer_with(&world.player, &world);
+        c.last = Some(v);
+    }
+    let w = c.targeting.weight;
+    assert!(w > 0.2 && w < 0.8, "under way: {w}");
+    let frame_of = |look| {
+        let mut f = Frame::new(Vec3::ZERO, Quat::IDENTITY);
+        set_vector_heading(&mut f, look);
+        f
+    };
+    let mut want = Frame::new(Vec3::ZERO, Quat::IDENTITY);
+    slerp_rotation(
+        &mut want,
+        &frame_of(before),
+        &frame_of(Vec3::new(0.0, -1.0, 0.0)),
+        w,
+    );
+    let m = rotation_axes(want.rotation);
+    assert!(
+        closev(v.look, Vec3::new(m[3], m[4], m[5]), 1e-4),
+        "the frames' turn: {:?}",
+        v.look
+    );
+    println!("look under way {:?} at {w}", v.look);
+    assert!(v.look.z > -0.5, "never at the ground: {:?}", v.look);
+    let right = rotation_axes(v.rotation.expect("the whole turn"));
+    assert!(right[2].abs() > 0.01, "it leans on the way: {}", right[2]);
 }
 
 /// The cameras the effects and the animations ask for, at their places once their glides are

@@ -306,6 +306,29 @@ pub struct Viewer {
     pub origin: Vec3,
     /// A unit vector.
     pub look: Vec3,
+    /// How the camera is turned, when it is more than a look with no lean: a glide between two
+    /// views, or a bone it rides on.
+    pub rotation: Option<Quat>,
+}
+
+impl Viewer {
+    /// The frame it stands in, turned as it is.
+    fn frame(&self) -> dereth_primitives::Frame {
+        let mut f = dereth_primitives::Frame::new(self.origin, Quat::IDENTITY);
+        match self.rotation {
+            Some(q) => f.rotation = q,
+            None => auberean_physics::geom::set_vector_heading(&mut f, self.look),
+        }
+        f
+    }
+
+    /// A place of the camera in cell `cell`, turned as this view is, standing at `origin`.
+    #[must_use]
+    pub fn stand_at(&self, cell: CellId, origin: Vec3) -> Position {
+        let mut f = self.frame();
+        f.origin = origin;
+        Position::new(cell, f)
+    }
 }
 
 /// The id no object has.
@@ -345,6 +368,7 @@ impl Objects for Subject {
         (id != NO_OBJECT).then(|| Viewer {
             origin: self.origin,
             look: self.global_of(Vec3::new(0.0, 1.0, 0.0)),
+            rotation: None,
         })
     }
 
@@ -410,18 +434,6 @@ fn length(a: Vec3) -> f32 {
 
 fn near(a: Vec3, b: Vec3) -> bool {
     (a.x - b.x).abs() < EPS && (a.y - b.y).abs() < EPS && (a.z - b.z).abs() < EPS
-}
-
-/// The way from `a` toward `b`, `w` of the angle between them (both unit vectors).
-fn slerp(a: Vec3, b: Vec3, w: f32) -> Vec3 {
-    let d = (a.x * b.x + a.y * b.y + a.z * b.z).clamp(-1.0, 1.0);
-    let angle = math::acosf(d);
-    if angle < 1e-4 {
-        return normalize(add(scale(a, 1.0 - w), scale(b, w)));
-    }
-    let s = math::sinf(angle);
-    let (ka, kb) = (math::sinf((1.0 - w) * angle) / s, math::sinf(w * angle) / s);
-    normalize(add(scale(a, ka), scale(b, kb)))
 }
 
 /// The client's gradient noise, made once.
@@ -1778,6 +1790,7 @@ impl CameraControl {
         let nowhere = Viewer {
             origin: Vec3::ZERO,
             look: Vec3::new(0.0, 1.0, 0.0),
+            rotation: None,
         };
         let d = self.targeting.distance;
         let third = 0.333_333_34;
@@ -1792,6 +1805,7 @@ impl CameraControl {
                 let mut at = Viewer {
                     origin: pp.origin,
                     look: heading_along(v),
+                    rotation: None,
                 };
                 let Some(f) = pf else {
                     return Some(at);
@@ -1816,6 +1830,7 @@ impl CameraControl {
                 let mut at = Viewer {
                     origin: pp.origin,
                     look: heading_along(pp.look),
+                    rotation: None,
                 };
                 let Some(f) = pf else {
                     return Some(at);
@@ -1834,6 +1849,7 @@ impl CameraControl {
                 let mut at = Viewer {
                     origin: pt.origin,
                     look,
+                    rotation: None,
                 };
                 let Some(f) = tf else {
                     return Some(at);
@@ -1917,6 +1933,7 @@ impl CameraControl {
         let nowhere = Viewer {
             origin: Vec3::ZERO,
             look: Vec3::new(0.0, 1.0, 0.0),
+            rotation: None,
         };
         if !self.targeting.is_on {
             let at = self.internal_calc_viewer_pos(false, now.0, now.1, subject, objects, fallback);
@@ -1932,9 +1949,14 @@ impl CameraControl {
             return new;
         };
         let w = self.targeting.weight;
+        // D2-10742
+        let mut turned = dereth_primitives::Frame::new(Vec3::ZERO, Quat::IDENTITY);
+        auberean_physics::geom::slerp_rotation(&mut turned, &old.frame(), &new.frame(), w);
+        let m = auberean_physics::geom::rotation_axes(turned.rotation);
         Viewer {
             origin: add(old.origin, scale(sub(new.origin, old.origin), w)),
-            look: slerp(old.look, new.look, w),
+            look: Vec3::new(m[3], m[4], m[5]),
+            rotation: Some(turned.rotation),
         }
     }
 }

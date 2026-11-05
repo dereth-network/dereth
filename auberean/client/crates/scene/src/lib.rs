@@ -920,9 +920,11 @@ fn place_camera(
         None
     };
     let viewer = match head {
+        // D2-10700
         Some(at) => camera::Viewer {
             origin: at.frame.origin,
             look: camera::look_of(&at),
+            rotation: Some(at.frame.rotation),
         },
         None => camera.viewer_with(&subject, &objects),
     };
@@ -941,10 +943,10 @@ fn place_camera(
                 Some(o) if !is_interior(seen.eye.cell.0) => o.stand(w.land, w.table, seen.eye),
                 _ => seen.eye,
             };
-            camera::stand(eye.cell, eye.frame.origin, viewer.look)
+            viewer.stand_at(eye.cell, eye.frame.origin)
         })
     } else {
-        Some(camera::stand(pos.cell, viewer.origin, viewer.look))
+        Some(viewer.stand_at(pos.cell, viewer.origin))
     };
     match (stands.as_mut(), placed) {
         (Some(s), Some(at)) => {
@@ -958,11 +960,7 @@ fn place_camera(
         (None, Some(at)) => *stands = Some(camera::Stands::at(at)),
         // Placed the first time with no line to keep it off the world: where it wants to be.
         (None, None) => {
-            *stands = Some(camera::Stands::at(camera::stand(
-                pos.cell,
-                viewer.origin,
-                viewer.look,
-            )));
+            *stands = Some(camera::Stands::at(viewer.stand_at(pos.cell, viewer.origin)));
         }
     }
     // Where the next glide starts from, in the body's landblock's frame.
@@ -972,6 +970,7 @@ fn place_camera(
         camera.last = Some(camera::Viewer {
             origin: dereth_primitives::Vec3::new(o.x + shift.x, o.y + shift.y, o.z + shift.z),
             look: viewer.look,
+            rotation: viewer.rotation,
         });
     }
 }

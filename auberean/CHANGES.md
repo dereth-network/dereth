@@ -81,6 +81,7 @@ not how it was done.
 - Fixed rain steaming off a player standing indoors.
 - Fixed see-through parts of some objects being hidden by the rest of the object.
 - Fixed arrows flying level instead of pointing along their path.
+- Fixed the camera dipping at the ground as it glides between views.
 
 ## 0.1.3 (2026-11-05)
 
