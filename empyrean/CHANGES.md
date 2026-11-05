@@ -13,6 +13,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ([`RELEASING.md`](RELEASING.md)).
 
 ## Unreleased
+
+## 0.3.10 (2026-11-05)
 - New relay that lets Dereth play an ac1999 server.
 - Fixed idle WebSocket connections shutting out browser players.
 - Infiltration worlds now leave out what came after February 2005.
