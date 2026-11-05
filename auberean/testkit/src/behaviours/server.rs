@@ -9273,6 +9273,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.quests.practice-gems",
+        says: "A person hands out a practice gem by the player's level, moving no quest, and none while one is held; its use gives the quest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WDB-PRACTICE-GEMS-2017"),
+        station: "yalain-testkit::cpu::play::quests::a_gift_a_quest_done_at_once_keeps_comes_once_in_its_wait",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.ran-out-before-leaving",
         says: "A quest with no time left when its character left the world is failed when the \
                character enters, its wait counted from when the time ran out.",

@@ -1262,6 +1262,43 @@ fn a_step_that_moves_no_quest_gives_its_item() {
     assert_eq!(phases(&h), vec![], "no quest moved");
 }
 
+/// A person's gift kept to one in a wait by a quest done at once: it gives one at a use, none again
+/// until the quest's wait is over, however little of it the player keeps.
+/// Behaviour: server.quests.practice-gems
+#[test]
+fn a_gift_a_quest_done_at_once_keeps_comes_once_in_its_wait() {
+    let mut h = stepping(
+        vec![Step {
+            gives: vec![TEST_ITEM],
+            ..step(
+                HALL_QUEST,
+                0,
+                Trigger::Use(EXPLORER_TEMPLATE),
+                Update::Complete,
+            )
+        }],
+        25,
+    );
+    h.server.catalog = test_catalog();
+    h.server.quests.quests[0].retry = 604_800.0;
+    let items = |h: &Harness| {
+        let p = h.server.players.values().next().expect("in the world");
+        p.play.items.len()
+    };
+    let before = items(&h);
+    use_person(&mut h);
+    assert_eq!(items(&h), before + 1, "the first");
+    let p = h.server.players.values().next().expect("in the world");
+    assert_eq!(p.play.quests[0].status, status::COMPLETED);
+    use_person(&mut h);
+    assert_eq!(items(&h), before + 1, "none in the wait");
+    let long_ago = h.server.players.values_mut().next().expect("in the world");
+    long_ago.play.quests[0].updated -= 604_801;
+    long_ago.play.quests[0].started -= 604_801;
+    use_person(&mut h);
+    assert_eq!(items(&h), before + 2, "another after it");
+}
+
 /// A step that fails its quest pays a share of what the player's level takes.
 /// Behaviour: server.quests.step-share
 #[test]
