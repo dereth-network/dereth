@@ -696,7 +696,7 @@ pub fn endow<S: yalain_store::Store>(
         let set = s
             .catalog
             .get(template)
-            .is_some_and(|t| t.props.int("Usage_MinLevel").is_some());
+            .is_some_and(|t| t.props.sets_least_level());
         if !set {
             let least = min_level(&mut s.rng, base);
             own.min_level = Some(least);

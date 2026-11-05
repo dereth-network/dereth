@@ -380,10 +380,17 @@ pub fn catalog(
         if c.templates.contains_key(&t) {
             continue;
         }
+        let class = Props::class_of(t, &|id| p.entity(id)).map_or_else(Vec::new, |c| {
+            library(p).map_or_else(
+                |_| Vec::new(),
+                |lib| yalain_world_db::install::class_properties(lib, c),
+            )
+        });
         let props = Props::of(t, &|id| p.entity(id), &prop_name)
             .with_places_of(p.qualities(yalain_content::qualities_id(t)).as_ref())
             .with_worn_of(t)
-            .with_take_gate_of(t);
+            .with_take_gate_of(t)
+            .with_class(&class);
         let description = match describe(t, &|id| p.entity(id), &|id| p.qualities(id)) {
             Ok(d) => d,
             Err(e) => {

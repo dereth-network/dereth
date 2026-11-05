@@ -4990,6 +4990,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.items.class-properties",
+        says: "A template that names nothing itself has what its class's code says: its value, armor, delay, weapon damage, speed, vigor, least level and race.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-CLASS-PROPERTIES"),
+        station: "yalain-testkit::dat::effects::a_template_with_no_properties_has_what_its_class_says",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "server.items.food-heals-and-wears",
         says: "A forager's food is drunk as a potion is; at the drink's end health and vigor are each \
                healed by its effects at the spellcraft of 40, the use answered with the drink's text \
@@ -5402,6 +5410,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-BY-LEVEL"),
         station: "yalain-testkit::cpu::play::fights::a_treasure_items_own_properties_follow_its_droppers_level",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.treasure-own-properties-over-a-class",
+        says: "A least level only a template's class says gives way to a drop's own, with its numbers; \
+               one the template itself sets doesn't.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREASURE-CLASS-LEAST"),
+        station: "yalain-testkit::cpu::play::fights::a_least_level_only_its_class_says_gives_way_to_a_drops_own",
         tier: Tier::Cpu,
     },
     behaviour! {

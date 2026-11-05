@@ -189,6 +189,9 @@ impl Portal {
                 .and_then(|l| l.names.name(p))
                 .map(str::to_string)
         };
+        let class = Props::class_of(id, &|e| self.entity(e)).map_or_else(Vec::new, |c| {
+            yalain_world_db::install::class_properties(&self.library(), c)
+        });
         Template {
             id,
             description: describe(id, &|e| self.entity(e), &|q| self.qualities(q))
@@ -197,7 +200,8 @@ impl Portal {
             props: Props::of(id, &|e| self.entity(e), &name)
                 .with_places_of(self.qualities(yalain_content::qualities_id(id)).as_ref())
                 .with_worn_of(id)
-                .with_take_gate_of(id),
+                .with_take_gate_of(id)
+                .with_class(&class),
         }
     }
 

@@ -1535,3 +1535,141 @@ fn the_illuminated_drudges_curse_lasts_four_hours() {
         .collect();
     assert_eq!(lasting, vec![14_400.0], "{states:08X?}");
 }
+
+/// A template that names nothing itself has what its class's code says: boots their armor, delay
+/// and race; a weapon its damage, variance, speed and vigor; both their value.
+/// Behaviour: server.items.class-properties
+#[test]
+fn a_template_with_no_properties_has_what_its_class_says() {
+    let p = Portal::open();
+    let boots = p.template(0x4700_0D69).props;
+    assert_eq!(boots.int("Item_ArmorLevel"), Some(10));
+    assert_eq!(boots.int("Item_CombatDelay"), Some(4));
+    assert_eq!(boots.word("Usage_RequiredRace"), Some(1));
+    assert_eq!(boots.int("Item_Value"), Some(10), "the armor classes' base");
+    let starter = p.template(0x4700_051B).props;
+    assert_eq!(starter.int("Weapon_Damage"), Some(9));
+    assert!((starter.float("Weapon_Variance").expect("a variance") - 0.24).abs() < 1e-6);
+    assert_eq!(starter.int("Weapon_Speed"), Some(70));
+    assert_eq!(starter.int("Item_Value"), Some(1));
+    let named = p.template(0x4700_14D0).props;
+    assert_eq!(named.int("Weapon_Damage"), Some(240));
+    assert_eq!(named.int("Item_Value"), Some(50));
+    assert_eq!(
+        p.template(0x4700_2FD2).props.int("Item_ArmorLevel"),
+        None,
+        "a person's class says none"
+    );
+}
+
+/// A class's own value stands, though it be nothing and its base sets one; a class that sets none
+/// takes its base's.
+/// Behaviour: server.items.class-properties
+#[test]
+fn a_classs_value_is_its_own_though_it_be_nothing_else_its_bases() {
+    let p = Portal::open();
+    let lib = p.library();
+    let of = |name: &str| {
+        let package = lib.package_id(name).expect("a package");
+        yalain_world_db::install::class_properties(&lib, package)
+            .into_iter()
+            .find(|(n, _)| *n == "Item_Value")
+            .map(|(_, v)| v)
+    };
+    use yalain_content::Prop;
+    assert_eq!(of("DrumTumerokStarter"), Some(Prop::Int(1)), "its own");
+    assert_eq!(
+        of("PotionTrainingHallHealing"),
+        Some(Prop::Int(10)),
+        "its base's"
+    );
+    assert_eq!(
+        of("DoctrineDominion"),
+        Some(Prop::Int(0)),
+        "nothing, its own"
+    );
+}
+
+/// A template whose least level is only its class's isn't one that sets it, as one whose entity says.
+/// Behaviour: server.loot.treasure-own-properties-over-a-class
+#[test]
+fn only_a_templates_own_entity_sets_its_least_level() {
+    let p = Portal::open();
+    for t in [0x4700_1DA1, 0x4700_0E9C] {
+        let template = p.template(t);
+        assert!(template.props.int("Usage_MinLevel").is_some(), "{t:#x}");
+        assert!(!template.props.sets_least_level(), "{t:#x}");
+    }
+    assert!(p.template(0x4700_2117).props.sets_least_level());
+}
+
+/// A corpse's armor and weapon of such templates are treasure of the creature's level: a least level
+/// of its own, and numbers by it; made anew, any other keeps the least level its class says.
+/// Behaviour: server.loot.treasure-own-properties-over-a-class
+#[test]
+fn a_corpses_armor_and_weapon_of_a_class_with_a_least_level_are_made_by_the_creatures_level() {
+    use yalain_testkit::Harness;
+    use yalain_world::things::Mode;
+    let p = Portal::open();
+    for t in [0x4700_1DA1, 0x4700_0E9C] {
+        let template = p.template(t);
+        let mut h = Harness::new();
+        h.add_creatures(1);
+        h.server
+            .treasure
+            .equipment
+            .insert(template.description.package);
+        h.server.catalog.insert(template.clone());
+        for profile in &mut h.server.loot.profiles {
+            profile.items = vec![(t, 1)];
+            profile.counts = vec![0.0, 1.0];
+        }
+        let (_, me) = h.player_in_world("one", "Kestrel");
+        h.run(20);
+        let beetle = h
+            .server
+            .things
+            .by_id
+            .values()
+            .find(|x| x.creature.as_ref().is_some_and(|c| c.mode != Mode::Dead))
+            .map(|x| x.id)
+            .expect("a beetle");
+        let clock = h.clock();
+        yalain_world::combat::hurt_creature(
+            &mut h.server,
+            &mut h.net,
+            beetle,
+            me,
+            1_000_000,
+            clock,
+        );
+        assert!(
+            h.run_until(200, |h| h
+                .server
+                .things
+                .by_id
+                .values()
+                .any(|x| x.template == t)),
+            "{t:#x} dropped"
+        );
+        let own = h
+            .server
+            .things
+            .by_id
+            .values()
+            .find(|x| x.template == t)
+            .expect("in the corpse")
+            .own;
+        let least = own.min_level.expect("its own least level");
+        assert!((2..=5).contains(&least), "{t:#x} at level 2: {least}");
+        assert!(own.made.is_some(), "{t:#x} has numbers of its level");
+        let plain = yalain_world::inventory::make_item(&mut h.server, t, 1, 0).expect("made");
+        let thing = h.server.things.get(plain).expect("made");
+        assert_eq!(thing.own.min_level, None);
+        let view = yalain_world::requests::item_view(&h.server, thing);
+        assert_eq!(
+            i64::from(view.min_level),
+            template.props.int("Usage_MinLevel").expect("the class's")
+        );
+    }
+}

@@ -38,6 +38,7 @@ what they see, not how it was done.
 - Oaths in very large allegiances no longer stall the world.
 - Quests with no setup now pay what they should.
 - Killing some creatures curses you, or brings their helpers.
+- Many weapons and armor that did nothing now work.
 
 - Fixed a selected person showing empty health and vigor bars.
 
