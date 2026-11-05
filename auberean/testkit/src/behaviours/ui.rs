@@ -1446,6 +1446,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.names.an-item-selected-in-the-pack-is-marked-once-put-down",
+        says: "An item selected in the pack and then put down is named and marked as soon as it                lies in the world, with no new selection.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-NAMES-FROM-PACK"),
+        station: "auberean-ui-game::dat::play::names::an_item_selected_in_the_pack_is_marked_once_put_down",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.names.an-item-that-changes-is-named-anew",
         says: "An item changing, its quantity among others, names it anew: the name over its head as well as the selection's, so a stack's count does not go stale.",
         since: RETAIL,

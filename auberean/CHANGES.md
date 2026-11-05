@@ -51,6 +51,7 @@ not how it was done.
 - Auto-run no longer carries on after walking up to something you used.
 - Some stretched walls and scenery can now be walked through, as in retail.
 - Gateway and vault swirls now face you from every side.
+- Fixed a dropped item having no marks or name until you selected something else.
 - Crowded places run faster.
 - Fixed some effects on a body standing in the wrong place.
 - Fixed bodies losing their walk or idle when the server sent them again.

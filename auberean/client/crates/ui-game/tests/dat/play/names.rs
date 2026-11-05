@@ -109,6 +109,32 @@ fn a_selection_faded_out_of_sight_is_not_marked() {
     assert_eq!(shown(&ui, &p), (true, true), "seen again");
 }
 
+/// An item selected in the pack and then put down is named and marked as soon as it lies in the
+/// world, with no new selection.
+///
+/// Behaviour: ui.names.an-item-selected-in-the-pack-is-marked-once-put-down
+#[test]
+fn an_item_selected_in_the_pack_is_marked_once_put_down() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut w = world(vec![]);
+    w.selection = 7;
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    let shown = |ui: &Ui, p: &GamePlay| {
+        let n = names_of(p);
+        (
+            ui.shown(n.reticle[0].expect("a mark")),
+            ui.shown(n.selection_name.expect("the name")),
+        )
+    };
+    assert_eq!(shown(&ui, &p), (false, false), "in the pack");
+    w.things.push(body_at(7, 0.0, 10.0, [1.0, 0.5, 0.0, 1.0]));
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    assert_eq!(shown(&ui, &p), (true, true), "on the ground");
+}
+
 fn names_of(p: &GamePlay) -> &Names {
     p.child::<Names>().expect("the names")
 }

@@ -1285,6 +1285,11 @@ impl Child for Names {
         if world.selection != self.selection {
             self.selection_changed(ui, world);
         }
+        // An item chosen in the pack has its name once it lies in the world.
+        // D2-02063
+        if !self.has_name && world.thing(self.selection).is_some() {
+            self.check_name(ui, world);
+        }
         for m in std::mem::take(&mut self.mail) {
             self.hear(ui, world, &m, out);
         }
