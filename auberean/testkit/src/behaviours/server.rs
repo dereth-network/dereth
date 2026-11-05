@@ -624,6 +624,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.allegiance.tree-export-out-of-an-allowance",
+        says: "A tree's export comes out of a connection's allowance of rows, by its members: an \
+               ordinary member's are all answered, and one past the allowance isn't.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TREE-EXPORT-ALLOWANCE"),
+        station: "yalain-testkit::cpu::play::allegiance::the_tree_export_comes_out_of_an_allowance_by_its_members",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.allegiance.tree-exported",
         says: "Exporting the allegiance's tree sends the asker every member's place in it, with its \
                patron and its vassals, the members by name and by id, the allegiance's chat room, \
@@ -5860,6 +5869,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.net.a-connection-past-all-it-may-hold-is-closed",
+        says: "A connection with more waiting than any download and its reply can leave is closed, and \
+               its character goes as one whose client went away does.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PAST-ALL"),
+        station: "yalain-testkit::cpu::play::lying_client::a_connection_past_all_it_may_have_waiting_is_closed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.net.cookies-and-seeds-from-the-hosts-source",
         says: "Every cookie and checksum seed the server sends a client, a login's handshake, a \
                referral and the world's handshake, is taken from the random source its host gave \
@@ -5878,6 +5896,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-COOKIES-FAILED"),
         station: "yalain-net::cpu::cookies::a_failed_random_source_gives_no_handshake_and_no_number_of_its_own",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.net.far-behind-a-connections-calls-wait",
+        says: "While a connection has far too much waiting behind a long message on its event queue, \
+               its calls aren't read and its reports are; one long reply that fits puts nothing off, \
+               and a download on its own queue puts off nothing.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FAR-BEHIND"),
+        station: "yalain-testkit::cpu::play::lying_client::a_connection_far_behind_has_its_calls_put_off_and_its_reports_read",
         tier: Tier::Cpu,
     },
     behaviour! {

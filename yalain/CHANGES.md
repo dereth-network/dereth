@@ -56,6 +56,7 @@ what they see, not how it was done.
 - Broker stores now have pages.
 - Fixed uses being refused after dying or teleporting mid-walk.
 - Fixed a vault staying busy after its traveler was removed.
+- A client far behind has its requests put off until it catches up.
 
 - Fixed a selected person showing empty health and vigor bars.
 

@@ -463,6 +463,15 @@ impl ServerNet {
         self.conns.get(&conn).map_or(0, |c| c.ep.pace.waiting())
     }
 
+    /// How many fragments of a connection's large messages are waiting on one queue, and of what
+    /// follows them there.
+    #[must_use]
+    pub fn large_waiting_on(&self, conn: ConnId, queue: u16) -> usize {
+        self.conns
+            .get(&conn)
+            .map_or(0, |c| c.ep.pace.waiting_on(queue))
+    }
+
     /// How many connections are open: clients that have answered their handshakes.
     #[must_use]
     pub fn connection_count(&self) -> usize {
@@ -976,7 +985,8 @@ impl ServerNet {
         Some(cookie)
     }
 
-    /// Run every connection for this moment: send what is queued, close the silent.
+    /// Run every connection for this moment: send what is queued, close the silent and those that
+    /// have stopped taking what they are sent.
     pub fn tick(&mut self, now: LocalTime) {
         let mut closing = Vec::new();
         for (id, c) in &mut self.conns {
@@ -990,7 +1000,8 @@ impl ServerNet {
                     bytes: dg,
                 });
             }
-            if now.seconds_since(c.ep.last_heard()) > CONNECTION_TIMEOUT {
+            let silent = now.seconds_since(c.ep.last_heard()) > CONNECTION_TIMEOUT;
+            if silent || c.ep.pace.waiting() > crate::pace::MOST_WAITING {
                 closing.push(*id);
             }
         }

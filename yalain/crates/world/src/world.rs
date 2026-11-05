@@ -1069,6 +1069,14 @@ pub fn message<S: Store>(
             return;
         }
     };
+    // Far behind in what it has been sent: its reports still count, what it asks for waits.
+    if matches!(
+        m,
+        ClientMessage::ServerCall(_) | ClientMessage::ForceCreate(_)
+    ) && net.large_waiting_on(world, queue::EVENT) >= crate::call_limit::MOST_BEHIND
+    {
+        return;
+    }
     let Some(mut p) = s.players.remove(&world) else {
         s.unhandled.note(format!(
             "world message {:#x} before the character entered",

@@ -25,6 +25,14 @@ pub const TALK_BURST: f64 = 10.0;
 /// Lines of talk a player may say a second, after that.
 pub const TALK_PER_SECOND: f64 = 10.0;
 
+/// How many fragments of what a world connection has waiting behind a long message put off reading
+/// its calls: about 2 MB, half a minute at the usual rate of a long message. What a client asks for
+/// waits behind what it asked for before, and a long reply holds up every reply after it, so however
+/// a reply comes to be long, and whichever it is, this keeps what is waiting for one connection
+/// from growing with what it asks. One long reply puts off nothing: an allegiance's tree of 2,000
+/// members is 593 KB, and the longest recorded message 52,596 bytes.
+pub const MOST_BEHIND: usize = 4800;
+
 /// What a connection has left, and what it has lost.
 #[derive(Debug, Clone, Copy)]
 pub struct Bucket {

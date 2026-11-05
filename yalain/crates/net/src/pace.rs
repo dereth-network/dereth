@@ -44,6 +44,11 @@ pub const WINDOW: u32 = 10 * MAX_NAK_IDS as u32;
 
 const _: () = assert!((WINDOW as usize) < SENT_CACHE_MAX_PACKETS);
 
+/// The most fragments a connection may have waiting before it is closed: about 45 MB, above what a
+/// download's own limit and one more record of it ever leave waiting, so only a client that has
+/// stopped taking what it is sent comes to it.
+pub const MOST_WAITING: usize = 100_000;
+
 /// The default rate: the January 2013 servers' ([`BYTES_PER_INTERVAL`] each half second).
 #[allow(clippy::cast_possible_truncation)]
 pub const DEFAULT_BYTES_PER_SECOND: u32 = 2 * BYTES_PER_INTERVAL as u32;
@@ -133,6 +138,12 @@ impl Pace {
     #[must_use]
     pub fn waiting(&self) -> usize {
         self.fragments.len()
+    }
+
+    /// How many fragments of one queue are waiting.
+    #[must_use]
+    pub fn waiting_on(&self, queue: u16) -> usize {
+        self.by_queue.get(&queue).copied().unwrap_or(0)
     }
 
     /// The connection is in interval `interval`: a new one starts its budget again.
