@@ -261,7 +261,7 @@ impl Retail {
                 0
             });
         }
-        if let Some((response, id, n)) = game.client.and_then(|c| c.model.creation) {
+        if let Some((response, id, n, error)) = game.client.and_then(|c| c.model.creation) {
             if n != self.answers {
                 self.answers = n;
                 let character = game
@@ -282,7 +282,7 @@ impl Retail {
                 d.pre_notices.push(Notice::CharGenVerification {
                     response,
                     character,
-                    error: 0,
+                    error,
                 });
             }
         }

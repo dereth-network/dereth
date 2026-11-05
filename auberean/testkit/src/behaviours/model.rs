@@ -36,6 +36,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "model.characters.a-refused-character-keeps-the-servers-error",
+        says: "A character refused keeps the error the server gave, for the creation screen to say why.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CHARGEN-ERROR"),
+        station: "auberean-client-model::cpu::characters::a_refused_character_keeps_the_servers_error",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "model.characters.a-slot-holds-the-character-at-its-place",
         says: "The character list is read by slot, a character's place in the list: a slot past \
                the end or holding no id has no character, no name and the invalid id; a \

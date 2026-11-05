@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Fixed a refused character's name reading as a corrupt character.
 - Fixed tooltips eating clicks on what lies under them.
 - Dialogs now open with their button ready for the use key.
 - Fixed the names key and resizing the bar undoing unapplied Character options.
