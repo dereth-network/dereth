@@ -432,6 +432,31 @@ fn a_meter_takes_its_goal_at_once_or_smoothly() {
     assert_eq!(fill(&u, smooth), 100);
 }
 
+/// A list emptied row by row keeps its cells' size and one cell of sheet, so the view it stood at
+/// stays; inserting past its end, or before a row not its own, adds nothing.
+///
+/// Behaviour: ui.list.an-emptied-list-keeps-its-cell-and-a-row-past-the-end-is-refused
+#[test]
+fn an_emptied_list_keeps_its_cell_and_a_row_past_the_end_is_refused() {
+    let (mut u, list, rows) = five_rows(vec![window(vec![], vec![]), row()]);
+    let cell = u.node(rows[0]).unwrap().rect.height();
+    let l = u.load_layout(LAYOUT).unwrap();
+    let extra = u.create(l, Token::of("Row")).unwrap();
+    u.list_insert(list, extra, 6);
+    assert_eq!(u.list_items(list).len(), 5, "past the end: none");
+    u.list_insert_before(list, extra, Some(list));
+    assert_eq!(u.list_items(list).len(), 5, "before no row of its own: none");
+    u.list_insert_before(list, extra, None);
+    assert_eq!(u.list_items(list).len(), 6, "before nothing: at the end");
+    u.list_remove(list, 5);
+    u.list_scroll_to_row(list, 1, true);
+    assert_eq!(y_view(&u, list), cell, "a row down");
+    for _ in 0..5 {
+        u.list_remove(list, 0);
+    }
+    assert_eq!(y_view(&u, list), cell, "the view stays, on one cell of sheet");
+}
+
 /// A menu opens its popup under itself, sized to its rows; choosing a row selects it, the menu
 /// says what was chosen, and letting go on the list closes the popup.
 ///

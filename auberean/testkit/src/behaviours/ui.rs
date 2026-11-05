@@ -1150,6 +1150,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.list.an-emptied-list-keeps-its-cell-and-a-row-past-the-end-is-refused",
+        says: "A list emptied row by row keeps its cells' size and one cell of sheet, so the \
+               view it stood at stays; inserting past its end, or before a row not its own, \
+               adds nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-LIST-EMPTY-AND-INSERT"),
+        station: "auberean-ui::cpu::lists::an_emptied_list_keeps_its_cell_and_a_row_past_the_end_is_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.list.arrow-buttons-scroll-a-row-and-ghost-at-the-ends",
         says: "A list's arrow buttons scroll it a row at a time to its last full view; the up arrow is \
                ghosted at the top and the down arrow at the bottom.",
