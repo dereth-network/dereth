@@ -820,12 +820,152 @@ fn a_kills_step_that_leads_somewhere_sends_the_killer() {
         (p.trip.as_ref().map(|t| t.to.cell), p.play.quests[0].phase)
     };
     kill(&mut h, me, &[]);
-    assert_eq!(trip_to(&h), (Some(0x049E_0138), 2));
-    for p in h.server.players.values_mut() {
-        p.trip = None;
-    }
+    assert_eq!(
+        trip_to(&h),
+        (Some(0x049E_0138), 1),
+        "sent, the update to come"
+    );
+    land(&mut h);
+    assert_eq!(trip_to(&h), (None, 2));
     kill(&mut h, me, &[]);
     assert_eq!(trip_to(&h), (None, 3), "the last leads nowhere");
+}
+
+/// Out of portal space, at wherever the trip was for.
+fn land(h: &mut Harness) {
+    h.advance(yalain_world::places::IN_PORTAL_SPACE);
+    h.run(4);
+}
+
+/// A step of the test quest for a kill of this template, leading to this place.
+fn leading_step(template: u32, needs: u32, to: yalain_content::quests::Place) -> Step {
+    Step {
+        quest: QUEST,
+        needs,
+        trigger: Trigger::Kill(template),
+        tell: None,
+        update: Update::Advance(needs + 1),
+        xp: 0,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: Vec::new(),
+        to: Some(to),
+        races: Vec::new(),
+        effects_last: false,
+        fellows: false,
+        wants: None,
+        levels: None,
+        xp_share: 0.0,
+    }
+}
+
+const ARENA: yalain_content::quests::Place = yalain_content::quests::Place {
+    cell: 0x049E_0138,
+    origin: [1.0, 2.0, 3.0],
+    heading: 127,
+};
+
+/// A kill's step that leads somewhere is told as the killer comes out there, once, and the journal
+/// doesn't move before: the update isn't in what's sent as the trip starts.
+/// Behaviour: server.quests.a-kills-update-comes-on-landing
+#[test]
+fn a_kills_update_comes_as_the_killer_lands() {
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, b, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    h.server.quests.steps = vec![leading_step(template, 1, ARENA)];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    let from = h.calls(b, 0).len();
+    kill(&mut h, me, &[]);
+    assert!(updates(&h, b, from).is_empty(), "nothing told at the kill");
+    assert_eq!(phase(&h, me), 1);
+    let p = h.server.players.values().next().expect("in the world");
+    assert_eq!(p.trip.as_ref().map(|t| t.to.cell), Some(ARENA.cell));
+    assert_ne!(p.position.cell, ARENA.cell, "not there yet");
+    land(&mut h);
+    assert_eq!(updates(&h, b, from).len(), 1, "told once, on landing");
+    assert_eq!(phase(&h, me), 2);
+    let p = h.server.players.values().next().expect("in the world");
+    assert_eq!(p.position.cell, ARENA.cell);
+    assert!(p.trip.is_none());
+}
+
+/// Another kill of the kind while the first's trip is under way moves nothing: the quest moves one
+/// phase, on landing, even where the creature's own effects name it.
+/// Behaviour: server.quests.a-kills-update-comes-on-landing
+#[test]
+fn a_second_kill_on_the_way_moves_the_quest_no_further() {
+    let mut q = quest(4);
+    q.effects = Vec::new();
+    let (mut h, b, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    h.server.quests.steps = vec![
+        leading_step(template, 1, ARENA),
+        leading_step(template, 2, ARENA),
+    ];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    let from = h.calls(b, 0).len();
+    kill(&mut h, me, &[]);
+    kill(&mut h, me, &[INCREMENT]);
+    assert_eq!(phase(&h, me), 1);
+    land(&mut h);
+    assert_eq!(phase(&h, me), 2);
+    assert_eq!(updates(&h, b, from).len(), 1);
+}
+
+/// A killer whose client goes away on the way lands all the same before it leaves, and comes back
+/// there with the quest moved on.
+/// Behaviour: server.quests.a-kills-update-comes-on-landing
+#[test]
+fn a_killer_whose_client_goes_away_on_the_way_comes_back_moved_on() {
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, b, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    h.server.quests.steps = vec![leading_step(template, 1, ARENA)];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    kill(&mut h, me, &[]);
+    h.bots[b].leave();
+    assert!(
+        h.run_until(2000, |h| h.server.players.is_empty()),
+        "it leaves"
+    );
+    let again = h.at_character_list("one");
+    h.enter_world(again, "one", me);
+    assert_eq!(phase(&h, me), 2);
+    let p = h.server.players.values().next().expect("back");
+    assert!(p.trip.is_none());
+    assert_eq!(p.position.cell, ARENA.cell);
+}
+
+/// A quest that has moved while its trip was under way isn't moved back on landing, and a player
+/// still comes out.
+/// Behaviour: server.quests.a-kills-update-comes-on-landing
+#[test]
+fn a_quest_moved_meanwhile_stays_where_it_is_on_landing() {
+    let mut q = quest(5);
+    q.effects = Vec::new();
+    let (mut h, b, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    h.server.quests.steps = vec![leading_step(template, 1, ARENA)];
+    holds(&mut h, me, status::UNDERWAY, 1);
+    h.run(2);
+    kill(&mut h, me, &[]);
+    holds(&mut h, me, status::UNDERWAY, 4);
+    let from = h.calls(b, 0).len();
+    land(&mut h);
+    assert_eq!(phase(&h, me), 4);
+    assert!(updates(&h, b, from).is_empty());
+    let p = h.server.players.values().next().expect("in the world");
+    assert_eq!(p.position.cell, ARENA.cell);
 }
 
 /// A step leading to a room of a row of like rooms sends the player to one with no player in it and

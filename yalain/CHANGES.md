@@ -50,6 +50,7 @@ what they see, not how it was done.
 - Practice gems summon their dummy.
 - Fixed the error text when a glyph opens a vault.
 - Chests hold treasure of their own level.
+- Gauntlet journal updates now come when you land.
 
 - Fixed a selected person showing empty health and vigor bars.
 

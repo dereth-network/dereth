@@ -1630,14 +1630,15 @@ fn flash_and_go<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId,
     enter_portal_space(s, net, world, true);
 }
 
-/// A use of a person or an object has moved a quest whose step leads somewhere: the update is told
-/// and the player is taken in the same instant (2017: the one such trip recorded, the touch's text
-/// and portal space together, 0.18 s after the use, 1 of 1).
+/// A step leads somewhere: the player is taken at once. A use of a person or an object has already
+/// told its update (2017: the one such trip recorded, the touch's text and portal space together,
+/// 0.18 s after the use, 1 of 1); a kill's step, given here, is run on landing, if it still may.
 pub(crate) fn sends_on<S: Store>(
     s: &mut Server<S>,
     world: ConnId,
     by: u64,
     place: yalain_content::quests::Place,
+    step: Option<yalain_content::quests::Step>,
     clock: Clock,
 ) {
     let Some(p) = s.players.get_mut(&world) else {
@@ -1653,7 +1654,7 @@ pub(crate) fn sends_on<S: Store>(
             rotation: crate::world::rotation_of_heading(place.heading),
         },
         used: None,
-        step: None,
+        step,
         resurrect: false,
         sent: false,
         said: None,
@@ -2187,9 +2188,12 @@ fn arrive<S: Store>(
         p = q;
     }
     if let Some(step) = &trip.step {
-        // The step the trip was for: its update now (the player back in the list for it).
+        // The step the trip was for: its update now, if nothing has moved its quest since (the
+        // player back in the list for it).
         s.players.insert(world, p);
-        crate::quests::run(s, net, world, step, None, clock);
+        if crate::quests::may_run_now(s, world, step, clock.unix) {
+            crate::quests::run(s, net, world, step, None, clock);
+        }
         let Some(q) = s.players.remove(&world) else {
             return;
         };

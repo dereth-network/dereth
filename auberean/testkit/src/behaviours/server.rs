@@ -8969,6 +8969,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.a-kills-update-comes-on-landing",
+        says: "A kill whose step leads somewhere is told as the killer comes out there, once, the \
+               trip starting at the death; a quest moved meanwhile is left where it is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-KILL-UPDATE-ON-LANDING"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kills_update_comes_as_the_killer_lands",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.a-last-phase-that-waits-holds",
         says: "A kill does not end a quest whose last phase waits for something else; it stays at \
                that phase.",

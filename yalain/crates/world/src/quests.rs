@@ -743,12 +743,27 @@ fn run_triggered<S: Store>(
             step = may[i].clone();
         }
         moved.push(step.quest);
+        let trip = s.players.get(&world).and_then(|p| p.trip.as_ref());
+        if trip.is_some_and(|t| t.step.as_ref().is_some_and(|c| c.quest == step.quest)) {
+            // Its trip carries this quest's move: that comes on landing, and only that.
+            continue;
+        }
+        let free = trip.is_none();
+        let sent = step.to.zip(who);
+        if let (true, Some((place, (by, _))), Trigger::Kill(_)) = (free, sent, trigger) {
+            // A kill's step goes with the trip, its update told on landing (2017: 47 of 47 Gauntlet
+            // kills, in portal space's exit's tick; the trip within 0.1 s of the death, 42 of 42
+            // whose death was seen).
+            let place = room_for(s, place);
+            crate::places::sends_on(s, world, by, place, Some(step), clock);
+            continue;
+        }
         let received = run_with(s, net, world, &step, who, given, clock);
-        if let (Some(place), Some((by, _))) = (step.to, who) {
+        if let Some((place, (by, _))) = sent {
             // One already on its way goes nowhere, whichever room.
             if s.players.get(&world).is_some_and(|p| p.trip.is_none()) {
                 let place = room_for(s, place);
-                crate::places::sends_on(s, world, by, place, clock);
+                crate::places::sends_on(s, world, by, place, None, clock);
             }
         }
         // The item given is kept by the first step that takes it.
