@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use auberean_assets::landblock::Landblock;
 use auberean_assets::{decode, encode, Context};
 use auberean_dat::locate::{install_dats, role_file, DatName};
+use auberean_dat::overlay::WORLD_FOLDER;
 use auberean_dat::DatFile;
 use auberean_world::records::{RegionSet, WorldRecords};
 use auberean_world::scenery::barren_field;
@@ -29,8 +30,8 @@ use yalain_world_db::rows::{self, Clearing, Row};
 use crate::build;
 use crate::world::Opened;
 
-/// The overlay's folder within a world's build.
-pub const FOLDER: &str = "overlay";
+/// The overlay's folder: Yalain reads this one in a world's folder.
+pub const FOLDER: &str = WORLD_FOLDER;
 /// How far past a clearing's shape a vertex is still changed, in meters: what a vertex's scene puts
 /// beside it reaches about this far.
 pub const SPREAD: f32 = 8.0;

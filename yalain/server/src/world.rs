@@ -33,10 +33,11 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::data;
+use auberean_dat::overlay::{WorldOverlay, WORLD_FOLDER};
 use yalain_world_db::compile::{compile, Tables};
 use yalain_world_db::install::DatInstall;
 use yalain_world_db::release::{self, PINNED_TAG, PINNED_ZIP_SHA256};
-use yalain_world_db::{check, layer, merge, report, rows, Files};
+use yalain_world_db::{check, layer, merge, report, rows, Files, Problem};
 
 /// Run `yalain world <command> ...`.
 ///
@@ -112,6 +113,49 @@ pub fn database_dir(arg: &str) -> Result<PathBuf, String> {
             dir.display()
         ))
     }
+}
+
+/// The overlay of the world a `--world-db` argument names: `<folder>/overlay`, made for it by
+/// `athenaeum build`. A release of the database has none, and neither has a world that changes no
+/// record.
+///
+/// # Errors
+/// The folder holds what isn't an overlay, or the overlay of another world.
+pub fn overlay_of(world_db: &str) -> Result<Option<WorldOverlay>, String> {
+    if world_db == "pinned" {
+        return Ok(None);
+    }
+    let dir = Path::new(world_db);
+    let folder = || dir.join(WORLD_FOLDER).display().to_string();
+    let overlay = WorldOverlay::of_world(dir).map_err(|e| format!("{}: {e}", folder()))?;
+    let Some(overlay) = overlay else {
+        return Ok(None);
+    };
+    if let Some(db) = rows::read_partly(&load(dir)?).0 {
+        if db.world.key != overlay.world() {
+            return Err(format!(
+                "{}: this overlay is world {}'s, and this is world {}: build it again",
+                folder(),
+                overlay.world(),
+                db.world.key
+            ));
+        }
+    }
+    Ok(Some(overlay))
+}
+
+/// What a world's clearings come to with no overlay: what the land grows stays, and the person who
+/// wrote them should know why.
+#[must_use]
+pub fn clearing_warning(merged: &merge::Merged, has_overlay: bool) -> Option<String> {
+    let clearings = merged
+        .rows
+        .iter()
+        .filter(|l| matches!(l.row, rows::Row::Clearing(_)))
+        .count();
+    (clearings > 0 && !has_overlay).then(|| {
+        format!("{clearings} clearings and no overlay: `athenaeum build` makes the world's overlay")
+    })
 }
 
 /// Does a world served from this argument use the release this build pins? `pinned` does; a folder
@@ -652,7 +696,7 @@ pub fn compile_dir(
     if let Some(local) = p.english() {
         install = install.with_text(Box::new(move |id| local.read(id).ok()));
     }
-    let tables = compile(&merged, &install).map_err(|p| {
+    let mut tables = compile(&merged, &install).map_err(|p| {
         format!(
             "{}\n{} problems compiling {}",
             report(&p),
@@ -660,6 +704,9 @@ pub fn compile_dir(
             db_dir.display()
         )
     })?;
+    if let Some(w) = clearing_warning(&merged, p.has_overlay()) {
+        tables.warnings.push(Problem::new("world.toml", 0, w));
+    }
     Ok(tables)
 }
 
@@ -686,8 +733,9 @@ fn compile_cmd(args: &[String]) -> Result<(), String> {
                 .into(),
         );
     };
-    let dir = database_dir(db.as_deref().unwrap_or("pinned"))?;
-    let portal = data::Portal::open(&dats)?;
+    let db = db.unwrap_or_else(|| "pinned".to_owned());
+    let dir = database_dir(&db)?;
+    let portal = data::Portal::open(&dats, overlay_of(&db)?)?;
     let t = compile_dir(&portal, &dir, base.as_deref())?;
     std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     for (name, text) in [

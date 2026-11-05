@@ -71,7 +71,9 @@
 //!                         folder, or `pinned` (the default) for the release this build pins,
 //!                         fetched into the per-user cache as it starts if it is not there; a world
 //!                         that names a base database (`[base]`, as Athenaeum's do) is served
-//!                         over that release in the cache
+//!                         over that release in the cache; its `overlay` folder, which
+//!                         `athenaeum build` makes, is read over --dats, and one made against other
+//!                         files stops the server
 //!   --world-base DIR      the base database a --world-db world lies over, in place of the
 //!                         release it names in the cache
 //!   --no-referral         carry the world on the login connection instead of referring the
@@ -1890,7 +1892,7 @@ fn reload_world(
 ) -> Result<(PathBuf, WorldTables), String> {
     let names = banned_names.map(read_banned_names).transpose()?;
     // A portal file of its own: this reload is the only reader of it, on its own thread.
-    let portal = data::Portal::open(dats)?;
+    let portal = data::Portal::open(dats, world::overlay_of(world_db)?)?;
     let (dir, compiled) = compile_world(&portal, world_db, base)?;
     for w in &compiled.warnings {
         tracing::warn!("{w}");
@@ -1924,6 +1926,7 @@ fn reload_world(
             chests: p.chests,
         }),
         ground: Some(Box::new(p.ground)),
+        files: Some(Box::new(p.files)),
     };
     Ok((dir, tables))
 }
@@ -1981,7 +1984,16 @@ fn main() -> std::process::ExitCode {
         return std::process::ExitCode::FAILURE;
     };
 
-    let loaded = data::Portal::open(&dats)
+    let loaded = world::overlay_of(&o.world_db)
+        .and_then(|overlay| {
+            if let Some(w) = &overlay {
+                tracing::info!(
+                    "reading the data files through world {}'s overlay",
+                    w.world()
+                );
+            }
+            data::Portal::open(&dats, overlay)
+        })
         .and_then(|p| Ok((data::chargen_rules(&p)?, data::start_rules(&p)?, p)));
     let (rules, start, portal) = match loaded {
         Ok(r) => r,

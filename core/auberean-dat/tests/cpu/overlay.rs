@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use auberean_dat::disk::controller::OPEN_CREATE;
 use auberean_dat::disk::{Opened, SharedStore, StoreSet};
-use auberean_dat::overlay::{role_of, WorldOverlay};
+use auberean_dat::overlay::{role_of, WorldOverlay, WORLD_FOLDER};
 use auberean_dat::{DatFile, QualifiedId, RecordType};
 use dereth_dat::overlay::{OverlayDir, OverlayError};
 use dereth_dat::{ClassicDat, DatFolder, MemoryFolder, ModernDat};
@@ -224,4 +224,31 @@ fn a_revision_of_the_overlay_is_among_the_data_versions_the_client_reports() {
     let region_two = DatFile::from_bytes(other.bytes()).unwrap();
     assert_eq!(role_of(&region_two), None);
     assert!(with.over(region_two).unwrap().shared().layer().is_none());
+}
+
+/// **A world with no overlay folder, or an empty one, has no overlay and its records are the
+/// install's; what isn't an overlay in that folder is refused.**
+///
+/// Behaviour: data.overlay.none-reads-the-files
+#[test]
+fn a_world_with_nothing_in_its_overlay_folder_has_no_overlay() {
+    let world = std::env::temp_dir().join(format!("auberean-of-world-{}", std::process::id()));
+    std::fs::remove_dir_all(&world).ok();
+    std::fs::create_dir_all(&world).unwrap();
+    assert!(
+        WorldOverlay::of_world(&world).unwrap().is_none(),
+        "no folder"
+    );
+    let folder = world.join(WORLD_FOLDER);
+    std::fs::create_dir_all(&folder).unwrap();
+    assert!(
+        WorldOverlay::of_world(&world).unwrap().is_none(),
+        "an empty folder"
+    );
+    std::fs::write(folder.join("overlay_cell.dat"), b"not a container").unwrap();
+    assert!(
+        WorldOverlay::of_world(&world).is_err(),
+        "a container that doesn't read is never taken for no overlay"
+    );
+    std::fs::remove_dir_all(&world).ok();
 }

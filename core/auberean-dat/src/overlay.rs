@@ -21,6 +21,9 @@ use dereth_dat::{DatFolder, DiskFolder, ModernDat};
 
 use crate::container::{DatFile, CELL_SET, HIRES_SUBSET};
 
+/// A world's overlay folder, within the world's own folder.
+pub const WORLD_FOLDER: &str = "overlay";
+
 /// The header's data sets of the portal and language files.
 const PORTAL_SET: u32 = 1;
 const LOCAL_SET: u32 = 3;
@@ -56,6 +59,19 @@ impl WorldOverlay {
     /// As [`WorldOverlay::in_folder`].
     pub fn open(dir: &Path) -> Result<Self, OverlayError> {
         Self::in_folder(Arc::new(DiskFolder::new(dir)))
+    }
+
+    /// The overlay of the world in the folder `world`; `None` for a world with no [`WORLD_FOLDER`]
+    /// or nothing in it, whose records are the install's own.
+    ///
+    /// # Errors
+    /// As [`WorldOverlay::in_folder`]: a folder holding containers that don't read is refused.
+    pub fn of_world(world: &Path) -> Result<Option<Self>, OverlayError> {
+        let dir = world.join(WORLD_FOLDER);
+        if OverlayDir::new(&dir)?.containers().is_empty() {
+            return Ok(None);
+        }
+        Self::open(&dir).map(Some)
     }
 
     /// The overlay kept in `folder`, wherever that keeps its containers: the world its containers

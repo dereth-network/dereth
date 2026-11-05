@@ -2539,6 +2539,55 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.data.a-reload-answers-from-the-overlay-as-it-now-is",
+        says: "A reload opens the files clients' requests are served from again, through the \
+               world's overlay as it now is, and what the overlay holds is never answered as it \
+               was before; what no overlay holds stays compressed from before the world ran.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OVERLAY-RELOAD"),
+        station: "yalain-testkit::cpu::entry::data_download::a_reload_answers_from_the_overlay_as_it_now_is",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.data.a-world-with-clearings-and-no-overlay-is-told",
+        says: "A world whose rows hold clearings and that has no overlay starts with a warning \
+               that says what makes one.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OVERLAY-WARNED"),
+        station: "yalain::bin.yalain::data::tests::clearings_with_no_overlay_are_warned_about",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.data.an-overlay-not-for-this-world-stops-the-start",
+        says: "An overlay made against other files than the server's, or another world's, stops \
+               the server from starting: a world is never served the installed files in place of \
+               its own.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OVERLAY-REFUSED"),
+        station: "yalain::bin.yalain::data::tests::an_overlay_not_for_this_world_and_these_files_stops_the_start",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.data.answers-from-a-worlds-overlay",
+        says: "The records a client asks for are read through the world's overlay, in the cell \
+               and portal files both: what it replaces and adds is served, what it deletes is \
+               refused, and every other record is the install's. A world with no overlay reads \
+               the install.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OVERLAY-READS"),
+        station: "yalain::bin.yalain::data::tests::the_records_a_client_asks_for_are_read_through_the_worlds_overlay",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.data.answers-from-a-worlds-overlay-over-real-sockets",
+        says: "The server's executable, started on a world's folder holding an overlay, answers \
+               a client on loopback that asks for a landblock with the overlay's bytes.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-OVERLAY-LIVE"),
+        station: "yalain::live::session::a_client_on_loopback_gets_a_landblock_from_the_worlds_overlay",
+        tier: Tier::Live,
+    },
+    behaviour! {
         id: "server.data.answers-never-hold-up-the-world",
         says: "Answering requests for data records never holds up the world: a very long \
                record is compressed once before the world runs, what else answers compress \

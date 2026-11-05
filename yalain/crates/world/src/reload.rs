@@ -87,6 +87,9 @@ pub struct WorldTables {
     pub kinds: Option<PlacedKinds>,
     /// The ground under the camps, read again with them, when the host read it.
     pub ground: Option<Box<dyn Ground + Send>>,
+    /// The files clients' requests for records are served from, opened again through the world's
+    /// overlay as it now is, when the host opened them.
+    pub files: Option<Box<dyn crate::download::DataFiles + Send>>,
 }
 
 /// What the install says of the placed objects' script packages and templates: which are
@@ -318,6 +321,9 @@ impl<S: Store> Server<S> {
 
         if let Some(g) = t.ground {
             self.ground = Some(g);
+        }
+        if let Some(f) = t.files {
+            self.data = Some(f);
         }
         let changed = take_camps(self, net, clock, t.spawns);
         r.note(table::CAMPS, changed.is_some(), true);

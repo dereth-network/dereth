@@ -90,6 +90,7 @@ pub(super) fn tables_of(h: &Harness) -> WorldTables {
         names: None,
         kinds: None,
         ground: None,
+        files: None,
     }
 }
 

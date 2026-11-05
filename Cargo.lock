@@ -7133,6 +7133,7 @@ dependencies = [
  "auberean-script",
  "auberean-world",
  "ctrlc",
+ "dereth-dat",
  "dereth-network-link",
  "dereth-network-protocol",
  "dereth-primitives",

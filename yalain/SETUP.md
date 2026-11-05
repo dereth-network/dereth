@@ -116,6 +116,9 @@ yalain world fetch --from yalain-world-<tag>.zip
   holds only its own changes. Give its folder to `--world-db`, and the server lays it over the
   release its `[base]` names (or the pinned one, if it names none), from the cache. `--world-base
   <folder>` takes the base from that folder instead.
+  If the world changes the game's own records, `athenaeum build` writes them to its `overlay`
+  folder, and the server reads its data files through that. An overlay built against another
+  install, or another world's, stops the server: build it again against this one's `--dats`.
 
 Two commands help when you change a database:
 

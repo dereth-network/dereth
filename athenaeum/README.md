@@ -58,7 +58,7 @@ cargo run --profile test-release -p yalain -- --dats <install folder> --world-db
 
 `athenaeum new` makes a world over the database with one empty pack, `fill-<name>`, which the
 editor's changes go into, and a `.gitignore` that keeps what playing and building it leave
-(`.playtest`, `build`) out of a repository. `validate` checks a world without writing anything
+(`.playtest`, `build`, `overlay`) out of a repository. `validate` checks a world without writing anything
 (with `--dats`, it also compiles it against the install); `build` writes the server's tables as
 text into the world's `build` folder for reading; `facts` counts what a world changes.
 `--base <folder>` uses a checkout of the database in place of the cached release. The data
@@ -112,8 +112,8 @@ to where it leads.
   a person with their name and place, a camp with its creatures, a portal with where it leads.
 - A `[[clearing]]` row in a landblock's file keeps a spot free of trees, rocks and grass: `at` and a
   `radius`, or a `size = [x, y]` and a `heading`. The editor has no tool for it yet and doesn't show
-  it; Play shows it in our client, and `athenaeum build` writes it to `build/overlay` for
-  `auberean --overlay-dat-dir`. The retail client still grows what the land grew.
+  it; Play shows it in our client, and `athenaeum build` writes it to the world's `overlay` folder,
+  which Yalain reads and `auberean --overlay-dat-dir` takes. The retail client still grows what the land grew.
 - A row of the database is never written: changing one writes this world's own row of its key,
   shown as changed, with what it was and **Put back**; taking one away writes a `[[remove]]`.
 - Ctrl+S saves, Ctrl+Z undoes, Ctrl+Y redoes (Cmd on macOS, as well). The world's problems are listed along the bottom as

@@ -82,7 +82,7 @@ fn build_cmd(dir: &str, o: &Options) -> Result<(), String> {
     let t = build::compile_world(&opened, &install)?;
     let out = o.out.clone().unwrap_or_else(|| opened.dir.join("build"));
     build::write(&t, &out)?;
-    let (folder, overlay) = overlay::write(&opened, dats, &out)?;
+    let (folder, overlay) = overlay::write(&opened, dats, &opened.dir)?;
     if overlay.blocks > 0 {
         println!(
             "overlay: {} landblocks, {} vertices -> {}",
