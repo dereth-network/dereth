@@ -176,7 +176,7 @@ pub fn main(options: &Options) -> ExitCode {
     apply_log_level(&config.server.log_level);
     log_paths(&config, &paths);
     if config.era.profile == empyrean_common::era::EraId::Launch {
-        log::warn!("Launch is experimental: its rules and world are still being checked against 1999, and characters do not move between eras");
+        log::warn!("A Launch world's rules and content are still being checked against 1999, and characters do not move between eras");
     }
 
     // Not ACE (V451): `[federation]` is read before anything starts. A world told to join the

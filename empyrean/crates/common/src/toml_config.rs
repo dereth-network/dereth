@@ -666,7 +666,7 @@ pub const SECTIONS: &[Section] = &[
             e(
                 "profile",
                 "Profile",
-                "\"eor\" (end of retail), \"infiltration\" (February 2005), or \"launch\" (1999, experimental). world.pack\n\
+                "\"eor\" (end of retail), \"infiltration\" (February 2005), or \"launch\" (1999). world.pack\n\
                  must have been built for the same era (`empyrean-import --era <era>`); the server refuses\n\
                  to start otherwise.",
             ),

@@ -10,6 +10,7 @@ section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
 - Launch worlds no longer offer the retail client, which can't play them.
+- Launch is no longer marked experimental.
 
 ## 0.5.1 (2026-11-05)
 

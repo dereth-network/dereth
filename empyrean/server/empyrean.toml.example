@@ -489,7 +489,7 @@ imminent_seconds = 60
 # its status document announces the whole set to the client.
 
 # default: "eor" (Empyrean only)
-# "eor" (end of retail), "infiltration" (February 2005), or "launch" (1999, experimental). world.pack
+# "eor" (end of retail), "infiltration" (February 2005), or "launch" (1999). world.pack
 # must have been built for the same era (`empyrean-import --era <era>`); the server refuses
 # to start otherwise.
 profile = "eor"

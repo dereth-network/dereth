@@ -14,7 +14,7 @@
 //! with recalls enabled. The rule that picks among them (by town, one of the town's two areas at
 //! random) is ClassicACE's.
 //!
-//! [`EraId::Launch`] is November 1999, experimental. Its table names each of its formulas
+//! [`EraId::Launch`] is November 1999. Its table names each of its formulas
 //! ([`EraFormulas::LAUNCH`]) rather than taking a later era's, and every later system, action and
 //! rule is off in its feature table, each one a key a world can turn back on.
 
@@ -495,7 +495,7 @@ pub static INFILTRATION: EraRules = EraRules {
     loot_rules: LootRules::Infiltration,
 };
 
-/// November 1999 (Launch), experimental. Skill costs and the experience curves come from the
+/// November 1999 (Launch). Skill costs and the experience curves come from the
 /// world's dats, so it wants the 1999 set. Random loot is the world base's: an ac1999 world base
 /// carries its own generator ([`LootRules::Ac1999`]).
 pub static LAUNCH: EraRules = EraRules {
