@@ -10371,6 +10371,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.used-only-when-held",
+        says: "A skill its user neither started with nor trained is refused and costs nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SKILLS-HELD"),
+        station: "yalain-testkit::cpu::play::specials::a_player_uses_only_a_skill_it_holds",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.used-skills-read-from-their-definitions",
         says: "Each used skill's definition gives how it is used: the distances it reaches, its \
                waits, its vigor, the implements it is used with, what it plays and its hooks \

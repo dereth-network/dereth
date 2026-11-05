@@ -778,6 +778,7 @@ pub(super) fn act(s: &mut Script) -> String {
                 _ => s.dice.pick(&mine).unwrap_or(me),
             };
             let number = 1 + u32::try_from(s.dice.below(100)).unwrap_or(0);
+            s.h.all_hold(ON_ITEM);
             ask(
                 s,
                 b,

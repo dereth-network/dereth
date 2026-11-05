@@ -4,7 +4,7 @@
 //!
 //! **Refused**, in one tick: the player attacking (unless it already was), the use over (its
 //! number), why (the client writes the reason), and not attacking again. The checks, first failure
-//! first: dead; not wielding what the skill is used with; no vigor at all; the skill still waiting
+//! first: dead; away; a skill it does not hold; not wielding what the skill is used with; no vigor at all; the skill still waiting
 //! (its own recovery since its last use, or the wait every skill shares after a recall); vigor
 //! short of the cost; an effect the skill needs its user to carry missing; the target gone or dead,
 //! too far or too close ([`crate::reach`]: the distance between the bodies, beyond the skill's
@@ -919,6 +919,16 @@ pub fn rating_of_for_test<S: Store>(s: &Server<S>, world: ConnId, skill: u32) ->
     rating_of(s, world, skill)
 }
 
+/// Does a player hold a skill: its race's starting skills and what it has trained (2017: 40,712 of
+/// the 40,924 uses asked by players with a known list named a skill in it; the rest were told on a
+/// session's second character, or trained after that player's last list).
+fn holds<S: Store>(s: &Server<S>, p: &crate::world::Player, skill: u32) -> bool {
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    crate::skills::held(&starting, &p.play.skills)
+        .iter()
+        .any(|h| h.skill == skill)
+}
+
 /// Does a player carry an effect of each of these saved states?
 fn carries<S: Store>(s: &Server<S>, world: ConnId, states: &[u32]) -> bool {
     s.players.get(&world).is_some_and(|p| {
@@ -1088,6 +1098,9 @@ fn check<S: Store>(
     }
     if p.trip.is_some() {
         return Err(refusal::INTERRUPTED);
+    }
+    if !holds(s, p, r.skill) {
+        return Err(crate::skills::refusal::UNTRAINED);
     }
     if !implement_allowed(&s.catalog, &u, hands(s, p.character)) {
         return Err(refusal::WRONG_IMPLEMENT);

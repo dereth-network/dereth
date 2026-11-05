@@ -138,6 +138,7 @@ fn use_object(h: &mut Harness, b: usize, me: u64, item: u64) -> usize {
 }
 
 fn use_skill(h: &mut Harness, b: usize, id: u32) -> usize {
+    h.all_hold(id);
     let from = h.bots[b].inbox.len();
     h.bots[b].send(
         true,

@@ -1581,6 +1581,16 @@ impl<S: Store> Harness<S> {
         }
     }
 
+    /// A skill every character holds from now on, as if each had trained it: tests of what a skill
+    /// does use those of the test world's table, whoever uses them.
+    pub fn all_hold(&mut self, skill: u32) {
+        for list in self.server.start.skills.values_mut() {
+            if !list.iter().any(|(s, _)| *s == skill) {
+                list.push((skill, 0));
+            }
+        }
+    }
+
     /// Give the server the test world's creatures: a camp of `n` beetles beside the start, and
     /// their loot.
     pub fn add_creatures(&mut self, n: u32) {

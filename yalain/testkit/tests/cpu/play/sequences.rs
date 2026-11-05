@@ -432,6 +432,7 @@ fn step(s: &mut Script) -> String {
             let skill = skills[s.dice.below(skills.len())];
             let id = u32::try_from(s.dice.below(1 << 20)).unwrap_or(1);
             let args = [Arg::Int(id), Arg::Int(skill), Arg::LongInt(target)];
+            s.h.all_hold(skill);
             ask(s, b, skill_use::function::USE, &args);
             format!("{me:#x} uses {skill} on {target:#x}")
         }

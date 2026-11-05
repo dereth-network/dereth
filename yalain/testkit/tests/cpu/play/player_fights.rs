@@ -464,6 +464,7 @@ fn players_whom_kingdoms_may_fight_anywhere_fight_in_peace_unless_protected() {
 /// Ask to use a skill on a target, as the client packs it (the use's number, the skill, the
 /// target).
 fn use_skill(h: &mut Harness, b: usize, id: u32, skill: u32, target: u64) -> usize {
+    h.all_hold(skill);
     let from = h.bots[b].inbox.len();
     h.bots[b].send(
         true,

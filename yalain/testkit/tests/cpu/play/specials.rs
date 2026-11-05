@@ -78,6 +78,7 @@ fn practice_target(h: &mut Harness, beetle: u64) {
 /// Ask to use a skill on a target, as the client packs it (the use's number, the skill, the
 /// target).
 fn use_skill(h: &mut Harness, b: usize, id: u32, skill: u32, target: u64) -> usize {
+    h.all_hold(skill);
     let from = h.bots[b].inbox.len();
     h.bots[b].send(
         true,
@@ -1521,4 +1522,91 @@ fn a_skills_harm_counts_at_a_draw_by_its_points_and_takes_only_its_damage() {
         assert_eq!(harm, harm_noticed(skill, lost), "skill {skill}");
         assert!(harm > i64::from(lost));
     }
+}
+
+/// A skill its user neither started with nor trained is refused in one tick, and costs nothing: on a
+/// target from rest and inside a run; trained, it goes as any other.
+/// Behaviour: server.skills.used-only-when-held
+#[test]
+fn a_player_uses_only_a_skill_it_holds() {
+    use yalain_world::skills::refusal::UNTRAINED;
+    const NOT_HELD: u32 = 925;
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, SWORD);
+    let asked = |h: &mut Harness, id: u32| {
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(
+                function::USE,
+                &[Arg::Int(id), Arg::Int(NOT_HELD), Arg::LongInt(0)],
+            ),
+        );
+        from
+    };
+    let from = asked(&mut h, 1);
+    h.run(10);
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, v)| *f == function::REFUSED && v.contains(&Value::Int(UNTRAINED))),
+        "refused, the reason told"
+    );
+    assert!(vigor_sent(&h, b, from).is_empty(), "nothing is paid");
+    let world = h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| *c)
+        .expect("in the world");
+    assert!(
+        h.server.players[&world].using.is_none(),
+        "no use is under way"
+    );
+    // Inside a run, where a special waits for its swing, as from rest.
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    h.run(2);
+    let from = asked(&mut h, 2);
+    h.run(2);
+    h.advance(2.0);
+    h.run(5);
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, v)| *f == function::REFUSED && v.contains(&Value::Int(UNTRAINED))),
+        "refused at its swing"
+    );
+    h.bots[b].send(true, queue::WEENIE, &server_call(0x8204_0010, &[]));
+    h.run(5);
+    // Held by what it trained.
+    if let Some(p) = h.server.players.get_mut(&world) {
+        p.play.skills.push(yalain_world::state::SkillState {
+            skill: NOT_HELD,
+            granted: 0,
+            mask: 1,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    }
+    let from = asked(&mut h, 3);
+    h.run(10);
+    assert!(
+        !calls_of(&h, b, from)
+            .iter()
+            .any(|(f, v)| *f == function::REFUSED && v.contains(&Value::Int(UNTRAINED))),
+        "trained, it is not refused so"
+    );
+    assert!(
+        h.server.players[&world].using.is_some(),
+        "its use is under way"
+    );
 }
