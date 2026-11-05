@@ -1695,6 +1695,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.pet.the-options-bit-hides-the-pet-panel",
+        says: "A pet shows the panel on a cleared profile; the bit of the player's options \
+               set hides it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PET-OPTION-BIT"),
+        station: "auberean-ui-game::dat::play::pet::the_options_bit_hides_the_pet_panel",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.pet.the-pet-panel-lists-pets-and-commands-them",
         says: "With the player's option on, a pet the scripts add shows in its row and the panel \
                with its commands lit; the next-mode button shows the next mode at once and asks \

@@ -1665,6 +1665,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.natives.two-options-are-on-with-their-bit-clear",
+        says: "The pet panel's and fellows on the map's options read their bit the other way: \
+               a cleared profile has them on, and turning one off sets its bit.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SCRIPT-OPTIONS-OFF-WHEN-SET"),
+        station: "auberean-glue::cpu::options::two_options_are_on_with_their_bit_clear",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.options.an-exported-file-imports-back",
         says: "The player's options export as a text tree of the aliases, the damage text's flags \
                and range and bare sections for the rest, and an import of that file gives a new \
