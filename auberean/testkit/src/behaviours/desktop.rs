@@ -1336,6 +1336,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.others.an-animations-jump-lifts-another-body",
+        says: "A jump another body's animation reaches wakes that body and lifts it, with no                position sent; its hooks are still heard.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-OTHERS-ANIM-JUMP"),
+        station: "auberean-scene::cpu::others::an_animations_jump_lifts_another_body",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.others.an-object-hanging-from-another-is-lost-in-no-cell",
         says: "An object lost in a cell goes out of any cell it was lost in first; one that hangs \
                from another is then lost in none. A cell loaded gives back the objects lost in it, \

@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Fixed other bodies not leaving the ground when an animation made them jump.
 - Jumping now interrupts the same actions walking does.
 - Fixed a weapon's trail staying on after the effect that started it stopped.
 - Fixed looping music from emotes stopping as soon as it started.

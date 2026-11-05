@@ -309,6 +309,19 @@ impl OtherBody {
         }
     }
 
+    /// What its figure set off this step: its effects go among the figure's events, the kinds of
+    /// its hooks are handed back, and a jump its animation reached wakes the body, which jumps if
+    /// it may.
+    // D2-06252
+    pub fn take_figure_triggers(&mut self, figure: &mut Figure) -> Vec<u32> {
+        let (hooks, impulses) = crate::take_triggers(figure);
+        if impulses.iter().any(|i| i.jump) {
+            self.body.set_movement_active(true);
+            self.body.jump();
+        }
+        hooks
+    }
+
     /// Whether the body is in the world (not lost in a cell not loaded).
     #[must_use]
     pub fn in_world(&self) -> bool {
@@ -1009,8 +1022,8 @@ impl Others {
                     look(id, &ob.body, f, step);
                     f.advance(anims, step);
                     ob.body.figure_stands_in(f.modes.element());
-                    self.heard
-                        .push((id, f.take_completions(), crate::take_triggers(f).0));
+                    let hooks = ob.take_figure_triggers(f);
+                    self.heard.push((id, f.take_completions(), hooks));
                 }
             }
         }
