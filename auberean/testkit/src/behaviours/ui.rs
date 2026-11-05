@@ -1285,6 +1285,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.meter.a-moving-fill-slides-keeping-its-own-size",
+        says: "A meter that moves its fills slides each whole, keeping the size the layout \
+               gave it; a left fill stands the part of the meter past the position before the \
+               meter, cut to a whole pixel toward the meter.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-METER-MOVING-FILL"),
+        station: "auberean-ui::cpu::lists::a_moving_fill_slides_keeping_its_own_size",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.names.a-name-at-the-screens-side-runs-off-it",
         says: "A name over a head near the screen's side runs off the edge, cut there, not pushed back in.",
         since: RETAIL,

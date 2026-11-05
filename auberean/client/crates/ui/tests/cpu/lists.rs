@@ -350,6 +350,46 @@ fn a_smooth_list_glides_to_its_goal_over_its_movement_time() {
     );
 }
 
+/// A meter that moves its fills slides each whole: it keeps the size the layout gave it, a left
+/// fill stands the part of the meter's width past the position before the meter, cut to a whole
+/// pixel toward the meter, and a right fill at the position.
+///
+/// Behaviour: ui.meter.a-moving-fill-slides-keeping-its-own-size
+#[test]
+fn a_moving_fill_slides_keeping_its_own_size() {
+    let fill = |name: &str, r: [i16; 4]| element(name, "field", r, 0, vec![]);
+    let meter = element(
+        "Meter",
+        "meter",
+        [10, 10, 110, 39],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![("move_fill", V::Bool(true))],
+            vec![],
+            vec![
+                fill("left_fill", [0, 0, 100, 22]),
+                fill("right_fill", [0, 0, 100, 22]),
+            ],
+        )],
+    );
+    let mut u = ui(vec![meter], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let m = u.create_root(l, Token::of("Meter")).unwrap();
+    u.set_meter(m, 0.5);
+    let rect =
+        |u: &auberean_ui::Ui, n: &str| u.node(u.child(m, Token::of(n)).unwrap()).unwrap().rect;
+    assert_eq!(
+        rect(&u, "left_fill"),
+        auberean_ui::Rect::sized(-50, 0, 101, 23)
+    );
+    assert_eq!(
+        rect(&u, "right_fill"),
+        auberean_ui::Rect::sized(50, 0, 101, 23)
+    );
+}
+
 /// A meter with a left fill: a goal is taken at once (the fill half the meter at 0.5); a smooth
 /// meter moves toward it over its movement time.
 ///

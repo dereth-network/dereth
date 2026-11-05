@@ -739,7 +739,11 @@ fn a_character_the_font_lacks_switches_to_a_fallback_font() {
     let e = make(&mut u, "E");
     let measured = u.inq_size_with_margins(e, "é");
     assert_eq!(font(&u, e), FONT, "measuring leaves the font as it was");
-    assert_eq!(measured.map(|m| m.0), Some(7), "measured in the fallback font");
+    assert_eq!(
+        measured.map(|m| m.0),
+        Some(7),
+        "measured in the fallback font"
+    );
 
     let bare = make(&mut u, "Bare");
     u.add_string(bare, "é");
