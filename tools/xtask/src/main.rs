@@ -51,6 +51,7 @@ mod skip_claims;
 mod sweep;
 mod test_lint;
 mod testsrc;
+mod tier_targets;
 mod util;
 #[cfg(test)]
 mod workflow_tests;
@@ -99,6 +100,7 @@ Rules (each a row of `check` or `ci tier0`):
   comment-lint              comments and messages describe behaviour: no work-item labels,
                             private-document pointers or study-method words
   test-lint [--list [p]]    tests named for what they prove and anchored to the claim they prove
+  tier-targets              every dat, corpus, gpu or live test target declares required features
   server-hygiene            the server's source rules (no todo!/unimplemented!, the port header)
   doc                       a check, not a docs build: rustdoc links and doc comments stay correct
                             (every rustdoc warning an error except links to private items). It writes
@@ -322,6 +324,7 @@ fn main() {
         Some("server-hygiene") => server::server_hygiene(),
         Some("test-inventory") => testsrc::test_inventory(&args[1..]),
         Some("test-lint") => test_lint::test_lint(&args[1..]),
+        Some("tier-targets") => tier_targets::tier_targets(),
         Some("fmt-check") => i32::from(!run(&workspace_root(), "cargo", FMT_CHECK)),
         Some("doc") => i32::from(!doc_gate(&workspace_root(), DOC_ARGS)),
         Some("separation") => separation::separation(&args[1..]),
@@ -415,6 +418,7 @@ fn cheap_lints() -> Vec<Report> {
         step("xtask crate-docs", crate_docs::crate_docs() == 0),
         step("xtask comment-lint", comment_lint::comment_lint() == 0),
         step("xtask test-lint", test_lint::test_lint(&[]) == 0),
+        step("xtask tier-targets", tier_targets::tier_targets() == 0),
         Report::new(
             "xtask server-hygiene",
             if hygiene.is_empty() {

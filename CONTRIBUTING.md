@@ -49,7 +49,8 @@ for investigating one failure. A hand-typed command takes the same profile:
 `cargo test --profile test-release -p <crate>`.
 
 A crate's integration tests are one binary per tier (`cpu`, `dat`, `gpu`); [README.md](README.md#test-tiers)
-explains them.
+explains them. A `dat`, `corpus`, `gpu` or `live` target declares `required-features` (`cargo xtask
+tier-targets` checks), so a workspace test run on a machine without its data leaves it out.
 
 **Your own retail data.** The game's data files and `world.pack` are never part of this repository
 and never shipped with it; the tests that need them read your copies through variables that only
