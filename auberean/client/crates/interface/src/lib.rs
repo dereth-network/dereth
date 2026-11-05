@@ -1004,6 +1004,12 @@ impl Retail {
                 .filter(|n| n.about.is_none() || n.about == player_id)
                 .cloned(),
         );
+        for n in game.notices {
+            if n.native == gameplay::notice::UPDATE_MOUNT_STATE && n.about == player_id {
+                self.dolls
+                    .set_mounted(n.words.first().is_some_and(|w| *w != 0));
+            }
+        }
         self.held_looks = looks
             .into_iter()
             .map(|n| gameplay::Notice {

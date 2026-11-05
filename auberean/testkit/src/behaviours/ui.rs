@@ -960,6 +960,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.inventory.the-paper-doll-keeps-its-look-while-mounted",
+        says: "The paper doll's figure follows the player's look on foot and keeps the look it had while the player is mounted, so it never shows the mount.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-DOLL-MOUNTED"),
+        station: "auberean-interface::dat::screens::the_paper_doll_keeps_its_look_while_mounted",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.inventory.the-paper-doll-shows-and-wears-items",
         says: "The paper doll shows a worn item in its place's slot and its wear on the meter \
                beside it (the meters of empty places hidden); an item from the pack dropped on a \

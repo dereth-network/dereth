@@ -100,8 +100,6 @@ pub struct PaperDoll {
     /// The worn items by place, and each worn item's place.
     items: BTreeMap<u32, ItemCell>,
     locations: BTreeMap<u64, u32>,
-    /// The player is mounted (the figure does not follow the player's look).
-    mounted: bool,
     /// The figure was asked for.
     shown: bool,
     /// A press on the figure waits to be found; the place it found.
@@ -128,7 +126,6 @@ impl PaperDoll {
             viewport,
             items: BTreeMap::new(),
             locations: BTreeMap::new(),
-            mounted: false,
             shown: false,
             clicked: false,
             last_location: 0,
@@ -528,11 +525,10 @@ impl Child for PaperDoll {
         }
     }
 
-    /// The player mounted or not; the crafting panel opening shows it.
-    // D2-02904, D2-02899
+    /// The crafting panel opening shows it.
+    // D2-02899
     fn notice(&mut self, ui: &mut Ui, n: &Notice, out: &mut Vec<gameplay::Request>) {
         match n.native {
-            gameplay::notice::UPDATE_MOUNT_STATE => self.mounted = n.word() != 0,
             notice::OPEN_INGREDIENT_PANEL if self.viewport.is_some_and(|v| ui.shown(v)) => {
                 self.show(ui, true, out);
             }
@@ -543,7 +539,6 @@ impl Child for PaperDoll {
     /// A frame: the figure shown from the first (as the player looks, whatever the scripts have
     /// said yet); the scripts' answers kept (the player known: its figure and what it wears
     /// shown; wear changed); the notices about what the player wears and how it looks.
-    // D2-02910
     fn update(&mut self, ui: &mut Ui, view: &View<'_>, out: &mut Vec<gameplay::Request>) {
         if !self.shown {
             self.shown = true;

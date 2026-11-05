@@ -2492,6 +2492,67 @@ fn the_paper_doll_shows_the_player_seen_straight_on() {
     );
 }
 
+/// The paper doll's figure follows the player's look on foot and keeps it while mounted: a mount's
+/// look is the mount with the rider on it, and the doll shows the rider as it was until the player
+/// gets off.
+///
+/// Behaviour: ui.inventory.the-paper-doll-keeps-its-look-while-mounted
+#[test]
+fn the_paper_doll_keeps_its_look_while_mounted() {
+    let (mut s, retail) = into_the_world();
+    press(&mut s, Key::I);
+    assert!(
+        until(&mut s, 1.0, |_| shows(&retail, "PaperDollViewport")),
+        "I opens the inventory"
+    );
+    let shown = |s: &mut Shell<'_, DoubleHost>| {
+        s.frame().overlay.scenes.iter().find_map(|v| {
+            let f = v.figures.first()?;
+            Some(f.look.clone())
+        })
+    };
+    let scaled = |s: &mut Shell<'_, DoubleHost>, parent: u32, by: f32| {
+        let c = s.client.as_mut().expect("the client");
+        let v = &mut c.model.object_mut(PLAYER).expect("the player").visual;
+        v.bits = VisualDesc::PARENT | VisualDesc::SCALE;
+        v.parent = parent;
+        v.scale = Vec3::new(by, by, by);
+    };
+    let mounted = |s: &mut Shell<'_, DoubleHost>, on: u32| {
+        let c = s.client.as_mut().expect("the client");
+        c.notices
+            .push(auberean_client_sdk::runtime::host::PanelNotice {
+                native: auberean_ui_game::gameplay::notice::UPDATE_MOUNT_STATE,
+                about: Some(PLAYER),
+                words: vec![on],
+                objects: Vec::new(),
+                requests: Vec::new(),
+                effect_lines: Vec::new(),
+                listed: Vec::new(),
+            });
+    };
+    let on_foot = shown(&mut s).expect("the figure");
+
+    let parent = on_foot.parent.0;
+    scaled(&mut s, parent, 1.25);
+    let bigger = shown(&mut s).expect("the figure");
+    assert_ne!(bigger, on_foot, "on foot it follows the look");
+
+    mounted(&mut s, 1);
+    step(&mut s);
+    scaled(&mut s, parent, 1.5);
+    assert_eq!(
+        shown(&mut s).expect("the figure"),
+        bigger,
+        "mounted, it keeps the look it had"
+    );
+
+    mounted(&mut s, 0);
+    step(&mut s);
+    let off = shown(&mut s).expect("the figure");
+    assert_ne!(off, bigger, "off the mount, it follows the look again");
+}
+
 /// The paper doll's figure answers a search under the pointer with the part it meets: the doll's
 /// scene is searched straight along its view from the pointer (taken from the viewport's corner),
 /// and the mesh met there names the kind it is. A search on the head meets a mesh the doll keeps

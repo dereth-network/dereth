@@ -9,6 +9,7 @@ not how it was done.
 
 - A click that brings the window forward no longer acts on the game.
 - A covered window on a Mac no longer runs flat out.
+- The paper doll no longer shows your mount while you ride.
 - Items in a trade now name the number offered.
 - Items in a trade now show when selected and when you target with an item.
 

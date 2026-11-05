@@ -64,12 +64,6 @@ mod name {
     pub const RELATIVE_Y: Token = Token::of("relative_y_position");
 }
 
-/// The scripts' notices the window hears besides the shops'.
-pub mod own_notice {
-    /// The player mounted (1) or got off (0).
-    pub const UPDATE_MOUNT_STATE: u32 = crate::gameplay::notice::UPDATE_MOUNT_STATE;
-}
-
 /// How long a hidden window keeps its elements, in seconds; how many rows a page shows.
 const KEEP: f64 = 120.0;
 const PAGE: i32 = 7;
@@ -102,7 +96,6 @@ pub struct Consignments {
     amount: u32,
     stack_context: u32,
     dialog: u32,
-    mounted: bool,
     hidden_at: f64,
     facts: Option<inventory::Facts>,
     shop: Facts,
@@ -140,7 +133,6 @@ impl Consignments {
             amount: 0,
             stack_context: 0,
             dialog: 0,
-            mounted: false,
             hidden_at: 0.0,
             facts: None,
             shop: Facts::default(),
@@ -163,12 +155,6 @@ impl Consignments {
     #[must_use]
     pub const fn dialog(&self) -> u32 {
         self.dialog
-    }
-
-    /// Whether the player is mounted (the figure follows the player's look only on foot).
-    #[must_use]
-    pub const fn mounted(&self) -> bool {
-        self.mounted
     }
 
     /// The figure's viewport placed where the window says, from the window's corner.
@@ -727,9 +713,9 @@ impl Child for Consignments {
         }
     }
 
-    /// The scripts' consignment notices; leaving the catalog; the player mounted; the
-    /// selection; the questions and splits; a row dragged into the pack (collected).
-    // D2-02323, D2-02327, D2-02338, D2-02339, D2-02350
+    /// The scripts' consignment notices; leaving the catalog; the selection; the questions and
+    /// splits; a row dragged into the pack (collected).
+    // D2-02327, D2-02338, D2-02339, D2-02350
     fn notice(&mut self, ui: &mut Ui, n: &Notice, out: &mut Vec<Request>) {
         match n.native {
             notice::VIEW_CONSIGNMENT => {
@@ -743,7 +729,6 @@ impl Child for Consignments {
                 }
             }
             notice::LEAVE_CONSIGNMENT | notice::LEAVE_CATALOG => self.show(ui, false, out),
-            own_notice::UPDATE_MOUNT_STATE => self.mounted = n.word() != 0,
             notice::SELECTION_CHANGED => {
                 if !self.shown(ui) {
                     return;
