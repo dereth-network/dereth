@@ -8,6 +8,7 @@ not how it was done.
 ## Unreleased
 
 - Crowded places run faster.
+- Turning sound off and on again plays sounds from their start, as the original does.
 - A click that brings the window forward no longer acts on the game.
 - A covered window on a Mac no longer runs flat out.
 - Screenshots now follow the key you bind, not always Ctrl+P.

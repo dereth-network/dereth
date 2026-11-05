@@ -703,16 +703,24 @@ impl SoundPlayer {
         }
     }
 
-    /// Turn the sound off (nothing is heard: the device is let go of, and every sound keeps its
-    /// life without a sound) or on again (every sound heard again).
-    // D2-07818
+    /// Turn the sound off or on again. Off, a sound playing stops, kept to play from its start
+    /// when the sound is on again, and any other is done. On, each sound kept plays.
+    // D2-07818, D2-07785
     pub fn set_sound_off(&mut self, off: bool) {
         if self.sound_off == off {
             return;
         }
         self.sound_off = off;
         for i in 0..self.playing.len() {
-            self.apply(i);
+            if !off {
+                self.play_internal(i);
+            } else if matches!(self.playing[i].life, Life::Playing | Life::Fading) {
+                self.playing[i].life = Life::KeepAlive;
+                self.on_segment_ended(i);
+            } else {
+                self.playing[i].life = Life::Done;
+                self.stop_voice(i);
+            }
         }
     }
 
@@ -957,11 +965,7 @@ impl SoundPlayer {
     }
 
     fn voice_settings(&self, p: &Playing) -> VoiceSettings {
-        let g = if self.sound_off {
-            0.0
-        } else {
-            gain_from_millibels(self.millibels(p)) * p.placement.distance
-        };
+        let g = gain_from_millibels(self.millibels(p)) * p.placement.distance;
         let base = match (&p.source, p.music) {
             (Some(s), _) => f64::from(s.rate()),
             (None, Some(_)) => f64::from(MUSIC_RATE),
@@ -1003,6 +1007,13 @@ impl SoundPlayer {
             if !p.has_played {
                 p.start = now;
                 p.has_played = true;
+            }
+            // With the sound off, nothing plays, and what has no length of its own ends.
+            if self.sound_off {
+                if p.length < 0.0 {
+                    p.life = Life::Done;
+                }
+                return;
             }
             if p.disabled || p.muted {
                 return;
