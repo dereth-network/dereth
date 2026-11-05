@@ -3582,6 +3582,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.fellowship.a-place-is-its-leaders-to-offer",
+        says: "A place taken joins only if the one who offered it still leads a fellowship; one who \
+               has gone over to another's offers nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-PLACE"),
+        station: "yalain-testkit::cpu::play::fellowships::a_place_offered_by_one_no_longer_a_leader_takes_no_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.fellowship.asking-runs-out",
         says: "A recruit's asking unanswered for twenty seconds runs out: the recruit is told, and \
                the place can no longer be taken.",

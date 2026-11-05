@@ -617,7 +617,8 @@ pub fn accept<S: Store>(
     let Some(i) = s.fellowships.of(leader) else {
         return;
     };
-    if s.fellowships.list[i].fellows.len() >= MOST {
+    // The place was its leader's to offer: one who has since gone over to another's offers nothing.
+    if s.fellowships.list[i].leader != leader || s.fellowships.list[i].fellows.len() >= MOST {
         return;
     }
     let now = net.game_time(clock.local);
