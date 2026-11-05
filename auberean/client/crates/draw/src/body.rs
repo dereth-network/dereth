@@ -500,6 +500,8 @@ impl BodyDrawer {
                     choices.push((c.0, c.1, Some(Lod::of_body(false, true))));
                 }
                 for (level, material_detail, lod) in choices {
+                    // D2-05492
+                    let mut drawn: Vec<(Arc<Vec<u16>>, Vec<DrawLayer>)> = Vec::new();
                     for frag in &m.mesh.levels[level].fragments {
                         let Some(mat) = usize::try_from(frag.material)
                             .ok()
@@ -507,14 +509,18 @@ impl BodyDrawer {
                         else {
                             continue;
                         };
-                        let indices = frag.indices.clone();
-                        for layer in self.part_material(
+                        let layers = self.part_material(
                             records,
                             &part.look,
                             m.mesh.kind,
                             mat.0,
                             material_detail,
-                        ) {
+                        );
+                        drawn.push((frag.indices.clone(), layers));
+                    }
+                    crate::mesh::depth_writers_first(&mut drawn, |(_, layers)| layers.first());
+                    for (indices, layers) in drawn {
+                        for layer in layers {
                             out.push(ObjectBatch {
                                 vertices: m.vertices.clone(),
                                 posed: Some(posed.clone()),

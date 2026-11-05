@@ -58,6 +58,17 @@ fn turn_bits(linear: &Mat4, (s, c): (f32, f32)) -> [u32; 11] {
     .map(f32::to_bits)
 }
 
+/// A mesh's fragments in the order they are drawn: those whose material's first layer marks how
+/// near it is, then the others, each kind in its stored order. What draws without marking it never
+/// lies under a part of its own mesh drawn after it.
+// D2-05492
+pub fn depth_writers_first<T>(
+    fragments: &mut [T],
+    first_layer: impl Fn(&T) -> Option<&crate::material::DrawLayer>,
+) {
+    fragments.sort_by_key(|f| !first_layer(f).is_some_and(|l| l.depth_write));
+}
+
 /// What a frame goes on to ask of a draw of a list, to be worked out ahead on any thread: its
 /// vertices, its boxes under its place's turning and each spin, where its vertices stand. What
 /// asking later finds is the same either way.

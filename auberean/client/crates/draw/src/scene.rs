@@ -1523,6 +1523,8 @@ impl<'a> SceneBuilder<'a> {
                 l.update(distance);
                 l
             });
+            // D2-05492
+            let mut drawn: Vec<(Arc<Vec<u16>>, Vec<DrawLayer>)> = Vec::new();
             for frag in &mesh.levels[marked[at]].fragments {
                 let Some(mat) = usize::try_from(frag.material)
                     .ok()
@@ -1534,7 +1536,10 @@ impl<'a> SceneBuilder<'a> {
                     Some(look) => self.looked_material(look, mesh.kind, mat.0, materials),
                     None => self.material_at(mat.0, materials),
                 };
-                let indices = frag.indices.clone();
+                drawn.push((frag.indices.clone(), layers));
+            }
+            crate::mesh::depth_writers_first(&mut drawn, |(_, layers)| layers.first());
+            for (indices, layers) in drawn {
                 for layer in layers {
                     out.push(ObjectBatch {
                         vertices: verts.clone(),

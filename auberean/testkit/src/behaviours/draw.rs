@@ -1775,6 +1775,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.world.a-meshs-depth-writing-fragments-draw-first",
+        says: "A mesh draws the fragments whose material's first layer marks how near it is before those that do not, each kind in its stored order.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DRAW-FRAGMENT-ORDER"),
+        station: "auberean-draw::dat::parts::a_meshs_depth_writing_fragments_draw_first",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.world.a-part-draws-its-own-copy-when-its-look-changes-materials",
         says: "A part draws through its own frame carried by the object's the mesh its instance                holds: the one every part showing it shares, or, when the part's look changes its                materials, its own copy with them changed, the other parts keeping the mesh's own;                it is culled by its mesh's box carried through its frame.",
         since: RETAIL,
