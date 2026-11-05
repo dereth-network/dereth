@@ -1604,6 +1604,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.options.assistance-lists-other-last",
+        says: "The assistance page's kinds of call read with each new row put first: Other last.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ASSISTANCE-ORDER"),
+        station: "auberean-ui-game::dat::play::options::assistance_lists_other_last",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.options.closing-a-section-leaves-the-pages-scroll-widget-long",
         says: "The page's bar shows no widget when first opened with every section closed; a \
                section opened makes the widget the share in view; closed again, every row showing, \

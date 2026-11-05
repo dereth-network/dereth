@@ -706,3 +706,22 @@ fn closing_a_section_leaves_the_pages_scroll_widget_long() {
     assert!(ui.is_visible(widget), "closed");
     assert_eq!(ui.screen_rect(widget).expect("placed").height(), whole);
 }
+
+/// The assistance page's kinds of call read with each new row put first: "Other" last.
+///
+/// Behaviour: ui.options.assistance-lists-other-last
+#[test]
+fn assistance_lists_other_last() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let _p = play(&mut ui);
+    let menu = ui
+        .element(Token::of("CallTypeMenu"))
+        .expect("the kinds of call");
+    let words: Vec<String> = (0..ui.menu_len(menu))
+        .filter_map(|at| ui.menu_item(menu, at))
+        .map(|i| ui.text(i).unwrap_or_default())
+        .collect();
+    assert_eq!(words.len(), 9, "{words:?}");
+    assert_eq!(words.last().map(String::as_str), Some("Other"), "{words:?}");
+    assert_eq!(words[0], "Report Abuse", "{words:?}");
+}

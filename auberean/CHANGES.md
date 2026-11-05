@@ -22,6 +22,7 @@ not how it was done.
 - The LandscapeTerrainBlending preference and the -lb and -nolb switches now work.
 - Fixed auto-run carrying on through a portal.
 - Damage numbers now fade out as they rise.
+- The assistance page's kinds of call now list in their proper order.
 - The camera distance and tilt options now apply as soon as you change them.
 - Damage numbers now fade out as they rise, and show at their proper size.
 - Fixed pools of lamplight on the ground vanishing when you look out from a doorway.

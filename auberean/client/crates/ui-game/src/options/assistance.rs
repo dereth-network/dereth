@@ -84,14 +84,13 @@ impl AssistancePage {
         me
     }
 
-    /// The menu's kinds of call, each row with its kind.
+    /// The menu's kinds of call, each row with its kind, each new row put first.
     // D2-02888
     fn init_call_type_menu(&self, ui: &mut Ui) {
         let Some(m) = self.menu else { return };
         for (label, kind) in CALL_TYPES {
             let words = crate::flow::message(ui, OPTION_STRINGS, label);
-            let at = ui.menu_len(m);
-            if let Some(row) = ui.menu_insert_text(m, &words, at) {
+            if let Some(row) = ui.menu_insert_text(m, &words, 0) {
                 ui.set_attr(row, name::CALL_TYPE, Value::Int(kind.cast_signed()));
             }
         }
