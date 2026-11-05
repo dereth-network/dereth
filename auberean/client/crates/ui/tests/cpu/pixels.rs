@@ -39,6 +39,7 @@ fn picture(width: u32, height: u32) -> Image {
         width,
         height,
         bgra,
+        alpha_only: false,
     }
 }
 

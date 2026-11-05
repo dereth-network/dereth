@@ -1321,6 +1321,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.media.an-icons-layers-mix-by-their-own-alpha",
+        says: "An icon's layer goes over those below by its own alpha: none leaves the texel, whole replaces it and its alpha, between mixes the colors and keeps the alpha below. A layer of another size is stretched to fit, and one of alpha alone adds nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ICON-LAYER-BLIT"),
+        station: "auberean-ui::cpu::media::an_icons_layers_mix_by_their_own_alpha",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.media.messages-are-said-and-states-change",
         says: "A message item makes the element say its message, and a state item puts the \
                element in another state once the change under way is done.",
