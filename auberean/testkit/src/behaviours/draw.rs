@@ -987,6 +987,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.particles.an-effect-carries-the-repulsor-its-entry-names",
+        says: "An effect played on an object carries the repulsor its entry names, as a look's startup effects do.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-REPULSOR"),
+        station: "auberean-draw::dat::effects::an_effect_played_carries_the_repulsor_its_entry_names",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.particles.color-and-size-blend-toward-the-next-keyframe-that-blends-them",
         says: "A particle's color and size blend from its last keyframe toward the next keyframe \
                that blends them, by its age between the two.",

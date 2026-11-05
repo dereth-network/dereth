@@ -1231,6 +1231,37 @@ fn stopping_the_effect_that_turned_a_streak_on_turns_it_off() {
     );
 }
 
+/// An effect played on an object carries the repulsor its entry names: `0x810001C7` of the human
+/// male's table.
+///
+/// Behaviour: draw.particles.an-effect-carries-the-repulsor-its-entry-names
+#[test]
+fn an_effect_played_carries_the_repulsor_its_entry_names() {
+    use auberean_draw::effects::{FxSpot, FxWho, NoRig};
+    let r = &install().records;
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let systems = ParticleSystems::default();
+    let spot = FxSpot {
+        home: (0, 0),
+        place: Mat4::IDENTITY,
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        now: 1.0,
+    };
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let before = fx.repulsor_count();
+    let (took, _) = fx.do_fx(
+        &systems,
+        r,
+        0x8100_01C7,
+        1.0,
+        &spot,
+        FxWho::default(),
+        &NoRig,
+    );
+    assert!(took);
+    assert_eq!(fx.repulsor_count(), before + 1);
+}
+
 /// An effect with a decal (`0x810002C7` of the shared table) lays it: its material, its life, its
 /// size and its color from the entry; with the decal effects preference off, none.
 ///

@@ -1105,7 +1105,7 @@ impl ObjectEffects {
     /// object that do not ramp at once) and lays its appearances over the object again at the
     /// strength it then has; nothing restarts; a startup effect is left alone. Whether it played,
     /// and the effect scripts to play. Its streaks are made, and the streaks it turns on or off asked
-    /// for. (Its colors, sliders, objects made, targets, decals and repulsors are not played here.)
+    /// for, its decals laid and its repulsors carried.
     // D2-06934, D2-06932, D2-06887
     #[allow(clippy::too_many_arguments)]
     pub fn do_fx(
@@ -1211,6 +1211,9 @@ impl ObjectEffects {
             }
             if let Some((true, d)) = &node.decal {
                 self.decal_fx(systems, d, &spot);
+            }
+            if let Some((true, r)) = node.repulsor {
+                self.repulse_fx(systems, &r, &spot);
             }
             if let Some((true, l)) = &node.light {
                 self.light_fx(systems, l, node.bone_offset, at.now);
