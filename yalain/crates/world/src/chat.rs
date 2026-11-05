@@ -319,7 +319,7 @@ pub fn say<S: Store>(
             return;
         }
     }
-    if crate::admin::refuse_gagged(s, net, world) {
+    if refuses_talk(s, net, world) {
         return;
     }
     let Some(p) = s.players.get(&world) else {
@@ -403,7 +403,7 @@ pub fn tell<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: 
         s.unhandled.note("a tell that does not read");
         return;
     };
-    if crate::admin::refuse_gagged(s, net, world) {
+    if refuses_talk(s, net, world) {
         return;
     }
     let Some(teller) = s.players.get(&world) else {
@@ -491,7 +491,7 @@ pub fn emote<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
         s.unhandled.note(format!("emote {id:#010x}"));
         return;
     };
-    if crate::admin::refuse_gagged(s, net, world) {
+    if refuses_talk(s, net, world) {
         return;
     }
     s.next_context = s.next_context.wrapping_add(1);
@@ -529,6 +529,41 @@ pub fn emote<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v:
     .encode();
     let id = p.character;
     send_to_knowers(s, net, world, id, BlobKind::VISUAL, &m);
+}
+
+/// What a player is told when its lines come past how fast one may talk.
+pub const TOO_FAST: &str = "You are talking too fast.";
+
+/// How many seconds apart at least a player is told it is talking too fast.
+const TOO_FAST_EVERY: f64 = 5.0;
+
+/// May this player's line of talk not go on: it is gagged, or past how fast one may talk? Each is
+/// told the player, the second at most every few seconds.
+#[must_use]
+pub fn refuses_talk<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) -> bool {
+    if crate::admin::refuse_gagged(s, net, world) {
+        return true;
+    }
+    let now = s.saves.now;
+    let Some(p) = s.players.get_mut(&world) else {
+        return false;
+    };
+    let (bucket, told) = p.talk.get_or_insert_with(|| {
+        let bucket = crate::call_limit::Bucket::with(
+            crate::call_limit::TALK_BURST,
+            crate::call_limit::TALK_PER_SECOND,
+            now,
+        );
+        (bucket, None)
+    });
+    if bucket.allow(now) {
+        return false;
+    }
+    if told.is_none_or(|at| now.0 - at >= TOO_FAST_EVERY) {
+        *told = Some(now.0);
+        crate::login::notice(net, world, TOO_FAST);
+    }
+    true
 }
 
 /// The script type of a string.
@@ -570,7 +605,7 @@ pub fn typed_emote<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
         s.unhandled.note("a typed emote that does not read");
         return;
     };
-    if crate::admin::refuse_gagged(s, net, world) {
+    if refuses_talk(s, net, world) {
         return;
     }
     let Some(p) = s.players.get(&world) else {
@@ -987,7 +1022,7 @@ pub fn say_in_room<S: Store>(
     else {
         return;
     };
-    if crate::admin::refuse_gagged(s, net, world) {
+    if refuses_talk(s, net, world) {
         return;
     }
     let line = RoomLine {
@@ -1076,7 +1111,7 @@ pub fn service<S: Store>(
         let text = String::from_utf16_lossy(&line.text);
         if crate::admin::said(s, net, world, &text, clock)
             || network_command(s, world, &text)
-            || crate::admin::refuse_gagged(s, net, world)
+            || refuses_talk(s, net, world)
         {
             send_chat(
                 net,

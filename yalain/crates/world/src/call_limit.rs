@@ -6,6 +6,8 @@
 //! before it is read.
 //!
 //! This is the server's own rule. Nothing recorded shows the 2017 servers having one, or reaching it.
+//! The same goes for how fast one player may talk, which is its own limit below this one: the 2017
+//! data has squelch lists and a player's report of spam, and no limit nor any words for one.
 
 use std::collections::HashMap;
 
@@ -15,6 +17,13 @@ use yalain_net::{ConnId, LocalTime};
 pub const BURST: f64 = 2000.0;
 /// Calls a connection may send a second, after that.
 pub const PER_SECOND: f64 = 200.0;
+
+/// Lines of talk a player may say at once: its sayings, tells, emotes and room lines together.
+/// (2017's busiest, of 1,645 such lines over the 2017 recordings, said 1 in a second, 3 in ten
+/// seconds and 6 in a minute.)
+pub const TALK_BURST: f64 = 10.0;
+/// Lines of talk a player may say a second, after that.
+pub const TALK_PER_SECOND: f64 = 10.0;
 
 /// What a connection has left, and what it has lost.
 #[derive(Debug, Clone, Copy)]

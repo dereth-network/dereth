@@ -160,6 +160,8 @@ pub struct Player {
     pub queued: Option<crate::skill_use::Request>,
     /// A special waiting for its attack run's next swing.
     pub in_run: Option<crate::skill_use::Request>,
+    /// How fast it may talk, once it has, and when it was last told it is past that.
+    pub talk: Option<(crate::call_limit::Bucket, Option<f64>)>,
     /// When it last used each skill (game time), from which the skill's recovery counts.
     pub last_used: std::collections::HashMap<u32, f64>,
     /// Another player it is walked to, and what for.
@@ -506,6 +508,7 @@ pub fn enter<S: Store>(
         queued: None,
         in_run: None,
         last_used: std::collections::HashMap::new(),
+        talk: None,
         approaching: None,
         shard_protection: None,
         riding: None,

@@ -921,3 +921,129 @@ fn a_line_in_a_room_everyone_has_is_kept_for_the_link_and_a_kingdoms_is_not() {
         .collect();
     assert_eq!(names, ["General", "Trade 1", "PvP"]);
 }
+
+/// A saying over a client's world connection.
+fn say(h: &mut Harness, b: usize, text: &str) {
+    let m = server_call(function::SAY, &[Arg::Int(0), literal(text)]);
+    h.bots[b].send(true, queue::WEENIE, &m);
+}
+
+/// How many times a client has been told it is talking too fast since `from`.
+fn told_too_fast(h: &Harness, b: usize, from: usize) -> usize {
+    h.world_messages(b, from)
+        .iter()
+        .filter(|m| {
+            matches!(m, ServerMessage::Notice(n)
+            if n.text.literal.as_ref().is_some_and(|l| {
+                String::from_utf16_lossy(&l.0).trim_end() == chat::TOO_FAST
+            }))
+        })
+        .count()
+}
+
+/// A player saying far more than the limit at once is heard for at least the limit's lines and not
+/// for all of them, and told once; a moment later it is heard again; kept just past the limit, it
+/// is told only every few seconds.
+/// Behaviour: server.chat.talk-has-a-limit
+#[test]
+fn a_player_past_the_talk_limit_is_told_once_and_heard_again_a_moment_later() {
+    let mut h = Harness::new();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let from = h.bots[b].inbox.len();
+    let told_from = h.bots[a].inbox.len();
+    const SAID: usize = 60;
+    for i in 0..SAID {
+        say(&mut h, a, &format!("line {i}"));
+    }
+    h.run(20);
+    let heard_now = heard(&h, b, from, ida);
+    assert!(heard_now >= 10, "at least the limit: {heard_now}");
+    assert!(heard_now < SAID, "not all of them: {heard_now}");
+    assert_eq!(told_too_fast(&h, a, told_from), 1, "told once");
+    assert_eq!(told_too_fast(&h, b, from), 0, "told to it alone");
+
+    h.advance(2.0);
+    h.run(1);
+    let from = h.bots[b].inbox.len();
+    say(&mut h, a, "again");
+    h.run(10);
+    assert_eq!(heard(&h, b, from, ida), 1, "heard again");
+
+    let told_from = h.bots[a].inbox.len();
+    let mut lines = 0;
+    // Three lines in four steps: fifteen a second, for 60 seconds.
+    for step in 0..1_200 {
+        if step % 4 != 3 {
+            say(&mut h, a, "again and again");
+            lines += 1;
+        }
+        h.run(1);
+    }
+    let told = told_too_fast(&h, a, told_from);
+    assert!(told <= 13, "told {told} times over {lines} lines");
+    assert!(told >= 5, "told {told} times");
+}
+
+/// Sayings, tells, emotes, typed emotes and room lines spend one limit between them, and a line past
+/// it goes nowhere: with the limit spent and half a second's refill, 50 lines of the five kinds bring
+/// far less than one kind's limit.
+/// Behaviour: server.chat.talk-has-a-limit
+#[test]
+fn every_kind_of_talk_spends_one_limit_between_them() {
+    let mut h = Harness::new();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    let (b, _) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == ida)
+        .map(|(c, _)| c)
+        .expect("in the world");
+    let mut spent = 0;
+    while !chat::refuses_talk(&mut h.server, &mut h.net, world) {
+        spent += 1;
+        assert!(spent <= 10, "past the limit");
+    }
+    assert_eq!(spent, 10, "exactly the limit, the clock standing still");
+    let from = h.bots[b].inbox.len();
+    let wave = chat::EMOTES[2].id;
+    for _ in 0..10 {
+        say(&mut h, a, "hello");
+        for m in [
+            server_call(function::EMOTE, &[Arg::Int(wave)]),
+            server_call(function::TYPED_EMOTE, &[string("waves")]),
+            server_call(
+                function::TELL,
+                &[Arg::Int(0), literal("Psst."), literal("babyfare [F]")],
+            ),
+        ] {
+            h.bots[a].send(true, queue::WEENIE, &m);
+        }
+        let packet = SendToRoomById {
+            context: 7,
+            room: chat::GENERAL_ROOM,
+            text: "Anyone?".into(),
+            extra: ExtraBlob::Speaker {
+                sender: 1,
+                chat_type: 100 << 16 | 1,
+            },
+        }
+        .network_packet()
+        .expect("packs");
+        h.bots[a].send(false, 4, &ClientMessage::Chat(ChatPacket(packet)));
+    }
+    h.run(10);
+    let went = heard(&h, b, from, ida)
+        + h.server.room_lines.len()
+        + calls_of(&h, b, from, chat::function::HEAR_TELL).len()
+        + typed_emotes(&h, b, from, ida).len()
+        + h.world_messages(b, from)
+            .iter()
+            .filter(|m| matches!(m, ServerMessage::PlayBehavior(e) if e.sender.id == ida))
+            .count();
+    assert!(went < 10, "{went} went on");
+}

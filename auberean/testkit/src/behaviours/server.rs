@@ -1007,6 +1007,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.chat.talk-has-a-limit",
+        says: "A player's sayings, tells, emotes and room lines spend one limit between them: \
+               past it a line goes nowhere and the player is told, at most every few seconds.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TALK-LIMIT"),
+        station: "yalain-testkit::cpu::entry::chat::a_player_past_the_talk_limit_is_told_once_and_heard_again_a_moment_later",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.chat.tell-delivered-or-refused",
         says: "A tell reaches the player of the name typed (with or without its grammar mark, in \
                any case) as the teller's tell with its id and world name; the teller is shown its \

@@ -886,6 +886,14 @@ fn a_client_flooding_calls_has_what_is_over_dropped_and_others_go_on() {
             })
             .count()
     };
+    // Sayings are what can be counted here: its limit on talk is out of the way of this one.
+    let now = h.now;
+    for p in h.server.players.values_mut() {
+        p.talk = Some((
+            yalain_world::call_limit::Bucket::with(f64::MAX, 1.0, now),
+            None,
+        ));
+    }
     let flood = 3 * BURST as usize;
     let from = h.bots[victim].inbox.len();
     for i in 0..flood {
