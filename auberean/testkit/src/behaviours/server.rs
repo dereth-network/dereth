@@ -9031,6 +9031,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.player-fights.special-spares-one-gone-into-portal-space",
+        says: "A special's strike does not hurt a player gone into portal space by the time it lands.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SPECIAL-PORTAL"),
+        station: "yalain-testkit::cpu::play::player_fights::a_specials_strike_at_a_player_gone_into_portal_space_does_not_hurt_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.player-fights.strike-lands",
         says: "A strike at another player lands at the time one at a creature does, hurting it \
                then, and the kill text follows the health. A player gone into portal space by \

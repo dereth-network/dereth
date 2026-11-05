@@ -747,3 +747,54 @@ fn a_skill_is_refused_in_portal_space() {
     assert!(hooks_at(&h, b, from_b, ida, idb).is_empty());
     assert_eq!(health_of(&h, idb), health);
 }
+
+/// A special's strike or missile does not hurt a player gone into portal space by the time it lands,
+/// as a basic attack's does not.
+/// Behaviour: server.player-fights.special-spares-one-gone-into-portal-space
+#[test]
+fn a_specials_strike_at_a_player_gone_into_portal_space_does_not_hurt_it() {
+    let (mut h, (a, ida), (_, idb)) = two_players(Conflict::KingdomVsKingdom);
+    rested(&mut h, ida);
+    let wb = yalain_world::social::world_of(&h.server, idb).expect("in the world");
+    let to = h.server.players[&wb].position;
+    let wa = yalain_world::social::world_of(&h.server, ida).expect("in the world");
+    let health = health_of(&h, idb);
+    let before = h.server.players[&wb].play.effects.len();
+    if let Some(u) = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&RIPOSTE)
+        .and_then(|d| d.usage.as_mut())
+    {
+        u.target_effects = vec![CHARGED_AIR_EFFECT];
+    }
+    let mut id = 1;
+    loop {
+        assert!(id < 80, "no use reached its landing");
+        use_skill(&mut h, a, id, RIPOSTE, idb);
+        id += 1;
+        let told = h.run_until(30, |h| {
+            h.server.players[&wa]
+                .using
+                .as_ref()
+                .is_some_and(|x| x.told && x.landings.iter().any(|l| l.damage > 0))
+        });
+        if told {
+            break;
+        }
+        h.run(60);
+    }
+    assert_eq!(health_of(&h, idb), health, "not yet");
+    let clock = h.clock();
+    yalain_world::places::resurrection_trip(&mut h.server, &mut h.net, wb, to, clock);
+    // Its landing comes while the other is away.
+    let landed = |h: &Harness| h.server.players[&wa].using.is_none();
+    while !landed(&h) {
+        assert!(h.server.players[&wb].trip.is_some(), "still away");
+        h.step();
+        assert_eq!(health_of(&h, idb), health);
+    }
+    // Nor do its effects reach it (coming back from the trip has its own say on its health).
+    assert_eq!(h.server.players[&wb].play.effects.len(), before);
+}

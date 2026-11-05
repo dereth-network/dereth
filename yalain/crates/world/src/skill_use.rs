@@ -2282,6 +2282,12 @@ fn hook<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: 
     }
 }
 
+/// May a blow on its way still hurt this player? Not dead or dying, nor gone into portal space, as
+/// with a basic attack's or a creature's.
+fn can_be_struck(q: &crate::world::Player) -> bool {
+    q.dying.is_none() && q.trip.is_none() && !combat::is_dead(q)
+}
+
 /// A use's strikes land: each target it landed on hurt, then the skill's target effects put on
 /// each (once each); each still alive goes after the player.
 fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
@@ -2306,7 +2312,7 @@ fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock
             continue;
         }
         if let Some(c) = combat::player_target(s, world, l.target) {
-            if s.players.get(&c).is_some_and(|q| q.dying.is_none()) {
+            if s.players.get(&c).is_some_and(can_be_struck) {
                 if l.damage > 0 {
                     combat::hurt_player(s, net, c, me, l.damage, clock);
                 }
@@ -2329,6 +2335,10 @@ fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock
     for t in &hit {
         let on = combat::player_target(s, world, *t)
             .map_or(crate::effects::On::Creature(*t), crate::effects::On::Player);
+        if matches!(on, crate::effects::On::Player(c) if !s.players.get(&c).is_some_and(can_be_struck))
+        {
+            continue;
+        }
         put_target_effects(s, net, me, &u, on, spellcraft, clock);
         if matches!(on, crate::effects::On::Creature(_)) {
             crate::treasure::on_hit(s, net, world, *t, clock);
@@ -2393,7 +2403,7 @@ fn arrives<S: Store>(
     let me = s.players.get(&world).map_or(0, |p| p.character);
     let player = combat::player_target(s, world, r.target);
     let alive = |s: &Server<S>| match player {
-        Some(c) => s.players.get(&c).is_some_and(|q| q.dying.is_none()),
+        Some(c) => s.players.get(&c).is_some_and(can_be_struck),
         None => s.things.get(r.target).is_some_and(|t| t.alive()),
     };
     if !alive(s) {
