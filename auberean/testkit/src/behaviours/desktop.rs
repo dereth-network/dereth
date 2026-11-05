@@ -425,6 +425,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.camera.an-effect-asked-again-does-not-start-its-camera-part-again",
+        says: "An effect asked again while it still plays does not start its camera part again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-CAMERA-ONCE"),
+        station: "auberean-shell::dat::session::an_effect_asked_again_does_not_start_its_camera_part_again",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.camera.auto-distance-pulls-a-close-camera-back-while-running",
         says: "With auto distance a camera 1.5 m or nearer pulls back toward 4 m after 2.5 seconds \
                of running and comes back after a second standing.",

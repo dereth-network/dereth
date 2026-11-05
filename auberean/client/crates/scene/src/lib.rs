@@ -3417,16 +3417,22 @@ impl<'w> Scene<'w> {
     /// (in its default variant) that is for this player if only for the player, and for the time
     /// of day, names a camera effect record, played from the object at the strength (none when the
     /// entry ramps in).
-    // D2-06884
+    // D2-06884, D2-06932
     fn play_camera_effects(&mut self, client: &Client, played: &[(u64, u32, f32)], now: f64) {
         if played.is_empty() {
             return;
         }
+        // One already playing only takes its strength.
+        let starting: Vec<_> = played
+            .iter()
+            .copied()
+            .filter(|&(object, effect, _)| !self.fx_is_playing(object, effect))
+            .collect();
         let records = &self.world.records;
         let night = self.is_night();
         let alpha = self.ticker.alpha(now);
         let player = self.player.as_ref().map(|p| p.id);
-        for &(object, effect, intensity) in played {
+        for (object, effect, intensity) in starting {
             let Some(o) = client.model.object(object) else {
                 continue;
             };

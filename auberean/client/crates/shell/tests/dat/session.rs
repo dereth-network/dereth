@@ -722,6 +722,55 @@ fn an_effect_asked_out_of_sight_plays_at_once() {
     assert!(unseen, "playing while the world is out of sight");
 }
 
+/// An effect asked again while it still plays does not start its camera part again: the camera
+/// keeps the one track it started.
+///
+/// Behaviour: desktop.camera.an-effect-asked-again-does-not-start-its-camera-part-again
+#[test]
+fn an_effect_asked_again_does_not_start_its_camera_part_again() {
+    use auberean_client_sdk::protocol::physics::{Fx, ObjectEvent};
+    const HELD: u32 = 0x4100_0612;
+    let ask = |at: f64| {
+        (
+            at,
+            ServerMessage::DoFx(ObjectEvent {
+                sender: ObjectStamp {
+                    id: PLAYER,
+                    instance_stamp: 1,
+                    other_stamp: 0,
+                },
+                action: Fx {
+                    fx: HELD,
+                    scalar: 1.0,
+                },
+            }),
+        )
+    };
+    let later = [ask(3.0), ask(3.2)];
+    let script = script_until(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &later, 40.0);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    let (mut most, mut playing_at) = (0, None);
+    while s.host.time < 6.0 {
+        step(&mut s);
+        most = most.max(s.scene.camera.effects.tracks.len());
+        if playing_at.is_none() && s.scene.player_effects().iter().any(|(fx, _)| *fx == HELD) {
+            playing_at = Some(s.host.time);
+        }
+    }
+    assert!(playing_at.is_some(), "the effect plays");
+    assert_eq!(most, 1, "one track, started once");
+}
+
 /// An interface that takes every key.
 struct TakesKeys(DevLogin);
 

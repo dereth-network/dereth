@@ -94,7 +94,7 @@ impl Scene<'_> {
     }
 
     /// Whether `object` plays `effect` now.
-    fn fx_is_playing(&mut self, object: u64, effect: u32) -> bool {
+    pub(crate) fn fx_is_playing(&mut self, object: u64, effect: u32) -> bool {
         self.fx_of(object)
             .is_some_and(|f| f.fx.states().contains_key(&effect))
     }
