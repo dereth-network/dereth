@@ -16,6 +16,7 @@
 //! |---|---|---|
 //! | while working, before each commit | `cargo xtask check` | nothing |
 //! | before pushing or opening a PR | `cargo xtask ci tier0` | nothing: exactly what public CI runs |
+//! | when a test might lean on data you have | `cargo xtask ci no-data` | nothing: the tests as public CI runs them |
 //! | with the retail data | `cargo xtask ci tier1` | the dats and `world.pack`; Asheron's Call 2's data files and capture index |
 //! | on hardware | `cargo xtask ci tier2` | a graphics device and the dats |
 //!
@@ -39,6 +40,7 @@ mod game;
 mod gates;
 mod line_endings;
 mod lint;
+mod no_data;
 mod output_hygiene;
 mod package;
 mod preflight;
@@ -73,6 +75,9 @@ When to run what (client and server alike, both games):
                             every no-data test, clippy, every rule below and the docs. Needs nothing.
                             --only build,test,clippy,docs,rules: those parts alone (public CI runs
                             the first three on every system, and the rules and docs once)
+  ci no-data                the workspace's tests as public CI runs them, on any machine: no data
+                            (every variable naming it emptied), an empty per-user cache and
+                            --no-fail-fast, then a list of everything that failed
   ci tier1                  with the retail data: every crate's data tiers and the server's
                             real-content tier. Needs the dats (DERETH_TEST_DAT_DIR), world.pack
                             (EMPYREAN_TEST_WORLD_PACK) and ACE's world dump (EMPYREAN_WORLD_SQL, or
@@ -571,6 +576,26 @@ fn tier0_steps(game: Game, profile: Profile) -> Vec<Tier0Step> {
     steps
 }
 
+/// Tier 0's test rows as commands: the label and `cargo <argv>` of each, the server's included.
+fn tier0_test_commands(game: Game, profile: Profile) -> Vec<(String, Vec<&'static str>)> {
+    tier0_steps(game, profile)
+        .into_iter()
+        .filter(|planned| planned.part() == Tier0Part::Test)
+        .map(|planned| match planned {
+            Tier0Step::ServerUnits => {
+                let mut argv = vec!["test"];
+                argv.extend_from_slice(profile.cargo_args());
+                argv.extend_from_slice(server::SERVER_CRATES);
+                argv.push("--no-fail-fast");
+                ("cargo test (the server's crates)".to_owned(), argv)
+            }
+            Tier0Step::Cargo(label, argv)
+            | Tier0Step::Clippy(label, argv)
+            | Tier0Step::Doc(label, argv) => (label, argv),
+        })
+        .collect()
+}
+
 /// Tier 0: everything that needs no data, client and server alike, each thing once.
 ///
 /// The client's and the server's tests are two rows (the server's run is timed against its
@@ -790,13 +815,14 @@ fn all_gates(args: &[String], profile: Profile, game: Game) -> i32 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CiTier {
     Zero,
+    NoData,
     One,
     Two,
 }
 
 /// The usage line of `cargo xtask ci`.
 const CI_USAGE: &str =
-    "usage: cargo xtask ci tier0|tier1|tier2|auberean [--game dereth|auberean|all] [--only part,...] [--serial] [--debug]";
+    "usage: cargo xtask ci tier0|no-data|tier1|tier2|auberean [--game dereth|auberean|all] [--only part,...] [--serial] [--debug]";
 
 /// The tier and the game `cargo xtask ci <args>` asks for. `auberean` is tier 1 for Asheron's
 /// Call 2, so a `--game` beside it may only say the same.
@@ -804,6 +830,7 @@ fn ci_request(args: &[String]) -> Result<(CiTier, Game), String> {
     let game = Game::given(args)?;
     let tier = match args.first().map(String::as_str) {
         Some("tier0") => CiTier::Zero,
+        Some("no-data") => CiTier::NoData,
         Some("tier1") => CiTier::One,
         Some("tier2") => CiTier::Two,
         Some("auberean") => {
@@ -834,6 +861,7 @@ fn ci(args: &[String]) -> i32 {
     }
     match ci_request(args) {
         Ok((CiTier::Zero, game)) => tier0_parts(profile, game, &parts),
+        Ok((CiTier::NoData, game)) => no_data::no_data(no_data::commands(game, profile)),
         Ok((CiTier::One, game)) => tier1(args, profile, game),
         Ok((CiTier::Two, game)) => tier2(args, profile, game),
         Err(e) => {
@@ -1211,6 +1239,7 @@ mod tests {
     fn ci_takes_a_tier_and_a_game_and_auberean_is_tier1_for_the_second_game() {
         for (words, want) in [
             (&["tier0"][..], (CiTier::Zero, Game::All)),
+            (&["no-data"][..], (CiTier::NoData, Game::All)),
             (&["tier1"], (CiTier::One, Game::All)),
             (&["tier2", "--serial"], (CiTier::Two, Game::All)),
             (

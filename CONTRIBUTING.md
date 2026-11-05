@@ -9,6 +9,7 @@ games:
 |---|---|---|---|
 | While working, before each commit | `cargo xtask check` | nothing | 1-2 minutes |
 | Before pushing or opening a PR | `cargo xtask ci tier0` | nothing | about 3 minutes |
+| When a test might lean on data you have | `cargo xtask ci no-data` | nothing | a few minutes |
 | With the retail data | `cargo xtask ci tier1` | the dats, `world.pack` and ACE's world dump; Asheron's Call 2's data files and capture index (below) | about 20 minutes |
 | On hardware | `cargo xtask ci tier2` | a graphics device and the dats | -- |
 
@@ -30,6 +31,9 @@ is `ci tier1 --game auberean`.
   the tests and clippy on every system and the rules and the documentation check once, on Linux;
   `--only build,test,clippy,docs,rules` runs those parts alone. So documentation on code only Windows
   or macOS compiles is checked when you run `ci tier0` on that system, not by GitHub's CI.
+- **`ci no-data`** runs the tests as CI runs them on a machine with your data: every variable naming
+  data emptied, an empty per-user cache and `--no-fail-fast`, then a list of everything that failed.
+  A test that reaches for data it did not declare passes for you and fails here.
 - **`ci tier1`** runs every crate's data tier and the server's real-content tests, then
   Asheron's Call 2's crates' tests and its data tiers. A game whose data is not found reports its
   rows as NO-ORACLE and the run fails; the other game's rows still run. Without one game's data,
