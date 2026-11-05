@@ -1847,6 +1847,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.world.a-body-drawn-has-a-place-on-the-screen",
+        says: "A body drawn in front of the camera has a place on the screen, the middle of \
+               its box; one behind the camera or not drawn has none.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-BODY-ON-SCREEN"),
+        station: "auberean-scene::cpu::seen::a_body_drawn_has_a_place_on_the_screen",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.world.a-landblock-the-server-sends-is-made-into-the-land",
         says: "A landblock the files lack is asked of the server when the cells' rings reach it; \
                the one it sends is read by the world as the files' own and made into the land the \

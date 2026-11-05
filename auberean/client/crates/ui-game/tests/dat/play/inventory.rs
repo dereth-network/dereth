@@ -521,8 +521,19 @@ fn an_opened_container_shows_its_contents() {
             &[split(CORPSE)[0], split(CORPSE)[1], open],
         )
     };
+    f.screen.insert(CORPSE, (300, 500));
     tick(&mut ui, &mut p, &mut t, &f, &[state(1)]);
     assert!(ui.shown(el(&ui, "ExternalContainerField")), "opened");
+    let r = ui.node(el(&ui, "ExternalContainerField")).unwrap().rect;
+    assert_eq!(
+        (r.x0, r.y0),
+        (
+            (300.0 - r.width() as f32 * 0.5) as i32,
+            (500.0 - r.height() as f32 * 0.5) as i32,
+        ),
+        "over the container where it stands on the screen"
+    );
+    f.screen.clear();
     let ext = p.child::<ExternalContainer>().unwrap();
     assert_eq!(ext.container(), Some(CORPSE));
     assert_eq!(ext.display().unwrap().items(), vec![BONE]);

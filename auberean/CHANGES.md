@@ -14,6 +14,12 @@ not how it was done.
 - Fixed effects that fade a body out snapping it back at once.
 - Fixed mist on the ground in rain too light to see.
 - Fixed sunlit halls: the sun now falls across their floors and walls as the original's does.
+- Long text in a one-line entry no longer goes blank when you press End.
+- A character the font lacks no longer changes the font of what you type next.
+- Windows you resize now stop at the edges of the screen.
+- Dropping a second item in the world no longer sends it to the last target.
+- Clicking the paper doll selects what you clicked, not what you clicked before.
+- A corpse's or chest's window now opens over it.
 - Auto-run no longer carries on after walking up to something you used.
 - Crowded places run faster.
 - Fixed some effects on a body standing in the wrong place.

@@ -160,6 +160,23 @@ pub struct SeenHearing {
 }
 
 impl Seen {
+    /// Where the middle of a body drawn in the frame shows on a screen `width` by `height` pixels;
+    /// `None` for a body not drawn, or not in front of the camera.
+    // D2-02182
+    #[must_use]
+    pub fn place_on_screen(&self, id: u64, width: f32, height: f32) -> Option<(f32, f32)> {
+        let body = self.body(id)?;
+        let middle = body.bounds.map_or(body.origin, |(lo, hi)| {
+            body.to_block(Vec3::new(
+                (lo.x + hi.x) * 0.5,
+                (lo.y + hi.y) * 0.5,
+                (lo.z + hi.z) * 0.5,
+            ))
+        });
+        let (x, y, _) = self.camera.as_ref()?.project(middle, width, height)?;
+        Some((x, y))
+    }
+
     /// The body of object `id`, if it was drawn.
     #[must_use]
     pub fn body(&self, id: u64) -> Option<&SeenBody> {

@@ -904,6 +904,7 @@ impl Retail {
     /// What the play screen is given this frame: the player's vitals, the radar's place line, the
     /// chat window's lines (the scripts' and the client's own errors), the scripts' notices.
     fn feed(&mut self, game: &Game<'_>) {
+        let window = self.scale();
         let d = &mut self.flow.flow.data;
         d.in_world = game.phase == Phase::World;
         d.arrivals = game.arrivals;
@@ -1061,6 +1062,27 @@ impl Retail {
             }
             if let Some(f) = d.inventory.as_mut() {
                 f.picked = self.world_found;
+                // Where the containers opening stand on the screen, for their windows to open
+                // over them.
+                f.screen.clear();
+                let (w, h) = (game.size.0 as f32, game.size.1 as f32);
+                for o in d
+                    .everyone
+                    .iter()
+                    .filter(|n| n.native == inventory::notice::CONTAINER_STATE_UPDATE)
+                    .filter_map(|n| n.about)
+                {
+                    if let Some((x, y)) = game.seen.place_on_screen(o, w, h) {
+                        let (left, top, scale) = window;
+                        f.screen.insert(
+                            o,
+                            (
+                                to_i32(((x - left) / scale).floor()),
+                                to_i32(((y - top) / scale).floor()),
+                            ),
+                        );
+                    }
+                }
             }
             if d.skills
                 .as_ref()
