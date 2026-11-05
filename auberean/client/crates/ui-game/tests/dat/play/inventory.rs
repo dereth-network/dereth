@@ -528,8 +528,8 @@ fn an_opened_container_shows_its_contents() {
     assert_eq!(
         (r.x0, r.y0),
         (
-            (300.0 - r.width() as f32 * 0.5) as i32,
-            (500.0 - r.height() as f32 * 0.5) as i32,
+            dereth_primitives::num::to_i32(300.0 - r.width() as f32 * 0.5),
+            dereth_primitives::num::to_i32(500.0 - r.height() as f32 * 0.5),
         ),
         "over the container where it stands on the screen"
     );

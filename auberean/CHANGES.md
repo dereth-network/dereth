@@ -14,6 +14,7 @@ not how it was done.
 - Fixed effects that fade a body out snapping it back at once.
 - Fixed mist on the ground in rain too light to see.
 - Fixed sunlit halls: the sun now falls across their floors and walls as the original's does.
+- The height slider now shows on the whole-body view when making a character.
 - The credits now stop the music that was playing and start their own.
 - Book pages no longer creep up a pixel per page.
 - A window's dropdown now closes when the window hides.

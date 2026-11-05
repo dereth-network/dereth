@@ -6,6 +6,9 @@ use crate::manager::global;
 use crate::system::{Handle, Ui, Value};
 use crate::token::{attr, state, Token};
 
+/// A meter's fill, where it goes and, cut to length, its size.
+type Fill = (Token, (i32, i32), Option<(i32, i32)>);
+
 /// What a meter keeps between events.
 #[derive(Clone, Debug, Default)]
 pub struct MeterState {
@@ -57,7 +60,7 @@ impl Ui {
         let hidden = |size: i32| dereth_primitives::num::to_i32_f64((pos - 1.0) * f64::from(size));
         let (at, at_y) = (share(w), share(hh));
         // Where a moving fill goes, or where a cut fill goes and its size.
-        let fills: [(Token, (i32, i32), Option<(i32, i32)>); 4] = if moves {
+        let fills: [Fill; 4] = if moves {
             [
                 (attr::LEFT_FILL, (hidden(w), 0), None),
                 (name::TOP_FILL, (0, hidden(hh)), None),

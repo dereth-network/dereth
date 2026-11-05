@@ -347,6 +347,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.creation.the-whole-figure-view-stays-as-the-height-changes",
+        says: "The appearance screen's view of the whole figure stays put as the height is \
+               chosen, so the figure grows and shrinks in it; the view close up moves with \
+               the height.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CREATION-CAMERA"),
+        station: "auberean-interface::dat::screens::the_whole_figure_view_stays_as_the_height_changes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.credits.ctrl-and-alt-held-open-the-other-credits",
         says: "Credits pressed with Ctrl and Alt held and Shift not shows the other set of the \
                credits' picture and text fields; otherwise the usual set.",
@@ -2261,6 +2271,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.text.a-one-line-entry-keeps-the-caret-in-view",
+        says: "A one-line entry keeps the caret in view: the view stays while the caret is within \
+               the width past it, then stands one width before the caret, and going back past its \
+               start puts the view at the caret.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-HORIZONTAL-VIEW"),
+        station: "auberean-ui::cpu::text::a_one_line_entry_keeps_the_caret_in_view",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.text.a-reference-waits-for-its-string-tables",
         says: "A string reference given to a text element whose string tables the data lacks is \
                added at the element's tick once they have come, and the element says its download \
@@ -2269,16 +2289,6 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-STRDL-ELEMENT"),
         station: "auberean-ui::cpu::text::a_reference_waits_for_its_string_tables_and_what_follows_waits_behind_it",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
-        id: "ui.text.a-one-line-entry-keeps-the-caret-in-view",
-        says: "A one-line entry keeps the caret in view: the view stays while the caret is within \
-               the width past it, then stands one width before the caret, and going back past its \
-               start puts the view at the caret.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-UI-TEXT-HORIZONTAL-VIEW"),
-        station: "auberean-ui::cpu::text::a_one_line_entry_keeps_the_caret_in_view",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2291,6 +2301,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.text.an-entry-of-the-string-table-is-a-reference",
+        says: "An element's entry of its string table is added as a string reference: written as \
+               the client writes one, waiting for its tables if the data lacks them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-ENTRY-REFERENCE"),
+        station: "auberean-ui::cpu::text::an_entry_of_the_string_table_is_a_reference",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.text.an-entry-taking-the-keyboard-turns-the-input-method-on",
         says: "An editable text element that takes the keyboard turns the host's input method on \
                over the part of the element that shows, in the element's font and color; giving the \
@@ -2298,15 +2317,6 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-TEXT-IME"),
         station: "auberean-ui::cpu::text::an_entry_taking_the_keyboard_turns_the_input_method_on",
-        tier: Tier::Cpu,
-    },
-    behaviour! {
-        id: "ui.text.an-entry-of-the-string-table-is-a-reference",
-        says: "An element's entry of its string table is added as a string reference: written as \
-               the client writes one, waiting for its tables if the data lacks them.",
-        since: RETAIL,
-        evidence: Evidence::Private("AC2-EVID-UI-TEXT-ENTRY-REFERENCE"),
-        station: "auberean-ui::cpu::text::an_entry_of_the_string_table_is_a_reference",
         tier: Tier::Cpu,
     },
     behaviour! {

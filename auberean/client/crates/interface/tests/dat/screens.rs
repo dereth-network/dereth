@@ -2426,6 +2426,37 @@ fn the_character_screen_runs_the_portal_under_its_backdrop() {
     assert_eq!(portal.rect, [790.0, 144.0, 936.0, 290.0]);
 }
 
+/// The appearance screen's view of the whole figure stays put as the height is chosen, so the
+/// figure grows and shrinks in it; the view close up moves with the height.
+///
+/// Behaviour: ui.creation.the-whole-figure-view-stays-as-the-height-changes
+#[test]
+fn the_whole_figure_view_stays_as_the_height_changes() {
+    use auberean_interface::hall::{shaping_scene, Creation};
+    let records = &data().0.records;
+    let mut random = auberean_primitives::random::Random::new();
+    let mut creation = Creation::new(records, &mut random);
+    let rect = auberean_ui::Rect::new(0, 0, 99, 99);
+    let seen = |c: &Creation, zoomed: bool| {
+        let s = shaping_scene(records, rect, c, zoomed).expect("the scene");
+        (
+            s.camera.position.x,
+            s.camera.position.y,
+            s.camera.position.z,
+        )
+    };
+    let (whole, close) = (seen(&creation, false), seen(&creation, true));
+    let key = creation.chosen;
+    let avatar = creation.avatars.get_mut(&key).expect("the avatar");
+    avatar.values.insert(auberean_world::chargen::HEIGHT, 1.1);
+    assert_eq!(
+        seen(&creation, false),
+        whole,
+        "the whole figure's view stays"
+    );
+    assert_ne!(seen(&creation, true), close, "the close view follows");
+}
+
 /// The inventory's paper doll shows the player's figure as the player looks, standing still in
 /// its first pose in the paper doll's scene, seen straight on by the scene's camera: the camera
 /// sees the figure's drawn height (the box around its parts as read, times its scale; less for the
