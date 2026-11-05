@@ -511,13 +511,20 @@ pub fn may_run_now<S: Store>(s: &Server<S>, world: ConnId, st: &Step, now_unix: 
 
 /// Is the player of the level a step that gives a quest needs (the quest's least level)?
 fn level_allows<S: Store>(s: &Server<S>, world: ConnId, st: &Step) -> bool {
+    let Some(level) = s
+        .players
+        .get(&world)
+        .map(|p| crate::examine::level_of(&p.qualities))
+    else {
+        return false;
+    };
+    if st.levels.is_some_and(|(a, b)| level < a || level > b) {
+        return false;
+    }
     if st.needs != 0 || st.update != Update::Bestow {
         return true;
     }
-    let least = s.quests.quest(st.quest).map_or(0, |d| d.min_level);
-    s.players
-        .get(&world)
-        .is_some_and(|p| crate::examine::level_of(&p.qualities) >= least)
+    level >= s.quests.quest(st.quest).map_or(0, |d| d.min_level)
 }
 
 /// May a step run for a player now, its quest's least level aside.
@@ -705,9 +712,9 @@ fn run_triggered<S: Store>(
         Trigger::Use(_) => givings(s, trigger),
         _ => Vec::new(),
     };
-    // A step that leads somewhere is run by a use of a person or an object; an item's use on one is
-    // the trip's first, its update on arrival.
-    let leads_on = matches!(trigger, Trigger::Use(_)) && who.is_some();
+    // A step that leads somewhere is run by a use of a person or an object, or a kill; an item's use
+    // on one is the trip's first, its update on arrival.
+    let leads_on = matches!(trigger, Trigger::Use(_) | Trigger::Kill(_)) && who.is_some();
     loop {
         // Reckoned at each step: one given (now under way) blocks the rest.
         let blocked = several.len() >= 2 && person_blocks(s, world, &several, clock.unix);
@@ -859,11 +866,14 @@ pub fn killed<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     killer: ConnId,
-    template: u32,
+    (creature, template): (u64, u32),
     effects: &[String],
     clock: Clock,
 ) {
-    let moved = moved_by(s, net, killer, Trigger::Kill(template), clock);
+    let mut moved = Vec::new();
+    let who = Some((creature, None));
+    let trigger = Trigger::Kill(template);
+    run_triggered(s, net, killer, trigger, who, None, clock, &mut moved);
     let named: Vec<QuestEffect> = effects
         .iter()
         .filter_map(|n| effect_named(n, |q| s.quest_ids.get(q).copied()))
@@ -1263,6 +1273,16 @@ fn run_with<S: Store>(
         step_effects(s, net, world, step, who, clock);
         apply(s, net, world, step.quest, step.update, step.xp, clock);
     }
+    if step.xp_share > 0.0 {
+        let level = s
+            .players
+            .get(&world)
+            .map_or(1, |p| crate::examine::level_of(&p.qualities));
+        let paid = share_of(&s.levels, step.xp_share, level);
+        if paid > 0 {
+            progress::award(s, net, world, paid, Award::Step);
+        }
+    }
     if step.fellows {
         for_fellows(s, net, world, step, clock);
     }
@@ -1345,6 +1365,16 @@ pub fn completion_xp(xp: u64, challenge: i32, level: i32) -> u64 {
     xp * share / 100
 }
 
+/// A share of what a level takes to reach the next, rounded down.
+#[allow(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+fn share_of(levels: &LevelTable, share: f32, level: i32) -> u64 {
+    (f64::from(share) * levels.to_next(level).unwrap_or(0) as f64) as u64
+}
+
 /// The experience a quest's completion pays a player of a level. A quest may pay a share of what
 /// the player's level takes to reach the next, rounded down, with its limits (2017: 13 of 13
 /// completions of such quests whose player's level was known, exactly, each kind of limit among them);
@@ -1359,17 +1389,9 @@ pub fn completion_xp(xp: u64, challenge: i32, level: i32) -> u64 {
 pub fn completion_pay(levels: &LevelTable, def: &QuestDef, level: i32) -> u64 {
     let pay = &def.pay;
     let amount = if pay.share > 0.0 {
-        #[allow(
-            clippy::cast_precision_loss,
-            clippy::cast_possible_truncation,
-            clippy::cast_sign_loss
-        )]
-        let share_of = |share: f32, level: i32| -> u64 {
-            (f64::from(share) * levels.to_next(level).unwrap_or(0) as f64) as u64
-        };
-        let mut paid = share_of(pay.share, level);
+        let mut paid = share_of(levels, pay.share, level);
         if let Some((share, at)) = pay.most_at_level {
-            paid = paid.min(share_of(share, at));
+            paid = paid.min(share_of(levels, share, at));
         }
         if pay.most > 0 {
             paid = paid.min(pay.most);
@@ -1411,6 +1433,7 @@ pub fn apply<S: Store>(
             fail(s, net, world, quest, clock);
             return;
         }
+        Update::Nothing => return,
     };
     // A subquest of a quest the player has at the phase it belongs to: its move is told as that
     // quest's.
@@ -1478,7 +1501,7 @@ pub fn apply<S: Store>(
             update::COMPLETE
         }
         // Gone by above.
-        Update::Fail => return,
+        Update::Fail | Update::Nothing => return,
     };
     let phase = st.phase;
     // A phase done by subquests gives them with it, under way at their first phase.

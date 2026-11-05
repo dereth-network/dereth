@@ -897,6 +897,8 @@ pub fn quest_mine_done<S: Store>(
             effects_last: false,
             wants: None,
             fellows: false,
+            levels: None,
+            xp_share: 0.0,
         };
         crate::quests::run(s, net, world, &step, None, clock);
     }

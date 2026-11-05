@@ -9183,6 +9183,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.kill-step-leads-on",
+        says: "A kill whose step leads somewhere sends the killer there.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-KILL-LEADS-ON"),
+        station: "yalain-testkit::cpu::play::kill_quests::a_kills_step_that_leads_somewhere_sends_the_killer",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.least-level-from-the-setup",
         says: "A quest's least level is the one its setup names unless its row names another, and its \
                setup also says whether it is for heroes alone and which quest it requires at which \
@@ -9334,6 +9342,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.quests.step-levels",
+        says: "A step for some levels runs for players of those levels alone; a step that moves no quest says, gives and sends.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-STEP-LEVELS"),
+        station: "yalain-testkit::cpu::play::quests::a_step_for_some_levels_runs_for_those_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.quests.step-on-a-quest-given",
         says: "A quest given, a hidden one too, runs the step waiting on its giving; one withheld from a player \
                without what it requires runs none.",
@@ -9348,6 +9364,14 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-QUEST-GIVEN-ROW"),
         station: "yalain-world-db::cpu::database::a_step_on_a_quest_given_compiles_and_reads_back_as_written",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.quests.step-share",
+        says: "A step may pay a share of what the player's level takes to reach the next, whole, a failing step among them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-QUEST-STEP-SHARE"),
+        station: "yalain-testkit::cpu::play::quests::a_failing_step_pays_its_share_of_the_level",
         tier: Tier::Cpu,
     },
     behaviour! {

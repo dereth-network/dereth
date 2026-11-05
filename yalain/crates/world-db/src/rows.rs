@@ -310,6 +310,8 @@ pub enum Update {
     Advance,
     Complete,
     Fail,
+    /// Moves it nowhere: the step only says, gives and sends.
+    Nothing,
 }
 
 /// `[[step]]`: what moves a quest on.
@@ -344,6 +346,11 @@ pub struct Step {
     pub fellows: bool,
     /// For a give, exactly how many of the item it wants (none: whatever is given).
     pub wants: Option<u32>,
+    /// The least and the most level it is for, either left out for no such limit.
+    pub least_level: Option<i32>,
+    pub most_level: Option<i32>,
+    /// It pays this share of what the player's level takes to reach the next, whole.
+    pub xp_share: Option<f64>,
     pub prov: Prov,
 }
 
@@ -761,6 +768,9 @@ pub const FIELDS: [(&str, &[&str]); 20] = [
             "effects_last",
             "fellows",
             "wants",
+            "least_level",
+            "most_level",
+            "xp_share",
             "prov",
         ],
     ),
@@ -1256,10 +1266,11 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 "advance" => Update::Advance,
                 "complete" => Update::Complete,
                 "fail" => Update::Fail,
+                "none" => Update::Nothing,
                 other => {
                     f.bad(
                         "update",
-                        &format!("{other:?} is not bestow, advance or complete"),
+                        &format!("{other:?} is not bestow, advance, complete, fail or none"),
                     );
                     return None;
                 }
@@ -1285,6 +1296,9 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 effects_last: f.bool("effects_last").unwrap_or(false),
                 fellows: f.bool("fellows").unwrap_or(false),
                 wants: f.u32("wants"),
+                least_level: f.int("least_level").and_then(|v| i32::try_from(v).ok()),
+                most_level: f.int("most_level").and_then(|v| i32::try_from(v).ok()),
+                xp_share: f.float("xp_share"),
                 prov: f.req_prov()?,
             })
         }

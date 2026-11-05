@@ -257,7 +257,8 @@ pub const fn update_of(u: Update) -> (TalkUpdate, Option<u32>) {
         Update::Bestow => (TalkUpdate::Bestow, None),
         Update::Advance(p) => (TalkUpdate::Advance, Some(p)),
         Update::Complete => (TalkUpdate::Complete, None),
-        Update::Fail => (TalkUpdate::Fail, None),
+        // No line names none: nothing is said for it, the phase below being no phase.
+        Update::Fail | Update::Nothing => (TalkUpdate::Fail, None),
     }
 }
 
@@ -271,6 +272,9 @@ pub fn with_update<S: Store>(
     quest: u32,
     update: Update,
 ) -> Vec<Line> {
+    if update == Update::Nothing {
+        return Vec::new();
+    }
     let (up, phase) = update_of(update);
     let mut lines: Vec<&Line> = s
         .talk

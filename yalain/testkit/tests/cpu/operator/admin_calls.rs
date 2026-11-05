@@ -1555,6 +1555,8 @@ fn a_quest_an_admin_takes_off_a_player_takes_its_subquests_too() {
                 effects_last: false,
                 wants: None,
                 fellows: false,
+                levels: None,
+                xp_share: 0.0,
                 to: None,
             })
             .to_vec(),

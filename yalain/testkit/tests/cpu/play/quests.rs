@@ -106,6 +106,8 @@ fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     }
 }
@@ -1172,4 +1174,113 @@ fn a_step_may_fail_its_quest_and_it_may_then_be_given_again() {
     let from = use_explorer(&mut h, b, me);
     assert_eq!(updates(&h, b, from), vec![0x1000_0000], "given again");
     assert_eq!(held(&h, HALL_QUEST), Some((status::UNDERWAY, 1)));
+}
+
+/// A player of this level, in a world holding these steps.
+fn stepping(steps: Vec<Step>, level: i32) -> Harness {
+    let mut h = Harness::new();
+    h.server.levels = level_costs(&[(1, 1_000), (30, 100_000)]);
+    let mut q = quest(HALL_QUEST, 0, -999);
+    q.retry = 0.0;
+    let mut other = quest(HALL_QUEST + 1, 0, -999);
+    other.retry = 0.0;
+    h.server.quests = QuestTable {
+        quests: vec![q, other],
+        steps,
+        gives: Vec::new(),
+    };
+    let _ = h.player_in_world("one", "Elara");
+    h.run(5);
+    for p in h.server.players.values_mut() {
+        yalain_world::quals::set_int(&mut p.qualities, yalain_world::progress::q::LEVEL, level);
+    }
+    h
+}
+
+fn use_person(h: &mut Harness) {
+    let world = *h.server.players.keys().next().expect("in the world");
+    let clock = h.clock();
+    yalain_world::quests::triggered(
+        &mut h.server,
+        &mut h.net,
+        world,
+        Trigger::Use(EXPLORER_TEMPLATE),
+        None,
+        clock,
+    );
+}
+
+fn phases(h: &Harness) -> Vec<(u32, u32)> {
+    let p = h.server.players.values().next().expect("in the world");
+    p.play.quests.iter().map(|q| (q.quest, q.phase)).collect()
+}
+
+/// A person's quests by level: a player of a level is given the one for that level.
+/// Behaviour: server.quests.step-levels
+#[test]
+fn a_step_for_some_levels_runs_for_those_alone() {
+    let band = |q: u32, levels: (i32, i32)| Step {
+        levels: Some(levels),
+        ..step(q, 0, Trigger::Use(EXPLORER_TEMPLATE), Update::Bestow)
+    };
+    let given = |level: i32| {
+        let mut h = stepping(
+            vec![band(HALL_QUEST, (20, 24)), band(HALL_QUEST + 1, (25, 29))],
+            level,
+        );
+        use_person(&mut h);
+        phases(&h)
+    };
+    assert_eq!(given(19), vec![], "under the least");
+    assert_eq!(given(20), vec![(HALL_QUEST, 1)]);
+    assert_eq!(given(24), vec![(HALL_QUEST, 1)]);
+    assert_eq!(given(25), vec![(HALL_QUEST + 1, 1)]);
+    assert_eq!(given(30), vec![], "over the most");
+}
+
+/// A step that moves no quest gives what it gives and leaves the quest as it was.
+/// Behaviour: server.quests.step-levels
+#[test]
+fn a_step_that_moves_no_quest_gives_its_item() {
+    let mut h = stepping(
+        vec![Step {
+            gives: vec![TEST_ITEM],
+            ..step(
+                HALL_QUEST,
+                0,
+                Trigger::Use(EXPLORER_TEMPLATE),
+                Update::Nothing,
+            )
+        }],
+        25,
+    );
+    h.server.catalog = test_catalog();
+    let world = *h.server.players.keys().next().expect("in the world");
+    assert!(!yalain_world::inventory::holds(&h.server, world, TEST_ITEM));
+    use_person(&mut h);
+    assert!(yalain_world::inventory::holds(&h.server, world, TEST_ITEM));
+    assert_eq!(phases(&h), vec![], "no quest moved");
+}
+
+/// A step that fails its quest pays a share of what the player's level takes.
+/// Behaviour: server.quests.step-share
+#[test]
+fn a_failing_step_pays_its_share_of_the_level() {
+    let mut h = stepping(
+        vec![Step {
+            xp_share: 0.14,
+            ..step(HALL_QUEST, 4, Trigger::Use(EXPLORER_TEMPLATE), Update::Fail)
+        }],
+        30,
+    );
+    at_phase(&mut h, HALL_QUEST, 4);
+    let total = |h: &Harness| {
+        let p = h.server.players.values().next().expect("in the world");
+        yalain_world::quals::long(&p.qualities, yalain_world::progress::q::TOTAL_XP).unwrap_or(0)
+    };
+    let before = total(&h);
+    use_person(&mut h);
+    assert_eq!(total(&h) - before, 14_000);
+    let p = h.server.players.values().next().expect("in the world");
+    assert_eq!(p.play.quests[0].status, status::FAILED);
 }

@@ -889,6 +889,7 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                         Update::Advance => TableUpdate::Advance(s.phase.unwrap_or(0)),
                         Update::Complete => TableUpdate::Complete,
                         Update::Fail => TableUpdate::Fail,
+                        Update::Nothing => TableUpdate::Nothing,
                     },
                     xp: s.xp.unwrap_or(0),
                     gives: s.gives.clone(),
@@ -915,6 +916,10 @@ pub fn compile(merged: &Merged, install: &dyn Install) -> Result<Tables, Vec<Pro
                     effects_last: s.effects_last,
                     fellows: s.fellows,
                     wants: s.wants,
+                    levels: (s.least_level.is_some() || s.most_level.is_some())
+                        .then_some((s.least_level.unwrap_or(0), s.most_level.unwrap_or(i32::MAX))),
+                    #[allow(clippy::cast_possible_truncation)]
+                    xp_share: s.xp_share.unwrap_or(0.0) as f32,
                     to,
                 });
             }

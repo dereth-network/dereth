@@ -629,6 +629,8 @@ fn a_step_with_its_effects_last_tells_the_update_before_the_recipe() {
             effects_last: last,
             wants: None,
             fellows: false,
+            levels: None,
+            xp_share: 0.0,
             to: None,
         };
         let from = h.bots[b].inbox.len();
@@ -1195,6 +1197,8 @@ fn a_quest_given_runs_the_step_waiting_on_it_and_one_withheld_runs_none() {
                 effects_last: true,
                 wants: None,
                 fellows: false,
+                levels: None,
+                xp_share: 0.0,
                 to: None,
             }],
             gives: Vec::new(),

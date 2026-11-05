@@ -291,6 +291,8 @@ fn a_day_of_heals_and_crafts() -> Vec<ServerMessage> {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     };
     let clock = h.clock();
@@ -658,6 +660,8 @@ fn a_visit() -> Vec<ServerMessage> {
             effects_last: false,
             wants: None,
             fellows: false,
+            levels: None,
+            xp_share: 0.0,
             to: None,
         }],
         gives: Vec::new(),

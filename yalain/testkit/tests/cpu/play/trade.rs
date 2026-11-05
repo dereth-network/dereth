@@ -756,6 +756,8 @@ fn quests() -> QuestTable {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     };
     QuestTable {

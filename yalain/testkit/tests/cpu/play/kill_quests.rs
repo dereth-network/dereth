@@ -482,6 +482,8 @@ fn a_kills_step_runs_first_and_its_quest_is_not_moved_again_by_the_effect() {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     });
     let from = h.bots[b].inbox.len();
@@ -612,6 +614,8 @@ fn giving_step() -> Step {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     }
 }
@@ -714,6 +718,8 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     });
     let from = h.bots[b].inbox.len();
@@ -745,6 +751,8 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
         effects_last: false,
         wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     });
     h.server.quests.steps.retain(|st| st.quest != QUEST);
@@ -760,4 +768,62 @@ fn an_item_acquired_moves_the_quest_its_template_names() {
     );
     h.run(2);
     assert_eq!(phase(&h, me), 3, "by what the person gave");
+}
+
+/// A kill's step that leads somewhere sends the killer there; one that leads nowhere doesn't.
+/// Behaviour: server.quests.kill-step-leads-on
+#[test]
+fn a_kills_step_that_leads_somewhere_sends_the_killer() {
+    let mut q = quest(3);
+    q.effects = Vec::new();
+    let (mut h, _, me) = world(q);
+    let template = kill(&mut h, me, &[]);
+    let place = yalain_content::quests::Place {
+        cell: 0x049E_0138,
+        origin: [1.0, 2.0, 3.0],
+        heading: 127,
+    };
+    let step = |needs: u32, to| Step {
+        quest: QUEST,
+        needs,
+        trigger: Trigger::Kill(template),
+        tell: None,
+        update: Update::Advance(needs + 1),
+        xp: 0,
+        gives: Vec::new(),
+        counts: Vec::new(),
+        effects: Vec::new(),
+        text: None,
+        placed: "authored for a test".into(),
+        requires: Vec::new(),
+        takes: Vec::new(),
+        to,
+        races: Vec::new(),
+        effects_last: false,
+        fellows: false,
+        wants: None,
+        levels: None,
+        xp_share: 0.0,
+    };
+    h.server.quests.steps = vec![step(1, Some(place)), step(2, None)];
+    for p in h.server.players.values_mut() {
+        p.play.quests.push(QuestState {
+            quest: QUEST,
+            status: status::UNDERWAY,
+            phase: 1,
+            started: 0,
+            updated: 0,
+        });
+    }
+    let trip_to = |h: &Harness| {
+        let p = h.server.players.values().next().expect("in the world");
+        (p.trip.as_ref().map(|t| t.to.cell), p.play.quests[0].phase)
+    };
+    kill(&mut h, me, &[]);
+    assert_eq!(trip_to(&h), (Some(0x049E_0138), 2));
+    for p in h.server.players.values_mut() {
+        p.trip = None;
+    }
+    kill(&mut h, me, &[]);
+    assert_eq!(trip_to(&h), (None, 3), "the last leads nowhere");
 }
