@@ -520,6 +520,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.inside.no-sky-drawn-no-veil-over-it",
+        says: "The fog's veil over the sky is drawn with the sky: rooms with no view out and no cell open to the sky show none of it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-VEIL-WITH-SKY"),
+        station: "auberean-gpu::gpu::inside::rooms_with_no_view_out_show_no_veil_of_the_fog_outside",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "draw.inside.rooms-seen-from-outside-are-lit-as-rooms",
         says: "The rooms a block lists as seen from outside, drawn in a frame outdoors, are lit as \
                rooms and not by the sun: each drawn once, its mesh by the light its vertices carry                and the lights it keeps where it stands; a light carried inside reaches them, one                carried on the land outside does not.",

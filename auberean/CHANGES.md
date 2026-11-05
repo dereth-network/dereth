@@ -83,6 +83,7 @@ not how it was done.
 - Fixed arrows flying level instead of pointing along their path.
 - Fixed the camera dipping at the ground as it glides between views.
 - In first person the view now leans with your head.
+- Fixed a fog tint showing through gaps in sealed rooms.
 
 ## 0.1.3 (2026-11-05)
 

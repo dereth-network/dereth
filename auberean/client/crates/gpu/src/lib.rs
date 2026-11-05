@@ -2973,7 +2973,9 @@ impl Renderer {
                     Pass::Sky if !skip_sky => &sky_draws,
                     Pass::Sky => &[],
                     Pass::Veil => {
-                        if outdoors.fog_sky > 0.0 {
+                        // The veil is the sky's: no sky drawn, no veil.
+                        // D2-10940
+                        if sky_shown && outdoors.fog_sky > 0.0 {
                             if let Some(veil) = &this.veil {
                                 pass.set_pipeline(veil);
                                 pass.set_bind_group(0, groups[Env::Outside as usize], &[]);
