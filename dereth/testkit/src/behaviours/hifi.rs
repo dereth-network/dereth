@@ -552,6 +552,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "hifi.sky.smoke-before-far-land-is-not-hazed-by-the-lands-distance",
+        says: "Translucent draws go over the air and keep the fog they were drawn with, so \
+               chimney smoke in front of far hills darkens them evenly at noon and stands out at \
+               dusk, and is not faded by the distance of the land behind it.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-SKY-SMOKE-OVER-AIR"),
+        station: "dereth-client::gpu::rendering::hifi_atmosphere::smoke_in_front_of_far_land_is_not_hazed_by_the_lands_distance",
+        tier: Tier::Gpu,
+    },
+    behaviour! {
         id: "hifi.sky.the-authored-night-sky-and-its-stars-are-kept",
         says: "At midnight the physical sky draws nothing over the authored dark sky: high in the \
                sky the picture is the ordinary one to within dither, with its stars, and the \
