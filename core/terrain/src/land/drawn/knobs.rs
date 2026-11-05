@@ -375,7 +375,7 @@ pub const KNOBS: [KnobSpec; KNOB_COUNT] = [
     num(Knob::LeafScatterDeep, "leaf_scatter_deep", 0.5, (0.0, 1.0), "", "light", "how much of that a leaf deep inside its crown takes"),
     switch(Knob::Sky, "sky", true, "sky", "the Remastered sky: retail's clouds, sun, moons and stars drawn again at modern quality over the physical sky; off draws retail's own"),
     switch(Knob::Clouds, "clouds", true, "sky", "the Remastered clouds, laid where retail's cloud picture lays them and drifting with it; off draws retail's cloud deck"),
-    num(Knob::CloudSteps, "cloud_steps", 12.0, (1.0, 64.0), "", "sky", "how many steps the clouds are drawn with through their depth: more is fuller and softer, and costs more; 1 is a flat layer"),
+    num(Knob::CloudSteps, "cloud_steps", 12.0, (1.0, 64.0), "", "sky", "how many steps the clouds are drawn with through their depth at Cloud Detail Low, Medium drawing twice and High four times as many: more is fuller and softer, and costs more; 1 is a flat layer"),
     num(Knob::CloudResolution, "cloud_resolution", 0.5, (0.25, 1.0), "", "sky", "the share of the frame's pixels each way the clouds are worked out at before they are enlarged to it"),
     num(Knob::CloudCover, "cloud_cover", 1.0, (0.0, 2.0), "", "sky", "how much of the sky the clouds cover, against retail's own cloud picture: 0 none, 2 twice the cover"),
     num(Knob::CloudHeight, "cloud_height", 1500.0, (200.0, 6000.0), "m", "sky", "how high over the eye the clouds' base lies"),

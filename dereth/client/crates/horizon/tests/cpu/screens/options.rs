@@ -1330,10 +1330,36 @@ fn renderers(
     }
 }
 
-/// The Client page scrolled to the end, where the renderer choice is.
+/// The Client page scrolled toward its end, until the renderer choice, which leads the effects'
+/// rows, is the top row shown whole.
 fn client_page_end(state: &GameState) -> Harness {
     let mut h = options_on("Client", state);
+    let shown = |h: &Harness| {
+        let list = control(h, "list");
+        h.ui.windows
+            .options_page
+            .control("Renderer")
+            .is_some_and(|r| r.y >= list.y && r.bottom() <= list.bottom())
+    };
     h.ui.windows.options_page.scroll[2] = 1.0e6;
+    h.frame(state);
+    h.frame(state);
+    if !state.renderers.shown() || shown(&h) {
+        return h;
+    }
+    h.ui.windows.options_page.scroll[2] = 0.0;
+    h.frame(state);
+    scroll_to(&mut h, state, "Renderer");
+    // On down while it stays whole; a page that ends first stops at its end.
+    for _ in 0..100 {
+        let was = h.ui.windows.options_page.scroll[2];
+        h.ui.windows.options_page.scroll[2] += 20.0;
+        h.frame(state);
+        if !shown(&h) {
+            h.ui.windows.options_page.scroll[2] = was;
+            break;
+        }
+    }
     h.frame(state);
     h.frame(state);
     h

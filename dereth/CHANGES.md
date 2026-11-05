@@ -14,6 +14,8 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 
+- Better Lighting: a Cloud Detail menu, Off to High: Medium and High draw the Remastered sky's clouds with two and four times the steps, smoothing the stripes along their edges; Off draws retail's flat cloud deck.
+
 ## 0.4.12 (2026-11-03)
 
 - Launcher: you can add a world by its address in Auberean's realm too.

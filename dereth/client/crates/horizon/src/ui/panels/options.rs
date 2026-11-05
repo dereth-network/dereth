@@ -1402,11 +1402,14 @@ fn sheet_lines(page: PageId, state: &GameState) -> Vec<Line> {
     out
 }
 
-/// The preference of `row` when it is one of the experimental effects' boxes.
+/// The preference of `row` when it is one of the experimental effects' boxes, or their Cloud
+/// Detail menu.
 #[cfg(feature = "hifi")]
 fn effect_box(row: &Row) -> Option<&'static str> {
+    use dereth_client_contract::options::cloud_detail;
     match row.value {
         Value::Check(name) if fidelity::find(name).is_some() => Some(name),
+        Value::Menu(name) if cloud_detail::is_cloud_detail(name) => Some(name),
         _ => None,
     }
 }

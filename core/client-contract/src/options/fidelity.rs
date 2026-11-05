@@ -154,24 +154,29 @@ pub fn find(name: &str) -> Option<&'static FidelityOption> {
     OPTIONS.iter().find(|o| o.name.eq_ignore_ascii_case(name))
 }
 
-/// Why the box `name` draws nothing however it is ticked, with `ticked` saying which boxes are
-/// ticked and `rays` whether the graphics device traces rays (`None` while that is not known yet,
-/// which blocks nothing). `None` when it draws when ticked.
+/// Why the box or menu `name` draws nothing however it is set, with `ticked` saying which boxes
+/// are ticked and `rays` whether the graphics device traces rays (`None` while that is not known
+/// yet, which blocks nothing). `None` when it draws when ticked.
 #[must_use]
 pub fn blocked(name: &str, ticked: impl Fn(&str) -> bool, rays: Option<bool>) -> Option<Blocked> {
-    let o = find(name)?;
+    let needs = if super::cloud_detail::is_cloud_detail(name) {
+        Needs::Lighting
+    } else {
+        find(name)?.needs
+    };
     let lighting = ticked(fidelity::LIGHTING);
-    match o.needs {
+    match needs {
         Needs::Lighting | Needs::LightingAndRays if !lighting => Some(Blocked::NeedsLighting),
         Needs::LightingAndRays if rays == Some(false) => Some(Blocked::NeedsRays),
         _ => None,
     }
 }
 
-/// Register every box with the value store, each off. The store's load then reads the
-/// `[Fidelity]` section of the profile into them, and the page reads and writes them.
+/// Register every box with the value store, each off, and the Cloud Detail menu at its default.
+/// The store's load then reads the `[Fidelity]` section of the profile into them, and the page
+/// reads and writes them.
 pub fn register() -> usize {
-    OPTIONS
+    let boxes: usize = OPTIONS
         .iter()
         .map(|o| {
             usize::from(super::store::register_preference(
@@ -180,19 +185,30 @@ pub fn register() -> usize {
                 super::store::DataType::Bool,
             ))
         })
-        .sum()
+        .sum();
+    let clouds = super::store::register_preference(
+        fidelity::CLOUD_DETAIL,
+        PrefValue::Int(super::cloud_detail::DEFAULT),
+        super::store::DataType::UInt,
+    );
+    boxes + usize::from(clouds)
 }
 
-/// Whether the store's save leaves `name` out of the profile: a box still off that the profile
-/// does not name, so a profile that never ticked one has no `[Fidelity]` section.
+/// Whether the store's save leaves `name` out of the profile: a box still off, or the Cloud Detail
+/// menu still at its default, that the profile does not name, so a profile that never ticked one
+/// has no `[Fidelity]` section.
 #[must_use]
 pub fn left_out_of_save(
     name: &str,
     value: &PrefValue,
     ini: &crate::persist::preferences::UserPreferences,
 ) -> bool {
-    find(name).is_some()
-        && *value == PrefValue::Bool(false)
+    let unchanged = if super::cloud_detail::is_cloud_detail(name) {
+        *value == PrefValue::Int(super::cloud_detail::DEFAULT)
+    } else {
+        find(name).is_some() && *value == PrefValue::Bool(false)
+    };
+    unchanged
         && !ini
             .entries
             .iter()
@@ -677,5 +693,35 @@ mod tests {
         );
         assert_eq!(Availability::default().status(true), None, "not built");
         assert!(!Availability::default().offered());
+    }
+
+    #[test]
+    fn the_cloud_detail_menu_needs_the_better_lighting() {
+        use fidelity::{CLOUD_DETAIL, LIGHTING};
+        let with = |on: &'static [&'static str]| move |n: &str| on.contains(&n);
+        assert_eq!(
+            blocked(CLOUD_DETAIL, with(&[]), None),
+            Some(Blocked::NeedsLighting)
+        );
+        assert_eq!(blocked(CLOUD_DETAIL, with(&[LIGHTING]), Some(false)), None);
+        assert!(find(CLOUD_DETAIL).is_none(), "the menu is no box");
+    }
+
+    /// The Cloud Detail menu is registered at its default, and the save leaves it out until it is
+    /// changed.
+    #[test]
+    fn the_cloud_detail_menu_is_left_out_of_the_profile_until_chosen() {
+        use super::super::cloud_detail::{DEFAULT, HIGH};
+        use crate::persist::preferences::UserPreferences;
+        let empty = UserPreferences::parse("").expect("an empty profile");
+        let default = PrefValue::Int(DEFAULT);
+        assert!(left_out_of_save(fidelity::CLOUD_DETAIL, &default, &empty));
+        assert!(!left_out_of_save(
+            fidelity::CLOUD_DETAIL,
+            &PrefValue::Int(HIGH),
+            &empty
+        ));
+        let named = UserPreferences::parse("[Fidelity]\r\nCloudDetail=Medium\r\n").expect("reads");
+        assert!(!left_out_of_save(fidelity::CLOUD_DETAIL, &default, &named));
     }
 }

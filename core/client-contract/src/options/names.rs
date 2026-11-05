@@ -139,6 +139,9 @@ pub mod fidelity {
     /// `Fidelity.NoSlopeMaterials`: an art pack's ground is laid without the scree and rock it
     /// lays on steep slopes.
     pub const NO_SLOPE_MATERIALS: &str = "Fidelity.NoSlopeMaterials";
+    /// `Fidelity.CloudDetail`: how finely the volumetric clouds are drawn, a level stored as
+    /// 0 Low, 1 Medium, 2 High, 3 Off.
+    pub const CLOUD_DETAIL: &str = "Fidelity.CloudDetail";
     /// `Fidelity.Debug`: a diagnostic view, set only by `--set-at`: 0 Off, 1 Passthrough,
     /// 2 Depth, 3 Normals, 4 AO, 5 Shadows, 6 Census, 7 Parity (re-shaded with no pass).
     pub const DEBUG: &str = "Fidelity.Debug";
@@ -151,7 +154,7 @@ pub mod fidelity {
     /// over it. No box sets it.
     pub const ART_PACK: &str = "Fidelity.ArtPack";
 
-    /// Every name the profile and `--set-at` may set, the ten boxes first.
+    /// Every name the profile and `--set-at` may set, the ten boxes first and the menu after them.
     pub const NAMES: &[&str] = &[
         LIGHTING,
         SHADOWS,
@@ -163,6 +166,7 @@ pub mod fidelity {
         RETAIL_LOOK,
         NO_ANTI_ALIASING,
         NO_SLOPE_MATERIALS,
+        CLOUD_DETAIL,
         DEBUG,
     ];
 }
