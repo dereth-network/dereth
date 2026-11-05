@@ -1434,6 +1434,13 @@ impl Backend {
         let Some(world) = self.world(&choice.world_slug) else {
             return err("That world is no longer listed.".into());
         };
+        // Home's Play or a favorite can name a client the world's page no longer offers.
+        if choice.client == ClientKind::Retail && !choices::retail_can_play(&world) {
+            return err(format!(
+                "The retail client can't play {}: use the Dereth client.",
+                world.name
+            ));
+        }
         let world = match relay {
             Some(port) => dereth_launch::relayed::on_relay(world, port),
             None => world,
@@ -3852,6 +3859,22 @@ mod tests {
         });
         assert!(
             matches!(&out, LaunchOutcome::Error { message } if message.contains("Modern")),
+            "{out:?}"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A choice saved before a world said it plays Launch can't start the retail client on it.
+    #[test]
+    fn a_launch_world_is_not_started_on_the_retail_client() {
+        let (mut b, dir) = backend("retail-on-launch");
+        b.list.worlds_mut()[0].era = Some("launch".into());
+        let out = b.launch(Choice {
+            client: ClientKind::Retail,
+            ..choice(Some("pw"))
+        });
+        assert!(
+            matches!(&out, LaunchOutcome::Error { message } if message.contains("can't play")),
             "{out:?}"
         );
         let _ = std::fs::remove_dir_all(dir);

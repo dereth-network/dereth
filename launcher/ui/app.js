@@ -1976,7 +1976,7 @@ function worldPage() {
                 placeholder="${f.remembered && !f.password ? "saved" : ""}" value="${esc(f.password)}">
               <label class="check"><input type="checkbox" id="remember" ${f.remember ? "checked" : ""}>${esc(remembers)}</label></div>`}
             <p class="note warn" id="world-note" ${note ? "" : "hidden"}>${esc(note)}</p>
-            ${isAc2 ? ac2Client : `${offered("client_choice") ? `<label class="lab">CLIENT</label>${clientRow ?? `<div class="pair">${clientBtn("dereth")}${clientBtn("retail")}${clientNote}</div>`}` : ""}
+            ${isAc2 ? ac2Client : `${offered("client_choice") ? `<label class="lab">CLIENT</label>${clientRow ?? `<div class="pair">${clientBtn("dereth")}${needs === "original" ? "" : clientBtn("retail")}${clientNote}</div>`}` : ""}
             ${dataRow}`}
             ${host.worldRows?.(w.view) ?? ""}
           </div>

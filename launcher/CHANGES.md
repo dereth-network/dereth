@@ -9,6 +9,7 @@ not how it was done. `cargo xtask release launcher <version>` turns Unreleased i
 section, dated, and opens a new empty one in the same commit as the version.
 
 ## Unreleased
+- Launch worlds no longer offer the retail client, which can't play them.
 
 ## 0.5.1 (2026-11-05)
 
