@@ -1553,6 +1553,11 @@ impl<S: Store> Harness<S> {
     pub fn with(cfg: ServerConfig, store: S, rules: CharGenRules) -> Self {
         let now = LocalTime(1000.0);
         let world = SocketAddrV4::new(Ipv4Addr::LOCALHOST, WORLD_PORT);
+        // A test puts a player where it needs one by a report; those that test the holding say so.
+        let cfg = ServerConfig {
+            holds_reports: false,
+            ..cfg
+        };
         let mut server = Server::new(cfg, store, rules)
             .expect("the store sets ids aside")
             .with_world(test_start(), yalain_content::ContentPack::default());

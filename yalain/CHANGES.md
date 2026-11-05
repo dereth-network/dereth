@@ -27,6 +27,7 @@ what they see, not how it was done.
 - A character file with a duplicated item is now refused.
 - Fixed imported characters being refused their own bound gear.
 - Fixed idle WebSocket connections shutting out browser players.
+- A player can't report being somewhere it couldn't have reached.
 
 - Fixed a selected person showing empty health and vigor bars.
 

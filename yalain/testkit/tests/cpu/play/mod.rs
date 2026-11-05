@@ -54,6 +54,7 @@ mod quest_uses;
 mod quests;
 mod recalls;
 mod regeneration;
+mod reported_places;
 mod resting;
 mod rules;
 mod sequences;

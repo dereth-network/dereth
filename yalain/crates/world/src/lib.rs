@@ -196,6 +196,11 @@ pub struct ServerConfig {
     pub referral: bool,
     /// Send each player its own position and head back as it reports them.
     pub echo_positions: bool,
+    /// Hold what a player reports of its place to what a body can do: a land cell its point does not
+    /// lie in is ignored, and a player told it stands where it stood when a place is further than it
+    /// could have gone, as the 2017 servers told a client gone astray. An admin character is not
+    /// held.
+    pub holds_reports: bool,
     /// The seed of the world's dice.
     pub seed: u64,
     /// What the operator chose for a world's overlay.
@@ -233,6 +238,7 @@ impl Default for ServerConfig {
             delete_seconds: 3600,
             referral: true,
             echo_positions: true,
+            holds_reports: true,
             seed: 0x5EED_00A2,
             dat_overlay: world_patch::DatOverlaySettings::default(),
             secret_cost: login::SECRET_COST,

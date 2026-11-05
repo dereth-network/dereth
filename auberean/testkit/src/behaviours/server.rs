@@ -7649,6 +7649,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-land-cell-holds-its-point",
+        says: "A land cell its reported point does not lie in is no place: the player stays where \
+               it was.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LAND-CELL-HOLDS-POINT"),
+        station: "yalain-testkit::cpu::play::reported_places::a_land_cell_its_point_does_not_lie_in_is_no_place",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-place-off-the-land-is-no-place",
         says: "A place reported further from its block than the whole land's side is not \
                taken and the player stays where it was; a point that far from a block comes \
@@ -7657,6 +7666,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-PLACE-OFF-LAND"),
         station: "yalain-testkit::cpu::play::drops::a_place_reported_far_off_the_land_is_not_taken",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.places.a-place-too-far-is-told-back",
+        says: "A report that goes further than a body could have leaves the player where it stood: \
+               its client alone is told that place under a newer force-position stamp, and reports \
+               from before it heard count for nothing. An admin character is not held.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PLACE-TOLD-BACK"),
+        station: "yalain-testkit::cpu::play::reported_places::a_place_too_far_leaves_the_player_where_it_stood_and_its_client_is_told",
         tier: Tier::Cpu,
     },
     behaviour! {

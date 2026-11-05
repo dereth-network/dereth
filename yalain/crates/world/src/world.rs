@@ -11,8 +11,14 @@
 //! ends the portal effect.
 //!
 //! **Moving.** The client reports where its player is; the server takes it (the client decides
-//! for now), sends the player its own position back, and creates the objects that come into range
-//! as it crosses landblocks. Turning the head is sent back the same way.
+//! within what a body can do), sends the player its own position back, and creates the objects that
+//! come into range as it crosses landblocks. Turning the head is sent back the same way.
+//!
+//! **A place too far.** A report that goes further than a body could have since the last ones takes
+//! the player nowhere: the server moves its force-position stamp on and tells the player where it
+//! stands, and its client goes back there (2017: 608 such corrections in 1,806,692 reports, the next
+//! report from the corrected place, at its stamp, in 515). Reports that have not heard of the new
+//! stamp are not taken. A land cell its point does not lie in is no place at all.
 //!
 //! **Options.** The client sends its options as they change; the server keeps them for the next
 //! session start.
@@ -80,8 +86,12 @@ pub struct Player {
     pub position_stamp: u16,
     /// The teleport stamp: moved on each time the server puts the player somewhere.
     pub teleport_stamp: u16,
-    /// The force-position stamp.
+    /// The force-position stamp: moved on each time the server refuses a place the player reported.
     pub force_position_stamp: u16,
+    /// How far its reports may yet take it.
+    pub travel: Travel,
+    /// When it was last told where it stands after a place it reported was refused.
+    pub told_back: f64,
     pub position: StoredPosition,
     /// Its heading and asked motion as last reported.
     pub heading_motion: u32,
@@ -443,6 +453,8 @@ pub fn enter<S: Store>(
         position_stamp: 1,
         teleport_stamp: 0,
         force_position_stamp: 0,
+        travel: Travel::default(),
+        told_back: f64::NEG_INFINITY,
         view_brought: f64::NEG_INFINITY,
         view_owed: false,
         heading_motion: u32::from(heading_of_rotation(position.rotation)) << 24 | IDLE_MOTION,
@@ -1118,6 +1130,58 @@ pub const fn motion(sideways: u8, forward: u8, vertical: u8) -> u32 {
 /// The asked motion of a player standing still: every motion byte at its middle.
 pub const IDLE_MOTION: u32 = motion(127, 127, 127);
 
+/// How many meters of a player's reports go unquestioned at once, and how fast more come, in meters
+/// a second. Of 1,825,084 recorded reports, one needed more: 1,422 m after 252 s unheard. No 5 s of
+/// recorded play covered more than 42 m a second.
+pub const TRAVEL_HELD: f32 = 500.0;
+pub const TRAVEL_SPEED: f32 = 60.0;
+/// How long a client that has not heard where it stands goes before it is told again, in seconds.
+pub const TOLD_BACK_AGAIN: f64 = 1.0;
+
+/// How far a player's reports may yet take it, and when that was last reckoned.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Travel {
+    meters: f32,
+    at: f64,
+}
+
+impl Default for Travel {
+    fn default() -> Self {
+        Self {
+            meters: TRAVEL_HELD,
+            at: f64::NEG_INFINITY,
+        }
+    }
+}
+
+impl Travel {
+    /// A report would take the player this far, at this time: whether it may. A place it may not
+    /// reach takes nothing from what it holds.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn spend(&mut self, meters: f32, now: f64) -> bool {
+        let gained = (now - self.at).max(0.0) * f64::from(TRAVEL_SPEED);
+        self.meters = (f64::from(self.meters) + gained).min(f64::from(TRAVEL_HELD)) as f32;
+        self.at = now;
+        if meters > self.meters {
+            return false;
+        }
+        self.meters -= meters;
+        true
+    }
+}
+
+/// Is this land cell the one a point of its landblock lies in? All 1,503,957 reports recorded on the
+/// land were.
+#[must_use]
+pub fn land_cell_holds(cell: u32, point: [f32; 2]) -> bool {
+    let side = crate::spawn::BLOCK_SIDE;
+    if !(0.0..=side).contains(&point[0]) || !(0.0..=side).contains(&point[1]) {
+        return false;
+    }
+    let inside = |v: f32| v.min(side - 0.001);
+    crate::spawn::outdoor(cell >> 16, inside(point[0]), inside(point[1])).0 == cell
+}
+
 fn moved<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1129,7 +1193,10 @@ fn moved<S: Store>(
     let on_land = [c.origin.x, c.origin.y, c.origin.z]
         .iter()
         .all(|v| v.abs() <= crate::spawn::LAND_SIDE);
-    if c.cell == 0 || !on_land {
+    let on_its_cell = !s.cfg.holds_reports
+        || presence::indoors(c.cell)
+        || land_cell_holds(c.cell, [c.origin.x, c.origin.y]);
+    if c.cell == 0 || !on_land || !on_its_cell {
         s.unhandled.note("a position that is no place");
         return;
     }
@@ -1146,6 +1213,39 @@ fn moved<S: Store>(
             "a place reported with an old teleport stamp"
         );
         return;
+    }
+    if c.force_position_stamp != p.force_position_stamp {
+        // Reported from before the server last refused a place: the client has not heard yet, and
+        // what told it may have been lost on the way.
+        if clock.local.0 - p.told_back >= TOLD_BACK_AGAIN {
+            p.told_back = clock.local.0;
+            let m = p.next_position(time, ON_GROUND);
+            let told = ServerMessage::Position(m).encode();
+            net.send_ephemeral(world, queue::EVENT, p.position_stream, told);
+        }
+        return;
+    }
+    if s.cfg.holds_reports && !p.admin_character {
+        let reported = StoredPosition {
+            cell: c.cell,
+            origin: [c.origin.x, c.origin.y, c.origin.z],
+            rotation: p.position.rotation,
+        };
+        let (dx, dy, dz) = crate::ai::offset(&p.position, &reported);
+        let far = (dx * dx + dy * dy + dz * dz).sqrt();
+        if !p.travel.spend(far, clock.local.0) {
+            tracing::debug!(
+                ?world,
+                far,
+                "a place too far: the player is told where it stands"
+            );
+            p.force_position_stamp = p.force_position_stamp.wrapping_add(1);
+            p.told_back = clock.local.0;
+            let m = p.next_position(time, ON_GROUND);
+            let told = ServerMessage::Position(m).encode();
+            net.send_ephemeral(world, queue::EVENT, p.position_stream, told);
+            return;
+        }
     }
     if c.cell != p.position.cell {
         tracing::debug!(
