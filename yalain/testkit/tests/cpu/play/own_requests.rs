@@ -236,6 +236,69 @@ fn a_weapon_takes_an_inscription_and_a_mote_is_refused() {
         .is_none());
 }
 
+/// Words past the longest an item takes are refused in the client's own words, and what it held stays;
+/// the longest itself is taken whole.
+/// Behaviour: server.inventory.an-inscription-past-its-longest-is-refused
+#[test]
+fn an_inscription_past_its_longest_is_refused_and_the_old_one_stays() {
+    let mut h = world_of_items();
+    let (a, _, world) = player(&mut h, "one");
+    let sword = give(&mut h, world, SWORD);
+    let words = |s: &str| yalain_world::chat::text_arg(yalain_world::profile::literal(s));
+    let held = |h: &Harness| {
+        h.server
+            .things
+            .get(sword)
+            .and_then(|t| t.inscription.clone())
+            .map(|(t, _)| t)
+    };
+    let longest = "x".repeat(yalain_world::personal::MAX_INSCRIPTION);
+    let from = h.bots[a].inbox.len();
+    h.ask(
+        a,
+        function::INSCRIBE,
+        &[words(&longest), Arg::LongInt(sword)],
+        3,
+    );
+    assert_eq!(h.texts(a, from), [(text::SHOWN_AS, text::INSCRIBED.0)]);
+    assert_eq!(held(&h).as_deref(), Some(longest.as_str()));
+    let from = h.bots[a].inbox.len();
+    let past = "y".repeat(yalain_world::personal::MAX_INSCRIPTION + 1);
+    h.ask(
+        a,
+        function::INSCRIBE,
+        &[words(&past), Arg::LongInt(sword)],
+        3,
+    );
+    // "Your inscription is too long."
+    assert_eq!(text::TOO_LONG, (0x72F8_3432, 0x2500_000B));
+    assert_eq!(h.texts(a, from), [(text::SHOWN_AS, text::TOO_LONG.0)]);
+    assert_eq!(held(&h).as_deref(), Some(longest.as_str()));
+    // A template may name a longest of its own.
+    let mut own = h.server.catalog.get(SWORD).expect("the sword").clone();
+    own.props
+        .set("Item_MaxInscriptionLength", yalain_content::Prop::Int(128));
+    h.server.catalog.insert(own);
+    let from = h.bots[a].inbox.len();
+    let past = "z".repeat(129);
+    h.ask(
+        a,
+        function::INSCRIBE,
+        &[words(&past), Arg::LongInt(sword)],
+        3,
+    );
+    assert_eq!(h.texts(a, from), [(text::SHOWN_AS, text::TOO_LONG.0)]);
+    let from = h.bots[a].inbox.len();
+    let fits = "z".repeat(128);
+    h.ask(
+        a,
+        function::INSCRIBE,
+        &[words(&fits), Arg::LongInt(sword)],
+        3,
+    );
+    assert_eq!(h.texts(a, from), [(text::SHOWN_AS, text::INSCRIBED.0)]);
+}
+
 /// An item the player does not hold is refused with the same text, and takes no words: a client
 /// naming another player's item, or one lying in the world.
 /// Behaviour: server.inventory.inscribing-only-what-the-player-holds

@@ -44,7 +44,8 @@ pub const INSCRIBABLE: [&str; 9] = [
     "MapTemplate",
 ];
 
-/// The longest inscription an item keeps, in characters.
+/// The longest inscription an item takes, in units of its text, the scripts' figure for every kind
+/// that may be inscribed, unless its template names its own (2017: 26 asked for, the longest 39).
 pub const MAX_INSCRIPTION: usize = 200;
 
 /// The texts.
@@ -52,6 +53,8 @@ pub mod text {
     /// "You successfully inscribe the item." and "You cannot inscribe that.".
     pub const INSCRIBED: (u32, u32) = (0x764F_43B5, 0x2500_000B);
     pub const CANNOT_INSCRIBE: (u32, u32) = (0x8669_67B4, 0x2500_000B);
+    /// "Your inscription is too long."
+    pub const TOO_LONG: (u32, u32) = (0x72F8_3432, 0x2500_000B);
     /// The kind of text they are shown as.
     pub const SHOWN_AS: u32 = 8;
     /// One line of the trained skills: the skill, its experience, its credits, its hero credits.
@@ -118,18 +121,24 @@ pub fn inscribe<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId,
     };
     let held = p.play.items.iter().any(|h| h.id == *item);
     let name = crate::player::world_name(&p.name, p.sex);
-    let said = if held && inscribable(s, template) {
-        let mut literal = String::from_utf16_lossy(words.literal.as_deref().unwrap_or_default());
-        if let Some((cut, _)) = literal.char_indices().nth(MAX_INSCRIPTION) {
-            literal.truncate(cut);
-        }
+    let literal = words.literal.as_deref().unwrap_or_default();
+    let longest = s
+        .catalog
+        .get(template)
+        .and_then(|t| t.props.int("Item_MaxInscriptionLength"))
+        .and_then(|n| usize::try_from(n).ok())
+        .unwrap_or(MAX_INSCRIPTION);
+    let said = if !held || !inscribable(s, template) {
+        text::CANNOT_INSCRIBE
+    } else if literal.len() > longest {
+        text::TOO_LONG
+    } else {
+        let literal = String::from_utf16_lossy(literal);
         if let Some(t) = s.things.get_mut(*item) {
             t.inscription = Some((literal, name));
         }
         crate::world::keep_player(s, world);
         text::INSCRIBED
-    } else {
-        text::CANNOT_INSCRIBE
     };
     progress::private(
         net,

@@ -4544,6 +4544,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.an-inscription-past-its-longest-is-refused",
+        says: "Words past the longest an inscription takes are refused with the text the install holds \
+               for it, and what the item held stays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-INSCRIPTION-LONGEST"),
+        station: "yalain-testkit::cpu::play::own_requests::an_inscription_past_its_longest_is_refused_and_the_old_one_stays",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.an-item-a-camp-keeps-lies-again-after-its-taking",
         says: "A camp whose template is an item keeps it lying at its spot: once it is taken, a new \
                one lies there when the camp's period is over (quest items lying alone 20 s after \

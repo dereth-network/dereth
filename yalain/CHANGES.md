@@ -51,6 +51,7 @@ what they see, not how it was done.
 - Fixed the error text when a glyph opens a vault.
 - Chests hold treasure of their own level.
 - Gauntlet journal updates now come when you land.
+- A too-long inscription is refused, not cut.
 
 - Fixed a selected person showing empty health and vigor bars.
 
