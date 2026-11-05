@@ -13,6 +13,7 @@ section, dated, and opens a new empty one in the same commit as the version.
 - A hosted world can now be saved in the Launch era.
 - Fixed the Play page offering no older data files for a world you host.
 - AC1999 can be listed and played through a relay; off unless turned on.
+- Fixed getting the world database for an Infiltration world on an older Empyrean.
 
 ## 0.5.0 (2026-11-05)
 
