@@ -77,6 +77,12 @@ pub mod untraining {
     pub const CANCELLED_SHOWN_AS: u32 = 1;
     /// The quality keeping when the player last untrained a skill.
     pub const LAST_UNTRAIN: u32 = 304;
+    /// The quality keeping when the player last untrained a perk, and how long until it may again,
+    /// in seconds.
+    pub const LAST_PERK_UNTRAIN: u32 = 310;
+    pub const PERK_WAIT: f64 = 604_800.0;
+    /// The kind of the perk that gives a bag's places.
+    pub const BAGS_PERK: u32 = 18;
 }
 
 /// A skill being untrained: the skill, the experience the player must earn to finish it (the
@@ -112,6 +118,11 @@ pub mod refusal {
     pub const HAS_CHILDREN: u32 = 30_033;
     pub const PARENT_BEING_UNTRAINED: u32 = 30_036;
     pub const HAS_DEPENDENTS: u32 = 30_049;
+    /// And these, by when it asks: a skill still on its timer; a perk within a week of the last one
+    /// untrained; the bags' perk with its last bag full.
+    pub const ON_ITS_TIMER: u32 = 30_030;
+    pub const PERK_TOO_SOON: u32 = 30_035;
+    pub const LAST_BAG_FULL: u32 = 30_050;
 }
 
 /// The texts of skills, in their table.
@@ -306,6 +317,8 @@ pub struct SkillDef {
     /// it: the attribute is its rating times that.
     pub category: u32,
     pub attribute_mod: f32,
+    /// A perk's kind, for a skill that is one.
+    pub perk: Option<u32>,
 }
 
 /// The attribute category of the skills that rate a player's Arcane Lore.
@@ -359,6 +372,9 @@ const NULL: u32 = u32::MAX;
 
 /// The definition's field naming its advancement table.
 const ADVANCEMENT_FIELD: &str = concat!("mdidAdv", "Table");
+
+/// The package perks derive from.
+const PERK_SKILL: &str = "PerkSkill";
 
 /// The package skills that are used derive from.
 pub const ACTIVE_SKILL: &str = "ActiveSkill";
@@ -426,6 +442,11 @@ impl SkillDef {
             helps: false,
             category: nav.field(root, "m_category").unwrap_or(0),
             attribute_mod: nav.number(root, "m_attributeMod").unwrap_or(1.0),
+            perk: lib
+                .package_id(PERK_SKILL)
+                .is_some_and(|a| lib.derives_from(root.package_id(), a))
+                .then(|| nav.field(root, "m_perkType").ok())
+                .flatten(),
         })
     }
 }
@@ -1210,6 +1231,47 @@ pub fn raise<S: Store>(
     crate::world::keep_player(s, world);
 }
 
+/// What holds an untraining up by when it's asked: the skill is on its timer; it's a perk, within a
+/// week of the last perk untrained; it's the bags' perk, with the last bag full.
+fn untrain_refusal_now<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    skill: u32,
+    now: f64,
+) -> Option<u32> {
+    let d = s.skill_table.skills.get(&skill)?;
+    let p = s.players.get(&world)?;
+    if let Some(perk) = d.perk {
+        let last = quals::read(&p.qualities)
+            .timestamps
+            .get(untraining::LAST_PERK_UNTRAIN)
+            .copied();
+        if last.is_some_and(|t| t + untraining::PERK_WAIT > now) {
+            return Some(refusal::PERK_TOO_SOON);
+        }
+        let last_bag = crate::inventory::SEGMENTS.len() - 1;
+        let places = crate::inventory::SEGMENTS[last_bag] as usize;
+        let held = p
+            .play
+            .items
+            .iter()
+            .filter(|h| {
+                h.location == 0
+                    && h.slot < crate::inventory::PACK_ROOM
+                    && crate::inventory::segment_of(h.slot) == last_bag
+            })
+            .count();
+        if perk == untraining::BAGS_PERK && held >= places {
+            return Some(refusal::LAST_BAG_FULL);
+        }
+    }
+    let on_timer = d
+        .usage
+        .as_ref()
+        .is_some_and(|u| crate::skill_use::time_left(s, world, skill, u, now) > 0.0);
+    on_timer.then_some(refusal::ON_ITS_TIMER)
+}
+
 /// A player asks to untrain a skill it trained. With no experience put into it, it is untrained at
 /// once: told so with the credits it regains, its parent's trained children one fewer, the time
 /// kept, the skill forgotten, the credits back. With experience in it, the untraining waits until
@@ -1232,8 +1294,10 @@ pub fn untrain<S: Store>(
     let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
     let skills = held(&starting, &p.play.skills);
     // The client asks only when its own copy of this rule lets it, so a refusal isn't answered.
+    let now = net.game_time(clock.local);
     if s.skill_table
         .untrain_refusal(&skills, skill, p.untraining.is_some())
+        .or_else(|| untrain_refusal_now(s, world, skill, now))
         .is_some()
     {
         return;
@@ -1242,7 +1306,6 @@ pub fn untrain<S: Store>(
         return;
     };
     if h.xp == 0 {
-        let now = net.game_time(clock.local);
         untrained(s, net, world, skill, 0, now);
         return;
     }
@@ -1328,15 +1391,23 @@ fn untrained<S: Store>(
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
-    quals::set_timestamp(&mut p.qualities, untraining::LAST_UNTRAIN, now);
-    progress::private(
-        net,
-        world,
-        &ServerMessage::UpdateTimestamp(auberean_protocol::quality::PrivateQuality {
-            quality: untraining::LAST_UNTRAIN,
-            value: now,
-        }),
-    );
+    let kinds = [
+        Some(untraining::LAST_UNTRAIN),
+        def.as_ref()
+            .and_then(|d| d.perk)
+            .map(|_| untraining::LAST_PERK_UNTRAIN),
+    ];
+    for quality in kinds.into_iter().flatten() {
+        quals::set_timestamp(&mut p.qualities, quality, now);
+        progress::private(
+            net,
+            world,
+            &ServerMessage::UpdateTimestamp(auberean_protocol::quality::PrivateQuality {
+                quality,
+                value: now,
+            }),
+        );
+    }
     let gone = session::call(function::REMOVE_INFO, &[Arg::Int(skill)]).expect("a skill packs");
     progress::private(net, world, &gone);
     // A hero skill's cost goes back to the hero skill credits it was paid in.

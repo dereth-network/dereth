@@ -10053,6 +10053,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.a-perk-goes-once-a-week",
+        says: "A perk is untrained no sooner than a week after the last perk was; a skill that is \
+               no perk neither waits for that week nor begins it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERK-WEEK"),
+        station: "yalain-testkit::cpu::play::untraining::a_perk_is_untrained_no_sooner_than_a_week_after_the_last",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.a-skill-aimed-at-an-item-lands-on-it",
         says: "A skill aimed at an item lands on the item named, or naming its user on the first fit one in \
                hand: a story naming it, its look at the first effect, its effects at the user's rating.",
@@ -10208,6 +10217,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "server.skills.the-bags-perk-wants-room",
+        says: "The perk that gives a bag stays while the last bag has no free place.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PERK-BAG"),
+        station: "yalain-testkit::cpu::play::untraining::the_bags_perk_stays_while_the_last_bag_is_full",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.train",
         says: "Training a skill the player may train spends its credits: the repository with the \
                credits left, the skill's information, its text; a refusal is a text alone.",
@@ -10269,6 +10286,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-UNTRAIN-WHOSE"),
         station: "yalain-testkit::cpu::play::untraining::a_skill_not_the_players_to_untrain_stays",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.untrain-waits-for-the-timer",
+        says: "A skill still on its timer stays until the timer has run.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UNTRAIN-TIMER"),
+        station: "yalain-testkit::cpu::play::untraining::a_skill_on_its_timer_is_not_untrained_until_it_has_run",
         tier: Tier::Cpu,
     },
     behaviour! {

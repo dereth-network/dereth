@@ -9,6 +9,7 @@ what they see, not how it was done.
 - Items put down now disappear after ten minutes.
 - Fixed a player getting stuck walking to an item that had gone.
 - Mine recipes now have to be made at the mine.
+- Perks can be untrained once a week, and skills on a timer can't be untrained until it ends.
 
 ## 0.2.1 (2026-11-05)
 - Fixed sold consignments still showing as in stock.
