@@ -142,6 +142,19 @@ pub fn approach<S: Store>(
     let Some(target) = s.players.get(&other).map(|p| p.character) else {
         return;
     };
+    // Each of these puts a question before the other player, and its walk goes to everyone who
+    // sees the asker: past the pace neither happens.
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let asks = p.asks.get_or_insert_with(|| {
+        crate::call_limit::Bucket::with(ASKS_AT_ONCE, ASKS_PER_SECOND, clock.local)
+    });
+    if !asks.allow(clock.local) {
+        s.unhandled
+            .note("a question to another player past the pace");
+        return;
+    }
     if gap(s, world, other).is_some_and(|g| g <= REACH + SLACK) {
         carry_out(s, net, world, other, what, clock);
         return;
@@ -186,18 +199,6 @@ fn carry_out<S: Store>(
     what: Approach,
     clock: Clock,
 ) {
-    // Each of these puts a question before the other player: past the pace it isn't asked.
-    let Some(p) = s.players.get_mut(&world) else {
-        return;
-    };
-    let asks = p.asks.get_or_insert_with(|| {
-        crate::call_limit::Bucket::with(ASKS_AT_ONCE, ASKS_PER_SECOND, clock.local)
-    });
-    if !asks.allow(clock.local) {
-        s.unhandled
-            .note("a question to another player past the pace");
-        return;
-    }
     match what {
         Approach::Swear => crate::allegiance::ask_patron(s, net, world, other),
         Approach::Recruit => crate::fellowship::ask_recruit(s, net, world, other, clock),

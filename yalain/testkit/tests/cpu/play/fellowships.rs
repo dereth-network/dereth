@@ -809,3 +809,24 @@ fn a_question_asked_again_and_again_reaches_the_other_at_a_pace() {
     h.ask(a, function::RECRUIT, &[Arg::LongInt(bid)], 10);
     assert_eq!(asked(&h, fb), 1, "the pace has filled");
 }
+
+/// The walk to a player out of reach comes at the same pace: asked again and again, those who see the
+/// asker are told a few orders.
+/// Behaviour: server.social.questions-at-a-pace
+#[test]
+fn a_question_asked_of_one_out_of_reach_walks_at_the_same_pace() {
+    let (mut h, [(a, aid), (_, bid), (c, _)]) = three();
+    beside(&mut h, bid, aid, 15.0);
+    create(&mut h, a, "Band");
+    let from = h.bots[c].inbox.len();
+    for _ in 0..30 {
+        h.ask(a, function::RECRUIT, &[Arg::LongInt(bid)], 1);
+    }
+    h.run(5);
+    let orders = h
+        .world_messages(c, from)
+        .iter()
+        .filter(|m| matches!(m, auberean_protocol::ServerMessage::MoveTo(_)))
+        .count();
+    assert!((5..30).contains(&orders), "{orders} orders of 30 asks");
+}
