@@ -103,7 +103,16 @@ version. Version 1 has 24 systems: ratings, consolidated weapon skills, item spe
 armour and ratings, swearing to a lower level, pre-order items and rares, dual wield, weapon
 masteries, innate augmentations, aetheria, luminance, contracts, titles, cloaks, trinkets, the
 journal, trade, housing, apartments, tinkering, cantrips, spell research, chess and the oath's
-experience cost.
+experience cost. Version 2 appends 15 later actions and rules, for 39: lifestone protection,
+creation-credit carry-over, skill alteration, augmentations, PK Lite, the Marketplace recall, the
+Endurance benefits, the `@lifestone` recall (with `@die`), the PK arena recalls, the player-corpse
+hour minimum, the component-burn skill discount, War and Life projectile criticals, the War Magic
+skill damage bonus, transfer overflow reducing the source's cost, and item enchantments redirected
+from a creature to its equipment. Version 3 appends 13 more, for 52: the spellcasting panel's tabs,
+fellowship options, corpse permissions (`@permit`, `@consent`), corpse location notices, the chat
+log (`@log`), `@corpse`, allegiance messages, the oath's confirmation, booting from an allegiance,
+appraisal without skills, trade notes cashing anywhere, allegiance officers and bans, and the
+allegiance's name.
 
 A reader takes only the systems its own table and the writer's version both have:
 
@@ -113,8 +122,9 @@ A reader takes only the systems its own table and the writer's version both have
 - version 0 names no table, so nothing is known.
 
 The same bitfield is what the Dereth client's `--era-features` takes, in text: the version in
-decimal, a colon, and the bytes in hex, first byte first. The end of retail is `1:ffff5f`; the
-February 2005 world is `1:0000df`.
+decimal, a colon, and the bytes in hex, first byte first. The end of retail is `3:ffff5fffffff0f`;
+the February 2005 world is `3:0000dfffffff0f`, and Launch `3:0000a000000000`. Their first three
+bytes are what version 1 wrote for them (`ffff5f`, `0000df`).
 
 ## 5. Limits and the switch
 

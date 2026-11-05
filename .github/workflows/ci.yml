@@ -179,8 +179,8 @@ jobs:
       - name: Clippy over the browser half
         env:
           CARGO_NET_OFFLINE: 'true'
-        run: cargo clippy --locked -p dereth-web --target wasm32-unknown-unknown -- -D warnings
-      - name: cargo xtask package web (the module, the deny scan, the manifest)
+        run: cargo clippy --locked -p dereth-web -p dereth-web-front -p auberean-web --target wasm32-unknown-unknown -- -D warnings
+      - name: cargo xtask package web (the modules, the deny scan, the manifest)
         env:
           CARGO_NET_OFFLINE: 'true'
         run: cargo xtask package web --out dist

@@ -10,6 +10,7 @@
 //! Center without chess, no Create Spell without spell research.
 
 use crate::art::AcArt as _;
+use dereth_client_contract::era::EraSurface;
 use dereth_client_contract::panels::slumlord::{HouseOp, PaymentAction, PaymentListsView};
 use dereth_client_contract::research::{Formula, ResearchSuccess, FORMULA_SLOTS};
 use dereth_client_contract::view::{
@@ -118,7 +119,7 @@ pub struct WorldWindows {
     /// Whether the barber is up for a start notice.
     barber_shown: bool,
     /// The systems the world's era has, once the game has said.
-    features: Option<EraFeatures>,
+    pub(super) features: Option<EraFeatures>,
     /// The research formula, the success last followed, and the components' scroll.
     formula: Formula,
     success_seen: u64,
@@ -135,15 +136,33 @@ const BARBER_PARTS: [(&str, EParts); 5] = [
 ];
 
 impl WindowId {
+    /// The system the window belongs to, if it follows one.
+    #[must_use]
+    pub const fn surface(self) -> Option<EraSurface> {
+        match self {
+            Self::House | Self::Maintenance => Some(EraSurface::House),
+            Self::GameCenter => Some(EraSurface::Chess),
+            Self::Journal => Some(EraSurface::QuestWindow),
+            Self::Trade => Some(EraSurface::Trade),
+            Self::Salvage => Some(EraSurface::Salvage),
+            _ => None,
+        }
+    }
+
     /// Whether the world's era has what the window shows.
     #[must_use]
     pub fn offered(self, features: &EraFeatures) -> bool {
-        match self {
-            Self::House | Self::Maintenance => features.housing,
-            Self::GameCenter => features.chess,
-            Self::Journal => features.journal || features.contracts,
-            _ => true,
-        }
+        self.surface().is_none_or(|s| s.offered(*features))
+    }
+}
+
+/// The system the paper doll's slot `mask` belongs to, if it follows one of its own.
+#[must_use]
+pub const fn doll_slot_surface(mask: u32) -> Option<EraSurface> {
+    match mask {
+        dereth_rules::slots::loc::CLOAK => Some(EraSurface::CloakSlot),
+        dereth_rules::slots::loc::TRINKET_ONE => Some(EraSurface::TrinketSlot),
+        _ => None,
     }
 }
 
@@ -157,12 +176,23 @@ impl Windows {
         }
     }
 
+    /// Whether this world is known to lack `surface`.
+    #[must_use]
+    pub fn refuses(&self, surface: EraSurface) -> bool {
+        surface.refused(self.world.features)
+    }
+
     /// The world's notices: a new house profile raises the housing window and a closed list
     /// takes it down; the chess game's window follows the game; a barber's start opens the
     /// barber; a confirmed formula is cleared.
     pub(super) fn follow_world(&mut self, ctx: &Ctx<'_>, state: &GameState, out: &mut Outcome) {
         let w = &state.world_services;
-        self.world.features = state.in_world.then_some(w.features);
+        // A window of a system the world has come to lack closes.
+        for id in WindowId::ALL {
+            if self.is_open(id) && !self.offers(id) {
+                self.close(id);
+            }
+        }
         // The housing window: up while the game has the lists up, raised by each new profile;
         // closed by the player, it closes the lists and stops watching the deed's range.
         let up = w.payments.visible && w.slumlord.is_some();
@@ -172,6 +202,7 @@ impl Windows {
             out.requests.push(UiRequest::UnregisterSlumlordRange);
             self.world.housing_shown = false;
         } else if up
+            && self.offers(WindowId::Maintenance)
             && (w.slumlord_notices != self.world.slumlord_seen || !self.world.housing_shown)
         {
             self.open(WindowId::Maintenance, ctx.time);

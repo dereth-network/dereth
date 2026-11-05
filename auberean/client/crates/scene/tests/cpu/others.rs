@@ -12,7 +12,9 @@ use auberean_physics::land::{Block, Land};
 use auberean_physics::motion::values::default_values;
 use auberean_physics::world::World;
 use auberean_primitives::Vec3;
-use auberean_scene::others::{is_loaded, position_of, LostCell, LostCells, OtherBody, Received};
+use auberean_scene::others::{
+    is_loaded, out_of_physics_range, position_of, LostCell, LostCells, OtherBody, Received,
+};
 use dereth_physics::geom::Sphere;
 
 const FRAME: f64 = 1.0 / 60.0;
@@ -326,6 +328,7 @@ fn made(entity: u32) -> auberean_client_sdk::model::Object {
         wielder: None,
         in_world: true,
         teleport_stamp: None,
+        position_stamp: 0,
         creations: 1,
         qualities: auberean_client_sdk::model::Qualities::default(),
         reports: Vec::new(),
@@ -512,4 +515,50 @@ fn an_object_moves_as_its_qualities_record_says() {
     }
     assert!((ends[0] - 72.0).abs() < 0.05, "followed: {}", ends[0]);
     assert!((ends[1] - 70.0).abs() < 1e-4, "stayed: {}", ends[1]);
+}
+
+/// Behaviour: desktop.others.a-moving-body-past-the-range-stops-until-a-position-comes
+#[test]
+fn a_moving_body_past_the_range_stops_until_a_position_comes() {
+    let at = position_of(&place(70.0, 70.0, 0.0, 0.0, 1.0, 1));
+    let mut ob = OtherBody::new(7, config(), at, 0.0, (1, 0));
+    ob.body.set_mobile(true);
+    let near = position_of(&place(90.0, 70.0, 0.0, 0.0, 1.0, 1));
+    let mut far = near;
+    far.frame.origin.y += 96.5;
+    assert!(!out_of_physics_range(&near, &at));
+    assert!(out_of_physics_range(&far, &at));
+    // The player's near: it runs on.
+    ob.check_range(&near);
+    assert!(ob.in_range);
+    assert!(ob.body.is_movement_active());
+    // The player has walked away and no position has come: it stops where it is, and its sounds
+    // are silent.
+    ob.check_range(&far);
+    assert!(!ob.in_range);
+    assert!(!ob.body.is_movement_active());
+    assert!(ob.body.should_mute_sound(&|_| None));
+    // A body whose movement has stopped doesn't look again; a position does.
+    ob.check_range(&near);
+    assert!(!ob.in_range);
+    let again = place(70.0, 70.0, 0.0, 0.0, 2.0, 2);
+    assert!(matches!(
+        ob.receive(&again, Some(&near), true),
+        Received::Taken
+    ));
+    assert!(ob.in_range);
+    assert!(ob.body.is_movement_active());
+    assert!(!ob.body.should_mute_sound(&|_| None));
+}
+
+/// Behaviour: desktop.others.a-moving-body-past-the-range-stops-until-a-position-comes
+#[test]
+fn a_body_that_cannot_move_does_not_look_at_the_range() {
+    let at = position_of(&place(70.0, 70.0, 0.0, 0.0, 1.0, 1));
+    let mut ob = OtherBody::new(7, config(), at, 0.0, (1, 0));
+    ob.body.set_mobile(false);
+    let mut far = at;
+    far.frame.origin.y += 200.0;
+    ob.check_range(&far);
+    assert!(ob.in_range);
 }

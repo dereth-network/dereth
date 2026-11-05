@@ -117,6 +117,47 @@ fn rect(ui: &Ui, h: Option<auberean_ui::Handle>) -> auberean_ui::Rect {
     ui.screen_rect(h.expect("made")).expect("placed")
 }
 
+/// While portal space is drawn no name, and no mark of the selection, stands over it, even with the
+/// server done with the player and its objects known; they come back as it goes.
+///
+/// Behaviour: ui.names.no-names-stand-over-portal-space
+#[test]
+fn no_names_stand_over_portal_space() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut w = world(vec![
+        body_at(7, 0.0, 10.0, [1.0; 4]),
+        body_at(8, 3.0, 10.0, [1.0; 4]),
+    ]);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, true);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, false);
+    w.selection = 7;
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    let shown = |ui: &Ui, p: &GamePlay| {
+        let names = names_of(p).names().iter();
+        names.filter(|x| ui.shown(x.element)).count()
+    };
+    let marked = |ui: &Ui, p: &GamePlay| {
+        let n = names_of(p);
+        n.reticle.iter().flatten().any(|m| ui.shown(*m))
+    };
+    assert_eq!(shown(&ui, &p), 1, "the other's name");
+    assert!(marked(&ui, &p), "the selection's marks");
+
+    w.portal_drawn = true;
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    assert_eq!(shown(&ui, &p), 0, "no name over portal space");
+    assert!(!marked(&ui, &p), "no marks over it");
+
+    w.portal_drawn = false;
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    assert_eq!(shown(&ui, &p), 1, "the name is back");
+    assert!(marked(&ui, &p), "and the marks");
+}
+
 /// The selection's name stands over it in its radar color, its meters under the name once the
 /// scripts send its vitals (health, and vigor, each its share of its greatest), and its four corner
 /// marks stand off the corners of its box on the screen, each turned on from the last (a quarter,
@@ -311,6 +352,32 @@ fn names_over_heads_stand_clear_of_each_other() {
     ui.key(action::SHOW_NAMES, false);
     assert!(out.contains(&Request::ShowNames(false)));
     assert!(names_of(&p).names().is_empty());
+}
+
+/// A name over a head near the screen's side runs off the edge, cut there, not pushed back in.
+///
+/// Behaviour: ui.names.a-name-at-the-screens-side-runs-off-it
+#[test]
+fn a_name_at_the_screens_side_runs_off_it() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    // Eleven meters off is just inside the right edge from eleven meters back at this view.
+    let w = world(vec![body_at(7, 11.0, 10.0, [1.0; 4])]);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, true);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, false);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    let n = names_of(&p);
+    let shown: Vec<_> = n
+        .names()
+        .iter()
+        .filter(|x| ui.shown(x.element))
+        .map(|x| ui.screen_rect(x.element).expect("placed"))
+        .collect();
+    assert_eq!(shown.len(), 1, "{shown:?}");
+    assert!(shown[0].x0 < 1024 && shown[0].x1 > 1023, "{shown:?}");
 }
 
 /// A name the scripts give as a string reference is given to the name over the object's head and

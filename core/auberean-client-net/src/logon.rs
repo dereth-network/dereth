@@ -40,20 +40,26 @@ pub struct Logon {
 }
 
 impl Logon {
-    /// The authenticator: a ticket login with the account and the session key.
-    // D2-01700
+    /// The authenticator: a ticket login with the account and the session key, or, with no ticket,
+    /// an account login that carries the account and the key alone.
+    // D2-01700, D2-00026
     #[must_use]
     pub fn authenticator(&self) -> ConnectionAuthenticator {
         let mut crypto = KEY_BLOB_HEADER.to_vec();
         crypto.extend_from_slice(&self.session_key);
+        let (auth_type, extra_data) = if self.ticket.is_empty() {
+            (NetAuthType::Account, Vec::new())
+        } else {
+            (NetAuthType::GlsTicket, scramble::pack(&self.ticket))
+        };
         ConnectionAuthenticator {
-            auth_type: NetAuthType::GlsTicket,
+            auth_type,
             auth_flags: FLAGS,
             connection_sequence_number: self.timestamp,
             account: scramble::conceal(&self.account),
             account_to_logon_as: None,
             crypto_data: crypto,
-            extra_data: scramble::pack(&self.ticket),
+            extra_data,
         }
     }
 

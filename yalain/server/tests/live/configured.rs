@@ -18,7 +18,7 @@ use crate::session::{must, scratch, serving, Loopback, LIFE};
 const STATUS_AT: &str = "status endpoint listening on http://127.0.0.1:";
 
 /// The status endpoint's port, from the log.
-fn status_port(dir: &Path) -> u16 {
+pub(crate) fn status_port(dir: &Path) -> u16 {
     let log = std::fs::read_to_string(dir.join("server.log")).unwrap_or_default();
     log.lines()
         .find_map(|l| {
@@ -29,7 +29,7 @@ fn status_port(dir: &Path) -> u16 {
 }
 
 /// `/status`'s body once the endpoint answers.
-fn status(port: u16, dir: &Path) -> serde_json::Value {
+pub(crate) fn status(port: u16, dir: &Path) -> serde_json::Value {
     let until = Instant::now() + crate::network::HANG;
     loop {
         if let Ok(mut s) = TcpStream::connect((Ipv4Addr::LOCALHOST, port)) {
@@ -131,4 +131,36 @@ fn the_server_takes_its_settings_from_its_config_file_and_answers_its_status_end
         log.contains("server.landblock_preloading: Empyrean's setting"),
         "{log}"
     );
+}
+
+/// The executable set up from a file whose `[server.websocket]` cannot be served stops at its start
+/// with exit code 1 and says why: a plain listener off loopback (the section's own default),
+/// half a certificate and a certificate that will not read. It reads nothing of the install first.
+/// Behaviour: server.operator.websocket-settings-refused-as-empyreans
+#[test]
+fn a_websocket_setting_that_cannot_be_served_stops_the_server_at_its_start() {
+    let dir = scratch("yalain-live-websocket-refused");
+    for (keys, says) in [
+        ("", "plain ws://"),
+        ("tls_certificate = \"c.pem\"", "set together"),
+        ("listen = \"nowhere\"", "is not an ip:port"),
+    ] {
+        std::fs::write(
+            dir.join("yalain.toml"),
+            format!("[server.websocket]\nenabled = true\n{keys}\n"),
+        )
+        .expect("the configuration file");
+        let out = Command::new(env!("CARGO_BIN_EXE_yalain"))
+            .current_dir(&dir)
+            .stdin(Stdio::null())
+            .output()
+            .expect("the server runs");
+        let said = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        assert_eq!(out.status.code(), Some(1), "{keys}: {said}");
+        assert!(said.contains(says), "{keys}: {said}");
+    }
 }

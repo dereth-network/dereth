@@ -85,11 +85,41 @@ fn inq_enum(c: &mut Call<'_>) -> Result<Status, Stop> {
     let value = c
         .host
         .database()
-        .and_then(|db| db.enumeration_value(map, &name));
+        .and_then(|db| db.enumeration_value(map, &name))
+        .or_else(|| unshipped_value(map, &name));
     let prog = Arc::clone(c.vm.program());
     c.vm.write_slot(c.host, c.cx, out, 0, value, tag::MIXED, &prog)?;
     c.write(-5, u32::from(value.is_some()), tag::MIXED)?;
     Ok(Status::Success)
+}
+
+/// The enumeration of an admin's ethereality overrides, which the game's data files do not carry:
+/// the words its command takes, numbered as this game's servers read them.
+const ETHEREALITY: u32 = 0x4100_0026;
+
+/// The enumeration of an admin's log types, which the game's data files do not carry either, and
+/// the one this game's servers answer an admin under.
+const LOG_TYPE: u32 = 0x4000_002C;
+const ADMIN_LOG: (u32, &str) = (1, "Admin");
+
+/// The value of a word of an enumeration no install holds.
+fn unshipped_value(map: u32, name: &str) -> Option<u32> {
+    match map {
+        ETHEREALITY => ["normal", "admin", "super"]
+            .iter()
+            .position(|w| w.eq_ignore_ascii_case(name))
+            .and_then(|i| u32::try_from(i + 1).ok()),
+        LOG_TYPE => ADMIN_LOG
+            .1
+            .eq_ignore_ascii_case(name)
+            .then_some(ADMIN_LOG.0),
+        _ => None,
+    }
+}
+
+/// The name of a value of an enumeration no install holds.
+fn unshipped_name(map: u32, value: u32) -> Option<String> {
+    (map == LOG_TYPE && value == ADMIN_LOG.0).then(|| ADMIN_LOG.1.to_owned())
 }
 
 /// The name of a value (`fp[-3]`) of an enumeration (`fp[-2]`) as a new string at `fp[-4]`, empty
@@ -101,6 +131,7 @@ fn name_as_string(c: &mut Call<'_>) -> Result<Status, Stop> {
         .host
         .database()
         .and_then(|db| db.enumeration_name(map, value))
+        .or_else(|| unshipped_name(map, value))
         .unwrap_or_default();
     let id = new_text(c, name.encode_utf16().collect());
     c.write(-4, id, tag::REFERENCE)?;

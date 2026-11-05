@@ -627,15 +627,16 @@ pub fn get_attribute_mod(w: &mut World, this: ObjectGuid, weapon: Option<ObjectG
     // DIVERGE: melee damage before the weapon-skill consolidation
     // (`EraFormulas::older_melee_damage`): daggers take Coordination, and the factor follows the
     // attack's skill, an unarmed humanoid's being the lower one (ClassicACE's `GetAttributeMod` at
-    // its Infiltration ruleset).
+    // its Infiltration ruleset). Before daggers took Coordination
+    // (`EraFormulas::daggers_use_coordination`, V473) they took Strength.
     // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Creature_Combat.cs
     if w.era.formulas.older_melee_damage {
-        let attribute =
-            if is_bow || weapon.map(|g| object(w, g).weapon_skill()) == Some(Skill::Dagger) {
-                PropertyAttribute::Coordination
-            } else {
-                PropertyAttribute::Strength
-            };
+        let dagger = weapon.map(|g| object(w, g).weapon_skill()) == Some(Skill::Dagger);
+        let attribute = if is_bow || (dagger && w.era.formulas.daggers_use_coordination) {
+            PropertyAttribute::Coordination
+        } else {
+            PropertyAttribute::Strength
+        };
         let mut skill =
             crate::dispatch::get_current_weapon_skill::get_current_weapon_skill(w, this);
         if is_bow {

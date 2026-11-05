@@ -1,9 +1,12 @@
 //! The world's half of the network, driven as the host drives it, on virtual time, with a friends
 //! service of the test's own.
 
+mod channels;
 mod directory;
 mod operator;
+mod persons;
 mod presence;
+mod rooms;
 mod tells;
 mod verify;
 mod watches;
@@ -30,6 +33,16 @@ pub struct Service {
     pub tells: Vec<(String, Address, String)>,
     pub states: Vec<(String, Address, bool, bool)>,
     pub ended: Vec<(TellId, TellEnd)>,
+    /// Characters in the world without a stream, by name in small letters.
+    pub in_world: Vec<String>,
+    /// The network's lines shown, with the character each was for.
+    pub lines: Vec<(u64, String)>,
+    /// The hub's answers to linked characters' adds: the friend, and whether it refused.
+    pub adds_answered: Vec<(Address, bool)>,
+    /// A client's own add waits on the hub's answer.
+    pub add_waits: bool,
+    /// The characters a person view came for.
+    pub views: Vec<String>,
 }
 
 impl Friends for Service {
@@ -54,6 +67,12 @@ impl Friends for Service {
             .is_some_and(|v| v.iter().any(|k| *k == who.key() || k == who.world()))
     }
 
+    fn ignores_here(&self, character: &str, who: &str) -> bool {
+        self.ignored
+            .get(&character.to_lowercase())
+            .is_some_and(|v| v.iter().any(|k| k.eq_ignore_ascii_case(who)))
+    }
+
     fn show_tell(&mut self, to: &str, from: &Address, text: &str) {
         self.tells
             .push((to.to_owned(), from.clone(), text.to_owned()));
@@ -66,6 +85,43 @@ impl Friends for Service {
 
     fn tell_ended(&mut self, tell: TellId, end: TellEnd) {
         self.ended.push((tell, end));
+    }
+
+    fn in_world(&self, name: &str) -> bool {
+        let name = name.to_lowercase();
+        self.present.contains_key(&name) || self.in_world.contains(&name)
+    }
+
+    fn show_line(&mut self, character: u64, line: &str) {
+        self.lines.push((character, line.to_owned()));
+    }
+
+    fn kept_count(&self, character: &str) -> usize {
+        self.lists
+            .get(&character.to_lowercase())
+            .map_or(0, Vec::len)
+    }
+
+    fn release_friend(&mut self, character: &str, friend: &Address) {
+        if let Some(l) = self.lists.get_mut(&character.to_lowercase()) {
+            l.retain(|f| !f.same(friend));
+        }
+    }
+
+    fn keep_friend(&mut self, character: &str, friend: &Address) {
+        self.lists
+            .entry(character.to_lowercase())
+            .or_default()
+            .push(friend.clone());
+    }
+
+    fn befriend_answered(&mut self, _: &str, friend: &Address, refused: bool) -> bool {
+        self.adds_answered.push((friend.clone(), refused));
+        self.add_waits
+    }
+
+    fn person_view_came(&mut self, character: &str) {
+        self.views.push(character.to_owned());
     }
 }
 
@@ -105,6 +161,7 @@ impl World {
                     enabled,
                     slug: SLUG.into(),
                     software: "yalain test".into(),
+                    ..Settings::default()
                 },
                 1_790_000_000,
             ),

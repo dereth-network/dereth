@@ -243,6 +243,7 @@ fn going_off_takes_the_character_out_at_once_and_is_owed_until_answered() {
             enabled: true,
             slug: SLUG.into(),
             software: "yalain test".into(),
+            ..Settings::default()
         },
         1_790_000_001,
         &mut w.store,
@@ -391,4 +392,97 @@ fn listings_go_after_the_rest_within_the_hubs_pace() {
         seen += sent(&mut w).len();
     }
     assert_eq!(seen, names.len(), "each once");
+}
+
+/// A character takes a new name.
+fn rename(w: &mut World, old: &str, new: &str) {
+    w.fed.renaming(&w.service, old);
+    if let Some(mut p) = w.service.present.remove(&old.to_lowercase()) {
+        new.clone_into(&mut p.name);
+        w.service.present.insert(new.to_lowercase(), p);
+    }
+    w.fed.renamed(&w.service, old, new);
+    let id = w.ids[old];
+    w.ids.insert(new.to_owned(), id);
+}
+
+/// A renamed character on the network is taken out of the directory under the name it had, at once,
+/// and listed under the new one with the world's next pass, its page not shown; on the network still.
+/// Behaviour: server.network.directory-rename
+#[test]
+fn a_renamed_character_leaves_the_directory_under_its_old_name_and_is_listed_under_its_new() {
+    let mut w = World::new();
+    w.on_and_present("Ann");
+    w.link(&[]);
+    w.fed.listing_on(w.t, "Ann", profile(5));
+    let id = sent(&mut w)[0].id.clone();
+    answer(&mut w, &id, ListingOutcome::Ok, None);
+    w.fed.take_notices(|_| true);
+
+    rename(&mut w, "Ann", "Anna");
+    assert_eq!(what(&mut w), [l("Ann@dawnsong", false, None)]);
+    let anna = w.ids["Anna"];
+    assert_eq!(w.fed.profiles_wanted(), [(anna, "Anna".to_owned())]);
+    w.fed.listing_on(w.t, "Anna", profile(5));
+    let listed = sent(&mut w);
+    assert_eq!(
+        listed
+            .iter()
+            .map(|s| (s.who.as_str(), s.on))
+            .collect::<Vec<_>>(),
+        [("Anna@dawnsong", true)]
+    );
+    answer(&mut w, &listed[0].id.clone(), ListingOutcome::Ok, None);
+    assert!(
+        w.fed.take_notices(|_| true).is_empty(),
+        "no page line for a character that did not ask"
+    );
+    assert!(w.fed.listed("Anna"));
+    assert!(!w.fed.listed("Ann"));
+}
+
+/// A character the hub holds out stays out under its new name, until its next login or `@dn on`, as
+/// under the old; the old name is still taken out.
+/// Behaviour: server.network.directory-rename
+#[test]
+fn a_renamed_character_the_hub_holds_out_stays_out() {
+    let mut w = World::new();
+    w.on_and_present("Ann");
+    w.link(&[]);
+    w.fed.listing_on(w.t, "Ann", profile(5));
+    sent(&mut w);
+    w.frame(
+        &DirectoryMessage::ListingOff {
+            who: addr("Ann@dawnsong"),
+            by: OffBy::Operator,
+        }
+        .to_json(),
+    );
+    what(&mut w);
+    assert!(!w.fed.listed("Ann"));
+    rename(&mut w, "Ann", "Anna");
+    assert!(w.fed.profiles_wanted().is_empty());
+    assert!(!w.fed.listed("Anna"));
+    assert!(w.fed.is_on("Anna"));
+}
+
+/// A line the directory holds for a character out of reach reaches it under its new name.
+/// Behaviour: server.network.directory-rename
+#[test]
+fn a_directory_line_waiting_for_a_renamed_character_reaches_its_new_name() {
+    let mut w = World::new();
+    w.on_and_present("Ann");
+    w.link(&[]);
+    w.frame(
+        &DirectoryMessage::ListingOff {
+            who: addr("Ann@dawnsong"),
+            by: OffBy::Operator,
+        }
+        .to_json(),
+    );
+    rename(&mut w, "Ann", "Anna");
+    assert_eq!(
+        w.fed.take_notices(|n| n == "Anna"),
+        [("Anna".to_owned(), TAKEN_DOWN.to_owned())]
+    );
 }

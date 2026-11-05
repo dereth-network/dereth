@@ -57,6 +57,8 @@ pub const fn rules() -> TransitionRules {
         // The polygon tests take only an exactly parallel movement as parallel, and do not test
         // the up vector at all.
         parallel_band: PARALLEL_BAND,
+        // A mover in the air that an interior cell's tree stops or moves collided straight up.
+        env_collision_normal_up: true,
         // The mover slides by this world's slide, and a physics tree's normal is turned into the
         // world, for its step up and its slide, in double precision.
         slide: Some(SLIDE),

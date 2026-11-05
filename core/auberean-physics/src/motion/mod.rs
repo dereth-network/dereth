@@ -286,7 +286,6 @@ impl MotionInterp {
     }
 
     /// Starts on a body: facing where it faces, with a move-to manager.
-    // D2-06981
     pub fn init(&mut self, owner: &dyn Owner) {
         self.turn_to = owner.heading();
         self.move_to.get_or_insert_with(Mover::default);
@@ -464,11 +463,6 @@ impl MotionInterp {
         self.motion_values(owner).max_forward
     }
 
-    // D2-07001
-    pub fn set_local_desired_velocity(&mut self, v: Vec3) {
-        self.local_desired_velocity = v;
-    }
-
     // D2-07002
     #[must_use]
     pub fn is_affected_by_gravity(&self, owner: &dyn Owner) -> bool {
@@ -555,12 +549,13 @@ impl MotionInterp {
         }
     }
 
-    /// Leaving the world: the move ends, the turn stops, interpolation stops.
+    /// Leaving the world: the move ends, the turn stops, interpolation stops, the tether lets go.
     // D2-07013
     pub fn handle_leave_world(&mut self, owner: &mut dyn Owner, now: f64) {
         self.interrupt_move_to(owner, now);
         self.stop_turn_to(&*owner);
         self.stop_interpolating();
+        self.unconstrain();
     }
 
     // D2-07014
@@ -615,7 +610,7 @@ impl MotionInterp {
     /// The turning acceleration toward the rate asked for, or the slowdown toward none; a turn-to
     /// sets the rate toward its heading, and ends within a thousandth of a degree when the body has
     /// stopped turning. The rate asked for is then spent.
-    // D2-07020
+    // D2-07020, D2-05993, D2-06435
     pub fn calculate_omega_acceleration(&mut self, owner: &mut dyn Owner) {
         let w = owner.omega();
         let m = self.motion_values(&*owner);
@@ -754,7 +749,7 @@ impl MotionInterp {
     /// One tick: the asked motion from interpolation or from a move under way, the behaviors that
     /// show the body's motion, then the accelerations toward the asked velocity and the turning
     /// acceleration.
-    // D2-07025
+    // D2-07025, D2-06327, D2-06430
     #[allow(clippy::too_many_lines)]
     pub fn update_movement(&mut self, owner: &mut dyn Owner, now: f64, dt: f32) {
         self.time_since_jump += f64::from(dt);
@@ -1069,29 +1064,10 @@ impl MotionInterp {
         self.terrain_mods.insert(terrain, modifier);
     }
 
-    /// Where interpolation last aimed and the ground's slope there, while interpolating.
-    // D2-07017
-    #[must_use]
-    pub fn interpolation_debug_values(&self) -> Option<(Vec3, Vec3)> {
-        self.interpolation.as_ref().and_then(Follower::debug_values)
-    }
-
-    // D2-07037
-    #[must_use]
-    pub const fn turn_to_direction(&self) -> Heading {
-        self.turn_to
-    }
-
     // D2-07038
     #[must_use]
     pub const fn get_acceleration(&self) -> Vec3 {
         self.acceleration
-    }
-
-    // D2-07039
-    #[must_use]
-    pub const fn get_omega_acceleration(&self) -> Vec3 {
-        self.omega_acceleration
     }
 
     // D2-07040

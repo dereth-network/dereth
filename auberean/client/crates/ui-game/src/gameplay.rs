@@ -64,10 +64,17 @@ pub mod notice {
     pub const UPDATE_DEATH_STATE: u32 = 0x0085 << 16 | 0x0008;
     /// The player's options changed: the panels' kept places among them.
     pub const RELOAD_OPTIONS: u32 = 0x0085 << 16 | 0x0009;
+    /// The panels' places to be written to a file: its name, as a string reference.
+    pub const SAVE_UI: u32 = 0x0085 << 16 | 0x001C;
+    /// The panels' places to be read back from a file: its name, as a string reference.
+    pub const LOAD_UI: u32 = 0x0085 << 16 | 0x001D;
     /// A message for a dialog of its own.
     pub const DISPLAY_MESSAGE: u32 = 0x0085 << 16 | 0x000C;
     /// Someone offers to bring the player back to life.
     pub const RESURRECTION_REQUESTED_BY_OTHER: u32 = 0x0085 << 16 | 0x0010;
+    /// The server asks whether an effect may go on: its target, its source, the effect, the
+    /// question.
+    pub const SHOULD_APPLY_TOTEM: u32 = 0x0092 << 16 | 0x0003;
     /// The player mounted (1) or dismounted (0).
     pub const UPDATE_MOUNT_STATE: u32 = 0x0085 << 16 | 0x0011;
     /// The player is attacking (1) or not (0).
@@ -193,6 +200,9 @@ pub struct View<'a> {
     /// windows add it to their logs as a reference, written once the string tables it reads have
     /// come.
     pub line_infos: &'a [Option<auberean_text::StringInfo>],
+    /// How many of `lines` were written before the scripts said the options changed, if they did
+    /// this frame: the chat windows take those by what they show now.
+    pub lines_before_options: usize,
     /// The chat's part of the player's options, as last read, and a new player's (the options
     /// window's chat page's defaults).
     pub chat: Option<&'a crate::chat::ChatSettings>,
@@ -219,6 +229,8 @@ pub struct View<'a> {
     pub options: Option<crate::options::Values>,
     /// The client's own preferences as last listed (the options window's client page).
     pub preferences: Option<&'a crate::options::client::Listing>,
+    /// The client's own preferences it changed itself since the last frame.
+    pub preferences_changed: &'a [crate::options::helper::Change],
     /// The shift key is held.
     pub shift: bool,
     /// The skill window's panels and skills, as the player's scripts last answered.
@@ -336,6 +348,15 @@ pub enum Request {
     PutBackLocations {
         reloaded: bool,
     },
+    /// The panels' places written to the file of this name (empty: the file of this character,
+    /// world and screen).
+    SaveLayout {
+        name: String,
+    },
+    /// The panels' places read back from the file of this name (empty as for saving).
+    LoadLayout {
+        name: String,
+    },
     /// A line for the chat windows, as one of the client's own errors.
     ErrorLine(String),
     /// The chat panel's.
@@ -346,16 +367,18 @@ pub enum Request {
     /// Bring the player back to life, or turn down someone's offer to.
     Resurrect,
     DeclineResurrection,
-    /// Answer a question the player's scripts asked: yes, with what the question carried.
+    /// Yes to the server's question whether an effect may go on: its target and source, and the
+    /// effect.
     Confirm {
         objects: [u64; 2],
-        tokens: [u32; 2],
         value: u32,
     },
     /// The story's scenes are done (or none was played): the scenes, as the scripts handed them.
     PlayScenesDone(Vec<u8>),
     /// The world shown again, or hidden (while the story plays).
     ShowWorld(bool),
+    /// A scene on the way through a door plays in place of portal space, or no longer does.
+    PortalScenePlaying(bool),
     /// The story's music or voice played or stopped.
     StorySound(crate::story::Sound),
     /// The trade panel's.
@@ -540,7 +563,6 @@ const LOGIN_NOTICES: [u32; 10] = [
 struct Confirmation {
     id: u32,
     objects: [u64; 2],
-    tokens: [u32; 2],
     value: u32,
 }
 
@@ -918,6 +940,7 @@ impl GamePlay {
         match n.native {
             notice::UPDATE_DEATH_STATE => self.update_death_state(ui, n.word() != 0, out),
             notice::RELOAD_OPTIONS => self.reload_options(out),
+            notice::SAVE_UI | notice::LOAD_UI => Self::layout_notice(ui, n, out),
             notice::PLAY_SEQUENCE => self.play_sequence(ui, &scenes_of(n), out),
             // The message's string reference goes to the dialog's text element as it is; its
             // second word says whether it goes up at once, in place of the dialog up.
@@ -928,7 +951,32 @@ impl GamePlay {
                 });
                 self.display_message(String::new(), info, n.word_at(1) != 0, out);
             }
+            notice::SHOULD_APPLY_TOTEM => {
+                let info = n.records.iter().flatten().find_map(|r| match r {
+                    Record::Text(t) => Some(t.clone()),
+                    _ => None,
+                });
+                let text = info.and_then(|i| ui.assets().write(&i)).unwrap_or_default();
+                let objects = [n.long(0), n.long(2)];
+                self.make_confirmation_dialog(text, objects, n.word_at(4), out);
+            }
             notice::PORTAL_SCENE => self.portal_scene(ui, n.word() != 0, &scenes_of(n), out),
+            // An offer with no name reads as no offer.
+            notice::RESURRECTION_REQUESTED_BY_OTHER => {
+                let by = n
+                    .records
+                    .iter()
+                    .flatten()
+                    .find_map(|r| match r {
+                        Record::Text(t) => ui.assets().write(t),
+                        _ => None,
+                    })
+                    .filter(|s| !s.is_empty());
+                match by {
+                    Some(by) => self.resurrection_requested_by_other(ui, &by, out),
+                    None => self.make_resurrect_dialog(ui, None, out),
+                }
+            }
             crate::story::notice::FINISH_PLAY_SEQUENCE => {
                 self.finish_play_sequence(ui, &scenes_of(n), out);
             }
@@ -972,7 +1020,7 @@ impl GamePlay {
     }
 
     /// A line of the client's own errors for the chat windows.
-    // D2-01901
+    // D2-01901, D2-03977
     pub fn set_error_msg(text: &str, out: &mut Vec<Request>) {
         out.push(Request::ErrorLine(text.to_owned()));
     }
@@ -1055,7 +1103,6 @@ impl GamePlay {
         &mut self,
         text: String,
         objects: [u64; 2],
-        tokens: [u32; 2],
         value: u32,
         out: &mut Vec<Request>,
     ) {
@@ -1063,12 +1110,7 @@ impl GamePlay {
             self.close_dialog(c.id, out);
         }
         let id = self.new_dialog(dialog::CONFIRMATION, text, true, out);
-        self.confirmation = Some(Confirmation {
-            id,
-            objects,
-            tokens,
-            value,
-        });
+        self.confirmation = Some(Confirmation { id, objects, value });
     }
 
     /// The player died (the play screen hidden, death's dialog up) or lives again (the dialog
@@ -1113,7 +1155,6 @@ impl GamePlay {
             if yes {
                 out.push(Request::Confirm {
                     objects: c.objects,
-                    tokens: c.tokens,
                     value: c.value,
                 });
             }
@@ -1127,21 +1168,6 @@ impl GamePlay {
         if id == self.resurrect {
             self.resurrect = 0;
             out.push(Request::Resurrect);
-        }
-    }
-
-    /// The please-wait dialog cancelled: back to the character list.
-    // D2-01921
-    pub fn do_please_wait_cancel(&mut self, out: &mut Vec<Request>) {
-        self.wait = 0;
-        out.push(Request::CharacterSelection);
-    }
-
-    /// The please-wait dialog closed.
-    // D2-01924
-    pub fn close_wait_dialog(&mut self, id: u32, out: &mut Vec<Request>) {
-        if id == self.wait {
-            self.do_please_wait_cancel(out);
         }
     }
 
@@ -1208,6 +1234,7 @@ impl GamePlay {
     ) {
         if playing {
             self.playing_portal_scene = true;
+            out.push(Request::PortalScenePlaying(true));
         }
         self.check_portal_scene(ui, scenes, out);
     }
@@ -1236,6 +1263,7 @@ impl GamePlay {
     pub fn player_ready_to_enter_world(&mut self, ui: &mut Ui, out: &mut Vec<Request>) {
         if self.playing_portal_scene {
             self.playing_portal_scene = false;
+            out.push(Request::PortalScenePlaying(false));
             self.check_portal_scene(ui, &crate::story::Scenes::default(), out);
         }
     }
@@ -1284,9 +1312,28 @@ impl GamePlay {
 
     /// The panels' places changed: kept with the player's options and sent to the server to
     /// keep.
-    // D2-01962
+    // D2-01962, D2-00323
     pub fn save_locations_changed(out: &mut Vec<Request>) {
         out.push(Request::SaveLocations);
+    }
+
+    /// The scripts' command to write or read the panels' places: its file's name goes with it.
+    // D2-01946, D2-01947
+    fn layout_notice(ui: &Ui, n: &Notice, out: &mut Vec<Request>) {
+        let name = n
+            .records
+            .iter()
+            .flatten()
+            .find_map(|r| match r {
+                Record::Text(t) => ui.assets().write(t),
+                _ => None,
+            })
+            .unwrap_or_default();
+        out.push(if n.native == notice::SAVE_UI {
+            Request::SaveLayout { name }
+        } else {
+            Request::LoadLayout { name }
+        });
     }
 
     /// The player's options came again: the panels' places put back from them.
@@ -1358,10 +1405,16 @@ pub mod layout_file {
         ("<CHAT4>", "ChatWindow4"),
     ];
 
-    /// The file's name: the folder, the character, the world, the screen's width and height.
+    /// The file's name: the name the player gave, or with none the character's, the world's and
+    /// the screen's width and height.
+    // D2-01929
     #[must_use]
-    pub fn path(folder: &str, character: &str, world: &str, width: i32, height: i32) -> String {
-        format!("{folder}UI-{character}-{world}-{width}-{height}.txt")
+    pub fn file_name(name: &str, character: &str, world: &str, width: i32, height: i32) -> String {
+        if name.is_empty() {
+            format!("UI-{character}-{world}-{width}-{height}.txt")
+        } else {
+            format!("{name}.txt")
+        }
     }
 
     /// The file written: each panel's line, its place on the screen and its size.

@@ -692,6 +692,7 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
             journals: vec![(5, 6)],
             challenge: 1,
             duration: 0.0,
+            timed_phase: 0,
             retry: 0.0,
             xp: 0,
             cancellable: false,
@@ -702,6 +703,11 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
             min_level: 0,
             fails_on_death: false,
             once: false,
+            fellows: yalain_content::quests::Fellows::default(),
+            last_waits: false,
+            hero_only: false,
+            pay: yalain_content::quests::CompletionPay::default(),
+            required: None,
         });
         h.server.quests.steps.push(Step {
             quest: QUEST,
@@ -719,6 +725,7 @@ fn a_kill_by_a_player_the_creature_could_not_reach_pays_no_one_and_moves_no_ques
             takes: Vec::new(),
             races: Vec::new(),
             effects_last: false,
+            wants: None,
             fellows: false,
             to: None,
         });

@@ -57,6 +57,8 @@ pub mod slider {
     pub const SIDEWAYS: u32 = 0x4000_0002;
     pub const VERTICAL: u32 = 0x4000_0003;
     pub const TURN: u32 = 0x4000_0004;
+    /// How hard the wind blows.
+    pub const WIND: u32 = 0x4000_000B;
 }
 
 /// The pose kind a bone nothing animates rests in.
@@ -83,6 +85,10 @@ pub trait BodyRecords: Animations + LookRecords {
     /// gives each body a generator of its own.
     fn dice(&self) -> Option<&Random> {
         None
+    }
+    /// How hard the world's wind blows at the moment, which each body's wind slider follows.
+    fn wind(&self) -> f32 {
+        0.0
     }
 }
 
@@ -292,10 +298,6 @@ impl Host for Ctx<'_> {
 
     fn is_the_player(&self) -> bool {
         self.is_player
-    }
-
-    fn do_behavior_on_object(&mut self, _target: u64, _behavior: u32) -> bool {
-        false
     }
 
     fn triggers(&mut self) -> Option<&mut FrameTriggers> {
@@ -667,20 +669,6 @@ impl Body {
         self.scripts.do_script(records, script)
     }
 
-    /// A slider's value now (0 for one never moved).
-    // D2-05897, D2-06393
-    #[must_use]
-    pub fn slider_current(&self, slider: u32) -> f32 {
-        self.sliders.current(slider)
-    }
-
-    /// The value a slider is moving to.
-    // D2-05898, D2-06394
-    #[must_use]
-    pub fn slider_desired(&self, slider: u32) -> f32 {
-        self.sliders.desired(slider)
-    }
-
     /// What the behaviors asked of the object since last taken.
     pub fn take_events(&mut self) -> Vec<Event> {
         std::mem::take(&mut self.events)
@@ -768,6 +756,12 @@ impl Body {
             let m = self.mode;
             self.set_mode(records, m);
         }
+        // D2-06487
+        let wind = records.wind();
+        #[allow(clippy::float_cmp)] // the client compares them exactly
+        if self.sliders.current(slider::WIND) != wind {
+            self.sliders.do_slider(0, slider::WIND, wind, 1.0);
+        }
         self.sliders.update(dt);
         self.scripts
             .update(dt, records, &mut self.triggers, &mut self.dice);
@@ -848,6 +842,7 @@ impl Body {
                 .skeleton
                 .as_ref()
                 .map_or_else(|| vec![None; n], |s| s.parents.clone());
+            // D2-12875
             let bone_types: Vec<u32> = part.setup.bones.iter().map(|b| b.id).collect();
             let mut acc = Pose::new(n);
             let sliders_now = self.sliders.clone();
@@ -868,6 +863,19 @@ impl Body {
         if posed {
             self.poses = poses;
         }
+    }
+
+    /// One bone's transform in the body's current pose, with no copy of a pose already worked out.
+    pub(crate) fn pose_of_bone(
+        &self,
+        records: &dyn BodyRecords,
+        group: usize,
+        bone: usize,
+    ) -> Option<Mat4> {
+        if self.poses.len() == self.parts.len() {
+            return self.poses.get(group)?.bones.get(bone).copied();
+        }
+        self.pose(records).get(group)?.bones.get(bone).copied()
     }
 
     /// Each part group's pose at the behaviors' current times: the one the last step blended, or

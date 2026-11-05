@@ -148,6 +148,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "link.flow.a-packet-stays-resendable-while-the-connection-can-last",
+        says: "A sent packet not yet acknowledged can be sent again for as long as the connection \
+               can last: a peer back from a dropout just under the 140-second timeout has it sent \
+               again when it asks, and is not told it is gone.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC-EVID-FLOW-RESEND-KEEP"),
+        station: "dereth-transport::lib::flow::tests::a_packet_is_sent_again_after_a_dropout_just_under_the_timeout",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "link.flow.each-closed-server-interval-is-reported-with-its-byte-count",
         says: "Each time a datagram from the shard opens a newer half-second interval of the \
                shard's, the client reports back how many bytes it received in the interval just \

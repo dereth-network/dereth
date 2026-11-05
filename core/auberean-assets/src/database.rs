@@ -28,7 +28,7 @@ use crate::entity::{Entity, EntityGroup};
 use crate::fx::FxTable;
 use crate::property::{Names, PropertyList, MASTER_PROPERTY_MAPPING, MASTER_PROPERTY_VALUE};
 use crate::strings::{EnumMap, StringTable};
-use crate::tables::{FileIdTable, IdMap};
+use crate::tables::IdMap;
 use crate::visual::{Appearance, VisualDesc};
 use crate::{decode, Context, Decode};
 
@@ -91,6 +91,8 @@ pub fn gather_sub_ids(record: &dyn Any, kind: u32, out: &mut QualifiedIds) {
         t.sub_ids(kind, out);
     } else if let Some(m) = record.downcast_ref::<IdMap>() {
         m.sub_ids(kind, out);
+    } else if let Some(m) = record.downcast_ref::<crate::strings::EnumMap>() {
+        m.sub_ids(out);
     } else if let Some(e) = record.downcast_ref::<Entity>() {
         e.sub_ids(out);
     } else if let Some(g) = record.downcast_ref::<EntityGroup>() {
@@ -105,6 +107,10 @@ pub fn gather_sub_ids(record: &dyn Any, kind: u32, out: &mut QualifiedIds) {
         t.sub_ids(kind, out);
     } else if let Some(q) = record.downcast_ref::<crate::script::Qualities>() {
         q.sub_ids(out);
+    } else if let Some(s) = record.downcast_ref::<crate::sound::SoundInfo>() {
+        s.sub_ids(out);
+    } else if let Some(m) = record.downcast_ref::<crate::sound::MusicInfo>() {
+        m.sub_ids(out);
     } else if !cell_sub_ids(record, out) {
         region_sub_ids(record, out);
     }
@@ -164,7 +170,7 @@ fn region_sub_ids(record: &dyn Any, out: &mut QualifiedIds) {
 }
 
 /// Records loaded from data files, kept in per-type caches.
-// D2-12628, D2-12627, D2-12613, D2-12614, D2-12626
+// D2-12628, D2-12627, D2-12613, D2-12614, D2-12626, D2-12636
 pub struct Database {
     files: Vec<Arc<DatFile>>,
     /// The files as the data cache stores into them, when it does: records are read through them,
@@ -173,8 +179,6 @@ pub struct Database {
     master_map: u32,
     ctx: Context,
     caches: Shared,
-    region: u32,
-    language: u32,
     client: bool,
     server: bool,
     graph: Mutex<Option<Box<dyn DataGraph>>>,
@@ -207,6 +211,7 @@ impl Database {
     }
 
     fn make(files: Vec<Arc<DatFile>>, stores: Option<Arc<StoreSet>>) -> Self {
+        // D2-05125
         let master_map = files.first().map_or(0, |f| f.header().master_map_id);
         let mut db = Self {
             files,
@@ -214,8 +219,6 @@ impl Database {
             master_map,
             ctx: Context::empty(),
             caches: Arc::new(Mutex::new(cache::Caches::default())),
-            region: 0,
-            language: 0,
             client: true,
             server: false,
             graph: Mutex::new(None),
@@ -238,55 +241,10 @@ impl Database {
         }
     }
 
-    /// Whether this database runs a game (always, here: no world-building tool runs it).
-    // D2-12605
-    #[must_use]
-    pub fn is_runtime(&self) -> bool {
-        true
-    }
-
-    /// Whether this database serves a client.
-    // D2-12606
-    #[must_use]
-    pub fn is_client(&self) -> bool {
-        self.client
-    }
-
-    /// Whether this database serves a server.
-    // D2-12607
-    #[must_use]
-    pub fn is_server(&self) -> bool {
-        self.server
-    }
-
     /// Say whether the database serves a client and a server.
     pub fn set_roles(&mut self, client: bool, server: bool) {
         self.client = client;
         self.server = server;
-    }
-
-    /// The region the cell records are read for.
-    // D2-12604
-    #[must_use]
-    pub fn current_region(&self) -> u32 {
-        self.region
-    }
-
-    // D2-12608
-    pub fn set_region(&mut self, region: u32) -> bool {
-        self.region = region;
-        true
-    }
-
-    /// The language the local records are read for.
-    // D2-12612
-    #[must_use]
-    pub fn local_language(&self) -> u32 {
-        self.language
-    }
-
-    pub fn set_local_language(&mut self, language: u32) {
-        self.language = language;
     }
 
     /// Give the caches time: `now` is the host's clock in seconds; past a type's ideal number of
@@ -302,6 +260,7 @@ impl Database {
 
     /// Whether one type's cache (`Some`; `false` when the type has none yet) or every type's
     /// keeps free records.
+    // D2-12635
     pub fn keep_free_objects(&self, kind: Option<u32>, keep: bool) -> bool {
         cache::keep_free_objects(&self.caches, kind, keep)
     }
@@ -326,13 +285,6 @@ impl Database {
     /// Throw away every cache (handles still out keep their records).
     pub fn destroy_object_caches(&self) {
         cache::destroy_all(&self.caches);
-    }
-
-    /// A file-id table record (the names of the music files, by id).
-    // D2-07827
-    #[must_use]
-    pub fn file_id_table(&self, id: u32) -> Option<Obj<FileIdTable>> {
-        self.get_typed(id, RecordType::FILE_ID_TABLE.0)
     }
 
     /// Whether whoever uses the database asks for records only as it needs them, never ahead in
@@ -526,21 +478,6 @@ impl Database {
         }
     }
 
-    /// Read every loaded record of a type (decoded as `T`) again, when the type has a name in
-    /// the enumeration of types.
-    // D2-12624, D2-12652
-    pub fn reload_cache<T: Decode + Send + Sync + 'static>(&self, kind: u32) -> bool {
-        if self.enumeration_name(ENUM_MAP_MAPPING, kind).is_none() {
-            return false;
-        }
-        for (id, ty) in cache::loaded(&self.caches, kind) {
-            if ty == TypeId::of::<T>() {
-                self.reload::<T>(id);
-            }
-        }
-        true
-    }
-
     /// The record id an enumeration value maps to (0 for none): the master id map names the
     /// mapping's id map, and that map names the record.
     // D2-12602, D2-12601, D2-12696, D2-12713
@@ -637,20 +574,6 @@ impl Database {
     #[must_use]
     pub fn enum_map_len(&self, map: u32) -> usize {
         self.chain(map).iter().map(|m| sorted(m).len()).sum()
-    }
-
-    /// Add a name to an enum map held in memory: refused when the name or the value is already
-    /// there (in the map or its bases).
-    // D2-14376
-    pub fn add_enum_mapping(&self, map: &mut EnumMap, name: &str, value: u32) -> bool {
-        let in_base_name = map.base != 0 && self.enum_map_value(map.base, name).is_some();
-        let in_base_value = map.base != 0 && self.enum_map_name(map.base, value).is_some();
-        if map.enum_of(name).is_some() || in_base_name || map.name(value).is_some() || in_base_value
-        {
-            return false;
-        }
-        map.names.push((value, name.to_owned()));
-        true
     }
 
     // ------------------------------------------------------------------ enumerations

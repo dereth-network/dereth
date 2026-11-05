@@ -1290,7 +1290,7 @@ impl HorizonFrontEnd {
             }
         }
         if let Some((action, target, token, who)) = out.allegiance_question.clone() {
-            let prompt = self
+            let mut prompt = self
                 .strings
                 .fill(
                     cx.store(),
@@ -1299,6 +1299,14 @@ impl HorizonFrontEnd {
                     &[("PLAYER", who.as_str())],
                 )
                 .unwrap_or(who);
+            // A world that charges experience for an oath says what this one costs.
+            if action == dereth_client_contract::view::AllegianceAction::Swear {
+                let view = cx.hud().view(cx.objects());
+                prompt.push_str(
+                    &dereth_ui_screens::panels::allegiance::oath_cost_line(&view)
+                        .unwrap_or_default(),
+                );
+            }
             self.outbox.emit(UiRequest::AllegianceConfirmation {
                 action,
                 target,

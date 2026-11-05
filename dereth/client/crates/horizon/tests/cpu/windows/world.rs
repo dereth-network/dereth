@@ -208,3 +208,204 @@ fn a_world_without_housing_or_chess_offers_neither_window() {
     assert!(!h.ui.windows.offers(WindowId::GameCenter));
     assert!(h.ui.windows.offers(WindowId::Map));
 }
+
+/// Everything on but what `off` takes away.
+fn without(off: fn(&mut EraFeatures)) -> GameState {
+    let mut state = in_world();
+    state.world_services.features = EraFeatures::ALL;
+    state.notebook = true;
+    off(&mut state.world_services.features);
+    state
+}
+
+/// Behaviour: presentation.era.every-interface-refuses-what-the-world-lacks
+/// A window of a system the world lacks stays shut through the one place that opens windows:
+/// directly, by its key, and from the game's own notice. One open as the system goes closes.
+#[test]
+fn a_window_of_a_system_the_world_lacks_stays_shut_whatever_asks() {
+    let mut h = Harness::new(Default::default());
+    let mut state = without(|f| {
+        f.housing = false;
+        f.apartments = false;
+    });
+    h.frame(&state);
+    h.ui.windows.open(WindowId::House, 0.0);
+    assert!(!h.ui.windows.is_open(WindowId::House), "asked directly");
+    // The house key.
+    h.input.actions.push(0x1000_0018);
+    h.frame(&state);
+    assert!(!h.ui.windows.is_open(WindowId::House), "by its key");
+    // A deed's profile from the game.
+    let mut deed = at_a_deed();
+    deed.world_services.features.housing = false;
+    deed.world_services.features.apartments = false;
+    h.frame(&deed);
+    assert!(!h.ui.windows.is_open(WindowId::Maintenance), "by the game");
+
+    state.world_services.features = EraFeatures::ALL;
+    h.frame(&state);
+    h.ui.windows.open(WindowId::House, 0.0);
+    assert!(h.ui.windows.is_open(WindowId::House));
+    state.world_services.features.housing = false;
+    h.frame(&state);
+    assert!(!h.ui.windows.is_open(WindowId::House), "closes as it goes");
+}
+
+/// Behaviour: presentation.era.every-interface-refuses-what-the-world-lacks
+/// The trade the game holds open on a world without trade opens no window and sends no close,
+/// frame after frame; the same for the salvage list.
+#[test]
+fn a_refused_trade_or_salvage_window_does_not_answer_the_game_every_frame() {
+    use dereth_client_contract::panels::salvage::SalvageAction;
+    let mut h = Harness::new(Default::default());
+    let mut state = without(|f| {
+        f.trade = false;
+        f.tinkering = false;
+    });
+    state.trade = Some(dereth_client_contract::view::TradeView {
+        open: true,
+        ..Default::default()
+    });
+    state.salvage = Some(Default::default());
+    for _ in 0..4 {
+        let out = h.frame(&state);
+        assert!(!out.requests.contains(&UiRequest::TradeClose));
+        assert!(!out
+            .requests
+            .contains(&UiRequest::SalvageList(SalvageAction::Close)));
+        assert!(!h.ui.windows.is_open(WindowId::Trade));
+        assert!(!h.ui.windows.is_open(WindowId::Salvage));
+    }
+}
+
+/// Behaviour: presentation.era.every-interface-refuses-what-the-world-lacks
+/// The journal's keys follow the journal and the contract key the contracts, though one window
+/// holds both.
+#[test]
+fn the_journal_and_contract_keys_each_follow_their_own_system() {
+    const JOURNAL: u32 = 0x1000_0128;
+    const CONTRACTS: u32 = 0x1000_012E;
+    for (state, key, opens) in [
+        (without(|f| f.journal = false), JOURNAL, false),
+        (without(|f| f.journal = false), CONTRACTS, true),
+        (without(|f| f.contracts = false), CONTRACTS, false),
+        (without(|f| f.contracts = false), JOURNAL, true),
+    ] {
+        let mut h = Harness::new(Default::default());
+        h.frame(&state);
+        h.input.actions.push(key);
+        h.frame(&state);
+        assert_eq!(h.ui.windows.is_open(WindowId::Journal), opens, "{key:x}");
+    }
+}
+
+/// Behaviour: presentation.era.every-interface-refuses-what-the-world-lacks
+/// With one page the Journal draws it and has nothing to turn to.
+#[test]
+fn the_journal_window_shows_only_the_pages_the_world_has() {
+    use dereth_client_contract::journal::JournalAction;
+    let shows_notebook = |state: &GameState| {
+        let mut h = Harness::new(Default::default());
+        h.frame(state);
+        h.ui.windows.open(WindowId::Journal, 0.0);
+        h.frame(state)
+            .requests
+            .contains(&UiRequest::Journal(JournalAction::Visibility(true)))
+    };
+    let mut no_notebook = without(|_| {});
+    no_notebook.notebook = false;
+    assert!(!shows_notebook(&no_notebook));
+    assert!(
+        shows_notebook(&without(|f| f.contracts = false)),
+        "the notebook is the one page there is"
+    );
+    assert!(
+        !shows_notebook(&without(|_| {})),
+        "both pages: the contracts first"
+    );
+}
+
+/// The Allegiance window's Swear button, at a layout scale of one.
+fn swear_button() -> (f32, f32) {
+    let ((w, h), (x, y)) = WindowId::Allegiance.geometry();
+    let (bx, bw) = (x + 12.0, w - 24.0);
+    let foot = y + h - 10.0 - 30.0;
+    (bx + (bw - 12.0) / 6.0, foot + 14.0)
+}
+
+/// Behaviour: presentation.era.every-interface-refuses-what-the-world-lacks
+/// The Swear button follows the shared rule the other two interfaces read, not only the selection:
+/// a player the rule refuses (short of the experience an oath costs) is no one to swear to.
+#[test]
+fn the_swear_button_follows_the_shared_rule_for_whom_the_character_may_swear_to() {
+    use dereth_horizon::ui::game::{Relation, Target};
+    let someone = ObjectId(0x5000_0002);
+    let at = |swear_target| {
+        let mut state = in_world();
+        state.target = Some(Target {
+            id: someone,
+            name: "Someone".into(),
+            relation: Relation::Player,
+            health: None,
+            level: None,
+            icon: None,
+            look: None,
+        });
+        state.swear_target = swear_target;
+        let mut h = Harness::new(Default::default());
+        h.frame(&state);
+        h.ui.windows.open(WindowId::Allegiance, 0.0);
+        h.frame(&state);
+        let (x, y) = swear_button();
+        h.move_to(x, y);
+        h.press();
+        let out = h.frame(&state);
+        h.release();
+        out.allegiance_question
+    };
+    assert_eq!(at(None), None, "short of experience, the button is off");
+    let asked = at(Some(someone)).expect("asked");
+    assert_eq!(asked.1, someone);
+}
+
+/// Behaviour: presentation.era.fellowship-options-follow-the-world
+/// A world without open fellowships has no Open button: the buttons after it close up, and its
+/// place is Quit's.
+#[test]
+fn the_fellowship_window_has_an_open_button_only_with_open_fellowships() {
+    use dereth_client_contract::view::{FellowEntry, FellowshipView};
+    let me = ObjectId(0x5000_0001);
+    let press_fourth_button = |fellowship_open: bool| {
+        let mut state = without(|_| {});
+        state.era = Some(EraFeatures {
+            fellowship_open,
+            ..EraFeatures::ALL
+        });
+        state.player_id = Some(me);
+        state.fellowship_view = Some(FellowshipView {
+            leader: me,
+            members: vec![FellowEntry {
+                id: me,
+                ..FellowEntry::default()
+            }],
+            ..FellowshipView::default()
+        });
+        let mut h = Harness::new(Default::default());
+        h.frame(&state);
+        h.ui.windows.open(WindowId::Social, 0.0);
+        h.frame(&state);
+        let ((w, height), (x, y)) = WindowId::Social.geometry();
+        let bw = (w - 24.0 - 30.0) / 6.0;
+        let foot = y + height - 10.0 - 30.0;
+        h.move_to(x + 12.0 + 3.0 * (bw + 6.0) + bw / 2.0, foot + 14.0);
+        h.press();
+        let mut asked = h.frame(&state).requests;
+        h.release();
+        asked.extend(h.frame(&state).requests);
+        asked
+    };
+    assert!(press_fourth_button(true).contains(&UiRequest::FellowshipToggleOpenness));
+    let without_it = press_fourth_button(false);
+    assert!(!without_it.contains(&UiRequest::FellowshipToggleOpenness));
+    assert!(without_it.contains(&UiRequest::FellowshipQuit { disband: false }));
+}

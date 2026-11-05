@@ -142,11 +142,17 @@ pub struct TestHost {
     pub names: std::collections::BTreeMap<(String, u32), u32>,
     /// The enumeration mappings: (value, mapping) to id.
     pub enum_ids: std::collections::BTreeMap<(u32, u32), u32>,
+    /// The records' caches, when the host has them.
+    pub database: Option<auberean_assets::Database>,
 }
 
 impl Host for TestHost {
     fn saved_state(&mut self, _: u32) -> Option<Arc<SavedState>> {
         None
+    }
+
+    fn database(&mut self) -> Option<&auberean_assets::Database> {
+        self.database.as_ref()
     }
 
     fn send(

@@ -669,6 +669,7 @@ fn portal_quest(id: u32) -> yalain_content::quests::QuestDef {
         journals: Vec::new(),
         challenge: -999,
         duration: 0.0,
+        timed_phase: 0,
         retry: 0.0,
         xp: 0,
         cancellable: false,
@@ -679,6 +680,11 @@ fn portal_quest(id: u32) -> yalain_content::quests::QuestDef {
         min_level: 0,
         fails_on_death: false,
         once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
+        hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
+        required: None,
     }
 }
 
@@ -1338,6 +1344,64 @@ fn a_walk_to_a_portal_the_player_moves_off_by_hand_is_refused_as_interrupted() {
     assert_eq!(teleported_to(&h, a, from, ida), None, "no trip");
 }
 
+/// A placed object for monarchs alone is refused at once wherever the player stands, with no walk,
+/// to a player in no allegiance and to a vassal: "Only monarchs can use that item." (10038), flags
+/// 828, the distance from where the player asked. A monarch is not refused.
+/// Behaviour: server.places.monarch-only
+#[test]
+fn an_object_for_monarchs_alone_is_refused_at_once_to_anyone_else() {
+    use yalain_world::allegiance::Node;
+    use yalain_world::item_use::refusal::MONARCH_ONLY;
+    const SIGN: u64 = 0x4002_9900_0000_0064;
+    const TEMPLATE: u32 = 0x4700_11C4;
+    let mut h = Harness::new();
+    let mut props = yalain_content::Props::default();
+    props.set("Usage_MonarchOnly", yalain_content::Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(TEMPLATE, 0x13C1, props));
+    h.server.content = ContentPack {
+        objects: vec![object(SIGN, TEMPLATE, [61.0, 290.0, -44.6], None)],
+        ..ContentPack::default()
+    };
+    let (a, ida) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let used = |h: &mut Harness| {
+        let from = h.bots[a].inbox.len();
+        h.bots[a].send(
+            true,
+            queue::WEENIE,
+            &server_call(function::USE, &[use_of(SIGN, ida)]),
+        );
+        h.run(3);
+        let walked = h
+            .world_messages(a, from)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::MoveTo(o) if o.sender.id == ida));
+        (use_answers(h, a, from), walked)
+    };
+    let (answers, walked) = used(&mut h);
+    assert_eq!(answers.len(), 1, "in no allegiance: answered at once");
+    assert_eq!((answers[0].0, answers[0].1), (MONARCH_ONLY, 828));
+    assert_eq!(MONARCH_ONLY, 10_038);
+    assert!(answers[0].2 > 40.0, "from where the player asked");
+    assert!(!walked, "no walk");
+    const PATRON: u64 = 0x2130_0000_0000_0FFF;
+    let node = |patron: u64| Node {
+        patron,
+        ..Node::default()
+    };
+    h.server.allegiances.nodes.insert(PATRON, node(0));
+    h.server.allegiances.nodes.insert(ida, node(PATRON));
+    let (answers, _) = used(&mut h);
+    assert_eq!(answers.len(), 1, "a vassal");
+    assert_eq!(answers[0].0, MONARCH_ONLY);
+    h.server.allegiances.nodes.remove(&PATRON);
+    h.server.allegiances.nodes.insert(ida, node(0));
+    let (answers, _) = used(&mut h);
+    assert!(answers.is_empty(), "a monarch is not refused");
+}
+
 /// A placed object of a kind that cannot be used (a forge, a road sign) is refused at once wherever
 /// the player stands, with no walk: "cannot use" (10001), flags 828, the distance from where the
 /// player asked.
@@ -1386,5 +1450,38 @@ fn a_forge_or_a_road_sign_is_refused_at_once_wherever_the_player_stands() {
     assert!(
         use_answers(&h, a, from).is_empty(),
         "an object of another kind: not answered"
+    );
+}
+
+/// Of what the world database places, creatures meet what stays where it is for every player: not
+/// a creature, a person on a route, a door, or what a quest gates.
+/// Behaviour: server.creatures.chase-around-walls
+#[test]
+fn creatures_meet_what_stays_where_it_stands_for_every_player() {
+    let mut h = Harness::new();
+    let plain = object(0x4002_9900_0000_0001, 0x4700_0001, [1.0, 2.0, 3.0], None);
+    let mut scaled = object(0x4002_9900_0000_0002, 0x4700_0001, [1.0, 2.0, 3.0], None);
+    scaled.description.scale = Some(2.5);
+    let mut creature = object(0x4002_9900_0000_0003, 0x4700_0001, [1.0, 2.0, 3.0], None);
+    creature.kind = Kind::Creature;
+    let mut walker = object(0x4002_9900_0000_0004, 0x4700_0001, [1.0, 2.0, 3.0], None);
+    walker.walks = Some(yalain_content::CampMoves::default());
+    let mut gated = object(0x4002_9900_0000_0005, 0x4700_0001, [1.0, 2.0, 3.0], None);
+    gated.gate = Some(yalain_content::QuestGate {
+        quest: 0x4000_0001,
+        status: 0,
+    });
+    let mut door = object(0x4002_9900_0000_0006, 0x4700_0001, [1.0, 2.0, 3.0], None);
+    door.description.package = 0xD00;
+    h.server
+        .doors
+        .packages
+        .insert(0xD00, yalain_world::usable::doors::Kind::Plain);
+    h.server.content.objects = vec![plain.clone(), scaled.clone(), creature, walker, gated, door];
+    let rows = yalain_world::walls_standing(&h.server);
+    let met: Vec<(u64, f32)> = rows.iter().map(|r| (r.id, r.scale)).collect();
+    assert_eq!(
+        met,
+        [(plain.object.unwrap(), 1.0), (scaled.object.unwrap(), 2.5)]
     );
 }

@@ -11,6 +11,16 @@ use dereth_client_contract::view::MagicNotice;
 #[derive(Debug, Default)]
 pub struct Shortcuts;
 impl Panel for Shortcuts {
+    fn hover(&self, at: HoverPoint<'_>, c: &Context<'_>) -> Option<Hover> {
+        at.id.strip_prefix("slot:")?;
+        match at.item {
+            Some(item) => Hover::line(format!(
+                "Shortcut to {}",
+                c.game.name(item).unwrap_or_default()
+            )),
+            None => Hover::line("Drag items and spells here to make shortcuts"),
+        }
+    }
     fn id(&self) -> &'static str {
         "shortcuts"
     }
@@ -144,6 +154,24 @@ const SELECTED: [u32; 8] = [
 fn tab_count(game: &dyn GameView) -> usize {
     game.era_ui().spell_favorite_tabs
 }
+/// How tall the row the spell tabs stand in is.
+const TAB_ROW: i32 = 20;
+
+/// The bar's frame with the empty row its tabs would stand in taken off the top.
+fn without_tab_row(mut f: PanelFrame) -> PanelFrame {
+    f.screen.height = f.screen.height.saturating_sub(TAB_ROW.unsigned_abs());
+    f.screen.commands = f
+        .screen
+        .commands
+        .into_iter()
+        .map(|c| crate::desktop::translate_command(c, 0, -TAB_ROW))
+        .collect();
+    for c in &mut f.controls {
+        c.rect.y -= TAB_ROW;
+    }
+    f
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Favorites {
     tab: usize,
@@ -289,7 +317,89 @@ fn layout(width: i32, endowment: bool) -> (i32, i32, i32) {
     let list_x = left + extra + 28;
     (left, list_x, list_width)
 }
+/// The ends and middle of the charge bar, full and spent.
+const CHARGE_FULL: [u32; 3] = [0x0600_1A96, 0x0600_1A94, 0x0600_1A92];
+const CHARGE_SPENT: [u32; 3] = [0x0600_1A8D, 0x0600_1A95, 0x0600_1A93];
+
+/// The selected spell's charge: a bar filled by it with its percent on it, "Charge" beneath.
+fn charge_bar(f: &mut PanelFrame, r: Rect, charge: f32) {
+    let percent = dereth_rules::spell_charge::percent(charge);
+    let filled = r.w * i32_from(percent as usize) / 100;
+    let row = |f: &mut PanelFrame, art: [u32; 3], clip: Option<[i32; 4]>| {
+        const END: i32 = 20;
+        image(f, art[0], rect(r.x, r.y, END, r.h), clip, false, false);
+        image(
+            f,
+            art[1],
+            rect(r.x + END, r.y, r.w - 2 * END, r.h),
+            clip,
+            true,
+            false,
+        );
+        image(
+            f,
+            art[2],
+            rect(r.x + r.w - END, r.y, END, r.h),
+            clip,
+            false,
+            false,
+        );
+    };
+    row(f, CHARGE_SPENT, None);
+    row(f, CHARGE_FULL, Some([r.x, r.y, r.x + filled, r.y + r.h]));
+    f.text_box(
+        r,
+        format!("{percent}%"),
+        "15-6",
+        0xffff_ffff,
+        crate::TextAlign::Center,
+        false,
+        None,
+    );
+    f.text_box(
+        rect(r.x, r.y + r.h, r.w, r.h),
+        "Charge",
+        "15-6",
+        0xffff_ffff,
+        crate::TextAlign::Center,
+        false,
+        None,
+    );
+}
+
 impl Panel for Favorites {
+    fn hover(&self, at: HoverPoint<'_>, c: &Context<'_>) -> Option<Hover> {
+        let g = c.game;
+        if at.id == "cast" {
+            return match self.choice(g) {
+                Some((Some(object), _)) => Hover::line(format!(
+                    "Click to use your {}",
+                    g.name(object).unwrap_or_default()
+                )),
+                Some((None, spell)) => {
+                    Hover::line(format!("Click to cast {}", g.spell(spell)?.name))
+                }
+                None if drawable_favorites(g, self.tab).is_empty() => Hover::lines(
+                    "Drag a spell to the menu above,",
+                    "then click here to cast it.",
+                ),
+                None => Hover::lines(
+                    "Select a spell from the menu above,",
+                    "then click here to cast it.",
+                ),
+            };
+        }
+        if !at.id.starts_with("spell:") {
+            return None;
+        }
+        match self.spell_at(at.id, g) {
+            Some(spell) => Hover::lines(g.spell(spell)?.name, "Double-click to cast this spell"),
+            None => Hover::lines(
+                "Drag a spell here from your spellbook",
+                "to make it available to cast",
+            ),
+        }
+    }
     fn id(&self) -> &'static str {
         "spell-favorites"
     }
@@ -323,7 +433,9 @@ impl Panel for Favorites {
             false,
             false,
         );
-        for i in 0..tab_count(g) {
+        // A world without the panel's tabs has one bar and nothing above it.
+        let tabs = if tab_count(g) > 1 { tab_count(g) } else { 0 };
+        for i in 0..tabs {
             art(
                 f.button(
                     format!("tab:{i}"),
@@ -340,14 +452,16 @@ impl Panel for Favorites {
                 NORMAL[i],
             );
         }
-        image(
-            &mut f,
-            0x06001cba,
-            rect(329, 0, w - 329, 20),
-            None,
-            true,
-            false,
-        );
+        if tabs > 0 {
+            image(
+                &mut f,
+                0x06001cba,
+                rect(329, 0, w - 329, 20),
+                None,
+                true,
+                false,
+            );
+        }
         let (left, x, width) = layout(self.width(), g.endowment().is_some());
         let rows = drawable_favorites(g, self.tab);
         let visible = width as usize / 32;
@@ -447,11 +561,21 @@ impl Panel for Favorites {
             c.paint = false;
             c.slot = true;
         }
+        if g.era_features().spell_charge {
+            let charge = self
+                .choice(g)
+                .and_then(|(_, spell)| g.spell_charge(spell))
+                .unwrap_or(1.0);
+            charge_bar(&mut f, rect(9, 66, w - 237, 16), charge);
+        }
         let (label, enabled) = self.cast_label(g);
         let button = f.button("cast", rect(w - 214, 66, 200, 32), label, enabled);
         button.font = "15-6".into();
         button.color = 0xffffffff;
         art(button, 0x060019e9, 0x060019eb, 0x060019ea);
+        if tabs == 0 {
+            f = without_tab_row(f);
+        }
         f
     }
     fn event(&mut self, e: ControlEvent, ctx: &Context<'_>) -> Vec<PanelAction> {
@@ -582,6 +706,84 @@ impl Panel for Favorites {
             _ => {}
         }
         vec![]
+    }
+}
+
+#[cfg(test)]
+mod tab_tests {
+    //! The favorites bar on a world with and without the panel's tabs.
+    use super::*;
+
+    #[derive(Debug)]
+    struct Era(dereth_client_contract::EraView);
+    impl GameView for Era {
+        fn era(&self) -> Option<&dereth_client_contract::EraView> {
+            Some(&self.0)
+        }
+    }
+
+    /// Every picture a frame names.
+    fn pictures(f: &PanelFrame) -> Vec<String> {
+        let mut out: Vec<String> = f
+            .screen
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                crate::Command::Image { did, .. } => Some(did.clone()),
+                _ => None,
+            })
+            .collect();
+        for c in &f.controls {
+            out.extend(c.images.iter().flatten().cloned());
+        }
+        out
+    }
+
+    /// Behaviour: presentation.era.a-world-without-spell-tabs-draws-one-bar
+    /// A world without the tabs draws the bar and no tab, no strip, and no empty row over it.
+    #[test]
+    fn a_world_without_spell_tabs_draws_one_bar_and_no_tab_art() {
+        let view = |era| {
+            Era(dereth_client_contract::EraView {
+                era,
+                era_announced: true,
+                ..Default::default()
+            })
+        };
+        let launch = view(dereth_primitives::EraId::Launch);
+        let later = view(dereth_primitives::EraId::Eor);
+        let tab_art: Vec<String> = NORMAL
+            .iter()
+            .chain(&SELECTED)
+            .chain(&[0x0600_1CBA])
+            .map(|id| format!("{id:08X}"))
+            .collect();
+        let resources = crate::resources::Resources::default();
+        let (p, k, s, classic) = Default::default();
+        let context = |game| Context {
+            resources: &resources,
+            layout: crate::panels::Layout::default(),
+            now: dereth_primitives::LocalTime(0.0),
+            game,
+            pregame: &p,
+            keyboard: &k,
+            settings: &s,
+            map_teleport_allowed: false,
+            classic: &classic,
+        };
+        let bar = Favorites::default();
+        let one = bar.frame(&context(&launch));
+        let names = pictures(&one);
+        for art in &tab_art {
+            assert!(!names.contains(art), "{art}");
+        }
+        assert!(!one.controls.iter().any(|c| c.id.starts_with("tab:")));
+        assert_eq!(one.screen.height, 82);
+        assert!(names.iter().any(|n| n.eq_ignore_ascii_case("06001A8C")));
+        let many = bar.frame(&context(&later));
+        assert!(pictures(&many).iter().any(|n| tab_art.contains(n)));
+        assert!(many.controls.iter().any(|c| c.id == "tab:0"));
+        assert_eq!(many.screen.height, 102);
     }
 }
 
@@ -946,5 +1148,94 @@ mod magic_tests {
             },
             &dereth_client_contract::EmptyGameView,
         );
+    }
+}
+
+#[cfg(test)]
+mod charge_bar_tests {
+    //! Behaviour: none (the bar draws what the client holds, which the server's messages set)
+    use super::*;
+
+    #[test]
+    fn the_bar_shows_the_charge_it_is_given_as_a_percent_and_a_fill() {
+        let mut f = PanelFrame::new(400, 102);
+        charge_bar(&mut f, rect(9, 66, 200, 16), 0.94);
+        let texts: Vec<_> = f
+            .screen
+            .commands
+            .iter()
+            .filter_map(|c| match c {
+                crate::Command::TextBox { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(texts, ["94%", "Charge"]);
+        let full_clip = f.screen.commands.iter().find_map(|c| match c {
+            crate::Command::Image { did, clip, .. } if did == "06001A94" => *clip,
+            _ => None,
+        });
+        assert_eq!(full_clip, Some([9, 66, 9 + 188, 82]), "94% of the bar");
+    }
+
+    #[derive(Debug)]
+    struct Charged(dereth_client_contract::EraView);
+    impl GameView for Charged {
+        fn era(&self) -> Option<&dereth_client_contract::EraView> {
+            Some(&self.0)
+        }
+        fn spell_tab(&self, _tab: usize) -> &[u32] {
+            &[7]
+        }
+        fn is_spell_known(&self, spell: u32) -> bool {
+            spell == 7
+        }
+        fn spell_charge(&self, spell: u32) -> Option<f32> {
+            (spell == 7).then_some(0.94)
+        }
+    }
+
+    #[test]
+    fn the_spell_bar_of_a_launch_world_shows_the_selected_spells_charge() {
+        let frame_of = |era| {
+            let game = Charged(dereth_client_contract::EraView {
+                era,
+                era_announced: true,
+                ..Default::default()
+            });
+            let resources = crate::resources::Resources::default();
+            let (p, k, s, classic) = Default::default();
+            let c = Context {
+                resources: &resources,
+                layout: crate::panels::Layout::default(),
+                now: dereth_primitives::LocalTime(0.0),
+                game: &game,
+                pregame: &p,
+                keyboard: &k,
+                settings: &s,
+                map_teleport_allowed: false,
+                classic: &classic,
+            };
+            let bar = Favorites {
+                selected: Some(7),
+                ..Default::default()
+            };
+            Panel::frame(&bar, &c)
+        };
+        let texts = |f: &PanelFrame| -> Vec<String> {
+            f.screen
+                .commands
+                .iter()
+                .filter_map(|c| match c {
+                    crate::Command::TextBox { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let launch = frame_of(dereth_primitives::EraId::Launch);
+        let on = texts(&launch);
+        assert!(on.iter().any(|t| t == "94%"), "{on:?}");
+        assert!(on.iter().any(|t| t == "Charge"), "{on:?}");
+        let later = frame_of(dereth_primitives::EraId::Eor);
+        assert!(!texts(&later).iter().any(|t| t == "Charge"));
     }
 }

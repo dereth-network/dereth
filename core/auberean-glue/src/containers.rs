@@ -387,6 +387,7 @@ fn ascii_lower(u: u16) -> u16 {
 
 /// A string reference's bucket among `n`: a literal's text hashed, else its table's and its
 /// token's remainders added.
+// D2-14123
 fn info_bucket(t: &TextInfo, n: u32) -> u32 {
     match &t.literal {
         Some(lit) => auberean_text::info::string_hash(lit) % n,

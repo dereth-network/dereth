@@ -252,6 +252,7 @@ pub fn snapshot<S: Shell>(
     g.chargen_response = pregame.chargen_response;
     g.chargen_response_notices = pregame.chargen_response_notices;
     g.chargen_seeds = pregame.chargen_seeds;
+    g.era = Some(pregame.era_features);
     g.new_chat = chat.into_iter().map(ChatLine::from_message).collect();
     chat_entry_state(cx, &mut g);
     if !g.in_world {
@@ -350,6 +351,9 @@ pub fn snapshot<S: Shell>(
         .spellbook()
         .iter()
         .map(|s| Spell {
+            charge: v
+                .spell_charge(s.id)
+                .map(dereth_rules::spell_charge::percent),
             id: s.id,
             name: s.name.clone(),
             school: s.school,
@@ -359,7 +363,10 @@ pub fn snapshot<S: Shell>(
             bitfield: s.bitfield,
         })
         .collect();
-    g.spell_tabs = (0..8).map(|t| v.spell_tab(t).to_vec()).collect();
+    // The banks the world has: the others keep their spells for a world that has them.
+    g.spell_tabs = (0..v.era_ui().spell_favorite_tabs)
+        .map(|t| v.spell_tab(t).to_vec())
+        .collect();
     // The packs and what is worn.
     let item = |id: dereth_primitives::ObjectId, worn: u32, container: bool| Item {
         worn,
@@ -502,13 +509,16 @@ pub fn snapshot<S: Shell>(
     g.fellowship_view = v.fellowship();
     g.squelches = v.squelch_list();
     g.journal = v.journal();
-    g.notebook = v.era_features().journal;
+    g.notebook = dereth_client_contract::era::EraSurface::Journal.offered(v.era_features());
     g.friend_list = v.friends();
     g.options = dereth_client_contract::view::PlayerOption::ALL
         .iter()
         .map(|o| (*o, v.player_option(*o)))
         .collect();
     let roster = v.allegiance_roster();
+    g.swear_target = dereth_client_contract::social::swear_target(&v, &roster);
+    g.short_of_oath_experience =
+        v.available_experience().max(0) < i64::from(v.oath_xp_cost().unwrap_or(0));
     g.roster = roster.clone();
     if let Some(m) = &roster.monarch {
         g.allegiance.push(("Monarch".into(), m.full_name.clone()));

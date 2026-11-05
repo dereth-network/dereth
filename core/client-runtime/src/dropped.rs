@@ -99,8 +99,8 @@ thread_local! {
 /// *same* `SessionEvent::UiEvent` list, so the ~100 opcodes one of them consumes all fall through
 /// the other's wildcard on every single message; announcing per site would bury the real finding
 /// under a hundred lines of noise on the first login. An opcode is announced only when **both** UI
-/// sites have refused it. [`Site::WorldObjects`] has no second consumer, so its refusal is final on
-/// its own.
+/// sites have refused it. [`Site::WorldObjects`]'s refusal is final on its own: a message taken up
+/// beside the object stream has an arm of its own there and never reaches this.
 ///
 /// # What the line says
 ///

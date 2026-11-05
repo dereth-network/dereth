@@ -1146,18 +1146,17 @@ pub fn generate_inventory_treasure(w: &mut World, this: ObjectGuid) {
     // Although the property's name seemingly was removed, either it's value was still used in code OR its value was moved into DeathTreasureType/CreateList
     // because pcaps for these 5 objects do show similar, if not exact, results on corpses.
 
-    let treasure_death = w.content.get_cached_death_treasure(inventory_treasure_type);
+    let treasure_death = crate::factories::loot_generation_factory::death_loot_profile(
+        w,
+        inventory_treasure_type,
+        None,
+    );
     let treasure_wielded = w
         .content
         .get_cached_wielded_treasure(inventory_treasure_type);
 
     let treasure: Option<Vec<WorldObject>> = if let Some(treasure_death) = treasure_death {
-        Some(
-            crate::factories::loot_generation_factory::create_random_loot_objects(
-                w,
-                &treasure_death,
-            ),
-        )
+        Some(crate::factories::loot_generation_factory::create_death_loot(w, &treasure_death))
     } else {
         world_object_equipment::generate_wielded_treasure_sets(w, &treasure_wielded)
     };

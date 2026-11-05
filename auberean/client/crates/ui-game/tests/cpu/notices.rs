@@ -17,11 +17,6 @@ fn handlers_hear_a_notice_in_the_order_they_registered() {
     r.register(0x417, 'b');
     assert_eq!(r.handlers(0x417), ['b', 'a', 'c'], "in order; once each");
     assert_eq!(r.handlers(0x999), [] as [char; 0]);
-    r.unregister(0x417, 'a');
-    assert_eq!(r.handlers(0x417), ['b', 'c']);
-    assert_eq!(r.handlers(0x436), ['a'], "its other notices kept");
-    r.register(0x417, 'a');
-    assert_eq!(r.handlers(0x417), ['b', 'c', 'a'], "registered again: last");
     r.unregister_all('a');
     assert_eq!(r.handlers(0x417), ['b', 'c']);
     assert_eq!(r.handlers(0x436), [] as [char; 0]);

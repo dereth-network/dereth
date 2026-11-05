@@ -25,17 +25,26 @@ pub fn visible_spell(s: &SpellEntry, mask: u32) -> bool {
     dereth_client_contract::spellbook::accepts(mask, s.school, s.level)
 }
 fn spells(game: &dyn GameView) -> Vec<&SpellEntry> {
+    let mask = if game.era_ui().spell_filter_panel {
+        game.spell_filters()
+    } else {
+        u32::MAX
+    };
     let mut v: Vec<_> = game
         .spellbook()
         .iter()
-        .filter(|s| visible_spell(s, game.spell_filters()))
+        .filter(|s| visible_spell(s, mask))
         .collect();
     v.sort_by_key(|s| s.display_order);
     v
 }
+/// Whether the spell bar offers `spell` already, on any of the world's tabs.
+fn in_a_favorites_tab(game: &dyn GameView, spell: u32) -> bool {
+    (0..game.era_ui().spell_favorite_tabs).any(|tab| game.spell_tab(tab).contains(&spell))
+}
 /// Whether the world has spell research: the Create Spell page is shown only where it does.
 pub fn research_on(game: &dyn GameView) -> bool {
-    game.era_features().spell_research
+    dereth_client_contract::era::EraSurface::SpellResearch.offered(game.era_features())
 }
 
 /// The magic window's tabs and the close button. `page` is the shown one: 0 the spellbook, 1 the
@@ -147,6 +156,26 @@ fn component_rows(game: &dyn GameView) -> Vec<(Option<&'static str>, Option<Comp
     result
 }
 impl Panel for Spellbook {
+    fn hover(&self, at: HoverPoint<'_>, c: &Context<'_>) -> Option<Hover> {
+        match at.id {
+            "delete" => {
+                let spell = c.game.spell(self.selected?)?;
+                Hover::line(format!(
+                    "Click to remove {} from your spellbook",
+                    spell.name
+                ))
+            }
+            "rows" if !self.components => {
+                let spell = spells(c.game).get(at.row?)?.id;
+                Hover::line(if in_a_favorites_tab(c.game, spell) {
+                    "This spell is already available for casting"
+                } else {
+                    "Double-click this spell to make it available for casting"
+                })
+            }
+            _ => None,
+        }
+    }
     fn resize(&mut self, _width: u32, height: u32) {
         self.height = Some(height.max(362));
     }
@@ -259,13 +288,15 @@ impl Panel for Spellbook {
         } else {
             let rows = spells(ctx.game);
             let facts = ctx.game.era_ui();
+            // A book with no filters gives their room to its rows.
+            let list = if facts.spell_filter_panel { 224 } else { 256 } + dy;
             let offset = self
                 .scroll
-                .clamp(0, (i32_from(rows.len()) * 32 - (224 + dy)).max(0));
-            let clip = [0, 25, 280, 249 + dy];
+                .clamp(0, (i32_from(rows.len()) * 32 - list).max(0));
+            let clip = [0, 25, 280, 25 + list];
             for (i, s) in rows.iter().enumerate() {
                 let y = 25 + i32_from(i) * 32 - offset;
-                if y + 32 > 25 && y < 249 + dy {
+                if y + 32 > 25 && y < 25 + list {
                     row(&mut f, y, &s.name, None, self.selected == Some(s.id), clip);
                     spell_icon(
                         &mut f,
@@ -280,9 +311,9 @@ impl Panel for Spellbook {
             scrollbar(
                 &mut f,
                 "rows-scroll",
-                rect(280, 25, 20, 224 + dy),
+                rect(280, 25, 20, list),
                 i32_from(rows.len()) * 32,
-                224 + dy,
+                list,
                 offset,
                 32,
                 true,
@@ -290,12 +321,25 @@ impl Panel for Spellbook {
             list_hits(
                 &mut f,
                 "rows",
-                rect(0, 25, 280, 224 + dy),
+                rect(0, 25, 280, list),
                 rows.len(),
                 32,
                 rows.iter().position(|s| Some(s.id) == self.selected),
                 offset,
             );
+            let known = self.selected.is_some_and(|id| ctx.game.is_spell_known(id));
+            if !facts.spell_filter_panel {
+                image(
+                    &mut f,
+                    0x06001395,
+                    rect(0, 281 + dy, 300, 81),
+                    None,
+                    true,
+                    false,
+                );
+                f.button("delete", rect(210, 289 + dy, 80, 30), "Delete", known);
+                return f;
+            }
             image(
                 &mut f,
                 0x06002722,
@@ -324,12 +368,7 @@ impl Panel for Spellbook {
                 false,
                 None,
             );
-            f.button(
-                "delete",
-                rect(202, 309 + dy, 88, 30),
-                "Delete",
-                self.selected.is_some_and(|id| ctx.game.is_spell_known(id)),
-            );
+            f.button("delete", rect(202, 309 + dy, 88, 30), "Delete", known);
             for (label, bit, x, y) in FILTERS.iter().filter(|r| facts.spell_filter(r.1)) {
                 f.check(
                     format!("filter:{bit}"),
@@ -426,6 +465,29 @@ impl Panel for Spellbook {
                     self.selected = Some(s.id);
                 }
             }
+            ControlEvent::DoubleClick { id, index } if id == "rows" && !self.components => {
+                let Some(spell) = spells(ctx.game).get(index).map(|s| s.id) else {
+                    return vec![];
+                };
+                if in_a_favorites_tab(ctx.game, spell) {
+                    return vec![];
+                }
+                let rows = dereth_client_contract::spellbook::drawable_favorites(ctx.game, 0);
+                return dereth_client_contract::spellbook::FavoritePlan::new(
+                    ctx.game.spell_tab(0),
+                    &rows,
+                    spell,
+                    -1,
+                    true,
+                )
+                .map(|plan| {
+                    plan.requests(spell, 0)
+                        .into_iter()
+                        .map(PanelAction::Game)
+                        .collect()
+                })
+                .unwrap_or_default();
+            }
             ControlEvent::RightClick { id, index } if id == "rows" && !self.components => {
                 if let Some(s) = spells(ctx.game).get(index) {
                     self.selected = Some(s.id);
@@ -475,6 +537,7 @@ impl Panel for Effects {
         }
     }
     fn frame(&self, ctx: &Context<'_>) -> PanelFrame {
+        let one_panel = ctx.game.era_ui().one_effects_panel;
         let height = ctx.layout.side_height();
         let mut f = PanelFrame::new(300, height);
         // Stretched, the list grows and the description keeps to the bottom.
@@ -492,7 +555,9 @@ impl Panel for Effects {
         text(
             &mut f,
             rect(2, 2, 272, 21),
-            if self.beneficial {
+            if one_panel {
+                "Spells in Effect"
+            } else if self.beneficial {
                 "Beneficial Spells in Effect"
             } else {
                 "Harmful Spells in Effect"
@@ -507,7 +572,7 @@ impl Panel for Effects {
             .game
             .active_effects()
             .into_iter()
-            .filter(|e| e.beneficial == self.beneficial)
+            .filter(|e| one_panel || e.beneficial == self.beneficial)
             .collect();
         rows.sort_by(|a, b| a.name.cmp(&b.name));
         let offset = self
@@ -713,6 +778,137 @@ mod filter_layout_tests {
         fn era(&self) -> Option<&dereth_client_contract::EraView> {
             Some(&self.0)
         }
+    }
+    #[test]
+    fn a_spellbook_row_says_whether_a_double_click_would_offer_it_and_offers_it() {
+        #[derive(Debug)]
+        struct Bar(Vec<SpellEntry>, Vec<u32>);
+        impl GameView for Bar {
+            fn spellbook(&self) -> &[SpellEntry] {
+                &self.0
+            }
+            fn spell_filters(&self) -> u32 {
+                u32::MAX
+            }
+            fn spell_tab(&self, tab: usize) -> &[u32] {
+                if tab == 0 {
+                    &self.1
+                } else {
+                    &[]
+                }
+            }
+        }
+        let book = vec![SpellEntry {
+            id: 4,
+            name: "Spell".into(),
+            icon: None,
+            school: 1,
+            level: 1,
+            icon_power: 1,
+            display_order: 1,
+            bitfield: 0,
+        }];
+        let run = |game: &Bar| {
+            let ctx = Context {
+                resources: &crate::resources::Resources::default(),
+                layout: crate::panels::Layout::default(),
+                now: dereth_primitives::LocalTime(0.0),
+                game,
+                pregame: &Default::default(),
+                keyboard: &Default::default(),
+                settings: &Default::default(),
+                classic: &Default::default(),
+                map_teleport_allowed: false,
+            };
+            let mut panel = Spellbook::new(false);
+            let hover = panel
+                .hover(
+                    HoverPoint {
+                        id: "rows",
+                        x: 0,
+                        y: 0,
+                        item: None,
+                        row: Some(0),
+                    },
+                    &ctx,
+                )
+                .unwrap()
+                .name;
+            let actions = panel.event(
+                ControlEvent::DoubleClick {
+                    id: "rows".into(),
+                    index: 0,
+                },
+                &ctx,
+            );
+            (hover, actions.len())
+        };
+        let (hover, actions) = run(&Bar(book.clone(), vec![]));
+        assert_eq!(
+            hover,
+            "Double-click this spell to make it available for casting"
+        );
+        assert_eq!(actions, 1, "it goes on the bar");
+        let (hover, actions) = run(&Bar(book, vec![4]));
+        assert_eq!(hover, "This spell is already available for casting");
+        assert_eq!(actions, 0);
+    }
+    #[test]
+    fn a_launch_spellbook_has_no_filters_shows_every_spell_and_keeps_the_saved_ones() {
+        #[derive(Debug)]
+        struct Filtered(dereth_primitives::EraId, Vec<SpellEntry>);
+        impl GameView for Filtered {
+            fn era_ui(&self) -> dereth_client_contract::era::EraUiFacts {
+                dereth_client_contract::era::EraUiFacts::for_profile(self.0)
+            }
+            fn spellbook(&self) -> &[SpellEntry] {
+                &self.1
+            }
+            fn spell_filters(&self) -> u32 {
+                0
+            }
+        }
+        let book = vec![SpellEntry {
+            id: 1,
+            name: "Spell".into(),
+            icon: None,
+            school: 1,
+            level: 1,
+            icon_power: 1,
+            display_order: 1,
+            bitfield: 0,
+        }];
+        let launch = Filtered(dereth_primitives::EraId::Launch, book.clone());
+        assert_eq!(spells(&launch).len(), 1, "a saved filter hides nothing");
+        let later = Filtered(dereth_primitives::EraId::Eor, book);
+        assert_eq!(
+            spells(&later).len(),
+            0,
+            "and it stays saved for other worlds"
+        );
+
+        let ctx = Context {
+            resources: &crate::resources::Resources::default(),
+            layout: crate::panels::Layout::default(),
+            now: dereth_primitives::LocalTime(0.0),
+            game: &launch,
+            pregame: &Default::default(),
+            keyboard: &Default::default(),
+            settings: &Default::default(),
+            classic: &Default::default(),
+            map_teleport_allowed: false,
+        };
+        let mut panel = Spellbook::new(false);
+        panel.resize(300, 362);
+        let frame = panel.frame(&ctx);
+        assert!(frame.controls.iter().all(|c| !c.id.starts_with("filter:")));
+        let delete = frame.controls.iter().find(|c| c.id == "delete").unwrap();
+        assert_eq!(
+            (delete.rect.x, delete.rect.y, delete.rect.w),
+            (210, 289, 80)
+        );
+        let rows = frame.controls.iter().find(|c| c.id == "rows").unwrap();
+        assert_eq!((rows.rect.y, rows.rect.h), (25, 256));
     }
     /// Behaviour: classic.spellbook.filters-fit-supported-world
     #[test]

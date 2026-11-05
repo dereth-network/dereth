@@ -62,9 +62,70 @@ pub struct CampState {
     pub filled: bool,
 }
 
+/// The practice dummies that send back a share of each attack on them: every level's, with a quest
+/// on its death and without. The one of level 30 on another kind of table never does.
+pub const PRACTICE_DUMMIES: [u32; 9] = [
+    0x4700_2DAB,
+    0x4700_2DAE,
+    0x4700_2DAF,
+    0x4700_2DB1,
+    0x4700_2DB2,
+    0x4700_2DB3,
+    0x4700_2DB4,
+    0x4700_2DB5,
+    0x4700_2DB6,
+];
+/// What a practice dummy holds from its first moment: 0.01 of an attack sent back for each point of
+/// spellcraft.
+pub const PRACTICE_DUMMY_EFFECT: u32 = 0x7000_1C79;
+
+/// The spellcraft of a practice dummy's effect, by its level. 2017's shares: 0.35 at 40 (74 of 74
+/// attacks with a skill), 0.40 at 50 (10 of 10), 0.45 at 60 (1 of 1), 0.50 at 70 (28 of 28). None
+/// recorded at 30, where this gives 0.30; its effect's appearance shows in 45 of 54.
+#[must_use]
+pub fn practice_dummy_spellcraft(level: i32) -> f32 {
+    #[allow(clippy::cast_precision_loss)]
+    let level = level as f32;
+    15.0 + level / 2.0
+}
+
+/// A practice dummy holds its effect as it appears: for as long as it stands, shown at once.
+fn holds_its_effect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock) {
+    let Some(t) = s.things.get(id) else {
+        return;
+    };
+    let (template, level) = (t.template, t.creature.as_ref().map_or(0, |c| c.stats.level));
+    if !PRACTICE_DUMMIES.contains(&template) {
+        return;
+    }
+    let Some(def) = s.effect_table.get(PRACTICE_DUMMY_EFFECT).cloned() else {
+        return;
+    };
+    let cast = crate::effects::Cast {
+        caster: id,
+        spellcraft: practice_dummy_spellcraft(level),
+        ..crate::effects::Cast::default()
+    };
+    let shape = crate::effects::Shape {
+        timeout: Some(f32::MAX),
+        ..crate::effects::Shape::TIMED
+    };
+    crate::effects::add_on(
+        s,
+        net,
+        crate::effects::On::Creature(id),
+        &def,
+        cast,
+        shape,
+        clock,
+    );
+}
+
 /// The side of a landblock and of a land cell, in meters.
 pub const BLOCK_SIDE: f32 = 160.0;
 pub const CELL_SIDE: f32 = 20.0;
+/// The side of the whole land, of 256 landblocks.
+pub const LAND_SIDE: f32 = 256.0 * BLOCK_SIDE;
 
 /// An outdoor point given relative to a landblock, as a cell and a point of the landblock it lies
 /// in (landblocks are 160 m on a side; land cells 20 m, numbered from 1 along y within each x).
@@ -74,7 +135,11 @@ pub fn outdoor(landblock: u32, x: f32, y: f32) -> (u32, f32, f32) {
         i64::from(landblock >> 8 & 0xFF),
         i64::from(landblock & 0xFF),
     );
-    let (mut x, mut y) = (x, y);
+    // No point of the land is further from a block than this.
+    let (mut x, mut y) = (
+        x.clamp(-LAND_SIDE, LAND_SIDE),
+        y.clamp(-LAND_SIDE, LAND_SIDE),
+    );
     while x < 0.0 {
         x += BLOCK_SIDE;
         bx -= 1;
@@ -102,13 +167,12 @@ pub fn outdoor(landblock: u32, x: f32, y: f32) -> (u32, f32, f32) {
 pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
     let now = clock.local.0;
     for i in 0..s.spawns.camps.len() {
-        fill(s, net, i, now);
+        fill(s, net, i, clock);
     }
     crate::ai::step(s, net, clock);
     crate::reload::retire_rested(s, net);
     crate::walkers::step(s, net, clock);
     crate::pets::step(s, net, clock);
-    crate::combat::swing_all(s, net, clock);
     crate::death::expire_corpses(s, net, now);
     crate::mining::expire(s, net, now);
     crate::regen::step(s, net, now);
@@ -116,7 +180,8 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
 }
 
 /// Make the creatures a camp lacks that are due.
-fn fill<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, now: f64) {
+fn fill<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, clock: Clock) {
+    let now = clock.local.0;
     let Some(state) = s.camps.get_mut(i) else {
         return;
     };
@@ -154,6 +219,7 @@ fn fill<S: Store>(s: &mut Server<S>, net: &mut ServerNet, i: usize, now: f64) {
         if let Some(id) = spawn(s, i, now) {
             s.camps[i].alive.push(id);
             presence::thing_appears(s, net, id);
+            holds_its_effect(s, net, id, clock);
         }
     }
 }
@@ -176,7 +242,7 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
     let template = s.catalog.get(camp.templates[pick].0)?.clone();
     let Some(mut stats) = yalain_content::CreatureStats::from_props(&template.props) else {
         if is_item(&template.props) {
-            let (at, _) = place(s, &camp);
+            let (at, _) = place(s, &camp, i);
             return lay(s, template.id, at);
         }
         s.unhandled.note(format!(
@@ -192,7 +258,7 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
         .as_ref()
         .filter(|r| !r.waypoints.is_empty())
         .map(|r| crate::ai::Patrol::new(r.clone(), camp.moves.start, camp.moves.backward));
-    let (at, heading) = place(s, &camp);
+    let (at, heading) = place(s, &camp, i);
     let max_health = if s.rng.chance(HEALTH_EXACT) {
         stats.max_health
     } else {
@@ -249,8 +315,45 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
     Some(id)
 }
 
+/// How near two places must be, in meters, to be one spot.
+const ONE_SPOT: f32 = 0.5;
+
+/// A camp's spots no creature or item it keeps now holds, by their index; all of them when each is
+/// held. A spot holds one (2017: of 10,731 pairs of one session's creatures seen at one place, 8 were
+/// alive together).
+fn free_spots<S: Store>(s: &Server<S>, camp: &yalain_content::Camp, i: usize) -> Vec<usize> {
+    let held: Vec<StoredPosition> = s
+        .camps
+        .get(i)
+        .into_iter()
+        .flat_map(|state| &state.alive)
+        .filter_map(|id| s.things.get(*id))
+        .filter_map(|t| t.creature.as_ref().map(|c| c.home).or(t.at))
+        .collect();
+    let free: Vec<usize> = (0..camp.spots.len())
+        .filter(|k| {
+            let (cell, p) = camp.spots[*k];
+            !held.iter().any(|h| {
+                let (dx, dy) = (h.origin[0] - p[0], h.origin[1] - p[1]);
+                h.cell >> 16 == cell >> 16
+                    && (dx * dx + dy * dy).sqrt() <= ONE_SPOT
+                    && (h.origin[2] - p[2]).abs() <= 2.0
+            })
+        })
+        .collect();
+    if free.is_empty() {
+        (0..camp.spots.len()).collect()
+    } else {
+        free
+    }
+}
+
 /// Where a camp's next creature or item appears, facing a random way, and that heading.
-fn place<S: Store>(s: &mut Server<S>, camp: &yalain_content::Camp) -> (StoredPosition, u8) {
+fn place<S: Store>(
+    s: &mut Server<S>,
+    camp: &yalain_content::Camp,
+    i: usize,
+) -> (StoredPosition, u8) {
     let at = if camp.spots.is_empty() {
         // A point drawn uniformly inside the camp's circle.
         let r = camp.radius * s.rng.unit().sqrt();
@@ -271,7 +374,8 @@ fn place<S: Store>(s: &mut Server<S>, camp: &yalain_content::Camp) -> (StoredPos
             rotation: [1.0, 0.0, 0.0, 0.0],
         }
     } else {
-        let (cell, p) = camp.spots[s.rng.below(camp.spots.len())];
+        let free = free_spots(s, camp, i);
+        let (cell, p) = camp.spots[free[s.rng.below(free.len())]];
         StoredPosition {
             cell,
             origin: p,

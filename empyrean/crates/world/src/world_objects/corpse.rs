@@ -156,12 +156,21 @@ pub fn recalculate_decay_time(w: &mut World, this: ObjectGuid, player: ObjectGui
     let player_level = obj(w, player).level();
 
     // empty corpses decay faster
-    let time_to_rot = if container_inventory(w, this).is_empty() {
-        EMPTY_DECAY_TIME
-    } else {
-        // a player corpse decays after 5 mins * playerLevel with a minimum of 1 hour
-        f64::from(3600.max(player_level.unwrap_or(1).wrapping_mul(300)))
-    };
+    // DIVERGE: before empty corpses rotted early (`EraFormulas::empty_corpses_rot_early`, V476)
+    // an empty one lasts as long as a full one.
+    let time_to_rot =
+        if container_inventory(w, this).is_empty() && w.era.formulas.empty_corpses_rot_early {
+            EMPTY_DECAY_TIME
+        } else {
+            // DIVERGE: without the later hour minimum (`EraFeatures::player_corpse_hour_minimum`,
+            // V465) a nonempty player corpse lasts five minutes a level.
+            let seconds = player_level.unwrap_or(1).wrapping_mul(300);
+            f64::from(if w.era.features.player_corpse_hour_minimum {
+                3600.max(seconds)
+            } else {
+                seconds
+            })
+        };
     obj_mut(w, this).set_time_to_rot(Some(time_to_rot));
 
     let dt_time_to_rot = w.now.utc.add_seconds(time_to_rot);
@@ -185,6 +194,89 @@ pub fn recalculate_decay_time(w: &mut World, this: ObjectGuid, player: ObjectGui
         ts_decay.minutes(),
         ts_decay.seconds()
     );
+}
+
+/// Not ACE: an era's limit on the player corpses a character has in the world
+/// (`EraFormulas::player_corpse_limit`, V475). Past it the oldest decay at once and leave their
+/// items on the ground: one in a loaded landblock at its next decay, one saved on a landblock not
+/// loaded when that landblock loads. Called once the newest corpse is in the world.
+pub fn enforce_player_corpse_limit(w: &mut World, victim: ObjectGuid) {
+    use empyrean_entity::enums::{PropertyFloat, PropertyInstanceId, PropertyInt, WeenieType};
+    use empyrean_store::adapter::biota_converter::BiotaConverter;
+    use empyrean_store::models::shard::BiotaPropertiesFloat;
+    use empyrean_store::shard_database::BiotaQuery;
+
+    let Some(limit) = w.era.formulas.player_corpse_limit else {
+        return;
+    };
+    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+    // (creation time, guid, loaded): oldest first, the lower guid first within one second.
+    let mut corpses: Vec<(i32, u32, bool)> = Vec::new();
+    for id in crate::managers::landblock_manager::get_loaded_landblocks(w) {
+        for g in crate::entity::landblock::player_corpses_of(w, id, victim.full()) {
+            let c = obj(w, g);
+            if !c.wo.world_object_decay.decay_completed {
+                corpses.push((c.creation_timestamp().unwrap_or(0), g.full(), true));
+            }
+        }
+    }
+    let stored = w
+        .shard
+        .base_database()
+        .query_biota_ids(BiotaQuery::TypeWithInstanceId {
+            weenie_type: WeenieType::Corpse.0.cast_signed(),
+            iid_type: PropertyInstanceId::Victim.0,
+            iid_value: Some(victim.full()),
+        })
+        .unwrap_or_default();
+    let created = PropertyInt::CreationTimestamp.0;
+    for id in stored {
+        if corpses.iter().any(|c| c.1 == id) || w.objects.contains(ObjectGuid::new(id)) {
+            continue;
+        }
+        let Some(biota) = w.shard.base_database().get_biota(id, false) else {
+            continue;
+        };
+        let at = biota
+            .biota_properties_int
+            .iter()
+            .find(|p| p.r#type == created)
+            .map_or(0, |p| p.value);
+        corpses.push((at, id, false));
+    }
+    if corpses.len() <= limit {
+        return;
+    }
+    corpses.sort_unstable();
+    let excess = corpses.len() - limit;
+    for &(_, id, loaded) in &corpses[..excess] {
+        log::info!(
+            "[CORPSE] {} has more than {limit} corpses: the oldest (0x{id:08X}) decays now",
+            name_of(w, victim)
+        );
+        if loaded {
+            obj_mut(w, ObjectGuid::new(id)).set_time_to_rot(Some(0.0));
+            continue;
+        }
+        let Some(mut biota) = w.shard.base_database().get_biota(id, false) else {
+            continue;
+        };
+        let rot = PropertyFloat::TimeToRot.0;
+        match biota
+            .biota_properties_float
+            .iter_mut()
+            .find(|p| p.r#type == rot)
+        {
+            Some(p) => p.value = 0.0,
+            None => biota.biota_properties_float.push(BiotaPropertiesFloat {
+                object_id: id,
+                r#type: rot,
+                value: 0.0,
+            }),
+        }
+        w.shard
+            .save_biota(BiotaConverter::convert_to_entity_biota(&biota, false), None);
+    }
 }
 
 // ACE: Corpse.Open
@@ -231,7 +323,9 @@ pub fn has_permission(w: &mut World, this: ObjectGuid, player: ObjectGuid) -> bo
     let victim_guid = ObjectGuid::new(victim_id);
 
     // players can /permit other players to loot their corpse if not killed by another player killer.
-    if crate::world_objects::player_death::has_loot_permission(w, player, victim_guid)
+    // DIVERGE: V478, a permission granted before the world lost corpse permits opens nothing.
+    if w.era.features.corpse_permissions
+        && crate::world_objects::player_death::has_loot_permission(w, player, victim_guid)
         && pk_level(obj(w, this)) != PKLevel::PK
     {
         if !crate::managers::property_manager::get_bool(w, "permit_corpse_all", false, true).item {
@@ -250,10 +344,11 @@ pub fn has_permission(w: &mut World, this: ObjectGuid, player: ObjectGuid) -> bo
         }
         return true;
     }
-    if fields(w, this)
-        .permittee_opened
-        .as_ref()
-        .is_some_and(|p| p.contains(&player.full()))
+    if w.era.features.corpse_permissions
+        && fields(w, this)
+            .permittee_opened
+            .as_ref()
+            .is_some_and(|p| p.contains(&player.full()))
     {
         return true;
     }
@@ -263,10 +358,15 @@ pub fn has_permission(w: &mut World, this: ObjectGuid, player: ObjectGuid) -> bo
         let o = obj(w, this);
         (o.time_to_rot(), o.corpse_generated_rare())
     };
-    if time_to_rot.is_some_and(|t| t < f64::from(HALF_LIFE))
-        && !victim_guid.is_player()
-        && !generated_rare
-    {
+    // DIVERGE: an era's monster corpse lock (`EraFormulas::monster_corpses`, V476): the first 15
+    // of a 90-second corpse's seconds before June 2000.
+    let open_below = w
+        .era
+        .formulas
+        .monster_corpses
+        .open_to_all_below()
+        .unwrap_or(f64::from(HALF_LIFE));
+    if time_to_rot.is_some_and(|t| t < open_below) && !victim_guid.is_player() && !generated_rare {
         return true;
     }
 

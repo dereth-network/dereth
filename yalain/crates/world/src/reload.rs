@@ -214,7 +214,9 @@ impl<S: Store> Server<S> {
         catalog.templates.extend(t.catalog.templates);
         catalog.profiles.extend(t.catalog.profiles);
         catalog.icons.extend(t.catalog.icons);
+        catalog.icon_tables.extend(t.catalog.icon_tables);
         catalog.bodies.extend(t.catalog.bodies);
+        catalog.implements.extend(t.catalog.implements);
         let changed = catalog != self.catalog;
         r.note(table::TEMPLATES, changed, true);
         self.catalog = catalog;
@@ -298,6 +300,8 @@ impl<S: Store> Server<S> {
                     .is_some_and(crate::mining::is_craft_node)
             });
         let changed = take_placed(self, net, placed);
+        self.stand_placed();
+        self.workshops = crate::workshops::Workshops::of(&self.content.objects, &self.catalog);
         r.note(table::PLACED, changed.is_some(), true);
         r.details.extend(changed);
 

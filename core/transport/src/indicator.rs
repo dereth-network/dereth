@@ -25,6 +25,17 @@ pub const EPH_INFO_TIMEOUT: f64 = 5.0;
 /// The flush runs at most once every 5 seconds.
 pub const EPH_FLUSH_INTERVAL: f64 = 5.0;
 
+/// The most messages one connection reassembles at once. A fragment that would begin a further
+/// one past this is dropped; a message already under way still finishes. Set far above the most
+/// any recorded session reassembled at once, so ordinary play never meets it.
+pub const MAX_WAITING_BLOBS: usize = 1024;
+
+/// The most bytes of half-received messages one connection holds at once. A fragment that would
+/// grow the held bytes past this is dropped, unless it is the fragment that finishes its message,
+/// so a message under way still completes. Set well above the largest message recorded in either
+/// game, with room for several in flight.
+pub const MAX_WAITING_BYTES: usize = 32 * 1024 * 1024;
+
 /// Per ephemeral stream, the newest blob id seen and when.
 ///
 /// The client stores the key, the latest blob id and a timestamp, and threads the entries on an
@@ -83,6 +94,9 @@ pub struct Indicator {
     /// Whether `flush_stamp` has ever been set, so the first flush is not deferred by five seconds
     /// from time zero.
     flushed_once: bool,
+    /// The bytes held across every entry of `waiting_blobs`, kept in step as fragments arrive and
+    /// as messages complete or are superseded, so [`MAX_WAITING_BYTES`] can be checked cheaply.
+    half_received_bytes: usize,
 }
 
 impl Indicator {
@@ -200,7 +214,31 @@ impl Indicator {
                 // a retail server ever exercised it is unknown, and no capture exists to say.
                 return None;
             } else {
-                self.waiting_blobs.remove(&key);
+                // A newer blob supersedes the stored one: drop it, and the bytes it held with it.
+                if let Some(old) = self.waiting_blobs.remove(&key) {
+                    self.half_received_bytes =
+                        self.half_received_bytes.saturating_sub(old.received_bytes);
+                }
+            }
+        }
+
+        // Keep one connection's reassembly bounded. A fragment that would begin a further message
+        // past [`MAX_WAITING_BLOBS`], or grow the held bytes past [`MAX_WAITING_BYTES`], is dropped
+        // -- unless it is the fragment that finishes a message already under way, which always goes
+        // on, so that ordinary multi-fragment messages still complete.
+        let adds = frag.payload.len();
+        let finishes = self
+            .waiting_blobs
+            .get(&key)
+            .is_some_and(|b| b.c_max_fragments != 0 && b.num_fragments + 1 == b.c_max_fragments);
+        if !finishes {
+            if !self.waiting_blobs.contains_key(&key)
+                && self.waiting_blobs.len() >= MAX_WAITING_BLOBS
+            {
+                return None;
+            }
+            if self.half_received_bytes + adds > MAX_WAITING_BYTES {
+                return None;
             }
         }
 
@@ -212,11 +250,16 @@ impl Indicator {
             b
         });
 
+        let before = blob.received_bytes;
         blob.receive_add_fragment(frag);
         blob.id = NetBlobId(key);
+        let added = blob.received_bytes.saturating_sub(before);
+        let complete = blob.is_complete();
+        self.half_received_bytes += added;
 
-        if blob.is_complete() {
+        if complete {
             let mut blob = self.waiting_blobs.remove(&key)?;
+            self.half_received_bytes = self.half_received_bytes.saturating_sub(blob.received_bytes);
             blob.state = BlobState::Received;
             // Handing the blob to its queue restores the real id first.
             blob.id = blob.saved_net_blob_id;
@@ -262,6 +305,13 @@ impl Indicator {
     #[must_use]
     pub fn eph_stream_count(&self) -> usize {
         self.arrived_eph_blobs.len()
+    }
+
+    /// The bytes of half-received messages held across every stream now. Diagnostics and tests
+    /// only.
+    #[must_use]
+    pub fn half_received_bytes(&self) -> usize {
+        self.half_received_bytes
     }
 }
 
@@ -487,5 +537,57 @@ mod tests {
             .is_empty());
         assert_eq!(ind.waiting_blob_count(), 2);
         assert_eq!(ind.eph_stream_count(), 0);
+    }
+
+    /// What a connection holds for a half-received message is the bytes that have arrived, not the
+    /// span up to the furthest fragment's offset: a first fragment of a thousand-fragment message
+    /// holds one fragment's bytes.
+    #[test]
+    fn a_half_received_message_holds_only_the_bytes_that_arrived() {
+        let mut ind = Indicator::new();
+        let t = LocalTime(0.0);
+        let id = NetBlobId(0x0300_0000_0000_0001);
+        assert!(ind
+            .check_in_packet(&[frag(id, 1000, 0, vec![1; 448])], 1, t)
+            .is_empty());
+        assert_eq!(ind.waiting_blob_count(), 1);
+        assert_eq!(ind.half_received_bytes(), 448, "not 1000 * 448");
+    }
+
+    /// However many messages a connection half-receives and never finishes, the number it keeps and
+    /// the bytes it holds for them stay within the limits; and a message already under way still
+    /// finishes once its last fragment arrives, even with the reassembler full.
+    #[test]
+    fn half_received_messages_stay_within_the_limits_and_those_under_way_still_finish() {
+        let mut ind = Indicator::new();
+        let t = LocalTime(0.0);
+
+        // A two-fragment message begun before them; its first fragment is in.
+        let keep = NetBlobId(0x0300_0000_0000_0001);
+        assert!(ind
+            .check_in_packet(&[frag(keep, 2, 0, vec![5; 448])], 1, t)
+            .is_empty());
+
+        // Many distinct long messages, each with only its first fragment so far, so none
+        // completes. Feed well past both limits.
+        for i in 0..(MAX_WAITING_BLOBS as u64 + 2000) {
+            let id = NetBlobId(0x0300_0000_1000_0000 | i);
+            ind.check_in_packet(&[frag(id, 1000, 0, vec![1; 448])], 1, t);
+            assert!(
+                ind.half_received_bytes() <= MAX_WAITING_BYTES,
+                "never past the byte limit"
+            );
+            assert!(
+                ind.waiting_blob_count() <= MAX_WAITING_BLOBS,
+                "never past the count limit"
+            );
+        }
+        // Each kept message holds exactly its one fragment's bytes: nothing is reserved for offsets.
+        assert_eq!(ind.half_received_bytes(), ind.waiting_blob_count() * 448);
+
+        // The message under way finishes past the limits.
+        let done = ind.check_in_packet(&[frag(keep, 2, 1, vec![6; 8])], 1, t);
+        assert_eq!(done.len(), 1, "a message under way finishes");
+        assert_eq!(done[0].payload.len(), 448 + 8);
     }
 }

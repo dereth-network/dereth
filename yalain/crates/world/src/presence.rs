@@ -181,7 +181,9 @@ pub fn held_seen<S: Store>(s: &Server<S>, p: &Player) -> Vec<(u64, ServerMessage
             let t = s.things.get(h.id)?;
             Some((
                 h.id,
-                ServerMessage::CreateObject(crate::inventory::held_create(t, p.instance)),
+                ServerMessage::CreateObject(crate::inventory::held_create(
+                    &s.catalog, t, p.instance,
+                )),
             ))
         })
         .collect()
@@ -202,7 +204,7 @@ fn in_hand(p: &Player) -> Vec<u64> {
 pub fn player_seen(p: &Player) -> ServerMessage {
     let mut o = player::player_object(
         p.character,
-        &p.name,
+        &p.shown_name(),
         p.sex,
         crate::mounts::shown_look(p).clone(),
         player::placement(&p.position),
@@ -273,13 +275,16 @@ pub fn refresh<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
         if in_view(&here, q.position.cell, q.position.origin) {
             let (qc, qo) = (q.position.cell, q.position.origin);
             // Each made with what it holds in its hands.
-            if !p.known.contains_key(&q.character) && in_sight(ground, &p, qc, qo) {
+            if !p.known.contains_key(&q.character) && in_sight(ground, &p, qc, qo) && sees(&p, &q) {
                 learn(net, &mut p, world, q.character, &player_seen(&q));
                 for (id, m) in held_seen(s, &q) {
                     learn(net, &mut p, world, id, &m);
                 }
             }
-            if !q.known.contains_key(&p.character) && in_sight(ground, &q, here.cell, here.origin) {
+            if !q.known.contains_key(&p.character)
+                && in_sight(ground, &q, here.cell, here.origin)
+                && sees(&q, &p)
+            {
                 learn(net, &mut q, o, p.character, &player_seen(&p));
                 for (id, m) in held_seen(s, &p) {
                     learn(net, &mut q, o, id, &m);
@@ -298,6 +303,101 @@ pub fn refresh<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) 
         s.players.insert(o, q);
     }
     s.players.insert(world, p);
+}
+
+/// May a client be told of a player? Not of a cloaked admin, unless it sees what is hidden.
+fn sees(viewer: &Player, other: &Player) -> bool {
+    !other.admin.cloaked || viewer.admin.sees_hidden
+}
+
+/// The player a client names by its id, when that client may be told of it: to a client that may
+/// not, a cloaked admin is as much not there as an id nobody has. A client knows its own player.
+/// Every id a client sends about a player goes through this, not [`crate::social::world_of`].
+#[must_use]
+pub fn player_for<S: Store>(s: &Server<S>, viewer: ConnId, id: u64) -> Option<ConnId> {
+    let me = s.players.get(&viewer)?;
+    s.players
+        .iter()
+        .find(|(w, q)| q.character == id && (**w == viewer || sees(me, q)))
+        .map(|(w, _)| *w)
+}
+
+/// The player a client names by its lowercase name, as [`player_for`] does by its id.
+#[must_use]
+pub fn player_named_for<S: Store>(s: &Server<S>, viewer: ConnId, name: &str) -> Option<ConnId> {
+    let me = s.players.get(&viewer)?;
+    player_named(s, name, |w, q| w == viewer || sees(me, q))
+}
+
+/// The player of a lowercase name among those `may` lets through. A name with spaces may be one
+/// player's name or another's with its suffix, the name as a client shows it: its own name wins.
+pub(crate) fn player_named<S: Store>(
+    s: &Server<S>,
+    name: &str,
+    may: impl Fn(ConnId, &Player) -> bool,
+) -> Option<ConnId> {
+    let among = |answers: &dyn Fn(&Player) -> bool| {
+        s.players
+            .iter()
+            .find(|(w, q)| answers(q) && may(**w, q))
+            .map(|(w, _)| *w)
+    };
+    among(&|q| q.name.to_lowercase() == name)
+        .or_else(|| among(&|q| !q.play.suffix.is_empty() && q.shown_name().to_lowercase() == name))
+}
+
+/// The characters in the world that are cloaked admins: the friends service and the network are not
+/// to know they are here.
+#[must_use]
+pub fn cloaked_characters<S: Store>(s: &Server<S>) -> std::collections::HashSet<u64> {
+    s.players
+        .values()
+        .filter(|p| p.admin.cloaked)
+        .map(|p| p.character)
+        .collect()
+}
+
+/// The characters in the world with a suffix, as a client shows each and by its own name, for the
+/// friends service, which is told of no cloaked admin.
+#[must_use]
+pub fn suffixed_characters<S: Store>(s: &Server<S>) -> Vec<(String, String)> {
+    s.players
+        .values()
+        .filter(|p| !p.play.suffix.is_empty() && !p.admin.cloaked)
+        .map(|p| (p.shown_name(), p.name.clone()))
+        .collect()
+}
+
+/// An admin was cloaked, or no longer is: the clients that may no longer see it see it leave, and
+/// those that may now are told of it.
+pub fn cloak_changed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let Some(p) = s.players.remove(&world) else {
+        return;
+    };
+    if p.admin.cloaked {
+        leave_from(s, net, &p, |q| !q.admin.sees_hidden);
+    }
+    s.players.insert(world, p);
+    refresh(s, net, world);
+}
+
+/// A player no longer sees what is hidden: every cloaked admin its client holds leaves it.
+pub fn stops_seeing_hidden<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let Some(viewer) = s.players.get(&world).map(|p| p.character) else {
+        return;
+    };
+    let cloaked: Vec<ConnId> = s
+        .players
+        .iter()
+        .filter(|(w, q)| **w != world && q.admin.cloaked)
+        .map(|(w, _)| *w)
+        .collect();
+    for c in cloaked {
+        if let Some(q) = s.players.remove(&c) {
+            leave_from(s, net, &q, |v| v.character == viewer);
+            s.players.insert(c, q);
+        }
+    }
 }
 
 /// A player leaves the world: every client that holds it sees it leave, on its stream of the
@@ -444,7 +544,8 @@ pub fn force_create<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Con
         t.at.filter(|at| in_sight(ground, p, at.cell, at.origin))
             .map(|_| ServerMessage::CreateObject(crate::things::create(t)))
     } else if let Some(q) = s.players.values().find(|q| q.character == id) {
-        in_sight(ground, p, q.position.cell, q.position.origin).then(|| player_seen(q))
+        (in_sight(ground, p, q.position.cell, q.position.origin) && sees(p, q))
+            .then(|| player_seen(q))
     } else {
         content_by_id(&s.content.objects, id).and_then(|i| {
             let o = &s.content.objects[i];

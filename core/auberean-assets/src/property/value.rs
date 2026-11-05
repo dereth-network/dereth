@@ -8,6 +8,7 @@
 
 use auberean_dat::reader::Result;
 use auberean_dat::{Reader, Writer};
+use auberean_primitives::strings::equal;
 use auberean_primitives::{DataId, Vec3};
 
 use crate::common::{same_frame, Color32, Position, Waveform, SAME_FLOAT};
@@ -213,15 +214,6 @@ impl PropertyValue {
         }
     }
 
-    // D2-16152
-    #[must_use]
-    pub fn inq_long_integer(&self) -> Option<i64> {
-        match self {
-            Self::LongInteger(v) => Some(*v),
-            _ => None,
-        }
-    }
-
     // D2-16158
     #[must_use]
     pub fn inq_float(&self) -> Option<f32> {
@@ -364,8 +356,8 @@ impl PropertyValue {
 
     /// Whether this value equals another, asking the other for this value's type: integers,
     /// enums, files and packages exactly; floats exactly; vectors, colors, waveforms and
-    /// positions to within [`SAME_FLOAT`]; strings exactly; references field by field and their
-    /// token names exactly.
+    /// positions to within [`SAME_FLOAT`]; strings ignoring case; references field by field and
+    /// their token names exactly.
     // D2-16131, D2-16138, D2-16141, D2-16144, D2-16147, D2-16150, D2-16155, D2-16161, D2-16167, D2-16176, D2-16183, D2-16197, D2-16208
     #[must_use]
     pub fn same(&self, other: &PropertyValue) -> bool {
@@ -383,7 +375,7 @@ impl PropertyValue {
                 let (a, b) = (a.channels(), b.channels());
                 a.iter().zip(b).all(|(x, y)| (x - y).abs() < SAME_FLOAT)
             }
-            (Self::String(a), Self::String(b)) => a == b,
+            (Self::String(a), Self::String(b)) => equal(a.as_bytes(), b.as_bytes(), false),
             (Self::Enum(a), Self::Enum(b)) | (Self::Package(a), Self::Package(b)) => a == b,
             (Self::DataFile(a), Self::DataFile(b)) => a == b,
             (Self::Waveform(a), Self::Waveform(b)) => a.same(b),

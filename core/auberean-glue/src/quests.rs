@@ -32,9 +32,11 @@ const QUEST_INFO_LIST: u32 = 0xA1;
 
 /// This module's natives: package, number, function.
 const NATIVES: &[(u32, u32, NativeFn)] = &[
+    (QUEST_INFO_LIST, 0x07, list_dump),
     (QUEST_INFO, 0x01, quest_id),
     (QUEST_INFO, 0x02, quest_name),
     (QUEST_INFO, 0x03, quest_journal_entry),
+    (QUEST_INFO, 0x04, quest_dump),
     (QUEST_INFO, 0x05, quest_init),
     (QUEST_INFO, 0x06, quest_status),
     (QUEST_INFO, 0x07, quest_description),
@@ -295,5 +297,73 @@ fn list_size(c: &mut Call<'_>) -> Result<Status, Stop> {
     #[allow(clippy::cast_possible_truncation)]
     let n = list_mut(c, r)?.len() as u32;
     c.write(-2, n, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// A quest record as text: its id, status and phase, then its challenge's line (whose format the
+/// client leaves without a value, so it shows none), when it was given; under way, the time left
+/// and its cancel line (whose format likewise shows a letter in place of a value) when it runs out;
+/// else when it was done, the time before it may be taken again, and whether it may be taken no
+/// more.
+// D2-12258
+#[must_use]
+pub fn quest_text(q: &QuestInfo) -> String {
+    const UNDER_WAY: u32 = 0x1000_0000;
+    let time = |bits: u64| crate::text::fixed(f64::from_bits(bits));
+    let mut s = format!(
+        "\n-- quest contains: --\n  QuestID: 0x{:08X}.\n  Quest Status: 0x{:08X}.\n  \
+         Current Phase: {}.\n  Challenge Level: .\n  Bestowal Timestamp: {}.\n",
+        q.id,
+        q.status,
+        q.phase,
+        time(q.bestowed)
+    );
+    if q.status == UNDER_WAY {
+        if q.expires != 0 {
+            s.push_str(&format!(
+                "    Seconds remaining: {}.\n    Can Be Cancelled: b.\n",
+                time(q.seconds_remaining)
+            ));
+        }
+    } else {
+        s.push_str(&format!(
+            "  Finished Timestamp: {}.\n  Seconds until retry: {}.\n",
+            time(q.done),
+            time(q.seconds_until_retry)
+        ));
+        if q.maxed_out != 0 {
+            s.push_str("  Quest is maxed out.\n");
+        }
+    }
+    s.push_str("-----------------------\n");
+    s
+}
+
+/// A quest record as text, as a new string at `fp[-2]`.
+// D2-01618
+fn quest_dump(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    let NativeObject::Quest(q) = c.vm.heap.native(r)? else {
+        return Err(Stop::Host("not a quest".into()));
+    };
+    let text = quest_text(q);
+    let id = crate::machine::new_text_in(c, text.encode_utf16().collect());
+    c.write(-2, id, tag::REFERENCE)?;
+    Ok(Status::Success)
+}
+
+/// A list of quest records as text, as a new string at `fp[-2]`: each element numbered from 1.
+// D2-01626, D2-12278
+fn list_dump(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    let mut text = String::from("-- quest list elements: --\n");
+    if let NativeObject::QuestList(list) = c.vm.heap.native(r)? {
+        for (i, q) in list.iter().enumerate() {
+            text.push_str(&format!("  Element {}) {}\n", i + 1, quest_text(q)));
+        }
+    }
+    text.push_str("-- end of the quest list elements --\n");
+    let id = crate::machine::new_text_in(c, text.encode_utf16().collect());
+    c.write(-2, id, tag::REFERENCE)?;
     Ok(Status::Success)
 }

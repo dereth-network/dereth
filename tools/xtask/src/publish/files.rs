@@ -218,10 +218,9 @@ pub fn label(kind: Kind, version: &str, name: &str) -> Option<String> {
         Kind::Dereth => {
             if let Some(platform) = name.strip_prefix(&format!("{}-{version}-", launcher::TOOL)) {
                 match platform {
-                    "windows-x86_64.zip" => "Plugin author's tool · Windows x64",
-                    "macos-aarch64.tar.gz" => "Plugin author's tool · macOS Apple silicon",
-                    "macos-x86_64.tar.gz" => "Plugin author's tool · macOS Intel",
-                    "linux-x86_64.tar.gz" => "Plugin author's tool · Linux x86-64 (glibc 2.35+)",
+                    "windows-x86_64.zip" => "Dereth Plugin Tools · Windows x64",
+                    "macos-aarch64.tar.gz" => "Dereth Plugin Tools · macOS Apple silicon",
+                    "linux-x86_64.tar.gz" => "Dereth Plugin Tools · Linux x86-64 (glibc 2.35+)",
                     _ => return None,
                 }
             } else {
@@ -230,7 +229,6 @@ pub fn label(kind: Kind, version: &str, name: &str) -> Option<String> {
                     Some(_) => return None,
                     None => match name.strip_prefix(&format!("Dereth-{version}-"))? {
                         "macos-aarch64.app.tar.gz" => "Dereth · macOS Apple silicon",
-                        "macos-x86_64.app.tar.gz" => "Dereth · macOS Intel",
                         "linux-x86_64.AppImage" => "Dereth · Linux x86-64 AppImage (glibc 2.35+)",
                         _ => return None,
                     },
@@ -242,7 +240,6 @@ pub fn label(kind: Kind, version: &str, name: &str) -> Option<String> {
             "x86_64-unknown-linux-gnu.tar.gz" => "Empyrean server · Linux x86-64 (glibc 2.28+)",
             "aarch64-unknown-linux-gnu.tar.gz" => "Empyrean server · Linux arm64 (glibc 2.28+)",
             "aarch64-apple-darwin.tar.gz" => "Empyrean server · macOS Apple silicon",
-            "x86_64-apple-darwin.tar.gz" => "Empyrean server · macOS Intel",
             _ => return None,
         },
         Kind::Lyceum => match name.strip_prefix(&format!("lyceum-{version}-")) {
@@ -251,7 +248,6 @@ pub fn label(kind: Kind, version: &str, name: &str) -> Option<String> {
             Some(_) => return None,
             None => match name.strip_prefix(&format!("Lyceum-{version}-"))? {
                 "macos-aarch64.app.tar.gz" => "Lyceum · macOS Apple silicon",
-                "macos-x86_64.app.tar.gz" => "Lyceum · macOS Intel",
                 _ => return None,
             },
         },
@@ -271,16 +267,14 @@ pub fn label(kind: Kind, version: &str, name: &str) -> Option<String> {
 /// How a release is published: whether it is a pre-release, and GitHub's `make_latest`.
 ///
 /// A version with a pre-release suffix (`0.2.0-rc.1`) is a pre-release, which is never the
-/// repository's "Latest". The web client's and Lyceum's releases are never "Latest" either: that
-/// stays the launcher's and the server's, which players download by hand, and the web client's
-/// consumers list the releases instead. A final Dereth or Empyrean release is made "Latest", as
-/// publishing a draft by hand does by default.
+/// repository's "Latest". Of the final releases only Dereth's is made "Latest": the launcher is what
+/// players download by hand, and every other product's release leaves "Latest" where it is.
 pub fn publish_flags(kind: Kind, version: &str) -> (bool, &'static str) {
     let pre = version::is_prerelease(version);
-    let latest = if pre || matches!(kind, Kind::Web | Kind::Lyceum) {
-        "false"
-    } else {
+    let latest = if !pre && matches!(kind, Kind::Dereth) {
         "true"
+    } else {
+        "false"
     };
     (pre, latest)
 }
@@ -292,17 +286,17 @@ pub const PLACEHOLDER_BODY: &str = "Draft: the release files are being uploaded 
 const DERETH_DOWNLOADS: &str = "
 ## Downloads
 
-Dereth {VERSION}: the launcher, with the Dereth client inside it, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon and Intel) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
+Dereth {VERSION}: the launcher, with the Dereth client inside it, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
 
 | system | download | |
 |---|---|---|
 | Windows | `dereth-{VERSION}-windows-x86_64.zip` | unzip anywhere and run `dereth.exe`; no installer |
-| macOS | `Dereth-{VERSION}-macos-aarch64.app.tar.gz` (Apple silicon), `-x86_64` (Intel) | unpack and move `Dereth.app` to Applications |
+| macOS | `Dereth-{VERSION}-macos-aarch64.app.tar.gz` (Apple silicon) | unpack and move `Dereth.app` to Applications |
 | Linux | `Dereth-{VERSION}-linux-x86_64.AppImage` | mark it executable and run it |
 
 The launcher keeps itself and the client up to date from this repository's newest Dereth release.
 
-For plugin authors: the plugin author's tool, `dereth-plugin`, comes with Dereth, beside the client. `dereth-plugin-{VERSION}-<platform>` is the same tool on its own (`.zip` on Windows, `.tar.gz` on macOS and Linux); unpack it and run `dereth-plugin`.
+For plugin authors: Dereth Plugin Tools, `dereth-plugin`, comes with Dereth, beside the client. `dereth-plugin-{VERSION}-<platform>` is the same tool on its own (`.zip` on Windows, `.tar.gz` on macOS and Linux); unpack it and run `dereth-plugin`.
 
 **No game data is included**: the client plays with the data files of your own Asheron's Call install.
 
@@ -314,7 +308,7 @@ Verifying a download: `sha256sum -c SHA256SUMS --ignore-missing`
 const EMPYREAN_DOWNLOADS: &str = "
 ## Downloads
 
-Empyrean {VERSION}, the Asheron's Call server (a Rust port of ACE), for Windows, Linux (glibc 2.28 or newer, x86-64 and arm64) and macOS (11 or newer, Apple silicon and Intel).
+Empyrean {VERSION}, the Asheron's Call server (a Rust port of ACE), for Windows, Linux (glibc 2.28 or newer, x86-64 and arm64) and macOS (11 or newer, Apple silicon).
 
 **No game data is included**: the server reads the client's data files from your own install, and `empyrean-import fetch --pack` builds the world from ACE-World's database release. SETUP.md in each archive is the guide.
 
@@ -341,12 +335,12 @@ Verifying a download: `sha256sum -c SHA256SUMS --ignore-missing`
 const LYCEUM_DOWNLOADS: &str = "
 ## Downloads
 
-Lyceum {VERSION}, the world builder: its editor and the `lyceum` command, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon and Intel) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
+Lyceum {VERSION}, the world builder: its editor and the `lyceum` command, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
 
 | system | download | |
 |---|---|---|
 | Windows | `lyceum-{VERSION}-windows-x86_64.zip` | unzip anywhere; `lyceum-editor.exe` and `lyceum.exe` are inside; no installer |
-| macOS | `Lyceum-{VERSION}-macos-aarch64.app.tar.gz` (Apple silicon), `-x86_64` (Intel) | unpack and move `Lyceum.app` to Applications; the `lyceum` command is `Lyceum.app/Contents/MacOS/lyceum` |
+| macOS | `Lyceum-{VERSION}-macos-aarch64.app.tar.gz` (Apple silicon) | unpack and move `Lyceum.app` to Applications; the `lyceum` command is `Lyceum.app/Contents/MacOS/lyceum` |
 | Linux | `lyceum-{VERSION}-linux-x86_64.tar.gz` | unpack anywhere; a desktop entry and its icon are inside |
 
 Start the editor and open a world, or make a new one from the sample. README.md, in each download, says how to build worlds.

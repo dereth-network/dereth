@@ -45,6 +45,7 @@
 //!   ride's end.
 //! - [`usable`]: doors, chests, their locks and keys, surveyor's maps, items used on the objects
 //!   their interaction tables name (a hoard's key on its stockpile).
+//! - [`made`]: what a recipe's item level makes a product carry of its own.
 //! - [`treasure`]: what a treasure item carries of its own, chosen as it drops.
 //! - [`walkers`]: placed people walking their routes.
 //! - [`reload`]: the world database taken again while the server runs.
@@ -56,14 +57,20 @@
 //!   deleted, carried between worlds, teleported), and the fixed form of the log lines a program
 //!   driving the console reads.
 //! - [`unhandled`]: what clients reached for that the server does not do yet, counted.
+//! - [`call_limit`]: how fast one connection may send game calls.
+//! - [`guard`]: a panic in the world stops it, whole.
 
 pub mod admin;
+pub mod admin_calls;
+pub mod admin_groups;
+pub mod admin_library;
 pub mod ai;
 pub mod allegiance;
 pub mod answers;
 pub mod arms;
 pub mod books;
 pub mod butchery;
+pub mod call_limit;
 pub mod calls;
 pub mod characters;
 pub mod chargen;
@@ -82,11 +89,13 @@ pub mod focus;
 pub mod follow;
 pub mod gives;
 pub mod graph;
+pub mod guard;
 pub mod inventory;
 pub mod item_use;
 pub mod kingdoms;
 pub mod levels;
 pub mod login;
+pub mod made;
 pub mod map_trips;
 pub mod market;
 pub mod mining;
@@ -132,6 +141,7 @@ pub mod uploads;
 pub mod usable;
 pub mod walkers;
 pub mod walls;
+pub mod workshops;
 pub mod world;
 pub mod xp;
 
@@ -172,6 +182,9 @@ pub struct ServerConfig {
     /// The world's name, shown at login.
     pub world_name: String,
     pub accounts: AccountPolicy,
+    /// The admin commands kept to named groups: each command's word, and the groups that may give
+    /// it. A command listed nowhere is open to every admin account.
+    pub admin_commands: Vec<(String, Vec<String>)>,
     /// How many characters an account may have.
     pub slots: u32,
     /// How long a deleted character stays in the list, greyed out, before it is gone.
@@ -194,6 +207,9 @@ pub struct ServerConfig {
     /// How many logins the world holds at once ([`login::MAX_SESSIONS`] unless the operator
     /// gives another); a login past them is told the world is full.
     pub max_sessions: u32,
+    /// The seconds a character must have played before it sends to the Dereth Network: tells,
+    /// room lines and channels (0: none, the default).
+    pub min_character_age_seconds: u32,
     /// How many logins one address holds at once; `None` for no limit (the default).
     pub max_sessions_per_address: Option<u32>,
     /// Addresses no per-address limit holds back.
@@ -217,7 +233,9 @@ impl Default for ServerConfig {
             secret_cost: login::SECRET_COST,
             save_seconds: saves::SAVE_SECONDS,
             shutdown_seconds: shutdown::LEAD,
+            admin_commands: Vec::new(),
             max_sessions: login::MAX_SESSIONS,
+            min_character_age_seconds: 0,
             max_sessions_per_address: None,
             unlimited_addresses: Vec::new(),
             motd: String::new(),
@@ -261,12 +279,22 @@ pub struct Server<S: Store> {
     pub login_guard: login::LoginGuard,
     /// The gags of the characters in the world.
     pub gags: admin::Gags,
+    /// The admin calls refused.
+    pub admin_calls: admin_calls::AdminCalls,
+    /// The chat rooms admins made.
+    pub admin_rooms: admin_calls::Rooms,
+    /// The script library admin accounts' retail clients are served, when the operator serves one,
+    /// and the logins waiting for it to be stored before they see their characters.
+    pub admin_library: Option<admin_library::AdminLibrary>,
+    pub storing_library: std::collections::HashSet<ConnId>,
     /// World connections and the login connection each belongs to.
     pub worlds: HashMap<ConnId, ConnId>,
     /// The characters in the world, by the connection their world travels on.
     pub players: HashMap<ConnId, Player>,
     /// Whether the world is shutting down.
     pub shutdown: shutdown::Shutdown,
+    /// What panicked, once something has: the world's memory is not saved after that.
+    pub panicked: Option<String>,
     /// When each character in the world was last kept.
     pub saves: saves::Saves,
     /// What is to happen later, by when.
@@ -276,9 +304,17 @@ pub struct Server<S: Store> {
     /// The last visual stamp each content object's visual events used (made with 1).
     pub visuals: HashMap<u64, u16>,
     pub unhandled: Unhandled,
+    /// How fast each connection has been sending game calls.
+    pub call_limits: call_limit::CallLimits,
     /// The Dereth Network's commands said in chat since the host last took them: heard by
     /// nobody, answered by the world's friends service.
     pub network_commands: Vec<chat::NetworkCommand>,
+    /// The tells that reached no player in the world since the host last took them.
+    pub unheard_tells: Vec<chat::UnheardTell>,
+    /// The characters renamed since the host last took them.
+    pub renames: Vec<player::Renamed>,
+    /// The lines said in the rooms every player has, kept for the world's link.
+    pub room_lines: Vec<chat::RoomSaid>,
     /// The names of this world's characters each character ignores on its friends service, in
     /// small letters, by character id: the game's own tell honours them. The friends service
     /// keeps it.
@@ -305,12 +341,16 @@ pub struct Server<S: Store> {
     /// The things the world has made, and each camp's state.
     pub things: things::Things,
     pub camps: Vec<spawn::CampState>,
+    /// The creatures fighting at the world's last step: those [`ai::attacks_due`] looks at.
+    pub fighting: Vec<u64>,
     /// The ground's height outdoors, when the host knows the land.
     pub ground: Option<Box<dyn Ground>>,
     /// The walls, floors and solid things creatures meet, when the host knows the world.
     pub walls: Option<walls::Walls>,
     /// The data files a client's requests for records are served from, when the host has them.
     pub data: Option<Box<dyn download::DataFiles>>,
+    /// What answering requests for records has cost, and the answers made ahead of time.
+    pub downloads: download::Downloads,
     pub rng: rng::Rng,
     /// The dice of the players' regeneration steps, apart from the world's.
     pub regen_rng: rng::Rng,
@@ -335,6 +375,8 @@ pub struct Server<S: Store> {
     pub item_uses: item_use::ItemUses,
     /// The effects each item template puts on whoever wears or wields it.
     pub worn_effects: item_use::ItemUses,
+    /// The enumeration of quests: each quest's id by its name, for the effects that name quests.
+    pub quest_ids: HashMap<String, u32>,
     /// What each player is examining.
     pub examining: HashMap<ConnId, examine::Examining>,
     /// The packages of the objects a player uses by walking into them (portals).
@@ -376,6 +418,8 @@ pub struct Server<S: Store> {
     pub story: yalain_content::StoryTable,
     /// The brokers (by template) and the consignments players put up with them.
     pub brokers: std::collections::BTreeMap<u32, market::Broker>,
+    /// The workshops standing in the world.
+    pub workshops: workshops::Workshops,
     pub market: market::Market,
     /// The pets players have summoned.
     pub pets: pets::Pets,
@@ -441,8 +485,24 @@ pub enum Timer {
     PetExpires { pet: u64 },
     /// A creature's heal or buff on itself takes effect.
     CreatureHelps { creature: u64, skill: u32, on: u64 },
+    /// A creature's strike reaches the player it was at.
+    CreatureStrikeLands {
+        creature: u64,
+        target: ConnId,
+        harm: effects::Harm,
+    },
+    /// A strike between a creature and a pet reaches its target.
+    ThingStrikeLands {
+        by: u64,
+        target: u64,
+        harm: effects::Harm,
+    },
     /// A dead player's corpse is made.
     PlayerCorpse { world: ConnId },
+    /// A character that left the world dead comes back.
+    BackAfterEntry { world: ConnId },
+    /// A player left dead since this corpse of its is sent back.
+    SentBack { world: ConnId, corpse: u64 },
     /// A player's lifestone protection runs out.
     ProtectionEnds { world: ConnId, eid: u32 },
     /// The next step of a player's use of a skill (the use's number).
@@ -465,6 +525,8 @@ pub enum Timer {
     CreatureEffectTick { creature: u64, eid: u32, since: f64 },
     /// A player's aura (its record's id) pulses.
     AuraPulse { world: ConnId, eid: u32 },
+    /// Back from a resurrection, the auras it held pulse again.
+    AurasPulseAgain { world: ConnId },
     /// The next step of a player's craft.
     Craft { world: ConnId, step: craft::Step },
     /// A player's day of craft experience may be over.
@@ -585,8 +647,14 @@ pub enum Timer {
 
 impl<S: Store> Server<S> {
     #[must_use]
-    pub fn new(cfg: ServerConfig, store: S, rules: CharGenRules) -> Self {
+    pub fn new(cfg: ServerConfig, mut store: S, rules: CharGenRules) -> Self {
         let cfg_seed = cfg.seed;
+        // The first ids this run gives, set aside before any is given.
+        let mut things = things::Things::default();
+        match store.reserve_thing_numbers(things::ID_BLOCK) {
+            Ok(first) => things.add_block(first, things::ID_BLOCK),
+            Err(e) => tracing::error!("no ids could be set aside for the world's things: {e}"),
+        }
         Self {
             cfg,
             store,
@@ -597,15 +665,24 @@ impl<S: Store> Server<S> {
             sessions: HashMap::new(),
             login_guard: login::LoginGuard::default(),
             gags: admin::Gags::default(),
+            admin_calls: admin_calls::AdminCalls::default(),
+            admin_rooms: admin_calls::Rooms::default(),
+            admin_library: None,
+            storing_library: std::collections::HashSet::new(),
             worlds: HashMap::new(),
             players: HashMap::new(),
             shutdown: shutdown::Shutdown::No,
+            panicked: None,
+            call_limits: call_limit::CallLimits::default(),
             saves: saves::Saves::default(),
             timers: Vec::new(),
             next_context: 0,
             visuals: HashMap::new(),
             unhandled: Unhandled::default(),
             network_commands: Vec::new(),
+            unheard_tells: Vec::new(),
+            renames: Vec::new(),
+            room_lines: Vec::new(),
             ignoring: HashMap::new(),
             friends_streams: None,
             catalog: Catalog::default(),
@@ -617,11 +694,13 @@ impl<S: Store> Server<S> {
             talkers: None,
             greeted: HashMap::new(),
             chatter: HashMap::new(),
-            things: things::Things::starting_at(cfg_seed),
+            things,
             camps: Vec::new(),
+            fighting: Vec::new(),
             ground: None,
             walls: None,
             data: None,
+            downloads: download::Downloads::default(),
             rng: rng::Rng::new(cfg_seed),
             regen_rng: rng::Rng::new(cfg_seed ^ 0x7265_6765_6E00),
             levels: levels::LevelTable::default(),
@@ -635,6 +714,7 @@ impl<S: Store> Server<S> {
             item_effects: HashMap::new(),
             item_uses: HashMap::new(),
             worn_effects: HashMap::new(),
+            quest_ids: HashMap::new(),
             examining: HashMap::new(),
             walk_in_packages: std::collections::HashSet::new(),
             person_packages: std::collections::HashSet::new(),
@@ -656,6 +736,7 @@ impl<S: Store> Server<S> {
             trades: trade::Trades::default(),
             story: yalain_content::StoryTable::default(),
             brokers: std::collections::BTreeMap::new(),
+            workshops: workshops::Workshops::default(),
             market: market::Market::default(),
             pets: pets::Pets::default(),
             plants: plants::Plants::default(),
@@ -704,15 +785,25 @@ impl<S: Store> Server<S> {
             .cloned()
             .collect();
         mining::place_veins(&mut self);
+        self.workshops = workshops::Workshops::of(&self.content.objects, &self.catalog);
         self.placed.loaded = Some(self.content.objects.clone());
         self.placed.veins = veins;
         self
+    }
+
+    /// Stand what the world database places among the walls creatures meet.
+    pub fn stand_placed(&mut self) {
+        let rows = walls_standing(self);
+        if let Some(w) = self.walls.as_mut() {
+            w.set_standing(rows);
+        }
     }
 
     /// Handle every event the network has, then whatever is due.
     pub fn pump(&mut self, net: &mut ServerNet, clock: Clock) {
         self.saves.now = clock.local;
         while let Some(ev) = net.poll_event() {
+            self.saves.piece_begins();
             self.handle(net, ev, clock);
         }
         self.tick(net, clock);
@@ -723,6 +814,7 @@ impl<S: Store> Server<S> {
         self.game_now = net.game_time(clock.local);
         while let Some(i) = self.timers.iter().position(|(at, _)| at.0 <= clock.local.0) {
             let (_, t) = self.timers.remove(i);
+            self.saves.piece_begins();
             match t {
                 Timer::Trip { world, step } => places::step(self, net, world, step, clock),
                 Timer::Take { world, item } => inventory::taken(self, net, world, item, clock),
@@ -747,7 +839,19 @@ impl<S: Store> Server<S> {
                 } => {
                     missiles::helped(self, net, creature, skill, on, clock);
                 }
+                Timer::CreatureStrikeLands {
+                    creature,
+                    target,
+                    harm,
+                } => combat::creature_strike_lands(self, net, creature, target, harm, clock),
+                Timer::ThingStrikeLands { by, target, harm } => {
+                    combat::thing_strike_lands(self, net, by, target, harm, clock);
+                }
                 Timer::PlayerCorpse { world } => death::player_corpse(self, net, world, clock),
+                Timer::BackAfterEntry { world } => death::back_after_entry(self, net, world, clock),
+                Timer::SentBack { world, corpse } => {
+                    death::sent_back(self, net, world, corpse, clock);
+                }
                 Timer::ProtectionEnds { world, eid } => effects::runs_out(self, net, world, eid),
                 Timer::Skill { world, id, step } => {
                     skill_use::step(self, net, world, id, step, clock);
@@ -769,6 +873,9 @@ impl<S: Store> Server<S> {
                     since,
                 } => effects::creature_tick(self, net, creature, eid, since, clock),
                 Timer::AuraPulse { world, eid } => effects::pulse(self, net, world, eid, clock),
+                Timer::AurasPulseAgain { world } => {
+                    effects::auras_pulse_again(self, net, world, clock);
+                }
                 Timer::Craft { world, step } => craft::step(self, net, world, step, clock),
                 Timer::CraftDay { world } => craft::day_due(self, net, world, clock),
                 Timer::Butcher { world, work } => butchery::done(self, net, world, &work),
@@ -849,16 +956,29 @@ impl<S: Store> Server<S> {
         let due = self
             .last_step
             .is_none_or(|t| clock.local.0 - t.0 >= spawn::STEP_SECONDS);
+        self.saves.piece_begins();
         if due {
             self.last_step = Some(clock.local);
             spawn::step(self, net, clock);
         }
+        self.saves.piece_begins();
+        // A swing comes when it is due, not at the world's next step (2017: 1,880 of 2,881 sword
+        // swings within 0.15 of 1.64 s over the time scale, less than a world step either side).
+        combat::swing_all(self, net, clock);
+        ai::attacks_due(self, net, clock);
+        self.saves.piece_begins();
         saves::tick(self, clock);
         admin::tick(self, net, clock);
+        self.saves.piece_begins();
         fellowship::tick(self, net, clock.local);
+        self.saves.piece_begins();
         trade::look(self, net, clock);
+        self.saves.piece_begins();
         market::look(self, net, clock);
+        self.saves.piece_begins();
         storms::look(self, net, clock);
+        self.saves.piece_begins();
+        saves::end_of_pass(self, net, clock);
     }
 
     /// Have something happen `seconds` from now.
@@ -890,7 +1010,43 @@ impl<S: Store> Server<S> {
                     login::message(self, net, conn, queue, &bytes, clock);
                 }
             }
-            NetEvent::Closed { conn, why } => login::closed(self, net, conn, why, clock),
+            NetEvent::Closed { conn, why } => {
+                self.downloads.closed(conn);
+                login::closed(self, net, conn, why, clock);
+            }
         }
     }
+}
+
+/// What the world database places that creatures meet: people and objects that stay where they are
+/// for every player. A person on a route moves, a vein comes and goes, a door is met where it
+/// stands and what a quest gates is there for some players only.
+#[must_use]
+pub fn walls_standing<S: Store>(s: &Server<S>) -> Vec<walls::Standing> {
+    s.content
+        .objects
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| {
+            o.kind != yalain_content::Kind::Creature
+                && o.walks.is_none()
+                && o.gate.is_none()
+                && !s.catalog.get(o.template).is_some_and(mining::is_craft_node)
+        })
+        .filter(|(i, _)| {
+            usable::doors::door(s, presence::content_id(&s.content.objects, *i)).is_none()
+        })
+        .map(|(i, o)| walls::Standing {
+            id: presence::content_id(&s.content.objects, i),
+            template: o.template,
+            look: o.description.look,
+            scale: o.description.scale.unwrap_or(1.0),
+            at: yalain_store::StoredPosition {
+                cell: o.cell,
+                origin: o.origin,
+                rotation: o.rotation,
+            },
+            ethereality: walls::ethereality_of(&o.description),
+        })
+        .collect()
 }

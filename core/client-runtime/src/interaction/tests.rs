@@ -1,5 +1,319 @@
 use super::*;
 
+/// Behaviour: presentation.era.commands-follow-the-world-profile
+#[test]
+fn launch_commands_are_refused_locally_and_later_eras_keep_their_actions() {
+    use dereth_primitives::era::EraId;
+    for era in EraId::ALL {
+        for command in [
+            "@marketplace",
+            "@mar",
+            "@mp",
+            "@pklite",
+            "@pkarena",
+            "@pklarena",
+        ] {
+            let mut game = dereth_client_model::World::new();
+            let mut inter = Interaction::new();
+            inter.era_features = era.features();
+            inter.queue(
+                vec![],
+                vec![UiRequest::ChatLine {
+                    window: 8,
+                    text: command.into(),
+                }],
+            );
+            assert!(inter
+                .run_ui_requests(&mut game, false, ServerTime(1.0))
+                .is_empty());
+            let requests = inter.take_pending_requests();
+            let lines = game.scroll.drain();
+            if era == EraId::Launch {
+                assert!(requests.is_empty(), "{command}");
+                assert_eq!(lines.len(), 1, "{command}");
+                assert_eq!(lines[0].window, 8);
+                assert_eq!(
+                    lines[0].body,
+                    "This command is not available in this world."
+                );
+                assert_eq!(inter.stats.chat_commands_refused, 1);
+            } else {
+                assert!(lines.is_empty(), "{command}: {lines:?}");
+                assert_eq!(requests.len(), 1, "{command}");
+                assert!(matches!(
+                    requests[0],
+                    Request::TeleToMarketplace(_)
+                        | Request::EnterPkLite(_)
+                        | Request::TeleToPkArena(_)
+                        | Request::TeleToPklArena(_)
+                ));
+            }
+        }
+    }
+}
+
+/// Behaviour: presentation.era.commands-follow-the-world-profile
+/// The client reads the systems the server announces, not the era's name: a Launch world that
+/// announces the Marketplace recall has it, and an end-of-retail world that does not, has not.
+#[test]
+fn commands_follow_the_announced_systems_not_the_eras_name() {
+    use dereth_primitives::era::{EraFeatures, EraId};
+    let run = |features: EraFeatures| {
+        let mut game = dereth_client_model::World::new();
+        let mut inter = Interaction::new();
+        inter.era_features = features;
+        inter.queue(
+            vec![],
+            vec![UiRequest::ChatLine {
+                window: 1,
+                text: "@marketplace".into(),
+            }],
+        );
+        inter.run_ui_requests(&mut game, false, ServerTime(1.0));
+        inter.take_pending_requests().len()
+    };
+    let launch_with_marketplace = EraFeatures {
+        marketplace_recall: true,
+        ..EraId::Launch.features()
+    };
+    assert_eq!(run(launch_with_marketplace), 1);
+    let eor_without_marketplace = EraFeatures {
+        marketplace_recall: false,
+        ..EraId::Eor.features()
+    };
+    assert_eq!(run(eor_without_marketplace), 0);
+}
+
+/// Behaviour: presentation.era.commands-follow-the-world-profile
+#[test]
+fn housing_commands_follow_the_announced_feature() {
+    for housing in [false, true] {
+        let mut game = dereth_client_model::World::new();
+        let mut inter = Interaction::new();
+        inter.era_features = dereth_primitives::era::EraFeatures {
+            housing,
+            apartments: housing,
+            ..dereth_primitives::era::EraId::Launch.features()
+        };
+        for command in ["@hr", "@hslist Cottage"] {
+            inter.queue(
+                vec![],
+                vec![UiRequest::ChatLine {
+                    window: 1,
+                    text: command.into(),
+                }],
+            );
+            inter.run_ui_requests(&mut game, false, ServerTime(1.0));
+        }
+        let requests = inter.take_pending_requests();
+        assert_eq!(requests.len(), if housing { 2 } else { 0 });
+        assert_eq!(game.scroll.drain().len(), if housing { 0 } else { 2 });
+    }
+}
+
+/// Behaviour: presentation.era.commands-follow-the-world-profile
+/// On a world whose `@lifestone` is no recall (Launch), `@lifestone` asks whether to kill the
+/// character and sends the lifestone event only on a Yes, and `@die` is refused; a world with the
+/// recall sends it at once and asks nothing.
+#[test]
+fn launch_lifestone_asks_to_kill_the_character_and_sends_only_on_yes() {
+    use dereth_client_model::chat_cmd::LIFESTONE_DEATH_CONFIRMATION;
+    use dereth_primitives::era::EraId;
+    let line = |inter: &mut Interaction, game: &mut dereth_client_model::World, text: &str| {
+        inter.queue(
+            vec![],
+            vec![UiRequest::ChatLine {
+                window: 1,
+                text: text.into(),
+            }],
+        );
+        inter.run_ui_requests(game, false, ServerTime(1.0));
+    };
+    let mut game = dereth_client_model::World::new();
+    let mut inter = Interaction::new();
+    inter.era_features = EraId::Launch.features();
+    line(&mut inter, &mut game, "@lifestone");
+    assert!(
+        inter.take_pending_requests().is_empty(),
+        "nothing before the answer"
+    );
+    assert_eq!(
+        inter.take_lifestone_death_confirmations(),
+        [LIFESTONE_DEATH_CONFIRMATION]
+    );
+    assert!(inter.take_die_confirmations().is_empty());
+    // A No sends nothing: the dialog only calls the Yes.
+    assert!(inter.take_pending_requests().is_empty());
+    inter.confirm_lifestone_death(&mut game);
+    let requests = inter.take_pending_requests();
+    assert_eq!(requests.len(), 1);
+    assert!(matches!(requests[0], Request::TeleToLifestone(_)));
+    // `@die` came later: refused here, with no question.
+    line(&mut inter, &mut game, "@die");
+    assert!(inter.take_die_confirmations().is_empty());
+    assert!(inter.take_pending_requests().is_empty());
+    let lines = game.scroll.drain();
+    assert_eq!(
+        lines.last().map(|l| l.body.as_str()),
+        Some("This command is not available in this world.")
+    );
+
+    // With the recall, `@lifestone` recalls at once and `@die` asks.
+    inter.era_features = EraId::Eor.features();
+    line(&mut inter, &mut game, "@lifestone");
+    assert!(inter.take_lifestone_death_confirmations().is_empty());
+    let requests = inter.take_pending_requests();
+    assert_eq!(requests.len(), 1);
+    assert!(matches!(requests[0], Request::TeleToLifestone(_)));
+    line(&mut inter, &mut game, "@die");
+    assert_eq!(inter.take_die_confirmations().len(), 1);
+}
+
+/// Behaviour: presentation.era.commands-follow-the-world-profile
+/// A Launch world lacks `@corpse`, corpse permits, `@log` and the allegiance's later
+/// administration: each is refused before it sends anything, and an end-of-retail world takes
+/// the same lines as commands.
+#[test]
+fn launch_refuses_the_later_corpse_log_and_allegiance_commands_locally() {
+    use dereth_primitives::era::EraId;
+    let refusal = "This command is not available in this world.";
+    let commands = [
+        "@corpse",
+        "@permit add Bravo",
+        "@consent who",
+        "@allegiance motd",
+        "@allegiance boot Bravo",
+        "@allegiance officer list",
+        "@allegiance ban list",
+        "@allegiance name set The Order",
+        "@ab Hello",
+    ];
+    // `@log` is tried only on the Launch world, and names a file in a disposable directory so a
+    // broken refusal writes nowhere else.
+    let dir =
+        std::env::temp_dir().join(format!("dereth-launch-log-refusal-{}", std::process::id()));
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).expect("remove this test's old disposable directory");
+    }
+    std::fs::create_dir_all(&dir).expect("create disposable output directory");
+    let log_path = dir.join("chat.txt");
+    for era in [EraId::Launch, EraId::Eor] {
+        let mut game = dereth_client_model::World::new();
+        let mut inter = Interaction::new();
+        inter.era_features = era.features();
+        let mut lines: Vec<String> = commands.iter().map(|c| (*c).to_string()).collect();
+        if era == EraId::Launch {
+            lines.push(format!("@log {}", log_path.display()));
+        }
+        for text in &lines {
+            inter.queue(
+                vec![],
+                vec![UiRequest::ChatLine {
+                    window: 1,
+                    text: text.clone(),
+                }],
+            );
+            inter.run_ui_requests(&mut game, false, ServerTime(1.0));
+        }
+        let refused = game
+            .scroll
+            .drain()
+            .into_iter()
+            .filter(|l| l.body == refusal)
+            .count();
+        if era == EraId::Launch {
+            assert_eq!(refused, lines.len(), "every one is refused");
+            assert!(inter.take_pending_requests().is_empty());
+            assert!(!log_path.exists(), "the refused `@log` opens no file");
+        } else {
+            assert_eq!(refused, 0);
+        }
+    }
+    std::fs::remove_dir_all(&dir).expect("remove this test's disposable directory");
+    // `@allegiance info` is not one of them.
+    let mut game = dereth_client_model::World::new();
+    let mut inter = Interaction::new();
+    inter.era_features = EraId::Launch.features();
+    inter.queue(
+        vec![],
+        vec![UiRequest::ChatLine {
+            window: 1,
+            text: "@allegiance info Bravo".into(),
+        }],
+    );
+    inter.run_ui_requests(&mut game, false, ServerTime(1.0));
+    assert!(game.scroll.drain().iter().all(|l| l.body != refusal));
+}
+
+/// Behaviour: presentation.era.commands-follow-the-world-profile
+/// Help on a Launch world says nothing of the commands it lacks, answers `@help` on one as on an
+/// unknown command, and tells `@lifestone` as the death it is there.
+#[test]
+fn help_on_a_launch_world_leaves_out_what_it_lacks_and_tells_lifestone_as_a_death() {
+    use dereth_client_model::cmd::world_commands::LIFESTONE_DEATH_HELP;
+    use dereth_primitives::era::EraId;
+    let help = |era: EraId, text: &str| {
+        let mut game = dereth_client_model::World::new();
+        let mut inter = Interaction::new();
+        inter.era_features = era.features();
+        inter.queue(
+            vec![],
+            vec![UiRequest::ChatLine {
+                window: 1,
+                text: text.into(),
+            }],
+        );
+        inter.run_ui_requests(&mut game, false, ServerTime(1.0));
+        game.scroll
+            .drain()
+            .into_iter()
+            .map(|l| l.body)
+            .collect::<String>()
+    };
+    for name in [
+        "die", "pkarena", "corpse", "permit", "consent", "log", "motd",
+    ] {
+        let said = help(EraId::Launch, &format!("@help {name}"));
+        assert_eq!(said, "Unknown command", "{name}");
+        assert_ne!(
+            help(EraId::Eor, &format!("@help {name}")),
+            "Unknown command",
+            "{name}"
+        );
+    }
+    let lifestone = help(EraId::Launch, "@help lifestone");
+    assert!(
+        lifestone.contains(LIFESTONE_DEATH_HELP.trim_end()),
+        "{lifestone}"
+    );
+    assert!(help(EraId::Eor, "@help lifestone").contains("without killing you"));
+    let death = help(EraId::Launch, "@help death");
+    for gone in [
+        "@permit",
+        "@consent",
+        "@corpse",
+        "@die",
+        "@pkarena",
+        "@marketplace",
+    ] {
+        assert!(!death.contains(gone), "{gone}: {death}");
+    }
+    assert!(death.contains("@lifestone"), "{death}");
+    let allegiance = help(EraId::Launch, "@help allegiance");
+    assert!(allegiance.contains("@allegiance info"), "{allegiance}");
+    for gone in [
+        "@allegiance boot",
+        "@allegiance officer",
+        "@allegiance ban",
+        "@allegiance name",
+        "@allegiance motd",
+        "@allegiance broadcast",
+    ] {
+        assert!(!allegiance.contains(gone), "{gone}: {allegiance}");
+    }
+    assert!(help(EraId::Eor, "@help allegiance").contains("@allegiance boot"));
+}
+
 /// Behaviour: chat.version.names-the-running-program-in-every-session
 #[test]
 fn the_programs_identity_outlives_the_end_of_a_character_session() {
@@ -687,6 +1001,78 @@ fn the_player_option_actions_name_their_own_options() {
 
 /// A bound hear-PK-deaths key flips the option both ways, and each flip is saved at once as a
 /// `0x0005`; a non-auto-saved option only marks the module dirty.
+/// Behaviour: presentation.era.key-rows-and-option-keys-follow-the-world
+/// A key bound to an option the world's page leaves out changes nothing and sends nothing; the
+/// same key flips it on a world with the system, and the saved value was waiting there.
+#[test]
+fn an_option_key_does_nothing_where_the_world_leaves_its_row_out() {
+    use dereth_client_contract::actions::{Action, ActionId};
+    use dereth_client_model::player::options::option;
+    use dereth_primitives::era::EraFeatures;
+    const DRAG_ITEM_OPENS_TRADE: u32 = 0x1000_0088;
+    let mut inter = Interaction::new();
+    let mut game = dereth_client_model::World::new();
+    let phys = crate::selection_geometry::SceneSelectionPhysics::default();
+    game.player_system
+        .options
+        .set(option::DRAG_ITEM_ON_PLAYER_OPENS_SECURE_TRADE, true);
+    let press = |inter: &mut Interaction, game: &mut dereth_client_model::World| {
+        inter.on_actions(
+            vec![Action::begin(ActionId(DRAG_ITEM_OPENS_TRADE))],
+            game,
+            &phys,
+            0.0,
+            false,
+            dereth_primitives::LocalTime(1.0),
+            None,
+        );
+        game.player_system
+            .options
+            .get(option::DRAG_ITEM_ON_PLAYER_OPENS_SECURE_TRADE)
+    };
+    inter.era_features = EraFeatures {
+        trade: false,
+        ..EraFeatures::ALL
+    };
+    assert!(press(&mut inter, &mut game), "the saved value stands");
+    assert!(inter.take_pending_requests().is_empty(), "nothing is sent");
+    assert_eq!(inter.stats.option_actions_toggled, 0);
+    inter.era_features = EraFeatures::ALL;
+    assert!(!press(&mut inter, &mut game), "with trade the key flips it");
+    assert_eq!(inter.stats.option_actions_toggled, 1);
+}
+
+/// Behaviour: presentation.era.house-recalls-follow-the-apartments
+/// `@house recall` on a world with houses and no apartments answers here and sends nothing, as
+/// `@hr` does; `@house open` is the houses' and still goes out.
+#[test]
+fn a_house_recall_is_refused_locally_without_apartments() {
+    use dereth_primitives::era::EraFeatures;
+    let run = |features: EraFeatures, line: &str| {
+        let mut game = dereth_client_model::World::new();
+        let mut inter = Interaction::new();
+        inter.era_features = features;
+        inter.queue(
+            vec![],
+            vec![UiRequest::ChatLine {
+                window: 1,
+                text: line.into(),
+            }],
+        );
+        inter.run_ui_requests(&mut game, false, ServerTime(1.0));
+        inter.take_pending_requests().len()
+    };
+    let houses_only = EraFeatures {
+        apartments: false,
+        ..EraFeatures::ALL
+    };
+    for line in ["@house recall", "@hr", "@hom", "@house mansion_recall"] {
+        assert_eq!(run(houses_only, line), 0, "{line}");
+        assert_eq!(run(EraFeatures::ALL, line), 1, "{line}");
+    }
+    assert_eq!(run(houses_only, "@house open"), 1);
+}
+
 #[test]
 fn a_player_option_action_flips_its_option_and_saves_an_auto_saved_one_at_once() {
     use dereth_client_contract::actions::{Action, ActionId};
@@ -1085,4 +1471,37 @@ fn a_line_sent_on_the_players_behalf_is_never_an_extensions_command_and_stays_ou
         "the same line typed is the command"
     );
     assert_eq!(game.chat.entries[&1].history(), ["/go now"]);
+}
+
+/// Behaviour: presentation.era.endurance-information-follows-the-world-profile
+#[test]
+fn endurance_help_never_advertises_later_benefits_on_launch() {
+    use dereth_primitives::EraId;
+    for era in EraId::ALL {
+        let mut game = dereth_client_model::World::new();
+        let mut inter = Interaction::new();
+        inter.era_features = era.features();
+        inter.queue(
+            vec![],
+            vec![UiRequest::ChatLine {
+                window: 8,
+                text: "@endurance".into(),
+            }],
+        );
+        inter.run_ui_requests(&mut game, false, ServerTime(1.0));
+        assert!(inter.take_pending_requests().is_empty());
+        let lines = game.scroll.drain();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].window, 8);
+        if era == EraId::Launch {
+            assert_eq!(
+                lines[0].body,
+                "This command is not available in this world."
+            );
+            assert_eq!(inter.stats.chat_commands_refused, 1);
+        } else {
+            assert!(lines[0].body.contains("stamina"));
+            assert_eq!(inter.stats.chat_commands_refused, 0);
+        }
+    }
 }

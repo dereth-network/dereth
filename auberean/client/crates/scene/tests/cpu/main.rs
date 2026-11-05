@@ -8,4 +8,5 @@ mod feet;
 mod gaze;
 mod landscape;
 mod others;
+mod seen;
 mod view;

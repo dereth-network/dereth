@@ -248,6 +248,15 @@ fn append(f: &mut PanelFrame, child: PanelFrame, x: i32, y: i32, prefix: &str) {
         c
     }));
 }
+/// The stack splitter's bar up to its thumb, its bar past it, and the thumb, which has its black
+/// see-through.
+const STACK_BAR_LIT: u32 = 0x0600_127F;
+const STACK_BAR_DARK: u32 = 0x0600_1150;
+const STACK_THUMB: u32 = 0x0600_0F82;
+const STACK_THUMB_WIDTH: i32 = 16;
+/// The thumb's travel along the 96-pixel bar, whose length is inclusive.
+const STACK_THUMB_TRAVEL: i64 = 81;
+
 /// The selected-object bar: the object's name, its stack splitter when it is a stack, and its
 /// health or mana.
 fn selected_object(f: &mut PanelFrame, c: &Context<'_>, x: i32, y: i32, draft: Option<&str>) {
@@ -273,17 +282,33 @@ fn selected_object(f: &mut PanelFrame, c: &Context<'_>, x: i32, y: i32, draft: O
         .font = "14-6".into();
         f.controls.last_mut().unwrap().background = Some(0xff323232);
         let slider = rect(x + 128, y + 28, 96, 14);
-        image(f, 0x0600127f, slider, false, None);
+        let thumb_x =
+            slider.x + i32_from_i64((split - 1) as i64 * STACK_THUMB_TRAVEL / (max - 1) as i64);
+        // The bar is lit up to the middle of the thumb and dark past it.
+        let lit_to = thumb_x + STACK_THUMB_WIDTH / 2;
         image(
             f,
-            0x06001150,
-            rect(
-                slider.x + i32_from_i64((split - 1) as i64 * 83 / (max - 1) as i64),
-                slider.y,
-                14,
-                14,
-            ),
+            STACK_BAR_LIT,
+            rect(slider.x, slider.y, 140, slider.h),
             false,
+            Some(rect(slider.x, slider.y, lit_to - slider.x, slider.h)),
+        );
+        image(
+            f,
+            STACK_BAR_DARK,
+            slider,
+            true,
+            Some(rect(
+                lit_to,
+                slider.y,
+                slider.x + slider.w - lit_to,
+                slider.h,
+            )),
+        );
+        keyed_image(
+            f,
+            STACK_THUMB,
+            rect(thumb_x, slider.y, STACK_THUMB_WIDTH, slider.h),
             None,
         );
         f.control(
@@ -297,7 +322,7 @@ fn selected_object(f: &mut PanelFrame, c: &Context<'_>, x: i32, y: i32, draft: O
                 step: 1,
                 vertical: false,
                 arrow_size: 0,
-                thumb_size: 14,
+                thumb_size: STACK_THUMB_WIDTH,
             },
             true,
         )
@@ -419,6 +444,51 @@ impl Default for Hud {
     }
 }
 impl Panel for Hud {
+    fn hover(&self, at: HoverPoint<'_>, c: &Context<'_>) -> Option<Hover> {
+        let inner = |prefix: &str| at.id.strip_prefix(prefix).map(|id| HoverPoint { id, ..at });
+        if let Some(at) = inner("vitals:") {
+            return self.vitals.hover(at, c);
+        }
+        if let Some(at) = inner("chat:") {
+            return self.chat.hover(at, c);
+        }
+        if let Some(at) = inner("shortcut:") {
+            return self.shortcuts.hover(at, c);
+        }
+        match at.id {
+            "chat-divider" if c.layout.chat_expanded => {
+                Hover::line("Drag this bar to shrink the chat log")
+            }
+            "chat-divider" => Hover::line("Drag this bar to expand the chat log"),
+            "radar-hit" => Hover::line("Blips show creatures and other important objects."),
+            "inventory" => Hover::line("Your inventory - Drag items here to pick them up"),
+            "use" => Hover::line("Uses an item, character or creature"),
+            "examine" => Hover::line("Examines an item, character or creature"),
+            "options" => Hover::line("Shows game options"),
+            "character-stats" => Hover::line("Displays your skills and attributes"),
+            "spellbook" => Hover::line("Displays your spells"),
+            "map" => Hover::line("Shows a map of the world"),
+            "social" => Hover::line("Displays information on social systems"),
+            "combat" => {
+                let mode = c.game.combat_mode();
+                let (verb, mode) = if mode == 1 {
+                    ("Enters", c.game.default_combat_mode())
+                } else {
+                    ("Exits", mode)
+                };
+                let name = match mode {
+                    4 => "missile combat",
+                    8 => "spellcasting",
+                    _ => "melee combat",
+                };
+                Hover::lines(
+                    format!("{verb} {name}"),
+                    "Drag weapon/magic item here to wield it",
+                )
+            }
+            _ => None,
+        }
+    }
     fn set_layout(&mut self, layout: Layout) {
         self.layout = layout;
     }
@@ -677,6 +747,34 @@ impl Panel for Hud {
                 self.chat.text.clone_from(&update.text);
                 return vec![];
             }
+            // The combat button wields what is dropped on it, if it is something to fight with.
+            ControlEvent::Drop {
+                id,
+                payload: DragPayload::Object(item),
+                ..
+            } if id == "combat" => {
+                use dereth_rules::slots::loc;
+                const WIELDED: u32 = loc::MELEE_WEAPON
+                    | loc::SHIELD
+                    | loc::MISSILE_WEAPON
+                    | loc::HELD
+                    | loc::TWO_HANDED;
+                let wields = c
+                    .game
+                    .item_valid_locations(*item)
+                    .is_some_and(|valid| valid & WIELDED != 0);
+                return if wields {
+                    vec![PanelAction::Game(UiRequest::AutoWield {
+                        item: *item,
+                        side: 0,
+                    })]
+                } else {
+                    vec![PanelAction::Host(HostAction::LocalFeedback {
+                        severity: crate::panels::FeedbackSeverity::Information,
+                        text: "Only weaponry, shields, and magic items can be auto-wielded".into(),
+                    })]
+                };
+            }
             // The toolbar's backpack takes an object dropped on it into the backpack.
             ControlEvent::Drop {
                 id,
@@ -769,7 +867,7 @@ impl Panel for Hud {
                 // windows, the map, the Options window and the two forms.
                 "ToggleSocialPanel" => Some("social"),
                 "ToggleFriendsPanel" => Some("friends"),
-                "TogglePageListPanel" => quest_page(c.game),
+                "TogglePageListPanel" => Some("journal"),
                 "ToggleSpellManagementPanel" => Some("spellbook"),
                 "ToggleSkillManagementPanel" => Some("character-stats"),
                 "ToggleWorldPanel" => Some("map"),
@@ -779,8 +877,8 @@ impl Panel for Hud {
                 _ => None,
             };
             if let Some(panel) = panel {
-                // The research page's key does nothing on a world without spell research.
-                if panel == "spell-research" && !super::game::research_on(c.game) {
+                // A key for a system the world lacks does nothing.
+                if crate::panels::era_refuses(panel, c.game.era_features()) {
                     return vec![];
                 }
                 return vec![PanelAction::Toggle(panel.into())];
@@ -857,6 +955,9 @@ impl Panel for Hud {
                     if button_pages(&id).contains(&shown) {
                         return vec![PanelAction::Toggle(shown.into())];
                     }
+                    if id == "map" && map_refused(c) {
+                        return outdoors_only();
+                    }
                     return vec![PanelAction::Toggle(id)];
                 }
                 "inventory" => return vec![PanelAction::Toggle(id)],
@@ -878,14 +979,26 @@ impl Panel for Hud {
                     ))];
                 }
                 "use" | "examine" => {
-                    return vec![PanelAction::Game(
-                        match (id.as_str(), c.game.selected_object()) {
-                            ("use", Some(o)) => UiRequest::Use(o),
-                            ("examine", Some(o)) => UiRequest::Examine(o),
-                            ("use", None) => UiRequest::SetTargetMode(TargetMode::Use),
-                            _ => UiRequest::SetTargetMode(TargetMode::Examine),
-                        },
-                    )];
+                    let choosing = match id.as_str() {
+                        "use" => "Choose an object to use",
+                        _ => "Choose an object to examine",
+                    };
+                    return match (id.as_str(), c.game.selected_object()) {
+                        ("use", Some(o)) => vec![PanelAction::Game(UiRequest::Use(o))],
+                        ("examine", Some(o)) => vec![PanelAction::Game(UiRequest::Examine(o))],
+                        (kind, None) => vec![
+                            PanelAction::Game(UiRequest::SetTargetMode(if kind == "use" {
+                                TargetMode::Use
+                            } else {
+                                TargetMode::Examine
+                            })),
+                            PanelAction::Host(HostAction::LocalFeedback {
+                                text: choosing.into(),
+                                severity: crate::panels::FeedbackSeverity::Information,
+                            }),
+                        ],
+                        _ => vec![],
+                    };
                 }
                 _ => {}
             }
@@ -946,6 +1059,20 @@ impl LinkLamp {
     }
 }
 
+/// The burden lamp's words: how the load slows the character, and otherwise what it comes to.
+fn burden_text(game: &dyn GameView) -> String {
+    let load = game.load().unwrap_or(0.0);
+    if load >= 2.0 {
+        "You are moving VERY slowly due to your burden.".into()
+    } else if load >= 1.0 {
+        "You are moving more slowly due to your burden.".into()
+    } else {
+        format!(
+            "You are carrying {}% of your maximum",
+            to_i32_f64(f64::from(load) * 100.0)
+        )
+    }
+}
 /// The top of a vital bar's number line: its capitals then stand on the bar's fourteenth pixel row.
 const VITAL_TEXT_TOP: i32 = 1;
 #[derive(Debug)]
@@ -979,6 +1106,54 @@ impl Vitals {
     }
 }
 impl Panel for Vitals {
+    fn hover(&self, at: HoverPoint<'_>, c: &Context<'_>) -> Option<Hover> {
+        let (good, bad) = c.game.enchantment_counts();
+        let plural = |n: u32| if n == 1 { "" } else { "s" };
+        match at.id {
+            "help" => Hover::line("Click here for help"),
+            "logout" => Hover::line("Click here to leave the world"),
+            "burden" => Hover::line(burden_text(c.game)),
+            "vitae" => Hover::line("Your vitae was affected by dying. Click for details."),
+            "portal-storm" if c.game.portal_storm_level() >= 1.0 => {
+                Hover::line(dereth_client_model::portal_storm::IMMINENT)
+            }
+            "portal-storm" => Hover::line(dereth_client_model::portal_storm::BREWING),
+            "beneficial-effects" | "harmful-effects" if c.game.era_ui().one_effects_panel => {
+                let n = good + bad;
+                Hover::line(format!(
+                    "You are affected by {n} spell{}. Click for details.",
+                    plural(n)
+                ))
+            }
+            "beneficial-effects" => Hover::line(format!(
+                "You are affected by {good} beneficial spell{}. Click for details.",
+                plural(good)
+            )),
+            "harmful-effects" => Hover::line(format!(
+                "You are affected by {bad} harmful spell{}. Click for details.",
+                plural(bad)
+            )),
+            "link-status" => {
+                let quiet = to_i32_f64(c.game.link_status().unwrap_or(0.0)).max(0);
+                let name = match self.link.state {
+                    1 => "Internet connection OK.".to_owned(),
+                    4 => format!("No response from server in {quiet} seconds!!!"),
+                    _ => format!("No response from server in {quiet} seconds"),
+                };
+                Hover::lines(name, "Click to see more details")
+            }
+            id => {
+                let (word, vital) = match id.strip_prefix("vital:")? {
+                    "Health" => ("health", Vital::Health),
+                    "Stamina" => ("stamina", Vital::Stamina),
+                    "Mana" => ("mana", Vital::Mana),
+                    _ => return None,
+                };
+                let (cur, max) = c.game.vital(c.game.player()?, vital)?;
+                Hover::line(format!("Your {word} is {cur} (of {max} maximum)"))
+            }
+        }
+    }
     fn id(&self) -> &'static str {
         "vitals"
     }
@@ -1408,6 +1583,26 @@ fn chat_color(ty: u32) -> u32 {
 }
 
 const CHAT_FOCUSES: [u32; 14] = [0, 2, 1, 3, 5, 4, 6, 7, 8, 9, 10, 11, 12, 13];
+/// Whether a world keeps the map from a character indoors.
+fn map_refused(c: &Context<'_>) -> bool {
+    c.game.era_ui().map_outdoors_only && !c.game.player_outside()
+}
+fn outdoors_only() -> Vec<PanelAction> {
+    vec![PanelAction::Host(HostAction::LocalFeedback {
+        severity: crate::panels::FeedbackSeverity::Information,
+        text: "You must be outdoors to use Map View.".into(),
+    })]
+}
+/// What the first menu rows say under the pointer. Later rows say nothing.
+const CHAT_ROW_HOVER: [&str; 7] = [
+    "Blocks messages from the selected character",
+    "Sends chat messages to selected character",
+    "Sends chat messages to all around you",
+    "Sends chat messages to your fellowship",
+    "Sends chat messages to your monarch",
+    "Sends chat messages to your patron",
+    "Sends chat messages to your vassals",
+];
 
 #[derive(Debug)]
 struct Chat {
@@ -1532,6 +1727,23 @@ impl Chat {
             .selected_object()
             .map(|id| (id, c.game.name(id).unwrap_or("").to_owned()))
     }
+    /// The menu's entries, as indices into [`CHAT_FOCUSES`]: a world without the game's own rooms
+    /// lists only the room the server named, if any.
+    fn shown_destinations(c: &Context<'_>) -> Vec<usize> {
+        /// The first of the rooms in the menu.
+        const FIRST_ROOM: usize = 8;
+        /// The row for telling the whole allegiance.
+        const ALLEGIANCE: usize = 7;
+        let features = c.game.era_features();
+        let enabled = Self::enabled(c);
+        (0..CHAT_FOCUSES.len())
+            .filter(|i| match *i {
+                ALLEGIANCE => features.allegiance_chat,
+                i if i < FIRST_ROOM => true,
+                i => features.global_chat_rooms || (c.classic.chat_focus.is_some() && enabled[i]),
+            })
+            .collect()
+    }
     fn enabled(c: &Context<'_>) -> Vec<bool> {
         let target = Self::target(c).is_some();
         let enabled = c
@@ -1551,6 +1763,18 @@ impl Chat {
     }
 }
 impl Panel for Chat {
+    fn hover(&self, at: HoverPoint<'_>, c: &Context<'_>) -> Option<Hover> {
+        match at.id {
+            "destination" => match at.row {
+                Some(row) => CHAT_ROW_HOVER
+                    .get(*Self::shown_destinations(c).get(row)?)
+                    .and_then(|line| Hover::line(*line)),
+                None => Hover::line("Click here for more chat options"),
+            },
+            "input" => Hover::line("Click here to enter a chat message"),
+            _ => None,
+        }
+    }
     fn id(&self) -> &'static str {
         "chat"
     }
@@ -1690,8 +1914,8 @@ impl Panel for Chat {
             true,
         );
         let mut destinations = [
-            "Squelch (ignore) Selected",
-            "Tell to Selected",
+            "",
+            "",
             "Chat to All",
             "Tell to Fellows",
             "Tell to Monarch",
@@ -1707,22 +1931,29 @@ impl Panel for Chat {
         ]
         .map(String::from)
         .to_vec();
-        if let Some((_, name)) = Self::target(c) {
-            destinations[0] = format!("Squelch (ignore) {name}");
-            destinations[1] = format!("Tell to {name}");
-        }
+        let squelch = if c.game.era_ui().launch_wording {
+            "Ignore"
+        } else {
+            "Squelch (ignore)"
+        };
+        let target = Self::target(c).map_or("Selected".to_owned(), |(_, name)| name);
+        destinations[0] = format!("{squelch} {target}");
+        destinations[1] = format!("Tell to {target}");
+        let shown = Self::shown_destinations(c);
+        let enabled = Self::enabled(c);
+        let selected = self.destination(c);
         let destination = f.control(
             "destination",
             rect(0, h - 17, 48, 17),
             ControlKind::Choice {
-                options: destinations,
-                selected: self.destination(c),
+                options: shown.iter().map(|i| destinations[*i].clone()).collect(),
+                selected: shown.iter().position(|i| *i == selected).unwrap_or(0),
             },
             true,
         );
         destination.paint = false;
         destination.chat_popup = true;
-        destination.choice_enabled = Some(Self::enabled(c));
+        destination.choice_enabled = Some(shown.iter().map(|i| enabled[*i]).collect());
         image(&mut f, 0x060010ed, rect(0, h - 17, 46, 17), false, None);
         f.text_box(
             rect(2, h - 15, 44, 13),
@@ -1747,6 +1978,7 @@ impl Panel for Chat {
         input.font = "15-6".into();
         input.smooth_scroll = true;
         input.background = None;
+        input.idle_text = Some("Click and type here to talk to others".into());
         input.images = Some(["0600113A", "060011AB", "0600113A"].map(String::from));
         button(
             &mut f,
@@ -1836,8 +2068,9 @@ impl Panel for Chat {
                 _ => {}
             },
             ControlEvent::Select { id, index }
-                if id == "destination" && index < CHAT_FOCUSES.len() =>
+                if id == "destination" && index < Self::shown_destinations(c).len() =>
             {
+                let index = Self::shown_destinations(c)[index];
                 if !Self::enabled(c)[index] {
                     return vec![];
                 }
@@ -1893,6 +2126,88 @@ impl Panel for Chat {
 mod tests {
     //! Behaviour: none (classic panel adapter; no retail behaviour claim).
     use super::*;
+
+    #[derive(Debug)]
+    struct NoRooms(dereth_client_contract::EraView);
+    impl GameView for NoRooms {
+        fn era(&self) -> Option<&dereth_client_contract::EraView> {
+            Some(&self.0)
+        }
+    }
+
+    /// A world without the game's own rooms lists them only when the server named one.
+    #[test]
+    fn the_chat_menu_lists_no_room_on_a_world_without_them_but_one_the_server_named() {
+        let game = NoRooms(dereth_client_contract::EraView {
+            era: dereth_primitives::era::EraId::Launch,
+            era_announced: true,
+            ..Default::default()
+        });
+        let resources = crate::resources::Resources::default();
+        let (p, k, s) = Default::default();
+        let mut state = ClassicState::default();
+        let context = |state: &'_ ClassicState| {
+            let c = Context {
+                resources: &resources,
+                layout: crate::panels::Layout::default(),
+                now: dereth_primitives::LocalTime(0.0),
+                game: &game,
+                pregame: &p,
+                keyboard: &k,
+                settings: &s,
+                map_teleport_allowed: false,
+                classic: state,
+            };
+            Chat::shown_destinations(&c)
+        };
+        assert_eq!(
+            context(&state),
+            (0..7).collect::<Vec<_>>(),
+            "nor the allegiance row"
+        );
+        let mut enabled = [false; 14];
+        enabled[9] = true;
+        state.chat_focus = Some((1, enabled));
+        let mut want: Vec<usize> = (0..7).collect();
+        want.push(9);
+        assert_eq!(context(&state), want, "the room the server named");
+    }
+
+    /// The splitter at 4 of 10: the thumb, keyed, a third of the way along (`3 * 81 / 9`), the lit
+    /// bar cut at its middle and the dark bar from there on.
+    fn stack_splitter_draws_its_thumb_over_a_bar_lit_up_to_it(f: &PanelFrame) {
+        let picture = |id: &str| {
+            f.screen.commands.iter().find_map(|c| match c {
+                Command::Image {
+                    did,
+                    x,
+                    y,
+                    width,
+                    height,
+                    clip,
+                    color_key,
+                    tile,
+                    ..
+                } if did == id => Some((
+                    (*x, *y, *width as i32, *height as i32),
+                    *tile,
+                    *clip,
+                    color_key.is_some(),
+                )),
+                _ => None,
+            })
+        };
+        let (at, _, _, keyed) = picture("06000F82").expect("the thumb");
+        assert_eq!((at.2, at.3), (16, 14));
+        assert!(keyed, "the thumb's black is see-through");
+        let (bar, _, lit_clip, _) = picture("0600127F").expect("the lit bar");
+        assert_eq!(at.0, bar.0 + 27, "a third of the way along");
+        let lit_clip = lit_clip.expect("cut at the thumb");
+        assert_eq!(lit_clip[2], at.0 + 8, "lit up to the thumb's middle");
+        let (_, tile, dark_clip, _) = picture("06001150").expect("the dark bar");
+        assert!(tile);
+        assert_eq!(dark_clip.expect("past the thumb")[0], at.0 + 8);
+    }
     #[test]
     fn the_chat_log_is_the_interfaces_where_no_control_lies_and_the_world_view_is_not() {
         let mut hud = make("hud").expect("the interface");
@@ -2015,6 +2330,51 @@ mod tests {
         }
         assert_eq!(quest_page(&Era(era)), None);
         assert_eq!(quest_page(&World::default()), Some("journal"));
+    }
+    /// Behaviour: presentation.era.every-interface-refuses-what-the-world-lacks
+    /// The window keys of a system the world lacks do nothing; the page list's key follows the
+    /// journal, not the contracts beside it.
+    #[test]
+    fn a_window_key_does_nothing_without_its_system() {
+        #[derive(Debug)]
+        struct Era(dereth_client_contract::EraView);
+        impl GameView for Era {
+            fn era(&self) -> Option<&dereth_client_contract::EraView> {
+                Some(&self.0)
+            }
+        }
+        let mut era = dereth_client_contract::EraView {
+            era: dereth_primitives::era::EraId::Eor,
+            era_announced: true,
+            ..Default::default()
+        };
+        for name in ["contracts", "titles", "journal", "housing", "trade"] {
+            era.announced_features.set(name, false);
+        }
+        let g = Era(era);
+        let resources = crate::resources::Resources::default();
+        let state = ClassicState::default();
+        let (p, k, s) = Default::default();
+        let mut hud = Hud::default();
+        let c = context(&resources, &g, &state, &p, &k, &s);
+        for key in [
+            "ToggleContractsPanel",
+            "ToggleCharacterTitlePanel",
+            "ToggleJournalPanel",
+            "TogglePageListPanel",
+            "ToggleHousePanel",
+            "TradePanel",
+        ] {
+            assert_eq!(
+                hud.event(ControlEvent::Action(key.into()), &c),
+                vec![],
+                "{key}"
+            );
+        }
+        assert_eq!(
+            hud.event(ControlEvent::Action("ToggleMapPanel".into()), &c),
+            vec![PanelAction::Toggle("map".into())]
+        );
     }
     #[test]
     fn the_journal_button_opens_the_journal_and_closes_the_page_it_shows() {
@@ -2475,6 +2835,396 @@ mod tests {
             )
         });
     }
+    /// The control `id` of a frame says what the 1999 client's hover says of it.
+    fn says(panel: &dyn Panel, id: &str, c: &Context<'_>) -> (String, Option<String>) {
+        let at = HoverPoint {
+            id,
+            x: 0,
+            y: 0,
+            item: None,
+            row: None,
+        };
+        let hover = panel
+            .hover(at, c)
+            .unwrap_or_else(|| panic!("{id} says nothing"));
+        (hover.name, hover.hint)
+    }
+    #[test]
+    fn each_hud_button_says_what_it_does() {
+        with_context(
+            &World {
+                combat: 1,
+                ..Default::default()
+            },
+            |c| {
+                let hud = Hud::default();
+                let frame = hud.frame(c);
+                for (id, text) in [
+                    (
+                        "inventory",
+                        "Your inventory - Drag items here to pick them up",
+                    ),
+                    ("use", "Uses an item, character or creature"),
+                    ("examine", "Examines an item, character or creature"),
+                    ("options", "Shows game options"),
+                    ("character-stats", "Displays your skills and attributes"),
+                    ("spellbook", "Displays your spells"),
+                    ("map", "Shows a map of the world"),
+                    ("social", "Displays information on social systems"),
+                    ("vitals:help", "Click here for help"),
+                    ("vitals:logout", "Click here to leave the world"),
+                    ("vitals:vital:Health", "Your health is 50 (of 100 maximum)"),
+                    ("vitals:vital:Stamina", "Your stamina is 1 (of 0 maximum)"),
+                    ("vitals:vital:Mana", "Your mana is 0 (of 100 maximum)"),
+                    ("chat:input", "Click here to enter a chat message"),
+                    ("chat:destination", "Click here for more chat options"),
+                    ("chat-divider", "Drag this bar to expand the chat log"),
+                    (
+                        "radar-hit",
+                        "Blips show creatures and other important objects.",
+                    ),
+                ] {
+                    assert!(
+                        frame.controls.iter().any(|c| c.id == id),
+                        "the frame has no {id}"
+                    );
+                    assert_eq!(says(&hud, id, c).0, text);
+                }
+            },
+        );
+    }
+    #[test]
+    fn use_and_examine_with_nothing_selected_ask_for_an_object() {
+        with_context(&World::default(), |c| {
+            let mut hud = Hud::default();
+            for (id, mode, text) in [
+                ("use", TargetMode::Use, "Choose an object to use"),
+                (
+                    "examine",
+                    TargetMode::Examine,
+                    "Choose an object to examine",
+                ),
+            ] {
+                assert_eq!(
+                    hud.event(ControlEvent::Activate(id.into()), c),
+                    vec![
+                        PanelAction::Game(UiRequest::SetTargetMode(mode)),
+                        PanelAction::Host(HostAction::LocalFeedback {
+                            text: text.into(),
+                            severity: crate::panels::FeedbackSeverity::Information,
+                        }),
+                    ]
+                );
+            }
+        });
+    }
+    #[test]
+    fn the_chat_menu_rows_say_where_they_send_and_the_rooms_say_nothing() {
+        with_context(&World::default(), |c| {
+            let chat = Chat::default();
+            let row = |row| {
+                chat.hover(
+                    HoverPoint {
+                        id: "destination",
+                        x: 0,
+                        y: 0,
+                        item: None,
+                        row: Some(row),
+                    },
+                    c,
+                )
+                .map(|hover| hover.name)
+            };
+            for (i, text) in [
+                "Blocks messages from the selected character",
+                "Sends chat messages to selected character",
+                "Sends chat messages to all around you",
+                "Sends chat messages to your fellowship",
+                "Sends chat messages to your monarch",
+                "Sends chat messages to your patron",
+                "Sends chat messages to your vassals",
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                assert_eq!(row(i).as_deref(), Some(text));
+            }
+            assert_eq!(row(7), None, "allegiance");
+            assert_eq!(row(99), None);
+        });
+    }
+    #[test]
+    fn the_chat_divider_says_which_way_it_would_go() {
+        let says = |expanded| {
+            let g = World::default();
+            let resources = crate::resources::Resources::default();
+            let state = ClassicState::default();
+            let (p, k, s) = (
+                PregameView::default(),
+                KeyboardState::default(),
+                ClassicSettings::default(),
+            );
+            let mut c = context(&resources, &g, &state, &p, &k, &s);
+            c.layout.chat_expanded = expanded;
+            says(&Hud::default(), "chat-divider", &c).0
+        };
+        assert_eq!(says(false), "Drag this bar to expand the chat log");
+        assert_eq!(says(true), "Drag this bar to shrink the chat log");
+    }
+    #[test]
+    fn the_chat_box_invites_typing_and_launch_says_ignore() {
+        #[derive(Debug)]
+        struct Launch;
+        impl GameView for Launch {
+            fn era_ui(&self) -> dereth_client_contract::era::EraUiFacts {
+                dereth_client_contract::era::EraUiFacts::for_profile(
+                    dereth_primitives::EraId::Launch,
+                )
+            }
+        }
+        let menu = |c: &Context<'_>| {
+            let frame = Chat::default().frame(c);
+            let input = frame.controls.iter().find(|c| c.id == "input").unwrap();
+            assert_eq!(
+                input.idle_text.as_deref(),
+                Some("Click and type here to talk to others")
+            );
+            let destination = frame
+                .controls
+                .iter()
+                .find(|c| c.id == "destination")
+                .unwrap();
+            let ControlKind::Choice { options, .. } = &destination.kind else {
+                panic!("a choice")
+            };
+            options[0].clone()
+        };
+        with_view(&Launch, |c| assert_eq!(menu(c), "Ignore Selected"));
+        with_context(&World::default(), |c| {
+            assert_eq!(menu(c), "Squelch (ignore) Selected");
+        });
+    }
+    #[test]
+    fn the_combat_button_wields_what_can_be_wielded_and_refuses_the_rest() {
+        use dereth_rules::slots::loc;
+        #[derive(Debug)]
+        struct Item(u32);
+        impl GameView for Item {
+            fn item_valid_locations(&self, _: ObjectId) -> Option<u32> {
+                Some(self.0)
+            }
+        }
+        let drop_on = |g: &dyn GameView| {
+            let mut out = vec![];
+            with_view(g, |c| {
+                out = Hud::default().event(
+                    ControlEvent::Drop {
+                        id: "combat".into(),
+                        payload: DragPayload::Object(ObjectId(9)),
+                        slot: 0,
+                    },
+                    c,
+                );
+            });
+            out
+        };
+        for weapon in [
+            loc::MELEE_WEAPON,
+            loc::SHIELD,
+            loc::MISSILE_WEAPON,
+            loc::HELD,
+            loc::TWO_HANDED,
+        ] {
+            assert_eq!(
+                drop_on(&Item(weapon)),
+                vec![PanelAction::Game(UiRequest::AutoWield {
+                    item: ObjectId(9),
+                    side: 0
+                })]
+            );
+        }
+        assert_eq!(
+            drop_on(&Item(loc::HEAD_WEAR)),
+            vec![PanelAction::Host(HostAction::LocalFeedback {
+                severity: crate::panels::FeedbackSeverity::Information,
+                text: "Only weaponry, shields, and magic items can be auto-wielded".into(),
+            })]
+        );
+    }
+    #[test]
+    fn only_the_final_combat_panel_offers_to_keep_the_target_in_view() {
+        for (era, shown) in [
+            (dereth_primitives::EraId::Launch, false),
+            (dereth_primitives::EraId::Infiltration, false),
+            (dereth_primitives::EraId::Eor, true),
+        ] {
+            #[derive(Debug)]
+            struct Era(dereth_primitives::EraId);
+            impl GameView for Era {
+                fn era_ui(&self) -> dereth_client_contract::era::EraUiFacts {
+                    dereth_client_contract::era::EraUiFacts::for_profile(self.0)
+                }
+            }
+            with_view(&Era(era), |c| {
+                let frame = super::combat::Combat::default().frame(c);
+                assert_eq!(
+                    frame.controls.iter().any(|c| c.id == "keep-in-view"),
+                    shown,
+                    "{era:?}"
+                );
+            });
+        }
+    }
+    #[test]
+    fn on_launch_the_map_stays_shut_indoors() {
+        #[derive(Debug)]
+        struct Launch(bool);
+        impl GameView for Launch {
+            fn era_ui(&self) -> dereth_client_contract::era::EraUiFacts {
+                dereth_client_contract::era::EraUiFacts::for_profile(
+                    dereth_primitives::EraId::Launch,
+                )
+            }
+            fn player_outside(&self) -> bool {
+                self.0
+            }
+        }
+        let press = |g: &dyn GameView| {
+            let mut out = vec![];
+            with_view(g, |c| {
+                out = Hud::default().event(ControlEvent::Activate("map".into()), c);
+            });
+            out
+        };
+        assert_eq!(
+            press(&Launch(false)),
+            vec![PanelAction::Host(HostAction::LocalFeedback {
+                severity: crate::panels::FeedbackSeverity::Information,
+                text: "You must be outdoors to use Map View.".into(),
+            })]
+        );
+        assert_eq!(
+            press(&Launch(true)),
+            vec![PanelAction::Toggle("map".into())]
+        );
+        assert_eq!(
+            press(&World::default()),
+            vec![PanelAction::Toggle("map".into())],
+            "other worlds open it anywhere"
+        );
+    }
+    #[test]
+    fn the_combat_button_says_which_way_it_goes_and_what_it_takes() {
+        let hint = Some("Drag weapon/magic item here to wield it".to_owned());
+        for (mode, name) in [
+            (1, "Enters melee combat"),
+            (2, "Exits melee combat"),
+            (4, "Exits missile combat"),
+            (8, "Exits spellcasting"),
+        ] {
+            with_context(
+                &World {
+                    combat: mode,
+                    ..Default::default()
+                },
+                |c| {
+                    assert_eq!(
+                        says(&Hud::default(), "combat", c),
+                        (name.to_owned(), hint.clone())
+                    );
+                },
+            );
+        }
+    }
+    #[derive(Debug, Default)]
+    struct Burdened {
+        load: f32,
+        effects: (u32, u32),
+        one_effects_panel: bool,
+    }
+    impl GameView for Burdened {
+        fn load(&self) -> Option<f32> {
+            Some(self.load)
+        }
+        fn enchantment_counts(&self) -> (u32, u32) {
+            self.effects
+        }
+        fn era_ui(&self) -> dereth_client_contract::era::EraUiFacts {
+            dereth_client_contract::era::EraUiFacts {
+                one_effects_panel: self.one_effects_panel,
+                ..Default::default()
+            }
+        }
+    }
+    fn with_view(g: &dyn GameView, f: impl FnOnce(&Context<'_>)) {
+        let resources = crate::resources::Resources::default();
+        f(&context(
+            &resources,
+            g,
+            &ClassicState::default(),
+            &PregameView::default(),
+            &KeyboardState::default(),
+            &ClassicSettings::default(),
+        ));
+    }
+    #[test]
+    fn the_burden_lamp_says_how_much_is_carried_and_what_it_costs() {
+        let vitals = Vitals {
+            width: 800,
+            numeric: false,
+            link: LinkLamp::default(),
+        };
+        for (load, text) in [
+            (0.5, "You are carrying 50% of your maximum"),
+            (1.0, "You are moving more slowly due to your burden."),
+            (2.0, "You are moving VERY slowly due to your burden."),
+        ] {
+            with_view(
+                &Burdened {
+                    load,
+                    ..Default::default()
+                },
+                |c| assert_eq!(says(&vitals, "burden", c).0, text),
+            );
+        }
+    }
+    #[test]
+    fn the_spell_lamps_count_as_the_world_shows_them() {
+        let vitals = Vitals {
+            width: 800,
+            numeric: false,
+            link: LinkLamp::default(),
+        };
+        with_view(
+            &Burdened {
+                effects: (2, 1),
+                one_effects_panel: true,
+                ..Default::default()
+            },
+            |c| {
+                assert_eq!(
+                    says(&vitals, "beneficial-effects", c).0,
+                    "You are affected by 3 spells. Click for details."
+                );
+            },
+        );
+        with_view(
+            &Burdened {
+                effects: (1, 2),
+                ..Default::default()
+            },
+            |c| {
+                assert_eq!(
+                    says(&vitals, "beneficial-effects", c).0,
+                    "You are affected by 1 beneficial spell. Click for details."
+                );
+                assert_eq!(
+                    says(&vitals, "harmful-effects", c).0,
+                    "You are affected by 2 harmful spells. Click for details."
+                );
+            },
+        );
+    }
     #[test]
     fn hud_inventory_toggle_does_not_change_combat_mode() {
         with_context(
@@ -2557,6 +3307,7 @@ mod tests {
                 let mut h = Hud::default();
                 let f = h.frame(c);
                 assert!(f.controls.iter().any(|c| c.id == "stack-count"));
+                stack_splitter_draws_its_thumb_over_a_bar_lit_up_to_it(&f);
                 assert!(!f
                     .screen
                     .commands

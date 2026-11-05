@@ -7,6 +7,170 @@ what they see, not how it was done.
 
 ## Unreleased
 
+## 0.2.0 (2026-11-05)
+
+- Creatures now go around what a world places.
+- Players in a browser now have their friends list.
+- A world's objects can have a scale of their own.
+- Killing creatures moves the quests their deaths name, and a kill can give a quest.
+- New `yalain update`, and worlds can keep themselves up to date.
+- Fixed login cookies that another player could work out.
+- New `@dn link`, friends, world squelches and channels, as on other Dereth Network worlds.
+- New `@dn admin block` in game, from an admin.
+- Worlds can carry the Dereth Network's Global room in a room of their choice.
+- macOS: Intel Macs are no longer supported; Apple silicon only.
+- An open corpse now closes when you walk away from it.
+- Worlds can take WebSocket connections.
+- Fixed Initiate Moccasins and similar loot going in the weapon slot.
+- Access levels are gone: an account is an admin's or a player's, set with `set-accountadmin` or `--admin`.
+- New admin characters, made with `set-characteradmin`, which enter with the game's admin commands.
+- The game's admin commands now work for admin characters: teleports, bans, making objects and more.
+- New named admin groups, for keeping bans, boots and the like to chosen admins.
+- New `--serve-admin-library`, so an admin's retail client can use its admin commands too.
+- The server starts in about half the time.
+- New `download_bytes_per_second` setting for how fast clients download data.
+- Armor with no worn properties now shows on the body when worn.
+- Items named only in their qualities now show their name when examined.
+- Admins can now log in to a full world.
+- Fixed long admin answers arriving out of order.
+- A world serving its own folder can update when the world database can't be fetched.
+- `yalain --version` now says where the world updates from.
+- `federation.min_character_age_seconds` now works, as it does on Empyrean.
+- Quests now hold to the least levels the game sets for them.
+- Hero-only quests, and quests that need another first, now go only to those who qualify.
+- A player typing admin commands no longer floods the log.
+- Quests that pay a share of your next level now pay it.
+- Completing quests now raises your quest rating.
+- Objects meant for monarchs now refuse everyone else.
+- People no longer say "come back later" while you're on their quest.
+- From level 50, kills and quests well below your level pay less, as in 2017.
+- Obelisks and explorers now send players on, and more people and gates send whoever uses them.
+- Postings boards give one quest at a time, with a wait after each, and now pay experience.
+- People now turn you away when you're too low for their quests.
+- Finishing a vault now pays its experience as you leave.
+- Tells to a linked character who isn't playing can reach their Discord, from this world too.
+- Friends on other worlds no longer show as leaving when you log in.
+- Linked characters now list their person's friends.
+- Fixed a last set of quest errands not finishing the quest.
+- Quest hand-ins now take exactly the number asked for, and people say so when it's wrong.
+- More people in the drudge towns give their quests.
+- Fixed people telling strong players they were too weak.
+- The Water Temple obelisks open in the right order.
+- Sparks's, Fraidy's and Elder Jrick's quests now take each item in turn.
+- Obelisk search stones no longer teleport you; the portal beside each one does.
+- People and shrines now take the items they took in 2017: offerings, relics, donations, a bribe.
+- Miners charge their fee, and their portals stay shut until you pay.
+- People no longer talk about the wrong item when they turn down a give.
+- Warders accept any item you no longer want.
+- Fixed recipes with limited uses never running out.
+- Item-level recipes can be made now.
+- Crafting Workshops work: stand near one to craft what needs it.
+- A failed craft no longer makes the item.
+- A timed quest's clock now stops while you're logged out.
+- A person's two-hour wait between quests counts only time played.
+- Fixed characters coming back stuck at 0 health after logging out dead.
+- Creature hits now take health as they land, so the hit shows before "killed you".
+- Fixed characters being wiped when their saved state couldn't be read: they're now refused entry.
+- A failed save now keeps your character and retries, and everyone is told.
+- A crash can no longer leave a trade, craft or sale half done.
+- Resurrecting now takes off the buffs a death ends, and keeps auras on.
+- A melee hit lands when the swing connects, not when it starts.
+- A player left dead for ten minutes is sent back to their lifestone.
+- Made items now carry their level: name, value, damage, armor.
+- Knives cut by their own yield and need the skill to use.
+- Refining now makes its material.
+- Dyeing now colors armor.
+- Fixed new items taking the ids of items players already held.
+- Treasure items keep their value across a logout.
+- Items on sale with a broker keep their own numbers.
+- Inscriptions are kept across a logout.
+- Fixed a corpse's item being taken twice, and a stranger selling a corpse's items for money.
+- A trade no longer goes through once an offered item is put down or split.
+- An item being put down isn't lost if you leave or the server stops.
+- A craft makes nothing if its ingredients are gone by the end.
+- Hammers and crucibles now help when crafting.
+- Recipes now refuse items above their level or lore.
+- A sword no longer repeats 'too far' while walking to its target.
+- Pets and creatures hurt each other when the blow lands.
+- Hand-in lines now say 'the item' as retail does.
+- A crash just after coming back no longer strips what your items carry.
+- Coins out of the money bag now need room in your pack.
+- Stores and brokers now only deal with you when you're near them.
+- A hero's gift under way is no longer lost if you log off.
+- An item put down while its use plays no longer runs the use.
+- Fixed selling a valued stack one at a time paying too much.
+- Items with different stats no longer merge into one stack.
+- Inscriptions now show when an item is examined.
+- Dyeing now works on all armor.
+- A dyed item's icon now shows its color.
+- Loot weapons, shields and armor now have real stats for their level.
+- Attacks that strike twice now hit twice, one blow per hand.
+- Looted weapons fight as their kind, and your stance follows your weapon.
+- Armor no longer takes your weapon's place in a fight.
+- Large data requests can no longer stall the world.
+- A panic now stops the world cleanly, keeping everything saved before it.
+- Fixed collecting a consignment from anywhere.
+- Fixed a traded item sharing a slot when your pack is full.
+- A character with no start place is refused instead of hanging at entry.
+- A client sending far too many game calls has the excess dropped.
+- Gathering no longer pushes a stack past its limit.
+- Loot now comes in its own colors and glow.
+- Loot weapons, armor and shields can now carry enchantments.
+- Totems now hold an enchantment and can be used on an item of their kind.
+- Fixed broker collections that could lose an item or what it holds.
+- Fixed a position far outside the land not being handled safely.
+- Looted bows and two-handed weapons take both hands and look right.
+- Skills cost vigor for whatever weapons and shield you hold.
+- Special attacks now do the damage their rating adds.
+- Orbs throw from both hands.
+- A weapon you use goes back to the hand it was last in.
+- Swings come on time instead of a little late.
+- A special attack's critical now does a quarter more, not double.
+- Weapons' crit bonuses now work, and specials only crit with one.
+- Treasure rings and talismans can carry enchantments.
+- Enchanted loot is named for one of its effects.
+- Loot can now have slayers, wards and skill boosts.
+- A server stop now sends players to the disconnected screen.
+- Creatures attack on time instead of a little late.
+- Effects that lower what skills cost now work.
+- Weapons are fought in their own stances.
+- Items with no use are refused instead of being held as a sword.
+- Items that raise a skill now raise your rating in it.
+- Slayer weapons now do extra damage to what they name.
+- Treasure names now use the right word for what the item is.
+- Loot can now have Stasis, armor counters and Burning Edge.
+- Fixed specials that strike with the left hand doing the right hand's damage.
+- Heroes' skills can now go past 50.
+- Balance and Featherweight now lower what skills cost.
+- Quest items your quest doesn't allow can't be used or taken.
+- A full pack now stops crafting, butchering and mining.
+- Picking up a quest item now moves its quest on.
+- Fixed a weapon in the off hand stopping your stance and swings from showing.
+- An admin's /generate now makes at most a hundred.
+- Counters on weapons now answer attacks, and wards keep their effects off.
+- A skill's rating falls at no vigor, for skills that say so.
+- Items taken from corpses and chests now join a stack, even in a full pack.
+- Gifts to a full pack now show up at once.
+- Balance and Featherweight now last as long as the aura, and show on the item.
+- Damage reflecting and absorbing effects now work, on players and creatures.
+- Protections like Extinguish Blaze and Cure Disease now keep their effects off.
+- Infected Caress and Wound Twister now raise weapon damage, on fellows' weapons too.
+- Attunable items can no longer be dropped.
+- Contracts can't be bought yet, so they no longer cost anything.
+- Alacrity, Quickening and other attack speed effects now speed up your attacks.
+- Practice dummies hurt whoever hits them.
+- Plan B and Immolation now burn whoever casts harmful effects on their holder.
+- Fixed creatures jumping back when something held them up.
+- Fixed creatures stopping at nothing where another creature had stood.
+- Creatures now pass through scenery marked for them.
+- Creatures in a camp now each take their own spot.
+- Heavier armor and weapons now slow your attacks.
+- Sinew Snap now plays at its proper speed.
+- Alchemists' attacks now change with the dark side and Immolation.
+- Attuned items can no longer be traded.
+- World: the Ulkas mines' quests, journal hand-ins and a jeweler's gems now run.
+- World: 620 more creatures, as many as recordings show alive in each camp.
+
 ## 0.1.2 (2026-11-03)
 
 - Fixed players on the host's own network being dropped when entering the world.

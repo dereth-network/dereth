@@ -592,6 +592,57 @@ impl Row {
         }
     }
 
+    /// The control's value tried in the preference, what it held marked applied (the rendering's,
+    /// kept or put back by the answer to a question).
+    pub fn submit(&mut self, ui: &Ui) {
+        let flag = self.flag_now(ui);
+        let number = self.number_now(ui);
+        let choice = self.choice_now(ui);
+        match &mut self.control {
+            Control::Flag { pref, .. } => {
+                pref.apply();
+                pref.set_value(flag);
+            }
+            Control::Number { pref, .. } => {
+                pref.apply();
+                pref.set_value(number);
+            }
+            Control::Choice { pref, .. } => {
+                pref.apply();
+                pref.set_value(choice);
+            }
+            Control::Section { .. } => {}
+        }
+    }
+
+    /// What was tried in the preference kept, or put back; the control stays as it is.
+    pub fn settle(&mut self, keep: bool) {
+        match &mut self.control {
+            Control::Flag { pref, .. } => {
+                if keep {
+                    pref.apply();
+                } else {
+                    pref.recall();
+                }
+            }
+            Control::Number { pref, .. } => {
+                if keep {
+                    pref.apply();
+                } else {
+                    pref.recall();
+                }
+            }
+            Control::Choice { pref, .. } => {
+                if keep {
+                    pref.apply();
+                } else {
+                    pref.recall();
+                }
+            }
+            Control::Section { .. } => {}
+        }
+    }
+
     /// The preference's value back in the control.
     // D2-03138, D2-03153, D2-03168
     pub fn recall(&mut self, ui: &mut Ui) {
@@ -642,6 +693,12 @@ impl Row {
     /// The control shows another preference's value (one the client changed); done.
     // D2-03143, D2-03158, D2-03173
     pub fn refresh_from(&mut self, ui: &mut Ui, change: &Change) -> bool {
+        match (&mut self.control, change) {
+            (Control::Flag { pref, .. }, Change::Flag(p)) => pref.copy(p),
+            (Control::Number { pref, .. }, Change::Number(p)) => pref.copy(p),
+            (Control::Choice { pref, .. }, Change::Choice(p)) => pref.copy(p),
+            _ => false,
+        };
         match change {
             Change::Flag(p) => {
                 self.set_flag(ui, p.get());
@@ -676,8 +733,12 @@ impl Row {
                 }
                 let choices = pref.list_choices().to_vec();
                 let d = pref.description;
-                for (v, (table, label)) in choices {
-                    let words = text(ui, table, label);
+                let literals: Vec<Option<String>> = choices
+                    .iter()
+                    .map(|(v, _)| pref.literal_choice(*v).map(str::to_owned))
+                    .collect();
+                for ((v, (table, label)), literal) in choices.into_iter().zip(literals) {
+                    let words = literal.unwrap_or_else(|| text(ui, table, label));
                     self.add_choice(ui, v, &words);
                 }
                 d
@@ -807,7 +868,7 @@ impl Row {
     }
 
     /// The row goes: its element and its framework.
-    // D2-03123, D2-03141, D2-03156, D2-03171, D2-03190, D2-03192
+    // D2-03123, D2-03141, D2-03156, D2-03171, D2-03190, D2-03192, D2-03129
     pub fn close(self, ui: &mut Ui) {
         if let Some(e) = self.element {
             ui.remove(e);
@@ -987,6 +1048,35 @@ impl Rows {
         for r in self.section_rows(section) {
             if let Some(row) = self.all.get_mut(r) {
                 row.apply(ui);
+            }
+        }
+    }
+
+    /// What each of the section's rows holds that its preference does not.
+    #[must_use]
+    pub fn changes(&self, ui: &Ui, section: usize) -> Vec<Change> {
+        self.section_rows(section)
+            .into_iter()
+            .filter_map(|r| self.all.get(r))
+            .filter(|r| r.changed(ui))
+            .filter_map(|r| r.change(ui))
+            .collect()
+    }
+
+    /// Every row of the section submitted.
+    pub fn submit(&mut self, ui: &Ui, section: usize) {
+        for r in self.section_rows(section) {
+            if let Some(row) = self.all.get_mut(r) {
+                row.submit(ui);
+            }
+        }
+    }
+
+    /// Every row of the section's tried value kept, or put back.
+    pub fn settle(&mut self, section: usize, keep: bool) {
+        for r in self.section_rows(section) {
+            if let Some(row) = self.all.get_mut(r) {
+                row.settle(keep);
             }
         }
     }

@@ -83,7 +83,7 @@ use crate::calls::Value;
 use crate::combat::{self, player_event, to_all_seeing};
 use crate::effect_defs::{EffectDef, Kind as EffectKind, Recall};
 use crate::player::quality;
-use crate::rules::{self, Direction, Kind, Outcome};
+use crate::rules::{self, Kind, Outcome};
 use crate::skills::{Hook, Usage};
 use crate::{progress, quals, session, Clock, Server, Timer};
 
@@ -125,6 +125,7 @@ pub mod q {
 pub mod ui_flag {
     pub const USE_WHILE_MOVING: u32 = 0x1;
     pub const IGNORE_WEAPON_VIGOR: u32 = 0x20;
+    pub const IGNORE_SHIELD_VIGOR: u32 = 0x80;
     pub const NON_DAMAGING: u32 = 0x200;
     /// The player is walked to its target (rather than refused as too far).
     pub const MOVE_TO: u32 = 0x800;
@@ -137,6 +138,8 @@ pub mod hook_flag {
     pub const AREA: u32 = 0x1;
     pub const PROJECTILE: u32 = 0x4;
     pub const NON_DAMAGING: u32 = 0x40;
+    /// The hand that strikes: which weapon's damage the blow does.
+    pub const LEFT_HAND: u32 = 0x1000;
 }
 
 /// A skill information's mask: the skill has a time it was last used; a toggled skill is on
@@ -173,11 +176,14 @@ pub const RECALL_ENDS_AFTER: f64 = 0.18;
 pub const RECALL_FAILS_AFTER: f64 = 0.70;
 pub const FAILED_ENDS_AFTER: f64 = 0.60;
 /// A special's animation from its story to its end, at time scale 1, by behavior (2017: Deadeye's
-/// 1.878, Riposte's 1.444, Mind Lash's behavior 2.080, the heals' 1.43-1.51); others 1.6.
+/// 1.878, Riposte's 1.444, Mind Lash's behavior 2.080, the heals' 1.43-1.51, Blinding Arrow's and
+/// Sinew Snap's 3.25: 3.124 s to what came next at time scale 1.053, 46, and 1.373 s at 2.64, 147);
+/// others 1.6.
 #[must_use]
 pub fn animation_seconds(behavior: u32) -> f64 {
     match behavior {
         0x4100_007A => 1.878,
+        0x4100_007B => 3.25,
         0x4100_0077 => 1.444,
         0x4100_00B9 => 2.080,
         0x4100_00C2 | 0x4100_00C9 => 1.47,
@@ -250,16 +256,90 @@ pub mod story_hook {
     pub const ATTACK_HOOK: u32 = 0x400;
 }
 
-/// Implement kinds (bits a skill's definition allows): a sword, a bow, a stave.
+/// Implement kinds (bits a skill's definition allows).
 pub mod implement {
-    /// An empty hand.
+    /// An empty hand, and what holds nothing a skill asks of a hand (a ring, a tool, a lute).
     pub const NONE: u32 = 0x1;
     pub const SWORD: u32 = 0x2;
     pub const BOW: u32 = 0x4;
+    pub const DRUM: u32 = 0x8;
+    pub const SHIELD: u32 = 0x10;
+    pub const AXE: u32 = 0x20;
+    pub const DAGGER: u32 = 0x40;
+    pub const GUNBLADE: u32 = 0x80;
+    pub const HAMMER: u32 = 0x100;
+    pub const HANDBLADE: u32 = 0x200;
+    pub const POLEARM: u32 = 0x400;
+    pub const ALCHEMY: u32 = 0x800;
+    pub const BOULDER: u32 = 0x1000;
+    pub const WASP_NEST: u32 = 0x2000;
+    pub const WRENCH: u32 = 0x4000;
+    pub const SPEAR: u32 = 0x8000;
+    pub const CESTAS: u32 = 0x1_0000;
+    pub const FLAIL: u32 = 0x2_0000;
     pub const STAVE: u32 = 0x4_0000;
+    pub const SCYTHE: u32 = 0x8_0000;
+    pub const HAND: u32 = 0x10_0000;
+    pub const ORB: u32 = 0x20_0000;
 }
 
-/// The starting weapons' implements (their classes'), and their vigor costs (4 each).
+/// The script classes that say what their items are wielded as, and what they say. No class here
+/// derives from another.
+pub const IMPLEMENT_CLASSES: [(&str, u32); 31] = [
+    ("MiningToolTemplate", implement::NONE),
+    ("ToolTemplate", implement::NONE),
+    ("RingTemplate", implement::NONE),
+    ("TalismanTemplate", implement::NONE),
+    ("LuteTemplate", implement::NONE),
+    ("EarringsToadfang", implement::NONE),
+    ("ShieldTemplate", implement::SHIELD),
+    ("AlchemyTemplate", implement::ALCHEMY),
+    ("AxeTemplate", implement::AXE),
+    ("BoulderTemplate", implement::BOULDER),
+    ("BowTemplate", implement::BOW),
+    ("CestasTemplate", implement::CESTAS),
+    ("DaggerTemplate", implement::DAGGER),
+    ("DrumTemplate", implement::DRUM),
+    ("FlailTemplate", implement::FLAIL),
+    ("FrogstaveTemplate", implement::STAVE),
+    ("HammerTemplate", implement::HAMMER),
+    ("HandbladeTemplate", implement::HANDBLADE),
+    ("HandTemplate", implement::HAND),
+    ("GunbladeTemplate", implement::GUNBLADE),
+    ("OrbTemplate", implement::ORB),
+    ("JailaiTemplate", implement::CESTAS),
+    ("PolearmTemplate", implement::POLEARM),
+    ("ScepterLugianTemplate", implement::STAVE),
+    ("ScytheTemplate", implement::SCYTHE),
+    ("SharpstickTemplate", implement::AXE),
+    ("SpearTemplate", implement::SPEAR),
+    ("StaveTemplate", implement::STAVE),
+    ("SwordTemplate", implement::SWORD),
+    ("WaspnestTemplate", implement::WASP_NEST),
+    ("WrenchTemplate", implement::WRENCH),
+];
+
+/// The implement kinds of a catalog's templates: for each, what the class its package derives
+/// from says; none for a template of no such class.
+#[must_use]
+pub fn implements_of_catalog(
+    catalog: &yalain_content::Catalog,
+    derives_from: impl Fn(u32, &str) -> bool,
+) -> std::collections::BTreeMap<u32, u32> {
+    catalog
+        .templates
+        .values()
+        .filter_map(|t| {
+            IMPLEMENT_CLASSES
+                .iter()
+                .find(|(class, _)| derives_from(t.description.package, class))
+                .map(|(_, i)| (t.id, *i))
+        })
+        .collect()
+}
+
+/// The starting weapons' implements (their classes'), and their vigor costs (4 each: their
+/// templates name none).
 pub const STARTING_WEAPONS: [(u32, u32); 9] = [
     (0x4700_051B, implement::BOW),
     (0x4700_051C, implement::SWORD),
@@ -278,6 +358,12 @@ pub mod mode {
     pub const BOW: u32 = 0x4100_0010;
     pub const STAVE: u32 = 0x4100_0011;
     pub const ONE_HANDED: u32 = 0x4100_000A;
+    pub const WITH_SHIELD: u32 = 0x4100_000B;
+    pub const POLEARM: u32 = 0x4100_000C;
+    pub const TWO_WEAPONS: u32 = 0x4100_000E;
+    pub const HANDBLADE: u32 = 0x4100_000F;
+    pub const FLAIL: u32 = 0x4100_0013;
+    pub const ALCHEMY: u32 = 0x4100_0015;
 }
 
 /// The private effect a player's client plays when it exploits an opening, and a creature's
@@ -381,6 +467,8 @@ pub struct Landing {
     pub hook: usize,
     pub outcome: Outcome,
     pub damage: i32,
+    /// What the target's effects send back.
+    pub back: i32,
 }
 
 /// A special's missile in flight: its request, how it is used, how it will come out.
@@ -412,87 +500,207 @@ pub fn refused(err: u32, target: u64, skill: u32) -> ServerMessage {
     .expect("packs")
 }
 
-/// The things a player wields, with their templates (in the order it holds them).
-pub(crate) fn wielded<S: Store>(s: &Server<S>, player: u64) -> Vec<(u64, u32)> {
-    s.players
-        .values()
-        .find(|p| p.character == player)
-        .map(|p| {
-            p.play
-                .items
-                .iter()
-                .filter(|h| h.location != 0)
-                .map(|h| (h.id, h.template))
-                .collect()
-        })
-        .unwrap_or_default()
+/// What a player holds in its hands: each thing and its template. A thing that takes both hands
+/// (a bow, a stave) is the right hand's.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Hands {
+    pub right: Option<(u64, u32)>,
+    pub left: Option<(u64, u32)>,
 }
 
-/// What a template is wielded as (its implement kind), when the server knows it.
+/// What a player holds in its hands (what it wears on its body is not among them).
+pub(crate) fn hands<S: Store>(s: &Server<S>, player: u64) -> Hands {
+    let mut hands = Hands::default();
+    let Some(p) = s.players.values().find(|p| p.character == player) else {
+        return hands;
+    };
+    for h in &p.play.items {
+        if h.location == crate::equip::OFF_HAND {
+            hands.left = Some((h.id, h.template));
+        } else if h.location != 0 && h.location & crate::equip::BODY_PLACES == 0 {
+            hands.right = Some((h.id, h.template));
+        }
+    }
+    hands
+}
+
+/// The things a player wields, with their templates: the right hand's, then the left's.
+pub(crate) fn wielded<S: Store>(s: &Server<S>, player: u64) -> Vec<(u64, u32)> {
+    let hands = hands(s, player);
+    hands.right.into_iter().chain(hands.left).collect()
+}
+
+/// What a starting weapon is wielded as.
 #[must_use]
-pub fn implement_of(template: u32) -> Option<u32> {
+pub fn starting_implement(template: u32) -> Option<u32> {
     STARTING_WEAPONS
         .iter()
         .find(|(t, _)| *t == template)
         .map(|(_, i)| *i)
 }
 
-/// The combat mode of what is wielded.
+/// Is a template a bow? Its objects are made strung: their own mode is the bow's (2017: 1,273 of
+/// 1,273 bows made so, 26,018 other things a hand holds at peace).
 #[must_use]
-pub fn mode_of(implements: &[u32]) -> u32 {
-    if implements.contains(&implement::BOW) {
-        mode::BOW
-    } else if implements.contains(&implement::STAVE) {
-        mode::STAVE
-    } else {
-        mode::ONE_HANDED
+pub fn is_bow(t: &yalain_content::Template) -> bool {
+    starting_implement(t.id) == Some(implement::BOW)
+        || t.props.word("Item_ImplementType") == Some(implement::BOW)
+}
+
+/// What a template is wielded as (its implement kind), when the server knows it.
+#[must_use]
+pub fn implement_of(catalog: &yalain_content::Catalog, template: u32) -> Option<u32> {
+    starting_implement(template).or_else(|| catalog.implements.get(&template).copied())
+}
+
+/// The combat mode of what is wielded, by the right hand's implement and the left's (2017, the
+/// mode a player was in as it swung, by the implements the skill allows; of 166,210 stories 1,519
+/// came at peace and 1 otherwise: handblades 16,631, polearms 407, two one-handed weapons 6,782,
+/// one with a shield 31,149, one alone 701, bows, spears, orbs and hammers 22,457, staves, drums
+/// and hands 44,926, alchemy, cestas and boulders 41,582, wasp nests and flails 55).
+#[must_use]
+pub fn mode_of(right: Option<u32>, left: Option<u32>) -> u32 {
+    use implement as i;
+    match right {
+        Some(i::BOW | i::SPEAR | i::ORB | i::HAMMER | i::WRENCH) => mode::BOW,
+        Some(i::STAVE | i::DRUM | i::HAND) => mode::STAVE,
+        Some(i::HANDBLADE) => mode::HANDBLADE,
+        Some(i::POLEARM) => mode::POLEARM,
+        Some(i::ALCHEMY | i::CESTAS | i::BOULDER) => mode::ALCHEMY,
+        Some(i::WASP_NEST | i::FLAIL) => mode::FLAIL,
+        _ => match left {
+            Some(i::SHIELD) => mode::WITH_SHIELD,
+            Some(i::SWORD | i::AXE | i::DAGGER | i::SCYTHE) => mode::TWO_WEAPONS,
+            _ => mode::ONE_HANDED,
+        },
     }
 }
 
-/// The player's combat mode, by what it wields.
+/// The player's combat mode: the stance its right hand's template names for what the left holds, alone,
+/// with a shield or with a second weapon (2017: 11,460 of 11,460 basic swings not at peace, each kind of
+/// hands among them); [`mode_of`] for a template that names none.
 pub fn player_mode<S: Store>(s: &Server<S>, player: u64) -> u32 {
-    let implements: Vec<u32> = wielded(s, player)
-        .iter()
-        .filter_map(|(_, t)| implement_of(*t))
-        .collect();
-    mode_of(&implements)
+    let h = hands(s, player);
+    let of = |hand: Option<(u64, u32)>| hand.and_then(|(_, t)| implement_of(&s.catalog, t));
+    let (right, left) = (of(h.right), of(h.left));
+    let quality = match (h.left, left) {
+        (None, _) => "Weapon_SingleWeaponStance",
+        (_, Some(implement::SHIELD)) => "Weapon_ShieldStance",
+        _ => "Weapon_TwoWeaponStance",
+    };
+    h.right
+        .and_then(|(_, t)| s.catalog.get(t))
+        .and_then(|t| t.props.word(quality))
+        .filter(|stance| *stance != 0)
+        .unwrap_or_else(|| mode_of(right, left))
 }
 
 /// Is a skill used with what the player wields? Each hand's implement must be among the skill's
 /// allowed ones for that hand (an empty hand is the implement "none", bit 1: so a skill allowing
-/// all but none, the recall's, needs something in the right hand). The player wields one thing at
-/// most, in its right hand; a wielded thing whose implement the server does not know is taken to
-/// be allowed.
+/// all but none, the recall's, needs something in the right hand). A wielded thing whose implement
+/// the server does not know is taken to be allowed.
 #[must_use]
-pub fn implement_allowed(u: &Usage, wielded: &[(u64, u32)]) -> bool {
-    let right = u.implements_right.cast_unsigned();
-    let left = u.implements_left.cast_unsigned();
-    let right_ok = match wielded.first() {
-        None => right & implement::NONE != 0,
-        Some((_, t)) => implement_of(*t).is_none_or(|i| right & i != 0),
+pub fn implement_allowed(catalog: &yalain_content::Catalog, u: &Usage, hands: Hands) -> bool {
+    let fits = |allowed: i32, hand: Option<(u64, u32)>| {
+        let allowed = allowed.cast_unsigned();
+        match hand {
+            None => allowed & implement::NONE != 0,
+            Some((_, t)) => implement_of(catalog, t).is_none_or(|i| allowed & i != 0),
+        }
     };
-    right_ok && left & implement::NONE != 0
+    fits(u.implements_right, hands.right) && fits(u.implements_left, hands.left)
 }
 
-/// A skill's vigor cost for a player with this greatest vigor and these things wielded: the
-/// greatest vigor times the definition's share, less its added part (negative), and the wielded
-/// weapon's own cost (the starting weapons' 4) unless the skill ignores it.
+/// What a player's hands add to a skill's vigor cost.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HeldVigor {
+    /// Its weapons', one or two.
+    pub weapons: i32,
+    /// Its shield's.
+    pub shield: i32,
+}
+
+/// What each thing in a player's hands costs its skills: the item's own number (a treasure or
+/// made item's), else its template's; a starting weapon's 4 (2017: an item's own or its template's
+/// number, both weapons' when it holds two; 237 of 248 uses by players whose costs nothing else
+/// lowered paid them on themselves too). What the player's auras multiply it by comes off each item,
+/// rounded down (2017: a weapon of 18 examined 13 under Balance and 11 under Featherweight, 30 at 22,
+/// 16 at 11, a shield of 7 at 5, 67 profiles; uses under a Balance recorded, 77 of 84 exact).
+pub fn held_vigor<S: Store>(s: &Server<S>, player: u64) -> HeldVigor {
+    let mut held = HeldVigor::default();
+    for (item, template) in wielded(s, player) {
+        let shield = implement_of(&s.catalog, template) == Some(implement::SHIELD);
+        let on_it = crate::effects::on_held(s, player, item, shield);
+        let scale = crate::effects::held_multiplier(s, &on_it, crate::made::stat::VIGOR);
+        let own = s
+            .things
+            .get(item)
+            .and_then(|t| t.own.made)
+            .and_then(|m| m.vigor);
+        let cost = own
+            .or_else(|| {
+                s.catalog
+                    .get(template)
+                    .and_then(|t| t.props.int("Weapon_VigorCost"))
+                    .and_then(|c| i32::try_from(c).ok())
+            })
+            .unwrap_or(if starting_implement(template).is_some() {
+                STARTING_WEAPON_VIGOR
+            } else {
+                0
+            });
+        #[allow(clippy::cast_precision_loss)]
+        let cost = dereth_primitives::num::to_i32((cost as f32 * scale).floor());
+        if shield {
+            held.shield += cost;
+        } else {
+            held.weapons += cost;
+        }
+    }
+    held
+}
+
+/// A skill's vigor cost for a player with this greatest vigor and these things held: the greatest
+/// vigor times the definition's share, less its added part (negative), what its weapons cost and
+/// what its shield costs, unless the skill ignores them (2017, a shield of 5 beside a weapon of 5:
+/// 10 for a skill that does not ignore it, 5 for one that does).
 #[must_use]
-pub fn vigor_cost(u: &Usage, max_vigor: i32, wielded: &[(u64, u32)]) -> i32 {
+pub fn vigor_cost(u: &Usage, max_vigor: i32, held: HeldVigor) -> i32 {
+    vigor_cost_with(u, max_vigor, held, 0.0)
+}
+
+/// [`vigor_cost`] with what the player's effects add, a fraction rounded up, the whole at least half
+/// the skill's own (2017, a buff of the stat alone on three players: its reckoning exact on 665 of 666
+/// uses, 98 of 104, 63 of 63; where the reckoning went under half, 99 of 99 paid half; other players
+/// paid a few less, by what wasn't seen).
+#[must_use]
+pub fn vigor_cost_with(u: &Usage, max_vigor: i32, held: HeldVigor, effects: f32) -> i32 {
     #[allow(clippy::cast_precision_loss)]
     let base = dereth_primitives::num::to_i32(max_vigor as f32 * u.vigor_mult)
         - dereth_primitives::num::to_i32(u.vigor_add);
-    // A skill used on its user alone takes no weapon's cost (2017: 86 of 89 such uses paid 1).
-    let weapon = if u.ui_flags & (ui_flag::IGNORE_WEAPON_VIGOR | ui_flag::SELF_TARGETED) == 0 {
-        wielded
-            .iter()
-            .filter(|(_, t)| implement_of(*t).is_some())
-            .map(|_| STARTING_WEAPON_VIGOR)
-            .sum::<i32>()
+    let weapons = if u.ui_flags & ui_flag::IGNORE_WEAPON_VIGOR == 0 {
+        held.weapons
     } else {
         0
     };
-    base + weapon
+    let shield = if u.ui_flags & ui_flag::IGNORE_SHIELD_VIGOR == 0 {
+        held.shield
+    } else {
+        0
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let whole = dereth_primitives::num::to_i32(((base + weapons + shield) as f32 + effects).ceil());
+    whole.max((base + 1) / 2)
+}
+
+/// What a skill costs this player now.
+fn cost_now<S: Store>(s: &Server<S>, p: &crate::world::Player, u: &Usage, max_vigor: i32) -> i32 {
+    vigor_cost_with(
+        u,
+        max_vigor,
+        held_vigor(s, p.character),
+        crate::effects::vigor_cost_added(s, p),
+    )
 }
 
 /// Is the player moving, as its last report says (an asked motion, or a jump)?
@@ -572,11 +780,8 @@ pub fn aim_of<S: Store>(s: &Server<S>, world: ConnId, r: Request, u: &Usage) -> 
         return Aim::Me;
     }
     if helpful(u) {
-        return s
-            .players
-            .iter()
-            .find(|(_, p)| p.character == r.target)
-            .map_or(Aim::Me, |(c, _)| Aim::Player(*c, r.target));
+        return crate::presence::player_for(s, world, r.target)
+            .map_or(Aim::Me, |c| Aim::Player(c, r.target));
     }
     match combat::player_target(s, world, r.target) {
         Some(c) => Aim::Player(c, r.target),
@@ -584,23 +789,74 @@ pub fn aim_of<S: Store>(s: &Server<S>, world: ConnId, r: Request, u: &Usage) -> 
     }
 }
 
-/// A player's rating in a skill (the spellcraft of the skill's effects).
-fn rating_of<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> f32 {
+/// A player's rating in a skill with its effects (the spellcraft of the skill's effects, what its
+/// hooks add by).
+pub(crate) fn rating_of<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> f32 {
     let Some(p) = s.players.get(&world) else {
         return 1.0;
     };
     let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
     let held = crate::skills::held(&starting, &p.play.skills);
+    let held = if quals::int(&p.qualities, quality::VIGOR) == Some(0) {
+        s.skill_table.at_no_vigor(held)
+    } else {
+        held
+    };
     #[allow(clippy::cast_precision_loss)]
-    let r = s.skill_table.rating(&held, skill) as f32;
+    let r = effective_rating(s, p, &held, skill) as f32;
     r.max(1.0)
 }
 
-/// Does a player carry an effect of one of these saved states?
+/// A player's rating in a skill it holds, with what its effects make of it.
+pub(crate) fn effective_rating<S: Store>(
+    s: &Server<S>,
+    p: &crate::world::Player,
+    held: &[crate::skills::Held],
+    skill: u32,
+) -> u32 {
+    let hero = crate::focus::is_hero(&p.qualities);
+    s.skill_table.rating_with(held, skill, hero, &|sk, rating| {
+        crate::effects::skill_rating(&s.effect_table, &p.play.effects, sk, rating)
+    })
+}
+
+/// [`rating_of`] for tests.
+#[doc(hidden)]
+#[must_use]
+pub fn rating_of_for_test<S: Store>(s: &Server<S>, world: ConnId, skill: u32) -> f32 {
+    rating_of(s, world, skill)
+}
+
+/// Does a player carry an effect of each of these saved states?
 fn carries<S: Store>(s: &Server<S>, world: ConnId, states: &[u32]) -> bool {
-    s.players
-        .get(&world)
-        .is_some_and(|p| p.play.effects.iter().any(|e| states.contains(&e.state)))
+    s.players.get(&world).is_some_and(|p| {
+        states
+            .iter()
+            .all(|st| p.play.effects.iter().any(|e| e.state == *st))
+    })
+}
+
+/// May a player swing this basic attack: it carries all the effects the skill requires and none
+/// that bars it (2017: 35,700 swings seen of alchemy's two kinds changed kind 23 times, about 10 s
+/// apart; 120,326 basic attacks of capturing players, none under an effect barring it), and has
+/// trained the skills it names (15,389 of 15,389 that name any, by the session's saved list).
+pub(crate) fn may_swing<S: Store>(s: &Server<S>, world: ConnId, u: &Usage) -> bool {
+    let Some(p) = s.players.get(&world) else {
+        return false;
+    };
+    if !carries(s, world, &u.required_effects)
+        || p.play
+            .effects
+            .iter()
+            .any(|e| u.barring_effects.contains(&e.state))
+    {
+        return false;
+    }
+    let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
+    let held = crate::skills::held(&starting, &p.play.skills);
+    u.use_prereqs.iter().all(|(skill, rating)| {
+        held.iter().any(|h| h.skill == *skill) && effective_rating(s, p, &held, *skill) >= *rating
+    })
 }
 
 /// A missile hook of a skill, if it throws one.
@@ -608,6 +864,15 @@ pub(crate) fn missile_hook(u: &Usage) -> Option<&Hook> {
     u.hooks
         .iter()
         .find(|h| h.flags & hook_flag::PROJECTILE != 0 && h.missile != 0)
+}
+
+/// The hooks that throw a missile: their indexes among the skill's, and the hooks.
+pub(crate) fn throws_of(u: &Usage) -> Vec<(usize, &Hook)> {
+    u.hooks
+        .iter()
+        .enumerate()
+        .filter(|(_, h)| throws(h))
+        .collect()
 }
 
 /// The first hook that hurts its target.
@@ -729,8 +994,7 @@ fn check<S: Store>(
     if combat::is_dead(p) {
         return Err(refusal::DEAD);
     }
-    let held = wielded(s, p.character);
-    if !implement_allowed(&u, &held) {
+    if !implement_allowed(&s.catalog, &u, hands(s, p.character)) {
         return Err(refusal::WRONG_IMPLEMENT);
     }
     let vigor = quals::int(&p.qualities, quality::VIGOR).unwrap_or(0);
@@ -742,10 +1006,10 @@ fn check<S: Store>(
     if time_left(s, world, r.skill, &u, now_game) > 0.0 {
         return Err(refusal::NOT_RESET);
     }
-    if vigor < vigor_cost(&u, max_vigor, &held) {
+    if vigor < cost_now(s, p, &u, max_vigor) {
         return Err(refusal::NOT_ENOUGH_VIGOR);
     }
-    if !u.required_effects.is_empty() && !carries(s, world, &u.required_effects) {
+    if !carries(s, world, &u.required_effects) {
         return Err(refusal::MISSING_EFFECT);
     }
     let walks = u.ui_flags & ui_flag::MOVE_TO != 0;
@@ -806,11 +1070,6 @@ fn check<S: Store>(
     Ok(u)
 }
 
-/// The time scale of a player's swings this use.
-fn time_scale<S: Store>(s: &mut Server<S>) -> f32 {
-    combat::PLAYER_TIME_SCALE * s.rng.between(0.9, 1.1)
-}
-
 /// A use begins: refused, or under way.
 pub fn starts<S: Store>(
     s: &mut Server<S>,
@@ -830,7 +1089,7 @@ pub fn starts<S: Store>(
         }
     };
     let began = net.game_time(clock.local);
-    let ts = time_scale(s);
+    let ts = use_time_scale(s, world, &u);
     let aim = aim_of(s, world, r, &u);
     let spellcraft = rating_of(s, world, r.skill);
     let Some(p) = s.players.get(&world) else {
@@ -1053,7 +1312,7 @@ pub fn slot<S: Store>(
         }
     };
     let began = net.game_time(clock.local);
-    let ts = time_scale(s);
+    let ts = use_time_scale(s, world, &u);
     let aim = aim_of(s, world, r, &u);
     let spellcraft = rating_of(s, world, r.skill);
     let Some(p) = s.players.get_mut(&world) else {
@@ -1155,13 +1414,12 @@ fn pay<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: &Usag
     let Some(p) = s.players.get(&world) else {
         return;
     };
-    let held = wielded(s, p.character);
+    let vigor = quals::int(&p.qualities, quality::VIGOR).unwrap_or(0);
+    let max = quals::int(&p.qualities, quality::VIGOR_MAX).unwrap_or(vigor);
+    let left = (vigor - cost_now(s, p, u, max)).max(0);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
-    let vigor = quals::int(&p.qualities, quality::VIGOR).unwrap_or(0);
-    let max = quals::int(&p.qualities, quality::VIGOR_MAX).unwrap_or(vigor);
-    let left = (vigor - vigor_cost(u, max, &held)).max(0);
     quals::set_int(&mut p.qualities, quality::VIGOR, left);
     progress::send_int(net, world, quality::VIGOR, left);
     if left == 0 {
@@ -1177,18 +1435,30 @@ pub(crate) fn story_hooks(
     u: &Usage,
     target: u64,
     weapon: u64,
-    outcome: Option<(Outcome, i32)>,
+    outcome: Option<(Outcome, crate::effects::Harm)>,
 ) -> Vec<StoryHook> {
-    let (o, damage) = outcome.unwrap_or((Outcome::Hit, 0));
+    let (o, harm) = outcome.unwrap_or((Outcome::Hit, crate::effects::Harm::default()));
     let landings: Vec<Landing> = (0..u.hooks.len())
         .map(|hook| Landing {
             target,
             hook,
             outcome: o,
-            damage,
+            damage: harm.left,
+            back: harm.back,
         })
         .collect();
     story_hooks_with(u, target, weapon, &landings)
+}
+
+/// The hooks of a basic attack that strike by their own hand: their indexes among the skill's.
+#[must_use]
+pub fn strikes(u: &Usage) -> Vec<usize> {
+    u.hooks
+        .iter()
+        .enumerate()
+        .filter(|(_, h)| !plays_only(h) && !throws(h))
+        .map(|(i, _)| i)
+        .collect()
 }
 
 /// Does a hook only play (no target to strike)?
@@ -1245,6 +1515,7 @@ pub(crate) fn story_hooks_with(
                 hook: i,
                 outcome: Outcome::Hit,
                 damage: 0,
+                back: 0,
             }]
         } else {
             mine
@@ -1265,6 +1536,10 @@ pub(crate) fn story_hooks_with(
             sh.numbers[2] = index.cast_signed();
             if hurts {
                 sh.numbers[3] = -l.damage;
+            }
+            if l.back > 0 {
+                sh.bits |= crate::combat::ATTACKER_HEALTH;
+                sh.numbers[4] = -l.back;
             }
             hooks.push(sh);
         }
@@ -1296,6 +1571,61 @@ fn area_targets<S: Store>(
     out
 }
 
+/// A hitter as a blow of this hook is reckoned: with what the hook adds at its rating, a critical
+/// taking it with the rest of the hit (2017, a basic attack of 351 criticals: 2.09 times its plain
+/// hit; a special's: [`rules::SPECIAL_CRITICAL`]).
+pub(crate) fn hitting_with(me: rules::Hitter, h: &Hook, rating: f32) -> rules::Hitter {
+    rules::Hitter {
+        added: me.added + h.rated_add(rating),
+        ..me
+    }
+}
+
+/// A hitter as a blow of this hook is reckoned by the hand that strikes: one of the left hand does
+/// the damage of what the left hand holds, a shield's too (2017, Victimize with a shield recorded:
+/// median 99, 103 by the shield and 171 by the right hand's weapon, 32 hits). The right hand's, when
+/// the left holds nothing with damage.
+fn by_its_hand<S: Store>(
+    s: &Server<S>,
+    world: ConnId,
+    me: rules::Hitter,
+    h: &Hook,
+) -> rules::Hitter {
+    if h.flags & hook_flag::LEFT_HAND == 0 {
+        return me;
+    }
+    let Some(p) = s.players.get(&world) else {
+        return me;
+    };
+    let Some((left, _)) = hands(s, p.character).left else {
+        return me;
+    };
+    combat::weapon_damage(s, left).map_or(me, |weapon| rules::Hitter {
+        weapon: Some(weapon),
+        critical: combat::critical_bonus(s, Some(left)),
+        ..me
+    })
+}
+
+/// What a special's hook does on a creature when it lands.
+fn hook_hit<S: Store>(
+    s: &mut Server<S>,
+    me: rules::Hitter,
+    h: &Hook,
+    (target, armor): (u64, i32),
+    o: Outcome,
+) -> i32 {
+    let base = rules::player_hit(&mut s.rng, me, armor, false) + combat::armor_taken(s, target);
+    #[allow(clippy::cast_precision_loss)]
+    let d = (base as f32 + h.add) * if h.mult > 0.0 { h.mult } else { 1.0 };
+    let d = if o == Outcome::Critical {
+        d * rules::SPECIAL_CRITICAL
+    } else {
+        d
+    };
+    dereth_primitives::num::to_i32(d.round()).max(1)
+}
+
 /// How one hook comes out on one creature: a hit, critical, miss or evade by the rules (a strike
 /// is evaded, never missed), and the damage when it lands and hurts.
 fn roll_hook<S: Store>(
@@ -1320,13 +1650,7 @@ fn roll_hook<S: Store>(
     } else {
         Kind::Melee
     };
-    let o = rules::roll_outcome(
-        &mut s.rng,
-        Direction::PlayerOnCreature,
-        kind,
-        me.level,
-        level,
-    );
+    let o = rules::roll_special(&mut s.rng, kind, me.level, level, me.critical);
     let o = if kind == Kind::Melee && o == Outcome::Miss {
         Outcome::Evade
     } else {
@@ -1334,15 +1658,18 @@ fn roll_hook<S: Store>(
     };
     let hurts = u.ui_flags & ui_flag::NON_DAMAGING == 0 && h.flags & hook_flag::NON_DAMAGING == 0;
     let dmg = if o.landed() && hurts {
-        let base = rules::player_hit(&mut s.rng, me, armor, o == Outcome::Critical)
-            + combat::armor_taken(s, target);
-        #[allow(clippy::cast_precision_loss)]
-        let d = (base as f32 + h.add) * if h.mult > 0.0 { h.mult } else { 1.0 };
-        dereth_primitives::num::to_i32(d.round()).max(1)
+        hook_hit(s, me, h, (target, armor), o)
     } else {
         0
     };
     Some((o, dmg))
+}
+
+/// The time scale a player tells a use at: its own, times the square of what the skill's
+/// definition says of its speed (2017: Sinew Snap's 1.6 told 2.56 x its session's other stories, 2.50
+/// to 2.62 over 9 sessions and 170 stories).
+pub(crate) fn use_time_scale<S: Store>(s: &mut Server<S>, world: ConnId, u: &Usage) -> f32 {
+    combat::player_time_scale(s, world) * u.combat_speed.map_or(1.0, |m| m * m)
 }
 
 /// The behavior params of a special's story.
@@ -1380,6 +1707,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
     let me = p.character;
     let my_level = crate::examine::level_of(&p.qualities);
     let me_hits = combat::hitter(s, p);
+    let rating = rating_of(s, world, r.skill);
     let held = wielded(s, me);
     let on_self = aim == Aim::Me;
     let target = aimed_at(aim).unwrap_or(me);
@@ -1435,13 +1763,8 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
         } else {
             Kind::Melee
         };
-        let o = rules::roll_outcome(
-            &mut s.rng,
-            Direction::PlayerOnCreature,
-            kind,
-            my_level,
-            level,
-        );
+        let me_hits = by_its_hand(s, world, me_hits, h);
+        let o = rules::roll_special(&mut s.rng, kind, my_level, level, me_hits.critical);
         // Strikes of specials are evaded, never missed.
         let o = if kind == Kind::Melee && o == Outcome::Miss {
             Outcome::Evade
@@ -1449,11 +1772,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
             o
         };
         let dmg = if o.landed() {
-            let base = rules::player_hit(&mut s.rng, me_hits, armor, o == Outcome::Critical)
-                + combat::armor_taken(s, target);
-            #[allow(clippy::cast_precision_loss)]
-            let d = (base as f32 + h.add) * if h.mult > 0.0 { h.mult } else { 1.0 };
-            dereth_primitives::num::to_i32(d.round()).max(1)
+            hook_hit(s, hitting_with(me_hits, h, rating), h, (target, armor), o)
         } else {
             0
         };
@@ -1463,7 +1782,7 @@ fn story<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: u3
     let landings = if helpful(&u) {
         Vec::new()
     } else {
-        landings_of(s, world, &u, aim, target, outcome, me_hits)
+        landings_of(s, world, &u, aim, target, outcome, (me_hits, rating))
     };
     let hooks = story_hooks_with(&u, target, weapon, &landings);
     let hostile_at_player = matches!(aim, Aim::Player(..)) && !helpful(&u);
@@ -1606,7 +1925,7 @@ fn landings_of<S: Store>(
     aim: Aim,
     target: u64,
     rolled: Option<(Outcome, i32)>,
-    me: rules::Hitter,
+    (me, rating): (rules::Hitter, f32),
 ) -> Vec<Landing> {
     let center = match aim {
         Aim::Thing(t) => s
@@ -1655,14 +1974,26 @@ fn landings_of<S: Store>(
         for t in targets {
             let o = match rolled {
                 Some(r) if t == target && first_damaging.is_some() => Some(r),
-                _ => roll_hook(s, u, h, me, t),
+                _ => {
+                    let me = by_its_hand(s, world, me, h);
+                    roll_hook(s, u, h, hitting_with(me, h, rating), t)
+                }
             };
             if let Some((outcome, damage)) = o {
+                let harm = if outcome.landed() {
+                    let other = combat::player_target(s, world, t);
+                    let on =
+                        other.map_or(crate::effects::On::Creature(t), crate::effects::On::Player);
+                    crate::effects::answer_harm(s, on, damage, other.is_some())
+                } else {
+                    crate::effects::Harm::plain(damage)
+                };
                 out.push(Landing {
                     target: t,
                     hook: i,
                     outcome,
-                    damage,
+                    damage: harm.left,
+                    back: harm.back,
                 });
             }
         }
@@ -1734,15 +2065,21 @@ fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock
     };
     let me = s.players.get(&world).map_or(0, |p| p.character);
     for l in &landings {
-        if !(l.outcome.landed() && l.damage > 0) {
+        if !(l.outcome.landed() && (l.damage > 0 || l.back > 0)) {
             continue;
         }
         if let Some(c) = combat::player_target(s, world, l.target) {
             if s.players.get(&c).is_some_and(|q| q.dying.is_none()) {
-                combat::hurt_player(s, net, c, me, l.damage, clock);
+                if l.damage > 0 {
+                    combat::hurt_player(s, net, c, me, l.damage, clock);
+                }
+                crate::effects::harm_back(s, net, me, l.target, l.back, clock);
             }
         } else if s.things.get(l.target).is_some_and(|t| t.alive()) {
-            combat::hurt_creature(s, net, l.target, me, l.damage, clock);
+            if l.damage > 0 {
+                combat::hurt_creature(s, net, l.target, me, l.damage, clock);
+            }
+            crate::effects::harm_back(s, net, me, l.target, l.back, clock);
         }
     }
     let mut hit: Vec<u64> = Vec::new();
@@ -1755,6 +2092,9 @@ fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock
         let on = combat::player_target(s, world, *t)
             .map_or(crate::effects::On::Creature(*t), crate::effects::On::Player);
         put_target_effects(s, net, me, &u, on, spellcraft, clock);
+        if matches!(on, crate::effects::On::Creature(_)) {
+            crate::treasure::on_hit(s, net, world, *t, clock);
+        }
     }
     let mut reached: Vec<u64> = Vec::new();
     for l in &landings {
@@ -1816,6 +2156,16 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
         return;
     }
     let (o, dmg) = outcome.unwrap_or((Outcome::Evade, 0));
+    let harm = if o.landed() {
+        let on = player.map_or(
+            crate::effects::On::Creature(r.target),
+            crate::effects::On::Player,
+        );
+        crate::effects::answer_harm(s, on, dmg, player.is_some())
+    } else {
+        crate::effects::Harm::plain(dmg)
+    };
+    let dmg = harm.left;
     let hurts = o.landed() && dmg > 0;
     let mut hook = StoryHook {
         bits: if hurts {
@@ -1830,6 +2180,10 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
     hook.numbers[1] = 1;
     if hurts {
         hook.numbers[3] = -dmg;
+    }
+    if harm.back > 0 {
+        hook.bits |= crate::combat::ATTACKER_HEALTH;
+        hook.numbers[4] = -harm.back;
     }
     let sender = match player {
         Some(c) => match s.players.get_mut(&c) {
@@ -1856,6 +2210,7 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
         if hurts {
             combat::hurt_player(s, net, c, me, dmg, clock);
         }
+        crate::effects::harm_back(s, net, me, r.target, harm.back, clock);
         if o.landed() && alive(s) {
             put_target_effects(
                 s,
@@ -1872,6 +2227,7 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
     if hurts {
         combat::hurt_creature(s, net, r.target, me, dmg, clock);
     }
+    crate::effects::harm_back(s, net, me, r.target, harm.back, clock);
     if o.landed() && s.things.get(r.target).is_some_and(|t| t.alive()) {
         put_target_effects(
             s,
@@ -1882,6 +2238,7 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
             spellcraft,
             clock,
         );
+        crate::treasure::on_hit(s, net, world, r.target, clock);
     }
     if s.things.get(r.target).is_some_and(|t| t.alive()) {
         crate::ai::go_after(s, net, r.target, me, clock);
@@ -2193,7 +2550,7 @@ fn skill_info<S: Store>(
     };
     let starting = s.start.skills.get(&p.race).cloned().unwrap_or_default();
     let held = crate::skills::held(&starting, &p.play.skills);
-    let rating = s.skill_table.rating(&held, x.req.skill);
+    let rating = effective_rating(s, p, &held, x.req.skill);
     if let Some(mut h) = held.iter().find(|h| h.skill == x.req.skill).copied() {
         h.mask |= HAS_LAST_USED | mask;
         progress::private(

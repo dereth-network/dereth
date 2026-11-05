@@ -486,6 +486,9 @@ impl Child for OptionWindow {
                 }
                 self.listed = l.serial;
             }
+            for change in view.preferences_changed {
+                c.monitor_change(ui, change);
+            }
         }
         if let Some(c) = &mut self.character {
             c.hear(ui, out);

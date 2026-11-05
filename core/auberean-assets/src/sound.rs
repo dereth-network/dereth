@@ -2,7 +2,7 @@
 //! music settings (`.sif`, `.mif`), music (`.mid`) and sound environments (`.snv`).
 
 use auberean_dat::reader::Result;
-use auberean_dat::Reader;
+use auberean_dat::{QualifiedIds, Reader};
 
 use crate::{Context, Decode};
 
@@ -62,7 +62,8 @@ impl Decode for LocalSound {
 
 /// How a sound plays: flags, a random pitch range, priority, the distance it starts fading at,
 /// and the wave it plays.
-#[derive(Clone, Debug, PartialEq, Default)]
+// D2-16810
+#[derive(Clone, Debug, PartialEq)]
 pub struct SoundInfo {
     pub flags: u32,
     pub pitch_high: f32,
@@ -70,6 +71,37 @@ pub struct SoundInfo {
     pub priority: f32,
     pub min_distance: f32,
     pub sound: u32,
+}
+
+impl Default for SoundInfo {
+    /// A new one: no flags, no random pitch (each end -1), no priority, fading from a distance of
+    /// 1, no wave.
+    // D2-16807, D2-05050, D2-16812
+    fn default() -> Self {
+        Self {
+            flags: 0,
+            pitch_high: -1.0,
+            pitch_low: -1.0,
+            priority: 0.0,
+            min_distance: 1.0,
+            sound: 0,
+        }
+    }
+}
+
+impl SoundInfo {
+    /// Whether any of the flags in `mask` is set.
+    // D2-16811
+    #[must_use]
+    pub const fn test_bit_mask(&self, mask: u32) -> bool {
+        self.flags & mask != 0
+    }
+
+    /// The record it needs: its wave.
+    // D2-16809
+    pub fn sub_ids(&self, out: &mut QualifiedIds) {
+        out.add(self.sound);
+    }
 }
 
 impl Decode for SoundInfo {
@@ -88,13 +120,43 @@ impl Decode for SoundInfo {
 }
 
 /// How a piece of music plays: flags, priority, fade distance, kind, and the music it plays.
-#[derive(Clone, Debug, PartialEq, Default)]
+// D2-16803
+#[derive(Clone, Debug, PartialEq)]
 pub struct MusicInfo {
     pub flags: u32,
     pub priority: f32,
     pub min_distance: f32,
     pub kind: u32,
     pub music: u32,
+}
+
+impl Default for MusicInfo {
+    /// A new one: no flags, no priority, fading from a distance of 1, no kind, no music.
+    // D2-16800, D2-05053, D2-16804
+    fn default() -> Self {
+        Self {
+            flags: 0,
+            priority: 0.0,
+            min_distance: 1.0,
+            kind: 0,
+            music: 0,
+        }
+    }
+}
+
+impl MusicInfo {
+    /// Whether any of the flags in `mask` is set.
+    // D2-16811
+    #[must_use]
+    pub const fn test_bit_mask(&self, mask: u32) -> bool {
+        self.flags & mask != 0
+    }
+
+    /// The record it needs: its music.
+    // D2-16802
+    pub fn sub_ids(&self, out: &mut QualifiedIds) {
+        out.add(self.music);
+    }
 }
 
 impl Decode for MusicInfo {

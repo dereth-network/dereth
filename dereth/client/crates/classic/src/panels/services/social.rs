@@ -100,6 +100,15 @@ fn cost(c: &Context<'_>) -> u32 {
 fn swear_target(c: &Context<'_>) -> Option<ObjectId> {
     dereth_client_contract::social::swear_target(c.game, &c.game.allegiance_roster())
 }
+/// An area that says something on hover and does nothing else.
+fn hint_area(f: &mut PanelFrame, id: &str, r: Rect) {
+    let area = f.button(id, r, "", true);
+    area.paint = false;
+    area.silent = true;
+}
+fn can_afford_oath(c: &Context<'_>) -> bool {
+    c.game.available_experience().max(0) >= i64::from(c.game.oath_xp_cost().unwrap_or(0))
+}
 /// The rank on the header line: the allegiance's own, or, while a spell raises it, the raised
 /// rank and the difference ("5 (+1)").
 fn rank_text(a: &AllegianceRoster) -> String {
@@ -132,11 +141,44 @@ fn right_label(f: &mut PanelFrame, r: Rect, text: impl Into<String>) {
         Some([r.x, r.y, r.x + r.w, r.y + r.h]),
     );
 }
+/// A line for the player, as the interface's own messages are.
+fn tell(text: impl Into<String>) -> PanelAction {
+    PanelAction::Host(HostAction::LocalFeedback {
+        severity: crate::panels::FeedbackSeverity::Information,
+        text: text.into(),
+    })
+}
+/// Whether `target` is someone a recruit can go to, or why not.
+fn recruit_refusal(target: ObjectId, c: &Context<'_>) -> Option<String> {
+    if Some(target) == c.game.player() {
+        return Some("You can't recruit yourself.".into());
+    }
+    let member = c
+        .game
+        .fellowship()
+        .is_some_and(|p| p.members.iter().any(|m| m.id == target));
+    member.then(|| {
+        format!(
+            "{} is already in your Fellowship",
+            c.game.name(target).unwrap_or_default()
+        )
+    })
+}
 impl Social {
+    fn dismiss(target: ObjectId, c: &Context<'_>) -> Vec<PanelAction> {
+        if Some(target) == c.game.player() {
+            return vec![tell("You can't dismiss yourself.")];
+        }
+        request(UiRequest::FellowshipDismiss { target })
+    }
     fn world_target(&mut self, target: Option<ObjectId>, c: &Context<'_>) -> Vec<PanelAction> {
         let Some(target) = target else {
-            self.mode = Mode::None;
-            return vec![];
+            let mode = std::mem::replace(&mut self.mode, Mode::None);
+            return if mode == Mode::Break {
+                vec![tell("Break Allegiance cancelled")]
+            } else {
+                vec![]
+            };
         };
         let mode = std::mem::replace(&mut self.mode, Mode::None);
         match mode {
@@ -149,17 +191,21 @@ impl Social {
                 } else {
                     None
                 };
-                action
-                    .map(|action| {
+                action.map_or_else(
+                    || vec![tell("Break Allegiance cancelled")],
+                    |action| {
                         vec![PanelAction::Host(HostAction::AllegianceSend {
                             action,
                             target,
                         })]
-                    })
-                    .unwrap_or_default()
+                    },
+                )
             }
-            Mode::Recruit => request(UiRequest::FellowshipRecruit { target }),
-            Mode::Dismiss => request(UiRequest::FellowshipDismiss { target }),
+            Mode::Recruit => recruit_refusal(target, c).map_or_else(
+                || request(UiRequest::FellowshipRecruit { target }),
+                |refusal| vec![tell(refusal)],
+            ),
+            Mode::Dismiss => Self::dismiss(target, c),
             Mode::Leader => request(UiRequest::FellowshipAssignNewLeader { target }),
             Mode::None => vec![],
         }
@@ -224,6 +270,7 @@ impl Social {
             let patron_y = if both { 95 } else { 51 };
             if let Some(monarch) = a.monarch.as_ref().filter(|_| both) {
                 head(&mut f, 51, "MONARCH", monarch);
+                hint_area(&mut f, "monarch", rect(4, 68, 194, 20));
                 right(
                     &mut f,
                     51,
@@ -242,6 +289,7 @@ impl Social {
         } else {
             let cost = cost(c);
             let available = c.game.available_experience().max(0) as u64;
+            hint_area(&mut f, "swear-hint", rect(4, 56, 292, 34));
             if available < u64::from(cost) {
                 let attainable = c
                     .game
@@ -569,6 +617,10 @@ impl Social {
                     true,
                 ),
             ] {
+                // A world without open fellowships has no such button.
+                if id == "open" && !c.game.era_features().fellowship_open {
+                    continue;
+                }
                 if leader || id == "recruit" {
                     social_button(&mut f, id, rect(x, y, 85, 27), text, enabled);
                 }
@@ -657,6 +709,13 @@ impl Social {
                     false,
                 ),
             ] {
+                // A box for what the world lacks is left out, as on the options page.
+                let features = c.game.era_features();
+                if dereth_client_contract::options::sheet::row_of_option(p)
+                    .is_some_and(|row| !row.needs.met(Some(&features)))
+                {
+                    continue;
+                }
                 f.check(
                     id,
                     rect(25, y, 270, 13),
@@ -931,13 +990,72 @@ impl Social {
         };
         let mode = std::mem::replace(&mut self.mode, Mode::None);
         match mode {
-            Mode::Dismiss => request(UiRequest::FellowshipDismiss { target: m.id }),
+            Mode::Dismiss => Self::dismiss(m.id, c),
             Mode::Leader => request(UiRequest::FellowshipAssignNewLeader { target: m.id }),
             _ => request(UiRequest::Select(m.id)),
         }
     }
 }
 impl Panel for Social {
+    fn hover(&self, at: HoverPoint<'_>, c: &Context<'_>) -> Option<Hover> {
+        let ignoring = |option| c.game.player_option(option);
+        match at.id {
+            "swear" => Hover::line(format!(
+                "Click to swear Allegiance to {}.",
+                c.game.name(swear_target(c)?).unwrap_or_default()
+            )),
+            "break" => Hover::line("Click to break Allegiance with your Patron or a Vassal."),
+            "show-xp" if self.show_xp => {
+                Hover::line("Click to show the Titles of your Patron and Vassals")
+            }
+            "show-xp" => Hover::line(
+                "Click to show how much experience you have received/given to your Vassals/Patron",
+            ),
+            "monarch" => Hover::line("This is the leader of your Allegiance group."),
+            "patron" => {
+                let a = c.game.allegiance_roster();
+                let leads = a
+                    .monarch
+                    .as_ref()
+                    .zip(a.patron.as_ref())
+                    .is_some_and(|(m, p)| m.id == p.id);
+                Hover::line(if leads {
+                    "This is the leader of your Allegiance, and the person you've sworn Allegiance to."
+                } else {
+                    "This is the person you've sworn Allegiance to."
+                })
+            }
+            "swear-hint" => Hover::line(if can_afford_oath(c) {
+                "Select the character you want to swear Allegiance to."
+            } else {
+                "You don't have enough experience to swear Allegiance."
+            }),
+            "vassals" => Hover::lines(
+                "This person has sworn to you. The 'xp' shown",
+                "are unmodified by your Leadership.",
+            ),
+            "accept-allegiance" if ignoring(PlayerOption::IgnoreAllegianceRequests) => {
+                Hover::line("Click to start accepting Allegiance requests.")
+            }
+            "accept-allegiance" => Hover::line("Click to stop accepting Allegiance requests."),
+            "accept-fellow" if ignoring(PlayerOption::IgnoreFellowshipRequests) => {
+                Hover::line("Click to start accepting Fellowship requests.")
+            }
+            "accept-fellow" => Hover::line("Click to stop accepting Fellowship requests."),
+            "dismiss" => {
+                Hover::line("Click to dismiss the selected character from your Fellowship.")
+            }
+            "recruit" => {
+                Hover::line("Click to recruit the selected character into your Fellowship.")
+            }
+            "create" => Hover::line("Click to create a new Fellowship using the listed name"),
+            "members" => Hover::line("Click to view this Fellowship member's vital stats."),
+            "disband" => Hover::line("Click to disband your Fellowship."),
+            "quit" => Hover::line("Click to quit your Fellowship."),
+            "name" => Hover::line("Type a Fellowship name in this box."),
+            _ => None,
+        }
+    }
     fn resize(&mut self, _: u32, height: u32) {
         self.height = height.max(163);
     }
@@ -1144,8 +1262,20 @@ impl Panel for Social {
                     vec![]
                 }
                 "break" => {
+                    let a = c.game.allegiance_roster();
+                    let whom = match (a.patron.is_some(), a.vassals.is_empty()) {
+                        (true, false) => "your Patron or a Vassal",
+                        (true, true) => "your Patron",
+                        (false, false) => "a Vassal",
+                        (false, true) => return vec![],
+                    };
                     self.mode = Mode::Break;
-                    vec![PanelAction::Host(HostAction::SocialTarget(6)),PanelAction::Host(HostAction::LocalFeedback { severity: crate::panels::FeedbackSeverity::Information, text: "Click your Patron or a Vassal to break Allegiance. Click anywhere to abort.".into() })]
+                    vec![
+                        PanelAction::Host(HostAction::SocialTarget(6)),
+                        tell(format!(
+                            "Click {whom} to break Allegiance. Click anywhere to abort."
+                        )),
+                    ]
                 }
                 "patron" if self.mode == Mode::Break => {
                     self.mode = Mode::None;
@@ -1198,7 +1328,10 @@ impl Panel for Social {
                             .is_some_and(|facts| facts.is_player)
                     }) {
                         self.mode = Mode::None;
-                        request(UiRequest::FellowshipRecruit { target })
+                        recruit_refusal(target, c).map_or_else(
+                            || request(UiRequest::FellowshipRecruit { target }),
+                            |refusal| vec![tell(refusal)],
+                        )
                     } else {
                         self.mode = Mode::Recruit;
                         vec![
@@ -1216,7 +1349,12 @@ impl Panel for Social {
                         PanelAction::Host(HostAction::SocialTarget(8)),
                         PanelAction::Host(HostAction::LocalFeedback {
                             severity: crate::panels::FeedbackSeverity::Information,
-                            text: "Click a character name to dismiss.".into(),
+                            text: if c.game.era_ui().launch_wording {
+                                "Click a character to dismiss."
+                            } else {
+                                "Click a character name to dismiss."
+                            }
+                            .into(),
                         }),
                     ]
                 }

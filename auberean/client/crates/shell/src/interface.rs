@@ -58,23 +58,33 @@ pub enum Request {
     Act(Action),
     /// End the session.
     Disconnect,
+    /// Open the web page where players ask for help.
+    OpenAssistancePage,
     /// Close the program.
     Quit,
     /// Set the camera: the interface's camera panel decides mouse look and first person, and
     /// zooms by the wheel over the world.
     Camera(CameraRequest),
+    /// The world shown again, or hidden while the story plays.
+    ShowWorld(bool),
+    /// A scene on the way through a door plays in place of portal space, or no longer does.
+    PortalScenePlaying(bool),
     /// Find the body under the pointer (window pixels) in the world as last drawn: the answer
     /// comes with the next frame's game ([`Game::world_pick`]).
     PickWorld { x: f32, y: f32 },
     /// The graphics preferences the player applied: the world is drawn by them from now on, and
     /// they are kept with the settings.
     Graphics(auberean_draw::quality::Graphics),
+    /// What the player's effect preferences ask of the effects from now on.
+    FxChannels(auberean_draw::effects::Channels),
     /// A movement action the interface asks for as a key would (the camera's arrows, its left
     /// button in mouse look): pressed with an extent of 1, let go with 0.
     Move { action: u32, extent: f32 },
     /// The key maps the player applied on the key map screen, each a list of an input and its
     /// action (keys alone, with Shift, with Ctrl): written to their files and bound from now on.
     KeyMaps([Vec<(u32, u32)>; 3]),
+    /// Show the game on the screen this way from now on.
+    Presentation(crate::settings::Presentation),
     /// Preferences to keep in the preferences file now: each one's section, key and value as the
     /// file holds them.
     KeepPreferences(Vec<(String, String, String)>),
@@ -94,6 +104,8 @@ pub enum SoundOrder {
     },
     /// Stop the sound a slot keeps, fading out over `fade` seconds.
     Stop { slot: SoundSlot, fade: f32 },
+    /// The groove level the music follows.
+    Groove(i32),
     /// A sound preference (`auberean_audio::options`) changed or applied: its key and value (the
     /// number, the features' number, or 1 or 0 for yes or no).
     Preference { key: u32, value: f32, applied: bool },
@@ -144,6 +156,8 @@ pub struct Game<'a> {
     pub shown: &'a [Shown],
     /// What the last frame's picks met: per viewport scene that asked, its index in the
     /// overlay's scenes and the figure under the pointer, with the kind of mesh met there.
+    /// The figures still playing a behavior they were asked to: the scene, the figure.
+    pub behaving: &'a [(usize, usize)],
     pub picked: &'a [(usize, Option<auberean_scene::view::ViewHit>)],
     /// The notices the player's scripts sent the interface's panels since the last frame, oldest
     /// first.
@@ -153,6 +167,8 @@ pub struct Game<'a> {
     /// The answer to the last frame's [`Request::PickWorld`]: the body under the pointer, or
     /// none; `None` when no pick was asked.
     pub world_pick: Option<Option<u64>>,
+    /// How many times the player's body has come to be placed with its cells loaded.
+    pub arrivals: u32,
     /// The key maps bound and what their actions do.
     pub keys: &'a crate::keys::Keys,
     /// Whether the sound kept across the screens before the world plays; `None` with no sound
@@ -193,6 +209,8 @@ pub struct Shown {
     pub about: Option<u64>,
     pub text: String,
     pub info: Option<auberean_client_sdk::text::StringInfo>,
+    /// How many of the frame's notices the scripts had sent when they wrote it.
+    pub notices_before: usize,
 }
 
 /// A line the player heard: a saying, a tell, a text for the chat window.
@@ -257,9 +275,25 @@ pub struct Overlay {
     /// The pointer's picture over the window, when the interface sets one.
     pub cursor: Option<std::sync::Arc<CursorImage>>,
     /// The size the interface lays its screen out at, when it is not the window's: its pictures
-    /// fill the window, and the viewports' rectangles are in its pixels, their scenes stretched
-    /// with it.
+    /// show in the part of the window [`fitted`] gives, and the viewports' rectangles are in its
+    /// pixels, their scenes scaled with it.
     pub screen: Option<(u32, u32)>,
+}
+
+/// Where a screen of size `screen` shows in a window of size `window`, in the window's pixels: as
+/// large as it goes at its own proportions, in the middle (left, top, width, height).
+#[must_use]
+pub fn fitted(screen: (u32, u32), window: (u32, u32)) -> [f32; 4] {
+    #[allow(clippy::cast_precision_loss)]
+    let (sw, sh, ww, wh) = (
+        screen.0.max(1) as f32,
+        screen.1.max(1) as f32,
+        window.0 as f32,
+        window.1 as f32,
+    );
+    let scale = (ww / sw).min(wh / sh);
+    let (w, h) = (sw * scale, sh * scale);
+    [((ww - w) / 2.0).floor(), ((wh - h) / 2.0).floor(), w, h]
 }
 
 /// A pointer's picture: `width * height` texels of red, green, blue, alpha, row by row from the
@@ -325,6 +359,12 @@ pub trait Interface {
         false
     }
 
+    /// Whether a text entry has the keys: the world's controls let go of what is held when it
+    /// takes them.
+    fn text_mode(&self) -> bool {
+        false
+    }
+
     /// The settings the client starts with (its preferences file read), and the world's records
     /// that name the preferences: the interface's own preferences are read from them.
     fn set_preferences(
@@ -337,6 +377,13 @@ pub trait Interface {
     /// The graphics preferences the client starts with (read from the settings, else the
     /// highest quality's), as applied.
     fn set_graphics(&mut self, _graphics: &auberean_draw::quality::Graphics) {}
+
+    /// The sizes the host's display can take and how the settings show the game: the rendering
+    /// preferences put in.
+    fn set_presentation(&mut self, _modes: &[(u32, u32)], _settings: &crate::Settings) {}
+
+    /// Full screen flipped, as the rendering preferences' own.
+    fn toggle_full_screen(&mut self, _requests: &mut Vec<Request>) {}
 
     /// The client's random numbers, the one generator everything in the program draws from.
     fn set_random(&mut self, _random: &auberean_primitives::random::Random) {}

@@ -7,7 +7,7 @@ use auberean_protocol::{queue, ClientMessage, ServerMessage};
 use dereth_transport::conn::ConnectSeeds;
 use dereth_transport::wire::ParsedPacket;
 use yalain_net::endpoint::{Endpoint, Role};
-use yalain_net::{LocalTime, NetConfig, ServerNet};
+use yalain_net::{fixed_stream, LocalTime, NetConfig, ServerNet};
 use yalain_testkit::Harness;
 
 fn pair(now: LocalTime) -> (Endpoint, Endpoint) {
@@ -55,7 +55,12 @@ fn a_login_completes_over_a_link_that_loses_every_fifth_datagram() {
 #[test]
 fn a_held_game_clock_stands_still_for_the_server_and_in_what_it_sends() {
     let world: std::net::SocketAddrV4 = "127.0.0.1:9002".parse().expect("addr");
-    let mut net = ServerNet::new(NetConfig::retail_ids(world), 7, 1.25e8, LocalTime(1.0));
+    let mut net = ServerNet::new(
+        NetConfig::retail_ids(world),
+        fixed_stream(7),
+        1.25e8,
+        LocalTime(1.0),
+    );
     assert!((net.game_time(LocalTime(11.0)) - (1.25e8 + 10.0)).abs() < 1e-6);
     net.hold_clock(LocalTime(11.0));
     assert!(net.clock_held());

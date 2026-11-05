@@ -362,12 +362,23 @@ fn write_event_body(w: &mut World, session: SessionId, msg: &mut GameMessage) {
         let _ = count(known_spells.len());
         // This sets a flag to use new spell configuration always 2: the page's likelihood 0 is
         // written as 0 + 2.
-        let page = q::SpellBookPage {
+        // DIVERGE: V502, a world with charges seeds the client's in the first of the page's three
+        // floats.
+        let charges = w.era.features.spell_charge;
+        let page_of = |spell: u32| q::SpellBookPage {
             casting_likelihood: 0.0,
-            legacy: None,
+            legacy: charges.then(|| {
+                (
+                    crate::world_objects::spell_potency::current_charge(w, player, spell)
+                        .unwrap_or(dereth_rules::spell_charge::MAX),
+                    0,
+                )
+            }),
         };
         spell_book = Some(table(
-            known_spells.iter().map(|(k, _)| (*k, page)),
+            known_spells
+                .iter()
+                .map(|(k, _)| (*k, page_of(k.cast_unsigned()))),
             &SPELL_COMPARER,
             SPELL_COMPARER.num_buckets,
             i32::cast_unsigned,

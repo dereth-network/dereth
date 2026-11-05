@@ -233,6 +233,32 @@ fn an_object_is_told_each_mode_its_body_goes_into() {
     assert!(missed.is_empty(), "{missed:x?}");
 }
 
+/// Each body is drawn once a frame: it stands in one of the scene's lists (the player, the others,
+/// what they hold, what the client made), however many cells it reaches into, so nothing has to ask
+/// whether it has been drawn already. (The 2017 fight and the bow session replayed.)
+///
+/// Behaviour: desktop.bodies.each-body-is-drawn-once-a-frame
+#[test]
+fn each_body_is_drawn_once_a_frame() {
+    for session in ["1e177f6bfede2082:3", "aae4d0e791da97b9:1"] {
+        let (mut frames, mut bodies) = (0u64, 0u64);
+        played_in_frames(session, 240.0, FRAME, &[], &mut |c, s| {
+            if s.frame(c.local_time()).is_none() {
+                return;
+            }
+            let mut ids: Vec<u64> = s.seen.bodies.iter().map(|b| b.id).collect();
+            frames += 1;
+            bodies += ids.len() as u64;
+            ids.sort_unstable();
+            let n = ids.len();
+            ids.dedup();
+            assert_eq!(ids.len(), n, "a body drawn twice in {session}");
+        });
+        eprintln!("{session}: {frames} frames, {bodies} bodies");
+        assert!(frames > 100 && bodies > 1000, "{frames} {bodies}");
+    }
+}
+
 /// Four minutes of a 2017 session in which the player shoots its bow, its frames drawn: each body
 /// drawn is seen as faded out exactly when its figure's opacity (its fade slider, held to 0..1)
 /// is under 0.0002 (the arrow on the string is hidden as it is let go of); a figure at that

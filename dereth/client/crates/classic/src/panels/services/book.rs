@@ -116,6 +116,30 @@ impl Panel for Book {
         };
         let state = c.game.book_session();
         let book = b.book_id;
+        if let ControlEvent::Pointer {
+            x,
+            y,
+            pressed: true,
+        } = e
+        {
+            if !state.editable && !state.pending && rect(22, 63, 257, 243).contains(x, y) {
+                let page = usize::try_from(state.current_page)
+                    .ok()
+                    .and_then(|page| b.pages.get(page));
+                let Some(page) = page else {
+                    return vec![];
+                };
+                let text = if page.author_name.chars().count() < 2 {
+                    "You cannot change this page".to_owned()
+                } else {
+                    format!("Only {} can change this page", page.author_name)
+                };
+                return vec![PanelAction::Host(HostAction::LocalFeedback {
+                    severity: crate::panels::FeedbackSeverity::Information,
+                    text,
+                })];
+            }
+        }
         let action = match e {
             ControlEvent::Edit { id, text } if id == "text" && state.editable && !state.pending => {
                 if !fits_on_page(&c.resources.fonts, &text) {
@@ -151,6 +175,88 @@ impl Panel for Book {
             _ => return vec![],
         };
         vec![PanelAction::Game(UiRequest::Book(action))]
+    }
+}
+
+#[cfg(test)]
+mod refusal_tests {
+    //! Behaviour: none (classic front-end adapter; no retail behaviour claim).
+    use super::*;
+    use dereth_client_contract::book::BookSessionView;
+    use dereth_client_contract::view::{BookPageView, BookView};
+
+    #[derive(Debug)]
+    struct View(BookView, bool);
+    impl GameView for View {
+        fn open_book(&self) -> Option<BookView> {
+            Some(self.0.clone())
+        }
+        fn book_session(&self) -> BookSessionView {
+            BookSessionView {
+                current_page: 0,
+                editable: self.1,
+                ..Default::default()
+            }
+        }
+    }
+    #[test]
+    fn a_press_on_a_page_the_player_cannot_write_says_whose_it_is() {
+        let book = |author: &str| {
+            let mut book = BookView::default();
+            book.pages.push(BookPageView {
+                author_name: author.into(),
+                ..Default::default()
+            });
+            book
+        };
+        let press = |view: &View| {
+            let resources = crate::resources::Resources::default();
+            let (pregame, keyboard, settings, state) = (
+                PregameView::default(),
+                KeyboardState::default(),
+                ClassicSettings::default(),
+                ClassicState::default(),
+            );
+            let c = Context {
+                resources: &resources,
+                layout: crate::panels::Layout::default(),
+                now: dereth_primitives::LocalTime(0.0),
+                game: view,
+                pregame: &pregame,
+                keyboard: &keyboard,
+                settings: &settings,
+                map_teleport_allowed: false,
+                classic: &state,
+            };
+            let mut panel = Book::default();
+            panel.event(
+                ControlEvent::Pointer {
+                    x: 100,
+                    y: 100,
+                    pressed: true,
+                },
+                &c,
+            )
+        };
+        let line = |text: &str| {
+            vec![PanelAction::Host(HostAction::LocalFeedback {
+                severity: crate::panels::FeedbackSeverity::Information,
+                text: text.into(),
+            })]
+        };
+        assert_eq!(
+            press(&View(book(""), false)),
+            line("You cannot change this page")
+        );
+        assert_eq!(
+            press(&View(book("Asheron"), false)),
+            line("Only Asheron can change this page")
+        );
+        assert_eq!(
+            press(&View(book("Asheron"), true)),
+            vec![],
+            "the player's own"
+        );
     }
 }
 

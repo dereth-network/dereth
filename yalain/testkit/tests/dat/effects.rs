@@ -96,7 +96,9 @@ fn the_recipes_read_as_the_data_defines_them() {
     )));
     assert!(o.actions.contains(&Action::Destroy {
         ordinal: 1,
-        quantity: 20
+        quantity: 20,
+        by_spinner: None,
+        spinners: None,
     }));
     assert!(o.actions.iter().any(|a| matches!(
         a,
@@ -143,6 +145,66 @@ fn the_basic_attacks_read_as_the_data_defines_them() {
     assert!(!t.skills[&207].auto_attack, "Deadeye is a special");
 }
 
+/// The skills that strike twice read as the data defines them: each of the 19 has two hooks that
+/// strike, each naming its hand; handblades and a pair of one-handed weapons strike with each hand
+/// and a polearm twice with the right; 817 and 1403 start with the left.
+/// Behaviour: server.weapons.two-blows-read
+#[test]
+fn the_skills_that_strike_twice_read_with_each_blows_hand() {
+    use yalain_world::skill_use::{hook_flag::LEFT_HAND, strikes};
+    let t = Portal::open().skills();
+    let hands = |skill: u32| -> Vec<bool> {
+        let u = t.skills[&skill].usage.as_ref().expect("used");
+        strikes(u)
+            .into_iter()
+            .map(|i| u.hooks[i].flags & LEFT_HAND != 0)
+            .collect()
+    };
+    for skill in [313, 314, 315, 316, 317, 816, 818, 984, 985, 986, 1402, 1404] {
+        assert_eq!(hands(skill), [false, true], "{skill}");
+    }
+    for skill in [817, 1403] {
+        assert_eq!(hands(skill), [true, false], "{skill}");
+    }
+    for skill in 335..=339 {
+        assert_eq!(hands(skill), [false, false], "{skill}");
+    }
+    assert_eq!(hands(122), [false], "one blow");
+    assert_eq!(hands(62), [false], "the hook that only plays is no blow");
+}
+
+/// What a weapon is wielded as is what its class says: each starting weapon's table entry is its
+/// class's, and the install's other weapons are known by theirs.
+/// Behaviour: server.weapons.implement-by-class-read
+#[test]
+fn a_weapons_implement_is_what_its_class_says() {
+    use yalain_world::skill_use::{implements_of_catalog, starting_implement, STARTING_WEAPONS};
+    let p = Portal::open();
+    let lib = p.library();
+    let mut catalog = yalain_content::Catalog::default();
+    for (name, _) in yalain_world::skill_use::IMPLEMENT_CLASSES {
+        assert!(lib.package_id(name).is_some(), "the library has {name}");
+    }
+    for (t, _) in STARTING_WEAPONS {
+        catalog.insert(p.template(t));
+    }
+    let read = implements_of_catalog(&catalog, |package, class| {
+        lib.package_id(class)
+            .is_some_and(|base| lib.derives_from(package, base))
+    });
+    for (t, _) in STARTING_WEAPONS {
+        assert_eq!(read.get(&t).copied(), starting_implement(t), "{t:#x}");
+    }
+    let of = |class: &str, base: &str| {
+        lib.derives_from(
+            lib.package_id(class).expect("the class"),
+            lib.package_id(base).expect("its base"),
+        )
+    };
+    assert!(of("HandbladeRavager", "HandbladeTemplate"));
+    assert!(of("PolearmLugianHammerbladeGoldenAge", "PolearmTemplate"));
+}
+
 /// The hall's practice dummy has the body its look's setup gives (radius 0.71, height 2.0).
 /// Behaviour: server.specials.range-between-bodies
 #[test]
@@ -152,6 +214,66 @@ fn a_creatures_body_is_its_looks_setups() {
         (body[0] - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-3 && (body[1] - 1.995).abs() < 1e-3,
         "{body:?}"
     );
+}
+
+/// The Small Sword reads as the data defines it: a spinner from 1 to 100, needing the crafting
+/// workshop's effect; at item level 1 only its iron is asked for, 26 of it, used up by its action's
+/// table; coal comes in at 20 and steel at 35, in their tables' amounts.
+/// Behaviour: server.craft.spinner-recipes-read
+#[test]
+fn a_spinner_recipe_reads_with_its_ranges_tables_and_needed_effect() {
+    let p = Portal::open();
+    let c = p.crafting(&[0x6F00_0697], &[0x6F00_0F6F]);
+    let r = &c.recipes[&0x6F00_0F6F];
+    assert_eq!(r.spinner, Some((1, 100)));
+    assert_eq!(r.required_effect, Some(0x6F00_0EB2));
+    let at = |spinner: u32| -> Vec<(u32, u32)> {
+        r.ingredients_at(spinner)
+            .map(|i| (i.ordinal, c.required(i, spinner)))
+            .collect()
+    };
+    assert_eq!(at(1), [(2, 26)]);
+    assert_eq!(at(9), [(2, 100)]);
+    assert_eq!(at(10), [(2, 112), (4, c.required(&r.ingredients[3], 10))]);
+    assert_eq!(
+        at(20).iter().map(|x| x.0).collect::<Vec<_>>(),
+        [1, 2, 4],
+        "coal from 20"
+    );
+    assert_eq!(at(20)[0], (1, 240));
+    assert_eq!(at(35).len(), 4, "steel from 35");
+    assert_eq!(at(45).len(), 5, "flawless pyreal from 45");
+    let failed = r.outcome(1.0, 500.0).expect("a failure");
+    let used: Vec<(u32, u32)> = failed
+        .actions
+        .iter()
+        .filter_map(|a| c.destroyed(a, 1))
+        .collect();
+    assert_eq!(used, [(2, 26)], "only what level 1 asks for");
+    let used_at_20: Vec<(u32, u32)> = failed
+        .actions
+        .iter()
+        .filter_map(|a| c.destroyed(a, 20))
+        .collect();
+    assert_eq!(
+        used_at_20,
+        at(20),
+        "a failure uses up what the spinner asked for"
+    );
+    // Each check by the value it covers up to: failed, flawed, made, superior.
+    let makes = |o: &yalain_world::craft::Outcome| {
+        o.actions
+            .iter()
+            .any(|a| matches!(a, Action::Produce { .. }))
+    };
+    let share = |value: f32| {
+        let o = r.outcome(value, 500.0).expect("an outcome");
+        (makes(o), o.xp_mod)
+    };
+    assert_eq!(share(1.0), (false, 0.0), "failed");
+    assert_eq!(share(1.005), (true, 0.5), "flawed");
+    assert_eq!(share(1.5), (true, 1.0), "made");
+    assert_eq!(share(2.0), (true, 2.0), "superior");
 }
 
 /// Craft skills read with their tables, and a spinner recipe with its experience and difficulty
@@ -439,6 +561,356 @@ fn the_effects_items_put_on_their_wearers_read_from_their_names() {
     );
 }
 
+/// The counters read with the effect each answers with, and its chance; the wards with what they
+/// keep off.
+/// Behaviour: server.effects.counters-and-wards-read
+#[test]
+fn the_counters_and_wards_read_as_the_data_defines_them() {
+    let p = Portal::open();
+    let t = p.effects(&[
+        0x6F00_2646,
+        0x6F00_2648,
+        0x6F00_24C8,
+        0x6F00_24CB,
+        0x6F00_24CE,
+        0x6F00_266E,
+        0x6F00_2671,
+        0x6F00_2672,
+        0x6F00_2675,
+    ]);
+    let counter = |s: u32| match &t.get(s).expect("read").kind {
+        Kind::Counter { effect, chance } => (*effect, chance.at(30.0)),
+        k => panic!("{s:08X}: {k:?}"),
+    };
+    assert_eq!(counter(0x6F00_2646), (0x6F00_2647, Some(0.05)));
+    assert_eq!(counter(0x6F00_2648), (0x6F00_2649, Some(0.1)));
+    assert_eq!(counter(0x6F00_24C8), (0x6F00_24C9, Some(0.05)));
+    assert_eq!(counter(0x6F00_24CB), (0x6F00_24CC, Some(0.03)));
+    assert_eq!(counter(0x6F00_24CE), (0x6F00_24CF, Some(0.03)));
+    // Its answers come with it, and do what they say: harm, and less armor.
+    let harm = t.get(0x6F00_2647).expect("Countering's answer");
+    assert!(
+        matches!(&harm.kind, Kind::VitalOverTime { per_second, .. } if per_second.at(0.0) == Some(-120.0))
+    );
+    assert_eq!(harm.duration.at(30.0), Some(1.0));
+    let brittle = t.get(0x6F00_24C9).expect("Brittle Bones's answer");
+    assert_eq!(brittle.changes(30.0), [(0x4_0125, false, -50.0)]);
+    assert_eq!(brittle.duration.at(30.0), Some(30.0));
+    let ward = |s: u32| match &t.get(s).expect("read").kind {
+        Kind::Ward { classes, chance } => (classes.clone(), chance.at(30.0).expect("a chance")),
+        k => panic!("{s:08X}: {k:?}"),
+    };
+    assert_eq!(ward(0x6F00_266E), (vec![22, 5061], 1.0));
+    assert_eq!(ward(0x6F00_2672), (vec![48, 1119, 5013], 0.15));
+    assert_eq!(ward(0x6F00_2675), (vec![53, 5007, 5022, 5046], 0.15));
+    assert_eq!(
+        ward(0x6F00_2671),
+        (vec![49, 5014, 26, 4015, 5043, 5050], 0.15)
+    );
+    // They go on their wearers as records.
+    for s in [0x6F00_2646, 0x6F00_266E] {
+        assert!(t.get(s).expect("read").client_visible(), "{s:08X}");
+    }
+    // What an Armor Ward keeps off holds the counters' own.
+    assert_eq!(brittle.eq_class, 5061);
+}
+
+/// The effects that watch attacks read with what they take and send back: a creature's Absorption,
+/// a caster's Thornskin, Darkfoe's always a fifth, the armor's one time in five, Thorns' at a third
+/// against a player, an amount rather than a share, and what lowers vigor (which an attack doesn't).
+/// Behaviour: server.effects.watchers-read
+#[test]
+fn the_watchers_read_as_the_data_defines_them() {
+    let p = Portal::open();
+    let t = p.effects(&[
+        0x6F00_0186,
+        0x6F00_018A,
+        0x7000_1C79,
+        0x7000_08D8,
+        0x7000_070E,
+        0x6F00_1964,
+        0x7000_09FD,
+        0x6F00_1AA6,
+        0x6F00_264F,
+    ]);
+    let w = |s: u32| match &t.get(s).expect("read").kind {
+        Kind::Watcher(w) => (**w).clone(),
+        k => panic!("{s:08X}: {k:?}"),
+    };
+    let absorption = w(0x6F00_0186);
+    assert_eq!(absorption.absorbs.chance, 1.0);
+    assert_eq!(absorption.absorbs.amount.at(1.0), Some(0.05));
+    assert!(absorption.sends_back.amount.is_empty());
+    assert!(absorption.shares && absorption.watches);
+    let reflection = w(0x6F00_018A);
+    assert_eq!(reflection.sends_back.amount.at(1.0), Some(0.025));
+    assert!(reflection.absorbs.amount.is_empty());
+    // A practice dummy's: a hundredth a point, for good.
+    let dummy = w(0x7000_1C79);
+    assert_eq!(dummy.sends_back.amount.at(1.0), Some(0.01));
+    assert_eq!(dummy.sends_back.amount.at(500.0), Some(5.0));
+    assert!((dummy.sends_back.amount.at(35.0).unwrap_or(0.0) - 0.35).abs() < 1e-3);
+    assert!(dummy.watches);
+    let thornskin = w(0x7000_08D8);
+    assert_eq!(thornskin.sends_back.amount.at(1.0), Some(0.08));
+    assert_eq!(thornskin.sends_back.amount.at(50.0), Some(0.35));
+    assert_eq!(w(0x7000_070E).sends_back.amount.at(30.0), Some(0.2));
+    let armor = w(0x6F00_1964);
+    assert_eq!(armor.sends_back.chance, 0.2);
+    assert_eq!(armor.sends_back.amount.at(0.0), Some(0.1));
+    let thorns = w(0x7000_09FD);
+    assert_eq!(thorns.against_a_player, 1.0 / 3.0);
+    let might = w(0x6F00_1AA6);
+    assert_eq!(might.absorbs.amount.at(0.0), Some(135.0));
+    assert!(!might.shares);
+    assert!(
+        !w(0x6F00_264F).watches,
+        "vigor's, which no attack lowers here"
+    );
+    // They go on as records.
+    assert!(t.get(0x7000_070E).expect("read").client_visible());
+    assert!(t.get(0x6F00_0186).expect("read").lasts());
+}
+
+/// The protections read with their lists and chances: Extinguish Blaze's along a line from a fifth
+/// at 1 to 0.7 at 50, Immolation's, Cure Disease's and the Blockers' always.
+/// Behaviour: server.effects.protections-read
+#[test]
+fn the_protections_read_as_the_data_defines_them() {
+    let p = Portal::open();
+    let t = p.effects(&[
+        0x7000_1F48,
+        0x7000_1F53,
+        0x7000_1F63,
+        0x7000_1F19,
+        0x6F00_21A9,
+        0x6F00_1141,
+    ]);
+    let ward = |s: u32| match &t.get(s).expect("read").kind {
+        Kind::Ward { classes, chance } => (classes.clone(), chance.clone()),
+        k => panic!("{s:08X}: {k:?}"),
+    };
+    let (blaze, chance) = ward(0x7000_1F48);
+    assert_eq!(blaze, [48, 1119, 5013]);
+    assert_eq!((chance.at(1.0), chance.at(50.0)), (Some(0.2), Some(0.7)));
+    let (immolation, chance) = ward(0x7000_1F53);
+    assert_eq!(immolation, [48, 5013]);
+    assert_eq!(chance.at(30.0), Some(1.0));
+    let (disease, chance) = ward(0x7000_1F63);
+    assert_eq!(disease, [49, 5014, 26, 4015, 5043, 5050]);
+    assert_eq!(chance.at(30.0), Some(1.0));
+    for s in [0x7000_1F19, 0x6F00_21A9, 0x6F00_1141] {
+        let (blocker, chance) = ward(s);
+        assert_eq!(blocker, [117], "{s:08X}");
+        assert_eq!(chance.at(30.0), Some(1.0));
+    }
+}
+
+/// No use of a skill and no aura keeps off its own: each effect after a protection in its list is
+/// of a class the protection leaves alone, over every skill and every aura they read.
+/// Behaviour: server.effects.protections-read
+#[test]
+fn no_skill_or_aura_keeps_off_its_own_effects() {
+    let p = Portal::open();
+    let skills = p.skills();
+    let mut lists: Vec<(String, Vec<u32>)> = skills
+        .skills
+        .iter()
+        .filter_map(|(k, d)| d.usage.as_ref().map(|u| (k, u)))
+        .flat_map(|(k, u)| {
+            [
+                (format!("skill {k}"), u.target_effects.clone()),
+                (format!("skill {k} on its user"), u.user_effects.clone()),
+            ]
+        })
+        .collect();
+    let mut states: Vec<u32> = lists.iter().flat_map(|(_, l)| l.iter().copied()).collect();
+    // The aura that names a Blocker, with the skills' own.
+    states.push(0x6F00_0225);
+    states.sort_unstable();
+    states.dedup();
+    let t = p.effects(&states);
+    for d in t.effects.values() {
+        if let Kind::Aura(a) = &d.kind {
+            lists.push((format!("aura {:08X}", d.state), a.pulsed.clone()));
+        }
+    }
+    let mut wards = 0;
+    for (who, list) in &lists {
+        for (i, state) in list.iter().enumerate() {
+            let Some(Kind::Ward { classes, .. }) = t.get(*state).map(|d| &d.kind) else {
+                continue;
+            };
+            wards += 1;
+            for later in &list[i + 1..] {
+                let class = t.get(*later).map_or(0, |d| d.eq_class);
+                assert!(
+                    !classes.is_empty() && !classes.contains(&class),
+                    "{who}: {state:08X} would keep off {later:08X}"
+                );
+            }
+        }
+    }
+    assert!(wards >= 3, "the protections are among them: {wards}");
+    // The Blocker comes on after what it blocks.
+    let Some(Kind::Aura(a)) = t.get(0x6F00_0225).map(|d| &d.kind) else {
+        panic!("the aura")
+    };
+    assert_eq!(a.pulsed, [0x6F00_1140, 0x6F00_1141]);
+    assert_eq!(t.get(0x6F00_1140).map(|d| d.eq_class), Some(117));
+}
+
+/// A skill used on oneself names its effects in its list for its user, not its target's: Immolation's
+/// protection and Bladeskin's aura come on by using them. The plain Bladeskin's aura pulses Bladeskin
+/// alone; only the Soul Defractor's names a Blocker.
+/// Behaviour: server.effects.self-cast-lists
+#[test]
+fn immolation_and_bladeskin_put_their_effects_on_their_user() {
+    use auberean_protocol::{queue, ClientMessage};
+    use auberean_script::args::Arg;
+    use yalain_testkit::play::server_call;
+    use yalain_testkit::Harness;
+    use yalain_world::effects::{self, Cast, On};
+    use yalain_world::skill_use::function;
+    use yalain_world::state::SkillState;
+    const IMMOLATION: u32 = 1079;
+    const BLADESKIN: u32 = 1006;
+    const PROTECTION: u32 = 0x7000_1F53;
+    const AURA: u32 = 0x6F00_00C8;
+    const WATCHER: u32 = 0x6F00_10F5;
+    /// A fire effect over time.
+    const BURNS: u32 = 0x6F00_10C7;
+
+    let p = Portal::open();
+    let mut skills = p.skills();
+    let list = |s: u32| skills.skills[&s].usage.as_ref().expect("used").clone();
+    assert!(list(IMMOLATION).target_effects.is_empty());
+    assert!(list(BLADESKIN).target_effects.is_empty());
+    assert_eq!(
+        list(IMMOLATION).user_effects,
+        [0x7000_07F8, 0x7000_1F51, PROTECTION, 0x7000_1F52]
+    );
+    assert_eq!(list(BLADESKIN).user_effects, [AURA]);
+    let mut states = vec![BURNS, 0x6F00_0225];
+    states.extend(list(IMMOLATION).user_effects);
+    states.extend(list(BLADESKIN).user_effects);
+    let table = p.effects(&states);
+    let Some(Kind::Aura(a)) = table.get(AURA).map(|d| &d.kind) else {
+        panic!("the aura")
+    };
+    assert_eq!(a.pulsed, [WATCHER]);
+    for s in [IMMOLATION, BLADESKIN] {
+        let u = skills
+            .skills
+            .get_mut(&s)
+            .and_then(|d| {
+                d.parents.clear();
+                d.prereqs.clear();
+                d.usage.as_mut()
+            })
+            .expect("used");
+        u.implements_right = -1;
+        u.implements_left = -1;
+        u.vigor_add = 0.0;
+        u.vigor_mult = 0.0;
+        u.min_vigor = 0.0;
+    }
+
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    h.server.skill_table = skills;
+    h.server.effect_table = table;
+    let world = *h.server.players.keys().next().expect("in the world");
+    for (n, skill) in [IMMOLATION, BLADESKIN].into_iter().enumerate() {
+        let held = SkillState {
+            skill,
+            granted: 50,
+            mask: 1,
+            cost: 0,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        };
+        if let Some(p) = h.server.players.get_mut(&world) {
+            p.play.skills.push(held);
+        }
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(
+                function::USE,
+                &[
+                    Arg::Int(u32::try_from(n).unwrap_or(0) + 1),
+                    Arg::Int(skill),
+                    Arg::LongInt(me),
+                ],
+            ),
+        );
+        h.run(400);
+    }
+    let holds = |h: &Harness, s: u32| {
+        h.server
+            .players
+            .get(&world)
+            .is_some_and(|p| p.play.effects.iter().any(|e| e.state == s))
+    };
+    assert!(holds(&h, PROTECTION), "Immolation's protection");
+    assert!(holds(&h, WATCHER), "Bladeskin");
+    let clock = h.clock();
+    effects::apply_on(
+        &mut h.server,
+        &mut h.net,
+        On::Player(world),
+        BURNS,
+        Cast {
+            spellcraft: 30.0,
+            ..Cast::default()
+        },
+        clock,
+    );
+    assert!(!holds(&h, BURNS), "fire kept off");
+}
+
+/// Plan B, Immolation and Taunt Force answer what comes at them, of any class and always: Plan B and
+/// Immolation with fire over time. Taunt Force has no time to last and its Challenge does nothing
+/// here.
+/// Behaviour: server.effects.replies-read
+#[test]
+fn the_effects_that_answer_what_comes_at_them_read_as_the_data_defines_them() {
+    let p = Portal::open();
+    let t = p.effects(&[0x6F00_0027, 0x7000_1F51, 0x7000_1EDA]);
+    let reply = |s: u32| match &t.get(s).expect("read").kind {
+        Kind::Reply {
+            effect,
+            chance,
+            classes,
+        } => (*effect, chance.at(30.0), classes.is_empty()),
+        k => panic!("{s:08X}: {k:?}"),
+    };
+    assert_eq!(reply(0x6F00_0027), (0x6F00_10C7, Some(1.0), true));
+    assert_eq!(reply(0x7000_1F51), (0x7000_1F54, Some(1.0), true));
+    assert_eq!(reply(0x7000_1EDA), (0x7000_1EDB, Some(1.0), true));
+    assert!(t.get(0x6F00_0027).expect("read").lasts());
+    assert!(t.get(0x7000_1F51).expect("read").lasts());
+    assert!(!t.get(0x7000_1EDA).expect("read").lasts());
+    for burn in [0x6F00_10C7, 0x7000_1F54] {
+        assert!(matches!(
+            t.get(burn).expect("what it adds").kind,
+            Kind::VitalOverTime { .. }
+        ));
+    }
+    assert!(matches!(
+        t.get(0x7000_1EDB).expect("read").kind,
+        Kind::Other
+    ));
+}
+
 /// A recipe that binds its product names it by the product's ordinal over the whole spinner range
 /// (`0x6F000E9D`: each outcome makes `0x470008D4` and binds it, spinners 1 to 100).
 /// Behaviour: server.craft.recipe-binds-read
@@ -487,12 +959,14 @@ fn a_forager_s_food_reads_as_a_drink_that_heals_health_and_vigor() {
         item_use::behavior_of(FOOD, &food.props),
         Some(item_use::DRINK)
     );
-    let lib = auberean_script::library::Library::from_record(
-        &p.dat
-            .read(auberean_script::library::RECORD)
-            .expect("the library"),
-    )
-    .expect("reads");
+    let lib = p
+        .dat
+        .read_checked(
+            auberean_script::library::RECORD,
+            auberean_script::library::Library::from_record,
+        )
+        .expect("reads")
+        .value;
     assert!(!yalain_world::profile::destroyed_on_use_kind(
         food.description.package,
         |n| lib.package_id(n),
@@ -572,4 +1046,421 @@ fn the_recalls_read_where_they_go() {
         (protection.duration.at(1.0), protection.fx),
         (Some(30.0), 0x4100_000F)
     );
+}
+
+/// Every refining recipe the install holds reads with the template it yields, a stack of a material,
+/// each of the ten products by the recipes of its own (2017: Steel, the recipe recorded).
+/// Behaviour: server.craft.refined-products-in-the-install
+#[test]
+fn every_refining_recipe_reads_with_its_product() {
+    use yalain_world::craft::Custom;
+    let p = Portal::open();
+    let steel: Vec<u32> = (0x6F00_10AA..=0x6F00_10AD).collect();
+    let dramastic: Vec<u32> = (0x6F00_109E..=0x6F00_10A1).collect();
+    let bricks = [0x6F00_1FDF, 0x6F00_1FE1, 0x6F00_1FE3];
+    for (recipes, product) in [
+        (steel.as_slice(), 0x4700_0B40),
+        (dramastic.as_slice(), 0x4700_0B46),
+        (bricks.as_slice(), 0x4700_0655),
+    ] {
+        let c = p.crafting(&[], recipes);
+        for r in recipes {
+            assert_eq!(
+                c.recipes.get(r).map(|d| d.custom),
+                Some(Custom::Refine { product }),
+                "{r:08X}"
+            );
+        }
+        assert!(c.templates().contains(&product), "the catalog makes it");
+        assert!(
+            p.template(product).props.int("Item_MaxStackSize").is_some(),
+            "a stack"
+        );
+    }
+    // Card melds work out their own product; spellbinding makes a totem.
+    let c = p.crafting(&[], &[0x6F00_1ABB, 0x6F00_1081]);
+    assert_eq!(c.recipes[&0x6F00_1ABB].custom, Custom::Unknown);
+    assert_eq!(c.recipes[&0x6F00_1081].custom, Custom::Spellbind);
+}
+
+/// The install's slots read what they ask: spellbinding's sword by the spinner, a level up to 50
+/// and an Arcane Lore from 51; an armor empowerment's refused flag, which the recipe itself adds;
+/// a recipe's cutoff.
+/// Behaviour: server.craft.slots-ask-level-and-lore
+#[test]
+fn the_installs_slots_read_their_level_lore_flags_and_cutoff() {
+    use yalain_world::craft::{error, Action, Limit};
+    let p = Portal::open();
+    let c = p.crafting(&[], &[0x6F00_1081, 0x6F00_030A, 0x6F00_106C]);
+    let slot = &c.recipes[&0x6F00_1081].ingredients[0];
+    assert_eq!(slot.level, Limit::ByTable(0x6F00_06B6));
+    assert_eq!(slot.lore, Limit::ByTable(0x6F00_0679));
+    assert_eq!(
+        c.level_or_lore_refused(slot, 20, 20, 0),
+        0,
+        "as 2017, level 20"
+    );
+    assert_eq!(
+        c.level_or_lore_refused(slot, 20, 23, 0),
+        error::ITEM_LEVEL_TOO_HIGH
+    );
+    assert_eq!(c.level_or_lore_refused(slot, 51, 90, 7), 0, "lore 7 at 51");
+    assert_eq!(
+        c.level_or_lore_refused(slot, 51, 1, 8),
+        error::ITEM_LORE_TOO_HIGH
+    );
+    let empower = &c.recipes[&0x6F00_030A];
+    assert_eq!(empower.ingredients[1].restricted_flags, 8);
+    assert!(empower
+        .checks
+        .iter()
+        .flat_map(|x| &x.outcomes)
+        .flat_map(|o| &o.actions)
+        .any(|a| matches!(
+            a,
+            Action::Flag {
+                ordinal: 2,
+                flags: 8,
+                ..
+            }
+        )));
+    assert_eq!(c.recipes[&0x6F00_106C].cutoff, Some(50));
+    assert_eq!(empower.cutoff, None);
+}
+
+/// The install's things say how they are held: a looted bow takes both hands and hangs as a bow,
+/// a polearm too, a handblade from its own places in either hand, a shield in the off hand, a tool
+/// from the first place.
+/// Behaviour: server.weapons.hold-read
+#[test]
+fn a_things_hold_reads_from_its_template() {
+    use yalain_world::equip::{flags, hold_of};
+    let p = Portal::open();
+    let mut catalog = yalain_content::Catalog::default();
+    for t in [
+        0x4700_07A3,
+        0x4700_0730,
+        0x4700_071F,
+        0x4700_051B,
+        0x4700_06FD,
+        0x4700_0CC5,
+    ] {
+        catalog.insert(p.template(t));
+    }
+    let bow = hold_of(&catalog, 0x4700_07A3);
+    assert_eq!(
+        (
+            bow.primary,
+            bow.secondary,
+            bow.valid,
+            bow.taken,
+            bow.precluded,
+            bow.flags
+        ),
+        (2, 1, 64, 192, 128, flags::WIELDED)
+    );
+    let polearm = hold_of(&catalog, 0x4700_0730);
+    assert_eq!(
+        (polearm.primary, polearm.secondary, polearm.taken),
+        (1, 2, 192)
+    );
+    let blade = hold_of(&catalog, 0x4700_071F);
+    assert_eq!(
+        (blade.primary, blade.secondary, blade.valid, blade.taken),
+        (1, 0x11, 192, 64)
+    );
+    assert_eq!(
+        hold_of(&catalog, 0x4700_051B),
+        bow,
+        "the starting bow as a looted one"
+    );
+    let strung = |t: u32| yalain_world::skill_use::is_bow(catalog.get(t).expect("in the catalog"));
+    assert!(strung(0x4700_07A3), "a looted bow is a bow");
+    assert!(!strung(0x4700_071F), "a handblade is not");
+    let shield = hold_of(&catalog, 0x4700_06FD);
+    assert_eq!(
+        (shield.valid, shield.preferred, shield.taken, shield.flags),
+        (128, 128, 128, flags::WORN)
+    );
+    let tool = hold_of(&catalog, 0x4700_0CC5);
+    assert_eq!(
+        (tool.primary, tool.secondary, tool.taken, tool.flags),
+        (1, 1, 192, flags::WORN)
+    );
+}
+
+/// The orbs' three basic attacks read with two thrown hooks each, a hand each.
+/// Behaviour: server.weapons.two-throws-read
+#[test]
+fn the_skills_that_throw_twice_read_with_each_throws_hand() {
+    let t = Portal::open().skills();
+    for skill in [1883, 1884, 1885] {
+        let u = t.skills[&skill].usage.as_ref().expect("used");
+        let thrown: Vec<u32> = u
+            .hooks
+            .iter()
+            .filter(|h| h.missile != 0 && h.flags & 0x4 != 0)
+            .map(|h| h.flags & 0x3000)
+            .collect();
+        assert_eq!(thrown.len(), 2, "{skill}");
+        assert_ne!(thrown[0], thrown[1], "{skill}: a hand each");
+    }
+}
+
+/// A hook's damage by rating reads with all its points: a rating of 30 on the middle line.
+/// Behaviour: server.specials.hook-adds-by-rating
+#[test]
+fn a_hooks_points_read_in_full_and_add_along_their_lines() {
+    let t = Portal::open().skills();
+    let hook = t.skills[&733]
+        .usage
+        .as_ref()
+        .expect("used")
+        .hooks
+        .iter()
+        .find(|h| !h.add_by_rating.is_empty())
+        .expect("a hook with points")
+        .clone();
+    assert_eq!(
+        hook.add_by_rating,
+        [(1.0, 12.0), (50.0, 260.0), (150.0, 1300.0)]
+    );
+    assert_eq!(hook.rated_add(1.0), 12);
+    assert_eq!(hook.rated_add(30.0), 158);
+    assert_eq!(hook.rated_add(100.0), 780);
+    assert_eq!(hook.rated_add(200.0), 1300, "held at its last");
+}
+
+/// The buff that lowers what skills cost is read with its stat and its line by spellcraft.
+/// Behaviour: server.specials.vigor-lowered-by-effects
+#[test]
+fn the_buff_that_lowers_skills_costs_reads_with_its_stat() {
+    let p = Portal::open();
+    let t = p.effects(&[0x6F00_1147]);
+    let d = t.get(0x6F00_1147).expect("the buff");
+    let changes = d.changes(20.0);
+    assert_eq!(changes.len(), 1);
+    let (stat, multiply, by) = changes[0];
+    assert_eq!(stat, yalain_world::effects::VIGOR_COST_ADD);
+    assert!(!multiply);
+    assert!((by + 22.449).abs() < 0.01, "{by}");
+}
+
+/// A weapon's three stances read from its template's qualities.
+/// Behaviour: server.weapons.mode-by-stance
+#[test]
+fn a_weapons_three_stances_read_from_its_template() {
+    let t = Portal::open().template(0x4700_051C);
+    assert_eq!(t.props.word("Weapon_SingleWeaponStance"), Some(0x4100_000A));
+    assert_eq!(t.props.word("Weapon_ShieldStance"), Some(0x4100_000B));
+    assert_eq!(t.props.word("Weapon_TwoWeaponStance"), Some(0x4100_000E));
+}
+
+/// The auras that raise a weapon's damage read as the data defines them: Infected Caress holds on a
+/// weapon and adds 10 at 1, 80 at 50; Wound Twister on any item and multiplies by 1.03 at 1, 1.15 at
+/// 50.
+/// Behaviour: server.auras.damage-held-on-a-weapon
+#[test]
+fn the_auras_on_a_weapons_damage_read_as_the_data_defines_them() {
+    use yalain_world::effect_defs::aura_target;
+    use yalain_world::made::stat;
+    const CARESS: u32 = 0x6F00_00CD;
+    const TWISTER: u32 = 0x6F00_011C;
+    let p = Portal::open();
+    let t = p.effects(&[CARESS, TWISTER]);
+    let aura = |state: u32| match &t.get(state).expect("the aura").kind {
+        Kind::Aura(a) => a.clone(),
+        k => panic!("{k:?}"),
+    };
+    let (caress, twister) = (aura(CARESS), aura(TWISTER));
+    assert_eq!(caress.targets, aura_target::WEAPON);
+    assert_eq!(twister.targets, aura_target::ITEM);
+    let change = |state: u32, at: f32| {
+        let d = t.get(state).expect("the pulse");
+        d.changes(at)
+    };
+    assert_eq!(change(caress.pulsed[0], 1.0), [(stat::DAMAGE, false, 10.0)]);
+    assert_eq!(
+        change(caress.pulsed[0], 50.0),
+        [(stat::DAMAGE, false, 80.0)]
+    );
+    assert_eq!(change(twister.pulsed[0], 1.0), [(stat::DAMAGE, true, 1.03)]);
+    assert_eq!(
+        change(twister.pulsed[0], 50.0),
+        [(stat::DAMAGE, true, 1.15)]
+    );
+}
+
+/// The templates a pickup's Increment names are attunable in the data: an Attuned Tessera, and a Lost
+/// Artifact.
+/// Behaviour: server.inventory.an-attunable-item-is-not-put-down
+#[test]
+fn the_templates_whose_taking_increments_a_quest_are_attunable() {
+    let p = Portal::open();
+    for did in [
+        0x4700_15B1,
+        0x4700_16C6,
+        0x4700_16CE,
+        0x4700_16D0,
+        0x4700_16D2,
+    ] {
+        let t = p.template(did);
+        assert!(t.props.flag("Item_IsAttunable"), "{did:#x}");
+        assert!(
+            t.props
+                .text("Item_AcquireEffect1")
+                .is_some_and(|e| e.starts_with("Eff_IncrementQuest")),
+            "{did:#x}"
+        );
+    }
+}
+
+/// The three Contracts on sale are bought for what their acquiring does, which the world can't do;
+/// a template whose acquiring moves a quest is not.
+/// Behaviour: server.store.a-sale-the-world-cannot-make-is-not-paid-for
+#[test]
+fn the_contracts_are_bought_for_what_their_acquiring_does() {
+    use yalain_world::quests::acquiring_does_more_than_quests as more;
+    let p = Portal::open();
+    for did in [0x4700_18D1, 0x4700_18D2, 0x4700_18D3] {
+        assert!(more(&p.template(did).props), "{did:#x}");
+    }
+    assert!(!more(&p.template(0x4700_16C6).props), "a Lost Artifact");
+}
+
+/// Immolation's effects turn an alchemist's basic attacks: its plain ones go, the fiery ones of the
+/// install come with their rating raised by the buff, and with the dark side on, their melee kind.
+/// Behaviour: server.weapons.immolations-attacks
+#[test]
+fn immolation_turns_an_alchemists_basic_attacks_fiery() {
+    use auberean_protocol::{queue, ClientMessage, ServerMessage};
+    use auberean_script::args::Arg;
+    use yalain_testkit::play::server_call;
+    use yalain_testkit::{Harness, TEST_CREATURE};
+    use yalain_world::effects::{self, Cast, On};
+    use yalain_world::state::SkillState;
+    const START_ATTACK: u32 = 0x8204_0008;
+    const VIAL: u32 = 0x4700_7A01;
+    const IMMOLATION: u32 = 1079;
+    const DARK_SIDE: u32 = 0x7000_1F43;
+
+    let p = Portal::open();
+    let skills = p.skills();
+    let mut states = skills.skills[&IMMOLATION]
+        .usage
+        .as_ref()
+        .expect("used")
+        .user_effects
+        .clone();
+    states.push(DARK_SIDE);
+    let table = p.effects(&states);
+
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    let beetle = h
+        .world_messages(b, 0)
+        .iter()
+        .find_map(|m| match m {
+            ServerMessage::CreateObject(o) if o.weenie.entity_did == TEST_CREATURE => Some(o.id),
+            _ => None,
+        })
+        .expect("the camp's creature");
+    h.server.skill_table = skills;
+    h.server.effect_table = table;
+    h.server
+        .catalog
+        .implements
+        .insert(VIAL, yalain_world::skill_use::implement::ALCHEMY);
+    h.arm(b, me, VIAL);
+    let world = *h.server.players.keys().next().expect("in the world");
+    let at = h.server.players[&world].position;
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        if let Some(c) = t.creature.as_mut() {
+            c.stats.movement.perception = 0.0;
+            c.stats.scale = 0.0;
+        }
+        let mut place = at;
+        place.origin[0] += 0.5;
+        t.at = Some(place);
+        t.max_health = 10_000_000;
+        t.health = 10_000_000;
+    }
+    if let Some(p) = h.server.players.get_mut(&world) {
+        // A human's saved list holds every one of these, Fire Breath once it is trained.
+        for skill in [
+            189, 804, 805, 806, 953, 954, 955, 1371, 1372, 1373, 1374, 1375, 1376,
+        ] {
+            p.play.skills.push(SkillState {
+                skill,
+                granted: 1,
+                mask: 1,
+                cost: 0,
+                children: 0,
+                dependents: 0,
+                spent: 0,
+            });
+        }
+        yalain_world::quals::set_int(
+            &mut p.qualities,
+            yalain_world::player::quality::HEALTH_MAX,
+            10_000_000,
+        );
+        yalain_world::quals::set_int(
+            &mut p.qualities,
+            yalain_world::player::quality::HEALTH,
+            10_000_000,
+        );
+    }
+    let told = |h: &mut Harness| {
+        let from = h.bots[b].inbox.len();
+        h.bots[b].send(
+            true,
+            queue::WEENIE,
+            &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+        );
+        h.run(400);
+        let mut seen: Vec<u32> = h
+            .world_messages(b, from)
+            .iter()
+            .filter_map(|m| match m {
+                ServerMessage::DoStory(e) if e.sender.id == me => Some(e.action.skill),
+                _ => None,
+            })
+            .collect();
+        seen.sort_unstable();
+        seen.dedup();
+        h.run(20);
+        seen
+    };
+    let apply = |h: &mut Harness, state: u32| {
+        let clock = h.clock();
+        assert!(effects::apply_on(
+            &mut h.server,
+            &mut h.net,
+            On::Player(world),
+            state,
+            Cast {
+                spellcraft: 50.0,
+                ..Cast::default()
+            },
+            clock,
+        ));
+    };
+    let rating = |h: &Harness| yalain_world::skill_use::rating_of_for_test(&h.server, world, 1371);
+    assert_eq!(told(&mut h), [804, 805, 806]);
+    let plain = rating(&h);
+    for state in [0x7000_1F51, 0x7000_1F52] {
+        apply(&mut h, state);
+    }
+    assert_eq!(told(&mut h), [1371, 1372, 1373]);
+    assert!(rating(&h) >= plain + 40.0, "{plain} to {}", rating(&h));
+    apply(&mut h, DARK_SIDE);
+    assert_eq!(told(&mut h), [1374, 1375, 1376]);
 }

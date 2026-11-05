@@ -2,8 +2,9 @@
 
 use std::collections::HashMap;
 
-use auberean_draw::cull::{Beyond, Doorway, Frustum, Relation, Room, Rooms};
-use auberean_draw::scene::Camera;
+use auberean_draw::cull::BODY_CELLS;
+use auberean_draw::cull::{Beyond, Doorway, Frustum, LookIn, Relation, Room, Rooms, Sight};
+use auberean_draw::scene::{Camera, Cull};
 use auberean_primitives::Vec3;
 use auberean_world::math::Mat4;
 use dereth_primitives::num::math::{cosf, sinf};
@@ -133,6 +134,7 @@ fn room(y: f32, doorways: Vec<Doorway>, no_cull: bool) -> Room {
         sky: false,
         doorways,
         shared: Vec::new(),
+        visible: Vec::new(),
         fog_cut: None,
     }
 }
@@ -180,6 +182,7 @@ fn row() -> Rooms {
         ),
     );
     Rooms {
+        block: (1, 2),
         root: 0x100,
         stab: vec![0x101, 0x102],
         cells,
@@ -272,4 +275,126 @@ fn never_culled_rooms_are_taken_with_their_group() {
     // first room lies wholly behind the camera and is not entered
     let back = rooms.sight(&camera(180.0), 4.0 / 3.0);
     assert!(!back.drawn.contains(&0x101) && !back.outdoors());
+}
+
+/// A camera on the land looks into a cell by its doorway out: the walk from that cell reaches the
+/// rooms past it, and the rooms drawn are that cell and those it sees. With its back to the door
+/// nothing is looked into. What stands in a room shows by its box in the views the room was
+/// entered by.
+///
+/// Behaviour: draw.inside.a-camera-on-the-land-looks-into-rooms-by-their-doorways-out
+#[test]
+fn a_camera_on_the_land_looks_into_rooms_by_their_doorways_out() {
+    let mut rooms = row();
+    rooms
+        .cells
+        .get_mut(&0x102)
+        .expect("the room")
+        .visible
+        .push(0x101);
+    let blocks = [LookIn {
+        block: (1, 2),
+        rooms,
+        order: vec![0x100, 0x101, 0x102],
+    }];
+    let from_north = |heading: f32| {
+        let mut c = camera(heading);
+        c.position = Vec3::new(0.0, 40.0, 1.5);
+        Sight::on_land(Frustum::of_camera(&c, 4.0 / 3.0), &blocks)
+    };
+    let looking = from_north(180.0);
+    let seen = looking.seen.get(&(1, 2)).expect("the block looked into");
+    assert!(
+        seen.entered.contains_key(&0x100),
+        "the walk reaches the far room"
+    );
+    assert!(seen.drawn.contains(&0x102), "the room the walk starts from");
+    assert!(seen.drawn.contains(&0x101), "a room it sees");
+    assert!(!seen.drawn.contains(&0x100), "a room it does not see");
+    let batch = |cull: Cull| looking.shows_cull(cull);
+    assert!(batch(Cull::Looked {
+        block: (1, 2),
+        cell: 0x102,
+    }));
+    assert!(!batch(Cull::Looked {
+        block: (1, 3),
+        cell: 0x102,
+    }));
+    assert!(batch(Cull::LookedIn {
+        block: (1, 2),
+        cell: 0x102,
+        lo: Vec3::new(-1.0, 19.0, 0.0),
+        hi: Vec3::new(1.0, 21.0, 2.0),
+    }));
+    assert!(!batch(Cull::LookedIn {
+        block: (1, 2),
+        cell: 0x102,
+        lo: Vec3::new(100.0, 19.0, 0.0),
+        hi: Vec3::new(102.0, 21.0, 2.0),
+    }));
+    assert!(batch(Cull::Box {
+        lo: Vec3::new(500.0, 500.0, 0.0),
+        hi: Vec3::new(501.0, 501.0, 1.0),
+    }));
+    let away = from_north(0.0);
+    assert!(away.seen.is_empty(), "{:?}", away.seen.keys());
+}
+
+/// From inside, out through a doorway of its own, a camera looks into another building's rooms by
+/// the doorways between its rooms, not those out; a room never culled shows whenever its box does.
+///
+/// Behaviour: draw.inside.a-camera-inside-looks-into-rooms-by-the-doorways-between-them
+#[test]
+fn a_camera_inside_looks_into_rooms_by_the_doorways_between_them() {
+    let view = Frustum::of_camera(&camera(0.0), 4.0 / 3.0);
+    let out = room(10.0, vec![wall(5.0, true, Beyond::Outside)], false);
+    let between = room(10.0, vec![wall(5.0, true, Beyond::Cell(0x101))], false);
+    assert!(Rooms::shows_from_outside(&out, &view, false));
+    assert!(!Rooms::shows_from_outside(&out, &view, true));
+    assert!(!Rooms::shows_from_outside(&between, &view, false));
+    assert!(Rooms::shows_from_outside(&between, &view, true));
+    let whole = room(10.0, Vec::new(), true);
+    assert!(Rooms::shows_from_outside(&whole, &view, false));
+    assert!(Rooms::shows_from_outside(&whole, &view, true));
+    let behind = room(-10.0, vec![wall(-5.0, false, Beyond::Outside)], true);
+    assert!(!Rooms::shows_from_outside(&behind, &view, false));
+}
+
+/// A body inside is drawn by the rooms it touches: one in a room the walk reaches and whose box
+/// meets the room's views shows; one in rooms out of sight does not, however near; one half in a
+/// reached room shows by that room. On the land from inside it shows by a view out.
+///
+/// Behaviour: draw.inside.a-body-is-drawn-by-the-rooms-it-touches
+#[test]
+fn a_body_is_drawn_by_the_rooms_it_touches() {
+    let ahead = row().sight(&camera(0.0), 4.0 / 3.0);
+    let body = |low: u16, other: u16, y: f32| {
+        let mut cells = [0u16; BODY_CELLS];
+        cells[0] = low;
+        cells[1] = other;
+        Cull::Body {
+            block: (1, 2),
+            cells,
+            lo: Vec3::new(-1.0, y - 1.0, 0.0),
+            hi: Vec3::new(1.0, y + 1.0, 2.0),
+        }
+    };
+    assert!(ahead.shows_cull(body(0x101, 0, 10.0)), "in a room reached");
+    assert!(!ahead.shows_cull(body(0x105, 0, 10.0)), "in a room not");
+    assert!(
+        ahead.shows_cull(body(0x105, 0x100, 4.0)),
+        "half in a room reached"
+    );
+    let back = row().sight(&camera(180.0), 4.0 / 3.0);
+    assert!(
+        !back.shows_cull(body(0x101, 0, 10.0)),
+        "in a room behind the camera"
+    );
+    let far = Cull::Body {
+        block: (1, 3),
+        cells: [0x101, 0, 0, 0, 0, 0],
+        lo: Vec3::new(-1.0, 9.0, 0.0),
+        hi: Vec3::new(1.0, 11.0, 2.0),
+    };
+    assert!(!ahead.shows_cull(far), "another block's room of that word");
 }

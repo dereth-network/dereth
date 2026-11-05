@@ -1080,3 +1080,21 @@ fn a_skills_footer_numbers_follow_the_vitae_as_it_is_now_and_not_the_last_rebuil
     assert_eq!(shown_row(&hud), (100, 90, -10), "the page's own join");
     assert_eq!(footer(&hud, &world), (100, 100, 0), "no vitae left");
 }
+
+/// Behaviour: none (choosing which of the files' mappers names the components' classes)
+#[test]
+fn a_short_component_table_takes_the_mapper_with_the_most_entries_of_those_it_overlaps_alike() {
+    use super::tables::better_component_mapper as better;
+    assert!(better((74, 78), None), "the first that overlaps at all");
+    assert!(!better((0, 78), None), "one that overlaps nothing never is");
+    assert!(better((74, 164), Some((74, 78))), "1999's 74, tied");
+    assert!(
+        !better((74, 78), Some((74, 164))),
+        "1999's 74, the other way"
+    );
+    assert!(
+        better((163, 164), Some((74, 78))),
+        "the most overlap still comes first"
+    );
+    assert!(!better((41, 42), Some((74, 164))));
+}

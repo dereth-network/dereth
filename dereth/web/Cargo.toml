@@ -2,7 +2,7 @@
 name = "dereth-web"
 description = "The Dereth client in a web browser: the client application in a Web Worker, reading the player's data files on the player's own machine and reaching the server over a WebSocket, directly or through a relay on the player's machine."
 # Dereth's version: the client's and the launcher's, which `cargo xtask release dereth` moves.
-version = "0.4.12"
+version = "0.4.13"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -39,17 +39,13 @@ dereth-classic-dat.workspace = true
 dereth-classic-fonts.workspace = true
 # The Horizon interface's art, which the page fetches from beside the module and hands over.
 dereth-horizon.workspace = true
-# The front page's launcher: the desktop launcher's own logic (the world list, the table of worlds
-# that run a client of their own, a world's data sets by iterations, what the client is told
-# about the world), so the two launchers show and start a world alike.
-dereth-launch.workspace = true
-serde_json.workspace = true
+# The client's own files and a world's overlay in browser storage, which the launcher's module
+# reads too.
+dereth-web-store.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 dereth-client-sdk = { workspace = true, features = ["test-support"] }
-# Small, well-formed dats built in memory, for the front page's set matching.
-dereth-launch = { workspace = true, features = ["testing"] }
 # Blocks on the GPU backend's asynchronous set-up in the native tests.
 pollster.workspace = true
 

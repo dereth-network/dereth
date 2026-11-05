@@ -237,6 +237,40 @@ fn a_slider_change_reaches_the_sounds_playing() {
     assert_eq!(m.gains(h), Some([g, g]));
 }
 
+fn life(m: &SoundPlayer, h: u32) -> Option<Life> {
+    m.playing().iter().find(|p| p.0 == h).map(|p| p.2)
+}
+
+/// Behaviour: audio.manager.a-silent-makers-sounds-stop-and-play-again
+#[test]
+fn a_silent_makers_sounds_stop_and_play_again() {
+    let f = files();
+    let mut m = SoundPlayer::new(Some(100));
+    let mut looping = PlayRequest::new(PLACED_LOOPING);
+    looping.emitter = Some(9);
+    let held = m.play(&f, &looping).expect("accepted");
+    let mut other = PlayRequest::new(PLACED_LOOPING);
+    other.emitter = Some(8);
+    let beside = m.play(&f, &other).expect("accepted");
+    let at = |_: u64| Some([0.0, 1.0, 0.0]);
+    m.use_time(0.0, Listener::default(), &at);
+    assert_eq!(life(&m, held), Some(Life::Playing));
+    // Its maker goes silent: no voice, but the sound is kept. Another maker's plays on.
+    m.set_muted([9].into_iter().collect());
+    m.use_time(0.1, Listener::default(), &at);
+    assert_eq!(life(&m, held), Some(Life::KeepAlive));
+    assert_eq!(life(&m, beside), Some(Life::Playing));
+    assert_eq!(voices(&m), 1);
+    // It stays so while its maker is silent.
+    m.use_time(0.2, Listener::default(), &at);
+    assert_eq!(life(&m, held), Some(Life::KeepAlive));
+    // Heard again, it plays again.
+    m.set_muted(std::collections::BTreeSet::new());
+    m.use_time(0.3, Listener::default(), &at);
+    assert_eq!(life(&m, held), Some(Life::Playing));
+    assert_eq!(voices(&m), 2);
+}
+
 /// Behaviour: audio.manager.placed-sounds-follow-their-maker
 #[test]
 fn a_placed_sound_follows_its_maker_a_tenth_of_a_second_at_a_time() {

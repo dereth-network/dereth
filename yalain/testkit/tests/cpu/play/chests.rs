@@ -541,6 +541,123 @@ fn an_open_chest_closes_when_its_opener_walks_away() {
     assert_eq!(seen(&h, a, fa), ["mode 41000004", "closed", "shut"]);
 }
 
+/// An item in the pack that its quest keeps from the player is used no more than taken: refused, the
+/// answer as a take's; when the quest is where it asks, the use goes on to what the item does, here
+/// nothing, so refused as unusable.
+/// Behaviour: server.inventory.use-refused-by-the-quest-for-taking
+#[test]
+fn an_item_in_the_pack_its_quest_keeps_is_refused_by_its_use() {
+    use yalain_content::quests::{QuestDef, QuestTable};
+    use yalain_world::item_use::refusal;
+    use yalain_world::quests::status;
+    use yalain_world::state::QuestState;
+    const QUEST: u32 = 0x8000_037B;
+    const PIECE: u32 = 0x4700_7B09;
+    let mut h = hall(SMALL, false, false);
+    let mut piece = Props::default();
+    piece
+        .set("Usage_RequiredQuest_ForTaking", Prop::Word(QUEST))
+        .set(
+            "Usage_RequiredQuestStatus_ForTaking",
+            Prop::Word(status::UNDERWAY | 2),
+        );
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(PIECE, 0x200, piece));
+    let def = |hidden: bool| QuestDef {
+        timed_phase: 0,
+        id: QUEST,
+        name: (0xA860_7CEC, 0x2500_17EE),
+        description: (0x6C45_9364, 0x2500_17EE),
+        icon: 0,
+        play_fx: false,
+        journals: Vec::new(),
+        challenge: -999,
+        duration: 0.0,
+        retry: 0.0,
+        xp: 0,
+        cancellable: false,
+        placed: "authored for a test".into(),
+        hidden,
+        effects: Vec::new(),
+        subquests: Vec::new(),
+        min_level: 0,
+        fails_on_death: false,
+        once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
+        hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
+        required: None,
+    };
+    h.server.quests = QuestTable {
+        quests: vec![def(false)],
+        steps: Vec::new(),
+        gives: Vec::new(),
+    };
+    let (a, me) = h.player_in_world("one", "Elara");
+    h.run(10);
+    let world = *h.server.players.keys().next().expect("in");
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, PIECE, 1);
+    h.run(3);
+    let item = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == PIECE)
+        .expect("given")
+        .id;
+    let set = |h: &mut Harness, phase: Option<u32>| {
+        h.server.players.get_mut(&world).expect("in").play.quests = phase
+            .map(|phase| QuestState {
+                quest: QUEST,
+                status: status::UNDERWAY,
+                phase,
+                started: 0,
+                updated: 0,
+            })
+            .into_iter()
+            .collect();
+    };
+    let answer = |h: &mut Harness| {
+        let from = h.bots[a].inbox.len();
+        send_use(h, a, me, item, 0, 3.0);
+        seen(h, a, from)
+            .into_iter()
+            .filter(|s| s.starts_with("done"))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        answer(&mut h),
+        [format!("done {} flags 316", refusal::LACKING_QUEST_TAKE)],
+        "never had"
+    );
+    set(&mut h, Some(1));
+    assert_eq!(
+        answer(&mut h),
+        [format!(
+            "done {} flags 316",
+            refusal::WRONG_QUEST_STATUS_TAKE
+        )],
+        "at another phase"
+    );
+    h.server.quests.quests = vec![def(true)];
+    assert_eq!(
+        answer(&mut h),
+        [format!("done {} flags 316", refusal::MYSTERIOUS_TAKE)],
+        "a hidden quest"
+    );
+    set(&mut h, Some(2));
+    assert_eq!(
+        answer(&mut h),
+        [format!(
+            "done {} flags 316",
+            yalain_world::places::USE_STATUS_IN_USE
+        )],
+        "where it asks: nothing it does"
+    );
+}
+
 /// An item its quest keeps from the player is not taken out of a chest: refused at once, the
 /// request's flags kept, for a quest the player never had (10022), for one not where the item
 /// needs it (10021), for a hidden one either way (10042); with the quest where it needs it, the
@@ -579,6 +696,7 @@ fn an_item_its_quest_keeps_is_refused_when_taken_until_the_quest_is_where_it_nee
         journals: Vec::new(),
         challenge: -999,
         duration: 0.0,
+        timed_phase: 0,
         retry: 0.0,
         xp: 0,
         cancellable: false,
@@ -589,10 +707,16 @@ fn an_item_its_quest_keeps_is_refused_when_taken_until_the_quest_is_where_it_nee
         min_level: 0,
         fails_on_death: false,
         once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
+        hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
+        required: None,
     };
     h.server.quests = QuestTable {
         quests: vec![def(false)],
         steps: Vec::new(),
+        gives: Vec::new(),
     };
     let (a, me) = h.player_in_world("one", "Elara");
     h.run(10);

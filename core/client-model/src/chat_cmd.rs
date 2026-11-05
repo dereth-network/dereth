@@ -141,6 +141,10 @@ pub const SPEAKER_RETIRED: &str =
 pub const DIE_CONFIRMATION: &str =
     "Do you really want to kill your character? You may drop items and accrue a vitae penalty.";
 
+/// The question `@lifestone` asks on a world where it is not a recall but a death, the command
+/// `@die` later became.
+pub const LIFESTONE_DEATH_CONFIRMATION: &str = "Do you really want to kill your character?";
+
 /// The message-type operand for `@chat`'s global-squelch event is literal 2.
 pub const GLOBAL_SQUELCH_TYPE_CHAT: u32 = 2;
 /// The same operand for `@notell` — literal 3.
@@ -185,6 +189,9 @@ pub struct ChatCommand {
     /// Create the current-UI callback dialog for the death prompt.
     /// Set by `@die` and nothing else.
     pub die_confirmation: Option<&'static str>,
+    /// The death prompt of `@lifestone` on a world where it kills the character: its Yes sends
+    /// the lifestone event `0x0063`, not the suicide event.
+    pub lifestone_death_confirmation: Option<&'static str>,
     /// The current-UI callback dialog with the first house-abandon callback — the
     /// **first** of `@house abandon`'s two prompts. Kept apart from
     /// [`Self::die_confirmation`] because the two callbacks are different functions and the
@@ -258,6 +265,27 @@ impl World {
             dereth_protocol::combat::CharacterTeleToLifestone,
         ));
         ChatCommand::sent()
+    }
+
+    /// `@lifestone` on a world where it is not a recall (the early worlds, before `@die`): with
+    /// no arguments it asks [`LIFESTONE_DEATH_CONFIRMATION`] and sends nothing until a Yes, which
+    /// sends the same `0x0063` and the server kills the character. Arguments are refused as the
+    /// recall refuses them.
+    pub fn do_lifestone_death(&mut self, args: &[String]) -> ChatCommand {
+        if !args.is_empty() {
+            return ChatCommand::say(PLEASE_SEE_HELP_LIFESTONE, REFUSAL_CHAT_TYPE);
+        }
+        ChatCommand {
+            lifestone_death_confirmation: Some(LIFESTONE_DEATH_CONFIRMATION),
+            ..ChatCommand::done()
+        }
+    }
+
+    /// The Yes of [`Self::do_lifestone_death`]'s question.
+    pub fn confirm_lifestone_death(&mut self, req: &mut dyn RequestSink) {
+        req.send(Request::TeleToLifestone(
+            dereth_protocol::combat::CharacterTeleToLifestone,
+        ));
     }
 
     /// Behavior: `@marketplace`, `@mar`, `@mp`. `do_lifestone`'s function with

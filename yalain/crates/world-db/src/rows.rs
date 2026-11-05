@@ -118,6 +118,8 @@ pub struct Object {
     pub at: At,
     pub rotation: Option<[f32; 4]>,
     pub heading: Option<f32>,
+    /// How large it stands, in place of the scale its template gives.
+    pub scale: Option<f32>,
     pub name: Option<StrRef>,
     pub name_text: Option<String>,
     pub to: Option<String>,
@@ -242,8 +244,19 @@ pub struct Quest {
     pub state: Option<u32>,
     pub challenge: Option<i32>,
     pub duration: Option<f64>,
+    /// The one phase its duration runs in, from when that phase comes; left out, all of them from
+    /// its giving.
+    pub timed_phase: Option<u32>,
     pub retry: Option<f64>,
     pub xp: Option<u64>,
+    /// In place of an amount, the share of what the player's level takes to reach the next that its
+    /// completion pays; left out, as the quest's setup in the install says.
+    pub xp_share: Option<f64>,
+    /// The level at and above which that share pays no more.
+    pub xp_share_level: Option<i32>,
+    /// What its completion adds to the player's quest rating; left out, as the quest's setup in the
+    /// install says.
+    pub qp: Option<u32>,
     pub cancellable: Option<bool>,
     /// Whether the quest is shown to its player; left out, a quest is shown when its definition
     /// has a description.
@@ -254,6 +267,9 @@ pub struct Quest {
     pub fails_on_death: Option<bool>,
     /// Whether it is given only once.
     pub once: Option<bool>,
+    /// Whether a kill's move on it reaches the killer's fellows; left out, as the quest's setup in
+    /// the install says.
+    pub fellows: Option<bool>,
     pub prov: Prov,
 }
 
@@ -269,13 +285,15 @@ pub enum Trigger {
     Take(u32),
     Kill(u32),
     Done(u32),
+    Given(u32),
 }
 
-/// What a step requires of another quest: under way at a phase, or done.
+/// What a step requires of another quest: under way at a phase, done, or free to be given.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Need {
     Phase(u32),
     Done,
+    Free,
 }
 
 /// The update a step makes.
@@ -284,6 +302,7 @@ pub enum Update {
     Bestow,
     Advance,
     Complete,
+    Fail,
 }
 
 /// `[[step]]`: what moves a quest on.
@@ -316,6 +335,32 @@ pub struct Step {
     pub effects_last: bool,
     /// Its update is made for each of the player's fellows as well.
     pub fellows: bool,
+    /// For a give, exactly how many of the item it wants (none: whatever is given).
+    pub wants: Option<u32>,
+    pub prov: Prov,
+}
+
+/// `[[give]]`: what a person or an object does with an item given it that moves no quest.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Give {
+    pub key: String,
+    /// The template of the person or the object given to.
+    pub to: u32,
+    /// The template of the item given (none: any item).
+    pub item: Option<u32>,
+    /// Exactly how many of the item it wants (none: whatever is given).
+    pub wants: Option<u32>,
+    /// The items it gives back in its place.
+    pub gives: Vec<u32>,
+    /// How many of each item given, in order (1 when left out).
+    pub counts: Vec<u32>,
+    /// The effects it puts on the player (their saved states), and a text shown after them.
+    pub effects: Vec<u32>,
+    pub text: Option<StrRef>,
+    /// What the person or the object plays as it takes the item.
+    pub fx: Option<u32>,
+    /// The quests it requires.
+    pub requires: Vec<(u32, Need)>,
     pub prov: Prov,
 }
 
@@ -365,6 +410,7 @@ pub enum Row {
     Sale(Sale),
     Quest(Quest),
     Step(Step),
+    Give(Give),
     Place(Place),
     Talk(Talk),
     /// `[[remove]]`: items a pack takes away, each in the one form the build's report names it.
@@ -443,6 +489,8 @@ pub struct Scene {
 pub struct Shard {
     pub object: u64,
     pub scene: u32,
+    /// The quest it completes for the player as it comes out, if any.
+    pub quest: Option<u32>,
     pub prov: Prov,
 }
 
@@ -475,6 +523,7 @@ impl Row {
             Self::Sale(_) => "sale",
             Self::Quest(_) => "quest",
             Self::Step(_) => "step",
+            Self::Give(_) => "give",
             Self::Place(_) => "place",
             Self::Talk(_) => "talk",
             Self::Remove(_) => "remove",
@@ -499,6 +548,7 @@ impl Row {
             Self::Sale(r) => Some(&r.prov),
             Self::Quest(r) => Some(&r.prov),
             Self::Step(r) => Some(&r.prov),
+            Self::Give(r) => Some(&r.prov),
             Self::Place(r) => Some(&r.prov),
             Self::Talk(r) => Some(&r.prov),
             Self::Craft(r) => Some(&r.prov),
@@ -514,13 +564,13 @@ impl Row {
 }
 
 /// The record kinds, as their tables are written.
-pub const KINDS: [&str; 17] = [
-    "object", "camp", "loot", "keeper", "sale", "quest", "step", "place", "talk", "remove",
+pub const KINDS: [&str; 18] = [
+    "object", "camp", "loot", "keeper", "sale", "quest", "step", "give", "place", "talk", "remove",
     "craft", "butchery", "scene", "shard", "weapon", "route", "area",
 ];
 
 /// Each record kind's fields.
-pub const FIELDS: [(&str, &[&str]); 17] = [
+pub const FIELDS: [(&str, &[&str]); 18] = [
     (
         "object",
         &[
@@ -532,6 +582,7 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "at",
             "rotation",
             "heading",
+            "scale",
             "name",
             "name_text",
             "to",
@@ -613,13 +664,18 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "state",
             "challenge",
             "duration",
+            "timed_phase",
             "retry",
             "xp",
+            "xp_share",
+            "xp_share_level",
+            "qp",
             "cancellable",
             "visible",
             "min_level",
             "fails_on_death",
             "once",
+            "fellows",
             "prov",
         ],
     ),
@@ -645,6 +701,14 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "races",
             "effects_last",
             "fellows",
+            "wants",
+            "prov",
+        ],
+    ),
+    (
+        "give",
+        &[
+            "key", "to", "item", "wants", "gives", "counts", "effects", "text", "fx", "requires",
             "prov",
         ],
     ),
@@ -701,7 +765,7 @@ pub const FIELDS: [(&str, &[&str]); 17] = [
             "prov",
         ],
     ),
-    ("shard", &["object", "scene", "prov"]),
+    ("shard", &["object", "scene", "quest", "prov"]),
     (
         "weapon",
         &["name", "template", "two_share", "stance", "prov"],
@@ -981,6 +1045,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 at: f.req_at("at")?,
                 rotation: f.quat("rotation"),
                 heading: f.float("heading").map(to_f32),
+                scale: f.float("scale").map(to_f32),
                 name: f.strref("name"),
                 name_text: f.text("name_text"),
                 to: f.symbol("to"),
@@ -1052,13 +1117,18 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
             state: f.id("state"),
             challenge: f.int("challenge").and_then(|v| i32::try_from(v).ok()),
             duration: f.float("duration"),
+            timed_phase: f.int("timed_phase").and_then(|v| u32::try_from(v).ok()),
             retry: f.float("retry"),
             xp: f.int("xp").and_then(|v| u64::try_from(v).ok()),
+            xp_share: f.float("xp_share"),
+            xp_share_level: f.int("xp_share_level").and_then(|v| i32::try_from(v).ok()),
+            qp: f.int("qp").and_then(|v| u32::try_from(v).ok()),
             cancellable: f.bool("cancellable"),
             visible: f.bool("visible"),
             min_level: f.int("min_level").and_then(|v| i32::try_from(v).ok()),
             fails_on_death: f.bool("fails_on_death"),
             once: f.bool("once"),
+            fellows: f.bool("fellows"),
             prov: f.req_prov()?,
         }),
         "step" => {
@@ -1067,6 +1137,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 "bestow" => Update::Bestow,
                 "advance" => Update::Advance,
                 "complete" => Update::Complete,
+                "fail" => Update::Fail,
                 other => {
                     f.bad(
                         "update",
@@ -1095,9 +1166,23 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
                 races: f.ids("races"),
                 effects_last: f.bool("effects_last").unwrap_or(false),
                 fellows: f.bool("fellows").unwrap_or(false),
+                wants: f.u32("wants"),
                 prov: f.req_prov()?,
             })
         }
+        "give" => Row::Give(Give {
+            key: f.req_symbol("key")?,
+            to: f.req_id("to")?,
+            item: f.id("item"),
+            wants: f.u32("wants"),
+            gives: f.ids("gives"),
+            counts: f.ids("counts"),
+            effects: f.ids("effects"),
+            text: f.strref("text"),
+            fx: f.id("fx"),
+            requires: f.requires("requires"),
+            prov: f.req_prov()?,
+        }),
         "talk" => {
             let how = match f.word("how", How::from_word, "tell, say, emote or broadcast") {
                 Some(Some(h)) => h,
@@ -1200,6 +1285,7 @@ fn read_row(kind: &str, f: &mut Fields<'_>) -> Option<Row> {
         "shard" => Row::Shard(Shard {
             object: f.id64("object")?,
             scene: f.req_id("scene")?,
+            quest: f.id("quest"),
             prov: f.req_prov()?,
         }),
         "weapon" => {
@@ -1788,7 +1874,7 @@ impl<'a> Fields<'a> {
         }
         self.typed(
             name,
-            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { arrive = T }, { take = T }, { kill = T }, { done = Q }",
+            "one of { use = T }, { use = ITEM, on = TARGET }, { give = ITEM, to = TARGET }, { arrive = T }, { take = T }, { kill = T }, { done = Q }, { given = Q }",
             |v| {
                 let t = v.as_table()?;
                 if let (2, Some(item), Some(on)) = (t.len(), t.get("use"), t.get("on")) {
@@ -1808,6 +1894,7 @@ impl<'a> Fields<'a> {
                     "take" => Some(Trigger::Take(tpl)),
                     "kill" => Some(Trigger::Kill(tpl)),
                     "done" => Some(Trigger::Done(tpl)),
+                    "given" => Some(Trigger::Given(tpl)),
                     _ => None,
                 }
             },
@@ -1842,13 +1929,14 @@ impl<'a> Fields<'a> {
     fn requires(&mut self, name: &str) -> Vec<(u32, Need)> {
         self.list_of(
             name,
-            "a list of { quest, phase } or { quest, done = true }",
-            &["quest", "phase", "done"],
+            "a list of { quest, phase }, { quest, done = true } or { quest, free = true }",
+            &["quest", "phase", "done", "free"],
             |t| {
                 let quest = as_u32(t.get("quest")?)?;
-                let need = match (t.get("phase"), t.get("done")) {
-                    (Some(p), None) => Need::Phase(as_u32(p)?),
-                    (None, Some(d)) if d.as_bool() == Some(true) => Need::Done,
+                let need = match (t.get("phase"), t.get("done"), t.get("free")) {
+                    (Some(p), None, None) => Need::Phase(as_u32(p)?),
+                    (None, Some(d), None) if d.as_bool() == Some(true) => Need::Done,
+                    (None, None, Some(f)) if f.as_bool() == Some(true) => Need::Free,
                     _ => return None,
                 };
                 Some((quest, need))

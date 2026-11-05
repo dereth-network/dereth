@@ -45,6 +45,7 @@ mod props;
 pub use detect::GameObjects;
 pub(crate) use detection::PHYSICS_SHAPES;
 pub use detection::{split_ray, Detection, NoGameObjects};
+pub(crate) use props::group;
 pub use props::{entity_graphics_state, graphics, render};
 
 /// The physics type the client gives the entities placed outside.
@@ -74,6 +75,8 @@ struct Entry {
     passable: bool,
     /// The physics types it is.
     physics_type: PhysicsTypes,
+    /// The terrain type its collisions last showed, not yet taken by its body.
+    terrain: Option<u32>,
     /// Its collisions, once it has collision settings.
     collisions: Option<Box<Collisions>>,
     /// Bodies that pass through it do not test it at all.
@@ -116,6 +119,8 @@ pub struct World {
     /// The install's property list (the physics types' bits), when the host has given it.
     properties: PropertyList,
     materials: BTreeMap<u32, PhysicsMaterial>,
+    /// The entries put in an interior cell not yet read, whose collision lists wait for it.
+    waiting: BTreeSet<BodyKey>,
     /// The clock, seconds.
     now: f64,
     /// The entries whose other updates something woke ([`World::take_woken`]).
@@ -255,45 +260,6 @@ impl World {
         t
     }
 
-    /// How far along the line from `from` to `to` (in the landblock frame of `cell`) the objects
-    /// of the table with an object id first meet it, as a fraction ([`Shape::check_ray`]), entry
-    /// `skip` left out. An object blocks the line unless its physics type is one `physics` passes
-    /// through (and it is not on the solid list of `objects`), or `objects` passes through it.
-    // D2-03863, D2-06132
-    #[must_use]
-    pub fn trace_ray_objects(
-        &self,
-        cell: CellId,
-        from: Vec3,
-        to: Vec3,
-        skip: Option<BodyKey>,
-        physics: &PhysicsTypes,
-        objects: &crate::ethereal::ObjectEthereality,
-    ) -> Option<f32> {
-        let mut best: Option<f32> = None;
-        for (key, e) in &self.entries {
-            if e.id == 0 || Some(*key) == skip {
-                continue;
-            }
-            if !solid::is_blocking(e.physics_type, e.id, objects, physics) {
-                continue;
-            }
-            let Some(o) = self.objects.get(e.handle) else {
-                continue;
-            };
-            let shift = crate::geom::block_offset(cell, o.position.cell);
-            if let Some(t) = e
-                .shape
-                .check_ray(&o.position.frame, from.sub(shift), to.sub(shift))
-            {
-                if best.is_none_or(|b| t < b) {
-                    best = Some(t);
-                }
-            }
-        }
-        best
-    }
-
     /// Entry `key`'s collisions, once it has collision settings.
     #[must_use]
     pub fn collisions(&self, key: BodyKey) -> Option<&Collisions> {
@@ -378,6 +344,7 @@ impl World {
         self.entries.insert(
             key,
             Entry {
+                terrain: None,
                 handle,
                 id,
                 shape: Arc::clone(shape),
@@ -391,7 +358,7 @@ impl World {
                 reports: Vec::new(),
                 properties: None,
                 material: 0,
-                graphics_state: 0,
+                graphics_state: graphics::NEW,
                 game_draw: None,
                 tree_scale: shape.scale,
                 placed,
@@ -496,6 +463,10 @@ impl World {
             shape.scale = scale;
             e.radius = containment(&shape);
             e.shape = Arc::new(shape);
+            e.tree_scale = scale;
+            if let Some(o) = self.objects.get_mut(e.handle) {
+                o.scale = scale.z;
+            }
         }
     }
 
@@ -553,9 +524,29 @@ impl World {
         solid::interpermeable(&x, Some(&y), false, &mut t)
     }
 
+    /// Files an object in a cell's collision list: what stands still comes before what moves, each
+    /// in the order it came, so what a move meets first in a cell is what stands still.
+    // D2-03872
+    fn file_in_cell(&mut self, cell: u32, handle: PhysHandle, is_static: bool) {
+        let (by_handle, entries) = (&self.by_handle, &self.entries);
+        let list = &mut self.cells.entry(cell).or_default().shadow_object_list;
+        let moves = |o: &PhysHandle| {
+            by_handle
+                .get(o)
+                .and_then(|k| entries.get(k))
+                .is_some_and(|e| !e.is_static)
+        };
+        let at = if is_static {
+            list.iter().position(moves).unwrap_or(list.len())
+        } else {
+            list.len()
+        };
+        list.insert(at, handle);
+    }
+
     /// Puts entry `key` at `position`: out of the collision lists it was in, into those of the
     /// cells it reaches there. False when the key is not in the table.
-    // D2-06140, D2-06255
+    // D2-06140, D2-06255, D2-03880, D2-03857
     pub fn place(&mut self, land: &Land, key: BodyKey, position: Position) -> bool {
         let Some(e) = self.entries.get_mut(&key) else {
             return false;
@@ -570,19 +561,110 @@ impl World {
         } else {
             e.shape.cross_cells(land, &position)
         };
-        for c in &e.cells {
-            self.cells
-                .entry(c.0)
-                .or_default()
-                .shadow_object_list
-                .push(e.handle);
+        if crate::interior::is_interior(position.cell) && land.cell(position.cell).is_none() {
+            self.waiting.insert(key);
+        } else {
+            self.waiting.remove(&key);
         }
-        if let Some(o) = self.objects.get_mut(e.handle) {
+        let (reached, handle, is_static) = (e.cells.clone(), e.handle, e.is_static);
+        for c in &reached {
+            self.file_in_cell(c.0, handle, is_static);
+        }
+        if let Some(o) = self.objects.get_mut(handle) {
             o.position = position;
             o.cell = Some(position.cell);
         }
         self.refile(key, position.cell);
         true
+    }
+
+    /// Every entry put in an interior cell before it was read, its cell now read, goes into the
+    /// collision lists of all the cells it reaches.
+    // D2-06255
+    pub fn file_those_waiting(&mut self, land: &Land) {
+        if self.waiting.is_empty() {
+            return;
+        }
+        let waiting: Vec<BodyKey> = self.waiting.iter().copied().collect();
+        for key in waiting {
+            match self.position(key) {
+                Some(at) if land.cell(at.cell).is_some() => {
+                    self.place(land, key, at);
+                }
+                Some(_) => {}
+                None => {
+                    self.waiting.remove(&key);
+                }
+            }
+        }
+    }
+
+    /// The objects in a cell's collision list, in the order a move meets them.
+    #[must_use]
+    pub fn collision_list(&self, cell: CellId) -> Vec<u64> {
+        self.cells
+            .get(&cell.0)
+            .map(|c| c.shadow_object_list.as_slice())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|h| self.by_handle.get(h))
+            .map(|k| self.object_id(*k))
+            .collect()
+    }
+
+    /// How many cells' collision lists entry `key` is in.
+    #[must_use]
+    pub fn num_shadow_objects(&self, key: BodyKey) -> usize {
+        self.entries.get(&key).map_or(0, |e| e.cells.len())
+    }
+
+    /// Whether entry `key` stands in a cell and every cell it reaches is loaded: none of its
+    /// shadows has lost its cell.
+    #[must_use]
+    pub fn are_shadow_objects_complete(&self, land: &Land, key: BodyKey) -> bool {
+        self.entries.get(&key).is_some_and(|e| {
+            self.objects.get(e.handle).is_some_and(|o| o.cell.is_some())
+                && !e.cells.is_empty()
+                && e.cells.iter().all(|c| detection::cell_loaded(land, *c))
+        })
+    }
+
+    /// Entry `key`'s collision lists made again: from where it stands when it stands anywhere and
+    /// nothing holds it; else it is in none.
+    pub fn recalc_cross_cells(&mut self, land: &Land, key: BodyKey, held: bool) {
+        match self.position(key).filter(|p| !held && p.cell.0 != 0) {
+            Some(at) => {
+                self.place(land, key, at);
+            }
+            None => {
+                let Some(e) = self.entries.get_mut(&key) else {
+                    return;
+                };
+                for c in std::mem::take(&mut e.cells) {
+                    if let Some(rt) = self.cells.get_mut(&c.0) {
+                        rt.shadow_object_list.retain(|&o| o != e.handle);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The objects standing in the cells of landblock `block`: its interior cells', then its land
+    /// cells', only those that move when `moving`.
+    #[must_use]
+    pub fn block_objects(&self, land: &Land, block: CellId, moving: bool) -> Vec<u64> {
+        let lb = block.landblock();
+        let mut out = Vec::new();
+        for c in land.interior_cells_of(block.0 & 0xFFFF_0000) {
+            out.extend(self.cell_objects(c, moving));
+        }
+        for cx in 0..crate::land::CELLS_PER_SIDE {
+            for cy in 0..crate::land::CELLS_PER_SIDE {
+                let c = crate::land::land_cell_id(lb.x(), lb.y(), cx, cy);
+                out.extend(self.cell_objects(c, moving));
+            }
+        }
+        out
     }
 
     /// Takes entry `key` out of the table and every cell's collision list. False when the key is
@@ -748,7 +830,26 @@ impl World {
         touched
     }
 
-    fn collisions_mut(&mut self, key: BodyKey) -> Option<&mut Collisions> {
+    /// The install's property list.
+    #[must_use]
+    pub const fn property_list(&self) -> &PropertyList {
+        &self.properties
+    }
+
+    /// Entry `key`'s surroundings' properties are `material`'s, when it has collisions.
+    pub(crate) fn add_environmental_properties(
+        &mut self,
+        key: BodyKey,
+        material: &PhysicsMaterial,
+    ) {
+        if let Some(e) = self.entries.get_mut(&key) {
+            if let Some(c) = e.collisions.as_deref_mut() {
+                c.add_environmental_properties(Some(material), &self.properties);
+            }
+        }
+    }
+
+    pub(crate) fn collisions_mut(&mut self, key: BodyKey) -> Option<&mut Collisions> {
         self.entries.get_mut(&key)?.collisions.as_deref_mut()
     }
 
@@ -804,6 +905,7 @@ impl World {
     /// in its interior cells (once a body is inside), the entities placed outside that collide
     /// through cylinders or spheres (once the block is in `land`), and those placed inside (once
     /// its interior cells are).
+    // D2-03678
     pub(crate) fn add_scenery(&mut self, land: &Land, cell: CellId) {
         self.add_interior_solids(land, cell);
         self.add_placed(land, cell);
@@ -852,11 +954,7 @@ impl World {
                 // object draws reaches.
                 let reached = cells::find_cells_of_box(land, &s.part.pos, &s.render_box);
                 for c in &reached {
-                    self.cells
-                        .entry(c.0)
-                        .or_default()
-                        .shadow_object_list
-                        .push(h);
+                    self.file_in_cell(c.0, h, true);
                 }
                 let shape = Shape {
                     trees: s.part.physics_bsp.iter().cloned().collect(),
@@ -872,6 +970,7 @@ impl World {
                 self.entries.insert(
                     key,
                     Entry {
+                        terrain: None,
                         handle: h,
                         id: 0,
                         radius: s.bounds.radius,
@@ -885,7 +984,7 @@ impl World {
                         reports: Vec::new(),
                         properties: None,
                         material: 0,
-                        graphics_state: 0,
+                        graphics_state: graphics::NEW,
                         game_draw: None,
                         tree_scale: s.scale,
                         placed: true,
@@ -896,17 +995,32 @@ impl World {
         }
     }
 
-    /// The placed entities of `cell`'s block that collide through cylinders or spheres, static and
-    /// solid: outside, the block's own, once the block is in `land`, each of the physics type the
-    /// client gives them; inside, every interior cell's, once the block's interior cells are.
+    /// The placed entities of `cell`'s block and those around it that collide as objects (through
+    /// cylinders or spheres, or through a tree when their properties make them something some mover
+    /// passes through), static and solid: outside, the block's own, once the block is in `land`,
+    /// each of the physics type the client gives them; inside, every interior cell's, once the
+    /// block's interior cells are.
     fn add_placed(&mut self, land: &Land, cell: CellId) {
         let block = cell.0 & 0xFFFF_0000;
         let lb = cell.landblock();
         let mut found: Vec<(Position, Arc<Shape>, bool)> = Vec::new();
-        if !self.placed_outside.contains(&block) {
-            if let Some(b) = land.block(lb.x(), lb.y()) {
-                self.placed_outside.insert(block);
-                found.extend(b.objects.iter().map(|(p, s)| (*p, Arc::clone(s), true)));
+        // The blocks around it too: what stands in them reaches over their edges.
+        for dx in -1i16..=1 {
+            for dy in -1i16..=1 {
+                let (Ok(x), Ok(y)) = (
+                    u8::try_from(i16::from(lb.x()) + dx),
+                    u8::try_from(i16::from(lb.y()) + dy),
+                ) else {
+                    continue;
+                };
+                let around = u32::from(x) << 24 | u32::from(y) << 16;
+                if self.placed_outside.contains(&around) {
+                    continue;
+                }
+                if let Some(b) = land.block(x, y) {
+                    self.placed_outside.insert(around);
+                    found.extend(b.objects.iter().map(|(p, s)| (*p, Arc::clone(s), true)));
+                }
             }
         }
         if !self.placed_inside.contains(&block) {
@@ -1234,7 +1348,11 @@ impl CollisionHost for Host<'_> {
             e.physics_type = *mask;
         }
     }
-    fn set_terrain_type(&mut self, _terrain: u32) {}
+    fn set_terrain_type(&mut self, terrain: u32) {
+        if let Some(e) = self.world.entries.get_mut(&self.key) {
+            e.terrain = Some(terrain);
+        }
+    }
     fn reports_collisions(&self) -> bool {
         true
     }

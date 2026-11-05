@@ -582,6 +582,7 @@ pub fn decal_batches(
         for layer in layers {
             out.push(ObjectBatch {
                 vertices: vertices.clone(),
+                posed: None,
                 indices: indices.clone(),
                 transform: Mat4::IDENTITY,
                 layer,
@@ -598,6 +599,11 @@ pub fn decal_batches(
                 kept_by: None,
                 anchor: None,
                 step: None,
+                visible: None,
+                block: None,
+                far: false,
+                ground: None,
+                lod: None,
             });
         }
     }

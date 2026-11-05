@@ -81,6 +81,9 @@ pub mod function {
     /// Ask to be brought back to life; call off such an offer.
     pub const REQUEST_RESURRECT: u32 = 0x00B4_006B;
     pub const CLEAR_RESURRECTION_REQUEST: u32 = 0x00B4_0100;
+    /// Yes to the server's question whether an effect may go on (the effect, the source, the
+    /// target).
+    pub const SHOULD_APPLY_TOTEM_DONE: u32 = 0x00B4_00D2;
     /// The body began or ended a special attack (its number); its moving on its own.
     pub const SPECIAL_ATTACK_STARTED: u32 = 0x00B4_00C1;
     pub const SPECIAL_ATTACK_ENDED: u32 = 0x00B4_00C2;

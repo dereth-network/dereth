@@ -5,7 +5,8 @@
 //!   connection closed at once.
 //! - **A full world.** A login past the logins the world holds, or past those one address may
 //!   hold, is refused unchecked with the client's "server full" reason (19), as the January 2017
-//!   login server refused one.
+//!   login server refused one. An admin's account with its right ticket passes the world's limit
+//!   (not its address's).
 //! - **The character list.** When the client answers, the server says the download is over and
 //!   sends the account's characters twice: by name and id ([`CharacterNames`], those in play), then
 //!   with their looks ([`CharacterList`], deleted ones still greyed out included).
@@ -37,7 +38,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use yalain_net::login::GameLogin;
-use yalain_net::{BlobKind, CloseReason, ConnId, ServerNet};
+use yalain_net::{BlobKind, CloseReason, ConnId, LocalTime, ServerNet};
 use yalain_store::{Account, Character, Store};
 
 use crate::{AccountPolicy, Clock, Server, Session, Stage};
@@ -290,7 +291,8 @@ pub fn admits<S: Store>(
         return None;
     }
     match (policy, store.account_by_name(name)) {
-        (AccountPolicy::Open, Ok(Some(mut a))) if a.secret.is_none() => {
+        // An admin's account is never claimed: with no secret it logs in with none.
+        (AccountPolicy::Open, Ok(Some(mut a))) if a.secret.is_none() && !a.admin => {
             let secret = secret_for(ticket, cost)?;
             store.set_account_secret(a.id, secret.clone()).ok()?;
             a.secret = Some(secret);
@@ -347,12 +349,15 @@ pub(crate) fn logged_in<S: Store>(
     login: &GameLogin,
     clock: Clock,
 ) {
-    if let Some(why) = full(s, net, conn) {
+    let name = login.account.trim().to_string();
+    let world_full = holds_as_many_as_it_may(s, conn);
+    let why = address_full(s, net, conn)
+        .or_else(|| (world_full && !names_an_admin(s, &name)).then_some("the world is full"));
+    if let Some(why) = why {
         tracing::info!(?conn, "login refused: {why}");
         refuse_login(net, conn, CharacterRefused::SERVER_FULL, clock);
         return;
     }
-    let name = login.account.trim().to_string();
     let address = net.peer(conn).map(|a| address_key(a.ip()));
     let now = clock.local.0;
     let locked = address
@@ -379,7 +384,14 @@ pub(crate) fn logged_in<S: Store>(
                 s.login_guard.refused(a, now);
             }
         }
-        refuse_login(net, conn, ACCOUNT_INVALID, clock);
+        // A wrong ticket for an admin's account is told what any other login is, or a full world
+        // would say which accounts are admins'.
+        let reason = if world_full {
+            CharacterRefused::SERVER_FULL
+        } else {
+            ACCOUNT_INVALID
+        };
+        refuse_login(net, conn, reason, clock);
         return;
     };
     if crate::admin::banned(&mut s.store, &account, clock.unix) {
@@ -407,14 +419,27 @@ pub(crate) fn logged_in<S: Store>(
     );
 }
 
-/// Why a new login on `conn` finds the world full, if it does: as many logins as the world holds,
-/// or as many from its address as one address may hold (an address the operator exempts is held
-/// back by the first only). Counted before the ticket is checked, as Empyrean counts.
-fn full<S: Store>(s: &Server<S>, net: &ServerNet, conn: ConnId) -> Option<&'static str> {
+/// Does the world hold as many logins as it may, without the new one on `conn`? Counted before the
+/// ticket is checked, as Empyrean counts, since checking a ticket is slow by design.
+fn holds_as_many_as_it_may<S: Store>(s: &Server<S>, conn: ConnId) -> bool {
+    let held = s.sessions.keys().filter(|c| **c != conn).count();
+    held >= s.cfg.max_sessions as usize
+}
+
+/// Does a login name an admin's account? Those the world's limit does not hold back (the game's
+/// `/userlimit` holds back new "non-admin users"), once their ticket has been checked.
+fn names_an_admin<S: Store>(s: &mut Server<S>, name: &str) -> bool {
+    s.store
+        .account_by_name(name)
+        .ok()
+        .flatten()
+        .is_some_and(|a| a.admin)
+}
+
+/// Why a new login on `conn` is held back by its address, if it is: as many from it as one address
+/// may hold (an address the operator exempts is not). Counted before the ticket is checked.
+fn address_full<S: Store>(s: &Server<S>, net: &ServerNet, conn: ConnId) -> Option<&'static str> {
     let held = s.sessions.keys().filter(|c| **c != conn);
-    if held.clone().count() >= s.cfg.max_sessions as usize {
-        return Some("the world is full");
-    }
     let limit = s.cfg.max_sessions_per_address?;
     let ip = net.peer(conn)?.ip().to_canonical();
     if s.cfg
@@ -428,6 +453,18 @@ fn full<S: Store>(s: &Server<S>, net: &ServerNet, conn: ConnId) -> Option<&'stat
         .filter(|c| net.peer(**c).is_some_and(|a| a.ip().to_canonical() == ip))
         .count();
     (from_it >= limit as usize).then_some("its address holds as many logins as it may")
+}
+
+/// The world is stopping: every client is told why, which takes it from the world to its
+/// disconnected screen as a connection merely ending does not, and every connection ends.
+pub fn let_everyone_go<S: Store>(s: &Server<S>, net: &mut ServerNet, reason: u32, now: LocalTime) {
+    let conns: std::collections::BTreeSet<ConnId> =
+        s.sessions.keys().chain(s.worlds.keys()).copied().collect();
+    let m = ServerMessage::CharacterRefused(CharacterRefused { reason }).encode();
+    for conn in conns {
+        net.send(conn, queue::EVENT, BlobKind::LOGIN, m.clone());
+        net.end(conn, now);
+    }
 }
 
 /// Refuse a login: the refusal, and the connection closed with it, as the January 2017 login
@@ -525,15 +562,19 @@ pub(crate) fn send_lists<S: Store>(
             names.ids.push(c.id);
         }
         // Drawn wearing what it wore when it was last kept.
-        let items = s
-            .store
-            .world_state(c.id)
+        let play = crate::saves::state_of(s, c.id)
             .ok()
             .flatten()
             .and_then(|st| crate::state::PlayState::from_bytes(&st.play).ok())
-            .map(|p| p.items)
             .unwrap_or_default();
-        let visual = crate::equip::dressed(&look_of(&c), &s.catalog, &items, c.race, c.sex);
+        let visual = crate::equip::dressed(
+            &look_of(&c),
+            &s.catalog,
+            &play.items,
+            &play.item_states,
+            c.race,
+            c.sex,
+        );
         list.characters.push(CharacterIdentity {
             id: c.id,
             name: WideString::from(c.name.as_str()),
@@ -577,6 +618,14 @@ fn create<S: Store>(
         });
         send(net, conn, queue::EVENT, BlobKind::LOGIN, &m);
     };
+    if c.entity_did == crate::player::ADMIN_ENTITY && !account.admin {
+        tracing::warn!(?conn, account = %account.name, name = %typed, "refused: an admin character asked for by a player's account");
+        return answer(
+            net,
+            CharacterCreated::ADMIN_REFUSED,
+            CharacterIdentity::default(),
+        );
+    }
     let name = match s.names.check(&typed) {
         Ok(name) => name,
         Err(why) => {
@@ -715,6 +764,73 @@ fn delete<S: Store>(
     send_lists(s, net, conn, clock);
 }
 
+/// Bring back a deleted character of this account: it is answered as a made character is, its
+/// grey gone. The answer says so by itself: no lists follow it.
+fn restore<S: Store>(s: &mut Server<S>, net: &mut ServerNet, conn: ConnId, character: u64) {
+    let Some(account) = s.sessions.get(&conn).map(|x| x.account.id) else {
+        return;
+    };
+    let answer = |net: &mut ServerNet, response: u32, identity: CharacterIdentity| {
+        let m = ServerMessage::CharacterCreated(CharacterCreated {
+            response,
+            identity,
+            result: 0,
+        });
+        send(net, conn, queue::EVENT, BlobKind::LOGIN, &m);
+    };
+    let found = s.store.character(character).ok().flatten();
+    let Some(c) = found.filter(|c| c.account == account && c.deleted_at.is_some()) else {
+        s.unhandled
+            .note("restoring a character not on the account or not deleted");
+        return answer(net, CORRUPT, CharacterIdentity::default());
+    };
+    let active = s
+        .store
+        .characters(account)
+        .unwrap_or_default()
+        .iter()
+        .filter(|ch| ch.deleted_at.is_none())
+        .count();
+    if active >= s.cfg.slots as usize {
+        return answer(
+            net,
+            CharacterCreated::NO_FREE_SLOT,
+            CharacterIdentity::default(),
+        );
+    }
+    if s.store.set_deleted(character, None).is_err() {
+        return answer(net, DATABASE_DOWN, CharacterIdentity::default());
+    }
+    tracing::info!(
+        ?conn,
+        id = format_args!("{character:#x}"),
+        "character restored"
+    );
+    let play = crate::saves::state_of(s, c.id)
+        .ok()
+        .flatten()
+        .and_then(|st| crate::state::PlayState::from_bytes(&st.play).ok())
+        .unwrap_or_default();
+    let visual = crate::equip::dressed(
+        &look_of(&c),
+        &s.catalog,
+        &play.items,
+        &play.item_states,
+        c.race,
+        c.sex,
+    );
+    answer(
+        net,
+        CharacterCreated::OK,
+        CharacterIdentity {
+            id: c.id,
+            name: WideString::from(c.name.as_str()),
+            seconds_greyed_out: 0,
+            visual,
+        },
+    );
+}
+
 fn refuse(net: &mut ServerNet, conn: ConnId, reason: u32) {
     send(
         net,
@@ -732,11 +848,25 @@ fn enter<S: Store>(
     character: u64,
     clock: Clock,
 ) {
-    let Some(c) = owned(s, conn, character) else {
+    let Some(account) = s.sessions.get(&conn).map(|x| x.account.id) else {
+        return refuse(net, conn, CharacterRefused::NOT_OWNED);
+    };
+    let c = match s.store.character(character) {
+        Ok(found) => found.filter(|c| c.account == account && c.deleted_at.is_none()),
+        Err(e) => {
+            tracing::error!(?conn, "the store could not read a character to enter: {e}");
+            return refuse(net, conn, CharacterRefused::ERROR);
+        }
+    };
+    let Some(c) = c else {
         return refuse(net, conn, CharacterRefused::NOT_OWNED);
     };
     if account_in_world(s, c.account) {
         return refuse(net, conn, CharacterRefused::IN_WORLD);
+    }
+    // One that cannot be read is told so before it is sent anywhere.
+    if let Err(reason) = crate::world::kept_for_entry(s, &c) {
+        return refuse(net, conn, reason);
     }
     if !s.cfg.referral {
         if let Some(session) = s.sessions.get_mut(&conn) {
@@ -750,7 +880,9 @@ fn enter<S: Store>(
             id = format_args!("{character:#x}"),
             "entering the world on the login connection"
         );
-        crate::world::enter(s, net, conn, conn, character, clock);
+        if let Err(reason) = crate::world::enter(s, net, conn, conn, character, clock) {
+            entry_refused(s, net, conn, conn, reason);
+        }
         return;
     }
     let Some(cookie) = net.refer(conn, clock.local) else {
@@ -764,6 +896,24 @@ fn enter<S: Store>(
         id = format_args!("{character:#x}"),
         "entering the world: referral sent"
     );
+}
+
+/// An entry under way is refused after all: back at the character list, with why.
+fn entry_refused<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    login: ConnId,
+    world: ConnId,
+    reason: u32,
+) {
+    if let Some(session) = s.sessions.get_mut(&login) {
+        session.stage = Stage::Selecting;
+    }
+    if world != login {
+        s.worlds.remove(&world);
+        net.close(world);
+    }
+    refuse(net, login, reason);
 }
 
 /// A player logs off: a character in the world first lingers in it (its leaving ends in
@@ -874,7 +1024,22 @@ pub(crate) fn message<S: Store>(
         }
     };
     match m {
-        ClientMessage::DataHeld(_) => {
+        ClientMessage::DataHeld(held) => {
+            let admin = s.sessions.get(&conn).is_some_and(|x| x.account.admin);
+            if let Some((begins, records)) = s
+                .admin_library
+                .as_ref()
+                .filter(|_| admin)
+                .and_then(|l| l.to_send(&held.files))
+            {
+                tracing::info!(?conn, "serving an admin's account the script library");
+                send(net, conn, queue::DATABASE, BlobKind::LOGIN, begins);
+                for record in records {
+                    send(net, conn, queue::DATABASE, BlobKind::LOGIN, record);
+                }
+                s.storing_library.insert(conn);
+                return;
+            }
             send(
                 net,
                 conn,
@@ -884,12 +1049,26 @@ pub(crate) fn message<S: Store>(
             );
             send_lists(s, net, conn, clock);
         }
-        ClientMessage::DataRequest(r) => crate::download::answer(s, net, conn, r),
+        ClientMessage::DataRequest(r) => crate::download::answer(s, net, conn, r, clock),
         ClientMessage::CreateCharacter(c) => create(s, net, conn, &c, clock),
         ClientMessage::DeleteCharacter(d) => delete(s, net, conn, d.character, clock),
+        ClientMessage::RestoreCharacter(r) => restore(s, net, conn, r.character),
         ClientMessage::PlayCharacter(p) => enter(s, net, conn, p.character, clock),
         ClientMessage::LogOff(_) => log_off(s, net, conn, clock),
-        ClientMessage::DownloadEnds(_) => {}
+        ClientMessage::DownloadEnds(_) => {
+            // It has stored the library it was sent; its characters follow.
+            if s.storing_library.remove(&conn) {
+                tracing::info!(?conn, "an admin's client has stored the script library");
+                send(
+                    net,
+                    conn,
+                    queue::DATABASE,
+                    BlobKind::LOGIN,
+                    &ServerMessage::DownloadEnds(Empty),
+                );
+                send_lists(s, net, conn, clock);
+            }
+        }
         ClientMessage::Chat(p) => crate::chat::service(s, net, conn, &p.0, clock),
         other => s.unhandled.note(format!(
             "message {:#x} on the login connection",
@@ -924,7 +1103,9 @@ pub(crate) fn world_joined<S: Store>(
                 id = format_args!("{character:#x}"),
                 "world connection up"
             );
-            crate::world::enter(s, net, world, login, character, clock);
+            if let Err(reason) = crate::world::enter(s, net, world, login, character, clock) {
+                entry_refused(s, net, login, world, reason);
+            }
         }
         _ => net.close(world),
     }
@@ -944,6 +1125,7 @@ pub(crate) fn closed<S: Store>(
     why: CloseReason,
     clock: Clock,
 ) {
+    s.call_limits.closed(conn);
     if let Some(&login) = s.worlds.get(&conn) {
         tracing::info!(?conn, ?why, "world connection closed");
         // Its character lingers, and leaves as one whose client went away.
@@ -961,6 +1143,7 @@ pub(crate) fn closed<S: Store>(
         }
         return;
     }
+    s.storing_library.remove(&conn);
     if let Some(session) = s.sessions.remove(&conn) {
         tracing::info!(?conn, ?why, account = %session.account.name, "login connection closed");
         if let Stage::InWorld { world, character } = session.stage {
@@ -989,6 +1172,15 @@ pub fn notice(net: &mut ServerNet, conn: ConnId, text: &str) {
         text: StringInfo::literal(&line),
     });
     send(net, conn, queue::EVENT, BlobKind::UNORDERED, &m);
+}
+
+/// Tell a player a whole answer, its lines in their order. It goes as one notice with inner line
+/// ends: the transport puts a short message into the room an earlier packet has left, so separate
+/// ones sent in a row can overtake each other.
+pub fn notices(net: &mut ServerNet, conn: ConnId, lines: &[String]) {
+    if !lines.is_empty() {
+        notice(net, conn, &lines.join("\n"));
+    }
 }
 
 /// Make a character outside a client's login (a server command): the account's, with this name,

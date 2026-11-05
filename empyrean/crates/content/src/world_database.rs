@@ -23,6 +23,7 @@ use empyrean_entity::enums::WeenieType;
 
 use crate::entity::HouseListResults;
 use crate::error::PackError;
+use crate::loot::{GroupedTreasureDeath, SourceLootPolicy};
 use crate::models::world::*;
 use crate::overlay::ContentOverlay;
 use crate::pack::{Codec, Pack, TableId};
@@ -387,6 +388,20 @@ impl WorldDatabaseBase {
     // =====================================
     // Recipe
     // =====================================
+
+    /// Six-group treasure, kept separate from ACE rows.
+    pub fn get_grouped_treasure(&self, data_id: u32) -> Option<GroupedTreasureDeath> {
+        self.get(TableId::GROUPED_TREASURE, u64::from(data_id))
+    }
+    /// Versioned source policy, read through the overlay.
+    pub fn get_source_loot_policy(&self) -> Option<SourceLootPolicy> {
+        self.get(TableId::LOOT_POLICY, 1)
+    }
+    /// Optional current-vital preconditions, read through the content overlay.
+    #[must_use]
+    pub fn get_recipe_vital_requirement(&self, recipe_id: u32) -> Option<RecipeVitalRequirement> {
+        self.get(TableId::RECIPE_VITAL, u64::from(recipe_id))
+    }
 
     // ACE: WorldDatabase.GetRecipe
     #[must_use]

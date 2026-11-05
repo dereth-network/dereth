@@ -22,7 +22,11 @@
 //! back 1.30 s later, an object hands it back at once.
 //!
 //! **Stacks.** What is given is taken whole when a step keeps it: the count asked, a part of a
-//! stack leaving the rest in the pack (2017: 38 of 38).
+//! stack leaving the rest in the pack (2017: 38 of 38). A step may want an exact count: any other
+//! is refused as an item not wanted, with the person's line for it if it has one, and handed back,
+//! the quest not moved (2017: three fins to a person wanting one at a time, 1 of 1; of the gives to a step
+//! naming a count, the other 25 gave that count and were taken). A part of a stack never leaves the pack: its container is not
+//! cleared at the handing over (2017: 25 of 27) nor told again when it comes back.
 //!
 //! **The hero's transformation.** A step whose effects include the transformation into a hero runs
 //! 25.59 s after the answer (the one 2017 hero, 1 of 1), the transformation's appearances played on
@@ -255,21 +259,26 @@ fn hand_over<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, cl
         return;
     };
     g.handed = true;
-    let (item, context) = (g.asked.item, g.context);
+    let (item, context, asked) = (g.asked.item, g.context, g.asked.quantity);
     let me = p.character;
-    let look = s.things.get(item).map_or(0, |t| t.description.look);
+    let (look, stack) = s
+        .things
+        .get(item)
+        .map_or((0, 1), |t| (t.description.look, t.quantity.max(1)));
     let handing = handing_behavior(item, look, context);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };
     let behave = ServerMessage::PlayBehavior(crate::places::player_event(p, handing));
     crate::combat::to_all_seeing(s, net, me, &behave);
-    let cleared = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
-        object: crate::inventory::visual(s, item),
-        quality: q::CONTAINER,
-        value: 0,
-    });
-    presence::to_thing_knowers(s, net, item, BlobKind::VISUAL, &cleared);
+    if asked >= stack {
+        let cleared = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
+            object: crate::inventory::visual(s, item),
+            quality: q::CONTAINER,
+            value: 0,
+        });
+        presence::to_thing_knowers(s, net, item, BlobKind::VISUAL, &cleared);
+    }
     s.after(clock, HANDED_AFTER, Timer::Handed { world });
 }
 
@@ -338,7 +347,25 @@ pub fn handed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
         target: m.target,
     };
     let trigger = Trigger::Give(template, target_template);
-    let Some(step) = crate::quests::step_for(s, world, trigger, clock.unix) else {
+    let Some(step) = crate::quests::step_for_give(s, world, trigger, given.quantity, clock.unix)
+    else {
+        if let Some(quest) =
+            crate::quests::wants_another_count(s, world, trigger, given.quantity, clock.unix)
+        {
+            let line = crate::talk::at_wrong_count(s, target_template, Some(i), quest, template);
+            if let Some(line) = line {
+                let speaker = crate::talk::content_speaker(s, i);
+                crate::talk::say(s, net, world, &speaker, &line.words, line.how);
+            }
+            hand_back(s, net, world, i, &m, object, None, clock);
+            return;
+        }
+        if let Some(row) =
+            crate::quests::give_for(s, world, template, target_template, given.quantity)
+        {
+            takes(s, net, world, i, &row, given, clock);
+            return;
+        }
         match crate::map_trips::sends(s, i, template) {
             crate::map_trips::Sends::To(to) => {
                 crate::map_trips::send(s, net, world, i, &m, to, clock);
@@ -370,6 +397,60 @@ pub fn handed<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, c
     }
 }
 
+/// A give that moves no quest: what the person plays and says, the item kept, what it gives in its
+/// place made from the person, its effects on the player, cast by the person (2017: 1 of 1).
+fn takes<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    i: usize,
+    row: &yalain_content::quests::Give,
+    given: Given,
+    clock: Clock,
+) {
+    let who = s.content.objects[i].template;
+    let speaker = crate::talk::content_speaker(s, i);
+    if let Some(fx) = row.fx {
+        let played = ServerMessage::DoFx(ObjectEvent {
+            sender: crate::places::object_stamp(s, speaker.id),
+            action: Fx { fx, scalar: 1.0 },
+        });
+        crate::places::to_knowers(s, net, speaker.id, &played);
+    }
+    for line in crate::talk::with_give(s, who, Some(i), given.template) {
+        crate::talk::say(s, net, world, &speaker, &line.words, line.how);
+    }
+    keep(s, net, world, given);
+    for (n, item) in row.gives.iter().enumerate() {
+        let count = row.counts.get(n).copied().unwrap_or(1).max(1);
+        crate::inventory::give_from(s, net, world, *item, count, given.target);
+    }
+    for e in &row.effects {
+        if special_effect(s, net, world, *e) {
+            continue;
+        }
+        crate::effects::apply(
+            s,
+            net,
+            world,
+            *e,
+            crate::effects::Cast {
+                caster: speaker.id,
+                spellcraft: 1.0,
+                giver: Some((speaker.id, speaker.name)),
+                ..crate::effects::Cast::default()
+            },
+            clock,
+        );
+    }
+    if let Some(text) = row.text {
+        progress::private(net, world, &crate::chat::show_text(2, progress::text(text)));
+    }
+    for item in &row.gives {
+        crate::quests::took(s, net, world, *item, clock);
+    }
+}
+
 /// No step for the item: the person says its refusal of a give, and hands the item back.
 fn refused<S: Store>(
     s: &mut Server<S>,
@@ -381,7 +462,8 @@ fn refused<S: Store>(
     clock: Clock,
 ) {
     let template = s.content.objects[i].template;
-    if let Some(line) = crate::talk::at_give(s, template, Some(i)) {
+    let item = s.things.get(m.item).map_or(0, |t| t.template);
+    if let Some(line) = crate::talk::at_give(s, template, Some(i), item) {
         let speaker = crate::talk::content_speaker(s, i);
         crate::talk::say(s, net, world, &speaker, &line.words, line.how);
     }
@@ -443,7 +525,8 @@ pub fn back_and_away<S: Store>(
 }
 
 /// The item is back in the giver's pack, where it was: the move from the person told, and its
-/// container told as the person's, then none, then the player's. Returns whether it was.
+/// container told as the person's, then none, then the player's; a part of a stack, which never
+/// left, merged back with its container untouched (2017: 2 of 2). Returns whether it was.
 pub fn back<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, m: &Move) -> bool {
     let Some(p) = s.players.get(&world) else {
         return false;
@@ -456,10 +539,12 @@ pub fn back<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, m: 
         return false;
     };
     let (template, look) = (t.template, t.description.look);
+    let part = m.quantity < t.quantity.max(1);
     let back = Move {
         move_type: GIVE,
         item: m.item,
-        split_item: m.item,
+        split_item: if part { 0 } else { m.item },
+        merge: part,
         quantity: m.quantity,
         from: m.target,
         actual_from: m.target,
@@ -481,6 +566,9 @@ pub fn back<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, m: 
         ..Move::default()
     };
     progress::private(net, world, &move_done(&back));
+    if part {
+        return true;
+    }
     for holder in [m.target, 0, me] {
         let held = ServerMessage::UpdateInstanceIdVisual(VisualQuality {
             object: crate::inventory::visual(s, m.item),
@@ -594,6 +682,25 @@ fn transforms<S: Store>(
             step: Box::new(due),
         },
     );
+}
+
+/// A player leaves the world with a give's step still to come: its gift is gone, so the step runs now.
+pub(crate) fn left<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let mut due = Vec::new();
+    s.timers.retain(|(_, t)| match t {
+        Timer::GiveStep { world: w, step } if *w == world => {
+            due.push(step.clone());
+            false
+        }
+        _ => true,
+    });
+    let clock = Clock {
+        local: s.saves.now,
+        unix: s.saves.unix,
+    };
+    for step in due {
+        step_due(s, net, world, &step, clock);
+    }
 }
 
 /// A give's step due after its wait: run if it still may.

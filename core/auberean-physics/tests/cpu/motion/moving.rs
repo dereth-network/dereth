@@ -498,12 +498,22 @@ fn a_teleport_tells_watchers_and_a_newer_leave_world_takes_a_body_out() {
     let mut other = body();
     other.is_player = false;
     other.tick_in(&land, &mut w, 0.1);
+    let held_at = other.position;
+    other.minterp.constrain_to(0x21, false, held_at);
+    let mut far = held_at;
+    far.frame.origin.x += 100.0;
+    assert_eq!(other.minterp.constraint_factor(&far), 0.0, "tethered");
     assert!(other.is_newer_than_update(0, 5));
     assert!(!other.receive_leave_world(&land, &mut w, &mut NoObjects, None, 4));
     assert!(other.in_world, "an older stamp does nothing");
     assert!(other.receive_leave_world(&land, &mut w, &mut NoObjects, None, 6));
     assert!(!other.in_world);
     assert!(other.notices.contains(&Notice::LeftWorld));
+    assert_eq!(
+        other.minterp.constraint_factor(&far),
+        1.0,
+        "leaving the world lets go of its tether"
+    );
 }
 
 mod holding {

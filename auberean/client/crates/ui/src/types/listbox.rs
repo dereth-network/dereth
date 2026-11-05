@@ -222,6 +222,7 @@ impl Ui {
     /// The element a named attribute points to: in the element's own window when it asks for
     /// unique messages, else the element of that name wherever it is, made and not yet on the
     /// screen included (a window's tree finds its scroll bar while the window is being made).
+    // D2-11261
     pub(crate) fn named_element(&self, h: Handle, a: Token) -> Option<Handle> {
         let id = self.node(h)?.id_attr(a)?;
         if id == 0 {
@@ -926,6 +927,13 @@ impl Ui {
         self.named_element(h, a)
     }
 
+    /// A list's rows laid out again and its controls brought in step with its view, for a row whose
+    /// height changed. Nothing else under the list's window is touched.
+    // D2-11550
+    pub fn list_update_and_draw(&mut self, list: Handle) {
+        self.listbox_update_and_draw(list);
+    }
+
     /// Lay out, keep the view on the sheet, update the controls.
     // D2-11550
     pub(crate) fn listbox_update_and_draw(&mut self, h: Handle) {
@@ -1079,8 +1087,8 @@ impl Ui {
         self.listbox_update_and_draw(list);
     }
 
-    /// Take the row at `index` out of the list (keeping the element): no longer selected or
-    /// under a dragged item.
+    /// Take the row at `index` out of the list (keeping the element, which stands nowhere until
+    /// it is put somewhere): no longer selected or under a dragged item.
     // D2-11554
     pub fn list_remove(&mut self, list: Handle, index: usize) -> Option<Handle> {
         let item = self.list_items(list).get(index).copied()?;
@@ -1093,6 +1101,10 @@ impl Ui {
             if l.drag_over == Some(item) {
                 l.drag_over = None;
             }
+            n.children.retain(|c| *c != item);
+        }
+        if let Some(n) = self.node_mut(item).filter(|n| n.parent == Some(list)) {
+            n.parent = None;
         }
         self.sync_selected_index(list);
         if !self.lb_test(list, bits::MULTI_OP) {

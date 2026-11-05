@@ -446,8 +446,8 @@ fn a_system_set_going_on_its_own_draws_until_it_is_spent() {
     let systems = ParticleSystems::default();
     let one = Vec3::new(1.0, 1.0, 1.0);
     let place = Mat4::translation(Vec3::new(100.0, 240.0, -43.5));
-    assert!(!systems.create_autonomous(r, 0x3900_0000 - 1, (2, 0x98), place, one, 0.0));
-    assert!(systems.create_autonomous(r, id, (2, 0x98), place, one, 0.0));
+    assert!(!systems.create_autonomous(r, 0x3900_0000 - 1, (2, 0x98), place, one, 1.0, 0.0));
+    assert!(systems.create_autonomous(r, id, (2, 0x98), place, one, 1.0, 0.0));
     assert_eq!(systems.counts(), (0, 1));
     let eye = Vec3::new(100.0, 230.0, -43.0);
     let axes = (
@@ -486,6 +486,12 @@ impl Rig for FarBones {
     }
     fn water_height(&self) -> Option<f32> {
         None
+    }
+    fn holding_bone(&self, _kind: u32) -> Option<Mat4> {
+        None
+    }
+    fn has_figure(&self) -> bool {
+        true
     }
 }
 
@@ -562,7 +568,7 @@ fn the_start_halls_mist_parts_around_a_walker() {
     let run = |walk: bool| {
         let systems = ParticleSystems::default();
         let mist = systems
-            .create(r, 0x3900_018D, false, home, mist_at, unit, 0.0)
+            .create(r, 0x3900_018D, false, home, mist_at, unit, 1.0, 0.0)
             .expect("the mist");
         let mut walker = ObjectEffects::of_look(&human).expect("its look carries effects");
         let start = Mat4::translation(Vec3::new(57.0, 240.0, -44.6));
@@ -587,7 +593,7 @@ fn the_start_halls_mist_parts_around_a_walker() {
                     now,
                 );
             }
-            systems.queue(&mist, home, mist_at, unit, Color::WHITE, now);
+            systems.queue(&mist, home, mist_at, unit, 1.0, Color::WHITE, now);
             let batches = systems.batches(
                 home,
                 160.0,
@@ -630,7 +636,7 @@ fn a_human_running_in_place_parts_the_mist() {
     let run = |velocity: Vec3| {
         let systems = ParticleSystems::default();
         let mist = systems
-            .create(r, 0x3900_018D, false, home, mist_at, unit, 0.0)
+            .create(r, 0x3900_018D, false, home, mist_at, unit, 1.0, 0.0)
             .expect("the mist");
         let mut runner = ObjectEffects::of_look(&human).expect("its look carries effects");
         let place = Mat4::translation(stands);
@@ -641,7 +647,7 @@ fn a_human_running_in_place_parts_the_mist() {
             let now = f64::from(t);
             runner.set_velocity(velocity);
             runner.think(&systems, home, &place, unit, Color::WHITE, now);
-            systems.queue(&mist, home, mist_at, unit, Color::WHITE, now);
+            systems.queue(&mist, home, mist_at, unit, 1.0, Color::WHITE, now);
             let batches = systems.batches(
                 home,
                 160.0,
@@ -668,6 +674,38 @@ fn a_human_running_in_place_parts_the_mist() {
     );
 }
 
+/// An object going stops every effect it plays, startup or asked for, with what they keep going
+/// and the sounds they play.
+///
+/// Behaviour: draw.effects.an-object-going-stops-its-effects
+#[test]
+fn an_object_going_stops_its_effects() {
+    use auberean_draw::effects::FxSound;
+    const WOUNDED: u32 = 0x4100_0002;
+    let r = &install().records;
+    let mut look = Look::default();
+    look.global.fx_table = DataId(0x1E00_012E);
+    let spot = FxSpot {
+        home: (2, 0x98),
+        place: Mat4::IDENTITY,
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        now: 0.0,
+    };
+    let systems = ParticleSystems::default();
+    let mut fx = ObjectEffects::of_look(&look).expect("its effects");
+    fx.start(&systems, r, spot.home, &spot.place, spot.scale, 0.0);
+    let (took, _) = fx.do_fx(&systems, r, WOUNDED, 0.3, &spot, FxWho::default(), &NoRig);
+    assert!(took, "the wound plays");
+    fx.take_sounds();
+    fx.destroy();
+    assert!(fx.states().is_empty() && fx.systems().is_empty());
+    assert!(
+        fx.take_sounds()
+            .contains(&FxSound::Stop { effect: WOUNDED }),
+        "its sound stops too"
+    );
+}
+
 /// The wounded effect (`0x41000002`) of effect table `0x1E00012E` lays value 2 of four appearance
 /// tables over its object, at the strength it is played at: played at 0.3 the four go on at 0.3;
 /// played again at 0.6 while it plays, again at 0.6 (each time in the effect's order); its time
@@ -690,14 +728,12 @@ fn the_wounded_effect_lays_its_appearance_over_its_object_until_it_stops() {
         scale: Vec3::new(1.0, 1.0, 1.0),
         now: 0.0,
     };
+    // Only the entry keyed to normal gore and red blood plays; stopping takes off all four.
     let applied = |scalar: f32| -> Vec<AppearanceFx> {
-        TABLES
-            .iter()
-            .map(|t| AppearanceFx::Apply {
-                table: *t,
-                key: AppearanceKey { key: 2, scalar },
-            })
-            .collect()
+        vec![AppearanceFx::Apply {
+            table: 0x2000_003A,
+            key: AppearanceKey { key: 2, scalar },
+        }]
     };
     let removed: Vec<AppearanceFx> = TABLES
         .iter()
@@ -937,10 +973,10 @@ fn a_mist_stands_unseen_without_volumetric_fog() {
     let unit = Vec3::new(1.0, 1.0, 1.0);
     let systems = ParticleSystems::default();
     let mist = systems
-        .create(r, 0x3900_018D, false, home, at, unit, 0.0)
+        .create(r, 0x3900_018D, false, home, at, unit, 1.0, 0.0)
         .expect("the mist");
     let frame = |now: f64| {
-        systems.queue(&mist, home, at, unit, Color::WHITE, now);
+        systems.queue(&mist, home, at, unit, 1.0, Color::WHITE, now);
         systems
             .batches(
                 home,
@@ -973,4 +1009,365 @@ fn a_mist_stands_unseen_without_volumetric_fog() {
     assert_eq!(systems.alive(&mist), alive, "not moved on");
     systems.set_volumetric_fog(true);
     assert!(step(90) > 0, "drawn again");
+}
+
+/// The avatar hall's two braziers play their effects on the scene's own clock, seen from where the
+/// camera stands: without them the hall shows no flames.
+///
+/// Behaviour: draw.view.a-scenes-objects-play-their-effects
+#[test]
+fn a_scenes_objects_play_their_effects() {
+    let r = &install().records;
+    let scene = r
+        .get::<auberean_assets::ui::UiScene>(0x2100_000B)
+        .expect("the hall's scene");
+    let mut effects = auberean_draw::effects::ViewEffects::of_scene(
+        r,
+        &scene.entities,
+        &auberean_primitives::random::Random::default(),
+    );
+    let axes = (
+        Vec3::new(1.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(0.0, 0.0, 1.0),
+    );
+    let eye = Vec3::new(2.25, 0.2, 3.1);
+    let white = Color::new(1.0, 1.0, 1.0, 1.0);
+    let mut drawn = 0;
+    for frame in 0..200 {
+        let now = f64::from(frame) * 0.05;
+        drawn = drawn.max(effects.batches(r, now, white, None, eye, axes).len());
+    }
+    assert!(drawn > 0, "the hall's objects draw particles");
+}
+
+/// An effect keyed to the player's preferences plays the entries keyed as they ask and no others:
+/// a wound's blood (`0x410004D3` of the shared table) has an entry for each level of gore and each
+/// color, a level with nothing to show plays nothing, and a channel no preference holds says
+/// nothing.
+///
+/// Behaviour: draw.effects.an-effects-entries-play-as-the-players-preferences-ask
+#[test]
+fn an_effects_entries_play_as_the_players_preferences_ask() {
+    use auberean_draw::effects::{stored_fx_data, Channels};
+    let r = &install().records;
+    let list = stored_fx_data(r, 0x1E00_0057, 0x4100_04D3);
+    let playing = |gore: u32, blood: u32| -> Vec<u32> {
+        let asked = Channels {
+            gore,
+            blood,
+            foot_step_particles: true,
+        };
+        list.iter()
+            .filter(|d| !asked.mismatch(&d.default))
+            .flat_map(|d| d.default.particles.iter().flatten().map(|p| p.0))
+            .collect()
+    };
+    assert_eq!(playing(4, 2), [0x3900_0308]);
+    assert_eq!(playing(4, 1), [0x3900_0309]);
+    assert_eq!(playing(3, 2), [0x3900_0308]);
+    assert_eq!(playing(2, 2), [0u32; 0], "none");
+    let fun = [0x3900_030A, 0x3900_030B, 0x3900_030C, 0x3900_030D];
+    assert_eq!(playing(1, 2), fun);
+    assert_eq!(playing(1, 1), fun);
+}
+
+/// An effect that sees its object through while it plays puts it back: the arrival effect's entry
+/// (`0x41000010` of the player's table) takes the alpha to a half and, as it stops, the color goes
+/// back to white in a tenth of a second. Stopping it when it is not playing puts the color back
+/// all the same.
+///
+/// Behaviour: draw.effects.an-effects-color-goes-back-as-it-ends
+#[test]
+fn an_effects_color_goes_back_as_it_ends() {
+    use auberean_draw::effects::{FxSlider, FxSpot, FxWho, NoRig};
+    const ARRIVAL: u32 = 0x4100_0010;
+    const ALPHA: u32 = 0x4000_001A;
+    let r = &install().records;
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let systems = ParticleSystems::default();
+    let spot = FxSpot {
+        home: (0, 0),
+        place: Mat4::IDENTITY,
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        now: 1.0,
+    };
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let (took, _) = fx.do_fx(&systems, r, ARRIVAL, 1.0, &spot, FxWho::default(), &NoRig);
+    assert!(took);
+    let asked = fx.take_sliders();
+    assert!(
+        asked.iter().any(|s| s.slider == ALPHA && s.value == 0.5),
+        "{asked:?}"
+    );
+    assert!(fx.stop_fx(r, ARRIVAL, false));
+    let back = fx.take_sliders();
+    let white = |list: &[FxSlider]| {
+        [0x4000_0016, 0x4000_0017, 0x4000_0018, ALPHA]
+            .iter()
+            .all(|k| {
+                list.iter()
+                    .any(|s| s.slider == *k && s.value == 1.0 && s.time == 0.1)
+            })
+    };
+    assert!(white(&back), "{back:?}");
+    assert!(!fx.stop_fx(r, ARRIVAL, false), "no longer playing");
+    assert!(white(&fx.take_sliders()), "put back all the same");
+}
+
+/// An effect with a decal (`0x810002C7` of the shared table) lays it: its material, its life, its
+/// size and its color from the entry; with the decal effects preference off, none.
+///
+/// Behaviour: draw.effects.an-effect-lays-the-decal-its-entry-names
+#[test]
+fn an_effect_lays_the_decal_its_entry_names() {
+    use auberean_draw::effects::{stored_fx_data, FxSpot, FxWho, NoRig};
+    const LAYS: u32 = 0x8100_02C7;
+    let r = &install().records;
+    let unit = Vec3::new(1.0, 1.0, 1.0);
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let systems = ParticleSystems::default();
+    let spot = FxSpot {
+        home: (0, 0),
+        place: Mat4::IDENTITY,
+        scale: unit,
+        now: 1.0,
+    };
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let (took, _) = fx.do_fx(&systems, r, LAYS, 1.0, &spot, FxWho::default(), &NoRig);
+    assert!(took);
+    let laid = fx.take_decals();
+    let named: Vec<u32> = stored_fx_data(r, 0x1E00_0057, LAYS)
+        .iter()
+        .filter(|d| !systems.fx_channels().mismatch(&d.default))
+        .filter_map(|d| d.default.decal.as_ref())
+        .filter(|(on, _)| *on)
+        .map(|(_, d)| d.material.0)
+        .collect();
+    assert!(!named.is_empty());
+    assert_eq!(
+        laid.iter().map(|d| d.desc.material).collect::<Vec<_>>(),
+        named
+    );
+    for d in &laid {
+        assert_eq!(d.desc.lifespan, 30.0);
+        assert!(
+            d.desc.size.x > 0.0 && d.desc.size.x == d.desc.size.y,
+            "{:?}",
+            d.desc.size
+        );
+        assert!((auberean_world::math::length(d.desc.direction) - 1.0).abs() < 1e-3);
+    }
+    assert!(fx.take_decals().is_empty(), "taken");
+    let off = ParticleSystems::default();
+    off.set_decal_effects(false);
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let _ = fx.do_fx(&off, r, LAYS, 1.0, &spot, FxWho::default(), &NoRig);
+    assert!(fx.take_decals().is_empty(), "the preference off");
+}
+
+/// A figure of one bone (`0x8100_0005`) at a height that can change.
+struct OneBone(std::cell::Cell<f32>);
+
+impl auberean_draw::effects::Rig for OneBone {
+    fn holding_location(&self, _kind: u32) -> Option<Mat4> {
+        Some(Mat4::translation(Vec3::new(0.0, 0.0, 2.0)))
+    }
+    fn bone(&self, kind: u32) -> Option<Mat4> {
+        (kind == 0x8100_0005).then(|| Mat4::translation(Vec3::new(0.0, 0.0, self.0.get())))
+    }
+    fn water_height(&self) -> Option<f32> {
+        None
+    }
+    fn holding_bone(&self, _kind: u32) -> Option<Mat4> {
+        Some(Mat4::translation(Vec3::new(0.0, 0.0, self.0.get())))
+    }
+    fn has_figure(&self) -> bool {
+        true
+    }
+}
+
+/// Every particle's height drawn at `now`, lowest and highest.
+fn heights(systems: &ParticleSystems, now: f64) -> Option<(f32, f32)> {
+    let axes = (
+        Vec3::new(1.0, 0.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+        Vec3::new(0.0, 0.0, 1.0),
+    );
+    let zs: Vec<f32> = systems
+        .batches((0, 0), 1000.0, now, Vec3::new(0.0, -5.0, 0.0), axes)
+        .iter()
+        .flat_map(|b| b.vertices.iter().map(|v| v.position[2]))
+        .collect();
+    let lo = zs.iter().copied().reduce(f32::min)?;
+    let hi = zs.iter().copied().reduce(f32::max)?;
+    Some((lo, hi))
+}
+
+/// The glow as a body arrives or leaves (`0x4100_0010`) names a system for each of the figure's
+/// bones: a figure with only one of them gets the entries of that one and no others, and they
+/// stand at that bone and go with it as it moves, not at the object's feet.
+///
+/// Behaviour: draw.effects.a-carried-system-stands-on-the-bone-its-entry-names
+#[test]
+fn a_carried_system_stands_on_the_bone_its_entry_names() {
+    use auberean_draw::effects::{stored_fx_data, CarriedOn, FxSpot, FxWho};
+    const GLOW: u32 = 0x4100_0010;
+    const BONE: u32 = 0x8100_0005;
+    let r = &install().records;
+    let unit = Vec3::new(1.0, 1.0, 1.0);
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let systems = ParticleSystems::default();
+    let rig = OneBone(std::cell::Cell::new(50.0));
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let spot = FxSpot {
+        home: (0, 0),
+        place: Mat4::IDENTITY,
+        scale: unit,
+        now: 0.0,
+    };
+    let (took, _) = fx.do_fx(&systems, r, GLOW, 1.0, &spot, FxWho::default(), &rig);
+    assert!(took);
+    let named = stored_fx_data(r, 0x1E00_0057, GLOW)
+        .iter()
+        .filter(|d| d.default.bone == Some(BONE))
+        .count();
+    assert!(named > 0);
+    assert_eq!(fx.systems().len(), named, "only the bone the figure has");
+    assert!(fx.systems().iter().all(|c| c.on == CarriedOn::Bone(BONE)));
+    let mut t = 0.0;
+    while t < 0.5 {
+        t += 0.05;
+        fx.think_on(
+            &systems,
+            (0, 0),
+            &Mat4::IDENTITY,
+            unit,
+            Color::WHITE,
+            t,
+            &rig,
+        );
+    }
+    let (lo, hi) = heights(&systems, t).expect("it glows");
+    assert!(lo > 40.0 && hi < 60.0, "at the bone: {lo} to {hi}");
+    rig.0.set(-50.0);
+    while t < 1.0 {
+        t += 0.05;
+        fx.think_on(
+            &systems,
+            (0, 0),
+            &Mat4::IDENTITY,
+            unit,
+            Color::WHITE,
+            t,
+            &rig,
+        );
+    }
+    let (lo, _) = heights(&systems, t).expect("it glows");
+    assert!(lo < -40.0, "it went with the bone: {lo}");
+}
+
+/// A system an entry keeps going at a holding location stands at that location, on the bone the
+/// location is on, not at the object's feet.
+///
+/// Behaviour: draw.effects.a-carried-system-stands-at-the-holding-location-its-entry-names
+#[test]
+fn a_carried_system_stands_at_the_holding_location_its_entry_names() {
+    use auberean_assets::fx::FxTable;
+    use auberean_draw::effects::{CarriedOn, FxSpot, FxWho};
+    let r = &install().records;
+    let unit = Vec3::new(1.0, 1.0, 1.0);
+    let table = r.get::<FxTable>(0x1E00_0057).expect("the shared table");
+    let (effect, kind) = table
+        .effects
+        .iter()
+        .find_map(|(fx, list)| {
+            let [only] = list.as_slice() else { return None };
+            let n = &only.default;
+            let keeps = n.particles.as_ref().is_some_and(|p| !p.is_empty())
+                && n.fire_and_forget != Some(true)
+                && n.bone.unwrap_or(0) == 0;
+            let kind = n.holding_location.filter(|k| *k != 0)?;
+            keeps.then_some((*fx, kind))
+        })
+        .expect("an effect that keeps a system at a holding location");
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let systems = ParticleSystems::default();
+    let rig = OneBone(std::cell::Cell::new(50.0));
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let spot = FxSpot {
+        home: (0, 0),
+        place: Mat4::IDENTITY,
+        scale: unit,
+        now: 0.0,
+    };
+    let (took, _) = fx.do_fx(&systems, r, effect, 1.0, &spot, FxWho::default(), &rig);
+    assert!(took, "{effect:#x}");
+    assert_eq!(fx.systems().len(), 1);
+    let carried = &fx.systems()[0];
+    assert_eq!(carried.on, CarriedOn::HoldingLocation(kind));
+    assert_eq!(
+        carried.offset.point(Vec3::ZERO),
+        Vec3::new(0.0, 0.0, 2.0),
+        "the location's own place"
+    );
+    let mut t = 0.0;
+    while t < 0.5 {
+        t += 0.05;
+        fx.think_on(
+            &systems,
+            (0, 0),
+            &Mat4::IDENTITY,
+            unit,
+            Color::WHITE,
+            t,
+            &rig,
+        );
+    }
+    let (lo, hi) = heights(&systems, t).expect("it shows");
+    assert!(lo > 40.0 && hi < 65.0, "on the bone: {lo} to {hi}");
+}
+
+/// An object placed with the world carries a system its effect sets on a bone there, the bone as
+/// the look's body first stands; a bone its look lacks gives no system. Fixture: look `0x1F0000AE`,
+/// whose effect stands fires on bones over 6 m along it, and look `0x1F00002B`, whose bones the
+/// effect names are not there.
+///
+/// Behaviour: draw.effects.a-placed-objects-systems-stand-on-its-bones-at-rest
+#[test]
+fn a_placed_objects_systems_stand_on_its_bones_at_rest() {
+    use auberean_draw::effects::{PlacedEffects, PlacedLook};
+    let r = &install().records;
+    let drawn_along_y = |id: u32| {
+        let look = Look::of_record(r, DataId(id)).expect("its look");
+        let systems = ParticleSystems::default();
+        let mut effects = PlacedEffects::default();
+        let placed = PlacedLook {
+            key: 1,
+            block: (2, 0x98),
+            look: std::sync::Arc::new(look),
+            place: Mat4::translation(Vec3::new(100.0, 100.0, 0.0)),
+            scale: Vec3::new(1.0, 1.0, 1.0),
+        };
+        effects.sync(&systems, r, std::slice::from_ref(&placed), 0.0);
+        let eye = Vec3::new(100.0, 90.0, 2.0);
+        let axes = (
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+        );
+        let mut far: f32 = 0.0;
+        for k in 1..=60 {
+            let now = f64::from(k) * 0.0525;
+            effects.draw(&systems, now, Color::WHITE);
+            for b in systems.batches((2, 0x98), 192.0, now, eye, axes) {
+                for v in b.vertices.iter() {
+                    far = far.max((v.position[1] - 100.0).abs());
+                }
+            }
+        }
+        far
+    };
+    assert!(drawn_along_y(0x1F00_00AE) > 5.0, "out on the bones");
+    assert_eq!(drawn_along_y(0x1F00_002B), 0.0, "no bone, no system");
 }

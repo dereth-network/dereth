@@ -126,7 +126,7 @@ impl StackSplitter {
 
     /// Closed: with `done`, the panel that asked told the amount; the watched object let go,
     /// the request forgotten; hidden.
-    // D2-02241
+    // D2-02241, D2-08106
     pub fn close_with(&mut self, ui: &mut Ui, done: Option<u32>, out: &mut Vec<gameplay::Request>) {
         if let Some(amount) = done {
             out.push(gameplay::Request::Notice(said(

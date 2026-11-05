@@ -671,7 +671,7 @@ pub fn on_evade(w: &mut World, this: ObjectGuid, attacker: ObjectGuid, attack_ty
         set_current_attacker(w, this, creature_attacker);
     }
 
-    if object(w, this).under_lifestone_protection() {
+    if player_death::under_lifestone_protection(w, this) {
         return;
     }
 
@@ -690,7 +690,11 @@ pub fn on_evade(w: &mut World, this: ObjectGuid, attacker: ObjectGuid, attack_ty
     let defense_skill = SkillOf::get(w, this, defense_skill_type);
 
     if creature_combat::combat_mode(w, this) != CombatMode::NonCombat {
-        if defense_skill.advancement_class(w) >= SkillAdvancementClass::Trained {
+        // DIVERGE: a trained defense's free evades are an Endurance benefit
+        // (`EraFeatures::endurance_benefits`, V470).
+        if w.era.features.endurance_benefits
+            && defense_skill.advancement_class(w) >= SkillAdvancementClass::Trained
+        {
             let endurance_base: i32 =
                 attribute_base(w, this, PropertyAttribute::Endurance).cs_cast();
 
@@ -888,7 +892,7 @@ pub fn take_damage_over_time(
     }
 
     // check lifestone protection
-    if object(w, this).under_lifestone_protection() {
+    if player_death::under_lifestone_protection(w, this) {
         player_death::handle_lifestone_protection(w, this);
         return;
     }
@@ -1001,7 +1005,7 @@ pub fn take_damage(
     }
 
     // check lifestone protection
-    if object(w, this).under_lifestone_protection() {
+    if player_death::under_lifestone_protection(w, this) {
         player_death::handle_lifestone_protection(w, this);
         return 0;
     }
@@ -1160,6 +1164,10 @@ pub fn get_held_item_burden(w: &World, this: ObjectGuid) -> i32 {
 // ACE: Player.GetStaminaMod
 #[must_use]
 pub fn get_stamina_mod(w: &World, this: ObjectGuid) -> f32 {
+    // DIVERGE: `EraFeatures::endurance_benefits` (V470).
+    if !w.era.features.endurance_benefits {
+        return 1.0;
+    }
     let endurance: i32 = attribute_base(w, this, PropertyAttribute::Endurance).cs_cast();
 
     // more literal / linear formula
@@ -1558,6 +1566,12 @@ pub fn get_natural_resistance(w: &World, this: ObjectGuid, damage_type: DamageTy
         return 0.5;
     }
 
+    // DIVERGE: a world without the later Endurance benefits (`EraFeatures::endurance_benefits`,
+    // V470) gives no natural resistance to damage or drains.
+    if !w.era.features.endurance_benefits {
+        return 1.0;
+    }
+
     // base strength and endurance give the player a natural resistance to damage,
     // which caps at 50% (equivalent to level 5 life prots)
     // these do not stack with life protection spells
@@ -1585,6 +1599,10 @@ pub fn get_natural_resistance_string(
     this: ObjectGuid,
     _resistance_type: ResistanceType,
 ) -> &'static str {
+    // DIVERGE: `EraFeatures::endurance_benefits` (V470).
+    if !w.era.features.endurance_benefits {
+        return "None";
+    }
     let str_and_end = attribute_base(w, this, PropertyAttribute::Strength)
         .wrapping_add(attribute_base(w, this, PropertyAttribute::Endurance));
 
@@ -1607,6 +1625,10 @@ pub fn get_natural_resistance_string(
 // ACE: Player.GetRegenBonusString
 #[must_use]
 pub fn get_regen_bonus_string(w: &World, this: ObjectGuid) -> &'static str {
+    // DIVERGE: `EraFeatures::endurance_benefits` (V470).
+    if !w.era.features.endurance_benefits {
+        return "None";
+    }
     let str_and_end = attribute_base(w, this, PropertyAttribute::Strength)
         .wrapping_add(2u32.wrapping_mul(attribute_base(w, this, PropertyAttribute::Endurance)));
 

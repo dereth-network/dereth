@@ -318,6 +318,8 @@ impl crate::World {
     /// fellowship being made.
     ///
     /// Runtime traffic confirms the wire order: a padded `PString` name followed by `share_xp`.
+    ///
+    /// A world without the founder's choice always shares: its saved value is not asked.
     pub fn create_fellowship(
         &mut self,
         req: &mut dyn crate::RequestSink,
@@ -327,7 +329,7 @@ impl crate::World {
         req.send(crate::Request::FellowshipCreate(
             dereth_protocol::social::FellowshipCreate {
                 name: name.to_owned(),
-                share_xp: i32::from(share_xp),
+                share_xp: i32::from(share_xp || !self.era_features.fellowship_options),
             },
         ));
     }
@@ -395,7 +397,12 @@ impl crate::World {
     /// fellowship check the arm opens with.
     ///
     /// Runtime traffic confirms that the request carries the toggled open-state value.
+    ///
+    /// A world without open fellowships sends nothing.
     pub fn fellowship_toggle_openness(&mut self, req: &mut dyn crate::RequestSink) -> Option<bool> {
+        if !self.era_features.fellowship_open {
+            return None;
+        }
         let f = self.fellowship.as_mut()?;
         f.open_fellow = !f.open_fellow;
         let open = f.open_fellow;

@@ -22,7 +22,7 @@ use std::sync::Arc;
 use auberean_assets::cache::AnyObj;
 use auberean_assets::requests::{Batch, Event, Listener, Outcome, Requests, Sources, StateRecords};
 use auberean_client_model::Effect;
-use auberean_dat::disk::download::{cache_pack, Download, MissingIteration, Output};
+use auberean_dat::disk::download::{cache_pack, Download, MissingIteration, Output, PORTAL_SET};
 use auberean_dat::disk::{StoreSet, VersionSet};
 use auberean_dat::{QualifiedId, Writer};
 use auberean_protocol::login::{DataFileIterations, DataHeld, DataRequest, Empty};
@@ -33,6 +33,9 @@ use auberean_protocol::ClientMessage;
 use crate::cache::DataCache;
 use crate::data::DataFiles;
 use crate::strings::{self, StringDownloads};
+
+/// The portal file, as the server's messages name it.
+const PORTAL_FILE: u64 = (PORTAL_SET as u64) << 32;
 
 /// The caption the client shows its own errors under.
 pub const ERROR_CAPTION: &str = "AC2 Error";
@@ -50,6 +53,13 @@ pub fn notice_line(notice: u32) -> Option<&'static str> {
         _ => None,
     }
 }
+
+/// The iterations of the portal file no original data had, which a server gives what it adds for a
+/// retail client: the script library that sends its calls in the clear. This client sends them so
+/// already and knows that library's words itself, so it answers as if it held all of these and is
+/// sent none of it. Sent, the library takes minutes, and at every login, since nothing a download
+/// stores here outlasts the session: CD2-lists-iterations-it-need-not-hold.
+pub const SERVER_LIBRARY_ITERATIONS: core::ops::Range<i32> = 9_000..10_000;
 
 /// Who the data cache's requests tell, each asker by its own number: two sharing one would be told
 /// each other's batches.
@@ -213,12 +223,18 @@ impl DataDownload {
                 if let Some(lists) = download.on_server_interrogation(stores) {
                     let held = lists
                         .into_iter()
-                        .map(|(dat_file, mut set)| DataFileIterations {
-                            dat_file,
-                            iterations: iteration_set(&mut set),
+                        .map(|(dat_file, mut set)| {
+                            if dat_file == PORTAL_FILE {
+                                SERVER_LIBRARY_ITERATIONS.for_each(|v| set.add(v));
+                            }
+                            DataFileIterations {
+                                dat_file,
+                                iterations: iteration_set(&mut set),
+                            }
                         })
                         .collect();
                     send.push(ClientMessage::DataHeld(DataHeld {
+                        // D2-12612
                         language: files.language,
                         files: held,
                     }));
@@ -271,6 +287,7 @@ impl DataDownload {
         for o in std::mem::take(&mut self.download.out) {
             match o {
                 Output::Notice { event, value } => self.events.push((event, value)),
+                // D2-12847
                 Output::SendEnd => send.push(ClientMessage::DownloadEnds(Empty)),
                 Output::Request(q) => send.push(ClientMessage::DataRequest(DataRequest {
                     kind: q.kind,
@@ -303,6 +320,13 @@ impl DataDownload {
         if self.cache.is_empty() && !files.files.is_empty() {
             *self = std::mem::take(self).over(files);
         }
+    }
+
+    /// The cache reset: the download back to idle, every batch and kept get let go.
+    // D2-05083
+    pub fn reset_cache(&mut self) {
+        self.download.reset_cache();
+        self.requests.flush_pending_requests();
     }
 
     /// Run `f` on the cache's requests with the files and the records' caches, and `states` to

@@ -16,8 +16,8 @@
 //! **Consignments**: entering them shows the player's own (and its reminder of them at that
 //! broker). Putting an item up for a price takes a charge of a hundredth of what it would fetch
 //! (at least 1), moves the item to the broker and shows the consignment. Collecting an unsold one
-//! gives the item back as a new item; collecting a sold one pays its price. A player entering the
-//! world is reminded of its consignments, one reminder per broker.
+//! gives the item back as a new item holding all it held; collecting a sold one pays its price. A
+//! player entering the world is reminded of its consignments, one reminder per broker.
 //!
 //! **Buying a player's sale**: the price taken, the item moved from the broker into the buyer's
 //! pack, the sale's stock told as gone; the seller collects the price.
@@ -84,6 +84,8 @@ pub const FIRST_UPDATE: f64 = 2.5;
 pub const BROKER_REACH: f32 = 5.0;
 /// The world's record of the consignments.
 pub const RECORD: &str = "consignments";
+/// The record's encoding (1 held no item's own numbers).
+const RECORD_VERSION: u8 = 2;
 /// The most of one stack a player sale offers.
 pub const MOST_STACK: u32 = 50;
 
@@ -117,6 +119,8 @@ pub struct Market {
     pub loaded: bool,
     pub list: Vec<Consignment>,
     pub next_sale: u32,
+    /// What the items on sale hold of their own, as the record keeps it.
+    pub item_states: Vec<crate::state::ItemState>,
     /// Shoppers at brokers: player, broker, when its catalog is next sent.
     pub shoppers: Vec<(ConnId, u64, f64)>,
     /// When the shoppers were last looked at.
@@ -127,7 +131,7 @@ impl Market {
     /// The record in the server's encoding.
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut out = vec![1u8];
+        let mut out = vec![RECORD_VERSION];
         out.extend(self.next_sale.to_le_bytes());
         out.extend(u32::try_from(self.list.len()).unwrap_or(0).to_le_bytes());
         for c in &self.list {
@@ -142,6 +146,14 @@ impl Market {
             out.extend(c.offered.to_le_bytes());
             out.extend(c.sold.to_le_bytes());
             out.extend(c.entered.to_bits().to_le_bytes());
+            // Its length, 0 for none: a sold item is its buyer's to keep.
+            let state = self
+                .item_states
+                .iter()
+                .find(|k| k.id == c.item)
+                .map_or_else(Vec::new, crate::state::ItemState::to_bytes);
+            out.extend(u32::try_from(state.len()).unwrap_or(0).to_le_bytes());
+            out.extend(state);
         }
         out
     }
@@ -150,16 +162,16 @@ impl Market {
     #[must_use]
     pub fn from_bytes(b: &[u8]) -> Option<Self> {
         let (&version, mut r) = b.split_first()?;
-        if version != 1 {
+        if !(1..=RECORD_VERSION).contains(&version) {
             return None;
         }
-        let mut u32_ = || -> Option<u32> {
+        let u32_ = |r: &mut &[u8]| -> Option<u32> {
             let (a, rest) = r.split_first_chunk::<4>()?;
-            r = rest;
+            *r = rest;
             Some(u32::from_le_bytes(*a))
         };
-        let next_sale = u32_()?;
-        let n = u32_()?;
+        let next_sale = u32_(&mut r)?;
+        let n = u32_(&mut r)?;
         let mut m = Self {
             next_sale,
             ..Self::default()
@@ -169,7 +181,7 @@ impl Market {
             // A consignment's 15 words.
             words.clear();
             for _ in 0..15 {
-                words.push(u32_()?);
+                words.push(u32_(&mut r)?);
             }
             let long = |i: usize| u64::from(words[i]) | u64::from(words[i + 1]) << 32;
             m.list.push(Consignment {
@@ -185,44 +197,77 @@ impl Market {
                 sold: words[12],
                 entered: f64::from_bits(long(13)),
             });
+            if version >= 2 {
+                let n = usize::try_from(u32_(&mut r)?).ok()?;
+                if n > 0 {
+                    let (state, rest) = r.split_at_checked(n)?;
+                    m.item_states
+                        .push(crate::state::ItemState::from_bytes(state)?);
+                    r = rest;
+                }
+            }
         }
         Some(m)
     }
 }
 
-/// Read the consignments once, making their items again where the record keeps them.
-pub fn ensure<S: Store>(s: &mut Server<S>) {
+/// Read the consignments once, making their items again where the record keeps them. Whether they
+/// are read: while the store cannot answer, nothing about them may be done or kept.
+pub fn ensure<S: Store>(s: &mut Server<S>) -> bool {
     if s.market.loaded {
-        return;
+        return true;
     }
-    let read = s
-        .store
-        .world_record(RECORD)
-        .ok()
-        .flatten()
-        .and_then(|b| Market::from_bytes(&b))
-        .unwrap_or_default();
+    let Some(read) = crate::saves::read_record(s, RECORD, Market::from_bytes) else {
+        return false;
+    };
+    let read = read.unwrap_or_default();
     s.market.list = read.list;
     s.market.next_sale = read.next_sale;
+    s.market.item_states.clone_from(&read.item_states);
     s.market.loaded = true;
     let items: Vec<Consignment> = s.market.list.clone();
     for c in items {
+        // A sold item is its buyer's: it comes back with its buyer.
+        if c.sold >= c.offered {
+            continue;
+        }
         if s.things.get(c.item).is_none() {
             if let Some(t) = s.catalog.get(c.template).cloned() {
                 let mut x = crate::things::Thing::of(c.item, &t, crate::things::Kind::Item);
                 x.quantity = c.offered.saturating_sub(c.sold).max(1);
                 x.container = Some((c.keeper, 1));
+                if let Some(kept) = read.item_states.iter().find(|k| k.id == c.item) {
+                    kept.restore(&mut x);
+                }
                 s.things.insert(x);
             }
         }
     }
+    true
 }
 
 fn keep<S: Store>(s: &mut Server<S>) {
-    let b = s.market.to_bytes();
-    if let Err(e) = s.store.set_world_record(RECORD, &b) {
-        tracing::warn!("the consignments were not kept: {e}");
+    if !s.market.loaded {
+        return;
     }
+    // An item its template no longer makes is not in the world: as it was last kept.
+    s.market.item_states = s
+        .market
+        .list
+        .iter()
+        .filter(|c| c.sold < c.offered)
+        .filter_map(|c| match s.things.get(c.item) {
+            Some(t) => Some(crate::state::ItemState::of(t)),
+            None => s
+                .market
+                .item_states
+                .iter()
+                .find(|k| k.id == c.item)
+                .cloned(),
+        })
+        .collect();
+    let b = s.market.to_bytes();
+    s.saves.hold_record(RECORD, b);
 }
 
 fn call(f: u32, args: &[Arg]) -> ServerMessage {
@@ -306,7 +351,9 @@ pub fn use_broker<S: Store>(
     done: &ServerMessage,
     clock: Clock,
 ) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     progress::private(net, world, done);
     if let Some(p) = s.players.get_mut(&world) {
         if p.shopping.is_some_and(|(k, _, _)| k == keeper) {
@@ -432,13 +479,22 @@ fn sale_profile(b: &mut Builder, c: &Consignment, name: (u32, u32), icon: &[[u32
     me
 }
 
-fn name_and_icon<S: Store>(s: &Server<S>, template: u32) -> ((u32, u32), Vec<[u32; 3]>) {
+fn name_and_icon<S: Store>(s: &Server<S>, c: &Consignment) -> ((u32, u32), Vec<[u32; 3]>) {
     let name = s
         .catalog
-        .get(template)
+        .get(c.template)
         .and_then(|t| t.facts.name)
         .unwrap_or((0, 0));
-    let icon = s.catalog.icons.get(&template).cloned().unwrap_or_default();
+    let icon = s.things.get(c.item).map_or_else(
+        || {
+            s.catalog
+                .icons
+                .get(&c.template)
+                .cloned()
+                .unwrap_or_default()
+        },
+        |t| inventory::icon_of(s, t),
+    );
     (name, icon)
 }
 
@@ -477,7 +533,7 @@ fn consignments_list<S: Store>(s: &Server<S>, b: &mut Builder, owner: u64, keepe
     b.native(REF_LIST, list(Elem::Ref, Vec::new()));
     let mut refs = Vec::new();
     for c in &mine {
-        let (name, icon) = name_and_icon(s, c.template);
+        let (name, icon) = name_and_icon(s, c);
         refs.push(Item::Ref(consignment(b, c, name, &icon)));
     }
     b.replace_native(list_id, list(Elem::Ref, refs));
@@ -514,15 +570,32 @@ fn broker_of<S: Store>(s: &Server<S>, keeper: u64) -> Option<Broker> {
     broker(s, s.content.objects[i].template)
 }
 
+/// Is a player near enough to a keeper of a store or a broker to deal with it?
+#[must_use]
+pub fn near<S: Store>(s: &Server<S>, world: ConnId, keeper: u64) -> bool {
+    let Some(p) = s.players.get(&world) else {
+        return false;
+    };
+    crate::presence::content_by_id(&s.content.objects, keeper)
+        .map(|i| &s.content.objects[i])
+        .and_then(|o| crate::places::reach(&p.position, o.cell, o.origin))
+        .is_some_and(|d| d <= STAY_NEAR)
+}
+
 /// A store chosen from a catalog: its player sales.
 pub fn enter_store<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let (Some(keeper), Some(&store)) = (long_of(v, 0), ints(v).first()) else {
         return;
     };
     let Some(br) = broker_of(s, keeper) else {
         return;
     };
+    if !near(s, world, keeper) {
+        return;
+    }
     let sales: Vec<Consignment> = s
         .market
         .list
@@ -536,7 +609,7 @@ pub fn enter_store<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
     b.native(REF_LIST, list(Elem::Ref, Vec::new()));
     let mut refs = Vec::new();
     for c in &sales {
-        let (name, icon) = name_and_icon(s, c.template);
+        let (name, icon) = name_and_icon(s, c);
         refs.push(Item::Ref(sale_profile(&mut b, c, name, &icon)));
     }
     b.replace_native(l, list(Elem::Ref, refs));
@@ -566,11 +639,16 @@ pub fn enter_consignment<S: Store>(
     world: ConnId,
     v: &[Value],
 ) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let Some(keeper) = long_of(v, 0) else { return };
     let Some(br) = broker_of(s, keeper) else {
         return;
     };
+    if !near(s, world, keeper) {
+        return;
+    }
     let Some(me) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
@@ -587,7 +665,9 @@ pub fn sell<S: Store>(
     v: &[Value],
     clock: Clock,
 ) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     // The values come last parameter first: the store, the price, how many, the item, the keeper.
     let w = ints(v);
     let (Some(keeper), Some(item)) = (long_of(v, 1), long_of(v, 0)) else {
@@ -602,6 +682,9 @@ pub fn sell<S: Store>(
     let Some(br) = broker_of(s, keeper) else {
         return;
     };
+    if !near(s, world, keeper) {
+        return;
+    }
     let Some(p) = s.players.get(&world) else {
         return;
     };
@@ -616,6 +699,10 @@ pub fn sell<S: Store>(
         return;
     };
     let quantity = quantity.clamp(1, held.quantity.max(1));
+    // A part of a stack goes as a new item, which only its template can make.
+    if quantity < held.quantity && s.catalog.get(held.template).is_none() {
+        return;
+    }
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let charge = ((f64::from(quantity) * f64::from(price) * CHARGE).ceil() as u32).max(1);
     let money = store::money(&p.qualities);
@@ -640,7 +727,7 @@ pub fn sell<S: Store>(
         if let Some(t) = s.things.get_mut(item) {
             t.quantity -= quantity;
         }
-        match inventory::make_item(s, held.template, quantity, 0) {
+        match inventory::split_off(s, item, quantity) {
             Some(n) => n,
             None => return,
         }
@@ -697,9 +784,12 @@ pub fn sell<S: Store>(
     crate::world::keep_player(s, world);
 }
 
-/// A consignment collected: an unsold one's item back as a new item, a sold one's price paid.
+/// A consignment collected: an unsold one's item back as a new item holding all the old one held,
+/// a sold one's price paid.
 pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     // The values come last parameter first: the profits flag, the sale, the keeper.
     let w = ints(v);
     let Some(keeper) = long_of(v, 0) else { return };
@@ -710,6 +800,9 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
     let Some(me) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
+    if !near(s, world, keeper) {
+        return;
+    }
     let Some(i) = s
         .market
         .list
@@ -723,24 +816,56 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
         let paid = (f64::from(c.sold) * f64::from(c.price)).floor() as u32;
         if let Some(p) = s.players.get_mut(&world) {
-            let money = store::money(&p.qualities) + paid;
+            let money = store::money(&p.qualities).saturating_add(paid);
             crate::quals::set_int(&mut p.qualities, store::MONEY, money.cast_signed());
             progress::send_int(net, world, store::MONEY, money.cast_signed());
         }
         if c.sold >= c.offered {
+            // The item itself is its buyer's now.
             s.market.list.remove(i);
-            s.things.remove(c.item);
         } else {
             s.market.list[i].offered -= c.sold;
             s.market.list[i].sold = 0;
         }
     } else {
         let left = c.offered.saturating_sub(c.sold);
+        // A sold item is its buyer's, and its price stays to be collected. What comes back needs
+        // its template to be made from and a place in the pack. Anything else leaves the sale up.
+        let made = s.catalog.get(c.template).is_some();
+        let room = s
+            .players
+            .get(&world)
+            .is_some_and(|p| inventory::fits_in_pack(&p.play.items, 1));
+        let refused = if left == 0 || !made {
+            Some(store::error::COLLECT_FAILED)
+        } else if room {
+            None
+        } else {
+            Some(store::error::NO_ROOM)
+        };
+        if let Some(error) = refused {
+            let m = call(store::function::REQUEST_DONE, &[Arg::Int(error)]);
+            progress::private(net, world, &m);
+            let m = consignment_message(s, function::UPDATE_CONSIGNMENT, me, keeper);
+            progress::private(net, world, &m);
+            return;
+        }
         s.market.list.remove(i);
         let stamp = s
             .things
             .get(c.item)
             .map(|t| ObjectOnly(inventory::stamp_of_thing(t)));
+        let kept = s
+            .things
+            .get(c.item)
+            .map(crate::state::ItemState::of)
+            .or_else(|| {
+                s.market
+                    .item_states
+                    .iter()
+                    .find(|k| k.id == c.item)
+                    .cloned()
+            });
         s.things.remove(c.item);
         if let Some(stamp) = stamp {
             net.send(
@@ -750,9 +875,7 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
                 ServerMessage::ForgetObject(stamp).encode(),
             );
         }
-        if left > 0 {
-            inventory::collected(s, net, world, c.template, left, keeper);
-        }
+        inventory::collected(s, net, world, c.template, left, keeper, kept.as_ref());
     }
     keep(s);
     let m = consignment_message(s, function::UPDATE_CONSIGNMENT, me, keeper);
@@ -762,7 +885,9 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
 
 /// A player entering the world is reminded of its consignments, one reminder per broker.
 pub fn enter<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let Some(me) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
@@ -790,7 +915,9 @@ pub fn purchase<S: Store>(
     item: u64,
     keeper: u64,
 ) -> bool {
-    ensure(s);
+    if !ensure(s) {
+        return false;
+    }
     let Some(i) = s
         .market
         .list
@@ -801,7 +928,28 @@ pub fn purchase<S: Store>(
     };
     let c = s.market.list[i];
     let left = c.offered.saturating_sub(c.sold);
-    if left == 0 {
+    if !near(s, world, keeper) {
+        let m = call(
+            store::function::REQUEST_DONE,
+            &[Arg::Int(store::error::NOT_FOUND)],
+        );
+        progress::private(net, world, &m);
+        return true;
+    }
+    let full = s
+        .players
+        .get(&world)
+        .is_none_or(|p| !inventory::fits_in_pack(&p.play.items, 1));
+    if full {
+        let m = call(
+            store::function::REQUEST_DONE,
+            &[Arg::Int(store::error::NO_ROOM)],
+        );
+        progress::private(net, world, &m);
+        return true;
+    }
+    // An item its template no longer makes isn't in the world to be bought.
+    if left == 0 || s.things.get(item).is_none() {
         progress::private(
             net,
             world,

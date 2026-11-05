@@ -532,7 +532,7 @@ impl Session {
     /// Send a message on its queue, stamped from its counter. It goes out at the next
     /// [`Self::tick`]. Returns whether it was queued: it is not when there is no connection to
     /// send it on.
-    // D2-05338
+    // D2-05338, D2-05336
     pub fn send(&mut self, m: &ClientMessage) -> bool {
         let q = queue_of(m);
         let Some(queue) = Queue::from_wire(q) else {
@@ -581,6 +581,17 @@ impl Session {
         self.net.exit_world_disconnect();
         self.links.retain(|_, l| l.login);
         self.world = 0;
+    }
+
+    /// What [`Self::log_off`] would send, made now and sending nothing: for a host that keeps a
+    /// copy with the far end of its connection, in case it goes away before it can log off.
+    #[must_use]
+    pub fn goodbye(&self) -> Vec<(SocketAddr, Vec<u8>)> {
+        self.net
+            .goodbye()
+            .into_iter()
+            .filter_map(|(bytes, to)| Some((to?, bytes)))
+            .collect()
     }
 
     /// Log off: goodbye on every connection, and nothing more is sent.

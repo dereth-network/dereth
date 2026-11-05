@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use auberean_client_runtime::data::{DataFiles, ENGLISH};
+use auberean_client_runtime::download::SERVER_LIBRARY_ITERATIONS;
 use auberean_client_runtime::{Client, ClientData, ClientSettings};
 use auberean_dat::disk::controller::OPEN_CREATE;
 use auberean_dat::disk::download::event;
@@ -85,8 +86,20 @@ fn client() -> Client {
     )
 }
 
-/// The versions each file was answered with, the last time the client was asked.
+/// The versions each file was answered with, the last time the client was asked, less those it
+/// lists for a server's library whatever it holds.
 fn last_held(c: &Client) -> Vec<(u64, Vec<i32>)> {
+    answered(c)
+        .into_iter()
+        .map(|(f, mut v)| {
+            v.retain(|x| !SERVER_LIBRARY_ITERATIONS.contains(x));
+            (f, v)
+        })
+        .collect()
+}
+
+/// The versions each file was answered with, the last time the client was asked.
+fn answered(c: &Client) -> Vec<(u64, Vec<i32>)> {
     let held = c
         .sent()
         .iter()
@@ -119,6 +132,24 @@ fn ends_sent(c: &Client) -> usize {
         .iter()
         .filter(|s| matches!(s.message, ClientMessage::DownloadEnds(_)))
         .count()
+}
+
+/// Asked which data it holds, the client lists the iterations of a server's library for its portal
+/// file, beside those the file has had; no other file's list changes, and the file's own list stays
+/// as it was, so a later question is answered the same.
+/// Behaviour: data.download.lists-a-servers-library-as-held
+#[test]
+fn the_portal_file_is_listed_as_holding_a_servers_library() {
+    let mut c = client();
+    let mut portal: Vec<i32> = vec![1, 2];
+    portal.extend(SERVER_LIBRARY_ITERATIONS);
+    for blob in 1..=2 {
+        c.take_message(LOGIN | blob, ServerMessage::DataQuery(DataQuery::default()));
+        assert_eq!(
+            answered(&c),
+            vec![(PORTAL, portal.clone()), (CELL, vec![1, 2])]
+        );
+    }
 }
 
 /// Behaviour: data.download.records-stored-and-checked-off
