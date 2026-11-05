@@ -1,7 +1,8 @@
 //! The web client's developer runner: builds the browser client and serves it on this machine.
 //!
 //! **Depends on** `wasm-bindgen-cli-support` (the bindgen step, as a library pinned to the web
-//! client's own `wasm-bindgen`), `dereth-dat` for the retail data files' names, and `ctrlc`.
+//! client's own `wasm-bindgen`), `dereth-dat` and `dereth-launch` for the retail data files' names,
+//! and `ctrlc`.
 //! **Used by** developers, through `cargo xtask web` or `cargo run -p dereth-web-dev`; no crate
 //! depends on it. It runs `cargo` to build the web client and, for a server that speaks only UDP,
 //! the web relay.
@@ -11,20 +12,24 @@
 //! deployment tool (the web client's `DEPLOY.md` is that).
 //!
 //! ```text
-//! dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <url | host:port>] [--www <dir>] [--hub <url>]
+//! dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--auberean-dat-dir <dir>] [--server <url | host:port>] [--www <dir>] [--hub <url>]
 //! ```
 //!
-//! - It builds `dereth-web` for `wasm32-unknown-unknown` (the `web-release` profile, or `release`
-//!   with `--dev`, which keeps function names for stack traces), runs the bindgen step into `www/pkg/`,
-//!   copies the Horizon interface's art beside the module into `www/pkg/horizon/` (the module does
-//!   not carry it; the page fetches it), copies the launcher's art the front page wears (Dereth's
-//!   paintings and emblem, and the two typefaces with their licences) into `www/assets/`, and
-//!   serves `www/` at `http://127.0.0.1:<port>/`.
+//! - It builds the page's three modules for `wasm32-unknown-unknown` (the `web-release` profile, or
+//!   `release` with `--dev`, which keeps function names for stack traces): the launcher's
+//!   (`dereth-web-front`, into `www/pkg-front/`), Dereth's (`dereth-web`, into `www/pkg/`) and
+//!   Auberean's (`auberean-web`, into `www/pkg-auberean/`), each with its bindgen step. It
+//!   copies the Horizon interface's art beside Dereth's module into `www/pkg/horizon/` (the module
+//!   does not carry it; the page fetches it), copies the launcher's art the front page wears (both
+//!   realms' paintings and portals, the emblems, and the two typefaces with their licences) into `www/assets/`, copies
+//!   the launcher's own page into `www/` beside the web page's files, and serves `www/` at
+//!   `http://127.0.0.1:<port>/`.
 //!   `--build-only` stops after the build, for a deployment.
 //! - With `--dat-dir`, it also serves the retail data files from that folder at `/dats/<name>`,
 //!   with byte ranges, for the worker's development reader: the four of the later set, and
 //!   `portal.dat` and `cell.dat` from before Throne of Destiny when the folder holds them.
 //!   `--classic-dat-dir` names another folder for those two, as the desktop client's switch does.
+//!   `--auberean-dat-dir` serves an Asheron's Call 2 install at `/auberean-dats/<name>` the same way.
 //!   A connection stays open for the next request, so the reader's thousands of small reads share
 //!   one rather than each opening its own.
 //! - With `--server`, it prints the page's address with the server filled in: a `ws://` or `wss://`
@@ -59,6 +64,11 @@ fn is_classic_dat_name(name: &str) -> bool {
         .any(|d| d.file_name() == name)
 }
 
+/// The files of an Asheron's Call 2 install the worker's development reader asks for.
+fn auberean_client_names() -> Vec<&'static str> {
+    dereth_launch::auberean::set_file_names()
+}
+
 /// Where `dereth-web-relay` listens when the runner starts it.
 const RELAY_LISTEN: &str = "127.0.0.1:9180";
 
@@ -68,7 +78,19 @@ const HORIZON_ART: &str = "dereth/client/crates/horizon/pieces";
 
 /// The desktop launcher's art, relative to the workspace: the front page wears the part of it that
 /// is Dereth's (its paintings, its emblem and the typefaces), copied into `www/assets/`.
-const LAUNCHER_ART: &str = "dereth/launcher/assets";
+const LAUNCHER_ART: &str = "launcher/assets";
+
+/// The desktop launcher's page, relative to the workspace: the front page runs it.
+const LAUNCHER_PAGE: &str = "launcher/ui";
+
+/// The files of the launcher's page the front page runs, each with its name in `www/`. Its stylesheet
+/// names the typefaces relative to itself, so it goes beside `assets/`. The shell keeps a name of its
+/// own: `www/index.html` is the web page's.
+const LAUNCHER_PAGE_FILES: &[(&str, &str)] = &[
+    ("app.js", "app.js"),
+    ("style.css", "style.css"),
+    ("index.html", "launcher.html"),
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Server {
@@ -86,6 +108,7 @@ struct Options {
     port: u16,
     dat_dir: Option<PathBuf>,
     classic_dat_dir: Option<PathBuf>,
+    auberean_dat_dir: Option<PathBuf>,
     server: Option<Server>,
     /// A folder of a web client built before, served in place of `www/`.
     www: Option<PathBuf>,
@@ -95,7 +118,7 @@ struct Options {
 
 fn usage() -> ! {
     eprintln!(
-        "usage: dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <ws(s)://url | host:port>] [--www <dir>] [--hub <url>] | --print-env"
+        "usage: dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--auberean-dat-dir <dir>] [--server <ws(s)://url | host:port>] [--www <dir>] [--hub <url>] | --print-env"
     );
     std::process::exit(2);
 }
@@ -108,6 +131,7 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
         port: 8080,
         dat_dir: None,
         classic_dat_dir: None,
+        auberean_dat_dir: None,
         server: None,
         www: None,
         hub: None,
@@ -122,6 +146,7 @@ fn parse_args(args: &[String]) -> Result<Options, String> {
             "--port" => o.port = value()?.parse().map_err(|e| format!("{a}: {e}"))?,
             "--dat-dir" => o.dat_dir = Some(PathBuf::from(value()?)),
             "--classic-dat-dir" => o.classic_dat_dir = Some(PathBuf::from(value()?)),
+            "--auberean-dat-dir" => o.auberean_dat_dir = Some(PathBuf::from(value()?)),
             "--server" => o.server = Some(server(value()?)?),
             "--www" => o.www = Some(PathBuf::from(value()?)),
             "--hub" => o.hub = Some(value()?.clone()),
@@ -314,34 +339,52 @@ fn env_lines(vars: &[(String, String)]) -> String {
     vars.iter().map(|(k, v)| format!("{k}={v}\n")).collect()
 }
 
-/// Builds the module, runs the bindgen step into `www/pkg/`, and puts the Horizon interface's art
-/// beside it.
-fn build(ws: &Path, dev: bool) -> Result<(), String> {
+/// The web client's modules, each loaded only when it is wanted: (its package, the file cargo
+/// writes, the folder under `www/` its bindings go in, whether it holds the plugin engine's C++).
+const MODULES: &[(&str, &str, &str, bool)] = &[
+    (
+        "dereth-web-front",
+        "dereth_web_front.wasm",
+        "pkg-front",
+        false,
+    ),
+    ("dereth-web", "dereth_web.wasm", "pkg", true),
+    ("auberean-web", "auberean_web.wasm", "pkg-auberean", false),
+];
+
+/// Builds one module and runs the bindgen step into its folder under `www/`. A module apart from
+/// the others keeps each under the most a static host serves as one file, and a page that plays one
+/// game never fetches the other's.
+fn build_module(
+    ws: &Path,
+    dev: bool,
+    (package, wasm, folder, cpp): (&str, &str, &str, bool),
+) -> Result<(), String> {
     let profile = if dev { "release" } else { "web-release" };
-    let zig = std::env::var("ZIG").unwrap_or_else(|_| "zig".to_owned());
-    let env = luau_env(&zig)?;
+    let mut cargo = Command::new(env!("CARGO"));
+    cargo.current_dir(ws);
+    if cpp {
+        let zig = std::env::var("ZIG").unwrap_or_else(|_| "zig".to_owned());
+        cargo.envs(luau_env(&zig)?);
+    }
     // A compiler cache named in `RUSTC_WRAPPER` would be put in front of zig too, and cannot run
     // it, so the WebAssembly build runs without one.
-    run(Command::new(env!("CARGO"))
-        .current_dir(ws)
-        .envs(env)
-        .env_remove("RUSTC_WRAPPER")
-        .args([
-            "build",
-            "--profile",
-            profile,
-            "--target",
-            "wasm32-unknown-unknown",
-            "-p",
-            "dereth-web",
-            "--config",
-            &target_rustflags(&remap_flags()),
-        ]))?;
+    run(cargo.env_remove("RUSTC_WRAPPER").args([
+        "build",
+        "--profile",
+        profile,
+        "--target",
+        "wasm32-unknown-unknown",
+        "-p",
+        package,
+        "--config",
+        &target_rustflags(&remap_flags()),
+    ]))?;
     let wasm = target_dir(ws)
         .join("wasm32-unknown-unknown")
         .join(profile)
-        .join("dereth_web.wasm");
-    let out = ws.join("dereth").join("web").join("www").join("pkg");
+        .join(wasm);
+    let out = ws.join("dereth").join("web").join("www").join(folder);
     let mut bindgen = wasm_bindgen_cli_support::Bindgen::new();
     bindgen
         .input_path(&wasm)
@@ -354,18 +397,38 @@ fn build(ws: &Path, dev: bool) -> Result<(), String> {
         .remove_name_section(!dev);
     bindgen
         .generate(&out)
-        .map_err(|e| format!("bindgen {}: {e}", wasm.display()))?;
-    copy_horizon_art(&ws.join(HORIZON_ART), &out.join("horizon"))?;
-    copy_launcher_art(
-        &ws.join(LAUNCHER_ART),
-        &ws.join("dereth").join("web").join("www").join("assets"),
-    )
+        .map_err(|e| format!("bindgen {}: {e}", wasm.display()))
+}
+
+/// Builds the modules, runs the bindgen step into `www/`, and puts the Horizon interface's art
+/// beside Dereth's.
+fn build(ws: &Path, dev: bool) -> Result<(), String> {
+    for module in MODULES {
+        build_module(ws, dev, *module)?;
+    }
+    let www = ws.join("dereth").join("web").join("www");
+    copy_horizon_art(&ws.join(HORIZON_ART), &www.join("pkg").join("horizon"))?;
+    copy_launcher_art(&ws.join(LAUNCHER_ART), &www.join("assets"))?;
+    copy_launcher_page(&ws.join(LAUNCHER_PAGE), &www)
+}
+
+/// Copies the launcher's page from `from` (the launcher's `ui/`) into `to` (`www/`), which gets a
+/// `.gitignore` that ignores those copies and itself: the page's home is the launcher's folder.
+fn copy_launcher_page(from: &Path, to: &Path) -> Result<(), String> {
+    let mut ignored = String::from("/.gitignore\n");
+    for (source, name) in LAUNCHER_PAGE_FILES {
+        let (src, dst) = (from.join(source), to.join(name));
+        std::fs::copy(&src, &dst).map_err(|e| format!("{}: {e}", src.display()))?;
+        ignored.push_str(&format!("/{name}\n"));
+    }
+    let target = to.join(".gitignore");
+    std::fs::write(&target, ignored).map_err(|e| format!("{}: {e}", target.display()))
 }
 
 /// Copies the launcher's art the front page wears from `from` (the launcher's `assets/`) into `to`
-/// (`www/assets/`), in place of what `to` held: Dereth's paintings (`background/dereth/`) with
-/// their list (`backgrounds.json`, as the launcher's build writes it), Dereth's emblem, and the
-/// fonts with their licences. `to` gets a `.gitignore` that ignores it whole: the art's home is
+/// (`www/assets/`), in place of what `to` held: both realms' paintings (`background/<realm>/`) with
+/// their list (`backgrounds.json`, as the launcher's build writes it), the realms' portals, the
+/// network's emblem and each realm's, and the fonts with their licences. `to` gets a `.gitignore` that ignores it whole: the art's home is
 /// the launcher's folder.
 fn copy_launcher_art(from: &Path, to: &Path) -> Result<(), String> {
     fn at(p: &Path) -> impl Fn(std::io::Error) -> String + '_ {
@@ -392,17 +455,19 @@ fn copy_launcher_art(from: &Path, to: &Path) -> Result<(), String> {
     }
     std::fs::create_dir_all(to).map_err(at(to))?;
     std::fs::write(to.join(".gitignore"), "*\n").map_err(at(to))?;
-    let paintings = copy_files("background/dereth", &|n| n.ends_with(".webp"))?;
-    copy_files("emblem", &|n| n == "dereth.webp")?;
+    let mut lists = Vec::new();
+    for realm in ["dereth", "auberean"] {
+        let paintings = copy_files(&format!("background/{realm}"), &|n| n.ends_with(".webp"))?;
+        let names: Vec<String> = paintings
+            .iter()
+            .map(|n| format!("\"{realm}/{n}\""))
+            .collect();
+        lists.push(format!("\"{realm}\":[{}]", names.join(",")));
+    }
+    copy_files("emblem", &|n| n == "dereth.webp" || n == "network.webp")?;
+    copy_files("portal", &|n| n.ends_with(".webp"))?;
     copy_files("fonts", &|n| n.ends_with(".ttf") || n.ends_with(".txt"))?;
-    let list: Vec<String> = paintings.iter().map(|n| format!("dereth/{n}")).collect();
-    let json = format!(
-        "{{\"dereth\":[{}]}}",
-        list.iter()
-            .map(|n| format!("\"{n}\""))
-            .collect::<Vec<_>>()
-            .join(",")
-    );
+    let json = format!("{{{}}}", lists.join(","));
     let target = to.join("backgrounds.json");
     std::fs::write(&target, json).map_err(at(&target))
 }
@@ -498,12 +563,23 @@ fn content_type(path: &Path) -> &'static str {
 struct DatDirs {
     later: Option<PathBuf>,
     classic: Option<PathBuf>,
+    /// Asheron's Call 2's install, served apart: its portal file has the name of the older set's.
+    auberean: Option<PathBuf>,
 }
 
 /// What a request path names: a file under `www/`, or one of the data files. `None` for anything
 /// else, and for a data file when no folder was given.
 fn resolve(www: &Path, dats: &DatDirs, path: &str) -> Option<PathBuf> {
     let path = path.split('?').next().unwrap_or("");
+    if let Some(name) = path.strip_prefix("/auberean-dats/") {
+        let known = auberean_client_names().contains(&name);
+        return dats
+            .auberean
+            .as_ref()
+            .filter(|_| known)
+            .map(|d| d.join(name))
+            .filter(|p| p.is_file());
+    }
     if let Some(name) = path.strip_prefix("/dats/") {
         // A file the folder does not hold is not found, so the page reads it as absent.
         let dir = if is_dat_name(name) {
@@ -671,7 +747,7 @@ fn answer(
     let Some(target) = resolve(www, dats, path) else {
         return respond(stream, "404 Not Found", &[], b"not found\n", close);
     };
-    if !path.starts_with("/dats/") {
+    if !path.starts_with("/dats/") && !path.starts_with("/auberean-dats/") {
         eprintln!("{method} {path}");
     }
     let mut file = std::fs::File::open(&target)?;
@@ -724,12 +800,12 @@ fn main() {
     }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!(
-            "dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <ws(s)://url | host:port>] [--www <dir>] [--hub <url>]\n\n\
+            "dereth-web-dev [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--auberean-dat-dir <dir>] [--server <ws(s)://url | host:port>] [--www <dir>] [--hub <url>]\n\n\
              Builds the web client into dereth/web/www/pkg and serves dereth/web/www on 127.0.0.1\n\
              (--build-only stops after the build). --dat-dir serves the retail data files from\n\
              that folder to the page (the four client_*.dat files, and portal.dat and cell.dat from\n\
              before Throne of Destiny when it holds them; --classic-dat-dir names another folder for\n\
-             those two); --server fills the page's server: a ws:// or wss:// URL as it is, a\n\
+             those two; --auberean-dat-dir an Asheron's Call 2 install); --server fills the page's server: a ws:// or wss:// URL as it is, a\n\
              host:port through dereth-web-relay on {RELAY_LISTEN}. --www serves a web client built\n\
              before from that folder, building nothing; --hub names another hub's world list (its\n\
              /v1/servers) in the page's address. --print-env prints the environment the plugin\n\
@@ -760,7 +836,7 @@ fn main() {
         }
     }
     if !options.serve {
-        println!("built {}", www.join("pkg").display());
+        println!("built {}", www.display());
         return;
     }
     let canonical = |flag: &str, d: &PathBuf| {
@@ -775,6 +851,10 @@ fn main() {
             .classic_dat_dir
             .as_ref()
             .map(|d| canonical("--classic-dat-dir", d)),
+        auberean: options
+            .auberean_dat_dir
+            .as_ref()
+            .map(|d| canonical("--auberean-dat-dir", d)),
     };
 
     let relay: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
@@ -913,7 +993,7 @@ mod tests {
         let none = DatDirs::default();
         let later = DatDirs {
             later: Some(dats.clone()),
-            classic: None,
+            ..DatDirs::default()
         };
         assert!(resolve(&www, &none, "/").is_some());
         assert!(resolve(&www, &none, "/index.html?x=1").is_some());
@@ -937,6 +1017,7 @@ mod tests {
         let both = DatDirs {
             later: Some(dats.clone()),
             classic: Some(classic.clone()),
+            ..DatDirs::default()
         };
         assert_eq!(
             resolve(&www, &both, &older_url),
@@ -944,6 +1025,22 @@ mod tests {
         );
         std::fs::write(older.in_dir(&dats), "o").unwrap();
         assert_eq!(resolve(&www, &later, &older_url), Some(older.in_dir(&dats)));
+        // An Asheron's Call 2 install, from its own folder, and only its data files.
+        let install = root.join("install");
+        std::fs::create_dir_all(&install).unwrap();
+        std::fs::write(install.join("portal.dat"), "p").unwrap();
+        std::fs::write(install.join("secret.dat"), "s").unwrap();
+        let ac2 = DatDirs {
+            auberean: Some(install.clone()),
+            ..DatDirs::default()
+        };
+        assert!(resolve(&www, &later, "/auberean-dats/portal.dat").is_none());
+        assert_eq!(
+            resolve(&www, &ac2, "/auberean-dats/portal.dat"),
+            Some(install.join("portal.dat"))
+        );
+        assert!(resolve(&www, &ac2, "/auberean-dats/secret.dat").is_none());
+        assert!(resolve(&www, &ac2, "/auberean-dats/../secret.txt").is_none());
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1066,6 +1163,7 @@ mod tests {
             "background/dereth/a.webp",
             "background/auberean/c.webp",
             "emblem/dereth.webp",
+            "emblem/network.webp",
             "emblem/lyceum.webp",
             "fonts/Cinzel-var.ttf",
             "fonts/OFL-Cinzel.txt",
@@ -1098,23 +1196,62 @@ mod tests {
             copied,
             [
                 ".gitignore",
+                "background/auberean/c.webp",
                 "background/dereth/a.webp",
                 "background/dereth/b.webp",
                 "backgrounds.json",
                 "emblem/dereth.webp",
+                "emblem/network.webp",
                 "fonts/Cinzel-var.ttf",
                 "fonts/OFL-Cinzel.txt",
+                "portal/dereth-ring.webp",
             ]
         );
         assert_eq!(
             std::fs::read_to_string(to.join("backgrounds.json")).unwrap(),
-            r#"{"dereth":["dereth/a.webp","dereth/b.webp"]}"#
+            r#"{"dereth":["dereth/a.webp","dereth/b.webp"],"auberean":["auberean/c.webp"]}"#
         );
         assert_eq!(
             std::fs::read_to_string(to.join(".gitignore")).unwrap(),
             "*\n"
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_launchers_page_is_copied_beside_the_web_pages_files_and_ignored_where_it_lands() {
+        let root = std::env::temp_dir().join(format!("web-launcher-page-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let (from, to) = (root.join("ui"), root.join("www"));
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::create_dir_all(&to).unwrap();
+        for file in ["app.js", "style.css", "index.html", "demo.js"] {
+            std::fs::write(from.join(file), file).unwrap();
+        }
+        // The web page's own shell stays: the launcher's lands under a name of its own.
+        std::fs::write(to.join("index.html"), "the web page's").unwrap();
+        copy_launcher_page(&from, &to).unwrap();
+        let read = |name: &str| std::fs::read_to_string(to.join(name)).unwrap();
+        assert_eq!(read("app.js"), "app.js");
+        assert_eq!(read("style.css"), "style.css");
+        assert_eq!(read("launcher.html"), "index.html");
+        assert_eq!(read("index.html"), "the web page's");
+        assert!(
+            !to.join("demo.js").exists(),
+            "the demo stays the launcher's"
+        );
+        assert_eq!(
+            read(".gitignore"),
+            "/.gitignore\n/app.js\n/style.css\n/launcher.html\n"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_launchers_page_the_runner_copies_is_there() {
+        for (source, _) in LAUNCHER_PAGE_FILES {
+            assert!(workspace().join(LAUNCHER_PAGE).join(source).is_file());
+        }
     }
 
     #[test]
@@ -1172,7 +1309,7 @@ mod tests {
         let www = www.canonicalize().unwrap();
         let later = DatDirs {
             later: Some(dats),
-            classic: None,
+            ..DatDirs::default()
         };
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let at = listener.local_addr().unwrap();

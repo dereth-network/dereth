@@ -100,6 +100,7 @@ pub struct KeyMaps {
 impl KeyMaps {
     /// The keys an action is bound to, each with the modifier its map is held with: from the
     /// bottom map up, each once.
+    // D2-04954
     #[must_use]
     pub fn mapped_keys(&self, action: u32) -> Vec<(u32, u32)> {
         let mut out = Vec::new();
@@ -432,7 +433,7 @@ impl Keyboard {
 
     /// How a key is written, with the modifier held with it (`Ctrl - F5`); none for a key with no
     /// name.
-    // D2-01756
+    // D2-01756, D2-14175
     fn inq_key_string_info(ui: &Ui, key: u32, m: u32) -> Option<String> {
         let k = key_name(key)?;
         let literal = |s: &str| Var::Text(Box::new(StringInfo::literal(s)));

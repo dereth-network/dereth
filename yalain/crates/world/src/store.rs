@@ -67,6 +67,7 @@ pub const MONEY: u32 = 3100;
 pub mod error {
     pub const NOT_FOUND: u32 = 45001;
     pub const NOT_ENOUGH_COIN: u32 = 45006;
+    pub const COLLECT_FAILED: u32 = 45014;
     pub const NO_ROOM: u32 = 45016;
 }
 
@@ -366,7 +367,37 @@ pub fn purchase<S: Store>(
         progress::private(net, world, &m);
         return;
     };
+    // What the world can't make isn't sold: nothing is paid for it. Nor what is bought for what its
+    // acquiring does, when the world can't do that.
+    if s.catalog
+        .get(sale.product)
+        .is_none_or(|t| crate::quests::acquiring_does_more_than_quests(&t.props))
+    {
+        s.unhandled.note(format!(
+            "a purchase of template {:08X}, which the world can't make or carry out",
+            sale.product
+        ));
+        let m =
+            session::call(function::REQUEST_DONE, &[Arg::Int(error::NOT_FOUND)]).expect("packs");
+        progress::private(net, world, &m);
+        return;
+    }
     let quantity = quantity.max(1);
+    // Of the sale's stack at most, in reach of the storekeeper (2017: 23 purchases of 1 to 300).
+    let most = s
+        .catalog
+        .get(sale.product)
+        .and_then(|t| t.props.int("Item_MaxStackSize"))
+        .and_then(|n| u32::try_from(n).ok())
+        .unwrap_or(1)
+        .max(sale.stack)
+        .max(1);
+    if quantity > most || !crate::market::near(s, world, keeper) {
+        let m =
+            session::call(function::REQUEST_DONE, &[Arg::Int(error::NOT_FOUND)]).expect("packs");
+        progress::private(net, world, &m);
+        return;
+    }
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let price = (sale.cost * quantity as f32).ceil() as u32;
     let Some(p) = s.players.get_mut(&world) else {

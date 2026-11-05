@@ -76,6 +76,7 @@ pub const fn file_set(era: EraId) -> FileSet {
 #[must_use]
 pub const fn era_name(era: EraId) -> &'static str {
     match era {
+        EraId::Launch => "Launch",
         EraId::Infiltration => "Infiltration",
         EraId::Eor => "end-of-retail",
     }

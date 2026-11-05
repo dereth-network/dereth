@@ -161,6 +161,9 @@ pub fn object(o: &Object, to: Option<&str>, p: &Prov) -> Table {
     } else if let Some(h) = o.heading {
         put(&mut t, "heading", number(h));
     }
+    if let Some(s) = o.scale {
+        put(&mut t, "scale", number(s));
+    }
     if let Some(n) = o.name {
         put(&mut t, "name", strref(n));
     }

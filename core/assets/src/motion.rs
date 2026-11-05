@@ -177,17 +177,6 @@ pub struct PhysicsScriptTable {
     pub script_table: BTreeMap<u32, Vec<ScriptAndMod>>,
 }
 
-/// A script type as the files from before Throne of Destiny number it, in the later numbering:
-/// the types from 30 on are one higher afterwards.
-#[must_use]
-const fn pre_tod_script_type(key: u32) -> u32 {
-    if key >= 30 {
-        key + 1
-    } else {
-        key
-    }
-}
-
 impl Decode for PhysicsScriptTable {
     const TYPE: DbType = DbType::PhysicsScriptTable;
 
@@ -213,23 +202,6 @@ impl Decode for PhysicsScriptTable {
             script_table.entry(key).or_insert(rows);
         }
         Ok(Self { id, script_table })
-    }
-
-    /// Before Throne of Destiny the script types from 30 on were numbered one lower: a type was
-    /// later inserted at 30, and every type from there moved up by one (the February 2005 table's
-    /// 117 is the hiding script that is 118 afterwards, its 116 the unhiding one). The table is
-    /// keyed by the later numbering, which is what every caller asks with.
-    fn decode_classic(c: &mut Cursor<'_>) -> Result<Self, AssetError> {
-        let t = Self::decode(c)?;
-        let script_table = t
-            .script_table
-            .into_iter()
-            .map(|(key, rows)| (pre_tod_script_type(key), rows))
-            .collect();
-        Ok(Self {
-            id: t.id,
-            script_table,
-        })
     }
 }
 

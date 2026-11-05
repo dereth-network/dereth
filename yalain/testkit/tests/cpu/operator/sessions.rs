@@ -155,3 +155,79 @@ fn the_message_of_the_day_is_shown_as_each_character_enters() {
     plain.run(20);
     assert!(notices(&plain, b).is_empty(), "{:?}", notices(&plain, b));
 }
+
+/// The account "boss", an admin's, with the harness's ticket and no login held.
+fn an_admins_account(h: &mut Harness) {
+    let (b, _) = log_in_from(h, Ipv4Addr::LOCALHOST, "boss");
+    let boss = h
+        .server
+        .store
+        .account_by_name("boss")
+        .expect("reads")
+        .expect("made");
+    h.server
+        .store
+        .set_account_admin(boss.id, true)
+        .expect("set");
+    h.bots[b].leave();
+    assert!(h.run_until(STEPS, |h| h.server.sessions.is_empty()));
+}
+
+/// A full world still lets in an admin's account with its ticket, as the game's `/userlimit` says
+/// ("new non-admin users will not be able to log into the world"). With the wrong ticket it is told
+/// the world is full, as anyone is, so that a full world doesn't say which accounts are admins'.
+/// One address's limit holds it back as it does anyone.
+/// Behaviour: server.operator.sessions-cap-lets-admins-in
+#[test]
+fn an_admins_account_with_its_ticket_gets_into_a_full_world() {
+    let mut h = world(ServerConfig {
+        max_sessions: 1,
+        ..ServerConfig::default()
+    });
+    an_admins_account(&mut h);
+    let (_, first) = log_in_from(&mut h, HERE, "one");
+    assert_ne!(first, refused(19));
+
+    let (_, player) = log_in_from(&mut h, THERE, "two");
+    assert_eq!(
+        player,
+        refused(CharacterRefused::SERVER_FULL),
+        "a player is not"
+    );
+
+    let b = h.add_bot_from(THERE);
+    let now = h.now;
+    h.bots[b].log_in("boss", b"not its ticket", now);
+    assert!(h.run_until(STEPS, |h| !h.bots[b].inbox.is_empty()));
+    assert_eq!(
+        h.bots[b].inbox[0].message(),
+        Some(refused(CharacterRefused::SERVER_FULL)),
+        "the wrong ticket"
+    );
+
+    let (admin, answer) = log_in_from(&mut h, THERE, "boss");
+    assert_ne!(answer, refused(19), "an admin passes");
+    assert!(!h.bots[admin].dropped);
+    assert_eq!(h.server.sessions.len(), 2);
+    let (_, next) = log_in_from(&mut h, THERE, "three");
+    assert_eq!(
+        next,
+        refused(CharacterRefused::SERVER_FULL),
+        "players still not"
+    );
+}
+
+/// An admin's account gets no pass from the limit on one address.
+/// Behaviour: server.operator.sessions-cap-lets-admins-in
+#[test]
+fn an_admins_account_is_held_back_by_its_address_limit() {
+    let mut h = world(ServerConfig {
+        max_sessions_per_address: Some(1),
+        ..ServerConfig::default()
+    });
+    an_admins_account(&mut h);
+    let (_, first) = log_in_from(&mut h, HERE, "one");
+    assert_ne!(first, refused(19));
+    let (_, answer) = log_in_from(&mut h, HERE, "boss");
+    assert_eq!(answer, refused(CharacterRefused::SERVER_FULL));
+}

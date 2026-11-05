@@ -7,8 +7,8 @@
 //! mesh followed by the cell's own tree over its physics polygons, its portals and an info id.
 
 use auberean_dat::reader::Result;
-use auberean_dat::Reader;
-use auberean_primitives::{BBox, DataId, Sphere};
+use auberean_dat::{Reader, Writer};
+use auberean_primitives::{BBox, DataId, Sphere, Vec3};
 
 use crate::bsp::{Tree, TreeKind};
 use crate::{Context, Decode};
@@ -71,6 +71,37 @@ pub struct VertexArray {
 }
 
 impl VertexArray {
+    /// The format word, the vertex count, the vertices, alignment, then the bounds, as read.
+    // D2-04200, D2-04201
+    pub fn write(&self, w: &mut Writer) {
+        w.u32(self.format);
+        w.u32(self.count);
+        w.bytes(&self.bytes);
+        w.align();
+        w.vec3(self.bounds.min);
+        w.vec3(self.bounds.max);
+    }
+
+    /// The box about the first `count` vertices, each `stride` bytes and starting with its place.
+    // D2-04199
+    #[must_use]
+    pub fn built_bounds(&self, stride: usize) -> BBox {
+        let mut b = BBox {
+            min: Vec3::new(f32::MAX, f32::MAX, f32::MAX),
+            max: Vec3::new(f32::MIN, f32::MIN, f32::MIN),
+        };
+        if stride < 12 {
+            return b;
+        }
+        for v in self.bytes.chunks_exact(stride).take(self.count as usize) {
+            let at = |k: usize| f32::from_le_bytes([v[k], v[k + 1], v[k + 2], v[k + 3]]);
+            let (x, y, z) = (at(0), at(4), at(8));
+            b.min = Vec3::new(b.min.x.min(x), b.min.y.min(y), b.min.z.min(z));
+            b.max = Vec3::new(b.max.x.max(x), b.max.y.max(y), b.max.z.max(z));
+        }
+        b
+    }
+
     /// The format word, the vertex count, the vertices, alignment, then the bounding box.
     // D2-04207, D2-05480
     pub fn read(r: &mut Reader<'_>) -> Result<Self> {
@@ -95,7 +126,7 @@ pub struct Fragment {
     /// Which of the mesh's materials draws it.
     pub material: u32,
     /// Triangle-list vertex indices, three a triangle.
-    pub indices: Vec<u16>,
+    pub indices: std::sync::Arc<Vec<u16>>,
 }
 
 /// One level of detail: when it is used, and its fragments.
@@ -121,7 +152,10 @@ impl DetailLevel {
                 indices.push(r.u16()?);
             }
             r.align()?;
-            Ok(Fragment { material, indices })
+            Ok(Fragment {
+                material,
+                indices: std::sync::Arc::new(indices),
+            })
         })?;
         Ok(Self {
             degrade,
@@ -132,6 +166,7 @@ impl DetailLevel {
 }
 
 /// A polygon of the mesh: its id and its vertices (indices into the vertex array).
+// D2-00042, D2-04163, D2-04167, D2-04168, D2-04174
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct MeshPolygon {
     pub id: u16,
@@ -139,6 +174,13 @@ pub struct MeshPolygon {
 }
 
 impl MeshPolygon {
+    /// Which vertex of the array its corner `k` is; none past its corners.
+    // D2-04164
+    #[must_use]
+    pub fn corner(&self, k: usize) -> Option<u16> {
+        self.vertices.get(k).copied()
+    }
+
     /// The id, a 16-bit vertex count, the 16-bit vertex indices, alignment.
     // D2-04176
     fn read(r: &mut Reader<'_>) -> Result<Self> {
@@ -330,5 +372,31 @@ mod tests {
         assert_eq!(vertex_size(0x0100_0002), 32);
         assert_eq!(vertex_size(0x0100_00D2), 64);
         assert_eq!(vertex_size(0x0100_0802 | 0x7000_0000), 128);
+    }
+}
+
+#[cfg(test)]
+mod vertex_array_tests {
+    //! Behaviour: none (a vertex array's forms, held to hand-worked values)
+    use super::*;
+
+    #[test]
+    fn a_vertex_array_writes_itself_and_finds_its_box() {
+        let mut bytes = Vec::new();
+        for v in [1.0f32, 2.0, 3.0, -1.0, 5.0, 0.5] {
+            bytes.extend_from_slice(&v.to_le_bytes());
+        }
+        let a = VertexArray {
+            format: 2,
+            count: 2,
+            bytes,
+            bounds: BBox::default(),
+        };
+        let b = a.built_bounds(12);
+        assert_eq!(b.min, Vec3::new(-1.0, 2.0, 0.5));
+        assert_eq!(b.max, Vec3::new(1.0, 5.0, 3.0));
+        let mut w = Writer::new();
+        a.write(&mut w);
+        assert_eq!(w.finish().len(), 8 + 24 + 24);
     }
 }

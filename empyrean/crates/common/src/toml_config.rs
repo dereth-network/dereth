@@ -629,6 +629,31 @@ pub const SECTIONS: &[Section] = &[
         ],
     },
     Section {
+        toml: &["portal_storms"],
+        ace: &["PortalStorms"],
+        array: false,
+        help: "Portal storms move players out of a crowded landblock: past the threshold a storm brews,\n\
+               then is imminent, then moves one player outdoors to the middle of a neighboring landblock\n\
+               every ten seconds until the crowd is under the threshold. Off by default, on any era.",
+        keys: &[
+            e(
+                "threshold",
+                "Threshold",
+                "How many players a landblock's surface holds before a storm brews. 0: no storms.",
+            ),
+            e(
+                "brew_seconds",
+                "BrewSeconds",
+                "How long a storm brews before it is imminent.",
+            ),
+            e(
+                "imminent_seconds",
+                "ImminentSeconds",
+                "How long a storm is imminent before it starts moving players.",
+            ),
+        ],
+    },
+    Section {
         toml: &["era"],
         ace: &["Era"],
         array: false,
@@ -641,10 +666,20 @@ pub const SECTIONS: &[Section] = &[
             e(
                 "profile",
                 "Profile",
-                "\"eor\" (the end of retail, ACE's rules) or \"infiltration\" (February 2005). world.pack\n\
+                "\"eor\" (end of retail), \"infiltration\" (February 2005), or \"launch\" (1999, experimental). world.pack\n\
                  must have been built for the same era (`empyrean-import --era <era>`); the server refuses\n\
                  to start otherwise.",
             ),
+            Key {
+                toml: "max_characters_per_account",
+                ace: "MaxCharactersPerAccount",
+                in_ace: false,
+                help: "The characters an account may hold, up to 20. Left out, the era's own: 5 on a Launch\n\
+                       world, 11 otherwise. Characters already over the limit keep playing; only creating a\n\
+                       new one is refused.",
+                unset: "11",
+                written: true,
+            },
             // The systems, in `EraFeatures` order. Each defaults to the profile's value: the end
             // of retail has every one but spell research and the oath's experience cost; February
             // 2005 has trade, housing, apartments, tinkering, cantrips, chess and the oath's cost.
@@ -725,7 +760,7 @@ pub const SECTIONS: &[Section] = &[
             system_off(
                 "spell_research",
                 "SpellResearch",
-                "Learning spells by researching their formulas (gone by 2002; off in every profile).\n\
+                "Learning spells by researching their formulas (gone by 2002; on in Launch).\n\
                  On, a client's formula test casts the spell it makes and teaches it if it is new.",
             ),
             system("chess", "Chess", "Chess on the game boards."),
@@ -734,6 +769,181 @@ pub const SECTIONS: &[Section] = &[
                 "SwearXpCost",
                 "An oath of allegiance costs unassigned experience once a character has broken from\n\
                  a patron (before Throne of Destiny; on in infiltration).",
+            ),
+            // The later actions and rules (the table's second version): on at the end of retail
+            // and in February 2005, off in Launch.
+            system(
+                "lifestone_protection",
+                "LifestoneProtection",
+                "A minute of invulnerability after resurrecting at a lifestone.",
+            ),
+            system(
+                "creation_credit_carry_over",
+                "CreationCreditCarryOver",
+                "Skill credits left unspent at character creation are kept, not lost.",
+            ),
+            system(
+                "skill_alteration",
+                "SkillAlteration",
+                "Untraining, unspecializing and specializing skills after creation.",
+            ),
+            system("augmentations", "Augmentations", "Buying augmentations with experience."),
+            system("pk_lite", "PkLite", "Entering PK Lite, the optional lighter PK status."),
+            system("marketplace_recall", "MarketplaceRecall", "The @marketplace recall."),
+            system(
+                "endurance_benefits",
+                "EnduranceBenefits",
+                "Strength and Endurance raising natural resistances, health regeneration and stamina savings.",
+            ),
+            system(
+                "lifestone_recall",
+                "LifestoneRecall",
+                "@lifestone recalls for half the character's mana, and @die kills. Off, @lifestone kills\n\
+                 the character and there is no @die.",
+            ),
+            system(
+                "pk_arena_recalls",
+                "PkArenaRecalls",
+                "The @pkarena and @pklarena recalls.",
+            ),
+            system(
+                "player_corpse_hour_minimum",
+                "PlayerCorpseHourMinimum",
+                "A player corpse holding items lasts at least an hour. Off, five minutes a level.",
+            ),
+            system(
+                "component_burn_skill_discount",
+                "ComponentBurnSkillDiscount",
+                "Casting skill above a spell's power lowers the chance of burning its components.",
+            ),
+            system(
+                "war_and_life_projectile_criticals",
+                "WarAndLifeProjectileCriticals",
+                "War and Life Magic projectiles can strike critically.",
+            ),
+            system(
+                "war_magic_skill_damage_bonus",
+                "WarMagicSkillDamageBonus",
+                "A player's War Magic projectiles gain damage from skill above the spell's power.",
+            ),
+            system(
+                "transfer_overflow_reduces_source",
+                "TransferOverflowReducesSource",
+                "A transfer spell whose target cannot take its whole benefit costs its source less.",
+            ),
+            system(
+                "item_enchantment_redirection",
+                "ItemEnchantmentRedirection",
+                "An item enchantment cast on a creature lands on the items it wears.",
+            ),
+            // The table's third version: on at the end of retail and in February 2005, off in
+            // Launch.
+            system(
+                "spell_tabs",
+                "SpellTabs",
+                "The spellcasting panel's tabs (the client only; the server announces it).",
+            ),
+            system(
+                "fellowship_options",
+                "FellowshipOptions",
+                "A fellowship's founder chooses whether it shares experience. Off, every fellowship shares.",
+            ),
+            system(
+                "corpse_permissions",
+                "CorpsePermissions",
+                "@permit and @consent: letting other players loot your corpse.",
+            ),
+            system(
+                "corpse_location_notices",
+                "CorpseLocationNotices",
+                "Telling a player where its corpse lies after an outdoor death.",
+            ),
+            system(
+                "chat_log",
+                "ChatLog",
+                "@log, copying the chat window to a file (the client only; the server announces it).",
+            ),
+            system("corpse_command", "CorpseCommand", "@corpse, showing where the last outdoor death was."),
+            system(
+                "allegiance_messages",
+                "AllegianceMessages",
+                "The allegiance's message of the day, its broadcasts and its speaker.",
+            ),
+            system(
+                "allegiance_oath_confirmation",
+                "AllegianceOathConfirmation",
+                "A patron is asked to accept an oath. Off, an oath is accepted at once.",
+            ),
+            system(
+                "allegiance_boot",
+                "AllegianceBoot",
+                "Booting a member out of the allegiance.",
+            ),
+            system(
+                "appraisal_without_skills",
+                "AppraisalWithoutSkills",
+                "Appraising an item needs no skill. Off, the appraisal skill for its kind is rolled\n\
+                 against the item's difficulty.",
+            ),
+            system(
+                "trade_notes_cash_anywhere",
+                "TradeNotesCashAnywhere",
+                "Trade notes cash at face value at any vendor and sell at 15% over it. Off, they sell at\n\
+                 10% over and cash in full only at the vendor that issued them, at 80% elsewhere.",
+            ),
+            system(
+                "allegiance_officers_and_bans",
+                "AllegianceOfficersAndBans",
+                "Allegiance officers, their titles, the allegiance lock and account bans.",
+            ),
+            system("allegiance_name", "AllegianceName", "Naming the allegiance."),
+            system(
+                "fellowship_share_loot",
+                "FellowshipShareLoot",
+                "A fellowship shares its creatures' loot where its founder chooses to.",
+            ),
+            system(
+                "fellowship_auto_accept",
+                "FellowshipAutoAccept",
+                "A character may accept every fellowship invitation at once. Off, every invitation asks.",
+            ),
+            system(
+                "fellowship_open",
+                "FellowshipOpen",
+                "A leader may open a fellowship, so that any member may recruit.",
+            ),
+            system(
+                "allegiance_chat",
+                "AllegianceChat",
+                "The allegiance chat room.",
+            ),
+            system_off(
+                "creation_skill_bonus_as_experience",
+                "CreationSkillBonusAsExperience",
+                "The bonus for a skill trained or specialized at character creation is free experience,\n\
+                 so the next rank costs what that rank costs. Off, a specialized skill starts with 10\n\
+                 ranks no experience paid for.",
+            ),
+            system(
+                "global_chat_rooms",
+                "GlobalChatRooms",
+                "The game's own chat rooms: General, Trade, LFG, Roleplay, Society and Olthoi.",
+            ),
+            system_off(
+                "spell_charge",
+                "SpellCharge",
+                "A charge on each spell a character knows, spent by casting it and regained over time.",
+            ),
+            system_off(
+                "spell_economy",
+                "SpellEconomy",
+                "A world-wide value on each spell, spent by everyone casting it and regained over hours.",
+            ),
+            e(
+                "any_dat_files",
+                "AnyDatFiles",
+                "Start even when the data files are not the ones the era expects (a Launch world on\n\
+                 later files, ...). The server logs which files it found.",
             ),
         ],
     },

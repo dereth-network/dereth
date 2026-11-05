@@ -138,6 +138,8 @@ pub struct Session {
     store: Box<dyn SourceStore>,
     sources: Sources,
     history: History,
+    /// The step changes are gathered into, between [`Session::begin_step`] and [`Session::end_step`].
+    gathering: Option<Step>,
     files: Files,
     base: Arc<Base>,
     /// The base's rows by item, as indexes into its merged rows.
@@ -169,6 +171,17 @@ impl std::fmt::Debug for Session {
 
 fn not_found(item: &str) -> String {
     format!("no row {item} in the world")
+}
+
+/// Which cell a copy of a row stands in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CopyCell {
+    /// The land cell under it, or the room the row was in.
+    Follows,
+    /// The land cell under it.
+    Land,
+    /// This room.
+    Room(u32),
 }
 
 impl Session {
@@ -229,6 +242,7 @@ impl Session {
             store,
             sources: Sources::default(),
             history: History::default(),
+            gathering: None,
             files,
             base: Arc::new(base),
             base_items,
@@ -390,8 +404,30 @@ impl Session {
             return;
         }
         self.put_texts(&step.after);
-        self.history.record(step);
+        match &mut self.gathering {
+            Some(g) => {
+                for (path, text) in step.before {
+                    g.before.entry(path).or_insert(text);
+                }
+                g.after.extend(step.after);
+            }
+            None => self.history.record(step),
+        }
         self.refresh();
+    }
+
+    /// Changes from here to [`Session::end_step`] undo as one step.
+    pub fn begin_step(&mut self) {
+        self.gathering.get_or_insert_with(Step::default);
+    }
+
+    /// The changes since [`Session::begin_step`] become one step.
+    pub fn end_step(&mut self) {
+        if let Some(g) = self.gathering.take() {
+            if !g.after.is_empty() {
+                self.history.record(g);
+            }
+        }
     }
 
     /// Read, check and merge the world again.
@@ -507,6 +543,15 @@ impl Session {
     /// # Errors
     /// The target's file for it is not TOML.
     pub fn place(&mut self, new: &NewRow) -> Result<String, String> {
+        self.place_in(new, None)
+    }
+
+    /// Place a new row in a cell of its landblock named in full (an interior cell, say; a row with
+    /// none stands in the land cell under it). Answers its item.
+    ///
+    /// # Errors
+    /// The target's file for it is not TOML.
+    pub fn place_in(&mut self, new: &NewRow, cell: Option<u32>) -> Result<String, String> {
         let lb = new.landblock;
         let at = At {
             x: new.at[0],
@@ -529,10 +574,11 @@ impl Session {
                     },
                     id: None,
                     template: new.template,
-                    cell: None,
+                    cell,
                     at,
                     rotation: None,
                     heading: Some(new.heading.rem_euclid(360.0)),
+                    scale: None,
                     name: None,
                     name_text: None,
                     to: None,
@@ -567,7 +613,7 @@ impl Session {
                 let (radius, population, regen) = NEW_CAMP;
                 let c = Camp {
                     key: key.clone(),
-                    cell: None,
+                    cell,
                     at,
                     radius,
                     spots: Vec::new(),
@@ -598,7 +644,7 @@ impl Session {
                 let key = self.free_key("place", |k| ItemKey::Place { key: k.into() });
                 let pl = Place {
                     key: key.clone(),
-                    cell: Some(outdoor_cell(lb, at.x, at.y)),
+                    cell: cell.or_else(|| Some(outdoor_cell(lb, at.x, at.y))),
                     at,
                     rotation: None,
                     heading: Some(new.heading.rem_euclid(360.0)),
@@ -710,6 +756,57 @@ impl Session {
         })
     }
 
+    /// Give a place this world added another key, and every row of this world that leads to it
+    /// the new one, as one step. Answers the place's new item.
+    ///
+    /// # Errors
+    /// No such place, a place of another pack, a key that is not one or is taken.
+    pub fn rename_place(&mut self, item: &str, new: &str) -> Result<String, String> {
+        let e = self.entry(item).ok_or_else(|| not_found(item))?.clone();
+        let Row::Place(p) = &e.row.row else {
+            return Err(format!("{item} is not a place"));
+        };
+        if e.layer != Layer::Target {
+            return Err(format!(
+                "{item} is not this world's own: only its own can be renamed"
+            ));
+        }
+        if !yalain_world_db::rows::is_symbol(new) {
+            return Err(format!("{new}: a key is letters, digits, - and _"));
+        }
+        let renamed = ItemKey::Place { key: new.into() }.to_string();
+        if self.entry(&renamed).is_some() {
+            return Err(format!("{new}: there is a place of that key"));
+        }
+        let old = p.key.clone();
+        let leading: Vec<String> = self
+            .entries()
+            .iter()
+            .filter(|l| l.layer == Layer::Target)
+            .filter(|l| match &l.row.row {
+                Row::Object(o) => o.to.as_deref() == Some(&old),
+                Row::Step(s) => s.to.as_deref() == Some(&old),
+                _ => false,
+            })
+            .map(|l| l.item.clone())
+            .collect();
+        self.begin_step();
+        let done = self
+            .change(item, |t| {
+                t.insert("key", Item::Value(Value::from(new)));
+            })
+            .and_then(|_| {
+                leading.iter().try_for_each(|l| {
+                    self.change(l, |t| {
+                        t.insert("to", Item::Value(Value::from(new)));
+                    })
+                    .map(|_| ())
+                })
+            });
+        self.end_step();
+        done.map(|()| renamed)
+    }
+
     /// Set one field of a row to `value`, written as TOML (`0x47002224`, `5.0`, `"inn"`), or take
     /// it away with an empty `value`. A row's key names it and is not changed here. A change that
     /// leaves the row unread (a value of the wrong type, a needed field taken away) is refused,
@@ -786,6 +883,22 @@ impl Session {
     /// # Errors
     /// No such row, a row of another pack, or a file that is not TOML.
     pub fn move_to(&mut self, item: &str, landblock: u16, at: [f32; 3]) -> Result<String, String> {
+        self.move_into(item, landblock, at, None)
+    }
+
+    /// Move a row to `at` in `landblock`, in a cell named in full: indoors and out, or from room to
+    /// room. With none, a land cell follows the point and an interior cell is kept. Answers its
+    /// item, which names the new landblock when it moved into another.
+    ///
+    /// # Errors
+    /// No such row, a row of another pack, or a file that is not TOML.
+    pub fn move_into(
+        &mut self,
+        item: &str,
+        landblock: u16,
+        at: [f32; 3],
+        cell: Option<u32>,
+    ) -> Result<String, String> {
         let (e, mut table) = self.editable(item)?;
         let point = At {
             x: at[0],
@@ -800,7 +913,9 @@ impl Session {
                 .is_none_or(|c| c & 0xFFFF < 0x100)
         };
         let is_place = matches!(e.row.row, Row::Place(_));
-        if outdoor(&table) && (is_place || table.contains_key("cell")) {
+        if let Some(cell) = cell {
+            table.insert("cell", Item::Value(rowtoml::hex(cell)));
+        } else if outdoor(&table) && (is_place || table.contains_key("cell")) {
             table.insert(
                 "cell",
                 Item::Value(rowtoml::hex(outdoor_cell(landblock, at[0], at[1]))),
@@ -849,6 +964,117 @@ impl Session {
         push_row(&mut new_doc, kind, table);
         self.commit(vec![(old, text_of(&old_doc)), (new, text_of(&new_doc))]);
         Ok(named(&key).to_string())
+    }
+
+    /// Copy a row to `at` in `landblock`, with a key of its own and all else as it is. Answers the
+    /// copy's item. The copy is always a new row of the target, whichever pack the row is from; an
+    /// object's world-wide id stays with the row it was given to.
+    ///
+    /// # Errors
+    /// No such row, or a file that is not TOML.
+    pub fn duplicate(
+        &mut self,
+        item: &str,
+        landblock: u16,
+        at: [f32; 3],
+    ) -> Result<String, String> {
+        self.copy_row(item, landblock, at, CopyCell::Follows)
+    }
+
+    /// Copy a row to `at` in `landblock`, among the rooms in `room`'s, or out of any room when
+    /// there is none. Otherwise as [`Self::duplicate`].
+    ///
+    /// # Errors
+    /// No such row, or a file that is not TOML.
+    pub fn copy_to(
+        &mut self,
+        item: &str,
+        landblock: u16,
+        at: [f32; 3],
+        room: Option<u32>,
+    ) -> Result<String, String> {
+        let cell = room.map_or(CopyCell::Land, CopyCell::Room);
+        self.copy_row(item, landblock, at, cell)
+    }
+
+    fn copy_row(
+        &mut self,
+        item: &str,
+        landblock: u16,
+        at: [f32; 3],
+        cell: CopyCell,
+    ) -> Result<String, String> {
+        let e = self.entry(item).ok_or_else(|| not_found(item))?.clone();
+        // Another pack's row is read, and only copied.
+        let mut table = if e.layer == Layer::Other {
+            let doc = self.doc(&e.row.file)?;
+            find_row(&doc, e.row.row.kind(), &key_of(&e.row.row))
+                .cloned()
+                .ok_or_else(|| format!("{item}: not found in {}", e.row.file))?
+        } else {
+            self.editable(item)?.1
+        };
+        let word = word_of(&e.row.row);
+        let (key, new) = match e.row.row {
+            Row::Camp(_) => {
+                let named = |k: &str| ItemKey::Camp {
+                    key: k.into(),
+                    landblock,
+                };
+                let key = self.free_key(word, named);
+                let i = named(&key);
+                (key, i)
+            }
+            Row::Place(_) => {
+                let named = |k: &str| ItemKey::Place { key: k.into() };
+                let key = self.free_key(word, named);
+                let i = named(&key);
+                (key, i)
+            }
+            _ => {
+                let named = |k: &str| ItemKey::Object {
+                    key: k.into(),
+                    landblock,
+                };
+                let key = self.free_key(word, named);
+                let i = named(&key);
+                (key, i)
+            }
+        };
+        table.insert("key", Item::Value(Value::from(key.as_str())));
+        table.remove("id");
+        table.insert(
+            "at",
+            Item::Value(rowtoml::point(At {
+                x: at[0],
+                y: at[1],
+                z: Some(at[2]),
+            })),
+        );
+        // A land cell follows the point; an interior cell is kept unless the copy goes elsewhere.
+        let interior = table
+            .get("cell")
+            .and_then(Item::as_integer)
+            .is_some_and(|c| c & 0xFFFF >= 0x100);
+        let is_place = matches!(e.row.row, Row::Place(_));
+        if let CopyCell::Room(room) = cell {
+            table.insert("cell", Item::Value(rowtoml::hex(room)));
+        } else if (cell == CopyCell::Land || !interior) && (is_place || table.contains_key("cell"))
+        {
+            table.insert(
+                "cell",
+                Item::Value(rowtoml::hex(outdoor_cell(landblock, at[0], at[1]))),
+            );
+        }
+        let file = if is_place {
+            self.places_file()
+        } else {
+            self.landblock_file(landblock)
+        };
+        let mut doc = self.doc(&file)?;
+        push_row(&mut doc, e.row.row.kind(), table);
+        self.commit(vec![(file, Some(doc.to_string()))]);
+        Ok(new.to_string())
     }
 
     /// Take a row away: the target's own is deleted, the base's is removed by item.

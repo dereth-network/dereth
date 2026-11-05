@@ -36,7 +36,7 @@ use auberean_ui::manager::{global, LAYOUT_MAPPING};
 use auberean_ui::types::key_id;
 use auberean_ui::{Handle, Token, Ui, Value};
 
-use crate::gameplay::{Child, Notice, Request, View};
+use crate::gameplay::{Child, Notice, Record, Request, View};
 use crate::shortcuts::TOOLBAR_LAYOUT_ENUM;
 
 /// The kinds of text the chat windows show, a bit each.
@@ -438,6 +438,7 @@ pub enum Ask {
 /// A line for the chat windows: its kind, its text as written, and the string reference it was
 /// written from when it came as one (the log adds the reference, written once its tables are at
 /// hand).
+// D2-03085
 #[derive(Clone, Debug)]
 struct Line {
     kind: u32,
@@ -783,8 +784,7 @@ impl ChatPane {
         tell.add_variable_string(tok::TARGET.raw(), &units);
         let Some(e) = self.entry else { return };
         let info = self.message_info(text_type::CHAT_ENTRY).unwrap_or_default();
-        let text = write(ui, &tell);
-        ui.set_string_with_font(e, &text, info.size, info.color);
+        ui.set_string_info_with_font(e, &tell, info.size, info.color);
         ui.select_all(e);
         ui.activate_element(e);
     }
@@ -831,6 +831,15 @@ impl ChatPane {
         }
     }
 
+    /// The window's size changed under its log: the log shows its newest lines, unless locked.
+    fn show_newest_lines(&self, ui: &mut Ui) {
+        let Some(log) = self.log else { return };
+        if !self.temp_lock && !self.perm_lock {
+            ui.recalculate_glyph_list(log);
+            ui.scroll_to_end(log);
+        }
+    }
+
     /// A line from one of the lists, given back while the entry has the keyboard: a typed line
     /// into the entry, selected; a tell's name as a tell to them.
     // D2-03108, D2-03109, D2-03110
@@ -862,9 +871,13 @@ impl ChatPane {
     /// An interface key for this window: with Ctrl alone the arrows go through the tells sent
     /// and Home and End go to the log's start and end; with Shift alone the arrows go through the
     /// tells answered; with neither the arrows go through the lines typed, the page keys page the
-    /// log and Escape stops typing at the next tick. Returns whether it used the key.
+    /// log and Escape stops typing at the next tick. With Alt held it uses none of them. Returns
+    /// whether it used the key.
     // D2-03115
     fn key_press(&mut self, ui: &mut Ui, k: u32, window: usize, out: &mut Vec<Request>) -> bool {
+        if ui.alt_held() {
+            return false;
+        }
         let (shift, ctrl) = ui.modifiers();
         let list = if ctrl && !shift {
             match k {
@@ -1094,9 +1107,19 @@ pub struct ChatUi {
     /// The lines that came after the scripts said the options changed, before the windows read
     /// them again: each window takes them by what it shows once it has.
     held: Vec<Line>,
+    /// A reload still waited as the last frame ended.
+    waiting: bool,
 }
 
 impl ChatUi {
+    /// The windows were laid out anew from a layout file: each log shows its newest lines, unless
+    /// locked.
+    pub fn show_newest_lines(&self, ui: &mut Ui) {
+        for w in &self.windows {
+            w.show_newest_lines(ui);
+        }
+    }
+
     /// The chat panel under the toolbar's framework: the line of messages found, the clock and
     /// the interface keys heard, its windows made.
     // D2-02485
@@ -1119,6 +1142,7 @@ impl ChatUi {
             reload_chat: None,
             reload_options: None,
             held: Vec::new(),
+            waiting: false,
         };
         me.init(ui);
         me
@@ -1638,9 +1662,19 @@ impl Child for ChatUi {
     }
 
     /// The chat options or the player's options changed (the player's options with the chat's
-    /// read again first): the windows read them again once the client has.
-    fn notice(&mut self, _ui: &mut Ui, n: &Notice, _out: &mut Vec<Request>) {
+    /// read again first): the windows read them again once the client has. A tell to someone
+    /// goes in the entry of the window keys are for.
+    fn notice(&mut self, ui: &mut Ui, n: &Notice, _out: &mut Vec<Request>) {
         match n.native {
+            notice::DO_ASSISTED_TELL => {
+                let target = n.records.iter().flatten().find_map(|r| match r {
+                    Record::Text(t) => ui.assets().write(t),
+                    _ => None,
+                });
+                if let Some(target) = target {
+                    self.do_assisted_tell(ui, &target);
+                }
+            }
             notice::RELOAD_CHAT_SETTINGS => self.reload_chat = Some(self.seen),
             crate::gameplay::notice::RELOAD_OPTIONS => self.reload_options = Some(self.seen),
             _ => {}
@@ -1654,17 +1688,33 @@ impl Child for ChatUi {
     /// its options, then the lines about the services it could not reach), and the windows read
     /// the options as the scripts left them: a line that comes while the options wait to be read
     /// again is held until they have been, and each window then takes it by what it shows.
+    ///
+    /// A line written before those options were set is taken at once, by what the windows show
+    /// now: as a character enters, that is nothing yet.
     fn update(&mut self, ui: &mut Ui, view: &View<'_>, out: &mut Vec<Request>) {
+        let before = if self.waiting {
+            0
+        } else {
+            view.lines_before_options
+        };
         for (i, (kind, text)) in view.lines.iter().enumerate() {
             self.display_string_info(*kind, text);
-            self.held.push(Line {
+            let line = Line {
                 kind: *kind,
                 text: text.clone(),
                 info: view.line_infos.get(i).cloned().flatten(),
-            });
+            };
+            if i < before {
+                for w in &mut self.windows {
+                    w.display_string_info(&line);
+                }
+            } else {
+                self.held.push(line);
+            }
         }
         self.reload(ui, view);
-        if self.reload_chat.is_none() && self.reload_options.is_none() {
+        self.waiting = self.reload_chat.is_some() || self.reload_options.is_some();
+        if !self.waiting {
             for line in std::mem::take(&mut self.held) {
                 for w in &mut self.windows {
                     w.display_string_info(&line);

@@ -59,9 +59,84 @@ pub fn sell_price(unit_value: i32, obj_type: u32, mut rate: f32, count: i32) -> 
     p
 }
 
+/// What a trade note sells for, over its value, on a world whose notes know their issuer.
+pub const EARLY_NOTE_SELL_RATE: f32 = 1.1;
+/// What a vendor pays for a trade note it issued, over its value, on such a world.
+pub const EARLY_NOTE_ISSUER_BUY_RATE: f32 = 1.0;
+/// What a vendor pays for a trade note it did not issue, over its value, on such a world.
+pub const EARLY_NOTE_FOREIGN_BUY_RATE: f32 = 0.8;
+
+/// What `count` trade notes of `unit_value` cost on a world whose notes know their issuer. Both
+/// the client's window and the server's charge are this number.
+#[must_use]
+pub fn early_note_sell_price(unit_value: i32, count: i32) -> i32 {
+    sell_price(unit_value, 0, EARLY_NOTE_SELL_RATE, count)
+}
+
+/// What a vendor pays for `count` trade notes of `unit_value` on a world whose notes know their
+/// issuer, whether or not it issued them.
+#[must_use]
+pub fn early_note_buy_price(unit_value: i32, count: i32, issued_here: bool) -> i32 {
+    let rate = if issued_here {
+        EARLY_NOTE_ISSUER_BUY_RATE
+    } else {
+        EARLY_NOTE_FOREIGN_BUY_RATE
+    };
+    buy_price(unit_value, 0, rate, count)
+}
+
+/// [`buy_price`] on a world whose trade notes do or do not cash anywhere. Without it only the
+/// vendor that issued a note pays its face value. Nothing tells the client who issued one, so a
+/// note is priced at what any vendor pays; its issuer pays more.
+#[must_use]
+pub fn buy_price_on_world(
+    notes_cash_anywhere: bool,
+    unit_value: i32,
+    obj_type: u32,
+    rate: f32,
+    count: i32,
+) -> i32 {
+    if !notes_cash_anywhere && obj_type == item_type::PROMISSORY_NOTE {
+        return early_note_buy_price(unit_value, count, false);
+    }
+    buy_price(unit_value, obj_type, rate, count)
+}
+
+/// [`sell_price`] on a world whose trade notes do or do not cash anywhere.
+#[must_use]
+pub fn sell_price_on_world(
+    notes_cash_anywhere: bool,
+    unit_value: i32,
+    obj_type: u32,
+    rate: f32,
+    count: i32,
+) -> i32 {
+    if !notes_cash_anywhere && obj_type == item_type::PROMISSORY_NOTE {
+        return early_note_sell_price(unit_value, count);
+    }
+    sell_price(unit_value, obj_type, rate, count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Behaviour: presentation.era.trade-note-prices-follow-the-world
+    /// A world whose notes know their issuer sells one at 1.1 times its value and pays 0.8 for it;
+    /// a later world's notes are 1.15 and face value, whatever the vendor's rates.
+    #[test]
+    fn trade_notes_price_by_the_worlds_rule() {
+        let note = item_type::PROMISSORY_NOTE;
+        assert_eq!(sell_price_on_world(true, 1000, note, 1.5, 1), 1150);
+        assert_eq!(buy_price_on_world(true, 1000, note, 0.5, 1), 1000);
+        assert_eq!(sell_price_on_world(false, 1000, note, 1.5, 1), 1100);
+        assert_eq!(buy_price_on_world(false, 1000, note, 0.5, 1), 800);
+        // Anything else is priced at the vendor's rates on either world.
+        for cash_anywhere in [true, false] {
+            assert_eq!(sell_price_on_world(cash_anywhere, 1000, 0, 1.5, 1), 1500);
+            assert_eq!(buy_price_on_world(cash_anywhere, 1000, 0, 0.5, 1), 500);
+        }
+    }
 
     /// The price chain is **f64**, and the fudge constant is a true `0.1`.
     ///

@@ -182,6 +182,7 @@ fn a_spell_dragged_along_the_spell_bar_leaves_its_slot_and_lands_one_earlier() {
         in_world: true,
         name: "Tester".into(),
         spells: vec![Spell {
+            charge: None,
             id: 7,
             name: "Flame Bolt I".into(),
             school: 1,
@@ -375,5 +376,30 @@ fn a_full_page_of_spells_offers_an_empty_next_page_to_drop_a_new_spell_onto() {
     assert!(
         slot(&h, 12).is_some(),
         "the empty second page takes a drop in its first slot"
+    );
+}
+
+/// Behaviour: presentation.era.key-rows-and-option-keys-follow-the-world
+/// One bar of favorites: the tab keys stay on it, and it casts from no bank it does not show.
+#[test]
+fn a_world_with_one_bar_of_favorites_stays_on_it_and_casts_only_from_it() {
+    use dereth_client_contract::view::MagicNotice as M;
+    let state = GameState {
+        in_world: true,
+        name: "Tester".into(),
+        spell_tabs: vec![vec![7]],
+        ..GameState::default()
+    };
+    let mut h = Harness::new(Default::default());
+    h.frame(&state);
+    for notice in [M::NextSpellTab, M::PrevSpellTab, M::LastSpellTab] {
+        h.ui.magic_notices.push(notice);
+        h.frame(&state);
+        assert_eq!(h.ui.hud.spell_tab(), 0, "{notice:?}");
+    }
+    h.ui.magic_notices.push(M::CastCurrentSpell);
+    assert_eq!(
+        h.frame(&state).requests,
+        vec![UiRequest::CastSpell { spell_id: 7 }]
     );
 }

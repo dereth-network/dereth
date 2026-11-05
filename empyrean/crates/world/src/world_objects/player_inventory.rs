@@ -3082,62 +3082,61 @@ pub fn check_wield_requirement(
     let skill_or_attribute = wield_skill_type.unwrap_or(0);
     let difficulty = wield_difficulty.unwrap_or(0) as u32; // C#'s (uint)int
 
+    // DIVERGE: V507, a stat the character has no record of counts as zero: the item is refused.
     let skill = |w: &mut World| {
         let moa = world_object::convert_to_mo_a_skill(w, this, Skill(skill_or_attribute));
-        obj_mut(w, this)
-            .get_creature_skill(moa, false)
-            .expect("System.NullReferenceException: skill")
+        obj_mut(w, this).get_creature_skill(moa, false)
     };
-    let attribute = CreatureAttribute {
-        attribute: PropertyAttribute(skill_or_attribute as u16),
+    let attribute = |w: &World| {
+        let key = PropertyAttribute(skill_or_attribute as u16);
+        obj(w, this)
+            .biota
+            .properties_attribute
+            .as_ref()
+            .is_some_and(|records| records.contains_key(&key))
+            .then_some(CreatureAttribute { attribute: key })
     };
     let vital = |w: &World| {
         let key = PropertyAttribute2nd(skill_or_attribute as u16);
-        obj(w, this)
-            .vitals()
-            .get(&key)
-            .copied()
-            .expect("System.NullReferenceException: vital")
+        obj(w, this).vitals().get(&key).copied()
     };
 
     match wield_requirement {
         WieldRequirement::Skill => {
             // verify skill level - current / buffed
-            let s = skill(w);
-            if s.current(w, this) < difficulty {
+            if skill(w).map_or(0, |s| s.current(w, this)) < difficulty {
                 return WeenieError::SkillTooLow;
             }
         }
         WieldRequirement::RawSkill => {
             // verify skill level - base
-            let s = skill(w);
-            if s.base(w, obj(w, this)) < difficulty {
+            if skill(w).map_or(0, |s| s.base(w, obj(w, this))) < difficulty {
                 return WeenieError::SkillTooLow;
             }
         }
         WieldRequirement::Attrib => {
             // verify primary attribute - current / buffed
-            if attribute.current(&mut StatCtx::in_world(w, this)) < difficulty {
+            let current = attribute(w).map_or(0, |a| a.current(&mut StatCtx::in_world(w, this)));
+            if current < difficulty {
                 return WeenieError::SkillTooLow;
             }
         }
         WieldRequirement::RawAttrib => {
             // verify primary attribute - base
-            if attribute.base(obj(w, this)) < difficulty {
+            if attribute(w).map_or(0, |a| a.base(obj(w, this))) < difficulty {
                 return WeenieError::SkillTooLow;
             }
         }
         WieldRequirement::SecondaryAttrib => {
             // verify vital - current maxvalue
-            let v = vital(w);
-            if v.max_value(&mut StatCtx::in_world(w, this)) < difficulty {
+            let max = vital(w).map_or(0, |v| v.max_value(&mut StatCtx::in_world(w, this)));
+            if max < difficulty {
                 return WeenieError::SkillTooLow;
             }
         }
         WieldRequirement::RawSecondaryAttrib => {
             // verify vital - base
-            let v = vital(w);
-            if v.base(w, obj(w, this)) < difficulty {
+            if vital(w).map_or(0, |v| v.base(w, obj(w, this))) < difficulty {
                 return WeenieError::SkillTooLow;
             }
         }
@@ -3149,8 +3148,8 @@ pub fn check_wield_requirement(
         }
         WieldRequirement::Training => {
             // verify skill is trained / specialized
-            let s = skill(w);
-            if i64::from(s.advancement_class(obj(w, this)).0) < i64::from(difficulty) {
+            let class = skill(w).map_or(0, |s| s.advancement_class(obj(w, this)).0);
+            if i64::from(class) < i64::from(difficulty) {
                 return WeenieError::SkillTooLow;
             }
         }

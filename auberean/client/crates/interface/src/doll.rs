@@ -75,7 +75,7 @@ impl Dolls {
     /// seeing straight on as much as the figure's framing says, the figure as the player looks.
     /// A search of the paper doll's figure under `pick` (window pixels) goes with the whole
     /// figure's scene, the pointer taken from its viewport's corner: that scene's place in `out`.
-    // D2-02900, D2-02322, D2-02907, D2-10483, D2-10490, D2-10492, D2-02902
+    // D2-02900, D2-02322, D2-02907, D2-06211, D2-06212, D2-05962, D2-10483, D2-10490, D2-10492, D2-02902, D2-02330, D2-02331
     pub fn scenes(
         &mut self,
         ui: &Ui,
@@ -141,6 +141,8 @@ impl Dolls {
                     still: true,
                 }],
                 pick,
+                behaviors: Vec::new(),
+                under: false,
             });
         }
         asked

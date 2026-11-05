@@ -89,6 +89,7 @@ pub struct DamageBlob {
 
 /// A damage text shown: its element, when it began (the interface's clock), how long it lasts,
 /// and the object it rises over.
+// D2-02105
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DamageText {
     pub element: Handle,
@@ -102,6 +103,7 @@ pub const SELECTION_WITH_NUMBERS: u32 = 0x4000_0001;
 
 /// A rectangle of the screen with its edges inclusive.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+// D2-02058
 pub struct Box2D {
     pub x0: i32,
     pub y0: i32,
@@ -130,6 +132,70 @@ impl Box2D {
             return false;
         }
         self.x0 <= other.x1 && self.x1 >= other.x0 && self.y0 <= other.y1 && self.y1 >= other.y0
+    }
+
+    /// Where two boxes overlap, when they do.
+    // D2-09620
+    #[must_use]
+    pub fn intersection(&self, other: &Self) -> Option<Self> {
+        let b = Self {
+            x0: self.x0.max(other.x0),
+            y0: self.y0.max(other.y0),
+            x1: self.x1.min(other.x1),
+            y1: self.y1.min(other.y1),
+        };
+        (b.x1 >= b.x0 && b.y1 >= b.y0).then_some(b)
+    }
+
+    /// Whether `other` lies wholly inside this box.
+    // D2-11193
+    #[must_use]
+    pub const fn includes(&self, other: &Self) -> bool {
+        self.x0 <= other.x0 && other.x1 <= self.x1 && self.y0 <= other.y0 && other.y1 <= self.y1
+    }
+
+    /// What is left of this box with `other` taken out, as up to four boxes: the part left of it
+    /// and the part right of it at this box's whole height, then below and above it between them.
+    /// Nothing when the two do not overlap.
+    // D2-11229
+    #[must_use]
+    pub fn subtract(&self, other: &Self) -> Vec<Self> {
+        let mut left = Vec::new();
+        if !self.collide(other) {
+            return left;
+        }
+        let (mut x0, mut x1) = (self.x0, self.x1);
+        if x0 <= other.x0 {
+            left.push(Self {
+                x1: other.x0 - 1,
+                ..*self
+            });
+            x0 = other.x0;
+        }
+        if other.x1 <= x1 {
+            left.push(Self {
+                x0: other.x1 + 1,
+                ..*self
+            });
+            x1 = other.x1;
+        }
+        if self.y0 <= other.y0 {
+            left.push(Self {
+                x0,
+                x1,
+                y0: self.y0,
+                y1: other.y0 - 1,
+            });
+        }
+        if other.y1 <= self.y1 {
+            left.push(Self {
+                x0,
+                x1,
+                y0: other.y1 + 1,
+                y1: self.y1,
+            });
+        }
+        left
     }
 }
 
@@ -513,7 +579,7 @@ impl Names {
                 continue;
             }
             placed.push(b);
-            ui.move_to(d.element, b.x0, b.y0);
+            ui.move_picture(d.element, b.x0, b.y0);
             ui.set_visible(d.element, true);
         }
         self.damage = kept;
@@ -681,7 +747,7 @@ impl Names {
     /// The box an object fills on the screen (clip square: x and y from -1 to 1), its recent
     /// boxes averaged; and whether any corner of it is on the screen. `None` when it is not
     /// drawn or the world has no camera yet.
-    // D2-02108, D2-13233, D2-13225, D2-08173, D2-08174, D2-08175
+    // D2-02108, D2-13233, D2-06337, D2-13225, D2-08173, D2-08174, D2-08175
     fn object_to_window(
         world: &World,
         t: &Thing,
@@ -797,7 +863,7 @@ impl Names {
         ui.set_visible(o, true);
         hide.off_screen = false;
         ui.set_rotation(o, angle + tilt);
-        ui.move_to(o, px, py);
+        ui.move_picture(o, px, py);
         self.reticle_box = Box2D::sized(px, py, ow, oh);
     }
 
@@ -879,7 +945,7 @@ impl Names {
             if let Some(m) = self.reticle[i] {
                 ui.set_visible(m, true);
                 ui.set_rotation(m, turn);
-                ui.move_to(m, xs[i], ys[i]);
+                ui.move_picture(m, xs[i], ys[i]);
             }
             step += 90;
         }
@@ -905,14 +971,14 @@ impl Names {
             let stuff_y = name_y + nh;
             box_x0 = box_x0.min(stuff_x);
             box_x1 = box_x1.max(stuff_x + rw - 1);
-            ui.move_to(stuff, stuff_x, stuff_y);
+            ui.move_picture(stuff, stuff_x, stuff_y);
             ui.set_visible(stuff, true);
             hide.stuff = false;
         }
         self.reticle_box.x0 = box_x0;
         self.reticle_box.x1 = box_x1;
         self.reticle_box.y0 = name_y;
-        ui.move_to(name, name_x, name_y);
+        ui.move_picture(name, name_x, name_y);
         ui.set_visible(name, true);
         hide.name = false;
         hide.reticle = false;
@@ -1008,7 +1074,7 @@ impl Names {
                 continue;
             }
             placed.push(b);
-            ui.move_to(n.element, b.x0, b.y0);
+            ui.move_picture(n.element, b.x0, b.y0);
             ui.set_visible(n.element, true);
         }
         self.names = names;
@@ -1017,7 +1083,7 @@ impl Names {
     /// The names' frame: the selection's marks placed, then the names over heads.
     // D2-02126
     pub fn place_all(&mut self, ui: &mut Ui, world: &World, out: &mut Vec<Request>) {
-        let in_portal = world.portal_space;
+        let in_portal = world.portal_drawn;
         self.update_reticle(ui, world, in_portal, out);
         self.update_damage(ui, world, in_portal);
         if self.showing_names {
@@ -1234,5 +1300,31 @@ impl Child for Names {
 
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
+    }
+}
+
+#[cfg(test)]
+mod box_tests {
+    //! Behaviour: none (a box's sums, held to hand-worked values)
+    use super::Box2D;
+
+    const fn b(x0: i32, y0: i32, x1: i32, y1: i32) -> Box2D {
+        Box2D { x0, y0, x1, y1 }
+    }
+
+    #[test]
+    fn boxes_overlap_include_and_subtract() {
+        let big = b(0, 0, 9, 9);
+        let inner = b(3, 4, 5, 6);
+        assert_eq!(big.intersection(&b(5, 5, 20, 20)), Some(b(5, 5, 9, 9)));
+        assert_eq!(big.intersection(&b(10, 0, 20, 9)), None);
+        assert!(big.includes(&inner));
+        assert!(!inner.includes(&big));
+        assert!(!big.includes(&b(5, 5, 10, 6)));
+        assert_eq!(
+            big.subtract(&inner),
+            vec![b(0, 0, 2, 9), b(6, 0, 9, 9), b(3, 0, 5, 3), b(3, 7, 5, 9),]
+        );
+        assert_eq!(big.subtract(&b(20, 20, 30, 30)), Vec::new());
     }
 }

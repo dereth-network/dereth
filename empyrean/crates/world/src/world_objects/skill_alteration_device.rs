@@ -126,6 +126,15 @@ pub fn act_on_use(w: &mut World, this: ObjectGuid, activator: ObjectGuid, confir
         return;
     }
     let player = activator;
+    // DIVERGE: `EraFeatures::skill_alteration` (V461), before the gem's checks or question.
+    if !crate::world_objects::era_gates::has(
+        w,
+        player,
+        w.era.features.skill_alteration,
+        "skill alteration",
+    ) {
+        return;
+    }
 
     // verify skill
     let skill_to_be_altered = object(w, this).skill_to_be_altered();
@@ -317,6 +326,10 @@ pub fn alter_skill(
 ) {
     use crate::world_objects::player_skills;
 
+    // DIVERGE: `EraFeatures::skill_alteration` (V461), again at a confirmed use.
+    if !w.era.features.skill_alteration {
+        return;
+    }
     match object(w, this).type_of_alteration() {
         // Gem of Enlightenment
         SkillAlterationType::Specialize => {

@@ -215,6 +215,24 @@ impl Ui {
         n.resize_line = n.bool_attr(attr::RESIZE_LINE).then_some(n.rect);
         self.register_for_global_message(h, global::MOUSE_MOVE);
         self.mgr.resizing = Some(h);
+        self.touch();
+    }
+
+    /// Where a resize line shows on the screen, while an element under this top-level element is
+    /// being resized with one.
+    #[must_use]
+    pub fn resize_outline(&self, root: Handle) -> Option<Rect> {
+        let h = self.mgr.resizing?;
+        let line = self.node(h)?.resize_line?;
+        if self.root_of(h) != root {
+            return None;
+        }
+        let parent = self
+            .node(h)?
+            .parent
+            .and_then(|p| self.screen_rect(p))
+            .unwrap_or(Rect::new(0, 0, 0, 0));
+        Some(line.offset(parent.x0, parent.y0))
     }
 
     /// Stop resizing; with a resize line, the element takes the line's place and size now.
@@ -225,6 +243,7 @@ impl Ui {
         let line = n.resize_line.take();
         self.unregister_for_global_message(h, global::MOUSE_MOVE);
         self.mgr.resizing = None;
+        self.touch();
         if let Some(r) = line {
             self.move_to(h, r.x0, r.y0);
             self.resize_to(h, r.width(), r.height());
@@ -313,6 +332,7 @@ impl Ui {
             if let Some(n) = self.node_mut(h) {
                 n.resize_line = Some(Rect::new(l, t, r, b));
             }
+            self.touch();
         } else {
             self.move_to(h, l, t);
             self.resize_to(h, r - l + 1, b - t + 1);
@@ -342,6 +362,17 @@ impl Ui {
         if self.announces_place(h) {
             self.broadcast(h, msg::LOCATION_CHANGED, 0);
         }
+        if let Some(n) = self.node_mut(h) {
+            let (w, hh) = (n.rect.width(), n.rect.height());
+            n.rect = Rect::sized(x, y, w, hh);
+            n.sized = true;
+        }
+    }
+
+    /// Put a top-level element's picture at a place of the screen, with no word of its place and no
+    /// keeping it on the screen: the words the game sets over the world run off the edges.
+    // D2-10403
+    pub fn move_picture(&mut self, h: Handle, x: i32, y: i32) {
         if let Some(n) = self.node_mut(h) {
             let (w, hh) = (n.rect.width(), n.rect.height());
             n.rect = Rect::sized(x, y, w, hh);

@@ -20,9 +20,10 @@ pub static ROWS: &[Behaviour] = &[
     },
     behaviour! {
         id: "collision.contact.a-held-property-is-unchanged-or-changed",
-        says: "A property of something touched, touched again with the same value, is reported \
-               unchanged; with a new value of the same kind it takes the value and is reported \
-               changed; a value of another kind is ignored.",
+        says: "A property of something touched, touched again with the same value (a vector's \
+               parts within a tolerance), is reported unchanged; with a new value of the same \
+               kind it takes the value and is reported changed; a value of another kind is \
+               ignored.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-COLL-PROPERTY"),
         station: "auberean-physics::cpu::contact::collision::a_held_property_is_unchanged_or_changed",
@@ -289,6 +290,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "collision.objects.a-body-is-in-the-lists-of-cells-not-yet-in",
+        says: "A moving object reaching over a block's edge stands in the lists of the next \
+               block's cells whether or not that block is in.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-INIT-DYNAMIC"),
+        station: "auberean-physics::cpu::contact::objects::a_body_is_in_the_lists_of_cells_not_yet_in",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "collision.objects.a-body-runs-across-a-dais-reaching-into-its-cell",
         says: "A cell files what it places in every cell the box around what the thing draws \
                reaches: a body standing on the human training hall's dais in the cell beside the \
@@ -321,6 +331,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-CLIP"),
         station: "auberean-physics::cpu::contact::objects::a_polygon_clips_to_a_plane",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "collision.objects.a-solid-over-a-block-edge-is-in-the-next-blocks-cells",
+        says: "A solid reaching over a block's edge is met from the land cells it reaches in the \n               block next to it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LAND-OVERHANG"),
+        station: "auberean-physics::cpu::contact::objects::a_solid_over_a_block_edge_is_in_the_next_blocks_cells",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -421,6 +439,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "collision.solid.a-bodys-collisions-take-its-slowest-impact",
+        says: "The slowest impact a body's collisions report is the one its speed and jump scales \n               set.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-MIN-IMPACT"),
+        station: "auberean-physics::cpu::contact::solid::a_bodys_collisions_take_its_slowest_impact",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "collision.solid.a-creature-blocks-a-player-and-another-player-does-not",
         says: "Objects take the physics type and the movement mask their descriptions give; a player passes through another player (whose type carries a bit of the player's mask) and stops against a creature (whose type carries none).",
         since: RETAIL,
@@ -476,6 +502,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "collision.solid.outdoor-tree-scenery-asks-what-a-mover-passes",
+        says: "Scenery placed outside is an object like any other whatever its shape: tree-shaped \
+               scenery marked as something some mover passes through lets those movers by and holds \
+               the others up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-OUTDOOR-TREES-ASK"),
+        station: "auberean-physics::dat::objects::outdoor_tree_scenery_lets_by_only_those_that_pass_through_its_mark",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "collision.solid.scenery-takes-its-entitys-properties",
         says: "What a landblock or cell places takes the properties of the entities it is made \
                from, the outdoor scenery's type added outside: scenery whose entity is of the \
@@ -484,6 +520,22 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-PHYS-STATIC-PROPERTIES"),
         station: "auberean-physics::cpu::contact::solid::scenery_takes_its_entitys_properties",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "collision.solid.what-a-body-touches-pushes-it",
+        says: "An object whose description pushes moves what touches it, by the push for where the \n               body is, each tick it touches.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PHYS-TOUCH-PUSHERS"),
+        station: "auberean-physics::cpu::contact::solid::what_a_body_touches_pushes_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "collision.solid.what-stands-still-is-met-before-what-moves",
+        says: "In a cell's collision list what stands still comes first, in the order it came, then \n               what moves.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CELL-LIST-ORDER"),
+        station: "auberean-physics::cpu::contact::solid::what_stands_still_is_met_before_what_moves",
         tier: Tier::Cpu,
     },
 ];

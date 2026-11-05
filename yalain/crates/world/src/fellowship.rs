@@ -495,7 +495,7 @@ pub fn recruit<S: Store>(
     if s.fellowships.list[i].leader != me || s.fellowships.list[i].fellows.len() >= MOST {
         return;
     }
-    let Some(other) = world_of(s, target) else {
+    let Some(other) = crate::presence::player_for(s, world, target) else {
         show(net, world, REFUSED, progress::text(text::ONLY_PLAYERS));
         return;
     };

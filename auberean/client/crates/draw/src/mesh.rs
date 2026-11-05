@@ -22,6 +22,15 @@ pub struct MeshVertex {
     pub to_light: [f32; 3],
 }
 
+/// What a moved body changes of a vertex: where it stands and which way it faces. The rest of the
+/// vertex stays as the mesh has it, in a list kept from frame to frame.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PosedVertex {
+    pub position: [f32; 3],
+    pub normal: [f32; 3],
+}
+
 /// Where each element sits in a stored vertex, from the format word.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Layout {
@@ -165,6 +174,8 @@ pub struct Degrade {
     pub material_detail: u32,
     /// How opaque it is: it fades out over the last 7.5% of its visible distance.
     pub opacity: f32,
+    /// Its visible distance, with its scale.
+    pub visible: f32,
 }
 
 /// How an object at `distance` is drawn, from its setup's distances each scaled by `scale` (a
@@ -182,7 +193,22 @@ pub fn degrade(
     scale: f32,
     material_detail: u32,
 ) -> Option<Degrade> {
-    let visible = (scale * d.visible).max(20.0);
+    degrade_in(d, distance, scale, 1.0, material_detail)
+}
+
+/// [`degrade`] in a picture that takes the distances at `share` of what they are: the water's
+/// reflection, whose reach comes to that share of the object's visible distance, floor included.
+// D2-06658
+#[must_use]
+pub fn degrade_in(
+    d: &DetailDistances,
+    distance: f32,
+    scale: f32,
+    share: f32,
+    material_detail: u32,
+) -> Option<Degrade> {
+    let visible = (scale * d.visible).max(20.0) * share;
+    let scale = scale * share;
     if distance > visible {
         return None;
     }
@@ -205,17 +231,26 @@ pub fn degrade(
             materials = 1;
         }
     }
-    let edge = visible - visible * 0.075;
-    let opacity = if distance >= edge {
-        1.0 - (distance - edge) / (visible * 0.075)
-    } else {
-        1.0
-    };
+    let opacity = edge_opacity(visible, distance);
     (opacity > 0.0).then_some(Degrade {
         detail: t.clamp(0.0, 1.0),
         material_detail: materials,
         opacity,
+        visible,
     })
+}
+
+/// How opaque an object seen to `visible` is at `distance`: fading from 1 to 0 over the last 7.5%
+/// of it.
+// D2-06658
+#[must_use]
+pub fn edge_opacity(visible: f32, distance: f32) -> f32 {
+    let edge = visible - visible * 0.075;
+    if distance >= edge {
+        1.0 - (distance - edge) / (visible * 0.075)
+    } else {
+        1.0
+    }
 }
 
 /// How far a placed object's distances reach at the scenery draw distance preference (low,
@@ -230,24 +265,39 @@ pub fn scenery_scale(scenery_draw_distance: u32) -> f32 {
     }
 }
 
-/// The detail level drawn at detail `t` with model detail `model_detail` (0 to 2): of the levels
-/// marked for that model detail (all of them when none is), the one `(1 - t)` of the way down.
-// D2-05510
+/// The levels of `mesh` marked for model detail `model_detail` (0 to 2), all of them when none is.
 #[must_use]
-pub fn level_at(mesh: &Mesh, t: f32, model_detail: u32) -> Option<usize> {
+pub fn marked_levels(mesh: &Mesh, model_detail: u32) -> Vec<usize> {
     let bit = 1u32 << model_detail;
-    let mut marked: Vec<usize> = (0..mesh.levels.len())
+    let marked: Vec<usize> = (0..mesh.levels.len())
         .filter(|&k| mesh.levels[k].detail & bit != 0)
         .collect();
     if marked.is_empty() {
-        marked = (0..mesh.levels.len()).collect();
+        (0..mesh.levels.len()).collect()
+    } else {
+        marked
     }
-    let last = marked.len().checked_sub(1)?;
+}
+
+/// Which of the levels up to `last` detail `t` draws: the one `(1 - t)` of the way down.
+// D2-05510
+#[must_use]
+pub fn level_place(t: f32, last: usize) -> usize {
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
         clippy::cast_precision_loss
     )]
     let k = ((1.0 - t) * last as f32) as usize;
-    marked.get(k.min(last)).copied()
+    k.min(last)
+}
+
+/// The detail level drawn at detail `t` with model detail `model_detail` (0 to 2): of the levels
+/// marked for that model detail (all of them when none is), the one `(1 - t)` of the way down.
+// D2-05510
+#[must_use]
+pub fn level_at(mesh: &Mesh, t: f32, model_detail: u32) -> Option<usize> {
+    let marked = marked_levels(mesh, model_detail);
+    let last = marked.len().checked_sub(1)?;
+    marked.get(level_place(t, last)).copied()
 }

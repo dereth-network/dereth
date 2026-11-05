@@ -262,6 +262,7 @@ impl TextState {
 pub struct Keyboard {
     pub shift: bool,
     pub ctrl: bool,
+    pub alt: bool,
     /// What was last cut or copied, for the host to put on the system's clipboard; and what the
     /// host last read from it, for pasting.
     pub copied: Option<String>,
@@ -364,6 +365,18 @@ impl Ui {
     #[must_use]
     pub fn ctrl_held(&self) -> bool {
         self.keyboard.ctrl
+    }
+
+    /// Alt as the host sees it.
+    pub fn set_alt(&mut self, alt: bool) {
+        self.keyboard.alt = alt;
+    }
+
+    /// Whether an Alt key is held, as the host last said.
+    // D2-03448
+    #[must_use]
+    pub fn alt_held(&self) -> bool {
+        self.keyboard.alt
     }
 
     /// What the host read from the system's clipboard, for pasting.
@@ -943,6 +956,33 @@ impl Ui {
     // -----------------------------------------------------------------------------------------
     // Laying out and the view
     // -----------------------------------------------------------------------------------------
+
+    /// Before the elements are drawn: each text element shown whose text or size changed is broken
+    /// into lines, and its scroll bars follow.
+    // D2-11796
+    pub fn lay_out_text_shown(&mut self) {
+        fn walk(ui: &Ui, h: Handle, out: &mut Vec<Handle>) {
+            let Some(n) = ui.node(h) else { return };
+            if !n.visible {
+                return;
+            }
+            if let Some(t) = &n.text_state {
+                if t.dirty || t.laid_for != (n.rect.width(), n.rect.height(), t.marg) {
+                    out.push(h);
+                }
+            }
+            for c in &n.children {
+                walk(ui, *c, out);
+            }
+        }
+        let mut changed = Vec::new();
+        for r in self.roots() {
+            walk(self, *r, &mut changed);
+        }
+        for h in changed {
+            self.recalculate_glyph_list(h);
+        }
+    }
 
     /// Break the text into lines when it changed (see [`lay_out_state`]); the scroll bars
     /// follow.
@@ -1806,6 +1846,7 @@ impl Ui {
 
     /// Type into the entry that has the keyboard, a character at a time; returns whether an entry
     /// took the text.
+    // D2-04864
     pub fn type_text(&mut self, typed: &str) -> bool {
         let Some(h) = self.focus() else {
             return false;

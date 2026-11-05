@@ -12,6 +12,7 @@ use auberean_assets::visual::{
     Appearance, AppearanceChanges, IconLayer, ModifierChange, PartGroup, VisualDesc,
 };
 use auberean_primitives::{DataId, Vec3};
+use auberean_world::chargen::key_values;
 use auberean_world::look::{
     appearance_has_key, appearance_key_steps, appearance_step_count, total_icon, Atoms, Desc,
     Group, Keyed, Look, LookRecords, ObjectLook, ANY_KIND, GLOBAL_KEY, REMOVED,
@@ -341,7 +342,7 @@ fn a_combined_description_keeps_the_whole_objects_values() {
 /// Behaviour: world.look.an-appearance-tables-keys-steps-and-counts
 #[test]
 fn an_appearance_tables_keys_steps_and_counts() {
-    let r = records();
+    let mut r = records();
     assert!(appearance_has_key(&r, DataId(GLOW), 1));
     assert!(appearance_has_key(&r, DataId(GLOW), 2));
     assert!(!appearance_has_key(&r, DataId(SKIN), 2));
@@ -355,6 +356,35 @@ fn an_appearance_tables_keys_steps_and_counts() {
         Some(vec![0.0, 0.5])
     );
     assert_eq!(appearance_key_steps(&r, DataId(0x2000_0009), 1), None);
+    assert_eq!(key_values(&r, 0x2000_0009, 1), Vec::<f32>::new());
+    let stops = |list: &[f32]| {
+        list.iter()
+            .map(|intensity| AppearanceChanges {
+                intensity: *intensity,
+                ..AppearanceChanges::default()
+            })
+            .collect::<Vec<_>>()
+    };
+    r.tables.insert(
+        0x2000_0020,
+        Arc::new(Appearance {
+            keys: vec![(5, stops(&[0.2, 0.9]))],
+            ..Appearance::default()
+        }),
+    );
+    r.tables.insert(
+        0x2000_0021,
+        Arc::new(Appearance {
+            base: vec![0x2000_0020],
+            keys: vec![(5, stops(&[0.5]))],
+            ..Appearance::default()
+        }),
+    );
+    assert_eq!(
+        key_values(&r, 0x2000_0021, 5),
+        vec![0.2, 0.5, 0.9],
+        "a choice's stops take in its base tables"
+    );
     assert_eq!(appearance_step_count(&r, DataId(SKIN), 1), Some(2));
     assert_eq!(appearance_step_count(&r, DataId(GLOW), 1), None);
 }

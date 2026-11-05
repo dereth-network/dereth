@@ -92,6 +92,30 @@ fn click(u: &mut Ui, x: i32, y: i32) {
     u.pointer_release();
 }
 
+/// A row taken out of a list is no longer drawn or pressed where it stood, and the rows after it
+/// move up; put back, it is in the list again.
+///
+/// Behaviour: ui.list.a-row-taken-out-stands-nowhere
+#[test]
+fn a_row_taken_out_of_a_list_stands_nowhere() {
+    let (mut u, list, rows) = five_rows(vec![row(), window(vec![], vec![])]);
+    let on_top = u.screen_rect(rows[0]).unwrap();
+    let taken = u.list_remove(list, 0).expect("a row");
+    assert_eq!(taken, rows[0]);
+    assert_eq!(u.node(taken).and_then(|n| n.parent), None);
+    assert!(!u.node(list).unwrap().children.contains(&taken));
+    assert_eq!(
+        u.screen_rect(rows[1]).unwrap().y0,
+        on_top.y0,
+        "the next row in its place"
+    );
+    assert_eq!(u.hit(on_top.x0 + 5, on_top.y0 + 5), Some(rows[1]));
+    u.list_insert(list, taken, 0);
+    assert_eq!(u.node(taken).and_then(|n| n.parent), Some(list));
+    assert_eq!(u.list_index_of(list, taken), Some(0));
+    assert_eq!(u.screen_rect(taken).unwrap().y0, on_top.y0);
+}
+
 /// A list two rows tall over five rows: its down arrow scrolls it a row at a time (the rows move
 /// up by a row's height) until the last full view; the up arrow is ghosted at the top and the down
 /// arrow at the bottom.
@@ -203,6 +227,46 @@ fn dragging_the_widget_scrolls_its_list() {
         .take_messages()
         .iter()
         .any(|m| m.what == Token::of("widget_release")));
+}
+
+/// A list that comes to show all its rows disables its bar and leaves the widget as it was laid out
+/// just before: long, the bar's whole length, and showing. Its rows laid out again, it stays. The
+/// window updated, which lays the disabled bar out afresh, takes the widget away. More rows than
+/// show, and the widget is back, the share in view.
+///
+/// Behaviour: ui.scrollbar.a-list-showing-all-its-rows-leaves-the-widget-long
+#[test]
+fn a_list_showing_all_its_rows_leaves_the_widget_long() {
+    let (mut u, list, rows) = five_rows(vec![
+        row(),
+        window(vec![("vertical_scrollbar", id("Bar"))], vec![bar()]),
+    ]);
+    let w = u.roots()[0];
+    let b = u.child(w, Token::of("Bar")).unwrap();
+    let widget = u.child(b, Token::of("widget")).unwrap();
+    assert_eq!(u.screen_rect(widget).unwrap().height(), 16);
+    for r in &rows[1..] {
+        u.list_delete(list, *r);
+    }
+    let whole = u.screen_rect(b).unwrap().height();
+    let long = |u: &Ui| {
+        assert!(u.is_visible(widget), "showing");
+        assert_eq!(u.screen_rect(widget).unwrap().height(), whole);
+    };
+    long(&u);
+    assert!(u.node(b).unwrap().bool_attr(Token::of("disabled")));
+    u.list_update_and_draw(list);
+    long(&u);
+    u.update(w);
+    assert!(!u.is_visible(widget), "laid out while disabled");
+    let l = u.load_layout(LAYOUT).unwrap();
+    for _ in 0..4 {
+        let r = u.create(l, Token::of("Row")).unwrap();
+        u.list_add(list, r);
+    }
+    assert!(u.is_visible(widget));
+    assert!(!u.node(b).unwrap().bool_attr(Token::of("disabled")));
+    assert_eq!(u.screen_rect(widget).unwrap().height(), 16);
 }
 
 /// A smooth list glides to its goal: half way after half its movement time, there at the end,

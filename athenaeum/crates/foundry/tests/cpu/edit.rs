@@ -193,6 +193,168 @@ fn moving_a_base_row_into_another_landblock_takes_it_away_where_it_was() {
 }
 
 #[test]
+fn a_row_placed_in_a_room_names_it_and_moves_from_room_to_room_and_out() {
+    let mut s = session();
+    let room = (u32::from(LB) << 16) | 0x0105;
+    let item = s.place_in(&person([1.0, 2.0, 3.0]), Some(room)).unwrap();
+    clean(&s);
+    let cell = |s: &Session, i: &str| match &s.entry(i).unwrap().row.row {
+        Row::Object(o) => o.cell,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(cell(&s, &item), Some(room));
+    let next = room + 1;
+    s.move_into(&item, LB, [4.0, 2.0, 3.0], Some(next)).unwrap();
+    assert_eq!(cell(&s, &item), Some(next), "to the next room");
+    s.move_to(&item, LB, [5.0, 2.0, 3.0]).unwrap();
+    assert_eq!(cell(&s, &item), Some(next), "a plain move keeps the room");
+    let land = (u32::from(LB) << 16) | 0x0001;
+    s.move_into(&item, LB, [6.0, 2.0, 3.0], Some(land)).unwrap();
+    assert_eq!(cell(&s, &item), Some(land), "and out");
+    clean(&s);
+}
+
+#[test]
+fn changes_gathered_together_undo_and_redo_as_one_step() {
+    let mut s = session();
+    let a = s.place(&person([1.0, 2.0, 3.0])).unwrap();
+    let b = s.place(&person([4.0, 2.0, 3.0])).unwrap();
+    let steps = s.steps().0;
+    s.begin_step();
+    s.move_to(&a, LB, [10.0, 2.0, 3.0]).unwrap();
+    s.move_to(&b, LB, [20.0, 2.0, 3.0]).unwrap();
+    s.end_step();
+    assert_eq!(s.steps().0, steps + 1);
+    s.undo();
+    assert_eq!(s.entry(&a).unwrap().at().x, 1.0);
+    assert_eq!(s.entry(&b).unwrap().at().x, 4.0);
+    s.redo();
+    assert_eq!(s.entry(&a).unwrap().at().x, 10.0);
+    assert_eq!(s.entry(&b).unwrap().at().x, 20.0);
+}
+
+#[test]
+fn a_place_renamed_takes_what_leads_to_it_along_as_one_step() {
+    let mut s = session();
+    let place = s
+        .place(&NewRow {
+            kind: NewKind::Place,
+            ..person([5.0, 6.0, 7.0])
+        })
+        .unwrap();
+    let door = s.place(&person([1.0, 2.0, 3.0])).unwrap();
+    let old = match &s.entry(&place).unwrap().row.row {
+        Row::Place(p) => p.key.clone(),
+        other => panic!("{other:?}"),
+    };
+    s.set(&door, "to", &format!("\"{old}\"")).unwrap();
+    let steps = s.steps().0;
+    let renamed = s.rename_place(&place, "the-inn").unwrap();
+    assert_eq!(s.steps().0, steps + 1, "one step");
+    clean(&s);
+    assert!(s.entry(&place).is_none());
+    assert!(s.entry(&renamed).is_some());
+    let to = |s: &Session| match &s.entry(&door).unwrap().row.row {
+        Row::Object(o) => o.to.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(to(&s).as_deref(), Some("the-inn"));
+    assert!(s.rename_place(&renamed, "not a key").is_err());
+    assert!(s.rename_place(&door, "elsewhere").is_err(), "not a place");
+    s.undo();
+    assert!(s.entry(&place).is_some(), "one undo takes it all back");
+    assert_eq!(to(&s), Some(old));
+}
+
+#[test]
+fn a_row_copied_from_a_room_stands_where_it_goes() {
+    let mut s = session();
+    let item = s
+        .place_in(&person([1.0, 2.0, 3.0]), Some(0x77B7_0105))
+        .unwrap();
+    let cell = |s: &Session, i: &str| match &s.entry(i).unwrap().row.row {
+        Row::Object(o) => o.cell,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(cell(&s, &item), Some(0x77B7_0105));
+    let kept = s.duplicate(&item, LB, [4.0, 2.0, 3.0]).unwrap();
+    assert_eq!(
+        cell(&s, &kept),
+        Some(0x77B7_0105),
+        "beside it: the room is kept"
+    );
+    let out = s.copy_to(&item, LB, [4.0, 2.0, 3.0], None).unwrap();
+    let land = cell(&s, &out).expect("a land cell");
+    assert!(land & 0xFFFF < 0x100, "{land:08X}");
+    let other = s
+        .copy_to(&item, LB, [4.0, 2.0, 3.0], Some(0x77B7_0106))
+        .unwrap();
+    assert_eq!(cell(&s, &other), Some(0x77B7_0106));
+    clean(&s);
+}
+
+#[test]
+fn an_objects_scale_is_set_kept_and_taken_away() {
+    let mut s = session();
+    let item = s.place(&person([1.0, 2.0, 3.0])).unwrap();
+    s.set(&item, "scale", "1.5").unwrap();
+    clean(&s);
+    let scale = |s: &Session| match &s.entry(&item).unwrap().row.row {
+        Row::Object(o) => o.scale,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(scale(&s), Some(1.5));
+    s.move_to(&item, LB, [4.0, 2.0, 3.0]).unwrap();
+    assert_eq!(scale(&s), Some(1.5), "a move keeps it");
+    s.set(&item, "scale", "").unwrap();
+    assert_eq!(scale(&s), None);
+}
+
+#[test]
+fn a_copy_of_a_row_has_a_key_of_its_own_and_the_rest_as_it_was() {
+    let mut s = session();
+    let first = s.place(&person([1.0, 2.0, 3.0])).unwrap();
+    s.set(
+        &first,
+        "name",
+        "{ table = 0x25001B44, string = 0x8FE5C6EE }",
+    )
+    .unwrap();
+    let copy = s.duplicate(&first, LB, [4.0, 5.0, 6.0]).unwrap();
+    assert_ne!(copy, first);
+    clean(&s);
+    let at = s.entry(&copy).unwrap().at();
+    assert_eq!((at.x, at.y, at.z), (4.0, 5.0, Some(6.0)));
+    let Row::Object(o) = &s.entry(&copy).unwrap().row.row else {
+        panic!("an object")
+    };
+    assert_eq!(o.template, KEEPER);
+    assert_eq!(o.name.map(|n| n.string), Some(0x8FE5_C6EE));
+    assert_eq!(o.heading, Some(90.0));
+    let at = s.entry(&first).unwrap().at();
+    assert_eq!(at.x, 1.0, "the first stays where it stood");
+    s.undo();
+    assert!(s.entry(&copy).is_none(), "one step undoes it");
+    assert!(s.entry(&first).is_some());
+}
+
+#[test]
+fn a_copy_of_a_base_row_is_a_new_row_and_the_base_row_stays() {
+    let mut s = session();
+    let base_row = s
+        .entries()
+        .iter()
+        .find(|e| e.layer == Layer::Base && matches!(e.row.row, Row::Object(_)))
+        .map(|e| e.item.clone())
+        .expect("a row of the base");
+    let copy = s.duplicate(&base_row, LB, [9.0, 9.0, 1.0]).unwrap();
+    clean(&s);
+    assert_eq!(s.entry(&copy).unwrap().layer, Layer::Target);
+    assert_eq!(s.entry(&copy).unwrap().was, None);
+    assert_eq!(s.entry(&base_row).unwrap().layer, Layer::Base);
+}
+
+#[test]
 fn turning_a_row_writes_a_heading_in_place_of_its_rotation() {
     let mut s = session();
     s.turn("object n-334c@77B8", 405.0).unwrap();

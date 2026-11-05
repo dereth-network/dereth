@@ -7,8 +7,8 @@
 //!   last one, and the teleport stamp never older; each making of an object carries an instance
 //!   stamp no older than the last.
 //!
-//! Stamps are 16-bit and wrap: `a` is newer than `b` when `a - b`, as a signed 16-bit number, is
-//! positive.
+//! Stamps are 16-bit and wrap: the larger of two is newer while they are less than half the circle
+//! apart, and the smaller from there on, exactly half included.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -18,7 +18,11 @@ use auberean_protocol::ServerMessage;
 /// Is stamp `a` newer than `b`?
 #[must_use]
 pub const fn newer(a: u16, b: u16) -> bool {
-    a.wrapping_sub(b).cast_signed() > 0
+    if a.abs_diff(b) < 0x8000 {
+        b < a
+    } else {
+        a < b
+    }
 }
 
 /// The object a message is about, with the stamps it names it with.

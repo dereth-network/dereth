@@ -1,7 +1,7 @@
 [package]
 name = "auberean-client"
 description = "The desktop client: a window in which Asheron's Call 2's world is drawn and played."
-version = "0.1.2" # Auberean's own version, shared by the client and the headless client (not the workspace's)
+version = "0.1.3" # Auberean's own version, shared by the client and the headless client (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -25,6 +25,8 @@ auberean-ui.workspace = true
 auberean-scene.workspace = true
 auberean-draw.workspace = true
 auberean-gpu.workspace = true
+# Putting a frame in the window.
+auberean-present.workspace = true
 auberean-world.workspace = true
 auberean-assets.workspace = true
 auberean-dat = { workspace = true, features = ["fs"] }
@@ -37,11 +39,12 @@ dereth-audio-out.workspace = true
 # The window and its events, and the device it presents on.
 winit = { workspace = true, features = ["rwh_06"] }
 wgpu = "30"
-pollster.workspace = true
-bytemuck = { version = "1", features = ["derive"] }
 png.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+# The web page a request opens, and the box when it cannot.
+open = "5"
+dereth-console.workspace = true
 # The local time for the scripts' chat log.
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 

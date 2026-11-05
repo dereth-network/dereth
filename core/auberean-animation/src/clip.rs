@@ -109,48 +109,60 @@ pub fn slerp(a: Quat, b: Quat, t: f32) -> Quat {
 /// The key at or before time `t` and the fraction of the way to the next one (0 past the last),
 /// found through the track's lookup table as the client finds it (a plain search when the track
 /// has no table: its first key is not at 0).
-fn bracket<K>(keys: &[K], t: f32, time: impl Fn(&K) -> f32) -> Option<(usize, f32)> {
+fn bracket<K>(
+    keys: &[K],
+    table: Option<&LookupTable>,
+    t: f32,
+    time: impl Fn(&K) -> f32,
+) -> Option<(usize, f32)> {
     if keys.is_empty() {
         return None;
     }
-    let times: Vec<f32> = keys.iter().map(&time).collect();
-    let i = match LookupTable::new(&times) {
-        Some(table) => {
-            let k = table.find(&times, t);
-            if k == u32::MAX {
-                0
-            } else {
-                (k as usize).min(keys.len() - 1)
+    let at = |k: usize| keys.get(k).map_or(f32::INFINITY, &time);
+    let found = |table: &LookupTable| {
+        let k = table.find_by(at, t);
+        if k == u32::MAX {
+            0
+        } else {
+            (k as usize).min(keys.len() - 1)
+        }
+    };
+    let i = match table {
+        Some(table) => found(table),
+        None => {
+            let times: Vec<f32> = keys.iter().map(&time).collect();
+            match LookupTable::new(&times) {
+                Some(table) => found(&table),
+                None => times.partition_point(|&x| x <= t).saturating_sub(1),
             }
         }
-        None => times.partition_point(|&x| x <= t).saturating_sub(1),
     };
     if i + 1 >= keys.len() {
         return Some((i, 0.0));
     }
-    let (t0, t1) = (times[i], times[i + 1]);
+    let (t0, t1) = (at(i), at(i + 1));
     let span = t1 - t0;
     Some((i, if span > 0.0 { (t - t0) / span } else { 0.0 }))
 }
 
-fn vector_at(keys: &[VectorKey], t: f32, none: Vec3) -> Vec3 {
-    match bracket(keys, t, |k| k.time) {
+fn vector_at(keys: &[VectorKey], table: Option<&LookupTable>, t: f32, none: Vec3) -> Vec3 {
+    match bracket(keys, table, t, |k| k.time) {
         None => none,
         Some((i, 0.0)) => keys[i].value,
         Some((i, u)) => lerp(keys[i].value, keys[i + 1].value, u),
     }
 }
 
-fn rotation_at(keys: &[RotationKey], t: f32) -> Quat {
-    match bracket(keys, t, |k| k.time) {
+fn rotation_at(keys: &[RotationKey], table: Option<&LookupTable>, t: f32) -> Quat {
+    match bracket(keys, table, t, |k| k.time) {
         None => Quat::IDENTITY,
         Some((i, 0.0)) => keys[i].value,
         Some((i, u)) => slerp(keys[i].value, keys[i + 1].value, u),
     }
 }
 
-fn weight_at(keys: &[WeightKey], t: f32) -> f32 {
-    match bracket(keys, t, |k| k.time) {
+fn weight_at(keys: &[WeightKey], table: Option<&LookupTable>, t: f32) -> f32 {
+    match bracket(keys, table, t, |k| k.time) {
         None => 1.0,
         Some((i, 0.0)) => keys[i].weight,
         Some((i, u)) => keys[i].weight + (keys[i + 1].weight - keys[i].weight) * u,
@@ -161,11 +173,12 @@ fn weight_at(keys: &[WeightKey], t: f32) -> f32 {
 /// with no keys gives no offset, unit scale, no rotation and full weight.
 #[must_use]
 pub fn bone_at(track: &BoneTrack, t: f32) -> (Vec3, Vec3, Quat, f32) {
+    let [scale, offset, rotation, weight] = track.tables.each_ref().map(Option::as_ref);
     (
-        vector_at(&track.offset, t, Vec3::ZERO),
-        vector_at(&track.scale, t, Vec3::new(1.0, 1.0, 1.0)),
-        rotation_at(&track.rotation, t),
-        weight_at(&track.weight, t),
+        vector_at(&track.offset, offset, t, Vec3::ZERO),
+        vector_at(&track.scale, scale, t, Vec3::new(1.0, 1.0, 1.0)),
+        rotation_at(&track.rotation, rotation, t),
+        weight_at(&track.weight, weight, t),
     )
 }
 

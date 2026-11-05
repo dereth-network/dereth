@@ -235,6 +235,8 @@ pub mod refusal {
     pub const LACKING_QUEST: u32 = 10_019;
     /// The player's quest is not where the item needs it.
     pub const WRONG_QUEST_STATUS: u32 = 10_020;
+    /// "Only monarchs can use that item."
+    pub const MONARCH_ONLY: u32 = 10_038;
     /// A take: the player's quest is not where the item needs it.
     pub const WRONG_QUEST_STATUS_TAKE: u32 = 10_021;
     /// A take: the player has never had the quest the item needs.
@@ -376,6 +378,10 @@ pub fn begin<S: Store>(
     let Some(template) = s.things.get(u.item).map(|t| t.template) else {
         return false;
     };
+    if crate::craft::totem::noun(template).is_some() {
+        crate::craft::use_totem(s, net, world, u);
+        return true;
+    }
     let Some(t) = s.catalog.get(template) else {
         return false;
     };
@@ -457,12 +463,25 @@ pub(crate) fn refuse<S: Store>(
     true
 }
 
-/// Why a player may not use an item of these properties now, if it may not: moving (an item that
-/// may not be used so), a mount's item with its hands full, a mount on or indoors, too far from
-/// the item's place, its quest (one the server knows) not where the item needs it, below the
-/// item's least level.
+/// Is this for monarchs alone, and the player none? A monarch is the head of an allegiance; a
+/// player in none is not one.
+#[must_use]
+pub fn not_monarch<S: Store>(s: &Server<S>, world: ConnId, props: &Props) -> bool {
+    props.flag("Usage_MonarchOnly")
+        && s.players
+            .get(&world)
+            .is_none_or(|p| s.allegiances.monarch(p.character) != Some(p.character))
+}
+
+/// Why a player may not use an item of these properties now, if it may not: for monarchs alone and
+/// the player none, moving (an item that may not be used so), a mount's item with its hands full,
+/// a mount on or indoors, too far from the item's place, its quest (one the server knows) not where
+/// the item needs it, below the item's least level.
 fn refused<S: Store>(s: &Server<S>, world: ConnId, props: &Props, clock: Clock) -> Option<u32> {
     let p = s.players.get(&world)?;
+    if not_monarch(s, world, props) {
+        return Some(refusal::MONARCH_ONLY);
+    }
     if not_while_moving(props) && crate::skill_use::moving(p) {
         return Some(refusal::MOVING);
     }
@@ -823,10 +842,18 @@ pub(crate) fn put_on<S: Store>(
         skill: 0,
         item,
         giver: None,
+        answers: false,
     };
     match def.kind {
         // What it does is the server's own (an antidote's cure, a portal): not made here.
-        Kind::Other | Kind::Pet { .. } | Kind::Aura(_) | Kind::Recall(_) => {
+        Kind::Other
+        | Kind::Pet { .. }
+        | Kind::Aura(_)
+        | Kind::Recall(_)
+        | Kind::Counter { .. }
+        | Kind::Reply { .. }
+        | Kind::Watcher(_)
+        | Kind::Ward { .. } => {
             s.unhandled
                 .note(format!("an item's effect {:08X} of no kind made", e.state));
         }

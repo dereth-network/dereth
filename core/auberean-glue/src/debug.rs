@@ -11,12 +11,20 @@ const DEBUG: u32 = 0x1C;
 
 /// This module's natives: package, number, function.
 const NATIVES: &[(u32, u32, NativeFn)] = &[
+    (DEBUG, 0x09, debugger),
     (DEBUG, 0x01, print_int),
     (DEBUG, 0x02, print_long_int),
     (DEBUG, 0x03, print_float),
     (DEBUG, 0x04, print_long_float),
     (DEBUG, 0x05, print_string),
 ];
+
+/// A command for the script debugger: this client has none, so nothing comes of it.
+// D2-09581
+fn debugger(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let _ = c;
+    Ok(Status::Success)
+}
 
 /// Bind this module's natives.
 pub fn bind(t: &mut NativeTable) {

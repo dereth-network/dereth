@@ -13,7 +13,8 @@
 //! header, and writes one archive, `yalain-<version>-<target>.zip` on Windows and `.tar.gz`
 //! elsewhere, its one folder the same name without the extension; then the release's index beside
 //! the archives: `MANIFEST.txt`, `release.json` (with the release's upgrade declaration,
-//! [`super::yalain_declaration`], from `yalain/releases.toml` and the code) and `SHA256SUMS`. Without `--target` it packages
+//! [`super::yalain_declaration`], from `yalain/releases.toml` and the code) and `SHA256SUMS`, which
+//! the program's own updater reads (`yalain update`, `server.update`). Without `--target` it packages
 //! the host's own target. `--gather` builds nothing: it checks the archives already in `<dir>` (the
 //! release workflow downloads each runner's there) and writes the index over them.
 //!
@@ -287,7 +288,9 @@ fn package_target(
 ) -> Result<(), String> {
     fresh_dir(stage_root)?;
     // 1. Build.
-    let env = super::desktop::build_env(ws, facts, target);
+    let mut env = super::desktop::build_env(ws, facts, target);
+    // The repository the program looks for its own releases in.
+    env.push((SOURCE_URL_ENV.to_owned(), facts.source_url.clone()));
     let target_arg = target.build_target_arg();
     let verb = match builder {
         Builder::Cargo => "build",

@@ -141,6 +141,15 @@ pub struct Controls {
     pub mouse_look: bool,
     /// In mouse look the mouse steers the player (the camera's option): turns strafe.
     pub steers: bool,
+    /// The behaviors actions began (`true`) or ended (`false`) since the last frame.
+    behaviors: Vec<(u32, bool)>,
+    /// A text entry has the keys.
+    text_mode: bool,
+}
+
+/// Whether an input word is one of the mouse's.
+const fn is_mouse_input(input: u32) -> bool {
+    input >> 24 == LEFT_BUTTON >> 24
 }
 
 const fn button_input(b: Button) -> u32 {
@@ -172,6 +181,7 @@ impl Controls {
                 }
                 true
             }
+            // D2-03438, D2-09639
             Event::Motion { dx, dy } => {
                 self.mouse.0 += dx;
                 self.mouse.1 += dy;
@@ -181,22 +191,66 @@ impl Controls {
                 // Keys let go while the window had no keyboard never come back up.
                 self.meta = 0;
                 self.pressed.clear();
-                self.focus_lost(keys);
+                self.focus_switch(keys, false);
+                false
+            }
+            Event::Focus(true) if self.text_mode => {
+                self.focus_switch(keys, true);
                 false
             }
             _ => false,
         }
     }
 
-    /// The window's keyboard gone: each action in force, in the order they began, let go through
-    /// the action handler as its input would be. A held action ends (and the movement read from
-    /// the actions in force stops, so the body's next report says so); a latched run and a single
-    /// press for this frame stay, as letting go leaves them.
+    /// A text entry takes the keys, or gives them back. Taking them: each keyboard key held that
+    /// names an action is let go as its release would be, and forgotten (its release later finds
+    /// nothing), then the actions in force are let go ([`Self::focus_switch`]) with the keyboard
+    /// still the window's. Giving them back changes nothing in force.
+    // D2-04871, D2-04945, D2-04868
+    pub fn set_text_mode(&mut self, keys: &Keys, on: bool) {
+        if on == self.text_mode {
+            return;
+        }
+        self.text_mode = on;
+        if !on {
+            return;
+        }
+        let held: Vec<(u32, u32)> = self
+            .pressed
+            .iter()
+            .map(|(input, meta)| (*input, *meta))
+            .filter(|(input, _)| !is_mouse_input(*input))
+            .collect();
+        for (input, meta) in held {
+            if let Some(action) = keys.stack.action(input, meta) {
+                self.pressed.remove(&input);
+                self.action_handler(keys, action, 0.0, KEYBOARD, input);
+            }
+        }
+        self.focus_switch(keys, true);
+    }
+
+    /// Mouse look switched: the focus handlers hear it, and with a text entry having the keys the
+    /// actions in force are let go ([`Self::focus_switch`]).
+    pub fn mouse_look_switched(&mut self, keys: &Keys) {
+        if self.text_mode {
+            self.focus_switch(keys, true);
+        }
+    }
+
+    /// The window's keyboard gone, or (`focus` kept) a text entry having the keys: each action in
+    /// force, in the order they began, let go through the action handler as its input would be;
+    /// with the keyboard kept, all but the modifier and interface classes'. A held action ends
+    /// (and the movement read from the actions in force stops, so the body's next report says so);
+    /// a latched run and a single press for this frame stay, as letting go leaves them.
     // D2-03459
-    fn focus_lost(&mut self, keys: &Keys) {
+    fn focus_switch(&mut self, keys: &Keys, focus: bool) {
         for a in self.actions.clone() {
             let modifiers = self.modifier_bitfield(keys);
-            if keys.records.values(a.action, modifiers).is_some() {
+            let Some(values) = keys.records.values(a.action, modifiers) else {
+                continue;
+            };
+            if !focus || !matches!(values.class, class::MODIFIER | class::INTERFACE) {
                 self.action_handler(keys, a.action, 0.0, a.device, a.input);
             }
         }
@@ -317,16 +371,9 @@ impl Controls {
             .fold(0, |m, v| m | v.value)
     }
 
-    /// Shift, Ctrl and Alt held, by the modifier actions in force.
-    // D2-03447, D2-03446, D2-03448
-    #[must_use]
-    pub fn modifiers_down(&self, keys: &Keys) -> (bool, bool, bool) {
-        let m = self.modifier_bitfield(keys);
-        (m & 1 != 0, m & 2 != 0, m & 4 != 0)
-    }
-
     /// An action begun: a movement action noted as begun (it interrupts a move to a place); a
-    /// camera action that switches the view, pressed; an interface action, the interface's.
+    /// behavior asked of the player; a camera action that switches the view, pressed; an interface
+    /// action, the interface's.
     // D2-03451
     fn start_action(&mut self, keys: &Keys, action: u32) {
         let modifiers = self.modifier_bitfield(keys);
@@ -335,6 +382,8 @@ impl Controls {
         };
         match v.class {
             class::MOVEMENT => self.started.push(action),
+            class::BEHAVIOR => self.behaviors.push((v.value, true)),
+            // D2-09642
             class::CAMERA => {
                 let press = match v.value {
                     camera::RESET => Press::Reset,
@@ -353,11 +402,16 @@ impl Controls {
         }
     }
 
-    /// An action ended. The camera's held actions and the movement actions are read from the
-    /// actions in force each frame, so nothing more is needed here.
-    // D2-03435
+    /// An action ended: by its plain values, whatever modifiers are held, a behavior is asked to
+    /// stop. The camera's held actions and the movement actions are read from the actions in force
+    /// each frame, so nothing more is needed for them.
+    // D2-03435, D2-09643
     fn stop_action(&mut self, keys: &Keys, action: u32) {
-        let _ = (keys, action);
+        if let Some(v) = keys.records.action_map.action_values(action, 0) {
+            if v.class == class::BEHAVIOR {
+                self.behaviors.push((v.value, false));
+            }
+        }
     }
 
     /// An interface action no interface took: the camera's first person, mouse look and wheel
@@ -433,6 +487,8 @@ impl Controls {
                         motion::STRAFE_RIGHT => sideways += e,
                         motion::STRAFE_LEFT => sideways -= e,
                         motion::JUMP => jump = true,
+                        // The other values are the rows for modifier bit 8, which no modifier
+                        // action in the data sets.
                         _ => {}
                     }
                 }
@@ -464,6 +520,7 @@ impl Controls {
             presses,
             mouse: std::mem::take(&mut self.mouse),
             started: std::mem::take(&mut self.started),
+            behaviors: std::mem::take(&mut self.behaviors),
         }
     }
 }

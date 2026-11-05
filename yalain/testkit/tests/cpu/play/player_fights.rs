@@ -248,12 +248,99 @@ fn a_hit_on_another_player_takes_its_health_and_tells_it_as_pk_damage() {
         .into_iter()
         .filter(|k| k.bits & 0x800 != 0)
         .collect();
-    let taken: i32 = hits.iter().map(|k| -k.numbers[3]).sum();
     for k in &hits {
         assert_eq!(k.bits & 0x2000, 0x2000, "PK damage told: {k:?}");
         assert_eq!(k.numbers[5], -k.numbers[3]);
     }
-    assert_eq!(health_of(&h, idb), (health - taken).max(0));
+    assert!(
+        h.run_until(200, |h| health_of(h, idb) < health),
+        "the hit lands"
+    );
+    assert_eq!(health_of(&h, idb), (health + hits[0].numbers[3]).max(0));
+}
+
+/// A strike at another player is told first; the target loses the health as the strike lands, as
+/// long after the story as one at a creature, and with none left dies only then, so its client has
+/// written the hit before it writes the kill.
+/// Behaviour: server.player-fights.strike-lands
+#[test]
+fn a_strike_at_another_player_hurts_it_as_it_lands_and_the_kill_text_comes_after() {
+    let (mut h, (a, ida), (b, idb)) = two_players(Conflict::FreeForAll);
+    with_player(&mut h, idb, |p| {
+        quals::set_int(&mut p.qualities, quality::HEALTH, 1);
+    });
+    let from_b = h.bots[b].inbox.len();
+    attack(&mut h, a, idb);
+    let hit = |m: &ServerMessage| {
+        matches!(m, ServerMessage::DoStory(e) if e.action.attacker == ida
+            && e.action.hooks.iter().any(|k| k.target == idb && k.bits & 0x800 != 0))
+    };
+    assert!(
+        h.run_until(4000, |h| h.world_messages(b, from_b).iter().any(hit)),
+        "a hit is told"
+    );
+    let told = h.now.0;
+    let (skill, scale) = h
+        .world_messages(b, from_b)
+        .iter()
+        .find_map(|m| match m {
+            ServerMessage::DoStory(e) if hit(m) => {
+                Some((e.action.skill, e.action.attacker_behavior.time_scale))
+            }
+            _ => None,
+        })
+        .expect("its story");
+    assert_eq!(health_of(&h, idb), 1, "not hurt as it is told");
+    let sword = Some(yalain_world::skill_use::implement::SWORD);
+    let lands = yalain_world::combat::hit_seconds(skill, sword) / f64::from(scale);
+    let at_none = |m: &ServerMessage| matches!(m, ServerMessage::UpdateInt(q) if q.quality == quality::HEALTH && q.value == 0);
+    assert!(
+        h.run_until(100, |h| h.world_messages(b, from_b).iter().any(at_none)),
+        "it lands"
+    );
+    let gap = h.now.0 - told;
+    assert!(
+        (gap - lands).abs() < 0.12,
+        "it landed {gap:.3} s after its story, not {lands:.3} s"
+    );
+    let messages = h.world_messages(b, from_b);
+    let at = |pick: &dyn Fn(&ServerMessage) -> bool| messages.iter().position(pick);
+    let health = at(
+        &|m| matches!(m, ServerMessage::UpdateInt(q) if q.quality == quality::HEALTH && q.value == 0),
+    );
+    let kill_text = at(&|m| {
+        matches!(m, ServerMessage::PlayerCall(c)
+            if c.function.0 == yalain_world::death::player_fn::DEATH_MESSAGE)
+    });
+    assert!(health.is_some() && kill_text.is_some(), "health and text");
+    assert!(at(&hit) < health, "the story before the health");
+    assert!(health < kill_text, "the health before the kill text");
+}
+
+/// A strike told at a player who has gone into portal space does not hurt it as it lands.
+/// Behaviour: server.player-fights.strike-lands
+#[test]
+fn a_strike_at_a_player_gone_into_portal_space_does_not_hurt_it() {
+    let (mut h, (_, ida), (_, idb)) = two_players(Conflict::FreeForAll);
+    let wa = yalain_world::social::world_of(&h.server, ida).expect("in the world");
+    let wb = yalain_world::social::world_of(&h.server, idb).expect("in the world");
+    let strike = yalain_world::combat::Landing {
+        world: wa,
+        target: idb,
+        skill: 690,
+        outcome: yalain_world::rules::Outcome::Hit,
+        damage: 5,
+        back: 0,
+        index: 0,
+        thrown: false,
+        anim_hook: 1,
+    };
+    let health = health_of(&h, idb);
+    let clock = h.clock();
+    let to = h.server.players[&wb].position;
+    yalain_world::places::resurrection_trip(&mut h.server, &mut h.net, wb, to, clock);
+    yalain_world::combat::lands(&mut h.server, &mut h.net, strike, clock);
+    assert_eq!(health_of(&h, idb), health);
 }
 
 /// A player killed by another is announced, to everyone who sees it, as killed by that player:

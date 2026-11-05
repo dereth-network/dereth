@@ -166,3 +166,27 @@ fn a_pack_on_disk_is_mapped_and_written_atomically() {
     drop(pack);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn launch_packs_preserve_existing_era_codes_and_verify_their_hashes() {
+    use empyrean_common::era::EraId;
+    for (era, code) in [
+        (EraId::Eor, 0),
+        (EraId::Infiltration, 1),
+        (EraId::Launch, 2),
+    ] {
+        let mut writer = PackWriter::new([3; 16], 1).era(era);
+        writer
+            .add(TableId::QUEST, 1, &"synthetic".to_owned())
+            .unwrap();
+        let (bytes, _) = writer.finish().unwrap();
+        assert_eq!(PackHeader::read(&bytes).unwrap().era, code);
+        let pack = Pack::from_bytes(bytes).unwrap();
+        pack.verify_hash().unwrap();
+        assert_eq!(pack.era(), era);
+        assert_eq!(
+            pack.get::<String>(TableId::QUEST, 1).unwrap().as_deref(),
+            Some("synthetic")
+        );
+    }
+}

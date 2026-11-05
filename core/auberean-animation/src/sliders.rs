@@ -9,14 +9,14 @@
 use crate::table::Table;
 
 /// The sliders a body starts at 1.
-pub const STARTING_SLIDERS: [u32; 6] = [
-    0x4000_000A,
-    0x4000_0015,
-    0x4000_0016,
-    0x4000_0017,
-    0x4000_0018,
-    0x4000_001A,
-];
+pub const STARTING_SLIDERS: [u32; 6] = [0x4000_000A, OPACITY, RED, GREEN, BLUE, ALPHA];
+
+/// The sliders an object's draws take their color from.
+const OPACITY: u32 = 0x4000_0015;
+const RED: u32 = 0x4000_0016;
+const GREEN: u32 = 0x4000_0017;
+const BLUE: u32 = 0x4000_0018;
+const ALPHA: u32 = 0x4000_001A;
 
 /// A change smaller than this is none.
 const EPSILON: f32 = 0.0002;
@@ -148,14 +148,28 @@ impl Sliders {
     }
 
     /// A slider's value now; 0 for a slider never set.
-    // D2-15189
+    // D2-15189, D2-05897, D2-06393
     #[must_use]
     pub fn current(&self, slider: u32) -> f32 {
         self.infos.get(slider).map_or(0.0, |i| i.value)
     }
 
+    /// What an object's draws are multiplied by, as these sliders hold it: red, green, blue and
+    /// alpha, each held to 0..1, the alpha times the opacity (its own slider, held to 0..1).
+    // D2-06487, D2-06380
+    #[must_use]
+    pub fn draw_color(&self) -> [f32; 4] {
+        let held = |slider| self.current(slider).clamp(0.0, 1.0);
+        [
+            held(RED),
+            held(GREEN),
+            held(BLUE),
+            held(ALPHA) * held(OPACITY),
+        ]
+    }
+
     /// The value a slider is headed for.
-    // D2-15190
+    // D2-15190, D2-05898, D2-06394
     #[must_use]
     pub fn desired(&self, slider: u32) -> f32 {
         self.infos.get(slider).map_or(0.0, |i| i.desired)

@@ -56,6 +56,23 @@ const OUTER_SCALE: f32 = 1.2;
 /// How far back along the tube the camera starts as the tunnel fades in, meters.
 const PULL_BACK: f32 = 100.0;
 
+/// The sounds of portal space, by the data's enumeration: the one played as it starts, the two
+/// kept playing while it lasts, and the one played as it stops.
+pub const START_SOUND: u32 = 0x4000_0018;
+pub const LOOP_SOUNDS: [u32; 2] = [0x4000_001D, 0x4000_001E];
+pub const STOP_SOUND: u32 = 0x4000_001C;
+/// The enumeration's mapping.
+pub const SOUND_MAPPING: u32 = 0x4000_0002;
+
+/// What the effect asks of the sound.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PassageSound {
+    /// It started: its start sound, and its two loops kept.
+    Start,
+    /// It stopped: its stop sound, and its loops stopped at once.
+    Stop,
+}
+
 /// Where the effect is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum State {
@@ -122,6 +139,7 @@ pub struct Passage {
     rings: Vec<Ring>,
     random: f32,
     dice: Random,
+    sounds: Vec<PassageSound>,
 }
 
 pub use auberean_world::noise::Noise;
@@ -188,6 +206,7 @@ impl Passage {
             rings: Vec::new(),
             random: 0.0,
             dice,
+            sounds: Vec::new(),
         }
     }
 
@@ -231,12 +250,19 @@ impl Passage {
             } else if !want {
                 self.state = State::Off;
                 self.since = now;
+                self.sounds.push(PassageSound::Stop);
             }
         }
     }
 
+    /// What it asks of the sound since last asked, in order.
+    pub fn take_sounds(&mut self) -> Vec<PassageSound> {
+        std::mem::take(&mut self.sounds)
+    }
+
     // D2-11047
     fn start(&mut self, state: State, now: f64) {
+        self.sounds.push(PassageSound::Start);
         self.state = state;
         self.since = now;
         self.last = now;
@@ -258,6 +284,7 @@ impl Passage {
         let noise = noise();
         let phase = self.random * std::f32::consts::PI;
         for i in start..start + count {
+            // D2-11045
             let i = i % RINGS;
             let prev = self.rings[(i + RINGS - 1) % RINGS];
             let at = prev.at + SPACING;
@@ -287,6 +314,7 @@ impl Passage {
         if self.state == State::In && !self.want {
             self.state = State::GoingOut;
             self.since = now;
+            self.sounds.push(PassageSound::Stop);
         }
         if now - self.since > PHASE {
             let next = match self.state {
@@ -489,7 +517,7 @@ impl Passage {
         let mut light = DayLight::DEFAULT;
         light.fog_min = 0.0;
         light.fog_max = 0.0;
-        let mut frame = builder.parts_frame(&[nebula], Vec::new(), camera, light);
+        let mut frame = builder.parts_frame(&[nebula], Vec::new(), camera, light, None);
         for b in &mut frame.objects {
             b.tint = Color::new(1.0, 1.0, 1.0, look.nebula);
         }
@@ -504,6 +532,7 @@ impl Passage {
                 layer.move_on(now, &self.dice);
                 frame.objects.push(ObjectBatch {
                     vertices: v.clone(),
+                    posed: None,
                     indices: i.clone(),
                     transform: Mat4::IDENTITY,
                     layer,
@@ -520,6 +549,11 @@ impl Passage {
                     kept_by: None,
                     anchor: None,
                     step: None,
+                    visible: None,
+                    block: None,
+                    far: false,
+                    ground: None,
+                    lod: None,
                 });
             }
         }

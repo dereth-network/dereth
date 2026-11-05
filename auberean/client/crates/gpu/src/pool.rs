@@ -4,9 +4,6 @@
 //! bind group of its own each frame, which with the hundreds of draws inside a building cost most
 //! of a frame.
 
-/// Slots in each buffer.
-const SLOTS: usize = 1024;
-
 struct Chunk {
     buffer: wgpu::Buffer,
     groups: Vec<wgpu::BindGroup>,
@@ -20,16 +17,19 @@ pub(crate) struct UniformPool {
     stride: usize,
     /// The uniforms' size.
     size: usize,
+    /// Slots in each buffer.
+    slots: usize,
     used: usize,
 }
 
 impl UniformPool {
-    pub(crate) fn new(device: &wgpu::Device, size: usize) -> Self {
+    pub(crate) fn new(device: &wgpu::Device, size: usize, slots: usize) -> Self {
         let align = device.limits().min_uniform_buffer_offset_alignment as usize;
         Self {
             chunks: Vec::new(),
             stride: size.div_ceil(align.max(1)) * align.max(1),
             size,
+            slots,
             used: 0,
         }
     }
@@ -47,16 +47,16 @@ impl UniformPool {
         layout: &wgpu::BindGroupLayout,
         bytes: &[u8],
     ) -> wgpu::BindGroup {
-        let (c, k) = (self.used / SLOTS, self.used % SLOTS);
+        let (c, k) = (self.used / self.slots, self.used % self.slots);
         self.used += 1;
         if c == self.chunks.len() {
             let buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("draw uniforms"),
-                size: (self.stride * SLOTS) as u64,
+                size: (self.stride * self.slots) as u64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            let groups = (0..SLOTS)
+            let groups = (0..self.slots)
                 .map(|i| {
                     device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: None,
@@ -75,7 +75,7 @@ impl UniformPool {
             self.chunks.push(Chunk {
                 buffer,
                 groups,
-                data: vec![0; self.stride * SLOTS],
+                data: vec![0; self.stride * self.slots],
             });
         }
         let chunk = &mut self.chunks[c];
@@ -85,6 +85,11 @@ impl UniformPool {
         chunk.groups[k].clone()
     }
 
+    /// The bytes of the slots taken this frame.
+    pub(crate) fn bytes_taken(&self) -> u64 {
+        (self.used * self.stride) as u64
+    }
+
     /// Write the slots taken this frame to the device, before the frame is submitted.
     pub(crate) fn write(&self, queue: &wgpu::Queue) {
         let mut left = self.used;
@@ -92,7 +97,7 @@ impl UniformPool {
             if left == 0 {
                 break;
             }
-            let n = left.min(SLOTS);
+            let n = left.min(self.slots);
             queue.write_buffer(&chunk.buffer, 0, &chunk.data[..n * self.stride]);
             left -= n;
         }

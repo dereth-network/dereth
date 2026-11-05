@@ -4,6 +4,7 @@
 //! landscape and its frills reach, the volumes of shadow a player's body casts, and a part drawn
 //! through its mesh's instance.
 
+mod bodies;
 mod cells;
 mod common;
 mod cull;

@@ -36,27 +36,11 @@ pub mod change {
     pub const SAME: u32 = 3;
 }
 
-/// Whether the game logic hears of a property when it is touched (its descriptor says reported).
-// D2-16240, D2-16065
-#[must_use]
-pub fn reported(list: &PropertyList, property: u32) -> bool {
-    list.descriptor(property).is_some_and(|d| d.report == 0)
-}
-
-/// Whether a property can be asked about (its descriptor does not say ignored).
-// D2-16241, D2-16066
-#[must_use]
-pub fn inquirable(list: &PropertyList, property: u32) -> bool {
-    list.descriptor(property).is_some_and(|d| d.report != 2)
-}
-
-/// Two properties are the same: the same id, the same kind of value, equal values.
-// D2-16078
+/// Two properties are the same: the same id and type, and values the same, floats in a vector,
+/// color or position within a tolerance ([`Property::same`]).
 #[must_use]
 pub fn same_property(a: &Property, b: &Property) -> bool {
-    a.id == b.id
-        && std::mem::discriminant(&a.value) == std::mem::discriminant(&b.value)
-        && a.value == b.value
+    a.same(b)
 }
 
 /// One property of something a body touches, numbered, with how it changed.
@@ -88,7 +72,6 @@ impl ContactProperty {
         self.property.id
     }
 
-    // D2-15576
     #[must_use]
     pub fn is_begin(&self) -> bool {
         self.change == change::BEGIN
@@ -98,12 +81,6 @@ impl ContactProperty {
     #[must_use]
     pub fn is_end(&self) -> bool {
         self.change == change::END
-    }
-
-    // D2-15578
-    #[must_use]
-    pub fn is_changed(&self) -> bool {
-        self.change == change::CHANGED
     }
 
     // D2-15579
@@ -135,7 +112,7 @@ impl ContactProperty {
     // D2-15584
     #[must_use]
     pub fn is_reported(&self, list: &PropertyList) -> bool {
-        reported(list, self.name())
+        list.is_reported(self.name())
     }
 
     /// Takes a newly touched value: the same as held marks it unchanged; a different value of the
@@ -443,7 +420,6 @@ impl CollisionReport {
         matches!(self.contact_state, state::BEGIN | state::CHANGED).then_some(self.contact_plane)
     }
 
-    // D2-15547
     #[must_use]
     pub fn is_end_contact(&self) -> bool {
         self.contact_state == state::END
@@ -455,39 +431,22 @@ impl CollisionReport {
         self.records.get(i)
     }
 
-    // D2-15550
     #[must_use]
     pub fn object_property(&self, i: usize) -> Option<&ContactProperty> {
         self.object_properties.get(i)
     }
 
-    // D2-15551
-    #[must_use]
-    pub fn env_property(&self, i: usize) -> Option<&ContactProperty> {
-        self.env_properties.get(i)
-    }
-
-    // D2-15552
     #[must_use]
     pub fn surface_property(&self, i: usize) -> Option<&ContactProperty> {
         self.surface_properties.get(i)
     }
 
-    // D2-15553
     #[must_use]
     pub fn water_property(&self, i: usize) -> Option<&ContactProperty> {
         self.water_properties.get(i)
     }
 
-    /// How many surface properties were reported.
-    // D2-00414
-    #[must_use]
-    pub fn num_surface_properties(&self) -> usize {
-        self.surface_properties.len()
-    }
-
     /// The first record of an object.
-    // D2-15554
     #[must_use]
     pub fn find_object(&self, object: u64) -> Option<&ContactRecord> {
         self.records.iter().find(|r| r.object == object)

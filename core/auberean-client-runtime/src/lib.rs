@@ -49,6 +49,7 @@ pub mod effects;
 pub mod examination;
 pub mod files;
 pub mod friends;
+pub mod game_time;
 pub mod host;
 pub mod interface;
 pub mod inventory;
@@ -59,6 +60,7 @@ pub mod looks;
 pub mod motion;
 pub mod notices;
 pub mod physics_object;
+pub mod quality_dump;
 pub mod repository;
 pub mod rooms;
 pub mod selection;
@@ -85,6 +87,7 @@ use auberean_dat::DatFile;
 use auberean_primitives::Vec3;
 use auberean_protocol::login::{
     CharacterRef, CreateCharacter, DataRequest, DeleteCharacter, Empty, PlayCharacter,
+    RestoreCharacter,
 };
 use auberean_protocol::physics::{HeadDirection, Target};
 use auberean_protocol::script::{ScriptArgs, ServerCall};
@@ -107,9 +110,10 @@ pub const EXIT_PORTAL_SPACE: u32 = 0x8212_001B;
 /// behavior played and stopped, a change of mode (gone through, or set at once), an effect played
 /// and stopped, a combat story, a move ordered, the scales of its speed, its acceleration and its
 /// jump, and where it looks (what at, and its head's direction).
-pub const PHYSICS_EVENTS: [u32; 13] = [
+pub const PHYSICS_EVENTS: [u32; 29] = [
     0x1007F, 0x10080, 0x10082, 0x100A9, 0x100A0, 0x100A1, 0x100A8, 0x10083, 0x10092, 0x10093,
-    0x100BA, 0x10096, 0x100C9,
+    0x100BA, 0x10096, 0x100C9, 0x10081, 0x10091, 0x10094, 0x10095, 0x10098, 0x10099, 0x1009B,
+    0x100A2, 0x100A5, 0x100A6, 0x100A7, 0x100B5, 0x100BE, 0x100C5, 0x100CF, 0x100D2,
 ];
 /// How many of them are kept for a scene that has not taken them.
 pub const PHYSICS_KEPT: usize = 1024;
@@ -156,18 +160,36 @@ impl core::fmt::Debug for ClientData {
 /// Link the script library of a portal file against the client's natives: the library is the
 /// record the client's enumeration names (no other is ever chosen: the program's options to read a
 /// library from a named file are kept and ignored), read by the data's own resolver, its natives
-/// dispatched by the client's table and its objects made by the client's factory.
+/// dispatched by the client's table and its objects made by the client's factory. A read or decode
+/// that fails is checked against the file and read once more.
+///
+/// # Errors
+/// The library is not there, or does not load or link.
+pub fn link_scripts(portal: &DatFile) -> Result<Program, String> {
+    link_scripts_noting(portal, |_| {})
+}
+
+/// [`link_scripts`], `note` told when the library read right only the second time, for the host to
+/// say so.
 ///
 /// # Errors
 /// The library is not there, or does not load or link.
 // D2-00741, D2-07978, D2-08022, D2-07998, D2-07997, D2-07992, D2-07993, D2-00748, D2-00749
-pub fn link_scripts(portal: &DatFile) -> Result<Program, String> {
-    let lib = auberean_script::library::Library::from_record(
-        &portal
-            .read(auberean_script::library::RECORD)
-            .map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+// D2-01657
+pub fn link_scripts_noting(
+    portal: &DatFile,
+    note: impl FnOnce(&auberean_dat::checked::Retried),
+) -> Result<Program, String> {
+    let lib = portal
+        .read_checked(
+            auberean_script::library::RECORD,
+            auberean_script::library::Library::from_record,
+        )
+        .map_err(|e| format!("the script library: {e}"))?;
+    if let Some(r) = &lib.retried {
+        note(r);
+    }
+    let lib = lib.value;
     let natives = host::natives(&lib);
     Program::link(lib, natives).map_err(|e| format!("{e:?}"))
 }
@@ -273,6 +295,9 @@ pub struct Client {
     script_sends: bool,
     /// The scene waits to be reported drawn.
     scene_wanted: bool,
+    /// Whether the host's last frame drew the world; none for a host that draws nothing. The server
+    /// hears the scene is ready only once it has.
+    pub world_frame_drawn: Option<bool>,
     portal_space: bool,
     /// The entry's session was ended: one log-off an entry into the world.
     ended: bool,
@@ -280,6 +305,8 @@ pub struct Client {
     session_end: SessionEnd,
     /// The game clock.
     clock: clock::Clock,
+    /// The world's clock over the region's calendar, from the first region on.
+    game_clock: Option<auberean_world::calendar::GameClock>,
     now: f64,
     sent: Vec<Sent>,
     /// Calls from the server a host wants to see as they take effect, by function id.
@@ -298,9 +325,11 @@ pub struct Client {
     pub shown: Vec<host::Shown>,
     /// The notices the scripts sent the panels, in order, for a front end to take.
     pub notices: Vec<host::PanelNotice>,
-    /// What the server asked of the objects' bodies ([`PHYSICS_EVENTS`]: the behaviors they play
-    /// and stop, their modes, the effects they play and stop, the combat stories told on them, the
-    /// moves it orders, their speed, acceleration and jump scales, where they look), in the order
+    /// What the server asked of the objects' bodies ([`PHYSICS_EVENTS`]: the behaviors they play,
+    /// stop and let go of, their modes, sliders and motion descriptions, the effects they play and
+    /// stop, the combat stories told on them, the moves it orders, the pushes it gives them, their
+    /// speed, acceleration and jump scales, what the ground does to their motion, where they look,
+    /// the missiles it launches), in the order
     /// it took effect, for the scene to play. When no scene takes them, the oldest
     /// [`PHYSICS_KEPT`] go once twice that many are kept (the heads' directions come many times a
     /// second).
@@ -448,10 +477,12 @@ impl Client {
             account: settings.account,
             script_sends: settings.script_sends,
             scene_wanted: false,
+            world_frame_drawn: None,
             portal_space: false,
             ended: false,
             session_end: SessionEnd::default(),
             clock: clock::Clock::default(),
+            game_clock: None,
             now: 0.0,
             sent: Vec::new(),
             observe: Vec::new(),
@@ -547,11 +578,19 @@ impl Client {
         self.session.poll_transmit()
     }
 
+    /// What [`Self::disconnect`] would send, made now and sending nothing: each datagram and where
+    /// it goes.
+    #[must_use]
+    pub fn goodbye(&self) -> Vec<(SocketAddr, Vec<u8>)> {
+        self.session.goodbye()
+    }
+
     /// Close every connection: a goodbye on each, as the client says when it closes; nothing more
-    /// is sent.
+    /// is sent. The data cache is reset.
     // D2-05261
     pub fn disconnect(&mut self) {
         self.session.log_off();
+        self.download.reset_cache();
     }
 
     /// The entry's session ends, once an entry: the character logged off (none before the
@@ -594,6 +633,15 @@ impl Client {
                     character,
                 }));
             }
+            Action::RestoreCharacter { character, name } => {
+                // D2-05343
+                let account = NarrowString(self.account.clone());
+                self.send(ClientMessage::RestoreCharacter(RestoreCharacter {
+                    character,
+                    name: WideString::from(name.as_str()),
+                    account,
+                }));
+            }
             Action::Chat(bytes) => self.send(ClientMessage::Chat(
                 auberean_protocol::login::ChatPacket(bytes),
             )),
@@ -629,6 +677,12 @@ impl Client {
                 self.toolbar_stale = true;
             }
             Action::SetOptions { changes, tell } => self.set_options(&changes, tell),
+            // D2-00565, D2-01265
+            Action::ShowRadarCoordinates { on } => {
+                let on = InterfaceArg::Word(u32::from(on));
+                self.ask(function::SET_SHOW_RADAR_COORDS, &[on]);
+            }
+            Action::KeepOptions => self.upload_game_options(),
             Action::Social(a) => self.social(a),
             Action::Emote { string, table } => self.emote(string, table),
             Action::AssistedTell { name } => self.assisted_tell(&name),
@@ -750,6 +804,22 @@ impl Client {
             Action::CancelQuest { quest } => {
                 self.ask(function::CANCEL_QUEST, &[InterfaceArg::Word(quest)]);
             }
+            Action::Resurrect => self.request_resurrect(),
+            Action::DeclineResurrection => self.clear_resurrection_request(),
+            Action::Dismount => self.dismount(),
+            // D2-00452, D2-01270
+            Action::ApplyTotem {
+                target,
+                source,
+                effect,
+            } => self.ask(
+                function::SHOULD_APPLY_TOTEM_DONE,
+                &[
+                    InterfaceArg::Word(effect),
+                    InterfaceArg::Long(source),
+                    InterfaceArg::Long(target),
+                ],
+            ),
             Action::Skill(a) => self.skill(a),
             Action::Craft(a) => self.craft_action(a),
             Action::Trade(a) => {
@@ -767,9 +837,17 @@ impl Client {
             // D2-00593, D2-01152
             Action::PlayScenesDone { scenes } => {
                 let ty = store::SCENE_LIST;
+                // None were handed to play (a door's, once the player has arrived): an empty list.
+                let bytes = if scenes.is_empty() {
+                    let mut w = auberean_script::wire::Out::new();
+                    auberean_script::story::write_scenes(&mut w, &[]);
+                    w.buf
+                } else {
+                    scenes
+                };
                 self.ask(
                     store::function::PLAY_SCENES_DONE,
-                    &[InterfaceArg::Native { ty, bytes: scenes }],
+                    &[InterfaceArg::Native { ty, bytes }],
                 );
             }
             // D2-00463, D2-01086
@@ -934,7 +1012,12 @@ impl Client {
             });
         }
         self.toolbar_stale = true;
-        // D2-00594, D2-01283
+        self.upload_game_options();
+    }
+
+    /// Send the player's options to the server to keep, through the player's interface.
+    // D2-00594, D2-01283
+    fn upload_game_options(&mut self) {
         self.ask(function::UPLOAD_GAME_OPTIONS, &[]);
     }
 
@@ -1110,9 +1193,11 @@ impl Client {
         let dt = (now.0 - self.now).max(0.0);
         self.now = now.0;
         self.clock.update(now.0);
+        self.use_game_clock();
         self.download.set_time(now.0);
         // The friends service's news first; while its part of the login runs, the game login
         // waits.
+        // D2-01660
         self.friends_frame();
         if self.friends_hold_login() {
             return;
@@ -1332,7 +1417,7 @@ impl Client {
 
     /// The waiting calls whose time came go on, earliest first (a sleeping one only while it
     /// still sleeps; see [`latent`]).
-    // D2-08084, D2-08080
+    // D2-08084, D2-08080, D2-00126
     fn wake_due(&mut self) {
         if self.waiting.is_empty() {
             return;
@@ -1368,16 +1453,6 @@ impl Client {
         };
         self.waiting.push((f64::NEG_INFINITY, w));
         true
-    }
-
-    /// An object's scripts asked to show a line of text of a kind: `None` when no scripts run
-    /// or the object is not here.
-    // D2-08072, D2-04674
-    pub fn display_text(&mut self, object: u64, kind: u32, text: &[u16]) -> Option<CallResult> {
-        let args = [InterfaceArg::Text(text.to_vec()), InterfaceArg::Word(kind)];
-        self.with_scripts(|s| s.call_object(object, latent::function::DISPLAY_TEXT, &args))
-            .flatten()
-            .map(|(r, _)| r)
     }
 
     /// An object's scripts asked to show a string reference (its packed form) of a kind.
@@ -1487,7 +1562,41 @@ impl Client {
             db.get::<auberean_assets::region::Region>(record)
                 .map(|r| (record, r.number))
         };
+        let was = self.world.region();
         self.world.set_region(region, load);
+        if region != 0 && self.world.region() != was {
+            let had = self.game_clock.take();
+            self.game_clock = Some(game_time::region_clock(cache, region, had));
+            self.use_game_clock();
+        }
+    }
+
+    /// The world's clock kept up with the game clock's.
+    // D2-13067
+    fn use_game_clock(&mut self) {
+        let t = self.clock.now();
+        if let Some(clock) = self.game_clock.as_mut() {
+            clock.use_time(t);
+        }
+    }
+
+    /// The world's time now: the game clock's, at the rate and from the place an admin may have
+    /// moved it to. The sky and the calendar read this one.
+    #[must_use]
+    pub fn world_time(&self) -> f64 {
+        let t = self.clock.now();
+        self.game_clock.as_ref().map_or(t, |c| c.world_time(t))
+    }
+
+    /// The world's clock, once the world is in a region.
+    #[must_use]
+    pub const fn game_clock(&self) -> Option<&auberean_world::calendar::GameClock> {
+        self.game_clock.as_ref()
+    }
+
+    /// The world's clock, to say the land has been lit for it.
+    pub const fn game_clock_mut(&mut self) -> Option<&mut auberean_world::calendar::GameClock> {
+        self.game_clock.as_mut()
     }
 
     /// The physics object of game object `id`, made by the scene (see
@@ -1529,12 +1638,10 @@ impl Client {
 
     fn event(&mut self, e: Event) {
         match e {
-            Event::Message(r) => {
-                let Incoming::Message(m) = r.incoming else {
-                    return;
-                };
-                self.take_message(r.blob_id, *m);
-            }
+            Event::Message(r) => match r.incoming {
+                Incoming::Message(m) => self.take_message(r.blob_id, *m),
+                Incoming::Undecodable { bytes, .. } => self.take_unread(r.blob_id, &bytes),
+            },
             Event::LoginFailed(error) => {
                 self.session_end.login_failed = true;
                 self.connect_failed(Some(error));
@@ -1596,6 +1703,15 @@ impl Client {
         }
     }
 
+    /// A message that did not read came under `blob_id`: nothing of it takes effect, but what its
+    /// stamp was holding back does.
+    fn take_unread(&mut self, blob_id: u64, raw: &[u8]) {
+        self.queue.receive_unread(self.now, blob_id, raw);
+        while let Some(item) = self.queue.pop() {
+            self.take_effect(&item);
+        }
+    }
+
     fn take_effect(&mut self, item: &Item) {
         // A quality the server sets is told to the object's scripts once it is set.
         let changed = body::stat_of(&item.message, self.model.player);
@@ -1635,6 +1751,7 @@ impl Client {
         if let ServerMessage::CreateObject(c) = &item.message {
             if Some(c.id) == self.model.player {
                 self.body.instance_stamp = c.physics.instance_stamp;
+                self.body.position_stamp = c.physics.stamps[0];
                 if c.physics.bits & auberean_protocol::types::PhysicsDesc::POSITION != 0 {
                     let pos = c.physics.position;
                     self.body
@@ -1750,7 +1867,7 @@ impl Client {
     /// A line of text the server sends the player (its kind and a string reference): given to the
     /// player's interface, whose scripts show it as a line of that kind; with no player in the
     /// world, nothing shows.
-    // D2-03960
+    // D2-03960, D2-03977
     fn server_text(&mut self, n: &auberean_protocol::login::Notice) {
         use auberean_protocol::wire::Field as _;
         let Some(player) = self
@@ -1777,17 +1894,37 @@ impl Client {
         }
     }
 
-    /// The server placed the player: on a teleport or a forced position, the body goes there. The
-    /// position's time leaves the game clock alone: only the server's time-sync sets it.
+    /// The server placed the player. A position with no newer stamp, or in no cell, is left. On a
+    /// newer teleport the body goes there, facing the position's heading; on a newer forced position
+    /// or with an impulse it goes there, facing as it faced, and an impulse then throws it. Any other
+    /// position of the player's own moves nothing. A newer forced position tells the host, whose
+    /// camera glides to the new place unless it is at the eyes. The position's time leaves the game
+    /// clock alone: only the server's time-sync sets it.
+    // D2-06372
     fn server_moved_player(&mut self, p: &auberean_protocol::physics::ObjectPosition) {
-        let heading = (p.heading_motion >> 24) as f32 * 360.0 / 255.0;
-        let jumped = p.teleport_stamp != self.body.teleport_stamp
-            || p.force_position_stamp != self.body.force_position_stamp
-            || !self.body.placed();
+        use auberean_protocol::physics::position_flags;
+        let first = !self.body.placed();
+        if !first && (p.cell == 0 || !motion::is_newer(self.body.position_stamp, p.position_stamp))
+        {
+            return;
+        }
+        let teleported = motion::is_newer(self.body.teleport_stamp, p.teleport_stamp) || first;
+        let forced = motion::is_newer(self.body.force_position_stamp, p.force_position_stamp);
+        let impulse = p.flags & position_flags::IMPULSE != 0;
+        self.body.position_stamp = p.position_stamp;
         self.body.teleport_stamp = p.teleport_stamp;
-        self.body.force_position_stamp = p.force_position_stamp;
-        if jumped {
+        if forced {
+            self.body.force_position_stamp = p.force_position_stamp;
+            self.body.force_moved();
+        }
+        if teleported {
+            let heading = (p.heading_motion >> 24) as f32 * 360.0 / 255.0;
             self.body.place(p.cell, p.origin, heading);
+        } else if forced || impulse {
+            self.body.place(p.cell, p.origin, self.body.heading);
+        }
+        if impulse {
+            self.body.throw(p.velocity);
         }
     }
 
@@ -1854,6 +1991,7 @@ impl Client {
         scripts.host.friends = self.friends.take();
         scripts.host.rooms = self.rooms.take();
         scripts.host.clock = self.clock.now();
+        scripts.host.game_clock = self.game_clock.take();
         scripts.host.my_position = self.body.placed().then(|| {
             let o = self.body.origin;
             // The heading turns the body about the up axis, clockwise from north.
@@ -1892,10 +2030,19 @@ impl Client {
         self.shell = std::mem::take(&mut scripts.host.history);
         self.friends = scripts.host.friends.take();
         self.rooms = scripts.host.rooms.take();
+        self.game_clock = scripts.host.game_clock.take();
         for (w, seconds) in std::mem::take(&mut scripts.host.sleeps) {
             self.waiting.push((self.now + seconds, w));
         }
-        self.shown.append(&mut scripts.host.shown);
+        let sent = self.notices.len();
+        self.shown.extend(
+            std::mem::take(&mut scripts.host.shown)
+                .into_iter()
+                .map(|mut s| {
+                    s.notices_before += sent;
+                    s
+                }),
+        );
         let noticed = std::mem::take(&mut scripts.host.panel_notices);
         self.store_stale |= self.store.noticed(&noticed);
         Self::inventory_noticed(
@@ -1920,6 +2067,7 @@ impl Client {
         self.body.frozen = frozen;
         let sends: Vec<(u32, Vec<u8>, bool)> = std::mem::take(&mut scripts.host.sends);
         if self.script_sends {
+            // Those marked for encryption go the same way: CD2-script-sends-in-the-clear.
             for (function, args, _) in sends {
                 self.send(ClientMessage::ServerCall(ServerCall {
                     function: FunctionId(function),
@@ -1992,6 +2140,20 @@ impl Client {
     /// no player, or it has none.
     pub fn options(&mut self) -> Option<auberean_script::options::GameplayOptions> {
         self.with_scripts(Scripts::options).flatten()
+    }
+
+    /// Write one of the player's files by a bare name; whether it was written.
+    pub fn write_player_file(&mut self, file: &str, bytes: &[u8]) -> bool {
+        use auberean_script::Host as _;
+        self.scripts
+            .as_mut()
+            .is_some_and(|s| s.host.write_file(file, bytes))
+    }
+
+    /// One of the player's files by a bare name; none when there is no such file.
+    pub fn read_player_file(&mut self, file: &str) -> Option<Vec<u8>> {
+        use auberean_script::Host as _;
+        self.scripts.as_mut()?.host.read_file(file)
     }
 
     /// The windows' saved places the player's scripts keep (a table's packed form); `None` when
@@ -2372,9 +2534,7 @@ impl Client {
         let auto = self
             .interface(function::GET_AUTO_TARGET, &[])
             .is_some_and(|(_, v)| v != 0);
-        let selected = self
-            .interface_long(function::GET_SELECTION)
-            .is_some_and(|(_, v)| v != 0);
+        let selected = self.has_something_selected().is_some_and(|v| v != 0);
         if auto && !selected {
             self.act(Action::Select { target: attacker });
         }
@@ -2385,6 +2545,16 @@ impl Client {
     pub fn object_name(&mut self, object: u64, quantity: u32) -> Option<String> {
         self.with_scripts(|s| s.object_name(object, quantity))
             .flatten()
+    }
+
+    /// The player's own name as its repository answers it; `None` when no scripts run or there is
+    /// no player.
+    pub fn player_name(&mut self) -> Option<String> {
+        let id = self.model.player?;
+        self.with_host(|h| {
+            let name = repository::name(h, id);
+            crate::text::from_script(&name).text(&mut h.text)
+        })
     }
 
     /// An object's name as its scripts give it for a number of it, as a string reference, for a
@@ -2497,9 +2667,13 @@ impl Client {
         }
     }
 
-    // D2-01904, D2-03986
+    // D2-01904, D2-03986, D2-10650, D2-10651, D2-11020, D2-11021, D2-04055
     fn report_scene(&mut self) {
-        if self.scene_wanted && !self.portal_space && self.model.player_object().is_some() {
+        if self.scene_wanted
+            && !self.portal_space
+            && self.world_frame_drawn != Some(false)
+            && self.model.player_object().is_some()
+        {
             self.scene_wanted = false;
             self.send(ClientMessage::SceneRenderingComplete(Empty));
         }
@@ -2538,10 +2712,7 @@ fn attach_records(scripts: &mut Scripts) {
             scripts
                 .options()
                 .map(|o| auberean_script::native_object::NativeObject::Options(Box::new(o)))
-        } else if n.native == UPDATE_QUESTS
-            && n.words.first() == Some(&ALL_QUESTS)
-            && n.objects.iter().all(Option::is_none)
-        {
+        } else if n.native == UPDATE_QUESTS && n.words.first() == Some(&ALL_QUESTS) {
             scripts
                 .quest_list()
                 .map(|(_, l)| auberean_script::native_object::NativeObject::QuestList(l))

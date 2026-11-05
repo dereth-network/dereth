@@ -43,7 +43,7 @@
 //! sent the whole allegiance, every member's node with its vassals and its patron, the tables of
 //! members by name and by id, and the file's name; the client writes the file.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use auberean_protocol::quality::VisualQuality;
 use auberean_protocol::types::ObjectStamp;
@@ -333,7 +333,19 @@ impl Allegiances {
         if !self.member(id) {
             return 0;
         }
-        let ranks: Vec<u32> = self.vassals(id).iter().map(|v| self.rank(*v)).collect();
+        self.rank_below(id, &mut BTreeSet::new())
+    }
+
+    /// A member's rank by its vassals' ranks, each counted once however a stored allegiance links
+    /// them.
+    fn rank_below(&self, id: u64, seen: &mut BTreeSet<u64>) -> u32 {
+        seen.insert(id);
+        let mut ranks = Vec::new();
+        for v in self.vassals(id) {
+            if seen.insert(v) {
+                ranks.push(self.rank_below(v, seen));
+            }
+        }
         let Some(&top) = ranks.iter().max() else {
             return 1;
         };
@@ -341,14 +353,19 @@ impl Allegiances {
         (if held >= 2 { top + 1 } else { top }).clamp(1, TOP_RANK)
     }
 
-    /// Every member under a member, itself first.
+    /// Every member under a member, itself first, each once however a stored allegiance links
+    /// them.
     #[must_use]
     pub fn tree(&self, id: u64) -> Vec<u64> {
         let mut out = vec![id];
+        let mut seen = BTreeSet::from([id]);
         let mut i = 0;
         while i < out.len() {
-            let v = self.vassals(out[i]);
-            out.extend(v);
+            for v in self.vassals(out[i]) {
+                if seen.insert(v) {
+                    out.push(v);
+                }
+            }
             i += 1;
         }
         out
@@ -447,29 +464,29 @@ impl Allegiances {
     }
 }
 
-/// Read the allegiances from the store, once.
-pub fn ensure<S: Store>(s: &mut Server<S>) {
+/// Read the allegiances from the store, once. Whether they are read: while the store cannot answer,
+/// nothing about them may be done or kept.
+pub fn ensure<S: Store>(s: &mut Server<S>) -> bool {
     if s.allegiances.loaded {
-        return;
+        return true;
     }
-    let read = s
-        .store
-        .world_record(RECORD)
-        .ok()
-        .flatten()
-        .and_then(|b| Allegiances::from_bytes(&b));
+    let Some(read) = crate::saves::read_record(s, RECORD, Allegiances::from_bytes) else {
+        return false;
+    };
     let offers = std::mem::take(&mut s.allegiances.offers);
     s.allegiances = read.unwrap_or_default();
     s.allegiances.offers = offers;
     s.allegiances.loaded = true;
+    true
 }
 
 /// Keep the allegiances.
 pub fn keep<S: Store>(s: &mut Server<S>) {
-    let b = s.allegiances.to_bytes();
-    if let Err(e) = s.store.set_world_record(RECORD, &b) {
-        tracing::warn!("the allegiances were not kept: {e}");
+    if !s.allegiances.loaded {
+        return;
     }
+    let b = s.allegiances.to_bytes();
+    s.saves.hold_record(RECORD, b);
 }
 
 /// What a profile says of a member: its name (as the world writes it), species, sex, level, and
@@ -496,15 +513,14 @@ pub fn facts<S: Store>(s: &mut Server<S>, id: u64) -> Facts {
             level: crate::examine::level_of(&p.qualities)
                 .max(1)
                 .cast_unsigned(),
-            online: true,
+            // A cloaked admin is told to nobody as in the world.
+            online: !p.admin.cloaked,
         };
     }
     let Some(c) = s.store.character(id).ok().flatten() else {
         return Facts::default();
     };
-    let level = s
-        .store
-        .world_state(id)
+    let level = crate::saves::state_of(s, id)
         .ok()
         .flatten()
         .and_then(|w| quals::int(&w.qualities, progress::q::LEVEL))
@@ -568,7 +584,7 @@ fn data(b: &mut Builder, s_: &Allegiances, id: u64, f: &Facts) -> u32 {
 
 /// The profile centred on a member (the empty profile for one in no allegiance).
 pub fn profile<S: Store>(s: &mut Server<S>, member: u64) -> ServerMessage {
-    ensure(s);
+    let _ = ensure(s);
     let Some(monarch) = s.allegiances.monarch(member) else {
         return no_allegiance();
     };
@@ -665,7 +681,9 @@ fn chat_room_message(room: u32) -> ServerMessage {
 /// profile (the empty profile alone for one in none), then what its vassals earned for it while it
 /// was away and a rank that fell meanwhile.
 pub fn enter<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let Some(id) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
@@ -899,7 +917,9 @@ fn hierarchy<S: Store>(s: &mut Server<S>, monarch: u64) -> Builder {
 /// The tree exported to a file: the asker is sent its whole allegiance and the file's name (one
 /// in no allegiance is refused by its own client before it asks).
 pub fn export<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let Some(me) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
@@ -957,7 +977,7 @@ fn swore_by(vassal: u64, name: &str, err: u32) -> ServerMessage {
 /// Why an oath to a patron cannot be: the vassal has a patron, the patron is under the vassal,
 /// the patron has as many vassals as it may.
 fn refusal<S: Store>(s: &mut Server<S>, vassal: u64, patron: u64) -> Option<u32> {
-    ensure(s);
+    let _ = ensure(s);
     if s.allegiances
         .nodes
         .get(&vassal)
@@ -986,7 +1006,7 @@ pub fn swear<S: Store>(
     clock: Clock,
 ) {
     let target = id_of(v);
-    let Some(other) = world_of(s, target) else {
+    let Some(other) = crate::presence::player_for(s, world, target) else {
         s.unhandled.note("an oath to someone not in the world");
         return;
     };
@@ -1031,7 +1051,9 @@ pub fn accept<S: Store>(
     v: &[Value],
     clock: Clock,
 ) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let vassal = id_of(v);
     let Some(patron) = s.players.get(&world).map(|p| p.character) else {
         return;
@@ -1150,7 +1172,9 @@ pub fn decline<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
 /// it broke with and gets its profile as it now stands, and its object no longer names the
 /// monarch; the other side, in the world, gets its profile.
 pub fn break_with<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let target = id_of(v);
     let Some(me) = s.players.get(&world).map(|p| p.character) else {
         return;
@@ -1233,7 +1257,9 @@ fn level_of<S: Store>(s: &mut Server<S>, id: u64) -> i32 {
 /// A vassal has earned experience: its patron's pool takes a quarter, and a pool that reaches its
 /// threshold is paid to the patron, a tenth of which goes on up.
 pub fn earned<S: Store>(s: &mut Server<S>, net: &mut ServerNet, vassal: u64, amount: u64) {
-    ensure(s);
+    if !ensure(s) {
+        return;
+    }
     let mut from = vassal;
     #[allow(
         clippy::cast_possible_truncation,

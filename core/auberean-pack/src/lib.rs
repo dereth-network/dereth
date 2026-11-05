@@ -145,6 +145,8 @@ pub enum Item {
     Quest { id: u32 },
     /// A step of a quest, by the quest and the step's key.
     Step { quest: u32, key: String },
+    /// A give that moves no quest, by its key.
+    Give { key: String },
     /// A line a person says, by its key.
     Talk { key: String },
     /// A craft skill or a recipe a new character starts with, by its data id.
@@ -193,6 +195,7 @@ impl Item {
                 quest: number(q)?,
                 key: symbol(key)?,
             },
+            ["give", key] => Self::Give { key: symbol(key)? },
             ["talk", key] => Self::Talk { key: symbol(key)? },
             ["craft", id] => Self::Craft { id: number(id)? },
             ["butchery", p] => Self::Butchery {
@@ -235,6 +238,7 @@ impl fmt::Display for Item {
             Self::Sale { store, ordinal } => write!(f, "sale {store:#010x} {ordinal}"),
             Self::Quest { id } => write!(f, "quest {id:#010x}"),
             Self::Step { quest, key } => write!(f, "step {quest:#010x} {key}"),
+            Self::Give { key } => write!(f, "give {key}"),
             Self::Talk { key } => write!(f, "talk {key}"),
             Self::Craft { id } => write!(f, "craft {id:#010x}"),
             Self::Butchery { profile } => write!(f, "butchery {profile:#010x}"),

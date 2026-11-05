@@ -80,6 +80,12 @@ pub fn parse_args(args: &[String]) -> Result<Options, String> {
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
+    if world.form == world_release::ReleaseForm::BuiltPack && sql.is_none() {
+        return Err(format!(
+            "{}'s releases carry a pack, not a dump: name its world.sql with --sql",
+            world.id
+        ));
+    }
     Ok(Options { world, sql, out })
 }
 

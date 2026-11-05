@@ -8,7 +8,9 @@ use std::collections::BTreeMap;
 use auberean_assets::ui::UiScene;
 use auberean_client_sdk::protocol::types::CharacterIdentity;
 use auberean_primitives::{DataId, Vec3};
-use auberean_scene::view::{scene_camera, ViewCamera, ViewFigure, ViewLight, ViewScene};
+use auberean_scene::view::{
+    figure_box, scene_camera, ViewCamera, ViewFigure, ViewLight, ViewScene,
+};
 use auberean_world::chargen::{self, Avatar, Choice, Random};
 use auberean_world::look::{Desc, Look};
 use auberean_world::math::Mat4;
@@ -18,6 +20,8 @@ use dereth_primitives::num::math;
 
 /// Character select's scene: the pillar, under the camera named below.
 pub const SELECT_SCENE: u32 = 0x2100_0001;
+/// The portal's scene behind the enter button.
+pub const PORTAL_SCENE: u32 = 0x2100_0008;
 /// The avatar hall's scene.
 pub const HALL_SCENE: u32 = 0x2100_000B;
 /// The camera every one of these scenes is seen by.
@@ -33,11 +37,9 @@ const ON_ARM: Vec3 = Vec3 {
 };
 /// The hall's floor, which the figures stand on.
 const LANDMESH: &str = "CHARGEN_LANDMESH";
-/// How much taller a figure's drawn box is than its setup's height (measured on the retail body
-/// page: the head's top and the feet against the camera's framing).
-const BOX_OVER_HEIGHT: f32 = 1.22;
-/// The modes the figures stand in: in the hall, and being shaped.
+/// The modes the figures stand in: in the hall, the one under the pointer, and being shaped.
 const HALL_MODE: u32 = 0x4100_0006;
+const HALL_UNDER_MODE: u32 = 0x4100_0007;
 const SHAPING_MODE: u32 = 0x4100_0008;
 
 /// Where each race and sex stands in the hall: the floor's holding place.
@@ -98,6 +100,7 @@ fn plain(parent: u32) -> Desc {
 /// (height and build in the middle), kept while the player goes back and forth.
 #[derive(Debug, Default)]
 pub struct Creation {
+    // D2-11869, D2-11870, D2-11871
     pub avatars: BTreeMap<(u32, u32), Avatar>,
     pub choices: BTreeMap<(u32, u32), Vec<Choice>>,
     /// The race and sex chosen in the hall.
@@ -126,6 +129,7 @@ impl Creation {
     }
 
     /// The chosen avatar and its choices.
+    // D2-11861
     #[must_use]
     pub fn chosen(&self) -> Option<(&Avatar, &[Choice])> {
         Some((
@@ -190,6 +194,27 @@ pub fn select_scene(
         light: ViewLight::Scene,
         figures,
         pick: None,
+        behaviors: Vec::new(),
+        under: false,
+    })
+}
+
+/// The portal behind the enter button: its scene alone, under the screen's backdrop, which has a
+/// hole for it. It runs from when the screen comes up, with or without a character to enter.
+// D2-01820
+#[must_use]
+pub fn portal_scene(records: &WorldRecords, rect: auberean_ui::Rect) -> Option<ViewScene> {
+    let scene: UiScene = records.get(PORTAL_SCENE)?;
+    let camera = scene_camera(&scene, CAMERA)?;
+    Some(ViewScene {
+        rect: rect_of(rect),
+        scene: PORTAL_SCENE,
+        camera,
+        light: ViewLight::Scene,
+        figures: Vec::new(),
+        pick: None,
+        behaviors: Vec::new(),
+        under: true,
     })
 }
 
@@ -203,6 +228,7 @@ pub fn hall_scene(
     rect: auberean_ui::Rect,
     creation: &Creation,
     may_make: u32,
+    under: Option<usize>,
 ) -> Option<(ViewScene, Vec<(u32, u32)>)> {
     let scene: UiScene = records.get(HALL_SCENE)?;
     let camera = scene_camera(&scene, CAMERA)?;
@@ -237,7 +263,11 @@ pub fn hall_scene(
             look: desc,
             origin: place.point(loc.transform.offset),
             heading: heading_of(loc.transform.rotation) + heading_of(at.rotation),
-            mode: HALL_MODE,
+            mode: if under == Some(who.len()) {
+                HALL_UNDER_MODE
+            } else {
+                HALL_MODE
+            },
             still: false,
         });
         who.push((race, sex));
@@ -250,6 +280,8 @@ pub fn hall_scene(
             light: ViewLight::Scene,
             figures,
             pick: None,
+            behaviors: Vec::new(),
+            under: false,
         },
         who,
     ))
@@ -271,10 +303,8 @@ pub fn shaping_scene(
     let scene: UiScene = records.get(scene_id)?;
     let fov = scene_camera(&scene, CAMERA).map_or(65.0, |c| c.fov_y);
     let desc = creation.look(records, race, sex)?;
-    let look = Look::of(records, &desc).ok()?;
-    let setup = records.setup(look.root_group()?.setup)?;
-    // The figure's drawn box stands about a fifth above its setup's height.
-    let mut h = setup.height * look.scale.z * BOX_OVER_HEIGHT;
+    let (low, high) = figure_box(records, &desc)?;
+    let mut h = high.z - low.z;
     match race {
         chargen::HUMAN => h *= 0.95,
         chargen::TUMEROK => h *= 0.84,
@@ -320,5 +350,7 @@ pub fn shaping_scene(
             still: false,
         }],
         pick: None,
+        behaviors: Vec::new(),
+        under: false,
     })
 }

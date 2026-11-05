@@ -99,18 +99,6 @@ pub fn is_player(id: u64) -> bool {
     kind(id) == IdKind::Player
 }
 
-// D2-16949
-#[must_use]
-pub fn is_interface(id: u64) -> bool {
-    kind(id) == IdKind::Interface
-}
-
-// D2-16950
-#[must_use]
-pub fn is_camera(id: u64) -> bool {
-    kind(id) == IdKind::Camera
-}
-
 // D2-16951
 #[must_use]
 pub fn is_temporary(id: u64) -> bool {
@@ -128,6 +116,14 @@ pub fn is_static(id: u64) -> bool {
 #[must_use]
 pub fn is_dynamic(id: u64) -> bool {
     kind(id) == IdKind::Dynamic
+}
+
+/// The id of the landblock that holds static object `id`, when it is one: the static id of that
+/// block with the highest number.
+// D2-13218
+#[must_use]
+pub fn landblock_of_static(id: u64) -> Option<u64> {
+    (id != 0 && is_static(id)).then(|| static_object(0xFF_FFFF_FFFF, block_of(id)))
 }
 
 /// The landblock a static object's id names, as a block id (`0xXXYYFFFF`).
@@ -149,4 +145,19 @@ pub const fn camera_parent() -> u64 {
 #[must_use]
 pub const fn camera_target() -> u64 {
     0x1200_0000_0000_0FFE
+}
+
+#[cfg(test)]
+mod block_tests {
+    //! Behaviour: none (a static object's landblock, held to hand-worked values)
+    use super::*;
+
+    #[test]
+    fn a_static_objects_landblock_keeps_its_block() {
+        let id = static_object(5, 0x1234_FFFF);
+        let block = landblock_of_static(id).expect("a static object");
+        assert_eq!(block_of(block), 0x1234_FFFF);
+        assert_eq!(block, static_object(0xFF_FFFF_FFFF, 0x1234_FFFF));
+        assert_eq!(landblock_of_static(0), None);
+    }
 }

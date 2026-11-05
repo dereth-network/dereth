@@ -73,8 +73,14 @@ impl CharGenScreen {
 
     /// The screen's credit warning dialog build — `0x8E = 1`, `0xAC = 1`, `0xC5 =
     /// ID_CharGen_CreditWarning`. *Yes* re-enters the finish with the credit check off.
+    ///
+    /// The same dialog asks about skill credits, on a world where they are lost.
     pub fn make_credit_warning_dialog(&mut self, ui: &mut UiSystem) -> bool {
-        let text = self.string(ui, CREDIT_WARNING_STRING);
+        let text = if self.warned_of_lost_skill_credits {
+            dereth_client_contract::era::LOST_SKILL_CREDITS_WARNING.to_owned()
+        } else {
+            self.string(ui, CREDIT_WARNING_STRING)
+        };
         self.make_dialog(ui, CharGenDialog::CreditWarning, &text)
     }
 

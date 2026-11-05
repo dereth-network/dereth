@@ -12,6 +12,7 @@ pub struct MemoryStore {
     accounts: Vec<Account>,
     characters: Vec<Character>,
     next_character: u64,
+    things_reserved: u64,
     worlds: BTreeMap<u64, WorldState>,
     records: BTreeMap<String, Vec<u8>>,
     network: BTreeSet<u64>,
@@ -52,7 +53,8 @@ impl Store for MemoryStore {
             name: name.to_string(),
             secret,
             created_at: now,
-            access: 0,
+            admin: false,
+            groups: Vec::new(),
             ban: None,
         };
         self.accounts.push(a.clone());
@@ -70,8 +72,55 @@ impl Store for MemoryStore {
         Ok(v)
     }
 
-    fn set_account_access(&mut self, account: u64, access: u32) -> StoreResult<()> {
-        self.account_mut(account)?.access = access;
+    fn set_account_admin(&mut self, account: u64, admin: bool) -> StoreResult<()> {
+        self.account_mut(account)?.admin = admin;
+        Ok(())
+    }
+
+    fn set_account_groups(&mut self, account: u64, groups: &[String]) -> StoreResult<()> {
+        self.account_mut(account)?.groups = groups.to_vec();
+        Ok(())
+    }
+
+    fn set_character_entity(&mut self, character: u64, entity: u32) -> StoreResult<()> {
+        let c = self
+            .characters
+            .iter_mut()
+            .find(|c| c.id == character)
+            .ok_or_else(|| StoreError(format!("no character {character}")))?;
+        c.entity_did = entity;
+        Ok(())
+    }
+
+    fn rename_character(&mut self, character: u64, name: &str) -> StoreResult<()> {
+        if self.name_taken(name)? {
+            return Err(StoreError(format!("the name {name} is taken")));
+        }
+        let c = self
+            .characters
+            .iter_mut()
+            .find(|c| c.id == character)
+            .ok_or_else(|| StoreError(format!("no character {character}")))?;
+        let old = std::mem::replace(&mut c.name, name.to_owned()).to_lowercase();
+        // A list that holds both names holds the new one once.
+        let key = name.to_lowercase();
+        let renamed: Vec<Listed> = self
+            .lists
+            .iter()
+            .filter(|l| l.entry.to_lowercase() == old)
+            .cloned()
+            .collect();
+        self.lists.retain(|l| {
+            l.entry.to_lowercase() != old
+                && !(l.entry.to_lowercase() == key
+                    && renamed
+                        .iter()
+                        .any(|r| r.character == l.character && r.list == l.list))
+        });
+        self.lists.extend(renamed.into_iter().map(|l| Listed {
+            entry: name.to_owned(),
+            ..l
+        }));
         Ok(())
     }
 
@@ -127,6 +176,12 @@ impl Store for MemoryStore {
         Ok(self.next_character)
     }
 
+    fn reserve_thing_numbers(&mut self, n: u64) -> StoreResult<u64> {
+        let first = self.things_reserved + 1;
+        self.things_reserved += n;
+        Ok(first)
+    }
+
     fn insert_character(&mut self, c: &Character) -> StoreResult<()> {
         if self.characters.iter().any(|x| x.id == c.id) || self.name_taken(&c.name)? {
             return Err(StoreError(format!("character {} exists", c.name)));
@@ -174,6 +229,22 @@ impl Store for MemoryStore {
 
     fn set_world_state(&mut self, id: u64, state: &WorldState) -> StoreResult<()> {
         self.worlds.insert(id, state.clone());
+        Ok(())
+    }
+
+    fn save_all(
+        &mut self,
+        states: &[(u64, &WorldState)],
+        records: &[(&str, &[u8])],
+    ) -> StoreResult<()> {
+        for (id, state) in states {
+            if self.characters.iter().any(|c| c.id == *id) {
+                self.worlds.insert(*id, (*state).clone());
+            }
+        }
+        for (name, value) in records {
+            self.records.insert((*name).to_string(), value.to_vec());
+        }
         Ok(())
     }
 

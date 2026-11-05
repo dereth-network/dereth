@@ -58,7 +58,7 @@ pub fn flare_points(flare: &LensFlare) -> Vec<FlarePoint> {
 
 /// The flares of the sky objects showing in `day` at time of day `t`: each object that shows and
 /// has points, placed 1000 metres out along the way it faces away from (its own -y).
-// D2-10940
+// D2-10940, D2-05962
 #[must_use]
 pub fn sky_flares(day: &DayDesc, t: f32) -> Vec<SkyFlare> {
     let mut out = Vec::new();

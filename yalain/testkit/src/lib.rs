@@ -19,6 +19,7 @@
 #[cfg(feature = "retail-dats")]
 pub mod authored;
 pub mod bot;
+pub mod faults;
 pub mod invariants;
 pub mod play;
 #[cfg(feature = "retail-dats")]
@@ -27,7 +28,7 @@ pub mod session;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use yalain_net::memory::MemoryNet;
-use yalain_net::{LocalTime, NetConfig, Port, ServerNet, Service};
+use yalain_net::{fixed_stream, LocalTime, NetConfig, Port, ServerNet, Service};
 use yalain_store::{MemoryStore, Store, StoredPosition};
 use yalain_world::start::StartArea;
 use yalain_world::{CharGenRules, Clock, Server, ServerConfig, StartRules};
@@ -169,7 +170,7 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
                 missile: 0x4700_00BE,
                 missile_speed: 35.0,
                 radius: 0.0,
-                ..strike
+                ..strike.clone()
             }],
         )
     };
@@ -244,7 +245,7 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
                 5.0,
                 0x4_0000,
                 0xC81,
-                vec![plays(0x8100_00CD), strike],
+                vec![plays(0x8100_00CD), strike.clone()],
             ),
         ),
         (
@@ -326,7 +327,7 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
                 1,
                 0x4100_00B0 + i,
                 0x14A0,
-                vec![plays(0), bolt],
+                vec![plays(0), bolt.clone()],
             ),
         ));
     }
@@ -357,7 +358,15 @@ pub fn test_skills() -> yalain_world::skills::SkillTable {
         ));
         autos.push((
             199 + i,
-            basic(1.0, 80.0, 0x4, 1, 0x4100_00E2 + i, 0x14A0, vec![arrow]),
+            basic(
+                1.0,
+                80.0,
+                0x4,
+                1,
+                0x4100_00E2 + i,
+                0x14A0,
+                vec![arrow.clone()],
+            ),
         ));
     }
     for (id, usage) in autos {
@@ -1014,6 +1023,8 @@ pub fn butchery_skill() -> yalain_world::craft::CraftSkillDef {
         }),
         pool_share: 0.01,
         cannot_raise: false,
+        bonus_stat: 0,
+        common_name: (0, 0),
     }
 }
 
@@ -1219,6 +1230,24 @@ pub fn creature_effects() -> Vec<yalain_world::effect_defs::EffectDef> {
     ]
 }
 
+/// An effect that only lasts on its holder, doing nothing (a workshop's, say).
+#[must_use]
+pub fn plain_effect(state: u32) -> yalain_world::effect_defs::EffectDef {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    EffectDef {
+        state,
+        kind: Kind::Other,
+        duration: Scale::default(),
+        priority: Scale::default(),
+        fx: 0,
+        external_flags: 0,
+        internal_flags: 0,
+        enum_value: 0,
+        eq_class: 0,
+        name: None,
+    }
+}
+
 /// What the tests craft (see the constants above), as the September 2013 data defines it.
 #[must_use]
 pub fn test_crafting() -> yalain_world::craft::Crafting {
@@ -1236,7 +1265,7 @@ pub fn test_crafting() -> yalain_world::craft::Crafting {
             ordinal: 1,
             quantity: 20,
             items: vec![IRON],
-            classes: Vec::new(),
+            ..Ingredient::default()
         }],
         checks: vec![Check {
             upto: 2.0,
@@ -1258,6 +1287,8 @@ pub fn test_crafting() -> yalain_world::craft::Crafting {
                     Action::Destroy {
                         ordinal: 1,
                         quantity: 20,
+                        by_spinner: None,
+                        spinners: None,
                     },
                     Action::Text {
                         text: (0xE7E3_18D9, 0x2500_1AEF),
@@ -1515,7 +1546,12 @@ impl<S: Store> Harness<S> {
         server.effect_table = test_effects();
         server.crafting = test_crafting();
         Self {
-            net: ServerNet::new(NetConfig::retail_ids(world), 0x5EED, 1.25e8, now),
+            net: ServerNet::new(
+                NetConfig::retail_ids(world),
+                fixed_stream(0x5EED),
+                1.25e8,
+                now,
+            ),
             server,
             wire: MemoryNet::default(),
             bots: Vec::new(),

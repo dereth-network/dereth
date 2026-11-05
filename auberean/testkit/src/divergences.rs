@@ -13,6 +13,12 @@ pub struct Divergence {
 /// Every divergence, in id order.
 pub static DIVERGENCES: &[Divergence] = &[
     Divergence {
+        id: "CD2-assistance-opens-issues-page",
+        says: "Request Assistance opens this project's issues page; the original client opened the \
+               publisher's support site, which is gone. The box shown when the browser cannot be \
+               started is titled Auberean Error, where the original's named Asheron's Call.",
+    },
+    Divergence {
         id: "CD2-checked-script-machine",
         says: "Where the retail script machine would run past the end of a stack, a table or the \
                code (a native nothing is bound to, a stack overflow, a reference to nothing, an \
@@ -24,6 +30,11 @@ pub static DIVERGENCES: &[Divergence] = &[
         says: "The data the game loads in the background is read and stored at the end of each \
                frame, everything waiting at once, where the original client does it on a thread \
                of its own and finishes at most 25 milliseconds of it each frame.",
+    },
+    Divergence {
+        id: "CD2-data-files-from-one-folder",
+        says: "The data files are opened from the one install folder named; the first region's \
+               cell file is always used, and a language with no file falls back to English.",
     },
     Divergence {
         id: "CD2-data-read-again",
@@ -46,6 +57,25 @@ pub static DIVERGENCES: &[Divergence] = &[
                the world over this network's own friends stream, with its own greeting, ticket, \
                keep-alive and waits between reconnects, instead of the original friends service's \
                connection.",
+    },
+    Divergence {
+        id: "CD2-full-screen-is-borderless",
+        says: "Full screen is a borderless window over the whole monitor and never changes the \
+               machine's display mode; the display's size says what the picture is drawn at, and \
+               it is scaled to fill the monitor. The original client took the monitor to a mode \
+               of that size.",
+    },
+    Divergence {
+        id: "CD2-lists-iterations-it-need-not-hold",
+        says: "Asked which data it holds, the client also lists the portal file iterations a server \
+               gives what it adds for a retail client's script calls, which this client doesn't \
+               need, so an admin's login isn't held up for minutes downloading them.",
+    },
+    Divergence {
+        id: "CD2-mac-window-goes-by-points",
+        says: "On macOS a window's size is in points, and the picture is drawn at that size and \
+               scaled to fill the window, so a Retina screen shows it as large as any other. The \
+               original client ran only where a window's size is in the screen's pixels.",
     },
     Divergence {
         id: "CD2-math-last-bit",
@@ -86,9 +116,38 @@ pub static DIVERGENCES: &[Divergence] = &[
                refused.",
     },
     Divergence {
+        id: "CD2-qualities-dump-answers",
+        says: "Asked to write out an object's own qualities without its record's, this client \
+               writes them once; the original never answers, repeating them until it runs out of \
+               memory.",
+    },
+    Divergence {
+        id: "CD2-restore-sent-in-the-clear",
+        says: "Bringing back a deleted character goes to the server as a plain message on the \
+               login queue; the original client sealed it on a queue of its own under keys only \
+               the original servers held.",
+    },
+    Divergence {
+        id: "CD2-screenshot-is-the-window",
+        says: "A screenshot is the window as it stands, interface included, saved at the window's \
+               size. The original drew the world again for it, in as many tiles as its two \
+               preferences asked (up to 10 by 10), and saved a JPEG in its own folder.",
+    },
+    Divergence {
+        id: "CD2-script-sends-in-the-clear",
+        says: "A script call the game marks for encryption goes to the server as a plain script \
+               call, as every other does; the original client wrapped such calls under keys only \
+               the original servers held.",
+    },
+    Divergence {
         id: "CD2-script-step-budget",
         says: "Every script run has a step budget: one that runs too long is stopped instead of \
                freezing the game, where the retail client would hang.",
+    },
+    Divergence {
+        id: "CD2-several-clients-at-once",
+        says: "Several clients can run at once on one machine. The original refused a second \
+               copy with an error dialog and closed.",
     },
     Divergence {
         id: "CD2-stops-on-the-disconnected-screen",
@@ -96,6 +155,13 @@ pub static DIVERGENCES: &[Divergence] = &[
                disconnected screen, which shows the client's line (it failed to save data) and \
                whose button leaves the game; the original client shows that line in an error box \
                and the program ends at once.",
+    },
+    Divergence {
+        id: "CD2-the-window-can-be-any-size",
+        says: "The game's window can be resized by hand, and the display's size preference then \
+               holds its size; the original client's window had no resizing frame. A first start \
+               is a window with antialiasing on, where the original's configuration program \
+               chose full screen and, below the top quality, no antialiasing.",
     },
     Divergence {
         id: "CD2-window-title-names-the-account",

@@ -45,8 +45,9 @@ it, give the player friends with presence, an ignore list, an away state and tel
   too. A world that serves the friends stream accepts it there; one that does not leaves the port
   closed.
 - **The preamble.** The client's first four bytes are the ASCII `DNF1`. A stream that begins with
-  `GET ` is a WebSocket upgrade (section 9). Anything else is closed at once, at its first byte
-  that differs from both.
+  `GET ` is a WebSocket upgrade, which this port does not serve (a browser's stream rides the game's
+  WebSocket: section 9): it is closed. Anything else is closed at once, at its first byte that
+  differs from both.
 - **Frames.** Each frame is a 4-byte little-endian length, then that many bytes of UTF-8: one XML
   element. The length is 1 to 65,536. A longer one, a length of zero, bytes that are not UTF-8, or
   text that is not one well-formed element closes the stream (`Bye Reason="protocol"` first, when
@@ -244,14 +245,21 @@ Call 2 world behaves, not of the stream ([07](07-ac2-world-behaviour.md) section
 
 ## 9. The WebSocket binding
 
-This version does not serve it: a world closes a connection that begins `GET ` (section 2). When
-served:
+A browser can open no TCP connection, and a world's game WebSocket is already there, with its TLS,
+its allowed origins and its limits. So the stream rides that connection by a port of its own:
 
-- **The upgrade.** On the same port, `GET /friends`, upgraded to a WebSocket.
-- **Frames.** One element per text message, with no preamble and no length prefix; the same
-  bounds, handshake and keep-alive.
+- **The port.** `P + 4` in the connection's numbering of its ports
+  ([05-websocket-frame.md](../networking/05-websocket-frame.md)). The game's ports are `P` to `P + 3`.
+- **Frames.** The stream's bytes in order, with its preamble and its frames as on TCP, in binary
+  messages of any size; messages are no boundary of the stream's. An empty message ends the stream,
+  from either side.
+- **Its first bytes open it,** and it ends when the connection does. The same bounds, handshake and
+  keep-alive.
 - **Where it may go.** `wss://` to any host, `ws://` only to this machine, as a world's game
-  WebSocket ([02-link-protocol.md](02-link-protocol.md) section 2): the ticket rides it.
+  WebSocket ([02-link-protocol.md](02-link-protocol.md) section 2): the ticket rides it. Elsewhere a
+  browser client goes without friends.
+- **A server without it** drops the port, as a relay to a world's UDP ports does. A browser client
+  takes a stream with no answer in 3 seconds as not served, so its login waits no longer.
 - **Who uses it.** A browser client, which has nothing else.
 
 ## 10. Who speaks it

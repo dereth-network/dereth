@@ -32,9 +32,7 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use auberean_assets::Context;
-use auberean_dat::locate::{install_dats, DatName};
-use auberean_dat::DatFile;
+use crate::data;
 use yalain_world_db::compile::{compile, Tables};
 use yalain_world_db::install::DatInstall;
 use yalain_world_db::release::{self, PINNED_TAG, PINNED_ZIP_SHA256};
@@ -114,6 +112,26 @@ pub fn database_dir(arg: &str) -> Result<PathBuf, String> {
             dir.display()
         ))
     }
+}
+
+/// Does a world served from this argument use the release this build pins? `pinned` does; a folder
+/// does when it lies over a base with no version of its own and no `--world-base` in its place. One
+/// that does not read counts as using it: the server will refuse it anyway.
+#[must_use]
+pub fn uses_the_pin(world_db: &str, world_base: Option<&Path>) -> bool {
+    if world_db == "pinned" {
+        return true;
+    }
+    if world_base.is_some() {
+        return false;
+    }
+    let Ok(files) = load(Path::new(world_db)) else {
+        return true;
+    };
+    let Some(db) = rows::read_partly(&files).0 else {
+        return true;
+    };
+    db.world.base.is_some_and(|b| b.version.is_none())
 }
 
 /// A release's folder in the cache.
@@ -437,11 +455,22 @@ fn safe(path: &str) -> bool {
 /// # Errors
 /// The database does not read, check or merge, the install does not open, or a row names what
 /// the install lacks.
-pub fn compile_dir(dats: &Path, db_dir: &Path, base_dir: Option<&Path>) -> Result<Tables, String> {
+pub fn compile_dir(
+    p: &data::Portal,
+    db_dir: &Path,
+    base_dir: Option<&Path>,
+) -> Result<Tables, String> {
     let files = load(db_dir)?;
-    let named = rows::read_partly(&files).0.and_then(|db| db.world.base);
-    let (problems, base) = match &named {
-        None => (check::check(&files), None),
+    let (read, read_problems) = rows::read_partly(&files);
+    let named = read.as_ref().and_then(|db| db.world.base.clone());
+    let (problems, base, checked) = match &named {
+        None => match (&read, read_problems.is_empty()) {
+            (Some(db), true) => {
+                let (problems, merged) = check::check_read(db);
+                (problems, None, merged)
+            }
+            _ => (read_problems.clone(), None, None),
+        },
         Some(b) => {
             let dir = match base_dir {
                 Some(d) => d.to_path_buf(),
@@ -449,7 +478,7 @@ pub fn compile_dir(dats: &Path, db_dir: &Path, base_dir: Option<&Path>) -> Resul
             };
             let base = layer::Base::new(&load(&dir)?)
                 .map_err(|p| format!("{}\nthe base {}", report(&p), dir.display()))?;
-            (layer::check(&base, &files), Some(base))
+            (layer::check(&base, &files), Some(base), None)
         }
     };
     if !problems.is_empty() {
@@ -460,29 +489,38 @@ pub fn compile_dir(dats: &Path, db_dir: &Path, base_dir: Option<&Path>) -> Resul
             db_dir.display()
         ));
     }
-    let db = rows::read(&files).map_err(|p| report(&p))?;
-    let merged = match &base {
-        None => merge::merge(&db),
-        Some(base) => layer::merge_over(base, &db),
-    }
-    .map_err(|p| report(&p))?;
-    let found = install_dats(dats).map_err(|e| format!("{}: {e}", dats.display()))?;
-    let open = |want: &dyn Fn(&DatName) -> bool| -> Option<DatFile> {
-        found
-            .iter()
-            .find(|(n, _)| want(n))
-            .and_then(|(_, p)| DatFile::open(p).ok())
+    let merged = match checked {
+        Some(merged) => merged,
+        None => {
+            let db = match (read, read_problems) {
+                (Some(db), p) if p.is_empty() => db,
+                (_, p) => return Err(report(&p)),
+            };
+            match &base {
+                None => merge::merge(&db),
+                Some(base) => layer::merge_over(base, &db),
+            }
+            .map_err(|p| report(&p))?
+        }
     };
-    let portal = open(&|n| *n == DatName::Portal)
-        .ok_or_else(|| format!("no portal data file in {}", dats.display()))?;
-    let local = open(&|n| matches!(n, DatName::Local(l) if l.eq_ignore_ascii_case("english")));
-    let ctx = Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
-    let states: Vec<u32> = portal
-        .entries_in(0x6F00_0000, 0x6FFF_FFFF)
-        .map(|e| e.id)
-        .collect();
-    let mut install = DatInstall::new(Box::new(|id| portal.read(id).ok()), ctx, states)?;
-    if let Some(local) = &local {
+    let mut install = DatInstall::new(
+        Box::new(|id| p.dat.read(id).ok()),
+        p.ctx.clone(),
+        data::library(p)?,
+        Vec::new(),
+    )?
+    .with_quest_states(Box::new(|| {
+        data::saved_states(p).map_or_else(
+            |_| Vec::new(),
+            |states| {
+                states
+                    .iter()
+                    .filter_map(|s| Some((s.id, s.quest?)))
+                    .collect()
+            },
+        )
+    }));
+    if let Some(local) = p.english() {
         install = install.with_text(Box::new(move |id| local.read(id).ok()));
     }
     let tables = compile(&merged, &install).map_err(|p| {
@@ -520,7 +558,8 @@ fn compile_cmd(args: &[String]) -> Result<(), String> {
         );
     };
     let dir = database_dir(db.as_deref().unwrap_or("pinned"))?;
-    let t = compile_dir(&dats, &dir, base.as_deref())?;
+    let portal = data::Portal::open(&dats)?;
+    let t = compile_dir(&portal, &dir, base.as_deref())?;
     std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     for (name, text) in [
         ("content.tsv", t.content.to_text()),

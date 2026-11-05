@@ -1,6 +1,7 @@
 //! The settings' text.
 
 use auberean_scene::camera::AvatarInFirstPerson;
+use auberean_shell::settings::{in_picture, in_picture_pixels, Presentation};
 use auberean_shell::Settings;
 
 /// The camera, mouse and avatar options are read by the client's own names, each within its range
@@ -54,6 +55,19 @@ fn options_read_by_the_clients_names_and_kept() {
     assert_eq!(again.camera.distance, 3.5);
     assert_eq!(again.window, (800, 600));
     assert_eq!(Settings::read(&again.write()), again, "stable");
+}
+
+/// The brightness the screen takes is the preference kept; with none kept the picture stands as it
+/// is.
+///
+/// Behaviour: desktop.settings.the-screen-brightness-is-the-preference-kept
+#[test]
+fn the_screen_brightness_is_the_preference_kept() {
+    assert_eq!(Settings::read("").screen_brightness(), 0.0, "none kept");
+    assert_eq!(
+        Settings::read("[Graphics]\nScreenBrightness=0.25\n").screen_brightness(),
+        0.25
+    );
 }
 
 /// The graphics preferences are read from their own section by the client's names: a choice by the
@@ -230,4 +244,82 @@ fn the_avatars_looks_read_by_the_clients_names() {
         "{out}"
     );
     assert_eq!(Settings::read(&out).camera, w.camera);
+}
+
+/// The rendering options are read by the client's own names, and written back by them: a first
+/// start waits for the display's refresh and smooths its edges, with no third buffer.
+///
+/// Behaviour: desktop.settings.the-rendering-options-read-by-the-clients-names-and-kept
+#[test]
+fn the_rendering_options_read_by_the_clients_names_and_kept() {
+    let first = Settings::default().presentation();
+    assert!(first.sync_to_display && first.antialiasing && !first.triple_buffering);
+    assert!(!first.full_screen);
+    let s = Settings::read(
+        "[Rendering]\nTripleBuffering=1\nSyncToDisplayRefresh=0\nAntialiasing=0\nFullScreen=1\n",
+    );
+    let p = s.presentation();
+    assert!(p.triple_buffering && !p.sync_to_display && !p.antialiasing && p.full_screen);
+    let mut s = s;
+    let mut q = p;
+    q.triple_buffering = false;
+    q.sync_to_display = true;
+    q.size = (800, 600);
+    s.set_presentation(&q);
+    assert_eq!(s.window, (800, 600));
+    let text = s.write();
+    assert!(text.contains("TripleBuffering=0"), "{text}");
+    assert!(text.contains("SyncToDisplayRefresh=1"), "{text}");
+    assert!(text.contains("Antialiasing=0"), "{text}");
+    assert_eq!(Settings::read(&text).presentation(), q);
+}
+
+/// Full screen never changes the monitor's display mode: the window stays the monitor's size, the
+/// picture is drawn at the size asked for and fills it, and the pointer lands on the same place in
+/// the picture. A window's picture is the window's size, whatever was asked for.
+///
+/// Behaviour: desktop.settings.full-screen-fills-the-monitor-at-the-size-asked-for
+#[test]
+fn full_screen_fills_the_monitor_at_the_size_asked_for() {
+    let monitor = (3840, 2160);
+    let asked = (1024, 768);
+    let mut p = Presentation {
+        size: asked,
+        full_screen: true,
+        triple_buffering: false,
+        sync_to_display: true,
+        antialiasing: true,
+    };
+    assert_eq!(p.drawn_in(monitor), asked);
+    assert_eq!(
+        in_picture((1920.0, 540.0), monitor, asked),
+        (512.0, 192.0),
+        "the monitor's point on the picture"
+    );
+    assert_eq!(
+        in_picture((512.0, 192.0), asked, monitor),
+        (1920.0, 540.0),
+        "and back"
+    );
+    p.full_screen = false;
+    assert_eq!(p.drawn_in((1280, 960)), (1280, 960));
+    assert_eq!(
+        in_picture((7.5, 9.5), (1280, 960), (1280, 960)),
+        (7.5, 9.5),
+        "a window's point is the picture's"
+    );
+}
+
+/// Behaviour: desktop.settings.a-mac-window-counts-its-size-in-points
+#[test]
+fn a_mac_window_counts_its_size_in_points() {
+    assert_eq!(in_picture_pixels((2560, 1920), 2.0), (1280, 960));
+    assert_eq!(in_picture_pixels((1280, 960), 1.0), (1280, 960));
+    assert_eq!(in_picture_pixels((1, 1), 2.0), (1, 1), "never no picture");
+    let (window, picture) = ((2560, 1920), (1280, 960));
+    assert_eq!(
+        in_picture((2000.0, 1000.0), window, picture),
+        (1000.0, 500.0),
+        "the pointer lands on the same place in the picture"
+    );
 }

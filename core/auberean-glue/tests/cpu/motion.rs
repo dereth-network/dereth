@@ -182,6 +182,17 @@ fn moves_placements_headings_and_rays_are_filled_and_read_as_the_client_does() {
     want.set_position(place(0x1234_0001, 1.0));
     assert_eq!(*order, want);
 
+    // A heading's point of the compass.
+    b.call(HEADING, 0x01, h, &[f(292.5)], 0);
+    let text = b.answer(HEADING, 0x05, h, &[]);
+    assert_eq!(String::from_utf16_lossy(&b.text_of(text)), "WNW");
+    let v = vector(&mut b, 1.0, -2.5, 0.0);
+    let text = b.answer(native_type::VECTOR, 0x0F, v, &[]);
+    assert_eq!(
+        String::from_utf16_lossy(&b.text_of(text)),
+        "(1.000, -2.500, 0.000)"
+    );
+
     // A heading.
     b.call(HEADING, 0x01, h, &[f(-90.0)], 0);
     assert_eq!(f32::from_bits(b.answer(HEADING, 0x02, h, &[])), 270.0);

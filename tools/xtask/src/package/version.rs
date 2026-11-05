@@ -104,36 +104,32 @@ fn manifests_version(ws: &Path, manifests: &[PathBuf], what: &str) -> Result<Str
 /// The prefix of a Dereth release tag: `dereth-v<version>`.
 pub const DERETH_TAG_PREFIX: &str = "dereth-v";
 
-/// The crates that carry Dereth's version: the client and the launcher, released together, the
-/// web client, the same client in a browser, released under its own tag from the same version, the
+/// The crates that carry Dereth's version: the client, the web client, the same client in a browser, released under its own tag from the same version, the
 /// headless client, which names itself by it, and the plugin author's tool, whose rules are those
 /// of the client released with it.
 pub const DERETH_MANIFESTS: &[&str] = &[
     "dereth/client/Cargo.toml",
-    "dereth/launcher/Cargo.toml",
     "dereth/web/Cargo.toml",
+    "dereth/web/front/Cargo.toml",
     "dereth/headless/Cargo.toml",
     "tools/plugin/Cargo.toml",
 ];
 
-/// The lock files a Dereth version change touches: the workspace's and the launcher app's own,
-/// as (the folder cargo runs in, the lock file), relative to the workspace root.
-pub const DERETH_LOCKS: &[(&str, &str)] = &[
-    ("", "Cargo.lock"),
-    ("dereth/launcher", "dereth/launcher/Cargo.lock"),
-];
+/// The lock files a Dereth version change touches, as (the folder cargo runs in, the lock file),
+/// relative to the workspace root.
+pub const DERETH_LOCKS: &[(&str, &str)] = &[("", "Cargo.lock")];
 
 /// The manifests of the crates that carry Dereth's version.
 pub fn dereth_manifests(ws: &Path) -> Vec<PathBuf> {
     DERETH_MANIFESTS.iter().map(|m| ws.join(m)).collect()
 }
 
-/// Dereth's version, read from the client's and the launcher's manifests and required to agree.
+/// Dereth's version, read from its crates' manifests and required to agree.
 pub fn dereth_version(ws: &Path) -> Result<String, String> {
     manifests_version(
         ws,
         &dereth_manifests(ws),
-        "Dereth crate (the client, the launcher, the web client, the headless client and the          plugin author's tool)",
+        "Dereth crate (the client, the web client, the headless client and the plugin author's tool)",
     )
 }
 
@@ -165,11 +161,14 @@ pub fn lyceum_version(ws: &Path) -> Result<String, String> {
 /// The prefix of an Auberean release tag: `auberean-v<version>`.
 pub const AUBEREAN_TAG_PREFIX: &str = "auberean-v";
 
-/// The crates that carry Auberean's version: the client and the headless client, released
-/// together, as Dereth's client and headless client are. The core crates under `core/auberean-*`
-/// keep the workspace's.
-pub const AUBEREAN_MANIFESTS: &[&str] =
-    &["auberean/client/Cargo.toml", "auberean/headless/Cargo.toml"];
+/// The crates that carry Auberean's version: the client, the same client in a browser and the
+/// headless client, released together, as Dereth's client and headless client are. The core crates
+/// under `core/auberean-*` keep the workspace's.
+pub const AUBEREAN_MANIFESTS: &[&str] = &[
+    "auberean/client/Cargo.toml",
+    "auberean/web/Cargo.toml",
+    "auberean/headless/Cargo.toml",
+];
 
 /// The prefix of a Yalain release tag: `yalain-v<version>`.
 pub const YALAIN_TAG_PREFIX: &str = "yalain-v";
@@ -282,7 +281,17 @@ pub enum Product {
     Yalain,
     /// Asheron's Call 2's world builder.
     Athenaeum,
+    /// The launcher, a product of its own: both games' launcher, released from `launcher-v*` tags.
+    /// [`Self::ALL`] names the products the release commands cut together, which it isn't one of
+    /// until the games' packages take a named launcher.
+    Launcher,
 }
+
+/// The prefix of a launcher release tag: `launcher-v<version>`.
+pub const LAUNCHER_TAG_PREFIX: &str = "launcher-v";
+
+/// The manifest that carries the launcher's version.
+pub const LAUNCHER_MANIFEST: &str = "launcher/Cargo.toml";
 
 impl Product {
     /// Every product, in the order the commands list them.
@@ -298,7 +307,10 @@ impl Product {
     /// The product named on a command line: `empyrean`, `dereth`, `lyceum`, `auberean`, `yalain`
     /// or `athenaeum`.
     pub fn from_command_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|p| p.command_name() == name)
+        Self::ALL
+            .into_iter()
+            .chain([Self::Launcher])
+            .find(|p| p.command_name() == name)
     }
 
     /// The name the commands take.
@@ -310,6 +322,7 @@ impl Product {
             Self::Auberean => "auberean",
             Self::Yalain => "yalain",
             Self::Athenaeum => "athenaeum",
+            Self::Launcher => "launcher",
         }
     }
 
@@ -322,12 +335,18 @@ impl Product {
             Self::Auberean => "Auberean",
             Self::Yalain => "Yalain",
             Self::Athenaeum => "Athenaeum",
+            Self::Launcher => "Launcher",
         }
     }
 
     /// Whether the product is one of Asheron's Call 2's: Auberean, Yalain or Athenaeum.
     pub fn is_auberean_game(self) -> bool {
         matches!(self, Self::Auberean | Self::Yalain | Self::Athenaeum)
+    }
+
+    /// Whether its package holds the launcher, so that its release needs the launcher's first.
+    pub fn holds_launcher(self) -> bool {
+        matches!(self, Self::Dereth | Self::Auberean)
     }
 
     /// The prefix of the product's release tags.
@@ -339,6 +358,7 @@ impl Product {
             Self::Auberean => AUBEREAN_TAG_PREFIX,
             Self::Yalain => YALAIN_TAG_PREFIX,
             Self::Athenaeum => ATHENAEUM_TAG_PREFIX,
+            Self::Launcher => LAUNCHER_TAG_PREFIX,
         }
     }
 
@@ -358,6 +378,7 @@ impl Product {
             Self::Auberean => "the client and the headless client carry",
             Self::Yalain => "the yalain-* crates carry",
             Self::Athenaeum => "the editor, the athenaeum command and the Foundry carry",
+            Self::Launcher => "the launcher carries",
         }
     }
 
@@ -371,6 +392,7 @@ impl Product {
             Self::Auberean => Ok(listed(AUBEREAN_MANIFESTS)),
             Self::Yalain => yalain_manifests(ws),
             Self::Athenaeum => Ok(listed(ATHENAEUM_MANIFESTS)),
+            Self::Launcher => Ok(listed(&[LAUNCHER_MANIFEST])),
         }
     }
 
@@ -386,6 +408,7 @@ impl Product {
                 "Auberean crate (the client and the headless client)",
             ),
             Self::Yalain => manifests_version(ws, &self.manifests(ws)?, "yalain-* crate"),
+            Self::Launcher => manifests_version(ws, &self.manifests(ws)?, "launcher crate"),
             Self::Athenaeum => manifests_version(
                 ws,
                 &self.manifests(ws)?,

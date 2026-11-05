@@ -236,6 +236,73 @@ fn a_weapon_takes_an_inscription_and_a_mote_is_refused() {
         .is_none());
 }
 
+/// An item the player does not hold is refused with the same text, and takes no words: a client
+/// naming another player's item, or one lying in the world.
+/// Behaviour: server.inventory.inscribing-only-what-the-player-holds
+#[test]
+fn an_item_the_player_does_not_hold_takes_no_inscription() {
+    let mut h = world_of_items();
+    let (_, _, owner) = player(&mut h, "one");
+    let (b, _, _) = player(&mut h, "two");
+    let sword = give(&mut h, owner, SWORD);
+    let lying = yalain_world::inventory::make_item(&mut h.server, SWORD, 1, 0).expect("made");
+    h.server.things.get_mut(lying).expect("made").at = Some(h.server.players[&owner].position);
+    let words = |s: &str| yalain_world::chat::text_arg(yalain_world::profile::literal(s));
+    for item in [sword, lying] {
+        let from = h.bots[b].inbox.len();
+        h.ask(
+            b,
+            function::INSCRIBE,
+            &[words("Mine now"), Arg::LongInt(item)],
+            3,
+        );
+        assert_eq!(
+            h.texts(b, from),
+            [(text::SHOWN_AS, text::CANNOT_INSCRIBE.0)]
+        );
+        assert!(h
+            .server
+            .things
+            .get(item)
+            .and_then(|t| t.inscription.clone())
+            .is_none());
+    }
+}
+
+/// An inscription stays with its item across a logout, with who wrote it.
+/// Behaviour: server.inventory.inscription-kept-across-sessions
+#[test]
+fn an_inscription_is_kept_across_a_logout() {
+    use auberean_protocol::login::CharacterRef;
+    use auberean_protocol::{ClientMessage, ServerMessage};
+    let mut h = world_of_items();
+    let (a, me, world) = player(&mut h, "one");
+    let sword = give(&mut h, world, SWORD);
+    let words = yalain_world::chat::text_arg(yalain_world::profile::literal("Sharp"));
+    h.ask(a, function::INSCRIBE, &[words, Arg::LongInt(sword)], 3);
+    let before = h.bots[a].inbox.len();
+    h.bots[a].send(
+        false,
+        queue::LOGON,
+        &ClientMessage::LogOff(CharacterRef { character: me }),
+    );
+    assert!(h.run_until(400, |h| h.bots[a].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+    h.enter_world(a, "one", me);
+    let (said, by) = h
+        .server
+        .things
+        .get(sword)
+        .and_then(|t| t.inscription.clone())
+        .expect("still inscribed");
+    assert_eq!(said, "Sharp");
+    assert!(
+        by.starts_with("One ["),
+        "its writer's name in the world: {by}"
+    );
+}
+
 /// Asked, the server lists one line for each skill the player trained, none for those it was given.
 /// Behaviour: server.skills.list-trained-skills
 #[test]
@@ -317,6 +384,7 @@ fn a_quest_cancelled_is_updated_as_cancelled_and_no_longer_under_way() {
         journals: vec![(3, 0x2500_14B4)],
         challenge: 1,
         duration: 0.0,
+        timed_phase: 0,
         retry: 86_400.0,
         xp: 0,
         cancellable: true,
@@ -327,6 +395,11 @@ fn a_quest_cancelled_is_updated_as_cancelled_and_no_longer_under_way() {
         min_level: 0,
         fails_on_death: false,
         once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
+        hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
+        required: None,
     });
     let (a, _, world) = player(&mut h, "one");
     h.server

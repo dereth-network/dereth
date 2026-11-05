@@ -13,7 +13,7 @@ use dereth_primitives::num::math;
 use yalain_content::quests::{Need, Trigger, Update};
 use yalain_content::talk::{How, Role, TalkUpdate, When};
 use yalain_content::{FactIds, Kind, Words};
-use yalain_world_db::check::check;
+use yalain_world_db::check::{check, check_read};
 use yalain_world_db::compile::{compile, Install, InstallSale, QuestDefinition};
 use yalain_world_db::merge::merge;
 use yalain_world_db::release::{self, Host};
@@ -93,6 +93,12 @@ fn name(string: u32, table: u32) -> PropertyValue {
 /// and two products, the store's sales, a quest's definition and one profile name.
 struct Fake {
     entities: HashMap<u32, Entity>,
+    /// What the quest's setup says of a kill's reach.
+    fellows: yalain_content::quests::Fellows,
+    /// The least level the quest's setup names.
+    min_level: i32,
+    setup_xp: u64,
+    setup_pay: yalain_content::quests::CompletionPay,
 }
 
 impl Fake {
@@ -121,7 +127,13 @@ impl Fake {
             0x4700_20B9,
             entity(CLASS, 0x0D00, vec![(NAME, name(0x026F_0DD2, 0x2500_1BBC))]),
         );
-        Self { entities }
+        Self {
+            entities,
+            fellows: yalain_content::quests::Fellows::default(),
+            min_level: 0,
+            setup_xp: 0,
+            setup_pay: yalain_content::quests::CompletionPay::default(),
+        }
     }
 }
 
@@ -183,6 +195,14 @@ impl Install for Fake {
             effects: Vec::new(),
             subquests: Vec::new(),
             once: false,
+            fellows: self.fellows,
+            last_waits: false,
+            min_level: self.min_level,
+            hero_only: false,
+            monarch_only: false,
+            xp: self.setup_xp,
+            pay: self.setup_pay,
+            required: None,
         })
     }
 
@@ -199,6 +219,25 @@ fn the_test_world_reads_checks_and_merges_without_problems() {
     assert_eq!(db.world.era, "eor");
     assert_eq!(db.packs.len(), 2);
     assert_eq!(db.packs[0].rows.len(), 16);
+}
+
+#[test]
+fn a_database_already_read_is_checked_and_merged_as_its_files_are() {
+    let files = fixture();
+    let db = read(&files).unwrap();
+    let (problems, merged) = check_read(&db);
+    assert_eq!(problems, check(&files));
+    assert_eq!(merged, Some(merge(&db).unwrap()));
+    // With no word from the world, the later pack's rows conflict: no rows merged, the problem said.
+    let mut bad = files.clone();
+    let world = files["world.toml"].clone();
+    let cut = world.find("[[override]]").unwrap();
+    bad.insert("world.toml".into(), world[..cut].to_string());
+    let db = read(&bad).unwrap();
+    let (problems, merged) = check_read(&db);
+    assert!(!problems.is_empty(), "it says what is wrong");
+    assert_eq!(problems, check(&bad));
+    assert_eq!(merged, None);
 }
 
 #[test]
@@ -396,6 +435,7 @@ fn the_compile_takes_what_the_rows_leave_out_from_the_install() {
             ("sales", 2),
             ("quests", 1),
             ("steps", 4),
+            ("gives", 0),
             ("talk", 2)
         ]
     );
@@ -735,6 +775,24 @@ fn a_place_names_the_templates_whose_maps_lead_there_and_a_line_may_refuse_a_map
 }
 
 #[test]
+fn a_quest_row_may_name_the_one_phase_its_duration_runs_in() {
+    let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.quests.quests[0].timed_phase, 0, "left out: all of them");
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "duration = 72000",
+        "duration = 72000\ntimed_phase = 2",
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!(t.quests.quests[0].timed_phase, 2);
+    let text = t.quests.to_text();
+    let again = yalain_content::QuestTable::from_text(&text).unwrap();
+    assert_eq!(again.quests[0].timed_phase, 2, "kept through its text form");
+}
+
+#[test]
 fn a_quest_row_may_say_it_is_given_once_and_a_line_may_say_it_is_too_soon() {
     let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
     assert!(!t.quests.quests[0].once, "left out: given again");
@@ -760,6 +818,59 @@ fn a_quest_row_may_say_it_is_given_once_and_a_line_may_say_it_is_too_soon() {
         t.quests,
         "it reads back as written"
     );
+}
+
+#[test]
+fn a_quest_row_may_say_whether_a_kills_move_on_it_reaches_fellows() {
+    let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(!t.quests.quests[0].fellows.shared, "left out: the setup's");
+    // A row's word over a setup that shares, with no limit: true keeps the setup's, false stops it.
+    let sharing = Fake {
+        fellows: yalain_content::quests::Fellows {
+            shared: true,
+            ..Default::default()
+        },
+        ..Fake::new()
+    };
+    let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &sharing).unwrap();
+    assert_eq!(
+        t.quests.quests[0].fellows, sharing.fellows,
+        "left out: the setup's"
+    );
+    for (written, shared) in [("fellows = true", true), ("fellows = false", false)] {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "duration = 72000",
+            &format!("duration = 72000\n{written}"),
+        );
+        let t = compile(&merge(&read(&files).unwrap()).unwrap(), &sharing).unwrap();
+        let f = t.quests.quests[0].fellows;
+        assert_eq!((f.shared, f.near_level, f.near_by), (shared, false, false));
+    }
+    for (written, shared) in [("fellows = true", true), ("fellows = false", false)] {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "duration = 72000",
+            &format!("duration = 72000\n{written}"),
+        );
+        let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+        let f = t.quests.quests[0].fellows;
+        assert_eq!(f.shared, shared);
+        assert_eq!(
+            (f.near_level, f.near_by),
+            (shared, shared),
+            "a setup that says nothing"
+        );
+        assert_eq!(
+            yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+            t.quests,
+            "it reads back as written"
+        );
+    }
 }
 
 #[test]
@@ -1273,6 +1384,41 @@ fn a_person_names_a_route_it_walks_and_only_a_person_may() {
 }
 
 #[test]
+fn an_objects_own_scale_is_served_in_place_of_its_templates() {
+    let scale_with = |row: &str| {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/landblocks/77B7.toml",
+            "to = \"inn\"\nprov = { from = \"authored\" }",
+            &format!("to = \"inn\"\n{row}prov = {{ from = \"authored\" }}"),
+        );
+        let merged = merge(&read(&files).unwrap()).unwrap();
+        let t = compile(&merged, &Fake::new()).unwrap();
+        assert_eq!(
+            yalain_content::ContentPack::from_text(&t.content.to_text()).unwrap(),
+            t.content,
+            "the content's text keeps it"
+        );
+        let scale = t
+            .content
+            .objects
+            .iter()
+            .find(|o| o.object == Some(0x4077_B700_0000_0001))
+            .unwrap()
+            .description
+            .scale;
+        let warned = t.warnings.iter().any(|w| w.message.starts_with("scale"));
+        (scale, warned)
+    };
+    let (own, warned) = scale_with("");
+    assert!(!warned);
+    assert_ne!(own, Some(2.5));
+    assert_eq!(scale_with("scale = 2.5\n"), (Some(2.5), false));
+    assert_eq!(scale_with("scale = 0.0\n"), (own, true), "left as it was");
+}
+
+#[test]
 fn a_static_objects_quest_gate_is_read_checked_and_compiled() {
     let mut files = fixture();
     edit(
@@ -1364,4 +1510,370 @@ fn a_static_objects_quest_gate_is_read_checked_and_compiled() {
     assert!(check(&bad)
         .iter()
         .any(|p| p.to_string().contains("requires: a person is talked to")));
+}
+
+/// A quest's least level is its setup's, unless its row says another.
+/// Behaviour: server.quests.least-level-from-the-setup
+#[test]
+fn a_quests_least_level_is_its_setups_unless_its_row_names_one() {
+    let install = Fake {
+        min_level: 15,
+        ..Fake::new()
+    };
+    let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &install).unwrap();
+    assert_eq!(t.quests.quests[0].min_level, 15);
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "duration = 72000",
+        "duration = 72000\nmin_level = 3",
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &install).unwrap();
+    assert_eq!(t.quests.quests[0].min_level, 3);
+}
+
+/// What a quest adds to a quest rating is its setup's, unless its row says, whatever else the row
+/// says of its pay; and it survives the tables' text.
+/// Behaviour: server.quests.completion-adds-points
+#[test]
+fn what_a_quest_adds_to_a_rating_is_its_setups_unless_its_row_says() {
+    use yalain_content::quests::{CompletionPay, QuestTable};
+    let install = Fake {
+        setup_pay: CompletionPay {
+            points: 400,
+            ..CompletionPay::default()
+        },
+        ..Fake::new()
+    };
+    let points = |extra: &str| {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "duration = 72000",
+            &format!("duration = 72000\n{extra}"),
+        );
+        let t = compile(&merge(&read(&files).unwrap()).unwrap(), &install).unwrap();
+        (t.quests.quests[0].pay.points, t.quests)
+    };
+    assert_eq!(points("xp = 1").0, 400, "left out: the setup's");
+    assert_eq!(points("qp = 50").0, 50, "the row's");
+    assert_eq!(points("qp = 0").0, 0, "a row may say none");
+    assert_eq!(
+        points("qp = 50\nxp_share = 0.005").0,
+        50,
+        "with a share of its own"
+    );
+    let (_, t) = points("qp = 50");
+    let back = QuestTable::from_text(&t.to_text()).expect("reads");
+    assert_eq!(back.quests[0].pay.points, 50, "through the text");
+}
+
+/// A shard's row may name the quest it completes, as the story's table keeps it.
+/// Behaviour: server.story.shard-completes-its-quest
+#[test]
+fn a_shards_row_names_the_quest_it_completes() {
+    let row = |quest: &str| {
+        let mut files = fixture();
+        files.insert(
+            "town/server/story.toml".into(),
+            format!(
+                "[[shard]]\nobject = 0x4002990000000059\nscene = 0x40000021\n{quest}prov = {{ from = \"authored\", by = \"t\", note = \"t\", confidence = \"low\" }}\n"
+            ),
+        );
+        let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+        (
+            t.story.shards.get(&0x4002_9900_0000_0059).copied(),
+            t.story.shard_quests.get(&0x4002_9900_0000_0059).copied(),
+        )
+    };
+    assert_eq!(row(""), (Some(0x4000_0021), None));
+    assert_eq!(
+        row("quest = 0x40000033\n"),
+        (Some(0x4000_0021), Some(0x4000_0033))
+    );
+}
+
+/// What a completion pays is the setup's, unless the row says: a row's amount is paid in place of
+/// the setup's share, and a row's share in place of all the setup says, paid whole, up to the row's
+/// level.
+/// Behaviour: server.quests.completion-pays-a-share
+#[test]
+fn what_a_quest_pays_is_its_setups_unless_its_row_says() {
+    use yalain_content::quests::CompletionPay;
+    let setup = CompletionPay {
+        share: 0.04,
+        least: 7,
+        most_at_level: Some((0.03, 40)),
+        ..CompletionPay::default()
+    };
+    let install = Fake {
+        setup_xp: 90,
+        setup_pay: setup,
+        ..Fake::new()
+    };
+    let pay = |extra: &str| {
+        let mut files = fixture();
+        edit(
+            &mut files,
+            "town/server/quests/40000088.toml",
+            "duration = 72000",
+            &format!("duration = 72000\n{extra}"),
+        );
+        let t = compile(&merge(&read(&files).unwrap()).unwrap(), &install).unwrap();
+        (t.quests.quests[0].xp, t.quests.quests[0].pay)
+    };
+    assert_eq!(
+        pay("xp_share = 0.005\nxp_share_level = 72").1,
+        CompletionPay {
+            share: 0.005,
+            most_at_level: Some((0.005, 72)),
+            flat: true,
+            ..CompletionPay::default()
+        },
+        "the row's share"
+    );
+    let t = compile(&merge(&read(&fixture()).unwrap()).unwrap(), &install).unwrap();
+    assert_eq!(
+        t.quests.quests[0].pay.share, setup.share,
+        "left out: the setup's"
+    );
+    let (xp, row) = pay("xp = 12");
+    assert_eq!((xp, row.share), (12, 0.0), "a row's amount, no share");
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "duration = 72000",
+        "duration = 72000\nxp_share = 0.005\nxp_share_level = 72",
+    );
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &install).unwrap();
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "kept in the text form"
+    );
+}
+
+#[test]
+fn a_step_that_fails_a_quest_must_need_it_under_way() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "needs = 2\ntrigger = { arrive = 0x4700115B }\nupdate = \"complete\"\nxp = 40\ngives = [0x470020B9]\n",
+        "needs = 2\ntrigger = { arrive = 0x4700115B }\nupdate = \"fail\"\n",
+    );
+    assert_eq!(check(&files), Vec::new(), "from a phase, a step may");
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(t.quests.steps.iter().any(|s| s.update == Update::Fail));
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "needs = 0\ntrigger = { use = 0x470033D0 }\ntell = { table = 0x25002881, string = 0x2824FD4C }\nupdate = \"bestow\"",
+        "needs = 0\ntrigger = { use = 0x470033D0 }\nupdate = \"fail\"",
+    );
+    let messages: Vec<String> = check(&files).iter().map(ToString::to_string).collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("only a quest under way fails")),
+        "{messages:?}"
+    );
+}
+
+/// Behaviour: server.gives.wants-a-count
+#[test]
+fn a_give_s_step_may_want_a_count_and_no_other_step_may() {
+    let mut files = fixture();
+    let give = yalain_content::quests::Trigger::Give(0x4700_20B9, 0x4700_33D0);
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "trigger = { give = 0x470020B9, to = 0x470033D0 }\n",
+        "trigger = { give = 0x470020B9, to = 0x470033D0 }\nwants = 3\n",
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let wanted = |t: &yalain_content::QuestTable| {
+        t.steps.iter().find(|s| s.trigger == give).map(|s| s.wants)
+    };
+    assert_eq!(wanted(&t.quests), Some(Some(3)));
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "trigger = { give = 0x470020B9, to = 0x470033D0 }\n",
+        "trigger = { give = 0x470020B9, to = 0x470033D0 }\nwants = 0\n",
+    );
+    let messages: Vec<String> = check(&files).iter().map(ToString::to_string).collect();
+    assert!(
+        messages.iter().any(|m| m.contains("a count of at least 1")),
+        "{messages:?}"
+    );
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/quests/40000088.toml",
+        "needs = 0\ntrigger = { use = 0x470033D0 }\n",
+        "needs = 0\ntrigger = { use = 0x470033D0 }\nwants = 2\n",
+    );
+    let messages: Vec<String> = check(&files).iter().map(ToString::to_string).collect();
+    assert!(
+        messages
+            .iter()
+            .any(|m| m.contains("only a give's step wants a count")),
+        "{messages:?}"
+    );
+}
+
+const GIVE_ROW: &str = r#"[[give]]
+key = "bucket"
+item = 0x470020B9
+to = 0x470033D0
+wants = 50
+gives = [0x470020B9]
+counts = [8]
+effects = [0x6F0019F0]
+fx = 0x410005EB
+requires = [{ quest = 0x40000088, phase = 2 }]
+prov = { from = "authored", by = "a test", note = "a test" }
+"#;
+
+/// Behaviour: server.gives.row-keeps-and-gives
+#[test]
+fn a_give_moving_no_quest_compiles_and_reads_back_as_written() {
+    let mut files = fixture();
+    files.insert("town/server/gives/470033D0.toml".into(), GIVE_ROW.into());
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    let g = &t.quests.gives[0];
+    assert_eq!(
+        (g.to, g.item, g.wants, g.fx),
+        (0x4700_33D0, Some(0x4700_20B9), Some(50), Some(0x4100_05EB))
+    );
+    assert_eq!(
+        (g.gives.as_slice(), g.counts.as_slice()),
+        (&[0x4700_20B9][..], &[8][..])
+    );
+    assert_eq!(g.effects, vec![0x6F00_19F0]);
+    assert_eq!(
+        g.requires,
+        vec![(0x4000_0088, yalain_content::quests::Need::Phase(2))]
+    );
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
+    let plain = GIVE_ROW
+        .replace("item = 0x470020B9\n", "")
+        .replace("wants = 50\n", "")
+        .replace("counts = [8]\n", "")
+        .replace("fx = 0x410005EB\n", "");
+    let mut files = fixture();
+    files.insert("town/server/gives/470033D0.toml".into(), plain);
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert_eq!((t.quests.gives[0].item, t.quests.gives[0].fx), (None, None));
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "any item reads back as written"
+    );
+}
+
+/// Behaviour: server.gives.row-wants-a-count
+#[test]
+fn a_give_moving_no_quest_is_checked_for_what_it_wants_and_names() {
+    let problems = |row: String| -> Vec<String> {
+        let mut files = fixture();
+        files.insert("town/server/gives/470033D0.toml".into(), row);
+        check(&files).iter().map(ToString::to_string).collect()
+    };
+    let m = problems(GIVE_ROW.replace("wants = 50", "wants = 0"));
+    assert!(
+        m.iter().any(|x| x.contains("a count of at least 1")),
+        "{m:?}"
+    );
+    let m = problems(GIVE_ROW.replace("item = 0x470020B9\n", ""));
+    assert!(
+        m.iter()
+            .any(|x| x.contains("a count of no item in particular")),
+        "{m:?}"
+    );
+    let m = problems(GIVE_ROW.replace("counts = [8]", "counts = [8, 9]"));
+    assert!(
+        m.iter().any(|x| x.contains("a count for each item given")),
+        "{m:?}"
+    );
+    let mut files = fixture();
+    files.insert(
+        "town/server/gives/470033D0.toml".into(),
+        GIVE_ROW.replace("to = 0x470033D0", "to = 0x47009998"),
+    );
+    let compiled = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new());
+    assert!(compiled.is_err(), "a template the install lacks");
+}
+
+#[test]
+fn a_reminder_may_name_a_phase_and_no_other_line_but_an_advance_may() {
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/talk/470033D0.toml",
+        "role = \"near\"",
+        "role = \"remind\"\nphase = 2",
+    );
+    assert_eq!(check(&files), Vec::new());
+    let mut files = fixture();
+    edit(
+        &mut files,
+        "town/server/talk/470033D0.toml",
+        "role = \"near\"",
+        "role = \"too-soon\"\nphase = 2",
+    );
+    let messages: Vec<String> = check(&files).iter().map(ToString::to_string).collect();
+    assert!(
+        messages.iter().any(|m| m.contains("names a phase")),
+        "{messages:?}"
+    );
+}
+
+/// A step may wait on a quest being given, and reads back as written.
+/// Behaviour: server.quests.step-on-a-quest-given-row
+#[test]
+fn a_step_on_a_quest_given_compiles_and_reads_back_as_written() {
+    let mut files = fixture();
+    let quest = files["town/server/quests/40000088.toml"].clone();
+    files.insert(
+        "town/server/quests/40000088.toml".into(),
+        format!(
+            "{quest}\n[[step]]\nkey = \"on-given\"\nquest = 0x40000088\nneeds = 2\ntrigger = {{ given = 0x40000089 }}\nupdate = \"complete\"\nprov = {{ from = \"authored\", by = \"a test\", note = \"a test\" }}\n"
+        ),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let t = compile(&merge(&read(&files).unwrap()).unwrap(), &Fake::new()).unwrap();
+    assert!(t
+        .quests
+        .steps
+        .iter()
+        .any(|s| s.trigger == yalain_content::quests::Trigger::Given(0x4000_0089)));
+    assert_eq!(
+        yalain_content::QuestTable::from_text(&t.quests.to_text()).unwrap(),
+        t.quests,
+        "it reads back as written"
+    );
 }

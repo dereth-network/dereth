@@ -94,9 +94,38 @@ pub enum LightingChange {
     Restore(ObjectId),
 }
 
+/// How often the message line repeats that the character is overburdened, in seconds.
+const ENCUMBRANCE_REPEAT: f64 = 60.0;
+
+/// The message line's reminder while the load is over what the character can carry well.
+#[derive(Debug, Default)]
+pub struct EncumbranceNotice {
+    last: Option<f64>,
+}
+impl EncumbranceNotice {
+    /// The line to show now, once a minute while `load` (1.0 is everything the character can
+    /// carry well) stays at one or over.
+    pub fn line(&mut self, load: f32, now: f64) -> Option<&'static str> {
+        if load < 1.0
+            || self
+                .last
+                .is_some_and(|last| now - last < ENCUMBRANCE_REPEAT)
+        {
+            return None;
+        }
+        self.last = Some(now);
+        Some(if load < 2.0 {
+            "You are encumbered"
+        } else {
+            "You are severely encumbered"
+        })
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct OverlayState {
     hovered: Option<ObjectId>,
+    hovered_control: Option<crate::panels::Hover>,
     selection: Option<ObjectId>,
     name: TransientText,
     hint: TransientText,
@@ -143,6 +172,27 @@ impl OverlayState {
             self.name.hide(now);
             self.hint.hide(now);
         }
+    }
+    /// The name and hint lines for the control under the pointer, as for an object under it. The
+    /// lines change when the text does, so a number that moves restarts them.
+    pub fn hover_control(&mut self, hover: Option<crate::panels::Hover>, now: f64) {
+        if hover == self.hovered_control {
+            return;
+        }
+        match &hover {
+            Some(h) => {
+                self.name.set(h.name.clone(), now);
+                match &h.hint {
+                    Some(text) => self.hint.set(text.clone(), now),
+                    None => self.hint.clear(),
+                }
+            }
+            None => {
+                self.name.hide(now);
+                self.hint.hide(now);
+            }
+        }
+        self.hovered_control = hover;
     }
     /// Replaces or appends to the third line, the message line. The return requests
     /// sound 0x6E once per timer value; host audio availability remains a gate.
@@ -474,6 +524,8 @@ fn action_hint(world: &World, id: ObjectId) -> Hint {
         2 => "Double click to pick up",
         3 => "Double click to wield",
         4 => "Double click to wear (if there's room)",
+        // Nothing happens on a world without trade, so nothing is offered.
+        5 if !world.era_features.trade => return Hint::Clear,
         5 => {
             return Hint::Set(format!(
                 "Double click to trade items with {}",
@@ -721,6 +773,31 @@ mod tests {
         );
     }
     #[test]
+    fn a_control_under_the_pointer_fills_the_name_and_hint_lines_until_the_pointer_leaves() {
+        let mut o = OverlayState::default();
+        o.hover_control(
+            crate::panels::Hover::lines("Focus", "Measures your character's mind and senses."),
+            1.0,
+        );
+        assert_eq!(o.name.text, "Focus");
+        assert_eq!(o.hint.text, "Measures your character's mind and senses.");
+        o.hover_control(crate::panels::Hover::line("Shows game options"), 2.0);
+        assert_eq!(o.name.text, "Shows game options");
+        assert!(!o.hint.active, "one line has no second");
+        o.hover_control(None, 3.0);
+        assert!(o.name.hiding, "the line wipes as an object's does");
+    }
+    #[test]
+    fn encumbrance_is_said_once_a_minute_while_it_lasts() {
+        let mut n = EncumbranceNotice::default();
+        assert_eq!(n.line(0.9, 0.0), None);
+        assert_eq!(n.line(1.0, 1.0), Some("You are encumbered"));
+        assert_eq!(n.line(1.0, 60.9), None);
+        assert_eq!(n.line(1.5, 61.0), Some("You are encumbered"));
+        assert_eq!(n.line(2.0, 121.0), Some("You are severely encumbered"));
+        assert_eq!(n.line(0.5, 500.0), None);
+    }
+    #[test]
     fn unchanged_hover_expires_after_five_seconds_and_one_second_wipe() {
         let world = world();
         let mut o = OverlayState::default();
@@ -761,6 +838,24 @@ mod tests {
         w.pwd.container_id = Some(ObjectId(1));
         w.pwd.combat_use = Some(1);
         assert_eq!(classify(&world, id), 3);
+    }
+    /// Behaviour: presentation.era.a-double-click-on-a-player-does-nothing-without-trade
+    #[test]
+    fn another_player_offers_a_trade_only_on_a_world_with_it() {
+        let mut world = world();
+        let mut other = Weenie::new(ObjectId(3));
+        other.pwd.name = "Someone".into();
+        other.pwd.obj_type = 0x10;
+        other.pwd.bitfield = 4 | 8;
+        other.pwd.useability = Some(1);
+        world.tables.weenies.insert(ObjectId(3), other);
+        assert_eq!(classify(&world, ObjectId(3)), 5);
+        assert!(matches!(
+            action_hint(&world, ObjectId(3)),
+            Hint::Set(text) if text.starts_with("Double click to trade")
+        ));
+        world.era_features.trade = false;
+        assert!(matches!(action_hint(&world, ObjectId(3)), Hint::Clear));
     }
     #[test]
     fn creature_noncombat_hint_preserves_prior_text_and_hidden_objects_leave_hover() {

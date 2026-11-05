@@ -11,8 +11,8 @@ use dereth_primitives::shape::Plane;
 use dereth_primitives::{Position, Vec3};
 
 use super::{
-    inquirable, same_property, CollisionReport, CollisionSettings, ContactProperties,
-    ContactProperty, ContactRecord, ObjectContact, Push,
+    same_property, CollisionReport, CollisionSettings, ContactProperties, ContactProperty,
+    ContactRecord, ObjectContact, Push,
 };
 use crate::ethereal::PhysicsTypes;
 use crate::geom;
@@ -200,7 +200,7 @@ fn set_properties(
 ) {
     list.properties.clear();
     for p in groups.iter().flat_map(|g| g.properties.iter()) {
-        if inquirable(props, p.id) {
+        if props.is_inquirable(p.id) {
             list.add(ContactProperty::new(p.clone(), *next_id));
             *next_id = next_id.wrapping_add(1);
         }
@@ -219,7 +219,7 @@ fn update_property_array(
     let held = list.len();
     let mut changed = false;
     for p in groups.iter().flat_map(|g| g.properties.iter()) {
-        if !inquirable(props, p.id) {
+        if !props.is_inquirable(p.id) {
             continue;
         }
         if let Some(c) = list[..held].iter_mut().find(|c| c.name() == p.id) {
@@ -660,12 +660,6 @@ impl Collisions {
         report.non_empty()
     }
 
-    // D2-06769
-    #[must_use]
-    pub fn find_in_property_list(&self, key: BodyKey) -> Option<&ContactProperties> {
-        self.property_lists.get(&key)
-    }
-
     // D2-06781
     pub fn end_in_water(&mut self, report: &mut CollisionReport, host: &mut dyn CollisionHost) {
         for p in &mut self.water_properties {
@@ -917,7 +911,7 @@ impl Collisions {
     /// types to those the body passes through, when the body passes through it. An object is kept
     /// (or its keeping renewed and its ignoring updated). Then the object's properties are kept and
     /// its push taken, or their keeping renewed. False when the touch could not be kept.
-    // D2-06793
+    // D2-06793, D2-06769, D2-05928
     pub fn add_object_collision(&mut self, other: BodyKey, host: &mut dyn CollisionHost) -> bool {
         let id = host.object_id(other);
         if id == 0 {

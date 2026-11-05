@@ -161,6 +161,8 @@ pub struct DrawLayer {
     pub alpha_test: bool,
     /// The alpha a texel must exceed, 0 to 1.
     pub alpha_ref: f32,
+    /// The layer itself asks for the alpha test, not just for its blending by alpha.
+    pub tests_alpha: bool,
     /// The vertex program's switches ([`switch`]).
     pub switches: u32,
     pub ambient: Color,
@@ -175,6 +177,39 @@ pub struct DrawLayer {
     /// What moves the layer as the client's running time goes on, when anything does: its
     /// pictures' coordinates, its specular power, its alpha reference.
     pub motion: Option<std::sync::Arc<LayerMotion>>,
+}
+
+/// How a layer tests alpha and marks depth when drawn with a tint.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Faded {
+    /// Whether the draw marks how near it is.
+    pub depth_write: bool,
+    /// The alpha a texel must exceed, when it is tested at all.
+    pub alpha_ref: Option<f32>,
+}
+
+impl DrawLayer {
+    /// How the layer draws at `alpha` (its tint's), an object past 40 m being `far`: a layer that
+    /// tests or blends by alpha, when the draw is not wholly opaque and either far off or (a layer
+    /// only blending) under 0.8, no longer marks depth and passes every texel with some alpha, so
+    /// what is behind it shows through. A layer neither testing nor blending by alpha draws as it
+    /// is, whatever the alpha.
+    // D2-09861
+    #[must_use]
+    pub fn faded(&self, alpha: f32, far: bool) -> Faded {
+        let a = self.diffuse.a * alpha;
+        if self.alpha_test && a < 1.0 && (far || (!self.tests_alpha && a < 0.8)) {
+            Faded {
+                depth_write: false,
+                alpha_ref: Some(0.0),
+            }
+        } else {
+            Faded {
+                depth_write: self.depth_write,
+                alpha_ref: self.alpha_test.then_some(self.alpha_ref),
+            }
+        }
+    }
 }
 
 /// What moves a layer as time goes on: its stored layer's coordinate animations, specular power
@@ -1094,6 +1129,7 @@ pub fn draw_layer(l: &MaterialLayer) -> DrawLayer {
         } else {
             0.0
         },
+        tests_alpha: l.alpha_test != 0,
         switches: switches(l),
         ambient: color(l.ambient),
         diffuse: color(l.diffuse),

@@ -65,6 +65,11 @@ impl World {
         }
     }
 
+    /// The terrain type entry `key`'s collisions showed since last asked.
+    pub(crate) fn take_terrain(&mut self, key: BodyKey) -> Option<u32> {
+        self.entries.get_mut(&key)?.terrain.take()
+    }
+
     /// Wakes entry `key`'s other updates: something it touches has told its collisions.
     pub(crate) fn wake(&mut self, key: BodyKey) {
         if self.entries.contains_key(&key) {
