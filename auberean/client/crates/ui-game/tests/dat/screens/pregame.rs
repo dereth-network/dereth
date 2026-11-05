@@ -1029,6 +1029,11 @@ fn the_key_map_shows_each_actions_keys_and_rebinds_them() {
     r.click(items[0]);
     assert_eq!(r.ui.list_selected_index(list), Some(1));
     assert!(!r.ghosted("clear_button"));
+    // Shift on the way to a chord: no key by itself, the cell still waiting.
+    r.data.key_hits.push((0x8100_042A, 0));
+    r.step();
+    assert_eq!(rows(&r)[1], "E", "Shift alone binds nothing");
+    assert_eq!(r.ui.list_selected_index(list), Some(1), "still waiting");
     // Ctrl and G: the game keeps it for an action without a name.
     r.data.key_hits.push((0x8100_0422, meta::LEFT_CTRL));
     r.step();

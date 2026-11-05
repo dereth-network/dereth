@@ -14,6 +14,7 @@ not how it was done.
 - Fixed effects that fade a body out snapping it back at once.
 - Fixed mist on the ground in rain too light to see.
 - Fixed sunlit halls: the sun now falls across their floors and walls as the original's does.
+- Pressing Shift or Ctrl alone no longer gets bound in the key map.
 - The hide-all key no longer works during a story.
 - The pet mode buttons now step from the mode you last chose.
 - Fixed the pet panel and fellows on the map options being the wrong way round.

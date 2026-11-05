@@ -75,6 +75,15 @@ pub mod meta {
     pub const RIGHT_CTRL: u32 = 0x8100_049D;
 }
 
+/// Whether an input is a modifier key, which is no key to bind by itself.
+// D2-04913
+const fn is_meta_key(input: u32) -> bool {
+    matches!(
+        input,
+        meta::LEFT_SHIFT | meta::RIGHT_SHIFT | meta::LEFT_CTRL | meta::RIGHT_CTRL
+    )
+}
+
 /// Clear All's question (the data holds no words for it: it is asked empty).
 const CLEAR_ALL_QUESTION: u32 = 0x1291_8D52;
 
@@ -751,7 +760,7 @@ impl Keyboard {
         if self.confirmation_boxes_open()
             || key == POINTER_X
             || key == POINTER_Y
-            || self.maps.reserved(key)
+            || is_meta_key(key)
             || self.selected.is_none()
             || key_name(key).is_none()
         {
