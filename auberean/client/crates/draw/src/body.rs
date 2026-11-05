@@ -25,7 +25,7 @@ use auberean_world::records::WorldRecords;
 use crate::material::{
     device_flags, draw_layers, instance_material_with, material_kind, DrawLayer,
 };
-use crate::mesh::{level_at, vertices, MeshVertex, PosedList, PosedVertex};
+use crate::mesh::{level_at, vertices, MeshVertex, PosedAsk, PosedList, PosedVertex};
 use crate::scene::Lod;
 use crate::scene::ObjectBatch;
 
@@ -39,8 +39,9 @@ struct Loaded {
 
 impl Loaded {
     /// Where the vertices stand on a skinned mesh, in its pose.
-    fn skinned(&self, inf: &[Influences], pose: &PartPose) -> Vec<PosedVertex> {
+    fn skinned(&self, pose: &PartPose) -> Vec<PosedVertex> {
         let none = Influences::default();
+        let inf = self.influences.as_deref().unwrap_or_default();
         let whole = pose.world == Mat4::IDENTITY;
         self.rest
             .iter()
@@ -75,6 +76,40 @@ impl Loaded {
             })
             .collect()
     }
+}
+
+/// Adds to `asks` what is not yet kept of what a frame goes on to ask of a body's draws `batches`:
+/// their lists' vertices, their boxes unspun and under the body's own `spin`, and where their
+/// vertices stand when it `casts` a volume of shadow. Returns how many vertices that is to walk.
+pub fn ask_ahead(
+    batches: &[ObjectBatch],
+    spin: (f32, f32),
+    casts: bool,
+    asks: &mut Vec<PosedAsk>,
+) -> usize {
+    let mut weight = 0;
+    // The layers and fragments of one part share its vertices, in one place.
+    let mut done: Vec<(usize, [[f32; 4]; 4])> = Vec::new();
+    for b in batches {
+        let Some(list) = &b.posed else {
+            continue;
+        };
+        let this = (b.places(), b.transform.0);
+        if done.contains(&this) {
+            continue;
+        }
+        done.push(this);
+        if let Some(ask) = PosedAsk::of(list, &b.transform, [(0.0, 1.0), spin], casts) {
+            asks.push(ask);
+            weight += b.vertices.len();
+        }
+    }
+    weight
+}
+
+/// Everything in `asks` worked out, shared among the threads there are.
+pub fn answer_ahead(asks: Vec<PosedAsk>) {
+    crate::workers::share(asks, PosedAsk::answer);
 }
 
 /// A pose's matrices, for telling it from others by their exact bits.
@@ -205,15 +240,15 @@ impl BodyDrawer {
     }
 
     /// The list of a mesh in a pose: the one it had, if it stood so last frame or a body stands so
-    /// already.
-    fn posed(&mut self, key: PosedKey, make: impl FnOnce() -> Vec<PosedVertex>) -> Arc<PosedList> {
+    /// already, else one `make` makes, to be worked out when it is first asked for.
+    fn posed(&mut self, key: PosedKey, make: impl FnOnce() -> PosedList) -> Arc<PosedList> {
         if let Some(list) = self.posed.get(&key) {
             return list.clone();
         }
         let list = self
             .posed_before
             .remove(&key)
-            .unwrap_or_else(|| Arc::new(PosedList::new(make())));
+            .unwrap_or_else(|| Arc::new(make()));
         self.posed.insert(key, list.clone());
         list
     }
@@ -360,8 +395,10 @@ impl BodyDrawer {
                     self.material_detail,
                 )
             });
-            // The hash of what moves the part's skinned meshes, the first time one asks.
+            // The hash of what moves the part's skinned meshes, the first time one asks, and the
+            // pose those worked out later are worked out from, the first time one needs it.
             let mut skin_hash = None;
+            let mut kept_pose: Option<Arc<PartPose>> = None;
             for (i, setup_mesh) in part.setup.meshes.iter().enumerate() {
                 let mesh_id = part.look.mesh(*setup_mesh, &mut |id| {
                     self.mesh(records, id.0).map(|m| m.mesh.kind)
@@ -376,11 +413,17 @@ impl BodyDrawer {
                     continue;
                 };
                 let posed = match &m.influences {
-                    Some(inf) => {
+                    Some(_) => {
                         let pose_hash = *skin_hash.get_or_insert_with(|| {
                             hash_matrices(std::iter::once(&pose.world).chain(&pose.palette))
                         });
-                        self.posed((mesh_id.0, pose_hash), || m.skinned(inf, pose))
+                        self.posed((mesh_id.0, pose_hash), || {
+                            let pose = kept_pose
+                                .get_or_insert_with(|| Arc::new(pose.clone()))
+                                .clone();
+                            let m = m.clone();
+                            PosedList::made_by(move || m.skinned(&pose))
+                        })
                     }
                     None => {
                         let bone = pose
@@ -389,7 +432,10 @@ impl BodyDrawer {
                             .copied()
                             .unwrap_or(Mat4::IDENTITY)
                             .then(&pose.world);
-                        self.posed((mesh_id.0, hash_matrices([&bone])), || m.carried(&bone))
+                        self.posed((mesh_id.0, hash_matrices([&bone])), || {
+                            let m = m.clone();
+                            PosedList::made_by(move || m.carried(&bone))
+                        })
                     }
                 };
                 // The reflection takes the same level when its choice falls on it, else one of

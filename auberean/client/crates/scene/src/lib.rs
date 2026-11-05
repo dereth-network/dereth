@@ -4043,6 +4043,11 @@ impl<'w> Scene<'w> {
             &mut built.frame.objects,
             &mut noted,
         );
+        seen::work_out_bodies(
+            &built.frame.objects,
+            &noted,
+            self.object_shadows >= auberean_draw::volume::setting::VOLUMETRIC,
+        );
         // A body shows by the cells it touches, what is held by its holder's.
         // D2-03577, D2-03583
         if built.frame.rooms.is_some() || !built.frame.look_in.is_empty() {

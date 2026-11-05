@@ -9,7 +9,7 @@ use auberean_animation::body::Body as Figure;
 use auberean_animation::skin::{influences, skin};
 use auberean_animation::CachedRecords;
 use auberean_assets::mesh::Mesh;
-use auberean_draw::body::BodyDrawer;
+use auberean_draw::body::{answer_ahead, ask_ahead, BodyDrawer};
 use auberean_draw::mesh::vertices;
 use auberean_primitives::{DataId, Quat, Vec3};
 use auberean_world::math::Mat4;
@@ -109,5 +109,38 @@ fn a_standing_pose_keeps_its_lists() {
     for (a, b) in first.iter().zip(&fourth) {
         assert_ne!(a.places(), b.places(), "made again");
         assert_eq!(a.posed, b.posed, "to the same places");
+    }
+}
+
+/// A body's lists and boxes worked out ahead on the threads there are, are to the bit what they are
+/// when each is worked out as it is asked for.
+#[test]
+fn a_bodys_lists_are_the_same_worked_out_on_threads() {
+    let r = &install().records;
+    let recs = CachedRecords::new(r);
+    let (figure, place) = figure();
+    let poses = figure.pose(&recs);
+    let spin = (0.28, 0.96);
+    let ahead = BodyDrawer::default().batches(r, &figure, &poses, &place);
+    let asked = BodyDrawer::default().batches(r, &figure, &poses, &place);
+    let mut asks = Vec::new();
+    let weight = ask_ahead(&ahead, spin, true, &mut asks);
+    assert!(weight > 1000, "{weight} vertices to walk");
+    assert!(asks.len() > 3, "{} lists to work out", asks.len());
+    answer_ahead(asks);
+    let mut again = Vec::new();
+    assert_eq!(ask_ahead(&ahead, spin, true, &mut again), 0, "all kept");
+    for (a, b) in ahead.iter().zip(&asked) {
+        let (x, y) = (
+            a.posed.as_ref().expect("posed"),
+            b.posed.as_ref().expect("posed"),
+        );
+        assert_eq!(
+            bytemuck::cast_slice::<_, u8>(&x[..]),
+            bytemuck::cast_slice::<_, u8>(&y[..])
+        );
+        assert_eq!(a.turned_box(spin), b.turned_box(spin));
+        assert_eq!(a.turned_box((0.0, 1.0)), b.turned_box((0.0, 1.0)));
+        assert_eq!(x.positions(), y.positions());
     }
 }

@@ -167,6 +167,33 @@ impl Seen {
     }
 }
 
+/// Below this many vertices to walk, a frame's bodies are not worth waking other threads for.
+const WORTH_SHARING: usize = 16_000;
+
+/// Work out ahead, on the threads there are, what the rest of the frame reads of its bodies'
+/// vertices and walks them for; `casts` when volumes of shadow are made. With too little to share
+/// out, it is left to be worked out as it is asked for.
+pub fn work_out_bodies(
+    objects: &[ObjectBatch],
+    noted: &[(u64, Range<usize>, Vec3, f32)],
+    casts: bool,
+) {
+    let mut asks = Vec::new();
+    let mut weight = 0;
+    for (_, range, _, heading) in noted {
+        if let Some(batches) = objects.get(range.clone()) {
+            let spin = (
+                fm::sinf(heading.to_radians()),
+                fm::cosf(heading.to_radians()),
+            );
+            weight += auberean_draw::body::ask_ahead(batches, spin, casts, &mut asks);
+        }
+    }
+    if weight >= WORTH_SHARING {
+        auberean_draw::body::answer_ahead(asks);
+    }
+}
+
 /// The box a body's batches fill in its own frame.
 #[must_use]
 pub fn bounds_of(body: &SeenBody, batches: &[ObjectBatch]) -> Option<(Vec3, Vec3)> {
