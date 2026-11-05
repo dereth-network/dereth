@@ -716,6 +716,12 @@ impl Client {
             Action::SetSelection { target } => {
                 self.ask(function::SET_SELECTION, &[InterfaceArg::Long(target)]);
             }
+            // D2-00417
+            Action::NameAmount { item, quantity } => {
+                let name = self.with_scripts(|s| s.name_for(item, quantity));
+                self.inventory.amount_name = name.map(|n| (item, quantity, n));
+                self.inventory.version += 1;
+            }
             // D2-00423, D2-01285
             Action::UseSelected => self.ask(function::USE_SELECTION, &[]),
             // D2-00424, D2-01286
@@ -1275,6 +1281,7 @@ impl Client {
         };
         self.inventory_stale = false;
         inv.version = self.inventory.version;
+        inv.amount_name.clone_from(&self.inventory.amount_name);
         if inv != self.inventory {
             inv.version += 1;
             self.inventory = inv;

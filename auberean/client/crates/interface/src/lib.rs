@@ -373,6 +373,7 @@ fn facts(
         coin_stack: inv.coin_stack,
         no_melt_question: inv.no_melt_question,
         selection: inv.selection,
+        amount_name: inv.amount_name.clone(),
         picked: None,
         screen: std::collections::BTreeMap::new(),
     }
@@ -486,6 +487,7 @@ fn inventory_action(r: inventory::Request) -> Option<Action> {
             open: false,
         },
         I::Select(target) => Action::SetSelection { target },
+        I::NameAmount { item, quantity } => Action::NameAmount { item, quantity },
         r @ (I::Help { .. } | I::Pick | I::PickWorld | I::ShowDoll { .. }) => {
             tracing::debug!(?r, "not carried out yet");
             return None;

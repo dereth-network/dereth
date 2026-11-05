@@ -93,6 +93,8 @@ pub struct Consignments {
     /// An item dropped on the list, the consignment it restocks (0: a new one), how many.
     dropped: u64,
     restock: u32,
+    /// The restock's question waits on the scripts' name for the amount.
+    awaiting_name: bool,
     amount: u32,
     stack_context: u32,
     dialog: u32,
@@ -130,6 +132,7 @@ impl Consignments {
             store: Store::default(),
             dropped: NO_OBJECT,
             restock: 0,
+            awaiting_name: false,
             amount: 0,
             stack_context: 0,
             dialog: 0,
@@ -297,12 +300,33 @@ impl Consignments {
             return;
         }
         self.amount = amount;
+        if self.facts.as_ref().is_some_and(|f| {
+            f.item(self.dropped).is_some() && f.name_of_amount(self.dropped, amount).is_none()
+        }) {
+            self.awaiting_name = true;
+            out.push(Request::Inventory(inventory::Request::NameAmount {
+                item: self.dropped,
+                quantity: amount,
+            }));
+            return;
+        }
+        self.ask_restock(ui, out);
+    }
+
+    /// What restocking the amount costs, asked, the item called by its name for that many.
+    // D2-02326
+    fn ask_restock(&mut self, ui: &Ui, out: &mut Vec<Request>) {
+        let amount = self.amount;
         let Some(sale) = self.store.sale(self.restock) else {
             return;
         };
-        let Some(it) = self.facts.as_ref().and_then(|f| f.item(self.dropped)) else {
+        let Some(f) = self.facts.as_ref() else {
             return;
         };
+        let Some(it) = f.item(self.dropped) else {
+            return;
+        };
+        let name = f.name_of_amount(self.dropped, amount).unwrap_or(&it.name);
         #[allow(clippy::cast_precision_loss)]
         let price = f64::from(amount as f32)
             * f64::from(sale.cost_quantity)
@@ -316,7 +340,7 @@ impl Consignments {
             vec![
                 (
                     name::PRODUCT,
-                    Var::Text(Box::new(auberean_text::StringInfo::literal(&it.name))),
+                    Var::Text(Box::new(auberean_text::StringInfo::literal(name))),
                 ),
                 (name::COST, Var::UInt(cost)),
             ],
@@ -778,10 +802,18 @@ impl Child for Consignments {
 
     /// What the scripts answer of the items and of consignments; while the player is on foot,
     /// a change of the player's look reframes the figure.
-    fn update(&mut self, _ui: &mut Ui, view: &View<'_>, _out: &mut Vec<Request>) {
+    fn update(&mut self, ui: &mut Ui, view: &View<'_>, out: &mut Vec<Request>) {
         if let Some(f) = view.inventory {
             if self.facts.as_ref().is_none_or(|o| o.version != f.version) {
                 self.facts = Some(f.clone());
+                let came = self
+                    .facts
+                    .as_ref()
+                    .is_some_and(|f| f.name_of_amount(self.dropped, self.amount).is_some());
+                if self.awaiting_name && came {
+                    self.awaiting_name = false;
+                    self.ask_restock(ui, out);
+                }
             }
         }
         if let Some(s) = view.shop {

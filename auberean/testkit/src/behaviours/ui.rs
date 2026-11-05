@@ -2096,6 +2096,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.shop.part-of-a-stack-is-named-for-its-amount",
+        says: "Part of a stack is called by its name for that many, which the scripts answer: the new-sale window shows it once it comes and its question says it; a restock's question waits for it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHOP-AMOUNT-NAME"),
+        station: "auberean-ui-game::dat::play::shop::part_of_a_stack_is_named_for_its_amount",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.shortcuts.a-moved-slot-shows-its-icon-where-it-went",
         says: "A slot dragged onto another shows its skill's icon and tooltip there, and the slot it left shows none, once the player's scripts hold the moved shortcuts; onto a slot holding another skill it replaces that one.",
         since: RETAIL,

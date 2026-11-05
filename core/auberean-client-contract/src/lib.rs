@@ -36,6 +36,8 @@ pub enum Action {
     /// Select an object (or nothing, 0) from a panel: the player's scripts take the selection,
     /// and the player's head stays as it is.
     SetSelection { target: u64 },
+    /// Ask the scripts what an item is called for a number of it; the inventory then says.
+    NameAmount { item: u64, quantity: u32 },
     /// Use what is selected: a double click on it, or the use key.
     UseSelected,
     /// Use what a toolbar slot holds (a skill or an attack on the selection, an item, a line of

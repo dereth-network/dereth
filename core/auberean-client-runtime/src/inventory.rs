@@ -548,6 +548,8 @@ pub struct Inventory {
     pub open: BTreeSet<u64>,
     /// The player's selection when it was last asked.
     pub selection: u64,
+    /// The last name asked for a number of an item: the item, the number, the name.
+    pub amount_name: Option<(u64, u32, String)>,
 }
 
 impl Inventory {

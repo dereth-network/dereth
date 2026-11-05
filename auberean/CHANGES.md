@@ -11,6 +11,7 @@ not how it was done.
 - Fixed others' damage numbers ignoring the range option, and far targets not being refused.
 - Actions asked of you in portal space no longer play late when you arrive.
 - Selecting from the radar, a name or your pack no longer turns your head.
+- Selling part of a stack in your shop now names the amount you chose.
 - Key map presets now take effect at once, and right Shift and Ctrl bind as themselves.
 - Fixed a radar kept hidden coming back as a bare dial.
 - Fixed layered icons showing soft fringes and hazy overlays.
