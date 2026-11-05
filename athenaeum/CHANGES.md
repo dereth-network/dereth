@@ -8,6 +8,8 @@ see, not how it was done.
 
 ## Unreleased
 
+## 0.1.2 (2026-11-05)
+
 - New map of the whole world: click to go there.
 - Find rows goes to a room by its id, and Enter takes what it offers first.
 - A place can be renamed, and what leads to it follows.
