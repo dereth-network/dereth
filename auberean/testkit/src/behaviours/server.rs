@@ -6446,6 +6446,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.network.hub-word-bounded",
+        says: "What a hub's word can make a world hold or write has a bound, and a hub within the \
+               network's limits never meets it: a link is welcomed once, the worlds it names are \
+               kept by slug up to a most, limits and waits within reason, its changes to worlds and \
+               to person views reach the characters at a pace with the newest holding in the end, \
+               answers and paces for other worlds have a most, and a listing taken off keeps nothing \
+               for a name the world does not know.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HUB-WORD-BOUNDED"),
+        station: "yalain-federation::cpu::hub_bounds::person_views_past_their_pace_wait_and_the_newest_holds_in_the_end",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.network.linked-to-a-hub",
         says: "A server on the Dereth Network links to its hub with the world's key and says hello \
                first; once welcomed it answers another world's tell and watch, and its console \

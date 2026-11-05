@@ -27,6 +27,7 @@
 use std::collections::BTreeSet;
 
 use dereth_network_protocol::answers::person_line;
+use dereth_network_protocol::limits::{Bucket, Rate};
 use dereth_network_protocol::person::{view_listing, MAX_CARRIED, MAX_VIEW_CHARACTERS};
 use dereth_network_protocol::text::{sanitize_line, sanitize_name};
 use dereth_network_protocol::{
@@ -56,6 +57,28 @@ pub(crate) struct PersonRow {
     pub friend: Address,
     /// The handle of the person friend it comes by.
     pub handle: Address,
+}
+
+/// How many person views a character takes, a few at once and then one a second. A hub says so when
+/// a view changes; the newest of those past this waits for the pace.
+pub const VIEW_PACE: Rate = Rate {
+    burst: 8.0,
+    per_sec: 1.0,
+};
+
+/// How many friends person views may change on the world's lists, which are kept in the store. A
+/// character's whole list is 100: a few at once, then two lists' worth a second.
+pub const VIEW_ROWS_PACE: Rate = Rate {
+    burst: 400.0,
+    per_sec: 200.0,
+};
+
+/// The newest person view past its pace.
+#[derive(Debug, Clone)]
+pub(crate) struct HeldView {
+    to: Address,
+    linked: bool,
+    persons: Vec<PersonFriend>,
 }
 
 /// The characters a record says asked for a link.
@@ -305,6 +328,7 @@ impl Federation {
     pub(crate) fn watch_person(&mut self, name: &str, on: bool) {
         if !on {
             self.linked.remove(&name.to_lowercase());
+            self.views_due.remove(&name.to_lowercase());
             self.drop_person_rows(name);
         }
         if self.link != LinkState::Up {
@@ -376,9 +400,60 @@ impl Federation {
         t: f64,
         to: &Address,
         linked: bool,
-        persons: &[PersonFriend],
+        persons: Vec<PersonFriend>,
     ) {
         if to.world() != self.settings.slug || !friends.in_world(to.name()) {
+            return;
+        }
+        let key = to.name().to_lowercase();
+        if !self.on.contains_key(&key) {
+            return;
+        }
+        let view = HeldView {
+            to: to.clone(),
+            linked,
+            persons,
+        };
+        let waits = self.views_due.contains_key(&key) || !self.view_pace_allows(t, &key);
+        if waits {
+            self.views_due.insert(key, view);
+        } else {
+            self.apply_view(friends, t, &view);
+        }
+    }
+
+    /// Whether a view of the character of this key may be taken now; takes one when it may.
+    fn view_pace_allows(&mut self, t: f64, key: &str) -> bool {
+        let rows = self
+            .view_rows
+            .get_or_insert_with(|| Bucket::new(VIEW_ROWS_PACE, t));
+        if !rows.has(t) {
+            return false;
+        }
+        self.view_paces
+            .entry(key.to_owned())
+            .or_insert_with(|| Bucket::new(VIEW_PACE, t))
+            .take(t)
+    }
+
+    /// The views that waited, as far as their paces go now.
+    pub(crate) fn views_at_their_pace(&mut self, friends: &mut impl Friends, t: f64) {
+        self.view_paces.retain(|_, b| !b.full_at(t));
+        let keys: Vec<String> = self.views_due.keys().cloned().collect();
+        for key in keys {
+            if !self.view_pace_allows(t, &key) {
+                continue;
+            }
+            if let Some(view) = self.views_due.remove(&key) {
+                self.apply_view(friends, t, &view);
+            }
+        }
+    }
+
+    /// A character takes its person view.
+    fn apply_view(&mut self, friends: &mut impl Friends, t: f64, view: &HeldView) {
+        let (to, linked, persons) = (&view.to, view.linked, view.persons.as_slice());
+        if !friends.in_world(to.name()) {
             return;
         }
         let Some(on) = self.on.get(&to.name().to_lowercase()).cloned() else {
@@ -403,7 +478,7 @@ impl Federation {
         if linked && before != Some(true) {
             self.carry(friends, t, &on);
         }
-        self.list_view(friends, &on, persons, returned);
+        self.list_view(friends, t, &on, persons, returned);
         friends.person_view_came(&on.name);
     }
 
@@ -425,11 +500,13 @@ impl Federation {
     fn list_view(
         &mut self,
         friends: &mut impl Friends,
+        t: f64,
         on: &crate::OnNetwork,
         persons: &[PersonFriend],
         returned: &[PersonFriend],
     ) {
         let key = on.name.to_lowercase();
+        let mut changed = 0usize;
         let mut rows = self.person_rows.remove(&key).unwrap_or_default();
         // A handed-back friend listed until now through a person friend stays, as the character's
         // own.
@@ -437,6 +514,7 @@ impl Federation {
             let handed_back = returned.iter().any(|p| p.handle.same(&r.friend));
             if handed_back {
                 friends.keep_friend(&on.name, &r.friend);
+                changed += 1;
             }
             !handed_back
         });
@@ -463,6 +541,7 @@ impl Federation {
             // no longer kept here.
             if kept && handle.same(&c) {
                 friends.release_friend(&on.name, &c);
+                changed += 1;
                 rows.push(PersonRow { friend: c, handle });
                 continue;
             }
@@ -488,7 +567,15 @@ impl Federation {
                 continue;
             }
             friends.keep_friend(&on.name, h);
+            changed += 1;
             added.push(h.clone());
+        }
+        // What it wrote comes out of the world's pace: past it, later views wait.
+        let pace = self
+            .view_rows
+            .get_or_insert_with(|| Bucket::new(VIEW_ROWS_PACE, t));
+        for _ in 0..changed {
+            pace.take(t);
         }
         for f in gone {
             let shown_online = self.shown(&on.name, &f) == Some(true);

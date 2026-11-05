@@ -604,6 +604,13 @@ impl Federation {
             return;
         }
         let key = who.name().to_lowercase();
+        // The world keeps what comes of this, so it takes it only of a character it knows.
+        if !self.on.contains_key(&key)
+            && !self.directory.entries.contains_key(&key)
+            && !self.directory.removals.contains_key(&who.key())
+        {
+            return;
+        }
         let name = self
             .on_name(&key)
             .map_or_else(|| who.name().to_owned(), str::to_owned);

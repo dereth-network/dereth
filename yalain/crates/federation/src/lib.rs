@@ -67,6 +67,7 @@ mod verify;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
+use dereth_network_protocol::address::is_slug;
 use dereth_network_protocol::limits::{Bucket, Limits, Rate};
 use dereth_network_protocol::rooms::KeptRooms;
 use dereth_network_protocol::wire::{WireError, PROTOCOL};
@@ -81,7 +82,7 @@ use directory::Directory;
 
 pub use dereth_network_protocol::rooms::NOT_CARRIED;
 pub use operator::{HELP, IN_GAME_HELP};
-pub use persons::{ASKED_RECORD, NOW_LINKED, PAUSED};
+pub use persons::{ASKED_RECORD, NOW_LINKED, PAUSED, VIEW_PACE, VIEW_ROWS_PACE};
 pub use rooms::{Character, GlobalLine, Heard, Room, SayAsk, Speaker, DEFAULT_ROOM};
 pub use verify::{
     answer_line, is_verification_token, unreachable_line, ChallengeAnswer, VerifyRequest, ASKING,
@@ -137,6 +138,33 @@ pub const UNAVAILABLE: &str = "The Dereth Network is unavailable.";
 
 /// The key under which another world's watches are paced, beside the local characters it tells.
 const WATCHES: &str = "@watch";
+
+/// The most other worlds this world keeps the state of. A hub names far fewer; one past this is not
+/// taken.
+pub const MAX_WORLDS: usize = 4_096;
+
+/// The most other worlds owed answers at once.
+pub const MAX_WORLDS_OWED: usize = 256;
+
+/// The most paces of what other worlds bring kept at once. A pace not held is not one more to give:
+/// what would start one past this is not taken until others have refilled.
+pub const MAX_RECEIVED: usize = 16_384;
+
+/// How often the world walks everyone present for a world that came up or went: past this, the
+/// world's state is known at once, and what it means for the characters follows at the pace.
+pub const WORLD_CHANGE_PACE: Rate = Rate {
+    burst: 16.0,
+    per_sec: 8.0,
+};
+
+/// How many of the hub's reports of an error the log takes, a few at once and then one a minute.
+const HUB_ERROR_LOG_PACE: Rate = Rate {
+    burst: 8.0,
+    per_sec: 1.0 / 60.0,
+};
+
+/// The most of a report of the hub's the log takes, in characters.
+const HUB_ERROR_LOG_CHARS: usize = 200;
 
 /// The world's settings for the network.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -393,8 +421,15 @@ pub struct Federation {
     /// The operator's blocks: world slugs, and identity keys of single characters.
     blocked: BTreeSet<String>,
     link: LinkState,
-    /// The other federated worlds the hub has named, by slug.
-    worlds: BTreeMap<String, WorldInfo>,
+    /// The other federated worlds the hub has named, by slug, and whether each has its link up.
+    worlds: BTreeMap<String, bool>,
+    /// What the worlds that changed last come to for the characters, at [`WORLD_CHANGE_PACE`].
+    world_changes: Option<Bucket>,
+    /// The worlds whose change waits for that pace.
+    worlds_due: BTreeSet<String>,
+    /// The log's pace of the hub's reports of an error.
+    hub_error_log: Option<Bucket>,
+    hub_errors_logged: u64,
     limits: Limits,
     /// `hello`, while greeting.
     control: Vec<Message>,
@@ -444,6 +479,12 @@ pub struct Federation {
     /// The friends listed through a person friend that went in play, by the character's name in small
     /// letters: its client may show each until it next asks for its friends.
     gone_rows: HashMap<String, BTreeSet<String>>,
+    /// What each character's person view pace still allows, by its name in small letters.
+    view_paces: HashMap<String, Bucket>,
+    /// What the world's pace of friends a person view changes still allows.
+    view_rows: Option<Bucket>,
+    /// The newest view that waits for those paces, by the character's name in small letters.
+    views_due: BTreeMap<String, persons::HeldView>,
     /// Person view requests: sent after the tells and answers, only while the link is up (a welcome
     /// sends them again).
     person_watches: VecDeque<Message>,
@@ -489,6 +530,10 @@ impl Federation {
             blocked: BTreeSet::new(),
             link: LinkState::Down,
             worlds: BTreeMap::new(),
+            world_changes: None,
+            worlds_due: BTreeSet::new(),
+            hub_error_log: None,
+            hub_errors_logged: 0,
             limits: Limits::DEFAULT,
             control: Vec::new(),
             outbox: VecDeque::new(),
@@ -512,6 +557,9 @@ impl Federation {
             linked: HashMap::new(),
             person_rows: HashMap::new(),
             gone_rows: HashMap::new(),
+            view_paces: HashMap::new(),
+            view_rows: None,
+            views_due: BTreeMap::new(),
             person_watches: VecDeque::new(),
             rooms: None,
             rooms_dirty: false,
@@ -600,13 +648,19 @@ impl Federation {
     /// Whether `slug`'s link is up, as the hub last said.
     #[must_use]
     pub fn world_online(&self, slug: &str) -> bool {
-        self.worlds.get(slug).is_some_and(|i| i.online)
+        self.worlds.get(slug).copied().unwrap_or(false)
     }
 
     /// How many other worlds' links are up, as the hub last said.
     #[must_use]
     pub fn worlds_online(&self) -> usize {
-        self.worlds.values().filter(|i| i.online).count()
+        self.worlds.values().filter(|online| **online).count()
+    }
+
+    /// How many of the hub's reports of an error have reached the log.
+    #[must_use]
+    pub fn hub_errors_logged(&self) -> u64 {
+        self.hub_errors_logged
     }
 
     /// How many messages wait for the link (the directory's listings aside).
@@ -685,9 +739,10 @@ impl Federation {
 
     /// Whether this world may take on one more answer for `world` now.
     fn may_owe(&self, world: &str) -> bool {
-        self.answers
-            .get(world)
-            .is_none_or(|q| q.len() < MAX_ANSWERS_PER_WORLD)
+        self.answers.get(world).map_or_else(
+            || self.answers.len() < MAX_WORLDS_OWED,
+            |q| q.len() < MAX_ANSWERS_PER_WORLD,
+        )
     }
 
     /// Queues an answer owed to `world`.
@@ -727,8 +782,12 @@ impl Federation {
     /// character it tells, or its watches); takes one. The hub enforces the same limits, so this
     /// holds only against a hub that does not.
     fn may_receive(&mut self, t: f64, world: &str, what: &str, rate: Rate) -> bool {
+        let key = (world.to_owned(), what.to_owned());
+        if !self.received.contains_key(&key) && self.received.len() >= MAX_RECEIVED {
+            return false;
+        }
         self.received
-            .entry((world.to_owned(), what.to_owned()))
+            .entry(key)
             .or_insert_with(|| Bucket::new(rate, t))
             .take(t)
     }
@@ -782,16 +841,15 @@ impl Federation {
             }
         }
         tracing::info!("Dereth Network: the link to the hub is down");
-        let worlds: Vec<String> = self.worlds.keys().cloned().collect();
-        for slug in worlds {
-            self.world_gone(friends, &slug);
-        }
+        self.worlds_due.clear();
+        self.views_due.clear();
+        self.forget_every_world(friends);
         // Every other world watches again when this one is back.
         self.watchers.clear();
         self.presence.clear();
         self.presence_due.clear();
-        for info in self.worlds.values_mut() {
-            info.online = false;
+        for online in self.worlds.values_mut() {
+            *online = false;
         }
     }
 
@@ -915,6 +973,8 @@ impl Federation {
 
     fn on_message(&mut self, friends: &mut impl Friends, t: f64, m: Message) {
         match m {
+            // A link is welcomed once.
+            Message::Welcome { .. } if self.link != LinkState::Greeting => {}
             Message::Welcome {
                 world,
                 worlds,
@@ -929,12 +989,12 @@ impl Federation {
                     );
                 }
                 self.link = LinkState::Up;
-                self.limits = limits;
+                self.limits = within_reason(limits);
                 self.pace = None;
                 self.worlds = worlds
                     .into_iter()
-                    .filter(|i| !i.slug.is_empty())
-                    .map(|i| (i.slug.clone(), i))
+                    .filter(|i| is_slug(&i.slug))
+                    .map(|i| (i.slug, i.online))
                     .collect();
                 tracing::info!(
                     "Dereth Network: welcomed; {} world(s) online",
@@ -948,27 +1008,16 @@ impl Federation {
                 // later is watched when it does.
                 let online: Vec<String> = self
                     .worlds
-                    .values()
-                    .filter(|i| i.online)
-                    .map(|i| i.slug.clone())
+                    .iter()
+                    .filter(|(_, online)| **online)
+                    .map(|(slug, _)| slug.clone())
                     .collect();
                 for slug in online {
                     self.watch_everyone(friends, &slug);
                 }
             }
-            Message::World(info) => {
-                let online = info.online;
-                let slug = info.slug.clone();
-                if slug.is_empty() || slug == self.settings.slug {
-                    return;
-                }
-                let was = self.world_online(&slug);
-                self.worlds.insert(slug.clone(), info);
-                if online && !was {
-                    self.watch_everyone(friends, &slug);
-                } else if !online {
-                    self.world_gone(friends, &slug);
-                }
+            Message::World(WorldInfo { slug, online, .. }) => {
+                self.on_world(friends, t, slug, online);
             }
             Message::Watch { owner, target, on } => self.on_watch(friends, t, owner, &target, on),
             Message::Presence { to, of, online } => self.on_presence(friends, t, &to, &of, online),
@@ -1000,7 +1049,7 @@ impl Federation {
                 linked,
                 persons,
                 ..
-            } => self.on_person_view(friends, t, &to, linked, &persons),
+            } => self.on_person_view(friends, t, &to, linked, persons),
             Message::ChannelResult {
                 id,
                 outcome,
@@ -1027,10 +1076,69 @@ impl Federation {
                 self.on_room_result(friends, t, &id, outcome);
             }
             Message::Error { code, message } => {
-                tracing::warn!("Dereth Network: the hub reports {code}: {message}");
+                let pace = self
+                    .hub_error_log
+                    .get_or_insert_with(|| Bucket::new(HUB_ERROR_LOG_PACE, t));
+                if pace.take(t) {
+                    self.hub_errors_logged += 1;
+                    let message: String = message.chars().take(HUB_ERROR_LOG_CHARS).collect();
+                    tracing::warn!("Dereth Network: the hub reports {code}: {message}");
+                }
             }
             // Messages only a world sends.
             _ => {}
+        }
+    }
+
+    /// The hub says a world's link came up or went. A world it names as gone, known already as gone,
+    /// is no news; past [`MAX_WORLDS`] a new one is not taken. What the change means for the
+    /// characters follows at [`WORLD_CHANGE_PACE`].
+    fn on_world(&mut self, friends: &mut impl Friends, t: f64, slug: String, online: bool) {
+        if !is_slug(&slug) || slug == self.settings.slug {
+            return;
+        }
+        let Some(was) = self
+            .worlds
+            .get(&slug)
+            .copied()
+            .or_else(|| (self.worlds.len() < MAX_WORLDS).then_some(false))
+        else {
+            return;
+        };
+        self.worlds.insert(slug.clone(), online);
+        if was == online {
+            return;
+        }
+        let pace = self
+            .world_changes
+            .get_or_insert_with(|| Bucket::new(WORLD_CHANGE_PACE, t));
+        if self.worlds_due.is_empty() && pace.take(t) {
+            self.world_changed(friends, &slug);
+        } else {
+            self.worlds_due.insert(slug);
+        }
+    }
+
+    /// What a world's state means for the characters, as it stands now.
+    fn world_changed(&mut self, friends: &mut impl Friends, slug: &str) {
+        if self.world_online(slug) {
+            self.watch_everyone(friends, slug);
+        } else {
+            self.world_gone(friends, slug);
+        }
+    }
+
+    /// The worlds that changed past the pace, as far as the pace goes now.
+    fn worlds_changed(&mut self, friends: &mut impl Friends, t: f64) {
+        while let Some(slug) = self.worlds_due.first().cloned() {
+            let pace = self
+                .world_changes
+                .get_or_insert_with(|| Bucket::new(WORLD_CHANGE_PACE, t));
+            if !pace.take(t) {
+                break;
+            }
+            self.worlds_due.remove(&slug);
+            self.world_changed(friends, &slug);
         }
     }
 
@@ -1102,5 +1210,35 @@ impl Federation {
         self.directory_settle(t);
         self.chatter.settle(t);
         self.show_due(friends, t);
+        self.worlds_changed(friends, t);
+        self.views_at_their_pace(friends, t);
+    }
+}
+
+/// The most a hub's word may ease a pace, against the specification's.
+const MOST_EASED: f64 = 1_000.0;
+
+/// The longest a hub's word may have the world wait, in seconds.
+const MOST_WAIT_SECS: f64 = 3_600.0;
+
+/// The hub's limits as a world takes them: its word holds, within what keeps the world's own queues
+/// short. A rate is never below nothing nor past [`MOST_EASED`] times the specification's, and a wait
+/// never past [`MOST_WAIT_SECS`].
+fn within_reason(told: Limits) -> Limits {
+    let d = Limits::DEFAULT;
+    let rate = |told: Rate, spec: Rate| Rate {
+        burst: told.burst.clamp(0.0, spec.burst * MOST_EASED),
+        per_sec: told.per_sec.clamp(0.0, spec.per_sec * MOST_EASED),
+    };
+    let wait = |told: f64| told.clamp(0.0, MOST_WAIT_SECS);
+    Limits {
+        tells_per_character: rate(told.tells_per_character, d.tells_per_character),
+        room_lines_per_character: rate(told.room_lines_per_character, d.room_lines_per_character),
+        messages_per_world: rate(told.messages_per_world, d.messages_per_world),
+        room_lines_per_world: rate(told.room_lines_per_world, d.room_lines_per_world),
+        tells_per_recipient: rate(told.tells_per_recipient, d.tells_per_recipient),
+        hold_secs: wait(told.hold_secs),
+        result_timeout_secs: wait(told.result_timeout_secs),
+        ..told
     }
 }
