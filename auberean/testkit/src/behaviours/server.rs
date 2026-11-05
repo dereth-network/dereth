@@ -1227,6 +1227,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.craft.a-recipe-wants-its-cost",
+        says: "A recipe whose cost its maker's money is short of is refused with the client's own \
+               word for it: nothing made, used up or paid. With the money it is made and paid for.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-COST"),
+        station: "yalain-testkit::cpu::play::crafting::a_recipe_whose_cost_its_maker_lacks_is_refused_and_makes_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.a-recipe-wants-its-cost-at-its-end",
+        says: "A recipe's cost is asked for again as the making comes due: money spent since leaves \
+               it refused, nothing made or used up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-COST-END"),
+        station: "yalain-testkit::cpu::play::crafting::money_spent_during_a_making_leaves_it_refused_at_its_end",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.craft.butchery-finds-nothing",
         says: "A cut that draws its profile's share of nothing gathers no material and pays no experience; \
                the use is answered empty at the result and the corpse may be butchered again.",
@@ -1581,6 +1599,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-MADE-NO-LEVEL"),
         station: "yalain-testkit::cpu::play::crafting::a_product_with_no_mutation_by_the_item_level_stays_its_template",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.craft.none-from-death-or-portal-space",
+        says: "A dead player, or one in portal space, is refused a recipe with the client's word \
+               for too busy; nothing made or used up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CRAFT-NOT-DEAD"),
+        station: "yalain-testkit::cpu::play::crafting::a_recipe_is_refused_to_the_dead_and_in_portal_space",
         tier: Tier::Cpu,
     },
     behaviour! {

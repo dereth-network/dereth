@@ -1483,8 +1483,12 @@ mod crafts {
             if items.len() < c.slots.len() {
                 count("one item named for two slots");
             }
-            // Stocked for it, its workshop's record on but where the recording had it off, and a
-            // pack with room for what it makes: one character here makes what many did.
+            // Stocked for it, with the money it costs, its workshop's record on but where the
+            // recording had it off, and a pack with room for what it makes: one character here
+            // makes what many did.
+            if let Some(p) = h.server.players.get_mut(&world) {
+                yalain_world::quals::set_int(&mut p.qualities, yalain_world::store::MONEY, 1 << 24);
+            }
             h.server
                 .players
                 .get_mut(&world)

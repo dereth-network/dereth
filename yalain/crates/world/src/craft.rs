@@ -19,14 +19,16 @@
 //! A recipe without one takes all its ingredients, in their fixed amounts.
 //!
 //! **Making a recipe**: refused at once (only the answer, with why) when the player is not at
-//! peace, the recipe is unknown or still waiting, its workshop is not at hand (the record a
+//! peace, is dead or in portal space, the recipe is unknown or still waiting, its workshop is not at hand (the record a
 //! workshop puts on a player nearby, [`crate::workshops`]), the spinner is outside the recipe's
-//! range, the slots filled are not the ones the spinner asks for, or an item does not fit. Else the player
+//! range, the slots filled are not the ones the spinner asks for, an item does not fit, or its money
+//! is short of the recipe's cost. Else the player
 //! plays the recipe's animation for its cycles, lets it go, and some seconds after the request the
 //! result: the check rolled against the recipe's difficulty and the player's craft skill, and the
 //! outcome's actions in order (items made in the pack, ingredients used up, an effect on the
 //! player such as a quest moved on, a text), the cost paid, the recipe's wait and charges told, the
-//! answer; ingredients used up after the answer.
+//! answer; ingredients used up after the answer. What it asked is asked again as the result comes:
+//! an ingredient gone or the money spent since, and it makes nothing, says why and takes nothing.
 //!
 //! **Refining** turns two materials into a third, in a workshop. The recipe holds what it takes
 //! and uses up; what it yields it does not hold: a third of the amount taken of each material,
@@ -145,8 +147,12 @@ pub mod error {
     pub const NOT_RESET: u32 = 40_024;
     pub const FAILED: u32 = 40_025;
     pub const PEACE_REQUIRED: u32 = 40_026;
+    /// Dead or in portal space: the client's word for being too busy to craft.
+    pub const TOO_BUSY: u32 = 40_028;
     /// No place in the pack for the product (2017: 1 of 1, at the result, with a full pack).
     pub const NO_ROOM: u32 = 40_029;
+    /// The maker's money is short of the recipe's cost.
+    pub const NO_MONEY: u32 = 40_038;
     /// The recipe's workshop is not at hand (its record is not on the player).
     pub const MISSING_EFFECT: u32 = 40_041;
     /// An item whose least level is above what its slot takes at the spinner.
@@ -1885,6 +1891,13 @@ pub fn slots_in(g: &[(u32, Node)]) -> Vec<(u32, u64)> {
         .unwrap_or_default()
 }
 
+/// Has a player the money a recipe costs?
+fn affords<S: Store>(s: &Server<S>, world: ConnId, def: &RecipeDef) -> bool {
+    s.players
+        .get(&world)
+        .is_some_and(|p| crate::store::money(&p.qualities) >= def.cost)
+}
+
 /// The client asks to make a recipe with ingredients by slot.
 pub fn execute<S: Store>(
     s: &mut Server<S>,
@@ -1908,6 +1921,9 @@ pub fn execute<S: Store>(
     };
     if p.attacking.is_some() || p.using.is_some() || p.making.is_some() {
         return refuse(net, error::PEACE_REQUIRED);
+    }
+    if p.dying.is_some() || crate::combat::is_dead(p) || p.trip.is_some() {
+        return refuse(net, error::TOO_BUSY);
     }
     let Some(known) = p.play.recipes.iter().find(|r| r.recipe == recipe).copied() else {
         return refuse(net, error::BAD_RECIPE);
@@ -1949,6 +1965,9 @@ pub fn execute<S: Store>(
     let why = check_slots(s, world, &def, *spinner, &slots);
     if why != 0 {
         return refuse(net, why);
+    }
+    if !affords(s, world, &def) {
+        return refuse(net, error::NO_MONEY);
     }
     // Making a recipe ends a protection, before its behavior.
     crate::effects::unprotect(s, net, world, |_, _| {});
@@ -2060,6 +2079,11 @@ fn result<S: Store>(
     let why = check_slots(s, world, &def, m.spinner, &m.slots);
     if why != 0 {
         progress::private(net, world, &executed(why, m.recipe));
+        return;
+    }
+    // So is money spent since the request: nothing is made that isn't paid for.
+    if !affords(s, world, &def) {
+        progress::private(net, world, &executed(error::NO_MONEY, m.recipe));
         return;
     }
     let level = craft_level(s, world, def.skill);

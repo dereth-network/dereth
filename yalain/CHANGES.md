@@ -60,6 +60,7 @@ what they see, not how it was done.
 - Fixed a vault staying busy after its traveler was removed.
 - A client far behind has its requests put off until it catches up.
 - A large allegiance's export no longer slows the world.
+- Recipes that cost money now ask for it.
 
 - Fixed a selected person showing empty health and vigor bars.
 
