@@ -358,6 +358,63 @@ fn a_pet_renamed_is_named_in_the_written_form_and_the_same_name_shows_nothing_ne
     assert!(!shown(&h, from), "the same name: nothing shown");
 }
 
+/// A name past the longest, or holding a digit or a mark, is refused with the client's own words and
+/// changes nothing; the longest a name may be, an accented letter and a space are taken, and shown.
+/// Behaviour: server.pets.a-name-can-be-refused
+#[test]
+fn a_pet_name_too_long_or_not_allowed_is_refused_and_the_pet_keeps_its_name() {
+    let mut h = Harness::new();
+    let (b, _, pet) = with_lasher(&mut h);
+    let name = |n: &str| {
+        let mut g = yalain_world::graph::Builder::new();
+        #[allow(clippy::cast_possible_truncation)]
+        g.native(
+            auberean_script::native_object::native_type::WP_STRING as u16,
+            auberean_script::native_object::NativeObject::Text(n.encode_utf16().collect()),
+        );
+        Arg::Object(g.graph())
+    };
+    let shown = |h: &Harness, from: usize| {
+        h.world_messages(b, from).iter().any(|m| {
+            matches!(m, ServerMessage::UpdateStringInfoVisual(q)
+                if q.object.id == pet && q.quality == pets::NAME_QUALITY)
+        })
+    };
+    let ok = "q".repeat(26);
+    let long = "q".repeat(27);
+    for (typed, refused) in [
+        (ok.as_str(), None),
+        ("bärbel", None),
+        ("pet eins", None),
+        (long.as_str(), Some(pets::text::NAME_TOO_LONG)),
+        ("pet1", Some(pets::text::NAME_NOT_ALLOWED)),
+        ("2", Some(pets::text::NAME_NOT_ALLOWED)),
+        ("<b>x", Some(pets::text::NAME_NOT_ALLOWED)),
+        ("   ", Some(pets::text::NAME_NOT_ALLOWED)),
+    ] {
+        let from = order(&mut h, b, function::NAME, &[name(typed), Arg::LongInt(pet)]);
+        let answered = h.functions(b, from).contains(&function::UPDATE_NAME);
+        let told = h.texts(b, from);
+        match refused {
+            None => {
+                assert!(answered, "{typed:?} taken");
+                assert!(shown(&h, from), "{typed:?} shown");
+                assert!(told.is_empty(), "{typed:?} refused: {told:?}");
+            }
+            Some(why) => {
+                assert!(!answered, "{typed:?} not taken");
+                assert!(!shown(&h, from), "{typed:?} not shown");
+                assert_eq!(told, vec![(1, why.0)], "{typed:?}");
+            }
+        }
+    }
+    assert_eq!(
+        h.server.pets.by_id[&pet].name.as_deref(),
+        Some("Pet Eins"),
+        "the last name it took"
+    );
+}
+
 /// A pet ordered to die (0: all) is taken off its owner's list and falls as a creature does, in
 /// one tick; its corpse comes after, and its body leaves the world.
 /// Behaviour: server.pets.ordered-to-die

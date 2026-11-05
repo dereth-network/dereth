@@ -7403,6 +7403,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.a-name-can-be-refused",
+        says: "A name too long or holding a digit or a mark is refused in the client's own words and the pet \
+               keeps the name it has; a name up to the longest, an accented letter and a space are \
+               taken.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-NAME-REFUSED"),
+        station: "yalain-testkit::cpu::play::pets::a_pet_name_too_long_or_not_allowed_is_refused_and_the_pet_keeps_its_name",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.aggressive-unprovoked",
         says: "An aggressive pet takes on the nearest creature within its reach without being told \
                to.",

@@ -86,6 +86,10 @@ pub mod text {
     pub const KIND_VAR: u32 = 0xAC50_A4E8;
     /// "The summoning fails."
     pub const SUMMONING_FAILS: (u32, u32) = (0xA5AC_6CBF, 0x2500_0CE5);
+    /// "That pet name is too long."
+    pub const NAME_TOO_LONG: (u32, u32) = (0x9353_92A2, 0x2500_000B);
+    /// "That pet name is not allowed."
+    pub const NAME_NOT_ALLOWED: (u32, u32) = (0x3C48_5626, 0x2500_000B);
 }
 
 /// Why a summoning skill is refused: its user has as many pets of the class as it allows.
@@ -1061,8 +1065,25 @@ fn owe<S: Store>(s: &mut Server<S>, owner: u64, now: f64) -> Option<f32> {
     (before > ORDERS_OWED).then_some((after - ORDERS_OWED) as f32)
 }
 
+/// The longest name a pet may take, in UTF-16 units. The servers refused every recorded name of 27
+/// or more (11 of 11, up to 47) and took every one of 13 or less; none between was asked for.
+pub const MOST_NAME_UNITS: usize = 26;
+
+/// What its owner is told when a pet can't take this name, written as the server keeps it: one too
+/// long, or one with anything but letters of any alphabet, spaces, apostrophes and hyphens (digits
+/// were refused, 3 names of 3; an accented letter and a space were taken).
+#[must_use]
+pub fn name_refused(name: &str) -> Option<(u32, u32)> {
+    if name.encode_utf16().count() > MOST_NAME_UNITS {
+        return Some(text::NAME_TOO_LONG);
+    }
+    let allowed = |c: char| c.is_alphabetic() || matches!(c, ' ' | '\'' | '-');
+    (name.is_empty() || !name.chars().all(allowed)).then_some(text::NAME_NOT_ALLOWED)
+}
+
 /// A pet renamed: kept in the written form, its owner told "Name (kind)" as its name and everyone
-/// who sees it shown the same; nothing new shown when it is the name it has.
+/// who sees it shown the same; nothing new shown when it is the name it has. A name it can't take
+/// changes nothing, and its owner is told why.
 fn rename<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -1075,6 +1096,11 @@ fn rename<S: Store>(
     let Some(p) = s.pets.by_id.get_mut(&pet).filter(|p| p.owner == owner) else {
         return;
     };
+    if let Some(why) = name_refused(&name) {
+        let told = crate::chat::show_text(1, progress::text(why));
+        progress::private(net, world, &told);
+        return;
+    }
     let template = p.template;
     let same = p.name.as_deref() == Some(name.as_str());
     p.name = Some(name.clone());
