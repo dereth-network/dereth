@@ -398,6 +398,32 @@ fn record_the_synthetic_session() {
     std::fs::write(FIXTURE, session().transcript).unwrap();
 }
 
+/// A client that names no iteration never reaches the server: an ac1999 server would log that login
+/// whole, password included.
+#[test]
+fn a_client_naming_no_iteration_is_not_logged_in_upstream() {
+    let mut x = Exchange::new("Probe", "Secret");
+    x.until(0xF7E5);
+    let answer = write_blob(&DddInterrogationResponse {
+        client_language: 1,
+        iters_with_keys: Vec::new(),
+        iters_without_keys: Vec::new(),
+        flags: 0,
+        overlay_bases: Vec::new(),
+    })
+    .unwrap();
+    x.client.send(NetQueue::ClientCache, &answer);
+    let booted = x.until(LOGIN_ACCOUNT_BOOTED);
+    let reason = read_body::<dereth_protocol::login::LoginAccountBooted>(&booted.body)
+        .unwrap()
+        .reason
+        .unwrap();
+    assert!(reason.contains("data files"), "{reason}");
+    assert!(x.server.reported.is_none(), "nothing went upstream");
+    assert!(x.server.login_body.is_empty());
+    assert!(x.relay.take_for_servers().is_empty());
+}
+
 #[test]
 fn credentials_the_1999_login_cannot_hold_are_refused_with_the_reason() {
     let mut x = Exchange::new("averylongaccountname", "andalongpassword");

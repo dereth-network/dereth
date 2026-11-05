@@ -7,7 +7,11 @@ fn endpoint() -> SocketAddr {
     "127.0.0.1:9000".parse().unwrap()
 }
 fn ac1999() -> Handshake {
-    Handshake::new(endpoint(), "demo", "secret", LoginMetadata::default()).unwrap()
+    let metadata = LoginMetadata {
+        portal_iteration: 105,
+        cell_iteration: 67,
+    };
+    Handshake::new(endpoint(), "demo", "secret", metadata).unwrap()
 }
 fn ac1999_grant(version: &str) -> Vec<u8> {
     let mut body = 1.0f64.to_le_bytes().to_vec();

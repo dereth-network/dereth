@@ -326,6 +326,12 @@ impl Bridge {
             self.client.portal,
             self.client.cell
         );
+        if self.client.portal == 0 || self.client.cell == 0 {
+            log::warn!("Dereth named no iteration for a data file; not logging in upstream");
+            self.password = String::new();
+            self.end(" because your client didn't say which data files it holds".to_owned());
+            return;
+        }
         let metadata = LoginMetadata {
             portal_iteration: self.client.portal,
             cell_iteration: self.client.cell,

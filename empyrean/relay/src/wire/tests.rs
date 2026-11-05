@@ -47,6 +47,26 @@ fn generic_checksum_uses_ac1999_seed_and_odd_tail_without_body_length() {
     );
 }
 
+/// An ac1999 server logs a login with no iterations whole, password included, so none is made.
+#[test]
+fn a_login_is_never_made_without_both_iterations() {
+    for (portal_iteration, cell_iteration) in [(0, 0), (0, 67), (105, 0)] {
+        assert_eq!(
+            login_request(
+                CLIENT_VERSION,
+                "a",
+                "b",
+                LoginMetadata {
+                    portal_iteration,
+                    cell_iteration,
+                },
+            ),
+            Err(Error::Iterations),
+            "portal {portal_iteration}, cell {cell_iteration}"
+        );
+    }
+}
+
 #[test]
 fn login_is_sequence_one_and_opens_with_the_magic_word() {
     let bytes = login_request(
@@ -90,7 +110,10 @@ fn the_credential_fills_twenty_characters_and_is_lowercased() {
         CLIENT_VERSION,
         "a",
         "123456789012345678",
-        LoginMetadata::default(),
+        LoginMetadata {
+            portal_iteration: 7,
+            cell_iteration: 9,
+        },
     )
     .unwrap();
     let p = Packet::decode(&full).unwrap();
