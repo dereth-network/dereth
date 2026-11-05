@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Fixed mist on the ground in rain too light to see.
 - Fixed sunlit halls: the sun now falls across their floors and walls as the original's does.
 - Crowded places run faster.
 - Fixed some effects on a body standing in the wrong place.
