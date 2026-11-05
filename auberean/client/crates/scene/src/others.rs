@@ -1311,7 +1311,8 @@ impl Others {
                 continue;
             }
             let (at, heading) = ob.drawn(alpha);
-            out.extend(fx.lights(at, heading, ob.body.position.cell.0, now));
+            let opacity = b.figure.as_ref().map_or(1.0, |f| f.sliders.opacity());
+            out.extend(fx.lights(at, heading, ob.body.position.cell.0, now, opacity));
         }
         out
     }

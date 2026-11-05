@@ -1584,7 +1584,8 @@ pub static ROWS: &[Behaviour] = &[
         says: "The lights the bodies' own effects place join the frame's lights with those of the \
                objects placed with the world: a light played on another human stands with it at its \
                effect's offset for as long as the effect says (as long as the human, or a few \
-               seconds); with light source effects off, no effect places one.",
+               seconds), at the body's opacity; with light source effects off, no effect places \
+               one.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SCENE-BODY-EFFECT-LIGHTS"),
         station: "auberean-shell::dat::session::the_bodies_effects_place_lights_among_the_frames",

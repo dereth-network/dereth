@@ -4249,21 +4249,28 @@ impl<'w> Scene<'w> {
             .collect();
         if let Some(fx) = p.effects.as_ref() {
             let me = figures::global(pos.cell.0, dv(origin));
-            placed_lights.extend(fx.lights(me, body_heading, pos.cell.0, now));
+            let opacity = p.figure.sliders.opacity();
+            placed_lights.extend(fx.lights(me, body_heading, pos.cell.0, now, opacity));
         }
         placed_lights.extend(self.others.effect_lights((bx, by), alpha, now));
         for (id, at, _) in &placed {
             if let Some(fx) = self.held.effects_of(*id) {
                 let g = figures::global(at.cell.0, dv(at.frame.origin));
                 let h = auberean_physics::geom::frame_heading(&at.frame).degrees();
-                placed_lights.extend(fx.lights(g, h, at.cell.0, now));
+                let opacity = self.held.figure(*id).map_or(1.0, |f| f.sliders.opacity());
+                placed_lights.extend(fx.lights(g, h, at.cell.0, now, opacity));
             }
         }
         for (id, at, _) in &made {
             if let Some(fx) = self.temporaries.get(*id).and_then(|t| t.effects.as_ref()) {
                 let g = figures::global(at.cell.0, dv(at.frame.origin));
                 let h = auberean_physics::geom::frame_heading(&at.frame).degrees();
-                placed_lights.extend(fx.lights(g, h, at.cell.0, now));
+                let opacity = self
+                    .temporaries
+                    .get(*id)
+                    .and_then(|t| t.figure.as_ref())
+                    .map_or(1.0, |f| f.sliders.opacity());
+                placed_lights.extend(fx.lights(g, h, at.cell.0, now, opacity));
             }
         }
         let carried: Vec<auberean_world::inside::Light> = placed_lights

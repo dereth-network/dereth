@@ -2711,6 +2711,23 @@ fn the_bodies_effects_place_lights_among_the_frames() {
         "at the human: {:?}",
         l.origin
     );
+    let (whole, set_opacity) = (l.intensity, |s: &mut Shell<'_, DoubleHost>, o: f32| {
+        s.scene
+            .figure_mut(OTHER)
+            .expect("its figure")
+            .sliders
+            .do_slider(0, 0x4000_0015, o, 0.0);
+    });
+    set_opacity(&mut s, 0.25);
+    for _ in 0..3 {
+        step(&mut s);
+    }
+    let faded = colored(&s, 0.498)[0].intensity;
+    assert!(
+        (faded - whole * 0.25).abs() < whole * 0.05,
+        "as the body fades: {faded} of {whole}"
+    );
+    set_opacity(&mut s, 1.0);
     s.scene.do_fx(PLAYER, WHITE, 1.0);
     for _ in 0..3 {
         step(&mut s);
