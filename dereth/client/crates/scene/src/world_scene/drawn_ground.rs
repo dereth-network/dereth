@@ -753,6 +753,8 @@ impl super::SceneDraw {
     /// The drawn ground's upkeep for this frame: its tuning, the world's vertices, whether it is
     /// drawn, the near blocks' offsets, and the blocks whose scenery was baked for another
     /// offset, which are baked again.
+    ///
+    /// It runs before the frame's re-centre, so [`Self::place_drawn_ground`] runs again after it.
     pub(super) fn drawn_ground_step(
         &mut self,
         ws: &super::WorldState,
@@ -772,20 +774,7 @@ impl super::SceneDraw {
             store,
             &self.land.table,
         );
-        if let Some((&(bx, by), b)) = self.blocks.iter().next() {
-            // LINT-OK: block coordinates, far inside f32's exact range.
-            #[allow(clippy::cast_precision_loss)]
-            {
-                self.drawn.global = (
-                    bx as f32 * BLOCK_METERS - b.origin.0,
-                    by as f32 * BLOCK_METERS - b.origin.1,
-                );
-            }
-        }
-        if let Some(v) = ws.streamer.window.viewer_block() {
-            self.drawn.viewer = v;
-        }
-        self.drawn.eye = ws.camera.position;
+        self.place_drawn_ground(ws);
         self.drawn.keep_fields(store);
         self.far_trees_step(store);
         let want = if self.drawn.active {
@@ -804,6 +793,26 @@ impl super::SceneDraw {
                 self.want(ws, xi, yi, super::SlotWork::Full);
             }
         }
+    }
+
+    /// Where the drawn ground stands for this frame: the world's origin in render space, the
+    /// viewer's block and the eye, from the blocks as the window now holds them. Run again after
+    /// a re-centre moves the origin, so no frame draws the ground a block off.
+    pub(super) fn place_drawn_ground(&mut self, ws: &super::WorldState) {
+        if let Some((&(bx, by), b)) = self.blocks.iter().next() {
+            // LINT-OK: block coordinates, far inside f32's exact range.
+            #[allow(clippy::cast_precision_loss)]
+            {
+                self.drawn.global = (
+                    bx as f32 * BLOCK_METERS - b.origin.0,
+                    by as f32 * BLOCK_METERS - b.origin.1,
+                );
+            }
+        }
+        if let Some(v) = ws.streamer.window.viewer_block() {
+            self.drawn.viewer = v;
+        }
+        self.drawn.eye = ws.camera.position;
     }
 
     /// The far trees' upkeep for this frame: drawn while the drawn ground is, with an art pack

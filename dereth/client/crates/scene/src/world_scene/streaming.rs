@@ -2329,6 +2329,9 @@ impl SceneDraw {
         // its cell half and has to run *after* the re-centre, because the cell it computes is
         // an index into the viewer's own block.
         let space = self.recenter(ws);
+        // The drawn ground was placed before the re-centre moved the origin.
+        #[cfg(feature = "hifi")]
+        self.place_drawn_ground(ws);
         // This must stay on this side of `recenter`, **and the compiler checks
         // it**: `space` is minted by the line above and consumed by the drawn-frame writers
         // `step_objects` runs, so moving it up fails to compile rather than costing a
