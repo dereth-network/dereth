@@ -10188,6 +10188,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.a-walking-throw-waits-for-its-range",
+        says: "A skill that walks its user and throws from afar is told only within its greatest range: out of it, it waits for its user to come in reach, then gives up.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WALKING-THROW-RANGE"),
+        station: "yalain-testkit::cpu::play::specials::a_skill_that_walks_and_throws_is_told_only_within_its_range",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.active-cap-for-who-is-no-hero",
         says: "An active skill stops at 50 for a player who is no hero, in its rating and in a \
                raise; a hero's goes on to the skill's own cap.",

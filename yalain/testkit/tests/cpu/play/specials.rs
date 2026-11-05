@@ -1657,3 +1657,70 @@ fn a_use_is_told_once_however_often_its_number_comes_again() {
     h.run(5);
     assert_eq!(told(&h, from), 1, "still one when it is over");
 }
+
+/// A skill that walks its user and throws from afar is told only within its greatest range: out of
+/// it, it waits for its user to come in reach, and gives up after a while.
+/// Behaviour: server.skills.a-walking-throw-waits-for-its-range
+#[test]
+fn a_skill_that_walks_and_throws_is_told_only_within_its_range() {
+    use yalain_world::skill_use::{ui_flag, MOST_WAITED_FOR_RANGE};
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, BOW);
+    let u = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&DEADEYE)
+        .and_then(|d| d.usage.as_mut())
+        .expect("its use");
+    u.ui_flags |= ui_flag::MOVE_TO;
+    let range = u.max_range;
+    let at = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .map(|p| p.position)
+        .expect("in the world");
+    let place = |h: &mut Harness, off: f32| {
+        let mut there = at;
+        there.origin[0] += off;
+        if let Some(t) = h.server.things.get_mut(beetle) {
+            t.at = Some(there);
+        }
+    };
+    let told = |h: &Harness, from: usize| {
+        h.world_messages(b, from)
+            .iter()
+            .filter(|m| {
+                matches!(m, ServerMessage::DoStory(e)
+                    if e.sender.id == me && e.action.skill == DEADEYE)
+            })
+            .count()
+    };
+    place(&mut h, range + 20.0);
+    let from = use_skill(&mut h, b, 1, DEADEYE, beetle);
+    for _ in 0..40 {
+        h.step();
+    }
+    assert_eq!(told(&h, from), 0, "not out of its range");
+    place(&mut h, range - 5.0);
+    for _ in 0..10 {
+        h.step();
+    }
+    assert_eq!(told(&h, from), 1, "told as its user comes in reach");
+    h.run_to(yalain_net::LocalTime(h.now.0 + 120.0));
+    // Out of range and left there, it gives up.
+    place(&mut h, range + 20.0);
+    let from = use_skill(&mut h, b, 2, DEADEYE, beetle);
+    h.run_to(yalain_net::LocalTime(h.now.0 + MOST_WAITED_FOR_RANGE + 3.0));
+    h.run(5);
+    assert_eq!(told(&h, from), 0, "never told");
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, v)| *f == function::REFUSED && v.contains(&Value::Int(refusal::TOO_FAR))),
+        "told it is too far"
+    );
+}

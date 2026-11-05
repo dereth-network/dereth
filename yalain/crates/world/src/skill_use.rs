@@ -220,6 +220,9 @@ pub const ON_ITEM_POLEARM_SECONDS: f64 = 2.27;
 /// A strike lands at this share of its animation, over the time scale (2017: Riposte's hits
 /// 0.70-0.72 s x time scale after the story).
 pub const STRIKE_LANDS: f64 = 0.71;
+/// How long a skill that walks and throws waits for its user to come within its range, in seconds.
+/// Ours: 2017's longest walk in was 2.31 s.
+pub const MOST_WAITED_FOR_RANGE: f64 = 10.0;
 /// A missile's windup before it flies, in seconds (2017: Deadeye's about 0.98 s).
 pub const MISSILE_WINDUP: f64 = 0.98;
 /// After a special inside a run, the run's next swing, in seconds (2017: a median 0.123 s).
@@ -1860,6 +1863,38 @@ fn story<S: Store>(
         match d {
             None => return interrupt(s, net, world, refusal::TARGET_GONE, clock),
             Some(d) if d > combat::PLAYER_REACH => {
+                s.after(
+                    clock,
+                    0.2,
+                    Timer::Skill {
+                        world,
+                        serial,
+                        step: Step::Story,
+                    },
+                );
+                return;
+            }
+            Some(_) => {}
+        }
+    }
+    // One that walks and throws waits for its range likewise (2017: of 1,760 asked with a place
+    // known for both, 6 beyond their range: 4 told once the player had come in reach, up to 2.31 s
+    // after, and 2 cut short; told beyond it, 0 of 1,624), for so long.
+    if !on_self && !on_item && missile_hook(&u).is_some() && u.ui_flags & ui_flag::MOVE_TO != 0 {
+        let gap = position_of(s, aim, target).and_then(|a| {
+            let body = match aim {
+                Aim::Player(..) => crate::reach::PLAYER,
+                _ => crate::reach::body_of(s, target),
+            };
+            crate::reach::gap(&p.position, crate::reach::PLAYER, &a, body)
+        });
+        let began = p.using.as_ref().map_or(0.0, |x| x.began);
+        match gap {
+            None => return interrupt(s, net, world, refusal::TARGET_GONE, clock),
+            Some(d) if d > u.max_range => {
+                if net.game_time(clock.local) - began > MOST_WAITED_FOR_RANGE {
+                    return interrupt(s, net, world, refusal::TOO_FAR, clock);
+                }
                 s.after(
                     clock,
                     0.2,
