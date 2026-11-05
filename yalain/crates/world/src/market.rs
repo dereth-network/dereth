@@ -20,7 +20,12 @@
 //! player entering the world is reminded of its consignments, one reminder per broker.
 //!
 //! **What may not be sold**: an item attuned to its holder, and one bound by use in combat: refused,
-//! nothing taken and nothing moved.
+//! nothing taken and nothing moved. Nor anything by a character holding [`MOST_CONSIGNMENTS`] already,
+//! which is told so.
+//!
+//! **What a page costs.** A store's page shows at most its newest [`MOST_SHOWN`] sales, and a
+//! connection's pages are drawn from a store of [`PAGE_ROWS_HELD`] rows, filled at
+//! [`PAGE_ROWS_A_SECOND`]; a page past that is not answered.
 //!
 //! **Buying a player's sale**: the price taken, the item moved from the broker into the buyer's
 //! pack, the sale's stock told as gone; the seller collects the price.
@@ -32,9 +37,10 @@ use auberean_protocol::{queue, ServerMessage};
 use auberean_script::args::Arg;
 use auberean_script::library::Elem;
 use auberean_script::native_object::{Item, NativeObject, TextInfo};
-use yalain_net::{BlobKind, ConnId, ServerNet};
+use yalain_net::{BlobKind, ConnId, LocalTime, ServerNet};
 use yalain_store::Store;
 
+use crate::call_limit::Bucket;
 use crate::calls::Value;
 use crate::graph::{hash, list, tag, Builder, Slot};
 use crate::inventory::{self, Move};
@@ -85,6 +91,18 @@ pub const CATALOG_EVERY: f64 = 34.0;
 pub const FIRST_UPDATE: f64 = 2.5;
 /// How far a broker is walked to.
 pub const BROKER_REACH: f32 = 5.0;
+
+/// The most consignments a character holds at once. The client has words for a character's maximum,
+/// so the 2017 servers had one; its number was never recorded (of 2 sales put up in the recordings,
+/// a character's most is 2), so this is ours.
+pub const MOST_CONSIGNMENTS: usize = 100;
+/// The words for a character at that maximum.
+pub const AT_THE_MOST: (u32, u32) = (0xCF60_26D2, 0x2500_0CEE);
+/// The most sales a store's page shows (the largest page recorded held 13).
+pub const MOST_SHOWN: usize = 2000;
+/// A connection's rows of pages, at once and each second (18 recorded asks, none of more than 13).
+pub const PAGE_ROWS_HELD: f64 = 2000.0;
+pub const PAGE_ROWS_A_SECOND: f64 = 1000.0;
 /// The world's record of the consignments.
 pub const RECORD: &str = "consignments";
 /// The record's encoding (1 held no item's own numbers).
@@ -586,7 +604,13 @@ pub fn near<S: Store>(s: &Server<S>, world: ConnId, keeper: u64) -> bool {
 }
 
 /// A store chosen from a catalog: its player sales.
-pub fn enter_store<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[Value]) {
+pub fn enter_store<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    v: &[Value],
+    now: LocalTime,
+) {
     if !ensure(s) {
         return;
     }
@@ -599,13 +623,18 @@ pub fn enter_store<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
     if !near(s, world, keeper) {
         return;
     }
-    let sales: Vec<Consignment> = s
+    let mut sales: Vec<Consignment> = s
         .market
         .list
         .iter()
         .filter(|c| c.catalog == br.catalog && c.store == store && c.sold < c.offered)
         .copied()
         .collect();
+    let past = sales.len().saturating_sub(MOST_SHOWN);
+    sales.drain(..past);
+    if !page_allowed(s, world, sales.len(), now) {
+        return;
+    }
     let mut b = Builder::new();
     let viewr = b.reserve(store::package::STORE_VIEW);
     let l = b.next_id();
@@ -635,12 +664,25 @@ pub fn enter_store<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
     }
 }
 
+/// May a connection have a page of so many rows now?
+fn page_allowed<S: Store>(s: &mut Server<S>, world: ConnId, rows: usize, now: LocalTime) -> bool {
+    let Some(p) = s.players.get_mut(&world) else {
+        return false;
+    };
+    #[allow(clippy::cast_precision_loss)]
+    let cost = ((rows + 1) as f64).min(PAGE_ROWS_HELD);
+    p.page_rows
+        .get_or_insert_with(|| Bucket::with(PAGE_ROWS_HELD, PAGE_ROWS_A_SECOND, now))
+        .allow_for(cost, now)
+}
+
 /// The player's consignments at a broker, with its reminder.
 pub fn enter_consignment<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     world: ConnId,
     v: &[Value],
+    now: LocalTime,
 ) {
     if !ensure(s) {
         return;
@@ -655,6 +697,10 @@ pub fn enter_consignment<S: Store>(
     let Some(me) = s.players.get(&world).map(|p| p.character) else {
         return;
     };
+    let mine = s.market.list.iter().filter(|c| c.owner == me).count();
+    if !page_allowed(s, world, mine, now) {
+        return;
+    }
     progress::private(net, world, &reminders(s, me, keeper, br));
     let m = consignment_message(s, function::ENTER_CONSIGNMENT_DONE, me, keeper);
     progress::private(net, world, &m);
@@ -701,6 +747,16 @@ pub fn sell<S: Store>(
     else {
         return;
     };
+    if s.market.list.iter().filter(|c| c.owner == me).count() >= MOST_CONSIGNMENTS {
+        let m = call(
+            store::function::REQUEST_DONE,
+            &[Arg::Int(store::error::SALE_REFUSED)],
+        );
+        progress::private(net, world, &m);
+        let told = crate::chat::show_text(1, progress::text(AT_THE_MOST));
+        progress::private(net, world, &told);
+        return;
+    }
     // An item bound to its seller stays with it, and so does one used in combat: its sale profile
     // does not make, and the client's own check answers the same.
     if s.things

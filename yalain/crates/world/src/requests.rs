@@ -93,10 +93,10 @@ pub fn call<S: Store>(
         crate::trade::function::CLOSE => crate::trade::close(s, net, world),
         crate::scenes::function::DONE => crate::scenes::done(s, world, &values, clock),
         crate::market::function::ENTER_STORE => {
-            crate::market::enter_store(s, net, world, &values);
+            crate::market::enter_store(s, net, world, &values, clock.local);
         }
         crate::market::function::ENTER_CONSIGNMENT => {
-            crate::market::enter_consignment(s, net, world, &values);
+            crate::market::enter_consignment(s, net, world, &values, clock.local);
         }
         crate::market::function::SELL => crate::market::sell(s, net, world, &values, clock),
         crate::market::function::COLLECT => crate::market::collect(s, net, world, &values),

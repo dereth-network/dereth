@@ -29,6 +29,7 @@ what they see, not how it was done.
 - Fixed idle WebSocket connections shutting out browser players.
 - A player can't report being somewhere it couldn't have reached.
 - A character's aliases and settings have a size limit.
+- A character holds up to 100 consignments.
 
 - Fixed a selected person showing empty health and vigor bars.
 

@@ -5432,6 +5432,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.a-character-holds-so-many-consignments",
+        says: "A character holding the most consignments it may is told so and nothing is taken; one \
+               collected makes room again.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-MOST"),
+        station: "yalain-testkit::cpu::play::market::a_character_at_its_most_consignments_is_refused_and_told",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.a-consigned-item-keeps-what-it-holds",
         says: "An item on sale holds what it held in the pack: taken back unsold it comes as a new \
                item with the old one's value and own numbers, a restart leaves it as it was, and \
@@ -5494,6 +5503,16 @@ pub static ROWS: &[Behaviour] = &[
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-MARKET-LIMITS"),
         station: "yalain-testkit::cpu::play::market::a_brokers_dealings_need_reach_and_room",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.market.pages-drawn-from-an-allowance",
+        says: "A connection's market pages come out of an allowance of rows, pages of a player's size \
+               always answered, a large one as its rows come back, and a store shows at most so many \
+               sales.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-PAGES"),
+        station: "yalain-testkit::cpu::play::market::market_pages_come_out_of_an_allowance_of_rows",
         tier: Tier::Cpu,
     },
     behaviour! {
