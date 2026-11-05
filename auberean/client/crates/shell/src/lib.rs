@@ -330,7 +330,13 @@ impl<'w, H: Host> Shell<'w, H> {
                 self.quit = true;
                 return;
             }
-            _ => {}
+            Event::Key { .. }
+            | Event::Text(_)
+            | Event::Button { .. }
+            | Event::Pointer { .. }
+            | Event::Motion { .. }
+            | Event::Wheel { .. }
+            | Event::Focus(_) => {}
         }
         let phase = self.phase();
         let game = game!(self, phase);

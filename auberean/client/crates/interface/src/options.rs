@@ -56,7 +56,9 @@ pub fn action(r: &options::Request) -> Option<Action> {
                 .collect(),
             tell: *tell,
         }),
-        _ => None,
+        options::Request::AssistanceSite
+        | options::Request::Assistance { .. }
+        | options::Request::Preferences(_) => None,
     }
 }
 

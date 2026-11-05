@@ -2168,7 +2168,9 @@ impl Interface for Retail {
                 self.let_go();
                 pregame
             }
-            _ => pregame,
+            Event::Focus(true) | Event::Motion { .. } | Event::Resized { .. } | Event::Close => {
+                pregame
+            }
         }
     }
 

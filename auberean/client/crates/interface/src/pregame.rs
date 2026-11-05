@@ -313,7 +313,7 @@ impl Retail {
                         }));
                     }
                 }
-                _ => {}
+                Net::Idle | Net::Connected => {}
             }
             self.net = net;
         }

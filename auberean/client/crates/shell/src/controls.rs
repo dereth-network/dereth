@@ -198,7 +198,11 @@ impl Controls {
                 self.focus_switch(keys, true);
                 false
             }
-            _ => false,
+            Event::Focus(_)
+            | Event::Text(_)
+            | Event::Pointer { .. }
+            | Event::Resized { .. }
+            | Event::Close => false,
         }
     }
 
