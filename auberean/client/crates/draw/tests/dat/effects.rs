@@ -1192,6 +1192,45 @@ fn an_effect_lasts_until_stopped_when_its_sound_or_system_does() {
     );
 }
 
+/// Stopping an effect that turned a streak on turns it off, whether or not the effect still plays:
+/// `0x810002AE` of the human male's table.
+///
+/// Behaviour: draw.streak.stopping-the-effect-that-turned-a-streak-on-turns-it-off
+#[test]
+fn stopping_the_effect_that_turned_a_streak_on_turns_it_off() {
+    use auberean_draw::effects::{FxSpot, FxWho, NoRig};
+    const SWING: u32 = 0x8100_02AE;
+    let r = &install().records;
+    let human = Look::of_record(r, DataId(0x1F00_0023)).expect("the human male's look");
+    let systems = ParticleSystems::default();
+    let spot = FxSpot {
+        home: (0, 0),
+        place: Mat4::IDENTITY,
+        scale: Vec3::new(1.0, 1.0, 1.0),
+        now: 1.0,
+    };
+    let mut fx = ObjectEffects::of_look(&human).expect("its effects");
+    let (took, _) = fx.do_fx(&systems, r, SWING, 1.0, &spot, FxWho::default(), &NoRig);
+    assert!(took);
+    let on = fx.take_streak_asks();
+    let (_, location) = *on
+        .iter()
+        .find(|(start, _)| *start)
+        .expect("it turns one on");
+    fx.stop_fx(r, SWING, false);
+    assert_eq!(
+        fx.take_streak_asks(),
+        [(false, location)],
+        "playing or just ended"
+    );
+    fx.stop_fx(r, SWING, false);
+    assert_eq!(
+        fx.take_streak_asks(),
+        [(false, location)],
+        "no longer playing"
+    );
+}
+
 /// An effect with a decal (`0x810002C7` of the shared table) lays it: its material, its life, its
 /// size and its color from the entry; with the decal effects preference off, none.
 ///

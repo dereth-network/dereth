@@ -1290,6 +1290,7 @@ impl ObjectEffects {
     pub fn stop_fx(&mut self, records: &WorldRecords, effect: u32, force: bool) -> bool {
         let Some(state) = self.states.get(&effect) else {
             self.restore_color(records, effect);
+            self.stop_streaks(records, effect);
             return false;
         };
         if state.startup && !force {
@@ -1297,6 +1298,7 @@ impl ObjectEffects {
         }
         let gone = state.systems.clone();
         self.restore_color(records, effect);
+        self.stop_streaks(records, effect);
         self.systems.retain(|c| !gone.contains(&c.id));
         if !force {
             for data in self.table.fx_data(records, effect) {
@@ -1311,6 +1313,17 @@ impl ObjectEffects {
         self.states.remove(&effect);
         self.sounds.push(FxSound::Stop { effect });
         true
+    }
+
+    /// The streaks the effect's entries turn on are turned off, as it is stopped.
+    fn stop_streaks(&mut self, records: &WorldRecords, effect: u32) {
+        for data in self.table.fx_data(records, effect) {
+            let n = node_for(&data, self.terrain);
+            if n.start_streak == Some(true) {
+                self.streak_asks
+                    .push((false, n.holding_location.unwrap_or(0)));
+            }
+        }
     }
 
     /// The object's color back to white, once for each of the effect's entries that says so.

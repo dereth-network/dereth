@@ -1358,6 +1358,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.streak.stopping-the-effect-that-turned-a-streak-on-turns-it-off",
+        says: "Stopping an effect whose entry turns a streak on turns that streak off, whether or not the effect still plays.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FX-STREAK-STOP"),
+        station: "auberean-draw::dat::effects::stopping_the_effect_that_turned_a_streak_on_turns_it_off",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.systems.a-system-set-going-on-its-own-draws-until-it-is-spent",
         says: "A particle system set going on its own, owned by no object, draws where it was set \
                each frame until it is spent and its particles are dead, then goes.",
