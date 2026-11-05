@@ -41,19 +41,31 @@ pub fn binding_label(
     control: ControlChord,
     provider: &impl LabelProvider,
 ) -> String {
+    binding_label_on(COMMAND_IS_CONTROL, map, control, provider)
+}
+
+/// [`binding_label`] with the platform said outright: `command_is_control` on a Mac.
+fn binding_label_on(
+    command_is_control: bool,
+    map: &MasterInputMap,
+    control: ControlChord,
+    provider: &impl LabelProvider,
+) -> String {
     let device = map
         .device_type_of(control.control)
         .unwrap_or(DeviceType::Keyboard);
-    let key = control_name(device, control.control, false, provider);
+    let key = control_name_on(command_is_control, device, control.control, false, provider);
     if key.is_empty() {
         return key;
     }
+    // A chord the system keeps for Command is only ever pressed with the Control key itself.
+    let held_as_command = command_is_control && !kept_with_command(device, control.control);
     let mut parts = Vec::new();
     for &bit in provider.modifier_order() {
         if control.meta_mode & bit != 0 {
             if let Some(cs) = map.key_from_meta_mode(bit) {
                 let device = map.device_type_of(cs).unwrap_or(DeviceType::Keyboard);
-                let name = control_name(device, cs, true, provider);
+                let name = control_name_on(held_as_command, device, cs, true, provider);
                 if !name.is_empty() {
                     parts.push(name);
                 }
@@ -72,6 +84,49 @@ pub fn control_name(
     meta: bool,
     provider: &impl LabelProvider,
 ) -> String {
+    control_name_on(COMMAND_IS_CONTROL, device, control, meta, provider)
+}
+
+/// On a Mac the host hands either Command key over as Control, so that is what a binding of
+/// Control is pressed with.
+const COMMAND_IS_CONTROL: bool = cfg!(target_os = "macos");
+
+/// The keys a Mac's system keeps for itself when held with Command, by keyboard offset: Tab, Q, H
+/// and Space. The client never sees those chords, so a binding of one is pressed with Control.
+pub const KEPT_WITH_COMMAND: [u16; 4] = [0x0F, 0x10, 0x23, 0x39];
+
+/// Whether a chord of `control` held with Command would go to a Mac's system, not the client.
+fn kept_with_command(device: DeviceType, control: ControlCode) -> bool {
+    device == DeviceType::Keyboard && KEPT_WITH_COMMAND.contains(&control.offset())
+}
+
+/// What a Control key is called where Command stands in for it: plain when it is held with another
+/// key, as "Control" is, otherwise by its side, as "Left Ctrl" is. `None` for any other control.
+fn command_name(device: DeviceType, control: ControlCode, meta: bool) -> Option<&'static str> {
+    if device != DeviceType::Keyboard {
+        return None;
+    }
+    match (control.offset(), meta) {
+        (0x1D | 0x9D, true) => Some("Cmd"),
+        (0x1D, false) => Some("Left Cmd"),
+        (0x9D, false) => Some("Right Cmd"),
+        _ => None,
+    }
+}
+
+/// [`control_name`] with the platform said outright: `command_is_control` on a Mac.
+fn control_name_on(
+    command_is_control: bool,
+    device: DeviceType,
+    control: ControlCode,
+    meta: bool,
+    provider: &impl LabelProvider,
+) -> String {
+    if command_is_control {
+        if let Some(name) = command_name(device, control, meta) {
+            return name.to_owned();
+        }
+    }
     let name = provider
         .override_name(device, control, meta)
         .or_else(|| {
@@ -125,6 +180,24 @@ pub const fn sub_control_token(sub: SubControlIndex) -> Option<&'static str> {
 mod tests {
     use super::*;
     use crate::{activation, keymap::DeviceKeyMapEntry};
+
+    /// The names off a Mac, whatever this test runs on; the Mac's own have their test below.
+    fn binding_label(
+        map: &MasterInputMap,
+        control: ControlChord,
+        provider: &impl LabelProvider,
+    ) -> String {
+        binding_label_on(false, map, control, provider)
+    }
+
+    fn control_name(
+        device: DeviceType,
+        control: ControlCode,
+        meta: bool,
+        provider: &impl LabelProvider,
+    ) -> String {
+        control_name_on(false, device, control, meta, provider)
+    }
 
     struct Text {
         classic: bool,
@@ -258,6 +331,45 @@ mod tests {
     }
 
     /// Behaviour: options.key-bindings.a-cell-shows-the-key-the-way-the-desktop-names-it
+    /// Behaviour: keymap.mac.command-is-named-by-its-side-and-a-chord-the-system-keeps-stays-control
+    #[test]
+    fn a_mac_names_command_by_its_side_and_control_on_a_chord_the_system_keeps() {
+        let text = Text {
+            classic: false,
+            composition: None,
+        };
+        let keyboard = DeviceType::Keyboard;
+        for (offset, name) in [(0x1d, "Left Cmd"), (0x9d, "Right Cmd")] {
+            assert_eq!(
+                control_name_on(true, keyboard, key(offset), false, &text),
+                name
+            );
+            assert_eq!(
+                control_name_on(true, keyboard, key(offset), true, &text),
+                "Cmd"
+            );
+        }
+        // Off a Mac the same key keeps its own name.
+        assert_eq!(
+            control_name_on(false, keyboard, key(0x1d), false, &text),
+            "Left Ctrl"
+        );
+        // Another device's control at the same offset is no Control key.
+        assert_eq!(command_name(DeviceType::Mouse, key(0x1d), false), None);
+
+        let bindings = map();
+        let label = |offset| {
+            let chord = ControlChord::new(key(offset), 1, activation::DOWN);
+            binding_label_on(true, &bindings, chord, &text)
+        };
+        // Bit 0 is the Control of `map`. W isn't a chord the system keeps.
+        assert_eq!(label(0x11), "Cmd / W");
+        // Tab, Q, H and Space held with Command never reach the client.
+        for kept in KEPT_WITH_COMMAND {
+            assert!(label(kept).starts_with("Control / "), "{kept:#x}");
+        }
+    }
+
     #[test]
     fn subcontrols_use_provider_composition_and_retain_bare_name_on_failure() {
         let control = ControlCode::new(0, SubControlIndex::PositiveAxis, 0x11);

@@ -481,6 +481,16 @@ pub static DIVERGENCES: &[Divergence] = &[
         why: "A client visiting Launch worlds should not advertise stamina, regeneration or resistance benefits absent from those worlds.",
     },
     Divergence {
+        id: "CD-mac-command-key",
+        title: "On a Mac, Command works as Control",
+        change: "On a Mac either Command key reaches the client as Control, and the key pages name \
+                 it Left Cmd, Right Cmd or Cmd. The Control key stays Control. A chord the system \
+                 keeps for Command (Tab, Q, H or Space) is pressed with Control and shown with \
+                 it. The final client ran on Windows only.",
+        why: "Mac shortcuts, copy and paste among them, are pressed with Command, and macOS keeps \
+              several Control chords for itself.",
+    },
+    Divergence {
         id: "CD-network-channel-lines",
         title: "Dereth Network channel lines are drawn as channel lines",
         change: "A Dereth Network channel reaches every client as a tell from the channel, since \

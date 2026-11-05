@@ -1152,6 +1152,7 @@ fn route_window_event(
         queue.push(HostEvent::Resized { width, height });
         return;
     }
+    command_key::let_go(&event, queue);
     queue.extend(host_event(&event));
 }
 
@@ -1349,6 +1350,115 @@ pub fn window_handles(
     Ok(dereth_render::device::WindowHandles { display, window })
 }
 
+/// On a Mac, Command is the client's Control: every shortcut, in every interface, takes it. The
+/// physical Control key stays Control, for what the system keeps for itself (Command-Tab).
+mod command_key {
+    use dereth_input::host::HostEvent;
+    use std::cell::Cell;
+    use winit::keyboard::KeyCode as K;
+
+    thread_local! {
+        /// The left and the right Command key, while held.
+        static HELD: Cell<(bool, bool)> = const { Cell::new((false, false)) };
+    }
+
+    /// `key` as the client takes it, noting a Command key going down or up.
+    pub(super) fn as_control(key: K, pressed: bool) -> K {
+        as_control_on(cfg!(target_os = "macos"), key, pressed)
+    }
+
+    /// [`as_control`] with the platform said outright.
+    fn as_control_on(on_a_mac: bool, key: K, pressed: bool) -> K {
+        if !on_a_mac {
+            return key;
+        }
+        let (left, right) = HELD.get();
+        match key {
+            K::SuperLeft => {
+                HELD.set((pressed, right));
+                K::ControlLeft
+            }
+            K::SuperRight => {
+                HELD.set((left, pressed));
+                K::ControlRight
+            }
+            other => other,
+        }
+    }
+
+    /// Whether a Command key is held.
+    pub(super) fn held() -> bool {
+        let (left, right) = HELD.get();
+        left || right
+    }
+
+    /// Command let go of out of the window's sight (Command-Tab away): the modifiers say so though
+    /// no key does, so the key's release is queued here.
+    pub(super) fn let_go(event: &winit::event::WindowEvent, queue: &mut Vec<HostEvent>) {
+        let winit::event::WindowEvent::ModifiersChanged(mods) = event else {
+            return;
+        };
+        if !mods
+            .state()
+            .contains(winit::keyboard::ModifiersState::SUPER)
+        {
+            released(queue);
+        }
+    }
+
+    /// The release of each Command key held.
+    fn released(queue: &mut Vec<HostEvent>) {
+        let (left, right) = HELD.replace((false, false));
+        for (held, key) in [(left, K::ControlLeft), (right, K::ControlRight)] {
+            if held {
+                queue.extend(
+                    super::key_from_key_code(key).map(|key| HostEvent::KeyboardInput {
+                        key,
+                        pressed: false,
+                        text: None,
+                    }),
+                );
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// Behaviour: keymap.mac.command-is-control-and-a-release-out-of-sight-is-queued
+        #[test]
+        fn command_is_control_and_a_release_out_of_sight_is_queued_once() {
+            let mac = |key, pressed| as_control_on(true, key, pressed);
+            assert_eq!(mac(K::SuperLeft, true), K::ControlLeft);
+            assert_eq!(mac(K::SuperRight, true), K::ControlRight);
+            assert_eq!(mac(K::KeyC, true), K::KeyC);
+            assert!(held());
+            assert_eq!(mac(K::SuperRight, false), K::ControlRight);
+            let mut queue = Vec::new();
+            released(&mut queue);
+            assert!(!held());
+            assert!(matches!(
+                queue.as_slice(),
+                [HostEvent::KeyboardInput {
+                    key: dereth_input::keys::Key::CONTROL_LEFT,
+                    pressed: false,
+                    ..
+                }]
+            ));
+            released(&mut queue);
+            assert_eq!(queue.len(), 1, "nothing is held any more");
+            // Off a Mac the key is what it is, and nothing is noted as held.
+            assert_eq!(
+                as_control_on(false, K::SuperLeft, true),
+                K::SuperLeft,
+                "off a Mac"
+            );
+            assert!(!held());
+        }
+    }
+}
+
 /// One `winit` window event as the plain `HostEvent` the client reads, or `None` for an event
 /// neither the Win32 message mapping nor `App` consumes.
 ///
@@ -1376,12 +1486,19 @@ fn host_event(event: &winit::event::WindowEvent) -> Option<HostEvent> {
                 return None;
             };
             HostEvent::KeyboardInput {
-                key: key_from_key_code(code)?,
+                key: key_from_key_code(command_key::as_control(
+                    code,
+                    event.state == ElementState::Pressed,
+                ))?,
                 pressed: event.state == ElementState::Pressed,
                 // `KeyEvent::text` intentionally removes Control before it translates the key.
                 // That is useful for shortcut lookup and wrong for `TranslateMessage`, so the
                 // supplement is what is carried; see `dereth_input::pump::key_text_messages`.
-                text: event.text_with_all_modifiers().map(str::to_owned),
+                // Command types nothing: its text is the bare letter, which a paste would keep.
+                text: event
+                    .text_with_all_modifiers()
+                    .filter(|_| !command_key::held())
+                    .map(str::to_owned),
             }
         }
         WindowEvent::CursorMoved { position, .. } => HostEvent::CursorMoved {

@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 - Launch: spells ask for the tapers of your own account.
 - A window nobody can see no longer runs flat out.
+- macOS: Command works as Control, for shortcuts and copy and paste too.
 
 ## 0.4.14 (2026-11-05)
 
