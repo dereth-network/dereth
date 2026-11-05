@@ -512,3 +512,88 @@ fn a_stored_circle_of_oaths_is_walked_once_round() {
     assert!(a.rank(1) >= 1);
     assert_eq!(a.monarch(1), None);
 }
+
+/// Ranks and trees read from the whole table at once come out as walking it member by member does,
+/// on a world's worth of oaths of every shape, and on a stored circle.
+/// Behaviour: server.allegiance.ranks-read-in-one-pass
+#[test]
+fn ranks_and_trees_read_at_once_come_out_as_a_walk_member_by_member() {
+    use std::collections::{BTreeMap, BTreeSet};
+    use yalain_world::allegiance::{Allegiances, Node};
+    fn walk(a: &Allegiances, id: u64, seen: &mut BTreeSet<u64>) -> u32 {
+        seen.insert(id);
+        let mut ranks = Vec::new();
+        for v in a.vassals(id) {
+            if seen.insert(v) {
+                ranks.push(walk(a, v, seen));
+            }
+        }
+        let Some(&top) = ranks.iter().max() else {
+            return 1;
+        };
+        let held = ranks.iter().filter(|r| **r == top).count();
+        (if held >= 2 { top + 1 } else { top }).clamp(1, yalain_world::allegiance::TOP_RANK)
+    }
+    fn walked_tree(a: &Allegiances, id: u64) -> Vec<u64> {
+        let mut out = vec![id];
+        let mut seen = BTreeSet::from([id]);
+        let mut i = 0;
+        while i < out.len() {
+            for v in a.vassals(out[i]) {
+                if seen.insert(v) {
+                    out.push(v);
+                }
+            }
+            i += 1;
+        }
+        out
+    }
+    let mut word = 12_345_u64;
+    let mut next = move |below: u64| {
+        word = word.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        (word >> 33) % below
+    };
+    let mut a = Allegiances::default();
+    for id in 1..=800_u64 {
+        // A patron from those before it, or none; oaths in no order of their ids.
+        let patron = if next(9) == 0 { 0 } else { 1 + next(id) };
+        let patron = if patron >= id { 0 } else { patron };
+        #[allow(clippy::cast_precision_loss)]
+        let joined = next(1000) as f64;
+        a.nodes.insert(
+            id,
+            Node {
+                patron,
+                joined,
+                ..Node::default()
+            },
+        );
+    }
+    let ranks: BTreeMap<u64, u32> = a.ranks();
+    assert_eq!(ranks.len(), 800);
+    for id in 1..=800_u64 {
+        let by_walk = walk(&a, id, &mut BTreeSet::new());
+        assert_eq!(a.rank(id), by_walk, "{id}");
+        assert_eq!(ranks[&id], by_walk, "{id}");
+        assert_eq!(a.tree(id), walked_tree(&a, id), "{id}");
+    }
+    assert_eq!(a.rank(9_999), 0, "no member");
+    // Two who swore to each other end, as a stored table may hold them.
+    a.nodes.insert(
+        5_000,
+        Node {
+            patron: 5_001,
+            ..Node::default()
+        },
+    );
+    a.nodes.insert(
+        5_001,
+        Node {
+            patron: 5_000,
+            ..Node::default()
+        },
+    );
+    assert!(a.rank(5_000) >= 1);
+    assert!(a.ranks()[&5_001] >= 1);
+    assert_eq!(a.tree(5_000), [5_000, 5_001]);
+}

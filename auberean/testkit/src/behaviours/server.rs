@@ -596,6 +596,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.allegiance.ranks-read-in-one-pass",
+        says: "Ranks and trees read from the whole table at once come out as walking it member by \
+               member does, a stored circle ending as it did.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ALLEGIANCE-ONE-PASS"),
+        station: "yalain-testkit::cpu::play::allegiance::ranks_and_trees_read_at_once_come_out_as_a_walk_member_by_member",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.allegiance.recorded-officers-and-names",
         says: "Every recorded profile flags as officers exactly the members in its officer set, the \
                monarch among them, and every recorded export of the tree files each name under \
