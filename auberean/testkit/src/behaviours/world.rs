@@ -232,6 +232,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "world.inside.a-dim-suns-share-falls-with-its-brightness",
+        says: "The share of the sun a cell's nearest stored direction takes is its product with \
+               the light, whose length is the sun's brightness, and the next direction takes the \
+               rest.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-WORLD-SUN-SHARE"),
+        station: "auberean-world::dat::inside::a_dim_suns_nearest_direction_takes_a_share_scaled_by_its_brightness",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "world.inside.a-draw-keeps-the-lights-that-weigh-most-there",
         says: "A light weighs how far within its range a draw stands, times the most its intensity \
                reaches, times its color's mean, held to 0..1; a sky light's color is the sun's alone \

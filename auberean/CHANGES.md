@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Fixed sunlit halls: the sun now falls across their floors and walls as the original's does.
 - Crowded places run faster.
 - Fixed some effects on a body standing in the wrong place.
 - Fixed bodies losing their walk or idle when the server sent them again.
