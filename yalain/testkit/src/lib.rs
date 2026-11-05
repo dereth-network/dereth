@@ -1554,6 +1554,7 @@ impl<S: Store> Harness<S> {
         let now = LocalTime(1000.0);
         let world = SocketAddrV4::new(Ipv4Addr::LOCALHOST, WORLD_PORT);
         let mut server = Server::new(cfg, store, rules)
+            .expect("the store sets ids aside")
             .with_world(test_start(), yalain_content::ContentPack::default());
         server.skill_table = test_skills();
         server.effect_table = test_effects();

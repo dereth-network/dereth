@@ -4503,6 +4503,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.no-world-without-ids-set-aside",
+        says: "A store that will not set the first ids aside gives no server: the world does not \
+               start, rather than give an id a kept item may hold.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-NO-WORLD-WITHOUT-IDS"),
+        station: "yalain-testkit::cpu::operator::item_ids::a_store_that_will_not_set_ids_aside_gives_no_server",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.off-hand-listed-at-entry",
         says: "A weapon in the off hand is listed there as its player enters the world, taking that \
                hand alone, and hangs from its secondary place.",

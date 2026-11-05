@@ -935,14 +935,9 @@ fn run<S: Store>(
         tracing::info!("the game clock is held at {game_time} s");
     }
     let mut server = Server::new(cfg, store, rules)
+        .map_err(|e| format!("the database will not set ids aside for the world's things: {e}"))?
         .with_world(start, content)
         .with_play(play.catalog, play.spawns, play.loot);
-    // Nothing the world makes may be given an id until the store has set ids aside.
-    if server.things.low() {
-        return Err("the database will not set ids aside for the world's things"
-            .to_owned()
-            .into());
-    }
     server.ground = Some(Box::new(play.ground));
     server.walls = Some(play.walls);
     server.stand_placed();

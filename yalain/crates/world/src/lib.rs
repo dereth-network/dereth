@@ -150,7 +150,7 @@ use std::net::IpAddr;
 
 use yalain_content::{Catalog, ContentPack, LootTable, SpawnTable};
 use yalain_net::{ConnId, LocalTime, NetEvent, ServerNet};
-use yalain_store::{Account, Store};
+use yalain_store::{Account, Store, StoreResult};
 
 pub use chargen::CharGenRules;
 pub use start::StartRules;
@@ -649,16 +649,16 @@ pub enum Timer {
 }
 
 impl<S: Store> Server<S> {
-    #[must_use]
-    pub fn new(cfg: ServerConfig, mut store: S, rules: CharGenRules) -> Self {
+    /// A server over this store, with the first ids this run gives set aside there.
+    ///
+    /// # Errors
+    /// The store will not set them aside: a world without them could give an id a kept item holds.
+    pub fn new(cfg: ServerConfig, mut store: S, rules: CharGenRules) -> StoreResult<Self> {
         let cfg_seed = cfg.seed;
-        // The first ids this run gives, set aside before any is given.
         let mut things = things::Things::default();
-        match store.reserve_thing_numbers(things::ID_BLOCK) {
-            Ok(first) => things.add_block(first, things::ID_BLOCK),
-            Err(e) => tracing::error!("no ids could be set aside for the world's things: {e}"),
-        }
-        Self {
+        let first = store.reserve_thing_numbers(things::ID_BLOCK)?;
+        things.add_block(first, things::ID_BLOCK);
+        Ok(Self {
             cfg,
             store,
             rules,
@@ -752,7 +752,7 @@ impl<S: Store> Server<S> {
             interactions: usable::interactions::Interactions::default(),
             walkers: walkers::Walkers::default(),
             placed: reload::Placed::default(),
-        }
+        })
     }
 
     /// The server with its start rules and its world's objects.
