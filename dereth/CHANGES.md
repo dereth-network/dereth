@@ -17,6 +17,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - A window nobody can see no longer runs flat out.
 - macOS: Command works as Control, for shortcuts and copy and paste too.
 - macOS: the client asks for Game Mode.
+- macOS: drag the window to any size; it reopens that size, in points on Retina.
 
 ## 0.4.14 (2026-11-05)
 

@@ -2406,8 +2406,8 @@ impl UiShell {
 
     /// The display size changed; update the UI layout.
     ///
-    /// The window is not resizable, so this only ever runs at start-up here; it exists because the
-    /// element manager's `display` must agree with the back buffer or every screen box is wrong.
+    /// The element manager's `display` must agree with the back buffer or every screen box is
+    /// wrong.
     pub fn set_display(&mut self, display: (i32, i32)) {
         if self.ui.display() != display {
             self.ui.refresh_event(display);

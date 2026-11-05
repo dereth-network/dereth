@@ -306,6 +306,8 @@ pub struct DesktopWindow {
     event_loop: std::cell::RefCell<winit::event_loop::EventLoop<()>>,
     /// How the window holds the pointer for a camera drag, if it does.
     hold: std::cell::Cell<Hold>,
+    /// What the client counts the window's size and the pointer in.
+    units: ClientUnits,
 }
 
 /// How the window holds the pointer for a camera drag.
@@ -511,6 +513,8 @@ impl DesktopWindow {
             let kept_inside = !at_once && window.set_cursor_grab(CursorGrabMode::Confined).is_ok();
             let size = window.inner_size();
             let middle = (f64::from(size.width / 2), f64::from(size.height / 2));
+            // The hold is the window system's business: its own pixels from here on.
+            let at = self.units.pixels(at, window.scale_factor());
             let (put_back, now) = PutBack::new(at, middle, at_once);
             window.set_cursor_visible(false);
             if let Some((x, y)) = now {
@@ -552,6 +556,7 @@ impl DesktopWindow {
         if self.hold.replace(Hold::Free) == Hold::Free {
             return;
         }
+        let at = at.map(|at| self.units.pixels(at, self.window.scale_factor()));
         let put = |at: Option<(f64, f64)>| {
             if let Some((x, y)) = at {
                 let _ = self
@@ -624,10 +629,85 @@ pub struct WinitWindow {
     pins_size_limits: bool,
     /// The windowed size last asked for, and what is left of its second ask.
     held: HeldSize,
+    /// Whether this is a window the player sizes, down to a login size, and the size it closed
+    /// at is theirs to keep (client divergence CD-resizable-window).
+    player_sizes: bool,
+    /// Whether the player can resize the window now.
+    drags: std::cell::Cell<bool>,
 }
 
-/// What a size change of the fixed-size window touches: its size limits, its size, in physical
-/// pixels, and its full-screen state. `WinitWindow` is the real one; the tests model a compositor.
+/// What the client counts a window's size and the pointer in.
+///
+/// Everywhere but one this is the window system's pixels (client divergence CD-004), and they are
+/// what the back buffer is drawn at. A Mac's Retina screen has two of them to the point, so there
+/// a window [`crate::Product::SIZE_IN_POINTS`] counts points (client divergence
+/// CD-mac-window-goes-by-points): it opens as large as on any other screen, the picture is drawn at
+/// that size and the window system scales it to fill the window. The window's place on the screen
+/// is the window system's pixels either way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClientUnits {
+    Pixels,
+    Points,
+}
+
+impl ClientUnits {
+    fn of(look: &WindowLook) -> Self {
+        if look.in_points {
+            Self::Points
+        } else {
+            Self::Pixels
+        }
+    }
+
+    /// A client size, as the window system is asked for it.
+    fn size(self, (width, height): (u32, u32)) -> winit::dpi::Size {
+        match self {
+            Self::Pixels => winit::dpi::PhysicalSize::new(width, height).into(),
+            Self::Points => winit::dpi::LogicalSize::new(width, height).into(),
+        }
+    }
+
+    /// The window system's `size` at `scale`, as the client counts it.
+    fn client_size(self, size: winit::dpi::PhysicalSize<u32>, scale: f64) -> (u32, u32) {
+        match self {
+            Self::Pixels => (size.width, size.height),
+            Self::Points => {
+                let size = size.to_logical::<u32>(scale);
+                (size.width, size.height)
+            }
+        }
+    }
+
+    /// The window system's pointer position at `scale`, as the client counts it.
+    fn pointer(self, (x, y): (f64, f64), scale: f64) -> (f64, f64) {
+        match self {
+            Self::Pixels => (x, y),
+            Self::Points => (x / scale, y / scale),
+        }
+    }
+
+    /// A pointer position the client counts, in the window system's pixels at `scale`.
+    fn pixels(self, (x, y): (f64, f64), scale: f64) -> (f64, f64) {
+        match self {
+            Self::Pixels => (x, y),
+            Self::Points => (x * scale, y * scale),
+        }
+    }
+
+    /// One host event as the client counts it.
+    fn host_event(self, event: HostEvent, scale: f64) -> HostEvent {
+        match event {
+            HostEvent::CursorMoved { x, y } => {
+                let (x, y) = self.pointer((x, y), scale);
+                HostEvent::CursorMoved { x, y }
+            }
+            other => other,
+        }
+    }
+}
+
+/// What a size change of the fixed-size window touches: its size limits, its size, as the client
+/// counts it, and its full-screen state. [`Counted`] is the real one; the tests model a compositor.
 trait FixedSizeWindow {
     /// Hold the window's smallest and largest client size at `size`, or release them (`None`).
     fn set_size_limits(&self, size: Option<(u32, u32)>);
@@ -756,22 +836,29 @@ fn settle_resized(
     size
 }
 
-impl FixedSizeWindow for winit::window::Window {
+/// A window, with what the client counts its size in.
+struct Counted<'w> {
+    window: &'w winit::window::Window,
+    units: ClientUnits,
+}
+
+impl FixedSizeWindow for Counted<'_> {
     fn set_size_limits(&self, size: Option<(u32, u32)>) {
-        let size = size.map(|(w, h)| winit::dpi::PhysicalSize::new(w, h));
-        self.set_min_inner_size(size);
-        self.set_max_inner_size(size);
+        let size = size.map(|size| self.units.size(size));
+        self.window.set_min_inner_size(size);
+        self.window.set_max_inner_size(size);
     }
 
     fn request_client_size(&self, size: (u32, u32)) -> (u32, u32) {
         let applied = self
-            .request_inner_size(winit::dpi::PhysicalSize::new(size.0, size.1))
-            .unwrap_or_else(|| self.inner_size());
-        (applied.width, applied.height)
+            .window
+            .request_inner_size(self.units.size(size))
+            .unwrap_or_else(|| self.window.inner_size());
+        self.units.client_size(applied, self.window.scale_factor())
     }
 
     fn is_full_screen(&self) -> bool {
-        self.fullscreen().is_some()
+        self.window.fullscreen().is_some()
     }
 
     /// `Fullscreen::Borderless(None)` is "the monitor this window is on", which is the one thing
@@ -779,7 +866,8 @@ impl FixedSizeWindow for winit::window::Window {
     /// express. `None` for the monitor rather than a handle: on Wayland the window does not know
     /// which output it is on, and letting the compositor decide is the correct answer there.
     fn set_full_screen(&self, full_screen: bool) {
-        self.set_fullscreen(full_screen.then_some(winit::window::Fullscreen::Borderless(None)));
+        self.window
+            .set_fullscreen(full_screen.then_some(winit::window::Fullscreen::Borderless(None)));
     }
 }
 
@@ -791,6 +879,15 @@ fn is_wayland(window: &winit::window::Window) -> bool {
     window
         .window_handle()
         .is_ok_and(|h| matches!(h.as_raw(), RawWindowHandle::Wayland(_)))
+}
+
+impl WinitWindow {
+    fn counted(&self) -> Counted<'_> {
+        Counted {
+            window: &self.shared.window,
+            units: self.shared.units,
+        }
+    }
 }
 
 impl std::fmt::Debug for WinitWindow {
@@ -813,6 +910,10 @@ pub struct WindowLook {
     pub app_id: &'static str,
     /// Whether the player can resize and maximise the window ([`crate::Product::RESIZABLE`]).
     pub resizable: bool,
+    /// Where a resizable window stops and what holds it ([`crate::Product::LOGIN_SIZE`]).
+    pub login_size: Option<(u32, u32)>,
+    /// Whether the client counts the window in points ([`crate::Product::SIZE_IN_POINTS`]).
+    pub in_points: bool,
 }
 
 /// The window the startup sequence asks for, on `monitor`.
@@ -821,13 +922,13 @@ fn window_attributes(
     look: &WindowLook,
     monitor: Option<&winit::monitor::MonitorHandle>,
 ) -> winit::window::WindowAttributes {
-    use winit::dpi::PhysicalSize;
     use winit::window::{WindowButtons, WindowLevel};
 
     // The documented style is 0x12CA0000 = WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX |
     // WS_CLIPCHILDREN | WS_VISIBLE. **There is no WS_THICKFRAME and no WS_MAXIMIZEBOX**,
     // which is why the client's window procedure has no size handling; `with_resizable(false)` drops both and
-    // `with_enabled_buttons` keeps close and minimise.
+    // `with_enabled_buttons` keeps close and minimise. A window the product makes resizable
+    // (client divergence CD-resizable-window) has both.
     //
     // The size is the client area: startup requests 800x600 and then adds the
     // frame metrics to reach the outer size (`window_proc::outer_size`), which is what
@@ -854,15 +955,15 @@ fn window_attributes(
         i32::try_from(cfg.height).unwrap_or(i32::MAX),
         &screen,
     );
-    let (client_w, client_h) = (cfg.width, cfg.height);
+    let units = ClientUnits::of(look);
     // **A declared divergence** (client divergence CD-006). The original window title is a
     // fixed constant and never changes; this build puts the
     // account on it, because several clients are often up at once on one machine -- for
     // example a two-account test of trade or housing -- and the task bar is the only place
     // that tells them apart. See `Config::window_title`.
-    let attributes = winit::window::Window::default_attributes()
+    let mut attributes = winit::window::Window::default_attributes()
         .with_title(cfg.window_title_for(look.title))
-        .with_inner_size(PhysicalSize::new(client_w, client_h))
+        .with_inner_size(units.size((cfg.width, cfg.height)))
         .with_resizable(look.resizable)
         .with_maximized(false)
         .with_enabled_buttons(if look.resizable {
@@ -884,6 +985,9 @@ fn window_attributes(
         })
         .with_decorations(place.style & dereth_render::window_proc::WS_POPUP == 0)
         .with_visible(true);
+    if let (true, Some((w, h))) = (look.resizable, look.login_size) {
+        attributes = attributes.with_min_inner_size(units.size((w, h)));
+    }
     // After the rest of the attributes: the icon is the window's, so it has to be on the
     // attributes winit creates the window from.
     with_application_icon(attributes, look)
@@ -912,7 +1016,7 @@ pub fn open_window(
     // **A deliberate modernization** (client divergence CD-004). Display resolutions name
     // physical client pixels, not retail's DPI-virtualized logical pixels. winit's
     // Windows backend enables per-monitor awareness (V2 when available) before creating
-    // the window; the PhysicalSize requests below then mean the same pixels as the
+    // the window; a window counted in pixels ([`ClientUnits`]) then means the same pixels as the
     // back buffer. X11, Wayland and macOS report physical pixels through `inner_size`
     // without being asked.
     #[cfg(windows)]
@@ -969,12 +1073,15 @@ pub fn open_window(
         window,
         event_loop: std::cell::RefCell::new(event_loop),
         hold: std::cell::Cell::new(Hold::Free),
+        units: ClientUnits::of(look),
     });
     let opened = WinitWindow {
         shared,
         events,
         pins_size_limits,
         held,
+        player_sizes: look.resizable && look.login_size.is_some(),
+        drags: std::cell::Cell::new(look.resizable),
     };
     if let Some(handle) = opened.raw_handle() {
         let weak = std::rc::Rc::downgrade(&opened.shared);
@@ -1031,9 +1138,12 @@ impl winit::application::ApplicationHandler for Opening<'_> {
         let Some(Ok((window, pins))) = &self.opened else {
             return;
         };
-        let requested = winit::dpi::PhysicalSize::new(self.cfg.width, self.cfg.height);
+        let units = ClientUnits::of(self.look);
+        let requested = (units == ClientUnits::Pixels)
+            .then(|| winit::dpi::PhysicalSize::new(self.cfg.width, self.cfg.height));
         route_window_event(
             window,
+            units,
             self.held,
             *pins,
             (requested, false),
@@ -1049,8 +1159,10 @@ struct Drain<'a> {
     shared: &'a DesktopWindow,
     held: &'a HeldSize,
     pins_size_limits: bool,
-    /// The client size last asked for, and whether the window is full screen.
-    presentation: (winit::dpi::PhysicalSize<u32>, bool),
+    /// The client size in the window system's pixels to keep across a scale change (`None` for a
+    /// window counted in points, which the window system keeps), and whether the window is full
+    /// screen.
+    presentation: (Option<winit::dpi::PhysicalSize<u32>>, bool),
     queue: &'a mut Vec<HostEvent>,
 }
 
@@ -1082,6 +1194,7 @@ impl winit::application::ApplicationHandler for Drain<'_> {
         }
         route_window_event(
             &self.shared.window,
+            self.shared.units,
             self.held,
             self.pins_size_limits,
             self.presentation,
@@ -1109,12 +1222,14 @@ impl winit::application::ApplicationHandler for Drain<'_> {
 /// One window event onto the queue, with the two the window answers itself on the way: a DPI
 /// change's size, and a resize the fixed window settles.
 ///
-/// `presentation` is the client size last asked for and whether the window is full screen.
+/// `presentation` is the client size in the window system's pixels to keep across a scale change
+/// (`None` for a window counted in points) and whether the window is full screen.
 fn route_window_event(
     window: &winit::window::Window,
+    units: ClientUnits,
     held: &HeldSize,
     pins_size_limits: bool,
-    presentation: (winit::dpi::PhysicalSize<u32>, bool),
+    presentation: (Option<winit::dpi::PhysicalSize<u32>>, bool),
     queue: &mut Vec<HostEvent>,
     mut event: winit::event::WindowEvent,
 ) {
@@ -1125,21 +1240,25 @@ fn route_window_event(
     {
         // winit's WM_DPICHANGED default preserves *logical* size. Override it while this writer
         // is live (it expires on callback return), keeping selected physical pixels windowed and
-        // the monitor extent borderless.
+        // the monitor extent borderless. A window counted in points keeps winit's default.
         let size = if full_screen {
-            window
-                .current_monitor()
-                .map_or_else(|| window.inner_size(), |m| m.size())
+            Some(
+                window
+                    .current_monitor()
+                    .map_or_else(|| window.inner_size(), |m| m.size()),
+            )
         } else {
             requested
         };
-        if let Err(e) = inner_size_writer.request_inner_size(size) {
-            tracing::warn!("DPI physical client-size request failed: {e}");
+        if let Some(size) = size {
+            if let Err(e) = inner_size_writer.request_inner_size(size) {
+                tracing::warn!("DPI physical client-size request failed: {e}");
+            }
         }
         // Where the size limits are held here, they are held in the old scale's units; hold
         // them again at the same physical size in the new one.
-        if pins_size_limits && !full_screen {
-            window.set_size_limits(Some((requested.width, requested.height)));
+        if let (true, false, Some(requested)) = (pins_size_limits, full_screen, requested) {
+            Counted { window, units }.set_size_limits(Some((requested.width, requested.height)));
         }
         set_application_icon(window);
     }
@@ -1147,18 +1266,83 @@ fn route_window_event(
         tracing::debug!("window resized to {}x{}", size.width, size.height);
         // The size the window has once the resize is settled, which is what the back buffer
         // must follow: after a second ask it is the one asked for.
-        let (width, height) =
-            settle_resized(window, held, (size.width, size.height), pins_size_limits);
-        queue.push(HostEvent::Resized { width, height });
+        let (width, height) = settle_resized(
+            &Counted { window, units },
+            held,
+            units.client_size(*size, window.scale_factor()),
+            pins_size_limits,
+        );
+        coalesce_resized(queue, width, height);
         return;
     }
     command_key::let_go(&event, queue);
-    queue.extend(host_event(&event));
+    let scale = window.scale_factor();
+    queue.extend(host_event(&event).map(|e| units.host_event(e, scale)));
+}
+
+/// A resize on the queue: one right after another replaces it, so a drag that held the drain up
+/// builds one back buffer. A zero size (a minimised window) stays its own event.
+fn coalesce_resized(queue: &mut Vec<HostEvent>, width: u32, height: u32) {
+    if width > 0 && height > 0 {
+        if let Some(HostEvent::Resized {
+            width: last_width,
+            height: last_height,
+        }) = queue.last_mut()
+        {
+            if *last_width > 0 && *last_height > 0 {
+                (*last_width, *last_height) = (width, height);
+                return;
+            }
+        }
+    }
+    queue.push(HostEvent::Resized { width, height });
 }
 
 impl WindowHost for WinitWindow {
     fn has_window(&self) -> bool {
         true
+    }
+
+    fn hold_at_login_size(&self, held: bool) {
+        if !self.player_sizes {
+            return;
+        }
+        let window = &self.shared.window;
+        if self.drags.get() == held {
+            self.drags.set(!held);
+            window.set_resizable(!held);
+            window.set_enabled_buttons(if held {
+                winit::window::WindowButtons::CLOSE | winit::window::WindowButtons::MINIMIZE
+            } else {
+                winit::window::WindowButtons::all()
+            });
+        }
+    }
+
+    fn player_sizes_window(&self) -> bool {
+        self.player_sizes
+    }
+
+    /// The green button makes a Mac's window full screen with no word to the client, which still
+    /// has the window down as windowed.
+    fn full_screen_of_its_own(&self) -> bool {
+        self.shared.window.fullscreen().is_some()
+    }
+
+    fn largest_client_size(&self) -> Option<(u32, u32)> {
+        let window = &self.shared.window;
+        let monitor = window
+            .current_monitor()
+            .or_else(|| window.primary_monitor())?;
+        let units = self.shared.units;
+        let scale = monitor.scale_factor();
+        let (w, h) = units.client_size(monitor.size(), scale);
+        let outer = units.client_size(window.outer_size(), scale);
+        let inner = units.client_size(window.inner_size(), scale);
+        Some((
+            w.saturating_sub(outer.0.saturating_sub(inner.0)),
+            h.saturating_sub(outer.1.saturating_sub(inner.1)),
+        ))
     }
 
     /// The window's identity, which the cursor images find the window by ([`cursor_window`]).
@@ -1181,8 +1365,10 @@ impl WindowHost for WinitWindow {
     }
 
     fn client_size(&self) -> (u32, u32) {
-        let s = self.shared.window.inner_size();
-        (s.width, s.height)
+        let window = &self.shared.window;
+        self.shared
+            .units
+            .client_size(window.inner_size(), window.scale_factor())
     }
 
     /// The window rectangle is read at creation, while the
@@ -1231,7 +1417,13 @@ impl WindowHost for WinitWindow {
         let monitor = window
             .current_monitor()
             .or_else(|| window.primary_monitor());
-        adapter_display_modes(monitor.as_ref())
+        let scale = monitor.as_ref().map_or(1.0, |m| m.scale_factor());
+        let mut modes = adapter_display_modes(monitor.as_ref());
+        for mode in &mut modes {
+            let size = winit::dpi::PhysicalSize::new(mode.width, mode.height);
+            (mode.width, mode.height) = self.shared.units.client_size(size, scale);
+        }
+        modes
     }
 
     fn set_title(&self, title: &str) {
@@ -1250,11 +1442,11 @@ impl WindowHost for WinitWindow {
         });
     }
 
-    /// The window is not resizable, so this is [`resize_fixed_window`]: on Wayland its size limits
-    /// move with it.
+    /// [`resize_fixed_window`]: on Wayland a window that is not resizable moves its size limits
+    /// with it.
     fn request_inner_size(&self, width: u32, height: u32) -> (u32, u32) {
         let applied = resize_fixed_window(
-            &self.shared.window,
+            &self.counted(),
             &self.held,
             (width, height),
             self.pins_size_limits,
@@ -1280,7 +1472,7 @@ impl WindowHost for WinitWindow {
     /// and a window that is not full screen is not asked to leave it.
     fn set_borderless_fullscreen(&self, full_screen: bool) {
         set_fixed_window_full_screen(
-            &self.shared.window,
+            &self.counted(),
             &self.held,
             full_screen,
             self.pins_size_limits,
@@ -1305,7 +1497,8 @@ impl WindowHost for WinitWindow {
             held: &self.held,
             pins_size_limits: self.pins_size_limits,
             presentation: (
-                winit::dpi::PhysicalSize::new(requested.0, requested.1),
+                (self.shared.units == ClientUnits::Pixels)
+                    .then(|| winit::dpi::PhysicalSize::new(requested.0, requested.1)),
                 full_screen,
             ),
             queue: &mut queue,
@@ -1904,12 +2097,125 @@ mod tests {
             icon_png: &[],
             app_id: "",
             resizable,
+            login_size: None,
+            in_points: false,
         };
         let game = window_attributes(&cfg, &look(false), None);
         let tool = window_attributes(&cfg, &look(true), None);
         assert!(!game.resizable && tool.resizable);
         assert!(!game.enabled_buttons.contains(WindowButtons::MAXIMIZE));
         assert!(tool.enabled_buttons.contains(WindowButtons::MAXIMIZE));
+    }
+
+    /// A game window the player drags stops at the login size; one they cannot drag has no floor.
+    ///
+    /// Behaviour: presentation.window.dragging-a-window-stops-at-the-login-size
+    #[test]
+    fn a_dragged_game_window_stops_at_the_login_size() {
+        let cfg = dereth_client_runtime::config::Config::default();
+        let look = |resizable| WindowLook {
+            title: "",
+            icon_png: &[],
+            app_id: "",
+            resizable,
+            login_size: Some((800, 600)),
+            in_points: false,
+        };
+        let floor = window_attributes(&cfg, &look(true), None).min_inner_size;
+        assert_eq!(
+            floor,
+            Some(winit::dpi::Size::Physical(winit::dpi::PhysicalSize::new(
+                800, 600
+            )))
+        );
+        assert_eq!(
+            window_attributes(&cfg, &look(false), None).min_inner_size,
+            None
+        );
+    }
+
+    /// A window counted in points opens as large on a Retina screen as on any other, and the
+    /// pointer lands on the same place in the picture; a window counted in pixels is untouched.
+    ///
+    /// Behaviour: presentation.window.a-mac-window-counts-its-size-in-points
+    #[test]
+    fn a_mac_window_counts_its_size_and_the_pointer_in_points() {
+        use winit::dpi::{LogicalSize, PhysicalSize, Size};
+        let cfg = dereth_client_runtime::config::Config::default();
+        let look = |in_points| WindowLook {
+            title: "",
+            icon_png: &[],
+            app_id: "",
+            resizable: true,
+            login_size: Some((800, 600)),
+            in_points,
+        };
+        let opened = window_attributes(&cfg, &look(true), None);
+        assert_eq!(
+            opened.inner_size,
+            Some(Size::Logical(LogicalSize::new(800.0, 600.0)))
+        );
+        assert_eq!(
+            opened.min_inner_size,
+            Some(Size::Logical(LogicalSize::new(800.0, 600.0)))
+        );
+
+        let points = ClientUnits::Points;
+        let retina = 2.0;
+        // A window of 1437 by 902 points is 2874 by 1804 of the screen's pixels.
+        assert_eq!(
+            points.client_size(PhysicalSize::new(2874, 1804), retina),
+            (1437, 902)
+        );
+        assert_eq!(
+            points.client_size(PhysicalSize::new(1437, 902), 1.0),
+            (1437, 902),
+            "a screen with one pixel to the point"
+        );
+        assert_eq!(points.pointer((1000.0, 500.0), retina), (500.0, 250.0));
+        assert_eq!(points.pixels((500.0, 250.0), retina), (1000.0, 500.0));
+        assert_eq!(
+            points.host_event(HostEvent::CursorMoved { x: 10.0, y: 6.0 }, retina),
+            HostEvent::CursorMoved { x: 5.0, y: 3.0 }
+        );
+        assert_eq!(
+            points.host_event(HostEvent::CursorLeft, retina),
+            HostEvent::CursorLeft
+        );
+
+        let pixels = ClientUnits::Pixels;
+        assert_eq!(
+            pixels.size((800, 600)),
+            Size::Physical(PhysicalSize::new(800, 600))
+        );
+        assert_eq!(
+            pixels.client_size(PhysicalSize::new(2874, 1804), retina),
+            (2874, 1804)
+        );
+        assert_eq!(pixels.pointer((1000.0, 500.0), retina), (1000.0, 500.0));
+        assert_eq!(pixels.pixels((1000.0, 500.0), retina), (1000.0, 500.0));
+    }
+
+    /// Resizes in a row become one, so a drag builds one back buffer; a minimise stays its own.
+    #[test]
+    fn resizes_in_a_row_become_the_last_and_a_minimise_stays_its_own() {
+        let resized = |width, height| HostEvent::Resized { width, height };
+        let sizes = |queue: &[HostEvent]| -> Vec<(u32, u32)> {
+            queue
+                .iter()
+                .filter_map(|e| match e {
+                    HostEvent::Resized { width, height } => Some((*width, *height)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let mut queue = vec![resized(900, 700)];
+        coalesce_resized(&mut queue, 1000, 800);
+        coalesce_resized(&mut queue, 1100, 900);
+        assert_eq!(sizes(&queue), [(1100, 900)]);
+        coalesce_resized(&mut queue, 0, 0);
+        coalesce_resized(&mut queue, 1100, 900);
+        assert_eq!(sizes(&queue), [(1100, 900), (0, 0), (1100, 900)]);
     }
 
     /// In windowed mode, choosing a resolution resizes the window to it and it stays that size.

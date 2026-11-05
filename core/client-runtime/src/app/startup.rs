@@ -164,6 +164,14 @@ impl<S: Shell> App<S> {
             pacer,
             dialog,
         } = platform(&cfg)?;
+        // The size the window last closed at is where the force lifts to, for a window the player
+        // sizes (client divergence CD-resizable-window).
+        let unforced_resolution = match cfg.display.window_size {
+            Some(size) if from_preference && window.player_sizes_window() => {
+                crate::config::fit_window_size(size, window.largest_client_size())
+            }
+            _ => unforced_resolution,
+        };
         let (client_w, client_h) = window.client_size();
         // A headless run has no window, so the rectangle it would have had is
         // seeded from the normal creation placement over the headless screen. That is
@@ -372,6 +380,7 @@ impl<S: Shell> App<S> {
             frame_metrics,
             window_rect,
             windowed_rect_before_full_screen: None,
+            windowed_size: None,
             startup_sound_played: false,
             ui_sound_table: None,
             hud: S::Hud::default(),

@@ -92,7 +92,8 @@ pub static DIVERGENCES: &[Divergence] = &[
         id: "CD-004",
         title: "A resolution is real screen pixels at any desktop scaling",
         change: "The client is aware of desktop scaling, so the configured resolution is exactly \
-                 that many pixels on any monitor.",
+                 that many pixels on any monitor. On macOS it is points instead \
+                 (CD-mac-window-goes-by-points).",
         why: "A window the desktop enlarges no longer fits the monitor it was sized for.",
     },
     Divergence {
@@ -491,6 +492,16 @@ pub static DIVERGENCES: &[Divergence] = &[
               several Control chords for itself.",
     },
     Divergence {
+        id: "CD-mac-window-goes-by-points",
+        title: "On macOS a window's size is in points",
+        change: "On macOS the size of the client's window and the pointer's place in it are in \
+                 points, and the picture is drawn at that size and scaled to fill the window, so \
+                 a Retina screen shows it as large as any other. The final client ran only where \
+                 a window's size is in the screen's pixels.",
+        why: "A resolution in the screen's pixels is half as wide and half as tall on a Retina \
+              screen, which makes the login window very small.",
+    },
+    Divergence {
         id: "CD-network-channel-lines",
         title: "Dereth Network channel lines are drawn as channel lines",
         change: "A Dereth Network channel reaches every client as a tell from the channel, since \
@@ -525,6 +536,17 @@ pub static DIVERGENCES: &[Divergence] = &[
                  folder, saying where. Neither sends anything. The final client had neither.",
         why: "A player who sees something drawn wrong, or slow frames, can hand over exactly what \
               is needed to see it again on another machine.",
+    },
+    Divergence {
+        id: "CD-resizable-window",
+        title: "On macOS the window can be dragged to any size",
+        change: "On macOS the player can drag the window's edges, down to the login size, and the \
+                 picture and the interface follow. Leaving full screen comes back to a dragged \
+                 size, and the next start opens at the size the window closed at, which this \
+                 client keeps beside the saved resolution; choosing a resolution still sizes the \
+                 window to it. A screen held at the login size cannot \
+                 be dragged. The final client's window kept the size its resolution named.",
+        why: "A Mac window is expected to resize.",
     },
 ];
 
