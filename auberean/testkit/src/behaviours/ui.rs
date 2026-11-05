@@ -1454,6 +1454,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.names.damage-text-fades-out-over-its-life",
+        says: "A hit's damage text fades out over its life: whole as it begins, about half gone half way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAMAGE-TEXT-FADE"),
+        station: "auberean-ui-game::dat::play::names::damage_text_fades_out_over_its_life",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.names.damage-text-rises-over-the-struck-object-and-goes",
         says: "A hit's damage text stands over the struck object's box in the color the scripts \
                gave it and rises three of its own heights over its duration, then goes; texts at \

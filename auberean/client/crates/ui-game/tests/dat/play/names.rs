@@ -526,6 +526,30 @@ fn hit(object: u64, text: &str) -> Notice {
     }
 }
 
+/// A hit's damage text fades out over its life: whole as it begins, about half gone half way.
+///
+/// Behaviour: ui.names.damage-text-fades-out-over-its-life
+#[test]
+fn damage_text_fades_out_over_its_life() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let w = world(vec![body_at(7, 0.0, 10.0, [1.0; 4])]);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    tick(&mut ui, &mut p, &mut t, &w, &[hit(7, "12")]);
+    let text = names_of(&p).damage()[0].element;
+    let alpha = |ui: &Ui| ui.node(text).expect("the text").object_alpha;
+    assert!(alpha(&ui) > 0.95, "whole as it begins: {}", alpha(&ui));
+    for _ in 0..19 {
+        tick(&mut ui, &mut p, &mut t, &w, &[]);
+    }
+    assert!(
+        (0.4..=0.6).contains(&alpha(&ui)),
+        "about half gone half way: {}",
+        alpha(&ui)
+    );
+}
+
 /// A hit's damage text stands over the struck object's box in its color and rises three of its
 /// own heights over its two seconds, then goes; a second hit's text at once is moved off the
 /// first.

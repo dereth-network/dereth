@@ -21,6 +21,8 @@ not how it was done.
 - Fixed a stack's name keeping its old count.
 - The LandscapeTerrainBlending preference and the -lb and -nolb switches now work.
 - Fixed auto-run carrying on through a portal.
+- Damage numbers now fade out as they rise.
+- Fixed pools of lamplight on the ground vanishing when you look out from a doorway.
 - Fixed other bodies not leaving the ground when an animation made them jump.
 - Jumping now interrupts the same actions walking does.
 - A world that changes the game's records now sends them to you as you log in.

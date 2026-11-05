@@ -1174,6 +1174,14 @@ impl Ui {
         }
     }
 
+    /// Draw a top-level element as a whole at this alpha.
+    // D2-10436
+    pub fn set_object_alpha(&mut self, h: Handle, alpha: f32) {
+        if let Some(n) = self.node_mut(h) {
+            n.object_alpha = alpha;
+        }
+    }
+
     /// Paint rectangles of one color over an element once it is drawn, in place of the last
     /// ones painted.
     pub fn set_fills(&mut self, h: Handle, fills: Vec<(Rect, [u8; 4])>) {

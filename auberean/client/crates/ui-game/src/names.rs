@@ -20,7 +20,7 @@
 //! struck object for its duration, rising three of its own heights over its life (above the
 //! selection's name, meters and marks when the object is the selection), moved off the other
 //! damage texts as names are moved off names; hidden in portal space, where it does not age, and
-//! for an object not in the world. (Its scale and its fading out are not drawn.)
+//! for an object not in the world. It fades out over its life. (Its scale is not drawn.)
 
 use std::any::Any;
 use std::collections::VecDeque;
@@ -579,6 +579,8 @@ impl Names {
                 continue;
             }
             placed.push(b);
+            #[allow(clippy::cast_possible_truncation)] // a share of 1
+            ui.set_object_alpha(d.element, (1.0 - age) as f32);
             ui.move_picture(d.element, b.x0, b.y0);
             ui.set_visible(d.element, true);
         }
