@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 - Fixed idle WebSocket connections shutting out browser players.
+- Infiltration worlds drop what came after February 2005: gems, arena recalls, allegiance names, titles and locks.
 
 ## 0.3.9 (2026-11-05)
 

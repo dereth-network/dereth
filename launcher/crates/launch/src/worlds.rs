@@ -479,7 +479,7 @@ mod tests {
                 "--era",
                 "infiltration",
                 "--era-features",
-                "4:0002deffffffff00"
+                "5:0002def7fefff700"
             ]
         );
         assert_eq!(
@@ -526,7 +526,7 @@ mod tests {
                 "--era",
                 "infiltration",
                 "--era-features",
-                "4:0000dfffffffff00",
+                "5:0000dff7fefff700",
                 "--logon-version",
                 "1802",
                 "--world-profile",
