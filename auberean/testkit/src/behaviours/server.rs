@@ -3825,6 +3825,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.friends.channel-squelch-paced",
+        says: "Squelching a channel's address, which on the network asks the hub to leave it, is held \
+               to the character's pace of requests: past it the squelch is refused with the line, and \
+               nothing goes to the hub.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CHANNEL-SQUELCH-PACED"),
+        station: "yalain-friends::cpu::commands::squelching_a_channel_past_the_pace_of_requests_is_refused_until_the_pace_fills",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.friends.dn-channel-said",
         says: "Said @dn channel asks the hub, given rightly and on the network, and the hub's \
                answer comes as a line; given wrongly it is its help line, a bad name the rule for \

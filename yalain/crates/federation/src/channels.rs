@@ -37,8 +37,19 @@ impl Federation {
         Ok(())
     }
 
-    /// A character squelched a channel's address, which leaves it. Not held to its pace: it only
-    /// takes away.
+    /// Whether a character may squelch a channel's address now, which leaves it: on the network that
+    /// is a request of the hub, within its pace of requests.
+    ///
+    /// # Errors
+    /// The line the character is told when it may not yet.
+    pub fn may_leave_channel(&mut self, t: f64, name: &str) -> Result<(), &'static str> {
+        if self.is_on(name) && !self.may_ask(t, name) {
+            return Err(TOO_QUICKLY);
+        }
+        Ok(())
+    }
+
+    /// A character squelched a channel's address, which leaves it.
     pub fn leave_channel(&mut self, t: f64, character: u64, name: &str, channel: &str) {
         if self.is_on(name) {
             self.request_channel(t, character, name, ChannelOp::Leave, channel, None);
