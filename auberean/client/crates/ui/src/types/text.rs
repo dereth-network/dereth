@@ -34,6 +34,8 @@ pub mod bits {
 const FALLBACK_FONTS: [u32; 2] = [0x4000_0004, 0x4000_0005];
 /// The enumeration mapping that names the fallback fonts.
 const FONT_MAPPING: u32 = 0x4000_000B;
+/// The font every text element starts in, by its value in the font mapping.
+const DEFAULT_FONT: u32 = 0x4000_003E;
 
 mod name {
     use crate::Token;
@@ -215,6 +217,17 @@ pub struct TextState {
     pub justification: Justify,
     /// The element's size and margins the lines were broken for.
     laid_for: (i32, i32, [i32; 4]),
+}
+
+impl TextState {
+    /// A new element's state, in the mapping's default font.
+    // D2-11778
+    pub(crate) fn starting(assets: &dyn crate::source::Assets) -> Box<Self> {
+        Box::new(Self {
+            font: assets.data_id_by_enum(DEFAULT_FONT, FONT_MAPPING),
+            ..Self::default()
+        })
+    }
 }
 
 impl Default for TextState {

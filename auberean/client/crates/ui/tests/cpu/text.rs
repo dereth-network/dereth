@@ -734,6 +734,33 @@ fn a_character_the_font_lacks_switches_to_a_fallback_font() {
     assert_eq!(font(&u, bare), 0, "an element without a font keeps none");
 }
 
+/// With the mapping naming a default font, an element with no font of its own starts in it; one
+/// with a font of its own has that.
+///
+/// Behaviour: ui.text.an-element-with-no-font-starts-in-the-default-font
+#[test]
+fn an_element_with_no_font_starts_in_the_default_font() {
+    const DEFAULT: u32 = 0x4200_0012;
+    let bare = element(
+        "Bare",
+        "text",
+        [0, 0, 299, 19],
+        0,
+        vec![state("stateless", 0, vec![], vec![], vec![])],
+    );
+    let mut r = records(vec![bare, text("Own", [0, 0, 299, 19], vec![])], vec![]);
+    r.fonts.insert(DEFAULT, font_of(0x20u16..0x7F, 9));
+    r.enums.insert((0x4000_003E, 0x4000_000B), DEFAULT);
+    let mut u = Ui::new(Arc::new(r), 1024, 768);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let h = u.create_root(l, Token::of("Bare")).unwrap();
+    assert_eq!(u.text_state(h).unwrap().font, DEFAULT);
+    u.add_string(h, "ab");
+    assert_eq!(u.text_state(h).unwrap().glyphs.glyphs[0].width, 9);
+    let own = u.create_root(l, Token::of("Own")).unwrap();
+    assert_eq!(u.text_state(own).unwrap().font, FONT);
+}
+
 /// A one-line entry keeps the caret in view: the view stays while the caret is within the width
 /// past it, then stands one width before the caret; going back past its start puts the view at
 /// the caret.

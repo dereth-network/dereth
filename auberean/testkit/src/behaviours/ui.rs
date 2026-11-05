@@ -2163,6 +2163,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.text.an-element-with-no-font-starts-in-the-default-font",
+        says: "A text element with no font of its own starts in the default font the font mapping \
+               names.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-DEFAULT-FONT"),
+        station: "auberean-ui::cpu::text::an_element_with_no_font_starts_in_the_default_font",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.text.an-entry-taking-the-keyboard-turns-the-input-method-on",
         says: "An editable text element that takes the keyboard turns the host's input method on \
                over the part of the element that shows, in the element's font and color; giving the \

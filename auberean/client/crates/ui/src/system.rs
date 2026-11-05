@@ -724,7 +724,7 @@ impl Ui {
             default_location: None,
             lists: crate::types::listbox::ListKinds::default(),
             text_state: (kind == crate::token::kind::TEXT)
-                .then(|| Box::new(crate::types::text::TextState::default())),
+                .then(|| crate::types::text::TextState::starting(&**self.assets())),
             tooltip_text: None,
             tooltip_info: None,
             rotation: 0,
