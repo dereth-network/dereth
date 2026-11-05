@@ -102,6 +102,11 @@ pub use auberean_glue::chat_options;
 pub use host::{CallResult, InterfaceArg, Scripts};
 use interface::function;
 
+/// The server's answer to a move of an item.
+const MOVE_ITEM_DONE: u32 = 0x820E_005E;
+/// Where a move's description holds the item, its two slots.
+const MOVE_ITEM: usize = 44;
+
 /// The server's call that puts the player in portal space, and the one that takes it out.
 pub const ENTER_PORTAL_SPACE: u32 = 0x8212_0020;
 pub const EXIT_PORTAL_SPACE: u32 = 0x8212_001B;
@@ -1337,6 +1342,7 @@ impl Client {
     /// again, and objects the server had the client forget go. (A host that hands messages over
     /// itself, a recording, calls it once a frame.)
     pub fn upkeep(&mut self) {
+        self.with_host(|h| h.being_made.clear());
         self.wake_due();
         // The data cache's worker and its askers.
         let now = self.now;
@@ -1808,7 +1814,14 @@ impl Client {
             );
         }
         if let Some(c) = change {
+            let made = match c {
+                lifecycle::Change::Made { object, .. } => Some(object),
+                _ => None,
+            };
             self.live(c);
+            if let Some(object) = made {
+                self.with_host(|h| h.being_made.insert(object));
+            }
         }
         for fx in effects {
             let mut out = Vec::new();
@@ -1945,9 +1958,30 @@ impl Client {
             _ => {}
         }
         let bytes = args.map_or(&[][..], |a| a.0.as_slice());
+        let moved = (function == MOVE_ITEM_DONE)
+            .then(|| self.moved_item(bytes))
+            .flatten();
+        self.with_host(|h| h.answering_a_move = moved);
         if let Some(result) = self.with_scripts(|s| s.run(object, function, bytes)) {
             self.calls.add(&result);
         }
+        self.with_host(|h| h.answering_a_move = None);
+    }
+
+    /// The item a move's answer is about: the move's description is its one argument.
+    fn moved_item(&mut self, args: &[u8]) -> Option<u64> {
+        self.with_host(|h| {
+            let values = auberean_script::args::decode(args, &h.program.library).ok()?;
+            let Some(auberean_script::args::Arg::Object(g)) = values.first() else {
+                return None;
+            };
+            let auberean_script::graph::Body::Object(o) = &g.entries.first()?.body else {
+                return None;
+            };
+            let (low, high) = (*o.slots.get(MOVE_ITEM)?, *o.slots.get(MOVE_ITEM + 1)?);
+            Some(u64::from(high) << 32 | u64::from(low))
+        })
+        .flatten()
     }
 
     /// Run `f` with the client's scripts lent to the data cache to name the records of each saved

@@ -6,6 +6,7 @@ mod dumps;
 mod files;
 mod game_time;
 mod log_system;
+mod lookup;
 mod names;
 mod natives;
 mod physics_object;

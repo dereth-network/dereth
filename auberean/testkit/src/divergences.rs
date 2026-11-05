@@ -113,7 +113,7 @@ pub static DIVERGENCES: &[Divergence] = &[
         id: "CD2-objects-made-before-their-records",
         says: "An object the server creates is made at once, and the records it is made from load \
                behind it; the original client makes it only once they have all loaded or been \
-               refused.",
+               refused. Scripts find it at once, except a move's answer asking for the item it moves, which finds it from the next upkeep.",
     },
     Divergence {
         id: "CD2-qualities-dump-answers",
