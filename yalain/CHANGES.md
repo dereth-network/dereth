@@ -14,6 +14,7 @@ what they see, not how it was done.
 - Taunts now draw creatures in group fights.
 - How close a creature stops and how far it swings now go with its size.
 - Wasps, wisps and other flyers fly at their height and chase you indoors.
+- Fixed new players being unable to log in on a busy server.
 
 - Fixed a selected person showing empty health and vigor bars.
 

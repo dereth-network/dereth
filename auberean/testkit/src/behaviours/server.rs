@@ -5459,6 +5459,35 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.net.handshake-answered-once-per-ask",
+        says: "A login is sent its handshake once for each time it asks, and never of the \
+               server's own accord; while it waits it is sent the same one, and past its \
+               wait it asks anew.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HANDSHAKE-ONE-ANSWER"),
+        station: "yalain-net::cpu::handshakes::a_login_is_answered_once_each_time_it_asks_and_never_unasked",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.net.handshake-holds-nothing-until-answered",
+        says: "A login not yet answered back is no connection: what waits is bounded per \
+               service and per address, the oldest giving way, so a client that answers \
+               gets in however many wait.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HANDSHAKE-HOLDS-NOTHING"),
+        station: "yalain-net::cpu::handshakes::logins_nobody_answers_hold_no_place_from_a_client_that_answers",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.net.handshake-replaces-only-once-answered",
+        says: "A login naming the address of a connection already up ends it only once that \
+               address has answered its handshake.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HANDSHAKE-REPLACES"),
+        station: "yalain-net::cpu::handshakes::a_login_from_an_address_in_use_replaces_its_connection_only_once_answered",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.net.large-message-holds-only-its-queue",
         says: "A message sent after a large one on another queue goes at once; one on the large \
                message's own queue goes after it, so each queue keeps its order.",
@@ -5547,8 +5576,8 @@ pub static ROWS: &[Behaviour] = &[
     behaviour! {
         id: "server.net.referral-cookie-used-once",
         says: "A referral's cookie lets in one world connection. A resend while its handshake \
-               waits makes no second connection; a world login with it after that makes none and \
-               ends nothing.",
+               waits is answered with that handshake; a world login with it after that makes none \
+               and ends nothing.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-COOKIE-ONCE"),
         station: "yalain-net::cpu::cookies::a_referrals_cookie_lets_in_one_world_connection_and_a_resend_changes_nothing",
