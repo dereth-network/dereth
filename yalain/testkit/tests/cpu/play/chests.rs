@@ -798,11 +798,52 @@ fn an_item_its_quest_keeps_is_refused_when_taken_until_the_quest_is_where_it_nee
     );
 }
 
-/// A key put down while it turns opens nothing, shows nothing and is not used up; a key gone as the
-/// chest opens shows nothing, and the chest shuts locked.
+/// A key gone from the pack when it has turned opens nothing, shows nothing and is not used up; one
+/// gone as the chest opens shows nothing, and the chest shuts locked.
 /// Behaviour: server.places.a-key-gone-opens-no-chest
 #[test]
 fn a_key_out_of_the_pack_before_a_chest_opens_shows_nothing_and_is_not_used_up() {
+    for (when, moved) in [(0.05, false), (1.5, true)] {
+        let mut h = hall(CACHE, true, true);
+        let (a, me) = h.player_in_world("one", "Elara");
+        h.run(10);
+        let key = give_key(&mut h, me);
+        let from = h.bots[a].inbox.len();
+        send_use(&mut h, a, me, key, CHEST, when);
+        assert_eq!(
+            seen(&h, a, from).contains(&"flash".to_string()),
+            moved,
+            "it has begun to open"
+        );
+        let world = *h.server.players.keys().next().expect("in");
+        h.server
+            .players
+            .get_mut(&world)
+            .expect("in")
+            .play
+            .items
+            .retain(|i| i.id != key);
+        run_for(&mut h, 8.0);
+        assert!(h.server.things.get(key).is_some(), "not used up");
+        let told = seen(&h, a, from);
+        assert!(
+            !told
+                .iter()
+                .any(|t| t == "gem" || t == "crystal" || t == "open"),
+            "{told:?}"
+        );
+        let c = &h.server.chests.by_id[&CHEST];
+        assert!(!c.unlocked, "still locked");
+        assert!(c.opener.is_none(), "nobody has it open");
+        assert_eq!(c.phase, yalain_world::usable::chests::Phase::Closed, "shut");
+    }
+}
+
+/// A key's asking to go down while it turns is refused: it turns, the chest opens and the key is
+/// used up.
+/// Behaviour: server.places.a-key-gone-opens-no-chest
+#[test]
+fn a_key_is_not_put_down_while_it_turns_at_a_chest() {
     use yalain_world::inventory::{move_graph, Move};
     let mut h = hall(CACHE, true, true);
     let (a, me) = h.player_in_world("one", "Elara");
@@ -833,34 +874,9 @@ fn a_key_out_of_the_pack_before_a_chest_opens_shows_nothing_and_is_not_used_up()
     );
     h.bots[a].send(true, auberean_protocol::queue::WEENIE, &call);
     run_for(&mut h, 6.0);
-    assert!(h.server.things.get(key).is_some(), "not used up");
     let told = seen(&h, a, from);
-    assert!(!told.iter().any(|t| t == "gem" || t == "crystal"), "{told:?}");
-    assert!(!told.contains(&"open".to_string()), "{told:?}");
-    assert!(!h.server.chests.by_id[&CHEST].unlocked, "still locked");
-
-    // The second way: gone as it opens.
-    let mut h = hall(CACHE, true, true);
-    let (a, me) = h.player_in_world("one", "Elara");
-    h.run(10);
-    let key = give_key(&mut h, me);
-    let from = h.bots[a].inbox.len();
-    send_use(&mut h, a, me, key, CHEST, 1.5);
-    assert!(seen(&h, a, from).contains(&"flash".to_string()), "it opens");
-    let world = *h.server.players.keys().next().expect("in");
-    h.server
-        .players
-        .get_mut(&world)
-        .expect("in")
-        .play
-        .items
-        .retain(|i| i.id != key);
-    run_for(&mut h, 6.0);
-    let told = seen(&h, a, from);
-    assert!(!told.iter().any(|t| t == "gem" || t == "crystal"), "{told:?}");
-    assert!(h.server.things.get(key).is_some(), "not used up");
-    let c = &h.server.chests.by_id[&CHEST];
-    assert!(c.opener.is_none(), "nobody has it open");
+    assert!(told.contains(&"key gone".to_string()), "{told:?}");
+    assert!(told.contains(&"open".to_string()), "{told:?}");
 }
 
 /// A chest whose opener leaves the world is shut for the next to open, whether it stood open or was
@@ -873,7 +889,14 @@ fn a_chest_whose_opener_leaves_the_world_opens_for_the_next() {
         let (a, me) = h.player_in_world("one", "Elara");
         let (b, them) = h.player_in_world("two", "Babyfare");
         h.run(10);
-        send_use(&mut h, a, me, CHEST, 0, if still_opening { 0.2 } else { 3.0 });
+        send_use(
+            &mut h,
+            a,
+            me,
+            CHEST,
+            0,
+            if still_opening { 0.2 } else { 3.0 },
+        );
         let world = *h
             .server
             .players
@@ -885,11 +908,7 @@ fn a_chest_whose_opener_leaves_the_world_opens_for_the_next() {
         run_for(&mut h, 3.0);
         let c = &h.server.chests.by_id[&CHEST];
         assert!(c.opener.is_none(), "nobody has it open");
-        assert_eq!(
-            c.phase,
-            yalain_world::usable::chests::Phase::Closed,
-            "shut"
-        );
+        assert_eq!(c.phase, yalain_world::usable::chests::Phase::Closed, "shut");
         let fb = h.bots[b].inbox.len();
         send_use(&mut h, b, them, CHEST, 0, 3.0);
         assert!(

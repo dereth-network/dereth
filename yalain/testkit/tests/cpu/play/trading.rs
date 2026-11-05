@@ -563,3 +563,36 @@ fn an_effect_on_a_traded_item_keeps_its_time_and_ends_for_the_new_holder() {
     assert_eq!(most(&h), 92, "over, for its new holder too");
     assert!(pack(&h, bid).iter().any(|(i, _, _)| *i == item));
 }
+
+/// A trade cannot complete while a use under way counts on a side's pack: it fails, nothing moves,
+/// and the two may accept again.
+/// Behaviour: server.trade.waits-for-a-use-under-way
+#[test]
+fn a_trade_fails_while_a_trip_counts_on_a_sides_pack_and_nothing_moves() {
+    let (mut h, (a, aid), (b, bid)) = two();
+    let bow = hold(&mut h, aid, BOW, 1);
+    opened(&mut h, (a, aid), (b, bid));
+    h.ask(a, function::OFFER, &[Arg::Int(1), Arg::LongInt(bow)], 10);
+    h.ask(b, function::ACCEPT, &[], 10);
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == aid)
+        .expect("in")
+        .0;
+    let to = h.server.players[&world].position;
+    h.server.players.get_mut(&world).expect("in").trip = Some(yalain_world::places::Trip {
+        to,
+        used: None,
+        step: None,
+        resurrect: false,
+        sent: false,
+        said: None,
+    });
+    let from = h.bots[a].inbox.len();
+    h.ask(a, function::ACCEPT, &[], 10);
+    assert!(h.functions(a, from).contains(&function::FAILED), "it fails");
+    assert!(pack(&h, aid).iter().any(|i| i.0 == bow), "nothing moved");
+    assert!(!pack(&h, bid).iter().any(|i| i.0 == bow), "nothing moved");
+}

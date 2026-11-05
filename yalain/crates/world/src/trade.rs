@@ -557,6 +557,17 @@ pub fn accept<S: Store>(
         if offers_gone(s, net, i) {
             return;
         }
+        // A use under way on either side counts on its pack as it stands.
+        let spoken_for = [t.master, t.slave]
+            .iter()
+            .filter_map(|who| world_of(s, *who))
+            .any(|w| crate::places::pack_spoken_for(s, w));
+        if spoken_for {
+            clear_acceptance(&mut s.trades.list[i]);
+            let failed = call(function::FAILED, &[Arg::Int(crate::places::ACTIONS_LOCKED)]);
+            both(s, net, &t, &failed);
+            return;
+        }
         if let Some(why) = no_room(s, &t) {
             clear_acceptance(&mut s.trades.list[i]);
             both(s, net, &t, &call(function::FAILED, &[Arg::Int(why)]));

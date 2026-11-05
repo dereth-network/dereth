@@ -189,7 +189,8 @@ fn put_down<S: Store>(
     let busy = s
         .timers
         .iter()
-        .any(|(_, t)| matches!(t, Timer::PutDown { world: w, .. } if *w == world));
+        .any(|(_, t)| matches!(t, Timer::PutDown { world: w, .. } if *w == world))
+        || crate::places::pack_spoken_for(s, world);
     let Some(p) = s.players.get(&world) else {
         return;
     };

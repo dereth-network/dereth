@@ -677,6 +677,16 @@ pub fn actions_locked<S: Store>(s: &Server<S>, world: ConnId) -> bool {
         })
 }
 
+/// Does a use under way count on what the player's pack holds until it is done: a trip (a glyph or
+/// a step's item goes as it arrives), a key turning? Nothing leaves the pack by the player's asking
+/// until then: not put down, not sold, not traded.
+#[must_use]
+pub fn pack_spoken_for<S: Store>(s: &Server<S>, world: ConnId) -> bool {
+    s.players.get(&world).is_some_and(|p| p.trip.is_some())
+        || crate::usable::doors::waiting_on(s, world)
+        || crate::usable::chests::waiting_on(s, world)
+}
+
 /// A player asks to use an object.
 pub fn use_object<S: Store>(
     s: &mut Server<S>,

@@ -5516,6 +5516,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.waits-for-a-use-under-way",
+        says: "Nothing is put up for sale while a use under way counts on the pack. Our own rule: no \
+               recording tells.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-USE-UNDER-WAY"),
+        station: "yalain-testkit::cpu::play::market::nothing_is_put_up_for_sale_while_a_trip_counts_on_the_pack",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.mounts.dismount",
         says: "A rider asking to dismount is told it is not mounted and shown its own look and \
                speed again, the mount's glow stopped and its parting one played; a follow under way \
@@ -7677,6 +7686,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.places.a-glyph-stays-for-its-trip",
+        says: "A glyph stays in the pack for the whole of its trip, refused going down, and is used up on \
+               arrival; one on its way to the ground opens no vault. Our own rule: no recording tells.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-GLYPH-STAYS"),
+        station: "yalain-testkit::cpu::play::vaults::a_glyph_cannot_be_put_down_on_its_trip_and_one_put_down_opens_nothing",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.places.a-key-gone-opens-no-chest",
         says: "A key out of its turner's pack when it has turned, or by the time the chest has opened, \
                is not used up, and the chest shows nothing and stays locked: the use is refused as the \
@@ -7693,7 +7711,7 @@ pub static ROWS: &[Behaviour] = &[
                door already moving shuts at once. Our own rule: no recording tells.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-KEY-GONE"),
-        station: "yalain-testkit::cpu::play::doors::a_key_put_down_while_it_turns_opens_nothing",
+        station: "yalain-testkit::cpu::play::doors::a_key_is_not_put_down_while_it_turns_and_one_gone_opens_nothing",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -10242,6 +10260,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TRADE-EXCHANGE"),
         station: "yalain-testkit::cpu::play::trading::both_accepting_moves_the_offered_item_to_the_front_of_the_others_pack",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.trade.waits-for-a-use-under-way",
+        says: "A trade cannot complete while a use under way counts on a side's pack: it fails and nothing \
+               moves. Our own rule: no recording tells.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TRADE-USE-UNDER-WAY"),
+        station: "yalain-testkit::cpu::play::trading::a_trade_fails_while_a_trip_counts_on_a_sides_pack_and_nothing_moves",
         tier: Tier::Cpu,
     },
     behaviour! {

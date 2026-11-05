@@ -747,6 +747,14 @@ pub fn sell<S: Store>(
     else {
         return;
     };
+    if crate::places::pack_spoken_for(s, world) {
+        let m = call(
+            store::function::REQUEST_DONE,
+            &[Arg::Int(store::error::SALE_REFUSED)],
+        );
+        progress::private(net, world, &m);
+        return;
+    }
     if s.market.list.iter().filter(|c| c.owner == me).count() >= MOST_CONSIGNMENTS {
         let m = call(
             store::function::REQUEST_DONE,

@@ -1150,3 +1150,54 @@ fn market_pages_come_out_of_an_allowance_of_rows() {
         "as many rows either way: {capped}, {at_most}"
     );
 }
+
+/// An item is not put up for sale while a use under way counts on the pack.
+/// Behaviour: server.market.waits-for-a-use-under-way
+#[test]
+fn nothing_is_put_up_for_sale_while_a_trip_counts_on_the_pack() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    h.run(10);
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 1000);
+    let world = *h.server.players.keys().next().expect("in");
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, GEM, 1);
+    h.run(3);
+    let gem = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == GEM)
+        .expect("held")
+        .id;
+    let to = h.server.players[&world].position;
+    h.server.players.get_mut(&world).expect("in").trip = Some(yalain_world::places::Trip {
+        to,
+        used: None,
+        step: None,
+        resurrect: false,
+        sent: false,
+        said: None,
+    });
+    h.ask(
+        a,
+        function::SELL,
+        &[
+            Arg::Int(STORE),
+            Arg::Int(100),
+            Arg::Int(1),
+            Arg::LongInt(gem),
+            Arg::LongInt(BROKER),
+        ],
+        10,
+    );
+    assert!(h.server.market.list.is_empty(), "not put up");
+    assert!(
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|i| i.id == gem),
+        "still held"
+    );
+}
