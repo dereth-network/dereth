@@ -19,6 +19,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 - macOS: the client asks for Game Mode.
 - macOS: drag the window to any size; it reopens that size, in points on Retina.
 - Better Lighting: smoke now covers distant trees instead of fading into the haze.
+- Better Lighting: glows and torches add as they do in the ordinary picture.
 
 ## 0.4.14 (2026-11-05)
 

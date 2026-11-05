@@ -126,6 +126,18 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Gpu,
     },
     behaviour! {
+        id: "hifi.lighting.every-additive-blend-adds-what-the-ordinary-frame-adds",
+        says: "Under the better lighting the three blends that add to what is there, of the \
+               color, of the color times its alpha and of the color times one less its alpha, \
+               all add what the ordinary frame would add over a surface of middling brightness, \
+               and no other blend does.",
+        since: THIS_CLIENT,
+        divergence: "CD-037",
+        evidence: Evidence::Private("AC-EVID-HIFI-ADDITIVE-BLENDS"),
+        station: "dereth-render-hifi::cpu::derive::pipeline::the_three_additive_blends_of_the_catalogue_count_as_additive_and_no_other_does",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "hifi.lighting.every-box-still-draws-the-occlusion-indoors",
         says: "Underground, in a house's room and at a doorway seen from the room, every \
                high-fidelity box ticked still draws the ambient occlusion: the bounced light, \

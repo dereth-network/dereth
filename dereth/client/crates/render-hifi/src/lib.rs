@@ -1270,7 +1270,7 @@ impl FrameSidecar for HifiRenderer {
         // each block it was recorded with, as the passes' say hands it on, shifted.
         if let (Some(_), Some(frame)) = (&self.plan, self.frame.as_ref()) {
             let shift = passes::taa::Shift::of(frame);
-            if shift != passes::taa::Shift::NONE {
+            if shift.jitters() {
                 let filters: Vec<&mut dyn ReplayFilter> = self
                     .graph
                     .passes_mut()
@@ -1279,6 +1279,9 @@ impl FrameSidecar for HifiRenderer {
                     .filter_map(|((_, p), _)| p.replay_filter())
                     .collect();
                 self.jittered_frames = passes::taa::jittered_frames(cx, &mut Chain(filters), shift);
+            }
+            // Glows are translucent draws, and they alone read whether the frame is indoors.
+            if shift != passes::taa::Shift::NONE {
                 self.fogged_frames = passes::taa::jittered_frames(cx, &mut LegacyReplay, shift);
             }
         }

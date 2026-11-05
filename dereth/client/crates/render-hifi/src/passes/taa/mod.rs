@@ -129,6 +129,8 @@ pub struct Shift {
     pub jitter: Vec2,
     /// The frame's place in the dither of the edges of cut-outs.
     pub dither: f32,
+    /// 1 where the frame is indoors, else 0.
+    pub indoors: f32,
 }
 
 impl Shift {
@@ -136,18 +138,32 @@ impl Shift {
     pub const NONE: Self = Self {
         jitter: Vec2::ZERO,
         dither: 0.0,
+        indoors: 0.0,
     };
 
     /// A shift by `jitter` at `dither`, and nothing else.
     #[must_use]
     pub fn new(jitter: Vec2, dither: f32) -> Self {
-        Self { jitter, dither }
+        Self {
+            jitter,
+            dither,
+            indoors: 0.0,
+        }
+    }
+
+    /// Whether a draw lands anywhere else for it: the anti-aliasing is on.
+    #[must_use]
+    pub fn jitters(self) -> bool {
+        self.dither > 0.0
     }
 
     /// The shift `frame` is drawn with.
     #[must_use]
     pub fn of(frame: &HifiFrame) -> Self {
-        Self::new(frame.camera.jitter, frame.camera.dither)
+        Self {
+            indoors: if frame.sky.outdoor { 0.0 } else { 1.0 },
+            ..Self::new(frame.camera.jitter, frame.camera.dither)
+        }
     }
 }
 
@@ -158,6 +174,7 @@ pub fn jitter_block(block: &mut PerFrameConstants, shift: Shift) {
     let shifted = Mat4::from_translation(shift.jitter.extend(0.0)) * to_clip;
     block.view_proj = shifted.transpose().to_cols_array();
     block.screen[2] = shift.dither;
+    block.screen[3] = shift.indoors;
 }
 
 /// For each per-frame block a draw of the frame's world was recorded with, the block the replay

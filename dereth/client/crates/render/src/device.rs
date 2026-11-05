@@ -286,7 +286,8 @@ pub struct PerFrameConstants {
     pub fog_color: [f32; 4],
     /// `D3DRS_AMBIENT`, unpacked.
     pub ambient: [f32; 4],
-    /// x holds the clamped screen-brightness value. y, z, w are unused. See
+    /// x holds the clamped screen-brightness value. y is unused; z and w are the Better Lighting's
+    /// place in the dither and whether the frame is indoors, in its own copies of the block. See
     /// `Gpu::draw_dynamic`, which overwrites this
     /// field from the device's own live value so that it is device state here as it is there.
     pub screen: [f32; 4],
