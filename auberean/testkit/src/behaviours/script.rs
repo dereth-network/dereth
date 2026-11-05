@@ -290,6 +290,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.glue.a-strings-float-is-read-as-the-c-library-reads-one",
+        says: "A string's leading float is read as the C library reads one: past white space, as far as a number goes, its exponent marked with e or d and read only with digits; the words for infinity and not-a-number read as zero.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-STRING-TO-FLOAT-WCSTOD"),
+        station: "auberean-glue::cpu::strings::a_strings_float_is_read_as_the_c_library_reads_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.glue.a-word-is-found-among-a-texts-words",
         says: "A word is one of a text's words when a piece of the text, split at spaces, commas and semicolons with the empty pieces dropped, is the word, ASCII letters compared without their case; part of a piece is not.",
         since: RETAIL,
