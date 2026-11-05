@@ -804,7 +804,7 @@ pub(crate) fn harm_back<S: Store>(
         if conn_of(s, target).is_some() {
             crate::combat::hurt_creature(s, net, attacker, target, back, clock);
         } else {
-            crate::pets::struck(s, net, attacker, target, back, clock);
+            crate::pets::struck(s, net, attacker, (target, 0), back, clock);
         }
     }
 }

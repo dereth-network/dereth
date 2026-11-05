@@ -2168,11 +2168,18 @@ fn hook<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: 
 /// A use's strikes land: each target it landed on hurt, then the skill's target effects put on
 /// each (once each); each still alive goes after the player.
 fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: Clock) {
-    let Some((u, landings, spellcraft)) = s
+    let Some((u, landings, spellcraft, skill)) = s
         .players
         .get(&world)
         .and_then(|p| p.using.as_ref())
-        .map(|x| (x.usage.clone(), x.landings.clone(), x.spellcraft))
+        .map(|x| {
+            (
+                x.usage.clone(),
+                x.landings.clone(),
+                x.spellcraft,
+                x.req.skill,
+            )
+        })
     else {
         return;
     };
@@ -2190,7 +2197,8 @@ fn strike<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock
             }
         } else if s.things.get(l.target).is_some_and(|t| t.alive()) {
             if l.damage > 0 {
-                combat::hurt_creature(s, net, l.target, me, l.damage, clock);
+                let by = (me, me, skill);
+                combat::hurt_creature_by_skill(s, net, l.target, by, l.damage, clock);
             }
             crate::effects::harm_back(s, net, me, l.target, l.back, clock);
         }
@@ -2338,7 +2346,7 @@ fn arrives<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, id: 
         return;
     }
     if hurts {
-        combat::hurt_creature(s, net, r.target, me, dmg, clock);
+        combat::hurt_creature_by_skill(s, net, r.target, (me, me, r.skill), dmg, clock);
     }
     crate::effects::harm_back(s, net, me, r.target, harm.back, clock);
     if o.landed() && s.things.get(r.target).is_some_and(|t| t.alive()) {

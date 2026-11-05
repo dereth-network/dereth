@@ -495,6 +495,7 @@ pub enum Timer {
     ThingStrikeLands {
         by: u64,
         target: u64,
+        skill: u32,
         harm: effects::Harm,
     },
     /// A dead player's corpse is made.
@@ -846,9 +847,12 @@ impl<S: Store> Server<S> {
                     target,
                     harm,
                 } => combat::creature_strike_lands(self, net, creature, target, harm, clock),
-                Timer::ThingStrikeLands { by, target, harm } => {
-                    combat::thing_strike_lands(self, net, by, target, harm, clock);
-                }
+                Timer::ThingStrikeLands {
+                    by,
+                    target,
+                    skill,
+                    harm,
+                } => combat::thing_strike_lands(self, net, (by, skill), target, harm, clock),
                 Timer::PlayerCorpse { world } => death::player_corpse(self, net, world, clock),
                 Timer::BackAfterEntry { world } => death::back_after_entry(self, net, world, clock),
                 Timer::SentBack { world, corpse } => {

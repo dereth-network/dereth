@@ -1469,3 +1469,56 @@ fn a_skills_range_is_measured_between_the_bodies() {
     h.run(6);
     assert!(!functions(&h, b, from).contains(&function::REFUSED));
 }
+
+/// The harm a skill counts for at a creature's draw is its points' share more or less, one point to
+/// one percent; what the creature loses is the damage itself.
+/// Behaviour: server.creatures.a-skills-harm-counts-by-its-points
+#[test]
+fn a_skills_harm_counts_at_a_draw_by_its_points_and_takes_only_its_damage() {
+    use yalain_world::ai::harm_noticed;
+    for (skill, counted) in [
+        (701, 10_100),
+        (326, 9_900),
+        (2189, 10_500),
+        (322, 10_050),
+        (96, 10_000),
+    ] {
+        assert_eq!(harm_noticed(skill, 10_000), counted, "skill {skill}");
+    }
+    // A missile's and a strike's, each by a skill that counts for more.
+    for (skill, like, weapon) in [(2189, DEADEYE, BOW), (2190, 176, SWORD)] {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        h.arm(b, me, weapon);
+        let mut def = h.server.skill_table.skills[&like].clone();
+        def.id = skill;
+        let usage = def.usage.as_mut().expect("used");
+        usage.max_range = 1000.0;
+        usage.min_range = -1.0;
+        usage.ui_flags &= !yalain_world::skill_use::ui_flag::MOVE_TO;
+        for hook in &mut usage.hooks {
+            hook.add = 5_000.0;
+        }
+        h.server.skill_table.skills.insert(skill, def);
+        if let Some(t) = h.server.things.get_mut(beetle) {
+            t.max_health = 1_000_000;
+            t.health = 1_000_000;
+        }
+        use_skill(&mut h, b, 6, skill, beetle);
+        h.run(80);
+        let t = h.server.things.get(beetle).expect("alive");
+        let lost = 1_000_000 - t.health;
+        let harm: i64 = t
+            .creature
+            .as_ref()
+            .expect("a creature")
+            .harm
+            .iter()
+            .filter(|e| e.1 == me)
+            .map(|e| e.2)
+            .sum();
+        assert!(lost > 100, "skill {skill} hit for {lost}");
+        assert_eq!(harm, harm_noticed(skill, lost), "skill {skill}");
+        assert!(harm > i64::from(lost));
+    }
+}

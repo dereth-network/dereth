@@ -1903,6 +1903,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.a-skills-harm-counts-by-its-points",
+        says: "A skill's taunt bonus or damage-notice figure counts its harm for that many percent more \
+               at a creature's draw. This server's own stand-in: nothing recorded says what the \
+               figures do, and one point to one percent is a first guess to be revised.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HARM-POINTS"),
+        station: "yalain-testkit::cpu::play::specials::a_skills_harm_counts_at_a_draw_by_its_points_and_takes_only_its_damage",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.a-taunt-counts-at-the-draw",
         says: "A landed taunt counts for its caster at a creature's draw as harm, for twenty seconds, \
                each its script's share of the creature's whole health at the low end of its range. It \

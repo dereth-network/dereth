@@ -170,6 +170,55 @@ const PLAYER_STANDS: f32 = 0.05;
 /// fights, in seconds.
 pub const HARM_REMEMBERED: f64 = 10.0;
 
+/// How much more a skill's harm counts when a creature thinks again about whom it fights, in percent
+/// of the harm. This server's own stand-in, not a recorded rule: the numbers are the skills' own
+/// taunt bonuses and damage-notice figures, read at one point to one percent, and a later scale is
+/// one line to change.
+pub const HARM_COUNTS_PER_POINT: f64 = 1.0;
+const HARM_POINTS: [(u32, f64); 26] = [
+    // Taunt bonuses.
+    (326, -1.0),
+    (701, 1.0),
+    (706, 1.0),
+    (838, 2.0),
+    (840, 2.0),
+    (852, 1.0),
+    (854, 1.0),
+    (856, 1.0),
+    (857, 1.5),
+    (867, 2.0),
+    (1076, 3.5),
+    (1221, 1.0),
+    (1377, 1.0),
+    (1433, -0.5),
+    (1434, -0.5),
+    (2189, 5.0),
+    (2190, 5.0),
+    (2191, 5.0),
+    (2192, 5.0),
+    (2193, 5.0),
+    // Damage-notice figures.
+    (322, 0.5),
+    (331, 0.5),
+    (333, 0.5),
+    (334, 0.5),
+    (860, 0.5),
+    (861, 0.5),
+];
+
+/// The harm that counts at a creature's draw when a skill does this much damage.
+#[must_use]
+pub fn harm_noticed(skill: u32, damage: i32) -> i64 {
+    let points = HARM_POINTS
+        .iter()
+        .find(|(s, _)| *s == skill)
+        .map_or(0.0, |(_, p)| *p);
+    let counted = f64::from(damage) * (1.0 + points * HARM_COUNTS_PER_POINT / 100.0);
+    #[allow(clippy::cast_possible_truncation)]
+    let rounded = counted.round() as i64;
+    rounded
+}
+
 /// How long a taunt counts when a creature thinks again about whom it fights, in seconds (2017:
 /// one player's 1,041 taunts of two skills: turned on 130 of 630 attacks within this after one, 2
 /// of 72 in the 25 s after that).

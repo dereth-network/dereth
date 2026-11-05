@@ -1296,7 +1296,7 @@ pub fn lands<S: Store>(s: &mut Server<S>, net: &mut ServerNet, mut l: Landing, c
         return;
     }
     if hurts {
-        hurt_creature(s, net, l.target, me, l.damage, clock);
+        hurt_creature_by_skill(s, net, l.target, (me, me, l.skill), l.damage, clock);
     }
     if alive {
         crate::effects::harm_back(s, net, me, l.target, l.back, clock);
@@ -1492,6 +1492,20 @@ pub fn hurt_creature<S: Store>(
     hurt_creature_as(s, net, id, (by, by), damage, clock);
 }
 
+/// A creature takes damage a skill did: as [`hurt_creature_as`], with the harm it remembers as
+/// [`crate::ai::harm_noticed`] counts it.
+pub(crate) fn hurt_creature_by_skill<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    (by, damager, skill): (u64, u64, u32),
+    damage: i32,
+    clock: Clock,
+) {
+    let noticed = crate::ai::harm_noticed(skill, damage);
+    hurt_creature_noticed(s, net, id, (by, damager), (damage, noticed), clock);
+}
+
 /// A creature takes damage from a player, or from its pet (the player and the damager): the hurt is
 /// the player's; the health taken, no more than the creature had left, is the damager's part of
 /// its kill.
@@ -1499,8 +1513,19 @@ pub(crate) fn hurt_creature_as<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     id: u64,
-    (by, damager): (u64, u64),
+    who: (u64, u64),
     damage: i32,
+    clock: Clock,
+) {
+    hurt_creature_noticed(s, net, id, who, (damage, i64::from(damage)), clock);
+}
+
+fn hurt_creature_noticed<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    id: u64,
+    (by, damager): (u64, u64),
+    (damage, noticed): (i32, i64),
     clock: Clock,
 ) {
     // Its hurter's pets take it on.
@@ -1531,7 +1556,7 @@ pub(crate) fn hurt_creature_as<S: Store>(
         let now = clock.local.0;
         c.harm
             .retain(|(when, _, _)| now - when < crate::ai::HARM_REMEMBERED);
-        c.harm.push((now, by, i64::from(damage)));
+        c.harm.push((now, by, noticed));
     }
     if t.health == 0 {
         crate::death::creature_dies(s, net, id, by, clock);
@@ -2069,6 +2094,7 @@ pub fn thing_strikes_thing<S: Store>(
             crate::Timer::ThingStrikeLands {
                 by: id,
                 target,
+                skill: skill.skill,
                 harm,
             },
         );
@@ -2106,7 +2132,7 @@ pub fn pet_strike_seconds(skill: u32) -> f64 {
 pub fn thing_strike_lands<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
-    by: u64,
+    (by, skill): (u64, u32),
     target: u64,
     harm: crate::effects::Harm,
     clock: Clock,
@@ -2115,7 +2141,7 @@ pub fn thing_strike_lands<S: Store>(
         .get(target)
         .is_some_and(crate::things::Thing::alive)
     {
-        crate::pets::struck(s, net, target, by, harm.left, clock);
+        crate::pets::struck(s, net, target, (by, skill), harm.left, clock);
         crate::effects::harm_back(s, net, by, target, harm.back, clock);
     }
 }

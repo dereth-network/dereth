@@ -949,7 +949,7 @@ fn a_pets_strike_reaching_a_creature_dead_by_then_does_nothing() {
     yalain_world::combat::thing_strike_lands(
         &mut h.server,
         &mut h.net,
-        pet,
+        (pet, 0),
         beetle,
         yalain_world::effects::Harm::plain(5),
         clock,

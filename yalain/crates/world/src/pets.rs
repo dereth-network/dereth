@@ -1568,6 +1568,7 @@ fn strike<S: Store>(
                 crate::Timer::ThingStrikeLands {
                     by: id,
                     target,
+                    skill: skill.skill,
                     harm,
                 },
             );
@@ -1699,7 +1700,7 @@ pub fn lands<S: Store>(
     });
     crate::combat::to_all_seeing(s, net, target, &told);
     for (t, harm) in landed {
-        struck_by_pet(s, net, t, pet, harm.left, clock);
+        struck_by_pet(s, net, t, (pet, skill.skill), harm.left, clock);
         crate::effects::harm_back(s, net, pet, t, harm.back, clock);
     }
 }
@@ -1739,7 +1740,7 @@ pub fn struck<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     target: u64,
-    by: u64,
+    (by, skill): (u64, u32),
     damage: i32,
     clock: Clock,
 ) {
@@ -1768,7 +1769,7 @@ pub fn struck<S: Store>(
         }
         return;
     }
-    struck_by_pet(s, net, target, by, damage, clock);
+    struck_by_pet(s, net, target, (by, skill), damage, clock);
 }
 
 /// A pet's hit lands on a creature: it is hurt as the pet's owner's, and fights the pet (turning
@@ -1777,14 +1778,14 @@ fn struck_by_pet<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     target: u64,
-    by: u64,
+    (by, skill): (u64, u32),
     damage: i32,
     clock: Clock,
 ) {
     let Some(owner) = s.pets.by_id.get(&by).map(|p| p.owner) else {
         return;
     };
-    crate::combat::hurt_creature_as(s, net, target, (owner, by), damage, clock);
+    crate::combat::hurt_creature_by_skill(s, net, target, (owner, by, skill), damage, clock);
     turn_on_pet(s, net, target, by, clock);
 }
 
