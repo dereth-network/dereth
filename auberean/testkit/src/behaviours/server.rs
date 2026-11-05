@@ -1086,6 +1086,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.combat.a-change-of-target-swings-as-it-is-asked",
+        says: "Asking to attack soon after a swing swings a moment later; with the next swing nearer than that, it keeps its time.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-SWING-ASKED"),
+        station: "yalain-testkit::cpu::play::attack_speed::asking_soon_after_a_swing_swings_a_moment_later_and_a_nearer_swing_keeps_its_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.combat.asking-again-keeps-the-swings-pace",
+        says: "However often it asks, a player's swings come no faster than their pace and what asking allows, and asking never costs it one.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SWING-PACE"),
+        station: "yalain-testkit::cpu::play::attack_speed::asking_to_attack_again_and_again_neither_quickens_swings_nor_loses_them",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.combat.asking-past-what-it-allows-keeps-the-swings-time",
+        says: "Past what asking allows, a swing keeps its own time, and asked during a use it waits for the use's end.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-SWING-PAST"),
+        station: "yalain-testkit::cpu::play::attack_speed::past_its_allowance_an_ask_keeps_the_swings_time_and_waits_for_a_use",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.combat.attack-run-to-the-death",
         says: "Asked once to attack, the server answers that the player is attacking and swings \
                for it, each swing a story from the player with a hit or an evade on the target, \

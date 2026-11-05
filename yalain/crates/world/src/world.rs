@@ -154,6 +154,9 @@ pub struct Player {
     pub flying: Vec<crate::skill_use::Flying>,
     /// Its lifestone protection, while it lasts.
     pub protected: Option<crate::effects::Protected>,
+    /// When its next swing's time is, and what it has of swinging ahead of that by asking again.
+    pub swing_ready: f64,
+    pub early_swings: Option<crate::call_limit::Bucket>,
     /// The skill it is using, while the use runs, and the server's number for its last use.
     pub using: Option<crate::skill_use::Using>,
     pub uses: u32,
@@ -509,6 +512,8 @@ pub fn enter<S: Store>(
         flying: Vec::new(),
         protected: None,
         passwd_at: None,
+        swing_ready: 0.0,
+        early_swings: None,
         using: None,
         uses: 0,
         queued: None,

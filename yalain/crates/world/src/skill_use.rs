@@ -2645,6 +2645,7 @@ fn end<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: C
             to_all_seeing(s, net, me, &stop);
         }
         combat::set_player_mode(s, net, world, combat::mode::PEACE);
+        run_waits_no_more(s, world, clock);
     } else if let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
         run.next_swing = clock.local.0 + NEXT_SWING_AFTER;
     }
@@ -2739,8 +2740,18 @@ fn aura_turns_on<S: Store>(
             to_all_seeing(s, net, me, &stop);
         }
         combat::set_player_mode(s, net, world, combat::mode::PEACE);
+        run_waits_no_more(s, world, clock);
     } else if let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
         run.next_swing = clock.local.0 + NEXT_SWING_AFTER;
+    }
+}
+
+/// A use is over or cut short: a run waiting for it goes on.
+fn run_waits_no_more<S: Store>(s: &mut Server<S>, world: ConnId, clock: Clock) {
+    if let Some(run) = s.players.get_mut(&world).and_then(|p| p.attacking.as_mut()) {
+        if run.next_swing.is_infinite() {
+            run.next_swing = clock.local.0 + NEXT_SWING_AFTER;
+        }
     }
 }
 
@@ -2803,6 +2814,7 @@ pub fn interrupt<S: Store>(
         me
     };
     progress::private(net, world, &refused(err, named, x.req.skill));
+    run_waits_no_more(s, world, clock);
     if !x.alone {
         return;
     }
