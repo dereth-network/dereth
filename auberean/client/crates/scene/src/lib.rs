@@ -3226,6 +3226,13 @@ impl<'w> Scene<'w> {
         }
     }
 
+    /// Whether the player's body is making a move on its own (walking up to what it attacks or
+    /// uses, or a move the server ordered).
+    #[must_use]
+    pub fn player_moving_to(&self) -> bool {
+        self.player.as_ref().is_some_and(|p| p.body.is_moving_to())
+    }
+
     /// Whether a behavior that locks actions holds the player's own movement.
     #[must_use]
     pub fn actions_locked(&self) -> bool {

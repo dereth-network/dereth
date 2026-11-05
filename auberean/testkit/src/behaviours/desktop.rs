@@ -752,6 +752,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.controls.a-move-of-the-bodys-own-ends-the-latched-run",
+        says: "A latched run ends once the player's body is making a move on its own, walking up to                what it uses or a move the server ordered, so it does not run on when the move is done.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-INPUT-MOVE-ENDS-RUN-LOCK"),
+        station: "auberean-shell::dat::session::a_move_ordered_ends_the_latched_run",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "desktop.controls.a-movement-key-begins-its-action-once",
         says: "A movement key pressed begins its action of the key map once: forward, backward, \
                the strafes, the turns (strafes in mouse look, where the left button runs), the \

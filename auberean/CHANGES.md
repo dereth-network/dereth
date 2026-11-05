@@ -14,6 +14,7 @@ not how it was done.
 - Fixed effects that fade a body out snapping it back at once.
 - Fixed mist on the ground in rain too light to see.
 - Fixed sunlit halls: the sun now falls across their floors and walls as the original's does.
+- Auto-run no longer carries on after walking up to something you used.
 - Crowded places run faster.
 - Fixed some effects on a body standing in the wrong place.
 - Fixed bodies losing their walk or idle when the server sent them again.

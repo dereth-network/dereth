@@ -5746,6 +5746,80 @@ fn the_reports_carry_the_motion_a_move_ordered_asks() {
     }
 }
 
+/// A run Q latched ends once a move the server ordered takes the body, so the body does not run
+/// on when the move is done.
+///
+/// Behaviour: desktop.controls.a-move-of-the-bodys-own-ends-the-latched-run
+#[test]
+fn a_move_ordered_ends_the_latched_run() {
+    use auberean_client_sdk::protocol::physics::{MoveOrder, ObjectEvent};
+    use auberean_client_sdk::protocol::types::{MoveTarget, MovementParams};
+    let order = ServerMessage::MoveTo(ObjectEvent {
+        sender: ObjectStamp {
+            id: PLAYER,
+            instance_stamp: 1,
+            other_stamp: 0,
+        },
+        action: MoveOrder {
+            params: MovementParams {
+                flags: MovementParams::MAX_SUCCESS | 0x2,
+                desired_velocity: 1.0,
+                fail_distance: f32::MAX,
+                desired_distance: 0.0,
+                max_success_distance: 0.2,
+                min_success_distance: 0.0,
+                target: MoveTarget::Place(Placement {
+                    cell: HALL_CELL,
+                    frame: Frame {
+                        origin: Vec3::new(HALL_AT.x, HALL_AT.y + 8.0, HALL_AT.z),
+                        rotation: Quat::IDENTITY,
+                    },
+                }),
+                offset: Vec3::ZERO,
+                offset_id: 0,
+                waypoints: Vec::new(),
+                context: 0,
+            },
+            stamp: 1,
+        },
+    });
+    // The double's clock runs a second ahead of the shell's: the order comes at 8 s.
+    let script = script_then(HALL_CELL, HALL_AT, Quat::IDENTITY, &[], &[(9.0, order)]);
+    let server =
+        ServerDouble::new(script.clone(), std::net::Ipv4Addr::LOCALHOST, 1.0, 7).login_addr();
+    let mut s = shell_with(
+        script,
+        Box::new(DevLogin::new(
+            server,
+            "tester".into(),
+            "t".into(),
+            Some("tester".into()),
+        )),
+    );
+    // The order reaches the body a little before 6 s.
+    while s.host.time < 5.0 {
+        step(&mut s);
+    }
+    assert_eq!(s.phase(), Phase::World);
+    assert!(!s.scene.player_moving_to());
+    for down in [true, false] {
+        s.event(&Event::Key {
+            key: Key::Q,
+            down,
+            repeat: false,
+        });
+    }
+    step(&mut s);
+    assert!(s.controls.autorun(), "Q latched the run");
+    while !s.scene.player_moving_to() {
+        assert!(s.controls.autorun(), "only the move ends the run");
+        assert!(s.host.time < 12.0, "the order never took the body");
+        step(&mut s);
+    }
+    step(&mut s);
+    assert!(!s.controls.autorun(), "the move ended the run");
+}
+
 /// The window losing the keyboard lets each action in force go as its key would: a strafe held
 /// then ends, and the next reports carry no sideways motion; the run Q latched goes on, its
 /// reports still running forward.

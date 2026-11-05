@@ -782,6 +782,10 @@ impl<'w, H: Host> Shell<'w, H> {
             let t0 = self.host.now();
             self.scene.entering = self.entering;
             self.scene.update(c, &intent, now, dt);
+            // D2-09649
+            if self.scene.player_moving_to() {
+                self.controls.turn_off_run_lock();
+            }
             let t1 = self.host.now();
             c.frame(local);
             self.costs[0] = t1 - t0;
