@@ -6,6 +6,8 @@ Add a line under **Unreleased** when a change lands that a player would notice. 
 not how it was done.
 
 ## Unreleased
+- Examining a recipe shows its time and difficulty lines again.
+- Fixed an effect's bar running out too slowly after a missed pulse.
 
 ## 0.1.4 (2026-11-05)
 

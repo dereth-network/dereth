@@ -483,9 +483,22 @@ fn set_request(c: &mut Call<'_>) -> Result<Status, Stop> {
         NativeObject::Packed { bytes, .. } => bytes.clone(),
         _ => vec![0; 8],
     };
+    take_request(c, request, None)
+}
+
+/// The receiver profile takes a request's packed form, and the tabs it asks for where its packed
+/// form does not say them.
+///
+/// # Errors
+/// What the machine refuses.
+pub fn take_request(
+    c: &mut Call<'_>,
+    request: Vec<u8>,
+    asked: Option<u32>,
+) -> Result<Status, Stop> {
     change(c, |_, p| {
         p.request = request;
-        p.asked = None;
+        p.asked = asked;
         Ok(())
     })
 }

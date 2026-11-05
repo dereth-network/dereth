@@ -1571,6 +1571,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "script.natives.examination-profile-takes-the-whole-requests-tabs",
+        says: "A profile set to a request about anything but an object keeps the lines of the tabs the request asks for, though its packed form does not say them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-EXAM-WHOLE-REQUEST"),
+        station: "auberean-client-runtime::cpu::scripts::examination::a_profile_keeps_the_lines_of_the_tabs_its_whole_request_asks_for",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "script.natives.examination-request-packs-by-kind",
         says: "An examination request packs its kind and its admin word, then what its kind \
                carries: the object and the tabs asked for (an object), the object, the combat \
