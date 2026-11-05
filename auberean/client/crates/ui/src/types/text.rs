@@ -345,6 +345,12 @@ impl Ui {
         self.node_mut(h)?.text_state.as_deref_mut()
     }
 
+    /// A text element's state, to change what isn't drawn: the caller says when something is
+    /// ([`Self::touch`]).
+    fn ts_mut_undrawn(&mut self, h: Handle) -> Option<&mut TextState> {
+        self.node_mut_undrawn(h)?.text_state.as_deref_mut()
+    }
+
     /// Which typed characters a text element takes (all, with none): a panel's entry that takes
     /// only numbers.
     pub fn set_input_filter(&mut self, h: Handle, filter: Option<fn(u16) -> bool>) {
@@ -811,6 +817,9 @@ impl Ui {
     /// was.
     // D2-11819
     fn check_string_downloads(&mut self, h: Handle) {
+        if self.text_state(h).is_none_or(|t| t.downloads.is_empty()) {
+            return;
+        }
         let assets = self.assets().clone();
         let mut done = false;
         loop {
@@ -1952,11 +1961,14 @@ impl Ui {
     // D2-11822
     fn text_global_loop(&mut self, h: Handle) {
         self.check_string_downloads(h);
-        let now = self.now();
-        let Some(t) = self.ts_mut(h) else { return };
-        if !t.has(bits::EDITABLE) {
+        // Most text can't be edited, and asking changes nothing that is drawn.
+        if !self.text_state(h).is_some_and(|t| t.has(bits::EDITABLE)) {
             return;
         }
+        let now = self.now();
+        let Some(t) = self.ts_mut_undrawn(h) else {
+            return;
+        };
         let before = t.cursor_visible;
         if now - t.last_cursor_move < 1.5 {
             t.cursor_visible = true;

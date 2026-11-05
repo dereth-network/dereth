@@ -365,6 +365,12 @@ impl Ui {
         if self.announces_place(h) {
             self.broadcast(h, msg::LOCATION_CHANGED, 0);
         }
+        if self
+            .node(h)
+            .is_some_and(|n| n.sized && (n.rect.x0, n.rect.y0) == (x, y))
+        {
+            return;
+        }
         if let Some(n) = self.node_mut(h) {
             let (w, hh) = (n.rect.width(), n.rect.height());
             n.rect = Rect::sized(x, y, w, hh);
@@ -376,6 +382,12 @@ impl Ui {
     /// keeping it on the screen: the words the game sets over the world run off the edges.
     // D2-10403
     pub fn move_picture(&mut self, h: Handle, x: i32, y: i32) {
+        if self
+            .node(h)
+            .is_some_and(|n| n.sized && (n.rect.x0, n.rect.y0) == (x, y))
+        {
+            return;
+        }
         if let Some(n) = self.node_mut(h) {
             let (w, hh) = (n.rect.width(), n.rect.height());
             n.rect = Rect::sized(x, y, w, hh);

@@ -1046,44 +1046,47 @@ impl Names {
         };
         let mut names = std::mem::take(&mut self.names);
         for n in &mut names {
-            ui.set_visible(n.element, false);
-            if in_portal || n.object == self.selection {
-                continue;
-            }
-            let Some(t) = world.thing(n.object) else {
-                continue;
-            };
-            let [x, y, _] = t.from_player;
-            if x * x + y * y > range_sq {
-                continue;
-            }
-            let (nw, nh) = Self::size_of(ui, Some(n.element));
-            let Some((cx, cy)) = self.calc_screen_position(ui, world, t, &mut n.history, nh) else {
-                continue;
-            };
-            let x0 = dereth_primitives::num::to_i32_f64(f64::from(cx) - f64::from(nw) * 0.5);
-            let mut b = Box2D::sized(x0, cy, nw, nh);
-            let mut ways = 0xF;
-            let mut off = false;
-            for _ in 0..self.max_attempts {
-                if !screen.collide(&b) {
-                    off = true;
-                    break;
+            let shown = 'place: {
+                if in_portal || n.object == self.selection {
+                    break 'place false;
                 }
-                let Some(i) = place_here(&b, &placed) else {
-                    break;
+                let Some(t) = world.thing(n.object) else {
+                    break 'place false;
                 };
-                make_new_data(&mut b, &placed[i], &mut ways);
-                if ways == 0 {
-                    ways = 0xF;
+                let [x, y, _] = t.from_player;
+                if x * x + y * y > range_sq {
+                    break 'place false;
                 }
-            }
-            if off {
-                continue;
-            }
-            placed.push(b);
-            ui.move_picture(n.element, b.x0, b.y0);
-            ui.set_visible(n.element, true);
+                let (nw, nh) = Self::size_of(ui, Some(n.element));
+                let Some((cx, cy)) = self.calc_screen_position(ui, world, t, &mut n.history, nh)
+                else {
+                    break 'place false;
+                };
+                let x0 = dereth_primitives::num::to_i32_f64(f64::from(cx) - f64::from(nw) * 0.5);
+                let mut b = Box2D::sized(x0, cy, nw, nh);
+                let mut ways = 0xF;
+                let mut off = false;
+                for _ in 0..self.max_attempts {
+                    if !screen.collide(&b) {
+                        off = true;
+                        break;
+                    }
+                    let Some(i) = place_here(&b, &placed) else {
+                        break;
+                    };
+                    make_new_data(&mut b, &placed[i], &mut ways);
+                    if ways == 0 {
+                        ways = 0xF;
+                    }
+                }
+                if off {
+                    break 'place false;
+                }
+                placed.push(b);
+                ui.move_picture(n.element, b.x0, b.y0);
+                true
+            };
+            ui.set_visible(n.element, shown);
         }
         self.names = names;
     }

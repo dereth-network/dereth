@@ -311,3 +311,95 @@ fn a_scaled_element_covers_its_share_from_its_corner() {
     draw::draw_layers_with(&u, &mut again, |_| true, &mut kept);
     assert_eq!(again.bgra, plain.bgra, "the kept layers were left clear");
 }
+
+/// Saying what is already so draws nothing new: the same attribute, visibility, place or picture,
+/// and the clock passing over text no one can edit, leave the picture as it was. A change does
+/// not.
+#[test]
+fn saying_what_is_already_so_draws_nothing_new() {
+    use auberean_assets::ui::AttributeValue as V;
+    use auberean_ui::token::attr;
+    use auberean_ui::Value;
+    let e = element(
+        "Plain",
+        "field",
+        [20, 15, 79, 58],
+        1,
+        vec![state("stateless", 0, vec![], vec![image(1, 0)], vec![])],
+    );
+    let words = element(
+        "Words",
+        "text",
+        [0, 0, 99, 19],
+        1,
+        vec![state(
+            "stateless",
+            0,
+            vec![("editable", V::Bool(false))],
+            vec![],
+            vec![],
+        )],
+    );
+    let mut u = ui(vec![e, words], vec![(1, Arc::new(picture(60, 44)))]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let h = u.create_root(l, Token::of("Plain")).unwrap();
+    let t = u.create_root(l, Token::of("Words")).unwrap();
+    u.set_text(t, "Holtburg");
+    u.lay_out_text_shown();
+    u.use_time(1.0);
+    u.set_attr(h, attr::POSITION, Value::Float(0.5));
+    u.set_visible(h, true);
+    u.move_picture(h, 30, 30);
+    u.set_image(h, 1, 0);
+    let still = u.revision();
+    u.use_time(2.0);
+    u.use_time(3.0);
+    assert_eq!(u.revision(), still, "the clock passes over the words");
+    u.set_attr(h, attr::POSITION, Value::Float(0.5));
+    assert_eq!(u.revision(), still, "the same attribute");
+    u.set_visible(h, true);
+    assert_eq!(u.revision(), still, "the same visibility");
+    u.move_picture(h, 30, 30);
+    assert_eq!(u.revision(), still, "the same place");
+    u.set_image(h, 1, 0);
+    assert_eq!(u.revision(), still, "the same picture");
+    u.set_attr(h, attr::POSITION, Value::Float(0.75));
+    assert_ne!(u.revision(), still, "another attribute");
+    let still = u.revision();
+    u.set_visible(h, false);
+    assert_ne!(u.revision(), still, "another visibility");
+    let still = u.revision();
+    u.move_picture(h, 31, 30);
+    assert_ne!(u.revision(), still, "another place");
+}
+
+/// A meter's position draws nothing new until a fill moves by a texel.
+#[test]
+fn a_meter_draws_nothing_new_until_a_fill_moves() {
+    use auberean_ui::token::attr;
+    use auberean_ui::Value;
+    let m = element(
+        "Bar",
+        "meter",
+        [0, 0, 99, 9],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![],
+            vec![],
+            vec![element("left_fill", "field", [0, 0, 99, 9], 0, vec![])],
+        )],
+    );
+    let mut u = ui(vec![m], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let h = u.create_root(l, Token::of("Bar")).unwrap();
+    u.set_attr(h, attr::POSITION, Value::Float(0.500));
+    let still = u.revision();
+    u.set_attr(h, attr::POSITION, Value::Float(0.503));
+    assert_eq!(u.revision(), still, "the fill stays within its texel");
+    u.set_attr(h, attr::POSITION, Value::Float(0.6));
+    assert_ne!(u.revision(), still, "the fill moves");
+    let fill = u.child(h, attr::LEFT_FILL).unwrap();
+    assert_eq!(u.node(fill).unwrap().rect.width(), 60);
+}

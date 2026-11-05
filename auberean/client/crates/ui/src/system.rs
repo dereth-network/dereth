@@ -520,6 +520,15 @@ impl Ui {
         self.nodes.get_mut(h.index as usize)?.as_mut()
     }
 
+    /// An element, to change what isn't drawn: the caller says when something is
+    /// ([`Self::touch`]).
+    pub(crate) fn node_mut_undrawn(&mut self, h: Handle) -> Option<&mut Node> {
+        if self.generations.get(h.index as usize) != Some(&h.generation) {
+            return None;
+        }
+        self.nodes.get_mut(h.index as usize)?.as_mut()
+    }
+
     fn alloc(&mut self, n: Node) -> Handle {
         self.revision += 1;
         if let Some(i) = self.free.pop() {
@@ -1052,12 +1061,20 @@ impl Ui {
     /// Set an attribute, with what the element's kind does when it changes.
     // D2-11378, D2-11379, D2-11380, D2-11381, D2-11382, D2-11384, D2-11385, D2-11386
     pub fn set_attr(&mut self, h: Handle, a: Token, v: Value) {
-        let Some(n) = self.node_mut(h) else { return };
+        let Some(n) = self.node(h) else { return };
         let key = (a, v.table());
         let changed = n.attrs.get(&key) != Some(&v);
-        n.attrs.insert(key, v.clone());
         let k = n.kind;
         let ready = n.ready;
+        if changed {
+            if let Some(n) = self.node_mut_undrawn(h) {
+                n.attrs.insert(key, v.clone());
+            }
+            // A meter's position is drawn by its fills, which say when they move.
+            if k != kind::METER || a != attr::POSITION {
+                self.touch();
+            }
+        }
         if k == kind::TEXT {
             self.text_attr(h, a, &v, changed);
         }
@@ -1126,9 +1143,12 @@ impl Ui {
     pub fn set_visible(&mut self, h: Handle, v: bool) {
         let Some(n) = self.node(h) else { return };
         let parent_shown = n.parent.is_none_or(|p| self.shown(p));
-        let before = parent_shown && n.visible;
-        if let Some(n) = self.node_mut(h) {
-            n.visible = v;
+        let was = n.visible;
+        let before = parent_shown && was;
+        if was != v {
+            if let Some(n) = self.node_mut(h) {
+                n.visible = v;
+            }
         }
         self.changing_element_visibility();
         self.close_hidden_menus(h);

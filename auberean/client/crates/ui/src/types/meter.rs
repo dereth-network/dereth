@@ -77,9 +77,14 @@ impl Ui {
         };
         for (fill, (x, y), size) in fills {
             if let Some(f) = self.child(h, fill) {
+                let Some(fl) = self.node(f) else { continue };
+                let (fw, fh) = size.unwrap_or((fl.rect.width(), fl.rect.height()));
+                let rect = crate::Rect::sized(x, y, fw, fh);
+                if fl.sized && fl.rect == rect {
+                    continue;
+                }
                 if let Some(fl) = self.node_mut(f) {
-                    let (fw, fh) = size.unwrap_or((fl.rect.width(), fl.rect.height()));
-                    fl.rect = crate::Rect::sized(x, y, fw, fh);
+                    fl.rect = rect;
                     fl.sized = true;
                 }
                 self.place_children(f);
@@ -90,7 +95,7 @@ impl Ui {
     /// Set a meter's fill at once, 0 to 1 (any smooth move stops).
     pub fn set_meter(&mut self, h: Handle, fill: f32) {
         let fill = fill.clamp(0.0, 1.0);
-        if let Some(n) = self.node_mut(h) {
+        if let Some(n) = self.node_mut_undrawn(h) {
             n.meter = Some(fill);
             n.lists.meter.animating = false;
         }
@@ -230,7 +235,7 @@ impl Ui {
     // D2-11636
     pub(crate) fn meter_float_set(&mut self, h: Handle, a: Token, v: f32, changed: bool) {
         if changed && a == attr::POSITION {
-            if let Some(n) = self.node_mut(h) {
+            if let Some(n) = self.node_mut_undrawn(h) {
                 n.meter = Some(v);
             }
             self.lay_out_meter(h);

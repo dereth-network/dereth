@@ -546,6 +546,15 @@ impl Ui {
     pub fn set_image(&mut self, h: Handle, picture: u32, mode: u32) {
         let Some(n) = self.node(h) else { return };
         let alpha = n.float_attr(attr::ALPHA_VALUE).unwrap_or(0.0);
+        let same = n
+            .picture
+            .as_ref()
+            .is_some_and(|p| p.id == picture && p.mode == mode)
+            && n.blends == (mode == 1 || mode == 2)
+            && (n.alpha != -1.0 || alpha == n.alpha);
+        if same {
+            return;
+        }
         let Some(n) = self.node_mut(h) else { return };
         // D2-11929
         n.blends = mode == 1 || mode == 2;
