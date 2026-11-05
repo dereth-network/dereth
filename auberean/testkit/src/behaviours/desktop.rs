@@ -573,6 +573,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "desktop.camera.objects-dont-stop-a-camera-on-a-bone",
+        says: "Only the walls and the ground stop a camera in the map view or looking at a bone; otherwise objects stop it too.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CAMERA-ENV-ONLY"),
+        station: "auberean-scene::cpu::camera::objects_dont_stop_a_camera_looking_at_a_bone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.camera.outdoors-the-cameras-own-object-keeps-it-off-the-land",
         says: "Outdoors the camera stands where its own object finds room at the end of its line of sight: its sphere, a quarter of a meter, keeps it off the land and off what it does not pass through.",
         since: RETAIL,

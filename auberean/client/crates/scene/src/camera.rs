@@ -1575,11 +1575,12 @@ impl CameraControl {
         self.first_person || self.targeting.player != self.targeting.target
     }
 
-    /// Whether only the walls and the ground stop the camera, no object: in the map view.
+    /// Whether only the walls and the ground stop the camera, no object: in the map view, or
+    /// looking at a bone.
     // D2-10675
     #[must_use]
     pub fn check_env_only(&self) -> bool {
-        self.map_view
+        self.map_view || self.targeting.target_bone != 0
     }
 
     /// The pitch eased by the slope: the player's rise each frame, smoothed, its opposite

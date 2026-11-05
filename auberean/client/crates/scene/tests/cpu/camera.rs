@@ -530,6 +530,20 @@ fn the_view_leans_as_its_frame_does() {
     );
 }
 
+/// Only the walls and the ground stop the camera in the map view, or while it looks at a bone: an
+/// object between it and the bone doesn't push it in. Otherwise objects stop it too.
+///
+/// Behaviour: desktop.camera.objects-dont-stop-a-camera-on-a-bone
+#[test]
+fn objects_dont_stop_a_camera_looking_at_a_bone() {
+    let mut c = camera();
+    assert!(!c.check_env_only());
+    c.targeting.target_bone = 3;
+    assert!(c.check_env_only());
+    c.targeting.target_bone = 0;
+    assert!(!c.check_env_only());
+}
+
 /// With the auto distance option a camera 1.5 m or nearer pulls back after 2.5 seconds of running,
 /// growing each frame until 4 m out, and comes back after a second standing.
 ///
