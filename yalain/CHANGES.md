@@ -7,6 +7,7 @@ what they see, not how it was done.
 
 ## Unreleased
 - Items put down now disappear after ten minutes.
+- Fixed a player getting stuck walking to an item that had gone.
 
 ## 0.2.1 (2026-11-05)
 - Fixed sold consignments still showing as in stock.

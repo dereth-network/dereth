@@ -427,6 +427,75 @@ fn an_item_taken_up_is_out_of_its_ten_minutes_and_put_down_again_starts_them() {
     assert!(h.server.things.get(kept).is_some());
 }
 
+/// A walk to an item that goes on the way ends there: the player isn't left walking to nothing,
+/// which would hold up all it does next.
+///
+/// Behaviour: server.inventory.a-walk-to-what-has-gone-ends
+#[test]
+fn a_walk_to_an_item_that_goes_on_the_way_ends() {
+    let (mut h, b, me, w, item) = two_players_and_an_item();
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .map(|(c, _)| c)
+        .expect("in the world");
+    h.bots[b].send(true, queue::WEENIE, &put_down(me, item, 0));
+    assert!(h.run_until(steps(5.0), |h| {
+        h.server.things.get(item).is_some_and(|t| t.at.is_some())
+    }));
+    // The other player, out of the reach that would pick it up at once, asks; it walks.
+    let other = h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character != me)
+        .map(|(c, _)| *c)
+        .expect("the other");
+    if let Some(p) = h.server.players.get_mut(&other) {
+        p.position.origin[0] += 30.0;
+    }
+    let them = h.server.players[&other].character;
+    h.bots[w].send(true, queue::WEENIE, &use_item(item, them));
+    h.run(4);
+    assert!(
+        h.server.players[&other].walking_to.is_some(),
+        "walking to it"
+    );
+    // Its dropper takes it first.
+    h.bots[b].send(true, queue::WEENIE, &use_item(item, me));
+    assert!(h.run_until(steps(6.0), |h| {
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|x| x.id == item)
+    }));
+    assert!(
+        h.server.players[&other].walking_to.is_some(),
+        "still on its way"
+    );
+    let at = h.server.players[&other].position;
+    let report = yalain_testkit::play::report(
+        at.cell,
+        auberean_primitives::Vec3::new(at.origin[0], at.origin[1], at.origin[2]),
+        0,
+        yalain_world::world::IDLE_MOTION & 0x00FF_FFFF,
+        0,
+    );
+    h.bots[w].send(true, queue::WEENIE, &report);
+    h.run(4);
+    assert!(
+        h.server.players[&other].walking_to.is_none(),
+        "not left walking"
+    );
+    assert!(
+        !yalain_world::places::actions_locked(&h.server, other),
+        "free to act again"
+    );
+}
+
 /// An item picked up goes to the front of the pack, the items there each moving up one, and the
 /// move names slot 0 as both where it was sent and where it went.
 ///

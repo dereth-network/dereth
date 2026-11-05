@@ -1328,6 +1328,14 @@ pub fn arrived<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
         return;
     };
     let goal = walk_goal(&u);
+    // What it was walking to has gone (taken, or its time up): there is nothing to arrive at, and it
+    // isn't left walking, which would refuse all it does next.
+    let there = s.things.get(goal).is_some_and(|t| t.at.is_some())
+        || presence::content_by_id(&s.content.objects, goal).is_some();
+    if !there {
+        walk_cut_short(s, net, world);
+        return;
+    }
     // The client ends a walk by its own measure (the bodies, not their centers, within the range):
     // a player reporting itself at rest has arrived a little farther out.
     let still = p.heading_motion & 0x00FF_FFFF == crate::world::IDLE_MOTION & 0x00FF_FFFF;

@@ -4606,6 +4606,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.inventory.a-walk-to-what-has-gone-ends",
+        says: "A player walking to what has since gone isn't left walking: its next report ends the \
+               walk, and what it does next isn't refused.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WALK-GOAL-GONE"),
+        station: "yalain-testkit::cpu::play::drops::a_walk_to_an_item_that_goes_on_the_way_ends",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.inventory.an-attunable-item-is-not-put-down",
         says: "Asked to put down an item of an attunable template, the server answers at once \
                that it is attuned, plays nothing, and the item stays in the pack.",
