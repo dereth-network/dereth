@@ -1231,12 +1231,19 @@ impl Retail {
                 }
                 R::ShowNames(on) => {
                     self.gather.asks.push(world::Ask::ShowNames(on));
-                    self.options.stale = true;
+                    self.options.quiet = true;
                 }
                 R::Options(r) => match options::action(&r) {
                     Some(a) => {
                         requests.push(Request::Act(a));
-                        self.options.stale = true;
+                        // The bar's rows set by hand: the page set its own row already.
+                        // D2-02831
+                        let told = !matches!(
+                            r,
+                            auberean_ui_game::options::Request::Set { tell: false, .. }
+                        );
+                        self.options.stale |= told;
+                        self.options.quiet |= !told;
                     }
                     None => match &r {
                         auberean_ui_game::options::Request::Preferences(p) => {
