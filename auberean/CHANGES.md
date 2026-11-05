@@ -22,6 +22,7 @@ not how it was done.
 - The LandscapeTerrainBlending preference and the -lb and -nolb switches now work.
 - Fixed auto-run carrying on through a portal.
 - Damage numbers now fade out as they rise.
+- Damage numbers now fade out as they rise, and show at their proper size.
 - Fixed pools of lamplight on the ground vanishing when you look out from a doorway.
 - Fixed other bodies not leaving the ground when an animation made them jump.
 - Jumping now interrupts the same actions walking does.

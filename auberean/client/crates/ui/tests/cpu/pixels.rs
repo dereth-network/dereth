@@ -269,3 +269,45 @@ fn a_turned_element_is_the_texels_each_worked_out_alone() {
     draw::draw_layers_with(&u, &mut again, |_| true, &mut kept);
     assert_eq!(again.bgra, unturned.bgra, "the kept layers were left clear");
 }
+
+/// A top-level element drawn at a scale covers that share of its size from its top-left corner,
+/// its middle keeping its colors, and scaling back leaves the next picture as it was.
+#[test]
+fn a_scaled_element_covers_its_share_from_its_corner() {
+    let e = element(
+        "Scaled",
+        "field",
+        [20, 15, 79, 58],
+        1,
+        vec![state("stateless", 0, vec![], vec![image(1, 0)], vec![])],
+    );
+    let mut u = ui(vec![e], vec![(1, Arc::new(picture(60, 44)))]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let h = u.create_root(l, Token::of("Scaled")).unwrap();
+    let bounds = |s: &Surface| {
+        let (mut lo, mut hi) = ((i32::MAX, i32::MAX), (-1, -1));
+        for y in 0..s.height {
+            for x in 0..s.width {
+                if s.get(x, y)[3] != 0 {
+                    lo = (lo.0.min(x), lo.1.min(y));
+                    hi = (hi.0.max(x), hi.1.max(y));
+                }
+            }
+        }
+        (lo, hi)
+    };
+    let mut plain = Surface::new(1024, 768);
+    draw::draw_layers_where(&u, &mut plain, |_| true);
+    assert_eq!(bounds(&plain), ((20, 15), (79, 58)));
+    let mut kept = draw::Layers::default();
+    for (scale, want) in [(2.0, (139, 102)), (0.5, (49, 36))] {
+        u.set_object_scale(h, scale);
+        let mut drawn = Surface::new(1024, 768);
+        draw::draw_layers_with(&u, &mut drawn, |_| true, &mut kept);
+        assert_eq!(bounds(&drawn), ((20, 15), want), "at {scale}");
+    }
+    u.set_object_scale(h, 1.0);
+    let mut again = Surface::new(1024, 768);
+    draw::draw_layers_with(&u, &mut again, |_| true, &mut kept);
+    assert_eq!(again.bgra, plain.bgra, "the kept layers were left clear");
+}

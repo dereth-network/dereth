@@ -173,6 +173,8 @@ pub struct Node {
     pub alpha_picture: Option<u32>,
     /// A top-level element is drawn as a whole at this alpha (its fades set it).
     pub object_alpha: f32,
+    /// A top-level element is drawn as a whole at this size, from its top-left corner.
+    pub object_scale: f32,
     /// A top-level element: drawn as a whole, and able to run transitions.
     pub owns_object: bool,
     /// Its transitions under way.
@@ -716,6 +718,7 @@ impl Ui {
             alpha: -1.0,
             alpha_picture: None,
             object_alpha: 1.0,
+            object_scale: 1.0,
             owns_object,
             transitions: crate::media::RunningList::default(),
             pending_state: Token(0),
@@ -1179,6 +1182,14 @@ impl Ui {
     pub fn set_object_alpha(&mut self, h: Handle, alpha: f32) {
         if let Some(n) = self.node_mut(h) {
             n.object_alpha = alpha;
+        }
+    }
+
+    /// Draw a top-level element as a whole at this size, from its top-left corner.
+    // D2-10433
+    pub fn set_object_scale(&mut self, h: Handle, scale: f32) {
+        if let Some(n) = self.node_mut(h) {
+            n.object_scale = scale;
         }
     }
 

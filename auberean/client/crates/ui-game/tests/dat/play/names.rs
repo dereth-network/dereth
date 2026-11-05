@@ -511,6 +511,11 @@ fn a_name_moves_off_another_the_shortest_way() {
 
 /// A hit's damage text as the scripts fill it: red, two seconds, scale 1.
 fn hit(object: u64, text: &str) -> Notice {
+    hit_at(object, text, 1.0)
+}
+
+/// A hit's damage text at a scale.
+fn hit_at(object: u64, text: &str, scale: f32) -> Notice {
     Notice {
         native: names::notice::DO_3D_DAMAGE,
         about: Some(object),
@@ -520,10 +525,42 @@ fn hit(object: u64, text: &str) -> Notice {
                 text: text.to_owned(),
                 color: [1.0, 0.0, 0.0, 1.0],
                 duration: 2.0,
-                scale: 1.0,
+                scale,
             },
         ))],
     }
+}
+
+/// A hit's damage text is drawn at its scale, and stands over the object by the size it is drawn
+/// at, so a larger one stands further left.
+///
+/// Behaviour: ui.names.damage-text-is-drawn-at-its-scale
+#[test]
+fn damage_text_is_drawn_at_its_scale() {
+    let at = |scale: f32| {
+        let mut ui = Ui::new(records(), 1024, 768);
+        let mut p = play(&mut ui);
+        let mut t = 0.0;
+        let w = world(vec![body_at(7, 0.0, 10.0, [1.0; 4])]);
+        tick(&mut ui, &mut p, &mut t, &w, &[]);
+        tick(&mut ui, &mut p, &mut t, &w, &[hit_at(7, "12", scale)]);
+        let text = names_of(&p).damage()[0].element;
+        let drawn = ui.node(text).expect("the text").object_scale;
+        (drawn, rect(&ui, Some(text)))
+    };
+    let (one, plain) = at(1.0);
+    let (two, large) = at(2.0);
+    assert_eq!((one, two), (1.0, 2.0));
+    assert_eq!(
+        (plain.width(), plain.height()),
+        (large.width(), large.height()),
+        "its own size stays; the drawing is what scales"
+    );
+    let half = plain.width() / 2;
+    assert!(
+        (plain.x0 - large.x0 - half).abs() <= 1,
+        "half its width further left: {plain:?} {large:?}"
+    );
 }
 
 /// A hit's damage text fades out over its life: whole as it begins, about half gone half way.

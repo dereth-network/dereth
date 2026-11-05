@@ -20,7 +20,7 @@
 //! struck object for its duration, rising three of its own heights over its life (above the
 //! selection's name, meters and marks when the object is the selection), moved off the other
 //! damage texts as names are moved off names; hidden in portal space, where it does not age, and
-//! for an object not in the world. It fades out over its life. (Its scale is not drawn.)
+//! for an object not in the world. It is drawn at its scale and fades out over its life.
 
 use std::any::Any;
 use std::collections::VecDeque;
@@ -95,6 +95,8 @@ pub struct DamageText {
     pub element: Handle,
     pub start: f64,
     pub duration: f64,
+    /// How large it is drawn.
+    pub scale: f32,
     pub object: u64,
 }
 
@@ -485,11 +487,13 @@ impl Names {
             ui.resize_to(e, w, h);
         }
         ui.set_text(e, &b.text);
+        ui.set_object_scale(e, b.scale);
         ui.set_visible(e, false);
         self.damage.push(DamageText {
             element: e,
             start: ui.now(),
             duration: f64::from(b.duration),
+            scale: b.scale,
             object,
         });
         self.place_all(ui, world, &mut Vec::new());
@@ -537,6 +541,8 @@ impl Names {
             }
             kept.push(d);
             let (tw, th) = Self::size_of(ui, Some(d.element));
+            #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+            let (tw, th) = ((tw as f32 * d.scale) as i32, (th as f32 * d.scale) as i32); // LINT-OK: a size in pixels cuts its fraction
             let rise = dereth_primitives::num::to_i32_f64(f64::from(self.floaty_travel * th) * age);
             let mut above = rise;
             if d.object == self.selection {

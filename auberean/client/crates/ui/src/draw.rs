@@ -413,35 +413,6 @@ fn turn_layer(layer: &Surface, out: &mut Surface, area: Rect, degrees: i32) -> R
     let Some(read) = area.intersect(layer.bounds()) else {
         return covers;
     };
-    let sample = |x: f32, y: f32| -> [f32; 4] {
-        let (ix, iy) = (floor_small(x), floor_small(y));
-        let (fx, fy) = (x - ix as f32, y - iy as f32);
-        let mut acc = [0.0f32; 4];
-        for (dx, dy, w) in [
-            (0, 0, (1.0 - fx) * (1.0 - fy)),
-            (1, 0, fx * (1.0 - fy)),
-            (0, 1, (1.0 - fx) * fy),
-            (1, 1, fx * fy),
-        ] {
-            let (sx, sy) = (ix + dx, iy + dy);
-            if !read.contains(sx, sy) {
-                continue;
-            }
-            let i = (sy * layer.width + sx) as usize * 4;
-            let Some((t, _)) = layer.bgra[i..].split_first_chunk::<4>() else {
-                continue;
-            };
-            if t[3] == 0 {
-                continue;
-            }
-            let alpha = f32::from(t[3]) * w;
-            acc[0] += f32::from(t[0]) * alpha;
-            acc[1] += f32::from(t[1]) * alpha;
-            acc[2] += f32::from(t[2]) * alpha;
-            acc[3] += alpha;
-        }
-        acc
-    };
     for y in c.y0..=c.y1 {
         let (from, to) = out.row(y, c.x0, c.x1);
         let (run, _) = out.bgra[from..to].as_chunks_mut::<4>();
@@ -451,7 +422,79 @@ fn turn_layer(layer: &Surface, out: &mut Surface, area: Rect, degrees: i32) -> R
             let (dx, dy) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
             let sx = dx * cos - dy * sin + cx - 0.5;
             let sy = dx * sin + dy * cos + cy - 0.5;
-            let acc = sample(sx, sy);
+            let acc = sample_layer(layer, read, sx, sy);
+            if acc[3] <= 0.0 {
+                continue;
+            }
+            *d = [
+                round_channel(acc[0] / acc[3]),
+                round_channel(acc[1] / acc[3]),
+                round_channel(acc[2] / acc[3]),
+                round_channel(acc[3]),
+            ];
+        }
+    }
+    covers
+}
+
+/// What a layer holds at a place between its texels, from the four about it inside `read`:
+/// each color weighted by its alpha, and the alpha.
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+fn sample_layer(layer: &Surface, read: Rect, x: f32, y: f32) -> [f32; 4] {
+    let (ix, iy) = (floor_small(x), floor_small(y));
+    let (fx, fy) = (x - ix as f32, y - iy as f32);
+    let mut acc = [0.0f32; 4];
+    for (dx, dy, w) in [
+        (0, 0, (1.0 - fx) * (1.0 - fy)),
+        (1, 0, fx * (1.0 - fy)),
+        (0, 1, (1.0 - fx) * fy),
+        (1, 1, fx * fy),
+    ] {
+        let (sx, sy) = (ix + dx, iy + dy);
+        if !read.contains(sx, sy) {
+            continue;
+        }
+        let i = (sy * layer.width + sx) as usize * 4;
+        let Some((t, _)) = layer.bgra[i..].split_first_chunk::<4>() else {
+            continue;
+        };
+        if t[3] == 0 {
+            continue;
+        }
+        let alpha = f32::from(t[3]) * w;
+        acc[0] += f32::from(t[0]) * alpha;
+        acc[1] += f32::from(t[1]) * alpha;
+        acc[2] += f32::from(t[2]) * alpha;
+        acc[3] += alpha;
+    }
+    acc
+}
+
+/// Write `area` of `layer` into `out` at `scale` of its size from its top-left corner, each texel
+/// read from the four about where it comes from; the rectangle it covers.
+// D2-02129, D2-10433
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+fn scale_layer(layer: &Surface, out: &mut Surface, area: Rect, scale: f32) -> Rect {
+    let covers = Rect::sized(
+        area.x0,
+        area.y0,
+        (area.width() as f32 * scale) as i32, // LINT-OK: a size in pixels cuts its fraction
+        (area.height() as f32 * scale) as i32, // LINT-OK: a size in pixels cuts its fraction
+    );
+    let (Some(c), Some(read)) = (
+        covers.intersect(layer.bounds()),
+        area.intersect(layer.bounds()),
+    ) else {
+        return covers;
+    };
+    let (ox, oy) = (area.x0 as f32, area.y0 as f32);
+    for y in c.y0..=c.y1 {
+        let (from, to) = out.row(y, c.x0, c.x1);
+        let (run, _) = out.bgra[from..to].as_chunks_mut::<4>();
+        for (x, d) in (c.x0..=c.x1).zip(run) {
+            let sx = (x as f32 + 0.5 - ox) / scale + ox - 0.5;
+            let sy = (y as f32 + 0.5 - oy) / scale + oy - 0.5;
+            let acc = sample_layer(layer, read, sx, sy);
             if acc[3] <= 0.0 {
                 continue;
             }
@@ -551,7 +594,13 @@ pub fn draw_where(ui: &Ui, frame: &mut Surface, keep: impl Fn(i32) -> bool) {
         draw_element(ui, &mut layer, r, 0, 0, clip, &mut drawn);
         if let Some(area) = drawn.0 {
             fade_layer(&mut layer, area, n.object_alpha);
-            if n.rotation == 0 {
+            #[allow(clippy::float_cmp)] // exactly the size it was left at
+            if n.object_scale != 1.0 {
+                let scaled = turned.get_or_insert_with(|| Surface::new(layer.width, layer.height));
+                let covers = scale_layer(&layer, scaled, n.rect, n.object_scale);
+                composite(frame, scaled, covers);
+                scaled.clear_area(covers);
+            } else if n.rotation == 0 {
                 composite(frame, &layer, area.intersect(n.rect).unwrap_or(area));
             } else {
                 let turned = turned.get_or_insert_with(|| Surface::new(layer.width, layer.height));
@@ -725,7 +774,13 @@ pub fn draw_layers_with(
         draw_element(ui, layer, r, 0, 0, clip, &mut drawn);
         if let Some(area) = drawn.0 {
             fade_layer(layer, area, n.object_alpha);
-            if n.rotation == 0 {
+            #[allow(clippy::float_cmp)] // exactly the size it was left at
+            if n.object_scale != 1.0 {
+                let scaled = turned.get_or_insert_with(|| Surface::new(layer.width, layer.height));
+                let covers = scale_layer(layer, scaled, n.rect, n.object_scale);
+                composite_over(out, scaled, covers);
+                scaled.clear_area(covers);
+            } else if n.rotation == 0 {
                 composite_over(out, layer, area);
             } else {
                 let turned = turned.get_or_insert_with(|| Surface::new(layer.width, layer.height));

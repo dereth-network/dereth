@@ -1462,6 +1462,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.names.damage-text-is-drawn-at-its-scale",
+        says: "A hit's damage text is drawn at its scale, and stands over the object by the size it is drawn at.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAMAGE-TEXT-SCALE"),
+        station: "auberean-ui-game::dat::play::names::damage_text_is_drawn_at_its_scale",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.names.damage-text-rises-over-the-struck-object-and-goes",
         says: "A hit's damage text stands over the struck object's box in the color the scripts \
                gave it and rises three of its own heights over its duration, then goes; texts at \
