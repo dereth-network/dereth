@@ -77,6 +77,7 @@ not how it was done.
 - Fixed arrows lingering where they hit, and held effects trailing a moving body.
 - Added the puffs of cloud at the start of portal space.
 - Fixed discs and light pools stopping at holes in the land.
+- Fixed the sun's flare showing past leaves and rooflines.
 
 ## 0.1.3 (2026-11-05)
 

@@ -343,6 +343,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.flare.a-flare-asks-of-one-pixel-whether-its-object-is-seen",
+        says: "A sky object is seen when the one pixel at its place on the screen is not drawn over, so a thin edge across that pixel hides its flare and one beside it does not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-FLARE-ONE-PIXEL"),
+        station: "auberean-draw::cpu::landscape::shadows::a_flare_asks_of_one_pixel_whether_its_object_is_seen",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.frame.each-step-draws-its-objects-farthest-first",
         says: "Each step of a frame's objects draws them farthest from the camera first, each \
                object's draws together in their order, every layer of an object with the object; \

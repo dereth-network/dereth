@@ -2405,8 +2405,7 @@ impl Renderer {
             }
             if looking {
                 let start = u32::try_from(flare_verts.len()).unwrap_or(u32::MAX);
-                let (x, y) = at;
-                for (px, py) in [(x, y + 0.015), (x - 0.02, y - 0.015), (x + 0.02, y - 0.015)] {
+                for (px, py) in auberean_draw::flare::seen_marker(at, width, height) {
                     flare_verts.push(MeshGpuVertex::screen(
                         [px, py, FLARE_MARKER_DEPTH],
                         [0.0, 0.0],
