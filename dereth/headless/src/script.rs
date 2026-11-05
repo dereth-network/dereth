@@ -14,6 +14,110 @@ use std::fmt;
 use dereth_client_sdk::actions::{names, ActionId};
 use dereth_client_sdk::primitives::ObjectId;
 
+/// An object a `request` names: by its id, as the player, or as the first thing in the player's
+/// pack whose name holds a word.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Target {
+    Id(ObjectId),
+    Me,
+    Pack(String),
+}
+
+impl Target {
+    fn parse(word: &str) -> Option<Self> {
+        if word == "me" {
+            return Some(Self::Me);
+        }
+        if let Some(name) = word.strip_prefix("pack:").filter(|n| !n.is_empty()) {
+            return Some(Self::Pack(name.to_owned()));
+        }
+        parse_u32(word).map(|v| Self::Id(ObjectId(v)))
+    }
+}
+
+/// What a panel's button asks.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Request {
+    /// `request select <target>`.
+    Select(Target),
+    /// `request swear <target>`: raises the question `answer yes` takes.
+    Swear(Target),
+    /// `request break <target>`: raises the question `answer yes` takes.
+    Break(Target),
+    /// `request train-skill <skill> <credits>`.
+    TrainSkill { skill: u32, credits: u32 },
+    /// `request book-add <target>`.
+    BookAdd(Target),
+    /// `request book-write <target> <page> <text>`.
+    BookWrite {
+        book: Target,
+        page: u32,
+        text: String,
+    },
+    /// `request book-delete <target> <page>`.
+    BookDelete { book: Target, page: u32 },
+    /// `request research <component class>...`: the selection is the target.
+    Research(Vec<u32>),
+    /// `request forget-spell <spell>`.
+    ForgetSpell(u32),
+    /// `request shortcut-add <target>`.
+    ShortcutAdd(Target),
+    /// `request shortcut-remove <target>`.
+    ShortcutRemove(Target),
+    /// `request abuse <name> <complaint>`.
+    Abuse { name: String, complaint: String },
+    /// `request map-teleport <x> <y>`: the privileged player's teleport.
+    MapTeleport { x: u32, y: u32 },
+}
+
+const REQUEST_FORMS: &str = "request takes select <target>, swear <target>, break <target>, \
+                             train-skill <skill> <credits>, book-add <target>, \
+                             book-write <target> <page> <text>, book-delete <target> <page>, \
+                             research <class>..., forget-spell <spell>, shortcut-add <target>, \
+                             shortcut-remove <target>, abuse <name> <complaint>, or \
+                             map-teleport <x> <y>; a <target> is an id, me or pack:<word>";
+
+fn parse_request(args: &[&str]) -> Option<Request> {
+    let target = Target::parse;
+    Some(match args {
+        ["select", t] => Request::Select(target(t)?),
+        ["swear", t] => Request::Swear(target(t)?),
+        ["break", t] => Request::Break(target(t)?),
+        ["train-skill", skill, credits] => Request::TrainSkill {
+            skill: parse_u32(skill)?,
+            credits: parse_u32(credits)?,
+        },
+        ["book-add", t] => Request::BookAdd(target(t)?),
+        ["book-write", t, page, text @ ..] if !text.is_empty() => Request::BookWrite {
+            book: target(t)?,
+            page: parse_u32(page)?,
+            text: text.join(" "),
+        },
+        ["book-delete", t, page] => Request::BookDelete {
+            book: target(t)?,
+            page: parse_u32(page)?,
+        },
+        ["research", classes @ ..] if !classes.is_empty() => Request::Research(
+            classes
+                .iter()
+                .map(|c| parse_u32(c))
+                .collect::<Option<Vec<_>>>()?,
+        ),
+        ["forget-spell", spell] => Request::ForgetSpell(parse_u32(spell)?),
+        ["shortcut-add", t] => Request::ShortcutAdd(target(t)?),
+        ["shortcut-remove", t] => Request::ShortcutRemove(target(t)?),
+        ["abuse", name, complaint @ ..] if !complaint.is_empty() => Request::Abuse {
+            name: (*name).to_owned(),
+            complaint: complaint.join(" "),
+        },
+        ["map-teleport", x, y] => Request::MapTeleport {
+            x: parse_u32(x)?,
+            y: parse_u32(y)?,
+        },
+        _ => return None,
+    })
+}
+
 /// One line of a script.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Command {
@@ -41,6 +145,10 @@ pub enum Command {
     Use(ObjectId),
     /// `say <text>` -- `UiRequest::ChatLine` on window 0.
     Say(String),
+    /// `request ...` -- what a panel's button asks, with no panel to press.
+    Request(Request),
+    /// `delete <character>` -- the character screen's Delete, once the list is up.
+    Delete(String),
     /// `dump events` / `dump steps` -- the last frame's event log, or only its fourteen steps.
     Dump(Dump),
     /// `snapshot` -- `GameSnapshot::from_view` over the HUD's view, as text.
@@ -390,6 +498,11 @@ fn parse_args(n: usize, verb: &str, args: &[&str]) -> Result<Command, ScriptErro
         ("enter", [name]) => Ok(Command::Enter((*name).to_owned(), false)),
         ("enter", [name, "mage"]) => Ok(Command::Enter((*name).to_owned(), true)),
         ("enter", _) => Err(err(n, "enter takes <character> [mage]")),
+        ("request", args) => parse_request(args)
+            .map(Command::Request)
+            .ok_or_else(|| err(n, REQUEST_FORMS)),
+        ("delete", [name]) => Ok(Command::Delete((*name).to_owned())),
+        ("delete", _) => Err(err(n, "delete takes <character>")),
         ("chat", []) => Ok(Command::Chat),
         ("chat", _) => Err(err(n, "chat takes no arguments")),
         ("answer", ["yes"]) => Ok(Command::Answer(true)),
@@ -487,6 +600,45 @@ mod tests {
         );
         assert!(parse("world 0x1A9B4").is_err(), "a landblock id is 16 bits");
         assert!(parse("position 1").is_err());
+    }
+
+    #[test]
+    fn a_request_names_its_target_and_keeps_its_text_whole() {
+        assert_eq!(
+            parse("request select me\nrequest book-write pack:Book 2 two words\n").expect("parses"),
+            vec![
+                Command::Request(Request::Select(Target::Me)),
+                Command::Request(Request::BookWrite {
+                    book: Target::Pack("Book".into()),
+                    page: 2,
+                    text: "two words".into(),
+                }),
+            ]
+        );
+        assert_eq!(
+            parse("request research 0x10 17\nrequest abuse Name a b\ndelete Old\n")
+                .expect("parses"),
+            vec![
+                Command::Request(Request::Research(vec![16, 17])),
+                Command::Request(Request::Abuse {
+                    name: "Name".into(),
+                    complaint: "a b".into(),
+                }),
+                Command::Delete("Old".into()),
+            ]
+        );
+        for wrong in [
+            "request",
+            "request swear",
+            "request swear pack:",
+            "request research",
+            "request abuse Name",
+            "request train-skill 1",
+            "delete",
+            "delete a b",
+        ] {
+            assert!(parse(wrong).is_err(), "{wrong}");
+        }
     }
 
     #[test]

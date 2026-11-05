@@ -74,6 +74,13 @@ Script: one command per line, `#` starts a comment.
   walk <direction> <secs>         hold forward/back/left/right/strafe-left/strafe-right
   use <object-id>                 the Use request for an object
   say <text>                      a chat line, and the lines the chat took
+  request <what> ...              what a panel's button asks: select <target>, swear <target>,
+                                  break <target>, train-skill <skill> <credits>, book-add <target>,
+                                  book-write <target> <page> <text>, book-delete <target> <page>,
+                                  research <class>..., forget-spell <spell>, shortcut-add <target>,
+                                  shortcut-remove <target>, abuse <name> <complaint>,
+                                  map-teleport <x> <y>; a <target> is an id, me or pack:<word>
+  delete <character>              the character screen's Delete (for --connect)
   dump events | dump steps        the last frame's event log, or only its steps
   snapshot                        a summary of the game view
   world <landblock>               load a world offline with a body (needs --world)
