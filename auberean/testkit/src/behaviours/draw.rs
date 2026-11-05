@@ -578,6 +578,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.inside.what-stands-in-a-cell-seen-from-the-land-draws-after-the-land",
+        says: "With the camera on the land, each step of the world's objects draws what stands on the land first, then what stands in the cells it looks into, each list farthest first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LOOKED-IN-ORDER"),
+        station: "auberean-draw::cpu::objects::degrade::what_stands_in_a_cell_seen_from_the_land_draws_after_what_stands_on_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.material.a-device-draws-the-layers-of-its-detail-and-fog",
         says: "A device draws a material's layers made for its material detail and its fog: a \
                layer whose must-set detail or fog flags it lacks, or whose must-clear ones it has, \

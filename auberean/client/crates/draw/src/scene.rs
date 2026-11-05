@@ -694,7 +694,14 @@ pub fn in_order<'a>(batches: Vec<&'a ObjectBatch>, pass: Pass, eye: Vec3) -> Vec
         keyed.sort_by(|a, b| b.0.total_cmp(&a.0));
         keyed.into_iter().map(|(_, b)| b).collect()
     };
+    // What stands in a cell seen from the land comes after what stands on the land.
+    let (looked, own): (Vec<&ObjectBatch>, Vec<&ObjectBatch>) = if pass.farthest_first() {
+        own.into_iter().partition(|b| b.cull.is_looked_in())
+    } else {
+        (Vec::new(), own)
+    };
     let mut out = order(own);
+    out.extend(order(looked));
     out.extend(order(outside));
     out
 }
