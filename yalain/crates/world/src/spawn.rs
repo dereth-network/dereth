@@ -296,6 +296,7 @@ pub fn spawn<S: Store>(s: &mut Server<S>, i: usize, now: f64) -> Option<u64> {
         taken_by: Vec::new(),
         unreached: Vec::new(),
         ranged: false,
+        closing: None,
         barred: Vec::new(),
         next_look: now + f64::from(s.rng.unit()),
         lost_since: None,

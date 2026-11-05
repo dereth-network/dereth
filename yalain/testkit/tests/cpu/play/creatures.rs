@@ -367,3 +367,163 @@ fn whether_a_player_is_dead_is_read_from_its_numbers_alone() {
     p.qualities = numbers_only(1);
     assert!(!yalain_world::combat::is_dead(p));
 }
+
+/// A creature after a player, and how far it stands from it.
+fn after_player(h: &mut Harness, scale: f32) -> (u64, f32) {
+    h.add_creatures(1);
+    let (b, _) = h.player_in_world("one", "Elara");
+    scene_drawn(h, b);
+    let id = creature_ids(h, b)[0];
+    let c = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+        .expect("a creature");
+    c.stats.scale = scale;
+    let chasing = h.run_until(200, |h| {
+        h.server
+            .things
+            .get(id)
+            .and_then(|t| t.creature.as_ref())
+            .is_some_and(|c| c.mode == yalain_world::things::Mode::Chasing)
+    });
+    assert!(chasing, "it goes after the player");
+    (id, 0.4 * scale)
+}
+
+fn gap(h: &Harness, id: u64) -> f32 {
+    let at = h.server.things.get(id).and_then(|t| t.at).expect("placed");
+    let p = h.server.players.values().next().expect("a player");
+    let (dx, dy) = (
+        at.origin[0] - p.position.origin[0],
+        at.origin[1] - p.position.origin[1],
+    );
+    (dx * dx + dy * dy).sqrt()
+}
+
+/// The player keeps this far from the creature, along the line between them.
+fn keep_off(h: &mut Harness, id: u64, d: f32) {
+    let at = h.server.things.get(id).and_then(|t| t.at).expect("placed");
+    let p = h.server.players.values_mut().next().expect("a player");
+    p.position.origin = [at.origin[0] - d, at.origin[1], at.origin[2]];
+    p.position.cell = at.cell;
+}
+
+fn due(h: &Harness, id: u64) -> f64 {
+    h.server
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.next_attack)
+        .expect("a creature")
+}
+
+/// A creature running at a player who stands goes on to where its body says, and swings from there.
+/// Behaviour: server.creatures.stops-by-its-body
+#[test]
+fn a_creature_runs_at_a_standing_player_to_where_its_body_stops_and_swings_from_there() {
+    for scale in [1.0f32, 2.5] {
+        let mut h = Harness::new();
+        let (id, radius) = after_player(&mut h, scale);
+        keep_off(&mut h, id, 15.0);
+        // Due to swing all the way: it still waits until it gets there.
+        let now = h.now.0;
+        let c = h
+            .server
+            .things
+            .get_mut(id)
+            .and_then(|t| t.creature.as_mut())
+            .expect("a creature");
+        c.next_attack = now;
+        let was = due(&h, id);
+        let swung = h.run_until(400, |h| due(h, id) != was);
+        assert!(swung, "it swings");
+        let d = gap(&h, id);
+        assert!(
+            (d - (radius + 0.7)).abs() < 0.01,
+            "scale {scale}: it swung from {d} m"
+        );
+    }
+}
+
+/// A creature that has come to a stop stays there while the player is within its reach, however far
+/// past where it stops, and strikes; beyond its reach it runs again.
+/// Behaviour: server.creatures.reach-goes-with-its-body
+#[test]
+fn a_creature_stands_and_swings_while_a_player_is_within_its_reach_and_runs_beyond() {
+    for scale in [1.0f32, 2.5] {
+        let mut h = Harness::new();
+        let (id, radius) = after_player(&mut h, scale);
+        keep_off(&mut h, id, 15.0);
+        let was = due(&h, id);
+        assert!(h.run_until(400, |h| due(h, id) != was), "it swings");
+        let reach = radius + 3.0;
+        keep_off(&mut h, id, reach - 0.1);
+        let at = h.server.things.get(id).and_then(|t| t.at).expect("placed");
+        let was = due(&h, id);
+        assert!(h.run_until(400, |h| due(h, id) != was), "it swings again");
+        assert_eq!(
+            h.server.things.get(id).and_then(|t| t.at).map(|t| t.origin),
+            Some(at.origin),
+            "scale {scale}: not a step"
+        );
+        keep_off(&mut h, id, reach + 0.1);
+        h.run(4);
+        assert!(gap(&h, id) < reach, "scale {scale}: it runs at the player");
+    }
+}
+
+/// A player who keeps within a running creature's reach, but away from where it stops, is swung at
+/// on the run; one beyond its reach is not.
+/// Behaviour: server.creatures.swings-at-who-keeps-away
+#[test]
+fn a_creature_swings_on_the_run_at_a_player_who_keeps_within_its_reach() {
+    let mut h = Harness::new();
+    let (id, radius) = after_player(&mut h, 1.0);
+    // It comes to be due to strike, and has to run.
+    for _ in 0..40 {
+        keep_off(&mut h, id, radius + 4.0);
+        h.step();
+    }
+    let was = due(&h, id);
+    assert!(was <= h.now.0, "due, and no swing from beyond its reach");
+    let mut steps = 0;
+    while due(&h, id) == was {
+        keep_off(&mut h, id, radius + 2.5);
+        h.step();
+        steps += 1;
+        assert!(steps < 40, "it swings");
+    }
+}
+
+/// A creature after a player on the move stops further off than from one who stands.
+/// Behaviour: server.creatures.stops-further-from-one-moving
+#[test]
+fn a_creature_running_at_a_player_on_the_move_stops_further_off() {
+    let mut h = Harness::new();
+    let (id, radius) = after_player(&mut h, 1.0);
+    keep_off(&mut h, id, 15.0);
+    let walk = |h: &mut Harness| {
+        h.run(5);
+        let gap = gap(h, id);
+        let p = h.server.players.values_mut().next().expect("a player");
+        p.position.origin[0] -= 1.0;
+        gap
+    };
+    let mut caught = false;
+    for _ in 0..60 {
+        caught = walk(&mut h) <= radius + 3.0;
+        if caught {
+            break;
+        }
+    }
+    assert!(caught, "it comes within reach");
+    for _ in 0..2 {
+        walk(&mut h);
+    }
+    for _ in 0..8 {
+        let d = walk(&mut h);
+        assert!(d >= radius + 1.99 && d <= radius + 3.01, "{d} m");
+    }
+}

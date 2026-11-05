@@ -241,6 +241,18 @@ pub fn walker(records: &WorldRecords, description: &yalain_content::Description)
 /// The body every creature with no walker of its own is given: a human's size.
 const ANY_WALKER: (f32, f32) = (0.4, 1.8);
 
+/// The radius of a template's body at a scale, in meters: the largest of its spheres; a human's where
+/// its body is not known.
+#[must_use]
+pub fn body_radius(walls: Option<&Walls>, template: u32, scale: f32) -> f32 {
+    walls
+        .and_then(|w| w.walkers.get(&template))
+        .map_or(ANY_WALKER.0, |w| {
+            w.spheres.iter().map(|s| s[3]).fold(0.0, f32::max) * w.scale
+        })
+        * scale
+}
+
 /// The longest leg of a step through the transition, in meters: about what a creature running at 4
 /// m/s moves in a physics tick of a thirtieth of a second. A longer leg sinks the body so far into
 /// what it meets that the transition can send it back.

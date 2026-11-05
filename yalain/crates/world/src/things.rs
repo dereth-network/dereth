@@ -84,6 +84,9 @@ pub struct Creature {
     pub unreached: Vec<u64>,
     /// This fight it stands and shoots (else it closes in and strikes).
     pub ranged: bool,
+    /// It is running at a player, and goes on to where it stops once within reach: where the player
+    /// was at its last step.
+    pub closing: Option<StoredPosition>,
     /// The specials it used lately, each with when it may be used again (world seconds).
     pub barred: Vec<(u32, f64)>,
     /// When it next looks about for a player to attack (once a second, at its own moment).

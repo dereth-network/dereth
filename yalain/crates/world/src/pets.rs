@@ -613,6 +613,7 @@ pub fn summon<S: Store>(
         taken_by: Vec::new(),
         unreached: Vec::new(),
         ranged: false,
+        closing: None,
         barred: Vec::new(),
         next_look: f64::INFINITY,
         lost_since: None,

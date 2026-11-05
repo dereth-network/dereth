@@ -893,3 +893,22 @@ fn a_careful_search_tries_a_walks_short_legs() {
     let (quick, careful) = (moves_of(false), moves_of(true));
     assert!(careful > quick * 2, "{careful} moves against {quick}");
 }
+
+/// How far a creature stands from a player goes with its body: its largest sphere at its look's
+/// scale and its template's, a human's for a body not known.
+/// Behaviour: server.creatures.stops-by-its-body
+#[test]
+fn a_bodys_radius_is_its_largest_sphere_at_its_looks_scale_and_its_own() {
+    let w = walls();
+    let digger = w.walkers.get(&DIGGER).expect("the Digger's body").clone();
+    let largest = digger.spheres.iter().map(|s| s[3]).fold(0.0, f32::max);
+    assert!(largest > 0.0);
+    let radius = yalain_world::walls::body_radius(Some(&w), DIGGER, 2.0);
+    assert!(
+        (radius - largest * digger.scale * 2.0).abs() < 1e-5,
+        "{radius}"
+    );
+    let unknown = yalain_world::walls::body_radius(Some(&w), 0x4700_0000, 2.0);
+    assert!((unknown - 0.8).abs() < 1e-5, "{unknown}");
+    assert!((yalain_world::walls::body_radius(None, DIGGER, 1.0) - 0.4).abs() < 1e-5);
+}

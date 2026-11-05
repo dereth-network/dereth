@@ -142,8 +142,29 @@ pub fn joins_chance(table: Option<u32>) -> f32 {
     }
 }
 
-/// How close a creature must be to strike with a melee attack, in meters (center to center).
+/// How close a creature fighting a pet must be to strike it, how near a shooter lets a player come
+/// before it fights hand to hand, and what a turret's reach is at least, in meters (center to
+/// center).
 pub const MELEE_REACH: f32 = 2.5;
+
+/// How far past its body's radius a creature running at a player who stands stops, in meters. 2017:
+/// over 415 swings by a creature standing at a player standing, the median 0.71 whatever the body; a
+/// run's first swing at one, 340 swings, median 0.91.
+pub const STOPS_PAST_BODY: f32 = 0.7;
+
+/// How far past its body's radius a creature running at a player on the move stops, in meters. 2017:
+/// over 267 swings by a creature that had been moving, at a player going under 4 m/s, the medians
+/// 1.85 to 2.42 as the player goes faster.
+pub const STOPS_PAST_BODY_MOVING: f32 = 2.0;
+
+/// How far past its body's radius a creature's melee swing reaches, in meters: within it, a creature
+/// standing stays where it is and swings. 2017: 407 of those 415 swings came from under 3.0, and a
+/// player walking saw the same edge (p90 3.12).
+pub const REACHES_PAST_BODY: f32 = 3.0;
+
+/// How far a player can shift between two of a creature's steps and still count as standing, in
+/// meters.
+const PLAYER_STANDS: f32 = 0.05;
 
 /// How long a creature remembers the harm a player did it when it thinks again about whom it
 /// fights, in seconds.
@@ -313,10 +334,19 @@ fn attacks_from_here<S: Store>(s: &Server<S>, t: &crate::things::Thing, now: f64
     let Some(p) = s.players.values().find(|p| p.character == target) else {
         return false;
     };
+    let reach = body_radius_of(s, t.id) + REACHES_PAST_BODY;
     presence::distance(&at, &p.position).is_some_and(|d| {
-        d <= MELEE_REACH
+        (d <= reach && c.closing.is_none())
             || (c.ranged && d <= crate::missiles::MISSILE_RANGE)
             || c.stats.turns_only()
+    })
+}
+
+/// A creature's body's radius.
+fn body_radius_of<S: Store>(s: &Server<S>, id: u64) -> f32 {
+    s.things.get(id).map_or(0.0, |t| {
+        let scale = t.creature.as_ref().map_or(1.0, |c| c.stats.scale);
+        crate::walls::body_radius(s.walls.as_ref(), t.template, scale)
     })
 }
 
@@ -452,16 +482,54 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, clock: Clock, 
                     face(s, net, id, &place, clock);
                     crate::missiles::shoot(s, net, id, conn, clock);
                 }
-            } else if d.is_some_and(|d| d > MELEE_REACH) {
-                step_toward(s, net, id, &place, run, MELEE_REACH * 0.8, RUNNING, clock);
-                cannot_reach(s, id, target);
             } else {
-                // A target in melee reach is struck, for the rest of the fight.
-                if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+                // Beyond its reach it runs at the player, and goes on to where it stops even once
+                // within reach; one that got there, or never had to run, stands for as long as the
+                // player stays within reach.
+                let radius = body_radius_of(s, id);
+                let reach = radius + REACHES_PAST_BODY;
+                let d = d.unwrap_or(f32::MAX);
+                let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) else {
+                    return;
+                };
+                let was = c.closing;
+                // A player on the move it stops further from, and swings at on the run.
+                let moved = was.is_some_and(|was| {
+                    presence::distance(&was, &place).is_none_or(|m| m > PLAYER_STANDS)
+                });
+                let stop = radius
+                    + if moved {
+                        STOPS_PAST_BODY_MOVING
+                    } else {
+                        STOPS_PAST_BODY
+                    };
+                let (dx, dy, _) = offset(&at, &place);
+                let there = (dx * dx + dy * dy).sqrt() <= stop + 0.01;
+                if d > reach || (was.is_some() && !there) {
+                    c.closing = Some(place);
+                } else {
+                    c.closing = None;
+                }
+                let runs = c.closing.is_some();
+                if d <= reach {
+                    // A target in melee reach is struck, for the rest of the fight.
                     c.ranged = false;
                 }
-                face(s, net, id, &place, clock);
-                crate::combat::creature_strikes(s, net, id, conn, clock);
+                if runs {
+                    let step = step_toward(s, net, id, &place, run, stop, RUNNING, clock);
+                    cannot_reach(s, id, target);
+                    // Within reach and held up, it comes no nearer: it stands and strikes from there.
+                    if step == Step::Blocked && d <= reach {
+                        if let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) {
+                            c.closing = None;
+                        }
+                    }
+                } else {
+                    face(s, net, id, &place, clock);
+                }
+                if d <= reach && (!runs || moved) {
+                    crate::combat::creature_strikes(s, net, id, conn, clock);
+                }
             }
         }
         Mode::Returning => {
@@ -860,6 +928,7 @@ fn engage<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, player: u64
     c.lost_since = None;
     c.joining = None;
     c.target = Some(player);
+    c.closing = None;
     let here = s.things.get(id).and_then(|t| t.at);
     let Some(c) = s.things.get_mut(id).and_then(|t| t.creature.as_mut()) else {
         return;

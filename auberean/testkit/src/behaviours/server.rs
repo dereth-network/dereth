@@ -2248,6 +2248,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.reach-goes-with-its-body",
+        says: "A creature standing stays where it is and swings while its target is within 3 m past \
+               its body's radius, and runs again beyond. Our choice, from the edge of 2017's swings.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-REACH-BODY"),
+        station: "yalain-testkit::cpu::play::creatures::a_creature_stands_and_swings_while_a_player_is_within_its_reach_and_runs_beyond",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.redraw-by-harm-and-nearness",
         says: "A creature that players have hurt lately draws its target again now and then among them \
                by the harm each did it, the nearest three times as likely.",
@@ -2300,6 +2309,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.stops-by-its-body",
+        says: "A creature running at a player who stands goes on to 0.7 m past its body's radius, and \
+               swings from there. Our choice, from where 2017's stood.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-STOP-BODY"),
+        station: "yalain-testkit::cpu::play::creatures::a_creature_runs_at_a_standing_player_to_where_its_body_stops_and_swings_from_there",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.creatures.stops-further-from-one-moving",
+        says: "A creature running at a player on the move stops 2 m past its body's radius. Our choice, \
+               from where 2017's swung.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-STOP-MOVING"),
+        station: "yalain-testkit::cpu::play::creatures::a_creature_running_at_a_player_on_the_move_stops_further_off",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.stuck-in-something-put-out",
         says: "A creature that stands in something and can move no way at all is put where it \
                fits nearest when it next steps. Our choice: 2017's creatures were placed where \
@@ -2308,6 +2335,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-SRV-STUCK-PUT-OUT"),
         station: "yalain-testkit::dat::walls::a_creature_standing_in_something_is_put_where_it_fits_and_walks_on",
         tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.creatures.swings-at-who-keeps-away",
+        says: "A creature running at a player within its reach swings on the run when its attack is \
+               due. Our choice.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-CREATURE-SWINGS-RUNNING"),
+        station: "yalain-testkit::cpu::play::creatures::a_creature_swings_on_the_run_at_a_player_who_keeps_within_its_reach",
+        tier: Tier::Cpu,
     },
     behaviour! {
         id: "server.creatures.turn-on-the-most-harm",
