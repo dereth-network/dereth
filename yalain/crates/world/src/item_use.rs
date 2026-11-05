@@ -788,6 +788,7 @@ fn carry_out<S: Store>(
     }
     let done = crate::places::use_done(&u, me, f, false, 0.0);
     progress::private(net, world, &done);
+    crate::death_spawn::used(s, net, world, &t.props, clock);
     // Food wears with each use, and goes at its last.
     if template == FOOD {
         crate::butchery::wear_tool_by(s, net, world, u.item, 1.0, FOOD_DURABILITY);

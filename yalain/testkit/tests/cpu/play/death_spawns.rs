@@ -234,3 +234,94 @@ fn only_so_many_of_a_death_effects_creatures_live_at_once() {
     assert!(live <= yalain_world::death_spawn::MOST, "{live}");
     assert!(live >= yalain_world::death_spawn::MOST - 5, "{live}");
 }
+
+/// An item whose use names such an effect makes what it makes at its offset from its user, as the
+/// use is done, the item spent; used again with no more, it makes no more.
+/// Behaviour: server.creatures.an-items-use-makes-what-it-names
+#[test]
+fn an_items_use_makes_what_its_effect_names_before_its_user() {
+    use auberean_protocol::queue;
+    use yalain_content::{Prop, Props};
+    use yalain_world::graph::{Builder, Slot};
+    const GEM: u32 = 0x4700_1853;
+    const SUMMON: &str = "Eff_Summons";
+    let (mut h, _) = world();
+    let (b, me) = (0, h.server.players.values().next().expect("in").character);
+    let helper = beetle_template(&h);
+    h.server.death_spawns.insert(
+        SUMMON.into(),
+        DeathSpawn {
+            template: helper,
+            count: 1,
+            chance: 1.0,
+            offset: [0.0, 2.0],
+        },
+    );
+    let mut props = Props::default();
+    props
+        .set("Usage_Effect2", Prop::Text(SUMMON.into()))
+        .set("Item_IsDestroyOnUse", Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(GEM, 0x777, props));
+    h.server.item_uses.insert(
+        GEM,
+        vec![UsageEffect {
+            state: CURSE,
+            spellcraft: 1.0,
+        }],
+    );
+    let world = *h.server.players.keys().next().expect("in");
+    let gem =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, GEM, 1).expect("given");
+    h.run(2);
+    let at = h.server.players[&world].position;
+    let before = living(&h);
+    let mut use_of = Builder::new();
+    use_of.object(
+        0x245,
+        &[
+            Slot::Ref(None),
+            Slot::Ref(None),
+            Slot::Long(gem),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Long(me),
+            Slot::Int((-1.0f32).to_bits()),
+            Slot::Long(0),
+            Slot::Int(0),
+            Slot::Long(0),
+            Slot::Int(0),
+            Slot::Ref(None),
+            Slot::Int(0),
+            Slot::Int(316),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    let arg = auberean_script::args::Arg::Object(use_of.graph());
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &yalain_testkit::play::server_call(0x8216_0016, &[arg]),
+    );
+    h.run(20);
+    let made: Vec<u64> = living(&h)
+        .into_iter()
+        .filter(|id| !before.contains(id))
+        .collect();
+    assert_eq!(made.len(), 1);
+    let got = h
+        .server
+        .things
+        .get(made[0])
+        .and_then(|t| t.at)
+        .expect("placed");
+    let dx = got.origin[0] - at.origin[0];
+    let dy = got.origin[1] - at.origin[1];
+    assert!(
+        ((dx * dx + dy * dy) - 4.0).abs() < 0.05,
+        "{got:?} from {at:?}"
+    );
+    assert!(h.server.things.get(gem).is_none(), "spent");
+}

@@ -1989,6 +1989,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.an-items-use-makes-what-it-names",
+        says: "An item whose use names an effect a world's row makes creatures by makes them at the \
+               row's offset from its user, as the use is done.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-USE-SPAWN"),
+        station: "yalain-testkit::cpu::play::death_spawns::an_items_use_makes_what_its_effect_names_before_its_user",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.armor-debuff-in-a-special",
         says: "What a landed special's effect takes from a creature's armor counts in the next hit \
                of a special, on the whole server with the install's own skills.",

@@ -46,6 +46,7 @@ what they see, not how it was done.
 - A plain shield now shows Shield Stats.
 - Curses and peace amulets now change who creatures attack.
 - Gauntlet players land in a free arena room.
+- Practice gems summon their dummy.
 
 - Fixed a selected person showing empty health and vigor bars.
 

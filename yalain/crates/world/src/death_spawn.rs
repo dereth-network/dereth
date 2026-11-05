@@ -10,6 +10,10 @@
 //! They stay until killed (the install's effect says they are permanent). A world may let many
 //! such kills pass with no one to fight what they make, so no more than [`MOST`] of one effect's
 //! live at once.
+//!
+//! **An item's use** may name such an effect too: what it makes stands before its user as the use
+//! is done (2017: 4 of 4 practice gems used by the player recording it, a dummy of the gem's own tier
+//! 2 m ahead at its heading, within 0.05 m, with the use's answer and the gem gone).
 
 use dereth_primitives::num::math;
 use yalain_net::{ConnId, ServerNet};
@@ -56,6 +60,25 @@ pub fn killed<S: Store>(
     for name in effects {
         if let Some(spawn) = s.death_spawns.get(name).copied() {
             makes(s, net, killer, name, spawn, clock);
+        }
+    }
+}
+
+/// What an item's use makes around its user, by the effects its template names.
+pub fn used<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    user: ConnId,
+    props: &yalain_content::Props,
+    clock: Clock,
+) {
+    let (name, _) = crate::item_use::USED;
+    for i in 1..=8 {
+        let Some(effect) = props.text(&format!("{name}{i}")) else {
+            continue;
+        };
+        if let Some(spawn) = s.death_spawns.get(effect).copied() {
+            makes(s, net, user, effect, spawn, clock);
         }
     }
 }
