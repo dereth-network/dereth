@@ -887,7 +887,7 @@ struct CameraWorld<'a, 'w> {
 /// before, and it stands at the new place; each frame in mouse look, both, so a frame draws it
 /// there and nowhere between. With no loaded cell for a line to start from it stays where it
 /// stood.
-// D2-10664, D2-10662, D2-10647
+// D2-10664, D2-10662
 fn place_camera(
     camera: &mut CameraControl,
     stands: &mut Option<camera::Stands>,
@@ -951,21 +951,12 @@ fn place_camera(
     } else {
         Some(viewer.stand_at(pos.cell, viewer.origin))
     };
-    match (stands.as_mut(), placed) {
-        (Some(s), Some(at)) => {
-            s.set_previous(s.current);
-            s.set_current(at);
-            if each_frame.is_some() && traced {
-                s.set_previous(at);
-            }
-        }
-        (Some(s), None) => s.set_previous(s.current),
-        (None, Some(at)) => *stands = Some(camera::Stands::at(at)),
-        // Placed the first time with no line to keep it off the world: where it wants to be.
-        (None, None) => {
-            *stands = Some(camera::Stands::at(viewer.stand_at(pos.cell, viewer.origin)));
-        }
-    }
+    let placed = camera::take_place(
+        stands,
+        placed,
+        viewer.stand_at(pos.cell, viewer.origin),
+        each_frame.is_some() && traced,
+    );
     // Where the next glide starts from, in the body's landblock's frame.
     if let Some(at) = placed {
         let shift = auberean_physics::geom::block_offset(pos.cell, at.cell);

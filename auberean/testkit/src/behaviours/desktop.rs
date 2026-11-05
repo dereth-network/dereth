@@ -437,6 +437,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "desktop.camera.a-frame-that-isnt-one-is-not-taken",
+        says: "A place for the camera whose frame is not a frame is not taken; the camera stays where it stood.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CAMERA-FRAME-VALID"),
+        station: "auberean-scene::cpu::camera::a_frame_that_isnt_one_is_not_taken",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.camera.a-glide-turns-the-whole-view",
         says: "A glide between two views turns the camera's whole frame, not the way it looks: on the way it swings round and leans, where a turn of the look alone would dip through the ground.",
         since: RETAIL,
