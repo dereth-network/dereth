@@ -625,6 +625,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.areas.another-players-pet-goes-as-its-owner",
+        says: "A hostile skill aimed at another player's pet is refused, and an area leaves it out, while its \
+               owner may not be harmed; where the two may fight, each reaches it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-AREAS-OTHERS-PET"),
+        station: "yalain-testkit::cpu::play::areas::a_skill_and_an_area_spare_another_players_pet_while_its_owner_may_not_be_harmed",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.areas.centered-on-the-user",
         says: "An area skill used on its user is centered on it: its playing hook names the \
                user and its area names the creatures within its radius of the user, each with \
@@ -7447,6 +7456,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-AGGRESSIVE"),
         station: "yalain-testkit::cpu::play::pet_kinds::an_aggressive_pet_takes_on_the_nearest_creature_unbidden",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.another-players-pet-goes-as-its-owner",
+        says: "Another player's pet may be ordered at, struck or aimed at only as its owner may be harmed; \
+               refused otherwise, it takes nothing, and a fight it is in ends when the two may no longer \
+               fight.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-OTHERS"),
+        station: "yalain-testkit::cpu::play::pets::another_players_pet_takes_no_harm_while_its_owner_may_not_be_harmed",
         tier: Tier::Cpu,
     },
     behaviour! {

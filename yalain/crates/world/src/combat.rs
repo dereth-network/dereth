@@ -481,6 +481,21 @@ pub fn may_attack_player<S: Store>(s: &Server<S>, world: ConnId, other: ConnId) 
     )
 }
 
+/// May a player harm a thing? A pet is as its owner ([`may_attack_player`]), its own owner's
+/// excepted; any other creature may be fought.
+///
+/// # Errors
+/// Why not (the client writes the text).
+pub fn may_attack_thing<S: Store>(s: &Server<S>, world: ConnId, thing: u64) -> Result<(), u32> {
+    let Some(owner) = s.pets.by_id.get(&thing).map(|p| p.owner) else {
+        return Ok(());
+    };
+    match s.players.iter().find(|(_, p)| p.character == owner) {
+        Some((c, _)) if *c != world => may_attack_player(s, world, *c),
+        _ => Ok(()),
+    }
+}
+
 /// The bits of a hook's target health change and target PK damage change.
 const TARGET_HEALTH: u32 = 0x800;
 const TARGET_PK_DAMAGE: u32 = 0x2000;
@@ -539,7 +554,7 @@ pub(crate) fn attack_state(on: bool) -> ServerMessage {
     session::call(function::ATTACK_STATE, &[Arg::Int(u32::from(on))]).expect("packs")
 }
 
-fn failed(err: u32) -> ServerMessage {
+pub(crate) fn failed(err: u32) -> ServerMessage {
     session::call(function::BASIC_ATTACKS_FAILED, &[Arg::Int(err)]).expect("packs")
 }
 
@@ -596,10 +611,16 @@ pub fn begin<S: Store>(
                 return;
             }
         },
-        None => s
-            .things
-            .get(target)
-            .map(|t| t.alive() && t.creature.is_some()),
+        None => {
+            if let Err(err) = may_attack_thing(s, world, target) {
+                progress::private(net, world, &failed(err));
+                progress::private(net, world, &attack_state(false));
+                return;
+            }
+            s.things
+                .get(target)
+                .map(|t| t.alive() && t.creature.is_some())
+        }
     };
     if fightable != Some(true) {
         let err = if fightable.is_some() {
@@ -734,14 +755,16 @@ fn swing<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock:
     let Some(run) = s.players.get(&world).and_then(|p| p.attacking) else {
         return;
     };
-    // Another player: only while who may harm whom still allows it.
+    // Another player or its pet: only while who may harm whom still allows it.
     let other = player_target(s, world, run.target);
-    if let Some(o) = other {
-        if let Err(err) = may_attack_player(s, world, o) {
-            progress::private(net, world, &failed(err));
-            end(s, net, world);
-            return;
-        }
+    let allowed = other.map_or_else(
+        || may_attack_thing(s, world, run.target),
+        |o| may_attack_player(s, world, o),
+    );
+    if let Err(err) = allowed {
+        progress::private(net, world, &failed(err));
+        end(s, net, world);
+        return;
     }
     let target = match other {
         Some(o) => s

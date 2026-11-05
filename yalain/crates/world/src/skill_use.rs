@@ -1142,6 +1142,7 @@ fn check<S: Store>(
             if !t.alive() {
                 return Err(refusal::TARGET_DEAD);
             }
+            combat::may_attack_thing(s, world, target)?;
             let Some(at) = t.at else {
                 return Err(refusal::TARGET_GONE);
             };
@@ -1645,9 +1646,10 @@ pub(crate) fn story_hooks_with(
 }
 
 /// The live creatures a hook with an area reaches: those whose bodies are within its radius of
-/// its center's body, by id.
+/// its center's body and that its user may harm, by id.
 fn area_targets<S: Store>(
     s: &Server<S>,
+    world: ConnId,
     center: &yalain_store::StoredPosition,
     body: crate::reach::Body,
     radius: f32,
@@ -1656,6 +1658,7 @@ fn area_targets<S: Store>(
         .things
         .placed()
         .filter(|t| t.alive() && t.creature.is_some())
+        .filter(|t| combat::may_attack_thing(s, world, t.id).is_ok())
         .filter(|t| {
             t.at.as_ref().is_some_and(|at| {
                 crate::reach::gap(center, body, at, crate::reach::body_of(s, t.id))
@@ -2062,8 +2065,9 @@ fn landings_of<S: Store>(
             continue;
         }
         let targets = if h.flags & hook_flag::AREA != 0 && h.radius > 0.0 {
-            let mut around =
-                center.map_or_else(Vec::new, |(at, body)| area_targets(s, &at, body, h.radius));
+            let mut around = center.map_or_else(Vec::new, |(at, body)| {
+                area_targets(s, world, &at, body, h.radius)
+            });
             // Aimed at another player, it reaches that player first.
             if primary_creature && matches!(aim, Aim::Player(..)) {
                 around.insert(0, target);

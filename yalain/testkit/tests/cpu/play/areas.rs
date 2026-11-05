@@ -113,6 +113,65 @@ fn holds(h: &Harness, beetle: u64, state: u32) -> bool {
         .any(|e| e.state == state)
 }
 
+/// A skill at another player's pet, and an area around another creature, spare the pet while its
+/// owner may not be harmed; where the two may fight, each reaches it.
+/// Behaviour: server.areas.another-players-pet-goes-as-its-owner
+#[test]
+fn a_skill_and_an_area_spare_another_players_pet_while_its_owner_may_not_be_harmed() {
+    let (mut h, b, me, beetles) = beside_beetles(2);
+    let (target, pet) = (beetles[0], beetles[1]);
+    let (_, them) = h.player_in_world("two", "Babyfare");
+    h.run(10);
+    h.server.pets.by_id.insert(
+        pet,
+        yalain_world::pets::Pet {
+            id: pet,
+            owner: them,
+            template: TEST_CREATURE,
+            class: 0,
+            flags: 0,
+            mode: 0,
+            name: None,
+            order: yalain_world::pets::Order::Follow,
+            next_plan: f64::MAX,
+            goal: None,
+            effect: 0,
+            assist: None,
+            next_tend: f64::MAX,
+        },
+    );
+    place(&mut h, me, target, 6.0, 0.0);
+    place(&mut h, me, pet, 9.0, 2.0);
+    h.arm(b, me, STAVE);
+    let from = use_skill(&mut h, b, 1, VACUUM, pet);
+    h.run(120);
+    let told = h.world_messages(b, from);
+    assert!(
+        !told
+            .iter()
+            .any(|m| matches!(m, ServerMessage::DoStory(e) if e.action.skill == VACUUM)),
+        "aimed at the pet: refused"
+    );
+    let from = use_skill(&mut h, b, 2, VACUUM, target);
+    h.run(120);
+    let named: Vec<u64> = story_hooks(&h, b, from, me, VACUUM)[2..]
+        .iter()
+        .map(|k| k.target)
+        .collect();
+    assert_eq!(named, [target], "the area leaves the pet out");
+    for p in h.server.players.values_mut() {
+        p.conflict = 4;
+    }
+    h.run(200);
+    let from = use_skill(&mut h, b, 3, VACUUM, target);
+    h.run(120);
+    let named: Vec<u64> = story_hooks(&h, b, from, me, VACUUM)[2..]
+        .iter()
+        .map(|k| k.target)
+        .collect();
+    assert!(named.contains(&pet), "where all may fight, it is reached");
+}
+
 /// Vacuum on one beetle reaches the beetle beside it (its area of ten meters) but not one twenty
 /// meters off: after the hook that only plays, the area hook names the target and its neighbor
 /// one after another (by id), each with its own outcome and the damage when it hurts; each one it

@@ -1490,3 +1490,109 @@ fn a_dead_lasher_keeps_its_kingdom_in_its_dead_physics_type() {
         .collect();
     assert_eq!(physics, [0x1080_0030]);
 }
+
+/// Another player's pet goes as its owner: while the owner may not be harmed, a pet's order at it is
+/// refused and its owner's own blow is too, and it takes nothing; where the two may fight, it can be
+/// fought.
+/// Behaviour: server.pets.another-players-pet-goes-as-its-owner
+#[test]
+fn another_players_pet_takes_no_harm_while_its_owner_may_not_be_harmed() {
+    let mut h = Harness::new();
+    with_natures_aid(&mut h);
+    let (a, me) = ranger(&mut h, "one", "Kestrel");
+    let (b, _) = ranger(&mut h, "two", "Merrow");
+    let pet_of_client = |h: &mut Harness, c: usize| {
+        let from = summon(h, c, 1);
+        h.calls(c, from)
+            .iter()
+            .find(|(f, _)| *f == function::ADD)
+            .and_then(|(_, v)| pet_of(v))
+            .expect("a pet added")
+    };
+    let mine = pet_of_client(&mut h, a);
+    let theirs = pet_of_client(&mut h, b);
+    let health = |h: &Harness, id: u64| h.server.things.get(id).map_or(0, |t| t.health);
+    let refused = |h: &Harness, from: usize| {
+        h.functions(a, from)
+            .contains(&yalain_world::combat::function::BASIC_ATTACKS_FAILED)
+    };
+    let whole = health(&h, theirs);
+    let from = order(&mut h, a, function::ATTACK, &[Arg::LongInt(theirs)]);
+    assert!(refused(&h, from), "the order refused");
+    h.run(400);
+    assert_eq!(health(&h, theirs), whole, "its pet leaves it alone");
+    let c = h.server.things.get(mine).and_then(|t| t.creature.as_ref());
+    assert_ne!(
+        c.and_then(|c| c.target),
+        Some(theirs),
+        "and is not after it"
+    );
+    let start = yalain_world::combat::function::START_ATTACK;
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in")
+        .0;
+    let from = h.bots[a].inbox.len();
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(start, &[Arg::LongInt(theirs)]),
+    );
+    h.run(4);
+    assert!(refused(&h, from), "its owner's own blow refused at once");
+    assert!(
+        h.server.players[&world].attacking.is_none(),
+        "no attack begun"
+    );
+    h.run(400);
+    assert_eq!(health(&h, theirs), whole, "nor does its owner touch it");
+    // Its owner's blows stop as soon as the two may no longer fight.
+    for p in h.server.players.values_mut() {
+        p.conflict = 4;
+    }
+    h.bots[a].send(
+        true,
+        queue::WEENIE,
+        &server_call(start, &[Arg::LongInt(theirs)]),
+    );
+    h.run(4);
+    assert!(
+        h.server.players[&world].attacking.is_some(),
+        "an attack begun"
+    );
+    for p in h.server.players.values_mut() {
+        p.conflict = 1;
+    }
+    let from = h.bots[a].inbox.len();
+    h.run(40);
+    assert!(refused(&h, from), "its next blow refused");
+    assert!(
+        h.server.players[&world].attacking.is_none(),
+        "the attack ended"
+    );
+    if let Some(t) = h.server.things.get_mut(theirs) {
+        t.health = whole;
+    }
+    // Where all may fight, it is fought.
+    for p in h.server.players.values_mut() {
+        p.conflict = 4;
+    }
+    let from = order(&mut h, a, function::ATTACK, &[Arg::LongInt(theirs)]);
+    assert!(!refused(&h, from), "the order taken");
+    h.run(400);
+    assert!(health(&h, theirs) < whole, "and it is hurt");
+    // Peace again: the pet already after it stops.
+    for p in h.server.players.values_mut() {
+        p.conflict = 1;
+    }
+    h.run(100);
+    let c = h.server.things.get(mine).and_then(|t| t.creature.as_ref());
+    assert_ne!(
+        c.and_then(|c| c.target),
+        Some(theirs),
+        "peace ends the fight"
+    );
+}

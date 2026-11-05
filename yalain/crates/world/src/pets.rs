@@ -1150,6 +1150,10 @@ fn order_attack<S: Store>(
     let Some(from) = s.players.get(&world).map(|p| p.position) else {
         return;
     };
+    if let Err(err) = crate::combat::may_attack_thing(s, world, target) {
+        progress::private(net, world, &crate::combat::failed(err));
+        return;
+    }
     if crate::presence::distance(&from, &at).is_none_or(|d| d > ATTACK_RANGE) {
         progress::private(
             net,
@@ -1391,7 +1395,8 @@ fn act<S: Store>(s: &mut Server<S>, net: &mut ServerNet, pet: &Pet, clock: Clock
             .get(id)
             .and_then(|t| t.creature.as_ref())
             .and_then(|c| c.target)
-            .filter(|t| s.things.get(*t).is_some_and(Thing::alive));
+            .filter(|t| s.things.get(*t).is_some_and(Thing::alive))
+            .filter(|t| crate::combat::may_attack_thing(s, world, *t).is_ok());
         current.or_else(|| unbidden(s, pet, &at))
     };
     if let Some(t) = fighting {
