@@ -33,6 +33,7 @@ what they see, not how it was done.
 - Fixed a key opening a locked chest or door more than once.
 - Fixed a chest staying open for good when its opener leaves the world.
 - Pet names can be refused as too long or not allowed.
+- Fixed long lines of talk holding up what nearby players hear.
 
 - Fixed a selected person showing empty health and vigor bars.
 

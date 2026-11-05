@@ -889,6 +889,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.chat.line-too-long-goes-nowhere",
+        says: "A line of talk past the most one may carry, by the size of its whole call or packet, reaches \
+               nobody, however it is said; its speaker is told or its room request refused, and it may \
+               go on talking. Our own limit: no recording reaches it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TALK-TOO-LONG"),
+        station: "yalain-testkit::cpu::entry::long_lines::a_line_past_the_longest_reaches_nobody_and_its_speaker_is_told",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.chat.longest-line-heard-at-once",
+        says: "The longest line a client can send, of each kind, is heard whole and goes out at once, so \
+               nothing a listener is told next waits behind it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-TALK-LONGEST"),
+        station: "yalain-testkit::cpu::entry::long_lines::the_longest_line_a_client_can_send_is_heard_whole_and_holds_nothing_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.chat.messages-as-2017-sent-them",
         says: "The chat messages the server builds are those the 2017 servers sent: the empty \
                allegiance profile, a new character's channels, each emote's behavior, each typed \
@@ -3433,6 +3452,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-MADE"),
         station: "yalain-testkit::cpu::play::fellowships::a_fellowship_made_is_sent_to_its_maker_and_a_bad_name_is_refused",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.fellowship.name-past-the-longest-refused",
+        says: "A fellowship name longer than the client's chat entry can hold is refused. Our own limit: the \
+               recorded names are far inside it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-FELLOW-NAME-LONG"),
+        station: "yalain-testkit::cpu::entry::long_lines::a_fellowship_name_past_the_chat_entrys_length_is_refused",
         tier: Tier::Cpu,
     },
     behaviour! {

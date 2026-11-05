@@ -45,6 +45,9 @@ pub fn call<S: Store>(
     if crate::admin_calls::is_admin_call(f) {
         return crate::admin_calls::call(s, net, world, f, &call.args.0, clock);
     }
+    if chat::carries_words(f) && call.args.0.len() > chat::MOST_TALK_BYTES {
+        return chat::too_long(s, net, world);
+    }
     let Ok(values) = calls::values(&call.args.0) else {
         s.unhandled
             .note(format!("script call {f:#010x} whose values do not read"));

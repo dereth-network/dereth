@@ -18,6 +18,9 @@
 //! an admin's from an admin's account, refused from staff below it as any command beyond their
 //! level is, and from a player's account kept as any other of its words.
 //!
+//! **How long a line may be.** A line longer than [`MOST_TALK_BYTES`] goes nowhere, and the speaker
+//! is told. A retail client's lines all fit: it takes 512 characters at its chat entry.
+//!
 //! **Gags and admins.** A gagged player ([`crate::admin`]) says, tells, emotes and speaks into a
 //! room to nobody, and is told it is gagged. A line an admin says as one of the admin commands is
 //! heard by nobody, and answered.
@@ -270,6 +273,30 @@ fn network_command<S: Store>(s: &mut Server<S>, world: ConnId, text: &str) -> bo
     };
     s.network_commands.push(command);
     true
+}
+
+/// The most a line of talk may carry, in bytes of its call or its room packet: it goes to everyone
+/// near or in the room, and what is over a message's pace would hold back all that follows it. The
+/// client's chat entry takes 512 characters; markup escaped doubles them, and an alias can stand for
+/// as many again, which is 2,048 characters of two bytes, and the rest is what carries them. The
+/// largest recorded are far inside it: 244 bytes of 167 sayings, 492 of 79 tells, 556 of 1,316 room
+/// lines.
+pub const MOST_TALK_BYTES: usize = 5 * 1024;
+
+/// What a player is told of a line past [`MOST_TALK_BYTES`].
+pub const TOO_LONG: &str = "That is too long to say.";
+
+/// Is this function a line of talk with words in it?
+#[must_use]
+pub const fn carries_words(function: u32) -> bool {
+    use crate::requests::function::{SAY, TELL, TYPED_EMOTE};
+    matches!(function, SAY | TELL | TYPED_EMOTE)
+}
+
+/// A line past [`MOST_TALK_BYTES`]: nobody hears it, and its speaker is told.
+pub fn too_long<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    s.unhandled.note("a line of talk too long");
+    crate::login::notice(net, world, TOO_LONG);
 }
 
 /// A player says something: it and every client that knows it hear it. The network's command and
@@ -1034,6 +1061,11 @@ pub fn service<S: Store>(
         refuse(net);
         return;
     };
+    if packet.len() > MOST_TALK_BYTES {
+        s.unhandled.note("a line of talk too long");
+        refuse(net);
+        return;
+    }
     let world = s.sessions.get(&login).and_then(|x| match x.stage {
         Stage::InWorld { world, .. } => Some(world),
         _ => None,
