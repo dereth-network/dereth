@@ -151,6 +151,7 @@ members = [
     "empyrean/crates/command",
     "empyrean/server",
     "empyrean/import",
+    "empyrean/relay",
     "empyrean/testkit",
     # network/: the Dereth Network, the link between worlds: its protocol (MIT), a world's end of
     # the link (MIT), its hub (AGPL-3.0-only, `network/hub/LICENSE`) and its conformance suite
@@ -286,6 +287,7 @@ empyrean-dat = { path = "empyrean/crates/dat" }
 empyrean-entity = { path = "empyrean/crates/entity" }
 empyrean-import = { path = "empyrean/import" }
 empyrean-net = { path = "empyrean/crates/net" }
+empyrean-relay = { path = "empyrean/relay" }
 empyrean-server = { path = "empyrean/server" }
 empyrean-store = { path = "empyrean/crates/store" }
 empyrean-tables = { path = "empyrean/crates/tables" }

@@ -2711,6 +2711,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "empyrean-relay"
+version = "0.3.9"
+dependencies = [
+ "dereth-dat",
+ "dereth-primitives",
+ "dereth-protocol",
+ "dereth-transport",
+ "empyrean-common",
+ "empyrean-net",
+ "getrandom 0.4.3",
+ "log",
+ "sha2",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "empyrean-server"
 version = "0.3.9"
 dependencies = [
