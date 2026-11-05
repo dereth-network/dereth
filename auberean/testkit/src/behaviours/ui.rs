@@ -280,6 +280,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.craft.the-makings-end-reads-the-charges-of-that-frame",
+        says: "A making's end and a panel opening read the recipe as it stands that frame, by recipe whatever the spinner, so the last charge used closes the panel though the answer came with the notice.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CRAFT-DONE-CHARGES"),
+        station: "auberean-ui-game::dat::play::ingredients::the_makings_end_reads_the_charges_of_that_frame",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.craft.the-page-stands-as-laid-out-up-to-a-height-of-768",
         says: "At a window height of 768 and below the crafting page is its layout's size, and \
                the head, the list and the craft skill's display stand where the layout puts them.",

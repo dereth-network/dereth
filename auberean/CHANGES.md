@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 
+- Fixed the craft panel staying open after using a recipe's last charge.
 - Fixed a stack's name keeping its old count.
 - The LandscapeTerrainBlending preference and the -lb and -nolb switches now work.
 - Fixed auto-run carrying on through a portal.
