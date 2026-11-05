@@ -1989,6 +1989,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.creatures.an-effects-words-name-its-class",
+        says: "An effect of the kind whose saved state names no class is for the classes its words name, \
+               each of two where it names two; one naming no class does nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-CONCEAL-WORDS"),
+        station: "yalain-testkit::cpu::play::concealing::an_effect_is_for_the_classes_its_words_name",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.creatures.an-items-use-makes-what-it-names",
         says: "An item whose use names an effect a world's row makes creatures by makes them at the \
                row's offset from its user, as the use is done.",

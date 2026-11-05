@@ -117,11 +117,18 @@ pub enum Regard {
 }
 
 /// The concealing effects whose reach is known: each one's saved states, the class of creature it
-/// is for (none: every creature) and what they make of its holder. The install says so of each but
-/// the amulet of peace, whose description names its moarsmen (2017: under it, 0 of 8 moarsmen within
-/// 20 m came at the player; without it, 24 of 140 came at it first). The install says no class for
-/// the other effects of the kind, and they do nothing.
-const CONCEALING: [(u32, Option<u32>, Regard); 17] = [
+/// is for (none: every creature; an effect for two classes has a row for each) and what they make of
+/// its holder. The install says so of those with a state and its copy. The amulet of peace's
+/// description names its moarsmen (2017: under it, 0 of 8 moarsmen within 20 m came at the player;
+/// without it, 24 of 140 came at it first).
+///
+/// The last rows are read from words alone: the fanatics, the slave spawn, the Archon forces and
+/// those loyal to Aerfalle and Geraine, whose classes hold those names and hardly any other. No
+/// recording shows any of them held. The other effects of the kind do nothing: one names
+/// no one, one names people who share their class with others, one is a guard's mark too seldom
+/// recorded to read, and under the rabbits' disguise those that attack first went on doing so (5 of
+/// 5).
+const CONCEALING: [(u32, Option<u32>, Regard); 27] = [
     (0x6F00_1C46, Some(0x17), Regard::Spares),
     (0x6F00_1D4A, Some(0x1D), Regard::Spares),
     (0x7000_0701, Some(0x1D), Regard::Spares),
@@ -139,6 +146,16 @@ const CONCEALING: [(u32, Option<u32>, Regard); 17] = [
     (0x7000_1EB8, Some(0x06), Regard::Hates),
     (0x6F00_0D8C, None, Regard::Hates),
     (0x7000_1CB3, None, Regard::Hates),
+    (0x6F00_19F1, Some(0x59), Regard::Spares),
+    (0x6F00_1C48, Some(0x78), Regard::Hates),
+    (0x6F00_1C77, Some(0x46), Regard::Hates),
+    (0x6F00_1C77, Some(0x43), Regard::Hates),
+    (0x6F00_1C78, Some(0x45), Regard::Hates),
+    (0x6F00_1C78, Some(0x44), Regard::Hates),
+    (0x6F00_2049, Some(0x46), Regard::Spares),
+    (0x6F00_2049, Some(0x43), Regard::Spares),
+    (0x6F00_204B, Some(0x45), Regard::Spares),
+    (0x6F00_204B, Some(0x44), Regard::Spares),
 ];
 
 /// What a creature of a class makes of a player, by the concealing effects it holds; hate over
@@ -147,14 +164,14 @@ const CONCEALING: [(u32, Option<u32>, Regard); 17] = [
 pub fn regard(p: &crate::world::Player, class: Option<u32>) -> Option<Regard> {
     let mut found = None;
     for e in &p.play.effects {
-        let Some((_, of, how)) = CONCEALING.iter().find(|(state, ..)| *state == e.state) else {
-            continue;
-        };
-        if of.is_none() || *of == class {
-            if *how == Regard::Hates {
-                return Some(Regard::Hates);
+        let rows = CONCEALING.iter().filter(|(state, ..)| *state == e.state);
+        for (_, of, how) in rows {
+            if of.is_none() || *of == class {
+                if *how == Regard::Hates {
+                    return Some(Regard::Hates);
+                }
+                found = Some(*how);
             }
-            found = Some(*how);
         }
     }
     found

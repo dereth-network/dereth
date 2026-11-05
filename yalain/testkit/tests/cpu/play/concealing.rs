@@ -252,3 +252,69 @@ fn a_creature_neither_joins_a_fight_with_nor_turns_on_a_player_it_spares() {
     assert_eq!(turned.0, 0, "it hasn't hurt it");
     assert!(turned.1 > 100, "it has: {}", turned.1);
 }
+
+/// An effect whose words name a class is for that class alone, each of two where it names two.
+/// Behaviour: server.creatures.an-effects-words-name-its-class
+#[test]
+fn an_effect_is_for_the_classes_its_words_name() {
+    use yalain_world::ai::{regard, Regard};
+    const FANATIC_DISGUISE: u32 = 0x6F00_19F1;
+    const SLAVE_SPAWN_HOSTILITY: u32 = 0x6F00_1C48;
+    const ARCHON_HATRED: u32 = 0x6F00_1C77;
+    const LOYALIST_HATRED: u32 = 0x6F00_1C78;
+    const ARCHONS_FAVOR: u32 = 0x6F00_2049;
+    const FILINUVEKTA_FAVOR: u32 = 0x6F00_204B;
+    let cases: [(u32, &[u32], Regard); 6] = [
+        (FANATIC_DISGUISE, &[0x59], Regard::Spares),
+        (SLAVE_SPAWN_HOSTILITY, &[0x78], Regard::Hates),
+        (ARCHON_HATRED, &[0x46, 0x43], Regard::Hates),
+        (LOYALIST_HATRED, &[0x45, 0x44], Regard::Hates),
+        (ARCHONS_FAVOR, &[0x46, 0x43], Regard::Spares),
+        (FILINUVEKTA_FAVOR, &[0x45, 0x44], Regard::Spares),
+    ];
+    for (state, classes, how) in cases {
+        let mut h = Harness::new();
+        h.server.catalog = yalain_testkit::test_catalog();
+        h.player_in_world("one", "Elara");
+        holding(&mut h, state);
+        let p = h.server.players.values().next().expect("the player");
+        for class in classes {
+            assert_eq!(regard(p, Some(*class)), Some(how), "{state:#x} {class:#x}");
+        }
+        assert_eq!(
+            regard(p, Some(0x06)),
+            None,
+            "{state:#x}, a class it doesn't name"
+        );
+        assert_eq!(regard(p, None), None, "{state:#x}, no class");
+    }
+}
+
+/// The effects whose words say no class or whose recordings disagree do nothing, for any class
+/// their words might be read to mean.
+/// Behaviour: server.creatures.an-effects-words-name-its-class
+#[test]
+fn an_effect_that_names_no_class_does_nothing() {
+    use yalain_world::ai::regard;
+    const CHAOS_WARD: u32 = 0x6F00_1DEA;
+    const SHRETH_ALERT: u32 = 0x6F00_1F2C;
+    const ULTRA_INTRUDER: u32 = 0x6F00_1F31;
+    const RABBIT_DISGUISE: u32 = 0x6F00_20C0;
+    const SAFE_PASSAGE: u32 = 0x6F00_1D2C;
+    for state in [
+        CHAOS_WARD,
+        SHRETH_ALERT,
+        ULTRA_INTRUDER,
+        RABBIT_DISGUISE,
+        SAFE_PASSAGE,
+    ] {
+        let mut h = Harness::new();
+        h.server.catalog = yalain_testkit::test_catalog();
+        h.player_in_world("one", "Elara");
+        holding(&mut h, state);
+        let p = h.server.players.values().next().expect("the player");
+        for class in [0x08, 0x1C, 0x40, 0x4C, 0x4D, 0x55, 0x75, 0x1E, 0x48, 0x6F] {
+            assert_eq!(regard(p, Some(class)), None, "{state:#x} {class:#x}");
+        }
+    }
+}

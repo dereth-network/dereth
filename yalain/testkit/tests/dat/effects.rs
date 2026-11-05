@@ -616,6 +616,25 @@ fn the_effects_items_put_on_their_wearers_read_from_their_names() {
     );
 }
 
+/// The items naming a concealing effect whose class is read from its words name those states: the
+/// fanatics' disguise, the badges of the two sides; the amulet of safe passage's name resolves to
+/// nothing, so it puts nothing on.
+/// Behaviour: server.creatures.an-effects-words-name-its-class
+#[test]
+fn the_items_of_the_effects_named_for_a_class_name_their_states() {
+    let p = Portal::open();
+    let states = |l: Option<&Vec<yalain_world::item_use::UsageEffect>>| -> Vec<u32> {
+        l.map(|l| l.iter().map(|e| e.state).collect())
+            .unwrap_or_default()
+    };
+    let used = p.item_uses(&[0x4700_1281, 0x4700_1518, 0x4700_1516]);
+    assert_eq!(states(used.get(&0x4700_1281)), [0x6F00_19F1]);
+    assert_eq!(states(used.get(&0x4700_1518)), [0x6F00_1C77]);
+    assert_eq!(states(used.get(&0x4700_1516)), [0x6F00_1C78]);
+    let worn = p.worn_effects(&[0x4700_1668]);
+    assert!(states(worn.get(&0x4700_1668)).is_empty());
+}
+
 /// The counters read with the effect each answers with, and its chance; the wards with what they
 /// keep off.
 /// Behaviour: server.effects.counters-and-wards-read
