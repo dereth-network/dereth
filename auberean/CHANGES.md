@@ -80,6 +80,7 @@ not how it was done.
 - Fixed the sun's flare showing past leaves and rooflines.
 - Fixed rain steaming off a player standing indoors.
 - Fixed see-through parts of some objects being hidden by the rest of the object.
+- Fixed arrows flying level instead of pointing along their path.
 
 ## 0.1.3 (2026-11-05)
 

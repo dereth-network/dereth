@@ -359,6 +359,37 @@ fn a_body_is_drawn_between_its_last_two_ticks() {
     assert!(p.frame.origin.sub(there.frame.origin).mag2() < 1e-8 && (h - 90.0).abs() < 1e-4);
 }
 
+/// A body drawn between ticks keeps its frame's whole rotation: one pitched along its path, as a
+/// missile is, stays pitched rather than being stood level at its heading.
+///
+/// Behaviour: motion.draw.a-body-drawn-between-ticks-keeps-its-whole-rotation
+#[test]
+fn a_body_drawn_between_ticks_keeps_its_whole_rotation() {
+    let land = world();
+    let mut b = body();
+    for _ in 0..5 {
+        b.steer(MotionInput {
+            forward: 1.0,
+            ..MotionInput::default()
+        });
+        b.tick(&land, dt());
+    }
+    let (s, c) = (
+        dereth_primitives::num::math::sinf(0.2),
+        dereth_primitives::num::math::cosf(0.2),
+    );
+    // Pitched about its right axis.
+    let pitched = Quat::new(c, s, 0.0, 0.0);
+    b.previous.0.frame.rotation = pitched;
+    b.position.frame.rotation = pitched;
+    assert!(b.is_movement_active(), "it is moving");
+    let (at, _) = b.drawn(0.5);
+    let q = at.frame.rotation;
+    let same =
+        (q.w - c).abs() < 1e-4 && (q.x - s).abs() < 1e-4 && q.y.abs() < 1e-4 && q.z.abs() < 1e-4;
+    assert!(same, "still pitched: {q:?}");
+}
+
 /// A body that follows another asks it to be watched; the one followed tells it at once where it
 /// is (its place, velocity, size), and stops when the follower lets go.
 ///

@@ -1188,8 +1188,9 @@ impl Body {
 
     /// Where the body is drawn `alpha` of a tick past its last tick (from [`Ticker::alpha`]):
     /// between where it was before that tick and where it is, the origin along the line between
-    /// them (across a block's edge, in the block it is in now) and the heading turned the short
-    /// way; in the cell it is in now. A body whose movement has stopped is drawn where it is.
+    /// them (across a block's edge, in the block it is in now), the heading turned the short way
+    /// and the frame's whole rotation with it; in the cell it is in now. A body whose movement has
+    /// stopped is drawn where it is.
     // D2-05830, D2-05829, D2-06219
     #[must_use]
     pub fn drawn(&self, alpha: f32) -> (Position, f32) {
@@ -1212,7 +1213,8 @@ impl Body {
         let heading = (was + turn * alpha).rem_euclid(360.0);
         let mut at = now;
         at.frame.origin = origin;
-        at.frame.rotation = heading_rotation(heading);
+        // A missile flying along its path keeps its pitch.
+        crate::geom::slerp_rotation(&mut at.frame, &before.frame, &now.frame, alpha);
         (at, heading)
     }
 }
