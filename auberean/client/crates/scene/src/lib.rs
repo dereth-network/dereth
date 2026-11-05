@@ -2942,7 +2942,7 @@ impl<'w> Scene<'w> {
         self.aim_fx(client, &played, hooks, night);
         self.make_startup_objects(client);
         self.ask_body_fx();
-        self.end_aimed_fx(now);
+        self.end_aimed_fx(client.local_time());
         self.do_sliders_on_children();
         self.status.others = self.others.len();
         self.status.nearest = self.others.nearest(

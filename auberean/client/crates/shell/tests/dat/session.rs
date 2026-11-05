@@ -4470,7 +4470,12 @@ fn a_behaviors_target_and_clone_go_to_its_effects() {
         "over half a second: {}",
         out - from
     );
-    assert!(gone_at.is_some(), "the clone goes");
+    let gone = gone_at.expect("the clone goes");
+    assert!(
+        (2.5..=3.5).contains(&(gone - from)),
+        "three seconds later: {}",
+        gone - from
+    );
     assert!(
         !s.scene.body(ITEM).expect("its body").is_no_draw(),
         "and the item shows again"
