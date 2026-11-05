@@ -1724,3 +1724,98 @@ fn a_skill_that_walks_and_throws_is_told_only_within_its_range() {
         "told it is too far"
     );
 }
+
+/// A strike that walks its user there, its target out of reach.
+fn a_walking_strike_out_of_reach() -> (Harness, usize, u64, u64) {
+    use yalain_world::skill_use::ui_flag;
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, SWORD);
+    let u = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&RIPOSTE)
+        .and_then(|d| d.usage.as_mut())
+        .expect("its use");
+    u.ui_flags |= ui_flag::MOVE_TO | ui_flag::USE_WHILE_MOVING;
+    u.max_range = 0.0;
+    let mut there = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .map(|p| p.position)
+        .expect("in the world");
+    there.origin[0] += 30.0;
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        t.at = Some(there);
+    }
+    (h, b, me, beetle)
+}
+
+fn vigor_of(h: &Harness, me: u64) -> i32 {
+    h.server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .and_then(|p| yalain_world::quals::int(&p.qualities, VIGOR))
+        .expect("it has vigor")
+}
+
+fn using(h: &Harness, me: u64) -> bool {
+    h.server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .is_some_and(|p| p.using.is_some())
+}
+
+/// A strike that walks its user there waits for it to come in reach, for so long: then it is over,
+/// too far, nothing paid, and the player may use another skill.
+/// Behaviour: server.skills.a-walking-strike-gives-up
+#[test]
+fn a_walking_strike_gives_up_when_its_user_never_comes_in_reach() {
+    use yalain_world::skill_use::MOST_WAITED_FOR_REACH;
+    let (mut h, b, me, beetle) = a_walking_strike_out_of_reach();
+    let vigor = vigor_of(&h, me);
+    let from = use_skill(&mut h, b, 1, RIPOSTE, beetle);
+    h.run_to(yalain_net::LocalTime(h.now.0 + MOST_WAITED_FOR_REACH - 2.0));
+    assert!(using(&h, me), "it waits, for so long");
+    h.run_to(yalain_net::LocalTime(h.now.0 + 5.0));
+    h.run(5);
+    assert!(!using(&h, me), "it has given up");
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, v)| *f == function::REFUSED && v.contains(&Value::Int(refusal::TOO_FAR))),
+        "told it is too far"
+    );
+    assert!(vigor_of(&h, me) >= vigor, "nothing paid");
+}
+
+/// A stop cuts a strike that walks its user there while it is still walking: over, nothing paid, the
+/// player free to use another.
+/// Behaviour: server.skills.a-stop-cuts-a-walking-strike
+#[test]
+fn a_stop_cuts_a_walking_strike_before_its_story() {
+    let (mut h, b, me, beetle) = a_walking_strike_out_of_reach();
+    let vigor = vigor_of(&h, me);
+    let from = use_skill(&mut h, b, 1, RIPOSTE, beetle);
+    h.run(10);
+    assert!(using(&h, me), "it is walking");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(yalain_world::combat::function::STOP_ATTACK, &[]),
+    );
+    h.run(10);
+    assert!(!using(&h, me), "the stop cut it");
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .any(|(f, v)| *f == function::ENDED && v.contains(&Value::Int(1))),
+        "the use is over"
+    );
+    assert!(vigor_of(&h, me) >= vigor, "nothing paid");
+}

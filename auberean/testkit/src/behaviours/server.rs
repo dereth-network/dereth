@@ -10221,11 +10221,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.skills.a-stop-cuts-a-walking-strike",
+        says: "A client's stop cuts a skill used on the move before its story: it is over and nothing is paid. Past its story a stop leaves it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-STOP-WALKING-STRIKE"),
+        station: "yalain-testkit::cpu::play::specials::a_stop_cuts_a_walking_strike_before_its_story",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.skills.a-use-is-told-once-whatever-its-number",
         says: "A use goes by the server's own number: one cut short leaves nothing to run another of the client's same number.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-SKILL-USE-NUMBER"),
         station: "yalain-testkit::cpu::play::specials::a_use_is_told_once_however_often_its_number_comes_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.skills.a-walking-strike-gives-up",
+        says: "A strike that walks its user to its target waits for it to come in reach, for so long: then it is over, too far, and nothing is paid.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-WALKING-STRIKE-LIMIT"),
+        station: "yalain-testkit::cpu::play::specials::a_walking_strike_gives_up_when_its_user_never_comes_in_reach",
         tier: Tier::Cpu,
     },
     behaviour! {

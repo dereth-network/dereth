@@ -13,6 +13,7 @@ what they see, not how it was done.
 - Fixed clients using skills they don't have.
 - Fixed asking to attack again changing how fast you swing.
 - A creature's lingering damage, or your own harm, now kills you at no health.
+- A stop now cancels a skill you're still walking to use.
 
 ## 0.2.1 (2026-11-05)
 - Fixed sold consignments still showing as in stock.

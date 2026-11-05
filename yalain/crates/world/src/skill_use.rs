@@ -39,7 +39,8 @@
 //! appearance stopped.
 //!
 //! **Cut short**: moving cuts a use not used on the move; stopping all attacks cuts it, and
-//! stopping attacks on its target cuts one aimed at it. After its story it counts as used.
+//! stopping attacks on its target cuts one aimed at it, as it does any use before its story. After
+//! its story it counts as used.
 //!
 //! **An attack special** from rest: the player attacking, in its weapon's combat mode, turned to
 //! its target (a skill used from afar) or walked to it (one used within reach); then its vigor
@@ -223,6 +224,9 @@ pub const STRIKE_LANDS: f64 = 0.71;
 /// How long a skill that walks and throws waits for its user to come within its range, in seconds.
 /// Ours: 2017's longest walk in was 2.31 s.
 pub const MOST_WAITED_FOR_RANGE: f64 = 10.0;
+/// How long a strike that walks its user to its target waits for it to come in reach (2017: of 6,394
+/// told, 28 past 5 s, 2 past 10 s, the longest 13.33 s).
+pub const MOST_WAITED_FOR_REACH: f64 = 20.0;
 /// A missile's windup before it flies, in seconds (2017: Deadeye's about 0.98 s).
 pub const MISSILE_WINDUP: f64 = 0.98;
 /// After a special inside a run, the run's next swing, in seconds (2017: a median 0.123 s).
@@ -1866,6 +1870,10 @@ fn story<S: Store>(
         match d {
             None => return interrupt(s, net, world, refusal::TARGET_GONE, clock),
             Some(d) if d > combat::PLAYER_REACH => {
+                let began = p.using.as_ref().map_or(0.0, |x| x.began);
+                if net.game_time(clock.local) - began > MOST_WAITED_FOR_REACH {
+                    return interrupt(s, net, world, refusal::TOO_FAR, clock);
+                }
                 s.after(
                     clock,
                     0.2,
@@ -2955,7 +2963,10 @@ pub fn cut_by_transmute<S: Store>(
 
 /// The client stops attacking: everything (`None`), or one target. A use not used on the move is
 /// cut short: by stopping everything; by stopping its target, a use aimed at it (2017: 726 of 731
-/// such uses aimed at what was stopped, 78 of 78 by stopping everything; uses on the move never).
+/// such uses aimed at what was stopped, 78 of 78 by stopping everything). A use on the move is cut
+/// the same way before its story, and left past it (2017: of 275 that walk, stopped before their
+/// story, 262 were over with no story, 249 within half a second, and 4 told; past it, 1,573 stopped
+/// and 3 over within half a second).
 pub fn stopped<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -2965,7 +2976,7 @@ pub fn stopped<S: Store>(
 ) {
     let cut = s.players.get(&world).is_some_and(|p| {
         p.using.as_ref().is_some_and(|x| {
-            x.usage.ui_flags & ui_flag::USE_WHILE_MOVING == 0
+            (!x.told || x.usage.ui_flags & ui_flag::USE_WHILE_MOVING == 0)
                 && target.is_none_or(|t| aimed_at(x.aim) == Some(t))
         })
     });
