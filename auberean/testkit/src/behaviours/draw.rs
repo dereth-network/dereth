@@ -2,7 +2,7 @@
 //!
 //! A row claims what the September 2013 client does when it draws a mesh or a terrain layer.
 
-use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT};
+use super::{Behaviour, Evidence, Tier, RETAIL, THIS_CLIENT, TOOLING};
 
 /// This subject's rows, in id order.
 pub static ROWS: &[Behaviour] = &[
@@ -852,6 +852,15 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-DRAW-DETAIL"),
         station: "auberean-draw::cpu::objects::layout::detail_falls_from_near_to_far",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "draw.mesh.every-draw-of-a-frame-shows-its-own-uniforms",
+        says: "However many draws a frame has, each shows its own uniforms, across the device's \
+               buffers of them.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-UNIFORMS-EACH-DRAW"),
+        station: "auberean-gpu::gpu::uniforms::every_draw_of_a_frame_shows_its_own_uniforms",
+        tier: Tier::Gpu,
     },
     behaviour! {
         id: "draw.mesh.the-adaptive-degrade-draws-moving-bodies-in-as-frames-slow",

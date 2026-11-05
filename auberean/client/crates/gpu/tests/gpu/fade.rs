@@ -91,7 +91,7 @@ pub(crate) fn wall(y: f32, g: f32, blended: bool, anchor: f32) -> ObjectBatch {
     }
 }
 
-fn frame_of(objects: Vec<ObjectBatch>) -> Frame {
+pub(crate) fn frame_of(objects: Vec<ObjectBatch>) -> Frame {
     let r = &install().records;
     let region = r.region().expect("the region");
     let mut builder = SceneBuilder::new(r, &region);

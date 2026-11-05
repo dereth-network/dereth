@@ -20,4 +20,5 @@ mod shadows;
 mod shores;
 mod streaks;
 mod textures;
+mod uniforms;
 mod water;

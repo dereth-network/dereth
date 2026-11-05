@@ -636,7 +636,7 @@ impl Renderer {
             visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
+                has_dynamic_offset: true,
                 min_binding_size: None,
             },
             count: None,
@@ -1562,10 +1562,10 @@ impl Renderer {
             multiview_mask: None,
         });
         pass.set_pipeline(caster);
-        pass.set_bind_group(0, &map_group, &[]);
+        pass.set_bind_group(0, &map_group.group, &[map_group.offset]);
         pass.set_bind_group(3, &white_shadow, &[]);
         for (vb, ib, count, dg, tg) in &draws {
-            pass.set_bind_group(1, dg, &[]);
+            pass.set_bind_group(1, &dg.group, &[dg.offset]);
             pass.set_bind_group(2, tg, &[]);
             pass.set_vertex_buffer(0, vb.get());
             pass.set_index_buffer(ib.get(), wgpu::IndexFormat::Uint16);
@@ -1573,7 +1573,7 @@ impl Renderer {
         }
         self.note_work(|w| w.draws += u32::try_from(draws.len()).unwrap_or(0) + 1);
         pass.set_pipeline(lift);
-        pass.set_bind_group(1, &identity, &[]);
+        pass.set_bind_group(1, &identity.group, &[identity.offset]);
         pass.set_bind_group(2, &blank, &[]);
         pass.draw(0..3, 0..1);
         drop(pass);
@@ -1981,7 +1981,7 @@ impl Renderer {
         &mut self,
         spots: &HashMap<[u32; 3], usize>,
         map: &wgpu::BindGroup,
-        identity: &wgpu::BindGroup,
+        identity: &pool::Slot,
         outdoors_u: &FrameUniforms,
         encoder: &mut wgpu::CommandEncoder,
     ) -> wgpu::BindGroup {
@@ -2067,8 +2067,8 @@ impl Renderer {
             });
             if let Some(pipeline) = &self.spot_pipeline {
                 pass.set_pipeline(pipeline);
-                pass.set_bind_group(0, &outdoors, &[]);
-                pass.set_bind_group(1, identity, &[]);
+                pass.set_bind_group(0, &outdoors.group, &[outdoors.offset]);
+                pass.set_bind_group(1, &identity.group, &[identity.offset]);
                 pass.set_bind_group(2, &self.spot_textures(), &[]);
                 pass.set_bind_group(3, map, &[]);
                 pass.set_vertex_buffer(0, vertices.get());
@@ -2326,7 +2326,7 @@ impl Renderer {
             indices: cache::Slice,
             index_count: u32,
             index_format: wgpu::IndexFormat,
-            draw_group: wgpu::BindGroup,
+            draw_group: pool::Slot,
             texture_group: wgpu::BindGroup,
             env: Env,
             /// It is seen in the frame's own picture.
@@ -2335,7 +2335,7 @@ impl Renderer {
             reflected: bool,
             /// How the reflection draws it when that differs: nearer the edge of its reach there,
             /// it is fainter.
-            faint: Option<(PassKey, wgpu::BindGroup)>,
+            faint: Option<(PassKey, pool::Slot)>,
             /// It stands at or under the water, so the reflection shows it only past the water.
             below: bool,
             /// Its culling, for the water's depth laid in the reflection.
@@ -2745,7 +2745,7 @@ impl Renderer {
             target,
         );
         // The volumes of shadow, each in its draw's frame, and the darkening by their strength.
-        let volume_draws: Vec<(cache::Slice, cache::Slice, u32, wgpu::BindGroup)> = frame
+        let volume_draws: Vec<(cache::Slice, cache::Slice, u32, pool::Slot)> = frame
             .volumes
             .volumes
             .iter()
@@ -2926,7 +2926,7 @@ impl Renderer {
         // `groups` holds the frame's lights: its own, the outdoors' and the sky's.
         let record = |pass: &mut wgpu::RenderPass<'_>,
                       this: &Self,
-                      groups: [&wgpu::BindGroup; 4],
+                      groups: [&pool::Slot; 4],
                       water: &[Draw],
                       shadows: bool,
                       reflecting: bool| {
@@ -2945,10 +2945,15 @@ impl Renderer {
                     bound.pipeline = pipeline;
                 }
                 if bound.env != Some(d.env as usize) {
-                    pass.set_bind_group(0, groups[d.env as usize], &[]);
+                    pass.set_bind_group(
+                        0,
+                        &groups[d.env as usize].group,
+                        &[groups[d.env as usize].offset],
+                    );
                     bound.env = Some(d.env as usize);
                 }
-                pass.set_bind_group(1, faint.map_or(&d.draw_group, |f| &f.1), &[]);
+                let slot: &pool::Slot = faint.map_or(&d.draw_group, |f| &f.1);
+                pass.set_bind_group(1, &slot.group, &[slot.offset]);
                 if bound.textures.as_ref() != Some(&d.texture_group) {
                     pass.set_bind_group(2, &d.texture_group, &[]);
                     bound.textures = Some(d.texture_group.clone());
@@ -2978,8 +2983,12 @@ impl Renderer {
                         if sky_shown && outdoors.fog_sky > 0.0 {
                             if let Some(veil) = &this.veil {
                                 pass.set_pipeline(veil);
-                                pass.set_bind_group(0, groups[Env::Outside as usize], &[]);
-                                pass.set_bind_group(1, &identity, &[]);
+                                pass.set_bind_group(
+                                    0,
+                                    &groups[Env::Outside as usize].group,
+                                    &[groups[Env::Outside as usize].offset],
+                                );
+                                pass.set_bind_group(1, &identity.group, &[identity.offset]);
                                 pass.set_bind_group(2, &veil_textures, &[]);
                                 pass.draw(0..3, 0..1);
                                 bound = Bound::default();
@@ -3002,16 +3011,20 @@ impl Renderer {
                             pass.set_pipeline(darken);
                             pass.set_stencil_reference(0);
                             pass.set_pipeline(count);
-                            pass.set_bind_group(0, groups[Env::Own as usize], &[]);
+                            pass.set_bind_group(
+                                0,
+                                &groups[Env::Own as usize].group,
+                                &[groups[Env::Own as usize].offset],
+                            );
                             pass.set_bind_group(2, &white_group, &[]);
                             for (vertices, indices, n, group) in &volume_draws {
-                                pass.set_bind_group(1, group, &[]);
+                                pass.set_bind_group(1, &group.group, &[group.offset]);
                                 pass.set_vertex_buffer(0, vertices.get());
                                 pass.set_index_buffer(indices.get(), wgpu::IndexFormat::Uint16);
                                 pass.draw_indexed(0..*n, 0, 0..1);
                             }
                             pass.set_pipeline(darken);
-                            pass.set_bind_group(1, &darkening, &[]);
+                            pass.set_bind_group(1, &darkening.group, &[darkening.offset]);
                             pass.draw(0..3, 0..1);
                             bound = Bound::default();
                         }
@@ -3189,18 +3202,23 @@ impl Renderer {
                 });
                 pass.set_bind_group(3, &shadow_group, &[]);
                 let groups = [&m_frame_group, &m_out_group, &m_sky_group, &m_looked_group];
-                let put = |pass: &mut wgpu::RenderPass<'_>, d: &Draw, key: PassKey, g| {
-                    pass.set_pipeline(&self.mesh_pipelines[&key]);
-                    pass.set_bind_group(0, groups[d.env as usize], &[]);
-                    pass.set_bind_group(1, g, &[]);
-                    pass.set_bind_group(2, &d.texture_group, &[]);
-                    pass.set_vertex_buffer(0, d.vertices.get());
-                    if let Some(posed) = &d.posed {
-                        pass.set_vertex_buffer(1, posed.get());
-                    }
-                    pass.set_index_buffer(d.indices.get(), d.index_format);
-                    pass.draw_indexed(0..d.index_count, 0, 0..1);
-                };
+                let put =
+                    |pass: &mut wgpu::RenderPass<'_>, d: &Draw, key: PassKey, g: &pool::Slot| {
+                        pass.set_pipeline(&self.mesh_pipelines[&key]);
+                        pass.set_bind_group(
+                            0,
+                            &groups[d.env as usize].group,
+                            &[groups[d.env as usize].offset],
+                        );
+                        pass.set_bind_group(1, &g.group, &[g.offset]);
+                        pass.set_bind_group(2, &d.texture_group, &[]);
+                        pass.set_vertex_buffer(0, d.vertices.get());
+                        if let Some(posed) = &d.posed {
+                            pass.set_vertex_buffer(1, posed.get());
+                        }
+                        pass.set_index_buffer(d.indices.get(), d.index_format);
+                        pass.draw_indexed(0..d.index_count, 0, 0..1);
+                    };
                 for d in &water_marks {
                     if let Pipe::Mesh(k) = d.pipeline {
                         put(&mut pass, d, k, &d.draw_group);
@@ -3306,11 +3324,11 @@ impl Renderer {
                         None,
                     );
                     pass.set_pipeline(pipeline);
-                    pass.set_bind_group(0, &out_group, &[]);
+                    pass.set_bind_group(0, &out_group.group, &[out_group.offset]);
                     pass.set_bind_group(2, &textures, &[]);
                     pass.set_bind_group(3, &shadow_group, &[]);
                     for (group, vertices, indices, count) in &surfaces {
-                        pass.set_bind_group(1, group, &[]);
+                        pass.set_bind_group(1, &group.group, &[group.offset]);
                         pass.set_vertex_buffer(0, vertices.get());
                         pass.set_index_buffer(indices.get(), wgpu::IndexFormat::Uint16);
                         pass.draw_indexed(0..*count, 0, 0..1);
@@ -3406,8 +3424,8 @@ impl Renderer {
             // objects (nothing drawn, only counted where they pass the depth test).
             if let (Some((flare, marker)), Some(vb)) = (&self.flare_pipelines, &flare_buffer) {
                 pass.set_vertex_buffer(0, vb.get());
-                pass.set_bind_group(0, &frame_group, &[]);
-                pass.set_bind_group(1, &identity, &[]);
+                pass.set_bind_group(0, &frame_group.group, &[frame_group.offset]);
+                pass.set_bind_group(1, &identity.group, &[identity.offset]);
                 pass.set_pipeline(flare);
                 for (group, start) in &flare_runs {
                     pass.set_bind_group(2, group, &[]);
