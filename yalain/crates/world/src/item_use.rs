@@ -755,7 +755,11 @@ fn carry_out<S: Store>(
     }
     // A Tessera's hero skill credit.
     let behavior = item_behavior(s, u.item, template, &t.props);
-    let tessera = behavior == Some(TESSERA_BEHAVIOR);
+    // By its kind: other items play this behavior too, and give no credit.
+    let tessera = s
+        .things
+        .get(u.item)
+        .is_some_and(|i| s.tesserae.contains(&i.description.package));
     if tessera {
         if let Some(p) = s.players.get_mut(&world) {
             p.play.hero_credits = p.play.hero_credits.saturating_add(1);
