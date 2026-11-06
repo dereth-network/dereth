@@ -182,6 +182,11 @@ pub enum Request {
     },
     /// Select an object.
     Select(u64),
+    /// What an item is called for a number of it; [`Facts::name_of_amount`] then says.
+    NameAmount {
+        item: u64,
+        quantity: u32,
+    },
     /// The help panel at a page (a string table's entry and the table's enumeration value).
     Help {
         entry: Token,
@@ -221,6 +226,8 @@ pub struct Facts {
     pub no_melt_question: bool,
     /// The player's selection.
     pub selection: u64,
+    /// The last name asked for a number of an item: the item, the number, the name.
+    pub amount_name: Option<(u64, u32, String)>,
     /// What a pick in the world found (none: nothing yet; `Some(0)`: nothing there).
     pub picked: Option<u64>,
     /// Where open containers stand on the screen, when they are in view.
@@ -266,6 +273,8 @@ pub struct ItemFacts {
     pub worn: bool,
     /// Dropped on the money bag it melts without a question.
     pub melts_at_once: bool,
+    /// A trade offers it: its name for the number offered.
+    pub offered_name: Option<String>,
     /// Its record: what kind of thing it is.
     pub data_id: u32,
 }
@@ -278,6 +287,20 @@ impl Facts {
             && (self.items.contains_key(&id)
                 || self.containers.contains_key(&id)
                 || id == self.player)
+    }
+
+    /// What an item is called for a number of it, when that is known: its own name for all of it,
+    /// else the last answer for that number.
+    #[must_use]
+    pub fn name_of_amount(&self, id: u64, quantity: u32) -> Option<&str> {
+        let it = self.item(id)?;
+        if it.quantity == quantity {
+            return Some(&it.name);
+        }
+        self.amount_name
+            .as_ref()
+            .filter(|(i, q, _)| (*i, *q) == (id, quantity))
+            .map(|(_, _, n)| n.as_str())
     }
 
     /// An item's facts.

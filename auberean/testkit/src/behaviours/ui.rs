@@ -229,6 +229,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.craft.a-tall-window-grows-the-list-and-not-the-head",
+        says: "On a window taller than 768, the head of a craft skill's categories or a \
+               category's recipes keeps its height, the craft skill's display goes down with the \
+               page's foot and the list takes the rest, and a press on a row reaches the row.",
+        since: THIS_CLIENT,
+        divergence: "CD2-craft-page-list-takes-a-tall-window",
+        evidence: Evidence::Private("AC2-EVID-UI-CRAFT-TALL"),
+        station: "auberean-ui-game::dat::play::craft::a_tall_window_grows_the_list_and_not_the_head",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.craft.recipe-and-ingredient-names-wait-for-their-string-tables",
         says: "The ingredient panel gives its texts (the recipe's name, its cost and charges, its \
                ingredients' names, the craft button's label and tip) to their text elements as \
@@ -266,6 +277,23 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-INGREDIENTS"),
         station: "auberean-ui-game::dat::play::ingredients::the_ingredient_panel_takes_items_and_makes_the_recipe",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.craft.the-makings-end-reads-the-charges-of-that-frame",
+        says: "A making's end and a panel opening read the recipe as it stands that frame, by recipe whatever the spinner, so the last charge used closes the panel though the answer came with the notice.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CRAFT-DONE-CHARGES"),
+        station: "auberean-ui-game::dat::play::ingredients::the_makings_end_reads_the_charges_of_that_frame",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.craft.the-page-stands-as-laid-out-up-to-a-height-of-768",
+        says: "At a window height of 768 and below the crafting page is its layout's size, and \
+               the head, the list and the craft skill's display stand where the layout puts them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CRAFT-LAID-OUT"),
+        station: "auberean-ui-game::dat::play::craft::the_page_stands_as_laid_out_up_to_a_height_of_768",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -327,6 +355,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.creation.the-whole-figure-view-stays-as-the-height-changes",
+        says: "The appearance screen's view of the whole figure stays put as the height is \
+               chosen, so the figure grows and shrinks in it; the view close up moves with \
+               the height.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CREATION-CAMERA"),
+        station: "auberean-interface::dat::screens::the_whole_figure_view_stays_as_the_height_changes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.credits.ctrl-and-alt-held-open-the-other-credits",
         says: "Credits pressed with Ctrl and Alt held and Shift not shows the other set of the \
                credits' picture and text fields; otherwise the usual set.",
@@ -344,6 +382,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-CREDITS"),
         station: "auberean-ui-game::dat::screens::pregame::the_text_scrolls_up_and_the_credits_end_by_themselves",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.credits.they-stop-the-song-and-open-on-their-second-picture",
+        says: "The credits stop the song playing as they open, once, and show the second of \
+               their pictures first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-CREDITS-OPEN"),
+        station: "auberean-ui-game::dat::screens::pregame::they_stop_the_song_and_open_on_their_second_picture",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -431,6 +478,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-DIALOG-ANSWERS"),
         station: "auberean-ui-game::dat::play::dialogs::the_answers_reach_the_panel_that_asked",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.dialogs.the-use-key-answers-a-dialog-as-it-goes-up",
+        says: "An element that takes the keyboard on showing takes it as it is made: a message's or a question's button holds the keyboard when the dialog goes up, so the use key answers it, unless the use key is already down.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ACTIVATE-ON-FIRST-SHOW"),
+        station: "auberean-ui-game::dat::play::dialogs::the_use_key_answers_a_dialog_as_it_goes_up",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -592,6 +647,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.element.a-placed-element-stays-off-no-edge-of-the-screen",
+        says: "A top-level element placed past the screen's left or top edge comes back to \
+               it, as one past the right or bottom edge does; a child is not held to the \
+               screen.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PLACE-ON-SCREEN"),
+        station: "auberean-ui::cpu::elements::a_placed_element_stays_off_no_edge_of_the_screen",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.element.a-reference-is-its-template-placed-where-the-reference-stands",
         says: "An element made from a reference takes its kind from the template it names, its \
                place from where the layout puts the reference, and its children from both.",
@@ -616,6 +681,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-ON-SCREEN"),
         station: "auberean-ui::cpu::elements::a_top_level_element_is_kept_on_the_screen",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.element.a-window-resized-stops-at-the-screens-edges",
+        says: "A window resized by its grips stops at the edges of the screen: an edge \
+               dragged past one stands there, and its other edges stay where they are.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-RESIZE-ON-SCREEN"),
+        station: "auberean-ui::cpu::elements::a_window_resized_stops_at_the_screens_edges",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -890,6 +964,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.inventory.a-drop-in-the-world-waits-for-its-own-answer",
+        says: "A second item dropped in the world goes to what the world answers for it, not \
+               to what the last search found.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-INVENTORY-DROP-ANSWER"),
+        station: "auberean-ui-game::dat::play::inventory::a_drop_in_the_world_waits_for_its_own_answer",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.inventory.a-press-on-the-doll-waits-for-its-own-answer",
+        says: "A press on the paper doll's figure waits for its own search: what the last \
+               press found is not selected, and what this one finds is.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PAPER-DOLL-CLICK-ANSWER"),
+        station: "auberean-ui-game::dat::play::inventory::a_press_on_the_doll_waits_for_its_own_answer",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.inventory.an-item-coming-back-as-another-leaves-shows",
         says: "An item added to the pack at the slot past its last as another leaves in the same frame shows in its slot, though by the scripts' answers after the frame the pack holds no more than before.",
         since: RETAIL,
@@ -917,6 +1009,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-INVENTORY-DROP"),
         station: "auberean-ui-game::dat::play::inventory::an_item_dropped_on_a_cell_moves_there",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.inventory.an-item-from-the-world-goes-only-into-the-pack",
+        says: "An item pulled from the world comes from no container: let go over an open \
+               chest's cell it stays where it is; only the player's own pack takes it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-INVENTORY-WORLD-DROP-PACK"),
+        station: "auberean-ui-game::dat::play::inventory::an_item_from_the_world_goes_only_into_the_pack",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -957,6 +1058,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-PAPER-DOLL-PICK"),
         station: "auberean-interface::dat::screens::the_paper_doll_finds_the_part_under_the_pointer",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.inventory.the-paper-doll-keeps-its-look-while-mounted",
+        says: "The paper doll's figure follows the player's look on foot and keeps the look it had while the player is mounted, so it never shows the mount.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-DOLL-MOUNTED"),
+        station: "auberean-interface::dat::screens::the_paper_doll_keeps_its_look_while_mounted",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1008,6 +1117,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-WORLD-DRAG"),
         station: "auberean-ui-game::dat::play::inventory::the_world_pulled_on_drags_the_selection_not_a_pack_item",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.keyboard.a-key-is-bound-with-the-first-modifier-held",
+        says: "A key on the key map is bound with the first of the modifiers held, left Shift, right Shift, left Ctrl, right Ctrl, left and right told apart.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-KEYBOARD-MODIFIERS"),
+        station: "auberean-ui-game::dat::screens::pregame::a_key_is_bound_with_the_first_modifier_held",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1083,6 +1200,16 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-LIST-SMOOTH"),
         station: "auberean-ui::cpu::lists::a_smooth_list_glides_to_its_goal_over_its_movement_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.list.an-emptied-list-keeps-its-cell-and-a-row-past-the-end-is-refused",
+        says: "A list emptied row by row keeps its cells' size and one cell of sheet, so the \
+               view it stood at stays; inserting past its end, or before a row not its own, \
+               adds nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-LIST-EMPTY-AND-INSERT"),
+        station: "auberean-ui::cpu::lists::an_emptied_list_keeps_its_cell_and_a_row_past_the_end_is_refused",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1202,6 +1329,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.media.an-icons-layers-mix-by-their-own-alpha",
+        says: "An icon's layer goes over those below by its own alpha: none leaves the texel, whole replaces it and its alpha, between mixes the colors and keeps the alpha below. A layer of another size is stretched to fit, and one of alpha alone adds nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ICON-LAYER-BLIT"),
+        station: "auberean-ui::cpu::media::an_icons_layers_mix_by_their_own_alpha",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.media.messages-are-said-and-states-change",
         says: "A message item makes the element say its message, and a state item puts the \
                element in another state once the change under way is done.",
@@ -1239,12 +1374,31 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.menu.an-open-menu-closes-as-its-window-hides",
+        says: "An open menu closes as the window it stands in hides: its popup, its own \
+               top-level element, does not stay on the screen.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-MENU-HIDES"),
+        station: "auberean-ui::cpu::lists::an_open_menu_closes_as_its_window_hides",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.meter.a-meter-takes-its-goal-at-once-or-smoothly",
         says: "A meter takes a goal position at once, its fill following; a smooth meter moves toward it \
                over its movement time.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-METER-GOAL"),
         station: "auberean-ui::cpu::lists::a_meter_takes_its_goal_at_once_or_smoothly",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.meter.a-moving-fill-slides-keeping-its-own-size",
+        says: "A meter that moves its fills slides each whole, keeping the size the layout \
+               gave it; a left fill stands the part of the meter past the position before the \
+               meter, cut to a whole pixel toward the meter.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-METER-MOVING-FILL"),
+        station: "auberean-ui::cpu::lists::a_moving_fill_slides_keeping_its_own_size",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1289,6 +1443,38 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-NAMES-OFFSCREEN"),
         station: "auberean-ui-game::dat::play::names::an_arrow_points_to_a_selection_off_the_screen",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.names.an-item-selected-in-the-pack-is-marked-once-put-down",
+        says: "An item selected in the pack and then put down is named and marked as soon as it                lies in the world, with no new selection.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-NAMES-FROM-PACK"),
+        station: "auberean-ui-game::dat::play::names::an_item_selected_in_the_pack_is_marked_once_put_down",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.names.an-item-that-changes-is-named-anew",
+        says: "An item changing, its quantity among others, names it anew: the name over its head as well as the selection's, so a stack's count does not go stale.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ITEM-UPDATE-NAMES"),
+        station: "auberean-ui-game::dat::play::names::an_item_that_changes_is_named_anew",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.names.damage-text-fades-out-over-its-life",
+        says: "A hit's damage text fades out over its life: whole as it begins, about half gone half way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAMAGE-TEXT-FADE"),
+        station: "auberean-ui-game::dat::play::names::damage_text_fades_out_over_its_life",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.names.damage-text-is-drawn-at-its-scale",
+        says: "A hit's damage text is drawn at its scale, and stands over the object by the size it is drawn at.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-DAMAGE-TEXT-SCALE"),
+        station: "auberean-ui-game::dat::play::names::damage_text_is_drawn_at_its_scale",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1423,6 +1609,22 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-OPTIONS-CHAT-APPLY"),
         station: "auberean-ui-game::dat::play::chat::apply_asks_first_then_sets_every_chat_option_and_the_filters_last",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.assistance-lists-other-last",
+        says: "The assistance page's kinds of call read with each new row put first: Other last.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ASSISTANCE-ORDER"),
+        station: "auberean-ui-game::dat::play::options::assistance_lists_other_last",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.options.assistance-other-asks-a-description",
+        says: "The assistance page's Other is a kind of call that asks for a description, so Send                doesn't pass it over.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-ASSISTANCE-OTHER"),
+        station: "auberean-ui-game::dat::play::options::assistance_other_asks_a_description",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1611,6 +1813,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.pet.the-mode-buttons-step-from-the-mode-asked",
+        says: "The mode buttons step from the mode last asked, not the one the pet has taken: \
+               Next twice before the pet answers is two steps on, and Previous then one back.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PET-MODE-STEP"),
+        station: "auberean-ui-game::dat::play::pet::the_mode_buttons_step_from_the_mode_asked",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.pet.the-modes-turn-in-order-and-names-lose-their-owner",
         says: "A pet's mode turns through the nine modes in order and back round (one not among \
                them goes to the first going on and the last going back); a pet's name loses its \
@@ -1618,6 +1829,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-PET-MODES"),
         station: "auberean-ui-game::dat::play::pet::the_modes_turn_in_order_and_names_lose_their_owner",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.pet.the-options-bit-hides-the-pet-panel",
+        says: "A pet shows the panel on a cleared profile; the bit of the player's options \
+               set hides it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-PET-OPTION-BIT"),
+        station: "auberean-ui-game::dat::play::pet::the_options_bit_hides_the_pet_panel",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1658,6 +1878,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.pointer.the-pointer-passes-through-a-tooltip",
+        says: "A tooltip takes no part in the pointer: over one, moves, clicks and the wheel reach what lies beneath.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-TOOLTIP-POINTER"),
+        station: "auberean-ui::cpu::text::the_pointer_passes_through_a_tooltip",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.quests.a-quest-that-changed-is-marked-in-its-row",
         says: "A quest that changes has its row's name and time marked in the changed look, the                others keeping theirs; the whole list read at the session's start marks nothing.",
         since: RETAIL,
@@ -1682,6 +1910,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-QUEST-JOURNAL"),
         station: "auberean-ui-game::dat::play::examination::the_journal_keeps_quests_under_way_and_finished",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.quests.the-journal-scrolls-to-the-quest-that-changed",
+        says: "The quest that changed comes into view: with more quests than the list shows, \
+               the list scrolls to it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-JOURNAL-SCROLL"),
+        station: "auberean-ui-game::dat::play::examination::the_journal_scrolls_to_the_quest_that_changed",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1714,6 +1951,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-STORY-PAGE"),
         station: "auberean-ui-game::dat::play::examination::the_story_page_lists_the_acts_and_opens_the_one_changed",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.radar.a-radar-kept-hidden-comes-back-hidden",
+        says: "The radar's kept places put back with its field hidden hide the whole radar, dial and all, so it does not come back as a bare dial.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-RADAR-KEPT-HIDDEN"),
+        station: "auberean-ui-game::dat::play::radar::a_radar_kept_hidden_comes_back_hidden",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -1765,6 +2010,24 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-SCROLLBAR-DRAG"),
         station: "auberean-ui::cpu::lists::dragging_the_widget_scrolls_its_list",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.scrollbar.the-wheel-leaves-other-windows-alone",
+        says: "The wheel over another window, over nothing, or over a window whose bar is hidden leaves a window's list where it is.",
+        since: THIS_CLIENT,
+        divergence: "CD2-wheel-scrolls-the-window",
+        evidence: Evidence::Private("AC2-EVID-UI-WHEEL-OTHERS"),
+        station: "auberean-ui::cpu::lists::the_wheel_leaves_other_windows_alone",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.scrollbar.the-wheel-scrolls-the-window-under-the-pointer",
+        says: "The wheel over a window's ground, or over something in it that takes no wheel, turns the window's nearest bar.",
+        since: THIS_CLIENT,
+        divergence: "CD2-wheel-scrolls-the-window",
+        evidence: Evidence::Private("AC2-EVID-UI-WHEEL-WINDOW"),
+        station: "auberean-ui::cpu::lists::the_wheel_scrolls_the_window_under_the_pointer",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -1838,6 +2101,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-CONSIGNMENTS"),
         station: "auberean-ui-game::dat::play::shop::consignments_are_collected_put_up_and_restocked",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.shop.part-of-a-stack-is-named-for-its-amount",
+        says: "Part of a stack is called by its name for that many, which the scripts answer: the new-sale window shows it once it comes and its question says it; a restock's question waits for it.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SHOP-AMOUNT-NAME"),
+        station: "auberean-ui-game::dat::play::shop::part_of_a_stack_is_named_for_its_amount",
         tier: Tier::Dat,
     },
     behaviour! {
@@ -2063,6 +2334,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "ui.story.the-hide-all-key-waits-for-a-story",
+        says: "While a story is up, the key that hides the whole interface does nothing.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-HIDE-ALL-GATE"),
+        station: "auberean-ui-game::dat::play::story::the_hide_all_key_waits_for_a_story",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.story.the-shortcut-strip-shows-in-front-of-the-storys-background",
         says: "The story's background stands at the shortcut strip's depth and came after it, so the strip is drawn in front of it, the only part of the play screen that shows through, and the pointer meets it there.",
         since: RETAIL,
@@ -2088,11 +2367,21 @@ pub static ROWS: &[Behaviour] = &[
         says: "A string with a character the text element's font lacks switches the element to the \
                first of the two fallback fonts the font mapping names (the Unicode font, then the \
                second) that holds every character of it; when neither does, or the element has no \
-               font, the font stays. Each string starts from the element's own font, and measuring \
-               one switches the font as adding it does.",
+               font, the font stays. The fallback lasts for that string: the next string, a typed \
+               character or a measured string starts from the element's own font.",
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-UI-TEXT-FALLBACK-FONT"),
         station: "auberean-ui::cpu::text::a_character_the_font_lacks_switches_to_a_fallback_font",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.text.a-one-line-entry-keeps-the-caret-in-view",
+        says: "A one-line entry keeps the caret in view: the view stays while the caret is within \
+               the width past it, then stands one width before the caret, and going back past its \
+               start puts the view at the caret.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-HORIZONTAL-VIEW"),
+        station: "auberean-ui::cpu::text::a_one_line_entry_keeps_the_caret_in_view",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2104,6 +2393,24 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-STRDL-ELEMENT"),
         station: "auberean-ui::cpu::text::a_reference_waits_for_its_string_tables_and_what_follows_waits_behind_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.text.an-element-with-no-font-starts-in-the-default-font",
+        says: "A text element with no font of its own starts in the default font the font mapping \
+               names.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-DEFAULT-FONT"),
+        station: "auberean-ui::cpu::text::an_element_with_no_font_starts_in_the_default_font",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.text.an-entry-of-the-string-table-is-a-reference",
+        says: "An element's entry of its string table is added as a string reference: written as \
+               the client writes one, waiting for its tables if the data lacks them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TEXT-ENTRY-REFERENCE"),
+        station: "auberean-ui::cpu::text::an_entry_of_the_string_table_is_a_reference",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -2226,6 +2533,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.tooltip.the-left-button-down-anywhere-holds-a-tooltip-back",
+        says: "With the left button down anywhere, on an element or over the world, no tooltip shows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-TOOLTIP-LEFT-DOWN"),
+        station: "auberean-ui::cpu::text::the_left_button_down_over_the_world_holds_a_tooltip_back",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.tooltip.the-players-delay-and-switch-rule-tooltips",
         says: "The player's tooltip delay is how long the pointer rests before a tooltip shows, one \
                shows at once when the delay comes down to the rest so far; switched off, none shows \
@@ -2234,6 +2549,22 @@ pub static ROWS: &[Behaviour] = &[
         evidence: Evidence::Private("AC2-EVID-CSTREAM-TOOLTIP-OPTIONS"),
         station: "auberean-ui::cpu::text::the_players_tooltip_switch_turns_them_off_and_back_on",
         tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "ui.trade.an-offered-item-is-named-for-the-number-offered",
+        says: "An offered item's tooltip names it for the number offered, not the number its                owner holds.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TRADE-OFFERED-NAME"),
+        station: "auberean-ui-game::dat::play::trade::an_offered_item_is_named_for_the_number_offered",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "ui.trade.an-offered-item-shows-the-selection-and-the-targeting-cursor",
+        says: "An offered item's icon, on either side of a trade, takes the selected look while it is the player's selection, and the cursor its element names while an item waits to be used on a target.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-TRADE-OFFERED-ITEMS"),
+        station: "auberean-ui-game::dat::play::trade::an_offered_item_shows_the_selection_and_the_targeting_cursor",
+        tier: Tier::Dat,
     },
     behaviour! {
         id: "ui.trade.the-trade-window-offers-accepts-and-closes",

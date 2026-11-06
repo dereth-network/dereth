@@ -472,6 +472,47 @@ pub fn vertex_scene(
     (!last.scene.is_none()).then_some(last.scene)
 }
 
+/// The lowest scene field under which `terrain_kind` grows nothing whatever the hash picks: its
+/// scenery kind holds no scene, or only scenes with nothing in them. `None` when it grows something
+/// under every field a vertex word can hold.
+#[must_use]
+pub fn barren_field(
+    terrain: &TerrainDesc,
+    scenes: &SceneDesc,
+    source: &dyn SceneSource,
+    terrain_kind: u32,
+) -> Option<u32> {
+    let kind = terrain
+        .terrains
+        .iter()
+        .find(|t| t.index == terrain_kind)
+        .or(terrain.default_terrain.as_ref())?;
+    let empty = |id: DataId| {
+        id.is_none()
+            || source.scene(id).is_some_and(|s| {
+                s.decoration.is_none() && s.levels.iter().all(|l| l.objects.is_empty())
+            })
+    };
+    (0..SCENE_FIELDS).find(|field| {
+        let scenery = kind
+            .scenery
+            .iter()
+            .find(|s| s.index == *field)
+            .or(kind.default_scenery.as_ref());
+        let Some(scenery) = scenery else {
+            return true;
+        };
+        scenes
+            .scene_types
+            .iter()
+            .find(|s| s.index == scenery.kind)
+            .is_none_or(|st| st.scenes.iter().all(|s| empty(s.scene)))
+    })
+}
+
+/// How many values a vertex word's scene field can hold, at the data's five bits.
+const SCENE_FIELDS: u32 = 32;
+
 /// The scene each vertex of block `(bx, by)` grows, in the vertices' order (x-major), from the
 /// block's vertex words: what the client keeps of a block it may stand near, and asks the data
 /// cache for. `None` for a vertex that grows none.

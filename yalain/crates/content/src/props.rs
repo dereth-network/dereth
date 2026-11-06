@@ -49,6 +49,10 @@ const PLACE_QUALITIES: [(&str, u32); 9] = [
     ("Weapon_TwoWeaponStance", 0x25C),
 ];
 
+/// The property of a least level, and the mark that only its class says it.
+const LEAST_LEVEL: &str = "Usage_MinLevel";
+const LEAST_LEVEL_OF_CLASS: &str = "Usage_MinLevel_OfClass";
+
 impl Props {
     /// The properties along a template's chain: the template's own, then its parent's that it
     /// does not set, up to its class.
@@ -153,6 +157,44 @@ impl Props {
             );
         }
         self
+    }
+
+    /// The script package a template's chain of entities ends in: its class.
+    #[must_use]
+    pub fn class_of(template: u32, entity: &dyn Fn(u32) -> Option<Entity>) -> Option<u32> {
+        let mut did = template;
+        for _ in 0..CHAIN_LIMIT {
+            let e = entity(did)?;
+            match (e.kind, e.object) {
+                (Some(entity_kind::DERIVED), Some(o)) => did = o,
+                (Some(entity_kind::CLASS), Some(o)) if o >> 24 == ENTITY_TOP => did = o,
+                (Some(entity_kind::CLASS), Some(o)) => return Some(o),
+                _ => return None,
+            }
+        }
+        None
+    }
+
+    /// With what a template's class says in code, where its own properties and its chain say nothing.
+    #[must_use]
+    pub fn with_class(mut self, said: &[(&str, Prop)]) -> Self {
+        for (name, v) in said {
+            if !self.values.contains_key(*name) {
+                self.values.insert((*name).to_string(), v.clone());
+                if *name == LEAST_LEVEL {
+                    self.values
+                        .insert(LEAST_LEVEL_OF_CLASS.to_string(), Prop::Bool(true));
+                }
+            }
+        }
+        self
+    }
+
+    /// Does the template itself set its least level, not only its class? A class's is a default a
+    /// drop overrides (2017: 1,882 of 1,893 dropped pieces of such templates showed their own).
+    #[must_use]
+    pub fn sets_least_level(&self) -> bool {
+        self.int(LEAST_LEVEL).is_some() && !self.flag(LEAST_LEVEL_OF_CLASS)
     }
 
     /// Set a value (for content made by hand).

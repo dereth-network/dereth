@@ -45,3 +45,4 @@ path = "tests/cpu/main.rs"
 [[test]]
 name = "gpu"
 path = "tests/gpu/main.rs"
+required-features = ["retail-dats"]

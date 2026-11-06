@@ -610,6 +610,17 @@ impl Store for SqliteStore {
         one_account(n, account)
     }
 
+    fn account(&mut self, id: u64) -> StoreResult<Option<Account>> {
+        self.db
+            .query_row(
+                &format!("SELECT {ACCOUNT_COLUMNS} FROM account WHERE id = ?1"),
+                [id as i64],
+                account,
+            )
+            .optional()
+            .map_err(err)
+    }
+
     fn accounts(&mut self) -> StoreResult<Vec<Account>> {
         let mut st = self
             .db

@@ -641,6 +641,21 @@ pub fn build_block(
     x: i32,
     y: i32,
 ) -> Option<TerrainBlock> {
+    build_block_blending(land, surfaces, source, x, y, true)
+}
+
+/// [`build_block`], its squares' grounds blended or, with `blending` off, each square its one
+/// corner's ground.
+// D2-10894
+#[must_use]
+pub fn build_block_blending(
+    land: &LandConstants,
+    surfaces: Surfaces<'_>,
+    source: &dyn LandSource,
+    x: i32,
+    y: i32,
+    blending: bool,
+) -> Option<TerrainBlock> {
     let lb = source.landblock(x, y)?;
     let grid = land.grid();
     let side = grid.vertices_per_side();
@@ -699,7 +714,7 @@ pub fn build_block(
                 square_layers(
                     corners.map(|k| &terrain[k]),
                     corners.map(|k| &road[k]),
-                    true,
+                    blending,
                 )
             };
             squares.push(SquareLook { hole, layers });

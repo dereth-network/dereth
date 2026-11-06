@@ -176,7 +176,7 @@ fn accounts_are_made_rekeyed_flagged_and_listed_at_the_console() {
     let admits = |h: &mut Harness, t: &[u8]| {
         let unix = h.unix;
         matches!(
-            admin::ticket(&mut h.server, "kara", t, unix),
+            admin::ticket(&mut h.server, "kara", t, "127.0.0.1", unix),
             Ticket::Admitted(_)
         )
     };
@@ -272,11 +272,11 @@ fn a_ban_boots_the_account_and_keeps_it_out_until_it_ends_or_is_lifted() {
     assert_eq!(ended(&h, b, 0), [(admin::STRINGS, admin::BANNED)]);
     let unix = h.unix;
     assert_eq!(
-        admin::ticket(&mut h.server, "one", b"ticket", unix),
+        admin::ticket(&mut h.server, "one", b"ticket", "127.0.0.1", unix),
         Ticket::Banned
     );
     assert_eq!(
-        admin::ticket(&mut h.server, "one", b"wrong", unix),
+        admin::ticket(&mut h.server, "one", b"wrong", "127.0.0.1", unix),
         Ticket::Refused
     );
     let list = console(&mut h, "banlist");
@@ -726,7 +726,7 @@ fn a_player_changes_its_own_password_in_game_only_with_the_right_old_one() {
     let admits = |h: &mut Harness, secret: &[u8]| {
         let unix = h.unix;
         matches!(
-            admin::ticket(&mut h.server, "one", secret, unix),
+            admin::ticket(&mut h.server, "one", secret, "127.0.0.1", unix),
             Ticket::Admitted(_)
         )
     };

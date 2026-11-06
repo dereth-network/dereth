@@ -894,7 +894,7 @@ pub const SECTIONS: &[Section] = &[
             system(
                 "allegiance_officers_and_bans",
                 "AllegianceOfficersAndBans",
-                "Allegiance officers, their titles, the allegiance lock and account bans.",
+                "Allegiance officers and account bans.",
             ),
             system("allegiance_name", "AllegianceName", "Naming the allegiance."),
             system(
@@ -938,6 +938,17 @@ pub const SECTIONS: &[Section] = &[
                 "spell_economy",
                 "SpellEconomy",
                 "A world-wide value on each spell, spent by everyone casting it and regained over hours.",
+            ),
+            system(
+                "allegiance_titles_and_lock",
+                "AllegianceTitlesAndLock",
+                "Officer titles, the allegiance lock and gagging a member of the allegiance room.\n\
+                 Also needs allegiance_officers_and_bans.",
+            ),
+            system(
+                "allegiance_house_commands",
+                "AllegianceHouseCommands",
+                "@allegiance house, opening the monarch's villa or mansion to the allegiance.",
             ),
             e(
                 "any_dat_files",

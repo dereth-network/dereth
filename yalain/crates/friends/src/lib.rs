@@ -159,6 +159,8 @@ pub struct TicketCheck {
     pub stream: StreamId,
     pub cx: Cx,
     pub ticket: Ticket,
+    /// The address it came from, as bounds count it.
+    pub peer: String,
 }
 
 /// The account a stream is bound to.
@@ -662,12 +664,33 @@ impl Service {
             .values()
             .map(|h| (h.character, h.name.clone(), mode_of(&h.state)))
             .collect();
+        // In the world without a stream: nobody sees these come or go, but their person views do.
+        let alone: Vec<(u64, String)> = self
+            .in_world
+            .values()
+            .filter(|w| !self.here.contains_key(&w.name.to_lowercase()))
+            .map(|w| (w.character, w.name.clone()))
+            .collect();
         for (character, name, _) in &here {
             if next.contains(character) && !self.hidden.contains(character) {
                 self.hide(name, fed.as_deref_mut());
             }
         }
+        if let Some(f) = fed.as_deref_mut() {
+            for (character, name) in &alone {
+                if next.contains(character) && !self.hidden.contains(character) {
+                    f.stop_view_of(name);
+                }
+            }
+        }
         let lifted = std::mem::replace(&mut self.hidden, next);
+        if let Some(f) = fed.as_deref_mut() {
+            for (character, name) in &alone {
+                if lifted.contains(character) && !self.hidden.contains(character) {
+                    f.watch_view_of(&*self, name);
+                }
+            }
+        }
         for (character, name, mode) in &here {
             if lifted.contains(character) && !self.hidden.contains(character) {
                 self.tell_friends_of(name, *mode);
@@ -692,6 +715,7 @@ impl Service {
             .filter(|a| f.shown(name, a) == Some(true))
             .collect();
         f.left(self, name);
+        f.stop_view_of(name);
         for friend in shown {
             yalain_federation::Friends::show_presence(self, name, &friend, false, true);
         }
@@ -768,6 +792,8 @@ impl Service {
         }
         if let Some(&id) = self.by_account.get(&account) {
             self.arrive(now, id, &w, false, fed.as_deref_mut());
+        } else if let Some(f) = fed.as_deref_mut() {
+            f.watch_view_of(&*self, name);
         }
         self.settle(now, store, fed);
     }
@@ -819,6 +845,10 @@ impl Service {
                 } else {
                     self.leave_stream_of(&w.name);
                     self.depart(&w.name, fed.as_deref_mut());
+                }
+            } else if !self.hidden.contains(&w.character) {
+                if let Some(f) = fed.as_deref_mut() {
+                    f.stop_view_of(&w.name);
                 }
             }
         }
@@ -1164,6 +1194,7 @@ impl Service {
                 stream: id,
                 cx,
                 ticket,
+                peer: peer.clone(),
             }),
             Err(_) => {
                 // Counted as any refusal.

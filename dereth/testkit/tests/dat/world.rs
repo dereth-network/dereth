@@ -21,7 +21,6 @@ use support::{
 
 dereth_testkit::scenarios! {
     scenario_running_reports_walk_with_the_run_hold_key => running_reports_walk_with_the_run_hold_key ["movement.run.reports-walk-with-the-run-hold-key"],
-    #[cfg(windows)]
     scenario_enter_world_refuses_a_body_inside_a_building => enter_world_refuses_a_body_inside_a_building ["physics.enter-world.refuses-a-body-inside-a-building"],
     scenario_a_teleport_onto_another_player_is_deflected_only_by_a_creature => a_teleport_onto_another_player_is_deflected_only_by_a_creature ["movement.teleport.arrives-exactly-on-another-player-and-is-pushed-aside-only-by-a-creature"],
     scenario_an_arrival_through_the_login_path_lands_on_the_other_players_spot => an_arrival_through_the_login_path_lands_on_the_other_players_spot ["movement.teleport.a-player-arriving-on-another-player-through-the-shards-own-login-is-not-deflected"],
@@ -176,8 +175,6 @@ pub(super) use support as world_support;
 pub(super) mod motion;
 
 mod bodies;
-#[cfg(windows)]
-use bodies::enter_world_refuses_a_body_inside_a_building;
 use bodies::{
     a_body_not_yet_simulated_is_put_straight_onto_the_shards_position,
     a_correction_out_of_reach_is_taken_in_one_step,
@@ -191,7 +188,7 @@ use bodies::{
     a_teleport_out_of_the_world_drops_a_glide_in_flight,
     an_arrival_through_the_login_path_lands_on_the_other_players_spot,
     an_update_with_no_ground_contact_moves_the_body_nowhere,
-    running_reports_walk_with_the_run_hold_key,
+    enter_world_refuses_a_body_inside_a_building, running_reports_walk_with_the_run_hold_key,
     turning_run_on_mid_walk_speeds_the_body_and_changes_the_report,
     two_player_bodies_collide_only_for_the_pairs_that_are_not_exempt,
     walking_forward_reports_a_walk_with_no_hold_key,

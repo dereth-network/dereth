@@ -106,7 +106,7 @@ impl Body {
     /// Tells the body's collisions of a move: see the module. `was_walkable`: it stood on walkable
     /// ground before the move. True when it began touching an object.
     // D2-06183
-    pub(crate) fn handle_all_collisions(
+    pub fn handle_all_collisions(
         &mut self,
         land: &Land,
         world: &mut World,
@@ -114,6 +114,11 @@ impl Body {
         t: &Transition,
         was_walkable: bool,
     ) -> bool {
+        // Stopped during the move: what it tells of the move has no speed in it.
+        // D2-05823
+        if t.kill_velocity {
+            self.velocity = Vec3::ZERO;
+        }
         if !world.begin_collision_check(key) {
             return false;
         }
@@ -149,9 +154,6 @@ impl Body {
                 }
             }
         } else {
-            self.velocity = Vec3::ZERO;
-        }
-        if t.kill_velocity {
             self.velocity = Vec3::ZERO;
         }
         self.stationary = frames;

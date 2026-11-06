@@ -62,7 +62,9 @@ impl HostPointer for NoPointerHold {
 /// A window system moves the pointer when asked either at once, every later report being made
 /// from where it was put, or in its own time, reporting it there once it has. Until that report
 /// the reports already on their way were made from where the pointer was, and are measured from
-/// there; the report of the pointer put back is no movement either way.
+/// there; the report of the pointer put back is no movement either way. A window system that moves
+/// it at once may still deliver reports made before the move (macOS does), so until one nearer the
+/// anchor comes, a report nearer where the pointer was is measured from there.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PutBack {
     /// Where the pointer is put back, in client pixels.
@@ -73,11 +75,18 @@ pub struct PutBack {
     at_once: bool,
     /// The pointer has been put back, and the window system's report of it there is to come.
     report_due: bool,
+    /// Where the pointer was when first put back at once, while reports made before then may come.
+    left: Option<(f64, f64)>,
 }
 
 /// Whether two places in client pixels are the same pixel.
 fn same_place(a: (f64, f64), b: (f64, f64)) -> bool {
     (a.0 - b.0).abs() < 0.5 && (a.1 - b.1).abs() < 0.5
+}
+
+/// The squared distance between two places in client pixels.
+fn distance_squared(a: (f64, f64), b: (f64, f64)) -> f64 {
+    (a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)
 }
 
 impl PutBack {
@@ -91,14 +100,29 @@ impl PutBack {
             from: at,
             at_once,
             report_due: false,
+            left: None,
         };
         let now = hold.put_back();
+        // Only the first move can leave reports made from elsewhere on their way: after it, a
+        // report beside the anchor is the mouse's next step, however near the last one it lies.
+        if at_once && now.is_some() {
+            hold.left = Some(at);
+        }
         (hold, now)
     }
 
     /// The window reported the pointer at `at`, in client pixels: the mouse's movement since the
     /// last report, or `None` for no movement and for the report of the pointer put back.
     pub fn moved(&mut self, at: (f64, f64)) -> Option<(f64, f64)> {
+        if let Some(left) = self.left {
+            if distance_squared(at, left) < distance_squared(at, self.anchor) {
+                // Made before the pointer was put back.
+                self.left = Some(at);
+                let moved = (at.0 - left.0, at.1 - left.1);
+                return (moved != (0.0, 0.0)).then_some(moved);
+            }
+            self.left = None;
+        }
         if self.report_due && same_place(at, self.anchor) {
             self.report_due = false;
             self.from = self.anchor;
@@ -622,6 +646,59 @@ mod tests {
         let (mut still, now) = PutBack::new(anchor, anchor, true);
         assert_eq!(now, None, "held where it is put back");
         assert_eq!(still.moved((401.0, 300.0)), Some((1.0, 0.0)));
+    }
+
+    /// A steady drag on a window system that moves the pointer at once never reports the anchor
+    /// itself. Each step still counts and is put back, so the hidden pointer stays at the anchor
+    /// and never reaches the screen's edge.
+    #[test]
+    fn a_steady_drag_is_put_back_at_every_step_with_no_report_at_the_anchor() {
+        let anchor = (400.0, 300.0);
+        let (mut hold, now) = PutBack::new((120.0, 80.0), anchor, true);
+        assert_eq!(now, Some(anchor));
+        for _ in 0..20 {
+            assert_eq!(
+                hold.moved((410.0, 300.0)),
+                Some((10.0, 0.0)),
+                "from the anchor"
+            );
+            assert_eq!(hold.put_back(), Some(anchor), "put back again");
+        }
+    }
+
+    /// Where the window system moves the pointer at once but still delivers reports made before
+    /// it moved, those are measured from where it was, not from the anchor: a hold begun away
+    /// from the middle does not throw the camera across by the distance between them.
+    #[test]
+    fn reports_made_before_a_put_back_at_once_are_measured_from_where_the_pointer_was() {
+        let anchor = (400.0, 300.0);
+        let (mut hold, now) = PutBack::new((120.0, 80.0), anchor, true);
+        assert_eq!(now, Some(anchor));
+        assert_eq!(
+            hold.moved((123.0, 81.0)),
+            Some((3.0, 1.0)),
+            "made before it moved"
+        );
+        assert_eq!(
+            hold.moved((125.0, 81.0)),
+            Some((2.0, 0.0)),
+            "made before it moved"
+        );
+        assert_eq!(
+            hold.put_back(),
+            None,
+            "the pointer is at the anchor already"
+        );
+        assert_eq!(
+            hold.moved((402.0, 299.0)),
+            Some((2.0, -1.0)),
+            "from the anchor"
+        );
+        assert_eq!(
+            hold.moved((130.0, 80.0)),
+            Some((-272.0, -219.0)),
+            "once a report from the anchor has come, none is taken for an earlier one"
+        );
     }
 
     /// Where the window system moves the pointer in its own time, the reports on their way when it

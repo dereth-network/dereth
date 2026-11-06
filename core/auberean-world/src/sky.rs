@@ -306,10 +306,11 @@ pub fn self_shadow_bit(direction: Vec3) -> Option<u32> {
     }
 }
 
-/// The two of the nine stored directions nearest `direction` (the direction light travels), as
-/// places in the stored list (the middle one counted), and the cosine between `direction` and the
-/// nearest: each stored direction is made a unit and the greatest cosine wins, the first of equals;
-/// the second is the greatest of the others. A place is `None` when no cosine passes -1.
+/// The two of the nine stored directions nearest `direction` (the direction light travels, as long
+/// as the sun is bright), as places in the stored list (the middle one counted), and the nearest's
+/// product with `direction`: each stored direction is made a unit and the greatest product wins,
+/// the first of equals; the second is the greatest of the others. A place is `None` when no
+/// product passes -1.
 // D2-10923
 #[must_use]
 pub fn sun_directions(direction: Vec3) -> (Option<usize>, Option<usize>, f32) {

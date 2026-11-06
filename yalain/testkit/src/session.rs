@@ -149,6 +149,7 @@ impl InProcess {
             MemoryStore::default(),
             test_rules(),
         )
+        .expect("the store sets ids aside")
         .with_world(test_start(), t.content)
         .with_play(catalog, t.spawns, t.loot);
         h.server.stores = t.stores;

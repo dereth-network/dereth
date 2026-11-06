@@ -260,3 +260,21 @@ fn a_reference_names_the_private_tables_its_entries_use() {
     assert_eq!(raw(2), (Code::Success, "Private".to_owned()));
     assert_eq!(raw(99).0, Code::MissingString);
 }
+
+/// A number that cannot be written (here with too many decimals) still sets its variable, to
+/// nothing, so the line around it is written without it.
+///
+/// Behaviour: text.references.a-number-that-cannot-be-written-is-blank
+#[test]
+fn a_number_that_cannot_be_written_is_blank_in_its_line() {
+    let mut src = tables();
+    let mut hello = with(
+        StringInfo::entry(T1, 1),
+        10,
+        Value::Float {
+            value: 1.0,
+            decimals: 21,
+        },
+    );
+    assert_eq!(get(&mut hello, &mut src), "Hello, !");
+}

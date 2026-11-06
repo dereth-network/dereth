@@ -60,6 +60,7 @@ pub(crate) fn wall(y: f32, g: f32, blended: bool, anchor: f32) -> ObjectBatch {
     };
     ObjectBatch {
         posed: None,
+        played: None,
         vertices: Arc::new(vec![
             vertex(-100.0, -100.0),
             vertex(100.0, -100.0),
@@ -90,7 +91,7 @@ pub(crate) fn wall(y: f32, g: f32, blended: bool, anchor: f32) -> ObjectBatch {
     }
 }
 
-fn frame_of(objects: Vec<ObjectBatch>) -> Frame {
+pub(crate) fn frame_of(objects: Vec<ObjectBatch>) -> Frame {
     let r = &install().records;
     let region = r.region().expect("the region");
     let mut builder = SceneBuilder::new(r, &region);
@@ -101,6 +102,7 @@ fn frame_of(objects: Vec<ObjectBatch>) -> Frame {
         fov_y: 60.0,
         near: 0.1,
         far: 500.0,
+        roll: 0.0,
         orthographic: None,
     };
     let mut frame = builder.parts_frame(&[], Vec::new(), camera, DayLight::DEFAULT, None);

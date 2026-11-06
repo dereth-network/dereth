@@ -114,6 +114,7 @@ fn action_of(m: &Msg) -> Option<Vec<Action>> {
         }
         ClientMessage::DataHeld(_)
         | ClientMessage::DownloadEnds(_)
+        | ClientMessage::OverlayHeld(_)
         | ClientMessage::SceneRenderingComplete(_)
         | ClientMessage::ForceCreate(_) => return None,
     })

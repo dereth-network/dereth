@@ -350,6 +350,59 @@ fn a_top_level_element_is_kept_on_the_screen() {
     assert_eq!(u.node(h).unwrap().rect, Rect::new(113, 722, 910, 767));
 }
 
+/// A top-level element placed past the screen's left or top edge comes back to it, as one past the
+/// right or bottom edge does; a child is not held to the screen.
+///
+/// Behaviour: ui.element.a-placed-element-stays-off-no-edge-of-the-screen
+#[test]
+fn a_placed_element_stays_off_no_edge_of_the_screen() {
+    let mut u = ui(
+        vec![element(
+            "Window",
+            "field",
+            [-40, -30, 59, 69],
+            0,
+            vec![state(
+                "stateless",
+                0,
+                vec![],
+                vec![],
+                vec![element("Inner", "field", [1100, 900, 1109, 909], 0, vec![])],
+            )],
+        )],
+        vec![],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    assert_eq!(u.node(w).unwrap().rect, Rect::new(0, 0, 99, 99));
+    let inner = u.child(w, Token::of("Inner")).unwrap();
+    assert_eq!(u.node(inner).unwrap().rect, Rect::new(1100, 900, 1109, 909));
+}
+
+/// A window resized by its grips stops at the screen's edges: its other edges stay where they are.
+///
+/// Behaviour: ui.element.a-window-resized-stops-at-the-screens-edges
+#[test]
+fn a_window_resized_stops_at_the_screens_edges() {
+    use auberean_ui::types::resizebar::Border;
+    let mut u = ui(
+        vec![element("Window", "field", [100, 100, 199, 199], 0, vec![])],
+        vec![],
+    );
+    let l = u.load_layout(LAYOUT).unwrap();
+    let w = u.create_root(l, Token::of("Window")).unwrap();
+    let (dw, dh) = u.display();
+    u.pointer_move(100, 100);
+    u.start_resizing(w, Border::UpperLeft);
+    u.pointer_move(-50, -50);
+    assert_eq!(u.node(w).unwrap().rect, Rect::new(0, 0, 199, 199));
+    u.stop_resizing(w);
+    u.pointer_move(199, 199);
+    u.start_resizing(w, Border::LowerRight);
+    u.pointer_move(dw + 200, dh + 200);
+    assert_eq!(u.node(w).unwrap().rect, Rect::new(0, 0, dw - 1, dh - 1));
+}
+
 /// Matching one element's attributes onto another goes on into the children: each child gives
 /// the other's child made from the same description what it lacks, and a text child its text.
 ///

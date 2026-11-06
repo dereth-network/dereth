@@ -39,6 +39,7 @@ fn picture(width: u32, height: u32) -> Image {
         width,
         height,
         bgra,
+        alpha_only: false,
     }
 }
 
@@ -267,4 +268,138 @@ fn a_turned_element_is_the_texels_each_worked_out_alone() {
     let mut again = Surface::new(1024, 768);
     draw::draw_layers_with(&u, &mut again, |_| true, &mut kept);
     assert_eq!(again.bgra, unturned.bgra, "the kept layers were left clear");
+}
+
+/// A top-level element drawn at a scale covers that share of its size from its top-left corner,
+/// its middle keeping its colors, and scaling back leaves the next picture as it was.
+#[test]
+fn a_scaled_element_covers_its_share_from_its_corner() {
+    let e = element(
+        "Scaled",
+        "field",
+        [20, 15, 79, 58],
+        1,
+        vec![state("stateless", 0, vec![], vec![image(1, 0)], vec![])],
+    );
+    let mut u = ui(vec![e], vec![(1, Arc::new(picture(60, 44)))]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let h = u.create_root(l, Token::of("Scaled")).unwrap();
+    let bounds = |s: &Surface| {
+        let (mut lo, mut hi) = ((i32::MAX, i32::MAX), (-1, -1));
+        for y in 0..s.height {
+            for x in 0..s.width {
+                if s.get(x, y)[3] != 0 {
+                    lo = (lo.0.min(x), lo.1.min(y));
+                    hi = (hi.0.max(x), hi.1.max(y));
+                }
+            }
+        }
+        (lo, hi)
+    };
+    let mut plain = Surface::new(1024, 768);
+    draw::draw_layers_where(&u, &mut plain, |_| true);
+    assert_eq!(bounds(&plain), ((20, 15), (79, 58)));
+    let mut kept = draw::Layers::default();
+    for (scale, want) in [(2.0, (139, 102)), (0.5, (49, 36))] {
+        u.set_object_scale(h, scale);
+        let mut drawn = Surface::new(1024, 768);
+        draw::draw_layers_with(&u, &mut drawn, |_| true, &mut kept);
+        assert_eq!(bounds(&drawn), ((20, 15), want), "at {scale}");
+    }
+    u.set_object_scale(h, 1.0);
+    let mut again = Surface::new(1024, 768);
+    draw::draw_layers_with(&u, &mut again, |_| true, &mut kept);
+    assert_eq!(again.bgra, plain.bgra, "the kept layers were left clear");
+}
+
+/// Saying what is already so draws nothing new: the same attribute, visibility, place or picture,
+/// and the clock passing over text no one can edit, leave the picture as it was. A change does
+/// not.
+#[test]
+fn saying_what_is_already_so_draws_nothing_new() {
+    use auberean_assets::ui::AttributeValue as V;
+    use auberean_ui::token::attr;
+    use auberean_ui::Value;
+    let e = element(
+        "Plain",
+        "field",
+        [20, 15, 79, 58],
+        1,
+        vec![state("stateless", 0, vec![], vec![image(1, 0)], vec![])],
+    );
+    let words = element(
+        "Words",
+        "text",
+        [0, 0, 99, 19],
+        1,
+        vec![state(
+            "stateless",
+            0,
+            vec![("editable", V::Bool(false))],
+            vec![],
+            vec![],
+        )],
+    );
+    let mut u = ui(vec![e, words], vec![(1, Arc::new(picture(60, 44)))]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let h = u.create_root(l, Token::of("Plain")).unwrap();
+    let t = u.create_root(l, Token::of("Words")).unwrap();
+    u.set_text(t, "Holtburg");
+    u.lay_out_text_shown();
+    u.use_time(1.0);
+    u.set_attr(h, attr::POSITION, Value::Float(0.5));
+    u.set_visible(h, true);
+    u.move_picture(h, 30, 30);
+    u.set_image(h, 1, 0);
+    let still = u.revision();
+    u.use_time(2.0);
+    u.use_time(3.0);
+    assert_eq!(u.revision(), still, "the clock passes over the words");
+    u.set_attr(h, attr::POSITION, Value::Float(0.5));
+    assert_eq!(u.revision(), still, "the same attribute");
+    u.set_visible(h, true);
+    assert_eq!(u.revision(), still, "the same visibility");
+    u.move_picture(h, 30, 30);
+    assert_eq!(u.revision(), still, "the same place");
+    u.set_image(h, 1, 0);
+    assert_eq!(u.revision(), still, "the same picture");
+    u.set_attr(h, attr::POSITION, Value::Float(0.75));
+    assert_ne!(u.revision(), still, "another attribute");
+    let still = u.revision();
+    u.set_visible(h, false);
+    assert_ne!(u.revision(), still, "another visibility");
+    let still = u.revision();
+    u.move_picture(h, 31, 30);
+    assert_ne!(u.revision(), still, "another place");
+}
+
+/// A meter's position draws nothing new until a fill moves by a texel.
+#[test]
+fn a_meter_draws_nothing_new_until_a_fill_moves() {
+    use auberean_ui::token::attr;
+    use auberean_ui::Value;
+    let m = element(
+        "Bar",
+        "meter",
+        [0, 0, 99, 9],
+        0,
+        vec![state(
+            "stateless",
+            0,
+            vec![],
+            vec![],
+            vec![element("left_fill", "field", [0, 0, 99, 9], 0, vec![])],
+        )],
+    );
+    let mut u = ui(vec![m], vec![]);
+    let l = u.load_layout(LAYOUT).unwrap();
+    let h = u.create_root(l, Token::of("Bar")).unwrap();
+    u.set_attr(h, attr::POSITION, Value::Float(0.500));
+    let still = u.revision();
+    u.set_attr(h, attr::POSITION, Value::Float(0.503));
+    assert_eq!(u.revision(), still, "the fill stays within its texel");
+    u.set_attr(h, attr::POSITION, Value::Float(0.6));
+    assert_ne!(u.revision(), still, "the fill moves");
+    let fill = u.child(h, attr::LEFT_FILL).unwrap();
+    assert_eq!(u.node(fill).unwrap().rect.width(), 60);
 }

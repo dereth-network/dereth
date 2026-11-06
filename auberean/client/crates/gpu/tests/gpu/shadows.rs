@@ -539,6 +539,7 @@ fn a_body_takes_the_sun_shadow_about_its_spot() {
         fov_y: 60.0,
         near: 0.1,
         far: 2000.0,
+        roll: 0.0,
         orthographic: None,
     };
     let mut wall = crate::fade::wall(10.0, 0.5, false, 10.0);
@@ -548,6 +549,7 @@ fn a_body_takes_the_sun_shadow_about_its_spot() {
     let mut at = |device: &mut auberean_gpu::Renderer, ground: Option<Vec3>| {
         frame.objects = vec![auberean_draw::scene::ObjectBatch {
             posed: None,
+            played: None,
             ground,
             ..wall.clone()
         }];

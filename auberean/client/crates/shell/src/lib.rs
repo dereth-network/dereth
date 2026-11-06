@@ -113,6 +113,8 @@ pub struct Output<'a> {
     pub fade: Vec<((u8, u8), f32)>,
     /// The program should close.
     pub quit: bool,
+    /// The player asked for a screenshot of this frame.
+    pub screenshot: bool,
 }
 
 /// The application.
@@ -146,6 +148,7 @@ pub struct Shell<'w, H: Host> {
     /// Seconds the last frame spent moving the world, in the client, and framing the world.
     pub costs: [f64; 9],
     quit: bool,
+    screenshot: bool,
     last: f64,
     frames: VecDeque<f64>,
     heard: VecDeque<String>,
@@ -232,6 +235,7 @@ impl<'w, H: Host> Shell<'w, H> {
         // from them and the world is drawn by them from its first frame.
         let graphics = settings.starting_graphics();
         let mut scene = Scene::new(world, &graphics);
+        scene.set_terrain_blending(settings.terrain_blending);
         scene.set_random(&random);
         interface.set_random(&random);
         scene.camera = auberean_scene::CameraControl::new(settings.camera);
@@ -270,6 +274,7 @@ impl<'w, H: Host> Shell<'w, H> {
             ended: None,
             costs: [0.0; 9],
             quit: false,
+            screenshot: false,
             last,
             frames: VecDeque::new(),
             heard: VecDeque::new(),
@@ -326,7 +331,13 @@ impl<'w, H: Host> Shell<'w, H> {
                 self.quit = true;
                 return;
             }
-            _ => {}
+            Event::Key { .. }
+            | Event::Text(_)
+            | Event::Button { .. }
+            | Event::Pointer { .. }
+            | Event::Motion { .. }
+            | Event::Wheel { .. }
+            | Event::Focus(_) => {}
         }
         let phase = self.phase();
         let game = game!(self, phase);
@@ -336,6 +347,13 @@ impl<'w, H: Host> Shell<'w, H> {
         if let Some((x, y)) = self.input.take_missed() {
             self.event(&Event::Pointer { x, y });
         }
+    }
+
+    /// The settings the command line sets over those read.
+    pub fn apply_line(&mut self, line: &command_line::ClientLine) {
+        line.apply_to(&mut self.settings);
+        self.scene
+            .set_terrain_blending(self.settings.terrain_blending);
     }
 
     /// The sizes the host's display can take, in pixels, from a host that lets the player choose
@@ -382,6 +400,7 @@ impl<'w, H: Host> Shell<'w, H> {
                 }
             }
             Request::Quit => self.quit = true,
+            Request::Screenshot => self.screenshot = true,
             Request::ShowWorld(on) => self.scene.show_world(on),
             Request::PortalScenePlaying(on) => self.scene.portal_scene_playing = on,
             Request::Camera(c) => self.camera(c),
@@ -414,6 +433,10 @@ impl<'w, H: Host> Shell<'w, H> {
             }
             Request::Sound(r) => self.sound.request(r),
             Request::InputMethod(area) => self.host.set_input_method(area),
+            Request::BindKeyMaps(maps) => {
+                let [n, s, c] = &maps;
+                self.keys.bind([n, s, c]);
+            }
             Request::KeyMaps(maps) => {
                 let [n, s, c] = &maps;
                 if !self
@@ -442,8 +465,7 @@ impl<'w, H: Host> Shell<'w, H> {
             }
             CameraRequest::Zoom { inward } => cam.press(Press::Wheel(if inward { 1 } else { -1 })),
             CameraRequest::Options(o) => {
-                cam.options = o;
-                cam.apply_options();
+                cam.set_options(o);
                 self.settings.camera = o;
             }
         }
@@ -720,6 +742,7 @@ impl<'w, H: Host> Shell<'w, H> {
     /// One frame: the network, the interface, the world, the client; the world's frame, what is
     /// placed over it; then what to show.
     pub fn frame(&mut self) -> Output<'_> {
+        self.input.frame_begins();
         let now = self.host.now();
         #[allow(clippy::cast_possible_truncation)]
         let dt = (now - self.last).clamp(0.0, 0.25) as f32;
@@ -770,6 +793,10 @@ impl<'w, H: Host> Shell<'w, H> {
             let t0 = self.host.now();
             self.scene.entering = self.entering;
             self.scene.update(c, &intent, now, dt);
+            // D2-09649, D2-10665
+            if self.scene.player_moving_to() || self.scene.player_teleported() {
+                self.controls.turn_off_run_lock();
+            }
             let t1 = self.host.now();
             c.frame(local);
             self.costs[0] = t1 - t0;
@@ -862,6 +889,7 @@ impl<'w, H: Host> Shell<'w, H> {
         let t = self.host.now();
         let views = self.scene.view_frames(&self.overlay.scenes, dt);
         self.costs[8] = self.host.now() - t;
+        let screenshot = std::mem::take(&mut self.screenshot);
         let frames = self.scene.frames(now, phase == Phase::World);
         Output {
             world: frames.world,
@@ -872,6 +900,7 @@ impl<'w, H: Host> Shell<'w, H> {
             views,
             fade: frames.fade,
             quit,
+            screenshot,
         }
     }
 

@@ -251,11 +251,12 @@ fn a_link_holds_only_for_the_character_that_asked_and_is_told_when_it_comes() {
     assert!(!w.fed.is_linked("Ann"), "not known while she is away");
 }
 
-/// A present character on the network asks for its person view, again at each welcome, and stops
-/// when it leaves or goes off the network; a character off the network asks for none.
+/// A character in the world on the network asks for its person view, with a friends stream or not,
+/// again at each welcome, and stops when it leaves or goes off the network; a character off the
+/// network asks for none. Its stream going leaves it watching while it stays in the world.
 /// Behaviour: server.network.person-view-watched
 #[test]
-fn the_person_view_is_watched_while_a_character_is_present_on_the_network() {
+fn the_person_view_is_watched_while_a_character_is_in_the_world_on_the_network() {
     let watches = |frames: &[Message]| -> Vec<(String, bool)> {
         frames
             .iter()
@@ -288,6 +289,39 @@ fn the_person_view_is_watched_while_a_character_is_present_on_the_network() {
     w.frames();
     w.set_on("Ann", false);
     assert_eq!(watches(&w.frames()), [("Ann@dawnsong".to_owned(), false)]);
+
+    // In the world with no stream.
+    w.leave("Ann");
+    w.frames();
+    w.service.in_world.push("ann".into());
+    w.set_on("Ann", true);
+    assert_eq!(watches(&w.frames()), [("Ann@dawnsong".to_owned(), true)]);
+    assert_eq!(
+        watches(&w.link(&[])),
+        [("Ann@dawnsong".to_owned(), true)],
+        "at each welcome"
+    );
+    // A stream that came and went changes nothing while she stays.
+    w.enter("Ann", yalain_federation::State::Available);
+    w.frames();
+    w.leave("Ann");
+    assert_eq!(watches(&w.frames()), [], "still in the world");
+    // She hears of her link.
+    w.hub(&view("Ann@dawnsong", false));
+    let t = w.t;
+    let ann = w.ids["Ann"];
+    assert_eq!(w.fed.link_person(&mut w.store, t, ann, "Ann"), None);
+    w.frames();
+    w.service.lines.clear();
+    w.hub(&view("Ann@dawnsong", true));
+    assert_eq!(w.service.lines, [(ann, NOW_LINKED.to_owned())]);
+    assert!(w.fed.is_linked("Ann"));
+    // Gone from the world.
+    w.service.in_world.clear();
+    w.frames();
+    w.fed.stop_view_of("Ann");
+    assert_eq!(watches(&w.frames()), [("Ann@dawnsong".to_owned(), false)]);
+    assert!(!w.fed.is_linked("Ann"), "not known while she is away");
 }
 
 /// The hub's question about a tell to a character away is answered true only for one of this

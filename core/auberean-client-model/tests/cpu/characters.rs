@@ -170,3 +170,21 @@ fn a_character_brought_back_loses_its_grey() {
     assert_eq!(list.characters.len(), 1);
     assert_eq!(list.characters[0].seconds_greyed_out, 0);
 }
+
+/// A character refused keeps the error the server gave, for the creation screen to say why.
+///
+/// Behaviour: model.characters.a-refused-character-keeps-the-servers-error
+#[test]
+fn a_refused_character_keeps_the_servers_error() {
+    let mut m = Model::new();
+    let refused = CharacterCreated {
+        response: 5,
+        identity: CharacterIdentity::default(),
+        result: 0xC74A,
+    };
+    m.apply(&Item {
+        blob_id: 0,
+        message: ServerMessage::CharacterCreated(refused),
+    });
+    assert_eq!(m.creation, Some((5, 0, 1, 0xC74A)));
+}

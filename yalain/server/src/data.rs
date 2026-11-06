@@ -11,6 +11,7 @@ use auberean_assets::script::{Qualities, ScriptState};
 use auberean_assets::visual::VisualDesc;
 use auberean_assets::Context;
 use auberean_dat::locate::{install_dats, DatName};
+use auberean_dat::overlay::WorldOverlay;
 use auberean_dat::DatFile;
 use auberean_script::graph::Graph;
 use auberean_script::library::{Library, RECORD};
@@ -59,6 +60,8 @@ pub struct Portal {
     pub ctx: Context,
     /// What the install holds, for the files opened when they are first asked for.
     files: Vec<(DatName, PathBuf)>,
+    /// The world's overlay, which every file is read through.
+    overlay: Option<WorldOverlay>,
     cell: OnceCell<Option<DatFile>>,
     english: OnceCell<Option<DatFile>>,
     entities: Kept<Entity>,
@@ -85,11 +88,13 @@ pub struct SavedState {
 }
 
 impl Portal {
-    /// Open an install's portal file.
+    /// Open an install's portal file, with `overlay` over each of its files.
     ///
     /// # Errors
-    /// The install has none, or it does not open.
-    pub fn open(dats: &Path) -> Result<Self, String> {
+    /// The install has none, it does not open, or the overlay was made against other files: every
+    /// file it lies over is checked now, so a world is never served from the installed files in
+    /// place of its own.
+    pub fn open(dats: &Path, overlay: Option<WorldOverlay>) -> Result<Self, String> {
         let files = install_dats(dats).map_err(|e| format!("{}: {e}", dats.display()))?;
         let portal = files
             .iter()
@@ -97,16 +102,33 @@ impl Portal {
             .map(|(_, p)| p)
             .ok_or_else(|| format!("no portal data file in {}", dats.display()))?;
         let dat = DatFile::open(portal).map_err(|e| e.to_string())?;
-        Self::over(dat, files)
+        let Some(world) = overlay else {
+            return Self::over(dat, files, None);
+        };
+        let through = |file: DatFile| {
+            world
+                .over(file)
+                .map_err(|e| format!("the world's overlay: {e}"))
+        };
+        for (_, path) in &files {
+            through(DatFile::open(path).map_err(|e| format!("{}: {e}", path.display()))?)?;
+        }
+        let dat = through(dat)?;
+        Self::over(dat, files, Some(world))
     }
 
     /// The portal file already opened, with the install's other files as `files` lists them.
-    fn over(dat: DatFile, files: Vec<(DatName, PathBuf)>) -> Result<Self, String> {
+    fn over(
+        dat: DatFile,
+        files: Vec<(DatName, PathBuf)>,
+        overlay: Option<WorldOverlay>,
+    ) -> Result<Self, String> {
         let ctx = Context::from_portal(&dat).map_err(|e| e.to_string())?;
         Ok(Self {
             dat,
             ctx,
             files,
+            overlay,
             cell: OnceCell::new(),
             english: OnceCell::new(),
             entities: Kept::default(),
@@ -119,10 +141,18 @@ impl Portal {
     }
 
     fn open_other(&self, want: &dyn Fn(&DatName) -> bool) -> Option<DatFile> {
-        self.files
-            .iter()
-            .find(|(n, _)| want(n))
-            .and_then(|(_, p)| DatFile::open(p).ok())
+        let (_, path) = self.files.iter().find(|(n, _)| want(n))?;
+        let file = DatFile::open(path).ok()?;
+        match &self.overlay {
+            Some(world) => world.over(file).ok(),
+            None => Some(file),
+        }
+    }
+
+    /// Whether the files are read through a world's overlay.
+    #[must_use]
+    pub const fn has_overlay(&self) -> bool {
+        self.overlay.is_some()
     }
 
     /// The install's first cell file, when it opens.
@@ -350,10 +380,17 @@ pub fn catalog(
         if c.templates.contains_key(&t) {
             continue;
         }
+        let class = Props::class_of(t, &|id| p.entity(id)).map_or_else(Vec::new, |c| {
+            library(p).map_or_else(
+                |_| Vec::new(),
+                |lib| yalain_world_db::install::class_properties(lib, c),
+            )
+        });
         let props = Props::of(t, &|id| p.entity(id), &prop_name)
             .with_places_of(p.qualities(yalain_content::qualities_id(t)).as_ref())
             .with_worn_of(t)
-            .with_take_gate_of(t);
+            .with_take_gate_of(t)
+            .with_class(&class);
         let description = match describe(t, &|id| p.entity(id), &|id| p.qualities(id)) {
             Ok(d) => d,
             Err(e) => {
@@ -380,7 +417,7 @@ pub fn catalog(
         c.insert(Template {
             id: t,
             description,
-            facts: yalain_content::facts(t, &|id| p.entity(id), &ids),
+            facts: yalain_content::facts(t, &|id| p.entity(id), &ids).named_by(&props),
             props,
         });
     }
@@ -607,10 +644,11 @@ pub fn item_uses(
     (
         yalain_world::item_use::ItemUses,
         yalain_world::item_use::ItemUses,
+        yalain_world::item_use::ItemUses,
     ),
     String,
 > {
-    use yalain_world::item_use::{read_named, USED, WORN};
+    use yalain_world::item_use::{read_named, DIED, USED, WORN};
     let lib = library(p)?;
     let states: Vec<(u32, u32, Option<u32>)> = saved_states(p)?
         .iter()
@@ -620,6 +658,7 @@ pub fn item_uses(
     Ok((
         read_named(lib, states.iter().copied(), templates(), USED),
         read_named(lib, states.iter().copied(), templates(), WORN),
+        read_named(lib, states.iter().copied(), templates(), DIED),
     ))
 }
 
@@ -1109,8 +1148,223 @@ impl yalain_world::walls::Blocks for TimedBlocks {
 mod tests {
     use super::*;
     use auberean_dat::checked::{Exact, ReadAt};
+    use auberean_dat::locate::role_file;
+    use auberean_dat::DatKind;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
+
+    /// A world's folder, `key`, its overlay holding `build`'s records.
+    fn world_with_overlay(
+        name: &str,
+        key: &str,
+        build: impl FnOnce(&dereth_dat::overlay::OverlayDir),
+    ) -> PathBuf {
+        let world = std::env::temp_dir().join(format!(
+            "yalain-world-overlay-{name}-{}",
+            std::process::id()
+        ));
+        std::fs::remove_dir_all(&world).ok();
+        std::fs::create_dir_all(&world).expect("the world's folder");
+        std::fs::write(
+            world.join("world.toml"),
+            format!(
+                "format_version = 1\nkey = \"{key}\"\ngame = \"ac2\"\nera = \"eor\"\npacks = []\n"
+            ),
+        )
+        .expect("the world file");
+        let folder = world.join(auberean_dat::overlay::WORLD_FOLDER);
+        build(&dereth_dat::overlay::OverlayDir::new(&folder).expect("the folder"));
+        world
+    }
+
+    /// An install's file.
+    fn file_of(want: &DatName) -> DatFile {
+        let found = install_dats(&auberean_dat::testing::require_target_install()).expect("files");
+        let (_, path) = found.iter().find(|(n, _)| n == want).expect("the file");
+        DatFile::open(path).expect("opens")
+    }
+
+    /// A world's overlay over the install, opened as a start of the server opens it: what it
+    /// replaces, adds and deletes is what the files clients ask for hold, in the cell file and the
+    /// portal file both, and every other record is the install's.
+    /// Behaviour: server.data.answers-from-a-worlds-overlay
+    #[test]
+    fn the_records_a_client_asks_for_are_read_through_the_worlds_overlay() {
+        use dereth_dat::ModernDat;
+        use dereth_primitives::DataId;
+        use yalain_world::download::DataFiles as _;
+
+        let cell = file_of(&DatName::Cell(1));
+        let portal = file_of(&DatName::Portal);
+        let blocks: Vec<u32> = cell
+            .entries()
+            .map(|e| e.id)
+            .filter(|id| id & 0xFFFF == 0xFFFF)
+            .take(3)
+            .collect();
+        let (replaced, deleted, kept) = (blocks[0], blocks[1], blocks[2]);
+        let in_portal = portal.entries().next().expect("a record").id;
+        let world = world_with_overlay("reads", "a-world", |dir| {
+            let mut w = dir
+                .writer(
+                    ModernDat::Cell,
+                    cell.shared(),
+                    role_file(ModernDat::Cell),
+                    "a-world",
+                    0,
+                )
+                .expect("a writer");
+            w.put(DataId(replaced), b"the world's own", 1, 0, 0)
+                .unwrap();
+            w.tombstone(DataId(deleted), 0, 0).unwrap();
+            w.flush(0).unwrap();
+            let mut w = dir
+                .writer(
+                    ModernDat::Portal,
+                    portal.shared(),
+                    role_file(ModernDat::Portal),
+                    "a-world",
+                    0,
+                )
+                .expect("a writer");
+            w.put(DataId(in_portal), b"the world's too", 1, 0, 0)
+                .unwrap();
+            w.flush(0).unwrap();
+        });
+        let overlay = crate::world::overlay_of(&world.display().to_string(), None)
+            .expect("reads")
+            .expect("a world's overlay");
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, Some(overlay)).expect("opens");
+        let files = install_files(&p);
+        let read = |kind, id| files.read(kind, id);
+        assert_eq!(
+            read(DatKind::Cell, replaced).as_deref(),
+            Some(&b"the world's own"[..])
+        );
+        assert_eq!(read(DatKind::Cell, deleted), None);
+        assert_eq!(read(DatKind::Cell, kept), cell.read(kept).ok());
+        assert_eq!(
+            read(DatKind::Portal, in_portal).as_deref(),
+            Some(&b"the world's too"[..])
+        );
+        assert!(files.overlaid(DatKind::Cell, replaced));
+        assert!(files.overlaid(DatKind::Cell, deleted));
+        assert!(!files.overlaid(DatKind::Cell, kept));
+        std::fs::remove_dir_all(&world).ok();
+    }
+
+    /// A world with no overlay reads the install and starts as it did; the pinned release has none.
+    /// Behaviour: server.data.answers-from-a-worlds-overlay
+    #[test]
+    fn a_world_with_no_overlay_is_served_the_installs_own_records() {
+        use yalain_world::download::DataFiles as _;
+
+        assert!(crate::world::overlay_of("pinned", None)
+            .expect("reads")
+            .is_none());
+        let world = world_with_overlay("none", "a-world", |_| {});
+        let none = crate::world::overlay_of(&world.display().to_string(), None).expect("reads");
+        assert!(none.is_none());
+        let dir = auberean_dat::testing::require_target_install();
+        let p = Portal::open(&dir, none).expect("opens");
+        assert!(!p.has_overlay());
+        let cell = file_of(&DatName::Cell(1));
+        let id = cell.entries().next().expect("a record").id;
+        assert_eq!(
+            install_files(&p).read(DatKind::Cell, id),
+            cell.read(id).ok()
+        );
+        std::fs::remove_dir_all(&world).ok();
+    }
+
+    /// An overlay made against other files stops the start, and so does another world's, whichever
+    /// file it lies over: a world is never served from the installed files in place of its own.
+    /// Behaviour: server.data.an-overlay-not-for-this-world-stops-the-start
+    #[test]
+    fn an_overlay_not_for_this_world_and_these_files_stops_the_start() {
+        use dereth_dat::ModernDat;
+        use dereth_primitives::DataId;
+
+        let cell = file_of(&DatName::Cell(1));
+        let portal = file_of(&DatName::Portal);
+        let dir = auberean_dat::testing::require_target_install();
+
+        // Made over the portal file, to lie over the cell file.
+        let other_files = world_with_overlay("other-files", "a-world", |d| {
+            let mut w = d
+                .writer(
+                    ModernDat::Cell,
+                    portal.shared(),
+                    role_file(ModernDat::Cell),
+                    "a-world",
+                    0,
+                )
+                .expect("a writer");
+            w.put(DataId(0x0101_FFFF), b"a record", 1, 0, 0).unwrap();
+            w.flush(0).unwrap();
+        });
+        let overlay = crate::world::overlay_of(&other_files.display().to_string(), None)
+            .expect("its world is this one")
+            .expect("an overlay");
+        let Err(why) = Portal::open(&dir, Some(overlay)) else {
+            panic!("an overlay made against other files opened");
+        };
+        assert!(why.contains("overlay"), "{why}");
+
+        let other_world = world_with_overlay("other-world", "a-world", |d| {
+            let mut w = d
+                .writer(
+                    ModernDat::Cell,
+                    cell.shared(),
+                    role_file(ModernDat::Cell),
+                    "another-world",
+                    0,
+                )
+                .expect("a writer");
+            w.put(DataId(0x0101_FFFF), b"a record", 1, 0, 0).unwrap();
+            w.flush(0).unwrap();
+        });
+        let Err(why) = crate::world::overlay_of(&other_world.display().to_string(), None) else {
+            panic!("another world's overlay was taken");
+        };
+        assert!(why.contains("another-world"), "{why}");
+        for w in [other_files, other_world] {
+            std::fs::remove_dir_all(&w).ok();
+        }
+    }
+
+    /// A world that writes clearings and has no overlay is told, as it starts.
+    /// Behaviour: server.data.a-world-with-clearings-and-no-overlay-is-told
+    #[test]
+    fn clearings_with_no_overlay_are_warned_about() {
+        let files: yalain_world_db::Files = [
+            (
+                "world.toml".to_owned(),
+                "format_version = 1\nkey = \"a\"\ngame = \"ac2\"\nera = \"eor\"\npacks = [\"p\"]\n"
+                    .to_owned(),
+            ),
+            (
+                "p/pack.toml".to_owned(),
+                "format_version = 1\nname = \"p\"\nversion = \"0.1.0\"\ngame = \"ac2\"\nauthors = []\nlicense = \"CC0-1.0\"\ndescription = \"d\"\n"
+                    .to_owned(),
+            ),
+            (
+                "p/server/landblocks/A493.toml".to_owned(),
+                "[[clearing]]\nkey = \"c\"\nat = [10.0, 10.0, \"ground\"]\nradius = 5.0\nprov = { from = \"authored\" }\n"
+                    .to_owned(),
+            ),
+        ]
+        .into_iter()
+        .collect();
+        let db = yalain_world_db::rows::read(&files).expect("reads");
+        let merged = yalain_world_db::merge::merge(&db).expect("merges");
+        assert!(crate::world::clearing_warning(&merged, true).is_none());
+        let warned = crate::world::clearing_warning(&merged, false).expect("a warning");
+        assert!(warned.contains("1 clearing"), "{warned}");
+        let plain = yalain_world_db::merge::Merged::default();
+        assert!(crate::world::clearing_warning(&plain, false).is_none());
+    }
 
     /// A data file that counts its reads.
     #[derive(Debug)]
@@ -1140,7 +1394,7 @@ mod tests {
             Box::new(Exact(Counted(file, Arc::clone(&reads)))),
         )
         .expect("opens");
-        let p = Portal::over(dat, Vec::new()).expect("a context");
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
         library(&p).expect("the library");
         let at = |n: &Arc<AtomicU64>| n.load(Ordering::Relaxed);
         let before = at(&reads);
@@ -1204,7 +1458,7 @@ mod tests {
     fn the_ground_reads_each_landblock_and_mesh_once() {
         let (dat, portal_reads) = tallied(&DatName::Portal);
         let (cell, cell_reads) = tallied(&DatName::Cell(1));
-        let p = Portal::over(dat, Vec::new()).expect("a context");
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
         p.cell.set(Some(cell)).expect("not yet opened");
         let camp = |cell: u32| yalain_content::Camp {
             id: String::new(),
@@ -1246,7 +1500,7 @@ mod tests {
         const ARMOR: u32 = 0x4700_0DC5;
         const TABLE: u32 = 0x2000_0075;
         let (dat, _) = tallied(&DatName::Portal);
-        let p = Portal::over(dat, Vec::new()).expect("a context");
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
         let (weapon, table, _) = yalain_content::treasure_looks::TREASURE_LOOKS[0];
         let (c, _) = catalog(
             &p,
@@ -1275,7 +1529,7 @@ mod tests {
     fn the_enchantments_treasure_draws_read_from_the_data_files() {
         use yalain_content::treasure_effects::{states, tier_of};
         let (dat, _) = tallied(&DatName::Portal);
-        let p = Portal::over(dat, Vec::new()).expect("a context");
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
         let wanted: Vec<u32> = states().collect();
         let table = effect_table(&p, &wanted).expect("the table");
         for s in &wanted {
@@ -1295,7 +1549,7 @@ mod tests {
         use yalain_world::effect_defs::Kind;
         const MUCOR: u32 = 0x6F00_03C0;
         let (dat, _) = tallied(&DatName::Portal);
-        let p = Portal::over(dat, Vec::new()).expect("a context");
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
         let wanted: Vec<u32> = states().collect();
         let table = effect_table(&p, &wanted).expect("the table");
         let family = WEAPON_FAMILIES
@@ -1327,7 +1581,7 @@ mod tests {
         const STASIS: u32 = 0x6F00_0574;
         const CHAINED: u32 = 0x6F00_2607;
         let (dat, _) = tallied(&DatName::Portal);
-        let p = Portal::over(dat, Vec::new()).expect("a context");
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
         let table = effect_table(&p, &[STASIS, CHAINED]).expect("the table");
         let (when, tier) = tier_of(STASIS).expect("a tier");
         assert_eq!(when, yalain_content::treasure_effects::When::Hit);
@@ -1351,7 +1605,7 @@ mod tests {
     fn water_and_wounding_tiers_carry_the_names_2017_showed() {
         use yalain_content::treasure_effects::{states, tier_of};
         let (dat, _) = tallied(&DatName::Portal);
-        let p = Portal::over(dat, Vec::new()).expect("a context");
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
         let wanted: Vec<u32> = states().collect();
         let table = effect_table(&p, &wanted).expect("the table");
         for (state, name) in [(0x6F00_03DB, 0x2500_08C9), (0x6F00_03E0, 0x2500_08CE)] {
@@ -1373,7 +1627,7 @@ mod tests {
         let (cell, _) = tallied(&DatName::Cell(1));
         let (english, _) = tallied(&DatName::Local("English".into()));
         // No file to open: only what the start already holds can be served.
-        let p = Portal::over(dat, Vec::new()).expect("a context");
+        let p = Portal::over(dat, Vec::new(), None).expect("a context");
         p.cell.set(Some(cell)).expect("not yet opened");
         p.english.set(Some(english)).expect("not yet opened");
         let served = install_files(&p);

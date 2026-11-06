@@ -1,13 +1,21 @@
-//! The draws' uniforms of a frame, written into buffers kept between frames: each draw takes the
-//! next slot, whose bind group was made once with the buffer, and the slots taken are written to
-//! the device in one go before the frame is submitted. Without it every draw made a buffer and a
-//! bind group of its own each frame, which with the hundreds of draws inside a building cost most
-//! of a frame.
+//! The uniforms of a frame, written into buffers kept between frames: each draw takes the next
+//! slot of a buffer, and the slots taken are written to the device in one go before the frame is
+//! submitted. A buffer has one bind group, which each draw binds at its slot's offset: moving a
+//! binding along its buffer costs a frame's hundreds of draws far less than changing to a group of
+//! their own. Without the pool every draw made a buffer and a bind group each frame, which with
+//! the hundreds of draws inside a building cost most of a frame.
 
 struct Chunk {
     buffer: wgpu::Buffer,
-    groups: Vec<wgpu::BindGroup>,
+    group: wgpu::BindGroup,
     data: Vec<u8>,
+}
+
+/// A slot's place: its buffer's bind group and the offset to bind it at.
+#[derive(Clone, Debug)]
+pub(crate) struct Slot {
+    pub(crate) group: wgpu::BindGroup,
+    pub(crate) offset: u32,
 }
 
 /// Uniform slots for the draws of a frame.
@@ -40,13 +48,13 @@ impl UniformPool {
         self.used = 0;
     }
 
-    /// The next slot, holding `bytes` once the frame is written: its bind group.
+    /// The next slot, holding `bytes` once the frame is written.
     pub(crate) fn take(
         &mut self,
         device: &wgpu::Device,
         layout: &wgpu::BindGroupLayout,
         bytes: &[u8],
-    ) -> wgpu::BindGroup {
+    ) -> Slot {
         let (c, k) = (self.used / self.slots, self.used % self.slots);
         self.used += 1;
         if c == self.chunks.len() {
@@ -56,25 +64,21 @@ impl UniformPool {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            let groups = (0..self.slots)
-                .map(|i| {
-                    device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: None,
-                        layout,
-                        entries: &[wgpu::BindGroupEntry {
-                            binding: 0,
-                            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                buffer: &buffer,
-                                offset: (i * self.stride) as u64,
-                                size: wgpu::BufferSize::new(self.size as u64),
-                            }),
-                        }],
-                    })
-                })
-                .collect();
+            let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: None,
+                layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &buffer,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(self.size as u64),
+                    }),
+                }],
+            });
             self.chunks.push(Chunk {
                 buffer,
-                groups,
+                group,
                 data: vec![0; self.stride * self.slots],
             });
         }
@@ -82,7 +86,10 @@ impl UniformPool {
         let at = k * self.stride;
         let n = bytes.len().min(self.size);
         chunk.data[at..at + n].copy_from_slice(&bytes[..n]);
-        chunk.groups[k].clone()
+        Slot {
+            group: chunk.group.clone(),
+            offset: u32::try_from(at).unwrap_or(u32::MAX),
+        }
     }
 
     /// The bytes of the slots taken this frame.

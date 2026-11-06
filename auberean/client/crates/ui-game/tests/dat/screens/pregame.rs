@@ -924,6 +924,31 @@ fn the_name_is_asked_with_cancel_and_enter() {
     );
 }
 
+/// The credits stop the song playing as they open, once, and show the second of their pictures
+/// first.
+///
+/// Behaviour: ui.credits.they-stop-the-song-and-open-on-their-second-picture
+#[test]
+fn they_stop_the_song_and_open_on_their_second_picture() {
+    let mut r = Run::new();
+    let mut credits = Credits::open(&mut r.ui, false).expect("the credits open");
+    let silences = |out: &[Request]| out.iter().filter(|a| matches!(a, Request::Silence)).count();
+    let mut out = Vec::new();
+    credits.tick(&mut r.ui, &mut r.data, &mut out);
+    assert_eq!(silences(&out), 1, "{out:?}");
+    r.ui.use_time(1.0);
+    let mut out = Vec::new();
+    credits.tick(&mut r.ui, &mut r.data, &mut out);
+    assert_eq!(silences(&out), 0, "only as they open");
+    let field = r.ui.element(Token::of("PictureField")).expect("made");
+    let n = r.ui.node(field).unwrap();
+    assert_eq!(
+        n.picture.map(|p| p.id),
+        n.id_attr(Token::of("ID_Picture1")),
+        "the one after the first"
+    );
+}
+
 /// The credits scroll their text up from under the screen's foot until the last line has gone
 /// over its top, which takes about four minutes (the retail client's credits run 236 to 242
 /// seconds), and then close by themselves: please wait, and the character list; an interface key
@@ -1029,6 +1054,11 @@ fn the_key_map_shows_each_actions_keys_and_rebinds_them() {
     r.click(items[0]);
     assert_eq!(r.ui.list_selected_index(list), Some(1));
     assert!(!r.ghosted("clear_button"));
+    // Shift on the way to a chord: no key by itself, the cell still waiting.
+    r.data.key_hits.push((0x8100_042A, 0));
+    r.step();
+    assert_eq!(rows(&r)[1], "E", "Shift alone binds nothing");
+    assert_eq!(r.ui.list_selected_index(list), Some(1), "still waiting");
     // Ctrl and G: the game keeps it for an action without a name.
     r.data.key_hits.push((0x8100_0422, meta::LEFT_CTRL));
     r.step();
@@ -1064,6 +1094,10 @@ fn the_key_map_shows_each_actions_keys_and_rebinds_them() {
     let yes = r.ui.child_recursive(w, Token::of("YesButton")).unwrap();
     r.click(yes);
     r.step();
+    assert!(
+        r.take().iter().any(|q| matches!(q, Request::LiveKeys(_))),
+        "bound at once, nothing written"
+    );
     assert_eq!(rows(&r)[1..3], ["I".to_owned(), String::new()]);
     assert_eq!(rows(&r)[4], "E");
 
@@ -1076,4 +1110,21 @@ fn the_key_map_shows_each_actions_keys_and_rebinds_them() {
     r.step();
     assert_eq!(queued(&r.take()), vec![mode::CHARACTER_SELECTION]);
     assert_eq!(r.waits, 1, "please wait");
+}
+
+/// A key is bound with the first of the modifiers held, in the client's order, left and right
+/// told apart.
+///
+/// Behaviour: ui.keyboard.a-key-is-bound-with-the-first-modifier-held
+#[test]
+fn a_key_is_bound_with_the_first_modifier_held() {
+    use auberean_ui_game::keyboard::meta;
+    assert_eq!(meta::of_held(0), 0);
+    assert_eq!(meta::of_held(1), meta::LEFT_SHIFT);
+    assert_eq!(meta::of_held(2), meta::RIGHT_SHIFT);
+    assert_eq!(meta::of_held(4), meta::LEFT_CTRL);
+    assert_eq!(meta::of_held(8), meta::RIGHT_CTRL);
+    assert_eq!(meta::of_held(4 | 1), meta::LEFT_SHIFT, "Shift over Ctrl");
+    assert_eq!(meta::of_held(8 | 2), meta::RIGHT_SHIFT);
+    assert_eq!(meta::of_held(2 | 1), meta::LEFT_SHIFT, "left over right");
 }

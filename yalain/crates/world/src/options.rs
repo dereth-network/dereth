@@ -220,6 +220,38 @@ fn aliases(r: &mut In<'_>) -> Result<Vec<u8>, String> {
     })
 }
 
+/// The longest alias, and the longest text one stands for, in units. The 39 recorded calls that set
+/// one were 128 bytes at most, and a session's most was 3.
+pub const MOST_ALIAS_UNITS: usize = 1024;
+/// The most a character's aliases take in all, in bytes: over two thousand of the longest recorded.
+pub const MOST_ALIAS_BYTES: usize = 128 * 1024;
+/// The most a call that sets a part of the options may carry, in bytes. The largest recorded of the
+/// 19,000 such calls was 644.
+pub const MOST_PART_BYTES: usize = 4 * 1024;
+
+/// What [`Options::keep_within_bounds`] left out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LeftOut {
+    pub aliases: usize,
+    pub parts: usize,
+}
+
+impl LeftOut {
+    /// Did it leave out anything?
+    #[must_use]
+    pub const fn any(self) -> bool {
+        self.aliases > 0 || self.parts > 0
+    }
+}
+
+/// The bytes a table of aliases takes in all.
+fn alias_bytes(pairs: &[(Vec<u16>, Vec<u16>)]) -> usize {
+    pairs
+        .iter()
+        .map(|(a, t)| 2 * (a.len() + t.len()) + 8)
+        .sum::<usize>()
+}
+
 /// Aliases as wide strings: each (alias, text).
 type AliasPairs = Vec<(Vec<u16>, Vec<u16>)>;
 
@@ -241,17 +273,30 @@ fn alias_pairs(packed: &[u8]) -> Result<(u8, AliasPairs), String> {
 impl Options {
     /// Add an alias for a text (one of the same name replaced), or remove it. The client keeps its
     /// own table and only tells the server, which hands the table back at the next entry.
-    pub fn set_alias(&mut self, alias: &str, text: &str, add: bool) {
+    ///
+    /// Returns false, changing nothing, for one past [`MOST_ALIAS_UNITS`] or [`MOST_ALIAS_BYTES`].
+    pub fn set_alias(&mut self, alias: &str, text: &str, add: bool) -> bool {
         let (size_index, mut pairs) = self
             .aliases
             .as_deref()
             .and_then(|a| alias_pairs(a).ok())
             .unwrap_or_default();
         let name: Vec<u16> = alias.encode_utf16().collect();
+        let text: Vec<u16> = text.encode_utf16().collect();
         pairs.retain(|(a, _)| *a != name);
         if add {
-            pairs.push((name, text.encode_utf16().collect()));
+            let longest = name.len().max(text.len());
+            let after = alias_bytes(&pairs) + 2 * (name.len() + text.len()) + 8;
+            if longest > MOST_ALIAS_UNITS || after > MOST_ALIAS_BYTES {
+                return false;
+            }
+            pairs.push((name, text));
         }
+        self.set_aliases(size_index, &pairs);
+        true
+    }
+
+    fn set_aliases(&mut self, size_index: u8, pairs: &[(Vec<u16>, Vec<u16>)]) {
         if pairs.is_empty() {
             self.aliases = None;
             return;
@@ -259,11 +304,71 @@ impl Options {
         let mut w = Out::new();
         #[allow(clippy::cast_possible_truncation)]
         w.u32(u32::from(size_index) << 24 | (pairs.len() as u32 & 0x00FF_FFFF));
-        for (a, t) in &pairs {
+        for (a, t) in pairs {
             w.wide(a);
             w.wide(t);
         }
         self.aliases = Some(w.buf);
+    }
+
+    /// Bring options kept before these bounds, or from a file, within them, as a character enters.
+    /// An alias keeps its place unless it is itself too long or the ones before it have used up the
+    /// room; a part too large to have come from a client's own use goes back to the client's default.
+    /// What is within the bounds is left as it is, to the byte.
+    pub fn keep_within_bounds(&mut self) -> LeftOut {
+        let mut out = LeftOut::default();
+        if let Some((size_index, pairs)) = self.aliases.as_deref().and_then(|a| alias_pairs(a).ok())
+        {
+            if alias_bytes(&pairs) > MOST_ALIAS_BYTES
+                || pairs
+                    .iter()
+                    .any(|(a, t)| a.len().max(t.len()) > MOST_ALIAS_UNITS)
+            {
+                let mut kept = Vec::new();
+                let mut room = MOST_ALIAS_BYTES;
+                for (a, t) in pairs {
+                    let takes = 2 * (a.len() + t.len()) + 8;
+                    if a.len().max(t.len()) > MOST_ALIAS_UNITS || takes > room {
+                        out.aliases += 1;
+                    } else {
+                        room -= takes;
+                        kept.push((a, t));
+                    }
+                }
+                self.set_aliases(size_index, &kept);
+            }
+        }
+        for place in &mut self.shortcuts {
+            if place.len() > MOST_PART_BYTES {
+                *place = 0u32.to_le_bytes().to_vec();
+                out.parts += 1;
+            }
+        }
+        if self
+            .window_places
+            .as_ref()
+            .is_some_and(|w| w.len() > MOST_PART_BYTES)
+        {
+            self.window_places = None;
+            out.parts += 1;
+        }
+        for table in [
+            &mut self.chat_filters,
+            &mut self.font_colors,
+            &mut self.font_sizes,
+            &mut self.devoted_windows,
+            &mut self.popup_flags,
+            &mut self.opacities,
+        ] {
+            if table
+                .as_ref()
+                .is_some_and(|t| t.pairs.len() * 8 > MOST_PART_BYTES)
+            {
+                *table = None;
+                out.parts += 1;
+            }
+        }
+        out
     }
 
     /// The aliases kept, each (alias, text).

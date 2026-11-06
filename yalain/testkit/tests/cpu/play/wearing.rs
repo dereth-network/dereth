@@ -315,8 +315,8 @@ fn a_second_chest_piece_replaces_the_first_which_goes_where_it_was() {
 
 /// A weapon another player holds is made hung from its hand: for a player already beside it when
 /// it is wielded (no holder updates, no attaching) and for one that comes into view later; put
-/// away, the holder lets go of it for those who see it (the item not unmade); wielded again, those
-/// who know the item are told its holders and see it attached.
+/// away, the holder lets go of it for those who see it (the item not unmade) and those who know it
+/// are told it has no wearer; wielded again, they are told its holders and see it attached.
 /// Behaviour: server.presence.others-held-weapons-are-made-in-hand
 #[test]
 fn a_weapon_another_player_holds_is_made_in_its_hand_for_those_who_see_it() {
@@ -366,7 +366,7 @@ fn a_weapon_another_player_holds_is_made_in_its_hand_for_those_who_see_it() {
             if e.sender.id == me && e.action.id == bow)),
         "the holder lets go of it"
     );
-    assert!(holders(&h, w, fw, bow).is_empty(), "no holder updates");
+    assert_eq!(holders(&h, w, fw, bow), [(WEARER, 0)], "no wearer now");
 
     let fw = h.bots[w].inbox.len();
     use_it(&mut h, a, me, bow);
@@ -492,6 +492,7 @@ fn a_chest_piece_whose_race_skill_level_or_quest_the_wearer_lacks_is_refused_in_
         }],
         steps: Vec::new(),
         gives: Vec::new(),
+        rooms: Vec::new(),
     };
     yalain_world::quals::set_int(
         &mut h.server.players.get_mut(&world).unwrap().qualities,

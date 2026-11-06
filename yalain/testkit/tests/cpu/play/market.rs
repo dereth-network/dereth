@@ -24,6 +24,7 @@ fn broker() -> ContentObject {
         object: Some(BROKER),
         template: BROKER_TEMPLATE,
         description: Description {
+            name_text: None,
             package: 0x13A3,
             look: 0x1F00_0100,
             enter_fx: 0,
@@ -396,6 +397,133 @@ fn a_seller_collecting_its_price_leaves_the_buyers_item_in_the_world() {
     assert_eq!(t.value, 41);
     assert_eq!(t.own.min_level, Some(20));
     assert_eq!(t.own.made.and_then(|m| m.armor), Some(33));
+}
+
+/// A player buys the one sale put up with a broker.
+fn buy(h: &mut Harness, b: usize, idb: u64, item: u64) {
+    let mut g = Builder::new();
+    g.object(
+        0x1B76,
+        &[
+            Slot::Long(item),
+            Slot::Ref(None),
+            Slot::Long(idb),
+            Slot::Int(1),
+            Slot::Long(BROKER),
+            Slot::Int(0),
+            Slot::Int(0),
+        ],
+    );
+    h.ask(b, PURCHASE, &[Arg::Object(g.graph())], 10);
+}
+
+/// A sale bought while its seller is in the world: the seller is told which sale and how many have
+/// sold, at that broker, and the buyer isn't.
+/// Behaviour: server.market.a-seller-is-told-of-a-sale
+#[test]
+fn a_seller_in_the_world_is_told_of_a_sale_as_it_is_bought() {
+    use yalain_world::calls::{Node, Value};
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    money(&mut h, ida, 1_000);
+    money(&mut h, idb, 5_000);
+    let sword = put_up_a_made_item(&mut h, a, ida);
+    let sale = h.server.market.list[0].sale;
+    let (from_a, from_b) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    buy(&mut h, b, idb, sword);
+    assert_eq!(h.server.market.list[0].sold, 1, "bought");
+    assert!(!h
+        .functions(b, from_b)
+        .contains(&function::UPDATE_SALE_REMINDERS));
+    let told: Vec<Vec<Value>> = h
+        .calls(a, from_a)
+        .into_iter()
+        .filter(|(f, _)| *f == function::UPDATE_SALE_REMINDERS)
+        .map(|(_, v)| v)
+        .collect();
+    assert_eq!(told.len(), 1, "told once");
+    assert!(told[0]
+        .iter()
+        .any(|v| matches!(v, Value::Long(k) if *k == BROKER)));
+    let desc: Vec<u32> = told[0]
+        .iter()
+        .find_map(|v| match v {
+            Value::Graph(g) => g.iter().find_map(|(_, n)| match n {
+                Node::Script { package, slots }
+                    if *package == yalain_world::market::CONSIGNMENT_DESC.0 =>
+                {
+                    Some(slots.iter().map(|(_, word)| *word).collect())
+                }
+                _ => None,
+            }),
+            _ => None,
+        })
+        .expect("the sale's words");
+    assert_eq!(desc, [sale, 0, 1], "the sale, not expired, one sold");
+}
+
+/// A consignment tells its seller how many are left and how many have sold, in the consignments'
+/// page and the reminder alike: all left before a sale, none after it.
+/// Behaviour: server.market.a-consignment-says-how-many-are-left
+#[test]
+fn a_consignment_tells_its_seller_how_many_are_left_and_how_many_sold() {
+    use yalain_world::calls::{Node, Value};
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    money(&mut h, ida, 1_000);
+    money(&mut h, idb, 5_000);
+    let sword = put_up_a_made_item(&mut h, a, ida);
+    // Each consignment's left and sold, in the page and the reminder the seller is sent.
+    let shown = |h: &mut Harness| -> Vec<(u32, u32)> {
+        let from = h.bots[a].inbox.len();
+        h.ask(a, function::ENTER_CONSIGNMENT, &[Arg::LongInt(BROKER)], 10);
+        let mut found = Vec::new();
+        for (_, values) in h.calls(a, from).into_iter().filter(|(f, _)| {
+            *f == function::ENTER_CONSIGNMENT_DONE || *f == function::SALE_REMINDERS
+        }) {
+            for v in &values {
+                let Value::Graph(g) = v else { continue };
+                for (_, n) in g {
+                    if let Node::Script { package, slots } = n {
+                        if *package == yalain_world::market::CONSIGNMENT.0 {
+                            found.push((slots[4].1, slots[5].1));
+                        }
+                    }
+                }
+            }
+        }
+        found
+    };
+    assert_eq!(shown(&mut h), [(1, 0), (1, 0)], "the page and the reminder");
+    buy(&mut h, b, idb, sword);
+    assert_eq!(shown(&mut h), [(0, 1), (0, 1)], "none left, one sold");
+}
+
+/// A sale whose seller is away goes as any other, and no one is told.
+/// Behaviour: server.market.a-seller-is-told-of-a-sale
+#[test]
+fn a_sale_bought_while_its_seller_is_away_tells_no_one() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    money(&mut h, ida, 1_000);
+    money(&mut h, idb, 5_000);
+    let sword = put_up_a_made_item(&mut h, a, ida);
+    h.server.market.list[0].owner = 0x2130_0000_0000_0FFF;
+    let (from_a, from_b) = (h.bots[a].inbox.len(), h.bots[b].inbox.len());
+    buy(&mut h, b, idb, sword);
+    assert_eq!(h.server.market.list[0].sold, 1, "bought");
+    for f in [h.functions(a, from_a), h.functions(b, from_b)] {
+        assert!(!f.contains(&function::UPDATE_SALE_REMINDERS));
+    }
 }
 
 /// The world forgets its market, as a restart does, and reads it back from the store.
@@ -874,4 +1002,397 @@ fn a_price_collected_past_what_money_counts_stops_at_the_most() {
     );
     assert_eq!(last_money(&h, a, from), Some(-1));
     assert!(h.server.market.list.is_empty());
+}
+
+/// The sale of one item, with all it should leave behind told: the money it took, what the store
+/// answered, and whether it went up.
+fn sold(h: &mut Harness, a: usize, ida: u64, item: u64) -> (i32, Option<u32>, bool) {
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == ida)
+        .expect("in the world");
+    let template = h.server.things.get(item).expect("made").template;
+    if !p.play.items.iter().any(|i| i.id == item) {
+        p.play.items.push(yalain_world::state::Held {
+            id: item,
+            template,
+            slot: 0,
+            location: 0,
+            quantity: 1,
+        });
+    }
+    let from = h.bots[a].inbox.len();
+    h.ask(
+        a,
+        function::SELL,
+        &[
+            Arg::Int(STORE),
+            Arg::Int(100),
+            Arg::Int(1),
+            Arg::LongInt(item),
+            Arg::LongInt(BROKER),
+        ],
+        10,
+    );
+    let up = h.server.market.list.iter().any(|c| c.item == item);
+    let money = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == ida)
+        .map_or(0, |p| {
+            yalain_world::quals::int(&p.qualities, 3100).unwrap_or(0)
+        });
+    (money, last_error(h, a, from), up)
+}
+
+/// An item bound by use in combat is refused its sale: nothing taken, the item kept, and marked to
+/// bind but not yet bound it goes up.
+/// Behaviour: server.market.a-bound-item-is-not-sold
+#[test]
+fn an_item_bound_by_use_is_refused_its_sale_and_one_still_to_bind_goes_up() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 1_000);
+    let bound = yalain_world::inventory::make_item(&mut h.server, GEM, 1, 41).expect("made");
+    h.server.things.get_mut(bound).expect("made").own.bound_to = ida;
+    let refused = yalain_world::store::error::SALE_REFUSED;
+    assert_eq!(
+        sold(&mut h, a, ida, bound),
+        (1_000, Some(refused), false),
+        "nothing taken"
+    );
+    let marked = yalain_world::inventory::make_item(&mut h.server, GEM, 1, 41).expect("made");
+    h.server.things.get_mut(marked).expect("made").binds_on_use = true;
+    let (left, error, up) = sold(&mut h, a, ida, marked);
+    assert!(left < 1_000, "its charge taken");
+    assert_eq!((error, up), (None, true));
+}
+
+/// An item under an effect that attunes it is refused its sale, nothing taken, and may go up when the
+/// effect has run out.
+/// Behaviour: server.market.an-item-under-an-attuning-effect-is-not-sold
+#[test]
+fn an_item_under_an_attuning_effect_is_refused_its_sale_until_it_ends() {
+    const STATE: u32 = 0x7000_7A02;
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 1_000);
+    h.server
+        .effect_table
+        .effects
+        .insert(STATE, yalain_testkit::attuning_effect(STATE));
+    let item = yalain_world::inventory::make_item(&mut h.server, GEM, 1, 41).expect("made");
+    let until = h.server.game_now + 100.0;
+    h.server
+        .things
+        .get_mut(item)
+        .expect("made")
+        .timed
+        .push(yalain_world::things::TimedEffect {
+            state: STATE,
+            spellcraft: 1.0,
+            until,
+        });
+    let refused = yalain_world::store::error::SALE_REFUSED;
+    assert_eq!(
+        sold(&mut h, a, ida, item),
+        (1_000, Some(refused), false),
+        "nothing taken"
+    );
+    h.advance(101.0);
+    h.run(1);
+    let (left, error, up) = sold(&mut h, a, ida, item);
+    assert!(left < 1_000, "its charge taken");
+    assert_eq!((error, up), (None, true));
+}
+
+/// An item attuned to its holder, by its template or by a recipe, is refused its sale: nothing
+/// taken, the item kept.
+/// Behaviour: server.market.an-attuned-item-is-not-sold
+#[test]
+fn an_attuned_item_is_refused_its_sale_by_its_template_or_a_recipe() {
+    const ATTUNED: u32 = 0x4700_7A41;
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 1_000);
+    let mut props = yalain_content::Props::default();
+    props.set("Item_IsAttunable", yalain_content::Prop::Bool(true));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(ATTUNED, 0x200, props));
+    let refused = Some(yalain_world::store::error::SALE_REFUSED);
+    let by_template =
+        yalain_world::inventory::make_item(&mut h.server, ATTUNED, 1, 41).expect("made");
+    assert_eq!(sold(&mut h, a, ida, by_template), (1_000, refused, false));
+    let by_recipe = yalain_world::inventory::make_item(&mut h.server, GEM, 1, 41).expect("made");
+    h.server
+        .things
+        .get_mut(by_recipe)
+        .expect("made")
+        .own
+        .attuned = true;
+    assert_eq!(sold(&mut h, a, ida, by_recipe), (1_000, refused, false));
+}
+
+/// A character at the most consignments it may hold is told so and nothing is taken; one collected
+/// makes room again.
+/// Behaviour: server.market.a-character-holds-so-many-consignments
+#[test]
+fn a_character_at_its_most_consignments_is_refused_and_told() {
+    use yalain_world::market::{AT_THE_MOST, MOST_CONSIGNMENTS};
+    use yalain_world::store::{self, error};
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 100_000);
+    let mut stacks = Props::default();
+    stacks.set("Item_MaxStackSize", yalain_content::Prop::Int(1000));
+    h.server.catalog.insert(test_template(GEM, 0x1067, stacks));
+    let gem = yalain_world::inventory::make_item(&mut h.server, GEM, 1000, 0).expect("made");
+    let w = world_of(&h, ida);
+    let p = h.server.players.get_mut(&w).expect("in the world");
+    p.play.items.push(yalain_world::state::Held {
+        id: gem,
+        template: GEM,
+        slot: 0,
+        location: 0,
+        quantity: 1000,
+    });
+    let sell = [
+        Arg::Int(STORE),
+        Arg::Int(1),
+        Arg::Int(1),
+        Arg::LongInt(gem),
+        Arg::LongInt(BROKER),
+    ];
+    for _ in 0..MOST_CONSIGNMENTS {
+        h.ask(a, function::SELL, &sell, 2);
+    }
+    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS);
+    let left = yalain_world::store::money(&h.server.players[&w].qualities);
+    let from = h.bots[a].inbox.len();
+    h.ask(a, function::SELL, &sell, 5);
+    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS, "no more");
+    assert_eq!(
+        store::money(&h.server.players[&w].qualities),
+        left,
+        "nothing taken"
+    );
+    assert_eq!(last_error(&h, a, from), Some(error::SALE_REFUSED));
+    assert!(h
+        .texts(a, from)
+        .iter()
+        .any(|(k, id)| (*k, *id) == (1, AT_THE_MOST.0)));
+    let sale = h.server.market.list[0].sale;
+    let collect = [Arg::Int(0), Arg::Int(sale), Arg::LongInt(BROKER)];
+    h.ask(a, function::COLLECT, &collect, 5);
+    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS - 1);
+    h.ask(a, function::SELL, &sell, 2);
+    assert_eq!(h.server.market.list.len(), MOST_CONSIGNMENTS, "room again");
+}
+
+/// A store's page comes out of a connection's allowance, by the sales it shows and the listing read
+/// for them: an ordinary player's are all answered, one past the allowance is not, and time brings
+/// them back.
+/// Behaviour: server.market.pages-drawn-from-an-allowance
+#[test]
+fn market_pages_come_out_of_an_allowance_of_rows() {
+    use yalain_world::market::{LISTED_A_ROW, PAGE_ROWS_A_SECOND, PAGE_ROWS_HELD};
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Shopper");
+    at_the_broker(&mut h, ida);
+    h.server.market.loaded = true;
+    h.server.market.list = (1..=10).map(sale_row).collect();
+    let page = [Arg::Int(STORE), Arg::LongInt(BROKER)];
+    let pages = |h: &Harness, from: usize| {
+        h.functions(a, from)
+            .iter()
+            .filter(|f| **f == ENTER_STORE)
+            .count()
+    };
+    let from = h.bots[a].inbox.len();
+    for _ in 0..50 {
+        h.ask(a, function::ENTER_STORE, &page, 1);
+    }
+    h.run(5);
+    assert_eq!(pages(&h, from), 50, "a player's pages are all answered");
+    let full = PAGE_ROWS_HELD / PAGE_ROWS_A_SECOND + 1.0;
+    h.step_by(full);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let huge = (PAGE_ROWS_HELD as u32) * u32::try_from(LISTED_A_ROW).expect("few");
+    h.server.market.list = (1..=huge).map(sale_row).collect();
+    // Two at once: the first takes all there is, and the second is not answered however long it waits.
+    let from = h.bots[a].inbox.len();
+    let ask = yalain_testkit::play::server_call(function::ENTER_STORE, &page);
+    h.bots[a].send(true, auberean_protocol::queue::WEENIE, &ask);
+    h.bots[a].send(true, auberean_protocol::queue::WEENIE, &ask);
+    assert!(
+        h.run_until(5_000, |h| pages(h, from) >= 1),
+        "a page of a long listing comes"
+    );
+    assert!(
+        !h.run_until(5_000, |h| pages(h, from) >= 2),
+        "the next is not answered"
+    );
+    h.step_by(full);
+    let from = h.bots[a].inbox.len();
+    h.ask(a, function::ENTER_STORE, &page, 1);
+    assert!(h.run_until(5_000, |h| pages(h, from) >= 1), "back in time");
+}
+
+/// A broker's store shows a page's sales at a time however many it lists, says how many it lists, and
+/// its pages turn through them all, to its end and back; no page holds a connection's other messages.
+/// Behaviour: server.market.a-brokers-store-goes-by-pages
+#[test]
+fn a_brokers_long_store_goes_by_pages_that_turn_through_it_all() {
+    use yalain_world::store::function::{NEXT_SALES, PREV_SALES, UPDATE_STORE};
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Shopper");
+    at_the_broker(&mut h, ida);
+    h.server.market.loaded = true;
+    // Long enough that a page of them all would go by the pace; sold-out sales aren't listed.
+    let mut list: Vec<_> = (1..=2001).map(sale_row).collect();
+    list[0].sold = 1;
+    h.server.market.list = list;
+    let page = [Arg::Int(STORE), Arg::LongInt(BROKER)];
+    // Each view's sales' ids, its size and its place.
+    let views = |h: &Harness, from: usize, f: u32| -> Vec<(Vec<u64>, u32, u32, usize)> {
+        h.world_messages(a, from)
+            .iter()
+            .filter_map(|m| {
+                let ServerMessage::PlayerCall(c) = m else {
+                    return None;
+                };
+                if c.function.0 != f {
+                    return None;
+                }
+                let len = m.encode().len();
+                let args = c.args.as_ref()?;
+                let v = yalain_world::calls::values(&args.0).ok()?;
+                let graph = v.iter().find_map(|x| match x {
+                    yalain_world::calls::Value::Graph(g) => Some(g),
+                    _ => None,
+                })?;
+                let (mut size, mut pos, mut sales) = (0, 0, Vec::new());
+                for (_, n) in graph {
+                    if let yalain_world::calls::Node::Script { package, slots } = n {
+                        if *package == yalain_world::store::package::STORE_VIEW {
+                            size = slots[2].1;
+                            pos = slots[3].1;
+                        } else {
+                            sales.push(u64::from(slots[3].1) << 32 | u64::from(slots[2].1));
+                        }
+                    }
+                }
+                Some((sales, size, pos, len))
+            })
+            .collect()
+    };
+    let from = h.bots[a].inbox.len();
+    h.ask(a, function::ENTER_STORE, &page, 3);
+    let first = views(&h, from, ENTER_STORE);
+    assert_eq!(first.len(), 1);
+    let (sales, size, pos, len) = &first[0];
+    assert_eq!((*size, *pos), (2000, 0), "the whole listing's size");
+    assert_eq!(sales.len(), yalain_world::store::PAGE as usize);
+    assert_eq!(sales[0], sale_row(2).item, "in the listing's order");
+    assert!(*len < 32 * 1024, "a page is short: {len}");
+    let mut seen: Vec<u64> = sales.clone();
+    let mut last_pos = 0;
+    for _ in 0..300 {
+        let from = h.bots[a].inbox.len();
+        h.ask(a, NEXT_SALES, &[], 3);
+        let got = views(&h, from, UPDATE_STORE);
+        assert_eq!(got.len(), 1, "a turn is answered");
+        let (sales, size, pos, _) = &got[0];
+        assert_eq!(*size, 2000);
+        if *pos == last_pos {
+            break;
+        }
+        last_pos = *pos;
+        seen.extend(sales);
+        // As slowly as the allowance asks of so long a listing.
+        h.step_by(0.25);
+    }
+    assert_eq!(seen.len(), 2000, "every sale listed, once");
+    let want: Vec<u64> = (2..=2001).map(|i| sale_row(i).item).collect();
+    assert_eq!(seen, want);
+    let from = h.bots[a].inbox.len();
+    h.ask(a, PREV_SALES, &[], 3);
+    let got = views(&h, from, UPDATE_STORE);
+    assert_eq!(got[0].2, last_pos - yalain_world::store::PAGE);
+}
+
+/// A row of the broker's store.
+fn sale_row(sale: u32) -> yalain_world::market::Consignment {
+    yalain_world::market::Consignment {
+        sale,
+        owner: 1,
+        keeper: BROKER,
+        catalog: CATALOG,
+        store: STORE,
+        item: 0x8131_0000_0000_0000 + u64::from(sale),
+        template: GEM,
+        price: 1.0,
+        offered: 1,
+        sold: 0,
+        entered: 0.0,
+    }
+}
+
+/// An item is not put up for sale while a use under way counts on the pack.
+/// Behaviour: server.market.waits-for-a-use-under-way
+#[test]
+fn nothing_is_put_up_for_sale_while_a_trip_counts_on_the_pack() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Elara");
+    h.run(10);
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 1000);
+    let world = *h.server.players.keys().next().expect("in");
+    yalain_world::inventory::give(&mut h.server, &mut h.net, world, GEM, 1);
+    h.run(3);
+    let gem = h.server.players[&world]
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == GEM)
+        .expect("held")
+        .id;
+    let to = h.server.players[&world].position;
+    h.server.players.get_mut(&world).expect("in").trip = Some(yalain_world::places::Trip {
+        to,
+        used: None,
+        step: None,
+        resurrect: false,
+        sent: false,
+        said: None,
+    });
+    h.ask(
+        a,
+        function::SELL,
+        &[
+            Arg::Int(STORE),
+            Arg::Int(100),
+            Arg::Int(1),
+            Arg::LongInt(gem),
+            Arg::LongInt(BROKER),
+        ],
+        10,
+    );
+    assert!(h.server.market.list.is_empty(), "not put up");
+    assert!(
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|i| i.id == gem),
+        "still held"
+    );
 }

@@ -196,6 +196,54 @@ pub struct Walker {
     /// What its description says it is and passes through; none for a body known by its size
     /// alone, which passes through what any new mover does.
     pub ethereality: Option<Ethereality>,
+    /// How high it flies over what is under it; none for a body that walks.
+    pub flies: Option<Hover>,
+}
+
+/// How high a body that flies keeps over what is under it, in meters: what its motion description
+/// says in the air (2017: of 72 such templates seen standing still 71 change height as they stand,
+/// of 556 others 10; on going into a fight such a body comes down, median 0.96 m over 160).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Hover {
+    pub at_rest: f32,
+    pub fighting: f32,
+}
+
+/// How far below itself a flying body looks for what is under it, past its height, in meters; and
+/// how far if that finds nothing.
+const LOOKS_BELOW: f32 = 0.5;
+const LOOKS_FAR_BELOW: f32 = 8.0;
+
+/// How near its height a flying body counts as there, in meters.
+const KEEPS_HEIGHT: f32 = 0.05;
+
+/// How a template's look says it hovers, if it does.
+fn hover_of(records: &WorldRecords, look: u32) -> Option<Hover> {
+    let mut did = look;
+    let mut motion = None;
+    for _ in 0..16 {
+        let v = (did != 0).then(|| records.visual(DataId(did))).flatten()?;
+        motion = v.motion_desc;
+        if motion.is_some() {
+            break;
+        }
+        did = v.parent?.0;
+    }
+    let md = records.get::<auberean_assets::animation::MotionDesc>(motion?.0)?;
+    let height = |mode: u32| {
+        md.set_of
+            .iter()
+            .find(|(k, _)| k.element == auberean_physics::motion::AIR && k.mode == mode)
+            .and_then(|(_, set)| md.sets.get(*set as usize))
+            .map(|v| v.default)
+            .filter(|v| v.gravity == 0 && v.hover_height > 0.0)
+            .map(|v| v.hover_height)
+    };
+    let at_rest = height(auberean_physics::motion::PEACE)?;
+    Some(Hover {
+        at_rest,
+        fighting: height(crate::combat::mode::MONSTER).unwrap_or(at_rest),
+    })
 }
 
 impl Walker {
@@ -211,6 +259,7 @@ impl Walker {
             step_down: (height * 0.25).max(0.2),
             scale: 1.0,
             ethereality: None,
+            flies: None,
         }
     }
 }
@@ -235,11 +284,24 @@ pub fn walker(records: &WorldRecords, description: &yalain_content::Description)
         step_down: s.step_down_height,
         scale,
         ethereality: Some(ethereality_of(description)),
+        flies: hover_of(records, description.look),
     })
 }
 
 /// The body every creature with no walker of its own is given: a human's size.
 const ANY_WALKER: (f32, f32) = (0.4, 1.8);
+
+/// The radius of a template's body at a scale, in meters: the largest of its spheres; a human's where
+/// its body is not known.
+#[must_use]
+pub fn body_radius(walls: Option<&Walls>, template: u32, scale: f32) -> f32 {
+    walls
+        .and_then(|w| w.walkers.get(&template))
+        .map_or(ANY_WALKER.0, |w| {
+            w.spheres.iter().map(|s| s[3]).fold(0.0, f32::max) * w.scale
+        })
+        * scale
+}
 
 /// The longest leg of a step through the transition, in meters: about what a creature running at 4
 /// m/s moves in a physics tick of a thirtieth of a second. A longer leg sinks the body so far into
@@ -555,6 +617,26 @@ impl Walls {
         self.step_as(template, scale, from, d, None)
     }
 
+    /// A step of a creature in a fight: one that flies keeps lower.
+    pub fn step_fighting(
+        &mut self,
+        template: u32,
+        scale: f32,
+        from: &StoredPosition,
+        d: [f32; 2],
+    ) -> Option<Stepped> {
+        self.step_with(template, scale, from, d, None, true)
+    }
+
+    /// How high a template flies at rest, if it does.
+    #[must_use]
+    pub fn hover_at_rest(&self, template: u32) -> Option<f32> {
+        self.walkers
+            .get(&template)
+            .and_then(|w| w.flies)
+            .map(|h| h.at_rest)
+    }
+
     /// A step: a walk's, or a search's in legs of the length given, which never puts the body where
     /// it fits.
     fn step_as(
@@ -564,6 +646,19 @@ impl Walls {
         from: &StoredPosition,
         d: [f32; 2],
         searching: Option<f32>,
+    ) -> Option<Stepped> {
+        self.step_with(template, scale, from, d, searching, searching.is_some())
+    }
+
+    /// A step, as [`Walls::step_as`], at the height of a fight or of rest.
+    fn step_with(
+        &mut self,
+        template: u32,
+        scale: f32,
+        from: &StoredPosition,
+        d: [f32; 2],
+        searching: Option<f32>,
+        fighting: bool,
     ) -> Option<Stepped> {
         self.need(from.cell);
         let (x, y) = block_of(from.cell);
@@ -578,6 +673,14 @@ impl Walls {
         let heading = math::atan2f(d[0], d[1]).to_degrees().rem_euclid(360.0);
         let key = (template, scale.to_bits());
         let walker = self.walkers.get(&template).cloned();
+        let hover = walker.as_ref().and_then(|w| w.flies).map(|h| {
+            if fighting {
+                h.fighting
+            } else {
+                h.at_rest
+            }
+        });
+        let flying = hover.is_some();
         let (land, world) = (&self.land, &mut self.world);
         let body = self.bodies.entry(key).or_insert_with(|| {
             let w = walker.unwrap_or_else(|| Walker::of_size(ANY_WALKER.0, ANY_WALKER.1));
@@ -612,27 +715,40 @@ impl Walls {
         for i in 0..legs {
             self.moves += 1;
             self.search_moves += u64::from(searching.is_some());
-            if let Some(next) = take_step(body, &self.land, &mut self.world, end, leg, heading) {
+            let one = |body: &mut Body, world: &mut World, from: Position| {
+                if flying {
+                    take_flight(body, &self.land, world, from, leg, heading)
+                } else {
+                    take_step(body, &self.land, world, from, leg, heading)
+                }
+            };
+            if let Some(next) = one(body, &mut self.world, end) {
                 end = next;
                 continue;
             }
             if i == 0
                 && searching.is_none()
-                && !can_set_out(body, &self.land, &mut self.world, start, heading)
+                && !can_set_out(body, &self.land, &mut self.world, start, heading, flying)
             {
                 // It stands in something: it is put where it fits nearest, and steps from there.
                 body.place(start, heading);
                 let ok = body.set_position_simple(&self.land, &mut self.world, start, true);
                 if ok == auberean_physics::body::placing::error::OK {
                     end = body.position;
-                    if let Some(next) =
-                        take_step(body, &self.land, &mut self.world, end, leg, heading)
-                    {
+                    if let Some(next) = one(body, &mut self.world, end) {
                         end = next;
                     }
                 }
             }
             break;
+        }
+        if let Some(height) = hover {
+            self.moves += 1;
+            self.search_moves += u64::from(searching.is_some());
+            end = settle(body, &self.land, &mut self.world, end, height, heading)
+                // Over nothing within reach it does not go: a floor's edge can have no wall over it.
+                .or_else(|| settle(body, &self.land, &mut self.world, start, height, heading))
+                .unwrap_or(start);
         }
         // A body stands in the world only for its step: it is no wall to the next creature's.
         if let Some(entry) = body.key() {
@@ -1077,12 +1193,81 @@ fn can_set_out(
     world: &mut World,
     start: Position,
     heading: f32,
+    flying: bool,
 ) -> bool {
     (0u8..8).any(|k| {
         let a = f32::from(k) * core::f32::consts::FRAC_PI_4;
         let d = Vec3::new(math::sinf(a) * LEG, math::cosf(a) * LEG, 0.0);
-        take_step(body, land, world, start, d, heading).is_some()
+        if flying {
+            take_flight(body, land, world, start, d, heading).is_some()
+        } else {
+            take_step(body, land, world, start, d, heading).is_some()
+        }
     })
+}
+
+/// One move of `body` from `start` by `d` through the air: it meets what stands there and touches
+/// nothing else.
+fn fly(
+    body: &mut Body,
+    land: &Land,
+    world: &mut World,
+    start: Position,
+    d: Vec3,
+    heading: f32,
+) -> Position {
+    body.place(start, heading);
+    body.velocity = Vec3::ZERO;
+    body.contact = false;
+    body.on_walkable = false;
+    body.contact_plane = None;
+    body.sliding_normal = None;
+    body.move_through(land, world, d, heading);
+    body.position
+}
+
+/// A move across through the air; none when it went nowhere.
+fn take_flight(
+    body: &mut Body,
+    land: &Land,
+    world: &mut World,
+    start: Position,
+    d: Vec3,
+    heading: f32,
+) -> Option<Position> {
+    let end = fly(body, land, world, start, d, heading);
+    (flat(&start, &end) >= 1e-4).then_some(end)
+}
+
+/// A flying body comes to its height over what is under it, as near as the roof lets it; none over
+/// nothing within reach. It looks only a little past its height, and further only if that finds
+/// nothing: a long sweep is what costs.
+fn settle(
+    body: &mut Body,
+    land: &Land,
+    world: &mut World,
+    at: Position,
+    height: f32,
+    heading: f32,
+) -> Option<Position> {
+    let z = at.frame.origin.z;
+    let floor = if at.cell.0 & 0xFFFF < 0x100 {
+        land.ground(at.cell.landblock(), at.frame.origin)?.0
+    } else {
+        [LOOKS_BELOW, LOOKS_FAR_BELOW]
+            .into_iter()
+            .find_map(|more| {
+                let looks = height + more;
+                let d = Vec3::new(0.0, 0.0, -looks);
+                let under = fly(body, land, world, at, d, heading).frame.origin.z;
+                (z - under < looks - 0.01).then_some(under)
+            })?
+    };
+    let up = floor + height - z;
+    if up.abs() < KEEPS_HEIGHT {
+        return Some(at);
+    }
+    Some(fly(body, land, world, at, Vec3::new(0.0, 0.0, up), heading))
 }
 
 /// One move of `body` from `start` by `d`; none when it went nowhere or left the ground.

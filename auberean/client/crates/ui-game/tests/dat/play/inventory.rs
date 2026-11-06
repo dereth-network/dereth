@@ -41,6 +41,7 @@ fn item(name: &str, icon: u32, quantity: u32, stackable: bool) -> ItemFacts {
         had: true,
         worn: false,
         melts_at_once: false,
+        offered_name: None,
         data_id: 0,
     }
 }
@@ -520,8 +521,19 @@ fn an_opened_container_shows_its_contents() {
             &[split(CORPSE)[0], split(CORPSE)[1], open],
         )
     };
+    f.screen.insert(CORPSE, (300, 500));
     tick(&mut ui, &mut p, &mut t, &f, &[state(1)]);
     assert!(ui.shown(el(&ui, "ExternalContainerField")), "opened");
+    let r = ui.node(el(&ui, "ExternalContainerField")).unwrap().rect;
+    assert_eq!(
+        (r.x0, r.y0),
+        (
+            dereth_primitives::num::to_i32(300.0 - r.width() as f32 * 0.5),
+            dereth_primitives::num::to_i32(500.0 - r.height() as f32 * 0.5),
+        ),
+        "over the container where it stands on the screen"
+    );
+    f.screen.clear();
     let ext = p.child::<ExternalContainer>().unwrap();
     assert_eq!(ext.container(), Some(CORPSE));
     assert_eq!(ext.display().unwrap().items(), vec![BONE]);
@@ -539,6 +551,71 @@ fn an_opened_container_shows_its_contents() {
     assert!(
         !ui.shown(el(&ui, "ExternalContainerField")),
         "the scripts closed it"
+    );
+}
+
+/// An item pulled from the world comes from no container: let go over an open chest's cell it
+/// stays where it is; only the player's own pack takes it.
+///
+/// Behaviour: ui.inventory.an-item-from-the-world-goes-only-into-the-pack
+#[test]
+fn an_item_from_the_world_goes_only_into_the_pack() {
+    const STONE: u64 = 0x8000_0000_0000_0077;
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut f = facts();
+    f.items.insert(STONE, item("Stone", SWORD_ICON, 1, false));
+    f.selection = STONE;
+    f.containers.insert(
+        CORPSE,
+        Container {
+            size: 6,
+            segments: vec![Contents {
+                items: vec![BONE],
+                first: 0,
+                count: 1,
+            }],
+            slots: vec![(0, 1)],
+        },
+    );
+    f.items.insert(BONE, item("Bone", SWORD_ICON, 1, false));
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    let state = Notice {
+        about: Some(CORPSE),
+        ..said(
+            notice::CONTAINER_STATE_UPDATE,
+            &[split(CORPSE)[0], split(CORPSE)[1], 1],
+        )
+    };
+    tick(&mut ui, &mut p, &mut t, &f, &[state]);
+    let ext = p.child::<ExternalContainer>().unwrap();
+    let list = ext.display().unwrap().list().unwrap();
+    let cell = ui.list_item(list, 3).unwrap();
+    let world = (150, 420);
+    ui.pointer_move(world.0, world.1);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    assert_eq!(ui.top(), ui.element(Token::of("ItemSelectionField")));
+    ui.pointer_button(button_id::LEFT, true);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    ui.pointer_move(world.0 + 8, world.1 + 8);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    let copy = ui.dragged().expect("the selection's icon dragged");
+    assert_eq!(
+        ui.node(copy)
+            .unwrap()
+            .instance_id_attr(inventory::attr::FROM_ID),
+        None
+    );
+    let (x, y) = middle(&ui, cell);
+    ui.pointer_move(x, y);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    ui.pointer_button(button_id::LEFT, false);
+    let out = tick(&mut ui, &mut p, &mut t, &f, &[]);
+    assert!(
+        !asked(&out).iter().any(|a| matches!(a, Asked::Put { .. })),
+        "{:?}",
+        asked(&out)
     );
 }
 
@@ -713,6 +790,131 @@ fn an_item_dropped_in_the_world_goes_to_what_lies_there() {
             "found {found:#x}"
         );
     }
+}
+
+/// A press on the paper doll's figure waits for its own search: what the last press found, still
+/// there as the search is asked, is not selected, and what the search finds is.
+///
+/// Behaviour: ui.inventory.a-press-on-the-doll-waits-for-its-own-answer
+#[test]
+fn a_press_on_the_doll_waits_for_its_own_answer() {
+    /// The kind of mesh on the head, where the helm is worn.
+    const HEAD_MESH: u64 = 0x8100_0003;
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut f = facts();
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    key(&mut ui, &mut p, &mut t, &f, tb::INVENTORY_PANEL);
+    let figure = window(&p)
+        .paper_doll()
+        .and_then(|d| d.viewport())
+        .expect("the figure's viewport");
+    let (x, y) = middle(&ui, figure);
+    ui.pointer_move(x, y);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    // Only the search's answer is under test: the press goes straight to the figure.
+    while let Some(over) = ui.top().filter(|o| *o != figure) {
+        ui.set_attr(
+            over,
+            auberean_ui::token::attr::MOUSE_INVISIBLE,
+            auberean_ui::Value::Bool(true),
+        );
+        ui.pointer_move(x, y);
+        tick(&mut ui, &mut p, &mut t, &f, &[]);
+    }
+    assert_eq!(ui.top(), Some(figure));
+    let press = |ui: &mut Ui, p: &mut GamePlay, t: &mut f64, f: &Facts| {
+        ui.pointer_button(button_id::LEFT, true);
+        tick(ui, p, t, f, &[])
+    };
+
+    // The first press finds nothing where it pressed.
+    let out = press(&mut ui, &mut p, &mut t, &f);
+    assert!(asked(&out).contains(&Asked::Pick), "{:?}", asked(&out));
+    f.picked = Some(0);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    ui.pointer_button(button_id::LEFT, false);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+
+    // The second finds the head. The nothing from before stands as it is asked.
+    let out = press(&mut ui, &mut p, &mut t, &f);
+    assert!(asked(&out).contains(&Asked::Pick), "{:?}", asked(&out));
+    f.picked = None;
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    f.picked = Some(HEAD_MESH);
+    let mut out = tick(&mut ui, &mut p, &mut t, &f, &[]);
+    out.extend(tick(&mut ui, &mut p, &mut t, &f, &[]));
+    assert!(
+        asked(&out).contains(&Asked::Select(HELM)),
+        "what is worn there selected: {:?}",
+        asked(&out)
+    );
+}
+
+/// A second item dropped in the world goes to what the world answers for it, not to what the last
+/// drop's search found, which is still there as the search is asked.
+///
+/// Behaviour: ui.inventory.a-drop-in-the-world-waits-for-its-own-answer
+#[test]
+fn a_drop_in_the_world_waits_for_its_own_answer() {
+    const MAN: u64 = 0x8000_0000_0000_0042;
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut f = facts();
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    key(&mut ui, &mut p, &mut t, &f, tb::INVENTORY_PANEL);
+    let ground = (150, 420);
+    let drop_sword = |ui: &mut Ui, p: &mut GamePlay, t: &mut f64, f: &Facts| {
+        let sword = window(p)
+            .backpack()
+            .and_then(|b| b.packs()[0].item_display(SWORD))
+            .and_then(|d| d.icon())
+            .expect("the sword in the pack");
+        let (x, y) = middle(ui, sword);
+        ui.pointer_move(x, y);
+        tick(ui, p, t, f, &[]);
+        ui.pointer_button(button_id::LEFT, true);
+        tick(ui, p, t, f, &[]);
+        ui.pointer_move(x + 8, y + 8);
+        tick(ui, p, t, f, &[]);
+        ui.pointer_move(ground.0, ground.1);
+        tick(ui, p, t, f, &[]);
+        ui.pointer_button(button_id::LEFT, false);
+        tick(ui, p, t, f, &[])
+    };
+    let out = drop_sword(&mut ui, &mut p, &mut t, &f);
+    assert!(asked(&out).contains(&Asked::PickWorld));
+    f.picked = Some(MAN);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+    tick(&mut ui, &mut p, &mut t, &f, &[]);
+
+    // The last answer stands as the second search is asked, then goes as the search starts.
+    let out = drop_sword(&mut ui, &mut p, &mut t, &f);
+    assert!(asked(&out).contains(&Asked::PickWorld));
+    f.picked = None;
+    let mut out = tick(&mut ui, &mut p, &mut t, &f, &[]);
+    out.extend(tick(&mut ui, &mut p, &mut t, &f, &[]));
+    assert!(
+        !asked(&out).iter().any(|a| matches!(a, Asked::Put { .. })),
+        "nothing moves before its own answer: {:?}",
+        asked(&out)
+    );
+    f.picked = Some(0);
+    let mut out = tick(&mut ui, &mut p, &mut t, &f, &[]);
+    out.extend(tick(&mut ui, &mut p, &mut t, &f, &[]));
+    assert_eq!(
+        asked(&out),
+        vec![Asked::Put {
+            item: SWORD,
+            from: PLAYER,
+            to: 0,
+            old_slot: 0,
+            new_slot: 0,
+            quantity: 1,
+        }],
+    );
 }
 
 /// A press on the world held and moved drags the selection's icon (the object selected in the

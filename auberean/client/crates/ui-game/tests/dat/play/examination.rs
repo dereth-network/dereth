@@ -369,6 +369,47 @@ fn quest(id: u32, st: u32, given: f64, name: &str) -> Quest {
     }
 }
 
+/// The quest that changed comes into view: with more quests than the list shows, the list scrolls
+/// to the oldest when it is the one that changed.
+///
+/// Behaviour: ui.quests.the-journal-scrolls-to-the-quest-that-changed
+#[test]
+fn the_journal_scrolls_to_the_quest_that_changed() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let all: Vec<Quest> = (1..=40)
+        .map(|i| quest(i, status::UNDER_WAY, f64::from(i), "A quest"))
+        .collect();
+    let oldest = all[0].clone();
+    tick(
+        &mut ui,
+        &mut p,
+        &mut t,
+        &[note(
+            notice::UPDATE_QUESTS,
+            vec![change::ALL, 0],
+            vec![None, Some(Record::Quests(all))],
+        )],
+    );
+    tick(&mut ui, &mut p, &mut t, &[]);
+    let underway = el(&ui, "UnderwayQuestListBox");
+    let view = |ui: &Ui| ui.node(underway).unwrap().int_attr(Token::of("y_view"));
+    assert_eq!(view(&ui).unwrap_or(0), 0, "at the top");
+    tick(
+        &mut ui,
+        &mut p,
+        &mut t,
+        &[note(
+            notice::UPDATE_QUESTS,
+            vec![change::ONE, 0],
+            vec![None, Some(Record::Quest(oldest))],
+        )],
+    );
+    tick(&mut ui, &mut p, &mut t, &[]);
+    assert!(view(&ui).unwrap_or(0) > 0, "{:?}", view(&ui));
+}
+
 /// The journal reads the player's quests at the session's start: those under way on their page
 /// and those finished on theirs, newest given first, each row named; when a quest ends it moves to
 /// the finished page, open (its row and its text), and the window's button shows the change while

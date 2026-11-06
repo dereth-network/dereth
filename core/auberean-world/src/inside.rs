@@ -1262,9 +1262,10 @@ impl BlockLights {
         let mut color = bake.color.clone();
         let lean = &bake.lean;
         let local = |d: Vec3| sub(frame.rigid_preimage(d), frame.rigid_preimage(Vec3::ZERO));
-        if let (Some(sun), (Some(first), second, near)) =
-            (&self.sunlight, sun_directions(outside.direction))
-        {
+        // The light the directions are weighed against has the sun's brightness for its length, so
+        // the share of the nearest falls with it and the next direction takes the rest.
+        let light = scale(outside.direction, outside.brightness);
+        if let (Some(sun), (Some(first), second, near)) = (&self.sunlight, sun_directions(light)) {
             let way = local(scale(outside.direction, -1.0));
             let mut bake = |dir: usize, share: f32| {
                 if let Some(lit) = sun.get(dir).and_then(|d| d.get(&(cell & 0xFFFF))) {

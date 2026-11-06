@@ -92,3 +92,61 @@ fn the_recorded_2017_world_connections_keep_the_object_and_stamp_invariants() {
     }
     assert!(sessions > 0);
 }
+
+/// Every report of a player's place recorded from 2005 to 2017 stands as a world holds reports: a
+/// land cell holds its point, and of 1,825,084 reports a body's reach is passed once, by a step of
+/// 1,422 m after 252 s unheard.
+/// Behaviour: server.places.a-place-too-far-is-told-back
+#[test]
+fn recorded_reports_of_a_players_place_stand_as_a_world_holds_them() {
+    use auberean_protocol::ClientMessage;
+    use yalain_store::StoredPosition;
+    use yalain_world::world::{land_cell_holds, Travel};
+
+    let path = auberean_testkit::data::require_capture_index();
+    let con = open(&path);
+    let mut stmt = con
+        .prepare(
+            "SELECT m.session_id, m.t, m.raw FROM message m JOIN session s USING (session_id) \
+             JOIN capture c USING (capture_id) \
+             WHERE s.game = 'ac2' AND c.file NOT LIKE '2009-%' AND m.mtype = 65678 \
+             ORDER BY m.session_id, m.idx",
+        )
+        .expect("prepares");
+    let mut rows = stmt.query([]).expect("runs");
+    let (mut reports, mut on_land, mut wrong_cell, mut too_far) = (0u64, 0u64, 0u64, 0u64);
+    type Stamps = (u16, u16, u16);
+    let mut last: Option<(i64, Stamps, StoredPosition, Travel)> = None;
+    while let Some(row) = rows.next().expect("a row") {
+        let session: i64 = row.get(0).expect("a session");
+        let t: f64 = row.get(1).expect("a time");
+        let raw: Vec<u8> = row.get(2).expect("a message");
+        let Ok(ClientMessage::Position(c)) = ClientMessage::decode(&raw) else {
+            panic!("a report that does not read");
+        };
+        reports += 1;
+        if c.cell & 0xFFFF < 0x100 {
+            on_land += 1;
+            wrong_cell += u64::from(!land_cell_holds(c.cell, [c.origin.x, c.origin.y]));
+        }
+        let place = StoredPosition {
+            cell: c.cell,
+            origin: [c.origin.x, c.origin.y, c.origin.z],
+            rotation: [1.0, 0.0, 0.0, 0.0],
+        };
+        let stamps = (c.instance_stamp, c.teleport_stamp, c.force_position_stamp);
+        let mut travel = Travel::default();
+        if let Some((s, st, at, kept)) = last {
+            if s == session && st == stamps {
+                travel = kept;
+                let (dx, dy, dz) = yalain_world::ai::offset(&at, &place);
+                too_far += u64::from(!travel.spend((dx * dx + dy * dy + dz * dz).sqrt(), t));
+            }
+        }
+        last = Some((session, stamps, place, travel));
+    }
+    assert_eq!(reports, 1_825_084, "the reports recorded");
+    assert_eq!(on_land, 1_503_957, "of which on the land");
+    assert_eq!(wrong_cell, 0);
+    assert_eq!(too_far, 1);
+}

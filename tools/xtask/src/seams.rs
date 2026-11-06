@@ -1762,6 +1762,36 @@ pub fn lyceum_violations(packages: &[WorkspacePackage]) -> Vec<String> {
     dedup(out)
 }
 
+/// The relay carries the 1999 dialect so that nothing else has to.
+const RELAY: &str = "empyrean/relay";
+
+/// Rule: the relay stands apart. No crate under `core/` or `dereth/` declares it, tests included,
+/// so the client's tree never carries the 1999 dialect.
+pub fn relay_violations(packages: &[WorkspacePackage]) -> Vec<String> {
+    let dir_of = |name: &str| {
+        packages
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| p.dir.as_str())
+    };
+    let mut out = Vec::new();
+    for p in packages {
+        if !under(&p.dir, "core") && !under(&p.dir, "dereth") {
+            continue;
+        }
+        for d in &p.deps {
+            if dir_of(&d.name).is_some_and(|dir| under(dir, RELAY)) {
+                let test = if d.dev { " (for its tests)" } else { "" };
+                out.push(format!(
+                    "{} depends on the relay's `{}`{test}: core/ and dereth/ never carry its dialect",
+                    p.name, d.name
+                ));
+            }
+        }
+    }
+    dedup(out)
+}
+
 /// Every workspace package with its folder and its manifest's dependencies, from `cargo
 /// metadata` (no resolution: every optional dependency and every target is listed).
 fn workspace_packages(ws: &Path) -> Result<Vec<WorkspacePackage>, String> {
@@ -2161,6 +2191,7 @@ pub fn reports() -> Vec<Report> {
             all.extend(v?);
             Ok::<_, String>(all)
         });
+    let relay = workspace_packages(&ws).map(|p| relay_violations(&p));
     let shipped = SHIPPED_CLIENTS
         .iter()
         .map(|p| feature_tree(&ws, p).map(|t| shipped_client_violations(p, &t)))
@@ -2395,6 +2426,11 @@ pub fn reports() -> Vec<Report> {
             ),
         ),
         row(
+            "seam: the relay",
+            relay,
+            "nothing in core/ or dereth/ depends on empyrean/relay".to_owned(),
+        ),
+        row(
             "seam: browser and headless clients without high fidelity",
             shipped,
             format!(
@@ -2478,6 +2514,58 @@ mod tests {
         let v = lyceum_violations(&w);
         assert_eq!(v.len(), 1);
         assert!(v[0].contains("dereth-client depends on Lyceum's `lyceum-foundry`"));
+    }
+
+    #[test]
+    fn nothing_in_core_or_the_client_tree_depends_on_the_relay() {
+        let pkg = |name: &str, dir: &str, deps: Vec<(&str, bool)>| WorkspacePackage {
+            name: name.to_owned(),
+            dir: dir.to_owned(),
+            deps: deps
+                .into_iter()
+                .map(|(name, dev)| ManifestDep {
+                    name: name.to_owned(),
+                    dev,
+                })
+                .collect(),
+        };
+        let relay = || {
+            pkg(
+                "empyrean-relay",
+                "empyrean/relay",
+                vec![("dereth-protocol", false)],
+            )
+        };
+        let clean = [
+            relay(),
+            pkg("dereth-protocol", "core/protocol", vec![]),
+            pkg(
+                "empyrean-testkit",
+                "empyrean/testkit",
+                vec![("empyrean-relay", true)],
+            ),
+        ];
+        assert!(relay_violations(&clean).is_empty());
+        let v = relay_violations(&[
+            relay(),
+            pkg(
+                "dereth-protocol",
+                "core/protocol",
+                vec![("empyrean-relay", false)],
+            ),
+            pkg(
+                "dereth-headless",
+                "dereth/headless",
+                vec![("empyrean-relay", true)],
+            ),
+        ]);
+        assert_eq!(v.len(), 2, "{v:#?}");
+        assert!(v
+            .iter()
+            .any(|l| l.contains("dereth-protocol depends on the relay's `empyrean-relay`")));
+        assert!(v.iter().any(|l| {
+            l.contains("dereth-headless depends on the relay's `empyrean-relay` (for its tests)")
+        }));
     }
 
     #[test]
