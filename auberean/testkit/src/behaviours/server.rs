@@ -8344,7 +8344,7 @@ pub static ROWS: &[Behaviour] = &[
         id: "server.pets.a-row-makes-a-kind",
         says: "A world's row makes a kind of pet the server has no list entry for, as many as it \
                says, and replaces a listed kind of the same effect.",
-        since: RETAIL,
+        since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-ROWS"),
         station: "yalain-testkit::cpu::play::pet_kinds::a_row_makes_a_kind_and_replaces_a_listed_one",
         tier: Tier::Cpu,
@@ -8639,6 +8639,15 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-PETS-AT-A-CREATURE"),
         station: "yalain-testkit::cpu::play::pet_kinds::a_pet_a_skill_makes_at_a_creature_appears_beside_it_and_goes_after_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.pets.summoned-at-a-player-fails",
+        says: "A skill that would make a pet at the player it lands on tells its user the summoning \
+               fails, and no pet appears.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-AT-A-PLAYER"),
+        station: "yalain-testkit::cpu::play::player_fights::a_summoning_aimed_at_a_player_tells_its_user_it_fails",
         tier: Tier::Cpu,
     },
     behaviour! {

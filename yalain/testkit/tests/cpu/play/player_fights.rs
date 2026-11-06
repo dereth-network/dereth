@@ -259,6 +259,41 @@ fn a_hit_on_another_player_takes_its_health_and_tells_it_as_pk_damage() {
     assert_eq!(health_of(&h, idb), (health + hits[0].numbers[3]).max(0));
 }
 
+/// A skill that would make a pet at the player it lands on tells its user the summoning fails: pets
+/// take on creatures alone, and none appears.
+/// Behaviour: server.pets.summoned-at-a-player-fails
+#[test]
+fn a_summoning_aimed_at_a_player_tells_its_user_it_fails() {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    use yalain_world::pets;
+    const EFFECT: u32 = 0x7000_0805;
+    let (mut h, (a, ida), (_, idb)) = two_players(Conflict::KingdomVsKingdom);
+    h.server.effect_table.effects.insert(
+        EFFECT,
+        EffectDef {
+            kind: Kind::Pet {
+                class: 0x10,
+                lifetime: Scale::default(),
+            },
+            ..yalain_testkit::plain_effect(EFFECT)
+        },
+    );
+    for d in h.server.skill_table.skills.values_mut() {
+        if d.auto_attack {
+            d.usage.as_mut().expect("used").target_effects = vec![EFFECT];
+        }
+    }
+    let from = h.bots[a].inbox.len();
+    attack(&mut h, a, idb);
+    assert!(
+        h.run_until(4000, |h| h
+            .texts(a, from)
+            .contains(&(1, pets::text::SUMMONING_FAILS.0))),
+        "its user is told"
+    );
+    assert!(h.server.pets.of(ida).is_empty());
+}
+
 /// A basic attack that names a target effect puts it on the player it lands on, too.
 /// Behaviour: server.combat.a-basic-attacks-target-effects-land
 #[test]

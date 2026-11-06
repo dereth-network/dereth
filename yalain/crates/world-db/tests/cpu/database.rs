@@ -1256,6 +1256,55 @@ fn a_weapon_row_names_the_template_of_a_creatures_weapon_and_must_name_one_insta
 }
 
 #[test]
+fn a_pet_row_compiles_to_a_kind_and_must_name_an_installed_template() {
+    let mut files = fixture();
+    files.insert(
+        "town/server/pets.toml".into(),
+        "[[pet]]\neffect = 0x7000092A\ntemplate = 0x4700115B\nflags = 1096\ncount = 4\nstays = true\n\
+         health = [{ level = 10, health = 200 }, { level = 20, health = 400 }]\n\
+         per_level_squared = 0.03\nlands = 0.5\nswing = 2\narea = 10.0\nno_corpse = true\n\
+         tends = { whom = \"owners-pets\", effect = 0x70000772, every = 30.0, below = 0.75 }\n\
+         hire = { class = 0x100000, seconds = 3600.0, level = 20.0 }\n\
+         prov = { from = \"authored\" }\n\n\
+         [[pet_limit]]\nskill = 662\nlimits = [{ most = 2, classes = 0x800 }, { most = 1, classes = 0x4000 }]\n\
+         prov = { from = \"authored\" }\n"
+            .into(),
+    );
+    assert_eq!(check(&files), Vec::new());
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let t = compile(&merged, &Fake::new()).unwrap();
+    let k = t.pet_kinds.get(&0x7000_092A).expect("a kind");
+    assert_eq!(k.template, 0x4700_115B);
+    assert_eq!((k.flags, k.made, k.stays), (1096, 4, true));
+    assert_eq!(k.health, vec![(10, 200), (20, 400)]);
+    assert_eq!(
+        (k.per_level_squared, k.lands, k.hits, k.area),
+        (0.03, 0.5, 2, 10.0)
+    );
+    assert_eq!(k.variance, 0.35, "the server's own, left out");
+    assert_eq!(k.corpse_after, None);
+    assert!(k.tends.is_some() && k.hire.is_some());
+    assert_eq!(t.pet_limits.get(&662), Some(&vec![(2, 0x800), (1, 0x4000)]));
+    // A template the install lacks, and rows that read wrong.
+    files.insert(
+        "town/server/pets.toml".into(),
+        "[[pet]]\neffect = 1\ntemplate = 0x47009999\nprov = { from = \"authored\" }\n".into(),
+    );
+    let merged = merge(&read(&files).unwrap()).unwrap();
+    let problems = compile(&merged, &Fake::new()).unwrap_err();
+    assert!(problems[0].to_string().contains("47009999"), "{problems:?}");
+    for bad in [
+        "[[pet]]\neffect = 1\ntemplate = 0x4700115B\ncount = 0\nprov = { from = \"authored\" }\n",
+        "[[pet]]\neffect = 1\ntemplate = 0x4700115B\nlands = 2.0\nprov = { from = \"authored\" }\n",
+        "[[pet]]\neffect = 1\ntemplate = 0x4700115B\nhealth = [{ level = 9, health = 1 }, { level = 2, health = 1 }]\nprov = { from = \"authored\" }\n",
+        "[[pet_limit]]\nskill = 1\nlimits = []\nprov = { from = \"authored\" }\n",
+    ] {
+        files.insert("town/server/pets.toml".into(), bad.into());
+        assert!(read(&files).is_err(), "{bad}");
+    }
+}
+
+#[test]
 fn an_area_row_sets_the_conflict_its_landblock_allows_and_peace_is_the_default() {
     use yalain_content::Conflict;
     let mut files = fixture();
