@@ -790,6 +790,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "draw.mesh.a-bodys-reach-is-worked-out-each-frame",
+        says: "How far away a body is drawn is worked out fresh each frame: one that a low scale \
+               left undrawn is drawn again once the scale comes back, wherever the camera stands.",
+        since: THIS_CLIENT,
+        divergence: "CD2-a-bodys-reach-is-worked-out-each-frame",
+        evidence: Evidence::Private("AC2-EVID-BODY-REACH-FRESH"),
+        station: "auberean-draw::cpu::objects::a_bodys_reach_is_worked_out_each_frame",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "draw.mesh.a-faded-draw-stops-marking-depth-and-testing-its-alpha",
         says: "A draw not wholly opaque of a layer that tests or blends by alpha marks no \n               depth and passes every texel with some alpha: a blending layer under 0.8, any \n               such layer past 40 m.",
         since: RETAIL,
