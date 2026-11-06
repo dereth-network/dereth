@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 
 - Horizon: an administrator has an Admin window (Ctrl+Shift+A, or Admin on the System menu) whose buttons send the server's admin commands, and a Teleport button on the map.
+
 ## 0.4.14 (2026-11-05)
 
 ## 0.4.13 (2026-11-05)
