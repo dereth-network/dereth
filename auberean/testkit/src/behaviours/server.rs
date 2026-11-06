@@ -527,12 +527,30 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.allegiance.a-new-level-with-the-patron-away",
+        says: "A patron away when its vassal reaches a level is kept what the pool held, through a \
+               save and a restart, and paid as it enters.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LEVEL-PAYS-AWAY"),
+        station: "yalain-testkit::cpu::play::allegiance::a_new_level_with_the_patron_away_is_kept_through_a_restart_and_paid_as_it_enters",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.allegiance.a-stored-circle-has-an-end",
         says: "A store edited by hand into a circle of oaths is walked once round: every member \
                counted once, nothing hangs.",
         since: TOOLING,
         evidence: Evidence::Private("AC2-EVID-SRV-ALLEGIANCE-CIRCLE"),
         station: "yalain-testkit::cpu::play::allegiance::a_stored_circle_of_oaths_is_walked_once_round",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.allegiance.a-vassals-new-level-pays-the-pool",
+        says: "A vassal reaching a new level pays its patron what the pool holds at once, however \
+               far under the threshold, naming that vassal.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LEVEL-PAYS-POOL"),
+        station: "yalain-testkit::cpu::play::allegiance::a_vassal_reaching_a_level_pays_its_patron_the_pool_at_once",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -289,6 +289,9 @@ pub fn award_with_focus<S: Store>(
     if amount > 0 && matches!(why, Award::Part | Award::Share) {
         crate::allegiance::earned(s, net, character, amount);
     }
+    if now > was {
+        crate::allegiance::level_reached(s, net, character);
+    }
     match why {
         Award::Part | Award::Step | Award::Share | Award::Allegiance => {}
         Award::Quest(name) => say(
