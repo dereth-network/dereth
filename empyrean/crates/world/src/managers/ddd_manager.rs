@@ -356,7 +356,7 @@ pub fn try_get_dat_file_contents_for_transmission(
     }
 }
 
-/// Not ACE (V509): [`try_get_dat_file_contents_for_transmission`] off the world thread, for the
+/// Not ACE (V508): [`try_get_dat_file_contents_for_transmission`] off the world thread, for the
 /// bulk stream: no cache, and a compressed file deflated at zlib `level`.
 #[must_use]
 pub fn dat_file_contents(

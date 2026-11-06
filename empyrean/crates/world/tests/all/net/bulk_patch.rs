@@ -1,4 +1,4 @@
-//! Divergence: V509
+//! Divergence: V508
 //! A client patched to a world with a data overlay that asks for the patch as a stream
 //! (`FLAG_BULK` in `0xF7E6`) is offered one (`0xF7ED`) in place of the records' `0xF7E2`s, and
 //! reads every record from a TCP connection that presents the offer's token, once. What a client

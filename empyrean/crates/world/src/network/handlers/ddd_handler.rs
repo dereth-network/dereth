@@ -504,7 +504,7 @@ pub fn ddd_interrogation_response_with(
             format(total_file_size / 1024, "N0")
         );
 
-        // DIVERGE (V509): a client that can take the patch as a TCP stream is offered one in place
+        // DIVERGE (V508): a client that can take the patch as a TCP stream is offered one in place
         // of its records' `0xF7E2`s.
         let bulk = overlay_patching
             && overlay.bulk
@@ -578,7 +578,7 @@ pub fn ddd_interrogation_response_with(
     Ok(())
 }
 
-/// Not ACE (V509): `items` offered to `session` as a TCP stream (`0xF7ED`), with a ticket that
+/// Not ACE (V508): `items` offered to `session` as a TCP stream (`0xF7ED`), with a ticket that
 /// goes back to the `0xF7E2` queue unless its client collects it.
 fn offer_bulk(
     w: &mut World,
@@ -646,7 +646,7 @@ fn offer_bulk(
     );
 }
 
-/// Not ACE (V509): `0xF7EE`, a client that could not take or finish its stream: what it names
+/// Not ACE (V508): `0xF7EE`, a client that could not take or finish its stream: what it names
 /// as still pending goes as `0xF7E2`s.
 pub fn ddd_bulk_decline(
     w: &mut World,
@@ -682,7 +682,7 @@ pub fn ddd_end_ddd(w: &mut World, _message: &mut Payload<'_>, session: SessionId
     if w.sessions.get(session).is_some_and(|s| s.begin_ddd_sent) {
         if let Some(s) = w.sessions.get_mut(session) {
             s.begin_ddd_sent = false;
-            // Not ACE (V509): a stream's ticket is done with.
+            // Not ACE (V508): a stream's ticket is done with.
             if let Some(p) = s.bulk.take() {
                 bulk_patch::withdraw(&p.token);
             }

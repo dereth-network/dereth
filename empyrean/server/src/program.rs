@@ -1190,7 +1190,7 @@ fn send(commands: &Sender<WorldCommand>, command: WorldCommand) {
 /// Not ACE: starts the status endpoint when `--status` or `server.status_address` names an
 /// address. Each request takes its snapshot on the world thread through `commands`. With
 /// `server.publish_portals` on, it also serves `content`'s portal table.
-/// Not ACE (V509): the patch stream's TCP listener, for a world whose overlay is patched into
+/// Not ACE (V508): the patch stream's TCP listener, for a world whose overlay is patched into
 /// clients, on the game's host at `[dat_overlay] bulk_port` (the game port's number when 0).
 fn start_bulk_patch(config: &MasterConfiguration) {
     let overlay = &config.dat_overlay;

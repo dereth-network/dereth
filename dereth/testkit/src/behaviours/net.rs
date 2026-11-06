@@ -401,6 +401,27 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "net.dat-patch.a-bulk-stream-brings-every-record-and-tells-its-end-from-a-break",
+        says: "A patch stream brings every record the server sends, in order, then ends; a \
+               stream cut before its end fails, so the records still pending are sent the old \
+               way.",
+        since: THIS_CLIENT,
+        divergence: "CD-bulk-patch",
+        evidence: Evidence::Private("AC-EVID-BULK-PATCH-STREAM"),
+        station: "dereth-client-runtime::lib::bulk_patch::tests::a_stream_brings_every_record_then_ends_and_a_cut_one_fails",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "net.dat-patch.a-bulk-stream-nobody-answers-fails-so-the-patch-falls-back",
+        says: "A patch stream whose port nobody answers fails at once, so the patch comes the old \
+               way.",
+        since: THIS_CLIENT,
+        divergence: "CD-bulk-patch",
+        evidence: Evidence::Private("AC-EVID-BULK-PATCH-FALLBACK"),
+        station: "dereth-client-runtime::lib::bulk_patch::tests::a_stream_nobody_answers_fails",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "net.dat-patch.a-deletion-the-manifest-names-hides-that-record-alone",
         says: "A deletion the world's overlay manifest names hides that one record, where a \
                shard's purge of the cell file takes a whole landblock; the installed file keeps it.",
