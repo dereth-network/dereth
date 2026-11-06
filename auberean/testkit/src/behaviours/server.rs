@@ -6371,6 +6371,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.network.directory-unanswered-goes-again",
+        says: "A directory listing the hub does not answer in time is owed again, and what the link holds of them does not grow.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LISTING-AGAIN"),
+        station: "yalain-federation::cpu::directory::a_listing_the_hub_does_not_answer_in_time_goes_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.network.frames-paced-in-order",
         says: "The world's own tells go to the hub first, then the answers it owes other worlds, then \
                watches and presence answers a world at a time, each at its share of the hub's pace; \

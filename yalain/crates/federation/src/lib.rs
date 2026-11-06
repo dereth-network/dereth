@@ -1289,7 +1289,7 @@ impl Federation {
         });
         self.sends.retain(|_, b| !b.full_at(t));
         self.received.retain(|_, b| !b.full_at(t));
-        self.directory_settle(t);
+        self.directory_settle(t, timeout);
         self.chatter.settle(t);
         self.show_due(friends, t);
         self.worlds_changed(friends, t);
