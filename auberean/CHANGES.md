@@ -10,7 +10,7 @@ not how it was done.
 - Examining a recipe shows its time and difficulty lines again.
 - Fixed an effect's bar running out too slowly after a missed pulse.
 - Fixed screenshots overwriting the ones from earlier sessions.
-- Fixed the landing animation not playing over floors.
+- Fixed the landing animation not playing over floors and objects.
 - Fixed other players and creatures hanging in the air after a long move.
 - Fixed rooms losing their lights in copies of a shared dungeon.
 - Fixed the client staying on a server that had restarted.

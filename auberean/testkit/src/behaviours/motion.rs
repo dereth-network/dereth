@@ -441,6 +441,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Dat,
     },
     behaviour! {
+        id: "motion.interior.a-bodys-height-is-above-what-the-world-placed",
+        says: "A body's height is above what the world placed under it: over a building's deck and over a pedestal in a room, tick by tick through a jump, it is what the client measures.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-HEIGHT-OVER-PLACED"),
+        station: "auberean-physics::dat::interior::a_bodys_height_is_above_what_the_world_placed",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "motion.interior.a-cell-with-no-collision-tree-is-open-air",
         says: "A cell whose mesh has no collision tree is open air, not a missing cell: the great \
                caverns' 13 cells are all built with their doorways, and a body in one falls \
@@ -456,6 +464,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-CELL-FLOOR-MATERIAL"),
         station: "auberean-physics::dat::walk::a_room_names_the_material_of_its_floor",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "motion.interior.at-a-rooms-edge-a-bodys-height-meets-what-is-placed",
+        says: "A line straight down at the edge of a room meets what is placed there, so a body over a pedestal's rim has a height.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-HEIGHT-ROOM-EDGE"),
+        station: "auberean-physics::dat::interior::at_a_rooms_edge_a_bodys_height_meets_what_is_placed",
         tier: Tier::Dat,
     },
     behaviour! {

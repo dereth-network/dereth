@@ -553,7 +553,7 @@ impl Body {
             return 0.0;
         }
         let mut objects = ObjectEthereality::default();
-        objects.add_to_ethereal_list(self.id);
+        objects.add_to_ethereal_list(world.object_id(key));
         let physics = world
             .collisions(key)
             .map_or_else(PhysicsTypes::default, |c| c.movement_physics());
