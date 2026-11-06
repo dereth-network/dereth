@@ -84,28 +84,18 @@ impl BspLeaf {
     }
 
     /// A leaf has nothing below it to remove.
-    // D2-13574
     #[must_use]
     pub fn remove_leaf(&self) -> bool {
         false
     }
 
-    /// A leaf is not split in place (its parent replaces it).
-    // D2-13573
-    #[must_use]
-    pub fn find_and_split_node(&self) -> bool {
-        false
-    }
-
     /// A segment through the tree reaches this leaf: its node is listed.
-    // D2-13590
     pub fn split_by_segment(&self, out: &mut Vec<u32>) -> bool {
         out.push(self.node_id);
         true
     }
 
     /// A volume through the tree reaches this leaf: its node is listed.
-    // D2-13591
     pub fn calc_nodes_in_volume(&self, out: &mut Vec<u32>) -> bool {
         out.push(self.node_id);
         true
@@ -191,7 +181,6 @@ impl BspLeaf {
 
     /// The floor patch cut down to this leaf: kept as its node's, or (`check`) compared with the
     /// one kept, the answer unused.
-    // D2-18967
     pub fn calc_node_polygons(&self, poly: &Polygon, map: &mut PathMap, check: bool) -> bool {
         if check {
             let _ = map.check_node_polygon(poly, self.node_id);
@@ -329,7 +318,6 @@ impl BspNode {
     }
 
     /// Lets go of both children without dropping them: they are handed back.
-    // D2-13598
     pub fn clear_children_without_deleting(&mut self) -> (Option<Bsp>, Option<Bsp>) {
         (self.pos.take(), self.neg.take())
     }
@@ -376,7 +364,6 @@ impl BspNode {
     }
 
     /// Marks a side's child as a split (`pos` true: the positive side).
-    // D2-13609
     pub fn update_leaf_to_node(&mut self, pos: bool) -> bool {
         self.bits |= if pos {
             bits::POS_IS_NODE
@@ -413,7 +400,6 @@ impl BspNode {
     /// The side a point is cut to: off the plane by its own side; on a level plane (within
     /// 0.0002 of facing straight up or down), by the side of the point 0.1 m above it; else the
     /// positive side.
-    // D2-13636
     #[must_use]
     pub fn get_split_side(&self, p: Vec3) -> Side {
         let n = self.plane.normal;
@@ -462,7 +448,6 @@ impl BspNode {
     }
 
     /// Takes `child` as its positive (`pos`) or negative child, noting whether it is a split.
-    // D2-13628
     pub fn set_as_child(&mut self, child: Option<Bsp>, pos: bool) -> bool {
         let Some(child) = child else {
             return false;
@@ -636,7 +621,6 @@ impl BspTree {
     }
 
     /// Hands over the root, leaving the tree empty.
-    // D2-13567
     pub fn take_root(&mut self) -> Option<Bsp> {
         self.root.take()
     }

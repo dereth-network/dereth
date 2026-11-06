@@ -141,13 +141,6 @@ impl Ui {
         }
     }
 
-    /// An element's right and bottom on the screen.
-    // D2-11319, D2-11320
-    #[must_use]
-    pub fn screen_far_corner(&self, h: Handle) -> Option<(i32, i32)> {
-        self.screen_rect(h).map(|r| (r.x1, r.y1))
-    }
-
     /// The part of an element that shows on the screen: its rectangle cut by every element above
     /// it.
     // D2-11170
@@ -187,12 +180,5 @@ impl Ui {
     #[must_use]
     pub fn screen_origin(&self, h: Handle) -> Option<(i32, i32)> {
         self.screen_rect(h).map(|r| (r.x0, r.y0))
-    }
-
-    /// An element's rectangle as its parent holds it.
-    // D2-11162
-    #[must_use]
-    pub fn object_box(&self, h: Handle) -> Option<Rect> {
-        self.node(h).map(|n| n.rect)
     }
 }

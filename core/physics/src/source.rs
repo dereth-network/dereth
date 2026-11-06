@@ -227,6 +227,10 @@ pub struct EnvCellGeometry {
     pub stab_list: Vec<CellId>,
     /// Whether the cell is visible from outside.
     pub seen_outside: bool,
+    /// Whether the cell holds the points its cell tree says it does even with no portals. A world
+    /// whose closed rooms are stood in answers yes; the first game's cell with no portals holds
+    /// no point at all.
+    pub holds_without_portals: bool,
     /// Objects baked into the cell, as `(setup id, frame)`. Those frames are **landblock**-space,
     /// unlike the geometry above; measured over 905 placements in five dungeon landblocks, every
     /// one within 30 m of its own cell's [`frame`](Self::frame) origin.

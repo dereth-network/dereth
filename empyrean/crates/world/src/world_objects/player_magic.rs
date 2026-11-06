@@ -83,6 +83,8 @@ pub struct PlayerMagicFields {
     pub last_hit_spell_projectile: Option<Spell>,
 
     /// Limiter for switching between war and void magic.
+    /// Not ACE: when this character's charges were last brought up to date.
+    pub charge_clock: crate::world_objects::spell_potency::ChargeClock,
     // ACE: Player.LastSuccessCast_Time
     pub last_success_cast_time: f64,
     // ACE: Player.LastSuccessCast_School
@@ -195,7 +197,7 @@ fn broadcast_script(w: &mut World, this: ObjectGuid, script: PlayScript, speed: 
 }
 
 /// The physics body's position (`PhysicsObj.Position`).
-fn physics_position(w: &World, this: ObjectGuid) -> PPosition {
+pub fn physics_position(w: &World, this: ObjectGuid) -> PPosition {
     let h = obj(w, this)
         .phys
         .expect("ACE: PhysicsObj is null (NullReferenceException)");
@@ -786,6 +788,15 @@ pub fn is_invalid_target(
 ) -> bool {
     let target_player = is_player(w, target);
     let target_creature = is_creature(w, target);
+
+    // DIVERGE: without `EraFeatures::item_enchantment_redirection` (V469) an item enchantment
+    // takes the item itself as its target, refused before costs or windup.
+    if !w.era.features.item_enchantment_redirection
+        && target_creature
+        && spell.is_item_targeted_enchantment()
+    {
+        return true;
+    }
 
     // ensure target is enchantable
     if !world_object_networking::shims::is_enchantable(w, target) {
@@ -1610,13 +1621,36 @@ pub fn do_cast_spell_inner(
 
     match casting_pre_check_status {
         CastingPreCheckStatus::Success => {
+            use crate::world_objects::spell_potency;
+            let research = ms(w, this).research_spell == Some(spell.id());
+            let known_before =
+                crate::world_objects::player_spells::spell_is_known(w, this, spell.id());
             crate::world_objects::spell_research::complete_successful_cast(w, this, spell.id());
+            // DIVERGE: V502, a spellbook cast is worth what its spell has left, read before the
+            // cast spends it. A built-in spell is the item's.
+            w.cast_potency = if is_weapon_spell {
+                None
+            } else {
+                spell_potency::capture(w, this, spell.id())
+            };
             if !spell.is_fellowship_spell() {
                 create_player_spell_on(w, this, target, spell, is_weapon_spell);
             } else {
                 let fellows = get_fellowship_targets(w, this);
                 for fellow in fellows {
                     create_player_spell_on(w, this, Some(fellow), spell, is_weapon_spell);
+                }
+            }
+
+            let used = w.cast_potency.take();
+            if let Some(used) = used {
+                spell_potency::after_successful_cast(w, this, spell, used);
+            }
+            if !is_weapon_spell && w.era.features.spell_charge && known_before {
+                spell_potency::spend_charge(w, this, spell.id());
+                // A test of a known formula has told the client already.
+                if !research {
+                    crate::world_objects::spell_research::send_spell_update(w, this, spell.id());
                 }
             }
 
@@ -2365,6 +2399,21 @@ pub fn verify_non_component_target_type(
         ItemType::Item => return !t.is_creature(),
 
         ItemType::LifeStone => return t.is_lifestone(),
+
+        // DIVERGE: a spell table that names no target types carries each spell's formula's mask
+        // (V494), which holds exactly the types it may be cast at.
+        mask if mask.0 == dereth_rules::weenie::item_type::ITEM_ENCHANTABLE_TARGET => {
+            return t.item_type().0 & mask.0 != 0;
+        }
+        mask if mask.0 == dereth_rules::weenie::item_type::PORTAL_MAGIC_TARGET => {
+            return if spell.meta_spell_type() == SpellType::PortalRecall
+                || spell.meta_spell_type() == SpellType::PortalSummon
+            {
+                t.is_creature()
+            } else {
+                t.item_type().0 & mask.0 != 0
+            };
+        }
 
         _ => {}
     }

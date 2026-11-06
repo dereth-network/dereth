@@ -397,6 +397,7 @@ fn going_into_portal_space_turns_auras_off() {
             object: Some(PORTAL),
             template: 0x4700_1154,
             description: Description {
+                name_text: None,
                 package: 0x1A00,
                 look: 0x1F00_0ED5,
                 enter_fx: 0,
@@ -441,6 +442,59 @@ fn going_into_portal_space_turns_auras_off() {
     ));
 }
 
+/// A resurrection's portal space turns no aura off. Its pulse's record goes at the request, as what a
+/// death ends, and three seconds after the player is back the aura pulses again.
+/// Behaviour: server.auras.through-a-resurrection
+#[test]
+fn a_resurrection_leaves_auras_on_and_they_pulse_again_as_it_comes_back() {
+    let mut h = Harness::new();
+    let (b, me) = armed(&mut h, "one", "Elara");
+    turned_on(&mut h, b);
+    let world = player_conn(&h, me);
+    let clock = h.clock();
+    yalain_world::death::player_dies(&mut h.server, &mut h.net, world, None, clock);
+    let t = h.now.0 + 11.0;
+    while h.now.0 < t {
+        h.step();
+    }
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(yalain_world::death::player_fn::RESURRECT, &[]),
+    );
+    assert!(h.run_until(400, |h| h.server.players[&world].dying.is_none()));
+    let back = h.now.0;
+    assert!(effects::aura_held(&h.server, world, ESPIRIT_AURA).is_some());
+    assert!(
+        calls_of(&h, b, from)
+            .iter()
+            .all(|(f, _)| *f != effect_fn::TOGGLE),
+        "its toggle stays on"
+    );
+    assert!(
+        h.server.players[&world]
+            .play
+            .effects
+            .iter()
+            .all(|e| e.flags != PULSE_FLAGS),
+        "its pulses went at the request"
+    );
+    while h.now.0 < back + 2.9 {
+        h.step();
+    }
+    let mark = h.bots[b].inbox.len();
+    while h.now.0 < back + 3.2 {
+        h.step();
+    }
+    assert!(
+        calls_of(&h, b, mark)
+            .iter()
+            .any(|(f, _)| *f == effect_fn::ADD),
+        "pulsed again"
+    );
+}
+
 fn player_conn(h: &Harness, me: u64) -> yalain_net::ConnId {
     h.server
         .players
@@ -448,4 +502,384 @@ fn player_conn(h: &Harness, me: u64) -> yalain_net::ConnId {
         .find(|(_, p)| p.character == me)
         .map(|(c, _)| *c)
         .expect("in the world")
+}
+
+/// An aura for what is held: its effects, lowering a thing's cost and a weapon's delay, and the
+/// aura itself turned on for `me` as its use does, all three made up for the test.
+fn aura_on_what_is_held(h: &mut Harness, me: u64, targets: u32) -> u32 {
+    use yalain_world::effect_defs::{numeric, Aura, EffectDef, Kind, Scale};
+    use yalain_world::made::stat;
+    const COST: u32 = 0x6F00_7781;
+    const DELAY: u32 = 0x6F00_7782;
+    const AURA: u32 = 0x6F00_7783;
+    let like: EffectDef = h
+        .server
+        .effect_table
+        .get(ESPIRIT_PULSE)
+        .cloned()
+        .expect("a pulse");
+    let lowers = |state: u32, on: u32, by: f32| EffectDef {
+        state,
+        kind: Kind::Numeric {
+            flags: numeric::MULTIPLY,
+            stats: vec![on],
+            magnitude: Scale(vec![(1.0, by + 0.1), (50.0, by)]),
+        },
+        name: Some((0xA860_7CEC, 0x2500_0708)),
+        ..like.clone()
+    };
+    let aura = EffectDef {
+        state: AURA,
+        kind: Kind::Aura(Aura {
+            pulsed: vec![COST, DELAY],
+            targets,
+            range: 300.0,
+        }),
+        ..like.clone()
+    };
+    for d in [
+        lowers(COST, stat::VIGOR, 0.72),
+        lowers(DELAY, stat::COMBAT_DELAY, 0.8),
+        aura,
+    ] {
+        h.server.effect_table.effects.insert(d.state, d);
+    }
+    let world = *h
+        .server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == me)
+        .expect("in the world")
+        .0;
+    let clock = h.clock();
+    effects::aura_on(&mut h.server, &mut h.net, world, AURA, 0, 50.0, clock);
+    AURA
+}
+
+/// A player in the world holding a weapon whose template names its cost and delay, in the world
+/// with the scene drawn; its client, itself and the weapon.
+fn holding_a_blade(h: &mut Harness) -> (usize, u64, u64) {
+    const BLADE: u32 = 0x4700_77A1;
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &auberean_protocol::ClientMessage::SceneRenderingComplete(auberean_protocol::login::Empty),
+    );
+    h.run(5);
+    let mut p = yalain_content::Props::default();
+    p.set("Weapon_VigorCost", yalain_content::Prop::Int(18));
+    p.set("Weapon_Damage", yalain_content::Prop::Int(100));
+    p.set("Weapon_Speed", yalain_content::Prop::Int(18));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(BLADE, 0x1067, p));
+    h.server
+        .catalog
+        .implements
+        .insert(BLADE, yalain_world::skill_use::implement::BOW);
+    h.arm(b, me, BLADE);
+    let blade = player(h, me)
+        .play
+        .items
+        .iter()
+        .find(|i| i.template == BLADE)
+        .expect("in hand")
+        .id;
+    (b, me, blade)
+}
+
+/// An aura for what its user holds puts no record on the user beyond its own, however long it runs;
+/// what it lowers stays lowered between its pulses, and goes when the aura does.
+/// Behaviour: server.auras.held-pulses-last-while-held
+#[test]
+fn an_aura_on_what_is_held_keeps_its_pulses_off_the_player() {
+    let mut h = Harness::new();
+    let (_, me, _) = holding_a_blade(&mut h);
+    let cost = |h: &Harness| yalain_world::skill_use::held_vigor(&h.server, me).weapons;
+    assert_eq!(cost(&h), 18);
+    let aura = aura_on_what_is_held(&mut h, me, yalain_world::effect_defs::aura_target::ITEM);
+    let records = |h: &mut Harness| -> Vec<u32> {
+        player(h, me).play.effects.iter().map(|e| e.state).collect()
+    };
+    assert_eq!(records(&mut h), [aura], "the aura's own record alone");
+    assert_eq!(cost(&h), 12, "18 at 0.72, rounded down");
+    // Past a pulse's own three minutes.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    h.run((400.0 / yalain_testkit::STEP) as usize);
+    assert_eq!(records(&mut h), [aura], "and no record of a pulse since");
+    assert_eq!(cost(&h), 12, "still lowered");
+    player(&mut h, me).play.effects.clear();
+    assert_eq!(cost(&h), 18, "gone with the aura");
+}
+
+/// An aura for weapons holds nothing on a shield, one for items on both; a thing no longer in hand
+/// holds nothing.
+/// Behaviour: server.auras.held-pulses-last-while-held
+#[test]
+fn an_aura_names_the_kind_of_thing_it_holds_on() {
+    use yalain_world::effect_defs::aura_target as to;
+    let mut h = Harness::new();
+    let (_, me, blade) = holding_a_blade(&mut h);
+    aura_on_what_is_held(&mut h, me, to::WEAPON);
+    let on =
+        |h: &Harness, item: u64, shield: bool| effects::on_held(&h.server, me, item, shield).len();
+    assert_eq!(on(&h, blade, false), 2, "a weapon");
+    assert_eq!(on(&h, blade, true), 0, "not a shield");
+    player(&mut h, me).play.effects.clear();
+    aura_on_what_is_held(&mut h, me, to::SHIELD);
+    assert_eq!(on(&h, blade, false), 0);
+    assert_eq!(on(&h, blade, true), 2);
+    assert_eq!(on(&h, 0x8130_0000_0000_0001, true), 0, "not in hand");
+}
+
+/// A weapon's examination lists what an aura holds on it, under its own heading with its spellcraft,
+/// and shows its cost and delay as they stand, rounded down; out of the aura, as they were.
+/// Behaviour: server.auras.pulses-on-what-is-held
+#[test]
+fn a_weapons_examination_shows_what_an_aura_holds_on_it() {
+    use yalain_world::profile::When;
+    let mut h = Harness::new();
+    let (_, me, blade) = holding_a_blade(&mut h);
+    let view = |h: &Harness| {
+        let t = h.server.things.get(blade).expect("the weapon");
+        yalain_world::requests::item_view(&h.server, t)
+    };
+    let plain = view(&h).weapon.expect("a weapon's numbers");
+    assert_eq!((plain.2, plain.3), (18, 18));
+    aura_on_what_is_held(&mut h, me, yalain_world::effect_defs::aura_target::ITEM);
+    let v = view(&h);
+    let w = v.weapon.expect("a weapon's numbers");
+    assert_eq!((w.2, w.3), (14, 12), "18 at 0.8 and at 0.72");
+    assert_eq!(w.0, plain.0, "its damage not its concern");
+    let listed: Vec<Option<i32>> = v
+        .effects
+        .iter()
+        .filter(|e| e.when == When::Enchantment)
+        .map(|e| e.spellcraft)
+        .collect();
+    assert_eq!(listed, [Some(50), Some(50)]);
+    player(&mut h, me).play.effects.clear();
+    let v = view(&h);
+    assert!(v.effects.iter().all(|e| e.when != When::Enchantment));
+    assert_eq!(v.weapon.map(|w| (w.2, w.3)), Some((18, 18)));
+}
+
+/// What an aura holds on a weapon changes the delay its examination shows, not the time scale its
+/// holder swings at.
+/// Behaviour: server.weapons.time-scale-follows-delay
+#[test]
+fn an_aura_lowering_a_weapons_delay_does_not_quicken_its_holder() {
+    let mut h = Harness::new();
+    let (_, me, blade) = holding_a_blade(&mut h);
+    let world = *h.server.players.keys().next().expect("in the world");
+    aura_on_what_is_held(&mut h, me, yalain_world::effect_defs::aura_target::ITEM);
+    let t = h.server.things.get(blade).expect("the weapon");
+    let shown = yalain_world::requests::item_view(&h.server, t).weapon;
+    assert_eq!(shown.map(|w| w.2), Some(14));
+    assert_eq!(yalain_world::combat::delay_worn(&h.server, world), 18);
+}
+
+/// An aura whose pulse changes a weapon's damage, its scale running to `at_50`; turned on for
+/// `user` at this spellcraft. Made up for the test.
+fn aura_on_damage(h: &mut Harness, user: u64, multiply: bool, at_50: f32, spellcraft: f32) -> u32 {
+    use yalain_world::effect_defs::{aura_target, numeric, Aura, EffectDef, Kind, Scale};
+    const DAMAGE: u32 = 0x6F00_7791;
+    const AURA: u32 = 0x6F00_7792;
+    let like: EffectDef = h
+        .server
+        .effect_table
+        .get(ESPIRIT_PULSE)
+        .cloned()
+        .expect("a pulse");
+    let changes = EffectDef {
+        state: DAMAGE,
+        kind: Kind::Numeric {
+            flags: if multiply { numeric::MULTIPLY } else { 0 },
+            stats: vec![yalain_world::made::stat::DAMAGE],
+            magnitude: Scale(vec![(1.0, at_50 / 8.0), (50.0, at_50)]),
+        },
+        name: Some((0xA860_7CEC, 0x2500_0708)),
+        ..like.clone()
+    };
+    let aura = EffectDef {
+        state: AURA,
+        kind: Kind::Aura(Aura {
+            pulsed: vec![DAMAGE],
+            targets: aura_target::WEAPON,
+            range: 300.0,
+        }),
+        ..like
+    };
+    for d in [changes, aura] {
+        h.server.effect_table.effects.insert(d.state, d);
+    }
+    let world = world_of(h, user);
+    let clock = h.clock();
+    effects::aura_on(&mut h.server, &mut h.net, world, AURA, 0, spellcraft, clock);
+    DAMAGE
+}
+
+fn world_of(h: &Harness, id: u64) -> yalain_net::ConnId {
+    *h.server
+        .players
+        .iter()
+        .find(|(_, p)| p.character == id)
+        .expect("in the world")
+        .0
+}
+
+/// The blade given damage of its own: `most`, and a quarter of it its span.
+fn with_damage(h: &mut Harness, blade: u64, most: i32) {
+    h.server.things.get_mut(blade).expect("the weapon").own.made = Some(yalain_world::made::Made {
+        damage: Some((most, 0.25)),
+        delay: Some(18),
+        vigor: Some(18),
+        ..Default::default()
+    });
+}
+
+/// What a blow of the player's reckons and what its examination shows of the blade.
+fn reckoned(h: &Harness, me: u64, blade: u64) -> (i32, i32, i32) {
+    let p = h
+        .server
+        .players
+        .values()
+        .find(|p| p.character == me)
+        .expect("in the world");
+    let w = yalain_world::combat::hitter(&h.server, p)
+        .weapon
+        .expect("a weapon");
+    let t = h.server.things.get(blade).expect("the weapon");
+    let shown = yalain_world::requests::item_view(&h.server, t)
+        .weapon
+        .expect("a weapon's numbers");
+    (w.most, w.least(), shown.0)
+}
+
+/// What an aura adds to a weapon's damage counts in its blows and shows in its examination, the
+/// least following from the greatest by the weapon's span, while the aura is on and it is in hand.
+/// Behaviour: server.auras.damage-held-on-a-weapon
+#[test]
+fn what_an_aura_adds_to_a_weapons_damage_counts_in_its_blows_and_its_examination() {
+    let mut h = Harness::new();
+    let (_, me, blade) = holding_a_blade(&mut h);
+    with_damage(&mut h, blade, 240);
+    assert_eq!(reckoned(&h, me, blade), (240, 180, 240));
+    aura_on_damage(&mut h, me, false, 80.0, 50.0);
+    assert_eq!(reckoned(&h, me, blade), (320, 240, 320), "80 at 50");
+    let p = player(&mut h, me);
+    p.play.effects.retain(|e| e.flags != AURA_FLAGS);
+    assert_eq!(
+        reckoned(&h, me, blade),
+        (240, 180, 240),
+        "off with the aura"
+    );
+    aura_on_damage(&mut h, me, false, 80.0, 50.0);
+    h.server.things.get_mut(blade).expect("the weapon").wielded = None;
+    assert_eq!(
+        yalain_world::combat::weapon_damage(&h.server, blade).map(|w| w.most),
+        Some(240),
+        "out of hand"
+    );
+}
+
+/// An aura that multiplies a weapon's damage does so, rounded down.
+/// Behaviour: server.auras.damage-held-on-a-weapon
+#[test]
+fn what_an_aura_multiplies_a_weapons_damage_by_counts_rounded_down() {
+    let mut h = Harness::new();
+    let (_, me, blade) = holding_a_blade(&mut h);
+    with_damage(&mut h, blade, 54);
+    aura_on_damage(&mut h, me, true, 1.15, 50.0);
+    assert_eq!(reckoned(&h, me, blade), (62, 46, 62), "54 at 1.15");
+}
+
+/// An aura for weapons holds on what a fellow within its range has in hand, in its blows and its
+/// examination; not on a stranger's, and not beyond its range.
+/// Behaviour: server.auras.held-reach-fellows
+#[test]
+fn an_aura_for_weapons_holds_on_a_fellows_weapon_within_its_range() {
+    let mut h = Harness::new();
+    let (_, me, blade) = holding_a_blade(&mut h);
+    with_damage(&mut h, blade, 240);
+    let (_, caster) = armed(&mut h, "two", "Babyfare");
+    let (_, stranger) = armed(&mut h, "three", "Cedric");
+    aura_on_damage(&mut h, caster, false, 80.0, 50.0);
+    fellows(&mut h, &[me, caster]);
+    assert_eq!(reckoned(&h, me, blade), (320, 240, 320), "a fellow's aura");
+    player(&mut h, caster).position.origin[0] += 400.0;
+    assert_eq!(reckoned(&h, me, blade), (240, 180, 240), "beyond its range");
+    player(&mut h, caster).position.origin[0] -= 400.0;
+    assert_eq!(reckoned(&h, me, blade), (320, 240, 320), "back in range");
+    player(&mut h, me).scene_drawn = false;
+    assert_eq!(
+        reckoned(&h, me, blade),
+        (240, 180, 240),
+        "its holder still coming in"
+    );
+    player(&mut h, me).scene_drawn = true;
+    let trip = yalain_world::places::Trip {
+        to: player(&mut h, me).position,
+        used: None,
+        step: None,
+        resurrect: false,
+        sent: false,
+        said: None,
+    };
+    player(&mut h, me).trip = Some(trip);
+    assert_eq!(
+        reckoned(&h, me, blade),
+        (240, 180, 240),
+        "its holder in portal space"
+    );
+    player(&mut h, me).trip = None;
+    h.server.fellowships.list.clear();
+    fellows(&mut h, &[me, stranger]);
+    assert_eq!(reckoned(&h, me, blade), (240, 180, 240), "not a fellow");
+}
+
+/// Of the same effect from two auras on one weapon, the stronger holds, once.
+/// Behaviour: server.auras.held-pulses-last-while-held
+#[test]
+fn of_one_effect_from_two_auras_the_stronger_holds_once() {
+    let mut h = Harness::new();
+    let (_, me, blade) = holding_a_blade(&mut h);
+    with_damage(&mut h, blade, 240);
+    let (_, caster) = armed(&mut h, "two", "Babyfare");
+    fellows(&mut h, &[me, caster]);
+    aura_on_damage(&mut h, me, false, 80.0, 1.0);
+    aura_on_damage(&mut h, caster, false, 80.0, 50.0);
+    assert_eq!(effects::on_held(&h.server, me, blade, false).len(), 1);
+    assert_eq!(reckoned(&h, me, blade).0, 320, "80 at 50, not 10 at 1");
+}
+
+/// A weapon under both kinds of aura is multiplied first, what is added coming after.
+/// Behaviour: server.auras.held-pulses-last-while-held
+#[test]
+fn a_weapon_under_both_kinds_of_aura_is_multiplied_first() {
+    let mut h = Harness::new();
+    let (_, me, _) = holding_a_blade(&mut h);
+    let adds = aura_on_damage(&mut h, me, false, 80.0, 50.0);
+    let adding = h.server.effect_table.get(adds).cloned().expect("defined");
+    let multiplying = aura_on_damage(&mut h, me, true, 1.5, 50.0);
+    let times = h
+        .server
+        .effect_table
+        .get(multiplying)
+        .cloned()
+        .expect("defined");
+    // The helper names one effect; the two kinds under names of their own.
+    let (a, m) = (0x6F00_7793, 0x6F00_7794);
+    for (state, d) in [(a, adding), (m, times)] {
+        h.server
+            .effect_table
+            .effects
+            .insert(state, yalain_world::effect_defs::EffectDef { state, ..d });
+    }
+    assert_eq!(
+        effects::held_damage(&h.server, &[(a, 50.0), (m, 50.0)], 100),
+        230,
+        "100 x 1.5 + 80"
+    );
 }

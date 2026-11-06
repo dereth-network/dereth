@@ -13,8 +13,15 @@
 //! only unlocks, the key used up and the use answered, and is then opened by a plain use. A chest
 //! that locks on closing locks again as it closes.
 //!
+//! **Treasure.** What a chest draws, where its profile's row names a level, is treasure of that
+//! level as a corpse's is, each piece worth a draw from the row's band (2017: 205 pieces in 8 kinds of
+//! chest, each kind's values and least levels its own: least levels 8 to 16 worth 3 to 7 in the
+//! middle half, 15 to 20 worth 20 to 30, 41 to 50 worth 50 to 72 or 130 to 189). A profile's extras
+//! aren't.
+//!
 //! **Quests.** A chest a quest keeps refuses at once a player whose quest is not at the phase it
-//! names.
+//! names, and again at the chest. What its kind names for its use comes on its opener as it begins
+//! to open, so a kind that completes its own quest opens once for each giving.
 //!
 //! **Closing.** Asked to close, or its opener gone more than six meters from it, the chest plays its
 //! closing for everyone; when that has played the closer is told and everyone sees it shut.
@@ -271,26 +278,77 @@ fn quest_keeps_out<S: Store>(s: &Server<S>, world: ConnId, template: u32) -> boo
     })
 }
 
+/// Is a use of a chest refused because its quest keeps the player out? The player is told.
+fn refused_by_its_quest<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    u: &Use,
+    template: u32,
+) -> bool {
+    if !quest_keeps_out(s, world, template) {
+        return false;
+    }
+    // A hidden quest's refusal is the mysterious one.
+    let hidden = s
+        .catalog
+        .get(template)
+        .and_then(|t| t.props.word("Usage_RequiredQuest"))
+        .is_some_and(|q| crate::quests::hidden(s, q));
+    let why = if hidden {
+        crate::item_use::refusal::MYSTERIOUS_USE
+    } else {
+        WRONG_QUEST
+    };
+    let no = places::use_refused(u, 0, Some(WRONG_QUEST_FLAGS), 0.0, why);
+    progress::private(net, world, &no);
+    true
+}
+
+/// What a chest's kind names for its use comes on its opener: an effect the install holds as it
+/// holds any item's, and one it names only by what it does to a quest moves that quest.
+fn effects_on_opener<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    (chest, template): (u64, u32),
+    clock: Clock,
+) {
+    let Some(me) = s.players.get(&world).map(|p| p.character) else {
+        return;
+    };
+    let states = s.item_uses.get(&template).cloned().unwrap_or_default();
+    let moved_by_state = |s: &Server<S>, quest: u32| {
+        states.iter().any(|e| {
+            s.effect_table.get(e.state).is_some_and(
+                |d| matches!(d.kind, crate::effect_defs::Kind::Quest { quest: q, .. } if q == quest),
+            )
+        })
+    };
+    let named: Vec<crate::quests::QuestEffect> = s
+        .catalog
+        .get(template)
+        .map(|t| crate::quests::named_for_use(s, &t.props))
+        .unwrap_or_default();
+    let named: Vec<_> = named
+        .into_iter()
+        .filter(|e| !moved_by_state(s, e.quest))
+        .collect();
+    for e in named {
+        crate::quests::moves(s, net, world, e, true, clock);
+    }
+    for e in states {
+        crate::item_use::put_on(s, net, world, me, chest, e, clock);
+    }
+}
+
 /// A player asks to open a chest: refused at once when its quest keeps the player out; else walked
 /// to it, then opened (or refused, locked).
 pub fn used<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, u: Use, clock: Clock) {
     let Some((kind, at)) = chest(s, u.item) else {
         return;
     };
-    if quest_keeps_out(s, world, kind.template) {
-        // A hidden quest's refusal is the mysterious one.
-        let hidden = s
-            .catalog
-            .get(kind.template)
-            .and_then(|t| t.props.word("Usage_RequiredQuest"))
-            .is_some_and(|q| crate::quests::hidden(s, q));
-        let why = if hidden {
-            crate::item_use::refusal::MYSTERIOUS_USE
-        } else {
-            WRONG_QUEST
-        };
-        let no = places::use_refused(&u, 0, Some(WRONG_QUEST_FLAGS), 0.0, why);
-        progress::private(net, world, &no);
+    if refused_by_its_quest(s, net, world, &u, kind.template) {
         return;
     }
     let Some(here) = position(s, world) else {
@@ -316,6 +374,9 @@ pub fn at_chest<S: Store>(
     let Some((kind, at)) = chest(s, id) else {
         return;
     };
+    if refused_by_its_quest(s, net, world, &u, kind.template) {
+        return;
+    }
     let phase = s.chests.by_id.get(&id).map(|c| c.phase).unwrap_or_default();
     if phase != Phase::Closed {
         let busy = places::use_refused(&u, 0, None, 0.0, crate::places::ACTIONS_LOCKED);
@@ -435,8 +496,9 @@ pub fn key_at_chest<S: Store>(
     );
 }
 
-/// What a chest holds at an opening: its profile's extras and its draw, at most its size.
-fn fill<S: Store>(s: &mut Server<S>, kind: &Kind) -> Vec<u32> {
+/// What a chest holds at an opening: its profile's extras and its draw, at most its size; each with
+/// the worth and level it holds of its own, if its profile's row says.
+fn fill<S: Store>(s: &mut Server<S>, kind: &Kind) -> Vec<(u32, Option<(u32, i32)>)> {
     let Some(p) = kind
         .profile
         .and_then(|v| s.catalog.profile_name(v))
@@ -452,11 +514,16 @@ fn fill<S: Store>(s: &mut Server<S>, kind: &Kind) -> Vec<u32> {
         let Some(i) = s.rng.weighted(p.items.iter().map(|(_, w)| *w as f32)) else {
             break;
         };
-        out.push(p.items[i].0);
+        let own = p.chest.map(|c| {
+            let width = c.value.1.saturating_sub(c.value.0) + 1;
+            let drawn = u32::try_from(s.rng.below(width as usize)).unwrap_or(0);
+            (c.value.0 + drawn, c.level)
+        });
+        out.push((p.items[i].0, own));
     }
     for (t, chance) in &p.extras {
         if s.rng.chance(*chance) {
-            out.push(*t);
+            out.push((*t, None));
         }
     }
     out.truncate(kind.most.unwrap_or(usize::MAX));
@@ -474,6 +541,7 @@ fn open<S: Store>(
     waiting: Waiting,
     clock: Clock,
 ) {
+    effects_on_opener(s, net, waiting.world, (id, kind.template), clock);
     flash(s, net, id);
     let left = s
         .chests
@@ -481,13 +549,12 @@ fn open<S: Store>(
         .get(&id)
         .map(|c| c.contents.clone())
         .unwrap_or_default();
-    let chest = places::object_stamp(s, id);
     for item in left {
         if s.things.get(item).and_then(|t| t.container).map(|c| c.0) != Some(id) {
             continue;
         }
         let m = ServerMessage::VisualObjectCall(ObjectCall {
-            object: chest,
+            object: places::object_stamp(s, id),
             call: ClientCall {
                 function: FunctionId(DESTROY_CONTAINED),
                 args: Some(
@@ -505,8 +572,12 @@ fn open<S: Store>(
         s.things.remove(item);
     }
     let mut contents = Vec::new();
-    for (slot, template) in fill(s, kind).into_iter().enumerate() {
-        if let Some(item) = crate::inventory::make_item(s, template, 1, 0) {
+    for (slot, (template, own)) in fill(s, kind).into_iter().enumerate() {
+        let value = own.map_or(0, |(value, _)| value);
+        if let Some(item) = crate::inventory::make_item(s, template, 1, value) {
+            if let Some((_, level)) = own {
+                crate::treasure::endow(s, item, level, None);
+            }
             if let Some(t) = s.things.get_mut(item) {
                 t.container = Some((id, u32::try_from(slot).unwrap_or(0)));
             }
@@ -531,6 +602,38 @@ fn open<S: Store>(
     );
 }
 
+/// A key gone from the pack of who turned it: used on nothing, and the use refused as the wrong key.
+fn refuse_gone_key(net: &mut ServerNet, w: &Waiting) {
+    let no = places::use_refused(
+        &w.used,
+        0,
+        None,
+        w.distance,
+        crate::usable::doors::refusal::WRONG_KEY,
+    );
+    progress::private(net, w.world, &no);
+}
+
+/// A chest plays its closing, whoever has it open or nobody.
+fn shut<S: Store>(s: &mut Server<S>, net: &mut ServerNet, id: u64, kind: &Kind, clock: Clock) {
+    let Some(c) = s.chests.by_id.get_mut(&id) else {
+        return;
+    };
+    c.phase = Phase::Closing;
+    c.generation = c.generation.wrapping_add(1);
+    let generation = c.generation;
+    mode(s, net, id, look::CLOSED_MODE);
+    s.after(
+        clock,
+        animation(kind.template).1,
+        Timer::Chest {
+            chest: id,
+            generation,
+            step: Step::Closed,
+        },
+    );
+}
+
 /// The client asks to close a chest it has open: it plays its closing.
 pub fn close<S: Store>(
     s: &mut Server<S>,
@@ -548,19 +651,7 @@ pub fn close<S: Store>(
     if c.phase != Phase::Open || c.opener != Some(world) {
         return;
     }
-    c.phase = Phase::Closing;
-    c.generation = c.generation.wrapping_add(1);
-    let generation = c.generation;
-    mode(s, net, id, look::CLOSED_MODE);
-    s.after(
-        clock,
-        animation(kind.template).1,
-        Timer::Chest {
-            chest: id,
-            generation,
-            step: Step::Closed,
-        },
-    );
+    shut(s, net, id, &kind, clock);
 }
 
 /// The key that turned: used up, and the use answered that it fits.
@@ -625,12 +716,16 @@ pub fn step<S: Store>(
     }
     match step {
         Step::Turned => {
-            let Some(w) = s.chests.by_id.get_mut(&id).and_then(|c| {
-                c.unlocked = true;
-                c.waiting.take()
-            }) else {
+            let Some(w) = s.chests.by_id.get_mut(&id).and_then(|c| c.waiting.take()) else {
                 return;
             };
+            if !crate::usable::doors::key_kept(s, w.world, w.key) {
+                refuse_gone_key(net, &w);
+                return;
+            }
+            if let Some(c) = s.chests.by_id.get_mut(&id) {
+                c.unlocked = true;
+            }
             if kind.opens_on_unlock {
                 open(s, net, id, &kind, w, clock);
             } else {
@@ -641,8 +736,24 @@ pub fn step<S: Store>(
             let Some(c) = s.chests.by_id.get_mut(&id) else {
                 return;
             };
+            let Some(w) = c.waiting.take() else {
+                c.phase = Phase::Open;
+                return;
+            };
+            if !crate::usable::doors::key_kept(s, w.world, w.key) {
+                refuse_gone_key(net, &w);
+                shut(s, net, id, &kind, clock);
+                return;
+            }
+            // Who opened it has left the world: it shuts for the next to open.
+            if !s.players.contains_key(&w.world) {
+                shut(s, net, id, &kind, clock);
+                return;
+            }
+            let Some(c) = s.chests.by_id.get_mut(&id) else {
+                return;
+            };
             c.phase = Phase::Open;
-            let Some(w) = c.waiting.take() else { return };
             c.opener = Some(w.world);
             let contents = c.contents.clone();
             progress::private(net, w.world, &open_done(0, id, &contents));
@@ -689,6 +800,30 @@ pub fn step<S: Store>(
             }
             shown_open(s, net, id, false);
         }
+    }
+}
+
+/// A player has left the world: a chest it has open is shut at once, for the next to open.
+pub fn left<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+    let open: Vec<u64> = s
+        .chests
+        .by_id
+        .iter()
+        .filter(|(_, c)| c.opener == Some(world))
+        .map(|(id, _)| *id)
+        .collect();
+    for id in open {
+        let locks = chest(s, id).is_some_and(|(kind, _)| kind.locks_on_close);
+        if let Some(c) = s.chests.by_id.get_mut(&id) {
+            c.opener = None;
+            c.phase = Phase::Closed;
+            c.generation = c.generation.wrapping_add(1);
+            if locks {
+                c.unlocked = false;
+            }
+        }
+        mode(s, net, id, look::CLOSED_MODE);
+        shown_open(s, net, id, false);
     }
 }
 

@@ -433,6 +433,9 @@ enum Backend {
     /// In the frame's own thread, a slice of each frame.
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     Frame(Box<Worker>),
+    /// Nothing is planned and nothing answers: for a test that answers the travel by hand.
+    #[cfg(test)]
+    Held,
 }
 
 /// The travel's planning, off the frame.
@@ -528,6 +531,16 @@ impl Planning {
         })
     }
 
+    /// A planning that plans nothing: a test answers the travel by hand.
+    #[cfg(test)]
+    pub(crate) fn held() -> Self {
+        Self {
+            backend: Backend::Held,
+            asked: 0,
+            one_step: false,
+        }
+    }
+
     /// The same planning taking one step of its work each frame where it shares the frame's
     /// thread, whatever the clock says: the frames an answer takes are then counted in its work.
     #[cfg(test)]
@@ -545,6 +558,8 @@ impl Planning {
                 let _ = jobs.send(job);
             }
             Backend::Frame(w) => w.queue.push_back(job),
+            #[cfg(test)]
+            Backend::Held => {}
         }
         if answered {
             self.asked += 1;
@@ -575,6 +590,8 @@ impl Planning {
                     }
                     got.extend(more);
                 }
+                #[cfg(test)]
+                Backend::Held => break,
             }
         }
         self.asked = self.asked.saturating_sub(got.len());
@@ -595,6 +612,8 @@ impl Planning {
                 };
                 w.work(Some(web_time::Instant::now() + share))
             }
+            #[cfg(test)]
+            Backend::Held => Vec::new(),
         };
         self.asked = self.asked.saturating_sub(got.len());
         got

@@ -44,6 +44,7 @@ fn other_rules() -> TransitionRules {
         placement_ring_fraction: 0.9,
         placement_lifts_before_scatter: true,
         parallel_band: 0.0,
+        env_collision_normal_up: true,
         slide: None,
     }
 }
@@ -802,5 +803,86 @@ fn a_world_may_slide_by_its_own_slide() {
             TransitionState::Collided
         );
         assert_eq!(handed(), vec![Vec3::new(0.0, 1.0, 0.0)], "sphere {low}");
+    }
+}
+
+/// A cell with no portals holds no point at all in this client, whatever its cell tree says; a
+/// world whose closed rooms are stood in takes its cell tree's word for it.
+///
+/// Behaviour: physics.cells.a-world-chooses-whether-a-cell-with-no-portals-holds-points
+#[test]
+fn a_world_chooses_whether_a_cell_with_no_portals_holds_points() {
+    use dereth_physics::geom::{BspNode, BspNodeKind, BspTree};
+    let above_the_floor = BspTree {
+        nodes: vec![BspNode {
+            sphere: Sphere::default(),
+            splitting_plane: Plane {
+                normal: Vec3::new(0.0, 0.0, 1.0),
+                d: 0.0,
+            },
+            pos_child: None,
+            neg_child: None,
+            kind: BspNodeKind::Node,
+            in_polys: Vec::new(),
+        }],
+        polygons: Vec::new(),
+    };
+    let id = CellId(0x1020_0100);
+    let room = |holds_without_portals| Cell::Env {
+        id,
+        geom: Arc::new(EnvCellGeometry {
+            id,
+            cell_bsp: Some(Arc::new(above_the_floor.clone())),
+            holds_without_portals,
+            ..EnvCellGeometry::default()
+        }),
+    };
+    let (inside, outside) = (Vec3::new(1.0, 1.0, 1.0), Vec3::new(1.0, 1.0, -1.0));
+    assert!(!room(false).point_in_cell(inside));
+    assert!(room(true).point_in_cell(inside));
+    assert!(!room(true).point_in_cell(outside));
+}
+
+/// A mover in the air that an interior cell's tree moves or stops has collided with it. A world may
+/// make that a collision straight up when nothing has named another normal; this client names none.
+///
+/// Behaviour: physics.transition.a-world-may-take-an-interior-collision-as-straight-up
+#[test]
+fn a_world_may_take_an_interior_collision_as_straight_up() {
+    let id = CellId(0x1020_0100);
+    let cell = Cell::Env {
+        id,
+        geom: Arc::new(EnvCellGeometry {
+            id,
+            physics_bsp: Some(Arc::new(square_floor())),
+            ..EnvCellGeometry::default()
+        }),
+    };
+    let land = dereth_physics::StaticLandSource::linear();
+    let objects = Arena::new();
+    let cells = BTreeMap::new();
+    let ctx = TransitionCtx {
+        land: &land,
+        objects: &objects,
+        cells: &cells,
+        mover: None,
+        object_table: None,
+        entry_host: None,
+    };
+    for (rules, normal) in [
+        (TransitionRules::default(), None),
+        (other_rules(), Some(Vec3::new(0.0, 0.0, 1.0))),
+    ] {
+        let mut t = over_the_floor(rules, 0);
+        t.object_info.set(ObjectInfoState::CONTACT, false);
+        t.sphere_path.check_pos.cell = id;
+        let r = collide::env_find_env_collisions(&ctx, &mut t, &cell);
+        assert_ne!(r, TransitionState::Ok, "the floor is met");
+        let ci = &t.collision_info;
+        assert_eq!(
+            ci.collision_normal_valid.then_some(ci.collision_normal),
+            normal
+        );
+        assert!(ci.collided_with_environment);
     }
 }

@@ -233,7 +233,7 @@ impl Scripts {
 
 /// Where an object stands in the world, as its physics object has it: the player's body, any
 /// other object's last place while it is in the world. `None` without one.
-fn standing(c: &mut Call<'_>, object: u64) -> Result<Option<(u32, [f32; 3])>, Stop> {
+pub(crate) fn standing(c: &mut Call<'_>, object: u64) -> Result<Option<(u32, [f32; 3])>, Stop> {
     let h = host(c)?;
     if h.model.player == Some(object) {
         if let Some((cell, origin, _)) = h.my_position {

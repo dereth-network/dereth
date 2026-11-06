@@ -1,0 +1,40 @@
+[package]
+name = "empyrean-relay"
+description = "A relay that speaks the later protocol to Dereth and the November 1999 protocol to an ac1999 server, so Dereth's own tree carries one wire format."
+version = "0.3.10" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+edition.workspace = true
+rust-version.workspace = true
+license = "AGPL-3.0-only"
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[[bin]]
+name = "empyrean-relay"
+path = "src/main.rs"
+
+[dependencies]
+# The later protocol's server side, towards Dereth.
+empyrean-net.workspace = true
+empyrean-common.workspace = true
+dereth-transport.workspace = true
+dereth-protocol.workspace = true
+dereth-primitives.workspace = true
+# The zlib the 1999 dat records travel in.
+dereth-dat.workspace = true
+log.workspace = true
+thiserror.workspace = true
+sha2.workspace = true
+getrandom.workspace = true
+
+[dev-dependencies]
+# The whole exchange through the later protocol's real client transport.
+empyrean-net = { workspace = true, features = ["testing"] }
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+cast_possible_truncation = "warn"

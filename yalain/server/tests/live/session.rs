@@ -8,10 +8,15 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+use auberean_client_sdk::dat::locate::role_file;
+use auberean_client_sdk::dat::overlay::WORLD_FOLDER;
 use auberean_client_sdk::net::LocalTime;
-use auberean_client_sdk::protocol::login::DataRequest;
+use auberean_client_sdk::protocol::login::{DataRecord, DataRequest};
 use auberean_client_sdk::protocol::{ClientMessage, ServerMessage};
 use auberean_client_sdk::{Action, Client};
+use dereth_dat::overlay::OverlayDir;
+use dereth_dat::ModernDat;
+use dereth_primitives::DataId;
 use yalain_testkit::authored;
 use yalain_testkit::bot::Bot;
 use yalain_testkit::session::{self as play, sent, Drive};
@@ -374,20 +379,33 @@ fn a_client_on_loopback_takes_the_script_library_whole_from_the_server_executabl
 
     let dir = scratch("yalain-live-download");
     let (port, _server, ()) = serving(&dir, |port| (start_server(&dir, port, LIFE), ()));
+    let got = ask_for(port, "downloader", LIBRARY_KIND, LIBRARY);
+    assert_eq!(
+        (got.dat_file, got.kind, got.size, got.bytes.len()),
+        (want.dat_file, want.kind, want.size, want.bytes.len())
+    );
+    assert!(
+        got.bytes == want.bytes,
+        "the install's record, byte for byte"
+    );
+}
+
+/// What a client on loopback logged in as `account` gets when it asks for a record.
+fn ask_for(port: u16, account: &str, kind: u32, id: u32) -> DataRecord {
     let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("a client socket");
     socket.set_nonblocking(true).expect("nonblocking");
     let login = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
     let mut bot = Bot::new(socket.local_addr().expect("its address"), login);
     let start = Instant::now();
     let time = || LocalTime(1.0 + start.elapsed().as_secs_f64());
-    bot.log_in("downloader", b"ticket", time());
+    bot.log_in(account, b"ticket", time());
     let mut buf = vec![0; 65_536];
     let mut asked = false;
     let mut checked = Instant::now();
-    let got = loop {
+    loop {
         assert!(
             start.elapsed().as_secs_f64() < play::HANG,
-            "the library never came: {} messages",
+            "the record never came: {} messages",
             bot.messages(false).len()
         );
         loop {
@@ -401,10 +419,7 @@ fn a_client_on_loopback_takes_the_script_library_whole_from_the_server_executabl
             bot.send(
                 false,
                 DATABASE,
-                &ClientMessage::DataRequest(DataRequest {
-                    kind: LIBRARY_KIND,
-                    id: LIBRARY,
-                }),
+                &ClientMessage::DataRequest(DataRequest { kind, id }),
             );
             asked = true;
         }
@@ -414,23 +429,83 @@ fn a_client_on_loopback_takes_the_script_library_whole_from_the_server_executabl
         if checked.elapsed() > Duration::from_millis(500) {
             checked = Instant::now();
             let record = bot.messages(false).into_iter().find_map(|m| match m {
-                ServerMessage::DataRecord(r) if r.id == LIBRARY => Some(r),
+                ServerMessage::DataRecord(r) if r.id == id => Some(r),
                 _ => None,
             });
             if let Some(r) = record {
-                break r;
+                return r;
             }
         }
         std::thread::sleep(Duration::from_millis(1));
-    };
-    assert_eq!(
-        (got.dat_file, got.kind, got.size, got.bytes.len()),
-        (want.dat_file, want.kind, want.size, want.bytes.len())
-    );
+    }
+}
+
+/// The authored world in a folder of its own, its overlay giving a landblock the world's own bytes.
+fn authored_world_with_overlay(dir: &Path, landblock: u32, bytes: &[u8]) -> PathBuf {
+    fn copied(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).expect("a folder");
+        for e in std::fs::read_dir(from).expect("the database").flatten() {
+            let (f, t) = (e.path(), to.join(e.file_name()));
+            if f.is_dir() {
+                copied(&f, &t);
+            } else {
+                std::fs::copy(&f, &t).expect("a file");
+            }
+        }
+    }
+    let world = dir.join("world");
+    copied(&authored::database_dir(), &world);
+    let cell = authored::install_files().cell.expect("the cell file");
+    let overlay = OverlayDir::new(&world.join(WORLD_FOLDER)).expect("the folder");
+    let mut w = overlay
+        .writer(
+            ModernDat::Cell,
+            cell.shared(),
+            role_file(ModernDat::Cell),
+            "test-hall",
+            0,
+        )
+        .expect("a writer");
+    w.put(DataId(landblock), bytes, 1, 0, 0)
+        .expect("the record");
+    w.flush(0).expect("written");
+    world
+}
+
+/// **The server's executable, given a world with an overlay, answers a client's request for a
+/// record with the overlay's.**
+///
+/// Behaviour: server.data.answers-from-a-worlds-overlay-over-real-sockets
+#[test]
+fn a_client_on_loopback_gets_a_landblock_from_the_worlds_overlay() {
+    const LANDBLOCK: u32 = 0x4000_0050;
+    let cell = authored::install_files().cell.expect("the cell file");
+    let id = cell
+        .entries()
+        .map(|e| e.id)
+        .find(|id| id & 0xFFFF == 0xFFFF)
+        .expect("a landblock");
+    let bytes = b"the world's own landblock";
+    let (_, name) = file_of(LANDBLOCK).expect("a cell kind");
+
+    let dir = scratch("yalain-live-overlay");
+    let world = authored_world_with_overlay(&dir, id, bytes);
+    let world = world.display().to_string();
+    let (port, _server, ()) = serving(&dir, |port| {
+        (
+            start_server_with(&dir, port, LIFE, &["--world-db", &world]),
+            (),
+        )
+    });
+    let got = ask_for(port, "overlaid", LANDBLOCK, id);
+    let want = packed(name, LANDBLOCK, id, bytes);
+    assert_eq!((got.dat_file, got.size), (want.dat_file, want.size));
     assert!(
         got.bytes == want.bytes,
-        "the install's record, byte for byte"
+        "the overlay's record, byte for byte"
     );
+    let log = std::fs::read_to_string(dir.join("server.log")).unwrap_or_default();
+    assert!(log.contains("test-hall's overlay"), "{log}");
 }
 
 mod starts {
@@ -474,4 +549,67 @@ mod starts {
         let listening = format!("listening on 127.0.0.1:{port}/{} (login)", port + 1);
         assert!(log.contains(&listening), "{log}");
     }
+}
+
+/// The human starting sword, whose script sets its value at 1.
+const STARTING_SWORD: u32 = 0x4700_051C;
+/// How long the sale may take, against a hang only.
+const HANG: f64 = 30.0;
+/// The money quality.
+const MONEY: u32 = 3100;
+
+/// A new character's starting sword dragged to the money bag brings its 1 gold and goes.
+/// Behaviour: server.inventory.a-new-characters-weapon-sells-for-its-scripts-value
+#[test]
+fn a_new_characters_starting_sword_sold_at_the_money_bag_brings_its_gold() {
+    let dir = scratch("yalain-live-money-bag");
+    let (port, _server, ()) = serving(&dir, |port| (start_server(&dir, port, LIFE), ()));
+    let login = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
+    let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).expect("a client socket");
+    socket.set_nonblocking(true).expect("nonblocking");
+    let mut s = Loopback {
+        socket,
+        client: play::client(login, "sellive"),
+        start: Instant::now(),
+        buf: vec![0; 65_536],
+    };
+    must(play::character_list(&mut s), &dir);
+    let me = must(play::create(&mut s, "Firstsale"), &dir);
+    must(play::enter(&mut s, me), &dir);
+    let money = |c: &Client| {
+        c.model
+            .player_object()
+            .and_then(|o| {
+                auberean_client_sdk::runtime::description::int(&o.weenie, MONEY)
+                    .or_else(|| o.qualities.ints.get(&MONEY).copied())
+            })
+            .unwrap_or(0)
+    };
+    let held = |c: &Client| {
+        c.model
+            .objects()
+            .find(|o| o.weenie.entity_did == STARTING_SWORD && o.container == Some(me))
+            .map(|o| o.id)
+    };
+    must(
+        play::until(&mut s, HANG, "the starting sword in the pack", |c| {
+            held(c).is_some()
+        }),
+        &dir,
+    );
+    let item = held(s.client_ref()).expect("held");
+    let before = money(s.client_ref());
+    s.client().act(auberean_client_sdk::Action::IntoMoney {
+        item,
+        quantity: 1,
+        slot: 1,
+        from: me,
+    });
+    must(
+        play::until(&mut s, HANG, "the sword gone and the gold in", |c| {
+            held(c).is_none() && money(c) > before
+        }),
+        &dir,
+    );
+    assert_eq!(money(s.client_ref()), before + 1, "its script's 1 gold");
 }

@@ -9,7 +9,8 @@
 //! Below the lowest level 2017 shows for a kind, the player's term holds at that level. An attack
 //! that does not land is evaded, or for a ranged attack missed in the measured share; nothing is
 //! blocked (2017's results are hits, criticals, misses and evades). A landed attack is critical in
-//! the measured share of landed attacks.
+//! the measured share of landed attacks, a basic attack with what its weapon adds, a special by that
+//! alone.
 //!
 //! **How much** a creature's hit does: its natural damage times a uniform roll across its natural
 //! variance, times what the player's armor lets through (the measured share for the band of the
@@ -110,7 +111,8 @@ const fn two(a: f64, b: f64, critical: f64, miss: f64) -> Fit {
 
 /// The measured fits, by direction and kind (attacks: a player's melee 26,005 from level 11 up,
 /// missile 26,742 and magic 20,891 from level 1; a creature's melee 20,342, missile 16,029, magic
-/// 9,893).
+/// 9,893). A player's critical is its basic attacks' with a weapon that adds nothing (melee 1,389
+/// hits, missile 5,665, magic 2,080).
 #[must_use]
 pub const fn fit(dir: Direction, kind: Kind) -> Fit {
     match (dir, kind) {
@@ -119,7 +121,7 @@ pub const fn fit(dir: Direction, kind: Kind) -> Fit {
             b: 0.739,
             c: 0.504,
             floor: 11,
-            critical: 0.048,
+            critical: 0.051,
             miss: 0.0,
         },
         (Direction::PlayerOnCreature, Kind::Missile) => Fit {
@@ -127,7 +129,7 @@ pub const fn fit(dir: Direction, kind: Kind) -> Fit {
             b: 0.291,
             c: 0.298,
             floor: 1,
-            critical: 0.042,
+            critical: 0.055,
             miss: 0.248,
         },
         (Direction::PlayerOnCreature, Kind::Magic) => Fit {
@@ -135,7 +137,7 @@ pub const fn fit(dir: Direction, kind: Kind) -> Fit {
             b: 0.628,
             c: 0.230,
             floor: 1,
-            critical: 0.058,
+            critical: 0.043,
             miss: 0.028,
         },
         (Direction::CreatureOnPlayer, Kind::Melee) => two(0.180, 0.274, 0.023, 0.0),
@@ -165,10 +167,49 @@ pub fn roll_outcome(
     attacker_level: i32,
     defender_level: i32,
 ) -> Outcome {
+    let critical = fit(dir, kind).critical;
+    roll_with_critical(rng, dir, kind, (attacker_level, defender_level), critical)
+}
+
+/// A player's basic attack: its outcome, its chance of a critical the measured one with what its
+/// weapon adds ([`crate::combat::critical_bonus`]).
+pub fn roll_basic(
+    rng: &mut Rng,
+    kind: Kind,
+    attacker_level: i32,
+    defender_level: i32,
+    bonus: f64,
+) -> Outcome {
+    let dir = Direction::PlayerOnCreature;
+    let critical = fit(dir, kind).critical + bonus;
+    roll_with_critical(rng, dir, kind, (attacker_level, defender_level), critical)
+}
+
+/// A player's special: its outcome, critical only by what its weapon adds (2017: 6 of the 5,397
+/// specials that landed with a weapon that adds nothing, against basic attacks' 0.043-0.055).
+pub fn roll_special(
+    rng: &mut Rng,
+    kind: Kind,
+    attacker_level: i32,
+    defender_level: i32,
+    bonus: f64,
+) -> Outcome {
+    let dir = Direction::PlayerOnCreature;
+    roll_with_critical(rng, dir, kind, (attacker_level, defender_level), bonus)
+}
+
+/// An attack's outcome at a chance of a critical among those that land.
+pub fn roll_with_critical(
+    rng: &mut Rng,
+    dir: Direction,
+    kind: Kind,
+    (attacker_level, defender_level): (i32, i32),
+    critical: f64,
+) -> Outcome {
     let f = fit(dir, kind);
     let p = landing_chance(dir, kind, attacker_level, defender_level);
     if f64::from(rng.unit()) < p {
-        if f64::from(rng.unit()) < f.critical {
+        if f64::from(rng.unit()) < critical {
             Outcome::Critical
         } else {
             Outcome::Hit
@@ -229,6 +270,10 @@ pub fn roll_missile(
 /// median critical over the median ordinary hit of the same skill on the same target, 1,678 and 248
 /// criticals).
 pub const PLAYER_CRITICAL: f32 = 2.0;
+/// A player's special's critical over its plain hit (2017: 173 criticals of specials, the median
+/// 1.01 of this and 0.63 of doubling; 128 of them against the plain hits of the same skill, armor and
+/// session, 1.23 of those).
+pub const SPECIAL_CRITICAL: f32 = 1.25;
 pub const CREATURE_CRITICAL: f32 = 1.5;
 
 /// What a player's armor lets through of a creature's natural damage, by the player's level: the
@@ -352,6 +397,8 @@ pub struct Hitter {
     pub level: i32,
     pub weapon: Option<WeaponDamage>,
     pub added: i32,
+    /// What its weapon adds to the chance of a critical.
+    pub critical: f64,
 }
 
 /// A player's hit on a creature. With a weapon: a whole number drawn evenly from the weapon's

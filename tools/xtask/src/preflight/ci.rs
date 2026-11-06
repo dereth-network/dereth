@@ -23,7 +23,7 @@ pub const API: &str = "https://api.github.com";
 pub const POLL_S: u64 = 60;
 
 /// How long `ship` waits for CI to finish before it gives up, in seconds.
-pub const BOUND_S: u64 = 120 * 60;
+pub const BOUND_S: u64 = 180 * 60;
 
 /// How long it waits for the first check to appear (the commit reaches GitHub when the mirror
 /// carries it there) before it gives up, in seconds.

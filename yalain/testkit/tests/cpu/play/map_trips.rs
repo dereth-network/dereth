@@ -53,6 +53,7 @@ fn person(id: u64, template: u32, origin: [f32; 3]) -> ContentObject {
         object: Some(id),
         template,
         description: Description {
+            name_text: None,
             package: 0x103E,
             look: 0x1F00_0100,
             enter_fx: 0,

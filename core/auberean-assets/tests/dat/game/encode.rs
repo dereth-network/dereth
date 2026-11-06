@@ -4,6 +4,9 @@
 use auberean_assets::entity::Entity;
 use auberean_assets::landblock::{Cell, LandblockInfo, LightInfo};
 use auberean_assets::property::{PhysicsMaterial, PropertyList};
+use auberean_assets::region::{
+    BlockMap, FogDesc, Landscape, Region, SceneDesc, TerrainDesc, WaterDesc,
+};
 use auberean_assets::script::ScriptState;
 use auberean_assets::strings::{EnumMap, StringState, StringTable};
 use auberean_assets::tables::{FileIdTable, IdMap};
@@ -60,6 +63,13 @@ fn every_record_with_a_writer_writes_back_to_its_own_bytes() {
         round_trip::<Cell>(RecordType::CELL),
         round_trip::<FileIdTable>(RecordType::FILE_ID_TABLE),
         round_trip::<ScriptState>(RecordType::SCRIPT_STATE),
+        round_trip::<Region>(RecordType::REGION),
+        round_trip::<SceneDesc>(RecordType::SCENE_DESC),
+        round_trip::<TerrainDesc>(RecordType::TERRAIN_DESC),
+        round_trip::<WaterDesc>(RecordType::WATER_DESC),
+        round_trip::<FogDesc>(RecordType::FOG_DESC),
+        round_trip::<BlockMap>(RecordType::BLOCK_MAP),
+        round_trip::<Landscape>(RecordType::LANDSCAPE),
     ];
     // Entities, string tables, cells and saved script states number in the thousands at the end
     // of retail.

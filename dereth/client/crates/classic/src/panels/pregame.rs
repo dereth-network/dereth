@@ -283,6 +283,19 @@ fn title(f: &mut PanelFrame, text: &str) {
         None,
     );
 }
+/// What the character creation screen says when the server turns a new character down.
+fn creation_refusal(code: u32, name: &str) -> String {
+    match code {
+        3 => format!(
+            "The name you have chosen for your character, {name}, is already in use by another character.  Please choose another name."
+        ),
+        4 => "Sorry, but that name is not permitted.".into(),
+        5 => "The server has found an unexplained error with this new character.  The data may be corrupt or out of date.".into(),
+        6 => "The server cannot create your new character at this time. Please try again later.".into(),
+        7 => "Sorry, but you do not have the privileges to make an administrator character.".into(),
+        _ => "The character database is unavailable.".into(),
+    }
+}
 fn text(f: &mut PanelFrame, r: crate::widgets::Rect, value: impl Into<String>) {
     f.text_box(r, value, "16-7", COLOR, TextAlign::Left, true, None);
 }
@@ -1338,12 +1351,14 @@ impl Panel for Pregame {
                     Some(1) => "",
                     Some(3) if self.page == "login" => "Another character already exists by that name. Your character cannot be restored.",
                     Some(5 | 6) if self.page == "login" => "That character cannot be restored.",
-                    Some(3) => "That name is already in use.",
-                    Some(4) => "That name is not permitted.",
-                    Some(7) => "That name requires administrator privileges.",
-                    _ => "The character database is unavailable.",
+                    _ => "",
                 }
                 .into();
+                if let Some(refusal) = c.pregame.chargen_response.filter(|_| {
+                    self.status.is_empty() && !matches!(c.pregame.chargen_response, Some(1))
+                }) {
+                    self.status = creation_refusal(refusal, &self.state.name);
+                }
                 if c.pregame.chargen_response != Some(1) {
                     self.created_name = None;
                 }
@@ -1732,7 +1747,7 @@ impl Panel for Pregame {
                         }
                     }
                 }
-                "create-submit" | "create-confirmed" => {
+                "create-submit" | "create-confirmed" | "create-skills-confirmed" => {
                     if self.data.is_ok() {
                         if self.name_edit.trim().is_empty()
                             || self.state.name.trim().is_empty()
@@ -1743,6 +1758,20 @@ impl Panel for Pregame {
                             self.status = "The network is not connected.".into();
                         } else if id == "create-submit" && self.state.remaining_atrb_credits > 0 {
                             actions.push(PanelAction::Confirm{id:"unspent-creation".into(),text:"You have not spent all your Attribute Credits. Create this character anyway?".into(),accept:vec![PanelAction::Control(ControlEvent::Activate("create-confirmed".into()))]});
+                        } else if id != "create-skills-confirmed"
+                            && dereth_client_contract::era::loses_skill_credits(
+                                c.pregame.era_features,
+                                self.state.remaining_skill_credits,
+                            )
+                        {
+                            actions.push(PanelAction::Confirm {
+                                id: "lost-skill-credits".into(),
+                                text: dereth_client_contract::era::LOST_SKILL_CREDITS_WARNING
+                                    .into(),
+                                accept: vec![PanelAction::Control(ControlEvent::Activate(
+                                    "create-skills-confirmed".into(),
+                                ))],
+                            });
                         } else {
                             let Some(slot) = self
                                 .creation_slot

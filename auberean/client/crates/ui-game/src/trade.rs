@@ -652,7 +652,8 @@ impl Child for Trade {
         }
     }
 
-    /// The scripts' trade notices; a question answered; a split done.
+    /// The scripts' trade notices; a question answered; a split done; the selection and an item
+    /// waiting for a target, which each offered item shows.
     // D2-02163, D2-02155, D2-02176
     fn notice(&mut self, ui: &mut Ui, n: &Notice, out: &mut Vec<Request>) {
         match n.native {
@@ -674,6 +675,11 @@ impl Child for Trade {
             }
             inventory::notice::STACK_DONE if n.word_at(0) == self.stack_context => {
                 self.finish_list_box_drop(n.word_at(1), out);
+            }
+            inventory::notice::SELECTION_CHANGED | inventory::notice::SET_TARGETING_POINTER => {
+                for c in self.mine.iter_mut().chain(self.theirs.iter_mut()) {
+                    c.notice(ui, n, self.me);
+                }
             }
             _ => {}
         }

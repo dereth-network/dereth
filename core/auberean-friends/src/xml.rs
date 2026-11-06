@@ -4,10 +4,15 @@
 //! The reader takes any XML 1.0 text of that shape: white space around the element, before `>` and
 //! `/>` and between children, single quotes, the five named references and numeric ones. It
 //! refuses everything else of XML (a declaration, a document type, a comment, a processing
-//! instruction, CDATA, text in an element, deeper children). The writer writes one form: no white
-//! space but one space before each attribute, and an element without children as `<Name .../>`.
+//! instruction, CDATA, text in an element, deeper children), and an element of more than
+//! [`MOST_ATTRIBUTES`] attributes. The writer writes one form: no white space but one space before
+//! each attribute, and an element without children as `<Name .../>`.
 
 use core::fmt;
+
+/// The most attributes one element is read with: past any element of the stream, and few enough
+/// that an attribute written twice is found at no great cost.
+pub const MOST_ATTRIBUTES: usize = 32;
 
 /// One element: its name, its attributes in the order written, and its children, which have none
 /// of their own.
@@ -240,6 +245,9 @@ impl Parser<'_> {
                     if node.get(&name).is_some() {
                         return Err(self.err("an attribute written twice"));
                     }
+                    if node.attrs.len() == MOST_ATTRIBUTES {
+                        return Err(self.err("more attributes than an element holds"));
+                    }
                     node.attrs.push((name, value));
                 }
             }
@@ -382,6 +390,21 @@ mod tests {
         ] {
             assert!(parse(bad).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn an_element_of_too_many_attributes_is_refused() {
+        let with = |n: usize| {
+            let attrs: String = (0..n).map(|i| format!(" a{i}=\"\"")).collect();
+            format!("<A{attrs}/>")
+        };
+        assert_eq!(
+            parse(&with(MOST_ATTRIBUTES)).unwrap().attrs.len(),
+            MOST_ATTRIBUTES
+        );
+        assert!(parse(&with(MOST_ATTRIBUTES + 1)).is_err());
+        let child = format!("<A>{}</A>", with(MOST_ATTRIBUTES + 1));
+        assert!(parse(&child).is_err(), "nor a child");
     }
 
     #[test]

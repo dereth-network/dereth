@@ -70,6 +70,9 @@ pub mod transient {
 /// Below this a velocity or acceleration counts as none.
 const STILL: f32 = 0.0002;
 
+/// The longest chain of parents a sound asks up.
+const MAX_PARENTS: usize = 16;
+
 impl Body {
     /// The standing state.
     // D2-06286
@@ -143,21 +146,14 @@ impl Body {
     pub const fn is_no_draw(&self) -> bool {
         self.has(flags::NO_DRAW)
     }
-    // D2-06297
     #[must_use]
     pub const fn is_cloaked(&self) -> bool {
         self.has(flags::CLOAKED)
     }
     /// Pushable only while it moves at all.
-    // D2-06298
     #[must_use]
     pub const fn is_pushable(&self) -> bool {
         self.has(flags::PUSHABLE) && self.is_dynamic()
-    }
-    // D2-06299
-    #[must_use]
-    pub const fn is_path_clipped(&self) -> bool {
-        self.has(flags::PATH_CLIPPED)
     }
     // D2-06300
     #[must_use]
@@ -212,11 +208,6 @@ impl Body {
     pub fn set_report_collisions(&mut self, on: bool) {
         self.put(flags::REPORT_COLLISIONS, on);
     }
-    // D2-06015
-    pub fn set_game_draw(&mut self, on: bool) {
-        self.put(flags::GAME_DRAW, on);
-    }
-    // D2-06016
     pub fn set_tools_draw(&mut self, on: bool) {
         self.put(flags::TOOLS_DRAW, on);
     }
@@ -230,7 +221,6 @@ impl Body {
         self.put(flags::CLOAKED, on);
         self.set_no_draw(on);
     }
-    // D2-06019
     pub fn set_missile(&mut self, on: bool) {
         self.put(flags::MISSILE, on);
     }
@@ -243,7 +233,6 @@ impl Body {
         self.put(flags::ALIGN_TO_PATH, on);
     }
     /// Sticky objects clip to their path.
-    // D2-06022, D2-06027
     pub fn set_path_clipping(&mut self, on: bool) {
         self.put(flags::PATH_CLIPPED, on);
     }
@@ -286,7 +275,6 @@ impl Body {
     pub fn set_lights(&mut self, on: bool) {
         self.put(flags::LIGHTS, on);
     }
-    // D2-06028
     pub fn set_pushable(&mut self, on: bool) {
         self.put(flags::PUSHABLE, on);
     }
@@ -319,7 +307,6 @@ impl Body {
     pub const fn is_active(&self) -> bool {
         self.is_animation_active() || self.is_movement_active() || self.is_misc_active()
     }
-    // D2-06305
     #[must_use]
     pub const fn is_inactive(&self) -> bool {
         !self.is_active()
@@ -332,9 +319,64 @@ impl Body {
     pub const fn is_in_workspace(&self) -> bool {
         self.has(flags::IN_WORKSPACE)
     }
-    // D2-06031
     pub fn set_in_workspace(&mut self, on: bool) {
         self.put(flags::IN_WORKSPACE, on);
+    }
+
+    /// The cell the body stands in is among the free blocks, or back from them.
+    // D2-06055, D2-06056
+    pub fn set_cell_on_free_list(&mut self, on: bool) {
+        self.cell_on_free_list = on;
+    }
+
+    /// Out of the player's physics range, or back in it: its movement and animation stop, or
+    /// wake. A body keeps what it last found until a position or its own movement looks again.
+    // D2-06102, D2-06103
+    pub fn set_out_of_physics_range(&mut self, out: bool) {
+        self.out_of_physics_range = out;
+        self.set_movement_active(!out);
+        self.set_animation_active(!out);
+    }
+
+    /// Whether the body's movement looks at the player's range this tick: its movement runs, it
+    /// stands in a cell or hangs from a parent, and it hangs from a parent, or is a missile, or
+    /// stands in the world able to move.
+    // D2-06344
+    #[must_use]
+    pub fn movement_checks_range(&self) -> bool {
+        self.is_movement_active()
+            && (self.has_parent || self.position.cell.0 != 0)
+            && (self.has_parent
+                || self.missile.is_some()
+                || (self.in_world && !self.is_movement_frozen() && self.is_mobile()))
+    }
+
+    /// Whether the sounds the body makes are silent just now, to play again when they are not: a
+    /// static body's while its cell is among the free blocks; a moving body's out of the world
+    /// with no parent, or out of the player's physics range; what a parent holds, as its parent's
+    /// (`find`); any other body's out of both the world and the workspace.
+    // D2-06153
+    pub fn should_mute_sound<'a>(&'a self, find: &dyn Fn(u64) -> Option<&'a Self>) -> bool {
+        let mut body = self;
+        // A chain of parents is short; one that loops is heard.
+        for _ in 0..MAX_PARENTS {
+            let silent = if body.is_static() {
+                body.cell_on_free_list
+            } else {
+                (!body.in_world && !body.has_parent) || body.out_of_physics_range
+            };
+            if silent {
+                return true;
+            }
+            if !body.has_parent {
+                return !body.in_world && !body.is_in_workspace();
+            }
+            match find(body.parent) {
+                Some(parent) => body = parent,
+                None => return false,
+            }
+        }
+        false
     }
 
     // D2-06009
@@ -411,7 +453,6 @@ impl Body {
     }
 
     /// Animation may stop only out of the world.
-    // D2-06008
     #[must_use]
     pub const fn animation_can_be_inactive(&self) -> bool {
         !self.in_world
@@ -443,7 +484,6 @@ impl Body {
     pub const fn on_ground(&self) -> bool {
         self.contact && self.on_walkable
     }
-    // D2-06291
     #[must_use]
     pub const fn off_ground(&self) -> bool {
         !self.on_ground()
@@ -452,11 +492,6 @@ impl Body {
     #[must_use]
     pub const fn has_contact(&self) -> bool {
         self.contact
-    }
-    // D2-06306
-    #[must_use]
-    pub const fn is_on_walkable(&self) -> bool {
-        self.on_walkable
     }
     // D2-06315
     #[must_use]

@@ -50,6 +50,12 @@ fn a_book_shows_its_pages_and_turns_them() {
     assert!((3..=1000).contains(&last), "{last} pages");
     w.click(w.el("BookSliderRight"));
     assert_eq!(w.play.child::<Book>().map(|b| b.page().0), Some(2));
+    let text = w.el("BookClientAreaText");
+    assert_eq!(
+        w.ui.text_state(text).unwrap().view_y,
+        w.ui.node(text).unwrap().rect.height(),
+        "the second page a whole page down"
+    );
     // Each press a second apart (two at once would be a double press).
     for _ in 2..last {
         w.wait(1.0);

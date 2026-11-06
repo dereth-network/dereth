@@ -200,7 +200,12 @@ pub fn run(a: &Args, records: &WorldRecords, region: &RegionSet) -> Result<(), S
                 auberean_world::sky::day_for(sky, c.year * i64::from(cal.days_per_year) + c.day);
         }
         let mut frame = builder.frame(&spot, a.fov);
+        drawer.begin_frame();
         let mut batches = drawer.batches(records, &figure, &poses, &place);
+        // By way of the threads, as a client's crowd is.
+        let mut asks = Vec::new();
+        auberean_draw::body::ask_ahead(&batches, (0.0, 1.0), a.volumes, &mut asks);
+        auberean_draw::body::answer_ahead(asks);
         if a.volumes {
             // The body casts its volume of shadow along the sun's light and is drawn after it.
             for b in &mut batches {

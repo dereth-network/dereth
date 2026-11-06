@@ -70,6 +70,7 @@ pub mod stop {
 
 /// Where an emitter is: its place in the world's axes, by its object's id (`None` when it is not
 /// where the listener's world is drawn; its last place stands).
+// D2-06032
 pub type Emitters<'a> = &'a dyn Fn(u64) -> Option<Vec3>;
 
 /// What the manager did, in numbers.
@@ -140,6 +141,8 @@ struct Playing {
     life: Life,
     has_played: bool,
     disabled: bool,
+    /// Its maker is silent: it neither starts nor goes on until the maker is heard.
+    muted: bool,
     start: f64,
     /// Seconds it lasts from its start (its wave's length and a margin), below 0 for music.
     length: f32,
@@ -216,10 +219,12 @@ struct MusicEngine {
 impl Playing {
     // D2-07765
     fn budgeted(&self) -> bool {
-        matches!(
-            self.settings.kind,
-            PlayType::NonExclusiveBudgeted | PlayType::SelfExclusiveBudgeted
-        )
+        match self.settings.kind {
+            PlayType::NonExclusiveBudgeted => true,
+            // One at a time takes no place in the budget while its maker is silent.
+            PlayType::SelfExclusiveBudgeted => !self.muted,
+            _ => false,
+        }
     }
 
     // D2-07763
@@ -246,7 +251,8 @@ impl Playing {
     }
 }
 
-/// The sound manager.
+/// The sound manager; what it plays and holds goes with it.
+// D2-07719
 #[derive(Debug)]
 pub struct SoundPlayer {
     /// The mixer the device plays; `None` with no device, when nothing plays.
@@ -268,6 +274,8 @@ pub struct SoundPlayer {
     instances: HashMap<u32, Instance>,
     playing: Vec<Playing>,
     listener: Listener,
+    /// The objects whose sounds are silent.
+    muted: BTreeSet<u64>,
     last_commit: f64,
     now: f64,
     music: MusicEngine,
@@ -296,6 +304,7 @@ impl SoundPlayer {
             instances: HashMap::new(),
             playing: Vec::new(),
             listener: Listener::default(),
+            muted: BTreeSet::new(),
             last_commit: f64::NEG_INFINITY,
             now: 0.0,
             music: MusicEngine {
@@ -327,6 +336,12 @@ impl SoundPlayer {
         }
     }
 
+    /// The master groove level.
+    #[must_use]
+    pub fn groove(&self) -> i32 {
+        self.music.perf.lock().map_or(0, |p| p.master_groove())
+    }
+
     /// The mixer the device fills its blocks from, when there is a device.
     #[must_use]
     pub fn mixer(&self) -> Option<Arc<Mutex<Mixer>>> {
@@ -352,6 +367,13 @@ impl SoundPlayer {
             .iter()
             .map(|p| (p.handle, p.id, p.life))
             .collect()
+    }
+
+    /// The objects whose sounds are silent from the next turn on: each sound playing stops, kept
+    /// to play again; the rest, when an object is no longer among them.
+    // D2-06153
+    pub fn set_muted(&mut self, muted: BTreeSet<u64>) {
+        self.muted = muted;
     }
 
     /// The objects making the sounds playing.
@@ -383,9 +405,16 @@ impl SoundPlayer {
 
     /// Play a request: its handle, or `None` when it was refused or one of the same setting that
     /// plays one at a time is already playing.
-    // D2-07723, D2-07721
+    // D2-07723, D2-07721, D2-07722
     pub fn play(&mut self, files: &dyn SoundFiles, req: &PlayRequest) -> Option<u32> {
         self.stats.requests += 1;
+        tracing::debug!(
+            id = format_args!("{:08X}", req.id),
+            emitter = ?req.emitter,
+            volume = req.volume,
+            channel = ?req.channel,
+            "sound asked for"
+        );
         self.mixer.as_ref()?;
         if self.exclusive.contains(&req.id) {
             self.stats.already_playing += 1;
@@ -456,6 +485,7 @@ impl SoundPlayer {
             life: Life::KeepAlive,
             has_played: false,
             disabled: false,
+            muted: false,
             start: self.now,
             fade: None,
             local: [0.0; 3],
@@ -481,7 +511,7 @@ impl SoundPlayer {
             req.kind,
             PlayType::NonExclusiveBudgeted | PlayType::SelfExclusiveBudgeted | PlayType::Inherit
         );
-        !(s.flags & SOUND_LOOPS == 0 && counted && budget <= playing)
+        !(!s.test_bit_mask(SOUND_LOOPS) && counted && budget <= playing)
     }
 
     fn load(&mut self, files: &dyn SoundFiles, req: &PlayRequest) -> Result<Instance, Refusal> {
@@ -554,7 +584,7 @@ impl SoundPlayer {
 
     /// Stop the sound of `handle`, fading out over `fade` seconds (at once for 0); it is done
     /// when it has stopped.
-    // D2-01716, D2-07783
+    // D2-01716, D2-07783, D2-07698
     pub fn stop(&mut self, handle: u32, fade: f32) {
         if let Some(i) = self.playing.iter().position(|p| p.handle == handle) {
             self.stop_internal(i, fade, true, false);
@@ -601,14 +631,14 @@ impl SoundPlayer {
             let p = &self.playing[i];
             let hit = match self.instances.get(&p.id) {
                 Some(Instance { sound: Some(s), .. }) => {
-                    if s.flags & settings::SOUND_PLACED != 0 {
+                    if s.test_bit_mask(settings::SOUND_PLACED) {
                         mask & stop::PLACED_SOUNDS != 0
                     } else {
                         mask & stop::FLAT_SOUNDS != 0
                     }
                 }
                 Some(Instance { music: Some(m), .. }) => {
-                    if m.flags & settings::MUSIC_PLACED != 0 {
+                    if m.test_bit_mask(settings::MUSIC_PLACED) {
                         mask & stop::PLACED_MUSIC != 0
                     } else {
                         mask & stop::FLAT_MUSIC != 0
@@ -673,16 +703,24 @@ impl SoundPlayer {
         }
     }
 
-    /// Turn the sound off (nothing is heard: the device is let go of, and every sound keeps its
-    /// life without a sound) or on again (every sound heard again).
-    // D2-07818
+    /// Turn the sound off or on again. Off, a sound playing stops, kept to play from its start
+    /// when the sound is on again, and any other is done. On, each sound kept plays.
+    // D2-07818, D2-07785
     pub fn set_sound_off(&mut self, off: bool) {
         if self.sound_off == off {
             return;
         }
         self.sound_off = off;
         for i in 0..self.playing.len() {
-            self.apply(i);
+            if !off {
+                self.play_internal(i);
+            } else if matches!(self.playing[i].life, Life::Playing | Life::Fading) {
+                self.playing[i].life = Life::KeepAlive;
+                self.on_segment_ended(i);
+            } else {
+                self.playing[i].life = Life::Done;
+                self.stop_voice(i);
+            }
         }
     }
 
@@ -927,11 +965,7 @@ impl SoundPlayer {
     }
 
     fn voice_settings(&self, p: &Playing) -> VoiceSettings {
-        let g = if self.sound_off {
-            0.0
-        } else {
-            gain_from_millibels(self.millibels(p)) * p.placement.distance
-        };
+        let g = gain_from_millibels(self.millibels(p)) * p.placement.distance;
         let base = match (&p.source, p.music) {
             (Some(s), _) => f64::from(s.rate()),
             (None, Some(_)) => f64::from(MUSIC_RATE),
@@ -974,7 +1008,14 @@ impl SoundPlayer {
                 p.start = now;
                 p.has_played = true;
             }
-            if p.disabled {
+            // With the sound off, nothing plays, and what has no length of its own ends.
+            if self.sound_off {
+                if p.length < 0.0 {
+                    p.life = Life::Done;
+                }
+                return;
+            }
+            if p.disabled || p.muted {
                 return;
             }
         }
@@ -1190,6 +1231,11 @@ impl SoundPlayer {
     }
 
     fn stop_voice(&mut self, i: usize) {
+        // A piece waiting for the primary track waits no longer.
+        // D2-07893
+        if self.music.next_primary == Some(self.playing[i].handle) {
+            self.music.next_primary = None;
+        }
         if let Some(run) = self.playing[i].music {
             self.end_piece(Some(run), false);
             if let Some(r) = self.playing[i].music.as_mut() {
@@ -1309,7 +1355,7 @@ impl SoundPlayer {
     fn enable(&mut self, i: usize, on: bool) {
         let p = &mut self.playing[i];
         p.disabled = !on;
-        if !p.has_played {
+        if !p.has_played || p.muted {
             return;
         }
         if on {
@@ -1336,12 +1382,39 @@ impl SoundPlayer {
         }
     }
 
-    /// A sound's own turn: one kept and played before plays again; one that does not loop is
-    /// done once its length has run from its start; a fade that has run its time ends it.
+    /// A sound's own turn: one whose maker is silent stops, kept to play again (a fade that was to
+    /// end it is done); else one kept and played before plays again. Then one that does not loop
+    /// is done once its length has run from its start; a fade that has run its time ends it.
     // D2-07781
     fn sound_use_time(&mut self, i: usize) {
         let now = self.now;
-        if self.playing[i].life == Life::KeepAlive && self.playing[i].has_played {
+        let silent = self.playing[i]
+            .settings
+            .emitter
+            .is_some_and(|e| self.muted.contains(&e));
+        self.playing[i].muted = silent;
+        if silent {
+            let p = &mut self.playing[i];
+            let stops = match p.life {
+                Life::Playing => {
+                    p.life = Life::KeepAlive;
+                    true
+                }
+                Life::Fading => {
+                    if p.fade.is_some_and(|f| f.die) {
+                        p.life = Life::Done;
+                        p.settings.emitter = None;
+                    } else {
+                        p.life = Life::KeepAlive;
+                    }
+                    true
+                }
+                _ => false,
+            };
+            if stops {
+                self.on_segment_ended(i);
+            }
+        } else if self.playing[i].life == Life::KeepAlive && self.playing[i].has_played {
             self.play_internal(i);
         }
         let p = &mut self.playing[i];
@@ -1407,7 +1480,7 @@ pub fn effect_sound(
     req.channel = match records::setting_type(id) {
         Some(SettingType::Music) => {
             let music = records::music_info(files, id)
-                .is_some_and(|m| m.flags & settings::MUSIC_DEFAULT_CHANNEL_MUSIC != 0);
+                .is_some_and(|m| m.test_bit_mask(settings::MUSIC_DEFAULT_CHANNEL_MUSIC));
             if music {
                 Channel::Music
             } else {

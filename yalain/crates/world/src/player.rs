@@ -8,17 +8,25 @@
 use auberean_primitives::{Frame, Quat, Vec3};
 use auberean_protocol::login::{PlayerObject, PlayerQualities};
 use auberean_protocol::physics::CreateObject;
+use auberean_protocol::quality::VisualQuality;
 use auberean_protocol::table::{Table, SMALL};
 use auberean_protocol::text::StringInfo;
 use auberean_protocol::types::{
     PhysicsDesc, Placement, Qualities, SliderSetting, VisualDesc, WeenieDesc,
 };
+use auberean_protocol::ServerMessage;
 use yalain_store::StoredPosition;
 
 /// The player template: its entity, its qualities record and its script package.
 pub const PLAYER_ENTITY: u32 = 0x4700_0530;
 pub const PLAYER_QUALITIES: u32 = 0x8100_0530;
 pub const PLAYER_PACKAGE: u32 = 0x37F;
+
+/// The admin template: the same three for an admin character. A client gives a player of this
+/// template the admin's commands.
+pub const ADMIN_ENTITY: u32 = 0x4700_0531;
+pub const ADMIN_QUALITIES: u32 = 0x8100_0531;
+pub const ADMIN_PACKAGE: u32 = 0x298;
 
 /// The player template's physics type, movement ethereality and placement ethereality (low
 /// words; the high words are 0), from its qualities record.
@@ -85,6 +93,60 @@ pub fn world_name(name: &str, sex: u32) -> String {
         .next()
         .is_some_and(|c| "AEIOUaeiou".contains(c));
     format!("{name} [{s}{}]", if vowel { "v" } else { "" })
+}
+
+/// The quality a player's name is, as an object's name is.
+pub const NAME_QUALITY: u32 = 256;
+
+/// A character's name changed in the world, for the host's services that know it by name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Renamed {
+    pub character: u64,
+    pub old: String,
+    pub new: String,
+}
+
+/// Make a player's encoded qualities name it.
+pub fn set_name(qualities: &mut Vec<u8>, name: &str, sex: u32) {
+    let mut q = crate::quals::read(qualities);
+    q.weenie.name = StringInfo::literal(&world_name(name, sex));
+    *qualities = crate::quals::write(&q);
+}
+
+/// A player's name changed: its qualities hold the new one, and its client and every client that
+/// knows it are told, as they are of a pet's new name.
+pub fn show_name<S: yalain_store::Store>(
+    s: &mut crate::Server<S>,
+    net: &mut yalain_net::ServerNet,
+    world: yalain_net::ConnId,
+) {
+    let Some(p) = s.players.get_mut(&world) else {
+        return;
+    };
+    let name = p.shown_name();
+    let shown = StringInfo::literal(&world_name(&name, p.sex));
+    set_name(&mut p.qualities, &name, p.sex);
+    let m = ServerMessage::UpdateStringInfoVisual(VisualQuality {
+        object: crate::places::player_event(p, ()).sender,
+        quality: NAME_QUALITY,
+        value: shown,
+    });
+    let me = p.character;
+    crate::places::to_all_knowing(s, net, me, &m);
+}
+
+/// Make a player's encoded qualities name the admin template's record, or the player's.
+pub fn set_template(qualities: &mut Vec<u8>, admin: bool) {
+    let mut q = crate::quals::read(qualities);
+    let did = if admin {
+        ADMIN_QUALITIES
+    } else {
+        PLAYER_QUALITIES
+    };
+    if q.did != did {
+        q.did = did;
+        *qualities = crate::quals::write(&q);
+    }
 }
 
 /// The weenie numbers' mask bits, in [`WeenieDesc::NUMBER_BITS`] order from the physics type's
@@ -195,11 +257,12 @@ pub fn physics_at(
 }
 
 /// What a player's object shows of its qualities: its kingdom (none for a character that never
-/// joined one) and its six physics words.
+/// joined one), its six physics words, and whether it is of the admin template.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Marks {
     pub kingdom: Option<u32>,
     pub numbers: [i32; 6],
+    pub admin: bool,
 }
 
 impl Default for Marks {
@@ -207,6 +270,7 @@ impl Default for Marks {
         Self {
             kingdom: None,
             numbers: PLAYER_NUMBERS,
+            admin: false,
         }
     }
 }
@@ -224,6 +288,7 @@ impl Marks {
         Self {
             kingdom: crate::kingdoms::of_qualities(q),
             numbers,
+            admin: q.did == ADMIN_QUALITIES,
         }
     }
 }
@@ -242,8 +307,16 @@ pub fn player_object(
     let mut weenie = weenie_with_numbers(
         WeenieDesc {
             mask: WeenieDesc::PACKAGE | WeenieDesc::NAME | WeenieDesc::ENTITY,
-            package_id: PLAYER_PACKAGE,
-            entity_did: PLAYER_ENTITY,
+            package_id: if marks.admin {
+                ADMIN_PACKAGE
+            } else {
+                PLAYER_PACKAGE
+            },
+            entity_did: if marks.admin {
+                ADMIN_ENTITY
+            } else {
+                PLAYER_ENTITY
+            },
             name: StringInfo::literal(&world_name(name, sex)),
             ..WeenieDesc::default()
         },
@@ -297,6 +370,10 @@ pub fn content_object(id: u64, o: &yalain_content::ContentObject) -> CreateObjec
             table_id,
             ..StringInfo::default()
         };
+    }
+    if let Some(n) = &d.name_text {
+        weenie.mask |= WeenieDesc::NAME;
+        weenie.name = StringInfo::literal(n);
     }
     let at = placement(&StoredPosition {
         cell: o.cell,

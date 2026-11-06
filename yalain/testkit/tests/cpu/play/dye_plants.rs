@@ -373,7 +373,7 @@ fn a_seed_used_in_its_garden_stands_its_plant_two_meters_ahead_once_its_planting
     assert_eq!(at.rotation, [1.0, 0.0, 0.0, 0.0], "facing as the planter");
     assert_eq!(held(&h, world, SEED).map(|x| x.1), Some(1), "one spent");
     assert_eq!(
-        yalain_world::requests::vitals_of(&h.server, plant).map(|v| (v.health, v.max_vigor)),
+        yalain_world::requests::vitals_of(&h.server, world, plant).map(|v| (v.health, v.max_vigor)),
         Some((50, 50)),
         "selected, its vitals"
     );

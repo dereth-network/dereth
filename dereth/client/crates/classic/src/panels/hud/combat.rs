@@ -66,6 +66,9 @@ impl Panel for Combat {
                 PlayerOption::ViewCombatTarget,
             ),
         ] {
+            if id == "keep-in-view" && !c.game.era_ui().combat_keep_in_view {
+                continue;
+            }
             let checked = c.game.player_option(option);
             image(
                 &mut f,

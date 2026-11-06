@@ -907,3 +907,57 @@ files, installs the release and trial-starts it. A failed trial restores the bac
 transaction restores before another start is allowed. `managed-update rollback --config <file>`
 restores the retained previous version and databases, discarding progress made since that backup.
 Keep `.empyrean-update` with the runtime until its recovery data is no longer needed.
+
+## Experimental Launch profile
+
+`[era] profile = "launch"` plays the world as it was in November 1999. It is experimental: the
+server logs a warning at start, and nothing certifies a launch world as complete. Use a separate
+shard and a `world.pack` built for `launch`; the pack may hold incomplete content for testing.
+
+**What it sets.** The three original heritages and the 35 original skills, a level cap of 126, and
+total and unassigned experience held to 4,294,967,295. Skill costs and the experience curves come
+from the world's data files, so use the 1999 set: the server reads each file's iteration at start
+and does not start a Launch world on other files (the February 2005 or end-of-retail ones, say)
+unless `any_dat_files = true` is set in `[era]`; it logs the files it found either way. Characters start where character creation puts
+them, with recalls enabled, and get a starter kit and fixed starting spells (there were no spell
+credits). The pinned ac1999 source the kit comes from targets November 23, 1999, so its quantities
+are a reconstruction.
+
+**Systems, actions and rules.** Launch has spell research and the allegiance oath's experience cost,
+and none of the later systems, actions or rules in the `[era]` table: no lifestone protection, no
+creation-credit carry-over (unspent credits are lost), no skill alteration, augmentation purchases,
+PK Lite, Marketplace or PK arena recalls, no Endurance benefits, no War and Life Magic criticals or
+War Magic skill bonus, and no component-burn skill discount; transfer spells cost their source in
+full even when the target is full, item spells cast on a character do not land on its equipment,
+and player corpses have no hour minimum. Nor does it have corpse permits (`@permit`, `@consent`),
+corpse coordinates after a death, the allegiance message of the day, oath confirmation (an oath
+binds at once), booting, officers, locks, bans or allegiance names, or fellowships that keep their
+experience; trade notes sell at 10% over their value and cash in full only at the vendor that sold
+them, and appraising a guarded item takes the appraisal skill for its kind. Each is a key in `[era]` (`pk_lite = true`,
+`endurance_benefits = true`, ...), so a world can turn any of them back on; the status document
+announces the world's whole set, and the Dereth client follows it. A player who asks for something
+the world lacks is told "This world has no ...".
+
+**`@lifestone` and `@die`.** Without `lifestone_recall`, `@lifestone` is a death, as it was until April
+2002: the Dereth client asks "Do you really want to kill your character?", and the server kills the
+character at once, with an ordinary corpse, vitae and return to the lifestone. There is no `@die`.
+
+**Combat.** The weapon skills before 2012 and shields before the Shield skill. Daggers take their
+damage bonus from Strength (from March 2000 it came from Coordination). The Strength coefficient,
+weapon speeds and creature projectile damage stay as they are elsewhere: the period notes change them
+without giving numbers.
+
+**Death and corpses.** Every death loses half the coins carried and `level / 10` items (at least one,
+and up to two more above level 10), worn items among them; the relief of levels 1 to 35 came in May
+2002. A player corpse lasts five minutes a level. A character has at most two corpses in the world: a
+third makes the oldest decay and leave its items on the ground, at once if its landblock is loaded,
+when it loads otherwise. A monster's corpse lies 90 seconds, is its killer's for the first 15, and
+leaves its unclaimed loot on the ground when it decays. An empty corpse lasts its full time.
+
+**Loot.** A world base built from ac1999 carries its own loot generator, which the server uses for its
+death treasure.
+
+**Not done.** Character migration: use fresh characters, since a shard from a later era keeps what its
+characters have. The original 1999 wire protocol is the Dereth client's connection to ac1999's own
+servers; Empyrean speaks the end-of-retail protocol. No launch world has been played through end to
+end.

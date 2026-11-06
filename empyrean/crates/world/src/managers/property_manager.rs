@@ -175,6 +175,12 @@ pub fn initialize(w: &mut World, load_default_values: bool) {
         for (key, value) in w.era.property_defaults {
             default_property_manager::modify_bool(&w.property_manager, key, *value);
         }
+        for (key, value) in w.era.long_property_defaults {
+            default_property_manager::modify_long(&w.property_manager, key, *value);
+        }
+        for (key, value) in w.era.string_property_defaults {
+            default_property_manager::modify_string(&w.property_manager, key, value);
+        }
     }
 
     load_properties_from_db(w);
@@ -191,6 +197,14 @@ pub fn initialize(w: &mut World, load_default_values: bool) {
 /// Not ACE: installs `DatabaseManager.ShardConfig` (the host's, before [`initialize`]).
 pub fn install_shard_config(w: &mut World, shard_config: ShardConfigHandle) {
     w.property_manager.shard_config = shard_config;
+}
+
+/// Not ACE: `[era] max_characters_per_account`, which wins over the database and the era's default
+/// each time the server starts. Characters already over it keep playing: only creating is refused.
+pub fn apply_configured_character_limit(w: &World, limit: Option<u32>) {
+    if let Some(limit) = limit {
+        modify_long(w, "max_chars_per_account", i64::from(limit));
+    }
 }
 
 // ACE: PropertyManager.LoadPropertiesFromDB

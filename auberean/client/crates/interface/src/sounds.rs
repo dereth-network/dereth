@@ -11,6 +11,7 @@ pub const FADE: f32 = 2.0;
 
 /// A sound across the screens before the world (a screen's music, a song of the credits): kept to
 /// be stopped when the next screen's begins or the world's play screen is made.
+// D2-11867, D2-11868
 #[must_use]
 pub fn screens(id: u32) -> Request {
     Request::Sound(SoundOrder::Play {

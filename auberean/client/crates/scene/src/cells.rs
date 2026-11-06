@@ -190,6 +190,7 @@ impl OnFinished for CellRings {
             };
             let outside = cell.flags & 1 != 0;
             if times == 1 {
+                // D2-03529
                 for &v in &cell.visible {
                     all.add_typed((id & 0xFFFF_0000) | u32::from(v), RecordType::CELL.0);
                 }

@@ -5,4 +5,5 @@ pub(crate) mod housing;
 pub(crate) mod loot;
 pub(crate) mod object_use;
 pub(crate) mod quests;
+mod source_loot;
 pub(crate) mod world_pack_corrections;

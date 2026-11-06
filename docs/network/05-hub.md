@@ -1171,6 +1171,9 @@ admins' mirrors are read only. Worlds that know nothing of it speak the link pro
   later under the slug inherits none.
 - **A channel mirrors one room**, whoever's mirror it is: a channel that mirrors one already is
   refused another (`409`, `channel_taken`).
+- **A room has one mirror**, whatever it is called: where a world's game calls two of the link's
+  names alike (`lfg` and `roleplay` on an Asheron's Call 2 world), a mirror of the room under one
+  name refuses another under the other (`409`, `same_room`). Stopping the mirror frees the room.
 
 **Where a mirror goes.** Either way below, the mirror's asker needs to be able to set such a
 webhook up itself, so that nobody mirrors a room into another server's channel.
@@ -1226,8 +1229,8 @@ A world's operator, the world's owner alone (`403` for another operator's world,
 
 | route | does |
 |---|---|
-| `GET /v1/operator/worlds/<slug>/discord/mirrors` | `{"mirrors": [...], "rooms": ["global", "general", "trade", "lfg"], "globalRoom": "roleplay", "invite"}`: the world's mirrors, the rooms it may mirror (never the one carrying the Global room there), where the world carries the Global room (section 5.10; `null` while the hub holds none), and the address the bot is added to a server at (`null` on a hub without sign-in). |
-| `PUT /v1/operator/worlds/<slug>/discord/mirrors/<room>` `{"channel": "<channel id>"}` or `{"webhook": "<a webhook's address>"}` | Mirrors the room there, through the bot or through the webhook: `200` and the list, as `GET` answers it. A mirror of the room already is moved there; asking for what is so changes nothing. `400` for a room that is none of the world's nor the Global room, or another body; `409` for a locked world, and for the room that carries the Global room there (`"reason": "carries_global"`: mirror the Global room instead), before Discord is asked anything; and as above. |
+| `GET /v1/operator/worlds/<slug>/discord/mirrors` | `{"mirrors": [...], "rooms": ["global", "general", "trade", "lfg"], "globalRoom": "roleplay", "roomNames": {...}, "invite"}`: the world's mirrors, the rooms it may mirror (never the one carrying the Global room there), where the world carries the Global room and what a player of its game calls each room (section 5.10; `globalRoom` is `null` while the hub holds none), and the address the bot is added to a server at (`null` on a hub without sign-in). |
+| `PUT /v1/operator/worlds/<slug>/discord/mirrors/<room>` `{"channel": "<channel id>"}` or `{"webhook": "<a webhook's address>"}` | Mirrors the room there, through the bot or through the webhook: `200` and the list, as `GET` answers it. A mirror of the room already is moved there; asking for what is so changes nothing. `400` for a room that is none of the world's nor the Global room, or another body; `409` for a locked world, for the room that carries the Global room there (`"reason": "carries_global"`: mirror the Global room instead), and for a room the world mirrors under its other name (`"reason": "same_room"`), before Discord is asked anything; and as above. |
 | `DELETE /v1/operator/worlds/<slug>/discord/mirrors/<room>` | Stops mirroring it: `204`; `404` for one not mirrored. |
 
 The hub's admins (section 2; `403` for any other operator):
@@ -1532,10 +1535,10 @@ or that predates it), the hub holds none.
 
   | route | does |
   |---|---|
-  | `GET /v1/operator/worlds/<slug>/global-room` | `{"globalRoom": "roleplay"}`: where the world carries the Global room; `null` while the hub holds none. |
+  | `GET /v1/operator/worlds/<slug>/global-room` | `{"globalRoom": "roleplay", "roomNames": {"general": "General", "trade": "Trade", "lfg": "LFG", "roleplay": "Roleplay"}}`: where the world carries the Global room, `null` while the hub holds none, and what a player of the world's game calls each room, which is what a page shows. On an Asheron's Call 2 world `lfg` and `roleplay` are both `PvP` ([07](07-ac2-world-behaviour.md)). |
   | `PUT /v1/operator/worlds/<slug>/global-room` `{"room": "trade"}` | Carries it there (`general`, `trade`, `lfg`, `roleplay`), or nowhere (`off`), at once: `200` and the room, as `GET` answers it. Asking for what is so changes nothing. `400` for another room or body; `409` for a locked world. |
 
-  The mirrors' `GET` answers it too, as `globalRoom` (section 5.7).
+  The mirrors' `GET` answers both too (section 5.7).
 - **The world itself**, at its operator's word in game (`/dn admin global`,
   [03](03-world-behaviour.md) section 6), with `rooms.global` on its link, under its key: no site
   and no Discord needed. It is held to its pace ([02](02-link-protocol.md) section 5).
@@ -1558,6 +1561,9 @@ registry takes its room with it: one registered later under the slug inherits no
   Either way the log says so, and an event of the world's records it, by `hub` (section 5.7). So a
   world whose operator mirrored the room that carries the Global room there, before the hub knew,
   finds the Global room's lines in that channel.
+- **A room with two names is one room here too.** Where a world's game calls two of the link's
+  names alike, the Global room carried under either refuses a mirror of the other, and a mirror
+  under either follows it as above.
 - **A room that stops carrying the Global room** is an ordinary own room again, mirrored nowhere
   until its operator mirrors it.
 

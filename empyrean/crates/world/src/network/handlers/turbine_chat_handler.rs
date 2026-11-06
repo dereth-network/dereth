@@ -138,7 +138,7 @@ pub fn turbine_chat_received(
     message: &mut Payload<'_>,
     session: SessionId,
 ) -> HandlerResult {
-    if !get_bool(w, "use_turbine_chat") {
+    if !crate::federation::chat_rooms_in_use(w) {
         return Ok(());
     }
 
@@ -218,6 +218,14 @@ pub fn turbine_chat_received(
                     adjusted_chat_type = ChatType::Roleplay;
                 }
             }
+        }
+
+        // DIVERGE: V492, a world without the allegiance chat room (January 2004) carries no line in it.
+        if !w.era.features.allegiance_chat
+            && (adjusted_channel_id > turbine_chat_channel::OLTHOI
+                || adjusted_channel_id == turbine_chat_channel::ALLEGIANCE)
+        {
+            return Ok(());
         }
 
         if channel_id != adjusted_channel_id {

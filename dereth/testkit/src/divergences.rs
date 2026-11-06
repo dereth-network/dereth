@@ -469,6 +469,18 @@ pub static DIVERGENCES: &[Divergence] = &[
               and nothing opens without the player saying so.",
     },
     Divergence {
+        id: "CD-era-action-availability",
+        title: "Commands follow the world's era",
+        change: "Commands for systems the world announces it lacks (the Marketplace and PK arena recalls, PK Lite, @die, housing, @corpse, corpse permits, @log, the later allegiance commands) are refused locally, and help leaves them out. Where @lifestone is no recall, as at launch, it asks whether to kill the character, sends only on a Yes, and its help says so. A world without spell tabs keeps one bar of favorites. Navigation only offers the recalls the world has.",
+        why: "A client that visits different eras should offer actions the current world supports and explain unavailable commands without sending them.",
+    },
+    Divergence {
+        id: "CD-era-endurance-information",
+        title: "Endurance information follows the world's era",
+        change: "A world announced without the Endurance benefits, as at launch, shows no attribute-derived bonuses on the character sheet, and the Endurance command reports that it is unavailable.",
+        why: "A client visiting Launch worlds should not advertise stamina, regeneration or resistance benefits absent from those worlds.",
+    },
+    Divergence {
         id: "CD-network-channel-lines",
         title: "Dereth Network channel lines are drawn as channel lines",
         change: "A Dereth Network channel reaches every client as a tell from the channel, since \

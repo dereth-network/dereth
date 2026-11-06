@@ -71,6 +71,21 @@ pub fn menu_focuses(is_olthoi: bool) -> Vec<u32> {
     out
 }
 
+/// Whether a destination is one of the game's own chat rooms.
+fn is_room_focus(focus: u32) -> bool {
+    use dereth_client_model::chat::TalkFocus as F;
+    [
+        F::General,
+        F::Trade,
+        F::Lfg,
+        F::Roleplay,
+        F::Society,
+        F::Olthoi,
+    ]
+    .iter()
+    .any(|f| *f as u32 == focus)
+}
+
 /// Whether destination `focus` can be picked now.
 #[must_use]
 pub fn focus_usable(
@@ -1385,6 +1400,7 @@ impl ChatLog {
     /// docks it (not the main tab's, which stays docked), over its window's filter groups in columns of check boxes: two, or three when
     /// two would not fit above `at`. It opens above `at`, its left edge on `at`'s, or below it
     /// where there is no room above. The menu's rect, and whether the button was pressed.
+    #[allow(clippy::too_many_arguments)]
     fn filter_menu(
         &mut self,
         p: &mut Painter<'_>,
@@ -1392,6 +1408,7 @@ impl ChatLog {
         w: &ChatWindow,
         slot: usize,
         at: Rect,
+        era: Option<dereth_primitives::EraFeatures>,
         out: &mut Outcome,
     ) -> (Rect, bool) {
         let k = p.scale;
@@ -1399,7 +1416,7 @@ impl ChatLog {
         let text = TextStyle::new(Family::Body, 12.0, 0xFFFF_FFFF).edge(0xFF00_0000);
         let heading =
             TextStyle::new(Family::Heading, 18.4, ctx.colours.heading()).edge(ctx.colours.edge());
-        let groups = filter_groups(w.id);
+        let groups = filter_groups(w.id, era.as_ref());
         let (left, top, right, bottom) = kit::panel_inset(p);
         let row = 24.0 * k;
         let title_h = kit::TITLE_BAR * k;
@@ -1510,7 +1527,14 @@ impl ChatLog {
         let mut chosen = false;
         let area = match menu {
             Menu::Focus => {
-                let focuses = menu_focuses(state.chat_focus.is_olthoi);
+                let rooms = state.era.is_none_or(|e| e.global_chat_rooms);
+                let mut focuses = menu_focuses(state.chat_focus.is_olthoi);
+                // A world without the game's own rooms lists only one the server named.
+                focuses.retain(|f| {
+                    rooms
+                        || !is_room_focus(*f)
+                        || state.chat_focus.enabled.get(*f as usize).copied() == Some(true)
+                });
                 #[allow(clippy::cast_precision_loss)]
                 let area = Rect::new(
                     r.x + 4.0 * k,
@@ -1563,7 +1587,7 @@ impl ChatLog {
                 } else {
                     at
                 };
-                let (area, pressed) = self.filter_menu(p, ctx, w, slot, at, out);
+                let (area, pressed) = self.filter_menu(p, ctx, w, slot, at, state.era, out);
                 chosen = pressed;
                 area
             }
@@ -1684,10 +1708,14 @@ pub const FOCUS_WORDS: [&str; 14] = [
 /// The filter groups the options offer for window `id`, as the shared options sheet lists them
 /// for this interface: caption and mask.
 #[must_use]
-pub fn filter_groups(id: u32) -> Vec<(&'static str, u64)> {
+pub fn filter_groups(
+    id: u32,
+    features: Option<&dereth_primitives::EraFeatures>,
+) -> Vec<(&'static str, u64)> {
     use dereth_client_contract::options::interface::Interface;
     use dereth_client_contract::options::sheet::{rows_for, PageId, Value};
     rows_for(PageId::Chat, Interface::Horizon)
+        .filter(|r| r.needs.met(features))
         .filter_map(|r| match r.value {
             Value::Filter { window, mask } if window == id => Some((r.caption, mask)),
             _ => None,
@@ -1809,9 +1837,9 @@ mod tests {
 
     #[test]
     fn the_main_window_offers_twelve_filter_groups_and_a_floating_one_thirteen() {
-        assert_eq!(filter_groups(window::MAIN).len(), 12);
-        assert_eq!(filter_groups(window::FLOATY_2).len(), 13);
-        assert_eq!(filter_groups(window::FLOATY_2)[0].0, "Gameplay");
+        assert_eq!(filter_groups(window::MAIN, None).len(), 12);
+        assert_eq!(filter_groups(window::FLOATY_2, None).len(), 13);
+        assert_eq!(filter_groups(window::FLOATY_2, None)[0].0, "Gameplay");
     }
 
     #[test]

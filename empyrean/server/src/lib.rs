@@ -3,11 +3,10 @@
 //!
 //! **Depends on** the server crates it starts: `empyrean-common`, `empyrean-entity`,
 //! `empyrean-content`, `empyrean-store`, `empyrean-dat`, `empyrean-net`, `empyrean-world` and
-//! `empyrean-command`, the shared `dereth-dat` for its search of the dat folder, and the shared
-//! `dereth-transport` for the WebSocket frame, and the Dereth Network's protocol
+//! `empyrean-command`, the shared `dereth-dat` for its search of the dat folder, and the game
+//! servers' `dereth-server-websocket` for the WebSocket endpoint, and the Dereth Network's protocol
 //! (`dereth-network-protocol`) and a world's end of its link (`dereth-network-link`) for its link
-//! to the hub; the updater adds an HTTP client (`ureq`, over rustls) and the archive readers
-//! (`zip`, `flate2`). **Used by** nothing: it is the `empyrean-server`
+//! to the hub; the updater is the shared `dereth-server-update`. **Used by** nothing: it is the `empyrean-server`
 //! binary, and this library half holds what the binary uses that its integration tests also reach.
 //!
 //! **Must never** be configured by anything but its configuration file and command line: no
@@ -26,6 +25,7 @@
 pub mod admin_channel;
 pub mod config_file;
 pub mod dat_directory;
+pub mod dat_identity;
 pub mod database_manager;
 pub mod federation_link;
 pub mod guid_manager_boot;

@@ -200,6 +200,27 @@ fn standing_turns_at_the_still_rate() {
     assert!((b.turn_rate - 90.0).abs() < 1e-3);
 }
 
+/// A jump stops the behaviors a move cancels: leaving the ground is a move. A jump the body may
+/// not make stops nothing.
+///
+/// Behaviour: motion.jump.a-jump-stops-the-behaviors-a-move-cancels
+#[test]
+fn a_jump_stops_the_behaviors_a_move_cancels() {
+    let stops =
+        auberean_physics::body::Notice::Animate(auberean_physics::body::Animate::StopMoveToCancels);
+    let land = world();
+    let mut b = body();
+    for _ in 0..5 {
+        b.tick(&land, dt());
+    }
+    b.notices.clear();
+    assert!(b.jump());
+    assert!(b.notices.contains(&stops));
+    b.notices.clear();
+    assert!(!b.jump(), "already off the ground");
+    assert!(!b.notices.contains(&stops));
+}
+
 /// A jump leaves the ground at 6.26 m/s and follows `6.26 t - 4.9 t^2` at each tick until it lands
 /// back on the ground; the body cannot jump again until it has stood half a second.
 ///
@@ -336,6 +357,37 @@ fn a_body_is_drawn_between_its_last_two_ticks() {
     b.place(there, 90.0);
     let (p, h) = b.drawn(0.3);
     assert!(p.frame.origin.sub(there.frame.origin).mag2() < 1e-8 && (h - 90.0).abs() < 1e-4);
+}
+
+/// A body drawn between ticks keeps its frame's whole rotation: one pitched along its path, as a
+/// missile is, stays pitched rather than being stood level at its heading.
+///
+/// Behaviour: motion.draw.a-body-drawn-between-ticks-keeps-its-whole-rotation
+#[test]
+fn a_body_drawn_between_ticks_keeps_its_whole_rotation() {
+    let land = world();
+    let mut b = body();
+    for _ in 0..5 {
+        b.steer(MotionInput {
+            forward: 1.0,
+            ..MotionInput::default()
+        });
+        b.tick(&land, dt());
+    }
+    let (s, c) = (
+        dereth_primitives::num::math::sinf(0.2),
+        dereth_primitives::num::math::cosf(0.2),
+    );
+    // Pitched about its right axis.
+    let pitched = Quat::new(c, s, 0.0, 0.0);
+    b.previous.0.frame.rotation = pitched;
+    b.position.frame.rotation = pitched;
+    assert!(b.is_movement_active(), "it is moving");
+    let (at, _) = b.drawn(0.5);
+    let q = at.frame.rotation;
+    let same =
+        (q.w - c).abs() < 1e-4 && (q.x - s).abs() < 1e-4 && q.y.abs() < 1e-4 && q.z.abs() < 1e-4;
+    assert!(same, "still pitched: {q:?}");
 }
 
 /// A body that follows another asks it to be watched; the one followed tells it at once where it
@@ -498,12 +550,22 @@ fn a_teleport_tells_watchers_and_a_newer_leave_world_takes_a_body_out() {
     let mut other = body();
     other.is_player = false;
     other.tick_in(&land, &mut w, 0.1);
+    let held_at = other.position;
+    other.minterp.constrain_to(0x21, false, held_at);
+    let mut far = held_at;
+    far.frame.origin.x += 100.0;
+    assert_eq!(other.minterp.constraint_factor(&far), 0.0, "tethered");
     assert!(other.is_newer_than_update(0, 5));
     assert!(!other.receive_leave_world(&land, &mut w, &mut NoObjects, None, 4));
     assert!(other.in_world, "an older stamp does nothing");
     assert!(other.receive_leave_world(&land, &mut w, &mut NoObjects, None, 6));
     assert!(!other.in_world);
     assert!(other.notices.contains(&Notice::LeftWorld));
+    assert_eq!(
+        other.minterp.constraint_factor(&far),
+        1.0,
+        "leaving the world lets go of its tether"
+    );
 }
 
 mod holding {

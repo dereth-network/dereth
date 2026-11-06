@@ -250,8 +250,38 @@ pub fn transport_messages() -> empyrean_net::TransportMessages {
 
 /// `session.Network.EnqueueSend(params GameMessage[] messages)` with one message: hands the
 /// message's group and bytes to the session's transport, in call order.
-pub fn enqueue_send(w: &mut World, session: SessionId, msg: GameMessage) {
+pub fn enqueue_send(w: &mut World, session: SessionId, mut msg: GameMessage) {
+    if !effect_in_world_files(w.dats.portal_dat().container_era(), &mut msg) {
+        return;
+    }
     send_bytes(w, session, msg.group, msg.data);
+}
+
+/// DIVERGE: V497. A physics script or sound message names the row in the world's own files, which
+/// is not the number the server works in on older files; the client looks up what it receives as
+/// sent. False when those files have no such row, which leaves nothing to send. Both messages hold
+/// the number after their opcode and the object.
+fn effect_in_world_files(era: dereth_primitives::ContainerEra, msg: &mut GameMessage) -> bool {
+    use dereth_world_data::effect_numbering::{script_in_files, sound_in_files};
+    const NUMBER: std::ops::Range<usize> = 8..12;
+    let in_files: fn(dereth_primitives::ContainerEra, u32) -> Option<u32> = match msg.opcode {
+        GameMessageOpcode::PlayEffect => script_in_files,
+        GameMessageOpcode::Sound => |era, n| Some(sound_in_files(era, n)),
+        _ => return true,
+    };
+    let Some(number) = msg
+        .data
+        .get(NUMBER)
+        .and_then(|b| b.try_into().ok())
+        .map(u32::from_le_bytes)
+    else {
+        return true;
+    };
+    let Some(number) = in_files(era, number) else {
+        return false;
+    };
+    msg.data[NUMBER].copy_from_slice(&number.to_le_bytes());
+    true
 }
 
 /// `session.Network.EnqueueSend(params GameMessage[])` and the `IEnumerable<GameMessage>`
