@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 
 - Better Lighting: torches, portals and other glowing effects add what the ordinary look adds, so they no longer blow out to a hard-edged panel or all but vanish over a lit wall, and a flame's glow in a dungeon no longer washes the wall behind it pale.
+
 ## 0.4.14 (2026-11-05)
 
 ## 0.4.13 (2026-11-05)
