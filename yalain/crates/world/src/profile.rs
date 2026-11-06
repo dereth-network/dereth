@@ -665,6 +665,82 @@ pub fn npc(asked: u32, name: TextInfo, f: &Facts) -> Profile {
     p
 }
 
+/// What a corpse's examination says.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CorpseView {
+    pub name: TextInfo,
+    pub killed_by: TextInfo,
+    pub butchered_by: Option<String>,
+    pub first_looted_by: Option<String>,
+    /// May the one examining it loot it?
+    pub may_loot: bool,
+    /// How many items it holds, once that is known: when it has been opened, or holds none.
+    pub holds: Option<u32>,
+}
+
+/// A corpse's profile (recorded: 13,255 of 13,264 examinations exactly so).
+#[must_use]
+pub fn corpse(asked: u32, v: &CorpseView) -> Profile {
+    let by = |line: u32, name: TextInfo| {
+        with_vars(line::TABLE, line, vec![nested(corpse_line::NAMED, name)])
+    };
+    let mut p = Profile::new(asked);
+    p.text(GENERAL, look::VALUE, v.name.clone());
+    p.brk(GENERAL);
+    p.brk(GENERAL);
+    p.text(
+        GENERAL,
+        look::LABEL,
+        with_vars(
+            line::TABLE,
+            corpse_line::KILLED_BY,
+            vec![nested(corpse_line::KILLER, v.killed_by.clone())],
+        ),
+    );
+    p.brk(GENERAL);
+    for (line, name) in [
+        (corpse_line::BUTCHERED_BY, &v.butchered_by),
+        (corpse_line::FIRST_LOOTED_BY, &v.first_looted_by),
+    ] {
+        if let Some(name) = name {
+            p.text(GENERAL, look::LABEL, by(line, literal(name)));
+            p.brk(GENERAL);
+        }
+    }
+    let right = if v.may_loot {
+        corpse_line::YOU_CAN_LOOT
+    } else {
+        corpse_line::YOU_CANNOT_LOOT
+    };
+    p.text(GENERAL, look::LABEL, string(line::TABLE, right));
+    p.brk(GENERAL);
+    let holds = match v.holds {
+        Some(n) => with_vars(
+            line::TABLE,
+            corpse_line::CONTAINS,
+            vec![number(corpse_line::HOW_MANY, n)],
+        ),
+        None => string(line::TABLE, corpse_line::CONTENTS_UNKNOWN),
+    };
+    p.text(GENERAL, look::LABEL, holds);
+    p.brk(GENERAL);
+    p
+}
+
+/// The strings of a corpse's profile, in the general strings' table, and their variables.
+pub mod corpse_line {
+    pub const KILLED_BY: u32 = 0x32A6_B06F;
+    pub const KILLER: u32 = 0x23A6_64C8;
+    pub const BUTCHERED_BY: u32 = 0x4167_081E;
+    pub const FIRST_LOOTED_BY: u32 = 0x0539_8B05;
+    pub const NAMED: u32 = 0x15B2_0D98;
+    pub const YOU_CAN_LOOT: u32 = 0x9750_666D;
+    pub const YOU_CANNOT_LOOT: u32 = 0x3AE8_BD92;
+    pub const CONTENTS_UNKNOWN: u32 = 0x4C5A_2B82;
+    pub const CONTAINS: u32 = 0x40DA_243B;
+    pub const HOW_MANY: u32 = 0x073E_ACEA;
+}
+
 /// What the requirements tab says of an object for monarchs alone.
 pub fn monarch_lines(p: &mut Profile) {
     p.brk(REQUIREMENTS);

@@ -140,6 +140,10 @@ pub struct Corpse {
     pub unlocks: f64,
     /// The name of whoever first opened it, as the world writes it. Opening it ends the rights.
     pub first_looted_by: Option<String>,
+    /// The name of whoever butchered it, as the world writes it.
+    pub butchered_by: Option<String>,
+    /// What its examination says killed it.
+    pub killed_by: Option<auberean_script::native_object::TextInfo>,
 }
 
 /// A resource node's state: who summoned it, what it yields, how often it has been mined, when

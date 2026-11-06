@@ -21,6 +21,7 @@ what they see, not how it was done.
 - Transmutation Master now pays its extra gold.
 - Corpses are locked to the killer and their fellows until first opened or for two minutes.
 - Fellowships' looting methods now work.
+- Examining a corpse says who may loot it and who first did.
 
 ## 0.2.1 (2026-11-05)
 - Fixed sold consignments still showing as in stock.

@@ -351,8 +351,10 @@ pub fn done<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, w: 
         progress::private(net, world, &m);
         return;
     }
+    let butcher = crate::social::name_of(s, world);
     if let Some(c) = s.things.get_mut(w.corpse).and_then(|t| t.corpse.as_mut()) {
         c.butchered = true;
+        c.butchered_by = Some(butcher);
     }
     let expert = s.rng.chance(expert_chance(i64::from(record.level) - level));
     let own = s

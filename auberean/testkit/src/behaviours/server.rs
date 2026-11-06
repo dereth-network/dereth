@@ -5683,6 +5683,34 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.an-empty-corpse-says-so",
+        says: "A corpse with nothing in it says so at once, whoever is looking and even if it may \
+               not be looted.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-EMPTY-PAGE"),
+        station: "yalain-testkit::cpu::play::corpse_rights::an_empty_corpses_examination_says_it_holds_nothing_before_it_is_opened",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.an-examination-as-2017",
+        says: "Every recorded examination of a corpse is, byte for byte, what this server builds \
+               from who killed it, who butchered and first opened it, whether the one asking may \
+               loot it, and how much it is known to hold.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-PAGE-BYTES"),
+        station: "yalain-testkit::corpus::examine::corpse_profiles_are_built_as_2017_built_them",
+        tier: Tier::Corpus,
+    },
+    behaviour! {
+        id: "server.loot.an-examination-says-who-may-loot",
+        says: "A corpse's examination says who killed it and whether the one examining it may loot \
+               it; what it holds is unknown until it is opened, when it also says who first did.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-PAGE-SAYS"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_corpses_examination_says_who_may_loot_it_and_who_first_did",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.asked-again-at-the-corpse",
         says: "A right to a corpse is asked again on arriving at it: one lost on the walk is \
                refused.",

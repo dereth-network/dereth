@@ -670,3 +670,89 @@ fn a_corpse_given_to_a_fellow_who_left_is_freed_by_the_time() {
     h.run(1);
     assert!(use_corpse(&mut h, not, corpse).0);
 }
+
+/// Which of a corpse's profile's lines an examination says.
+fn page(h: &mut Harness, who: (usize, u64), corpse: u64) -> Vec<u8> {
+    use yalain_world::profile;
+    let from = h.bots[who.0].inbox.len();
+    let mut bytes = profile::request::OBJECT.to_le_bytes().to_vec();
+    bytes.extend(0u32.to_le_bytes());
+    bytes.extend(corpse.to_le_bytes());
+    bytes.extend(0x3FFu32.to_le_bytes());
+    let mut g = Builder::new();
+    g.native(
+        profile::REQUEST_TYPE,
+        auberean_script::native_object::NativeObject::Packed {
+            ty: u32::from(profile::REQUEST_TYPE),
+            bytes,
+        },
+    );
+    h.bots[who.0].send(
+        true,
+        queue::WEENIE,
+        &server_call(
+            yalain_world::requests::function::EXAMINE,
+            &[Arg::Object(g.graph())],
+        ),
+    );
+    h.run(5);
+    h.world_messages(who.0, from)
+        .into_iter()
+        .find_map(|m| match m {
+            ServerMessage::PlayerCall(c) if c.function.0 == profile::EXAMINATION_PROFILE => {
+                Some(c.args?.0)
+            }
+            _ => None,
+        })
+        .expect("the profile")
+}
+
+fn says(page: &[u8], id: u32) -> bool {
+    page.windows(4).any(|w| w == id.to_le_bytes())
+}
+
+/// A corpse's examination says who killed it, and whether the one examining it may loot it; what
+/// it holds is unknown until it is opened, when it also says who first did.
+/// Behaviour: server.loot.an-examination-says-who-may-loot
+#[test]
+fn a_corpses_examination_says_who_may_loot_it_and_who_first_did() {
+    use yalain_world::profile::corpse_line as l;
+    let (mut h, a, b) = two();
+    let corpse = corpse_of_kill(&mut h, a.1);
+    let theirs = page(&mut h, b, corpse);
+    assert!(says(&theirs, l::KILLED_BY));
+    assert!(says(&theirs, l::YOU_CANNOT_LOOT) && !says(&theirs, l::YOU_CAN_LOOT));
+    assert!(says(&theirs, l::CONTENTS_UNKNOWN) && !says(&theirs, l::CONTAINS));
+    assert!(!says(&theirs, l::FIRST_LOOTED_BY));
+    let own = page(&mut h, a, corpse);
+    assert!(says(&own, l::YOU_CAN_LOOT) && !says(&own, l::YOU_CANNOT_LOOT));
+    assert!(use_corpse(&mut h, a, corpse).0);
+    let theirs = page(&mut h, b, corpse);
+    assert!(says(&theirs, l::YOU_CAN_LOOT), "freed");
+    assert!(says(&theirs, l::FIRST_LOOTED_BY));
+    assert!(says(&theirs, l::CONTAINS) && !says(&theirs, l::CONTENTS_UNKNOWN));
+}
+
+/// A corpse with nothing in it says so at once, whoever is looking and even if it may not be looted.
+/// Behaviour: server.loot.an-empty-corpse-says-so
+#[test]
+fn an_empty_corpses_examination_says_it_holds_nothing_before_it_is_opened() {
+    use yalain_world::profile::corpse_line as l;
+    let (mut h, a, b) = two();
+    let corpse = corpse_of_kill(&mut h, a.1);
+    for item in contents(&h, corpse) {
+        h.server.things.remove(item);
+    }
+    if let Some(c) = h
+        .server
+        .things
+        .get_mut(corpse)
+        .and_then(|t| t.corpse.as_mut())
+    {
+        c.contents.clear();
+    }
+    let theirs = page(&mut h, b, corpse);
+    assert!(says(&theirs, l::YOU_CANNOT_LOOT));
+    assert!(says(&theirs, l::CONTAINS) && !says(&theirs, l::CONTENTS_UNKNOWN));
+    assert!(!says(&theirs, l::FIRST_LOOTED_BY));
+}

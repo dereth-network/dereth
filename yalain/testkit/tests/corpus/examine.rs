@@ -1760,3 +1760,107 @@ fn icon_in(bytes: &[u8], request_len: usize) -> Option<Vec<[u32; 3]>> {
     }
     None
 }
+
+/// A recorded corpse's profile, read: its text lines.
+fn text_lines(bytes: &[u8], request_len: usize) -> Option<Vec<TextInfo>> {
+    let mut r = In::new(bytes.get(request_len..)?);
+    let n = r.u32().ok()?;
+    let mut out = Vec::new();
+    for _ in 0..n {
+        let ty = r.u32().ok()?;
+        r.u32().ok()?;
+        match ty {
+            0x4000_0004 => {
+                r.u32().ok()?;
+                out.push(TextInfo::unpack(&mut r).ok()?);
+            }
+            0x4000_0006 => {}
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
+fn literal_of(v: &auberean_script::native_object::Variable) -> Option<String> {
+    let VariableValue::Nested(t) = &v.value else {
+        return None;
+    };
+    t.literal.as_ref().map(|l| String::from_utf16_lossy(l))
+}
+
+/// Every recorded examination of a corpse is, byte for byte, what this server builds from who
+/// killed it, who butchered and first opened it, whether the one asking may loot it, and how much
+/// it is known to hold.
+/// Behaviour: server.loot.an-examination-as-2017
+#[test]
+fn corpse_profiles_are_built_as_2017_built_them() {
+    use profile::corpse_line as l;
+    use profile::line;
+    let path = auberean_testkit::data::require_capture_index();
+    let con = open(&path);
+    let mut st = con
+        .prepare("SELECT raw FROM message WHERE status = 'ac2' AND dir = 's2c' AND mtype = 65638")
+        .expect("prepares");
+    let mut rows = st.query([]).expect("runs");
+    let (mut seen, mut exact) = (0, 0);
+    while let Some(row) = rows.next().expect("a row") {
+        let raw: Vec<u8> = row.get(0).expect("raw");
+        let Ok(ServerMessage::PlayerCall(c)) = ServerMessage::decode(&raw) else {
+            continue;
+        };
+        if c.function.0 != profile::EXAMINATION_PROFILE {
+            continue;
+        }
+        let v = calls::values(&c.args.map(|a| a.0).unwrap_or_default()).unwrap_or_default();
+        let Some(Node::Native { bytes, .. }) = v.first().and_then(Value::root) else {
+            continue;
+        };
+        let Some(lines) = text_lines(bytes, 20) else {
+            continue;
+        };
+        let has = |id: u32| {
+            lines
+                .iter()
+                .find(|t| t.string_id == id && t.table == line::TABLE)
+        };
+        let may_loot = has(l::YOU_CAN_LOOT).is_some();
+        if !may_loot && has(l::YOU_CANNOT_LOOT).is_none() {
+            continue;
+        }
+        seen += 1;
+        let name_in = |id: u32, var: u32| -> Option<String> {
+            has(id)?
+                .variables
+                .iter()
+                .find(|v| v.id == var)
+                .and_then(literal_of)
+        };
+        let killed_by = has(l::KILLED_BY)
+            .and_then(|t| t.variables.iter().find(|v| v.id == l::KILLER))
+            .and_then(|v| match &v.value {
+                VariableValue::Nested(t) => Some((**t).clone()),
+                _ => None,
+            });
+        let holds = has(l::CONTAINS).and_then(|t| {
+            t.variables.iter().find_map(|v| match (v.id, &v.value) {
+                (l::HOW_MANY, VariableValue::Word(n)) => Some(*n),
+                _ => None,
+            })
+        });
+        let view = profile::CorpseView {
+            name: lines[0].clone(),
+            killed_by: killed_by.unwrap_or_default(),
+            butchered_by: name_in(l::BUTCHERED_BY, l::NAMED),
+            first_looted_by: name_in(l::FIRST_LOOTED_BY, l::NAMED),
+            may_loot,
+            holds,
+        };
+        let req = profile::read_request(bytes);
+        if profile::corpse(req.asked, &view).packed(&bytes[..20]) == bytes[..] {
+            exact += 1;
+        }
+    }
+    println!("{exact} of {seen} recorded corpse examinations as this server builds them");
+    assert!(seen >= 13_000, "the recordings hold them: {seen}");
+    assert!(exact * 1000 >= seen * 995, "{exact} of {seen}");
+}

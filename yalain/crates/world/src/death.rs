@@ -648,6 +648,7 @@ pub fn corpse_appears<S: Store>(
         killer_level,
         claimant,
         unlocks: clock.local.0 + LOOT_LOCK - CORPSE_AFTER,
+        killed_by: Some(killer_name(s, Some(killer))),
         ..Corpse::default()
     });
     corpse.named = Some(corpse_name(dead.facts.name));
@@ -751,6 +752,24 @@ pub fn corpse_settles(
         value: name,
     }));
     out
+}
+
+/// A name as its examination shows it, from the string reference the world tells clients.
+#[must_use]
+pub fn shown_name(i: &StringInfo) -> TextInfo {
+    let mut t = TextInfo {
+        string_id: i.string_id,
+        table: i.table_id,
+        has_literal: i.has_literal,
+        literal: i.literal.as_ref().map(|l| l.0.clone()),
+        ..TextInfo::default()
+    };
+    for v in &i.variables {
+        if let VariableValue::Nested(n) = &v.value {
+            t.set_variable(progress::nested(v.id, shown_name(n)));
+        }
+    }
+    t
 }
 
 /// A corpse's block (see [`corpse_settles`]), from the corpse as the world keeps it; nothing for a
@@ -1191,6 +1210,7 @@ pub fn player_corpse<S: Store>(
         creature: 0,
         butchered: false,
         killer_level: 0,
+        killed_by: Some(killer_name(s, d.killer)),
         ..Corpse::default()
     });
     // Drawn as the player, "Corpse of" the character's name as the world shows it.

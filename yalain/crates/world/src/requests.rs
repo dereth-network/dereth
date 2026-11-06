@@ -553,6 +553,25 @@ fn profile_bytes<S: Store>(
                 profile::item(req.asked, &v)
             }
             crate::things::Kind::Plant => crate::plants::profile(s, req.asked, t, now),
+            crate::things::Kind::Corpse if t.corpse.is_some() => {
+                let c = t.corpse.as_ref()?;
+                let empty = c.contents.is_empty();
+                profile::corpse(
+                    req.asked,
+                    &profile::CorpseView {
+                        name: t
+                            .named
+                            .as_ref()
+                            .map_or_else(|| profile::item_name(&t.facts), crate::death::shown_name),
+                        killed_by: c.killed_by.clone().unwrap_or_else(|| profile::literal("")),
+                        butchered_by: c.butchered_by.clone(),
+                        first_looted_by: c.first_looted_by.clone(),
+                        may_loot: crate::death::may_loot(s, me.character, req.object, now),
+                        holds: (empty || c.first_looted_by.is_some())
+                            .then(|| u32::try_from(c.contents.len()).unwrap_or(0)),
+                    },
+                )
+            }
             crate::things::Kind::Corpse
             | crate::things::Kind::Node
             | crate::things::Kind::Portal => {
