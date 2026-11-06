@@ -15,6 +15,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 ## Unreleased
 
 - macOS: the window can be dragged to any size, and it opens at the size it last closed at.
+
 ## 0.4.14 (2026-11-05)
 
 ## 0.4.13 (2026-11-05)
