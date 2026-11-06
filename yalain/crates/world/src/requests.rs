@@ -104,7 +104,9 @@ pub fn call<S: Store>(
         crate::market::function::SELL => crate::market::sell(s, net, world, &values, clock),
         crate::market::function::COLLECT => crate::market::collect(s, net, world, &values),
         // Leaving a catalog or the consignments is not answered.
-        crate::market::function::LEAVE_CATALOG | crate::market::function::LEAVE_CONSIGNMENT => {}
+        crate::market::function::LEAVE_CATALOG | crate::market::function::LEAVE_CONSIGNMENT => {
+            crate::market::left_consignments(s, world);
+        }
         crate::follow::FOLLOW => crate::follow::start(s, net, world, &values),
         crate::mounts::DISMOUNT => crate::mounts::dismount(s, net, world),
         crate::personal::function::SET_ALIAS => crate::personal::set_alias(s, world, &values),

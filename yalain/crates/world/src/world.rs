@@ -132,6 +132,8 @@ pub struct Player {
     pub play: crate::state::PlayState,
     /// The store it is in: the storekeeper, the store, the first sale of the page shown.
     pub shopping: Option<(u64, u32, u32)>,
+    /// The broker whose consignments page it has open.
+    pub at_consignments: Option<u64>,
     /// The rows of market pages its connection may yet have ([`crate::market`]).
     pub page_rows: Option<crate::call_limit::Bucket>,
     /// Its attack run, while it attacks.
@@ -500,6 +502,7 @@ pub fn enter<S: Store>(
         places: st.places.clone(),
         play,
         shopping: None,
+        at_consignments: None,
         page_rows: None,
         attacking: None,
         dying: None,

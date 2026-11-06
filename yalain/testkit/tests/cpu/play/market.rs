@@ -1534,3 +1534,126 @@ fn taking_back_what_is_left_of_a_sale_keeps_the_price_of_what_sold() {
     assert_eq!(last_money(&h, a, from), Some(1_010), "one sold at 10");
     assert!(h.server.market.list.is_empty());
 }
+
+/// The words of each object of a package in what a player was sent by a function since `from`.
+fn sent_rows(h: &Harness, b: usize, from: usize, f: u32, package: u16) -> Vec<Vec<u32>> {
+    use yalain_world::calls::{Node, Value};
+    let mut rows = Vec::new();
+    for (_, values) in h.calls(b, from).into_iter().filter(|(x, _)| *x == f) {
+        for v in &values {
+            let Value::Graph(g) = v else { continue };
+            for (_, n) in g {
+                if let Node::Script { package: p, slots } = n {
+                    if *p == package {
+                        rows.push(slots.iter().map(|(_, word)| *word).collect());
+                    }
+                }
+            }
+        }
+    }
+    rows
+}
+
+/// The catalog a broker shows a player, as it was sent.
+fn catalog_sent(h: &mut Harness, b: usize, id: u64) -> Vec<yalain_world::calls::Value> {
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        yalain_world::requests::function::USE,
+        &[use_of(BROKER, id)],
+        10,
+    );
+    h.calls(b, from)
+        .into_iter()
+        .find(|(f, _)| *f == function::ENTER_CATALOG)
+        .expect("the catalog")
+        .1
+}
+
+/// A seller with the consignments page open at the broker sees a sale as it is bought, by its page
+/// and its reminder sent whole; with the page left, its reminder alone.
+/// Behaviour: server.market.a-seller-at-its-broker-sees-a-sale
+#[test]
+fn a_seller_on_its_consignments_page_sees_a_sale_as_it_is_bought() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    money(&mut h, ida, 1_000);
+    money(&mut h, idb, 5_000);
+    let sword = put_up_a_made_item(&mut h, a, ida);
+    h.ask(a, function::ENTER_CONSIGNMENT, &[Arg::LongInt(BROKER)], 10);
+    let from = h.bots[a].inbox.len();
+    buy(&mut h, b, idb, sword);
+    let c = yalain_world::market::CONSIGNMENT.0;
+    let page = sent_rows(&h, a, from, function::UPDATE_CONSIGNMENT, c);
+    assert_eq!(page.len(), 1, "the page sent again");
+    assert_eq!((page[0][4], page[0][5]), (0, 1), "none left, one sold");
+    let reminder = sent_rows(&h, a, from, function::SALE_REMINDERS, c);
+    assert_eq!(reminder.len(), 1, "the reminder sent whole");
+    assert_eq!((reminder[0][4], reminder[0][5]), (0, 1));
+    // The page left: the word alone.
+    h.ask(a, function::LEAVE_CONSIGNMENT, &[Arg::LongInt(BROKER)], 10);
+    let again = yalain_world::inventory::make_item(&mut h.server, GEM, 1, 7).expect("made");
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == ida)
+        .expect("in the world");
+    p.play.items.push(yalain_world::state::Held {
+        id: again,
+        template: GEM,
+        slot: 9,
+        location: 0,
+        quantity: 1,
+    });
+    h.ask(
+        a,
+        function::SELL,
+        &[
+            Arg::Int(STORE),
+            Arg::Int(100),
+            Arg::Int(1),
+            Arg::LongInt(again),
+            Arg::LongInt(BROKER),
+        ],
+        10,
+    );
+    let from = h.bots[a].inbox.len();
+    buy(&mut h, b, idb, again);
+    let f = h.functions(a, from);
+    assert!(f.contains(&function::UPDATE_SALE_REMINDERS));
+    assert!(!f.contains(&function::UPDATE_CONSIGNMENT));
+    assert!(!f.contains(&function::SALE_REMINDERS));
+}
+
+/// A seller in its broker's catalog, its page not open, has its reminder sent whole; walking off ends
+/// that, and ends its page.
+/// Behaviour: server.market.a-seller-at-its-broker-sees-a-sale
+#[test]
+fn a_seller_in_its_brokers_catalog_has_its_reminder_sent_whole() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    money(&mut h, ida, 1_000);
+    money(&mut h, idb, 5_000);
+    let sword = put_up_a_made_item(&mut h, a, ida);
+    catalog_sent(&mut h, a, ida);
+    let from = h.bots[a].inbox.len();
+    buy(&mut h, b, idb, sword);
+    let f = h.functions(a, from);
+    assert!(f.contains(&function::SALE_REMINDERS));
+    assert!(!f.contains(&function::UPDATE_CONSIGNMENT));
+    h.ask(a, function::ENTER_CONSIGNMENT, &[Arg::LongInt(BROKER)], 10);
+    let w = world_of(&h, ida);
+    assert_eq!(h.server.players[&w].at_consignments, Some(BROKER));
+    h.server.players.get_mut(&w).expect("in").position.cell = 0x0299_0101;
+    h.server.players.get_mut(&w).expect("in").position.origin = [1.0, 1.0, 0.0];
+    h.step_by(2.0);
+    h.run(2);
+    assert_eq!(h.server.players[&w].at_consignments, None);
+}

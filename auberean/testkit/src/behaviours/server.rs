@@ -5911,6 +5911,17 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.a-seller-at-its-broker-sees-a-sale",
+        says: "A sale bought while its seller is shopping at that broker reaches the seller by its \
+               reminder sent whole, and its consignments page sent again if open, as a client \
+               shopping there doesn't take the word it takes elsewhere. Our choice: no recording \
+               holds a sale bought from a seller at its broker.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-SELLER-AT-BROKER"),
+        station: "yalain-testkit::cpu::play::market::a_seller_on_its_consignments_page_sees_a_sale_as_it_is_bought",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.a-seller-is-told-of-a-sale",
         says: "A sale bought while its seller is in the world tells the seller which sale and how \
                many have sold, at that broker, and the buyer isn't told; the client's handler reads \

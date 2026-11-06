@@ -34,7 +34,10 @@
 //!
 //! **Buying a player's sale**: the price taken, the item moved from the broker into the buyer's
 //! pack, the sale's stock told as gone; the seller collects the price. A seller in the world is told
-//! of the sale, which its client marks on its reminder of that broker.
+//! of the sale, which its client marks on its reminder of that broker. A client shopping at that
+//! broker doesn't take that word, so it is sent the reminder whole, and the consignments page if it
+//! has it open.
+//!
 
 use std::collections::BTreeMap;
 
@@ -454,6 +457,9 @@ pub fn look<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
                 world,
                 &call(function::LEAVE_CATALOG_DONE, &[Arg::LongInt(keeper)]),
             );
+            if let Some(p) = s.players.get_mut(&world) {
+                p.at_consignments = None;
+            }
             continue;
         }
         if next <= clock.local.0 {
@@ -596,18 +602,54 @@ fn reminders<S: Store>(s: &Server<S>, owner: u64, keeper: u64, br: Broker) -> Se
     )
 }
 
-/// Tells a reminder its client holds of a consignment that this many of it have sold.
-fn reminder_of_a_sale(c: &Consignment) -> ServerMessage {
+/// Tells a reminder its client holds of these consignments at a broker how many of each have sold.
+fn reminder_of(changed: &[Consignment], keeper: u64) -> ServerMessage {
     let mut b = Builder::new();
     let list_id = b.next_id();
     b.native(REF_LIST, list(Elem::Ref, Vec::new()));
-    let desc = b.reserve(CONSIGNMENT_DESC.0);
-    b.fill(desc, &[Slot::Int(c.sale), Slot::Int(0), Slot::Int(c.sold)]);
-    b.replace_native(list_id, list(Elem::Ref, vec![Item::Ref(desc)]));
+    let mut refs = Vec::new();
+    for c in changed {
+        let desc = b.reserve(CONSIGNMENT_DESC.0);
+        b.fill(desc, &[Slot::Int(c.sale), Slot::Int(0), Slot::Int(c.sold)]);
+        refs.push(Item::Ref(desc));
+    }
+    b.replace_native(list_id, list(Elem::Ref, refs));
     call(
         function::UPDATE_SALE_REMINDERS,
-        &[Arg::Object(b.graph()), Arg::LongInt(c.keeper)],
+        &[Arg::Object(b.graph()), Arg::LongInt(keeper)],
     )
+}
+
+/// A seller in the world told what has become of these of its consignments at a broker. A client
+/// shopping at that broker doesn't take the word: it takes the reminder whole, and its page shows
+/// them only when sent again.
+fn tell_seller<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    seller: ConnId,
+    keeper: u64,
+    changed: &[Consignment],
+) {
+    let Some(p) = s.players.get(&seller) else {
+        return;
+    };
+    let me = p.character;
+    let on_page = p.at_consignments == Some(keeper);
+    progress::private(net, seller, &reminder_of(changed, keeper));
+    let shopping = s
+        .market
+        .shoppers
+        .iter()
+        .any(|(w, k, _)| *w == seller && *k == keeper);
+    if shopping || on_page {
+        if let Some(br) = broker_of(s, keeper) {
+            progress::private(net, seller, &reminders(s, me, keeper, br));
+        }
+    }
+    if on_page {
+        let m = consignment_message(s, function::UPDATE_CONSIGNMENT, me, keeper);
+        progress::private(net, seller, &m);
+    }
 }
 
 fn broker_of<S: Store>(s: &Server<S>, keeper: u64) -> Option<Broker> {
@@ -821,6 +863,16 @@ pub fn enter_consignment<S: Store>(
     progress::private(net, world, &reminders(s, me, keeper, br));
     let m = consignment_message(s, function::ENTER_CONSIGNMENT_DONE, me, keeper);
     progress::private(net, world, &m);
+    if let Some(p) = s.players.get_mut(&world) {
+        p.at_consignments = Some(keeper);
+    }
+}
+
+/// The client leaves the consignments page, or its catalog (not answered).
+pub fn left_consignments<S: Store>(s: &mut Server<S>, world: ConnId) {
+    if let Some(p) = s.players.get_mut(&world) {
+        p.at_consignments = None;
+    }
 }
 
 /// An item put up for sale: the charge taken, the item moved to the broker, the consignment shown.
@@ -1270,7 +1322,7 @@ pub fn purchase<S: Store>(
             sold: c.offered,
             ..c
         };
-        progress::private(net, seller, &reminder_of_a_sale(&sold));
+        tell_seller(s, net, seller, keeper, &[sold]);
     }
     keep(s);
     crate::world::keep_player(s, world);
