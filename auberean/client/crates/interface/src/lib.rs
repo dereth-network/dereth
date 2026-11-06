@@ -2159,6 +2159,10 @@ impl Interface for Retail {
                 let took = self.ui.type_text(t);
                 took || pregame
             }
+            Event::Composing(t) => {
+                self.ui.set_composition(t);
+                true
+            }
             Event::Key { key, down, .. } => {
                 // Shift, Ctrl and Alt as the interface reads them; Delete reaches the entry with the
                 // keyboard as the key it is.

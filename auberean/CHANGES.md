@@ -7,6 +7,7 @@ not how it was done.
 
 ## Unreleased
 - Screenshots are taken at full detail, far objects included.
+- With an input method on, the text being composed shows in the game.
 - Your own particles no longer show in first person; far flames stop with their objects.
 - Fixed other players staying on the ground when they jump.
 - Examining a recipe shows its time and difficulty lines again.

@@ -336,6 +336,7 @@ impl<'w, H: Host> Shell<'w, H> {
             }
             Event::Key { .. }
             | Event::Text(_)
+            | Event::Composing(_)
             | Event::Button { .. }
             | Event::Pointer { .. }
             | Event::Motion { .. }

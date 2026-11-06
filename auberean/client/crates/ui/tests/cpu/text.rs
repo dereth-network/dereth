@@ -39,6 +39,45 @@ fn typed(u: &Ui, h: auberean_ui::Handle) -> String {
     u.text(h).unwrap_or_default()
 }
 
+/// What the input method is composing shows at the caret and isn't the entry's text: what it writes
+/// is typed as any text, and when it gives up the picture is as it was. An entry that doesn't have
+/// the input method on shows none of it.
+///
+/// Behaviour: ui.text.the-input-methods-composition-shows-at-the-caret
+#[test]
+fn the_input_methods_composition_shows_at_the_caret() {
+    use auberean_ui::draw::{self, Surface};
+    let e = text("Entry", [0, 0, 99, 19], vec![("editable", V::Bool(true))]);
+    let mut u = ui(vec![e], vec![]);
+    let h = entry(&mut u);
+    let picture = |u: &Ui| {
+        let mut s = Surface::new(100, 20);
+        draw::draw(u, &mut s);
+        s
+    };
+    u.set_composition("ab");
+    let unfocused = picture(&u);
+    u.set_composition("");
+    assert!(picture(&u) == unfocused, "no entry has it on");
+
+    u.pointer_move(10, 10);
+    u.pointer_press();
+    u.pointer_release();
+    assert!(u.ime().is_some(), "the entry has it on");
+    assert!(u.type_text("x"));
+    let before = picture(&u);
+    u.set_composition("ab");
+    let composing = picture(&u);
+    assert!(composing != before, "drawn at the caret");
+    assert_eq!(typed(&u, h), "x", "not the entry's text");
+    u.set_composition("");
+    assert!(picture(&u) == before, "gone when it gives up");
+    u.set_composition("ab");
+    u.set_composition("");
+    assert!(u.type_text("ab"));
+    assert_eq!(typed(&u, h), "xab", "what it writes is typed");
+}
+
 /// An editable entry pressed takes the keyboard; typing goes in at the caret, no further than its
 /// greatest length; Left and Home move the caret, Backspace drops the character before it and
 /// Delete the one after; Shift with an arrow selects, and typing replaces the selection; Ctrl+C

@@ -1013,6 +1013,9 @@ impl ApplicationHandler for App<'_> {
             }
             // What the input method wrote is typed as the keys' own text is.
             WindowEvent::Ime(winit::event::Ime::Commit(t)) => self.send(&Event::Text(t)),
+            WindowEvent::Ime(winit::event::Ime::Preedit(t, _)) => {
+                self.send(&Event::Composing(t));
+            }
             WindowEvent::RedrawRequested => self.redraw(el),
             _ => {}
         }

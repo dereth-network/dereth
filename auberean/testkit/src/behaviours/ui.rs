@@ -2470,6 +2470,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.text.the-input-methods-composition-shows-at-the-caret",
+        says: "What the input method is composing shows at the caret of the entry that has it on, \
+               underlined, and isn't part of the entry's text; what it writes is typed as any text.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-UI-IME-COMPOSE"),
+        station: "auberean-ui::cpu::text::the_input_methods_composition_shows_at_the_caret",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "ui.text.the-view-scrolls-by-page-and-to-either-end",
         says: "A text taller than its element scrolls to its end with the last lines at the foot, \
                a page at a time within the text, and back home.",
