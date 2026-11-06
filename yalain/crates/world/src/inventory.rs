@@ -2290,7 +2290,14 @@ pub fn enter<S: Store>(s: &mut Server<S>, world: ConnId) -> Vec<u64> {
     held.sort_by_key(|h| pack_order(h.slot));
     let mut ids = Vec::new();
     for h in held {
+        // A template the world no longer has: the item stays held and kept, not shown, and comes
+        // back with its template.
         let Some(t) = s.catalog.get(h.template).cloned() else {
+            tracing::warn!(
+                item = format_args!("{:#x}", h.id),
+                template = format_args!("{:08X}", h.template),
+                "a player holds an item of a template this world no longer has: it stays held, unseen"
+            );
             continue;
         };
         let mut item = Thing::of(h.id, &t, Kind::Item);

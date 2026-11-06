@@ -5691,6 +5691,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.items.template-gone-stays-kept",
+        says: "An item whose template the world no longer has stays held and kept, unseen, and comes \
+               back with its template. This server's own: a world changing under a save.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-ITEM-TEMPLATE-GONE"),
+        station: "yalain-testkit::cpu::play::pack::an_item_whose_template_left_stays_kept_unseen_and_comes_back_with_it",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.items.tessera-gives-a-hero-skill-credit",
         says: "A Tessera used from the pack plays its use, its user free to move, and at its \
                end gives one hero skill credit more with the skill repository, is spent, and is \

@@ -1252,3 +1252,70 @@ fn coins_dragged_to_the_money_bag_are_not_raised_by_a_perk() {
     h.run(2);
     assert_eq!(bag_pays(&mut h, b, me, world, 1000), 1000);
 }
+
+/// An item whose template the world no longer has is lost to nobody: its holder enters with it held
+/// and kept but unseen, and when the template is back it is there again, the same item in the same
+/// number.
+/// Behaviour: server.items.template-gone-stays-kept
+#[test]
+fn an_item_whose_template_left_stays_kept_unseen_and_comes_back_with_it() {
+    const SWORD: u32 = 0x4700_051C;
+    let mut h = Harness::new();
+    let (b, me) = h.player_in_world("one", "Elara");
+    h.run(5);
+    h.arm(b, me, SWORD);
+    let held = |h: &Harness| -> Vec<Held> {
+        h.server
+            .players
+            .values()
+            .find(|p| p.character == me)
+            .map(|p| p.play.items.clone())
+            .expect("in the world")
+    };
+    let items = held(&h);
+    let sword = items
+        .iter()
+        .find(|i| i.template == SWORD)
+        .copied()
+        .expect("the sword");
+    let log_off = |h: &mut Harness| {
+        h.bots[b].send(
+            false,
+            auberean_protocol::queue::LOGON,
+            &auberean_protocol::ClientMessage::LogOff(auberean_protocol::login::CharacterRef {
+                character: me,
+            }),
+        );
+        for _ in 0..4000 {
+            h.step();
+            if !h.server.players.values().any(|p| p.character == me) {
+                break;
+            }
+        }
+        h.run(20);
+    };
+    let sees_it = |h: &Harness, from: usize| {
+        h.world_messages(b, from)
+            .iter()
+            .any(|m| matches!(m, ServerMessage::CreateObject(o) if o.id == sword.id))
+    };
+    log_off(&mut h);
+    let template = h
+        .server
+        .catalog
+        .templates
+        .remove(&SWORD)
+        .expect("the template");
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    assert!(!sees_it(&h, from), "not shown");
+    assert!(h.server.things.get(sword.id).is_none(), "not in the world");
+    assert_eq!(held(&h), items, "held");
+    // Kept as it is while it is unseen, through another leaving.
+    log_off(&mut h);
+    h.server.catalog.insert(template);
+    let from = h.bots[b].inbox.len();
+    h.enter_world(b, "one", me);
+    assert!(sees_it(&h, from), "shown again");
+    assert_eq!(held(&h), items, "the same, in the same number");
+}
