@@ -1095,6 +1095,22 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "draw.particles.placed-systems-stop-past-the-objects-visible-distance",
+        says: "A placed object's particle systems aren't queued past its visible distance from the                camera, whatever their own fade distances.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PARTICLES-OBJECT-DRAWN"),
+        station: "auberean-draw::dat::effects::a_placed_object_past_its_visible_distance_has_its_systems_left_unqueued",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "draw.particles.unforced-systems-queue-only-as-their-object-is-drawn",
+        says: "A particle system its record doesn't force to draw is queued only while its object                is drawn, so a player in first person at peace sees none of its own; one its record                forces is queued either way.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-PARTICLES-OBJECT-NOT-DRAWN"),
+        station: "auberean-draw::dat::effects::a_system_not_forced_to_draw_is_queued_only_while_its_object_is_drawn",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "draw.particles.waveforms-take-their-shape-at-a-time",
         says: "A waveform's value at a time is its base when steady, grows with the time at speed, \
                follows a sine of its frequency and phase (sine, square, bounce), or rolls within \

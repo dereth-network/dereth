@@ -1246,6 +1246,7 @@ impl Others {
         anims: &CachedRecords<'_>,
         trees: &mut Trees,
         land: &auberean_physics::land::Land,
+        drawer: &mut BodyDrawer,
         block: (i32, i32),
         alpha: f32,
         now: f64,
@@ -1270,6 +1271,16 @@ impl Others {
             let v = ob.body.velocity;
             fx.fx
                 .set_velocity(auberean_primitives::Vec3::new(v.x, v.y, v.z));
+            // Its systems are queued as it is drawn: not when told not to be, nor past its
+            // visible distance.
+            #[allow(clippy::cast_precision_loss)]
+            let origin = (block.0 as f32 * BLOCK_LENGTH, block.1 as f32 * BLOCK_LENGTH);
+            let (place, _, _) = drawn_place(ob, alpha, origin);
+            let past = b
+                .figure
+                .as_ref()
+                .is_some_and(|f| drawer.leaves_out_a_part(f, &place, ob.body.is_mobile()));
+            fx.fx.set_drawn(!ob.body.is_no_draw() && !past);
             let water = land.water_plane(ob.body.position.cell).map(|p| -p.d);
             let changed = fx.think(
                 systems,

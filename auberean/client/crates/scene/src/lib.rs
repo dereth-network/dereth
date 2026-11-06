@@ -4640,6 +4640,14 @@ impl<'w> Scene<'w> {
             l.direct_color.b * l.direct_brightness,
             1.0,
         );
+        self.placed_effects
+            .see_from(&auberean_draw::effects::PlacedSight {
+                eye: dv(eye),
+                home: (bx, by),
+                block_length: BLOCK_LENGTH,
+                scale: auberean_draw::mesh::scenery_scale(self.builder.scenery_draw_distance),
+                model_detail: usize::try_from(self.builder.model_detail).unwrap_or(2),
+            });
         self.placed_effects.draw(&self.systems, now, light);
         self.others.draw_effects(
             &self.systems,
@@ -4647,6 +4655,7 @@ impl<'w> Scene<'w> {
             &self.anims,
             &mut self.trees,
             &self.land,
+            &mut self.drawer,
             (bx, by),
             self.ticker.alpha(now),
             now,
@@ -4664,6 +4673,8 @@ impl<'w> Scene<'w> {
             if let Some(fx) = pl.effects.as_mut() {
                 // Its repulsors take the speed its physics moves it at.
                 fx.fx.set_velocity(dv(pl.body.velocity));
+                // Its systems are queued as its body is drawn.
+                fx.fx.set_drawn(draws_player);
                 let changed = fx.think(
                     &self.systems,
                     &self.world.records,
@@ -4701,6 +4712,7 @@ impl<'w> Scene<'w> {
         for (id, at, scale) in &made {
             if let Some(t) = self.temporaries.get_mut(*id) {
                 if let Some(fx) = t.effects.as_mut() {
+                    fx.fx.set_drawn(!t.body.is_no_draw());
                     let changed = fx.think(
                         &self.systems,
                         &self.world.records,
