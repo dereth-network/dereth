@@ -178,7 +178,10 @@ pub fn player_enter_world(w: &mut World, this: ObjectGuid) {
 
     //SendPropertyUpdatesAndOverrides();
 
-    if property_manager::get_bool(w, "use_turbine_chat", false, true).item {
+    crate::world_objects::spell_potency::on_enter_world(w, this);
+
+    // DIVERGE: V498, a world with no rooms in use says nothing of them.
+    if crate::federation::chat_rooms_in_use(w) {
         // Init the client with the chat channel ID's, and then notify the player that they've joined the associated channels.
         let session = session_of(w, this);
         let msg = game_event_weenie_error::game_event_weenie_error(
@@ -295,7 +298,8 @@ fn society(w: &World, this: ObjectGuid) -> FactionBits {
 pub fn send_turbine_chat_channels(w: &mut World, this: ObjectGuid, break_allegiance: bool) {
     let allegiance = player_allegiance(w, this);
     let allegiance_channel = match allegiance {
-        Some(a) if !break_allegiance => {
+        // DIVERGE: V492, no room is named on a world without the allegiance chat room.
+        Some(a) if !break_allegiance && w.era.features.allegiance_chat => {
             w.objects
                 .get(a)
                 .expect("ACE: Allegiance is null (NullReferenceException)")
@@ -313,10 +317,21 @@ pub fn send_turbine_chat_channels(w: &mut World, this: ObjectGuid, break_allegia
     };
 
     let session = session_of(w, this);
+    // DIVERGE: V498, a room that is not open is not named.
+    let open: Vec<u32> = game_event_set_turbine_chat_channels::ALL_ROOMS
+        .into_iter()
+        .filter(|&c| crate::federation::room_open(w, c))
+        .collect();
+    let society_channel = if open.contains(&society_channel) {
+        society_channel
+    } else {
+        0
+    };
     let msg = game_event_set_turbine_chat_channels::game_event_set_turbine_chat_channels(
         session_data(w, session),
         allegiance_channel,
         society_channel,
+        &open,
     );
     game_message::enqueue_send(w, session, msg);
 }
@@ -333,8 +348,18 @@ fn society_channel_name(society: FactionBits, channel_name: &str) -> String {
 
 // ACE: Player.JoinTurbineChatChannel
 pub fn join_turbine_chat_channel(w: &mut World, this: ObjectGuid, channel_name: &str) {
+    // DIVERGE: V498, without the game's own rooms only the network's room is entered.
+    if !w.era.features.global_chat_rooms
+        && channel_name != "Allegiance"
+        && crate::federation::network_room(w).is_none_or(|r| r.name() != channel_name)
+    {
+        return;
+    }
     let mut channel_name = channel_name.to_owned();
-    if channel_name == "Allegiance" && player_allegiance(w, this).is_none() {
+    // DIVERGE: V492, a world without the allegiance chat room has no such channel to enter.
+    if channel_name == "Allegiance"
+        && (player_allegiance(w, this).is_none() || !w.era.features.allegiance_chat)
+    {
         return;
     } else if channel_name == "Society" {
         let society = society(w, this);

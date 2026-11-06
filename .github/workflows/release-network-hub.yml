@@ -98,7 +98,6 @@ jobs:
           - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04-arm, tests: true }
           - { target: x86_64-pc-windows-msvc, os: windows-latest, tests: true }
           - { target: aarch64-apple-darwin, os: macos-latest, tests: true }
-          - { target: x86_64-apple-darwin, os: macos-latest, tests: false }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     defaults:
@@ -158,15 +157,6 @@ jobs:
           exe=""; case "$TARGET" in *windows*) exe=".exe" ;; esac
           bin="stage/$name/dereth-network-hub$exe"
           run() { "$@"; }
-          case "$TARGET" in
-            x86_64-apple-darwin)
-              if arch -x86_64 /usr/bin/true 2> /dev/null; then
-                run() { arch -x86_64 "$@"; }
-              else
-                echo "::notice::no Rosetta on this runner: $TARGET is checked by its headers only"
-                exit 0
-              fi ;;
-          esac
           run "$bin" --version | tee version.txt
           grep -qx "dereth-network-hub $VERSION" version.txt
           # It serves: a registry of its own, the health route, then it stops by itself.
@@ -303,7 +293,7 @@ jobs:
 
           ## Downloads
 
-          The Dereth Network's hub $VERSION: the world registry, the operator API and the router for the worlds' links. For Linux (glibc 2.28 or newer, x86-64 and arm64), Windows and macOS (Apple silicon and Intel); DEPLOY.md in each archive is the guide to running a public hub.
+          The Dereth Network's hub $VERSION: the world registry, the operator API and the router for the worlds' links. For Linux (glibc 2.28 or newer, x86-64 and arm64), Windows and macOS (Apple silicon); DEPLOY.md in each archive is the guide to running a public hub.
 
           **The container image** is attached as an OCI archive and, once this release is published, is \`$image:$VERSION\`.
 
@@ -324,7 +314,6 @@ jobs:
                   aarch64-unknown-linux-gnu.tar.gz) label="Hub · Linux arm64 (glibc 2.28+)" ;;
                   x86_64-pc-windows-msvc.zip) label="Hub · Windows x64" ;;
                   aarch64-apple-darwin.tar.gz) label="Hub · macOS Apple silicon" ;;
-                  x86_64-apple-darwin.tar.gz) label="Hub · macOS Intel" ;;
                 esac ;;
             esac
             if [ -n "$label" ]; then
@@ -340,7 +329,7 @@ jobs:
           fi
           PRE=""
           case "$VERSION" in *-*) PRE="--prerelease" ;; esac
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $PRE \
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --latest=false $PRE \
             --title "Dereth Network Hub $VERSION" --notes-file ../notes.md \
             "${assets[@]}"
 

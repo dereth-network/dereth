@@ -18,7 +18,7 @@ use auberean_client_contract::{PetAction, StoreAction, TradeAction};
 use auberean_script::native_object::{Field, NativeObject};
 
 use crate::host::{InterfaceArg, PanelNotice, Scripts};
-use crate::skills::{Asker, Slot};
+use crate::skills::Asker;
 use crate::CallResult;
 
 /// The interface's functions these windows call, by id.
@@ -159,26 +159,17 @@ impl Store {
             #[allow(clippy::cast_possible_truncation)]
             let (lo, hi) = (item as u32, (item >> 32) as u32);
             let args = [(lo, tag::LONG | tag::MIXED), (hi, tag::LONG | tag::MIXED)];
+            #[allow(clippy::cast_possible_truncation)]
             let n = a
-                .ask_tagged(
-                    None,
-                    function::GET_MAX_PURCHASE_QUANTITY,
-                    &[Slot::Word(0)],
-                    &args,
-                    false,
-                )
-                .map_or(0, |r| r.outs[0]);
+                .ask_tagged(None, function::GET_MAX_PURCHASE_QUANTITY, &[], &args, false)
+                .map_or(0, |r| r.value as u32);
             self.max_purchase.insert(item, n);
         }
-        self.consignment_charge = a
-            .ask_with(
-                None,
-                function::GET_CONSIGNMENT_CHARGE,
-                &[Slot::Word(0)],
-                &[],
-                false,
-            )
-            .map_or(0.0, |r| f32::from_bits(r.outs[0]));
+        #[allow(clippy::cast_possible_truncation)]
+        let charge = a
+            .ask_with(None, function::GET_CONSIGNMENT_CHARGE, &[], &[], false)
+            .map_or(0.0, |r| f32::from_bits(r.value as u32));
+        self.consignment_charge = charge;
         self.incomplete = a.incomplete;
     }
 }

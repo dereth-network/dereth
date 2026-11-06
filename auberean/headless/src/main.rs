@@ -11,13 +11,17 @@
 //! come and move, and what is said around it. With `--agree` it takes every place in a fellowship,
 //! every oath and every trade offered to it, and accepts a trade once the other side has; with
 //! `--offer` it offers the first item of its pack when a trade opens; with `--trade-with ID` it
-//! asks that player for a trade three seconds after it enters. Everything it does is an action of
-//! the SDK's client; it reads no device.
+//! asks that player for a trade three seconds after it enters. With `--craft RECIPE:SPINNER` (hex
+//! recipe, repeatable) it makes each recipe in turn, three seconds after it enters and eight after
+//! the one before: it reads the recipe as the ingredient panel does, fills each slot the scripts
+//! ask for with the first item they say fits, and prints the answer and what the slots hold
+//! after. It prints an effect put on it or taken off as it comes. Everything it does is an
+//! action of the SDK's client; it reads no device.
 //!
 //! ```text
 //! auberean-headless --dats <install folder> [--host 127.0.0.1] [--port 9000] --account NAME --ticket TICKET
 //!              [--character ID | --create NAME] [--seconds 30] [--walk] [--say TEXT] [--agree] [--offer]
-//!              [--trade-with ID]
+//!              [--trade-with ID] [--craft RECIPE:SPINNER]...
 //! ```
 //!
 //! The install folder is the September 2013 client's (its data files answer the server's question
@@ -33,7 +37,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use auberean_client_sdk::contract::{SocialAction, TradeAction};
+use auberean_client_sdk::contract::{CraftAction, SocialAction, TradeAction};
 use auberean_client_sdk::dat::locate::{install_dats, DatName};
 use auberean_client_sdk::dat::DatFile;
 use auberean_client_sdk::net::LocalTime;
@@ -59,6 +63,13 @@ const OATH_OFFERED: u32 = 0x8203_002F;
 const TRADE_REGISTERED: u32 = 0x8215_0046;
 const TRADE_OPENED: u32 = 0x8215_004E;
 const TRADE_ACCEPTED: u32 = 0x8215_0050;
+const CRAFT_ANSWER: u32 = 0x8206_001C;
+/// An item's quantity (a quality the server updates).
+const QUANTITY: u32 = 262;
+const EFFECT_ADDED: u32 = 0x8208_0017;
+const EFFECT_REMOVED: u32 = 0x8208_0016;
+/// How long a making is given to end before the next is asked.
+const BETWEEN_CRAFTS: f64 = 12.0;
 
 struct Options {
     dats: PathBuf,
@@ -74,6 +85,7 @@ struct Options {
     agree: bool,
     offer: bool,
     trade_with: Option<u64>,
+    crafts: Vec<(u32, i32)>,
 }
 
 fn options() -> Result<Options, String> {
@@ -92,6 +104,7 @@ fn options() -> Result<Options, String> {
         agree: false,
         offer: false,
         trade_with: None,
+        crafts: Vec::new(),
     };
     while let Some(a) = args.next() {
         let mut value = || args.next().ok_or(format!("{a} needs a value"));
@@ -119,6 +132,15 @@ fn options() -> Result<Options, String> {
                     Some(u64::from_str_radix(v, 16).map_err(|e| format!("--trade-with: {e}"))?);
             }
             "--say" => o.say = Some(value()?),
+            "--craft" => {
+                let v = value()?;
+                let (recipe, spinner) = v.split_once(':').ok_or("--craft takes RECIPE:SPINNER")?;
+                o.crafts.push((
+                    u32::from_str_radix(recipe.trim_start_matches("0x"), 16)
+                        .map_err(|e| format!("--craft: {e}"))?,
+                    spinner.parse().map_err(|e| format!("--craft: {e}"))?,
+                ));
+            }
             other => return Err(format!("unknown option {other}")),
         }
     }
@@ -143,7 +165,9 @@ fn data(dir: &std::path::Path) -> Result<ClientData, String> {
     files.extend(open(&|n| *n == DatName::Local("English".into())));
     files.extend(open(&|n| *n == DatName::Cell(1)));
     files.extend(open(&|n| *n == DatName::HighRes));
-    let program = auberean_client_sdk::runtime::link_scripts(&portal)?;
+    let program = auberean_client_sdk::runtime::link_scripts_noting(&portal, |r| {
+        eprintln!("auberean-headless: the script library: {r}");
+    })?;
     Ok(ClientData {
         files: DataFiles {
             files,
@@ -208,6 +232,11 @@ struct Play {
     trade_accepted: bool,
     /// A player to ask for a trade, once.
     trade_with: Option<u64>,
+    /// The recipes yet to make, and when the next is due.
+    crafts: std::collections::VecDeque<(u32, i32)>,
+    next_craft: f64,
+    /// The items of the last making, by slot.
+    slots: Vec<(u32, u64)>,
     entered: f64,
     next_say: f64,
     leg: u32,
@@ -225,6 +254,9 @@ impl Play {
             offer: o.offer,
             trade_accepted: false,
             trade_with: o.trade_with,
+            crafts: o.crafts.iter().copied().collect(),
+            next_craft: 0.0,
+            slots: Vec::new(),
             entered: 0.0,
             next_say: 0.0,
             leg: 0,
@@ -238,6 +270,7 @@ impl Play {
         self.entered = t;
         self.next_say = t + 3.0;
         self.next_turn = t + 2.0;
+        self.next_craft = t + 3.0;
         client.act(Action::Examination {
             tabs: Some(EXAMINATION_TABS),
         });
@@ -278,6 +311,12 @@ impl Play {
                 self.trade_with = None;
             }
         }
+        if t >= self.next_craft {
+            if let Some((recipe, spinner)) = self.crafts.pop_front() {
+                self.craft(client, recipe, spinner, t);
+                self.next_craft = t + BETWEEN_CRAFTS;
+            }
+        }
         if let Some(line) = &self.say {
             if t >= self.next_say {
                 println!("{:7.2} saying: {line}", t - self.entered);
@@ -314,6 +353,10 @@ impl Play {
         while self.heard < client.observed.len() {
             let (_, f, args, speaker) = client.observed[self.heard].clone();
             self.heard += 1;
+            if matches!(f, CRAFT_ANSWER | EFFECT_ADDED | EFFECT_REMOVED) {
+                self.told(client, f, args.as_ref().map(|a| a.0.as_slice()), t);
+                continue;
+            }
             if f != SAYING {
                 let who = args.map(|a| ids(client, &a.0)).unwrap_or_default();
                 self.offered(client, f, &who, t);
@@ -326,6 +369,80 @@ impl Play {
                 None => "someone".to_owned(),
             };
             println!("{:7.2} hears {who} say \"{words}\"", t - self.entered);
+        }
+    }
+
+    /// Make a recipe at a spinner value: its slots filled as the scripts say they fit.
+    fn craft(&mut self, client: &mut Client, recipe: u32, spinner: i32, t: f64) {
+        let at = t - self.entered;
+        self.print_slots(client, "after");
+        let Some((read, _)) = client.recipe_at(recipe, Some(spinner)) else {
+            println!("{at:7.2} the scripts give no recipe {recipe:08X}");
+            return;
+        };
+        self.slots = read
+            .ingredients
+            .iter()
+            .filter_map(|i| {
+                read.items
+                    .iter()
+                    .find(|item| read.fits.get(&(i.id, **item)) == Some(&true))
+                    .map(|item| (i.id, *item))
+            })
+            .collect();
+        println!(
+            "{at:7.2} makes {recipe:08X} at {spinner}: asked for slots {:?}, filled {:?}, cost {:?}, difficulty {:?}",
+            read.ingredients.iter().map(|i| i.id).collect::<Vec<_>>(),
+            self.slots.iter().map(|(o, _)| *o).collect::<Vec<_>>(),
+            read.cost,
+            read.difficulty,
+        );
+        for (ordinal, item) in self.slots.clone() {
+            client.act(Action::Craft(CraftAction::AddIngredient {
+                recipe,
+                ordinal,
+                item,
+                spinner,
+            }));
+        }
+        client.act(Action::Craft(CraftAction::ExecuteCraft {
+            recipe,
+            spinner,
+            ingredients: self.slots.clone(),
+        }));
+    }
+
+    /// What the slots of the last making hold now.
+    fn print_slots(&self, client: &Client, when: &str) {
+        for (ordinal, item) in &self.slots {
+            let held = client
+                .model
+                .object(*item)
+                .and_then(|o| o.qualities.ints.get(&QUANTITY).copied());
+            println!("        slot {ordinal} {when}: {held:?}");
+        }
+    }
+
+    /// A craft's answer, or an effect put on or taken off.
+    fn told(&mut self, client: &Client, f: u32, args: Option<&[u8]>, t: f64) {
+        let at = t - self.entered;
+        let lib = client.scripts.as_ref().map(|s| &s.host.program.library);
+        let words: Vec<u32> = args
+            .zip(lib)
+            .and_then(|(a, l)| decode(a, l).ok())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|a| match a {
+                Arg::Int(w) => Some(*w),
+                _ => None,
+            })
+            .collect();
+        match f {
+            CRAFT_ANSWER => {
+                println!("{at:7.2} the craft is answered {words:?} (shown, why, the recipe)");
+            }
+            EFFECT_ADDED => println!("{at:7.2} an effect is put on: id {words:?}"),
+            _ => println!("{at:7.2} an effect is taken off: id {words:?}"),
         }
     }
 
@@ -407,6 +524,9 @@ fn run() -> Result<(), String> {
         TRADE_REGISTERED,
         TRADE_OPENED,
         TRADE_ACCEPTED,
+        CRAFT_ANSWER,
+        EFFECT_ADDED,
+        EFFECT_REMOVED,
     ];
     let mut play = Play::new(&o);
     let start = Instant::now();
@@ -482,6 +602,7 @@ fn run() -> Result<(), String> {
                 play.tick(&mut client, t.0);
             }
             if !logged_off && t.0 - at > o.seconds {
+                play.print_slots(&client, "after");
                 println!(
                     "logging off: {} objects known, {} in the inventory, {} calls run ({} to the end)",
                     client.model.objects().count(),

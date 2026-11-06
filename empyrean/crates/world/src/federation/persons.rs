@@ -33,13 +33,7 @@ use crate::managers::player_manager;
 use crate::network::game_event::events::game_event_friends_list_update::FriendsUpdateTypeFlag;
 use crate::World;
 
-/// What a character not linked to a person is told when it asks for something only a person has.
-const LINK_FIRST: &str = "Link this character first: type @dn link.";
-
-/// What a linked character adding a friend is told when its person lists as many friends across
-/// the network as the hub allows.
-pub const FRIENDS_FULL: &str =
-    "You have as many friends on the Dereth Network as it allows. Remove one first.";
+pub use dereth_network_protocol::answers::FRIENDS_FULL;
 
 /// What the hub's person view last said of one character online: whether it is linked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -208,19 +202,13 @@ pub(super) fn on_view(w: &mut World, to: &Address, linked: bool, persons: &[Pers
         }
     }
     let slug = w.federation.settings.slug.clone();
-    // In the view's order, each character once, with the first handle that names it. A character
-    // of this world (the character itself among them) is its own world's to list.
-    let mut want: BTreeMap<String, (Address, Address)> = BTreeMap::new();
-    let mut order = Vec::new();
-    for p in persons {
-        for c in &p.characters {
-            if c.is_channel() || c.world() == slug || want.contains_key(&c.key()) {
-                continue;
-            }
-            order.push(c.key());
-            want.insert(c.key(), (c.clone(), p.handle.clone()));
-        }
-    }
+    // In the view's order, each character once, with the first handle that names it.
+    let listing = dereth_network_protocol::person::view_listing(persons, &slug);
+    let order: Vec<String> = listing.iter().map(|(c, _)| c.key()).collect();
+    let mut want: BTreeMap<String, (Address, Address)> = listing
+        .into_iter()
+        .map(|(c, h)| (c.key(), (c, h)))
+        .collect();
     let derived: BTreeMap<String, Address> = w
         .federation
         .store
@@ -518,60 +506,21 @@ pub(super) fn on_result(
         .target
         .as_ref()
         .map_or_else(String::new, ToString::to_string);
-    let line = match (p.op, outcome) {
-        (PersonOp::Code, PersonOutcome::Ok) => {
-            let (Some(code), Some(url)) = (code, url) else {
-                return;
-            };
-            link_line(code, url, expires_secs.unwrap_or(600))
-        }
-        (PersonOp::Code, PersonOutcome::RateLimited) => {
-            "You have asked for too many links. Wait a while and try again.".to_owned()
-        }
-        (_, PersonOutcome::Unavailable) => {
-            "The Dereth Network's hub does not link characters.".to_owned()
-        }
-        (_, PersonOutcome::RateLimited) => {
-            "The Dereth Network is holding back your requests for now. Wait a while and try again."
-                .to_owned()
-        }
-        (PersonOp::Code, _) => "The Dereth Network gave no link.".to_owned(),
-        (PersonOp::Unlink, PersonOutcome::Ok) => {
-            "This character is no longer linked to a Discord account.".to_owned()
-        }
-        (PersonOp::Unlink, _) => "This character is not linked to a Discord account.".to_owned(),
-        (_, PersonOutcome::NotLinked) => LINK_FIRST.to_owned(),
-        // The hub's limit on the friends a person may list across the network.
-        (PersonOp::Befriend, PersonOutcome::Refused) => FRIENDS_FULL.to_owned(),
-        (PersonOp::Befriend, _) => format!("{target} has been added to your friends list."),
-        // Only ever asked quietly; the other two this world never asks.
-        (PersonOp::Unfriend | PersonOp::Carry | PersonOp::Alts | PersonOp::Characters, _) => return,
+    let Some(line) = dereth_network_protocol::answers::person_line(
+        p.op,
+        outcome,
+        &target,
+        code,
+        url,
+        expires_secs,
+    ) else {
+        return;
     };
     let line = dereth_network_protocol::text::sanitize_line(&line);
     tell_player(w, p.player, &line);
 }
 
-/// The line `/dn link` shows: the link that links the character, from the hub's page and code,
-/// and how long it lasts. A hub whose page does not carry the code is answered with the code to
-/// enter there.
-#[must_use]
-pub fn link_line(code: &str, url: &str, expires_secs: u32) -> String {
-    let minutes = expires_secs.div_ceil(60).max(1);
-    let lasts = if minutes == 1 {
-        "1 minute".to_owned()
-    } else {
-        format!("{minutes} minutes")
-    };
-    if url.contains(code) {
-        format!(
-            "Open {url} within {lasts} to link this character to your Discord account. Keep the link to yourself."
-        )
-    } else {
-        format!(
-            "Your link code is {code}. Enter it at {url} within {lasts} to link this character to your Discord account. Keep the code to yourself."
-        )
-    }
-}
+pub use dereth_network_protocol::answers::link_line;
 
 /// A person request that will not be answered.
 pub(super) fn give_up(w: &mut World, id: &str) {

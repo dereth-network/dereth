@@ -351,28 +351,6 @@ impl Entity {
         }
         0
     }
-
-    /// The script package at the root of the entity's chain: its object when below `0x8000`,
-    /// else its parent entity's root, else none (`u32::MAX`).
-    // D2-13019
-    #[must_use]
-    pub fn root_package(&self, entity: EntityLookup<'_>) -> u32 {
-        let mut held: Option<Arc<Entity>> = None;
-        for _ in 0..CHAIN_LIMIT {
-            let o = held.as_deref().unwrap_or(self).object.unwrap_or(0);
-            if o < 0x8000 {
-                return o;
-            }
-            if divine_type(o) != ENTITY_TYPE {
-                return u32::MAX;
-            }
-            match entity(o) {
-                Some(p) => held = Some(p),
-                None => return u32::MAX,
-            }
-        }
-        u32::MAX
-    }
 }
 
 impl Decode for Entity {

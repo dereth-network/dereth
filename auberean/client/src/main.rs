@@ -4,14 +4,15 @@
 //!
 //! **Depends on** the shell (`auberean-shell`), the game's interface (`auberean-interface`,
 //! `auberean-ui`) and the world it shows (`auberean-scene`), the
-//! world's device (`auberean-gpu`) and its frames (`auberean-draw`), the data files
+//! world's device (`auberean-gpu`, `auberean-present`) and its frames (`auberean-draw`), the data files
 //! (`auberean-dat`, `auberean-assets`, `auberean-world`, `auberean-client-sdk`), the shared math
-//! (`dereth-primitives`), the window system (`winit`), the device (`wgpu`) and the sound device
+//! (`dereth-primitives`), the console (`dereth-console`), the window system (`winit`), the device (`wgpu`) and the sound device
 //! (`dereth-audio-out`, through the sound engine's output seam in `dereth-audio`). **Used by** nothing:
 //! it is the `auberean` program.
 //!
 //! ```text
-//! auberean --dats <install folder> [--server 127.0.0.1:9000] [--account ACCOUNT[:PASSWORD]]
+//! auberean --dats <install folder> [--overlay-dat-dir DIR] [--server 127.0.0.1:9000]
+//!          [--account ACCOUNT[:PASSWORD]]
 //!          [--glsticketdirect SECRET]
 //!          [--gunserver HOST [--gunport PORT] [--gunticket] [--gunticketoverride TICKET]]
 //!          [--size 1280x960] [--dev-login ACCOUNT:PASSWORD [--dev-character NAME]]
@@ -20,15 +21,18 @@
 //! ```
 //!
 //! The install folder is the September 2013 client's: its data files are the world and the
-//! interface's records, and answer the server's question of which data the client has. The
+//! interface's records, and answer the server's question of which data the client has.
+//! `--overlay-dat-dir` names a world's overlay to read them through; the files are never written,
+//! and an overlay made against other files stops the client before it starts. The
 //! interface is the game's own (`auberean-interface`): with `--account` it logs in as the launcher
 //! would have it log in, and the character screens take it from there. `--dev-login` instead logs
 //! in and enters the world by itself (making the character, a human, when the account has none of
 //! that name) while the screens follow; `--dev-overlay` writes the player's place and the
 //! session's state over the world; `--dev-script` plays a script of input and screenshots
-//! (`script.rs`). Screenshots (Ctrl+P, and a script's) go to `--shots`, by default the settings
-//! folder's `screenshots`. `--no-window` runs everything but the window and the device for that
-//! many seconds (the world is still framed, with no picture made), printing the status lines.
+//! (`script.rs`). Screenshots (the screenshot key's, and a script's) go to `--shots`, by default
+//! the settings folder's `screenshots`. `--no-window` runs everything but the window and the device
+//! for that many seconds (the world is still framed, with no picture made), printing the status
+//! lines.
 //! The game's sound plays through the default output device; `--no-sound` runs silent.
 //!
 //! `--glsticketdirect` gives the login its secret directly, as the September 2013 client's own option
@@ -37,7 +41,9 @@
 //! The command line is read as the September 2013 client reads its own, and takes its options too:
 //! `-h`/`--host` and `-p`/`--port` name the server (instead of `--server`), `-a`/`--account` the
 //! account (in small letters), `-z` is `--glsticketdirect`, `--width` and `--height` the window,
-//! `--prefs` the preferences file (in the settings folder unless a path says otherwise). An option
+//! `--prefs` the preferences file (in the settings folder unless a path says otherwise), `-u`/`--user`
+//! the character to go into the world with as soon as the account's are listed, and `-r`/`--create`
+//! the one to go in with when `--user` names none. An option
 //! may be written `-name`, `--name` or `/name`. Named with a host or an account, the line also
 //! needs the other, as the client's own does. A line that does not read (`-?` included) lists
 //! every option.
@@ -70,7 +76,7 @@ mod friends;
 mod icon;
 mod keys;
 mod local;
-mod present;
+mod perf;
 mod script;
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
@@ -80,21 +86,20 @@ use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use auberean_client_sdk::dat::locate::{install_dats, DatName};
+use auberean_client_sdk::dat::overlay::WorldOverlay;
 use auberean_client_sdk::dat::DatFile;
-use auberean_client_sdk::runtime::data::{DataFiles, ENGLISH};
-use auberean_client_sdk::ClientData;
+use auberean_interface::data::{open_data, ui_assets, Install};
 use auberean_scene::WorldData;
 use auberean_shell::command_line::{parse_args, set_error_text, Arg, ArgList, ClientLine, Reader};
 use auberean_shell::input::{Event, Key};
 use auberean_shell::interface::Interface;
-use auberean_shell::preferences::{EnumNames, Names, Preferences, LANGUAGES};
-use auberean_shell::profile::Profile;
-use auberean_shell::{Host, Shell};
+use auberean_shell::settings::{held_to_picture, in_picture_pixels, on_picture, on_window};
+use auberean_shell::{Host, Presentation, Shell};
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, ElementState, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::PhysicalKey;
-use winit::window::{CursorGrabMode, Window, WindowId};
+use winit::window::{CursorGrabMode, Fullscreen, Window, WindowId};
 
 /// The variable naming the settings folder.
 const SETTINGS_DIR: &str = "AUBEREAN_SETTINGS_DIR";
@@ -104,6 +109,7 @@ const SETTINGS_FILE: &str = "Preferences.ini";
 #[derive(Debug, Default)]
 struct Options {
     dats: PathBuf,
+    world_overlay: Option<PathBuf>,
     server: Option<SocketAddr>,
     size: Option<(u32, u32)>,
     login: Option<(String, String)>,
@@ -111,6 +117,8 @@ struct Options {
     character: Option<String>,
     overlay: bool,
     script: Option<PathBuf>,
+    /// Where each frame's times and device work are written.
+    perf: Option<PathBuf>,
     shots: Option<PathBuf>,
     verbose: bool,
     no_window: Option<f64>,
@@ -119,19 +127,41 @@ struct Options {
     gun_port: Option<u16>,
     gun_ticket: bool,
     gun_ticket_override: Option<String>,
+    /// What the command line sets over the settings read.
+    line: ClientLine,
     /// The preferences file named (else the settings folder's own).
     prefs: Option<String>,
     /// The language named.
     language: Option<String>,
+    /// The top gore level and blood color forced (0: the language's).
+    forced_gore: (u32, u32),
+    /// The creation screen offers the administrator's character.
+    admin_client: bool,
+    /// The character named to play.
+    user: Option<String>,
+    /// The character named to make and play.
+    create: Option<String>,
 }
 
 /// This program's own options, beside the September 2013 client's: each one's form (what it takes
 /// and keeps), long name, help and a switch's value.
-const OWN_OPTIONS: [(u32, &str, &str, i32); 11] = [
+const OWN_OPTIONS: [(u32, &str, &str, i32); 14] = [
+    (
+        0x11,
+        "adminclient",
+        "Show the administrator's button on the creation screen.",
+        0,
+    ),
     (
         0x32,
         "dats",
         "<folder>: The September 2013 client's install folder.",
+        0,
+    ),
+    (
+        0x32,
+        "overlay-dat-dir",
+        "<folder>: A world's overlay to read the data files through.",
         0,
     ),
     (0x32, "server", "<IP:port>: The server to log in to.", 0),
@@ -158,6 +188,12 @@ const OWN_OPTIONS: [(u32, &str, &str, i32); 11] = [
         0x32,
         "dev-script",
         "<file>: Play a script of input and screenshots.",
+        0,
+    ),
+    (
+        0x32,
+        "dev-perf",
+        "<file>: Write each frame's times and device work there.",
         0,
     ),
     (0x32, "shots", "<folder>: Where screenshots go.", 0),
@@ -205,7 +241,9 @@ impl Reader for Line {
             (a.to_owned(), p.to_owned())
         };
         match arg.name.as_str() {
+            "adminclient" => self.o.admin_client = true,
             "dats" => self.o.dats = PathBuf::from(value),
+            "overlay-dat-dir" => self.o.world_overlay = Some(PathBuf::from(value)),
             "server" => match value.parse() {
                 Ok(a) => self.o.server = Some(a),
                 Err(e) => return self.fail(&format!("--server: {e} (want IP:PORT)")),
@@ -223,6 +261,7 @@ impl Reader for Line {
             "dev-character" => self.o.character = Some(value.to_owned()),
             "dev-overlay" => self.o.overlay = true,
             "dev-script" => self.o.script = Some(PathBuf::from(value)),
+            "dev-perf" => self.o.perf = Some(PathBuf::from(value)),
             "shots" => self.o.shots = Some(PathBuf::from(value)),
             "verbose" => self.o.verbose = true,
             "no-sound" => self.o.no_sound = true,
@@ -265,6 +304,7 @@ impl Reader for Line {
     }
 }
 
+// D2-00096
 fn options() -> Result<Options, String> {
     let words: Vec<String> = std::env::args().collect();
     let words: Vec<&str> = words.iter().map(String::as_str).collect();
@@ -307,11 +347,15 @@ fn options() -> Result<Options, String> {
         }
     }
     o.language.clone_from(&c.language);
+    o.forced_gore = (c.top_gore.unwrap_or(0), u32::from(c.green_blood));
     o.gun_server.clone_from(&c.gun_server);
     o.gun_port = (c.gun_port != 0).then_some(c.gun_port);
     o.gun_ticket = c.gun_ticket != 0;
     o.gun_ticket_override.clone_from(&c.gun_ticket_override);
+    o.line = c.clone();
     o.prefs.clone_from(&c.prefs);
+    o.user.clone_from(&c.user);
+    o.create.clone_from(&c.create);
     Ok(o)
 }
 
@@ -345,86 +389,23 @@ fn settings_dir() -> PathBuf {
     )
 }
 
-/// The data files: the world's (portal, cell, high resolution) and the client's (those and the
-/// strings of the language to run in, in the order the client opens them, with the script library
-/// linked). The language is the command line's, else the preferences', else English (English too
-/// when the install has no strings for it); its name comes back with the data.
-fn open(
-    dir: &Path,
-    language: Option<&str>,
-    preferences: &str,
-) -> Result<(WorldData, ClientData, String), String> {
-    let found = install_dats(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let open = |want: &dyn Fn(&DatName) -> bool| -> Option<DatFile> {
-        let (_, p) = found.iter().find(|(n, _)| want(n))?;
-        DatFile::open(p).ok()
-    };
-    let portal = open(&|n| *n == DatName::Portal).ok_or("no portal file")?;
-    let cell = open(&|n| *n == DatName::Cell(1)).ok_or("no cell file")?;
-    let ctx = auberean_assets::Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
-    let records = auberean_world::records::WorldRecords::new(
-        portal,
-        cell,
-        open(&|n| *n == DatName::HighRes),
-        ctx,
-    );
-    let world = WorldData::new(records)?;
-    let languages = EnumNames::read(&world.records, LANGUAGES);
-    let prefs = Preferences::startup(Profile::new(preferences), Names::read(&world.records));
-    let mut id = auberean_shell::preferences::language(language, &prefs, &languages);
-    let mut name = languages.name(id).unwrap_or("English").to_owned();
-    if !found
-        .iter()
-        .any(|(n, _)| *n == DatName::Local(name.clone()))
-    {
-        tracing::warn!(language = %name, "no strings for the language: English");
-        id = ENGLISH;
-        name = "English".to_owned();
-    }
-    let portal = Arc::new(open(&|n| *n == DatName::Portal).ok_or("no portal file")?);
-    let mut files = vec![Arc::clone(&portal)];
-    files.extend(open(&|n| *n == DatName::Local(name.clone())).map(Arc::new));
-    files.extend(open(&|n| *n == DatName::Cell(1)).map(Arc::new));
-    files.extend(open(&|n| *n == DatName::HighRes).map(Arc::new));
-    let program = auberean_client_sdk::runtime::link_scripts(&portal)?;
-    let data = ClientData {
-        files: DataFiles {
-            files,
-            language: id,
-        },
-        scripts: Some((portal, Arc::new(program))),
-    };
-    Ok((world, data, name))
-}
-
-/// The interface's records: the language's strings first, then the portal and high-resolution
-/// files.
-fn ui_assets(dir: &Path, language: &str) -> Result<Arc<auberean_ui::DatAssets>, String> {
-    let found = install_dats(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let open = |want: &dyn Fn(&DatName) -> bool| -> Option<DatFile> {
-        let (_, p) = found.iter().find(|(n, _)| want(n))?;
-        DatFile::open(p).ok()
-    };
-    let portal = open(&|n| *n == DatName::Portal).ok_or("no portal file")?;
-    let ctx = auberean_assets::Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
-    let mut dats = Vec::new();
-    dats.extend(open(&|n| *n == DatName::Local(language.to_owned())));
-    dats.push(portal);
-    dats.extend(open(&|n| *n == DatName::HighRes));
-    Ok(Arc::new(auberean_ui::DatAssets::new(dats, ctx)))
-}
-
 /// The desktop as the shell's host.
 struct Desktop {
     start: Instant,
     socket: Option<UdpSocket>,
     window: Option<Arc<Window>>,
+    /// How the game is to be shown, asked for and not yet carried out.
+    presentation: Option<Presentation>,
+    /// The window's drawing area and the size of the picture filling it.
+    picture_in_window: ([f32; 4], (u32, u32)),
     settings: PathBuf,
     /// The preferences file, in the settings folder unless named elsewhere.
     settings_file: PathBuf,
     /// The install's folder: the game's own files beside its data files.
     install: PathBuf,
     held: bool,
+    /// A script is playing: the window hears it alone, and the real pointer is left alone.
+    scripted: bool,
     seed: u64,
     buf: Vec<u8>,
     friends: friends::FriendsSocket,
@@ -435,6 +416,10 @@ struct Desktop {
 impl Host for Desktop {
     fn now(&self) -> f64 {
         self.start.elapsed().as_secs_f64()
+    }
+
+    fn set_presentation(&mut self, presentation: &Presentation) {
+        self.presentation = Some(*presentation);
     }
 
     fn unix_time(&self) -> u32 {
@@ -486,11 +471,24 @@ impl Host for Desktop {
         }
     }
 
+    fn open_page(&mut self, url: &str) -> Result<(), i32> {
+        open::that(url).map_err(|e| e.raw_os_error().unwrap_or(0))
+    }
+
+    fn error_box(&mut self, title: &str, text: &str) {
+        // The box needs the pointer: one held for mouse look is let go of first.
+        self.hold_pointer(false);
+        dereth_console::error_box(title, text, 0);
+    }
+
     fn hold_pointer(&mut self, held: bool) {
         if held == self.held {
             return;
         }
         self.held = held;
+        if self.scripted {
+            return;
+        }
         if let Some(w) = &self.window {
             if held {
                 if w.set_cursor_grab(CursorGrabMode::Locked).is_err() {
@@ -515,9 +513,18 @@ impl Host for Desktop {
         };
         w.set_ime_allowed(area.is_some());
         if let Some(a) = area {
+            let (shown, drawn) = self.picture_in_window;
+            #[allow(clippy::cast_precision_loss)]
+            let (x, y) = on_window((a.x as f32, a.y as f32), shown, drawn);
+            #[allow(clippy::cast_precision_loss)]
+            let (width, height) = on_window(
+                (a.width as f32, a.height as f32),
+                [0.0, 0.0, shown[2], shown[3]],
+                drawn,
+            );
             w.set_ime_cursor_area(
-                winit::dpi::PhysicalPosition::new(a.x, a.y),
-                winit::dpi::PhysicalSize::new(a.width, a.height),
+                winit::dpi::PhysicalPosition::new(x, y),
+                winit::dpi::PhysicalSize::new(width, height),
             );
         }
     }
@@ -591,16 +598,101 @@ impl Host for Desktop {
     }
 }
 
+/// The device for `window`.
+fn presenter(
+    window: &Arc<Window>,
+    presentation: &Presentation,
+) -> Result<auberean_present::Presenter, String> {
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let size = window.inner_size();
+    let surface = instance
+        .create_surface(Arc::clone(window))
+        .map_err(|e| format!("no surface for the window: {e}"))?;
+    let mut p = auberean_present::Presenter::new(
+        instance,
+        surface,
+        (size.width, size.height),
+        presentation.antialiasing,
+    )?;
+    p.set_presentation(
+        presentation.full_screen,
+        presentation.triple_buffering,
+        presentation.sync_to_display,
+    );
+    Ok(p)
+}
+
+/// The sizes the display's row offers: those of a monitor's modes of full color.
+/// Whether a window's event comes from the keyboard, the mouse or the window being the active one:
+/// what a script playing stands in for, so it plays the same in a window in the background.
+const fn from_the_devices(event: &WindowEvent) -> bool {
+    matches!(
+        event,
+        WindowEvent::Focused(_)
+            | WindowEvent::KeyboardInput { .. }
+            | WindowEvent::ModifiersChanged(_)
+            | WindowEvent::Ime(_)
+            | WindowEvent::MouseInput { .. }
+            | WindowEvent::CursorMoved { .. }
+            | WindowEvent::CursorEntered { .. }
+            | WindowEvent::CursorLeft { .. }
+            | WindowEvent::MouseWheel { .. }
+    )
+}
+
+fn monitor_sizes(monitor: Option<winit::monitor::MonitorHandle>) -> Vec<(u32, u32)> {
+    let Some(m) = monitor else {
+        return Vec::new();
+    };
+    let mut sizes: Vec<(u32, u32)> = m
+        .video_modes()
+        .filter(|v| v.bit_depth() >= 32)
+        .map(|v| (v.size().width, v.size().height))
+        .collect();
+    sizes.sort_unstable();
+    sizes.dedup();
+    sizes
+}
+
+/// The window to ask for to show a picture of this size. On macOS a window goes by points, of which
+/// a Retina screen has two pixels to one; elsewhere by the screen's pixels.
+fn window_size_for(size: (u32, u32)) -> winit::dpi::Size {
+    if cfg!(target_os = "macos") {
+        winit::dpi::LogicalSize::new(size.0, size.1).into()
+    } else {
+        winit::dpi::PhysicalSize::new(size.0, size.1).into()
+    }
+}
+
+/// How many of the screen's pixels a window gives each pixel of its picture (see
+/// [`window_size_for`]).
+fn window_scale(window: &Window) -> f64 {
+    if cfg!(target_os = "macos") {
+        window.scale_factor()
+    } else {
+        1.0
+    }
+}
+
 struct App<'w> {
     shell: Shell<'w, Desktop>,
     world: &'w WorldData,
-    present: Option<present::Presenter>,
+    present: Option<auberean_present::Presenter>,
+    /// Each frame's times and device work written out, when asked for.
+    perf: Option<perf::PerfLog>,
+    /// How the game is shown now.
+    shown: Presentation,
+    /// The pointer is on a bar, off the picture.
+    pointer_on_bar: bool,
+    /// The buttons pressed on a bar and not yet let go.
+    pressed_on_bar: Vec<auberean_shell::input::Button>,
+    /// The window's drawing area now.
     script: Option<script::Script>,
     marks: script::Marks,
     shots: PathBuf,
     shot_next: Option<PathBuf>,
     shot_count: u32,
-    ctrl: bool,
     alt: bool,
     failed: Option<String>,
     /// The interface's cursor shown over the window (by its picture), and the cursors made.
@@ -660,16 +752,6 @@ impl App<'_> {
 
     fn send(&mut self, e: &Event) {
         match e {
-            Event::Resized { width, height } => {
-                if let Some(p) = &mut self.present {
-                    p.resize(*width, *height);
-                }
-            }
-            Event::Key {
-                key: Key::ControlLeft | Key::ControlRight,
-                down,
-                ..
-            } => self.ctrl = *down,
             Event::Key {
                 key: Key::AltLeft | Key::AltRight,
                 down,
@@ -682,11 +764,7 @@ impl App<'_> {
                 down: true,
                 repeat: false,
             } if self.alt => {
-                let full = !self.shell.settings.full_screen;
-                self.shell.settings.full_screen = full;
-                if let Some(w) = &self.shell.host.window {
-                    w.set_fullscreen(full.then_some(winit::window::Fullscreen::Borderless(None)));
-                }
+                self.shell.toggle_full_screen();
                 return;
             }
             _ => {}
@@ -694,15 +772,81 @@ impl App<'_> {
         self.shell.event(e);
     }
 
+    /// The window's drawing area is `size`: the device fills it, and the game is told the size of
+    /// the picture it draws.
+    fn window_sized(&mut self, size: (u32, u32)) {
+        let scale = self.shell.host.window.as_deref().map_or(1.0, window_scale);
+        let drawn = self.shown.drawn_in(in_picture_pixels(size, scale));
+        if let Some(p) = &mut self.present {
+            p.resize(size.0, size.1);
+            p.draw_at(drawn.0, drawn.1);
+            p.keep_shape(self.shown.full_screen);
+        }
+        self.shell.host.picture_in_window = (self.shown.shown_in(drawn, size), drawn);
+        self.send(&Event::Resized {
+            width: drawn.0,
+            height: drawn.1,
+        });
+    }
+
+    /// Another device for window `w`, as the game is now shown. The game ends without one.
+    fn make_device(&mut self, el: &ActiveEventLoop, w: &Arc<Window>) {
+        // The window's surface is let go before another is made on it.
+        self.present = None;
+        match presenter(w, &self.shown) {
+            Ok(made) => self.present = Some(made),
+            Err(e) => {
+                self.failed = Some(e);
+                el.exit();
+            }
+        }
+    }
+
+    /// The game shown as the rendering preferences now ask: full screen fills the monitor as it
+    /// is, which never changes its display mode, or the window at its size;
+    /// the device made again for the edges smoothed or not; the way pictures reach the screen.
+    // D2-08343, D2-09722
+    fn show(&mut self, el: &ActiveEventLoop, p: Presentation) {
+        let Some(w) = self.shell.host.window.clone() else {
+            return;
+        };
+        let was = std::mem::replace(&mut self.shown, p);
+        if p.full_screen != was.full_screen {
+            w.set_fullscreen(
+                p.full_screen
+                    .then(|| Fullscreen::Borderless(w.current_monitor())),
+            );
+        }
+        if !p.full_screen && (was.full_screen || p.size != was.size) {
+            let _ = w.request_inner_size(window_size_for(p.size));
+        }
+        if p.antialiasing != was.antialiasing {
+            self.make_device(el, &w);
+        } else if let Some(present) = &mut self.present {
+            present.set_presentation(p.full_screen, p.triple_buffering, p.sync_to_display);
+        }
+        // In full screen the window stays as it is while the picture's size changes; a new device
+        // starts at the window's own size; a window leaving full screen fills again at once.
+        if p.full_screen || was.full_screen || p.antialiasing != was.antialiasing {
+            let size = w.inner_size();
+            self.window_sized((size.width, size.height));
+        }
+    }
+
+    // D2-00029
     fn redraw(&mut self, el: &ActiveEventLoop) {
+        if let Some(p) = self.shell.host.presentation.take() {
+            self.show(el, p);
+        }
         if let Some(s) = &mut self.script {
             let asked = s.step(
                 self.shell.host.now(),
                 self.shell.phase(),
                 &self.shell.scene.status,
             );
+            let playing = s.playing();
             for e in &asked.events {
-                self.shell.event(e);
+                self.send(e);
             }
             if asked.shot.is_some() {
                 self.shot_next = asked.shot;
@@ -713,13 +857,29 @@ impl App<'_> {
             if asked.quit {
                 self.shell.event(&Event::Close);
             }
+            // The script over, the window hears the devices again, starting with its own state.
+            if self.shell.host.scripted && !playing {
+                self.shell.host.scripted = false;
+                if let Some(active) = self.shell.host.window.as_ref().map(|w| w.has_focus()) {
+                    self.send(&Event::Focus(active));
+                }
+            }
         }
-        let shot = self.shot_next.take();
+        let mut shot = self.shot_next.take();
         let world = self.world;
+        let settings = &self.shell.settings;
+        let brightness = settings.full_screen.then(|| settings.screen_brightness());
+        let began = Instant::now();
         let out = self.shell.frame();
+        let shell_took = began.elapsed();
+        if out.screenshot {
+            self.shot_count += 1;
+            shot = Some(self.shots.join(format!("shot-{:03}.png", self.shot_count)));
+        }
         let quit = out.quit;
         let cursor = out.overlay.cursor.clone();
         if let Some(p) = &mut self.present {
+            p.set_brightness(brightness);
             let mut load = |id: u32| auberean_draw::picture::load(&world.records, id);
             p.present(
                 out.world,
@@ -730,6 +890,21 @@ impl App<'_> {
                 &mut load,
                 shot.as_deref(),
             );
+            let work = p.work();
+            if let Some(log) = &mut self.perf {
+                log.frame(began, shell_took, self.shell.costs, work);
+            }
+            if p.hidden() {
+                std::thread::sleep(hidden_rest(began.elapsed()));
+            }
+        }
+        if let Some(why) = self.present.as_ref().and_then(|p| p.renderer.device_lost()) {
+            tracing::error!(%why, "the graphics device was lost: making another");
+            if let Some(w) = self.shell.host.window.clone() {
+                self.make_device(el, &w);
+                let size = w.inner_size();
+                self.window_sized((size.width, size.height));
+            }
         }
         self.set_cursor(el, cursor.as_deref());
         if quit {
@@ -743,16 +918,18 @@ impl ApplicationHandler for App<'_> {
         if self.present.is_some() {
             return;
         }
+        self.shell
+            .set_display_modes(&monitor_sizes(el.primary_monitor()));
         let (w, h) = self.shell.size;
         let attrs = icon::with_icon(Window::default_attributes())
             .with_title("Auberean")
-            .with_inner_size(winit::dpi::PhysicalSize::new(w, h))
+            .with_inner_size(window_size_for((w, h)))
             // D2-08325
             .with_fullscreen(
                 self.shell
                     .settings
                     .full_screen
-                    .then_some(winit::window::Fullscreen::Borderless(None)),
+                    .then(|| Fullscreen::Borderless(el.primary_monitor())),
             );
         let window = match el.create_window(attrs) {
             Ok(w) => Arc::new(w),
@@ -762,7 +939,8 @@ impl ApplicationHandler for App<'_> {
                 return;
             }
         };
-        match present::Presenter::new(Arc::clone(&window)) {
+        self.shown = self.shell.settings.presentation();
+        match presenter(&window, &self.shown) {
             Ok(p) => {
                 tracing::info!(adapter = %p.renderer.adapter, "drawing");
                 self.present = Some(p);
@@ -775,31 +953,19 @@ impl ApplicationHandler for App<'_> {
         }
         let size = window.inner_size();
         self.shell.host.window = Some(window);
-        self.send(&Event::Resized {
-            width: size.width,
-            height: size.height,
-        });
+        self.window_sized((size.width, size.height));
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if self.shell.host.scripted && from_the_devices(&event) {
+            return;
+        }
         match event {
             WindowEvent::CloseRequested => self.send(&Event::Close),
-            WindowEvent::Resized(s) => self.send(&Event::Resized {
-                width: s.width,
-                height: s.height,
-            }),
+            WindowEvent::Resized(s) => self.window_sized((s.width, s.height)),
             WindowEvent::Focused(f) => self.send(&Event::Focus(f)),
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
-                    // Ctrl+P saves a screenshot, as the game's own key does.
-                    if code == winit::keyboard::KeyCode::KeyP
-                        && event.state == ElementState::Pressed
-                        && self.ctrl
-                    {
-                        self.shot_count += 1;
-                        self.shot_next =
-                            Some(self.shots.join(format!("shot-{:03}.png", self.shot_count)));
-                    }
                     if let Some(key) = keys::key(code) {
                         self.send(&Event::Key {
                             key,
@@ -814,18 +980,27 @@ impl ApplicationHandler for App<'_> {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if let Some(button) = keys::button(button) {
-                    self.send(&Event::Button {
-                        button,
-                        down: state == ElementState::Pressed,
-                    });
+                    let down = state == ElementState::Pressed;
+                    // A press on a bar is off the picture, and so is its release.
+                    if down && self.pointer_on_bar {
+                        self.pressed_on_bar.push(button);
+                    } else if !down && self.pressed_on_bar.contains(&button) {
+                        self.pressed_on_bar.retain(|b| *b != button);
+                    } else {
+                        self.send(&Event::Button { button, down });
+                    }
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
                 #[allow(clippy::cast_possible_truncation)]
-                self.send(&Event::Pointer {
-                    x: position.x as f32,
-                    y: position.y as f32,
-                });
+                let (x, y) = on_picture(
+                    (position.x as f32, position.y as f32),
+                    self.shell.host.picture_in_window.0,
+                    self.shell.size,
+                );
+                let ((x, y), on) = held_to_picture((x, y), self.shell.size);
+                self.pointer_on_bar = !on;
+                self.send(&Event::Pointer { x, y });
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 #[allow(clippy::cast_possible_truncation)]
@@ -843,6 +1018,9 @@ impl ApplicationHandler for App<'_> {
     }
 
     fn device_event(&mut self, _el: &ActiveEventLoop, _id: winit::event::DeviceId, e: DeviceEvent) {
+        if self.shell.host.scripted {
+            return;
+        }
         if let DeviceEvent::MouseMotion { delta } = e {
             #[allow(clippy::cast_possible_truncation)]
             self.send(&Event::Motion {
@@ -859,6 +1037,28 @@ impl ApplicationHandler for App<'_> {
     }
 }
 
+/// The world's overlay named on the command line, checked against every file it would lie over: a
+/// world's overlay the client can't take is not played with the installed files instead.
+fn world_overlay(
+    dir: Option<&Path>,
+    found: &[(DatName, PathBuf)],
+) -> Result<Option<WorldOverlay>, String> {
+    let Some(dir) = dir else {
+        return Ok(None);
+    };
+    let overlay = WorldOverlay::open(dir).map_err(|e| e.to_string())?;
+    for (_, path) in found {
+        let file = DatFile::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        overlay.over(file).map_err(|e| e.to_string())?;
+    }
+    tracing::info!(
+        world = overlay.world(),
+        "reading the data files through a world's overlay"
+    );
+    Ok(Some(overlay))
+}
+
+// D2-00130, D2-01703
 fn run() -> Result<(), String> {
     let o = options()?;
     tracing_subscriber::fmt()
@@ -870,9 +1070,23 @@ fn run() -> Result<(), String> {
         .with_writer(std::io::stderr)
         .init();
     let settings = settings_dir();
+    // D2-16047, D2-16017
     let settings_file = settings.join(o.prefs.as_deref().unwrap_or(SETTINGS_FILE));
     let preferences = std::fs::read_to_string(&settings_file).unwrap_or_default();
-    let (world, data, language) = open(&o.dats, o.language.as_deref(), &preferences)?;
+    let found = install_dats(&o.dats).map_err(|e| format!("{}: {e}", o.dats.display()))?;
+    let overlay = world_overlay(o.world_overlay.as_deref(), &found)?;
+    let install = Install {
+        found: found.iter().map(|(n, _)| n.clone()).collect(),
+        open: &|name| {
+            let (_, path) = found.iter().find(|(n, _)| n == name)?;
+            let file = DatFile::open(path).ok()?;
+            match &overlay {
+                Some(w) => w.over(file).ok(),
+                None => Some(file),
+            }
+        },
+    };
+    let (world, data, language) = open_data(&install, o.language.as_deref(), &preferences)?;
     tracing::info!(settings = %settings.display(), "settings");
     let shots = o
         .shots
@@ -881,7 +1095,7 @@ fn run() -> Result<(), String> {
     let server = o
         .server
         .unwrap_or_else(|| SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000));
-    let assets = ui_assets(&o.dats, &language)?;
+    let assets = ui_assets(&install, &language)?;
     let login = o
         .account
         .as_ref()
@@ -890,7 +1104,10 @@ fn run() -> Result<(), String> {
             account: account.clone(),
             password: password.clone(),
         });
-    let mut retail = auberean_interface::Retail::new(assets, o.size.unwrap_or((1024, 768)), login);
+    let mut retail = auberean_interface::Retail::new(assets, o.size.unwrap_or((1024, 768)), login)
+        .with_forced_gore(o.forced_gore.0, o.forced_gore.1)
+        .with_start_character(o.user.as_deref(), o.create.as_deref())
+        .with_admin_client(o.admin_client);
     if let Some((account, password)) = &o.login {
         retail = retail.with_auto(auberean_shell::dev::DevLogin::new(
             server,
@@ -906,10 +1123,13 @@ fn run() -> Result<(), String> {
         start: Instant::now(),
         socket: None,
         window: None,
+        presentation: None,
+        picture_in_window: ([0.0, 0.0, 1.0, 1.0], (1, 1)),
         settings_file,
         settings,
         install: o.dats.clone(),
         held: false,
+        scripted: o.script.is_some(),
         seed: u64::from(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -920,6 +1140,7 @@ fn run() -> Result<(), String> {
         sound: (!o.no_sound).then(dereth_audio_out::CpalOutput::default),
     };
     let mut shell = Shell::new(host, &world, data, interface);
+    shell.apply_line(&o.line);
     shell.dev_overlay = o.overlay;
     shell.friends = friends_service(&o);
     if let Some(s) = o.size {
@@ -932,16 +1153,24 @@ fn run() -> Result<(), String> {
     if let Some(seconds) = o.no_window {
         return no_window(shell, script, seconds);
     }
+    let shown = shell.settings.presentation();
+    let perf = match &o.perf {
+        Some(f) => Some(perf::PerfLog::create(f).map_err(|e| format!("{}: {e}", f.display()))?),
+        None => None,
+    };
     let mut app = App {
         shell,
+        perf,
         world: &world,
         present: None,
+        shown,
+        pointer_on_bar: false,
+        pressed_on_bar: Vec::new(),
         script,
         marks: script::Marks::default(),
         shots,
         shot_next: None,
         shot_count: 0,
-        ctrl: false,
         alt: false,
         failed: None,
         cursor: None,
@@ -999,6 +1228,12 @@ fn no_window(
     }
 }
 
+/// How long a frame that took `took` rests in a window that can't be seen. Nothing there waits for
+/// the display, so without this it would draw as fast as it can.
+fn hidden_rest(took: std::time::Duration) -> std::time::Duration {
+    std::time::Duration::from_micros(16_667).saturating_sub(took)
+}
+
 fn main() -> ExitCode {
     // `--version` alone: what this build is, and nothing opened.
     if std::env::args().skip(1).eq(["--version"]) {
@@ -1023,6 +1258,36 @@ fn version_text() -> String {
         option_env!("AUBEREAN_BUILD_COMMIT").unwrap_or("unknown"),
         option_env!("AUBEREAN_BUILD_TARGET").unwrap_or("unknown"),
     )
+}
+
+#[cfg(test)]
+mod script_tests {
+    //! Behaviour: none (tooling: a developer's script of input)
+    use super::{from_the_devices, WindowEvent};
+
+    #[test]
+    fn a_script_stands_in_for_the_devices_and_not_for_the_window() {
+        assert!(from_the_devices(&WindowEvent::Focused(false)));
+        assert!(!from_the_devices(&WindowEvent::CloseRequested));
+        assert!(!from_the_devices(&WindowEvent::RedrawRequested));
+    }
+}
+
+#[cfg(test)]
+mod hidden_tests {
+    //! Behaviour: none (a window nobody can see, which retail's own loop isn't measured against)
+    use super::hidden_rest;
+    use std::time::Duration;
+
+    #[test]
+    fn a_hidden_window_rests_out_a_sixtieth_of_a_second_and_a_slow_frame_not_at_all() {
+        assert_eq!(hidden_rest(Duration::ZERO), Duration::from_micros(16_667));
+        assert_eq!(
+            hidden_rest(Duration::from_millis(10)),
+            Duration::from_micros(6_667)
+        );
+        assert_eq!(hidden_rest(Duration::from_millis(40)), Duration::ZERO);
+    }
 }
 
 #[cfg(test)]

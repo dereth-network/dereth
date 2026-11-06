@@ -1,7 +1,7 @@
 [package]
 name = "yalain-net"
 description = "Server sessions over the shared transport: the login and world services' handshakes, each connection's reliable transport, the referral that takes a client from the login service to the world, message sending under blob ids, and teardown."
-version = "0.1.2" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
+version = "0.2.1" # Yalain's own version, shared by every yalain-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -11,17 +11,26 @@ autotests = false
 [features]
 # The UDP socket driver (`udp`): the native host's sockets.
 udp = []
+# The WebSocket endpoint beside those sockets (`websocket`).
+websocket = ["udp", "dep:dereth-server-websocket"]
 
 [dependencies]
 auberean-primitives.workspace = true
 dereth-transport.workspace = true
 dereth-primitives.workspace = true
 tracing.workspace = true
+# The WebSocket endpoint, the game servers' shared one.
+dereth-server-websocket = { workspace = true, features = ["endpoint"], optional = true }
 # The status ping's tokens: an HMAC-SHA256 code over the asker's address.
 hmac.workspace = true
 sha2.workspace = true
 # The Dereth Network hub's challenge to the game port, read before the packet reader.
 dereth-network-protocol.workspace = true
+
+[dev-dependencies]
+# Its own tests take the WebSocket endpoint, and are its clients.
+yalain-net = { path = ".", features = ["websocket"] }
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 
 [lints]
 workspace = true

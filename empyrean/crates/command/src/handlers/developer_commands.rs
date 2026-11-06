@@ -5122,7 +5122,7 @@ pub fn handle_show_tier(w: &mut World, session: Option<SessionId>, _parameters: 
     };
 
     let msg = match empyrean_world::world_objects::creature_death::death_treasure(w, creature) {
-        Some(dt) => format!("DeathTreasure - Tier: {}", dt.tier),
+        Some(dt) => format!("DeathTreasure - Tier: {}", dt.tier()),
         None => "doesn't have PropertyDataId.DeathTreasureType".to_owned(),
     };
 

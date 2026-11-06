@@ -1578,6 +1578,7 @@ impl<H: Host> ClientShell<H> {
                         text: text.to_owned(),
                     });
             }
+            self.horizon.keys.set_era(cx.hud().era.features());
             if let Some(view) = self.horizon.keys.view(input, cx.store()) {
                 ui.keys = Some(view);
             }

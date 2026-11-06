@@ -70,6 +70,7 @@ struct Options {
     at: Option<(u16, Option<(f32, f32)>)>,
     size: (u32, u32),
     scale: f32,
+    scale_chosen: bool,
     programs: live::Programs,
     script: Option<PathBuf>,
     shots: Option<PathBuf>,
@@ -87,7 +88,7 @@ athenaeum-editor <world> --dats <install> [options]
   --pack NAME           the pack edits go into (default: the world's last)
   --at XXYY[:X,Y]       start over landblock XXYY (hex), at X,Y in it (default 80,80)
   --size WxH            the window's size (default 1600x900)
-  --scale S             the panels' scale (default 1)
+  --scale S             the panels' scale (default: the screen's)
   --yalain EXE          the Yalain that plays the world (default: the one beside this program)
   --server-dats DIR     the install Yalain reads (default: --dats; give a copy no client runs
                         from when the retail client plays)
@@ -151,7 +152,10 @@ fn options_from(args: impl IntoIterator<Item = String>) -> Result<Options, Strin
                     h.parse().map_err(|e| format!("--size: {e}"))?,
                 );
             }
-            "--scale" => o.scale = value()?.parse().map_err(|e| format!("--scale: {e}"))?,
+            "--scale" => {
+                o.scale = value()?.parse().map_err(|e| format!("--scale: {e}"))?;
+                o.scale_chosen = true;
+            }
             "--yalain" => o.programs.yalain = Some(PathBuf::from(value()?)),
             "--server-dats" => o.programs.server_dats = Some(PathBuf::from(value()?)),
             "--client" => o.programs.client = Some(PathBuf::from(value()?)),
@@ -205,9 +209,21 @@ struct App<'w> {
     last: f64,
     failed: Option<String>,
     quit: bool,
+    /// The command line chose the panels' scale.
+    scale_chosen: bool,
 }
 
 impl App<'_> {
+    /// The panels at the screen's scale, unless the command line chose one.
+    fn follow_scale(&mut self, scale: f64) {
+        if !self.scale_chosen {
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                self.gui.scale = scale as f32;
+            }
+        }
+    }
+
     /// Run the steps a script has due.
     fn script(&mut self, now: f64) {
         let Some(s) = &mut self.script else {
@@ -222,6 +238,7 @@ impl App<'_> {
                     e.camera.position = Vec3::new(g[0], g[1], g[2]);
                     e.camera.yaw = yaw.to_radians();
                     e.camera.pitch = pitch.to_radians();
+                    e.enter_block(lb, at);
                 }
                 Step::Fly(item) => e.fly_to(&item),
                 Step::Select(item) => e.select(item),
@@ -230,17 +247,16 @@ impl App<'_> {
                         "static" => NewKind::Static,
                         "camp" => NewKind::Camp,
                         "place" => NewKind::Place,
+                        "clearing" => NewKind::Clearing,
                         _ => NewKind::Person,
                     };
                     e.template = template;
-                    let g = view::global(lb, [x, y, 0.0]);
-                    let z = e.scene.ground(g[0], g[1]).unwrap_or(0.0);
-                    e.place_at([g[0], g[1], z], h);
+                    let g = e.standing_at(lb, x, y);
+                    e.place_at(g, h);
                 }
                 Step::Move(item, lb, x, y) => {
-                    let g = view::global(lb, [x, y, 0.0]);
-                    let z = e.scene.ground(g[0], g[1]).unwrap_or(0.0);
-                    e.move_row(&item, [g[0], g[1], z]);
+                    let g = e.standing_at(lb, x, y);
+                    e.move_row(&item, g);
                 }
                 Step::Turn(item, h) => {
                     if let Err(err) = e.session.turn(&item, h) {
@@ -296,7 +312,42 @@ impl App<'_> {
                 Step::Import(file, name) => e.import_character(&file, &name),
                 Step::Teleport => e.teleport_to_camera(),
                 Step::Characters => e.characters_open = !e.characters_open,
+                Step::Point(x, y) => self.gui.point([x, y]),
+                Step::Button(left, down) => {
+                    if left {
+                        self.gui.button(egui::PointerButton::Primary, down);
+                        self.input.left_down = down;
+                        self.input.left_pressed |= down;
+                        self.input.left_released |= !down;
+                    } else {
+                        self.gui.button(egui::PointerButton::Secondary, down);
+                        self.input.right_down = down;
+                    }
+                }
+                Step::Wheel(n) => {
+                    self.gui.wheel(n);
+                    self.input.wheel += n;
+                }
+                Step::Key(name, ctrl, shift) => match gui::key_named(&name) {
+                    Some(code) => {
+                        self.gui.key(
+                            code,
+                            egui::Modifiers {
+                                ctrl,
+                                shift,
+                                command: ctrl,
+                                ..egui::Modifiers::default()
+                            },
+                        );
+                        self.input.ctrl = ctrl;
+                        self.input.shift = shift;
+                        self.input.pressed.push(code);
+                    }
+                    None => e.status = format!("{name}: no such key"),
+                },
+                Step::Type(text) => self.gui.type_text(&text),
                 Step::Shot(p) => self.shot_next = Some(p),
+                Step::Close => e.ask_close(),
                 Step::Quit => self.quit = true,
             }
             tracing::info!("script: {}", self.editor.status);
@@ -304,6 +355,7 @@ impl App<'_> {
     }
 
     fn redraw(&mut self, el: &ActiveEventLoop) {
+        let began = std::time::Instant::now();
         let now = self.start.elapsed().as_secs_f64();
         #[allow(clippy::cast_possible_truncation)]
         let dt = ((now - self.last) as f32).clamp(0.0, 0.25);
@@ -327,7 +379,14 @@ impl App<'_> {
         });
         let p = self.gui.pointer_pixels();
         let inside = viewport.contains(egui::pos2(p[0] / self.gui.scale, p[1] / self.gui.scale));
-        let over = !inside || self.gui.ctx.egui_is_using_pointer();
+        // A window floating over the world keeps its clicks.
+        let pointer = egui::pos2(p[0] / self.gui.scale, p[1] / self.gui.scale);
+        let over_window = self
+            .gui
+            .ctx
+            .layer_id_at(pointer)
+            .is_some_and(|l| l.order != egui::Order::Background);
+        let over = !inside || over_window || self.gui.ctx.egui_is_using_pointer();
         let typing = self.gui.ctx.egui_wants_keyboard_input();
         self.input.pointer = self.gui.pointer_pixels();
         self.editor.world_input(&self.input, over, typing, dt);
@@ -341,6 +400,11 @@ impl App<'_> {
         let frame = self.editor.frame();
         let mut load = |id: u32| auberean_draw::picture::load(&world.records, id);
         present.present(Some(frame), out, &self.gui.ctx, &mut load, shot.as_deref());
+        if present.hidden() {
+            std::thread::sleep(hidden_rest(began.elapsed()));
+        }
+        self.editor
+            .draw_picture(&self.gui.ctx, &mut present.renderer, &mut load);
         if let Some(w) = &self.window {
             let dirty = if self.editor.session.unsaved() {
                 "*"
@@ -356,7 +420,7 @@ impl App<'_> {
                     .map_or_else(String::new, |n| n.to_string_lossy().to_string())
             ));
         }
-        if self.quit {
+        if self.quit || self.editor.close_now {
             self.editor.keep_camera();
             self.editor.live.stop_all();
             el.exit();
@@ -372,7 +436,7 @@ impl ApplicationHandler for App<'_> {
         let (w, h) = self.editor.size;
         let attrs = icon::with_icon(Window::default_attributes())
             .with_title("Athenaeum")
-            .with_inner_size(winit::dpi::PhysicalSize::new(w, h));
+            .with_inner_size(window_size_for((w, h)));
         let window = match el.create_window(attrs) {
             Ok(w) => Arc::new(w),
             Err(e) => {
@@ -396,16 +460,16 @@ impl ApplicationHandler for App<'_> {
         if let Some(p) = &mut self.present {
             p.resize(size.width, size.height);
         }
+        self.follow_scale(window.scale_factor());
         self.window = Some(window);
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         self.gui.event(&event);
         match &event {
-            WindowEvent::CloseRequested => {
-                self.editor.keep_camera();
-                self.editor.live.stop_all();
-                el.exit();
+            WindowEvent::CloseRequested => self.editor.ask_close(),
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                self.follow_scale(*scale_factor);
             }
             WindowEvent::Resized(s) => {
                 if let Some(p) = &mut self.present {
@@ -430,7 +494,7 @@ impl ApplicationHandler for App<'_> {
                 }
             }
             WindowEvent::ModifiersChanged(m) => {
-                self.input.ctrl = m.state().control_key();
+                self.input.ctrl = gui::command_key(m.state());
                 self.input.shift = m.state().shift_key();
             }
             WindowEvent::MouseInput { state, button, .. } => {
@@ -483,6 +547,16 @@ impl ApplicationHandler for App<'_> {
     }
 }
 
+/// The window to ask for: on macOS a window goes by points, of which a Retina screen has two pixels
+/// to one; elsewhere by the screen's pixels.
+fn window_size_for(size: (u32, u32)) -> winit::dpi::Size {
+    if cfg!(target_os = "macos") {
+        winit::dpi::LogicalSize::new(size.0, size.1).into()
+    } else {
+        winit::dpi::PhysicalSize::new(size.0, size.1).into()
+    }
+}
+
 /// The skills' names enumeration in the portal file.
 const SKILL_NAMES: u32 = 0x2300_000F;
 
@@ -504,6 +578,9 @@ fn skill_names(files: &build::InstallFiles) -> Vec<(u32, String)> {
         .map(|m| m.names)
         .unwrap_or_default()
 }
+
+/// Where a world with nothing of its own yet opens: open ground on the edge of a town.
+const START: (u16, f32, f32) = (0x5766, 123.0, 50.0);
 
 /// Where the camera starts: `--at`, else where it was when the world was last closed, else over
 /// the target pack's first row, else over the
@@ -529,18 +606,7 @@ fn start_camera(o: &Options, session: &Session, scene: &mut scene::Scene<'_>) ->
         let at = e.at();
         (e.landblock(), at.x, at.y)
     } else {
-        let mut by: std::collections::BTreeMap<u16, (u32, f32, f32)> = Default::default();
-        for e in session.entries().iter().filter(|e| outdoors(e)) {
-            let at = e.at();
-            let s = by.entry(e.landblock()).or_default();
-            *s = (s.0 + 1, s.1 + at.x, s.2 + at.y);
-        }
-        #[allow(clippy::cast_precision_loss)]
-        by.into_iter()
-            .max_by_key(|(lb, (n, _, _))| (*n, std::cmp::Reverse(*lb)))
-            .map_or((0x77B8, 80.0, 80.0), |(lb, (n, x, y))| {
-                (lb, x / n as f32, y / n as f32)
-            })
+        START
     };
     let g = view::global(lb, [x, y, 0.0]);
     let ground = scene.ground(g[0], g[1]).unwrap_or(0.0);
@@ -666,6 +732,7 @@ fn run() -> Result<(), String> {
         last: 0.0,
         failed: None,
         quit: false,
+        scale_chosen: o.scale_chosen,
     };
     let el = EventLoop::new().map_err(|e| e.to_string())?;
     el.set_control_flow(ControlFlow::Poll);
@@ -705,6 +772,29 @@ fn version_text() -> String {
         option_env!("ATHENAEUM_BUILD_COMMIT").unwrap_or("unknown"),
         option_env!("ATHENAEUM_BUILD_TARGET").unwrap_or("unknown"),
     )
+}
+
+/// How long a frame that took `took` rests in a window that can't be seen. Nothing there waits for
+/// the display, so without this it would draw as fast as it can.
+fn hidden_rest(took: std::time::Duration) -> std::time::Duration {
+    std::time::Duration::from_micros(16_667).saturating_sub(took)
+}
+
+#[cfg(test)]
+mod hidden_tests {
+    //! Behaviour: none (a window nobody can see draws no picture)
+    use super::hidden_rest;
+    use std::time::Duration;
+
+    #[test]
+    fn a_hidden_window_rests_out_a_sixtieth_of_a_second_and_a_slow_frame_not_at_all() {
+        assert_eq!(hidden_rest(Duration::ZERO), Duration::from_micros(16_667));
+        assert_eq!(
+            hidden_rest(Duration::from_millis(10)),
+            Duration::from_micros(6_667)
+        );
+        assert_eq!(hidden_rest(Duration::from_millis(40)), Duration::ZERO);
+    }
 }
 
 #[cfg(test)]

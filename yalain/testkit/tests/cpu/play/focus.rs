@@ -139,6 +139,7 @@ fn world(hero: bool, above: i32) -> (Harness, usize, u64, [u64; 3]) {
             goal: None,
             effect: 0,
             assist: None,
+            next_tend: 0.0,
         },
     );
     (h, b, me, [prey, pet, other])
@@ -165,7 +166,7 @@ fn a_heros_kill_pays_its_death_focus_in_parts_with_the_experience() {
     let clock = h.clock();
     // The player takes 119, its pet 181: 20 x 119 / 300 = 7.9 and 20 x 181 / 300 = 12.1.
     combat::hurt_creature(&mut h.server, &mut h.net, prey, me, 119, clock);
-    pets::struck(&mut h.server, &mut h.net, prey, pet, 181, clock);
+    pets::struck(&mut h.server, &mut h.net, prey, (pet, 0), 181, clock);
     h.run(10);
     assert_eq!(
         told(&h, b, from),

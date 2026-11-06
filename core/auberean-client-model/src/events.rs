@@ -11,12 +11,17 @@
 //! does not exist yet.
 //!
 //! **Order.** A private message (ordering type 1, the player's own stream) takes effect only after
-//! the one stamped before it: the first one accepted is stamped 0 or 1, an older or repeated stamp
-//! is dropped, and twenty held messages blocked for five minutes give up on the gap. A visual
-//! message (type 2) is about an object and is ordered by the visual stamp it carries against that
-//! object's: the object's creation sets the start, an older stamp is dropped, a newer one waits for
-//! the stamps between. Unordered messages (type 3) take effect as they come. Any other type is
-//! dropped.
+//! the one stamped before it: the first one accepted is stamped 0 or 1, and a stamp at or before
+//! the last one taken is dropped. A stamp arriving again while it is held past a gap is held again,
+//! and takes effect twice, the later arrival first. With twenty held and five minutes blocked, a
+//! message arriving gives up one missing stamp, and the five minutes start again if the next held
+//! one is still not next; they also start again whenever a look at the held messages finds that.
+//! A visual message (type 2) is about an object and is ordered by the visual stamp it carries
+//! against that object's: the object's creation sets the start, an older stamp is dropped, a newer
+//! one waits for the stamps between. Unordered messages (type 3) take effect as they come. Any other type is
+//! dropped. A private or visual message this client cannot read still counts for its stamp, so what
+//! comes after it is not held for it: a visual message's object and stamps stand at its head,
+//! whatever its type.
 //!
 //! **Objects not here yet.** A message about an object the client does not have, or about a newer
 //! incarnation of it (a higher instance stamp), waits in that object's queue; one about an older
@@ -28,7 +33,7 @@
 //! is created again. A queue nothing more comes for stays blocked, and a missing message that comes
 //! late still lets everything after it through.
 
-use std::collections::{BTreeMap, BinaryHeap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use auberean_protocol::physics::CreateObject;
 use auberean_protocol::types::ObjectStamp;
@@ -89,10 +94,29 @@ pub enum WorldState {
     InWorld,
 }
 
-/// `a` is newer than `b` on a 16-bit stamp circle: the difference is less than half the circle.
+/// `a` is newer than `b` on a 16-bit stamp circle: the larger number is newer while they are less
+/// than half the circle apart, and the smaller from there on, exactly half included.
 #[must_use]
 pub fn newer(a: u16, b: u16) -> bool {
-    a != b && a.wrapping_sub(b) < 0x8000
+    if a.abs_diff(b) < 0x8000 {
+        b < a
+    } else {
+        a < b
+    }
+}
+
+/// The object and stamps at the head of a visual message's bytes, whatever its type, after its
+/// type word. None for one too short to hold them.
+// D2-03936
+#[must_use]
+pub fn visual_head(raw: &[u8]) -> Option<ObjectStamp> {
+    let head = raw.get(4..16)?;
+    let word = |at: usize| u16::from_le_bytes([head[at], head[at + 1]]);
+    Some(ObjectStamp {
+        id: u64::from_le_bytes(head[..8].try_into().ok()?),
+        instance_stamp: word(8),
+        other_stamp: word(10),
+    })
 }
 
 /// The object a message is about: the sender of an object event, the object of a visual quality
@@ -141,22 +165,27 @@ pub fn subject(m: &ServerMessage) -> Option<ObjectStamp> {
     })
 }
 
-/// The private stream's order keeper.
+/// The private stream's order keeper: blocking on a gap is the only way it runs, and what it still
+/// holds goes with it.
+// D2-14302, D2-14304
 #[derive(Debug, Default)]
 struct PrivateStream {
     started: bool,
     last: u32,
-    held: BTreeMap<u32, Item>,
+    /// Held messages in stamp order, nothing for one that did not read; a stamp arriving again
+    /// goes before the one already held.
+    held: VecDeque<(u32, Option<Item>)>,
     blocked_since: Option<f64>,
 }
 
 impl PrivateStream {
-    /// Take a message; what may now take effect goes to `out`, in order.
-    // D2-14307, D2-14306, D2-14303, D2-05618, D2-05630
+    /// Take a message, or the stamp of one that did not read; what may now take effect goes to
+    /// `out`, in order.
+    // D2-14307, D2-14308, D2-05618
     fn add(
         &mut self,
         stamp: u32,
-        item: Item,
+        item: Option<Item>,
         now: f64,
         out: &mut VecDeque<Item>,
         dropped: &mut u32,
@@ -168,16 +197,12 @@ impl PrivateStream {
         self.started = true;
         if stamp == self.last || stamp == self.last + 1 {
             self.last = stamp;
-            out.push_back(item);
-            self.flush(out);
-            return;
-        }
-        if self.held.contains_key(&stamp) {
-            *dropped += 1;
+            out.extend(item);
+            self.flush(now, out);
             return;
         }
         let was_empty = self.held.is_empty();
-        self.held.insert(stamp, item);
+        self.hold(stamp, item);
         if was_empty {
             self.blocked_since = Some(now);
         }
@@ -186,30 +211,51 @@ impl PrivateStream {
                 .blocked_since
                 .is_some_and(|t| now - t > PRIVATE_STREAM_PATIENCE)
         {
-            // Give up on the gap: the next held message goes on as if the gap had arrived.
+            // Give up on one missing stamp, as if it had arrived empty.
             self.last += 1;
-            if let Some((&first, _)) = self.held.iter().next() {
-                self.last = self.last.max(first.saturating_sub(1));
-            }
-            self.flush(out);
+            self.flush(now, out);
         }
     }
 
-    fn flush(&mut self, out: &mut VecDeque<Item>) {
-        while let Some((&s, _)) = self.held.iter().next() {
-            if s == self.last || s == self.last + 1 {
-                if let Some(item) = self.held.remove(&s) {
-                    self.last = s;
-                    out.push_back(item);
-                }
-            } else {
-                break;
+    // D2-14306
+    fn hold(&mut self, stamp: u32, item: Option<Item>) {
+        let at = self.held.partition_point(|(s, _)| *s < stamp);
+        self.held.insert(at, (stamp, item));
+    }
+
+    /// The held message that follows the last one taken goes to `out`, if the first held does,
+    /// and the answer is whether one did; if not, the wait for it starts again from now.
+    // D2-14303
+    fn next_ready(&mut self, now: f64, out: &mut VecDeque<Item>) -> bool {
+        let Some(&(first, _)) = self.held.front() else {
+            return false;
+        };
+        if first == self.last || first == self.last + 1 {
+            self.last = first;
+            if let Some((_, item)) = self.held.pop_front() {
+                out.extend(item);
             }
-        }
-        if self.held.is_empty() {
-            self.blocked_since = None;
+            if self.held.is_empty() {
+                self.blocked_since = None;
+            }
+            true
+        } else {
+            self.blocked_since = Some(now);
+            false
         }
     }
+
+    // D2-05630
+    fn flush(&mut self, now: f64, out: &mut VecDeque<Item>) {
+        while self.next_ready(now, out) {}
+    }
+}
+
+/// A held visual message and its visual stamp; nothing for one that did not read.
+#[derive(Debug)]
+struct Stamped {
+    stamp: u16,
+    item: Option<Item>,
 }
 
 /// An object's visual messages, ordered by their visual stamps; made empty at stamp 0 and never
@@ -218,35 +264,75 @@ impl PrivateStream {
 #[derive(Debug, Default)]
 struct VisualQueue {
     current: u16,
-    /// Held messages by stamp, smallest first (ties in arrival order).
-    held: BinaryHeap<core::cmp::Reverse<(u16, u64)>>,
-    items: HashMap<u64, Item>,
-    seq: u64,
+    /// Held messages as a binary heap, the oldest stamp round the circle on top. The circle has no
+    /// first or last stamp, so what comes off when stamps span it, and which of two under one stamp
+    /// goes first, depends on the heap's shape: these steps keep it.
+    held: Vec<Stamped>,
     blocked_since: Option<f64>,
 }
 
 impl VisualQueue {
-    // D2-05756
-    fn push(&mut self, stamp: u16, item: Item) {
-        self.seq += 1;
-        self.held.push(core::cmp::Reverse((stamp, self.seq)));
-        self.items.insert(self.seq, item);
+    // D2-05756, D2-05753
+    fn push(&mut self, stamp: u16, item: Option<Item>) {
+        self.held.push(Stamped { stamp, item });
+        self.sift_up(self.held.len() - 1);
+    }
+
+    /// The message at `at` rises past each parent stamped newer than it.
+    // D2-05750
+    fn sift_up(&mut self, mut at: usize) {
+        while at > 0 {
+            let parent = (at - 1) / 2;
+            if !newer(self.held[parent].stamp, self.held[at].stamp) {
+                break;
+            }
+            self.held.swap(parent, at);
+            at = parent;
+        }
+    }
+
+    /// The top of the heap comes off: the last message takes its place, sinks along the older
+    /// child at each step (the right one when they are equal) to the bottom, and rises from there.
+    // D2-05754, D2-05751
+    fn pop(&mut self) -> Option<Stamped> {
+        if self.held.is_empty() {
+            return None;
+        }
+        let top = self.held.swap_remove(0);
+        let len = self.held.len();
+        let mut at = 0;
+        let mut right = 2;
+        while right < len {
+            let older = if newer(self.held[right].stamp, self.held[right - 1].stamp) {
+                right - 1
+            } else {
+                right
+            };
+            self.held.swap(at, older);
+            at = older;
+            right = at * 2 + 2;
+        }
+        if right == len {
+            self.held.swap(at, right - 1);
+            at = right - 1;
+        }
+        self.sift_up(at);
+        Some(top)
     }
 
     /// The next message whose stamp follows the current one; older ones are dropped.
     // D2-05757
-    fn next(&mut self, now: f64, dropped: &mut u32) -> Option<Item> {
+    fn next(&mut self, now: f64, dropped: &mut u32) -> Option<Stamped> {
         loop {
-            let Some(core::cmp::Reverse((stamp, seq))) = self.held.peek().copied() else {
+            let Some(stamp) = self.held.first().map(|h| h.stamp) else {
                 self.blocked_since = None;
                 return None;
             };
             let want = self.current.wrapping_add(1);
             if stamp == want {
-                self.held.pop();
                 self.current = stamp;
                 self.blocked_since = None;
-                return self.items.remove(&seq);
+                return self.pop();
             }
             if newer(stamp, want) {
                 if self.blocked_since.is_none() {
@@ -254,8 +340,7 @@ impl VisualQueue {
                 }
                 return None;
             }
-            self.held.pop();
-            self.items.remove(&seq);
+            self.pop();
             *dropped += 1;
         }
     }
@@ -277,7 +362,6 @@ impl VisualQueue {
     // D2-05758
     fn discard_all(&mut self) {
         self.held.clear();
-        self.items.clear();
         self.blocked_since = None;
     }
 }
@@ -334,6 +418,8 @@ struct Waiting {
     last_push: f64,
     wants_force: bool,
     items: Vec<Item>,
+    /// The blob ids and heads of visual messages that did not read.
+    unread: Vec<(u64, ObjectStamp)>,
 }
 
 /// Counts for logs and tests.
@@ -366,6 +452,8 @@ pub struct EventQueue {
     bookies: HashMap<u64, Bookie>,
     player: Option<u64>,
     private: PrivateStream,
+    /// The stamps of private messages that did not read, waiting as those messages would have.
+    unread: Vec<u32>,
     ready: VecDeque<Item>,
     force: Vec<u64>,
     /// Objects the server had the client forget: they go at the next upkeep, so what came with
@@ -409,6 +497,7 @@ impl EventQueue {
             bookies: HashMap::new(),
             player: None,
             private: PrivateStream::default(),
+            unread: Vec::new(),
             ready: VecDeque::new(),
             force: Vec::new(),
             destroying: Vec::new(),
@@ -573,6 +662,7 @@ impl EventQueue {
         self.temporary_ends.clear();
         self.player = None;
         self.private = PrivateStream::default();
+        self.unread.clear();
     }
 
     /// A message as it came off its queue.
@@ -616,12 +706,7 @@ impl EventQueue {
                 };
                 let _ = p;
                 let stamp = u32::from(ordering_stamp(item.blob_id));
-                let mut out = VecDeque::new();
-                self.private
-                    .add(stamp, item, now, &mut out, &mut self.stats.dropped);
-                for i in out {
-                    self.post(now, i);
-                }
+                self.take_private(now, stamp, Some(item));
             }
             2 => self.visual(now, item),
             3 => self.post(now, item),
@@ -629,10 +714,74 @@ impl EventQueue {
         }
     }
 
+    /// A private message, or the stamp of one that did not read, comes to the private stream,
+    /// after the stamps that were waiting to; what that lets through takes effect.
+    // D2-03940
+    fn take_private(&mut self, now: f64, stamp: u32, item: Option<Item>) {
+        let mut out = VecDeque::new();
+        for s in std::mem::take(&mut self.unread) {
+            self.private
+                .add(s, None, now, &mut out, &mut self.stats.dropped);
+        }
+        self.private
+            .add(stamp, item, now, &mut out, &mut self.stats.dropped);
+        for i in out {
+            self.post(now, i);
+        }
+    }
+
+    /// A message this client cannot read came under `blob_id`, `raw` its bytes. If it is private
+    /// or visual its stamp still counts, so that the messages after it are not held for it: a
+    /// private one waits as a private message would for the player's object, a visual one as a
+    /// visual message would for its own, and out of the world a private one counts for nothing.
+    // D2-05618, D2-03940, D2-03936
+    pub fn receive_unread(&mut self, now: f64, blob_id: u64, raw: &[u8]) {
+        match ordering_type(blob_id) {
+            1 if self.state != WorldState::NotInWorld => {
+                let stamp = u32::from(ordering_stamp(blob_id));
+                if self.player.is_some_and(|p| self.bookies.contains_key(&p)) {
+                    self.take_private(now, stamp, None);
+                } else {
+                    self.unread.push(stamp);
+                }
+            }
+            2 => {
+                if let Some(s) = visual_head(raw) {
+                    self.visual_unread(now, blob_id, s);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The stamp of a visual message that did not read: as [`Self::visual`] with nothing to take
+    /// effect.
+    fn visual_unread(&mut self, now: f64, blob_id: u64, s: ObjectStamp) {
+        match self.bookies.get_mut(&s.id) {
+            Some(b) if b.instance_stamp == s.instance_stamp => {
+                if newer(s.other_stamp, b.visual.current.wrapping_add(1)) {
+                    self.stats.held_visual += 1;
+                }
+                b.visual.push(s.other_stamp, None);
+                self.flush_visual(s.id, now);
+            }
+            Some(b) if !newer(s.instance_stamp, b.instance_stamp) => self.stats.dropped += 1,
+            _ => {
+                let w = self.waiting.entry(s.id).or_default();
+                if !cell_flag(blob_id) {
+                    w.wants_force = true;
+                }
+                w.last_push = now;
+                w.unread.push((blob_id, s));
+                self.stats.waited += 1;
+            }
+        }
+    }
+
     /// A visual message: wait for its object, then for the stamps before its own.
     // D2-03936, D2-05639
     fn visual(&mut self, now: f64, item: Item) {
-        let Some(s) = subject(&item.message) else {
+        let Some(s) = subject(&item.message).or_else(|| visual_head(&item.message.encode())) else {
             self.post(now, item);
             return;
         };
@@ -645,7 +794,7 @@ impl EventQueue {
         if newer(s.other_stamp, b.visual.current.wrapping_add(1)) {
             self.stats.held_visual += 1;
         }
-        b.visual.push(s.other_stamp, item);
+        b.visual.push(s.other_stamp, Some(item));
         self.flush_visual(s.id, now);
     }
 
@@ -661,7 +810,9 @@ impl EventQueue {
             let Some(next) = b.visual.next(now, &mut self.stats.dropped) else {
                 break;
             };
-            self.post(now, next);
+            if let Some(item) = next.item {
+                self.post(now, item);
+            }
         }
         if let Some(b) = self.bookies.get_mut(&id) {
             if b.visual.heavily_blocked(now) {
@@ -806,10 +957,18 @@ impl EventQueue {
             return;
         };
         let held = std::mem::take(&mut w.items);
+        let unread = std::mem::take(&mut w.unread);
         for i in held {
             self.receive(now, i);
         }
-        if self.waiting.get(&id).is_some_and(|w| w.items.is_empty()) {
+        for (blob_id, s) in unread {
+            self.visual_unread(now, blob_id, s);
+        }
+        if self
+            .waiting
+            .get(&id)
+            .is_some_and(|w| w.items.is_empty() && w.unread.is_empty())
+        {
             self.waiting.remove(&id);
         }
     }
@@ -824,13 +983,14 @@ impl EventQueue {
     /// [`Self::take_force_creates`], with those a blocked visual queue gave up on), then
     /// let go of the objects forgotten since the last upkeep, and of whatever waited for them
     /// (they come out of [`Self::take_destroyed`]).
-    // D2-05739, D2-05723
+    // D2-05739
     pub fn use_time(&mut self, now: f64) {
         self.use_time_creating(now, |_| false);
     }
 
     /// The upkeep ([`Self::use_time`]), where `being_created` says which objects are being made
     /// from their records: a queue waiting for one of them is never given up.
+    // D2-05723
     pub fn use_time_creating(&mut self, now: f64, being_created: impl Fn(u64) -> bool) {
         // Objects whose time to be destroyed came go with the forgotten ones, earliest first.
         let mut due: Vec<(f64, u64)> = self
@@ -852,7 +1012,7 @@ impl EventQueue {
             .waiting
             .iter()
             .filter(|(id, w)| {
-                !w.items.is_empty()
+                !(w.items.is_empty() && w.unread.is_empty())
                     && now - w.last_push > OBJECT_QUEUE_PATIENCE
                     && !being_created(**id)
             })

@@ -2,7 +2,7 @@
 //! player's description carries them), keeping each table laid out as the client lays its own out.
 
 use auberean_protocol::table::{Table, BUCKET_COUNTS};
-use auberean_protocol::types::Qualities;
+use auberean_protocol::types::{Qualities, WeenieDesc};
 use auberean_protocol::wire::{Field, Reader, Writer};
 
 /// Read encoded qualities (empty ones for bytes that do not read).
@@ -38,10 +38,20 @@ pub fn set<V>(t: &mut Table<V>, key: u32, value: V) {
     t.entries.insert(at, (key, value));
 }
 
-/// A whole-number quality.
+/// A whole-number quality. Only the description before the numbers and the numbers themselves are
+/// read: the server asks this of players far more often than it changes them.
 #[must_use]
 pub fn int(bytes: &[u8], key: u32) -> Option<i32> {
-    read(bytes).ints.get(key).copied()
+    let mut r = Reader::new(bytes);
+    let header = r.u32().ok()?;
+    r.u32().ok()?;
+    if header & Qualities::WEENIE != 0 {
+        WeenieDesc::read(&mut r).ok()?;
+    }
+    if header & Qualities::INTS == 0 {
+        return None;
+    }
+    Table::<i32>::read(&mut r).ok()?.get(key).copied()
 }
 
 /// A long whole-number quality.

@@ -41,6 +41,24 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "missile.detonate.an-object-noted-says-whether-it-is-a-player-or-a-creature",
+        says: "What a missile knows of another object says whether its game object is a player \
+               or a creature, as its host answered, for an object that moves and one that does \
+               not.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MISSILE-NOTED-KIND"),
+        station: "auberean-physics::cpu::paths::missile::an_object_noted_says_whether_it_is_a_player_or_a_creature",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "missile.detonate.an-object-standing-still-is-dynamic-unless-static",
+        says: "An object that stands where it is put, with no collision spheres of its own, is as dynamic as its state says: only a static one turns a sticky missile away.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-MISSILE-STICKS-UNLESS-STATIC"),
+        station: "auberean-physics::cpu::paths::missile::an_object_standing_still_is_dynamic_unless_static",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "missile.flight.a-lobbed-missile-comes-down-on-its-target",
         says: "A missile pulled by gravity is launched at its speed on the flattest course that \
                comes down on its target: the flight time searched from the shortest to the \

@@ -69,10 +69,27 @@ impl VendorProfile {
     /// and the count passed separately.
     #[must_use]
     pub fn vendor_sell_price(&self, pwd: &PublicWeenieDesc, count: i32) -> i32 {
+        self.vendor_sell_price_on(true, pwd, count)
+    }
+
+    /// [`Self::vendor_sell_price`] on a world whose trade notes do or do not cash anywhere.
+    #[must_use]
+    pub fn vendor_sell_price_on(
+        &self,
+        notes_cash_anywhere: bool,
+        pwd: &PublicWeenieDesc,
+        count: i32,
+    ) -> i32 {
         let value = i32::try_from(pwd.value.unwrap_or(0)).unwrap_or(i32::MAX);
         let n = i32::from(pwd.stack_size.unwrap_or(0));
         let unit = if n != 0 { value / n } else { value };
-        sell_price(unit, pwd.obj_type, self.sell_price, count)
+        sell_price_on_world(
+            notes_cash_anywhere,
+            unit,
+            pwd.obj_type,
+            self.sell_price,
+            count,
+        )
     }
 
     /// The price the vendor pays the player.
@@ -80,16 +97,25 @@ impl VendorProfile {
     /// A refused item prices at **0**.
     #[must_use]
     pub fn vendor_buy_price(&self, pwd: &PublicWeenieDesc) -> i32 {
+        self.vendor_buy_price_on(true, pwd)
+    }
+
+    /// [`Self::vendor_buy_price`] on a world whose trade notes do or do not cash anywhere.
+    #[must_use]
+    pub fn vendor_buy_price_on(&self, notes_cash_anywhere: bool, pwd: &PublicWeenieDesc) -> i32 {
         if self.inq_acceptability(pwd) != 0 {
             return 0;
         }
         let value = i32::try_from(pwd.value.unwrap_or(0)).unwrap_or(i32::MAX);
         let n = i32::from(pwd.stack_size.unwrap_or(0));
-        if n != 0 {
-            buy_price(value / n, pwd.obj_type, self.buy_price, n)
-        } else {
-            buy_price(value, pwd.obj_type, self.buy_price, 1)
-        }
+        let (unit, count) = if n != 0 { (value / n, n) } else { (value, 1) };
+        buy_price_on_world(
+            notes_cash_anywhere,
+            unit,
+            pwd.obj_type,
+            self.buy_price,
+            count,
+        )
     }
 
     /// Determine whether the vendor accepts this item.
@@ -986,7 +1012,7 @@ impl crate::world::World {
             return Ok(false);
         };
         let count = Self::buy_count(&pwd, split);
-        let price = self.shop.profile.vendor_sell_price(&pwd, count);
+        let price = self.shop_sell_price(&pwd, count);
         if !self.can_afford(price) {
             self.refuse_shop(out, NOT_ENOUGH_MONEY);
             return Err(BuyRefusal::NotEnoughMoney);
@@ -1165,6 +1191,24 @@ impl crate::world::World {
         Ok(true)
     }
 
+    /// What the open vendor charges for `count` of `pwd`, by the rules of this world.
+    #[must_use]
+    pub fn shop_sell_price(&self, pwd: &PublicWeenieDesc, count: i32) -> i32 {
+        self.shop.profile.vendor_sell_price_on(
+            self.era_features.trade_notes_cash_anywhere,
+            pwd,
+            count,
+        )
+    }
+
+    /// What the open vendor pays for `pwd`, by the rules of this world.
+    #[must_use]
+    pub fn shop_buy_price(&self, pwd: &PublicWeenieDesc) -> i32 {
+        self.shop
+            .profile
+            .vendor_buy_price_on(self.era_features.trade_notes_cash_anywhere, pwd)
+    }
+
     /// Price the buy basket through the vendor profile's sell-price formula.
     #[must_use]
     pub fn transaction_value(&self) -> i32 {
@@ -1173,7 +1217,7 @@ impl crate::world::World {
             .iter()
             .filter_map(|(id, n)| {
                 self.priced_row(*id)
-                    .map(|(pwd, _)| self.shop.profile.vendor_sell_price(&pwd, *n))
+                    .map(|(pwd, _)| self.shop_sell_price(&pwd, *n))
             })
             .sum()
     }
@@ -1186,7 +1230,7 @@ impl crate::world::World {
             .iter()
             .filter_map(|(id, _)| {
                 self.vendor_basket_description(*id)
-                    .map(|pwd| self.shop.profile.vendor_buy_price(pwd))
+                    .map(|pwd| self.shop_buy_price(pwd))
             })
             .sum()
     }
@@ -1945,7 +1989,7 @@ impl crate::world::World {
             };
             self.shop.basket_descriptions.insert(iid, pwd.clone());
             self.shop.buy_list.push((iid, want));
-            running += self.shop.profile.vendor_sell_price(&pwd, want);
+            running += self.shop_sell_price(&pwd, want);
             r.added += 1;
             r.bought_units += want;
         }

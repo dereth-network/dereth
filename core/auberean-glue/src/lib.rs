@@ -28,6 +28,7 @@
 //! - [`data_ids`]: the records a saved state needs, as its scripts gather them.
 //! - [`behavior`]: the parameters of a behavior an object is asked to play.
 //! - [`options`]: the player's options profile and its shortcuts.
+//! - [`chargen`]: a character's creation choices, as the character generator's scripts fill them.
 //! - [`chat_options`]: the chat's part of the options profile, as the chat windows read it.
 //! - [`effects`]: an effect as the effects panel lists it.
 //! - [`friends`]: a friend's state as the friends service gives it.
@@ -50,6 +51,7 @@ use auberean_script::{Binding, NativeFn, NativeTable};
 pub mod adaptors;
 pub mod behavior;
 pub mod buffer;
+pub mod chargen;
 pub mod chat_options;
 pub mod color;
 pub mod combat;
@@ -68,6 +70,7 @@ pub mod names;
 pub mod numbers;
 pub mod options;
 pub mod position;
+pub mod properties;
 pub mod quests;
 pub mod selection;
 pub mod skill_nodes;
@@ -82,6 +85,7 @@ pub fn natives(lib: &Library) -> NativeTable {
     stubs::bind_all(&mut t);
     machine::bind(&mut t);
     adaptors::bind(&mut t);
+    chargen::bind(&mut t);
     combat::bind(&mut t);
     missile::bind(&mut t);
     motion::bind(&mut t);
@@ -103,6 +107,7 @@ pub fn natives(lib: &Library) -> NativeTable {
     effects::bind(&mut t);
     friends::bind(&mut t);
     position::bind(&mut t);
+    properties::bind(&mut t);
     skill_nodes::bind(&mut t);
     containers::bind(&mut t, lib);
     t

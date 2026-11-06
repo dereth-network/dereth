@@ -37,6 +37,8 @@
 //! the `Authorization` header and nowhere else, never printed, logged or written. Without one,
 //! `--upload` checks the folder alone, and the other steps refuse.
 
+mod drafts;
+pub(crate) mod fetch_release;
 mod files;
 pub(crate) mod github;
 
@@ -57,7 +59,8 @@ use github::{GitHub, Https, Release, RemoteAsset, Token};
 pub const USAGE: &str =
     "usage: cargo xtask publish dereth|empyrean|web|lyceum <version> --upload <dir> [--repo <owner/name>] [--yes]
        cargo xtask publish dereth|empyrean|web|lyceum <version> --finish [--repo <owner/name>] [--yes]
-       cargo xtask publish dereth|empyrean|web|lyceum <version> --publish [--repo <owner/name>] [--yes]";
+       cargo xtask publish dereth|empyrean|web|lyceum <version> --publish [--repo <owner/name>] [--yes]
+       cargo xtask publish drafts [<tag>...] [--wait] [--repo <owner/name>] [--yes]";
 
 /// Which step a run is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -162,6 +165,29 @@ fn repository(kind: Kind, given: Option<&str>) -> Result<String, String> {
     Ok(repo)
 }
 
+/// Write the files of the release `tag` to `dir`; with `wait`, staying until it's whole. A token
+/// (read as for publishing) also sees a draft; without one, only what's published.
+pub fn fetch_tagged_release(
+    tag: &str,
+    dir: &Path,
+    wait: bool,
+    repo: Option<&str>,
+) -> Result<(), String> {
+    let repo = repository(Kind::Dereth, repo)?;
+    let mut https = match Token::from_env() {
+        Some((token, _)) => Https::new(token),
+        None => Https::anonymous(),
+    };
+    let mut gh = GitHub::new(&mut https, &repo, false);
+    println!(
+        "{tag} on {repo}{}",
+        if wait { ", waiting for it" } else { "" }
+    );
+    let mut sleep = || std::thread::sleep(fetch_release::POLL);
+    let pause: Option<&mut dyn FnMut()> = if wait { Some(&mut sleep) } else { None };
+    fetch_release::fetch(&mut gh, tag, dir, pause)
+}
+
 /// The address the release files name as their source, and download from.
 pub fn source_url(repo: &str) -> String {
     format!("https://github.com/{repo}")
@@ -169,6 +195,22 @@ pub fn source_url(repo: &str) -> String {
 
 /// `cargo xtask publish ...`.
 pub fn publish(args: &[String]) -> i32 {
+    if args.first().map(String::as_str) == Some("drafts") {
+        let result = drafts::parse(&args[1..]);
+        return match result {
+            Err(e) => {
+                eprintln!("{e}");
+                2
+            }
+            Ok(o) => match drafts::run(&o) {
+                Ok(()) => 0,
+                Err(e) => {
+                    eprintln!("\npublish: STOPPED\n{e}");
+                    1
+                }
+            },
+        };
+    }
     let o = match parse(args) {
         Ok(o) => o,
         Err(e) => {

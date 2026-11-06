@@ -482,7 +482,7 @@ pub fn take_damage_falling(w: &mut World, this: ObjectGuid, amount: f32) {
     }
 
     // handle lifestone protection?
-    if o.under_lifestone_protection() {
+    if crate::world_objects::player_death::under_lifestone_protection(w, this) {
         crate::world_objects::player_death::handle_lifestone_protection(w, this);
         return;
     }

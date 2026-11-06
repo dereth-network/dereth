@@ -9,6 +9,7 @@ games:
 |---|---|---|---|
 | While working, before each commit | `cargo xtask check` | nothing | 1-2 minutes |
 | Before pushing or opening a PR | `cargo xtask ci tier0` | nothing | about 3 minutes |
+| When a test might lean on data you have | `cargo xtask ci no-data` | nothing | a few minutes |
 | With the retail data | `cargo xtask ci tier1` | the dats, `world.pack` and ACE's world dump; Asheron's Call 2's data files and capture index (below) | about 20 minutes |
 | On hardware | `cargo xtask ci tier2` | a graphics device and the dats | -- |
 
@@ -26,7 +27,13 @@ is `ci tier1 --game auberean`.
   comment and test lints, the seams, the crate headers.
 - **`ci tier0` is exactly what CI runs. Run it before you push.** It builds everything, runs every
   test that needs no game data, clippy with every warning an error (over the tests that need the
-  game data too: clippy only reads them), every rule and the documentation check.
+  game data too: clippy only reads them), every rule and the documentation check. CI runs the build,
+  the tests and clippy on every system and the rules and the documentation check once, on Linux;
+  `--only build,test,clippy,docs,rules` runs those parts alone. So documentation on code only Windows
+  or macOS compiles is checked when you run `ci tier0` on that system, not by GitHub's CI.
+- **`ci no-data`** runs the tests as CI runs them on a machine with your data: every variable naming
+  data emptied, an empty per-user cache and `--no-fail-fast`, then a list of everything that failed.
+  A test that reaches for data it did not declare passes for you and fails here.
 - **`ci tier1`** runs every crate's data tier and the server's real-content tests, then
   Asheron's Call 2's crates' tests and its data tiers. A game whose data is not found reports its
   rows as NO-ORACLE and the run fails; the other game's rows still run. Without one game's data,
@@ -46,7 +53,8 @@ for investigating one failure. A hand-typed command takes the same profile:
 `cargo test --profile test-release -p <crate>`.
 
 A crate's integration tests are one binary per tier (`cpu`, `dat`, `gpu`); [README.md](README.md#test-tiers)
-explains them.
+explains them. A `dat`, `corpus`, `gpu` or `live` target declares `required-features` (`cargo xtask
+tier-targets` checks), so a workspace test run on a machine without its data leaves it out.
 
 **Your own retail data.** The game's data files and `world.pack` are never part of this repository
 and never shipped with it; the tests that need them read your copies through variables that only
@@ -117,7 +125,7 @@ Dereth (the launcher, with the client inside it) is released the same way:
 `cargo xtask release dereth <version>` and a pushed `dereth-v<version>` tag, whose workflow drafts
 the release; once published, it is the one launchers update from.
 `cargo xtask package dereth` builds this host's release files locally.
-[dereth/launcher/RELEASING.md](dereth/launcher/RELEASING.md) describes the whole flow.
+[launcher/RELEASING.md](launcher/RELEASING.md) describes the whole flow.
 
 Lyceum (the world builder's editor and its `lyceum` command) is released the same way:
 `cargo xtask release lyceum <version>` and a pushed `lyceum-v<version>` tag, whose workflow drafts
@@ -137,6 +145,24 @@ The Dereth Network's hub and ACE mod are released the same way, each on tags of 
 `cargo xtask release network-ace <version>` (`network-ace-v<version>`). They keep no change log;
 their workflows write the release notes from the commits.
 [network/RELEASING.md](network/RELEASING.md) describes the whole flow.
+
+## Publishing the drafts
+
+The release workflows leave drafts. `cargo xtask publish drafts` publishes them, instead of each
+being published by hand on GitHub:
+
+```
+cargo xtask publish drafts [<tag>...] [--wait] [--repo <owner/name>] [--yes]
+```
+
+- It takes our products' drafts (`dereth-v`, `dereth-web-v`, `empyrean-v`, `lyceum-v`, `auberean-v`,
+  `yalain-v`, `athenaeum-v`, `network-hub-v`, `network-ace-v`), or only the tags named, and skips any
+  that isn't whole: no `SHA256SUMS` yet, a file it lists is missing, or a file still uploading.
+- Only Dereth's final release becomes "Latest". Every other product, and every pre-release, doesn't.
+- `--wait` stays until the tags named (else those on `main`'s head) are published, asking again every
+  minute, and stops naming any release workflow that failed.
+- Without `--yes` it says what it would publish and changes nothing. It needs a token, as `publish`
+  does (`DERETH_PUBLISH_TOKEN`, else `GITHUB_TOKEN`).
 
 ## Releasing without GitHub Actions
 
@@ -244,9 +270,11 @@ Before starting, on every machine: a checkout of the tag with its whole history 
 
 | machine | builds | command |
 |---|---|---|
-| Windows | `x86_64-pc-windows-msvc` | `cargo xtask package dereth --out dist` |
-| macOS | `aarch64-apple-darwin`, `x86_64-apple-darwin` | `cargo xtask package dereth --target aarch64-apple-darwin --target x86_64-apple-darwin --moltenvk <dir> --out dist` |
-| Linux (Ubuntu 22.04) | `x86_64-unknown-linux-gnu` | `cargo xtask package dereth --out dist` |
+| Windows | `x86_64-pc-windows-msvc` | `cargo xtask package dereth --launcher <dir> --out dist` |
+| macOS | `aarch64-apple-darwin` | `cargo xtask package dereth --launcher <dir> --target aarch64-apple-darwin --moltenvk <dir> --out dist` |
+| Linux (Ubuntu 22.04) | `x86_64-unknown-linux-gnu` | `cargo xtask package dereth --launcher <dir> --out dist` |
+
+`--launcher` names a folder holding the launcher's release files: `cargo xtask package launcher --fetch <dir>` gets them.
 
 On each machine in turn, `cargo xtask publish dereth <version> --upload dist`, then the same with
 `--yes`. Then on one of them, `cargo xtask publish dereth <version> --finish`, and with `--yes`;
@@ -260,7 +288,7 @@ workflow runs them, `cargo test --locked --profile test-release -p 'empyrean-*'`
 | machine | builds | command |
 |---|---|---|
 | Windows | `x86_64-pc-windows-msvc` | `cargo xtask package empyrean --out dist` |
-| macOS | `aarch64-apple-darwin`, `x86_64-apple-darwin` | `cargo xtask package empyrean --target aarch64-apple-darwin --target x86_64-apple-darwin --out dist` |
+| macOS | `aarch64-apple-darwin` | `cargo xtask package empyrean --target aarch64-apple-darwin --out dist` |
 | Linux | `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` | `cargo xtask package empyrean --target x86_64-unknown-linux-gnu --target aarch64-unknown-linux-gnu --out dist` |
 
 Then `cargo xtask publish empyrean <version> --upload dist` (and `--yes`) on each, `--finish` on

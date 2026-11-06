@@ -78,6 +78,11 @@ fn on_the_february_2005_dats_the_logout_lasts_its_own_departure() {
         1.0,
     );
     assert!(length > 1.0, "the logout plays: {length}");
+    assert_eq!(
+        empyrean_world::world_objects::player::logout_motion(&w, HUMAN),
+        MotionCommand::LogOut,
+        "February 2005 has its own gesture"
+    );
     assert!(
         (length - link_length(&w, MotionCommand::LogOut)).abs() < 1e-4,
         "{length} is the departure's own length"
@@ -86,6 +91,11 @@ fn on_the_february_2005_dats_the_logout_lasts_its_own_departure() {
     assert_eq!(link.anims[0].anim_id.0, 0x0300_07BE, "the 2005 departure");
 
     let later = end_of_retail();
+    assert_eq!(
+        empyrean_world::world_objects::player::logout_motion(&later, HUMAN),
+        MotionCommand::LogOut,
+        "the end of retail has its own gesture"
+    );
     assert_eq!(
         later.dats.portal_dat().command_numbering(),
         CommandNumbering::Final

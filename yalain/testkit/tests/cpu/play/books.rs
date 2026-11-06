@@ -158,6 +158,7 @@ fn a_shi_used_answers_the_use_then_shows_the_architects_book() {
             object: Some(shi),
             template,
             description: Description {
+                name_text: None,
                 package: 0x13A4,
                 look: 0x1F00_0100,
                 enter_fx: 0,

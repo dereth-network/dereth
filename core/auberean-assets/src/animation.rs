@@ -6,6 +6,7 @@
 //! "element") is always in some mode (standing, swimming, in combat...), and the tables say how it
 //! moves, which behaviors it may play, and how it gets from one mode to another.
 
+use crate::lookup::LookupTable;
 use auberean_dat::reader::Result;
 use auberean_dat::Reader;
 use auberean_primitives::{DataId, Quat, Vec3};
@@ -381,26 +382,44 @@ pub struct BoneTrack {
     pub offset: Vec<VectorKey>,
     pub rotation: Vec<RotationKey>,
     pub weight: Vec<WeightKey>,
+    /// The lookup tables of the keys read from the data: scale, offset, rotation, weight. One of
+    /// a track made by hand, or whose first key is not at 0, is absent.
+    pub tables: [Option<LookupTable>; 4],
 }
 
 impl BoneTrack {
     // D2-15287, D2-15288, D2-15289, D2-15273, D2-15251, D2-15253, D2-15255, D2-13300, D2-13301, D2-15107
+    // D2-13293, D2-13294, D2-13295, D2-13296, D2-13297, D2-13299, D2-15233, D2-15234, D2-15235, D2-15245
     fn read(r: &mut Reader<'_>) -> Result<Self> {
+        let scale: Vec<VectorKey> = r.list(16, vector_key)?;
+        let offset: Vec<VectorKey> = r.list(16, vector_key)?;
+        let rotation: Vec<RotationKey> = r.list(20, |r| {
+            Ok(RotationKey {
+                value: r.quat()?,
+                time: r.f32()?,
+            })
+        })?;
+        let weight: Vec<WeightKey> = r.list(8, |r| {
+            Ok(WeightKey {
+                weight: r.f32()?,
+                time: r.f32()?,
+            })
+        })?;
+        fn table<K>(keys: &[K], time: impl Fn(&K) -> f32) -> Option<LookupTable> {
+            LookupTable::new(&keys.iter().map(time).collect::<Vec<f32>>())
+        }
+        let tables = [
+            table(&scale, |k| k.time),
+            table(&offset, |k| k.time),
+            table(&rotation, |k| k.time),
+            table(&weight, |k| k.time),
+        ];
         Ok(Self {
-            scale: r.list(16, vector_key)?,
-            offset: r.list(16, vector_key)?,
-            rotation: r.list(20, |r| {
-                Ok(RotationKey {
-                    value: r.quat()?,
-                    time: r.f32()?,
-                })
-            })?,
-            weight: r.list(8, |r| {
-                Ok(WeightKey {
-                    weight: r.f32()?,
-                    time: r.f32()?,
-                })
-            })?,
+            scale,
+            offset,
+            rotation,
+            weight,
+            tables,
         })
     }
 }
@@ -592,6 +611,7 @@ impl Decode for Animation {
                 let sliders = r.list(8, |r| {
                     Ok(SliderTicks {
                         slider: r.u32()?,
+                        // D2-01875
                         ticks: r.u32_list()?,
                     })
                 })?;

@@ -104,6 +104,45 @@ fn a_blocks_corners_blend_their_fog_over_the_days() {
     );
 }
 
+/// The day's light, as a fog kind takes it for its fog: sun and ambient added, left alone up to
+/// two ten-thousandths past full, and past that scaled so its brightest channel is full.
+///
+/// Behaviour: world.fog.the-days-light-is-scaled-only-past-its-range
+#[test]
+fn the_days_light_is_scaled_only_past_its_range() {
+    let desc = FogDesc {
+        default_fog: Some(light(0, 1, 0.0, 10_000.0, 0.0, &[])),
+        ..FogDesc::default()
+    };
+    let kinds = BlockMap {
+        height: 2,
+        width: 2,
+        cells: vec![0; 4],
+    };
+    let lit = |brightness: f32| {
+        let d = DayLight {
+            direct_color: Color::new(1.0, 0.5, 0.25, 1.0),
+            ambient_color: Color::new(1.0, 0.5, 0.25, 1.0),
+            direct_brightness: brightness,
+            ambient_brightness: 0.0,
+            ..day()
+        };
+        block_light(&d, &desc, &kinds, (0, 0), Vec3::new(1.0, 1.0, 0.0), 160.0).fog_color
+    };
+    let just_over = lit(1.0001);
+    assert!(
+        (just_over.r - 1.0001).abs() < 1e-5 && (just_over.g - 0.50005).abs() < 1e-5,
+        "within the tolerance it stays as it is: {just_over:?}"
+    );
+    let bright = lit(2.0);
+    assert!(
+        (bright.r - 1.0).abs() < 1e-6
+            && (bright.g - 0.5).abs() < 1e-6
+            && (bright.b - 0.25).abs() < 1e-6,
+        "{bright:?}"
+    );
+}
+
 /// One depth of a water's table: its fog distances and sky fog, every channel the kind's own.
 fn depth(at: f32, min: f32, max: f32, sky: f32, color: u32) -> auberean_assets::region::WaterLight {
     let mut t = light(0, 1, min, max, sky, &[0, 1, 2, 3, 4, 5, 6]);

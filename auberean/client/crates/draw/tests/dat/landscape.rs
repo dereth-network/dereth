@@ -1,6 +1,6 @@
 //! How far the landscape reaches and where frills are drawn, at the camp of block `0xC156`.
 
-use auberean_draw::scene::{SceneBuilder, Spot};
+use auberean_draw::scene::{fade_objects, far_stride, SceneBuilder, Spot};
 use auberean_primitives::Vec3;
 
 use crate::common::install;
@@ -16,9 +16,9 @@ fn spot() -> Spot {
     }
 }
 
-/// The far landscape reaches as many blocks about the viewer's as its radius (none, 2, 8: the 3 x 3
-/// detailed blocks alone, 5 x 5, 17 x 17 where the region has land); the detailed blocks are drawn
-/// at every radius. Frills are drawn only in the land cells within their radius of the viewer's
+/// The far landscape reaches as many blocks past the detailed ones as its radius (none, 2, 8: the
+/// 3 x 3 detailed blocks alone, 7 x 7, 19 x 19 where the region has land); the detailed blocks are
+/// drawn at every radius. Frills are drawn only in the land cells within their radius of the viewer's
 /// (more with two cells than one), none when turned off, and fade out over the last eight meters
 /// of their reach.
 ///
@@ -43,7 +43,7 @@ fn the_far_landscape_and_the_frills_reach_as_far_as_set() {
     for r in [0, 2, 8] {
         b.set_far_radius(r);
         let f = b.frame(&spot(), 60.0);
-        blocks.push((f.counts.blocks, land(r.max(1))));
+        blocks.push((f.counts.blocks, land(r + 1)));
     }
     for (drawn, held) in &blocks {
         assert_eq!(drawn, held, "every block of land in reach: {blocks:?}");
@@ -118,6 +118,179 @@ fn every_frill_is_drawn_with_its_spot_for_the_shadow_about_it() {
         none.objects.iter().all(|o| o.shade.is_none()),
         "no spot without frills"
     );
+}
+
+/// With the land's blending off a square shows one ground and no masks, so the frame draws no
+/// masked layer of land.
+///
+/// Behaviour: draw.world.with-blending-off-a-square-shows-one-ground
+#[test]
+fn with_blending_off_a_square_shows_one_ground() {
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let masked = |blending: bool| {
+        let mut b = SceneBuilder::new(&i.records, &region);
+        b.static_shadows = false;
+        b.water_reflections = false;
+        b.set_far_radius(0);
+        b.terrain_blending = blending;
+        let f = b.frame(&spot(), 60.0);
+        f.terrain.iter().filter(|t| t.mask.is_some()).count()
+    };
+    assert!(masked(true) > 0, "blended, the land's squares are masked");
+    assert_eq!(masked(false), 0, "not blended, none is");
+}
+
+/// A square of the land with a hole in it still takes what is laid on the ground: every square of a
+/// block with holes gives its corners, at the land's height. Fixture: the first block of the install
+/// with holes in its land.
+///
+/// Behaviour: draw.world.what-lies-on-the-ground-crosses-holes-in-it
+#[test]
+fn what_lies_on_the_ground_crosses_holes_in_it() {
+    use auberean_world::land::HOLE_TERRAIN;
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let (x, y) = r
+        .landblock_coordinates()
+        .into_iter()
+        .find(|(x, y)| {
+            r.landblock(*x, *y).is_some_and(|lb| {
+                lb.vertices
+                    .iter()
+                    .any(|&w| region.land.word.terrain.of(w) == HOLE_TERRAIN)
+            })
+        })
+        .expect("a block with holes");
+    let mut b = SceneBuilder::new(r, &region);
+    b.static_shadows = false;
+    b.water_reflections = false;
+    b.set_far_radius(0);
+    let _ = b.frame(
+        &Spot {
+            block: (x, y),
+            position: Vec3::new(96.0, 96.0, 100.0),
+            heading: 0.0,
+            pitch: 0.0,
+            time_of_day: 0.5,
+            day: None,
+        },
+        60.0,
+    );
+    let side = b.square_side();
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let squares = (192.0 / side) as u16;
+    for i in 0..squares {
+        for j in 0..squares {
+            let at = Vec3::new(
+                (f32::from(i) + 0.5) * side,
+                (f32::from(j) + 0.5) * side,
+                0.0,
+            );
+            assert!(b.ground_square((x, y), at).is_some(), "square {i} {j}");
+        }
+    }
+}
+
+/// Only an object whose drawing properties say so prints on the sun's shadow map: of block
+/// `0x76B8`'s placed objects, those that say so are on it and those that do not are not.
+///
+/// Behaviour: draw.world.only-objects-that-say-so-cast-on-the-land
+#[test]
+fn only_objects_that_say_so_cast_on_the_land() {
+    use auberean_physics::world::{entity_graphics_state, graphics};
+    use auberean_primitives::DataId;
+    use auberean_world::place::{entity_parts, PlaceRecords};
+    let r = &install().records;
+    let region = r.region().expect("the region");
+    let mut b = SceneBuilder::new(r, &region);
+    b.static_shadows = true;
+    b.water_reflections = false;
+    b.set_far_radius(0);
+    let f = b.frame(
+        &Spot {
+            block: (0x76, 0xB8),
+            position: Vec3::new(105.154, 75.968, 182.506),
+            heading: 0.0,
+            pitch: 0.0,
+            time_of_day: 0.5,
+            day: None,
+        },
+        60.0,
+    );
+    let map = f.shadow.as_ref().expect("the sun's shadow map");
+    let printed = |at: Vec3| {
+        map.casters.iter().any(|c| {
+            auberean_world::math::length(auberean_world::math::sub(
+                c.transform.point(Vec3::ZERO),
+                at,
+            )) < 1e-3
+        })
+    };
+    let lookup = |id: u32| r.entity(DataId(id));
+    let info = r.landblock_info(0x76, 0xB8).expect("the block");
+    let mut seen = std::collections::BTreeMap::<(bool, bool), usize>::new();
+    for e in &info.entities.entities {
+        let casts = entity_graphics_state(e, &lookup) & graphics::LANDSCAPE_SHADOW != 0;
+        for p in entity_parts(r, e) {
+            let at = p.transform.point(Vec3::ZERO);
+            *seen.entry((casts, printed(at))).or_default() += 1;
+        }
+    }
+    assert!(
+        seen.get(&(true, true)).is_some_and(|&n| n >= 30),
+        "{seen:?}"
+    );
+    assert!(
+        seen.get(&(false, false)).is_some_and(|&n| n >= 10),
+        "{seen:?}"
+    );
+    assert_eq!(seen.get(&(false, true)), None, "{seen:?}");
+
+    // The scenery about the camp of block `0xC156` differs the same way, by what it is: of the
+    // objects drawn that no block places, some are on the map and some are not.
+    let f = b.frame(&spot(), 60.0);
+    let map = f.shadow.as_ref().expect("the sun's shadow map");
+    let near =
+        |a: Vec3, b: Vec3| auberean_world::math::length(auberean_world::math::sub(a, b)) < 1e-3;
+    let mut placed = Vec::new();
+    for x in 0xC0..=0xC2_i32 {
+        for y in 0x55..=0x57_i32 {
+            let Some(info) = r.landblock_info(x, y) else {
+                continue;
+            };
+            #[allow(clippy::cast_precision_loss)]
+            let off = Vec3::new((x - 0xC1) as f32 * 192.0, (y - 0x56) as f32 * 192.0, 0.0);
+            for e in &info.entities.entities {
+                placed.extend(
+                    entity_parts(r, e)
+                        .iter()
+                        .map(|p| auberean_world::math::add(p.transform.point(Vec3::ZERO), off)),
+                );
+            }
+        }
+    }
+    let (mut on, mut off) = (0, 0);
+    for o in f
+        .objects
+        .iter()
+        .filter(|o| o.block.is_some() && o.shade.is_none())
+    {
+        let at = o.transform.point(Vec3::ZERO);
+        if placed.iter().any(|&p| near(p, at)) {
+            continue;
+        }
+        if map
+            .casters
+            .iter()
+            .any(|c| near(c.transform.point(Vec3::ZERO), at))
+        {
+            on += 1;
+        } else {
+            off += 1;
+        }
+    }
+    assert!(on >= 10 && off >= 10, "{on} on the map, {off} not");
 }
 
 /// The fog blocks blended for the light are those of the block the viewer stands in, even when it
@@ -227,6 +400,72 @@ fn the_sun_throws_a_lens_flare() {
     assert!(down < up, "fades out unseen");
 }
 
+/// The far landscape thins out with distance: each block's squares lie 1, 2, 2, 4, 4, 8, 8 or 16
+/// vertices apart by how many rings past the detailed blocks it stands, and a block next to a
+/// coarser one fills the gap along their edge.
+///
+/// Behaviour: draw.world.the-far-landscape-thins-out-with-distance
+#[test]
+fn the_far_landscape_thins_out_with_distance() {
+    assert_eq!(
+        (1..=9).map(|r| far_stride(r, 16)).collect::<Vec<_>>(),
+        [1, 2, 2, 4, 4, 8, 8, 16, 16]
+    );
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let mut b = SceneBuilder::new(&i.records, &region);
+    b.static_shadows = false;
+    b.water_reflections = false;
+    let (cx, cy) = (0xC1, 0x56);
+    let f = b.frame(&spot(), 60.0);
+    let far = f.terrain.iter().find(|t| t.far).expect("the far landscape");
+    let mut vertices = 0;
+    let mut squares = 0;
+    for x in cx - 9..=cx + 9 {
+        for y in cy - 9..=cy + 9 {
+            let ring = i32::max(i32::abs(x - cx), i32::abs(y - cy)) - 1;
+            if ring >= 1 && i.records.landblock(x, y).is_some() {
+                let side = 16 / far_stride(ring, 16);
+                vertices += (side + 1) * (side + 1);
+                squares += side * side;
+            }
+        }
+    }
+    assert_eq!(far.vertices.len(), vertices);
+    assert!(
+        far.indices.len() > squares * 6,
+        "the gaps' triangles besides the squares': {} of {}",
+        far.indices.len(),
+        squares * 6
+    );
+}
+
+/// A far block's water is one polygon, its picture and the ripples on the one set of coordinates,
+/// four repeats across the block for a tile width of 10 (a repeat every 40 m, as near the viewer).
+///
+/// Behaviour: draw.world.a-far-blocks-water-repeats-every-four-tile-widths
+#[test]
+fn a_far_blocks_water_repeats_every_four_tile_widths() {
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let mut b = SceneBuilder::new(&i.records, &region);
+    b.static_shadows = false;
+    let mut s = spot();
+    s.position.z = 81.6;
+    let f = b.frame(&s, 60.0);
+    let far: Vec<_> = f.water.iter().filter(|w| w.vertices.len() == 4).collect();
+    assert!(!far.is_empty(), "water among the far blocks");
+    for w in far {
+        assert_eq!(w.indices.len(), 6, "one polygon");
+        for v in w.vertices.iter() {
+            let [x, y, _] = v.position;
+            let across = [x / 40.0, y / 40.0];
+            assert_eq!(v.uv[0], across, "the picture every 40 m");
+            assert_eq!(v.uv[1], across, "the ripples on the same coordinates");
+        }
+    }
+}
+
 /// A detailed block's water is laid four polygons by four, each a quarter of the block (40 m)
 /// wide, with the water's picture and the ripples' coordinates both 0..1 across each polygon,
 /// whatever the water's own tile and polygon widths say; the reflection about it ripples only when
@@ -330,4 +569,182 @@ fn the_camps_pond_has_a_shore_where_its_water_meets_the_ground() {
     b.shore_effects = 0;
     let off = b.frame(&s, 60.0);
     assert!(off.shore.is_empty() && off.foam.is_empty(), "no shore");
+}
+
+/// With the sun low, some of the land stands in the shadow of the land about it: an object placed
+/// there is drawn dark, by the share of the four corners of the square under it that the sun
+/// reaches (nothing under a tenth, whole over nine tenths); off the blocks kept it is drawn whole.
+/// What is placed on a block takes it at where it stands; what is seen through never.
+///
+/// Behaviour: draw.world.what-stands-on-the-land-takes-the-lands-shadow
+#[test]
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+fn what_stands_on_the_land_takes_the_lands_shadow() {
+    let r = &crate::common::install().records;
+    let region = r.region().expect("the region");
+    let mut builder = auberean_draw::scene::SceneBuilder::new(r, &region);
+    // The first of the world's blocks, at a low sun, with land in the land's shadow.
+    let coordinates = r.landblock_coordinates();
+    let found = coordinates.iter().step_by(37).find_map(|&block| {
+        let spot = auberean_draw::scene::Spot {
+            block,
+            position: auberean_primitives::Vec3::new(80.0, 80.0, 200.0),
+            heading: 90.0,
+            pitch: 5.0,
+            time_of_day: 0.27,
+            day: None,
+        };
+        let frame = builder.frame(&spot, 60.0);
+        let sun = frame.light.light_direction;
+        let mut seen = std::collections::BTreeSet::new();
+        for i in 0..107 {
+            for j in 0..107 {
+                let at = auberean_primitives::Vec3::new(i as f32 * 1.5, j as f32 * 1.5, 0.0);
+                let s = builder.land_shadow_at(at, block, sun);
+                assert!([0.0, 0.25, 0.5, 0.75, 1.0].contains(&s), "{s}");
+                seen.insert((s * 4.0) as u32);
+            }
+        }
+        (seen.len() >= 2 && frame.objects.iter().any(|b| b.block.is_some()))
+            .then_some((spot, frame, seen))
+    });
+    let (spot, frame, seen) = found.expect("a block in the land's shadow");
+    println!("shares by quarters at {:x?}: {seen:?}", spot.block);
+    let sun = frame.light.light_direction;
+    let off = auberean_primitives::Vec3::new(160.0 * 20.0, 0.0, 0.0);
+    assert_eq!(
+        builder.land_shadow_at(off, spot.block, sun),
+        1.0,
+        "off the blocks"
+    );
+    let mut placed = 0;
+    for b in &frame.objects {
+        if b.block.is_none() {
+            continue;
+        }
+        let at = b
+            .anchor
+            .unwrap_or_else(|| b.transform.point(auberean_primitives::Vec3::ZERO));
+        let s = if b.seen_through {
+            1.0
+        } else {
+            builder.land_shadow_at(at, spot.block, sun)
+        };
+        assert_eq!((b.tint.r, b.tint.g, b.tint.b), (s, s, s), "{at:?}");
+        assert!(b.ground.is_none(), "the map is for what moves");
+        placed += 1;
+    }
+    assert!(placed > 0, "{placed}");
+}
+
+/// What a frame draws of each placed object, by the object's mesh and place: the draws it has.
+fn placed(f: &auberean_draw::scene::Frame) -> std::collections::HashMap<String, Vec<usize>> {
+    let mut objects: std::collections::HashMap<String, Vec<usize>> = Default::default();
+    for (k, b) in f.objects.iter().enumerate() {
+        if b.lod.is_some() {
+            objects
+                .entry(format!("{:x} {:?}", b.mesh, b.transform))
+                .or_default()
+                .push(k);
+        }
+    }
+    objects
+}
+
+/// How many indices of the draws `of` pass `which`, read from the frame `f`.
+fn indices_of(
+    f: &auberean_draw::scene::Frame,
+    of: &[usize],
+    which: impl Fn(&auberean_draw::scene::ObjectBatch) -> bool,
+) -> usize {
+    of.iter()
+        .map(|&k| &f.objects[k])
+        .filter(|b| which(b))
+        .map(|b| b.indices.len())
+        .sum()
+}
+
+/// With the frame built once, the camera moving on within its land cell still finds each placed
+/// object's draw for the distance it has come to: some objects step to another level of detail, and
+/// none in sight is left with nothing to draw.
+///
+/// Behaviour: draw.mesh.an-objects-detail-follows-the-camera-every-frame
+#[test]
+fn an_objects_detail_follows_the_camera_every_frame() {
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let mut b = SceneBuilder::new(&i.records, &region);
+    b.static_shadows = false;
+    b.camera_moves = true;
+    b.set_far_radius(0);
+    let s = spot();
+    let mut f = b.frame(&s, 60.0);
+    let objects = placed(&f);
+    assert!(!objects.is_empty(), "the camp's objects");
+    let (from, to) = (
+        s.position,
+        Vec3::new(s.position.x + 20.0, s.position.y + 20.0, s.position.z),
+    );
+    fade_objects(&mut f.objects, from, &[]);
+    let before: Vec<(&String, usize)> = objects
+        .iter()
+        .map(|(o, of)| (o, indices_of(&f, of, |b| b.shown())))
+        .collect();
+    fade_objects(&mut f.objects, to, &[]);
+    let mut stepped = 0;
+    for (o, was) in before {
+        let of = &objects[o];
+        let first = &f.objects[of[0]];
+        let distance = first.distance_from(to);
+        let now = indices_of(&f, of, |b| b.shown());
+        if first.visible.is_some_and(|v| distance < v * 0.99) {
+            assert!(now > 0, "{o} at {distance} has a draw");
+        }
+        if now != was && now > 0 && was > 0 {
+            stepped += 1;
+        }
+    }
+    assert!(stepped > 0, "some object steps to another level");
+}
+
+/// The water's reflection takes an object's distances at 40%, its detail falling that much sooner:
+/// an object it still shows may stand at a lower level there than in the frame.
+///
+/// Behaviour: draw.mesh.the-reflection-takes-an-objects-detail-distances-at-40-percent
+#[test]
+fn the_reflection_takes_an_objects_detail_distances_at_40_percent() {
+    let i = install();
+    let region = i.records.region().expect("the region");
+    let mut b = SceneBuilder::new(&i.records, &region);
+    b.static_shadows = false;
+    b.camera_moves = true;
+    b.set_far_radius(0);
+    let s = spot();
+    let mut f = b.frame(&s, 60.0);
+    let objects = placed(&f);
+    fade_objects(&mut f.objects, s.position, &[]);
+    let mut lower = 0;
+    for of in objects.values() {
+        let shown = indices_of(&f, of, |b| b.shown());
+        let reflected = indices_of(&f, of, |b| b.reflected(s.position));
+        assert!(
+            of.iter().all(|&k| {
+                let b = &f.objects[k];
+                let d = b.distance_from(s.position);
+                !b.reflected(s.position) || b.visible.is_none_or(|v| d <= v * 0.4)
+            }),
+            "none past 40% of its visible distance"
+        );
+        if reflected > 0 && reflected < shown {
+            lower += 1;
+        }
+    }
+    assert!(
+        lower > 0,
+        "some object shows fewer triangles in the reflection"
+    );
 }

@@ -11,6 +11,7 @@
 //! literal, and carries variables by id; setting the table by enumeration value or by name asks
 //! the host, and keeps only a record id of the string table type.
 
+use auberean_assets::script::WordFilter;
 use auberean_dat::{type_of_id, RecordType};
 use auberean_script::native::{Call, NativeFn, NativeTable, Status, Stop};
 use auberean_script::native_object::{NativeObject, TextInfo, Variable, VariableValue};
@@ -32,8 +33,14 @@ const PS_UTILS: u32 = 0x5D;
 /// The case-insensitive string.
 const CI_TEXT: u32 = 0x1ACF;
 
+/// The word filter's package, and where the data files say its record is.
+const WORD_FILTER: u32 = 0x6B;
+const WORD_FILTER_VALUE: u32 = 0x4000_0005;
+const WORD_FILTER_MAPPING: u32 = 0x4000_0002;
+
 /// This module's natives: package, number, function.
 const NATIVES: &[(u32, u32, NativeFn)] = &[
+    (WORD_FILTER, 3, format_for_audience),
     (BUILD, 1, concat_text),
     (BUILD, 2, concat_int),
     (BUILD, 3, concat_uint),
@@ -292,19 +299,60 @@ fn to_i64(text: &[u16]) -> u64 {
     fmt::wide::to_int64(text, 0).0.cast_unsigned()
 }
 
-/// A float as the C library reads one (the longest leading part that is a number).
+/// A float as the C library reads one: white space passed over, then the longest leading part
+/// that is a number (see [`reads_as_whole_double`]). There is no infinity or not-a-number to
+/// read, and an exponent may be written with `d`.
 fn to_float(text: &[u16]) -> f64 {
-    let s: String = char::decode_utf16(text.iter().copied())
-        .map(|r| r.unwrap_or('\u{fffd}'))
-        .collect();
-    let t = s.trim_start();
-    let mut best = 0.0;
-    for (end, _) in t.char_indices().chain(core::iter::once((t.len(), ' '))) {
-        if let Ok(v) = t[..end].parse::<f64>() {
-            best = v;
+    let at = |i: usize| {
+        text.get(i)
+            .copied()
+            .filter(|&u| u != 0)
+            .and_then(number_char)
+    };
+    let mut i = 0;
+    while text.get(i).is_some_and(|&u| crt_space(u)) {
+        i += 1;
+    }
+    let mut number = String::new();
+    if let Some(sign @ (b'+' | b'-')) = at(i) {
+        number.push(char::from(sign));
+        i += 1;
+    }
+    let (mut point, mut any) = (false, false);
+    loop {
+        match at(i) {
+            Some(b'.') if !point => {
+                point = true;
+                number.push('.');
+            }
+            Some(d) if d.is_ascii_digit() => {
+                any = true;
+                number.push(char::from(d));
+            }
+            _ => break,
+        }
+        i += 1;
+    }
+    if !any {
+        return 0.0;
+    }
+    if matches!(at(i), Some(b'e' | b'E' | b'd' | b'D')) {
+        let mut j = i + 1;
+        let mut exponent = String::from("e");
+        if let Some(sign @ (b'+' | b'-')) = at(j) {
+            exponent.push(char::from(sign));
+            j += 1;
+        }
+        let digits = exponent.len();
+        while let Some(d) = at(j).filter(u8::is_ascii_digit) {
+            exponent.push(char::from(d));
+            j += 1;
+        }
+        if exponent.len() > digits {
+            number.push_str(&exponent);
         }
     }
-    best
+    number.parse().unwrap_or(0.0)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -327,6 +375,32 @@ fn joined(text: Vec<u16>, number: &str, order: u32) -> Vec<u16> {
     } else {
         n.into_iter().chain(text).collect()
     }
+}
+
+/// A name's written form, given the audience (`fp[-2]`, unused), the name (`fp[-3]`) and an out
+/// reference (`fp[-4]`) to the string it goes into: answers (`fp[-5]`) whether the form differs from
+/// what was typed. Data files with no word filter leave the string alone and answer 0.
+// D2-09005, D2-14301
+fn format_for_audience(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let name = text_arg(c, -3)?;
+    let out = c.cx.at(-4)?;
+    let has_filter = c.host.database().is_some_and(|db| {
+        db.get_by_enum::<WordFilter>(WORD_FILTER_VALUE, WORD_FILTER_MAPPING)
+            .is_some()
+    });
+    if !has_filter {
+        c.write(-5, 0, tag::MIXED)?;
+        return Ok(Status::Success);
+    }
+    let (form, changed) = fmt::names::format_for_audience(&name);
+    let prog = std::sync::Arc::clone(c.vm.program());
+    let (target, _) = c.vm.read_slot(c.host, c.cx, out, 0, &prog)?;
+    match c.vm.heap.native_mut(target)? {
+        NativeObject::Text(t) => *t = form,
+        _ => return Err(c.fail("the out reference holds no string")),
+    }
+    c.write(-5, u32::from(changed), tag::MIXED)?;
+    Ok(Status::Success)
 }
 
 fn give_text(c: &mut Call<'_>, slot: i64, units: Vec<u16>) -> Result<Status, Stop> {
@@ -510,7 +584,7 @@ fn append_uint(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// Append a number in hex.
-// D2-09610
+// D2-09610, D2-09253
 fn append_hex(c: &mut Call<'_>) -> Result<Status, Stop> {
     let v = c.cx.at(-2)?;
     text_or_crash!(c).extend(units(&format!("0x{v:08X}")));
@@ -646,22 +720,22 @@ fn parse_float(c: &mut Call<'_>) -> Result<Status, Stop> {
     Ok(Status::Success)
 }
 
-/// Upper-case the string's ASCII letters, in place.
+/// Upper-case the string's letters in place, as the C library does in the English locale, up
+/// to its first zero.
 // D2-09602
 fn upper(c: &mut Call<'_>) -> Result<Status, Stop> {
-    for u in text_or_crash!(c).iter_mut() {
-        if (u16::from(b'a')..=u16::from(b'z')).contains(u) {
-            *u -= 32;
-        }
+    for u in text_or_crash!(c).iter_mut().take_while(|u| **u != 0) {
+        *u = fmt::crt::to_upper(*u);
     }
     Ok(Status::Success)
 }
 
-/// Lower-case the string's ASCII letters, in place.
+/// Lower-case the string's letters in place, as the C library does in the English locale, up
+/// to its first zero.
 // D2-09601
 fn lower(c: &mut Call<'_>) -> Result<Status, Stop> {
-    for u in text_or_crash!(c).iter_mut() {
-        *u = fold(*u);
+    for u in text_or_crash!(c).iter_mut().take_while(|u| **u != 0) {
+        *u = fmt::crt::to_lower(*u);
     }
     Ok(Status::Success)
 }
@@ -934,7 +1008,7 @@ fn is_word_in_string(c: &mut Call<'_>) -> Result<Status, Stop> {
 const STRING_TABLE: u32 = RecordType::STRING_TABLE.0;
 
 /// The mapping a table is looked up by enumeration value through.
-const TABLE_ENUM_MAPPING: u32 = 0x4000_0004;
+pub const TABLE_ENUM_MAPPING: u32 = 0x4000_0004;
 
 fn info<'a>(c: &'a mut Call<'_>) -> Result<Option<&'a mut TextInfo>, Stop> {
     let r = c.receiver()?;
@@ -961,7 +1035,7 @@ macro_rules! info_or_crash {
 }
 
 /// A table id when it is a string table's, else none.
-pub(crate) fn table_or_none(did: u32) -> u32 {
+pub fn table_or_none(did: u32) -> u32 {
     if type_of_id(did).is_some_and(|t| t.0 == STRING_TABLE) {
         did
     } else {
@@ -1007,6 +1081,64 @@ fn set_table_by_name(c: &mut Call<'_>) -> Result<Status, Stop> {
         t.table = d;
     }
     Ok(Status::Success)
+}
+
+/// A string reference read from a text tree: each of the node's children by its keyword,
+/// `STRINGTABLE` naming the table's record (an unknown name leaves the table as it was) and
+/// `STRINGTOKEN` the string, given to `token` as written. Another keyword is warned of and passed
+/// over. A keyword with no one text beneath it is an error on the tree and the end of the reading,
+/// with what was read before it kept: whether the reading got through.
+// D2-14136
+pub fn text_from_node_keeping_token(
+    info: &mut TextInfo,
+    node: Option<&mut auberean_dat::tree::Node>,
+    token: &mut Vec<u8>,
+    table_by_name: &mut dyn FnMut(&str) -> u32,
+) -> bool {
+    let Some(node) = node else {
+        return false;
+    };
+    let mut corrupt = false;
+    let mut warnings = 0;
+    for child in node.children_mut() {
+        if child.is_keyword(b"STRINGTABLE") {
+            let Some(name) = child.leaf_text() else {
+                corrupt = true;
+                break;
+            };
+            let did = table_by_name(&String::from_utf8_lossy(&name));
+            if did != 0 {
+                info.table = table_or_none(did);
+            }
+        } else if child.is_keyword(b"STRINGTOKEN") {
+            let Some(name) = child.leaf_text() else {
+                corrupt = true;
+                break;
+            };
+            info.string_id = auberean_assets::strings::token(&String::from_utf8_lossy(&name));
+            *token = name;
+        } else {
+            warnings += 1;
+        }
+    }
+    for _ in 0..warnings {
+        node.report_warning();
+    }
+    if corrupt {
+        node.report_error();
+    }
+    !corrupt
+}
+
+/// [`text_from_node_keeping_token`], the token's text not asked for.
+// D2-14137
+pub fn text_from_node(
+    info: &mut TextInfo,
+    node: Option<&mut auberean_dat::tree::Node>,
+    table_by_name: &mut dyn FnMut(&str) -> u32,
+) -> bool {
+    let mut token = Vec::new();
+    text_from_node_keeping_token(info, node, &mut token, table_by_name)
 }
 
 /// Set the string id, and the table by name.
@@ -1345,6 +1477,16 @@ impl fmt::Source for NoTables {
     fn language(&mut self) -> Option<std::sync::Arc<fmt::Language>> {
         None
     }
+}
+
+/// A reference's log line, flags kept, as a dump writes one it holds.
+pub(crate) fn log_line(c: &mut Call<'_>, t: &TextInfo) -> String {
+    let mut s = to_formatter(t);
+    let text = match c.host.text() {
+        Some(src) => s.log_string(src, true),
+        None => s.log_string(&mut NoTables, true),
+    };
+    String::from_utf16_lossy(&text)
 }
 
 /// How a native writes its reference.

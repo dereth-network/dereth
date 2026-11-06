@@ -1,6 +1,7 @@
 //! The story's scenes played over the play screen on the retail layouts.
 
 use auberean_text::StringInfo;
+use auberean_ui::draw;
 use auberean_ui::types::key_id;
 use auberean_ui::Token;
 use auberean_ui_game::gameplay::{notice, Record, Request};
@@ -47,6 +48,26 @@ fn sounds(out: &[Request]) -> Vec<Sound> {
             _ => None,
         })
         .collect()
+}
+
+/// While a story is up, the key that hides the whole interface does nothing.
+///
+/// Behaviour: ui.story.the-hide-all-key-waits-for-a-story
+#[test]
+fn the_hide_all_key_waits_for_a_story() {
+    let mut w = World::new();
+    w.tick(&[said(
+        notice::PLAY_SEQUENCE,
+        vec![0],
+        vec![Some(Record::Scenes(scenes()))],
+    )]);
+    assert!(w.play.story().is_some(), "the story up");
+    let shown = w.play.shown(&w.ui);
+    w.ui.key(auberean_ui_game::gameplay::action::ALL_UI, true);
+    w.tick(&[]);
+    w.ui.key(auberean_ui_game::gameplay::action::ALL_UI, false);
+    w.tick(&[]);
+    assert_eq!(w.play.shown(&w.ui), shown);
 }
 
 /// The scripts' scenes put the story up over the screen; once its background has faded in, the
@@ -129,6 +150,47 @@ fn the_storys_scenes_play_over_the_screen() {
     w.play.player_ready_to_enter_world(&mut w.ui, &mut out);
     assert!(w.play.story().is_none(), "the player arrived");
     assert!(out.contains(&Request::PlayScenesDone(Vec::new())));
+}
+
+/// The story's background stands at the shortcut strip's depth and came after it, so the strip is
+/// drawn in front of it, as the only part of the play screen that shows through, and the pointer
+/// meets it there.
+///
+/// Behaviour: ui.story.the-shortcut-strip-shows-in-front-of-the-storys-background
+#[test]
+fn the_shortcut_strip_shows_in_front_of_the_storys_background() {
+    let mut w = World::new();
+    let record = || vec![Some(Record::Scenes(scenes()))];
+    let strip = w.ui.element(Token::of("ShortcutListBox")).unwrap();
+    let area = w.ui.screen_rect(strip).unwrap();
+    w.tick(&[said(notice::PLAY_SEQUENCE, vec![0], record())]);
+    for _ in 0..200 {
+        w.tick(&[]);
+        if w.play
+            .story()
+            .is_some_and(auberean_ui_game::story::Story::playing)
+        {
+            break;
+        }
+    }
+    let mut screen = draw::Surface::new(1024, 768);
+    draw::draw(&w.ui, &mut screen);
+    let lit = (area.x0..=area.x1)
+        .any(|x| (area.y0..=area.y1).any(|y| screen.get(x, y)[..3].iter().any(|c| *c != 0)));
+    assert!(lit, "the strip shows over the black");
+    let below =
+        w.ui.hit(area.x0 + 5, area.y0 + 5)
+            .and_then(|h| w.ui.node(h));
+    assert_ne!(
+        below.map(|n| n.id),
+        Some(Token::of("BackgroundField")),
+        "the pointer meets the strip"
+    );
+    assert!(below.is_some());
+    assert!(
+        !(0..100).any(|x| (300..400).any(|y| screen.get(x, y)[..3].iter().any(|c| *c != 0))),
+        "the rest of the screen is the background's black"
+    );
 }
 
 /// A step's subtitle naming a string table the data lacks is given to the frame's text as a

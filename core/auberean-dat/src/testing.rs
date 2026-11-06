@@ -9,8 +9,14 @@
 //! A test that needs the set fails, naming the variable to set, when it is not found
 //! ([`require_install`]): a test that read nothing never passes.
 
-use std::path::PathBuf;
+use std::fs::File;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
+use crate::checked::{Exact, ReadAt};
+use crate::container::DatFile;
 use crate::locate::holds_install;
 
 /// The variable naming the end-of-retail set's folder.
@@ -88,4 +94,50 @@ pub fn require_install(set: &str) -> PathBuf {
 #[must_use]
 pub fn require_target_install() -> PathBuf {
     require_install(TARGET)
+}
+
+/// A file that reads one record wrong once: the first byte of the record's body comes back
+/// inverted the first time a read covers it, and right after that. What a bad read looks like to a
+/// decoder, from a file that did not change.
+#[derive(Debug)]
+pub struct WrongOnce {
+    file: File,
+    at: u64,
+    done: AtomicBool,
+}
+
+impl ReadAt for WrongOnce {
+    fn read_at(&self, offset: u64, buf: &mut [u8]) -> io::Result<usize> {
+        let n = self.file.read_at(offset, buf)?;
+        if (offset..offset + n as u64).contains(&self.at) && !self.done.swap(true, Ordering::SeqCst)
+        {
+            let i = usize::try_from(self.at - offset).expect("within the buffer");
+            buf[i] = !buf[i];
+        }
+        Ok(n)
+    }
+}
+
+/// The data file at `path`, with the record `id` read wrong once ([`WrongOnce`]).
+///
+/// # Panics
+/// The file does not open, or holds no such record.
+#[must_use]
+pub fn open_wrong_once(path: &Path, id: u32) -> DatFile {
+    let open = |source: Box<dyn dereth_dat::DatStorage>| {
+        DatFile::from_storage(path.to_path_buf(), source).expect("the file opens")
+    };
+    let plain = Arc::new(File::open(path).expect("the file"));
+    let entry = open(Box::new(Exact(plain)))
+        .entry(id)
+        .expect("the record")
+        .offset;
+    // The record's first block starts with the link to its next.
+    let at = u64::from(entry) + 4;
+    let file = File::open(path).expect("the file");
+    open(Box::new(Exact(WrongOnce {
+        file,
+        at,
+        done: AtomicBool::new(false),
+    })))
 }

@@ -20,8 +20,16 @@ fn d() -> DotNetDateTime {
 #[test]
 fn every_world_table_is_declared_and_has_rows() {
     let (_, imp) = fixture::imported();
+    let extensions = [
+        "recipe_requirements_vital",
+        "empyrean_grouped_treasure",
+        "empyrean_loot_policy",
+    ];
     assert_eq!(
-        WORLD_TABLES.len(),
+        WORLD_TABLES
+            .iter()
+            .filter(|table| !extensions.contains(table))
+            .count(),
         54,
         "ACE's World model has 54 table classes"
     );
@@ -30,6 +38,13 @@ fn every_world_table_is_declared_and_has_rows() {
     assert!(imp.unread_columns.is_empty(), "{:?}", imp.unread_columns);
     assert!(imp.orphans.is_empty(), "{:?}", imp.orphans);
     for (table, rows) in &imp.rows {
+        if extensions.contains(table) {
+            assert_eq!(
+                *rows, 0,
+                "the ACE fixture has no optional extension rows for {table}"
+            );
+            continue;
+        }
         assert!(*rows > 0, "fixture has no rows for {table}");
     }
     let rows: std::collections::BTreeMap<_, _> = imp.rows.iter().copied().collect();

@@ -7,12 +7,12 @@
 //! fog type...) indexed by the numbers a landblock's vertex words and the block maps carry.
 
 use auberean_dat::reader::Result;
-use auberean_dat::{QualifiedIds, Reader};
+use auberean_dat::{QualifiedIds, Reader, Writer};
 use auberean_primitives::DataId;
 
 use crate::common::Color32;
 use crate::property::Property;
-use crate::{Context, Decode};
+use crate::{Context, Decode, Encode};
 
 /// A 32-bit truth word, alignment, then the item when the word is set.
 fn optional<T>(
@@ -25,6 +25,15 @@ fn optional<T>(
         Ok(Some(item(r)?))
     } else {
         Ok(None)
+    }
+}
+
+/// A 32-bit truth word, alignment, then the item when there is one.
+fn write_optional<T>(w: &mut Writer, item: Option<&T>, write: impl FnOnce(&mut Writer, &T)) {
+    w.u32(u32::from(item.is_some()));
+    w.align();
+    if let Some(item) = item {
+        write(w, item);
     }
 }
 
@@ -55,6 +64,16 @@ impl Decode for BlockMap {
     }
 }
 
+impl Encode for BlockMap {
+    // D2-12590
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(id);
+        w.u32(self.height);
+        w.u32(self.width);
+        w.bytes(&self.cells);
+    }
+}
+
 /// One entry of a region's list of descriptions: the record and the index it is known by.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct IndexedRecord {
@@ -78,6 +97,19 @@ fn indexed_records(r: &mut Reader<'_>) -> Result<Vec<IndexedRecord>> {
     }
     r.align()?;
     Ok(v)
+}
+
+/// A counted list of record ids, then the same count of indices, then alignment.
+// D2-07478
+fn write_indexed_records(w: &mut Writer, v: &[IndexedRecord]) {
+    w.u32(u32::try_from(v.len()).unwrap_or(u32::MAX));
+    for e in v {
+        w.data_id(e.record);
+    }
+    for e in v {
+        w.u32(e.index);
+    }
+    w.align();
 }
 
 /// The region (`.rgn`, `0x0F000000`+): the world's name, its maps, its size in landblocks, the
@@ -110,7 +142,7 @@ pub struct Region {
     pub world_maps: Vec<IndexedRecord>,
 }
 
-// D2-07477, D2-07488, D2-07490, D2-05029, D2-07489, D2-07494
+// D2-07477, D2-07488, D2-07490, D2-05029, D2-07489, D2-07494, D2-07501
 impl Decode for Region {
     /// The id, the region number, the name (a narrow string), the map, its scale, the test map,
     /// its size, the landscape constants' id, the length and width in landblocks, then eleven
@@ -162,6 +194,38 @@ impl Decode for Region {
             properties,
             world_maps,
         })
+    }
+}
+
+impl Encode for Region {
+    // D2-07499, D2-07491
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(id);
+        w.u32(self.number);
+        w.narrow_string(&self.name);
+        w.data_id(self.map);
+        w.f32(self.map_scale);
+        w.data_id(self.test_map);
+        w.u32(self.test_map_size);
+        w.data_id(self.landscape);
+        w.u32(self.blocks_long);
+        w.u32(self.blocks_wide);
+        for list in [
+            &self.sounds,
+            &self.scenes,
+            &self.terrains,
+            &self.surfaces,
+            &self.encounters,
+            &self.detail_maps,
+            &self.skies,
+            &self.waters,
+            &self.fogs,
+            &self.properties,
+            &self.world_maps,
+        ] {
+            write_indexed_records(w, list);
+        }
+        w.align();
     }
 }
 
@@ -317,6 +381,21 @@ impl SceneryKind {
     }
 }
 
+impl SceneryKind {
+    // D2-12392, D2-12393, D2-12400, D2-12402
+    fn write(&self, w: &mut Writer) {
+        w.u32(self.index);
+        w.align();
+        w.u32(self.sound);
+        w.align();
+        w.list(&self.scenes, |w, e| {
+            w.data_id(e.scene);
+            w.f32(e.frequency);
+            w.u32(e.rotate);
+        });
+    }
+}
+
 /// The region's scenery (`.scd`, `0x11000000`+): every kind of scenery.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct SceneDesc {
@@ -324,7 +403,7 @@ pub struct SceneDesc {
     pub scene_types: Vec<SceneryKind>,
 }
 
-// D2-07426, D2-07428, D2-05031, D2-07427, D2-07435
+// D2-07426, D2-07428, D2-05031, D2-07427, D2-07435, D2-07436
 impl Decode for SceneDesc {
     /// A version word **before** the id, the id, then a counted list of scenery kinds.
     // D2-07437
@@ -335,6 +414,15 @@ impl Decode for SceneDesc {
             version,
             scene_types: r.list(12, SceneryKind::read)?,
         })
+    }
+}
+
+impl Encode for SceneDesc {
+    // D2-07430, D2-07429
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(self.version);
+        w.u32(id);
+        w.list(&self.scene_types, |w, k| k.write(w));
     }
 }
 
@@ -355,6 +443,15 @@ impl TerrainScenery {
             kind,
             index: r.u32()?,
         })
+    }
+}
+
+impl TerrainScenery {
+    // D2-12498
+    fn write(self, w: &mut Writer) {
+        w.u32(self.kind);
+        w.align();
+        w.u32(self.index);
     }
 }
 
@@ -395,6 +492,19 @@ impl TerrainType {
     }
 }
 
+impl TerrainType {
+    // D2-12496, D2-12491
+    fn write(&self, w: &mut Writer) {
+        w.narrow_string(&self.name);
+        w.u32(self.surface);
+        w.align();
+        w.u32(self.index);
+        w.f32(self.hard_edge_angle);
+        write_optional(w, self.default_scenery.as_ref(), |w, e| e.write(w));
+        w.list(&self.scenery, |w, e| e.write(w));
+    }
+}
+
 /// The region's terrain (`.trd`, `0x12000000`+): every kind of terrain.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct TerrainDesc {
@@ -418,6 +528,16 @@ impl Decode for TerrainDesc {
             default_terrain,
             terrains,
         })
+    }
+}
+
+impl Encode for TerrainDesc {
+    // D2-07447, D2-07442
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(id);
+        w.u32(self.version);
+        write_optional(w, self.default_terrain.as_ref(), |w, t| t.write(w));
+        w.list(&self.terrains, |w, t| t.write(w));
     }
 }
 
@@ -608,7 +728,7 @@ pub struct SurfaceDesc {
     pub roads: Vec<SurfaceType>,
 }
 
-// D2-07553, D2-07555, D2-05033, D2-07554
+// D2-07553, D2-07555, D2-05033, D2-07554, D2-07545
 impl Decode for SurfaceDesc {
     /// A version word **before** the id, the id, the far texture, its scale, the far water
     /// material, the cloud texture, its scale and scroll speeds, the surfaces, the roads.
@@ -704,7 +824,7 @@ pub struct EncounterDesc {
     pub rows: Vec<EncounterRow>,
 }
 
-// D2-07505, D2-07507, D2-05034, D2-07506, D2-07509
+// D2-07505, D2-07507, D2-05034, D2-07506, D2-07509, D2-07502
 impl Decode for EncounterDesc {
     /// A version word **before** the id, the id, the block map, a counted list of rows.
     // D2-07503, D2-07515
@@ -741,7 +861,7 @@ pub struct SkyDesc {
     pub days: Vec<WeightedDay>,
 }
 
-// D2-12514, D2-12515, D2-07454, D2-07460, D2-05035, D2-07461, D2-07464
+// D2-12514, D2-12515, D2-07454, D2-07460, D2-05035, D2-07461, D2-07464, D2-07465
 impl Decode for SkyDesc {
     /// A version word **before** the id, the id, four 64-bit tick intervals, the calendar, a
     /// counted list of days and frequencies.
@@ -840,7 +960,7 @@ pub struct FogAndLight {
     pub combines: [Combine; 7],
 }
 
-// D2-12536, D2-12540, D2-12534
+// D2-12536, D2-12540, D2-12534, D2-12535, D2-10863, D2-10864
 impl FogAndLight {
     /// The four fog values, the fog kind, the fog color, the direct brightness and color, the
     /// ambient brightness and color, the combine code, then the two multipliers of each channel
@@ -881,6 +1001,48 @@ impl FogAndLight {
             combine_code,
             combines,
         })
+    }
+}
+
+impl FogAndLight {
+    /// The combine code the channels' modes make: seven 3-bit modes, ambient brightness lowest.
+    // D2-12542, D2-12537
+    #[must_use]
+    pub fn code(&self) -> u32 {
+        self.combines
+            .iter()
+            .enumerate()
+            .fold(0, |code, (i, c)| code | ((c.mode & 7) << (3 * i)))
+    }
+
+    // D2-12543, D2-12544
+    fn write(&self, w: &mut Writer) {
+        w.f32(self.fog_min);
+        w.f32(self.fog_max);
+        w.f32(self.fog_sky);
+        w.f32(self.fog_density);
+        w.u32(self.fog_kind);
+        self.fog_color.write(w);
+        w.f32(self.direct_brightness);
+        self.direct_color.write(w);
+        w.f32(self.ambient_brightness);
+        self.ambient_color.write(w);
+        // A stored mode above 4, which reads as multiply, stays as it was stored.
+        let kept = (0..7).fold(0, |kept, i| {
+            let field = (self.combine_code >> (3 * i)) & 7;
+            if field > 4 && self.combines[i].mode == 0 {
+                kept | (field << (3 * i))
+            } else {
+                kept
+            }
+        });
+        w.u32(self.code() | kept);
+        for c in &self.combines {
+            if c.mode == 1 {
+                w.f32(c.first);
+                w.f32(c.second);
+            }
+        }
     }
 }
 
@@ -938,6 +1100,26 @@ impl WaterType {
     }
 }
 
+impl WaterType {
+    // D2-12550, D2-12551, D2-12557
+    fn write(&self, w: &mut Writer) {
+        w.u32(self.index);
+        w.u32(self.no_water);
+        if self.no_water == 0 {
+            w.data_id(self.above_material);
+            w.data_id(self.below_material);
+            w.data_id(self.physics_material);
+            w.f32(self.tile_width);
+            w.f32(self.poly_width);
+            self.color.write(w);
+            w.list(&self.lighting, |w, l| {
+                w.f32(l.depth);
+                l.light.write(w);
+            });
+        }
+    }
+}
+
 /// The region's water (`.wtd`, `0x16000000`+).
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct WaterDesc {
@@ -949,7 +1131,7 @@ pub struct WaterDesc {
     pub waters: Vec<WaterType>,
 }
 
-// D2-07516, D2-07518, D2-05036, D2-07517, D2-07530
+// D2-07516, D2-07518, D2-05036, D2-07517, D2-07530, D2-07531
 impl Decode for WaterDesc {
     /// A version word **before** the id, the id, the two maps, a word saying a default water
     /// follows, alignment, the default water, then a counted list of waters.
@@ -971,6 +1153,18 @@ impl Decode for WaterDesc {
     }
 }
 
+impl Encode for WaterDesc {
+    // D2-07519, D2-07520
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(self.version);
+        w.u32(id);
+        w.data_id(self.height_map);
+        w.data_id(self.kind_map);
+        write_optional(w, self.default_water.as_ref(), |w, t| t.write(w));
+        w.list(&self.waters, |w, t| t.write(w));
+    }
+}
+
 /// One kind of fog: its index and its fog and light.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct FogType {
@@ -989,6 +1183,14 @@ impl FogType {
     }
 }
 
+impl FogType {
+    // D2-12559
+    fn write(&self, w: &mut Writer) {
+        w.u32(self.index);
+        self.light.write(w);
+    }
+}
+
 /// The region's fog (`.fgd`, `0x17000000`+).
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct FogDesc {
@@ -1002,7 +1204,7 @@ pub struct FogDesc {
     pub fogs: Vec<FogType>,
 }
 
-// D2-07533, D2-07535, D2-05037, D2-07534, D2-07542
+// D2-07533, D2-07535, D2-05037, D2-07534, D2-07542, D2-07543
 impl Decode for FogDesc {
     /// A version word **before** the id, the id, four maps, a word saying a default fog follows,
     /// alignment, the default fog, then a counted list of fogs.
@@ -1025,6 +1227,20 @@ impl Decode for FogDesc {
             default_fog,
             fogs,
         })
+    }
+}
+
+impl Encode for FogDesc {
+    // D2-07536, D2-07537
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(self.version);
+        w.u32(id);
+        w.data_id(self.distance_map);
+        w.data_id(self.volume_map);
+        w.data_id(self.bottom_map);
+        w.data_id(self.top_map);
+        write_optional(w, self.default_fog.as_ref(), |w, t| t.write(w));
+        w.list(&self.fogs, |w, t| t.write(w));
     }
 }
 
@@ -1264,6 +1480,7 @@ impl Decode for GameTime {
                     name: r.u32()?,
                 })
             })?,
+            // D2-05483
             week_days: r.list(4, Reader::u32)?,
             seasons: r.list(8, |r| {
                 let begin = r.i32()?;
@@ -1304,6 +1521,7 @@ pub struct Landscape {
     pub heights: Vec<f32>,
 }
 
+// D2-05058, D2-13311, D2-13317
 impl Decode for Landscape {
     /// The id, the land cell side, the cells per block side, the vertex intervals per cell side,
     /// the greatest object height, the sky height, the road width, the six vertex field widths
@@ -1339,6 +1557,53 @@ impl Decode for Landscape {
             vertex_fields,
             heights,
         })
+    }
+}
+
+impl Landscape {
+    /// The constants until a record gives them: 24 m land cells, eight to a block's side, two
+    /// vertex steps to a cell's, objects to 300 m, the sky at 1000 m, roads 5 m wide; the vertex
+    /// word's terrain 6 bits, scene 4, encounter 4, color 8, road 2 and replace 8.
+    // D2-13310
+    #[must_use]
+    pub fn defaults() -> Self {
+        Self {
+            cell_side: 24.0,
+            road_width: 5.0,
+            cells_per_block_side: 8,
+            pixels_per_cell_side: 2,
+            max_object_height: 300.0,
+            sky_height: 1000.0,
+            vertex_fields: VertexFields {
+                terrain: 6,
+                scene: 4,
+                encounter: 4,
+                color: 8,
+                road: 2,
+                replace: 8,
+            },
+            heights: Vec::new(),
+        }
+    }
+}
+
+impl Encode for Landscape {
+    // D2-13315, D2-13314
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(id);
+        w.f32(self.cell_side);
+        w.i32(self.cells_per_block_side);
+        w.i32(self.pixels_per_cell_side);
+        w.f32(self.max_object_height);
+        w.f32(self.sky_height);
+        w.f32(self.road_width);
+        let f = self.vertex_fields;
+        for v in [f.terrain, f.scene, f.encounter, f.color, f.road, f.replace] {
+            w.u32(v);
+        }
+        for h in &self.heights {
+            w.f32(*h);
+        }
     }
 }
 
@@ -1379,7 +1644,7 @@ pub struct DetailMap {
     pub rows: Vec<DetailMapRow>,
 }
 
-// D2-07602, D2-05076, D2-07603, D2-07604, D2-07616
+// D2-07602, D2-05076, D2-07603, D2-07604, D2-07616, D2-07605
 impl Decode for DetailMap {
     /// The id, the block map, a counted list of rows.
     // D2-07627, D2-07610
@@ -1409,7 +1674,7 @@ pub struct MapNotes {
     pub notes: Vec<MapNote>,
 }
 
-// D2-07618, D2-05077, D2-07619, D2-07620, D2-07622, D2-07623
+// D2-07618, D2-05077, D2-07619, D2-07620, D2-07622, D2-07623, D2-07621
 impl Decode for MapNotes {
     /// The id, the string table, a counted list of notes.
     // D2-07627, D2-02569, D2-07624

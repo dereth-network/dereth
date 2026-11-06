@@ -1,7 +1,10 @@
 # Deploying the web client
 
-The web client is static files: the pages and scripts in `www/`, the WebAssembly module and its
-bindings in `www/pkg/`, and the Horizon interface's art beside the module in `www/pkg/horizon/`.
+The web client is static files: the pages and scripts in `www/`, and three WebAssembly modules, each
+with its bindings: the launcher's in `www/pkg-front/`, Dereth's in `www/pkg/` with the Horizon
+interface's art beside it in `www/pkg/horizon/`, and Auberean's in `www/pkg-auberean/`. The page
+loads the launcher's when it opens and a game's only when a world of that game is played, so a
+visit to the launcher fetches neither game and a play fetches only its own.
 Any static host serves it (Cloudflare Pages, GitHub Pages, nginx, an object store). It has no
 server side of its own, and it never hosts a player's data files.
 
@@ -11,11 +14,14 @@ server side of its own, and it never hosts a player's data files.
 cargo xtask web --build-only
 ```
 
-This builds `dereth-web` for `wasm32-unknown-unknown` with the `web-release` profile, writes
-the bindings into `www/pkg/`, copies the Horizon interface's art into `www/pkg/horizon/`, and
-copies the launcher's art the front page wears (Dereth's paintings and emblem, and the Cinzel and
-EB Garamond typefaces with their licences) from `dereth/launcher/assets/` into `www/assets/`,
-which git ignores. It needs:
+This builds `dereth-web-front`, `dereth-web` and `auberean-web` for `wasm32-unknown-unknown` with
+the `web-release` profile, writes each one's bindings into its folder, copies the Horizon
+interface's art into `www/pkg/horizon/`, and
+copies the launcher's art the front page wears (both realms' paintings and portals, the emblems,
+and the Cinzel and EB Garamond typefaces with their licences) from `launcher/assets/` into
+`www/assets/`, and copies
+the launcher's own page from `launcher/ui/` into `www/` (`app.js`, `style.css`, and its `index.html`
+as `launcher.html`), all of which git ignores. It needs:
 
 - the target, installed once: `rustup target add wasm32-unknown-unknown`;
 - **zig 0.15 or later** on the path (or named by the `ZIG` environment variable). The plugin
@@ -28,21 +34,38 @@ Publish the whole `www/` folder, `pkg/` and `assets/` included:
 
 | File | Bytes | Gzipped |
 |---|---:|---:|
-| `pkg/dereth_web_bg.wasm` | about 22.2 MB | about 8.0 MB |
-| `pkg/dereth_web.js` | about 200 kB | about 27 kB |
+| `pkg-front/dereth_web_front_bg.wasm` | about 1.2 MB | about 0.45 MB |
+| `pkg-front/dereth_web_front.js` | about 45 kB | about 8 kB |
+| `pkg/dereth_web_bg.wasm` | about 22.9 MB | about 8.0 MB |
+| `pkg/dereth_web.js` | about 190 kB | about 27 kB |
+| `pkg-auberean/auberean_web_bg.wasm` | about 10.3 MB | about 3.7 MB |
+| `pkg-auberean/auberean_web.js` | about 135 kB | about 23 kB |
 | `pkg/horizon/atlas-1-0.png`, `atlas-2-0.png`, `atlas-3-0.png` | 1.2, 4.4 and 9.0 MB | the same (PNG is compressed) |
 | `pkg/horizon/font-0.png` to `font-5.png` | about 3.4 MB in all | the same |
 | `pkg/horizon/fonts.json`, `pkg/horizon/manifest.json` | about 2.4 MB and 39 kB | about 0.35 MB |
-| `assets/background/dereth/*.webp` (ten paintings), `assets/backgrounds.json` | about 4.1 MB | the same (WebP is compressed) |
-| `assets/fonts/Cinzel-var.ttf`, `EBGaramond-var.ttf`, `OFL-Cinzel.txt`, `OFL-EBGaramond.txt`; `assets/emblem/dereth.webp` | about 1.0 MB and 30 kB | about 0.5 MB |
-| `index.html`, `play.js`, `front.js`, `backend.js`, `play-worker.js`, `datfiles.js`, `plugin-io.js`, `audio-worklet.js`, `launcher.css`, `web.css` | about 200 kB | about 57 kB |
+| `assets/background/dereth/*.webp` (ten paintings), `assets/background/auberean/*.webp` (six), `assets/backgrounds.json` | about 7 MB | the same (WebP is compressed) |
+| `assets/fonts/Cinzel-var.ttf`, `EBGaramond-var.ttf`, `OFL-Cinzel.txt`, `OFL-EBGaramond.txt`; `assets/emblem/dereth.webp`, `network.webp`; `assets/portal/*.webp` | about 1.1 MB | about 0.6 MB |
+| `index.html`, `play.js`, `host.js`, `backend.js`, `front-worker.js`, `play-worker.js`, `auberean-worker.js`, `game-loop.js`, `datfiles.js`, `plugin-io.js`, `audio-worklet.js`, `app.js`, `style.css`, `launcher.html`, `web.css` | about 400 kB | about 115 kB |
 
 No file is larger than 25 MiB, the most Cloudflare Pages serves as one file; the packaging refuses
-a bundle with a larger one.
+a bundle with a larger one. Each game's module is a file of its own for that reason too.
 
-The plugin host and its Lua engine are about 2.5 MB of the module (0.8 MB gzipped); reading,
+What a page fetches:
+
+| When | It fetches |
+|---|---|
+| The page opens | the page's scripts, the launcher's page and module, and the paintings of the realm it opens in |
+| A realm is first shown | that realm's paintings |
+| A world of Asheron's Call's is played | `play-worker.js`, Dereth's module and the Horizon interface's art |
+| A world of Asheron's Call 2's is played | `auberean-worker.js` and Auberean's module |
+
+Each game plays in a worker of its own, made at its first play and kept for its next, each play with
+a canvas of its own. A worker is not ended between plays: WebKit does not survive the end of a worker
+that drew with WebGPU. So a page that has played both games keeps both modules' memory until it closes.
+
+The plugin host and its Lua engine are about 2.5 MB of Dereth's module (0.8 MB gzipped); reading,
 checking and rewriting compiled plugins about 1.2 MB more (0.5 MB gzipped).
-`dereth.pluginEngineCheck()` in a page that has loaded the module answers the engine's self-check,
+`dereth.pluginEngineCheck()` in a worker that has loaded the module answers the engine's self-check,
 one line a step; each ends in `ok` in a working build.
 
 The module uses WebAssembly exception handling (in the legacy encoding), which every browser in
@@ -58,10 +81,11 @@ commit; see [Releases](#releases).
 ## Releases
 
 Each release of the web client is a GitHub release of this repository, tagged
-`dereth-web-v<version>`. The web client is the Dereth client in a browser, so it carries Dereth's
-version: the one the client and the launcher carry, which `cargo xtask release dereth <version>`
-sets for all three. A version is released for the web under its own tag, from the same commit as
-Dereth's release of it or later.
+`dereth-web-v<version>`. **One release carries both games:** the launcher's module, Dereth's and
+Auberean's, with no release of its own for Asheron's Call 2. It takes Dereth's version, which
+`cargo xtask release dereth <version>` sets. A version is released for the web under its own tag,
+from the same commit as Dereth's release of it or later. Auberean's own version names its desktop
+client's releases; the page says which it is playing, and no tag or file name carries it.
 
 A release carries three files:
 
@@ -184,7 +208,8 @@ The owner of the repository runs releases:
 `cargo xtask ship` (the network's [`RELEASING.md`](../../network/RELEASING.md), "Preflight, then
 ship") does the first two steps: with each Dereth release it ships, it tags
 `dereth-web-v<version>` on Dereth's release commit and pushes the tag. A change to the web client
-alone is a reason for a Dereth release, since the web client carries Dereth's version. Its
+alone, to Auberean's module or to what it is built from is a reason for a Dereth release, since
+that one release carries both games. Its
 preflight builds the bundle beforehand as a release candidate, and `cargo xtask preflight play
 --web` serves it on `127.0.0.1` with the world list of the dev hub it tries the release on.
 
@@ -203,6 +228,7 @@ broken web build is seen before a release.
 - **Content types.** Serve `.wasm` as `application/wasm` (the module is compiled while it
   downloads, which needs it) and `.js` as `text/javascript`. Most hosts already do.
 - **Compression.** Serve `.wasm` compressed (gzip or Brotli); it shrinks to about a third.
+  All three modules are served alike: `www/_headers` needs nothing for any one of them.
 - **No cross-origin isolation.** The client uses no `SharedArrayBuffer`, so it needs no
   `Cross-Origin-Opener-Policy` or `Cross-Origin-Embedder-Policy`.
 - **Caching.** Every file keeps its name from build to build: the page, its scripts, the module
@@ -249,10 +275,11 @@ Chrome shares Edge's engine but has not been run itself.
 
 ## The front page
 
-The page opens on the launcher: the desktop launcher's Dereth realm, in its look (its stylesheet,
-copied as `launcher.css`, its paintings, emblem and typefaces) and with its own logic run in the
-browser (the module carries it). Pick a world or type an address, choose or add the data files, and
-play. Its screens are the desktop's, by the same names:
+The page opens on the launcher: the desktop launcher's own page, in both its realms, Dereth's and
+Auberean's, with its script, stylesheet, shell, paintings, emblems and typefaces, and with its own
+logic run in the browser (the launcher's module carries it). What a browser cannot do, the page
+leaves out because the browser's backend says it does not offer it. Pick a world or type an address,
+choose or add the data files, and play. Its screens are the desktop's, by the same names:
 
 - **Play** (Home): the favourites, then the combinations played recently, each a world and an
   account with its data files, and PLAY.
@@ -282,7 +309,14 @@ the rail is a bar along the top.
 
 What the desktop launcher has that a browser cannot (hosting a world, building one, the retail
 client, downloading the launcher's programs, Discord, a gamepad, a desktop shortcut) is not on the
-page. The slot above the rail where the desktop launcher shows its realms is there, empty.
+page.
+
+**Auberean's realm** shows the worlds of Asheron's Call 2, its accounts, and its Library: the data
+sets kept in this browser and their check. A world's page takes an account, a password and a set,
+and says how the world is reached. A world with a WebSocket endpoint (Yalain's `[server.websocket]`)
+is played directly; a world reachable only by UDP says it can't be played in a browser, and links
+to the desktop client. `dereth-web-relay` carries two ports and a world of Asheron's Call 2's has
+four, so the relay is no way to one.
 
 What the launcher keeps (its state record: the accounts, favourites, recent combinations, the
 servers added and the data sets) is kept in the browser's local storage, never sent anywhere.
@@ -408,6 +442,18 @@ Setting it up, once (the owner's): make a Cloudflare Pages project for it (for e
 answers once the first deploy is done. Deploy again whenever a published plugin changes its version, or
 `published.toml` names another. Plugins are experimental: nothing is deployed until the owner decides.
 
+## The player's data files for Auberean
+
+A play of Asheron's Call 2 reads four of an install's files: `portal.dat` (1.5 GB), `cell_1.dat`
+(220 MB) and `local_English.dat` (68 MB), which it needs, and `highres.dat` (1.7 GB), the
+high-resolution pictures, when the player has it: 1.8 GB, or 3.5 GB with the pictures. The rest of
+an install is not read, and the page does not keep it. The player adds them in Auberean's Library
+or on a world's page, as a set kept in the browser's private storage in `auberean/sets/<name>/`, or
+picks them for one visit. Files that lack one of the needed three are refused before any is copied.
+A browser keeps no updates for these worlds: what a world sends is kept for the session in memory,
+as the desktop client keeps it. Auberean's own files (its preferences and key maps) are kept apart
+from Dereth's, in `auberean/settings.bin`.
+
 ## The player's data files
 
 Every player uses their own Asheron's Call data files (`client_portal.dat`, `client_cell_1.dat`,
@@ -471,12 +517,20 @@ with the Liberation fonts the module carries (Serif, Mono and Sans, under the SI
 Licence), sized and spaced as the Windows desktop's, so a host serves no fonts and needs no header
 for them.
 
+## What a browser's Auberean leaves out
+
+- **Friends.** The friends service is a TCP stream, and a browser cannot open one, so the player is
+  without friends, and at each entry the game says it could not reach the service.
+- **Lens flares,** on WebGPU: the device cannot look for what stands in front of a flare there, so
+  flares are not drawn. On WebGL 2 they are.
+- **Language.** The strings are the English ones.
+
 ## Connecting to a server
 
 A world is played at its WebSocket URL:
 
-- **An Empyrean server with its WebSocket endpoint on** (its `[server.websocket]`, described in
-  its `SETUP.md`). The hub's list names the URL for a world linked to the network; otherwise the
+- **An Empyrean or Yalain server with its WebSocket endpoint on** (its `[server.websocket]`,
+  described in its `SETUP.md`). The hub's list names the URL for a world linked to the network; otherwise the
   player adds the world by its `wss://` URL, or its status address (`https://…/status`), and the
   page reads the WebSocket URL from the status. The server must list the page's origin in
   `allowed_origins`.
@@ -513,7 +567,7 @@ day's copy of the world list, in the browser's local storage.
 ## Developing
 
 ```text
-cargo xtask web [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--server <url | host:port>]
+cargo xtask web [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <dir>] [--classic-dat-dir <dir>] [--auberean-dat-dir <dir>] [--server <url | host:port>]
 ```
 
 - **What it does:** builds the client and serves `www/` on `127.0.0.1` only, and prints the page's
@@ -521,6 +575,7 @@ cargo xtask web [--dev] [--no-build | --build-only] [--port 8080] [--dat-dir <di
 - **`--dat-dir`:** serves the retail data files from that folder to the page, with byte ranges,
   and the printed address selects them (`?dats=http`): the four later files, and `portal.dat` and
   `cell.dat` when the folder holds them. **`--classic-dat-dir`** names another folder for those two.
+  **`--auberean-dat-dir`** serves an Asheron's Call 2 install the same way, at `/auberean-dats/`.
 - **`--server`:** fills the page's server. A `ws://` or `wss://` URL is used as it is. A
   `host:port` builds and starts `dereth-web-relay` for it on `127.0.0.1:9180`, and stops it on
   Ctrl-C.

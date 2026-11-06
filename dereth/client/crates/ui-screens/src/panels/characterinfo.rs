@@ -148,14 +148,14 @@ pub struct CharacterInfoPanel {
     info_text: Option<ElemHandle>,
     /// What the info text last read — the whole composed sheet.
     pub text: String,
-    /// The six sections' lines, in the composer's order, so a test can name one.
+    /// Available sections in the composer's order.
     pub sections: Vec<String>,
     /// How many times the composer has written.
     pub updates: u32,
     seen: Option<CharacterInfo>,
     was_visible: bool,
-    /// The world's era has no luminance, so the sheet leaves out its luminance section
-    /// ([`super::era`]).
+    /// The world's systems: without luminance the sheet leaves out its luminance section
+    /// ([`super::era`]), and without the Endurance benefits their section.
     pub era_features: dereth_primitives::EraFeatures,
 }
 
@@ -245,14 +245,16 @@ impl CharacterInfoPanel {
     /// keeps whatever the layout gave it rather than showing six sections of zeroes.
     pub fn write(&mut self, ui: &mut UiSystem, info: Option<&CharacterInfo>) {
         let Some(c) = info else { return };
-        let s = vec![
-            self.birth_age_deaths(ui, c),
-            self.endurance(ui, c),
+        let mut s = vec![self.birth_age_deaths(ui, c)];
+        if self.era_features.endurance_benefits {
+            s.push(self.endurance(ui, c));
+        }
+        s.extend([
             self.innates(ui, c),
             self.fake_skills(ui, c),
             self.augmentations(ui, c),
             self.load(ui, c),
-        ];
+        ]);
         // The composer's separator: one literal "\n" appended between every pair of sections.
         let text = s.join("\n");
         self.sections = s;
@@ -366,8 +368,13 @@ impl CharacterInfoPanel {
 
     /// Two sections of one variable each, appended in order.
     fn fake_skills(&self, ui: &UiSystem, c: &CharacterInfo) -> String {
-        let rank = super::statmgmt::num(c.chess_rank);
-        let chess = compose(ui, string::CHESS, &[(var::CHESS, rank.as_str())]);
+        // A rank is a fact about a world with chess; without it the number is only a default.
+        let chess = if self.era_features.chess {
+            let rank = super::statmgmt::num(c.chess_rank);
+            compose(ui, string::CHESS, &[(var::CHESS, rank.as_str())])
+        } else {
+            String::new()
+        };
         let skill = super::statmgmt::num(c.fishing_skill);
         let fishing = compose(ui, string::FISHING, &[(var::FISHING, skill.as_str())]);
         format!("{chess}{fishing}")

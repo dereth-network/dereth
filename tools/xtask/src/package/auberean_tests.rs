@@ -39,7 +39,6 @@ fn release_files_are_named_as_the_launcher_fetches_them_and_read_back() {
             "auberean-0.1.0-windows-x86_64.zip",
             "Auberean-0.1.0-linux-x86_64.AppImage",
             "Auberean-0.1.0-macos-aarch64.app.tar.gz",
-            "Auberean-0.1.0-macos-x86_64.app.tar.gz",
         ]
     );
     for (name, triple) in names.iter().zip(targets::DESKTOP_TRIPLES) {
@@ -154,7 +153,7 @@ fn the_package_holds_the_launcher_the_client_and_the_defaults_and_not_dereth_s_c
         archive::zip_bytes(&root, &members, 1_700_000_000).expect("zip"),
     )
     .expect("written");
-    auberean::check_archive(&path, t, V).expect("clean");
+    auberean::check_archive(&auberean::AUBEREAN, &path, t, V).expect("clean");
     let mut with_dereth = members.clone();
     with_dereth.push(member("dereth-client.exe"));
     std::fs::write(
@@ -162,7 +161,8 @@ fn the_package_holds_the_launcher_the_client_and_the_defaults_and_not_dereth_s_c
         archive::zip_bytes(&root, &with_dereth, 1_700_000_000).expect("zip"),
     )
     .expect("written");
-    let refused = auberean::check_archive(&path, t, V).expect_err("Dereth's client");
+    let refused =
+        auberean::check_archive(&auberean::AUBEREAN, &path, t, V).expect_err("Dereth's client");
     assert!(refused.contains("dereth-client.exe"), "{refused}");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -184,10 +184,7 @@ fn the_defaults_file_opens_auberean_s_realm_and_names_auberean_s_updates() {
         Realm::Auberean,
         "a first run"
     );
-    assert_eq!(
-        dereth_launch::releases::channel_prefix(read.updates),
-        Product::Auberean.tag_for("")
-    );
+    assert_eq!(read.updates, dereth_launch::world::Game::Auberean);
     let (dereth, _) = dereth::contents(target(WINDOWS));
     assert!(
         !dereth.iter().any(|n| n == FILE),
@@ -195,20 +192,12 @@ fn the_defaults_file_opens_auberean_s_realm_and_names_auberean_s_updates() {
     );
 }
 
-/// The version a release's `latest.json` names carries the launcher's and the client's, and the
-/// launcher reads both back; a signature made for it verifies for it and for no other version.
+/// A game's `latest.json` names the launcher it holds, by that launcher's version alone: what an
+/// install from before the launcher's own releases compares against its own. A signature made for
+/// it verifies for it and for no other version.
 #[test]
-fn the_update_version_names_the_launcher_and_the_client_and_the_signature_is_for_it() {
-    use dereth_launch::releases::{Bundled, Version};
-    let written = auberean::latest_version("0.4.9", V);
-    assert_eq!(written, "0.4.9+auberean.0.1.0");
-    assert_eq!(
-        Bundled::parse(&written),
-        Some(Bundled {
-            launcher: Version::parse("0.4.9").expect("a version"),
-            client: Version::parse(V),
-        })
-    );
+fn a_games_update_version_is_the_launchers_and_the_signature_is_for_it() {
+    let written = "0.5.0";
     let kp = minisign::KeyPair::generate_unencrypted_keypair().expect("a key pair");
     let b64 = |t: String| base64::engine::general_purpose::STANDARD.encode(t);
     let secret = b64(kp.sk.to_box(None).expect("secret box").to_string());
@@ -220,11 +209,11 @@ fn the_update_version_names_the_launcher_and_the_client_and_the_signature_is_for
         .sign(
             data,
             "auberean-0.1.0-windows-x86_64.zip",
-            &written,
+            written,
             1_700_000_000,
         )
         .expect("signs");
-    sign::verify(data, &sig, &public, &written).expect("verifies for its version");
+    sign::verify(data, &sig, &public, written).expect("verifies for its version");
     assert!(sign::verify(data, &sig, &public, "0.4.9").is_err());
     assert!(sign::verify(data, &sig, &public, V).is_err());
     assert_eq!(
@@ -233,13 +222,16 @@ fn the_update_version_names_the_launcher_and_the_client_and_the_signature_is_for
     );
 }
 
-/// The package's launcher is built at the launcher's own version, Dereth's, and by the same
-/// function as Dereth's package, from the same build facts: one launcher, whichever package.
+/// The package's launcher is the one its tree names, at the launcher's own version, and only the
+/// launcher's own package builds one, by the function that builds it for that.
 #[test]
 fn the_launcher_is_built_at_its_own_version_as_dereth_s_package_builds_it() {
     let ws = workspace_root();
     let (client, launcher) = auberean::versions(&ws).expect("versions");
-    assert_eq!(launcher, Product::Dereth.version(&ws).expect("Dereth's"));
+    assert_eq!(
+        launcher,
+        Product::Launcher.version(&ws).expect("the launcher's")
+    );
     assert_eq!(client, Product::Auberean.version(&ws).expect("Auberean's"));
     let source = std::fs::read_to_string(ws.join("tools/xtask/src/package/auberean.rs"))
         .expect("the module");
@@ -321,7 +313,7 @@ fn the_index_sums_the_release_files_and_names_the_launcher_s_version() {
         source_url: "https://github.com/dereth-network/dereth".to_owned(),
     };
     let ws = workspace_root();
-    auberean::write_index(&ws, &dir, V, "0.4.9", &facts).expect("indexed");
+    auberean::write_index(&auberean::AUBEREAN, &ws, &dir, V, "0.4.9", &facts).expect("indexed");
     let sums = std::fs::read_to_string(dir.join("SHA256SUMS")).expect("sums");
     assert!(
         sums.contains("  auberean-0.1.0-windows-x86_64.zip\n"),
@@ -335,7 +327,7 @@ fn the_index_sums_the_release_files_and_names_the_launcher_s_version() {
     assert_eq!(release["launcher_version"], "0.4.9");
     assert_eq!(release["tag"], "auberean-v0.1.0");
     std::fs::write(dir.join("dereth-0.1.0-windows-x86_64.zip"), b"x").expect("written");
-    assert!(auberean::write_index(&ws, &dir, V, "0.4.9", &facts).is_err());
+    assert!(auberean::write_index(&auberean::AUBEREAN, &ws, &dir, V, "0.4.9", &facts).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -352,12 +344,10 @@ fn the_release_workflow_builds_the_launcher_package_and_labels_every_target() {
     for needed in [
         "tags: ['auberean-v*']",
         "cargo xtask version auberean --tag \"$GITHUB_REF_NAME\"",
-        "launcher=$(cargo xtask version dereth)",
+        "launcher=$(cargo xtask version launcher)",
         "cargo xtask release-notes auberean --version \"$VERSION\"",
         "cargo xtask package auberean --target ${{ matrix.target }} --out dist",
         "cargo xtask package auberean --gather dist",
-        "TAURI_CLI_VERSION: ",
-        "MOLTENVK_SHA256: ",
         "APPIMAGETOOL_SHA256: ",
         "APPIMAGE_RUNTIME_SHA256: ",
         "TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}",
@@ -390,14 +380,10 @@ fn the_release_workflow_builds_the_launcher_package_and_labels_every_target() {
             "{file}: {suffix}"
         );
     }
-    // The same tools as Dereth's release, so the launcher is built the same way.
+    // The same tools as Dereth's release.
     let dereth = std::fs::read_to_string(ws.join(".github/workflows/release-dereth.yml"))
         .expect("Dereth's workflow");
-    for pin in [
-        "TAURI_CLI_VERSION",
-        "CARGO_ABOUT_VERSION",
-        "MOLTENVK_SHA256",
-    ] {
+    for pin in ["CARGO_ABOUT_VERSION", "APPIMAGETOOL_SHA256"] {
         let line = |w: &str| {
             w.lines()
                 .find(|l| l.trim_start().starts_with(&format!("{pin}:")))

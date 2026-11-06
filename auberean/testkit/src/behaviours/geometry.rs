@@ -141,6 +141,25 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "geometry.text.a-heading-reads-as-its-point-of-the-compass",
+        says: "A heading reads as the nearest of the sixteen points of the compass: within 11.25 \
+               degrees of north, south, east or west, the one letter; within 11.25 degrees of the \
+               middle of a quarter, its two letters; else three, the nearer of the two first.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-GEOM-TEXT"),
+        station: "auberean-physics::cpu::geometry::text::a_heading_reads_as_its_point_of_the_compass",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "geometry.text.vectors-and-planes-read-with-three-places",
+        says: "A vector reads as (x, y, z) and a plane as its normal and distance, each with three \
+               places, as the client's C library writes them.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-GEOM-TEXT-VECTOR"),
+        station: "auberean-physics::cpu::geometry::text::vectors_and_planes_read_with_three_places",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "geometry.tree.object-trees-split-as-the-client-splits-them",
         says: "A tree of squares built from objects' boxes has the client's root middle and squared \
                box to the bit, and holds the same objects in the same squares: a square splits \

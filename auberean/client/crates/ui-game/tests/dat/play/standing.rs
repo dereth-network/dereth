@@ -8,7 +8,7 @@ use auberean_ui::{Token, Ui};
 use auberean_ui_game::camera::{self, action as cam};
 use auberean_ui_game::flow::{self, mode, Event, GameFlow};
 use auberean_ui_game::gameplay::{
-    self, action, layout_file, notice, GamePlay, Notice, Request, View,
+    self, action, layout_file, notice, GamePlay, Notice, Record, Request, View,
 };
 use auberean_ui_game::shortcuts::Shortcuts;
 use auberean_ui_game::statusbar::{StatusBar, Vital};
@@ -140,8 +140,9 @@ fn vitals_read_current_over_greatest_and_focus_is_a_heros() {
     assert!(!ui.node(el(&ui, "FocusText")).unwrap().visible);
     let health = el(&ui, "HealthMeter");
     let fill = ui.child(health, Token::of("left_fill")).unwrap();
-    // The fill slides in from the left: 40% of the 215-pixel bar shows.
-    assert_eq!(ui.node(fill).unwrap().rect.x1, 85);
+    // The fill slides in from the left: 40% of the 215-pixel bar shows, the part hidden cut to a
+    // whole pixel toward the bar.
+    assert_eq!(ui.node(fill).unwrap().rect.x1, 86);
 }
 
 /// A toolbar window's button shows its window and, pressed again, hides it; its tooltip says
@@ -490,6 +491,43 @@ fn the_layout_file_keeps_the_windows_places() {
     );
     let r = ui.screen_rect(el(&ui, "ChatWindow1")).unwrap();
     assert_eq!((r.x0, r.y0, r.width(), r.height()), (10, 20, 400, 150));
+}
+
+/// The scripts' commands to write and read the panels' places ask for the file they name; with no
+/// name, the file of this character, world and screen.
+///
+/// Behaviour: ui.gameplay.the-layout-commands-name-their-file
+#[test]
+fn the_layout_commands_name_their_file() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let (mut p, _) = play(&mut ui);
+    let named = |native, name: &str| Notice {
+        native,
+        records: vec![Some(Record::Text(auberean_text::StringInfo {
+            literal: Some(name.encode_utf16().collect()),
+            ..auberean_text::StringInfo::default()
+        }))],
+        ..Notice::default()
+    };
+    let mut out = Vec::new();
+    p.notice(&mut ui, &named(notice::SAVE_UI, "mine"), &mut out);
+    p.notice(&mut ui, &named(notice::LOAD_UI, "mine"), &mut out);
+    assert_eq!(
+        out,
+        [
+            Request::SaveLayout {
+                name: "mine".into()
+            },
+            Request::LoadLayout {
+                name: "mine".into()
+            }
+        ]
+    );
+    assert_eq!(layout_file::file_name("mine", "A", "W", 1, 2), "mine.txt");
+    assert_eq!(
+        layout_file::file_name("", "Arwic", "Coldeve", 1024, 768),
+        "UI-Arwic-Coldeve-1024-768.txt"
+    );
 }
 
 struct Named;

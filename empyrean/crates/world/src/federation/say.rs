@@ -23,6 +23,7 @@
 //! past that is not answered, and the hub tells the person so), dropped once the hub has stopped
 //! waiting for it, or when the link goes.
 
+pub use dereth_network_protocol::say::marked;
 use dereth_network_protocol::say::{reason, SayMessage, SayOutcome};
 use dereth_network_protocol::text::sanitize_line;
 use dereth_network_protocol::wire::GLOBAL_ROOM;
@@ -48,21 +49,6 @@ use crate::World;
 /// The key the answers owed to the hub's own requests wait under, among the answers owed to each
 /// other world: no world's slug, which is letters, digits and hyphens.
 pub(super) const HUB: &str = "@hub";
-
-/// A name marked with where its line was said: `Ann (Discord)` for a line said in Discord, and
-/// for a place this version does not name, its word with its first letter capitalized.
-#[must_use]
-pub fn marked(name: &str, via: &str) -> String {
-    let place = if via == dereth_network_protocol::say::VIA_DISCORD {
-        "Discord".to_owned()
-    } else {
-        let mut c = via.chars();
-        c.next()
-            .map(|first| first.to_uppercase().chain(c).collect())
-            .unwrap_or_default()
-    };
-    format!("{name} ({place})")
-}
 
 /// One of the say messages from the hub: a say is answered; an answer, which only a world sends,
 /// is ignored.
@@ -202,6 +188,10 @@ fn carried(w: &World, room: &str) -> Option<RoomSlot> {
     let slot = if room == GLOBAL_ROOM {
         super::global_slot(w)?
     } else {
+        // DIVERGE: V498, a world without the game's own rooms has none to mirror.
+        if !w.era.features.global_chat_rooms {
+            return None;
+        }
         super::mirrored_slots(w)
             .into_iter()
             .find(|r| r.room() == room)?

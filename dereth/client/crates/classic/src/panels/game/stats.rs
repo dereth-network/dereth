@@ -43,7 +43,7 @@ impl Stats {
 
 /// Whether the character window has a Titles tab: on a world with titles.
 fn titles_tab(game: &dyn GameView) -> bool {
-    super::systems::era_has(game, |e| e.titles)
+    super::systems::offered(game, dereth_client_contract::era::EraSurface::Titles)
 }
 #[derive(Clone)]
 enum Row<'a> {
@@ -206,6 +206,56 @@ fn profile(frame: &mut PanelFrame, game: &dyn GameView) {
     );
 }
 impl Panel for Stats {
+    fn hover(&self, at: HoverPoint<'_>, c: &Context<'_>) -> Option<Hover> {
+        if self.on_titles {
+            return None;
+        }
+        match at.id {
+            "raise" if !self.skills => {
+                Hover::line("Raises this attribute by spending experience points")
+            }
+            "raise" => {
+                let (id, _) = self.selected?;
+                let trained = c
+                    .game
+                    .skills()
+                    .iter()
+                    .find(|s| s.id == id)
+                    .is_some_and(|s| s.sac > 1);
+                Hover::line(if trained {
+                    "Raises this skill by spending experience points"
+                } else {
+                    "Trains this skill by spending skill credits"
+                })
+            }
+            "rows" => {
+                let luminance = shared::HeaderInputs::gather(c.game).luminance_line();
+                let extra = if luminance.0.is_empty() { 0 } else { 16 };
+                let row = (at.y - (104 + extra) + self.scroll.max(0)) / 22;
+                let row = usize::try_from(row).ok()?;
+                if self.skills {
+                    return match skill_rows(c.game).get(row)? {
+                        Row::Skill(s) => Hover::line(s.name.clone()),
+                        Row::Heading(..) => None,
+                    };
+                }
+                let (id, secondary, name, _) = ATTRIBUTES.get(row)?;
+                let text = match (*secondary, *id) {
+                    (false, 1) => "Measures your character's muscular power.",
+                    (false, 2) => "Measures how healthy your character is.",
+                    (false, 3) => "Measures how fast your character is.",
+                    (false, 4) => "Measures your character's reflexes.",
+                    (false, 5) => "Measures your character's mind and senses.",
+                    (false, _) => "Measures your character's willpower.",
+                    (true, 1) => "If you run out of health, you will die!",
+                    (true, 3) => "Affects your actions and movement.",
+                    (true, _) => "Affects how much magic you can cast.",
+                };
+                Hover::lines(*name, text)
+            }
+            _ => None,
+        }
+    }
     fn id(&self) -> &'static str {
         if self.skills {
             "skills"
@@ -791,6 +841,46 @@ mod tests {
         })
     }
     /// Behaviour: stats.presentation.preserves-display-variants-and-fractional-vitae
+    #[test]
+    fn an_attribute_row_names_itself_and_says_what_it_measures() {
+        let view = View {
+            skills: vec![],
+            vitae: None,
+        };
+        context(&view, |c| {
+            let stats = Stats::new(false);
+            let frame = stats.frame(c);
+            let top = frame
+                .controls
+                .iter()
+                .find(|c| c.id == "rows")
+                .unwrap()
+                .rect
+                .y;
+            let row = |row: i32| {
+                let at = HoverPoint {
+                    row: None,
+                    id: "rows",
+                    x: 10,
+                    y: top + row * 22 + 1,
+                    item: None,
+                };
+                stats.hover(at, c).unwrap()
+            };
+            assert_eq!(
+                row(0),
+                Hover::lines("Strength", "Measures your character's muscular power.").unwrap()
+            );
+            assert_eq!(
+                row(3),
+                Hover::lines("Quickness", "Measures how fast your character is.").unwrap()
+            );
+            assert_eq!(
+                row(6),
+                Hover::lines("Health", "If you run out of health, you will die!").unwrap()
+            );
+        });
+    }
     #[test]
     fn actual_classic_rows_color_effective_values_and_project_later_luminance() {
         let view = View {

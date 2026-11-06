@@ -569,6 +569,156 @@ pub fn the_component_tally_follows_the_pack() {
     );
 }
 
+/// What the row for a kind of component says, read as the panels read it.
+fn rows_owned(c: &HeadlessClient, wcid: u32) -> Option<i64> {
+    let v = c.view();
+    v.hud()
+        .view(v.objects())
+        .spell_components()
+        .iter()
+        .flat_map(|category| category.rows.iter())
+        .find(|row| row.wcid == wcid)
+        .map(|row| row.owned)
+}
+
+/// The shard's own creation of a component directly in `container`, with no move after it.
+fn create_in(
+    id: ObjectId,
+    container: ObjectId,
+    wcid: u32,
+    name: &str,
+    stack: u16,
+) -> dereth_protocol::objects::ItemCreateObject {
+    use dereth_protocol::types::weeniedesc::header;
+    dereth_protocol::objects::ItemCreateObject(dereth_protocol::objects::ObjectCreatePayload {
+        id,
+        objdesc: dereth_protocol::types::ObjDesc::default(),
+        physicsdesc: dereth_protocol::types::PhysicsDesc::default(),
+        wdesc: dereth_protocol::types::PublicWeenieDesc {
+            header: header::STACK_SIZE | header::MAX_STACK_SIZE | header::CONTAINER_ID,
+            name: name.to_owned(),
+            wcid,
+            obj_type: TYPE_SPELL_COMPONENTS,
+            stack_size: Some(stack),
+            max_stack_size: Some(1000),
+            container_id: Some(container),
+            ..dereth_protocol::types::PublicWeenieDesc::default()
+        },
+    })
+}
+
+/// The shard's own creation of a side pack on the player.
+fn a_side_pack(id: ObjectId) -> dereth_protocol::objects::ItemCreateObject {
+    use dereth_protocol::types::weeniedesc::header;
+    dereth_protocol::objects::ItemCreateObject(dereth_protocol::objects::ObjectCreatePayload {
+        id,
+        objdesc: dereth_protocol::types::ObjDesc::default(),
+        physicsdesc: dereth_protocol::types::PhysicsDesc::default(),
+        wdesc: dereth_protocol::types::PublicWeenieDesc {
+            header: header::ITEMS_CAPACITY | header::CONTAINER_ID,
+            name: "Pack".to_owned(),
+            obj_type: TYPE_CONTAINER,
+            items_capacity: Some(24),
+            container_id: Some(PLAYER),
+            ..dereth_protocol::types::PublicWeenieDesc::default()
+        },
+    })
+}
+
+/// A component the shard creates straight in the pack is on the panels at once, with no move or
+/// new count after it; a later change of its stack and its deletion are counted from there.
+pub fn a_component_created_in_the_pack_is_counted_at_once() {
+    use dereth_protocol::items::ItemUpdateStackSize;
+    const SCARABS: ObjectId = ObjectId(0x8000_0001);
+    const MORE: ObjectId = ObjectId(0x8000_0002);
+    const PACK: ObjectId = ObjectId(0x8000_0100);
+    const IN_THE_PACK: ObjectId = ObjectId(0x8000_0003);
+
+    let mut c = a_player_with_a_catalogue();
+    let nothing_yet = rows_owned(&c, 100).is_none();
+
+    c.when(Inbound::world_view(&create_in(
+        SCARABS,
+        PLAYER,
+        100,
+        "Lead Scarab",
+        7,
+    )));
+    let at_once = rows_owned(&c, 100) == Some(7);
+
+    // A second stack of the kind, and a third in a side pack, add to the one row.
+    c.when(Inbound::world_view(&create_in(
+        MORE,
+        PLAYER,
+        100,
+        "Lead Scarab",
+        3,
+    )));
+    c.when(Inbound::world_view(&a_side_pack(PACK)));
+    c.when(Inbound::world_view(&create_in(
+        IN_THE_PACK,
+        PACK,
+        100,
+        "Lead Scarab",
+        5,
+    )));
+    let added = rows_owned(&c, 100) == Some(7 + 3 + 5);
+
+    // The stack changes: the count moves by the difference, not by the whole stack.
+    c.when(Inbound::message(&ItemUpdateStackSize {
+        sequence: 1,
+        item: SCARABS,
+        amount: 2,
+        new_value: 0,
+    }));
+    let stack_changed = rows_owned(&c, 100) == Some(2 + 3 + 5);
+
+    // One stack goes, and the kind stays while the others hold it; the last takes the row.
+    c.when(Inbound::world_view(
+        &dereth_protocol::objects::ItemDeleteObject {
+            id: SCARABS,
+            instance_sequence: 0,
+        },
+    ));
+    let one_gone = rows_owned(&c, 100) == Some(3 + 5);
+    for id in [MORE, IN_THE_PACK] {
+        c.when(Inbound::world_view(
+            &dereth_protocol::objects::ItemDeleteObject {
+                id,
+                instance_sequence: 0,
+            },
+        ));
+    }
+    let all_gone = rows_owned(&c, 100).is_none();
+
+    // A component the shard creates in a side pack the client has not met yet counts once the
+    // pack arrives.
+    let mut late = a_player_with_a_catalogue();
+    late.when(Inbound::world_view(&create_in(
+        IN_THE_PACK,
+        PACK,
+        100,
+        "Lead Scarab",
+        5,
+    )));
+    let pack_unknown = rows_owned(&late, 100).is_none();
+    late.when(Inbound::world_view(&a_side_pack(PACK)));
+    let pack_arrives = rows_owned(&late, 100) == Some(5);
+    c.assert_behaviour(
+        "spell-components.one-created-in-the-pack-is-counted-at-once",
+        move |_| {
+            nothing_yet
+                && at_once
+                && added
+                && stack_changed
+                && one_gone
+                && all_gone
+                && pack_unknown
+                && pack_arrives
+        },
+    );
+}
+
 /// What the player asks to keep in stock reaches the shard, and the shop buys the gap.
 pub fn the_desired_level_reaches_the_shard_and_the_vendor_buys_the_shortfall() {
     let mut c = a_player_with_a_catalogue();
@@ -822,6 +972,7 @@ dereth_testkit::scenarios! {
     scenario_a_learned_spell_appears_without_a_relog => a_learned_spell_appears_without_a_relog ["spellbook.learned-spell.appears-without-a-relog"],
     scenario_the_vitae_lamp_lights_only_for_a_penalty => the_vitae_lamp_lights_only_for_a_penalty ["vitae.lamp.lights-only-for-a-real-penalty"],
     scenario_the_component_tally_follows_the_pack => the_component_tally_follows_the_pack ["spell-components.the-pack-is-counted-as-the-player-fills-it"],
+    scenario_a_component_created_in_the_pack_is_counted_at_once => a_component_created_in_the_pack_is_counted_at_once ["spell-components.one-created-in-the-pack-is-counted-at-once"],
     scenario_the_desired_level_reaches_the_shard_and_the_vendor_buys_the_shortfall => the_desired_level_reaches_the_shard_and_the_vendor_buys_the_shortfall ["spell-components.what-the-player-asks-to-keep-reaches-the-shard-and-the-vendor"],
     scenario_a_purge_leaves_the_permanent_enchantments => a_purge_leaves_the_permanent_enchantments ["enchantments.a-purge-takes-the-timed-ones-and-leaves-the-permanent"],
     scenario_spell_favorite_moves_model_and_wire => spell_favorite_moves_model_and_wire ["spellbar.favorite.model-and-wire-move-together"],

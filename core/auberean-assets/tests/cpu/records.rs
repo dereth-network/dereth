@@ -165,3 +165,49 @@ fn a_qualities_records_description_names_its_icon_and_its_names_tables() {
     ObjectDescription::default().sub_ids(&mut none);
     assert_eq!(none.iter().count(), 0, "no icon and no names name nothing");
 }
+
+/// A new sound setting has no flags, no random pitch (each end -1) and fades from a distance of 1,
+/// and a new music setting fades from 1 too; a setting tests any of a mask's flags, and needs its
+/// wave or music.
+///
+/// Behaviour: data.sound-info.new-settings-and-what-they-need
+#[test]
+fn new_sound_and_music_settings_and_what_they_need() {
+    use auberean_assets::database::gather_sub_ids;
+    use auberean_assets::sound::{MusicInfo, SoundInfo};
+    use auberean_dat::QualifiedIds;
+    let s = SoundInfo::default();
+    assert_eq!(
+        (
+            s.flags,
+            s.pitch_high,
+            s.pitch_low,
+            s.priority,
+            s.min_distance,
+            s.sound
+        ),
+        (0, -1.0, -1.0, 0.0, 1.0, 0)
+    );
+    let m = MusicInfo::default();
+    assert_eq!(
+        (m.flags, m.priority, m.min_distance, m.kind, m.music),
+        (0, 0.0, 1.0, 0, 0)
+    );
+    let s = SoundInfo {
+        flags: 0b0110,
+        sound: 0x0C00_0001,
+        ..s
+    };
+    let m = MusicInfo {
+        flags: 0b0001,
+        music: 0x2400_0002,
+        ..m
+    };
+    assert!(s.test_bit_mask(0b0011) && !s.test_bit_mask(0b1001));
+    assert!(m.test_bit_mask(0b0011) && !m.test_bit_mask(0b0010));
+    let mut out = QualifiedIds::new();
+    gather_sub_ids(&s, 0, &mut out);
+    gather_sub_ids(&m, 0, &mut out);
+    let ids: Vec<u32> = out.iter().map(|q| q.id).collect();
+    assert_eq!(ids, [0x0C00_0001, 0x2400_0002]);
+}

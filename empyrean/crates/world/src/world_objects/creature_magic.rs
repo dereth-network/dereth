@@ -198,7 +198,10 @@ pub fn calculate_mana_usage(
 
     let target = live(w, target);
     let target_player = target.filter(|&t| is_player(w, t));
-    if spell.school() == MagicSchool::ItemEnchantment
+    // DIVERGE: the equipped-item surcharge belongs to item redirection
+    // (`EraFeatures::item_enchantment_redirection`, V469).
+    if w.era.features.item_enchantment_redirection
+        && spell.school() == MagicSchool::ItemEnchantment
         && spell.meta_spell_type() == SpellType::Enchantment
         && spell.category() >= SpellCategory::ArmorValueRaising
         && spell.category() <= SpellCategory::AcidicResistanceLowering

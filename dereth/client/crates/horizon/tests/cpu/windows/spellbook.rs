@@ -21,6 +21,7 @@ fn caster(combat_mode: u32) -> GameState {
         name: "Tester".into(),
         combat_mode,
         spells: vec![Spell {
+            charge: None,
             id: FLAME_BOLT,
             name: "Flame Bolt I".into(),
             school: 1,
