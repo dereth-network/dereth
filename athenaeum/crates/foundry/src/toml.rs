@@ -3,7 +3,7 @@
 
 use toml_edit::{Array, InlineTable, Item, Table, Value};
 use yalain_world_db::rows::{
-    At, Camp, Gate, Landing, Object, ObjectKind, Place, Prov, Route, StrRef,
+    At, Camp, Clearing, Gate, Landing, Object, ObjectKind, Place, Prov, Route, StrRef,
 };
 
 fn parse(text: &str) -> Value {
@@ -160,6 +160,9 @@ pub fn object(o: &Object, to: Option<&str>, p: &Prov) -> Table {
         put(&mut t, "rotation", quat(q));
     } else if let Some(h) = o.heading {
         put(&mut t, "heading", number(h));
+    }
+    if let Some(s) = o.scale {
+        put(&mut t, "scale", number(s));
     }
     if let Some(n) = o.name {
         put(&mut t, "name", strref(n));
@@ -326,6 +329,28 @@ pub fn route(r: &Route, p: &Prov) -> Table {
     if r.rest > 0.0 {
         #[allow(clippy::cast_possible_truncation)]
         put(&mut t, "rest", number(r.rest as f32));
+    }
+    put(&mut t, "prov", prov(p));
+    t
+}
+
+/// `[[clearing]]`.
+#[must_use]
+pub fn clearing(c: &Clearing, p: &Prov) -> Table {
+    let mut t = Table::new();
+    put(&mut t, "key", Value::from(c.key.as_str()));
+    put(&mut t, "at", point(At { z: None, ..c.at }));
+    if let Some(r) = c.radius {
+        put(&mut t, "radius", number(r));
+    }
+    if let Some([x, y]) = c.size {
+        let mut a = Array::new();
+        a.push(number(x));
+        a.push(number(y));
+        put(&mut t, "size", Value::Array(a));
+    }
+    if let Some(h) = c.heading {
+        put(&mut t, "heading", number(h));
     }
     put(&mut t, "prov", prov(p));
     t

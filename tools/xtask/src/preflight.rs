@@ -211,6 +211,10 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
         crate::package::version::Product::Empyrean.version(root)?,
     );
     versions.insert(
+        Product::Launcher,
+        crate::package::version::Product::Launcher.version(root)?,
+    );
+    versions.insert(
         Product::Dereth,
         crate::package::version::Product::Dereth.version(root)?,
     );
@@ -243,6 +247,7 @@ fn read_repo(root: &Path) -> Result<Repo, String> {
     let refusal = crate::package::declaration::for_release(root, &patch).err();
     bumps.insert(Product::Empyrean, plan::empyrean_bump(refusal.as_deref()));
     bumps.insert(Product::Ace, (Bump::Patch, "the mod's changes".to_owned()));
+    bumps.insert(Product::Launcher, plan::launcher_bump());
     bumps.insert(Product::Dereth, plan::dereth_bump(web_alone));
     bumps.insert(Product::Lyceum, plan::lyceum_bump());
     for product in [Product::Auberean, Product::Yalain, Product::Athenaeum] {
@@ -565,8 +570,8 @@ pub fn run(
     Ok(())
 }
 
-/// The client and the launcher built from this checkout, and the launcher started on the dev
-/// hub's world list.
+/// The client and the launcher built from this checkout (on Windows with the retail AC2 client's
+/// friends library beside the launcher), and the launcher started on the dev hub's world list.
 fn play(cfg: &Config) -> Result<(), String> {
     let root = workspace_root();
     let target = crate::util::target_dir();
@@ -590,12 +595,21 @@ fn play(cfg: &Config) -> Result<(), String> {
             "build".into(),
             "--release".into(),
             "--manifest-path".into(),
-            "dereth/launcher/Cargo.toml".into(),
+            "launcher/Cargo.toml".into(),
             "--target-dir".into(),
             launcher_target.display().to_string(),
         ],
         &[],
     )?;
+    // The retail AC2 client's friends library beside the launcher, as its packages carry it: built
+    // on Windows only, where the launcher starts the retail client.
+    if cfg!(windows) {
+        let built = crate::package::friends_dll::build_beside(&["--release".to_owned()])?;
+        let beside = launcher_target
+            .join("release")
+            .join(crate::package::friends_dll::FILE);
+        std::fs::copy(&built, &beside).map_err(|e| format!("{}: {e}", beside.display()))?;
+    }
     let client = target
         .join("release")
         .join(format!("dereth-client{}", std::env::consts::EXE_SUFFIX));

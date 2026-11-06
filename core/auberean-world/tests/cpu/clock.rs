@@ -320,3 +320,148 @@ fn a_frame_loop_steps_through_its_frames() {
     };
     assert_eq!(value(&none, 0.3, &rng), 0.0);
 }
+
+/// A calendar of 1,000 second days and 360 day years with three parts of the day and three
+/// seasons, its zero at year 100.
+fn running_calendar() -> GameTime {
+    use auberean_assets::region::{DayPart, Season};
+    let part = |begin, night, name| DayPart { begin, night, name };
+    GameTime {
+        zero_time: 0.0,
+        zero_year: 100,
+        day_length: 1000.0,
+        days_per_year: 360,
+        year_name: 7,
+        day_parts: vec![part(0.0, 1, 10), part(0.25, 0, 11), part(0.75, 1, 12)],
+        seasons: vec![
+            Season { name: 20, begin: 0 },
+            Season {
+                name: 21,
+                begin: 90,
+            },
+            Season {
+                name: 22,
+                begin: 180,
+            },
+        ],
+        ..Default::default()
+    }
+}
+
+/// The running clock works out the year, the day, the season and the part of the day at a change
+/// of the part only; between changes only the time of day moves.
+///
+/// Behaviour: world.calendar.the-running-clock-updates-at-a-change-of-the-part-of-the-day
+#[test]
+fn the_running_clock_updates_at_a_change_of_the_part_of_the_day() {
+    use auberean_world::calendar::GameClock;
+    let mut c = GameClock::new(running_calendar());
+    c.use_time(100_500.0);
+    assert_eq!((c.year(), c.day(), c.time_of_day()), (100, 100, 0.5));
+    assert_eq!(c.night(), 0, "the middle part is day");
+    let d = c.current_date_time().expect("a date");
+    assert_eq!(
+        (d.year, d.day, d.season_name, d.part_name),
+        (100, 11, 21, 11)
+    );
+    // Past the next change, in the same day: the night part.
+    c.use_time(100_800.0);
+    assert_eq!(c.night(), 1);
+    assert_eq!(c.current_date_time().unwrap().part_name, 12);
+    // Earlier than the next change, even a part earlier: only the time of day moves.
+    c.use_time(100_500.0);
+    assert_eq!(c.time_of_day(), 0.5);
+    assert_eq!(c.current_date_time().unwrap().part_name, 12);
+    // Past the day's end.
+    c.use_time(101_100.0);
+    assert_eq!(
+        (c.day(), c.current_date_time().unwrap().part_name),
+        (101, 10)
+    );
+    // A year and a bit on.
+    c.use_time(360_000.0 + 100.0);
+    assert_eq!((c.year(), c.day()), (101, 0));
+}
+
+/// Dilating runs the world's time faster from where it is: the time of day holds, then moves at
+/// the new rate. At or below 0.0002 it is refused.
+///
+/// Behaviour: world.calendar.dilating-time-keeps-the-time-of-day
+#[test]
+fn dilating_time_keeps_the_time_of_day_and_runs_it_at_the_rate() {
+    use auberean_world::calendar::GameClock;
+    let mut c = GameClock::new(running_calendar());
+    let t = 100_500.0;
+    c.use_time(t);
+    assert!(!c.dilate(0.0002, t), "too slow");
+    assert_eq!(c.dilation(), 1.0);
+    assert!(c.dilate(2.0, t));
+    assert_eq!(c.dilation(), 2.0);
+    c.use_time(t);
+    assert!((c.time_of_day() - 0.5).abs() < 1e-6, "{}", c.time_of_day());
+    assert_eq!(c.day(), 100);
+    c.use_time(t + 100.0);
+    assert!((c.time_of_day() - 0.7).abs() < 1e-6, "{}", c.time_of_day());
+}
+
+/// Moving the time of day goes straight there and asks for the land to be lit; the world's offset
+/// stays above minus one day.
+///
+/// Behaviour: world.calendar.moving-the-time-of-day-goes-straight-there
+#[test]
+fn moving_the_time_of_day_goes_straight_there_and_asks_for_light() {
+    use auberean_world::calendar::GameClock;
+    let mut c = GameClock::new(running_calendar());
+    c.use_time(100_500.0);
+    assert!(!c.needs_light());
+    c.alter_time_of_day(0.9, 100_500.0);
+    assert!((c.time_of_day() - 0.9).abs() < 1e-6);
+    assert_eq!(c.current_date_time().unwrap().part_name, 12);
+    assert!(c.needs_light());
+    c.lit();
+    assert!(!c.needs_light());
+    assert!((c.time_til_tomorrow() - 100.0).abs() < 1e-3);
+    // Back: the offset would go below zero, so it wraps a day forward.
+    c.alter_time_of_day(0.1, 100_500.0);
+    assert!(
+        (c.world_time(0.0) - 600.0).abs() < 1e-3,
+        "{}",
+        c.world_time(0.0)
+    );
+}
+
+/// A stamp's date takes the present year, day and season; only the part of the day comes from the
+/// stamp.
+///
+/// Behaviour: world.calendar.a-stamps-date-takes-the-present-year-and-day
+#[test]
+fn a_stamps_date_takes_the_present_year_day_and_season() {
+    use auberean_world::calendar::GameClock;
+    let mut c = GameClock::new(running_calendar());
+    c.use_time(100_500.0);
+    // A stamp in another year and season, its time of day in the morning of its own day counted
+    // against the present day: its seconds into the year are 200,100 less 100,000.
+    let d = c.date_time_at(360_000.0 * 3.0 + 100_100.0).expect("a date");
+    assert_eq!((d.year, d.day, d.season_name), (100, 11, 21));
+    assert_eq!(d.part_name, 10);
+    let d = c.date_time_at(100_500.0).expect("a date");
+    assert_eq!(d.part_name, 11);
+    // A stamp 100 days on: still the present season, and its seconds are past the present day's
+    // end, so the last part.
+    let d = c.date_time_at(200_100.0).expect("a date");
+    assert_eq!((d.season_name, d.part_name), (21, 12));
+}
+
+/// A clock with no calendar is one long day in a one-day year; a calendar's date needs its lists.
+///
+/// Behaviour: world.calendar.a-clock-with-no-calendar-is-one-long-day
+#[test]
+fn a_clock_with_no_calendar_is_one_long_day() {
+    use auberean_world::calendar::GameClock;
+    let mut c = GameClock::default();
+    c.use_time(50_000.0);
+    assert_eq!(c.time_of_day(), 0.5);
+    assert_eq!((c.day_length_seconds(), c.days_per_year()), (100_000.0, 1));
+    assert!(c.current_date_time().is_none());
+    assert_eq!(c.night(), 0);
+}

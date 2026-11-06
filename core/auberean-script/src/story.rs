@@ -180,7 +180,7 @@ impl SceneInfo {
     }
 
     /// The packed form.
-    // D2-12283, D2-12293
+    // D2-12283, D2-12293, D2-00265
     pub fn write(&self, w: &mut Out) {
         w.u32(self.id);
         self.name.write(w);
@@ -319,7 +319,7 @@ pub fn read_acts(r: &mut In<'_>) -> Result<Vec<ActInfo>> {
 }
 
 /// A list of acts' packed form.
-// D2-15139
+// D2-15139, D2-00776
 pub fn write_acts(w: &mut Out, acts: &[ActInfo]) {
     write_count(w, acts.len());
     acts.iter().for_each(|a| a.write(w));

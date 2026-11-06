@@ -1,7 +1,7 @@
 [package]
 name = "athenaeum-cli"
 description = "Athenaeum's command line: worlds made over the world database, built into the server's tables, checked and counted; and the Asheron's Call 2 data files read, listed, decoded and counted."
-version = "0.1.1" # Athenaeum's own version, shared by its three crates (not the workspace's)
+version = "0.1.3" # Athenaeum's own version, shared by its three crates (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

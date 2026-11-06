@@ -1,8 +1,8 @@
 //! A world's end of the Dereth Network's link: the WebSocket to the hub with the world's key, its
 //! keep-alive and reconnects, carried on a thread of its own.
 //!
-//! **Depends on** `dereth-network-protocol` (the frame bound). **Used by** the world servers that
-//! link to a hub: Empyrean (`empyrean-server`).
+//! **Depends on** `dereth-network-protocol` (the frame bound, and the verification's lines). **Used
+//! by** the world servers that link to a hub: Empyrean (`empyrean-server`) and Yalain (`yalain`).
 //!
 //! **Must never** read or write a link message itself: frames go both ways as text, and what they
 //! say is the world's. It knows no game, keeps no records and installs no logger; what happens to
@@ -22,7 +22,10 @@
 //!   10, then every 30 seconds, and a minute after the hub refuses the key or the world (`401`,
 //!   `403`).
 //!
-//! Nothing here logs, and nothing here holds the key anywhere but the request it sends.
+//! Nothing here logs, and nothing here holds the key anywhere but the request it sends. [`verify`]
+//! is a world's other calls to the hub, the two of its operator's verification.
+
+pub mod verify;
 
 use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
@@ -315,7 +318,7 @@ impl LinkClient {
             Event::Frame(_) => {
                 let _ = self
                     .waiting
-                    .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                    .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
                         Some(n.saturating_sub(1))
                     });
             }

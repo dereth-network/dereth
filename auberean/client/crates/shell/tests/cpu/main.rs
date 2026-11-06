@@ -2,7 +2,9 @@
 //! interpreter, the preferences file and the settings.
 
 mod command_line;
+mod input_manager;
 mod keys;
 mod preferences;
 mod profile;
 mod settings;
+mod sound;

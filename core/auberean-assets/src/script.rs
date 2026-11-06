@@ -310,6 +310,7 @@ impl Section {
                     lines: r.list(8, |r| Ok((r.u32()?, r.u32()?)))?,
                 })
             })?),
+            // D2-16571, D2-08017
             259 => Self::Frames(r.list(16, |r| {
                 Ok(Frame {
                     name: r.narrow_string()?,
@@ -623,6 +624,8 @@ impl Decode for Qualities {
 // D2-13118, D2-13115
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct QualityFilter {
+    /// The size place the table was stored with.
+    pub buckets: u8,
     pub qualities: Vec<(u32, i32)>,
 }
 
@@ -631,9 +634,20 @@ impl Decode for QualityFilter {
     // D2-13114, D2-05069, D2-13119, D2-13116
     fn decode(r: &mut Reader<'_>, id: u32, _ctx: &Context) -> Result<Self> {
         r.expect_id(id)?;
-        Ok(Self {
-            qualities: r.hash_table(8, |r| Ok((r.u32()?, r.i32()?)))?,
-        })
+        let (buckets, qualities) = r.hash_table_with_buckets(8, |r| Ok((r.u32()?, r.i32()?)))?;
+        Ok(Self { buckets, qualities })
+    }
+}
+
+impl crate::Encode for QualityFilter {
+    /// The id, then the table as it was read.
+    // D2-13112, D2-13113
+    fn encode(&self, id: u32, w: &mut auberean_dat::Writer) {
+        w.u32(id);
+        w.hash_table(self.buckets, &self.qualities, |w, (k, v)| {
+            w.u32(*k);
+            w.i32(*v);
+        });
     }
 }
 
@@ -674,7 +688,7 @@ impl Decode for WordFilter {
 }
 
 impl crate::Encode for WordFilter {
-    // D2-14281, D2-00372
+    // D2-14281, D2-00372, D2-00382
     fn encode(&self, id: u32, w: &mut auberean_dat::Writer) {
         w.u32(id);
         w.hash_table(self.buckets, &self.audiences, |w, (a, p)| {
@@ -693,7 +707,7 @@ pub struct Conversation {
 }
 
 /// One node of a conversation: its actions are made, copied and dropped with it.
-// D2-16838, D2-16855, D2-16856, D2-16858, D2-16859, D2-16860, D2-16677
+// D2-16838, D2-16855, D2-16856, D2-16858, D2-16859, D2-16860, D2-16677, D2-16837
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct DialogueNode {
     pub name: String,

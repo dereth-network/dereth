@@ -1,12 +1,12 @@
 name: Release Dereth (Web)
 
-# Builds, checks and drafts a release of the web client, the Dereth client in a browser. A pushed
+# Builds, checks and drafts a release of the web client, both games in a browser. A pushed
 # `dereth-web-v<version>` tag builds the bundle and creates a DRAFT GitHub release, which a
 # maintainer reviews and publishes by hand. Running it by hand (workflow_dispatch) is a dry run:
 # the same build and checks, the release files kept as a workflow artifact for 7 days, nothing
 # published.
 #
-# The web client carries Dereth's version (the client's and the launcher's), and its tag must
+# One release carries both games, at Dereth's version (the client's), and its tag must
 # name it. The release files are `cargo xtask package web`'s, the same command a contributor runs
 # locally (dereth/web/DEPLOY.md): the bundle `dereth-web-<version>.zip`, its manifest `web.json`,
 # and `SHA256SUMS`. A host or the launcher finds the newest web client by listing the repository's

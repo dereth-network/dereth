@@ -56,6 +56,7 @@ pub struct Frame {
 }
 
 /// An axis-aligned box: its least and greatest corners.
+// D2-13221, D2-02067
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct BBox {
     pub min: Vec3,
@@ -83,7 +84,6 @@ pub struct Rgba {
 pub const SAME_FLOAT: f32 = 0.0002;
 
 /// Whether `x` is within `eps` of zero (exclusive).
-// D2-03290
 #[must_use]
 pub fn is_float_zero(x: f32, eps: f32) -> bool {
     x.abs() < eps
@@ -107,7 +107,6 @@ fn narrow(x: f64) -> f32 {
 
 impl Rgba {
     /// Raises each channel below 0 to 0.
-    // D2-03482
     pub fn cap_low(&mut self) {
         for c in [&mut self.a, &mut self.r, &mut self.g, &mut self.b] {
             if *c < 0.0 {
@@ -117,7 +116,6 @@ impl Rgba {
     }
 
     /// Lowers each channel above 1 to 1.
-    // D2-03483
     pub fn cap_high(&mut self) {
         for c in [&mut self.a, &mut self.r, &mut self.g, &mut self.b] {
             if 1.0 < *c {

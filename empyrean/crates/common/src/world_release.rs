@@ -6,7 +6,8 @@
 //! (`empyrean-import fetch --latest` prints both for the newest release).
 //!
 //! Each world database `fetch` knows is a [`WorldLine`]: [`PATCHES`] (the end of retail, the
-//! default) and [`SIXTEEN_PY`] (ACE-World-16PY, the February 2005 world, pinned the same way).
+//! default), [`SIXTEEN_PY`] (ACE-World-16PY, the February 2005 world, pinned the same way) and
+//! [`AC1999`] (the Launch world, a built pack, whose newest published release is the one to use).
 //!
 //! The cache is a per-user folder, not a place in the workspace, so it survives `cargo clean` and
 //! every checkout of the workspace on the machine shares one download:
@@ -35,8 +36,17 @@ pub const PINNED_TAG: &str = "v0.9.295";
 pub const PINNED_ZIP_SHA256: &str =
     "fd35cff8b2cea8408ae13839b9b1862c30452a1013f43eb62ec83c25349bd148";
 
-/// A world database `empyrean-import fetch` can download: the SQL asset of a GitHub repository's
-/// releases, pinned to one release and its SHA-256.
+/// What a world's release carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReleaseForm {
+    /// A zipped SQL dump, `<prefix><tag>.sql.zip`, which `--pack` builds a pack from.
+    SqlDump,
+    /// A zip holding the built `world.pack`, `<prefix><anything>.zip`, beside a `-source.zip`.
+    BuiltPack,
+}
+
+/// A world database `empyrean-import fetch` can download: the asset of a GitHub repository's
+/// releases, pinned to one release and its SHA-256, or, with no pin, its newest published release.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WorldLine {
     /// The name `fetch --world` takes.
@@ -45,12 +55,14 @@ pub struct WorldLine {
     pub repository: &'static str,
     /// The asset is `<prefix><tag>.sql.zip`, and the dump is cached as `<prefix><tag>.sql`.
     pub asset_prefix: &'static str,
-    /// The release this build is tested against.
+    /// The release this build is tested against; empty for a world that follows its newest.
     pub pinned_tag: &'static str,
     /// The SHA-256 of the pinned release's `.sql.zip`, lowercase hex.
     pub pinned_zip_sha256: &'static str,
     /// The era the world is, which a pack built from it records.
     pub era: EraId,
+    /// What its releases carry.
+    pub form: ReleaseForm,
 }
 
 /// ACE-World with its patches: the end-of-retail world.
@@ -61,6 +73,7 @@ pub const PATCHES: WorldLine = WorldLine {
     pinned_tag: PINNED_TAG,
     pinned_zip_sha256: PINNED_ZIP_SHA256,
     era: EraId::Eor,
+    form: ReleaseForm::SqlDump,
 };
 
 /// ACE-World-16PY without the patches: the world as of February 2005 (Infiltration).
@@ -71,16 +84,66 @@ pub const SIXTEEN_PY: WorldLine = WorldLine {
     pinned_tag: "v0.8.8",
     pinned_zip_sha256: "bbd0396e4382c555388d89e2f341fd79cf3647e78a9ef34e5f8717ddd3d9cb49",
     era: EraId::Infiltration,
+    form: ReleaseForm::SqlDump,
+};
+
+/// ac1999's world converted for Empyrean: the world as it launched in November 1999. Its packs are
+/// published by hand from a checked build, so it follows its newest published release, verified by
+/// the digest GitHub publishes.
+pub const AC1999: WorldLine = WorldLine {
+    id: "ac1999",
+    repository: "dereth-network/empyrean-world-launch",
+    asset_prefix: "empyrean-world-launch-",
+    pinned_tag: "",
+    pinned_zip_sha256: "",
+    era: EraId::Launch,
+    form: ReleaseForm::BuiltPack,
 };
 
 /// Every world `fetch` knows, the default first.
-pub const WORLDS: [WorldLine; 2] = [PATCHES, SIXTEEN_PY];
+pub const WORLDS: [WorldLine; 3] = [PATCHES, SIXTEEN_PY, AC1999];
 
 impl WorldLine {
+    /// The world an era plays unless its operator names another.
+    #[must_use]
+    pub const fn for_era(era: EraId) -> &'static WorldLine {
+        match era {
+            EraId::Launch => &AC1999,
+            EraId::Infiltration => &SIXTEEN_PY,
+            EraId::Eor => &PATCHES,
+        }
+    }
+
     /// The world named `id` (any case).
     #[must_use]
     pub fn by_id(id: &str) -> Option<&'static WorldLine> {
         WORLDS.iter().find(|w| w.id.eq_ignore_ascii_case(id.trim()))
+    }
+
+    /// Whether this build names one release of the world.
+    #[must_use]
+    pub fn has_pin(&self) -> bool {
+        !self.pinned_tag.is_empty()
+    }
+
+    /// Whether the asset named `name` is the release `tag`'s world: the SQL zip by its exact name,
+    /// or the built pack's zip, whose name carries the source commit, and never its source zip.
+    #[must_use]
+    pub fn is_world_asset(&self, name: &str, tag: &str) -> bool {
+        match self.form {
+            ReleaseForm::SqlDump => name == self.zip_name(tag),
+            ReleaseForm::BuiltPack => {
+                name.starts_with(self.asset_prefix)
+                    && name.ends_with(".zip")
+                    && !name.ends_with("-source.zip")
+            }
+        }
+    }
+
+    /// The cached pack of a built-pack release: `<prefix><tag>.pack`.
+    #[must_use]
+    pub fn pack_name(&self, tag: &str) -> String {
+        format!("{}{tag}.pack", self.asset_prefix)
     }
 
     /// The release's SQL asset: `<prefix><tag>.sql.zip`.
@@ -246,6 +309,12 @@ mod tests {
     #[test]
     fn each_world_is_pinned_to_a_tag_and_a_sha256_of_its_era() {
         for w in WORLDS {
+            assert_eq!(WorldLine::by_id(w.id), Some(&w));
+            // A built pack follows its newest published release.
+            if w.form == ReleaseForm::BuiltPack {
+                assert!(!w.has_pin(), "{}", w.id);
+                continue;
+            }
             assert_eq!(
                 parse_tag(w.pinned_tag).as_deref(),
                 Some(w.pinned_tag),
@@ -257,8 +326,8 @@ mod tests {
                 .pinned_zip_sha256
                 .bytes()
                 .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
-            assert_eq!(WorldLine::by_id(w.id), Some(&w));
         }
+        assert_eq!(AC1999.era, EraId::Launch);
         assert_eq!(WORLDS[0], PATCHES, "the default world comes first");
         assert_eq!(
             WorldLine::by_id("16PY").map(|w| w.era),

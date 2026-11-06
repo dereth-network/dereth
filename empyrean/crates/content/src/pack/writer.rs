@@ -156,7 +156,17 @@ impl PackWriter {
         let header = PackHeader {
             format_version: FORMAT_VERSION,
             schema_version: SCHEMA_VERSION,
-            flags: FLAG_INDEX_SORTED,
+            flags: FLAG_INDEX_SORTED
+                | if self.tables.contains_key(&TableId::LOOT_POLICY.0) {
+                    crate::pack::format::FLAG_SOURCE_LOOT
+                } else {
+                    0
+                }
+                | if self.tables.contains_key(&TableId::RECIPE_VITAL.0) {
+                    crate::pack::format::FLAG_RECIPE_VITALS
+                } else {
+                    0
+                },
             header_len: HEADER_LEN,
             table_count,
             index_entry_len: INDEX_ENTRY_LEN,

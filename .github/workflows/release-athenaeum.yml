@@ -101,7 +101,6 @@ jobs:
           # Ubuntu 22.04's glibc (2.35) is the oldest a Linux release runs on.
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
           - { target: aarch64-apple-darwin, os: macos-latest }
-          - { target: x86_64-apple-darwin, os: macos-latest }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 150
     defaults:
@@ -149,15 +148,6 @@ jobs:
         run: |
           mkdir smoke
           run() { "$@"; }
-          case "$TARGET" in
-            x86_64-apple-darwin)
-              if arch -x86_64 /usr/bin/true 2> /dev/null; then
-                run() { arch -x86_64 "$@"; }
-              else
-                echo "::notice::no Rosetta on this runner: $TARGET is checked by its headers only"
-                exit 0
-              fi ;;
-          esac
           # `program <name>`: the command line that starts one of the package's four programs.
           case "$TARGET" in
             *windows*)
@@ -261,14 +251,14 @@ jobs:
 
           ## Downloads
 
-          Athenaeum $VERSION, the Asheron's Call 2 world builder: its editor and the \`athenaeum\` command, with Yalain and Auberean to serve and play a world, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon and Intel) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
+          Athenaeum $VERSION, the Asheron's Call 2 world builder: its editor and the \`athenaeum\` command, with Yalain and Auberean to serve and play a world, for Windows (10 or newer, x86-64), macOS (11 or newer, Apple silicon) and Linux (x86-64, glibc 2.35 or newer: Ubuntu 22.04 and later).
 
           The Dereth Network launcher downloads and updates Athenaeum for you. To run it by hand:
 
           | system | download | |
           |---|---|---|
           | Windows | \`athenaeum-$VERSION-windows-x86_64.zip\` | unzip anywhere; \`athenaeum-editor.exe\` and \`athenaeum.exe\` are inside; no installer |
-          | macOS | \`Athenaeum-$VERSION-macos-aarch64.app.tar.gz\` (Apple silicon), \`-x86_64\` (Intel) | unpack and move \`Athenaeum.app\` to Applications; the \`athenaeum\` command is \`Athenaeum.app/Contents/MacOS/athenaeum\` |
+          | macOS | \`Athenaeum-$VERSION-macos-aarch64.app.tar.gz\` (Apple silicon) | unpack and move \`Athenaeum.app\` to Applications; the \`athenaeum\` command is \`Athenaeum.app/Contents/MacOS/athenaeum\` |
           | Linux | \`Athenaeum-$VERSION-linux-x86_64.AppImage\` | make it executable and run it; \`Athenaeum-$VERSION-linux-x86_64.AppImage athenaeum\` is the command |
 
           **No game data is included**: Athenaeum reads the data files of your own Asheron's Call 2 install and never writes them, and \`yalain world fetch\` downloads the world database a world is built over. README.md, in each download, says how to make a world.
@@ -294,7 +284,6 @@ jobs:
               "Athenaeum-$VERSION-"*)
                 case "${f#"Athenaeum-$VERSION-"}" in
                   macos-aarch64.app.tar.gz) label="Athenaeum · macOS Apple silicon" ;;
-                  macos-x86_64.app.tar.gz) label="Athenaeum · macOS Intel" ;;
                   linux-x86_64.AppImage) label="Athenaeum · Linux x86-64 (glibc 2.35+)" ;;
                 esac ;;
             esac

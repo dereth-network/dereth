@@ -8,13 +8,13 @@ use auberean_script::args::Arg;
 use auberean_script::native_object::{QuestInfo, TextInfo, VariableValue};
 use auberean_script::wire::In;
 use yalain_content::quests::{Need, QuestDef, QuestTable, Step, Subquests, Trigger, Update};
-use yalain_content::talk::{How, Line, Role, TalkTable, When};
+use yalain_content::talk::{How, Line, Role, TalkTable, TalkUpdate, When};
 use yalain_content::{ContentObject, ContentPack, Description, Facts, Kind, Words};
 use yalain_testkit::play::server_call;
 use yalain_testkit::Harness;
 use yalain_world::calls::{self, Node, Value};
 use yalain_world::graph::{Builder, Slot};
-use yalain_world::quests::{composed, status};
+use yalain_world::quests::{composed, status, PERSON_WAIT};
 use yalain_world::state::QuestState;
 
 const USE: u32 = 0x8216_0016;
@@ -40,6 +40,7 @@ fn object(id: u64, template: u32, origin: [f32; 3]) -> ContentObject {
         object: Some(id),
         template,
         description: Description {
+            name_text: None,
             package: 0x103E,
             look: 0x1F00_0100,
             enter_fx: 0,
@@ -71,6 +72,7 @@ fn quest(id: u32, table: u32, phases: usize) -> QuestDef {
         journals: JOURNAL[..phases].iter().map(|j| (*j, table)).collect(),
         challenge: 15,
         duration: 0.0,
+        timed_phase: 0,
         retry: 0.0,
         xp: 0,
         cancellable: true,
@@ -81,6 +83,11 @@ fn quest(id: u32, table: u32, phases: usize) -> QuestDef {
         min_level: 0,
         fails_on_death: false,
         once: false,
+        fellows: yalain_content::quests::Fellows::default(),
+        last_waits: false,
+        hero_only: false,
+        pay: yalain_content::quests::CompletionPay::default(),
+        required: None,
     }
 }
 
@@ -101,7 +108,10 @@ fn step(quest: u32, needs: u32, trigger: Trigger, update: Update) -> Step {
         takes: Vec::new(),
         races: Vec::new(),
         effects_last: false,
+        wants: None,
         fellows: false,
+        levels: None,
+        xp_share: 0.0,
         to: None,
     }
 }
@@ -265,7 +275,12 @@ fn doctrines_world() -> Harness {
             ..step(*q, 1, Trigger::Use(stone), Update::Complete)
         });
     }
-    h.server.quests = QuestTable { quests, steps };
+    h.server.quests = QuestTable {
+        quests,
+        steps,
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
     h
 }
 
@@ -356,6 +371,8 @@ fn a_failed_quest_is_given_again_only_once_its_wait_is_over() {
             ..quest(MIST, 0x2500_16C8, 2)
         }],
         steps: vec![step(MIST, 0, Trigger::Use(SHRINE), Update::Bestow)],
+        gives: Vec::new(),
+        rooms: Vec::new(),
     };
     h.server.talk = TalkTable {
         lines: vec![line(SHRINE, GO_AWAY, Role::RefuseUse, How::Emote, None)],
@@ -411,6 +428,8 @@ fn a_quest_is_not_given_under_its_least_level_and_the_person_says_why() {
             ..quest(TREE, 0x2500_14F5, 2)
         }],
         steps: vec![step(TREE, 0, Trigger::Use(DERU), Update::Bestow)],
+        gives: Vec::new(),
+        rooms: Vec::new(),
     };
     h.server.talk = TalkTable {
         lines: vec![
@@ -456,6 +475,8 @@ fn a_quest_that_fails_on_death_fails_as_its_player_dies() {
             quest(KEPT, 0x2500_2A34, 2),
         ],
         steps: Vec::new(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, _me) = h.player_in_world("one", "Elara");
     let world = *h.server.players.keys().next().expect("a player");
@@ -545,6 +566,8 @@ fn a_done_quest_with_no_wait_is_given_again_at_once_unless_it_is_done_once() {
             step(AGAIN, 0, Trigger::Use(ORLEN), Update::Bestow),
             step(ONCE, 0, Trigger::Use(GUARD), Update::Bestow),
         ],
+        gives: Vec::new(),
+        rooms: Vec::new(),
     };
     let (b, me) = h.player_in_world("one", "Elara");
     holding(
@@ -559,6 +582,141 @@ fn a_done_quest_with_no_wait_is_given_again_at_once_unless_it_is_done_once() {
     holding(&mut h, &[(ONCE, status::COMPLETED, 0)], 10_000_000);
     let from = use_it(&mut h, b, me, 0x8130_0000_0000_0702);
     assert!(updates(&h, b, from).is_empty(), "done once: never again");
+}
+
+/// A person's too-soon line is for when it is too soon: with one of its quests under way it says
+/// another line, and nothing when it has no other.
+/// Behaviour: server.talk.too-soon-is-kept-from-a-plain-use
+#[test]
+fn a_persons_too_soon_line_is_not_said_at_a_plain_use() {
+    const STUBBY: u32 = 0x4700_335B;
+    const QUESTS: [u32; 2] = [0x4000_0313, 0x4000_0336];
+    const TOO_SOON: u32 = 0x3867_28F6;
+    const GET_MOVING: u32 = 0x6369_1D8F;
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![object(0x8130_0000_0000_0801, STUBBY, [61.0, 241.0, -44.6])],
+        ..ContentPack::default()
+    };
+    h.server.quests = QuestTable {
+        quests: QUESTS
+            .iter()
+            .map(|q| QuestDef {
+                duration: 7200.0,
+                timed_phase: 0,
+                ..quest(*q, 0x2500_17D4, 2)
+            })
+            .collect(),
+        steps: QUESTS
+            .iter()
+            .map(|q| step(*q, 0, Trigger::Use(STUBBY), Update::Bestow))
+            .collect(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    h.server.talk = TalkTable {
+        lines: vec![line(STUBBY, TOO_SOON, Role::TooSoon, How::Tell, None)],
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let stubby = 0x8130_0000_0000_0801;
+    holding(&mut h, &[(QUESTS[0], status::UNDERWAY, 1)], 60);
+    let from = use_it(&mut h, b, me, stubby);
+    assert!(texts(&h, b, from).is_empty(), "under way: not that line");
+    holding(&mut h, &[(QUESTS[0], status::COMPLETED, 0)], 60);
+    let from = use_it(&mut h, b, me, stubby);
+    assert_eq!(
+        texts(&h, b, from),
+        vec![(HEAR_TELL, TOO_SOON)],
+        "too soon: that line"
+    );
+    h.server.talk = TalkTable {
+        lines: vec![
+            line(STUBBY, TOO_SOON, Role::TooSoon, How::Tell, None),
+            line(STUBBY, GET_MOVING, Role::Use, How::Tell, None),
+        ],
+    };
+    holding(&mut h, &[(QUESTS[0], status::UNDERWAY, 1)], 60);
+    for _ in 0..8 {
+        let from = use_it(&mut h, b, me, stubby);
+        assert_eq!(
+            texts(&h, b, from),
+            vec![(HEAR_TELL, GET_MOVING)],
+            "under way: its own line"
+        );
+    }
+}
+
+/// A person's wait after giving a quest counts the player's time in the world: more than two hours
+/// away leave it where it was, and two hours played end it.
+/// Behaviour: server.quests.a-persons-wait-runs-only-in-the-world
+#[test]
+fn a_persons_wait_counts_only_the_players_time_in_the_world() {
+    const STUBBY: u32 = 0x4700_335B;
+    const QUESTS: [u32; 2] = [0x4000_0313, 0x4000_0336];
+    const TOO_SOON: u32 = 0x3867_28F6;
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![object(0x8130_0000_0000_0801, STUBBY, [61.0, 241.0, -44.6])],
+        ..ContentPack::default()
+    };
+    h.server.quests = QuestTable {
+        quests: QUESTS
+            .iter()
+            .map(|q| QuestDef {
+                duration: 7200.0,
+                timed_phase: 0,
+                ..quest(*q, 0x2500_17D4, 2)
+            })
+            .collect(),
+        steps: QUESTS
+            .iter()
+            .map(|q| step(*q, 0, Trigger::Use(STUBBY), Update::Bestow))
+            .collect(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    h.server.talk = TalkTable {
+        lines: vec![line(STUBBY, TOO_SOON, Role::TooSoon, How::Tell, None)],
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let stubby = 0x8130_0000_0000_0801;
+    holding(&mut h, &[(QUESTS[0], status::COMPLETED, 0)], 60);
+    let from = use_it(&mut h, b, me, stubby);
+    assert!(updates(&h, b, from).is_empty(), "too soon: none given");
+    // Away for more than its wait, by the calendar.
+    let before = h.bots[b].inbox.len();
+    h.bots[b].send(
+        false,
+        queue::LOGON,
+        &auberean_protocol::ClientMessage::LogOff(auberean_protocol::login::CharacterRef {
+            character: me,
+        }),
+    );
+    assert!(h.run_until(400, |h| h.bots[b].inbox[before..]
+        .iter()
+        .any(|r| matches!(r.message(), Some(ServerMessage::CharacterList(_))))));
+    let t = h.now.0 + PERSON_WAIT + 100.0;
+    while h.now.0 < t {
+        h.step_by(5.0);
+    }
+    h.enter_world(b, "one", me);
+    let from = use_it(&mut h, b, me, stubby);
+    assert!(
+        updates(&h, b, from).is_empty(),
+        "the time away does not count"
+    );
+    assert_eq!(
+        texts(&h, b, from),
+        vec![(HEAR_TELL, TOO_SOON)],
+        "it is still too soon"
+    );
+    // Its wait played out.
+    let t = h.now.0 + PERSON_WAIT;
+    while h.now.0 < t {
+        h.step_by(5.0);
+    }
+    let from = use_it(&mut h, b, me, stubby);
+    assert_eq!(updates(&h, b, from).len(), 1, "the time in the world does");
 }
 
 /// A person who gives several quests gives one of them at a use (not always the same one), none
@@ -587,6 +745,7 @@ fn a_person_with_several_quests_gives_one_at_a_time_and_none_until_its_wait_is_o
         .iter()
         .map(|q| QuestDef {
             duration: 7200.0,
+            timed_phase: 0,
             ..quest(*q, 0x2500_17D4, 2)
         })
         .collect();
@@ -603,7 +762,12 @@ fn a_person_with_several_quests_gives_one_at_a_time_and_none_until_its_wait_is_o
     steps.push(step(FIRST, 1, Trigger::Use(STARTER), Update::Complete));
     steps.push(step(NEXT, 0, Trigger::Use(STARTER), Update::Bestow));
     steps.push(step(FIRST, 0, Trigger::Use(STARTER), Update::Bestow));
-    h.server.quests = QuestTable { quests, steps };
+    h.server.quests = QuestTable {
+        quests,
+        steps,
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
     h.server.talk = TalkTable {
         lines: vec![
             line(STUBBY, TOO_SOON, Role::TooSoon, How::Tell, None),
@@ -652,4 +816,136 @@ fn a_person_with_several_quests_gives_one_at_a_time_and_none_until_its_wait_is_o
         .map(|(k, r)| (*k, r.id))
         .collect();
     assert_eq!(got, vec![(0x3000_0000, FIRST), (0x1000_0000, NEXT)]);
+}
+
+/// A reminder naming a phase is said at that phase of its quest, and one naming none at any.
+/// Behaviour: server.talk.a-reminder-may-name-its-phase
+#[test]
+fn a_reminder_naming_a_phase_is_said_only_at_that_phase() {
+    const WHO: u32 = 0x4700_3101;
+    const QUEST: u32 = 0x4000_0101;
+    const FIRST: u32 = 0x0000_0101;
+    const SECOND: u32 = 0x0000_0102;
+    let mut h = Harness::new();
+    let phased = |string, phase| Line {
+        phase: Some(phase),
+        ..line(WHO, string, Role::Remind, How::Tell, Some(QUEST))
+    };
+    h.server.talk = TalkTable {
+        lines: vec![phased(FIRST, 1), phased(SECOND, 2)],
+    };
+    let (_b, _me) = h.player_in_world("one", "Elara");
+    let world = *h.server.players.keys().next().expect("a player");
+    for (phase, want) in [(1, Some(FIRST)), (2, Some(SECOND)), (3, None)] {
+        for p in h.server.players.values_mut() {
+            p.play.quests = vec![QuestState {
+                quest: QUEST,
+                status: status::UNDERWAY,
+                phase,
+                started: 0,
+                updated: 0,
+            }];
+        }
+        let said = yalain_world::talk::at_use(&mut h.server, world, WHO, None);
+        assert_eq!(
+            said.map(|l| l.words),
+            want.map(|s| Words::Ref(s, 0x2500_13B2)),
+            "phase {phase}"
+        );
+    }
+}
+
+/// A quest's last phase done by subquests is the quest done, with the move that finishes the last
+/// of them; that person says the quest's completion, not the subquest's line, and the others' moves
+/// are told with the phase kept.
+/// Behaviour: server.quests.a-last-phases-subquests-finish-the-quest
+#[test]
+fn a_last_phase_done_by_subquests_is_the_quest_done_and_its_person_says_its_completion() {
+    const OWN: u32 = 0x0000_0201;
+    const DONE: u32 = 0x0000_0202;
+    let mut h = doctrines_world();
+    h.server.quests.quests[0].journals.truncate(1);
+    let says = |who, quest, string| Line {
+        update: Some(TalkUpdate::Complete),
+        ..line(who, string, Role::Complete, How::Tell, Some(quest))
+    };
+    let mut lines = Vec::new();
+    for ((q, _), stone) in STONE_QUESTS.iter().zip(STONES) {
+        lines.push(says(stone, *q, OWN));
+        lines.push(says(stone, DOCTRINES, DONE));
+    }
+    h.server.talk = TalkTable { lines };
+    let (b, me) = h.player_in_world("one", "Elara");
+    use_it(&mut h, b, me, 0x8130_0000_0000_0401);
+    let told = |h: &Harness, from| {
+        calls_of(h, b, from)
+            .iter()
+            .filter(|(f, _)| *f == HEAR_TELL)
+            .count()
+    };
+    for (i, id) in (0x8130_0000_0000_0402_u64..).take(3).enumerate() {
+        let from = use_it(&mut h, b, me, id);
+        let kinds: Vec<u32> = updates(&h, b, from).iter().map(|(k, _)| *k).collect();
+        let st = h
+            .server
+            .players
+            .values()
+            .next()
+            .expect("a player")
+            .play
+            .quests[0];
+        assert_eq!(told(&h, from), 1, "stone {i} says one line");
+        let line = if i < 2 { OWN } else { DONE };
+        assert!(texts(&h, b, from).contains(&(HEAR_TELL, line)), "stone {i}");
+        if i < 2 {
+            assert_eq!(kinds, vec![0x2000_0000], "stone {i}: the phase kept");
+            assert_eq!(st.status, status::UNDERWAY, "stone {i}");
+        } else {
+            assert_eq!(kinds, vec![0x3000_0000], "the last: done");
+            assert_eq!(st.status, status::COMPLETED);
+        }
+    }
+}
+
+/// A person whose quests follow one another gives the next as soon as the last is done, in their
+/// order, with no two hours' wait between them.
+/// Behaviour: server.quests.chain-has-no-person-wait
+#[test]
+fn a_person_whose_quests_follow_one_another_gives_the_next_at_once() {
+    const RYVENNA: u32 = 0x4700_2FD7;
+    const CHAIN: [u32; 3] = [0x4000_02F7, 0x4000_02F3, 0x4000_02F1];
+    let mut h = Harness::new();
+    h.server.content = ContentPack {
+        objects: vec![object(0x8130_0000_0000_0801, RYVENNA, [61.0, 241.0, -44.6])],
+        ..ContentPack::default()
+    };
+    h.server.quests = QuestTable {
+        quests: CHAIN.iter().map(|q| quest(*q, 0x2500_2929, 1)).collect(),
+        steps: CHAIN
+            .iter()
+            .enumerate()
+            .map(|(i, q)| Step {
+                requires: if i == 0 {
+                    Vec::new()
+                } else {
+                    vec![(CHAIN[i - 1], Need::Done)]
+                },
+                ..step(*q, 0, Trigger::Use(RYVENNA), Update::Bestow)
+            })
+            .collect(),
+        gives: Vec::new(),
+        rooms: Vec::new(),
+    };
+    let (b, me) = h.player_in_world("one", "Elara");
+    let person = 0x8130_0000_0000_0801;
+    holding(&mut h, &[(CHAIN[0], status::COMPLETED, 0)], 60);
+    let from = use_it(&mut h, b, me, person);
+    let given = updates(&h, b, from);
+    assert_eq!(given.len(), 1, "the next one, a minute after the last");
+    assert_eq!((given[0].0, given[0].1.id), (0x1000_0000, CHAIN[1]));
+    holding(&mut h, &[], 0);
+    let from = use_it(&mut h, b, me, person);
+    let given = updates(&h, b, from);
+    assert_eq!(given.len(), 1, "the first of them, none done");
+    assert_eq!(given[0].1.id, CHAIN[0]);
 }

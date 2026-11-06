@@ -130,10 +130,13 @@ fn each_faction_shrine_joins_the_kingdom_its_script_kind_names() {
 fn forges_and_road_signs_are_told_by_their_script_kinds() {
     use yalain_world::places::{CANNOT_BE_USED, PERSONS};
     let p = Portal::open();
-    // Forges, a gateway sign, a road sign, a town sign.
+    // Forges, the Refining Workshops, a gateway sign, a road sign, a town sign.
     for t in [
         0x4700_0CD1,
         0x4700_0CD2,
+        0x4700_0CD5,
+        0x4700_0CD6,
+        0x4700_0CD7,
         0x4700_1BE1,
         0x4700_1BC0,
         0x4700_1BEF,

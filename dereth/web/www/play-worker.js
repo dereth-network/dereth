@@ -1,16 +1,11 @@
-// The playable client's worker. It answers the front page's launcher (the module's, over the
-// player's files kept in this browser), fetches the Horizon interface's art from beside the
-// module, opens the player's data files and the world's overlay, brings the client up drawing into
-// the canvas the page handed it with the start (a new one each start), carries datagrams between
-// the client and the server's WebSocket (a server's own endpoint, or dereth-web-relay on this
-// machine), runs one client frame per animation frame, and hands the client the page's input
-// events.
+// The Dereth client's worker, from a page's first play of it: loads the game's module, fetches the Horizon
+// interface's art from beside the module, opens the player's data files and the world's overlay, and
+// brings the client up drawing into the canvas the page handed it. The rest of a play is what every
+// game's worker does (`game-loop.js`).
 
 import init, * as dereth from './pkg/dereth_web.js';
-import {
-  FULL, NAMES, flushOverlay, holdOverlay, listOverlays, openFiles, openStore, removeOverlay,
-  removeSet, removeSetFiles, scanSets, storeSet,
-} from './datfiles.js';
+import { filesStamp, flushOverlay, holdOverlay, openFiles, openStore, releaseFiles } from './datfiles.js';
+import { serve } from './game-loop.js';
 import { installPluginIo, fetchPluginPolicy } from './plugin-io.js';
 
 installPluginIo();
@@ -23,19 +18,15 @@ const ready = init().then(async (exports) => {
   wasm = exports;
   // `?log=debug` (or `trace`, `warn`, ...) sets how much of the client's log reaches the console.
   dereth.start(params.get('log') || 'info');
-  // The client's own files first: the overlay blocklist the front page shows is one of them.
   await openSettings();
   dereth.installSettings();
-  // The plugin sources and what was installed from them, as this browser kept them.
-  await openShelf();
 });
 
 // The Horizon interface's art, which the module does not carry: its files are served beside the
-// module, in pkg/horizon/, and fetched from when the page opens. Nothing waits for them: the
-// client offers the Horizon interface once they are in (a choice of it before then waits, and a
-// saved one, or a new player's, starts in the modern interface), and a failure leaves the other
+// module, in pkg/horizon/, and fetched from when the worker starts. The client offers the Horizon
+// interface once they are in (a choice of it before then waits), and a failure leaves the other
 // interfaces as they are and says so.
-ready.then(async () => {
+const art = ready.then(async () => {
   try {
     await Promise.all(dereth.horizonFiles().map(async (name) => {
       const res = await fetch(new URL(`./pkg/horizon/${name}`, import.meta.url));
@@ -51,40 +42,7 @@ ready.then(async () => {
   }
 });
 
-let canvas = null;
-let play = null;
-let socket = null;
-const marks = {};
-
 const memoryMiB = () => (wasm?.memory?.buffer?.byteLength ?? 0) / 1048576;
-
-// The page is going away: say goodbye now, or the server holds the account until it times out.
-function logOff() {
-  shutDown();
-}
-
-// Log off and run the client's cleanup, which saves its keymap and preferences; the goodbye goes
-// out before the socket closes. A later start opens another.
-function shutDown() {
-  if (!play) return;
-  play.logOff();
-  const goodbye = play.takeMessages();
-  if (socket?.readyState === WebSocket.OPEN) {
-    for (const m of goodbye) socket.send(m);
-    log(`logged off (${goodbye.length} datagram(s))`);
-  }
-  try {
-    play.shutDown();
-  } catch (e) {
-    log(`cleanup: ${e?.message ?? e}`);
-  }
-  play.free();
-  play = null;
-  socket?.close();
-  socket = null;
-  // The canvas was this client's alone: the page makes a new one for the next start.
-  canvas = null;
-}
 
 // The client's own files (preferences, keymaps, layouts), kept in one file in the origin's private
 // storage. Its access handle is synchronous, so a save is on disk before the client's call
@@ -112,6 +70,11 @@ globalThis.derethSettingsSave = (bytes) => {
   settings.write(bytes, { at: 0 });
   settings.flush();
 };
+function closeSettings() {
+  settings?.flush();
+  settings?.close();
+  settings = null;
+}
 
 // Plugins the player added to this page: under `plugins/` in the origin's private storage, one
 // folder per plugin or a plugin's zip file, read into one bundle before the client starts (each file's path and its
@@ -162,518 +125,57 @@ async function readPlugins() {
   }
   return bundleOf(files);
 }
-// Plugin sources, as the desktop launcher has them: the module keeps the launcher's own shelf (the
-// sources, the last list each gave, what was installed from them and the update setting) and says
-// what to keep; this worker fetches the lists and the zips, and keeps the files in the origin's
-// private storage: the sources beside the settings file, and each installed plugin's zip, with the
-// record of them, among the plugins the client finds (`plugins/`). The only requests are for the
-// lists and zips of Dereth's source and the sources the player added, to their own hosts.
-async function writeFile(dir, name, bytes) {
-  const handle = await dir.getFileHandle(name, { create: true });
-  const access = await handle.createSyncAccessHandle();
-  access.truncate(0);
-  access.write(bytes, { at: 0 });
-  access.flush();
-  access.close();
-}
-// The folder a path in the origin's private storage is in, and its name there.
-async function placeOf(path, create) {
-  const names = path.split('/').filter((n) => n && n !== '.' && n !== '..');
-  let dir = await navigator.storage.getDirectory();
-  for (const n of names.slice(0, -1)) dir = await dir.getDirectoryHandle(n, { create });
-  return { dir, name: names[names.length - 1] };
-}
-async function readKept(path) {
-  try {
-    const { dir, name } = await placeOf(path, false);
-    const file = await (await dir.getFileHandle(name)).getFile();
-    return new Uint8Array(await file.arrayBuffer());
-  } catch {
-    return undefined;
-  }
-}
-async function openShelf() {
-  const [sources, installed] = dereth.frontPluginRecords();
-  dereth.frontPluginsOpen(await readKept(sources), await readKept(installed));
-}
-// Make the writes the module asks for, in order. When one fails the rest are not made, and the
-// shelf is read again from what is kept.
-async function keepShelf() {
-  try {
-    for (const [path, bytes] of dereth.frontPluginWrites()) {
-      const { dir, name } = await placeOf(path, true);
-      if (bytes) await writeFile(dir, name, bytes);
-      else await dir.removeEntry(name).catch(() => {});
-    }
-  } catch (e) {
-    await openShelf();
-    throw e;
-  }
-}
-// One download for the plugins, of at most `limit` bytes: `{ body }`, `{ error }` with what its
-// host answered, or `{}` when the page could not reach it at all: offline, or a host that does not
-// let web pages read it, which a page cannot tell apart.
-async function fetchCapped(url, limit) {
-  let res;
-  try {
-    res = await fetch(url, { cache: 'no-cache' });
-  } catch {
-    return {};
-  }
-  if (!res.ok) return { error: `HTTP ${res.status}` };
-  const tooLarge = { error: `${url} is larger than its source says` };
-  if (Number(res.headers.get('content-length')) > limit) return tooLarge;
-  try {
-    const reader = res.body.getReader();
-    const parts = [];
-    let size = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.length;
-      if (size > limit) {
-        reader.cancel().catch(() => {});
-        return tooLarge;
-      }
-      parts.push(value);
-    }
-    const body = new Uint8Array(size);
-    let at = 0;
-    for (const p of parts) {
-      body.set(p, at);
-      at += p.length;
-    }
-    return { body };
-  } catch {
-    return {};
-  }
-}
-// One plugin call at a time: each reads and writes the same files.
-let pluginTurn = Promise.resolve();
-function inTurn(work) {
-  const run = pluginTurn.then(work);
-  pluginTurn = run.catch(() => {});
-  return run;
-}
-// Read every source, and apply the updates that apply on their own: the launcher's walk, each
-// download made here.
-async function refreshPlugins() {
-  let next = dereth.frontPluginRefreshStart();
-  while (next) {
-    const { url, limit } = JSON.parse(next);
-    const got = await fetchCapped(url, limit);
-    next = dereth.frontPluginRefreshNext(got.body, got.error);
-    await keepShelf();
-  }
-  const done = JSON.parse(dereth.frontPluginRefreshDone());
-  if (done.said) log(`plugins: ${done.said.replace(/\n/g, ' ')}`);
-  return done;
-}
-async function addSource(url) {
-  const list = JSON.parse(dereth.frontPluginAddSource(url));
-  const got = await fetchCapped(list.url, list.limit);
-  const said = dereth.frontPluginSourceRead(list.url, got.body, got.error);
-  await keepShelf();
-  return said;
-}
-// Install plugin `id` from `source`, or with no source update it from its own.
-async function takePlugin(source, id) {
-  const { url, limit } = JSON.parse(dereth.frontPluginPlan(source, id));
-  const got = await fetchCapped(url, limit);
-  const said = dereth.frontPluginTake(source, id, got.body, got.error);
-  await keepShelf();
-  log(said);
-  return said;
-}
-async function changeShelf(change) {
-  change();
-  await keepShelf();
-}
-// Keep the files of one added plugin folder, or added zips: `files` is [{ path, bytes }], each
-// path starting with the folder's name, or a zip's file name alone.
-async function addPlugins(files) {
-  const dir = await pluginsDir(true);
-  for (const f of files) {
-    const names = f.path.split('/').filter((n) => n && n !== '.' && n !== '..');
-    let at = dir;
-    for (const n of names.slice(0, -1)) at = await at.getDirectoryHandle(n, { create: true });
-    const handle = await at.getFileHandle(names[names.length - 1], { create: true });
-    const access = await handle.createSyncAccessHandle();
-    access.truncate(0);
-    access.write(f.bytes, { at: 0 });
-    access.flush();
-    access.close();
-  }
-  log(`kept ${files.length} plugin file(s); turn each on in the client with /plugin`);
-}
-// The plugins the player added by hand (a plugin's folder, or a zip), by their names in `plugins/`:
-// every entry there but the record of what was installed from sources and those plugins' zips.
-async function addedPlugins() {
-  const kept = new Set([
-    ...JSON.parse(dereth.frontPlugins()).installed.map((p) => dereth.frontPluginZipPath(p.id)),
-    dereth.frontPluginRecords()[1],
-  ].map((path) => path.split('/').pop()));
-  const out = [];
-  try {
-    for await (const [name, handle] of (await pluginsDir(false)).entries()) {
-      if (!kept.has(name)) out.push({ name, folder: handle.kind === 'directory' });
-    }
-  } catch {
-    // No plugins kept.
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
-}
-async function removeAddedPlugin(name) {
-  if (!name || name.includes('/')) return;
-  await (await pluginsDir(false)).removeEntry(name, { recursive: true }).catch(() => {});
-  log(`removed the plugin ${name}`);
-}
-async function removePlugins() {
-  const root = await navigator.storage.getDirectory();
-  await root.removeEntry('plugins', { recursive: true }).catch(() => {});
-  // The record of what was installed from sources went with them; the sources stay.
-  await openShelf();
-  log('removed every added plugin');
-}
 globalThis.derethPluginsLoad = () => pluginBundle;
 
-// The data files open now, by what was asked for (a later start for other files opens them
-// again), and the store opened over them, by the files and the set the world is drawn from.
-let datsKey = null;
+// The store opened over the data files, by the files and the set the world is drawn from: a later
+// start on the same ones takes the files up again and has no need to open it anew.
 let storeKey = null;
-const datsOpen = () => datsKey !== null;
 
+// Bring the client up for the world `msg` names.
 async function start(msg) {
-  marks.start = performance.now();
-  marks.firstFrame = undefined;
-  // The server first: a refused URL is known before the data files take their time to open.
-  const refused = dereth.serverUrlProblem(msg.server);
-  if (refused) throw new Error(refused);
-  // A second start (after the client ended) keeps the data files and the settings file open.
-  const wanted = msg.dats.mode === 'files' ? `files:${msg.dats.files.map((f) => f.name).join(',')}` : JSON.stringify(msg.dats);
-  if (datsKey !== wanted) {
-    datsKey = null;
-    storeKey = null;
-    if (!(await openFiles(msg.dats))) {
-      throw new Error('The data files did not open: choose a data set with the four client_*.dat files (and portal.dat and cell.dat for the classic interface and the early worlds).');
-    }
-    datsKey = wanted;
+  if (!settings) await openSettings();
+  dereth.installSettings();
+  if (!(await openFiles(msg.dats))) {
+    throw new Error('The data files did not open: choose a data set with the four client_*.dat files (and portal.dat and cell.dat for the classic interface and the early worlds).');
   }
   // The world's overlay, kept in this browser by its address, when it can be: another tab of this
   // site may hold it, and then the client keeps none this visit (and says so to the server).
   const overlay = await holdOverlay(msg.overlay || '');
   const args = msg.args || [];
-  const set = dereth.worldSet(args, overlay);
-  if (storeKey !== `${datsKey}|${set}`) {
+  const key = `${filesStamp(msg.dats)}|${dereth.worldSet(args, overlay)}`;
+  if (storeKey !== key) {
+    storeKey = null;
     try {
       openStore(dereth, args, overlay);
     } catch (e) {
       // The files picked are not enough for this world: the front page offers others.
-      datsKey = null;
-      storeKey = null;
       throw new Error(`The data files did not open: ${e?.message ?? e}`);
     }
-    storeKey = `${datsKey}|${set}`;
+    storeKey = key;
     log(`WebAssembly memory with the data files open: ${memoryMiB().toFixed(0)} MiB`);
   }
-  marks.dats = performance.now();
-  if (!settings) await openSettings();
   log(overlay ? `the world's overlay is kept in ${overlay}` : 'no overlay is kept for this world');
+  // The art comes before a client that would start in the interface it dresses.
+  if (dereth.horizonWanted()) await art;
   pluginBundle = await readPlugins();
   await fetchPluginPolicy(msg.pluginPolicy);
   const sequence = (Date.now() % 0x100000000) >>> 0;
   // `?gpu=webgl` draws with WebGL 2 even where the browser has WebGPU.
-  pageNow = pageNow ?? msg.page;
-  // The client starts at the front page's render scale.
-  renderScale = msg.page?.scale ?? 100;
-  play = await dereth.WebPlay.create(
-    canvas, msg.width, msg.height, [...pageArray(pageNow), renderScale], msg.account,
+  return dereth.WebPlay.create(
+    msg.canvas, msg.width, msg.height, msg.pageArray, msg.account,
     msg.password, sequence, params.get('gpu') === 'webgl', args, overlay,
   );
-  // The page may have changed while the client came up.
-  setPage(pageNow);
-  marks.up = performance.now();
-  log(`client up on ${play.backend()} in ${(marks.up - marks.dats).toFixed(0)} ms`);
-
-  const ws = new WebSocket(msg.server);
-  socket = ws;
-  ws.binaryType = 'arraybuffer';
-  let opened = false;
-  ws.onmessage = (ev) => play?.receive(new Uint8Array(ev.data));
-  ws.onerror = () => log(`${msg.server}: connection failed`);
-  ws.onclose = () => {
-    log('connection closed');
-    // Never connected: the client has nothing to run, so the form comes back. A connection lost
-    // later is the client's to notice, as it notices a silent server.
-    if (!opened && play) {
-      shutDown();
-      postMessage({ ended: true, datsOpen: datsOpen(), error: `${msg.server} did not accept the connection.` });
-    }
-  };
-  ws.onopen = () => {
-    opened = true;
-    log(`connected to ${msg.server}; logging in as ${msg.account}`);
-    loop();
-  };
 }
 
-let lastWill = null;
-let lastSize = [0, 0];
-const sameBytes = (a, b) => b !== null && a.length === b.length && a.every((x, i) => x === b[i]);
-
-function loop() {
-  lastWill = null;
-  lastSize = [0, 0];
-  const raf = self.requestAnimationFrame
-    ? (f) => self.requestAnimationFrame(f)
-    : (f) => setTimeout(() => f(performance.now()), 16);
-  let frames = 0;
-  let busy = 0;
-  let worst = 0;
-  let since = performance.now();
-  const tick = (now) => {
-    if (!play) return;
-    const f0 = performance.now();
-    let alive = true;
-    try {
-      alive = play.frame();
-    } catch (e) {
-      log(`frame: ${e?.message ?? e}`);
-    }
-    for (const m of play.takeMessages()) {
-      if (socket.readyState === WebSocket.OPEN) socket.send(m);
-    }
-    // The server's copy of the goodbye, renewed when the connections change, in case the page goes
-    // away before the worker can log off.
-    const will = play.will();
-    if (socket.readyState === WebSocket.OPEN && !sameBytes(will, lastWill)) {
-      socket.send(will);
-      lastWill = will;
-    }
-    for (const text of play.takeCopied()) postMessage({ copied: text });
-    // The client resizes its own canvas (entering and leaving the game); the page scales it and
-    // maps the pointer by the new size.
-    const size = play.clientSize();
-    if (size.length === 2 && (size[0] !== lastSize[0] || size[1] !== lastSize[1])) {
-      lastSize = [size[0], size[1]];
-      postMessage({ size: lastSize });
-    }
-    // A Client Options page changed the render scale: the front page keeps it.
-    const scale = play.renderScale();
-    if (scale !== renderScale) {
-      renderScale = scale;
-      postMessage({ scale });
-    }
-    const cursor = play.cursorChange();
-    if (cursor) showCursor(cursor);
-    // A camera drag holds the pointer, or has ended: the page locks it to the canvas, or unlocks it.
-    const lock = play.pointerLock();
-    if (lock !== undefined) postMessage({ pointerLock: lock });
-    sound(now);
-    for (const url of play.takeOpenedUrls()) postMessage({ open: url });
-    // What a patch wrote into the world's overlay this frame goes to disk.
-    flushOverlay();
-    const spent = performance.now() - f0;
-    if (frames === 0 && marks.firstFrame === undefined) {
-      marks.firstFrame = performance.now();
-      log(`first frame ${(marks.firstFrame - marks.start).toFixed(0)} ms after start`);
-    }
-    busy += spent;
-    worst = Math.max(worst, spent);
-    frames += 1;
-    if (now - since >= 1000) {
-      const fps = (frames * 1000) / (now - since);
-      postMessage({
-        status: `${play.backend()} · ${fps.toFixed(0)} fps · ${(busy / frames).toFixed(1)} ms a frame (worst ${worst.toFixed(1)}) · ${memoryMiB().toFixed(0)} MiB`,
-      });
-      frames = 0;
-      busy = 0;
-      worst = 0;
-      since = now;
-    }
-    if (alive) {
-      raf(tick);
-    } else {
-      log('the client shut down');
-      shutDown();
-      postMessage({ ended: true, datsOpen: datsOpen() });
-    }
-  };
-  raf(tick);
-}
-
-// The sound the page's audio clock has used since the last frame, and a tenth of a second ahead,
-// mixed and posted to the page.
-const audioState = { started: false, t0: 0, sent: 0 };
-function sound(now) {
-  if (!audioState.started) return;
-  const rate = dereth.WebPlay.audioRate();
-  if (!audioState.t0) audioState.t0 = now;
-  const due = Math.floor(((now - audioState.t0) / 1000 + 0.1) * rate) - audioState.sent;
-  if (due <= 0) return;
-  const frames = Math.min(due, rate / 4);
-  const pcm = play.audio(frames);
-  audioState.sent += frames;
-  if (pcm.length) postMessage({ pcm }, [pcm.buffer]);
-}
-
-// The interface's cursor, as an image the page can show over the canvas: `[width, height, hot_x,
-// hot_y]` as little-endian words, then RGBA rows.
-async function showCursor(bytes) {
-  const words = new DataView(bytes.buffer, bytes.byteOffset, 16);
-  const [w, h, hx, hy] = [0, 4, 8, 12].map((at) => words.getUint32(at, true));
-  if (!w || !h) return;
-  const pixels = new Uint8ClampedArray(bytes.buffer, bytes.byteOffset + 16, w * h * 4);
-  const canvas = new OffscreenCanvas(w, h);
-  canvas.getContext('2d').putImageData(new ImageData(pixels, w, h), 0, 0);
-  const blob = await canvas.convertToBlob({ type: 'image/png' });
-  const url = new FileReaderSync().readAsDataURL(blob);
-  postMessage({ cursor: { url, hx, hy } });
-}
-
-// The page's size in the device's own pixels, as the page last said: the client draws at it in
-// full screen, at the render scale.
-let pageNow = null;
-const pageArray = (p) => [p?.width ?? 800, p?.height ?? 600];
-function setPage(p) {
-  pageNow = p ?? pageNow;
-  if (play && pageNow) play.setPage(...pageArray(pageNow));
-}
-
-// The share of the page's pixels the client draws in full screen, in percent, as the front page
-// last heard it.
-let renderScale = 100;
-
-// One input event from the page, in the client's terms.
-function input(ev) {
-  if (!play) return;
-  switch (ev.kind) {
-    case 'move': play.pointerMove(ev.x, ev.y, ev.dx ?? 0, ev.dy ?? 0, ev.buttons ?? -1); break;
-    case 'button': play.pointerButton(ev.button, ev.pressed); break;
-    case 'wheel': play.wheel(ev.notches); break;
-    case 'key': play.key(ev.code, ev.pressed, ev.text ?? undefined); break;
-    case 'alt': play.alt(ev.held); break;
-    case 'focus': play.focus(ev.gained); break;
-    case 'paste': play.paste(ev.text); break;
-    default: break;
-  }
-}
-
-// ---- the front page's launcher ---------------------------------------------------------------
-
-// What the front page asks of the launcher: the module's own calls, and the files kept in this
-// browser. Each answers a value, or throws with what to tell the player.
-const calls = {
-  listStart: (named, hub) => dereth.frontListStart(named || undefined, hub || undefined),
-  listNext: (body, error) => dereth.frontListNext(body ?? undefined, error ?? undefined),
-  listDone: (now) => JSON.parse(dereth.frontListDone(now)),
-  listWanted: (now) => dereth.frontListWanted(now),
-  listCopy: (copy, named, hub) => dereth.frontListCopy(copy, named || undefined, hub || undefined),
-  hubStart: (named, hub, now) => dereth.frontHubStart(named || undefined, hub || undefined, now),
-  hubNext: (body, error) => dereth.frontHubNext(body ?? undefined, error ?? undefined),
-  hubDone: (now) => dereth.frontHubDone(now),
-  setState: (json) => dereth.frontSetState(json),
-  state: () => dereth.frontState(),
-  status: (slug, text) => dereth.frontStatus(slug, new TextEncoder().encode(text)),
-  statusFailed: (slug) => dereth.frontStatusFailed(slug),
-  worlds: () => JSON.parse(dereth.frontWorlds()),
-  world: (slug) => {
-    const page = dereth.frontWorld(slug);
-    return page ? JSON.parse(page) : null;
+serve({
+  ready,
+  start,
+  // What a patch wrote into the world's overlay this frame goes to disk.
+  each: flushOverlay,
+  release: () => {
+    releaseFiles();
+    closeSettings();
   },
-  addWorld: (name, host, port, ruleset, emulator) => dereth.frontAddWorld(name, host, port, ruleset, emulator),
-  addedBy: (slug, url) => dereth.frontAddedBy(slug, url),
-  removeWorld: (slug) => dereth.frontRemoveWorld(slug),
-  recordLaunch: (slug, prefs) => dereth.frontRecordLaunch(slug, JSON.stringify(prefs)),
-  home: () => JSON.parse(dereth.frontHome()),
-  saveFavourite: (favourite) => dereth.frontSaveFavourite(JSON.stringify(favourite)),
-  removeFavourite: (id) => dereth.frontRemoveFavourite(id),
-  setWorldFavorite: (slug, favorite) => dereth.frontSetWorldFavorite(slug, favorite),
-  forgetAccount: (slug, username) => dereth.frontForgetAccount(slug, username),
-  forgetAllAccounts: () => dereth.frontForgetAllAccounts(),
-  setDefaultSet: (id) => dereth.frontSetDefaultSet(id),
-  interface: () => JSON.parse(dereth.frontInterface()),
-  setInterface: (name) => dereth.frontSetInterface(name),
-  version: () => dereth.version(),
-  scanSets: (known, again) => scanSets(dereth, known, again),
-  storeSet: async (name, files) => {
-    datsKey = null;
-    storeKey = null;
-    return storeSet(dereth, name, files);
-  },
-  removeSet: async (path) => {
-    datsKey = null;
-    storeKey = null;
-    return removeSet(dereth, path);
-  },
-  // One kind's files of a kept set: the later four, or the older pair.
-  removeSetKind: async (path, kind) => {
-    datsKey = null;
-    storeKey = null;
-    return removeSetFiles(dereth, path, kind === 'classic' ? NAMES.slice(4) : NAMES.slice(0, 4));
-  },
-  plugins: () => JSON.parse(dereth.frontPlugins()),
-  pluginRefresh: () => inTurn(refreshPlugins),
-  pluginAddSource: (url) => inTurn(() => addSource(url)),
-  pluginRemoveSource: (url) => inTurn(() => changeShelf(() => dereth.frontPluginRemoveSource(url))),
-  installPlugin: (source, id) => inTurn(() => takePlugin(source, id)),
-  updatePlugin: (id) => inTurn(() => takePlugin(undefined, id)),
-  removePlugin: (id) => inTurn(() => changeShelf(() => dereth.frontPluginRemove(id))),
-  pluginUpdates: (setting) => inTurn(() => changeShelf(() => dereth.frontPluginUpdates(setting))),
-  removePlugins: () => inTurn(removePlugins),
-  addedPlugins: () => inTurn(addedPlugins),
-  removeAddedPlugin: (name) => inTurn(() => removeAddedPlugin(name)),
-  addPlugins: (files) => inTurn(() => addPlugins(files)),
-  overlayFolder: (address) => dereth.overlayFolder(address),
-  // The world's overlay as the folder holds it: held open for the world being looked at.
-  overlay: async (path) => {
-    const held = await holdOverlay(path);
-    dereth.holdOverlay(held);
-    return held ? { ...JSON.parse(dereth.overlayInfo()), held } : null;
-  },
-  overlays: () => listOverlays(),
-  removeOverlay: (path) => removeOverlay(path),
-  blocklist: () => dereth.overlayBlocklist(),
-  setBlocked: (key, on) => dereth.setOverlayBlocked(key, on),
-  storage: async () => {
-    const e = await navigator.storage?.estimate?.().catch(() => null);
-    const persisted = await navigator.storage?.persisted?.().catch(() => false);
-    return { usage: e?.usage ?? null, quota: e?.quota ?? null, persisted: !!persisted };
-  },
-};
-
-onmessage = async (ev) => {
-  await ready;
-  const msg = ev.data;
-  if (msg.call) {
-    try {
-      if (play) throw new Error('the client is running');
-      const value = await calls[msg.call](...(msg.args ?? []));
-      postMessage({ reply: msg.id, value });
-    } catch (e) {
-      const error = String(e?.message ?? e);
-      postMessage({ reply: msg.id, error: e?.name === 'QuotaExceededError' ? FULL : error });
-    }
-    return;
-  }
-  try {
-    if (msg.canvas) canvas = msg.canvas;
-    if (msg.input) input(msg.input);
-    if (msg.cmd === 'logoff') logOff();
-    if (msg.cmd === 'page') setPage(msg.page);
-    if (msg.cmd === 'audio') audioState.started = true;
-  } catch (e) {
-    log(`error: ${e?.message ?? e}`);
-  }
-  if (msg.cmd === 'start') {
-    try {
-      await start(msg);
-    } catch (e) {
-      // The client could not start: the page brings its form back with the reason.
-      const error = String(e?.message ?? e);
-      log(`error: ${error}`);
-      shutDown();
-      postMessage({ ended: true, datsOpen: datsOpen(), error });
-    }
-  }
-};
+  rate: () => dereth.WebPlay.audioRate(),
+  memory: memoryMiB,
+});

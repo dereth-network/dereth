@@ -2161,7 +2161,9 @@ mod real_content {
                 )
         );
         if excluded > 0 {
-            eprintln!("lootgen/{name}: {excluded} scroll LongDesc value(s) excluded (scroll descriptions omitted)");
+            eprintln!(
+                "lootgen/{name}: {excluded} scroll LongDesc value(s) excluded (scroll descriptions omitted)"
+            );
         }
     }
 
@@ -2476,7 +2478,7 @@ mod world_treasure {
         h.o_mut(MONSTER)
             .set_property(PropertyDataId::DeathTreasureType, PYREALS_DID);
         assert_eq!(
-            creature_death::death_treasure(&h.w, MONSTER).map(|t| t.tier),
+            creature_death::death_treasure(&h.w, MONSTER).map(|t| t.tier()),
             Some(1)
         );
         // on the landscape: `CreateCorpse` reads the physics body's position and velocity
@@ -2924,4 +2926,39 @@ mod retail_creature_loot {
             "the five creatures carried some inventory treasure"
         );
     }
+}
+
+/// Divergence: V466
+/// A Launch world's random loot is its world base's: ACE's and February 2005's tables roll nothing
+/// there.
+#[test]
+fn launch_random_loot_never_uses_the_later_tables() {
+    use empyrean_common::era::{EraId, LootRules};
+    let p = profile(1, 0.0, 1);
+    for rules in [LootRules::EndOfRetail, LootRules::Infiltration] {
+        assert!(lgf::roll_wcid_in(
+            rules,
+            &p,
+            TreasureItemCategory::Item,
+            TreasureItemType::Weapon
+        )
+        .is_some());
+    }
+    assert!(lgf::roll_wcid_in(
+        LootRules::Ac1999,
+        &p,
+        TreasureItemCategory::Item,
+        TreasureItemType::Weapon
+    )
+    .is_none());
+    let mut w = world();
+    w.era = EraId::Launch.rules();
+    assert!(lgf::create_random_loot_objects(&mut w, &p).is_empty());
+    assert!(lgf::create_random_loot_objects_of_category(
+        &mut w,
+        &p,
+        TreasureItemCategory::Item,
+        TreasureItemType::Weapon
+    )
+    .is_none());
 }

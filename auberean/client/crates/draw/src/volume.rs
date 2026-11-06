@@ -467,12 +467,12 @@ impl VolumeMaker {
         room: &mut VolumeRoom,
         out: &mut Vec<Volume>,
     ) {
-        let mut seen: Vec<(u32, *const Vec<crate::mesh::MeshVertex>)> = Vec::new();
+        let mut seen: Vec<(u32, usize)> = Vec::new();
         for b in batches {
             if b.mesh == 0 || room.volumes == 0 {
                 continue;
             }
-            let key = (b.mesh, Arc::as_ptr(&b.vertices));
+            let key = (b.mesh, b.places());
             if seen.contains(&key) {
                 continue;
             }
@@ -483,11 +483,17 @@ impl VolumeMaker {
             let Some(level) = level_of(&mesh) else {
                 continue;
             };
-            let positions: Vec<Vec3> = b
-                .vertices
-                .iter()
-                .map(|v| Vec3::new(v.position[0], v.position[1], v.position[2]))
-                .collect();
+            let walked: Vec<Vec3>;
+            let positions: &[Vec3] = if let Some(list) = &b.posed {
+                list.positions()
+            } else {
+                walked = {
+                    let mut all = Vec::with_capacity(b.vertices.len());
+                    b.each_position(|[x, y, z]| all.push(Vec3::new(x, y, z)));
+                    all
+                };
+                &walked
+            };
             let Some(c) = self
                 .connectivity
                 .entry((b.mesh, level))
@@ -514,15 +520,9 @@ impl VolumeMaker {
                 continue;
             };
             let local = normalize(local);
-            let Some(v) = shadow_volume(
-                &c,
-                &positions,
-                local,
-                0.0,
-                near,
-                room.vertices,
-                room.indices,
-            ) else {
+            let Some(v) =
+                shadow_volume(&c, positions, local, 0.0, near, room.vertices, room.indices)
+            else {
                 continue;
             };
             room.volumes -= 1;

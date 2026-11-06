@@ -59,7 +59,6 @@ impl Default for PartGroup {
 
 impl PartGroup {
     /// Takes setup `id` ([`PartArray::set_setup`]) and works out the box around what it draws.
-    // D2-06555
     pub fn init_setup(&mut self, records: &dyn PartRecords, id: DataId) -> bool {
         self.array.set_setup(records, id) && self.init_bounds()
     }
@@ -104,7 +103,6 @@ impl PartGroup {
     }
 
     /// Bone `i`'s transform into the group's frame.
-    // D2-06558
     #[must_use]
     pub fn bone_matrix(&self, i: usize) -> Option<&Mat4> {
         self.array.bone_matrices.get(i)

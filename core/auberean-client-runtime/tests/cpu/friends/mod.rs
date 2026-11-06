@@ -7,7 +7,7 @@ mod rooms;
 use core::time::Duration;
 
 use auberean_client_net::friends::stream::{
-    Answer, Event, FriendStatus, Hr, Mode, Request, ServerConfig, ServerEvent, ServerOut,
+    Answer, Ended, Event, FriendStatus, Hr, Mode, Request, ServerConfig, ServerEvent, ServerOut,
     ServerStream, Ticket,
 };
 use auberean_client_net::friends::{FriendsLink, Io};
@@ -57,6 +57,8 @@ struct World {
     /// Every request it was asked, in order.
     asked: Vec<Request>,
     dials: u32,
+    /// How its stream last ended.
+    ended: Option<Ended>,
 }
 
 impl World {
@@ -74,6 +76,7 @@ impl World {
             tell_answer: Hr::OK,
             asked: Vec::new(),
             dials: 0,
+            ended: None,
         }
     }
 
@@ -121,7 +124,8 @@ impl World {
                 };
                 let _ = s.answer(now, cx, hr, answer);
             }
-            ServerEvent::Hello(_) | ServerEvent::Ended(_) => {}
+            ServerEvent::Ended(ended) => self.ended = Some(ended),
+            ServerEvent::Hello(_) => {}
         }
     }
 
@@ -160,8 +164,14 @@ fn carry(f: &mut Friends, w: &mut World, now: Duration) {
                     }
                 }
                 Io::Close => {
-                    if let Some(s) = w.stream.as_mut() {
+                    let outs = w.stream.as_mut().map_or_else(Vec::new, |s| {
                         s.closed(now);
+                        s.poll(now)
+                    });
+                    for out in outs {
+                        if let ServerOut::Event(e) = out {
+                            w.handle(now, e);
+                        }
                     }
                     w.stream = None;
                 }
@@ -193,6 +203,40 @@ fn step(f: &mut Friends, w: &mut World, now: Duration) -> Vec<Heard> {
         all.extend(f.dispatch(now));
     }
     all
+}
+
+/// The client ending finishes with a ticket it presented while the service is up, once; the layer
+/// ending says goodbye on the stream, dials no more and hears nothing more. A layer that presented
+/// no ticket, or whose service is down, has none to finish with.
+///
+/// Behaviour: friends.layer.the-client-ending-finishes-with-its-ticket
+#[test]
+fn the_client_ending_finishes_with_its_ticket() {
+    let mut w = World::new();
+    let mut f = ready(&mut w);
+    assert!(f.finish_with_ticket());
+    assert!(!f.finish_with_ticket(), "once");
+    f.end();
+    let heard = step(&mut f, &mut w, Duration::from_secs(1));
+    assert_eq!(heard, [], "nothing is listening");
+    assert_eq!(
+        w.ended,
+        Some(Ended::PeerBye(
+            auberean_client_net::friends::ByeReason::Shutdown
+        ))
+    );
+    assert!(!f.connected());
+    assert!(!f.finish_with_ticket());
+    assert!(step(&mut f, &mut w, Duration::from_secs(60)).is_empty());
+    assert_eq!(w.dials, 1, "not dialed again");
+
+    let mut w = World::new();
+    let mut f = layer("ann", "secret");
+    assert!(!f.finish_with_ticket(), "not connected");
+    f.connect(SERVER, PORT);
+    step(&mut f, &mut w, Duration::ZERO);
+    assert!(f.connected());
+    assert!(!f.finish_with_ticket(), "no ticket presented");
 }
 
 /// A layer connected, its ticket taken and its events listened for, as the login leaves it.

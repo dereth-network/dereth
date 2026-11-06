@@ -399,7 +399,7 @@ That is a deliberate deviation and it is recorded as one.
 
 > Pinned by `core/transport/src/blob.rs :: buffer_sizing_over_allocates_then_corrects`,
 > `:: mismatched_fragments_are_dropped_without_counting`,
-> `:: duplicate_fragment_indices_are_de_duplicated`, `:: reassembly_allocation_is_bounded`,
+> `:: duplicate_fragment_indices_are_de_duplicated`, `:: a_half_received_message_holds_only_what_has_arrived`,
 > `:: zero_fragment_blob_is_refused`,
 > `:: fragmentize_produces_ceil_size_over_448_fragments_in_order`.
 

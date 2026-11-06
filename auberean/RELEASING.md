@@ -13,7 +13,7 @@ launcher update from Auberean's releases. Whichever game's release a player down
 that game first and the other one click away: its client, Yalain and Athenaeum download when first
 wanted. The launcher keeps its own version, Dereth's; how the two channels update, and why a
 launcher never downgrades itself, is in
-[`dereth/launcher/RELEASING.md`](../dereth/launcher/RELEASING.md) ("Two channels").
+[`launcher/RELEASING.md`](../launcher/RELEASING.md) ("Two channels").
 
 1. **`cargo xtask release auberean|yalain|athenaeum <version>`** on a clean `main`: sets the
    version, dates the release's highlights in the product's `CHANGES.md`, runs the checks, packages
@@ -57,7 +57,7 @@ from.
 | product | system | the release file |
 |---|---|---|
 | Auberean | Windows (x86-64) | `auberean-<v>-windows-x86_64.zip`: `auberean-<v>/` holding the launcher `dereth.exe`, `auberean.exe`, `launcher-defaults.json`, `LICENSE`, `NOTICE.txt`, `THIRD-PARTY-LICENSES.html`. No installer |
-| | macOS (Apple silicon, Intel) | `Auberean-<v>-macos-aarch64.app.tar.gz` (and `-x86_64`): `Dereth.app`, the launcher and `auberean` in `Contents/MacOS`, `launcher-defaults.json` and the notices in `Contents/Resources` |
+| | macOS (Apple silicon) | `Auberean-<v>-macos-aarch64.app.tar.gz`: `Dereth.app`, the launcher and `auberean` in `Contents/MacOS`, `launcher-defaults.json` and the notices in `Contents/Resources` |
 | | Linux (x86-64) | `Auberean-<v>-linux-x86_64.AppImage`: the launcher's AppImage, with `auberean` and `launcher-defaults.json` in its `usr/bin` |
 | Athenaeum | Windows | `athenaeum-<v>-windows-x86_64.zip`: `athenaeum-editor.exe`, `athenaeum.exe`, `yalain.exe`, `auberean.exe`, the documents and the notices |
 | | macOS | `Athenaeum-<v>-macos-<arch>.app.tar.gz`: `Athenaeum.app`, the four programs in `Contents/MacOS` |
@@ -66,13 +66,12 @@ from.
 
 Beside them: `MANIFEST.txt` (every file in every package, with its size, SHA-256 and what the
 header checks read from each program), `release.json` and `SHA256SUMS`; and for Auberean, as for
-Dereth, `latest.json`, the launcher's update manifest, whose version names the launcher and the
-client (`<launcher>+auberean.<client>`).
+Dereth, `latest.json`, the launcher's update manifest, whose version is the launcher's.
 
 | Product | Target | Built on | Runs on |
 |---|---|---|---|
 | Auberean, Athenaeum | `x86_64-pc-windows-msvc` | Windows | Windows 10 or newer |
-| | `aarch64-apple-darwin`, `x86_64-apple-darwin` | macOS | macOS 11 or newer |
+| | `aarch64-apple-darwin` | macOS | macOS 11 or newer |
 | | `x86_64-unknown-linux-gnu` | Linux (the workflow uses Ubuntu 22.04) | glibc 2.35 or newer |
 | Yalain | `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` | any host, with `cargo zigbuild` | glibc 2.28 or newer |
 | | Windows, macOS | its own system | as Auberean |
@@ -97,7 +96,7 @@ code signature.
 ## `cargo xtask package`
 
 ```
-cargo xtask package auberean [--target <triple>]... [--out <dir>] [--allow-dirty] [--moltenvk <dir>] [--friends-dll <file>]
+cargo xtask package auberean --launcher <dir> [--target <triple>]... [--out <dir>] [--allow-dirty]
 cargo xtask package athenaeum [--target <triple>]... [--out <dir>] [--allow-dirty]
 cargo xtask package yalain [--target <triple>]... [--out <dir>] [--allow-dirty]
 cargo xtask package <product> --gather <dir>
@@ -110,10 +109,9 @@ lays out, scans, checks and archives each release file, and writes the index in
 uncommitted changes unless `--allow-dirty`, and a shallow clone. `--gather <dir>` builds nothing:
 it scans the release files already in `<dir>` and writes the index over them.
 
-Auberean's builds the launcher exactly as `cargo xtask package dereth` does (the Tauri CLI, the
-same configuration and environment, Dereth's client and tool as that build's inputs, MoltenVK on
-macOS), so both releases' launchers are the same program; then it builds the Auberean client, takes
-Dereth's client and tool out of the launcher's bundle, and puts the client,
+Auberean's takes the launcher's release file for the launcher version in the tree, from the folder
+`--launcher` names (`cargo xtask package launcher --fetch <dir>`, launcher/RELEASING.md), so its
+launcher is exactly that release; it never takes another. It builds the Auberean client and puts it,
 `launcher-defaults.json` and Auberean's notices in. On macOS the bundle is signed again; on Linux
 the AppImage is unpacked (`--appimage-extract`) and packed again with `appimagetool`. With
 `TAURI_SIGNING_PRIVATE_KEY` set it signs each release file for the launcher's updater and writes
@@ -122,11 +120,7 @@ its piece of `latest.json`, as Dereth's package does.
 What it needs, and says when missing, before building anything:
 
 - **cargo-about**: `cargo install --locked cargo-about --features cli`.
-- **Auberean:** what Dereth's package needs (dereth/launcher/RELEASING.md): the Tauri CLI
-  (`cargo install --locked tauri-cli --version ^2`), on macOS MoltenVK (`--moltenvk <dir>` or
-  `DERETH_MOLTENVK_DIR`), and the retail client's friends library, which the launcher carries:
-  built on a Windows host (`rustup target add i686-pc-windows-msvc`), else the file
-  `cargo xtask package friends-dll` wrote on Windows, with `--friends-dll <file>`.
+- **Auberean:** the launcher's release files, and on Linux `appimagetool`.
 - **Windows:** the MSVC build tools.
 - **macOS:** Xcode's command-line tools; with Xcode itself, the layered icon is compiled too.
 - **Linux, Auberean and Athenaeum:** `appimagetool` (`APPIMAGETOOL`, or on `PATH`), and the AppImage
@@ -171,12 +165,11 @@ target (Yalain's in AlmaLinux 8 and Ubuntu 24.04 too, on Linux); every runner's 
 and scanned again; and, for a tag, a draft release is created with the notes, the downloads and
 every file labelled, never the repository's "Latest". Running a workflow by hand is a dry run.
 
-Auberean's workflow installs what Dereth's does (the same pinned Tauri CLI, cargo-about and
-MoltenVK, the launcher's update-signing key) and builds with the same source URL, so the launcher
-it packages is the one Dereth's release of the same commit would; its smoke run checks that the
-launcher answers `dereth <launcher version>`, the client `auberean <version>`, that the defaults
-file names Auberean, that no Dereth client is in the package, and that the package holds the
-retail client's friends library one Windows job built for the whole release. A tag's run refuses
+Auberean's workflow waits for the launcher release the tree names, as Dereth's does, and builds with
+the same source URL and the launcher's update-signing key; its smoke run checks that the launcher
+answers `dereth <launcher version>`, the client `auberean <version>`, that the defaults file names
+Auberean, that no Dereth client is in the package, and that the retail client's friends library came
+with the launcher. A tag's run refuses
 unsigned files and a missing `latest.json`.
 
 ## Publishing

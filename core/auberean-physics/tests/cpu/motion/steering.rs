@@ -137,6 +137,49 @@ fn a_turn_stops_on_its_heading() {
     assert!(most < 90.0 + 1.5, "and never turned past it, {most}");
 }
 
+/// A body placed turns to the placement's heading at once on its next tick, the heading fallen to
+/// a 255th of a turn: a new character made facing exactly 270 degrees stands at 269.647.
+///
+/// Behaviour: motion.turn.a-placed-body-turns-to-a-255th-of-a-turn
+#[test]
+fn a_placed_body_turns_to_a_255th_of_a_turn() {
+    let land = world();
+    let mut b = body(270.0);
+    let mut placed = at(70.0, 70.0);
+    placed.frame.rotation = auberean_physics::body::heading_rotation(270.0);
+    b.set_placement_position(placed);
+    assert_eq!(b.placement, Some(placed));
+    b.tick(&land, dt());
+    let byte = 191.0 * 360.0 / 255.0;
+    assert!(
+        (b.heading - byte).abs() < 1e-3,
+        "turned at once: {}",
+        b.heading
+    );
+    assert_eq!(b.turn_rate, 0.0, "and it is not left turning");
+    for _ in 0..5 {
+        b.tick(&land, dt());
+    }
+    assert!(!b.minterp.is_turning_to(), "the turn is done");
+    assert!((b.heading - byte).abs() < 1e-3, "and stays: {}", b.heading);
+}
+
+/// A heading's rotation is one a body's move leaves bit for bit: with no distance to go, the
+/// frame comes out equal, which is how a move that goes nowhere is known.
+///
+/// Behaviour: motion.turn.a-headings-rotation-comes-through-a-move-unchanged
+#[test]
+fn a_headings_rotation_comes_through_a_move_unchanged() {
+    use dereth_physics::math::slerp_rotation_plain;
+    for byte in 0..=255_u16 {
+        let q = auberean_physics::body::heading_rotation(f32::from(byte) * 360.0 / 255.0);
+        let from = Frame::new(Vec3::ZERO, q);
+        let mut out = from;
+        slerp_rotation_plain(&mut out, &from, &from, 1.0);
+        assert_eq!(out.rotation, q, "byte {byte}");
+    }
+}
+
 /// A body given the positions the server sends walks along them at its own speed and comes to rest
 /// on the last.
 ///

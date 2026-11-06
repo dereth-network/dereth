@@ -1,7 +1,7 @@
 [package]
 name = "empyrean-import"
 description = "The world.pack builder: builds the pack from ACE's world database dump, compares two packs, and reports what the server's corrections do to one."
-version = "0.3.8" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
+version = "0.3.10" # Empyrean's own version, shared by every empyrean-* crate (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license = "AGPL-3.0-only"
@@ -24,6 +24,9 @@ serde_json.workspace = true
 # downloads anything, so these stay out of the workspace's shared dependencies.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 zip = { version = "8", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+sha2.workspace = true
+
+[build-dependencies]
 sha2.workspace = true
 
 [features]

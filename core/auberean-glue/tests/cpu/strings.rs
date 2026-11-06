@@ -394,3 +394,101 @@ fn the_current_folder_is_the_empty_name_and_folder_names_are_made_one_way_round(
     assert_eq!(clean("", 0), "");
     assert_eq!(clean("/", 0), "/");
 }
+
+/// **A string reference reads itself from a text tree by its children's keywords**: the table's
+/// name found by its record (one no record has leaves the table), the token's text hashed as a
+/// string's token and handed back, an unknown keyword warned of and passed over; a keyword with no
+/// one text beneath it is an error, ends the reading and keeps what was read; no node reads as
+/// nothing done.
+///
+/// Behaviour: script.glue.a-string-reference-reads-from-a-text-tree
+#[test]
+fn a_string_reference_reads_itself_from_a_text_tree_by_its_keywords() {
+    use auberean_dat::tree::Node;
+    use auberean_glue::text::{text_from_node, text_from_node_keeping_token};
+    use auberean_script::native_object::TextInfo;
+
+    const TABLE: u32 = 0x2500_0007;
+    let mut names = |name: &str| if name == "strings.stb" { TABLE } else { 0 };
+
+    let mut root = Node::new();
+    root.init_file_info(b"t");
+    root.make_child_text("STRINGTABLE")
+        .make_child_text("strings.stb");
+    root.make_child_text("something").make_child_text("else");
+    root.make_child_text("stringtoken").make_child_text("Hello");
+    let mut token = Vec::new();
+    let mut t = TextInfo::default();
+    assert!(text_from_node_keeping_token(
+        &mut t,
+        Some(&mut root),
+        &mut token,
+        &mut names
+    ));
+    assert_eq!(
+        (t.table, t.string_id),
+        (TABLE, auberean_assets::strings::token("Hello"))
+    );
+    assert_eq!(token, b"Hello");
+    let info = root.file_info().expect("a root");
+    assert_eq!((info.warnings, info.errors), (1, 0));
+
+    // A name no record has leaves the table; an empty token stops the reading.
+    let mut root = Node::new();
+    root.init_file_info(b"t");
+    root.make_child_text("STRINGTABLE").make_child_text("gone");
+    root.make_child_text("STRINGTOKEN");
+    root.make_child_text("STRINGTABLE")
+        .make_child_text("strings.stb");
+    let mut t = TextInfo {
+        table: 5,
+        ..TextInfo::default()
+    };
+    assert!(!text_from_node(&mut t, Some(&mut root), &mut names));
+    assert_eq!(t.table, 5, "read as far as the error");
+    assert_eq!(root.file_info().expect("a root").errors, 1);
+
+    assert!(!text_from_node(&mut TextInfo::default(), None, &mut names));
+}
+
+/// **A string changes case as the C library does in the English locale**: accented letters
+/// change too, and a letter with no single partner stays as it is.
+///
+/// Behaviour: script.glue.a-strings-case-changes-accented-letters-too
+#[test]
+fn a_strings_case_changes_accented_letters_too() {
+    let mut b = Bench::new();
+    let lower = b.text("HELLO ÉÖ");
+    b.call(TEXT, 0x1F, lower, &[], 0);
+    assert_eq!(s(&b, lower), "hello éö");
+    let upper = b.text("hello éßÿ");
+    b.call(TEXT, 0x1E, upper, &[], 0);
+    assert_eq!(s(&b, upper), "HELLO ÉßŸ");
+}
+
+/// **A string's leading float is read as the C library reads one**: past white space, as far as
+/// a number goes, its exponent marked with `e` or `d` and read only with digits. The words for
+/// infinity and not-a-number are no number, so they read as zero.
+///
+/// Behaviour: script.glue.a-strings-float-is-read-as-the-c-library-reads-one
+#[test]
+fn a_strings_float_is_read_as_the_c_library_reads_one() {
+    let mut b = Bench::new();
+    for (text, want) in [
+        (" -2.5e1abc", -25.0_f32),
+        ("1d2", 100.0),
+        ("+.5", 0.5),
+        ("7e", 7.0),
+        ("7e+", 7.0),
+        ("1.2.3", 1.2),
+        (".", 0.0),
+        ("", 0.0),
+        ("inf", 0.0),
+        ("infinity", 0.0),
+        ("nan", 0.0),
+        ("-inf", 0.0),
+    ] {
+        let t = b.text(text);
+        assert_eq!(f32::from_bits(b.answer(TEXT, 0x1B, t, &[])), want, "{text}");
+    }
+}

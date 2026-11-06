@@ -491,6 +491,8 @@ pub struct Choice {
     choices: Vec<(i32, (u32, u32))>,
     /// The choices named in the enumeration: each one's number and the value naming it.
     named: Vec<(i32, u32)>,
+    /// The choices labeled in words of their own, no string table's: each one's number and words.
+    literals: Vec<(i32, String)>,
 }
 
 impl Choice {
@@ -541,6 +543,7 @@ impl Choice {
         self.default = other.default;
         self.choices.clone_from(&other.choices);
         self.named.clone_from(&other.named);
+        self.literals.clone_from(&other.literals);
         true
     }
 
@@ -706,6 +709,25 @@ impl Choice {
         self.assign_choice(v, label)
     }
 
+    /// A choice labeled in words of its own, put in (or its words replaced).
+    // D2-16007
+    pub fn assign_literal_choice(&mut self, v: i32, words: &str) -> bool {
+        match self.literals.iter_mut().find(|(k, _)| *k == v) {
+            Some(c) => words.clone_into(&mut c.1),
+            None => self.literals.push((v, words.to_owned())),
+        }
+        self.assign_choice(v, (0, 0))
+    }
+
+    /// A choice's words of its own, when it has them.
+    #[must_use]
+    pub fn literal_choice(&self, v: i32) -> Option<&str> {
+        self.literals
+            .iter()
+            .find(|(k, _)| *k == v)
+            .map(|(_, w)| w.as_str())
+    }
+
     /// A choice's label.
     // D2-16009
     #[must_use]
@@ -733,6 +755,7 @@ impl Choice {
     pub fn clear_choices(&mut self) {
         self.choices.clear();
         self.named.clear();
+        self.literals.clear();
     }
 }
 

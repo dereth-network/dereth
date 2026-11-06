@@ -27,6 +27,8 @@ dereth-primitives.workspace = true
 dereth-render-cpu.workspace = true
 # The block window: which landblocks are around the viewer.
 dereth-landscape.workspace = true
+# A body's moved vertices go to the device as they are.
+bytemuck = { version = "1", features = ["derive"] }
 
 [dev-dependencies]
 auberean-dat = { workspace = true, features = ["test-support", "fs"] }

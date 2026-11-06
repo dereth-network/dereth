@@ -121,6 +121,7 @@ pub struct LitCell {
     pub packed: Vec<u8>,
 }
 
+// D2-03910
 fn lit_cells(r: &mut Reader<'_>) -> Result<Vec<LitCell>> {
     r.list(8, |r| {
         let cell = r.u32()?;
@@ -196,6 +197,7 @@ impl Decode for LightInfo {
 }
 
 /// A doorway from one interior cell to another (or to the outside).
+// D2-04237, D2-04238
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct CellPortal {
     pub flags: u16,
@@ -307,6 +309,7 @@ impl Decode for Cell {
     }
 }
 
+// D2-03910
 fn write_lit_cells(w: &mut Writer, cells: &[LitCell]) {
     w.list(cells, |w, c| {
         w.u32(c.cell);
@@ -322,6 +325,20 @@ fn write_lit_cells(w: &mut Writer, cells: &[LitCell]) {
 fn write_u16_list(w: &mut Writer, v: &[u16]) {
     w.list(v, |w, x| w.u16(*x));
     w.align();
+}
+
+impl Encode for Landblock {
+    /// As [`Landblock::decode`] reads it.
+    // D2-03712, D2-03724
+    fn encode(&self, id: u32, w: &mut Writer) {
+        w.u32(id);
+        w.data_id(self.info);
+        w.data_id(self.path_map);
+        w.count(self.heights.len());
+        w.bytes(&self.heights);
+        w.list(&self.vertices, |w, v| w.u32(*v));
+        w.align();
+    }
 }
 
 impl Encode for LandblockInfo {
@@ -365,7 +382,7 @@ impl Encode for LightInfo {
 }
 
 impl Encode for Cell {
-    // D2-03569, D2-04243
+    // D2-03569, D2-04243, D2-04241, D2-04242
     fn encode(&self, id: u32, w: &mut Writer) {
         w.u32(id);
         w.frame(self.frame);

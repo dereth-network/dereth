@@ -164,7 +164,7 @@ jobs:
           EOF
           PRE=""
           case "$VERSION" in *-*) PRE="--prerelease" ;; esac
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag $PRE \
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --verify-tag --latest=false $PRE \
             --title "Dereth.Network ACE $VERSION" --notes-file ../notes.md \
             "Dereth.Network-$VERSION.zip#Dereth.Network for ACE (mod folder)" \
             "SHA256SUMS#Checksums (SHA-256)"

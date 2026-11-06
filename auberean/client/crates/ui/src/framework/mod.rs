@@ -12,8 +12,7 @@
 //!   messages and the manager's global messages and takes what it heard as [`Mail`].
 //! - The **flow** ([`Flow`]) knows each screen by a mode token and the function that makes it;
 //!   a screen asked for ([`Flow::queue_mode`]) replaces the current one at the next tick.
-//! - **Persistent data** ([`persistent::Persistent`]) lives across screens: the account's
-//!   characters, the avatars made during character creation.
+//! - **Persistent data** ([`Flow::data`]) lives across screens, of the type the game gives it.
 //!
 //! A panel written on these: hold the [`FrameId`] of its framework; make its roots with
 //! [`Ui::frame_create_root`] and find its parts by name in them; register with
@@ -37,7 +36,6 @@
 
 pub mod flow;
 pub mod frame;
-pub mod persistent;
 
 pub use crate::location::Location;
 pub use flow::Flow;

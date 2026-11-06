@@ -43,6 +43,186 @@ pub struct Spell {
     /// The components required to cast the spell (`null` when the dat has no such spell).
     // ACE: Spell.Formula
     pub formula: Option<SpellFormula>,
+    /// Not ACE: the category the server's rules read, on a world whose spell table numbers its
+    /// categories otherwise (V505).
+    pub rules_category: Option<u32>,
+}
+
+/// The categories of the 1999 spell table, each with the number later tables and the server's rules
+/// give it. Told from the spells the two tables share.
+const LATER_CATEGORY_1999: [(u32, u32); 164] = [
+    (1, 1),
+    (2, 2),
+    (3, 3),
+    (4, 4),
+    (5, 5),
+    (6, 6),
+    (7, 7),
+    (8, 8),
+    (9, 9),
+    (10, 10),
+    (11, 11),
+    (12, 12),
+    (13, 17),
+    (14, 18),
+    (15, 19),
+    (16, 20),
+    (17, 19),
+    (18, 20),
+    (19, 23),
+    (20, 24),
+    (21, 17),
+    (22, 18),
+    (23, 17),
+    (24, 18),
+    (25, 17),
+    (26, 18),
+    (27, 31),
+    (28, 32),
+    (29, 19),
+    (30, 20),
+    (31, 17),
+    (32, 18),
+    (33, 37),
+    (34, 38),
+    (35, 39),
+    (36, 40),
+    (37, 41),
+    (38, 42),
+    (39, 43),
+    (40, 44),
+    (41, 45),
+    (42, 46),
+    (43, 47),
+    (44, 48),
+    (45, 49),
+    (46, 50),
+    (47, 51),
+    (48, 52),
+    (49, 53),
+    (50, 54),
+    (51, 55),
+    (52, 56),
+    (53, 57),
+    (54, 58),
+    (55, 59),
+    (56, 60),
+    (57, 61),
+    (58, 62),
+    (59, 63),
+    (60, 64),
+    (61, 65),
+    (62, 66),
+    (63, 67),
+    (64, 68),
+    (65, 69),
+    (66, 70),
+    (67, 71),
+    (68, 72),
+    (69, 73),
+    (70, 74),
+    (71, 75),
+    (72, 76),
+    (73, 77),
+    (74, 78),
+    (75, 79),
+    (76, 80),
+    (77, 81),
+    (78, 82),
+    (79, 83),
+    (80, 84),
+    (81, 87),
+    (82, 88),
+    (83, 89),
+    (84, 90),
+    (85, 91),
+    (86, 92),
+    (87, 93),
+    (88, 94),
+    (89, 95),
+    (90, 96),
+    (91, 97),
+    (92, 98),
+    (95, 101),
+    (96, 102),
+    (97, 103),
+    (98, 104),
+    (99, 105),
+    (100, 106),
+    (101, 107),
+    (102, 108),
+    (103, 109),
+    (104, 110),
+    (105, 111),
+    (106, 112),
+    (107, 113),
+    (108, 114),
+    (109, 115),
+    (110, 116),
+    (111, 117),
+    (112, 118),
+    (113, 119),
+    (114, 120),
+    (115, 121),
+    (116, 122),
+    (117, 123),
+    (125, 131),
+    (126, 132),
+    (127, 133),
+    (128, 134),
+    (129, 135),
+    (131, 137),
+    (146, 152),
+    (147, 153),
+    (148, 154),
+    (149, 155),
+    (150, 156),
+    (151, 157),
+    (152, 158),
+    (153, 159),
+    (154, 160),
+    (155, 161),
+    (156, 162),
+    (157, 163),
+    (158, 164),
+    (159, 165),
+    (160, 166),
+    (161, 167),
+    (162, 168),
+    (163, 169),
+    (164, 170),
+    (165, 171),
+    (166, 172),
+    (167, 173),
+    (168, 174),
+    (169, 175),
+    (170, 192),
+    (171, 193),
+    (172, 194),
+    (173, 195),
+    (178, 200),
+    (179, 201),
+    (181, 203),
+    (182, 204),
+    (183, 205),
+    (184, 206),
+    (185, 207),
+    (186, 208),
+    (187, 209),
+    (188, 210),
+    (189, 211),
+    (190, 212),
+    (191, 213),
+    (192, 214),
+    (193, 215),
+];
+
+/// The later number of a 1999 spell table's category.
+#[must_use]
+pub fn later_category_of_1999(raw: u32) -> u32 {
+    LATER_CATEGORY_1999
+        .binary_search_by_key(&raw, |(from, _)| *from)
+        .map_or(raw, |i| LATER_CATEGORY_1999[i].1)
 }
 
 impl Spell {
@@ -78,6 +258,12 @@ impl Spell {
             .spells
             .get(&spell_id)
             .cloned();
+        // DIVERGE: V505, the rules read later numbers; stacking keeps the table's.
+        self.rules_category = self
+            .spell_base
+            .as_ref()
+            .filter(|_| w.era.id == empyrean_common::era::EraId::Launch)
+            .map(|b| later_category_of_1999(b.category));
 
         if load_db {
             self.spell = w.content.get_cached_spell(spell_id);
@@ -233,13 +419,17 @@ impl Spell {
         // the base rate for each component is defined per-spell
         let base_rate = self.component_loss();
 
-        // get magic skill mod
-        let magic_skill = self.get_magic_skill();
-        let player_skill_current = creature_get_creature_skill_current(w, player, magic_skill);
-        let power: f32 = self.power().cs_cast();
-        let current: f32 = player_skill_current.cs_cast();
-        let skill_mod = math::min_f32(1.0, power / current);
-        //Console.WriteLine($"TryBurnComponents.SkillMod: {skillMod}");
+        // DIVERGE: without `EraFeatures::component_burn_skill_discount` (V471) the burn chance
+        // takes no discount for skill above the spell's power.
+        let skill_mod = if w.era.features.component_burn_skill_discount {
+            let magic_skill = self.get_magic_skill();
+            let player_skill_current = creature_get_creature_skill_current(w, player, magic_skill);
+            let power: f32 = self.power().cs_cast();
+            let current: f32 = player_skill_current.cs_cast();
+            math::min_f32(1.0, power / current)
+        } else {
+            1.0
+        };
 
         //DebugComponents();
 
@@ -399,6 +589,19 @@ impl Spell {
             MagicSchool::VoidMagic => Skill::VoidMagic,
             _ => Skill::None,
         }
+    }
+
+    /// An item enchantment, including equipment spell families with later creature targets.
+    /// Portal magic and enchantments unrelated to items are separate.
+    #[must_use]
+    pub fn is_item_targeted_enchantment(&self) -> bool {
+        self.school() == MagicSchool::ItemEnchantment
+            && self.meta_spell_type() == SpellType::Enchantment
+            && (self.non_component_target_type() != empyrean_entity::enums::ItemType::Creature
+                || self.is_impen_bane_type()
+                || self.is_other_negative_redirectable()
+                || self.is_item_redirectable_type()
+                || self.has_item_category())
     }
 
     /// Returns TRUE if spell category matches impen / bane / brittlemail / lure.

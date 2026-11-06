@@ -19,7 +19,6 @@ fn target(triple: &str) -> Target {
 const WINDOWS: &str = "x86_64-pc-windows-msvc";
 const LINUX: &str = "x86_64-unknown-linux-gnu";
 const MAC_ARM: &str = "aarch64-apple-darwin";
-const MAC_X64: &str = "x86_64-apple-darwin";
 const V: &str = "0.1.0";
 
 /// A scratch folder in the temporary directory, made anew and removed when dropped.
@@ -54,10 +53,6 @@ fn release_files_are_named_for_version_and_platform_and_read_back() {
     assert_eq!(
         lyceum::release_file_name(target(MAC_ARM), V),
         "Lyceum-0.1.0-macos-aarch64.app.tar.gz"
-    );
-    assert_eq!(
-        lyceum::release_file_name(target(MAC_X64), V),
-        "Lyceum-0.1.0-macos-x86_64.app.tar.gz"
     );
     assert_eq!(
         lyceum::release_file_name(target(LINUX), V),
@@ -184,8 +179,8 @@ fn the_linux_tarball_holds_all_four_programs_and_a_desktop_entry_with_its_icon()
 /// change log in `Contents/Resources`, and its code signature.
 #[test]
 fn the_macos_bundle_carries_all_four_programs_moltenvk_the_icon_and_the_notices() {
-    for triple in [MAC_ARM, MAC_X64] {
-        let m = target(triple);
+    {
+        let m = target(MAC_ARM);
         assert_eq!(lyceum::archive_root(m, V), "Lyceum.app");
         let contents = lyceum::contents(m);
         for need in [
@@ -613,12 +608,12 @@ fn lyceum_builds_natively_and_names_what_is_missing() {
     assert!(targets::plan_lyceum(target(WINDOWS), &host(Os::Windows)).is_ok());
     let e = targets::plan_lyceum(target(LINUX), &host(Os::Windows)).expect_err("cross");
     assert!(e.contains("Linux host only"), "{e}");
-    assert!(targets::plan_lyceum(target(MAC_X64), &host(Os::Mac)).is_ok());
+    assert!(targets::plan_lyceum(target(MAC_ARM), &host(Os::Mac)).is_ok());
     let missing = targets::Host {
-        installed: Some(vec![MAC_ARM.to_owned()]),
+        installed: Some(vec![WINDOWS.to_owned()]),
         ..host(Os::Mac)
     };
-    let e = targets::plan_lyceum(target(MAC_X64), &missing).expect_err("not installed");
+    let e = targets::plan_lyceum(target(MAC_ARM), &missing).expect_err("not installed");
     assert!(e.contains("rustup target add"), "{e}");
 }
 

@@ -359,6 +359,8 @@ pub struct Friends {
     waiting: BTreeMap<Cx, Waiting>,
     /// The ticket's handler: whether its answer came, and what it was.
     ticket_answer: Option<u32>,
+    /// A ticket was presented and is not finished with.
+    ticket_held: bool,
     /// The ticket is being presented again after the service came back.
     reauthenticating: bool,
     use_ticket: bool,
@@ -392,6 +394,7 @@ impl Friends {
             next_cx: 1,
             waiting: BTreeMap::new(),
             ticket_answer: None,
+            ticket_held: false,
             reauthenticating: false,
             use_ticket: options.use_ticket,
             named: options.named,
@@ -501,7 +504,7 @@ impl Friends {
 
     /// Listen for connect events (the login's own handler), for the service's chat events (tells),
     /// and for its friends events.
-    // D2-12110, D2-01689
+    // D2-12110, D2-01689, D2-01670
     pub fn register_for_connect_events(&mut self) -> bool {
         self.connect_handler = Some(0);
         true
@@ -563,6 +566,7 @@ impl Friends {
             .trim_end_matches('\0')
             .to_owned();
         self.ticket_answer = None;
+        self.ticket_held = true;
         self.request(
             Request::PresentTicket {
                 email: String::new(),
@@ -570,6 +574,27 @@ impl Friends {
             },
             Waiting::Ticket,
         )
+    }
+
+    /// The client is done with its ticket, when one was presented and the service is up: whether
+    /// it was. The stream's own end gives the ticket back; no element says so.
+    // D2-12099
+    pub fn finish_with_ticket(&mut self) -> bool {
+        if !self.connected || !self.ticket_held {
+            return false;
+        }
+        self.ticket_held = false;
+        true
+    }
+
+    /// The layer ends: the connection closes, if it stands, and no event is listened for.
+    // D2-12118
+    pub fn end(&mut self) {
+        if self.connected {
+            self.connection.disconnect(self.now);
+            self.connected = false;
+        }
+        self.unregister_events();
     }
 
     /// Ask for the friends list; `context` comes back with it.
@@ -869,6 +894,14 @@ impl Client {
         self.friends.as_mut().is_some_and(f)
     }
 
+    /// The client ends: it finishes with its ticket and the friends service's layer ends.
+    pub fn end_friends(&mut self) {
+        if let Some(f) = &mut self.friends {
+            f.finish_with_ticket();
+            f.end();
+        }
+    }
+
     /// The friends service's layer, when the player was started with one.
     #[must_use]
     pub fn friends(&self) -> Option<&Friends> {
@@ -987,9 +1020,6 @@ impl Client {
     /// The world's name, from the login, to the layer.
     // D2-01695
     pub(crate) fn friends_world_name(&mut self) {
-        let Some(name) = self.model.world_name.as_ref() else {
-            return;
-        };
         if self
             .friends
             .as_ref()
@@ -997,14 +1027,27 @@ impl Client {
         {
             return;
         }
-        let mut info = crate::text::from_wire(name);
-        let units: Vec<u16> = match self.scripts.as_mut() {
-            Some(s) => info.text(&mut s.host.text).encode_utf16().collect(),
-            None => info.literal_value(false),
+        let Some(units) = self.world_name_units() else {
+            return;
         };
         if let Some(f) = self.friends.as_mut() {
             f.set_world_name(&units);
         }
+    }
+
+    /// The world's name as the login last named it, whether or not the friends service runs.
+    fn world_name_units(&mut self) -> Option<Vec<u16>> {
+        let mut info = crate::text::from_wire(self.model.world_name.as_ref()?);
+        Some(match self.scripts.as_mut() {
+            Some(s) => info.text(&mut s.host.text).encode_utf16().collect(),
+            None => info.literal_value(false),
+        })
+    }
+
+    /// The world's name as text; empty before the login names it.
+    pub fn world_name(&mut self) -> String {
+        self.world_name_units()
+            .map_or_else(String::new, |u| String::from_utf16_lossy(&u))
     }
 
     /// One thing the layer heard, handed on: to the player's scripts (through the player's own

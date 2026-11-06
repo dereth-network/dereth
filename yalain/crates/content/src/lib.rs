@@ -34,10 +34,15 @@ pub mod quests;
 pub mod spawns;
 pub mod stores;
 pub mod story;
+pub mod take_gates;
 pub mod talk;
+pub mod treasure_effects;
+pub mod treasure_looks;
+pub mod treasure_words;
+pub mod worn_table;
 
 pub use locks::{Lock, LockTable};
-pub use loot::{LootProfile, LootTable};
+pub use loot::{ChestTreasure, LootProfile, LootTable};
 pub use movement::{CampMoves, Movement, MovementOverrides, MovementType, Route};
 pub use props::{CreatureStats, Prop, Props};
 pub use quests::QuestTable;
@@ -84,6 +89,21 @@ pub struct WeaponRule {
     pub stance: Option<u32>,
 }
 
+/// What a creature's death effect makes around its killer, in place of what the install can say.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DeathSpawn {
+    /// The template of what it makes.
+    pub template: u32,
+    /// How many it tries to make.
+    pub count: u32,
+    /// The chance that each is made.
+    pub chance: f32,
+    /// Where each is made, in meters from the killer, as the killer faces.
+    pub offset: [f32; 2],
+    /// How long each stands, in seconds, where it doesn't stay until killed.
+    pub lasts: Option<f32>,
+}
+
 /// The templates the world makes objects of, by id, and the names of the generator profiles
 /// (loot profiles among them) by value.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -92,9 +112,13 @@ pub struct Catalog {
     pub profiles: BTreeMap<u32, String>,
     /// The icons of the item templates whose looks give one: each layer, its picture and color.
     pub icons: BTreeMap<u32, Vec<[u32; 3]>>,
+    /// What the appearance tables of those items do to an icon, by table: its base tables first.
+    pub icon_tables: BTreeMap<u32, Vec<IconTable>>,
     /// The bodies of the templates whose looks give one: the radius and height of the look's
     /// cylinder (before the object's own scale).
     pub bodies: BTreeMap<u32, [f32; 2]>,
+    /// What the templates of a class that says so are wielded as (their implement kinds).
+    pub implements: BTreeMap<u32, u32>,
 }
 
 impl Catalog {
@@ -162,6 +186,8 @@ pub struct Description {
     /// objects of one template each their own way (a portal by where it leads), so a name comes
     /// with a placement, not from the template.
     pub name: Option<(u32, u32)>,
+    /// The name it is shown with, as literal text, in place of its template's.
+    pub name_text: Option<String>,
     /// The physics type, the movement ethereality and the placement ethereality, each as its low
     /// and high word.
     pub numbers: [i32; 6],
@@ -369,6 +395,20 @@ pub fn facts(template: u32, entity: &dyn Fn(u32) -> Option<Entity>, ids: &FactId
         }
     }
     f
+}
+
+impl Facts {
+    /// With the name its properties hold where its chain of entities says none: some item templates
+    /// keep theirs only in their qualities record.
+    #[must_use]
+    pub fn named_by(mut self, props: &Props) -> Self {
+        if self.name.is_none() {
+            if let Some(Prop::Str(string, table)) = props.get("Name") {
+                self.name = Some((*string, *table));
+            }
+        }
+        self
+    }
 }
 
 /// One object of the pack: what it is and where it stands.
@@ -629,6 +669,7 @@ pub fn describe(
         let _ = write!(source, ", qualities {:08X}", qualities_id(template));
     }
     Ok(Description {
+        name_text: None,
         package,
         look,
         enter_fx: enter_fx.unwrap_or(0),
@@ -665,9 +706,10 @@ pub const COLUMNS: [&str; NCOLS] = [
     "facts",
     "route",
     "gate",
+    "name_text",
 ];
 
-const NCOLS: usize = 24;
+const NCOLS: usize = 25;
 
 fn hex32(s: &str) -> Result<u32, String> {
     u32::from_str_radix(s, 16).map_err(|e| format!("{s}: {e}"))
@@ -687,7 +729,7 @@ impl ContentPack {
             let d = &o.description;
             let _ = writeln!(
                 out,
-                "{}\t{:08X}\t{:08X}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:X}\t{:08X}\t{:08X}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{:08X}\t{:08X}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{:X}\t{:08X}\t{:08X}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 o.object.map(|i| format!("{i:016X}")).unwrap_or_default(),
                 o.template,
                 o.cell,
@@ -712,6 +754,7 @@ impl ContentPack {
                 o.facts.to_text(),
                 o.walks.as_ref().map(crate::movement::CampMoves::route_text).unwrap_or_default(),
                 o.gate.map(|g| g.to_text()).unwrap_or_default(),
+                d.name_text.as_deref().unwrap_or_default().replace(['\t', '\n'], " "),
             );
         }
         out
@@ -728,8 +771,8 @@ impl ContentPack {
                 continue;
             }
             let c: Vec<&str> = line.split('\t').collect();
-            // A pack written before destinations, facts, routes and gates had fewer columns.
-            if !(NCOLS - 4..=NCOLS).contains(&c.len()) {
+            // A pack written before destinations, facts, routes, gates and names had fewer columns.
+            if !(NCOLS - 5..=NCOLS).contains(&c.len()) {
                 return Err(format!("line {}: {} columns, not {NCOLS}", n + 1, c.len()));
             }
             let at = |e: String| format!("line {}: {e}", n + 1);
@@ -775,6 +818,7 @@ impl ContentPack {
                 kind: Kind::from_word(c[10]).ok_or_else(|| at(format!("kind {}", c[10])))?,
                 label: c[11].to_string(),
                 description: Description {
+                    name_text: c.get(24).filter(|n| !n.is_empty()).map(|n| (*n).to_owned()),
                     package: hex32(c[12]).map_err(at)?,
                     look: hex32(c[13]).map_err(at)?,
                     enter_fx: hex32(c[14]).map_err(at)?,
@@ -854,6 +898,91 @@ pub fn icon_layers(
         }
     }
     layers.into_values().collect()
+}
+
+/// What one appearance table does to an icon: per key, its steps in order, each with the value it
+/// starts at and the layers it changes.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct IconTable {
+    pub keys: Vec<(u32, Vec<IconStep>)>,
+}
+
+/// One step of an appearance key: the value it starts at, and the layers it changes (each its
+/// layer, its picture and color, 0 for what it leaves alone).
+pub type IconStep = (f32, Vec<[u32; 3]>);
+
+/// What an appearance table and its base tables do to an icon, the base tables first. Those that
+/// change no icon are left out.
+#[must_use]
+pub fn icon_tables(
+    table: u32,
+    appearance: &dyn Fn(u32) -> Option<auberean_assets::visual::Appearance>,
+) -> Vec<IconTable> {
+    fn gather(
+        table: u32,
+        appearance: &dyn Fn(u32) -> Option<auberean_assets::visual::Appearance>,
+        out: &mut Vec<IconTable>,
+        depth: usize,
+    ) {
+        let Some(t) = appearance(table) else {
+            return;
+        };
+        if depth < CHAIN_LIMIT {
+            for base in &t.base {
+                gather(*base, appearance, out, depth + 1);
+            }
+        }
+        let keys: Vec<(u32, Vec<IconStep>)> = t
+            .keys
+            .iter()
+            .filter(|(_, sets)| sets.iter().any(|s| !s.icon_layers.is_empty()))
+            .map(|(key, sets)| {
+                let steps = sets
+                    .iter()
+                    .map(|s| {
+                        let layers = s
+                            .icon_layers
+                            .iter()
+                            .map(|l| [l.layer, l.picture.0, l.shift_color.0])
+                            .collect();
+                        (s.intensity, layers)
+                    })
+                    .collect();
+                (*key, steps)
+            })
+            .collect();
+        if !keys.is_empty() {
+            out.push(IconTable { keys });
+        }
+    }
+    let mut out = Vec::new();
+    gather(table, appearance, &mut out, 0);
+    out
+}
+
+/// An icon takes what an appearance key gives it at a value: in each table, the last step whose
+/// value is not above it. A layer of the same number takes its picture and its color, when it has
+/// them; else it goes in by its number.
+pub fn apply_icon_value(icon: &mut Vec<[u32; 3]>, tables: &[IconTable], key: u32, value: f32) {
+    for t in tables {
+        let Some((_, steps)) = t.keys.iter().find(|(k, _)| *k == key) else {
+            continue;
+        };
+        let picked = steps.iter().take_while(|(from, _)| value >= *from).last();
+        for l in picked.iter().flat_map(|(_, layers)| layers) {
+            if let Some(x) = icon.iter_mut().find(|x| x[0] == l[0]) {
+                if l[1] != 0 {
+                    x[1] = l[1];
+                }
+                if l[2] != 0 {
+                    x[2] = l[2];
+                }
+            } else {
+                let at = icon.iter().position(|x| x[0] > l[0]).unwrap_or(icon.len());
+                icon.insert(at, *l);
+            }
+        }
+    }
 }
 
 /// The root part groups of looks: a creature's or a player's, and an object's.

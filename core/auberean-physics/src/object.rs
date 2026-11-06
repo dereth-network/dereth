@@ -227,14 +227,24 @@ impl Shape {
     /// shape's own frame and divided by its scale, then met with its spheres when it has any, else
     /// with its upright cylinders, else with the polygons of its physics trees. A sphere or a
     /// cylinder met only at the far end or beyond does not count. None when nothing is met.
-    ///
-    /// What meets a sphere or a cylinder is reported facing straight back along the line.
-    // D2-06184
     #[must_use]
     pub fn check_ray(&self, at: &dereth_primitives::Frame, from: Vec3, to: Vec3) -> Option<f32> {
+        self.check_ray_facing(at, from, to).map(|(t, _)| t)
+    }
+
+    /// [`Self::check_ray`], with what the line meets facing it: a sphere or a cylinder straight back
+    /// along the line, a tree by its polygon's facing, turned into the world.
+    // D2-06184, D2-06278
+    #[must_use]
+    pub fn check_ray_facing(
+        &self,
+        at: &dereth_primitives::Frame,
+        from: Vec3,
+        to: Vec3,
+    ) -> Option<(f32, Vec3)> {
         use crate::geom::{CylinderOps, Ray, SphereOps};
         if self.spheres.is_empty() && self.cylinders.is_empty() {
-            return self.check_trees(at, self.scale, from, to);
+            return self.check_trees_facing(at, self.scale, from, to);
         }
         let (a, b) = unscaled_line(at, self.scale, from, to);
         let ray = Ray::segment(a, b);
@@ -255,7 +265,9 @@ impl Shape {
                 take(SphereOps::trace_ray(sp, &ray));
             }
         }
-        hit.then_some(best)
+        let line = Ray::segment(from, to);
+        let back = Vec3::new(-line.dir.x, -line.dir.y, -line.dir.z);
+        hit.then_some((best, back))
     }
 
     /// Where the line from `from` to `to` (both in the landblock frame of `at`) first meets the
@@ -269,18 +281,33 @@ impl Shape {
         from: Vec3,
         to: Vec3,
     ) -> Option<f32> {
+        self.check_trees_facing(at, scale, from, to).map(|(t, _)| t)
+    }
+
+    /// [`Self::check_trees`], with the facing of the polygon met, turned into the world.
+    #[must_use]
+    pub fn check_trees_facing(
+        &self,
+        at: &dereth_primitives::Frame,
+        scale: Vec3,
+        from: Vec3,
+        to: Vec3,
+    ) -> Option<(f32, Vec3)> {
         let (a, b) = unscaled_line(at, scale, from, to);
-        let mut best: Option<f32> = None;
+        let mut best: Option<(f32, Vec3)> = None;
         for tree in &self.trees {
             for poly in &tree.polygons {
                 if let Some(t) = crate::land::segment_polygon(a, b, &poly.vertices) {
-                    if best.is_none_or(|x| t < x) {
-                        best = Some(t);
+                    if best.is_none_or(|(x, _)| t < x) {
+                        best = Some((t, poly.plane.normal));
                     }
                 }
             }
         }
-        best
+        best.map(|(t, n)| {
+            let turn = dereth_physics::math::l2g(at.rotation);
+            (t, dereth_physics::math::localtoglobalvec(turn, n))
+        })
     }
 
     /// The box around what it draws, scaled.
@@ -337,12 +364,39 @@ pub fn placed_entity(
         return None;
     }
     let mut shape = Shape::of(records, DataId(e.object?), trees)?;
-    if shape.has_physics_tree() || (shape.cylinders.is_empty() && shape.spheres.is_empty()) {
+    shape.properties.push(own_properties(e));
+    let by_tree = shape.has_physics_tree();
+    if (by_tree && !marks_ethereal(&shape.properties))
+        || (!by_tree && shape.cylinders.is_empty() && shape.spheres.is_empty())
+    {
         return None;
     }
     shape.scale = entity_scale(e, shape.scale);
-    shape.properties.push(own_properties(e));
     Some((Position::new(cell, entity_frame(e)), shape))
+}
+
+/// Whether any of these collections sets a bit of an object's physics type: the object is then
+/// something some mover passes through.
+fn marks_ethereal(collections: &[Arc<PropertyCollection>]) -> bool {
+    collections
+        .iter()
+        .flat_map(|c| c.groups.iter())
+        .filter(|g| g.group == crate::world::group::ETHEREAL)
+        .flat_map(|g| g.properties.iter())
+        .any(|p| {
+            matches!(
+                p.value,
+                auberean_assets::property::PropertyValue::Bool(true)
+            )
+        })
+}
+
+/// Does a whole scale differ between its axes, by 0.0002 or more? A mover meets nothing of an object
+/// with a physics tree at such a scale: it walks through it, and nothing stands on it.
+// D2-06150, D2-06214
+#[must_use]
+pub fn uneven(s: Vec3) -> bool {
+    !((s.x - s.y).abs() < 0.0002 && (s.x - s.z).abs() < 0.0002)
 }
 
 /// The solid parts of a placed entity of the world's records: one for each part of its look whose
@@ -378,6 +432,7 @@ pub fn placed_solids(
     .render_bounding_box();
     let mut properties = shape.properties.clone();
     properties.push(own_properties(e));
+    let marked = marks_ethereal(&properties);
     shape
         .trees
         .iter()
@@ -399,6 +454,7 @@ pub fn placed_solids(
                 ),
                 render_box,
                 properties: properties.clone(),
+                marked,
             })
         })
         .collect()

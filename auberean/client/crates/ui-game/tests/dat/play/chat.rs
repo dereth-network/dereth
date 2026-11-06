@@ -10,7 +10,7 @@ use auberean_ui::{Assets, Handle, Token, Ui, Value};
 use auberean_ui_game::chat::{
     self, text_type as t, Ask, ChatSettings, ChatUi, History, TEXT_TYPES,
 };
-use auberean_ui_game::gameplay::{GamePlay, Notice, Request, View};
+use auberean_ui_game::gameplay::{GamePlay, Notice, Record, Request, View};
 use auberean_ui_game::options::chat::{label, ChatOptionsPage};
 use auberean_ui_game::options::helper::{Control, Row};
 use auberean_ui_game::options::{notice, OptionWindow};
@@ -38,6 +38,9 @@ const FIRST: u32 = t::ERROR
     | t::BROADCAST
     | t::REGION_CHANNEL
     | t::FACTION_CHANNEL;
+
+/// The sound of the line of messages' rows.
+const WARNING_SOUND: u32 = 0x2A00_02DF;
 
 /// What a new options profile gives the chat (each kind its own color, the small font).
 fn defaults(revision: u64) -> ChatSettings {
@@ -395,6 +398,115 @@ fn the_lines_written_with_the_options_show_by_those_options() {
     );
 }
 
+/// A line the scripts write before they set the options is taken by what the windows show then:
+/// as a new character enters, the place's status comes right after the character's description,
+/// the windows show nothing yet, and it never appears; the lines after the options do.
+///
+/// Behaviour: ui.chat.a-line-before-the-first-options-is-not-shown
+#[test]
+fn a_line_before_the_first_options_is_not_shown() {
+    let entering = vec![
+        (
+            t::STANDARD,
+            "You just entered a peace area (no player-vs.-player fighting allowed here).
+"
+            .to_owned(),
+        ),
+        (
+            t::STANDARD,
+            "Trade channel entered.
+"
+            .to_owned(),
+        ),
+    ];
+    let options = Notice {
+        native: auberean_ui_game::gameplay::notice::RELOAD_OPTIONS,
+        ..Notice::default()
+    };
+    let settings = defaults(1);
+    let enter = |ui: &mut Ui, p: &mut GamePlay, lines: &[(u32, String)], before: usize| {
+        ui.use_time(0.05);
+        let mut out = Vec::new();
+        let view = View {
+            lines,
+            lines_before_options: before,
+            chat: Some(&settings),
+            ..View::default()
+        };
+        p.tick(ui, &view, std::slice::from_ref(&options), &mut out);
+        ui.use_time(0.1);
+        let view = View {
+            chat: Some(&settings),
+            ..View::default()
+        };
+        p.tick(ui, &view, &[], &mut out);
+    };
+
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    enter(&mut ui, &mut p, &entering, 1);
+    assert_eq!(
+        chat(&p).windows()[0].lines(&ui),
+        ["Trade channel entered.", ""],
+        "only the line after the options"
+    );
+
+    // Written after the options, the same line shows.
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    enter(&mut ui, &mut p, &entering, 0);
+    assert_eq!(
+        chat(&p).windows()[0].lines(&ui),
+        [
+            "You just entered a peace area (no player-vs.-player fighting allowed here).",
+            "Trade channel entered.",
+            "",
+        ],
+        "both after the options"
+    );
+}
+
+/// An error line stands in the line of messages with its warning sound, once per line: two error
+/// lines as a character enters play it twice.
+///
+/// Behaviour: ui.chat.each-error-line-plays-the-warning-sound
+#[test]
+fn each_error_line_plays_the_warning_sound() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut f = Frame::new();
+    f.tick(&mut ui, &mut p, &[], &[]);
+    ui.take_sounds();
+    let lines = vec![
+        (
+            t::ERROR,
+            "Cannot connect to GUN server.
+"
+            .to_owned(),
+        ),
+        (
+            t::ERROR,
+            "Could not be logged in.
+"
+            .to_owned(),
+        ),
+        (
+            t::STANDARD,
+            "Trade channel entered.
+"
+            .to_owned(),
+        ),
+    ];
+    f.tick(&mut ui, &mut p, &lines, &[]);
+    f.tick(&mut ui, &mut p, &[], &[]);
+    let warnings = ui
+        .take_sounds()
+        .iter()
+        .filter(|s| s.sound == WARNING_SOUND)
+        .count();
+    assert_eq!(warnings, 2);
+}
+
 /// A line that came as a string reference whose table the data lacks waits in the log until the
 /// table has come, then shows as written from it; the lines after it wait behind it.
 ///
@@ -418,6 +530,34 @@ fn a_line_waits_in_the_log_for_its_string_tables_and_the_lines_after_it_wait_beh
     lacking.arrive();
     f.tick(&mut ui, &mut p, &[], &[]);
     assert_eq!(text(&ui, log(&p, 0)), "From the server\nAfter it.\n");
+}
+
+/// A tell the player's scripts ask for (a fellow's or a friend's Tell) puts "/tell Name, " in the
+/// entry of the window keys are for, selected, and starts typing there.
+///
+/// Behaviour: ui.chat.a-tell-asked-for-goes-in-the-entry
+#[test]
+fn a_tell_asked_for_goes_in_the_entry() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut f = Frame::new();
+    f.reload(&mut ui, &mut p);
+    let e = entry(&p, 0);
+    assert_eq!(ui.active(), None);
+    let mut who = StringInfo::default();
+    who.set_literal(&"Cora".encode_utf16().collect::<Vec<u16>>(), false);
+    f.tick(
+        &mut ui,
+        &mut p,
+        &[],
+        &[Notice {
+            native: chat::notice::DO_ASSISTED_TELL,
+            records: vec![Some(Record::Text(who))],
+            ..Notice::default()
+        }],
+    );
+    assert_eq!(text(&ui, e), "/tell Cora, ");
+    assert_eq!(ui.active(), Some(e), "typing starts there");
 }
 
 /// Enter starts typing in the first window (its prompt goes); the keys typed go into the entry;
@@ -495,6 +635,18 @@ fn the_entry_takes_a_line_and_hands_it_to_the_command_line() {
         earlier: true,
         window: 0
     })));
+    ui.set_modifiers(false, false);
+    ui.set_alt(true);
+    for (shift, ctrl) in [(false, false), (false, true), (true, false)] {
+        ui.set_modifiers(shift, ctrl);
+        let out = f.key(&mut ui, &mut p, key_id::UP);
+        assert!(
+            !out.iter()
+                .any(|r| matches!(r, Request::Chat(Ask::History { .. }))),
+            "Alt held asks for no list, with Shift, Ctrl or neither"
+        );
+    }
+    ui.set_alt(false);
     ui.set_modifiers(false, false);
     let c = p
         .child_mut::<Toolbar>()

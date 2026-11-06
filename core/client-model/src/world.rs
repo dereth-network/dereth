@@ -17,6 +17,8 @@ use std::cmp::Reverse;
 /// The whole client-side world model.
 #[derive(Debug)]
 pub struct World {
+    /// The systems the world has, as its host last read them: what the model's own rules ask.
+    pub era_features: dereth_primitives::EraFeatures,
     pub tables: ObjectTables,
     physics_setups: std::collections::BTreeMap<u32, crate::objects::PhysicsSetupFacts>,
     /// Process-owned, already-normalized material-type names. Object notices live in
@@ -245,9 +247,37 @@ impl Default for World {
 }
 
 impl World {
+    /// The systems the world has, as its host read them this frame: the model's own rules ask
+    /// them, and a world without the allegiance chat room has no such talk focus.
+    pub fn set_era_features(&mut self, features: dereth_primitives::EraFeatures) {
+        use crate::chat::TalkFocus;
+        self.era_features = features;
+        self.player_system.era_features = features;
+        if !features.allegiance_chat && self.chat.is_talk_focus_enabled(TalkFocus::Allegiance) {
+            self.chat
+                .set_talk_focus_enabled(TalkFocus::Allegiance, false);
+        }
+        if !features.global_chat_rooms {
+            for (focus, room) in [
+                (TalkFocus::General, 2),
+                (TalkFocus::Trade, 3),
+                (TalkFocus::Lfg, 4),
+                (TalkFocus::Roleplay, 5),
+                (TalkFocus::Society, 6),
+                (TalkFocus::Olthoi, 10),
+            ] {
+                let named = self.chat.chat_rooms.get(&room).is_some_and(|id| *id != 0);
+                if self.chat.is_talk_focus_enabled(focus) != named {
+                    self.chat.set_talk_focus_enabled(focus, named);
+                }
+            }
+        }
+    }
+
     #[must_use]
     pub fn new() -> Self {
         Self {
+            era_features: dereth_primitives::EraFeatures::default(),
             tables: ObjectTables::new(),
             physics_setups: std::collections::BTreeMap::new(),
             material_names: std::collections::BTreeMap::new(),
@@ -2846,5 +2876,34 @@ mod tests {
         assert_eq!(inv.containers, vec![ObjectId(11)]);
         w.stop_viewing_object_contents(ObjectId(1), &mut out);
         assert!(w.inventory(ObjectId(1)).is_none());
+    }
+}
+
+#[cfg(test)]
+mod global_chat_room_tests {
+    //! Behaviour: none (a world's rooms as the server names them)
+    use super::*;
+    use crate::chat::TalkFocus;
+
+    #[test]
+    fn a_world_without_the_rooms_offers_only_a_room_the_server_named() {
+        let mut world = World::new();
+        let features = dereth_primitives::EraFeatures {
+            global_chat_rooms: false,
+            ..dereth_primitives::EraFeatures::END_OF_RETAIL
+        };
+        world.set_era_features(features);
+        assert!(!world.chat.is_talk_focus_enabled(TalkFocus::General));
+        assert!(!world.chat.is_talk_focus_enabled(TalkFocus::Society));
+
+        world.chat.chat_rooms.insert(3, 4);
+        world.set_era_features(features);
+        assert!(world.chat.is_talk_focus_enabled(TalkFocus::Trade));
+        assert!(!world.chat.is_talk_focus_enabled(TalkFocus::General));
+
+        let mut later = World::new();
+        let before = later.chat.is_talk_focus_enabled(TalkFocus::General);
+        later.set_era_features(dereth_primitives::EraFeatures::END_OF_RETAIL);
+        assert_eq!(later.chat.is_talk_focus_enabled(TalkFocus::General), before);
     }
 }

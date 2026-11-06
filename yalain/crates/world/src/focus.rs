@@ -139,9 +139,7 @@ pub fn set_hero<S: Store>(
         .character_named(name)
         .map_err(|e| format!("the store: {e}"))?
         .ok_or_else(|| format!("no character is named {name}"))?;
-    let mut st = s
-        .store
-        .world_state(c.id)
+    let mut st = crate::saves::state_of(s, c.id)
         .map_err(|e| format!("the store: {e}"))?
         .unwrap_or_default();
     if st.qualities.is_empty() {
@@ -149,9 +147,7 @@ pub fn set_hero<S: Store>(
         st.qualities = crate::world::first_state(s, &c).qualities;
     }
     set_hero_kept(&mut st.qualities, hero);
-    s.store
-        .set_world_state(c.id, &st)
-        .map_err(|e| format!("the store: {e}"))?;
+    crate::saves::put(s, c.id, st).map_err(|e| format!("the store: {e}"))?;
     Ok(format!("{} {said} (out of the world).", c.name))
 }
 

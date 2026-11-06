@@ -8,10 +8,12 @@
 //! on the machine that made them.
 
 use std::path::Path;
+use std::sync::OnceLock;
 
 use auberean_assets::Context;
 use auberean_dat::locate::{install_dats, DatName};
 use auberean_dat::DatFile;
+use auberean_script::library::{Library, RECORD};
 use yalain_world_db::compile::{compile, Install, Tables};
 use yalain_world_db::install::DatInstall;
 use yalain_world_db::merge::Merged;
@@ -25,6 +27,8 @@ pub struct InstallFiles {
     pub local: Option<DatFile>,
     pub ctx: Context,
     states: Vec<u32>,
+    /// The script library, read at the first compile and shared by the ones after it.
+    library: OnceLock<Library>,
 }
 
 impl std::fmt::Debug for InstallFiles {
@@ -49,6 +53,14 @@ impl InstallFiles {
         let portal = open(&|n| *n == DatName::Portal)
             .ok_or_else(|| format!("no portal data file in {}", dir.display()))?;
         let local = open(&|n| matches!(n, DatName::Local(l) if l.eq_ignore_ascii_case("english")));
+        Self::of(portal, local)
+    }
+
+    /// An install of these open files.
+    ///
+    /// # Errors
+    /// The portal file does not read.
+    pub fn of(portal: DatFile, local: Option<DatFile>) -> Result<Self, String> {
         let ctx = Context::from_portal(&portal).map_err(|e| format!("{e:?}"))?;
         let states = portal
             .entries_in(0x6F00_0000, 0x6FFF_FFFF)
@@ -59,7 +71,24 @@ impl InstallFiles {
             local,
             ctx,
             states,
+            library: OnceLock::new(),
         })
+    }
+
+    /// The install's script library, read once. A read or decode that fails is checked against the
+    /// file and read once more; a second read that succeeds is warned of.
+    fn library(&self) -> Result<&Library, String> {
+        if let Some(lib) = self.library.get() {
+            return Ok(lib);
+        }
+        let lib = self
+            .portal
+            .read_checked(RECORD, Library::from_record)
+            .map_err(|e| format!("the script library: {e}"))?;
+        if let Some(r) = lib.retried {
+            tracing::warn!("the script library: {r}");
+        }
+        Ok(self.library.get_or_init(|| lib.value))
     }
 
     /// What a compile reads of the install.
@@ -70,6 +99,7 @@ impl InstallFiles {
         let mut install = DatInstall::new(
             Box::new(|id| self.portal.read(id).ok()),
             self.ctx.clone(),
+            self.library()?,
             self.states.clone(),
         )?;
         if let Some(local) = &self.local {

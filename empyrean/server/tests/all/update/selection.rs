@@ -14,7 +14,7 @@ use empyrean_server::update::policy::{self, Candidate, Policy, Selection, Situat
 use empyrean_server::update::release::{
     ConfigChange, Databases, Declaration, Facts, Kind, WorldPack,
 };
-use empyrean_server::update::version::Version;
+use empyrean_server::update::version::{self, Version};
 
 fn v(s: &str) -> Version {
     Version::parse(s).unwrap()
@@ -119,10 +119,10 @@ fn versions_order_as_semantic_versions_with_pre_releases_first() {
         ]
     );
     assert_eq!(
-        Version::from_tag("empyrean-v0.2.0-rc.1"),
+        version::from_tag("empyrean-v0.2.0-rc.1"),
         Some(v("0.2.0-rc.1"))
     );
-    assert_eq!(Version::from_tag("dereth-v0.2.0"), None);
+    assert_eq!(version::from_tag("dereth-v0.2.0"), None);
     for bad in ["1.2", "1.2.3.4", "01.2.3", "1.2.3-", "1.2.3-a..b", "x"] {
         assert!(Version::parse(bad).is_err(), "{bad}");
     }

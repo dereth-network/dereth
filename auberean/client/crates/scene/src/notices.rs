@@ -55,6 +55,9 @@ pub(crate) fn animate(figure: &mut Figure, anims: &CachedRecords<'_>, a: Animate
     }
 }
 
+/// How long an object takes to fade in as it enters the world, seconds.
+const ENTERING_FADE: f32 = 0.5;
+
 /// Hands on notice `n` of body `from`, which is for the body itself: an animation request to its
 /// figure (when it has one), anything else noted.
 pub(crate) fn hand_on(
@@ -65,6 +68,15 @@ pub(crate) fn hand_on(
 ) {
     match (n, figure) {
         (Notice::Animate(a), Some(f)) => animate(f, anims, a),
+        // D2-06375
+        (Notice::EnteredWorld, Some(f)) => {
+            f.sliders.do_slider(
+                0,
+                auberean_physics::body::parent::FADE_SLIDER,
+                1.0,
+                ENTERING_FADE,
+            );
+        }
         (n, _) => tracing::debug!(
             body = format_args!("{from:#x}"),
             notice = ?n,

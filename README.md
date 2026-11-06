@@ -73,7 +73,7 @@ Where it's going:
 
 | Product | Guide |
 |---|---|
-| The launcher | [`dereth/launcher/README.md`](dereth/launcher/README.md) |
+| The launcher | [`launcher/README.md`](launcher/README.md) |
 | The web client | [`dereth/web/README.md`](dereth/web/README.md); hosting it: [`dereth/web/DEPLOY.md`](dereth/web/DEPLOY.md) |
 | The Horizon interface | [`dereth/client/crates/horizon/README.md`](dereth/client/crates/horizon/README.md) |
 | Empyrean | [`empyrean/SETUP.md`](empyrean/SETUP.md) to run a server; [`empyrean/README.md`](empyrean/README.md) for reference |
@@ -103,8 +103,9 @@ One Cargo workspace. A crate's folder is usually its package name without the `d
 | Folder | What it holds | License |
 |---|---|---|
 | `core/` | The shared crates: the data files, the engines, the wire protocol, the game rules and the client SDK (`dereth-client-sdk` is its front door). | MIT |
-| `dereth/` | The client (`dereth/client`, with its crates under `dereth/client/crates/`), the web client (`dereth/web`), the launcher (`dereth/launcher`, a Tauri app with a workspace of its own), the headless client and the client's test kit. | MIT |
+| `dereth/` | The client (`dereth/client`, with its crates under `dereth/client/crates/`), the web client (`dereth/web`), the headless client and the client's test kit. | MIT |
 | `empyrean/` | The server: the ACE port under `empyrean/crates/`, the `empyrean-server` and `empyrean-import` programs and the server's test kit. | AGPL-3.0-only |
+| `launcher/` | The launcher, a Tauri app with a workspace of its own, and its logic crate. | MIT |
 | `lyceum/` | The world builder: the editor, the Foundry library and the `lyceum` command. | MIT |
 | `auberean/`, `yalain/`, `athenaeum/` | Asheron's Call 2's client (the `auberean` program), server (`yalain`) and world builder (`athenaeum-editor` and the `athenaeum` command), over its core under `core/auberean-*`. | MIT |
 | `network/` | The Dereth Network: its protocol, hub, conformance suite and ACE mod. | MIT; the hub and the mod AGPL-3.0-only |

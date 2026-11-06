@@ -38,8 +38,6 @@ struct FrameUniforms {
     cloud: vec4<f32>,
     // 1 when the near terrain's shadows and fog are laid on after its layers, unused x3
     terrain: vec4<f32>,
-    // 1 when everything below a plane is left out (the water's reflection), its height, unused x2
-    clip: vec4<f32>,
     // the picture's width and height in pixels, unused x2
     viewport: vec4<f32>,
 };
@@ -90,6 +88,12 @@ struct DrawUniforms {
 @group(2) @binding(3) var samp1: sampler;
 @group(2) @binding(4) var tex2: texture_2d<f32>;
 @group(2) @binding(5) var samp2: sampler;
+// The sun's shadow map (white with none): what a body standing on the land takes about its spot.
+// The sun's shadow map while the frame's spots are worked out, then the picture of those spots.
+@group(3) @binding(0) var shadow_map: texture_2d<f32>;
+
+// What the draw's light and specular are multiplied by for the shadow about its spot.
+var<private> ground_tint: vec3<f32> = vec3<f32>(1.0);
 
 const DYNAMIC_LIGHTING: u32 = 0x1u;
 const SPECULAR: u32 = 0x4u;
@@ -225,7 +229,7 @@ fn apply_ambient(c: vec4<f32>) -> vec4<f32> {
 }
 
 fn modulate_material_diffuse(c: vec4<f32>) -> vec4<f32> {
-    return c * draw.diffuse;
+    return c * vec4<f32>(ground_tint, 1.0) * draw.diffuse;
 }
 
 fn modulate_vertex_diffuse(c: vec4<f32>, v: vec4<f32>) -> vec4<f32> {
@@ -260,14 +264,7 @@ struct TerrainOut {
     // the sun's shadow map's coordinates, and the clouds'
     @location(4) shadow_uv: vec2<f32>,
     @location(5) cloud_uv: vec2<f32>,
-    // the point's height
-    @location(6) world_z: f32,
 };
-
-// In the water's reflection, nothing below the water's plane is seen.
-fn clipped(z: f32) -> bool {
-    return frame.clip.x > 0.5 && z < frame.clip.y;
-}
 
 @vertex
 fn vs_terrain(v: TerrainIn) -> TerrainOut {
@@ -281,7 +278,6 @@ fn vs_terrain(v: TerrainIn) -> TerrainOut {
     o.shadow_uv = (frame.shadow_uv * vec4<f32>(v.position, 1.0)).xy;
     // the ground's place times the clouds' scale, slid by the running time
     o.cloud_uv = v.position.xy * frame.cloud.x + frame.cloud.yz;
-    o.world_z = v.position.z;
     return o;
 }
 
@@ -300,9 +296,6 @@ fn terrain_fogged(c: vec3<f32>, f: f32) -> vec3<f32> {
 // The bottom layer: the ground modulated twice by the lit color.
 @fragment
 fn fs_terrain_base(v: TerrainOut) -> @location(0) vec4<f32> {
-    if (clipped(v.world_z)) {
-        discard;
-    }
     let t = textureSample(tex0, samp0, v.uv);
     let c = clamp(2.0 * t.rgb * v.color.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
     return vec4<f32>(terrain_fogged(c, v.fog), 1.0);
@@ -311,9 +304,6 @@ fn fs_terrain_base(v: TerrainOut) -> @location(0) vec4<f32> {
 // A blended layer: the same, with the mask's alpha.
 @fragment
 fn fs_terrain_mask(v: TerrainOut) -> @location(0) vec4<f32> {
-    if (clipped(v.world_z)) {
-        discard;
-    }
     let t = textureSample(tex0, samp0, v.uv);
     let m = textureSample(tex1, samp1, v.mask_uv);
     let c = clamp(2.0 * t.rgb * v.color.rgb, vec3<f32>(0.0), vec3<f32>(1.0));
@@ -333,9 +323,6 @@ fn cloud_shade(uv: vec2<f32>) -> vec3<f32> {
 // multiplying what the layers drew.
 @fragment
 fn fs_terrain_shade(v: TerrainOut) -> @location(0) vec4<f32> {
-    if (clipped(v.world_z)) {
-        discard;
-    }
     let s = textureSample(tex0, samp0, v.shadow_uv).rgb;
     return vec4<f32>(s * cloud_shade(v.cloud_uv), 1.0);
 }
@@ -343,9 +330,6 @@ fn fs_terrain_shade(v: TerrainOut) -> @location(0) vec4<f32> {
 // Then the fog over it: the fog color, as opaque as the point is fogged.
 @fragment
 fn fs_terrain_fog(v: TerrainOut) -> @location(0) vec4<f32> {
-    if (clipped(v.world_z)) {
-        discard;
-    }
     return vec4<f32>(frame.fog_color.rgb, 1.0 - v.fog);
 }
 
@@ -353,9 +337,6 @@ fn fs_terrain_fog(v: TerrainOut) -> @location(0) vec4<f32> {
 // shadows, added signed, then doubled against the cloud picture.
 @fragment
 fn fs_terrain_far(v: TerrainOut) -> @location(0) vec4<f32> {
-    if (clipped(v.world_z)) {
-        discard;
-    }
     let t = textureSample(tex0, samp0, v.uv);
     let cloud = textureSample(tex1, samp1, v.cloud_uv).rgb;
     var c = clamp(2.0 * (t.rgb + v.color.rgb - vec3<f32>(0.5)), vec3<f32>(0.0), vec3<f32>(1.0));
@@ -387,11 +368,11 @@ struct MeshOut {
     @location(3) uv1: vec2<f32>,
     @location(4) uv2: vec2<f32>,
     @location(5) fog: f32,
-    @location(6) world_z: f32,
     // for a program lit per pixel against the half vector: the half vector between the light and
     // the eye in the surface's own frame, times the square root of the light's attenuation; and
     // 0.75 times the attenuation
     @location(7) half_vector: vec4<f32>,
+    @location(8) ground_tint: vec3<f32>,
 };
 
 // The half vector between the eye and the light `to_light` (a unit for the sun, the way to a point
@@ -499,18 +480,69 @@ fn frill_shade(at: vec3<f32>) -> vec4<f32> {
     return vec4<f32>(clamp(sum / n, vec3<f32>(0.0), vec3<f32>(1.0)), 1.0);
 }
 
+// A spot's share of the sun: the shadow map about it on the ground, as a frill reads it.
+fn spot_shade(at: vec3<f32>) -> vec3<f32> {
+    let uv = (frame.shadow_uv * vec4<f32>(at, 1.0)).xy;
+    let size = vec2<i32>(textureDimensions(shadow_map));
+    let p = vec2<i32>(uv * vec2<f32>(size));
+    var sum = vec3<f32>(0.0);
+    var n = 0.0;
+    for (var i = -4; i <= 4; i = i + 2) {
+        for (var j = -4; j <= 4; j = j + 2) {
+            let q = p + vec2<i32>(i, j);
+            if (q.x >= 0 && q.y >= 0 && q.x < size.x && q.y < size.y) {
+                sum = sum + textureLoad(shadow_map, q, 0).rgb;
+                n = n + 1.0;
+            }
+        }
+    }
+    if (n == 0.0) {
+        return vec3<f32>(1.0);
+    }
+    return clamp(sum / n, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+// Each spot of the frame's bodies, worked out once a frame into one texel of a picture of its own.
+struct SpotOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) @interpolate(flat) shade: vec3<f32>,
+};
+
+@vertex
+fn vs_spot(@builtin(vertex_index) k: u32, @location(0) at: vec3<f32>) -> SpotOut {
+    var o: SpotOut;
+    let col = f32(k % 256u);
+    let row = f32(k / 256u);
+    o.clip = vec4<f32>((col + 0.5) / 128.0 - 1.0, 1.0 - (row + 0.5) / 8.0, 0.0, 1.0);
+    o.shade = spot_shade(at);
+    return o;
+}
+
+@fragment
+fn fs_spot(v: SpotOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(v.shade, 1.0);
+}
+
+// A body's share of the sun: its spot's texel of the frame's spots.
+fn body_shade(k: i32) -> vec3<f32> {
+    return textureLoad(shadow_map, vec2<i32>(k % 256, k / 256), 0).rgb;
+}
+
 @vertex
 fn vs_mesh(v: MeshIn) -> MeshOut {
     var o: MeshOut;
     let sw = draw.stage.x;
-    // A frill's vertices take the shadow's color about its spot in place of their own.
+    // A frill's vertices take the shadow's color about its spot in place of their own; a body's
+    // light takes it.
     var vd = v.diffuse;
-    if (draw.shade.w > 0.5) {
+    if (draw.shade.w > 1.5) {
+        ground_tint = body_shade(i32(draw.shade.x));
+    } else if (draw.shade.w > 0.5) {
         vd = frill_shade(draw.shade.xyz);
     }
+    o.ground_tint = ground_tint;
     o.clip = transform_to_clip(v.position, draw.model);
     let world = (draw.model * vec4<f32>(v.position, 1.0)).xyz;
-    o.world_z = world.z;
     var c0 = vec4<f32>(1.0);
     var c1 = vec4<f32>(0.0);
     if ((sw & LIT_IN_VERTICES) != 0u && draw.program.x == 1u) {
@@ -539,12 +571,14 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
         let n = transform_normal(v.normal, draw.model);
         let kept = kept_lights(world, n, n, n);
         c0 = apply_ambient(vec4<f32>(vd.rgb + kept.color, 1.0));
-    } else if (draw.stage.z == 1u && draw.program.x == 1u) {
-        // Inside, normal-mapped: the first point light lights the normal map (color 0: its
-        // direction in the surface's own frame, packed, alpha its attenuation; with none, no
-        // direction at all); the others' diffuse share goes to color 1, times the layer's diffuse,
-        // plus the ambient; every light's specular intensity times its specular red to color 1's
-        // alpha.
+    } else if (draw.program.x == 1u && (draw.stage.z == 1u || draw.stage.y > 0u)) {
+        // Normal-mapped with a point light, or inside with none: the first point light lights the
+        // normal map (color 0: its direction in the surface's own frame, packed, alpha its
+        // attenuation; with none, no direction at all). Each other's diffuse share goes to color
+        // 1 in the color of the light before it, for the program's diffuse colors are counted only
+        // where they are used and the first light uses none, and the sun's outside in its own;
+        // times the layer's diffuse, plus the ambient; every light's specular intensity times its
+        // specular red to color 1's alpha.
         let n = transform_normal(v.normal, draw.model);
         let tu = transform_normal(v.tangent_u, draw.model);
         let tv = transform_normal(v.tangent_v, draw.model);
@@ -568,12 +602,17 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
                 c0 = vec4<f32>(packed_light(t, v), r.z);
                 o.half_vector = tex_half_vector(world, to, r.z, n, tu, tv);
             } else {
-                other = other + r.x * draw.pt_diffuse[k].rgb;
+                other = other + r.x * draw.pt_diffuse[k - 1u].rgb;
             }
+        }
+        if (draw.stage.z == 0u) {
+            let f = dir_light_diffuse_specular(n, draw.params.x);
+            other = other + f.x * frame.sun_color.rgb;
+            spec = spec + f.y * frame.sun_specular.r;
         }
         var c11 = vec3<f32>(1.0);
         if ((sw & MATERIAL_DIFFUSE) != 0u) {
-            c11 = draw.diffuse.rgb;
+            c11 = (draw.diffuse.rgb * ground_tint);
         }
         c1 = apply_ambient(vec4<f32>(other * c11, spec));
     } else if (draw.stage.z == 1u && (sw & DYNAMIC_LIGHTING) != 0u) {
@@ -589,7 +628,7 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
                 c1 = vec4<f32>(c1.rgb + r.y * r.z * draw.pt_specular[k].rgb, 0.0);
             }
         }
-        c1 = vec4<f32>(c1.rgb * draw.specular.rgb, 0.0);
+        c1 = vec4<f32>(c1.rgb * (draw.specular.rgb * ground_tint), 0.0);
         if ((sw & MATERIAL_DIFFUSE) != 0u) {
             c0 = modulate_material_diffuse(c0);
         }
@@ -598,11 +637,9 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
             c0 = modulate_vertex_diffuse(c0, vd);
         }
     } else if (draw.program.x == 1u) {
-        // Normal-mapped: color 0 carries the sun's direction in the surface's own frame, packed
-        // into 0..1 (alpha: the light's attenuation, 1 for the sun); color 1 the other lights'
-        // share (the point lights beside the sun: the lights objects carry), times the layer's
-        // diffuse, plus the ambient, its alpha the sun's specular intensity times its specular
-        // red plus each point light's times its own.
+        // Normal-mapped by the sun alone: color 0 carries its direction in the surface's own
+        // frame, packed into 0..1 (alpha: the light's attenuation, 1 for the sun); color 1 the
+        // ambient, its alpha the sun's specular intensity times its specular red.
         let n = transform_normal(v.normal, draw.model);
         let tu = transform_normal(v.tangent_u, draw.model);
         let tv = transform_normal(v.tangent_v, draw.model);
@@ -610,19 +647,7 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
         c0 = vec4<f32>(packed_light(l, v), 1.0);
         o.half_vector = tex_half_vector(world, frame.to_sun.xyz, 1.0, n, tu, tv);
         let f = dir_light_diffuse_specular(n, draw.params.x);
-        var other = vec3<f32>(0.0);
-        var spec = f.y * frame.sun_specular.r;
-        let count = min(draw.stage.y, 4u);
-        for (var k = 0u; k < count; k = k + 1u) {
-            let r = pt_light(k, world, n, draw.params.x);
-            other = other + r.x * draw.pt_diffuse[k].rgb;
-            spec = spec + r.y * r.z * draw.pt_specular[k].r;
-        }
-        var c11 = vec3<f32>(1.0);
-        if ((sw & MATERIAL_DIFFUSE) != 0u) {
-            c11 = draw.diffuse.rgb;
-        }
-        c1 = apply_ambient(vec4<f32>(other * c11, spec));
+        c1 = apply_ambient(vec4<f32>(vec3<f32>(0.0), f.y * frame.sun_specular.r));
     } else if ((sw & DYNAMIC_LIGHTING) != 0u) {
         // Lit: black, plus the sun's share and each point light's beside it (the lights objects
         // carry), times the layer's diffuse, plus the ambient; the specular from the sun and each
@@ -639,7 +664,7 @@ fn vs_mesh(v: MeshIn) -> MeshOut {
             spec = spec + r.y * r.z * draw.pt_specular[k].rgb;
         }
         if ((sw & SPECULAR) != 0u) {
-            c1 = vec4<f32>(spec * draw.specular.rgb, 0.0);
+            c1 = vec4<f32>(spec * (draw.specular.rgb * ground_tint), 0.0);
         }
         if ((sw & MATERIAL_DIFFUSE) != 0u) {
             c0 = modulate_material_diffuse(c0);
@@ -726,7 +751,7 @@ fn stage_arg(a: u32, t: vec4<f32>, cur: vec4<f32>, d: vec4<f32>, s: vec4<f32>) -
     switch (a & 0xFu) {
         case 0u: { x = d; }
         case 2u: { x = t; }
-        case 3u: { x = draw.tfactor; }
+        case 3u: { x = vec4<f32>(draw.tfactor.rgb * ground_tint, draw.tfactor.a); }
         case 4u: { x = s; }
         default: { x = cur; }
     }
@@ -827,19 +852,19 @@ fn bump_program(v: MeshOut) -> vec4<f32> {
     let n = nm.rgb * 2.0 - vec3<f32>(1.0);
     let l = v.color0.rgb * 2.0 - vec3<f32>(1.0);
     let d = clamp(dot(n, l), 0.0, 1.0) * v.color0.a;
-    var rgb = (d * draw.lit_diffuse.rgb + v.color1.rgb) * 2.0 * dm.rgb;
+    var rgb = (d * (draw.lit_diffuse.rgb * ground_tint) + v.color1.rgb) * 2.0 * dm.rgb;
     var a = draw.diffuse.a;
     if ((opts & ALPHA_FROM_DIFFUSE) != 0u) {
         a = a * dm.a;
     }
-    var spec = v.color1.a * draw.specular.rgb;
+    var spec = v.color1.a * (draw.specular.rgb * ground_tint);
     if ((opts & HALF_VECTOR_SPECULAR) != 0u) {
         // The half vector comes as a coordinate set: packed into 0..1, held there, unpacked; its
         // facing on the normal map squared, less 0.75 of the attenuation, four times, held to 0..1.
         let packed = clamp((v.half_vector.xyz + vec3<f32>(1.0)) * 0.5, vec3<f32>(0.0), vec3<f32>(1.0));
         let h = packed * 2.0 - vec3<f32>(1.0);
         let x = clamp(dot(n, h), 0.0, 1.0);
-        spec = clamp(4.0 * (x * x - v.half_vector.w), 0.0, 1.0) * draw.specular.rgb;
+        spec = clamp(4.0 * (x * x - v.half_vector.w), 0.0, 1.0) * (draw.specular.rgb * ground_tint);
     }
     if ((opts & GLOSS) != 0u) {
         spec = spec * dm.a;
@@ -879,9 +904,7 @@ fn vertex_lit_program(v: MeshOut) -> vec4<f32> {
 
 @fragment
 fn fs_mesh(v: MeshOut) -> @location(0) vec4<f32> {
-    if (clipped(v.world_z)) {
-        discard;
-    }
+    ground_tint = v.ground_tint;
     if (draw.program.x == 1u && (draw.stage.x & LIT_IN_VERTICES) != 0u) {
         let c = vertex_lit_program(v);
         let a = clamp(c.a, 0.0, 1.0);
@@ -912,15 +935,20 @@ fn fs_mesh(v: MeshOut) -> @location(0) vec4<f32> {
 
 // ---- the water's surface with its reflection ----
 
+// The ripples' signed picture on a water surface, into a picture that holds no value below zero.
+@fragment
+fn fs_ripple(v: MeshOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(textureSample(tex0, samp0, v.uv0).rg, 0.0, 1.0);
+}
+
 // The reflection (the first picture, the mirrored scene) where this point lies on the screen,
-// turned over top to bottom as the mirrored camera sees it, its coordinates pushed by the ripple
-// picture (the second, at the surface's coordinates) by the draw's push (params.z: 0.04 of the
-// picture per unit of offset, 0 with no ripples); as opaque as the water's own layer. The ripples
-// are laid in a picture that holds no value below zero, so only their offsets above zero push.
+// turned over top to bottom as the mirrored camera sees it, its coordinates pushed by the ripples'
+// picture (the second, where this point lies on the screen) by the draw's push (params.z: 0.04 of
+// the picture per unit of offset, 0 with no ripples); as opaque as the water's own layer.
 @fragment
 fn fs_water(v: MeshOut) -> @location(0) vec4<f32> {
-    let ripple = max(textureSample(tex1, samp1, v.uv0).rg, vec2<f32>(0.0));
     let screen = v.clip.xy / frame.viewport.xy;
+    let ripple = textureSample(tex1, samp1, screen).rg;
     let at = vec2<f32>(screen.x, 1.0 - screen.y) + draw.params.z * ripple;
     let c = textureSample(tex0, samp0, at).rgb;
     return vec4<f32>(c, clamp(draw.diffuse.a, 0.0, 1.0));
@@ -1012,5 +1040,5 @@ fn fs_volume() -> @location(0) vec4<f32> {
 // The darkening where the count is not zero: the shadow's strength, which the blend takes away.
 @fragment
 fn fs_darken() -> @location(0) vec4<f32> {
-    return vec4<f32>(draw.diffuse.rgb, 1.0);
+    return vec4<f32>((draw.diffuse.rgb * ground_tint), 1.0);
 }

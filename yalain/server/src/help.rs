@@ -20,15 +20,26 @@ yalain --dats <install folder> [options]
   --banned-names FILE   refuse character names holding these words: one pattern a line, `*`
                         for any run of letters (default: none)
   --add-account N:T     make account N with ticket T, then carry on
+  --admin N             make account N an admin's when this start makes it (--add-account),
+                        then carry on
+  --admin-command W:G,G keep the account-level admin command W to the named groups G
+  --serve-admin-library serve admin accounts' retail clients the script library that sends
+                        their commands in the clear
   --secret-cost N       the bcrypt cost account secrets are kept at, 4 to 31 (default 8)
   --save-interval S     keep each character in the world every S seconds (default 300)
+  --watchdog S          stop with a failure if the world runs no pass for S seconds, 0 for never
+                        (default 300)
   --shutdown-interval S how many seconds a shutdown counts down, 0 to 99999 (default 120)
   --max-sessions N      how many logins the world holds at once (default 128); a login past
                         them is told the server is full
+  --min-character-age S  seconds a character must have played before it sends to the
+                        Dereth Network: tells, room lines, channels (default 0)
   --max-sessions-per-address N  how many logins one address holds at once (default
                         `unlimited`)
   --unlimited-sessions-from IP  an address no per-address limit holds back (may be given
                         many times)
+  --download-rate N     the bytes a second a client is sent a large data download at, 4096 to
+                        262144 (default 65536, the retail servers' rate)
   --motd TEXT           a message shown to each player as its character enters the world
                         (`\\n` starts a new line)
   --add-character A:N:R:S  make character N on account A of race R and sex S (4096 or 8192),
@@ -43,7 +54,7 @@ yalain --dats <install folder> [options]
                         first plays, then carry on
   --world-db DIR        the world database to serve, compiled against --dats at start: a
                         folder, or `pinned` (the default) for the release this build pins,
-                        fetched into the per-user cache with `yalain world fetch`; a world
+                        fetched into the per-user cache as it starts if it is not there; a world
                         that names a base database (`[base]`, as Athenaeum's do) is served
                         over that release in the cache
   --world-base DIR      the base database a --world-db world lies over, in place of the
@@ -66,6 +77,8 @@ yalain --dats <install folder> [options]
                         federation is on at the hub: characters whose players put them on the
                         network reach and are reached by other worlds' characters, of either
                         game
+  --global-room ROOM    the room that carries the network's Global room until the hub keeps
+                        one: general (the default), trade, lfg, roleplay, or empty for none
   --no-friends          serve no friends service: by default the world serves its players'
                         friends, presence and tells to Name@world on TCP at the login port's
                         number
@@ -74,6 +87,13 @@ yalain --dats <install folder> [options]
   --stop-at-console-end stop, keeping everyone in the world, when the console's input ends:
                         for a program that runs the server and holds its console (by
                         default the end of the input ends only the console)
+  --update POLICY       which new releases the server installs by itself: off (the default),
+                        patch or minor; yalain update --check says what would be taken
+  --update-check-hours H  hours between its checks for a new release (default 6)
+  --update-warning-seconds S  the countdown players see before it restarts into a new release
+                        (default 300)
+  --update-source URL   where new releases are looked for (default: the GitHub repository this
+                        build came from)
   --status IP:PORT      answer GET /health and GET /status (the world's state, as JSON) over
                         HTTP at this address (default: off); keep it on loopback or a private
                         network: it has no authentication
@@ -83,6 +103,23 @@ yalain --dats <install folder> [options]
   --status-ping-hellos N  status ping first steps a minute from one address (default 4)
   --status-ping-asks N  status ping second steps a minute from one address (default 4)
   --status-ping-replies N  status ping replies a second, to everyone (default 50)
+  --websocket           also take WebSocket connections, for clients in a browser, as
+                        Empyrean's `[server.websocket]` does, with the options below; off by
+                        default
+  --websocket-listen IP:PORT  where (default 0.0.0.0:9443)
+  --websocket-tls-certificate FILE, --websocket-tls-private-key FILE  the PEM files for wss://;
+                        without them plain ws:// is served, on loopback or with
+                        --websocket-behind-tls-proxy only
+  --websocket-behind-tls-proxy  a reverse proxy in front terminates TLS
+  --websocket-trusted-proxy IP  a proxy whose X-Forwarded-For names the client (may be given
+                        many times)
+  --websocket-allowed-origin URL  a web page allowed to connect, by origin (may be given many
+                        times); none refuses every page
+  --websocket-max-per-address N  connections open at once from one address (default 4; -1 is
+                        unlimited)
+  --websocket-idle-timeout S  seconds a connection may send nothing (default 60)
+  --websocket-public-url URL  the URL clients use, reported to the status endpoint and the hub
+                        (default: from --websocket-listen)
   --config FILE         read the settings from this configuration file, in the form of
                         Empyrean's empyrean.toml (default: yalain.toml in the working folder,
                         else beside the executable, if there is one); the command line wins
@@ -91,6 +128,11 @@ yalain --dats <install folder> [options]
 yalain world check|release|fetch|compile ...
 
   the world database's commands: yalain world check <folder>, yalain world fetch, and the rest
+
+yalain update --check|--apply [--config <yalain.toml>] [--policy <off|patch|minor>]
+
+  says what a new release would involve and why each newer one would or would not be installed
+  (--check), or installs it on a stopped server and leaves it stopped (--apply)
 
 yalain --version
 

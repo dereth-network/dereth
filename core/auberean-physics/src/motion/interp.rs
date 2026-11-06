@@ -397,13 +397,6 @@ impl Follower {
         self.last_do_motion = Vec3::ZERO;
     }
 
-    // D2-07068
-    #[must_use]
-    pub fn debug_values(&self) -> Option<(Vec3, Vec3)> {
-        self.active
-            .then_some((self.debug_offset, self.debug_normal))
-    }
-
     /// The motion the newest keyframe asks for while interpolating.
     // D2-07094
     #[must_use]

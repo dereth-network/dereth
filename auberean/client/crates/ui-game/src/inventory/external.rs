@@ -127,6 +127,7 @@ impl ExternalContainer {
         &mut self,
         ui: &mut Ui,
         n: &Notice,
+        screen: &std::collections::BTreeMap<u64, (i32, i32)>,
         out: &mut Vec<gameplay::Request>,
     ) {
         if self.display.is_none() {
@@ -141,7 +142,7 @@ impl ExternalContainer {
             return;
         }
         self.show(ui, state != 0, out);
-        let at = n.about.and_then(|o| self.facts.screen.get(&o).copied());
+        let at = n.about.and_then(|o| screen.get(&o).copied());
         self.position_window(ui, at);
         if self.element.is_some() && self.label.is_some() {
             let element = self.element;
@@ -250,7 +251,8 @@ impl Child for ExternalContainer {
         }
         for n in view.everyone {
             if n.native == notice::CONTAINER_STATE_UPDATE {
-                self.container_state_update(ui, n, out);
+                let screen = view.inventory.map(|f| f.screen.clone()).unwrap_or_default();
+                self.container_state_update(ui, n, &screen, out);
             }
         }
         if let Some(c) = self.container() {

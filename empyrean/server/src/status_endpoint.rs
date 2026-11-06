@@ -306,19 +306,7 @@ fn response(code: u16, content_type: &str, body: &str, head_only: bool) -> Vec<u
     out
 }
 
-/// The `Access-Control-Allow-Origin` line for a request from `origin`, when it is one of
-/// `allowed`; `None` otherwise.
-#[must_use]
-pub fn cors_header(origin: Option<&str>, allowed: &[String]) -> Option<String> {
-    let origin = origin?.trim();
-    allowed
-        .iter()
-        .any(|a| {
-            a.trim_end_matches('/')
-                .eq_ignore_ascii_case(origin.trim_end_matches('/'))
-        })
-        .then(|| format!("Access-Control-Allow-Origin: {origin}\r\nVary: Origin\r\n"))
-}
+pub use dereth_server_websocket::settings::cors_header;
 
 /// `response` with `header` (one or more `\r\n`-ended lines) added after its status line.
 fn with_header(mut response: Vec<u8>, header: &str) -> Vec<u8> {

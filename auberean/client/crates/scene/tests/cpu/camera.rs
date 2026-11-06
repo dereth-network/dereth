@@ -230,6 +230,72 @@ fn the_keypad_views_toggle_as_the_client_does() {
     );
 }
 
+/// In first person the mouse always steers the character in mouse look: the option only speaks for
+/// the third person view.
+///
+/// Behaviour: desktop.camera.first-person-mouse-look-steers-whatever-the-option-says
+#[test]
+fn first_person_mouse_look_steers_whatever_the_option_says() {
+    let mut c = camera_with(Options {
+        mouse_look_steers: false,
+        ..Options::default()
+    });
+    c.press(Press::MouseLook);
+    c.mouse(10.0, 0.0);
+    assert_eq!(
+        c.steering_heading(false),
+        None,
+        "third person, the option off"
+    );
+    c.set_first_person(true);
+    assert!(
+        c.steering_heading(false).is_some(),
+        "first person, the option off"
+    );
+}
+
+/// With steering, the heading mouse look gives the character is the way the camera looks, read
+/// from the camera every frame: without a mouse count, and whatever way it looked before. Outside
+/// mouse look it gives none.
+///
+/// Behaviour: desktop.camera.mouse-look-sets-the-heading-from-the-camera
+#[test]
+fn mouse_look_gives_the_character_the_way_the_camera_looks() {
+    let mut c = camera();
+    assert_eq!(
+        c.steering_heading(false),
+        None,
+        "nothing outside mouse look"
+    );
+    c.press(Press::MouseLook);
+    assert!(close(c.steering_heading(false).expect("steers"), 0.0, 1e-4));
+    c.mouse(90.0, 0.0);
+    let h = c.steering_heading(false).expect("steers");
+    assert!(close(h, 90.0, 1e-3), "ninety counts right: {h}");
+    assert!(
+        close(c.steering_heading(false).expect("steers"), 90.0, 1e-3),
+        "and the same the next frame, with no count"
+    );
+    // The camera looking off to one side when mouse look starts: the character takes that way.
+    let mut c = camera();
+    c.press(Press::SwingLeft);
+    let swung = c.global_direction();
+    c.press(Press::MouseLook);
+    let h = c.steering_heading(false).expect("steers");
+    let (sin, cos) = math::sin_cosf(h.to_radians());
+    let len = (swung.x * swung.x + swung.y * swung.y).sqrt();
+    assert!(
+        close(sin * len, swung.x, 1e-3) && close(cos * len, swung.y, 1e-3),
+        "{h} for {swung:?}"
+    );
+    assert!(h > 30.0 && h < 330.0, "off to one side: {h}");
+    assert_eq!(
+        c.steering_heading(true),
+        None,
+        "a move the server ordered keeps the heading"
+    );
+}
+
 /// In mouse look a mouse count turns the camera a degree times the sensitivity, smoothed over the
 /// newest ten counts weighted 1, 0.2, 0.04 and so on; moving the mouse toward the player tilts the
 /// view down (the camera up) unless the axis is inverted; with steering the character turns with
@@ -239,13 +305,17 @@ fn the_keypad_views_toggle_as_the_client_does() {
 #[test]
 fn mouse_look_turns_a_degree_a_count_smoothed() {
     let mut c = camera();
-    assert_eq!(c.mouse(10.0, 0.0).turn, 0.0, "nothing outside mouse look");
+    let before = c.yaw();
+    c.mouse(10.0, 0.0);
+    assert_eq!(c.yaw(), before, "nothing outside mouse look");
     c.press(Press::MouseLook);
-    let s = c.mouse(10.0, 0.0);
-    assert!(close(s.turn, -10.0, 1e-4), "ten counts right: {}", s.turn);
+    c.mouse(10.0, 0.0);
+    let h = c.steering_heading(false).expect("steers");
+    assert!(close(h, 10.0, 1e-3), "ten counts right: {h}");
     // The next sample is smoothed with the one before it: (0 * 1 + 10 * 0.2) / 1.2.
-    let s = c.mouse(0.0, 0.0);
-    assert!(close(s.turn, -10.0 * 0.2 / 1.2, 1e-4), "{}", s.turn);
+    c.mouse(0.0, 0.0);
+    let h = c.steering_heading(false).expect("steers");
+    assert!(close(h, 10.0 + 10.0 * 0.2 / 1.2, 1e-3), "{h}");
     let mut c = camera();
     c.press(Press::MouseLook);
     let p0 = c.pitch();
@@ -262,8 +332,12 @@ fn mouse_look_turns_a_degree_a_count_smoothed() {
     });
     c.press(Press::MouseLook);
     let p0 = c.pitch();
-    let s = c.mouse(3.0, 5.0);
-    assert_eq!(s.turn, 0.0, "the camera turns, not the character");
+    c.mouse(3.0, 5.0);
+    assert_eq!(
+        c.steering_heading(false),
+        None,
+        "the camera turns, not the character"
+    );
     // Turning the view right swings the camera round to the player's left.
     assert!(close(c.yaw(), 6f32.to_radians(), 1e-5), "{}", c.yaw());
     assert!(
@@ -414,6 +488,60 @@ fn a_change_of_view_glides_over_the_transition_time() {
         want.y
     );
     assert!(closev(end, want, 1e-3), "there after the second: {end:?}");
+}
+
+/// A camera riding a bone or part way through a glide leans with its frame: a frame with no lean
+/// reads none, and one turned about the way it looks reads that turn, its right going up. The
+/// view's axes carry it: leaned a quarter turn, its right is the level view's up.
+///
+/// Behaviour: desktop.camera.the-view-leans-as-its-frame-does
+#[test]
+fn the_view_leans_as_its_frame_does() {
+    use auberean_draw::scene::view_axes;
+    use auberean_scene::camera::{lean_of, stand};
+    use dereth_primitives::{CellId, Quat};
+    let level = stand(CellId(0x7F7F_0001), Vec3::ZERO, Vec3::new(0.3, 0.9, -0.2));
+    assert_eq!(lean_of(&level), 0.0);
+    let (s, c) = (math::sinf(0.15), math::cosf(0.15));
+    // Turned about its own forward, y: the frame's x goes down for a positive turn, up for this.
+    let about_forward = Quat {
+        w: c,
+        x: 0.0,
+        y: -s,
+        z: 0.0,
+    };
+    let mut leaned = stand(CellId(0x7F7F_0001), Vec3::ZERO, Vec3::new(0.0, 1.0, 0.0));
+    leaned.frame.rotation = about_forward;
+    let want = 0.3_f32.to_degrees();
+    assert!(close(lean_of(&leaned), want, 1e-3), "{}", lean_of(&leaned));
+    let f = auberean_primitives::Vec3::new(0.0, 1.0, 0.0);
+    let (flat_right, flat_up) = view_axes(f, 0.0);
+    let (right, up) = view_axes(f, 90.0);
+    let near = |a: auberean_primitives::Vec3, b: auberean_primitives::Vec3| {
+        (a.x - b.x).abs() < 1e-5 && (a.y - b.y).abs() < 1e-5 && (a.z - b.z).abs() < 1e-5
+    };
+    assert!(near(right, flat_up), "{right:?}");
+    assert!(
+        near(
+            up,
+            auberean_primitives::Vec3::new(-flat_right.x, -flat_right.y, -flat_right.z)
+        ),
+        "{up:?}"
+    );
+}
+
+/// Only the walls and the ground stop the camera in the map view, or while it looks at a bone: an
+/// object between it and the bone doesn't push it in. Otherwise objects stop it too.
+///
+/// Behaviour: desktop.camera.objects-dont-stop-a-camera-on-a-bone
+#[test]
+fn objects_dont_stop_a_camera_looking_at_a_bone() {
+    let mut c = camera();
+    assert!(!c.check_env_only());
+    c.targeting.target_bone = 3;
+    assert!(c.check_env_only());
+    c.targeting.target_bone = 0;
+    assert!(!c.check_env_only());
 }
 
 /// With the auto distance option a camera 1.5 m or nearer pulls back after 2.5 seconds of running,
@@ -642,6 +770,7 @@ impl Objects for TwoObjects {
             OTHER => Some(Viewer {
                 origin: Vec3::new(10.0, 0.0, 0.0),
                 look: Vec3::new(1.0, 0.0, 0.0),
+                rotation: None,
             }),
             _ => None,
         }
@@ -672,6 +801,86 @@ fn run(c: &mut CameraControl, world: &TwoObjects, seconds: f32) -> Viewer {
         c.last = Some(v);
     }
     v
+}
+
+/// The player and an object facing back at it, south of its look.
+struct FacingBack {
+    player: Subject,
+}
+
+impl Objects for FacingBack {
+    fn place(&self, id: u64, bone: u32) -> Option<Viewer> {
+        match id {
+            PLAYER => self.player.place(id, bone),
+            OTHER => Some(Viewer {
+                origin: Vec3::new(0.0, 10.0, 0.0),
+                look: Vec3::new(0.0, -1.0, 0.0),
+                rotation: None,
+            }),
+            _ => None,
+        }
+    }
+
+    fn facts(&self, id: u64) -> Option<Facts> {
+        match id {
+            PLAYER => self.player.facts(id),
+            OTHER => Some(Facts {
+                height: 1.5,
+                scale_z: 1.2,
+                ..Facts::default()
+            }),
+            _ => None,
+        }
+    }
+}
+
+/// A glide to a view facing back the other way turns the whole frame, swinging round to the side
+/// and leaning on the way, where a turn of the look alone would dip straight at the ground.
+///
+/// Behaviour: desktop.camera.a-glide-turns-the-whole-view
+#[test]
+fn a_glide_turns_the_whole_view_rather_than_its_look() {
+    use auberean_physics::geom::{rotation_axes, set_vector_heading, slerp_rotation};
+    use dereth_primitives::{Frame, Quat};
+    let world = FacingBack { player: player() };
+    let mut c = camera();
+    let mut v = c.viewer_with(&world.player, &world);
+    for _ in 0..10 {
+        c.update_with(0.01, &world.player, &world);
+        v = c.viewer_with(&world.player, &world);
+        c.last = Some(v);
+    }
+    let before = v.look;
+    c.set_free_camera(&world, OTHER, 30.0, 1.0);
+    for _ in 0..50 {
+        c.update_with(0.01, &world.player, &world);
+        v = c.viewer_with(&world.player, &world);
+        c.last = Some(v);
+    }
+    let w = c.targeting.weight;
+    assert!(w > 0.2 && w < 0.8, "under way: {w}");
+    let frame_of = |look| {
+        let mut f = Frame::new(Vec3::ZERO, Quat::IDENTITY);
+        set_vector_heading(&mut f, look);
+        f
+    };
+    let mut want = Frame::new(Vec3::ZERO, Quat::IDENTITY);
+    slerp_rotation(
+        &mut want,
+        &frame_of(before),
+        &frame_of(Vec3::new(0.0, -1.0, 0.0)),
+        w,
+    );
+    let m = rotation_axes(want.rotation);
+    assert!(
+        closev(v.look, Vec3::new(m[3], m[4], m[5]), 1e-4),
+        "the frames' turn: {:?}",
+        v.look
+    );
+    println!("look under way {:?} at {w}", v.look);
+    assert!(v.look.z > -0.5, "never at the ground: {:?}", v.look);
+    let right = rotation_axes(v.rotation.expect("the whole turn"));
+    assert!(right[2].abs() > 0.01, "it leans on the way: {}", right[2]);
 }
 
 /// The cameras the effects and the animations ask for, at their places once their glides are
@@ -780,4 +989,40 @@ fn the_scripts_cameras_hang_from_look_at_and_come_back() {
         "toward the player: {:?}",
         v.look
     );
+}
+
+/// A new default distance or tilt takes the camera there at once; another option, or the same
+/// ones again, leaves it where it was put.
+///
+/// Behaviour: desktop.camera.a-new-default-distance-or-tilt-applies-at-once
+#[test]
+fn a_new_default_distance_or_tilt_applies_at_once() {
+    let mut c = camera();
+    c.distance = 9.0;
+    let same = c.options;
+    c.set_options(same);
+    assert!(
+        close(c.distance, 9.0, 1e-6),
+        "the same options move nothing"
+    );
+    let quicker = Options {
+        zoom_speed: same.zoom_speed * 2.0,
+        ..same
+    };
+    c.set_options(quicker);
+    assert!(close(c.distance, 9.0, 1e-6), "another option moves nothing");
+    let further = Options {
+        distance: 6.0,
+        ..quicker
+    };
+    c.set_options(further);
+    assert!(close(c.distance, 6.0, 1e-6), "{}", c.distance);
+    let higher = Options {
+        tilt: 0.5,
+        ..further
+    };
+    c.distance = 9.0;
+    c.set_options(higher);
+    assert!(close(c.offset.z, 0.5, 1e-6), "{}", c.offset.z);
+    assert!(close(c.distance, 6.0, 1e-6), "{}", c.distance);
 }

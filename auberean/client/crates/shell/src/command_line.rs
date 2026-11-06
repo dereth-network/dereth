@@ -52,7 +52,7 @@ pub mod keeps {
 
 /// An option: its form (what it takes and how it keeps it), its letter (0: none), its long name,
 /// its help, and the value a switch sets.
-// D2-17755
+// D2-17755, D2-17754
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Arg {
     pub form: u32,
@@ -527,6 +527,7 @@ const GAME_OPTIONS: [Row; 10] = [
 ];
 
 /// What the September 2013 client keeps from its command line.
+// D2-00086, D2-00087, D2-00089, D2-00090
 #[derive(Clone, Debug, PartialEq)]
 pub struct ClientLine {
     /// The account, in small letters.
@@ -606,7 +607,6 @@ impl Default for ClientLine {
 
 impl ClientLine {
     /// Read a command line's words (the program's name first): what it keeps, and whether it read.
-    // D2-00096
     #[must_use]
     pub fn parse(argv: &[&str]) -> (Self, bool) {
         let mut line = Self::default();
@@ -621,7 +621,7 @@ impl ClientLine {
     }
 
     /// The account named, in small letters.
-    // D2-00108
+    // D2-00108, D2-00081
     pub fn set_account(&mut self, account: &str) {
         self.account = account.to_ascii_lowercase();
     }
@@ -668,6 +668,17 @@ impl ClientLine {
             _ => {}
         }
         true
+    }
+
+    /// What the line sets of the settings read: the land's blending (the run's other values ask of
+    /// a device this client does not have).
+    // D2-00087, D2-00090
+    pub fn apply_to(&self, settings: &mut crate::Settings) {
+        for (s, k, v) in &self.run_values {
+            if (*s, *k) == (run::GRAPHICS, run::TERRAIN_BLENDING) {
+                settings.terrain_blending = *v != 0;
+            }
+        }
     }
 
     /// The preferences for this run: the file's, with the values the line set over them.

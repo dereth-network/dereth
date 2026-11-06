@@ -17,6 +17,7 @@ use yalain_world::things::{Corpse, Kind, Thing};
 /// A template that stacks to a thousand, and one worth 25 gold each.
 const STACKING: u32 = 0x4700_2109;
 const VALUED: u32 = 0x4700_210A;
+const SCRIPTED: u32 = 0x4700_210B;
 const WORTH: i64 = 25;
 const CONTAINER: u32 = 258;
 const QUANTITY: u32 = 262;
@@ -492,6 +493,140 @@ fn a_drag_to_the_money_bag_while_busy_is_refused() {
     assert_eq!(pack_order(&h, world), [item], "still held");
 }
 
+/// A template that stacks, whose value is its class's alone.
+fn scripted(h: &mut Harness, value: u32) -> u32 {
+    let mut props = yalain_content::Props::default()
+        .with_class(&[("Item_Value", yalain_content::Prop::Int(i64::from(value)))]);
+    props.set("Item_MaxStackSize", yalain_content::Prop::Int(1000));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(SCRIPTED, 0x200, props));
+    SCRIPTED
+}
+
+/// `n` of a pack's item dragged to the money bag; what the money reads after it.
+fn drag_to_bag(h: &mut Harness, b: usize, me: u64, world: ConnId, item: u64, n: u32) -> i32 {
+    h.ask(
+        b,
+        function::TO_MONEY_BAG,
+        &[
+            Arg::LongInt(me),
+            Arg::Int(0),
+            Arg::Int(n),
+            Arg::LongInt(item),
+        ],
+        4,
+    );
+    yalain_world::quals::int(&h.server.players[&world].qualities, MONEY).unwrap_or(0)
+}
+
+/// An item whose data names no value sells for the one its class's code sets.
+/// Behaviour: server.inventory.a-scripts-value-stands-where-the-data-names-none
+#[test]
+fn an_item_only_its_class_values_sells_for_that_value() {
+    let (mut h, b, me, world) = player();
+    let t = scripted(&mut h, 7);
+    inventory::give(&mut h.server, &mut h.net, world, t, 1);
+    h.run(2);
+    let item = pack_order(&h, world)[0];
+    assert_eq!(drag_to_bag(&mut h, b, me, world, item, 1), 7);
+    assert!(pack_order(&h, world).is_empty(), "sold");
+}
+
+/// A value in the data stands over the class's, though it be nothing.
+/// Behaviour: server.inventory.a-scripts-value-stands-where-the-data-names-none
+#[test]
+fn a_value_in_the_data_stands_over_the_classs() {
+    for (data, paid) in [(3, 3), (0, 0)] {
+        let (mut h, b, me, world) = player();
+        let mut props = yalain_content::Props::default();
+        props.set("Item_Value", yalain_content::Prop::Int(data));
+        let props = props.with_class(&[("Item_Value", yalain_content::Prop::Int(10))]);
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(SCRIPTED, 0x200, props));
+        inventory::give(&mut h.server, &mut h.net, world, SCRIPTED, 1);
+        h.run(2);
+        let item = pack_order(&h, world)[0];
+        assert_eq!(drag_to_bag(&mut h, b, me, world, item, 1), paid);
+    }
+}
+
+/// Part of a stack dragged to the money bag pays for the pieces that went, and the rest stays in the
+/// pack, its count told in turn; the rest dragged after it pays the same and goes.
+/// Behaviour: server.inventory.money-bag-pays-for-part-of-a-stack
+#[test]
+fn part_of_a_stack_dragged_to_the_money_bag_pays_for_what_went_and_the_rest_stays() {
+    let (mut h, b, me, world) = player();
+    let t = scripted(&mut h, 7);
+    inventory::give(&mut h.server, &mut h.net, world, t, 5);
+    h.run(2);
+    let item = pack_order(&h, world)[0];
+    let from = h.bots[b].inbox.len();
+    assert_eq!(drag_to_bag(&mut h, b, me, world, item, 2), 14);
+    let told: Vec<i32> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::UpdateIntVisual(q) if q.object.id == item => Some(q.value),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(told, [3], "the count left");
+    assert_eq!(pack_order(&h, world), [item], "the rest stays");
+    assert_eq!(drag_to_bag(&mut h, b, me, world, item, 3), 35);
+    assert!(pack_order(&h, world).is_empty(), "the rest goes");
+}
+
+/// An item worth nothing dragged to the money bag is refused and kept: "That item cannot be
+/// transformed into money.", the drag answered with the item, nothing paid.
+/// Behaviour: server.inventory.money-bag-refuses-an-item-of-no-worth
+#[test]
+fn an_item_worth_nothing_dragged_to_the_money_bag_is_refused_and_kept() {
+    let (mut h, b, me, world) = player();
+    inventory::give(&mut h.server, &mut h.net, world, TEST_ITEM, 1);
+    h.run(2);
+    let item = pack_order(&h, world)[0];
+    let from = h.bots[b].inbox.len();
+    assert_eq!(drag_to_bag(&mut h, b, me, world, item, 1), 0);
+    let calls = h.calls(b, from);
+    let done = calls
+        .iter()
+        .find(|(f, _)| *f == function::TO_MONEY_BAG_DONE)
+        .expect("answered");
+    assert_eq!(done.1[2], Value::Long(item), "with the item");
+    let refusal = 0xD4B3_FC38_u32.to_le_bytes();
+    assert!(
+        h.bots[b].inbox[from..]
+            .iter()
+            .any(|r| r.bytes.windows(4).any(|w| w == refusal)),
+        "told it cannot"
+    );
+    assert!(
+        !h.world_messages(b, from).iter().any(|m| matches!(
+            m,
+            ServerMessage::UpdateInt(q) if q.quality == MONEY
+        ) || matches!(m, ServerMessage::ForgetObject(_))),
+        "nothing paid, nothing destroyed"
+    );
+    assert_eq!(pack_order(&h, world), [item], "still held");
+}
+
+/// A stack with no value of its own keeps taking new pieces once its template's value comes from its
+/// class: both are worth the same.
+/// Behaviour: server.inventory.a-scripts-value-stands-where-the-data-names-none
+#[test]
+fn a_stack_kept_with_no_value_of_its_own_still_takes_new_pieces_of_a_template_its_class_values() {
+    let (mut h, _, _, world) = player();
+    let t = scripted(&mut h, 7);
+    inventory::give_stacked(&mut h.server, &mut h.net, world, t, 2);
+    inventory::give_stacked(&mut h.server, &mut h.net, world, t, 3);
+    h.run(2);
+    let held = &h.server.players[&world].play.items;
+    assert_eq!(held.len(), 1, "one stack");
+    assert_eq!(held[0].quantity, 5);
+}
+
 /// A corpse beside the player holding `n` test items, opened by it; returns the corpse and its
 /// items in order.
 fn opened_corpse(h: &mut Harness, world: ConnId, me: u64, n: usize) -> (u64, Vec<u64>) {
@@ -751,6 +886,121 @@ fn the_packs_segments_are_windows_that_tile_its_contents_in_order() {
     assert_eq!(contents[42], bag_item, "the first bag's window after it");
 }
 
+/// Past every segment an item goes to the pack itself, at its front, and no bag grows: the move
+/// names slot 0 and says it ran past the room, the pack's window lengthens, the bags' stay as they
+/// were and are told after it. The pack's own items past its places go into a bag with room like any
+/// other, and the pack closes up.
+/// Behaviour: server.inventory.past-every-segment-the-pack-itself-grows
+#[test]
+fn an_item_past_every_segment_goes_to_the_packs_front_and_no_bag_grows() {
+    let (mut h, b, me, world) = player();
+    let before = give(&mut h, world, TEST_ITEM, inventory::PACK_ROOM as usize);
+    let from = h.bots[b].inbox.len();
+    inventory::give(&mut h.server, &mut h.net, world, STACKING, 1);
+    h.run(2);
+    let slots = answers(&h, b, from);
+    assert_eq!(
+        (slots[0][11].1, slots[0][24].1, slots[0][34].1),
+        (0, 0, 1),
+        "to the front, past the room"
+    );
+    let (segments, contents) = windows(&h, world);
+    assert_eq!(segments, [(42, 43), (12, 12), (12, 12), (12, 12)]);
+    assert_eq!(contents.len(), 79, "the counts tile the list");
+    assert_eq!(contents[1..43], before[..42], "the pack's own moved on");
+    assert_eq!(
+        contents[43..],
+        before[42..],
+        "the bags' after them, in order"
+    );
+    let first = contents[0];
+    inventory::give(&mut h.server, &mut h.net, world, TEST_ITEM, 1);
+    h.run(2);
+    let (segments, contents) = windows(&h, world);
+    assert_eq!(segments[0], (42, 44), "and on");
+    assert_eq!(contents[1], first);
+    let last = contents[43];
+    // A bag with room takes the pack's last.
+    let gone = contents[44];
+    h.server
+        .players
+        .get_mut(&world)
+        .unwrap()
+        .play
+        .items
+        .retain(|x| x.id != gone);
+    h.ask(
+        b,
+        function::REORGANIZE,
+        &[move_request(me, last, 1, 43, 42)],
+        4,
+    );
+    let (segments, contents) = windows(&h, world);
+    assert_eq!(
+        segments[..2],
+        [(42, 43), (12, 12)],
+        "out of the pack, into the bag"
+    );
+    assert_eq!(contents[43], last, "the bag's first");
+    assert_eq!(contents.len(), 79);
+}
+
+/// A move to the slot just past a full last bag is refused: that slot is no way into the pack, though
+/// the pack has room.
+/// Behaviour: server.inventory.past-every-segment-the-pack-itself-grows
+#[test]
+fn a_move_past_a_full_last_bag_is_refused_though_the_pack_has_room() {
+    let (mut h, b, me, world) = player();
+    let items = give(&mut h, world, TEST_ITEM, 13);
+    let p = h.server.players.get_mut(&world).unwrap();
+    for (n, id) in items[1..].iter().enumerate() {
+        p.play.items.iter_mut().find(|x| x.id == *id).unwrap().slot =
+            66 + u32::try_from(n).unwrap_or(0);
+    }
+    let from = h.bots[b].inbox.len();
+    h.ask(
+        b,
+        function::REORGANIZE,
+        &[move_request(me, items[0], 1, 0, 78)],
+        4,
+    );
+    assert_eq!(reorganized(&h, b, from)[0][40].1, status::CONTAINER_FULL);
+    assert_eq!(pack_slots(&h, world)[0], (items[0], 0), "where it was");
+}
+
+/// A pack kept with an item past the last bag holds it in the pack itself, in its window: no slot
+/// past the bags names a bag.
+/// Behaviour: server.inventory.past-every-segment-the-pack-itself-grows
+#[test]
+fn an_item_kept_past_the_last_bag_is_told_in_the_pack_itself() {
+    let (mut h, _, _, world) = player();
+    let items = give(&mut h, world, TEST_ITEM, 3);
+    let p = h.server.players.get_mut(&world).unwrap();
+    p.play
+        .items
+        .iter_mut()
+        .find(|x| x.id == items[0])
+        .unwrap()
+        .slot = inventory::PACK_ROOM;
+    p.play
+        .items
+        .iter_mut()
+        .find(|x| x.id == items[1])
+        .unwrap()
+        .slot = 66;
+    assert_eq!(inventory::segment_of(inventory::PACK_ROOM), 0);
+    let (segments, contents) = windows(&h, world);
+    assert_eq!(segments, [(42, 2), (12, 0), (12, 0), (12, 1)]);
+    assert_eq!(contents, [items[2], items[0], items[1]], "the pack's first");
+    let p = h.server.players.get_mut(&world).unwrap();
+    inventory::close_up(&mut p.play.items);
+    assert_eq!(
+        pack_slots(&h, world),
+        [(items[2], 0), (items[0], 1), (items[1], 66)],
+        "closed up in its own place"
+    );
+}
+
 /// Coins used from the pack go into the money bag whole, one gold each, as a drag of them would:
 /// "Adding %1 pieces of Gold.", the money up by as many, the coins gone, and the drag's answer
 /// from the player at slot 0, with no answer to the use.
@@ -804,4 +1054,82 @@ fn coins_used_from_the_pack_go_into_the_money_bag_whole() {
         "the money up by 500"
     );
     assert!(pack_order(&h, world).is_empty(), "the coins gone");
+}
+
+/// Coins taken out of the money bag into a full pack: nothing moves, the money stays.
+/// Behaviour: server.inventory.coins-out-of-the-bag-need-room
+#[test]
+fn coins_out_of_the_money_bag_into_a_full_pack_do_nothing() {
+    let (mut h, b, me, world) = player();
+    h.server.catalog.insert(yalain_testkit::test_template(
+        yalain_world::pack::COINS,
+        0x1067,
+        yalain_content::Props::default(),
+    ));
+    let room = inventory::PACK_ROOM as usize;
+    let have = h.server.players[&world].play.items.len();
+    give(&mut h, world, TEST_ITEM, room - have);
+    yalain_world::quals::set_int(
+        &mut h
+            .server
+            .players
+            .get_mut(&world)
+            .expect("in the world")
+            .qualities,
+        yalain_world::store::MONEY,
+        500,
+    );
+    h.ask(
+        b,
+        function::FROM_MONEY_BAG,
+        &[Arg::LongInt(me), Arg::Int(0), Arg::Int(100)],
+        5,
+    );
+    let p = &h.server.players[&world];
+    assert_eq!(p.play.items.len(), room, "no more than it holds");
+    assert_eq!(yalain_world::store::money(&p.qualities), 500);
+}
+
+/// A gift to a pack holding all its room is held all the same, past it, and its move says it took a
+/// place past the room; a move with room says it did not. What comes from a person may always.
+/// Behaviour: server.inventory.a-gift-runs-past-a-full-pack
+#[test]
+fn a_gift_past_a_full_pack_is_held_and_its_move_says_so() {
+    let (mut h, b, _me, world) = player();
+    let from = h.bots[b].inbox.len();
+    inventory::give_from(&mut h.server, &mut h.net, world, TEST_ITEM, 1, 7);
+    h.run(2);
+    let slots = answers(&h, b, from);
+    assert_eq!(
+        (slots[0][43].1, slots[0][34].1),
+        (1, 0),
+        "may, and did not need to"
+    );
+    let full: Vec<Held> = (0..inventory::PACK_ROOM)
+        .map(|n| Held {
+            id: 0x8130_0000_0FFF_0000 + u64::from(n),
+            template: TEST_ITEM,
+            slot: n,
+            location: 0,
+            quantity: 1,
+        })
+        .collect();
+    h.server.players.get_mut(&world).unwrap().play.items = full;
+    let from = h.bots[b].inbox.len();
+    inventory::give(&mut h.server, &mut h.net, world, TEST_ITEM, 1);
+    inventory::give_from(&mut h.server, &mut h.net, world, TEST_ITEM, 1, 7);
+    h.run(2);
+    let slots = answers(&h, b, from);
+    assert_eq!(slots.len(), 2);
+    for m in &slots {
+        assert_eq!(
+            (m[40].1, m[43].1, m[34].1),
+            (0, 1, 1),
+            "held, past the room"
+        );
+    }
+    assert_eq!(
+        h.server.players[&world].play.items.len(),
+        inventory::PACK_ROOM as usize + 2
+    );
 }

@@ -313,7 +313,9 @@ impl DamageEvent {
             creature_combat::attack_height(w, attacker).unwrap_or(AttackHeight::Medium);
 
         // check lifestone protection
-        if player_defender && object(w, defender).under_lifestone_protection() {
+        if player_defender
+            && crate::world_objects::player_death::under_lifestone_protection(w, defender)
+        {
             self.lifestone_protection = true;
             crate::world_objects::player_death::handle_lifestone_protection(w, defender);
             return 0.0;
@@ -589,14 +591,29 @@ impl DamageEvent {
                 );
         } else {
             let resistance_type = creature_combat::get_resistance_type(self.damage_type);
-            let r = crate::world_objects::creature_properties::get_resistance_mod(
-                w,
-                defender,
-                resistance_type,
-                Some(attacker),
-                self.weapon,
-                self.weapon_resistance_mod,
-            );
+            // DIVERGE: V500, a world whose creature armor is built on a weapon missing the innate
+            // resistances.
+            let r = if w.era.formulas.physical_hits_skip_innate_resistance {
+                f64::from(
+                    crate::world_objects::creature_properties::physical_hit_resistance_mod(
+                        w,
+                        defender,
+                        self.damage_type,
+                        Some(attacker),
+                        self.weapon,
+                        self.weapon_resistance_mod,
+                    ),
+                )
+            } else {
+                crate::world_objects::creature_properties::get_resistance_mod(
+                    w,
+                    defender,
+                    resistance_type,
+                    Some(attacker),
+                    self.weapon,
+                    self.weapon_resistance_mod,
+                )
+            };
             self.resistance_mod = math::max(f64::from(0.0f32), r) as f32;
         }
 

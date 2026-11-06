@@ -10,8 +10,11 @@
 //! **Used, too soon.** A person who gives several quests and gave the player one too lately to give
 //! another says its too-soon line.
 //!
-//! **Given an item it has no use for.** A person says its refusal of a give (else another line it
-//! says at a give naming no quest) as it hands the item back.
+//! **Given an item it has no use for.** A person says its line for that item, else its refusal of
+//! a give (else another line it says at a give naming no quest) as it hands the item back.
+//!
+//! **Given an item it takes, no quest moved.** A person says its lines for taking that item, else
+//! one of its lines for taking any item.
 //!
 //! **Given a map.** A person who sends players where their maps lead says its line for that as it
 //! hands the map back, and its own line for a map it does not take.
@@ -19,7 +22,7 @@
 //! **Used, with nothing for the player.** A storekeeper greets as its store row says; anyone
 //! else (a storekeeper without a greeting too) says a reminder of one of its quests the player has
 //! under way, else one of the lines it says when used (refusals, its own words at a use), picked
-//! at random, heard ones first.
+//! at random, heard ones first. Never its too-soon line, which is for when it is too soon.
 //!
 //! **Unprompted.** A person with lines for a player near says one to each player who comes within
 //! [`NEAR`] of it, at most once in [`NEAR_AGAIN`]; one with idle lines says one every
@@ -30,7 +33,9 @@
 //! **How.** A tell reaches the player, naming the speaker; a saying is heard by every client that
 //! knows the speaker; an emote is text in the player's chat window, which names the speaker
 //! itself; a broadcast reaches every player in the speaker's landblock and the eight around it
-//! (indoors, its own landblock), known to their clients or not. A string's lines take the player's name as their variable; literal text goes as it is.
+//! (indoors, its own landblock), known to their clients or not. A string's lines take the player's
+//! name as their variable, except a broadcast said of itself, which names no one; literal text goes
+//! as it is.
 
 use auberean_protocol::script::{ClientCall, FunctionId, ObjectCall, ScriptArgs};
 use auberean_protocol::types::ObjectStamp;
@@ -68,11 +73,26 @@ pub const BROADCAST_KIND: u32 = 256;
 pub const EMOTE_TEXT: u32 = 8;
 
 /// Who says a line: its object, its name, and its object's stamp.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Speaker {
     pub id: u64,
     pub name: Option<(u32, u32)>,
+    /// The name it goes by as literal text, in place of `name`.
+    pub name_text: Option<String>,
     pub stamp: ObjectStamp,
+}
+
+impl Speaker {
+    /// Its name as a player reads it.
+    #[must_use]
+    pub fn told_as(&self) -> TextInfo {
+        match &self.name_text {
+            Some(n) => text_for(&Words::Literal(n.clone()), ""),
+            None => self
+                .name
+                .map_or_else(TextInfo::default, crate::progress::text),
+        }
+    }
 }
 
 /// A content object as a speaker.
@@ -83,6 +103,7 @@ pub fn content_speaker<S: Store>(s: &Server<S>, i: usize) -> Speaker {
     Speaker {
         id,
         name: o.description.name.or(o.facts.name),
+        name_text: o.description.name_text.clone(),
         stamp: ObjectStamp {
             id,
             instance_stamp: s.placed.instance(id),
@@ -98,6 +119,7 @@ pub fn thing_speaker<S: Store>(s: &Server<S>, id: u64) -> Option<Speaker> {
     Some(Speaker {
         id,
         name: t.facts.name,
+        name_text: None,
         stamp: ObjectStamp {
             id,
             instance_stamp: t.instance,
@@ -156,7 +178,7 @@ pub fn say<S: Store>(
     how: How,
 ) {
     match how {
-        How::Tell => quests::tell(s, net, world, speaker.id, speaker.name, words),
+        How::Tell => quests::tell(s, net, world, speaker.id, speaker.told_as(), words),
         How::Emote => {
             let Some(p) = s.players.get(&world) else {
                 return;
@@ -165,31 +187,11 @@ pub fn say<S: Store>(
             progress::private(net, world, &chat::show_text(EMOTE_TEXT, text));
         }
         How::Broadcast => {
-            let Some(at) = speaker_cell(s, speaker.id) else {
-                return;
-            };
-            for (conn, p) in &s.players {
-                if !hears_broadcast(at, p.position.cell) {
-                    continue;
-                }
-                let text = match words {
-                    Words::Ref(string, table) => progress::text((*string, *table)),
-                    Words::Literal(_) => text_for(words, ""),
-                };
-                let Ok(args) =
-                    ScriptArgs::from_values(&[Arg::Int(BROADCAST_KIND), chat::text_arg(text)])
-                else {
-                    continue;
-                };
-                let m = ServerMessage::CellObjectCall(ObjectCall {
-                    object: speaker.stamp,
-                    call: ClientCall {
-                        function: FunctionId(BROADCAST),
-                        args: Some(args),
-                    },
-                });
-                net.send(*conn, queue::EVENT, BlobKind::UNORDERED, m.encode());
-            }
+            let named = s
+                .players
+                .get(&world)
+                .map(|p| crate::player::world_name(&p.name, p.sex));
+            broadcast(s, net, speaker, words, named.as_deref());
         }
         How::Say => {
             for (conn, p) in &s.players {
@@ -213,6 +215,41 @@ pub fn say<S: Store>(
     }
 }
 
+/// A speaker's line reaches everyone who hears a broadcast from it, known to their clients or not.
+/// A line a player's act brought on names that player as its variable; one said of itself names no
+/// one.
+fn broadcast<S: Store>(
+    s: &Server<S>,
+    net: &mut ServerNet,
+    speaker: &Speaker,
+    words: &Words,
+    named: Option<&str>,
+) {
+    let Some(at) = speaker_cell(s, speaker.id) else {
+        return;
+    };
+    let text = match (words, named) {
+        (Words::Ref(string, table), None) => progress::text((*string, *table)),
+        (_, name) => text_for(words, name.unwrap_or_default()),
+    };
+    let Ok(args) = ScriptArgs::from_values(&[Arg::Int(BROADCAST_KIND), chat::text_arg(text)])
+    else {
+        return;
+    };
+    let m = ServerMessage::CellObjectCall(ObjectCall {
+        object: speaker.stamp,
+        call: ClientCall {
+            function: FunctionId(BROADCAST),
+            args: Some(args),
+        },
+    });
+    for (conn, p) in &s.players {
+        if hears_broadcast(at, p.position.cell) {
+            net.send(*conn, queue::EVENT, BlobKind::UNORDERED, m.encode());
+        }
+    }
+}
+
 /// The quest update a step makes, as a line names it.
 #[must_use]
 pub const fn update_of(u: Update) -> (TalkUpdate, Option<u32>) {
@@ -220,6 +257,8 @@ pub const fn update_of(u: Update) -> (TalkUpdate, Option<u32>) {
         Update::Bestow => (TalkUpdate::Bestow, None),
         Update::Advance(p) => (TalkUpdate::Advance, Some(p)),
         Update::Complete => (TalkUpdate::Complete, None),
+        // No line names none: nothing is said for it, the phase below being no phase.
+        Update::Fail | Update::Nothing => (TalkUpdate::Fail, None),
     }
 }
 
@@ -233,6 +272,9 @@ pub fn with_update<S: Store>(
     quest: u32,
     update: Update,
 ) -> Vec<Line> {
+    if update == Update::Nothing {
+        return Vec::new();
+    }
     let (up, phase) = update_of(update);
     let mut lines: Vec<&Line> = s
         .talk
@@ -300,7 +342,9 @@ pub fn refusal_for<S: Store>(
 }
 
 /// What a person used says when no quest step ran: a reminder of a quest of its the player has
-/// under way, else one of the lines it says at a use.
+/// under way, else one of the lines it says at a use, its too-soon line not among them (2017: 25 of
+/// 25 such lines with none of the person's quests under way; with one under way, its own line 3 of
+/// 3).
 pub fn at_use<S: Store>(
     s: &mut Server<S>,
     world: ConnId,
@@ -317,7 +361,11 @@ pub fn at_use<S: Store>(
     let reminders: Vec<Line> = lines
         .iter()
         .filter(|l| {
-            l.role == Some(Role::Remind) && l.quest.is_some_and(|q| quests::phase_of(&held, q) > 0)
+            l.role == Some(Role::Remind)
+                && l.quest.is_some_and(|q| {
+                    let at = quests::phase_of(&held, q);
+                    at > 0 && l.phase.is_none_or(|p| p == at)
+                })
         })
         .cloned()
         .collect();
@@ -326,21 +374,42 @@ pub fn at_use<S: Store>(
     }
     let said: Vec<Line> = lines
         .into_iter()
-        .filter(|l| l.role != Some(Role::Remind) && l.quest.is_none())
+        .filter(|l| !matches!(l.role, Some(Role::Remind | Role::TooSoon)) && l.quest.is_none())
         .collect();
     pick(s, &said)
 }
 
-/// What a person given an item it has no step for says as it hands the item back: its refusal of a
-/// give, else another of the lines it says when given something that names no quest (2017: 30 of 30
-/// such gives said one of the person's own lines at a give, 13 of them its refusal).
-pub fn at_give<S: Store>(s: &mut Server<S>, who: u32, object: Option<usize>) -> Option<Line> {
+/// What a person given an item it has no step for says as it hands the item back: a line naming
+/// that item, else its refusal of a give, else another of the lines it says when given something
+/// that names no quest (2017: 30 of 30 such gives said one of the person's own lines at a give, 13
+/// of them its refusal). A line naming an item is said of that item and no other, and a person's
+/// lines for taking an item are not among these.
+pub fn at_give<S: Store>(
+    s: &mut Server<S>,
+    who: u32,
+    object: Option<usize>,
+    item: u32,
+) -> Option<Line> {
     let lines: Vec<Line> = s
         .talk
         .of(who, object)
-        .filter(|l| l.when == When::Give && l.quest.is_none() && l.update.is_none())
+        .filter(|l| {
+            l.when == When::Give
+                && l.quest.is_none()
+                && l.update.is_none()
+                && l.item.is_none_or(|i| i == item)
+                && l.role != Some(Role::Accept)
+        })
         .cloned()
         .collect();
+    let named: Vec<Line> = lines
+        .iter()
+        .filter(|l| l.item == Some(item) && !matches!(l.role, Some(Role::Teleport)))
+        .cloned()
+        .collect();
+    if !named.is_empty() {
+        return pick(s, &named);
+    }
     let refusals: Vec<Line> = lines
         .iter()
         .filter(|l| l.role == Some(Role::RefuseGive))
@@ -354,6 +423,66 @@ pub fn at_give<S: Store>(s: &mut Server<S>, who: u32, object: Option<usize>) -> 
         .filter(|l| matches!(l.role, None | Some(Role::Use | Role::Remind)))
         .collect();
     pick(s, &others)
+}
+
+/// What a person says when given the wrong count of an item a quest under way wants: its line for
+/// that (a `refuse-give` line naming the quest and the item and no update), else its plain refusal
+/// (2017: Lupe, given three fins she wanted one at a time, her plain refusal, 1 of 1).
+pub fn at_wrong_count<S: Store>(
+    s: &mut Server<S>,
+    who: u32,
+    object: Option<usize>,
+    quest: u32,
+    item: u32,
+) -> Option<Line> {
+    let lines: Vec<Line> = s
+        .talk
+        .of(who, object)
+        .filter(|l| {
+            l.when == When::Give
+                && l.role == Some(Role::RefuseGive)
+                && l.quest == Some(quest)
+                && l.item == Some(item)
+                && l.update.is_none()
+        })
+        .cloned()
+        .collect();
+    if lines.is_empty() {
+        return at_give(s, who, object, item);
+    }
+    pick(s, &lines)
+}
+
+/// What a person says as it takes an item by a give that moves no quest: its lines for taking that
+/// item, in their order, else one of its lines for taking any item.
+pub fn with_give<S: Store>(
+    s: &mut Server<S>,
+    who: u32,
+    object: Option<usize>,
+    item: u32,
+) -> Vec<Line> {
+    let taking: Vec<Line> = s
+        .talk
+        .of(who, object)
+        .filter(|l| {
+            l.when == When::Give
+                && l.role == Some(Role::Accept)
+                && l.quest.is_none()
+                && l.update.is_none()
+        })
+        .cloned()
+        .collect();
+    let mut named: Vec<Line> = taking
+        .iter()
+        .filter(|l| l.item == Some(item))
+        .cloned()
+        .collect();
+    if named.is_empty() {
+        let any: Vec<Line> = taking.into_iter().filter(|l| l.item.is_none()).collect();
+        return pick(s, &any).into_iter().collect();
+    }
+    named.sort_by_key(|l| l.order);
+    named
 }
 
 /// A person's line of a role said at a give, picked at random (heard ones first): of those naming
@@ -528,7 +657,11 @@ pub fn step<S: Store>(s: &mut Server<S>, net: &mut ServerNet, clock: Clock) {
         }
         if let Some(line) = pick(s, &pool) {
             let speaker = content_speaker(s, i);
-            say(s, net, world, &speaker, &line.words, line.how);
+            if line.how == How::Broadcast {
+                broadcast(s, net, &speaker, &line.words, None);
+            } else {
+                say(s, net, world, &speaker, &line.words, line.how);
+            }
         }
     }
 }

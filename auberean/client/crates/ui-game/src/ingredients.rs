@@ -341,6 +341,49 @@ impl Ingredients {
         (self.recipe, self.spinner, &self.slot_items)
     }
 
+    /// The scripts' answer as it stands this frame, taken in when it is new.
+    fn take_answer(&mut self, ui: &mut Ui, view: &gameplay::View<'_>, out: &mut Vec<Request>) {
+        let Some(k) = view.craft else { return };
+        self.now = k.now;
+        let fresh = k
+            .opened
+            .as_ref()
+            .filter(|f| Some(*f) != self.facts.as_ref())
+            .cloned();
+        if let Some(f) = fresh {
+            let level_changed = self
+                .facts
+                .as_ref()
+                .is_some_and(|o| o.recipe == f.recipe && o.skill_level != f.skill_level);
+            self.facts = Some(f.clone());
+            match self.waiting {
+                Some((_, Waiting::Open)) if f.recipe == self.recipe => {
+                    self.waiting = None;
+                    self.init(ui, &f, out);
+                }
+                Some((s, Waiting::Spinner)) if f.recipe == self.recipe && f.spinner == s => {
+                    self.waiting = None;
+                    self.recipe_at_spinner(ui, out);
+                }
+                _ if f.recipe == self.recipe && f.spinner == self.spinner => {
+                    if level_changed {
+                        self.skill_level = f.skill_level;
+                        self.update_craft_button(ui);
+                        if let Some((d, c)) = f.spinner_difficulty {
+                            self.difficulty = d;
+                            self.name_color = c;
+                        }
+                        self.update_apparent_difficulty(ui);
+                    }
+                    for (ordinal, item) in self.slot_items.clone() {
+                        self.check_item(ui, item, ordinal, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// The answer at the spinner's value, when it is in.
     fn at(&self, spinner: i32) -> Option<&RecipeAt> {
         self.facts
@@ -891,7 +934,11 @@ impl Ingredients {
     // D2-02237
     fn execute_done(&mut self, ui: &mut Ui, n: &Notice, out: &mut Vec<Request>) {
         let went = n.word_at(1) == 0;
-        let charges = self.at(self.spinner).map_or(-1, |f| f.charges);
+        let charges = self
+            .facts
+            .as_ref()
+            .filter(|f| f.recipe == self.recipe)
+            .map_or(-1, |f| f.charges);
         self.set_pending(ui, false);
         if went && charges == 0 {
             self.do_close(ui, out);
@@ -1071,46 +1118,25 @@ impl Child for Ingredients {
     /// The scripts' answers taken: the panel opened, the spinner's slots, an item that went in, an
     /// item in a slot checked again after it changed; the craft skill's level.
     // D2-02198, D2-02221, D2-02222, D2-02223
-    fn update(&mut self, ui: &mut Ui, view: &gameplay::View<'_>, out: &mut Vec<Request>) {
-        let Some(k) = view.craft else { return };
-        self.now = k.now;
-        let fresh = k
-            .opened
-            .as_ref()
-            .filter(|f| Some(*f) != self.facts.as_ref())
-            .cloned();
-        if let Some(f) = fresh {
-            let level_changed = self
-                .facts
-                .as_ref()
-                .is_some_and(|o| o.recipe == f.recipe && o.skill_level != f.skill_level);
-            self.facts = Some(f.clone());
-            match self.waiting {
-                Some((_, Waiting::Open)) if f.recipe == self.recipe => {
-                    self.waiting = None;
-                    self.init(ui, &f, out);
-                }
-                Some((s, Waiting::Spinner)) if f.recipe == self.recipe && f.spinner == s => {
-                    self.waiting = None;
-                    self.recipe_at_spinner(ui, out);
-                }
-                _ if f.recipe == self.recipe && f.spinner == self.spinner => {
-                    if level_changed {
-                        self.skill_level = f.skill_level;
-                        self.update_craft_button(ui);
-                        if let Some((d, c)) = f.spinner_difficulty {
-                            self.difficulty = d;
-                            self.name_color = c;
-                        }
-                        self.update_apparent_difficulty(ui);
-                    }
-                    for (ordinal, item) in self.slot_items.clone() {
-                        self.check_item(ui, item, ordinal, out);
-                    }
-                }
-                _ => {}
-            }
+    // D2-02237, D2-02230
+    fn notice_seen(
+        &mut self,
+        ui: &mut Ui,
+        view: &gameplay::View<'_>,
+        n: &Notice,
+        out: &mut Vec<Request>,
+    ) {
+        if matches!(
+            n.native,
+            notice::OPEN_INGREDIENT_PANEL | notice::EXECUTE_CRAFT_DONE
+        ) {
+            self.take_answer(ui, view, out);
         }
+        self.notice(ui, n, out);
+    }
+
+    fn update(&mut self, ui: &mut Ui, view: &gameplay::View<'_>, out: &mut Vec<Request>) {
+        self.take_answer(ui, view, out);
         for n in view.everyone {
             if n.native == notice::ADD_INGREDIENT_DONE {
                 self.add_done(ui, n, view.inventory, out);

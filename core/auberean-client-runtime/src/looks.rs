@@ -742,6 +742,7 @@ pub fn icon_of(o: &NativeObject) -> Vec<IconLayer> {
 }
 
 /// An icon description holding `layers`, in its packed form: the count, then each layer.
+// D2-13884, D2-13895, D2-13896, D2-13911
 #[must_use]
 pub fn icon_native(layers: &[IconLayer]) -> NativeObject {
     let mut bytes = u32::try_from(layers.len())

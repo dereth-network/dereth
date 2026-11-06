@@ -214,6 +214,19 @@ pub fn window_for_action(action: u32) -> Option<WindowId> {
     })
 }
 
+/// The system a window key belongs to, where its window holds more than that system.
+#[must_use]
+pub const fn key_surface(action: u32) -> Option<dereth_client_contract::era::EraSurface> {
+    use dereth_client_contract::era::EraSurface as S;
+    match action {
+        // The contract key; the journal's two keys; the titles key.
+        0x1000_012E => Some(S::Contracts),
+        0x1000_0128 | 0x1000_0129 => Some(S::Journal),
+        0x1000_011A => Some(S::Titles),
+        _ => None,
+    }
+}
+
 /// The HUD Layout window's size, in layout units: the room its title bar keeps over its contents
 /// and bottom frame.
 const LAYOUT_SIZE: (f32, f32) = (380.0, kit::BODY_TOP + 154.0);
@@ -273,7 +286,10 @@ impl Hud {
                     }
                 }
             } else if let Some(id) = window_for_action(action) {
-                windows.toggle(id, ctx.time);
+                // A key for a system the world lacks does nothing.
+                if !key_surface(action).is_some_and(|s| windows.refuses(s)) {
+                    windows.toggle(id, ctx.time);
+                }
             } else if crate::ui::chat::is_chat_action(action) {
                 // A window's text box with the keyboard keeps the chat keys for itself.
                 if !self.other_text_focus {
@@ -324,6 +340,7 @@ impl Hud {
             }
         }
         let tabs = state.spell_tabs.len().max(1);
+        self.spell_tab = self.spell_tab.min(tabs - 1);
         for notice in std::mem::take(&mut ctx.magic) {
             use dereth_client_contract::view::MagicNotice as M;
             let tab_len = state.spell_tabs.get(self.spell_tab).map_or(0, Vec::len);
@@ -1203,21 +1220,23 @@ impl Hud {
                 // The arrows that turn the bar to the previous and the next tab, each with the
                 // key that does it beside it.
                 let tabs = state.spell_tabs.len().max(1);
+                self.spell_tab = self.spell_tab.min(tabs - 1);
                 let side = 14.0 * k;
                 let up = Rect::new(x0 - 22.0 * k, y, side, side);
                 let down = Rect::new(x0 - 22.0 * k, y + slot - side, side, side);
-                if kit::step_button(p, ctx, up, true, "", true) {
+                // One bar of favorites has nowhere to turn to.
+                if tabs > 1 && kit::step_button(p, ctx, up, true, "", true) {
                     self.spell_tab = (self.spell_tab + tabs - 1) % tabs;
                     self.spell_index = 0;
                 }
-                if kit::step_button(p, ctx, down, false, "", true) {
+                if tabs > 1 && kit::step_button(p, ctx, down, false, "", true) {
                     self.spell_tab = (self.spell_tab + 1) % tabs;
                     self.spell_index = 0;
                 }
                 let key = TextStyle::new(Family::Body, 10.0, 0xFFC8_C0B0).edge(0xFF00_0000);
                 let (prev, next) = &state.spell_tab_keys;
                 for (label, at) in [(prev, up), (next, down)] {
-                    if !label.is_empty() {
+                    if tabs > 1 && !label.is_empty() {
                         let w = p.measure(&key, label);
                         p.text_in(
                             &key,

@@ -38,6 +38,50 @@ pub fn get_resistance_mod_damage(
     weapon: Option<ObjectGuid>,
     weapon_resistance_mod: f32,
 ) -> f32 {
+    let innate = get_natural_resistance(w, this, damage_type);
+    resistance_mod_over(
+        w,
+        this,
+        damage_type,
+        attacker,
+        weapon,
+        weapon_resistance_mod,
+        innate,
+    )
+}
+
+/// Not ACE: [`get_resistance_mod_damage`] leaving out the defender's innate resistance: the
+/// protections, vulnerabilities and rending alone, as a weapon's hit on a creature takes them on a
+/// world with [`empyrean_common::era::EraFormulas::physical_hits_skip_innate_resistance`].
+pub fn physical_hit_resistance_mod(
+    w: &mut World,
+    this: ObjectGuid,
+    damage_type: DamageType,
+    attacker: Option<ObjectGuid>,
+    weapon: Option<ObjectGuid>,
+    weapon_resistance_mod: f32,
+) -> f32 {
+    resistance_mod_over(
+        w,
+        this,
+        damage_type,
+        attacker,
+        weapon,
+        weapon_resistance_mod,
+        1.0,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resistance_mod_over(
+    w: &mut World,
+    this: ObjectGuid,
+    damage_type: DamageType,
+    attacker: Option<ObjectGuid>,
+    weapon: Option<ObjectGuid>,
+    weapon_resistance_mod: f32,
+    natural_resist_mod: f32,
+) -> f32 {
     let ignore_magic_resist = weapon.is_some_and(|g| object(w, g).ignore_magic_resist())
         || attacker.is_some_and(|g| object(w, g).ignore_magic_resist());
 
@@ -60,8 +104,6 @@ pub fn get_resistance_mod_damage(
 
     let mut prot_mod = emc::get_protection_resistance_mod(w, this, damage_type);
     let mut vuln_mod = emc::get_vulnerability_resistance_mod(w, this, damage_type);
-
-    let natural_resist_mod = get_natural_resistance(w, this, damage_type);
 
     // protection mod becomes either life protection or natural resistance,
     // whichever is more powerful (more powerful = lower value here)
