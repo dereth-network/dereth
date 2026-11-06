@@ -585,3 +585,55 @@ fn an_item_summoning_a_pet_no_use_makes_is_refused_and_kept() {
         "told"
     );
 }
+
+/// An item whose effect summons what no rule here makes, though the effect reads as changing nothing
+/// rather than as a pet (a band, an explosion), is refused and kept.
+/// Behaviour: server.makes.nothing-used-up-for-what-cannot-be-made
+#[test]
+fn an_item_naming_a_summon_no_rule_makes_is_refused_and_kept() {
+    const BAND: u32 = 0x4700_1C7D;
+    let mut h = Harness::new();
+    h.add_creatures(1);
+    let (b, me) = h.player_in_world("one", "Kestrel");
+    h.run(10);
+    let mut props = Props::default();
+    props.set("Item_IsDestroyOnUse", Prop::Bool(true)).set(
+        "Usage_Effect1",
+        Prop::Text("Eff_Tsys_Item_Summon_RockBand".into()),
+    );
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(BAND, 0x777, props));
+    h.server.item_uses.insert(
+        BAND,
+        vec![yalain_world::item_use::UsageEffect {
+            state: 0x7000_0F01,
+            spellcraft: 1.0,
+        }],
+    );
+    let world = *h.server.players.keys().next().expect("in");
+    let item =
+        yalain_world::inventory::give(&mut h.server, &mut h.net, world, BAND, 1).expect("given");
+    h.run(2);
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(0x8216_0016, &[yalain_testkit::play::use_of(item, me)]),
+    );
+    h.run(20);
+    assert!(
+        h.server.players[&world]
+            .play
+            .items
+            .iter()
+            .any(|i| i.id == item),
+        "kept"
+    );
+    assert!(
+        h.texts(b, from)
+            .iter()
+            .any(|(_, t)| *t == yalain_world::pets::text::SUMMONING_FAILS.0),
+        "told"
+    );
+}

@@ -458,8 +458,12 @@ pub fn begin<S: Store>(
     true
 }
 
+/// The effects of items whose use makes something no rule here makes (a band, an explosion), though
+/// they read as changing nothing rather than as a pet.
+const NOT_MADE: [&str; 2] = ["Eff_Tsys_Item_Summon_", "Eff_DestrucfluxMassive_"];
+
 /// Would using an item of this template make what can't be made? A seed whose plant isn't described,
-/// a row's creature that isn't, or an effect that summons a pet no item's use makes. The item is then
+/// a row's creature that isn't, or an effect that summons what no item's use makes. The item is then
 /// kept: nothing is used up for nothing.
 fn cannot_make<S: Store>(s: &Server<S>, template: u32, props: &Props) -> bool {
     if let Some(species) = crate::plants::sown_by(template) {
@@ -468,14 +472,18 @@ fn cannot_make<S: Store>(s: &Server<S>, template: u32, props: &Props) -> bool {
     if crate::death_spawn::names_one(s, props) {
         return !crate::death_spawn::can_make_all(s, props);
     }
-    s.item_uses.get(&template).is_some_and(|list| {
-        list.iter().any(|e| {
-            matches!(
-                s.effect_table.get(e.state).map(|d| &d.kind),
-                Some(Kind::Pet { .. })
-            )
+    let names_unmade = (1..=8)
+        .filter_map(|i| props.text(&format!("{}{i}", USED.0)))
+        .any(|e| NOT_MADE.iter().any(|n| e.starts_with(n)));
+    names_unmade
+        || s.item_uses.get(&template).is_some_and(|list| {
+            list.iter().any(|e| {
+                matches!(
+                    s.effect_table.get(e.state).map(|d| &d.kind),
+                    Some(Kind::Pet { .. })
+                )
+            })
         })
-    })
 }
 
 /// A use refused, if the player may not use an item of these properties now: answered with its
