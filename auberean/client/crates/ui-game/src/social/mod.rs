@@ -234,6 +234,7 @@ mod name {
 
 /// The social window's panel: the window, and its three pages under it.
 #[derive(Debug)]
+// D2-02740
 pub struct SocialWindow {
     frame: FrameId,
     field: Option<Handle>,

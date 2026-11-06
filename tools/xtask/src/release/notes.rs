@@ -5,7 +5,7 @@
 //! does, so the subjects are the changelog. A commit counts when it changes something the release
 //! ships, and is neither a test nor a document:
 //!
-//! - **Dereth** (the client and the launcher): a file under `dereth/` or `core/`, or the web
+//! - **Dereth** (the client): a file under `dereth/` or `core/`, or the web
 //!   client's relay.
 //! - **Empyrean** (the server): a file under `empyrean/`, or under one of the shared `core/`
 //!   crates the server is built from when the commit changes nothing that only the client ships
@@ -55,6 +55,9 @@ pub const YALAIN_CHANGES: &str = "yalain/CHANGES.md";
 /// Athenaeum's curated highlights, relative to the workspace root.
 pub const ATHENAEUM_CHANGES: &str = "athenaeum/CHANGES.md";
 
+/// The launcher's curated highlights, relative to the workspace root.
+pub const LAUNCHER_CHANGES: &str = "launcher/CHANGES.md";
+
 /// `product`'s curated highlights, relative to the workspace root.
 pub fn changes_file(product: Product) -> &'static str {
     match product {
@@ -64,6 +67,7 @@ pub fn changes_file(product: Product) -> &'static str {
         Product::Auberean => AUBEREAN_CHANGES,
         Product::Yalain => YALAIN_CHANGES,
         Product::Athenaeum => ATHENAEUM_CHANGES,
+        Product::Launcher => LAUNCHER_CHANGES,
     }
 }
 
@@ -185,7 +189,7 @@ fn test_or_document(path: &str) -> bool {
         || path.ends_with(".md")
 }
 
-/// Whether `path` is part of the shipped client or launcher: under a shipped folder, and neither a
+/// Whether `path` is part of the shipped client: under a shipped folder, and neither a
 /// test, a fixture, the test kit nor a document.
 pub fn ships(path: &str) -> bool {
     SHIPPED.iter().any(|p| path.starts_with(p))
@@ -228,6 +232,12 @@ pub fn athenaeum_ships(path: &str) -> bool {
     path.starts_with("athenaeum/") && !test_or_document(path)
 }
 
+/// Whether `path` is part of the shipped launcher: under `launcher/`, and neither a test, a fixture
+/// nor a document.
+pub fn launcher_ships(path: &str) -> bool {
+    path.starts_with("launcher/") && !test_or_document(path)
+}
+
 /// Whether `path` is part of what `product` ships.
 fn product_ships(product: Product, path: &str) -> bool {
     match product {
@@ -237,6 +247,7 @@ fn product_ships(product: Product, path: &str) -> bool {
         Product::Auberean => auberean_ships(path),
         Product::Yalain => yalain_ships(path),
         Product::Athenaeum => athenaeum_ships(path),
+        Product::Launcher => launcher_ships(path),
     }
 }
 
@@ -277,6 +288,7 @@ fn path_group(product: Product, path: &str) -> Option<Group> {
         Product::Auberean => auberean_path_group(path),
         Product::Yalain => yalain_path_group(path),
         Product::Athenaeum => athenaeum_path_group(path),
+        Product::Launcher => Some(Group::Launcher),
     }
 }
 
@@ -382,7 +394,7 @@ fn server_path_group(path: &str) -> Option<Group> {
 /// The heading a client path's folder implies, when it implies one.
 fn client_path_group(path: &str) -> Option<Group> {
     let under = |dirs: &[&str]| dirs.iter().any(|d| path.starts_with(d));
-    if under(&["dereth/launcher/"]) {
+    if under(&["launcher/"]) {
         Some(Group::Launcher)
     } else if under(&[
         "dereth/client/crates/render/",
@@ -615,7 +627,7 @@ fn stem_matches(stem: &str, word: &str) -> bool {
 fn word_groups(product: Product, subject: &str) -> Vec<Group> {
     let words = words(subject);
     let table = match product {
-        Product::Dereth | Product::Auberean => WORDS,
+        Product::Dereth | Product::Auberean | Product::Launcher => WORDS,
         Product::Empyrean | Product::Yalain => SERVER_WORDS,
         Product::Lyceum | Product::Athenaeum => LYCEUM_WORDS,
     };
@@ -913,11 +925,12 @@ pub fn render(
     out.push_str("## All changes\n\n");
     if groups.is_empty() {
         let what = match product {
-            Product::Dereth => "the client or the launcher",
+            Product::Dereth => "the client",
             Product::Empyrean | Product::Yalain => "the server",
             Product::Lyceum => "the editor or the lyceum command",
             Product::Auberean => "the client",
             Product::Athenaeum => "the editor or the athenaeum command",
+            Product::Launcher => "the launcher",
         };
         out.push_str(&format!("No change to {what} since {since}.\n\n"));
     }
@@ -1145,7 +1158,7 @@ pub fn notes(ws: &Path, product: Product, request: &Request) -> Result<String, S
     };
     let commits = commits(ws, product, &format!("{since}..{end}"))?;
     let source_env = match product {
-        Product::Dereth => package::dereth::SOURCE_URL_ENV,
+        Product::Dereth | Product::Launcher => package::dereth::SOURCE_URL_ENV,
         Product::Empyrean => "EMPYREAN_BUILD_SOURCE_URL",
         Product::Lyceum => package::lyceum::SOURCE_URL_ENV,
         Product::Auberean => package::auberean::SOURCE_URL_ENV,

@@ -15,6 +15,11 @@ use auberean_script::value::{tag, NULL};
 /// The machine's native package.
 const MACHINE: u32 = 0x72;
 
+/// The natives that make an object from a type's name, and those that tell ids apart.
+const TYPE_INFO: u32 = 0x6E;
+const RESERVED_IDS: u32 = 0x63;
+const DISTRIBUTOR: u32 = 0x7E;
+
 /// This module's natives: package, number, function.
 const NATIVES: &[(u32, u32, NativeFn)] = &[
     (MACHINE, 2, singleton_by_name),
@@ -33,7 +38,48 @@ const NATIVES: &[(u32, u32, NativeFn)] = &[
     (MACHINE, 0x15, instance_of),
     (MACHINE, 0x18, data_object),
     (MACHINE, 0x19, state_of),
+    (MACHINE, 0x08, query_process_table),
+    (MACHINE, 0x09, query_processes),
+    (MACHINE, 0x0A, query_process),
+    (MACHINE, 0x0B, query_references),
+    (MACHINE, 0x0C, query_perf),
+    (MACHINE, 0x16, query_reference_tree),
+    (MACHINE, 0x17, query_reference_tree_for_process),
+    (DISTRIBUTOR, 0x01, process_id),
+    (TYPE_INFO, 0x01, get_type),
+    (TYPE_INFO, 0x02, new_type),
+    (TYPE_INFO, 0x03, new_validated_type),
+    (RESERVED_IDS, 0x01, is_player_id),
 ];
+
+/// A new string, for a native's answer.
+pub(crate) fn new_text_in(c: &mut Call<'_>, units: Vec<u16>) -> u32 {
+    new_text(c, units)
+}
+
+/// The process an object runs in (at `fp[-2]`): the one whose instance it is, or none.
+// D2-04656, D2-08033
+fn process_id(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let r = c.receiver()?;
+    let id =
+        c.vm.process_slots()
+            .iter()
+            .position(|p| p.as_ref().is_some_and(|p| p.instance == r))
+            .map_or(u32::MAX, |i| u32::try_from(i).unwrap_or(u32::MAX));
+    c.write(-2, id, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Is an id (a 64-bit value at `fp[-3]`) a player's? Its top byte's marks say, dynamic and static
+/// ids being told first.
+// D2-08943
+fn is_player_id(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let id = c.long_at(-3)?;
+    let top = (id >> 56) as u32;
+    let player = top & 0x80 == 0 && top & 0x40 == 0 && top & 0x20 != 0;
+    c.write(-4, u32::from(player), tag::MIXED)?;
+    Ok(Status::Success)
+}
 
 /// Bind this module's natives.
 pub fn bind(t: &mut NativeTable) {
@@ -170,7 +216,7 @@ fn package_name(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// A deep copy of the object a reference names: its graph packed and read back under new ids.
-// D2-09552, D2-16499
+// D2-09552, D2-16499, D2-13895, D2-13896
 fn copy_object(c: &mut Call<'_>) -> Result<Status, Stop> {
     let r = c.arg(0)?;
     let id = if r == NULL || c.vm.heap.entry(r).is_none() {
@@ -222,5 +268,121 @@ fn state_of(c: &mut Call<'_>) -> Result<Status, Stop> {
         _ => 0,
     };
     ret(c, 1, s, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// Put a query's text in the string an out reference (`fp[k]`) holds; the query then answers `v`
+/// below its arguments. A null string stops the call.
+fn query_answer(c: &mut Call<'_>, k: i64, args: i64, text: &str, v: u32) -> Result<Status, Stop> {
+    let out = c.cx.at(k)?;
+    let prog = Arc::clone(c.vm.program());
+    let (target, _) = c.vm.read_slot(c.host, c.cx, out, 0, &prog)?;
+    if target == NULL {
+        return Ok(Status::Crash);
+    }
+    match c.vm.heap.native_mut(target)? {
+        NativeObject::Text(t) => *t = text.encode_utf16().collect(),
+        _ => return Err(c.fail("the out reference holds no string")),
+    }
+    ret(c, args, v, tag::MIXED)?;
+    Ok(Status::Success)
+}
+
+/// The process table's counts as text: how many it holds and how many it has room for, 128 at
+/// first and doubled when full.
+// D2-09567, D2-16465, D2-16428
+fn query_process_table(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let total = c.vm.process_slots().len();
+    let mut size = 128;
+    while size < total {
+        size *= 2;
+    }
+    let text = format!("process table:\n  total: {total}, size: {size}\n");
+    query_answer(c, -2, 1, &text, 1)
+}
+
+/// How many contexts the processes have, as text: each one's it keeps and the one running.
+// D2-09569, D2-16466, D2-16429
+fn query_processes(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let kept: usize =
+        c.vm.process_slots()
+            .iter()
+            .flatten()
+            .map(|p| p.suspended.len())
+            .sum();
+    let total = kept + usize::from(c.vm.process(c.vm.running_process).is_some());
+    let text = format!("contexts:\n  total: {total}\n");
+    query_answer(c, -3, 2, &text, 1)
+}
+
+/// Whether a process (`fp[-2]`) is in the table; the text says nothing of it.
+// D2-09568, D2-16467, D2-16425
+fn query_process(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let p = c.arg(0)?;
+    let there = usize::try_from(p)
+        .ok()
+        .is_some_and(|p| c.vm.process(p).is_some());
+    query_answer(c, -3, 2, "", u32::from(there))
+}
+
+/// The references, as nothing: the shipped client's listing is empty.
+// D2-09572, D2-16468
+fn query_references(c: &mut Call<'_>) -> Result<Status, Stop> {
+    query_answer(c, -2, 1, "", 1)
+}
+
+/// The performance counters: a heading and a blank line.
+// D2-09566, D2-16472
+fn query_perf(c: &mut Call<'_>) -> Result<Status, Stop> {
+    query_answer(c, -2, 1, "perf:\n\n", 1)
+}
+
+/// A reference's tree, as nothing: the shipped client's listing is empty.
+// D2-09571, D2-16469
+fn query_reference_tree(c: &mut Call<'_>) -> Result<Status, Stop> {
+    query_answer(c, -2, 2, "", 1)
+}
+
+/// A process's reference tree, as nothing, whether or not there is such a process.
+// D2-09570, D2-16470
+fn query_reference_tree_for_process(c: &mut Call<'_>) -> Result<Status, Stop> {
+    query_answer(c, -2, 2, "", 1)
+}
+
+/// A new string holding the name of a package (empty when it has none).
+// D2-09546, D2-16438
+fn get_type(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let package = c.arg(0)?;
+    let name =
+        c.vm.program()
+            .library
+            .package(package)
+            .map(|x| x.name.clone())
+            .unwrap_or_default();
+    let id = new_text(c, name.encode_utf16().collect());
+    ret(c, 1, id, tag::REFERENCE)?;
+    Ok(Status::Success)
+}
+
+/// A new instance of the package a string names; a name no package has stops the call.
+// D2-09547, D2-16439
+fn new_type(c: &mut Call<'_>) -> Result<Status, Stop> {
+    let name: String = char::decode_utf16(text_of(c, c.arg(0)?)?)
+        .map(|r| r.unwrap_or('?'))
+        .collect();
+    let prog = Arc::clone(c.vm.program());
+    let Some(package) = prog.library.package_id(&name) else {
+        ret(c, 1, NULL, tag::REFERENCE)?;
+        return Ok(Status::Crash);
+    };
+    let id = c.vm.new_object(c.host, package, &prog)?;
+    ret(c, 1, id, tag::REFERENCE)?;
+    Ok(Status::Success)
+}
+
+/// What a validated new type answers: always -1, and the status is a success.
+// D2-09548, D2-00031
+fn new_validated_type(c: &mut Call<'_>) -> Result<Status, Stop> {
+    c.write(-4, u32::MAX, tag::REFERENCE)?;
     Ok(Status::Success)
 }

@@ -214,6 +214,23 @@ fn players_of_both_games_reach_each_other_across_three_worlds_on_one_hub() {
             .told_since(mark, "Bob@aa", "and hello back")
     });
 
+    // The Global room: each world carries it in its own room, and a line said in it reaches the
+    // others, of either game. A new character of the first game does not listen to the room its
+    // world carries it in, so its world's part is what the hub hands it.
+    let to_cara = run.lines_of_rooms("Cara");
+    run.say2("Ann", "@dng dance at 8");
+    run.until("the hub hands Ann's line to the first game's world", |r| {
+        r.hub.carried("hub -> aa: room.line") > 0
+    });
+    run.until("Cara hears Ann in the Global room", |r| {
+        r.heard_in_room("Cara", to_cara, "Ann@bb")
+    });
+    let to_ann = run.lines_of_rooms("Ann");
+    run.p1("Bob").type_line("@dng and at 9");
+    run.until("Ann hears Bob in the Global room", |r| {
+        r.heard_in_room("Ann", to_ann, "Bob@aa")
+    });
+
     // Leaving the world, and coming back.
     let mark = run.p2("Cara").stream.got.len();
     run.log_off2("Ann");

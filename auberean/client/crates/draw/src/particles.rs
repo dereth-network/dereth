@@ -320,6 +320,8 @@ pub struct ParticleSet {
     lights: Vec<ParticleLight>,
     /// The repulsors pushing its particles this frame.
     repulsors: Vec<Push>,
+    /// It draws whole however far off it is.
+    no_fade: bool,
     /// When the system was first found with nothing more to discharge.
     spent_since: Option<f64>,
 }
@@ -364,6 +366,10 @@ pub struct Push {
     pub acceleration: f32,
     pub attracts: bool,
 }
+
+/// The description's scale type of a system drawn at its object's scale as well as its look's
+/// particle scale: all but 2 of the data's 1,560.
+const SCALES_WITH_OBJECT: u32 = 2;
 
 impl ParticleSet {
     /// The system of record `id`, its material made ready, standing at `place` with the object's
@@ -454,6 +460,7 @@ impl ParticleSet {
                 flicker: None,
             }],
             repulsors: Vec::new(),
+            no_fade: false,
             spent_since: None,
         }
     }
@@ -492,6 +499,27 @@ impl ParticleSet {
     #[must_use]
     pub fn place(&self) -> Mat4 {
         self.place
+    }
+
+    /// The scale it draws with, standing on an object of scale `object` whose look gives its
+    /// systems `particle`: by that alone, unless the system's description scales it with its object.
+    #[must_use]
+    pub fn drawn_scale(&self, object: Vec3, particle: f32) -> Vec3 {
+        if self.desc.scale_type == SCALES_WITH_OBJECT {
+            Vec3::new(
+                object.x * particle,
+                object.y * particle,
+                object.z * particle,
+            )
+        } else {
+            Vec3::new(particle, particle, particle)
+        }
+    }
+
+    /// Whether its description scales it with the object it stands on.
+    #[must_use]
+    pub fn scales_with_object(&self) -> bool {
+        self.desc.scale_type == SCALES_WITH_OBJECT
     }
 
     /// The scale of the object it stands on.
@@ -1048,6 +1076,21 @@ impl ParticleSet {
         self.emitters[k].particles.push(p);
     }
 
+    /// One particle of emitter `k` let go at `now` at `at`, whatever it would have discharged by
+    /// itself. An emitter the system does not have lets nothing go.
+    // D2-10262
+    pub fn discharge_at(&mut self, k: usize, now: f64, at: Vec3) {
+        if k < self.emitters.len() {
+            self.discharge(k, now, now, at, Vec3::ZERO);
+        }
+    }
+
+    /// The system draws whole however far off it is.
+    // D2-15840
+    pub fn set_no_fade(&mut self, on: bool) {
+        self.no_fade = on;
+    }
+
     /// The emitter's particles moved to `now`, once a physics step has passed since the last
     /// time; those past their lifespan go (the last one takes the place of each that goes).
     // D2-10261
@@ -1522,16 +1565,17 @@ impl ParticleSet {
     ) -> Vec<ObjectBatch> {
         let place_origin = place.point(Vec3::ZERO);
         let distance = length(sub(place_origin, eye));
-        if distance > self.desc.stop_fade_distance {
+        if !self.no_fade && distance > self.desc.stop_fade_distance {
             return Vec::new();
         }
         let mut opacity = 1.0;
         let span = self.desc.stop_fade_distance - self.desc.start_fade_distance;
-        if distance > self.desc.start_fade_distance && span > EPSILON {
+        if !self.no_fade && distance > self.desc.start_fade_distance && span > EPSILON {
             opacity = 1.0 - (distance - self.desc.start_fade_distance) / span;
         }
-        // A system in the world draws its particles where they are; one of its own draws them
-        // through its place and the object's scale.
+        // A system in the world draws its particles where they are; one of its own draws them at
+        // its place, by the object's scale, without the place's turn, so its quads face the camera
+        // however the object is turned.
         let (to_world, size_scale) = if self.desc.world_space {
             let s = scale3;
             (Mat4::IDENTITY, s.x.max(s.y).max(s.z))
@@ -1542,7 +1586,7 @@ impl ParticleSet {
                 [0.0, 0.0, scale3.z, 0.0],
                 [0.0, 0.0, 0.0, 1.0],
             ]);
-            (s.then(&place), 1.0)
+            (s.then(&Mat4::translation(place_origin)), 1.0)
         };
         let world_scale = if self.desc.world_space {
             scale3
@@ -1712,6 +1756,8 @@ impl ParticleSet {
             for layer in &self.layers {
                 out.push(ObjectBatch {
                     vertices: v.clone(),
+                    posed: None,
+                    played: None,
                     indices: i.clone(),
                     transform: Mat4::IDENTITY,
                     layer: layer.clone(),
@@ -1728,6 +1774,11 @@ impl ParticleSet {
                     kept_by: None,
                     anchor: None,
                     step: Some(crate::scene::Pass::Particles),
+                    visible: None,
+                    block: None,
+                    far: false,
+                    ground: None,
+                    lod: None,
                 });
             }
         };
@@ -1842,13 +1893,18 @@ pub fn approximate_lifetime(desc: &Particles) -> f32 {
 /// (degrees above the horizon), as the frame's camera looks.
 #[must_use]
 pub fn camera_axes(heading: f32, pitch: f32) -> (Vec3, Vec3, Vec3) {
+    leaned_camera_axes(heading, pitch, 0.0)
+}
+
+/// [`camera_axes`] for a view leaning `roll` degrees about the way it looks.
+#[must_use]
+pub fn leaned_camera_axes(heading: f32, pitch: f32, roll: f32) -> (Vec3, Vec3, Vec3) {
     let (h, p) = (heading.to_radians(), pitch.to_radians());
     let forward = Vec3::new(
         math::sinf(h) * math::cosf(p),
         math::cosf(h) * math::cosf(p),
         math::sinf(p),
     );
-    let right = unit_or_zero(cross(forward, Vec3::new(0.0, 0.0, 1.0)));
-    let up = cross(right, forward);
+    let (right, up) = crate::scene::view_axes(forward, roll);
     (right, forward, up)
 }

@@ -39,7 +39,7 @@ pub struct PairEntry {
 /// The client's own reading of the iteration list's type (`0xFFFF0000`-`0xFFFFFFFE`): a count,
 /// then that many pairs of words, with no id first. The files' iteration lists are not in this
 /// form (their count is of versions, not of pairs), so the client cannot read one this way.
-// D2-12754, D2-05082, D2-12756
+// D2-12754, D2-05082, D2-12756, D2-12751
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct PairMap {
     pub map: Vec<PairEntry>,
@@ -238,7 +238,19 @@ pub struct Places {
     pub places: Vec<(String, Position)>,
 }
 
-// D2-04525, D2-04585, D2-04586
+impl Places {
+    /// The place of this name: the name in lower case (ASCII letters only, as the C library's
+    /// default locale has it) is looked up as it stands, so a table's name must be in lower case
+    /// to be found.
+    // D2-13678
+    #[must_use]
+    pub fn place(&self, name: &str) -> Option<&Position> {
+        let name = name.to_ascii_lowercase();
+        self.places.iter().find(|(n, _)| *n == name).map(|(_, p)| p)
+    }
+}
+
+// D2-04525, D2-04585, D2-04586, D2-13681
 impl Decode for Places {
     /// The id, then a hash table of a wide-string name to a position.
     // D2-13674, D2-04502
@@ -251,12 +263,15 @@ impl Decode for Places {
 }
 
 /// A file format (`.fmt`, `0x27000000`+). No install holds one, and the client loads none: its
-/// reading of this type always fails.
+/// reading of this type always fails, so a format holds nothing and letting it go has nothing to
+/// clear.
+// D2-14542, D2-14546, D2-14547
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct FileFormat {
     _private: (),
 }
 
+// D2-05048, D2-14543, D2-14544
 impl Decode for FileFormat {
     fn decode(r: &mut Reader<'_>, _id: u32, _ctx: &Context) -> Result<Self> {
         r.fail("the client reads no record of this type")
@@ -409,6 +424,13 @@ mod tests {
         assert_eq!(p.places.len(), 1);
         assert_eq!(p.places[0].0, "Home");
         assert_eq!(p.places[0].1.cell.0, 0x5D3A_0101);
+        // Only the name asked goes to lower case: a table's name with a capital is never found.
+        assert!(p.place("Home").is_none());
+        let lower = Places {
+            places: vec![("home".to_owned(), p.places[0].1)],
+        };
+        assert_eq!(lower.place("hOME").map(|h| h.cell.0), Some(0x5D3A_0101));
+        assert!(lower.place("away").is_none());
     }
 
     #[test]

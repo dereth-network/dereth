@@ -139,6 +139,9 @@ pub fn fellowship_create(w: &mut World, this: ObjectGuid, fellowship_name: &str,
         return;
     }
 
+    // DIVERGE: V485, a world without fellowship options (December 2000) makes every fellowship
+    // share experience, whatever the request asks.
+    let share_xp = share_xp || !w.era.features.fellowship_options;
     let fellowship = fellowship::new(w, this, fellowship_name, share_xp);
     set_fellowship(w, this, Some(fellowship));
     let session = session_of(w, this);
@@ -151,6 +154,15 @@ pub fn fellowship_create(w: &mut World, this: ObjectGuid, fellowship_name: &str,
 
 // ACE: Player.HandleActionFellowshipChangeOpenness
 pub fn handle_action_fellowship_change_openness(w: &mut World, this: ObjectGuid, openness: bool) {
+    // DIVERGE: V491, a world without open fellowships (October 2003) refuses the request.
+    if !crate::world_objects::era_gates::has(
+        w,
+        this,
+        w.era.features.fellowship_open,
+        "open fellowships",
+    ) {
+        return;
+    }
     if let Some(fellowship) = fellowship(w, this) {
         if this.full() != fellowship.leader_guid(w) {
             send_event(w, this, |s| {

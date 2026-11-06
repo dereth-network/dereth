@@ -1098,16 +1098,6 @@ impl Directory {
         self.delete(b, id, At::Root).is_ok()
     }
 
-    /// Every id in the tree (see [`Directory::build_id_list`]); whether the tree holds any.
-    // D2-17705
-    pub fn get_id_list(&mut self, b: &mut Blocks, list: &mut Vec<u32>) -> bool {
-        let any = self.root.node.count() != 0;
-        if any {
-            self.build_id_list(b, list, At::Root);
-        }
-        any
-    }
-
     /// The ids from `lo` to `hi` (see [`Directory::build_id_list_range`]); whether there are any.
     // D2-17706
     pub fn get_id_list_range(

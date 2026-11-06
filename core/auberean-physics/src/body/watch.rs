@@ -111,7 +111,6 @@ impl Body {
     }
 
     /// How far ahead the target projects its place; 0 with no target.
-    // D2-05938
     #[must_use]
     pub fn target_quantum(&self) -> f64 {
         self.tracking
@@ -121,7 +120,6 @@ impl Body {
     }
 
     /// What the body knows of its target, when it follows one.
-    // D2-06133, D2-05939
     #[must_use]
     pub fn target_info(&self) -> Option<TargetInfo> {
         self.tracking.as_ref().and_then(|t| t.target)
@@ -188,7 +186,6 @@ impl Body {
     /// A detection sphere under `context` around `object` (0: around the body, noticing what
     /// enters the cells it reaches), its radius the body's plus `radius`; the body's other updates
     /// wake to check it.
-    // D2-06128
     pub fn create_detection_cylsphere(
         &mut self,
         context: u32,
@@ -205,7 +202,6 @@ impl Body {
     }
 
     /// How many detection spheres watch `object` (none for object 0).
-    // D2-05916
     #[must_use]
     pub fn num_targeted_detection_cylspheres_on(&self, object: u64) -> usize {
         match &self.detections {
@@ -214,27 +210,23 @@ impl Body {
         }
     }
 
-    // D2-05917
     #[must_use]
     pub fn num_targeted_detection_cylspheres(&self) -> usize {
         self.detections.as_ref().map_or(0, Detections::num_targeted)
     }
 
-    // D2-05918
     #[must_use]
     pub fn num_global_detection_cylspheres(&self) -> usize {
         self.detections.as_ref().map_or(0, Detections::num_global)
     }
 
     /// Ends the detection spheres watching `object`.
-    // D2-05919
     pub fn remove_targeted_detection_spheres(&mut self, object: u64) -> bool {
         self.detections
             .as_mut()
             .is_some_and(|d| d.remove_targeted(object))
     }
 
-    // D2-05920
     #[must_use]
     pub fn has_detection_cylsphere(&self, context: u32) -> bool {
         self.detections
@@ -243,14 +235,12 @@ impl Body {
     }
 
     /// Ends the detection sphere under `context` (at the next check).
-    // D2-05921
     pub fn delete_detection_cylsphere(&mut self, context: u32) -> bool {
         self.detections
             .as_mut()
             .is_some_and(|d| d.destroy_detector(context))
     }
 
-    // D2-05922
     pub fn delete_all_targeted_detection_cylspheres(&mut self) -> bool {
         self.detections
             .as_mut()
@@ -258,7 +248,6 @@ impl Body {
     }
 
     /// The bodies watching the body's cell.
-    // D2-05923
     #[must_use]
     pub fn inq_detectors(host: &dyn DetectionHost) -> Vec<u64> {
         Detections::watchers(host)

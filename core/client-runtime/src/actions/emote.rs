@@ -165,6 +165,24 @@ pub fn command_for_action(action: ActionId) -> Option<u32> {
         .map(|(_, c)| *c)
 }
 
+/// What the player reads when the body refuses a stance or an emote.
+#[must_use]
+pub fn refusal_text(refusal: u32) -> Option<&'static str> {
+    use dereth_animation::motion::interp::{
+        CANT_CHAT_EMOTE_IN_COMBAT, CANT_CROUCH_IN_COMBAT, CANT_LIE_DOWN_IN_COMBAT,
+        CANT_SIT_IN_COMBAT,
+    };
+    match refusal {
+        0x3E => Some("You are too tired to move!"),
+        CANT_CROUCH_IN_COMBAT => Some("You can't crouch while in combat mode"),
+        CANT_SIT_IN_COMBAT => Some("You can't sit down while in combat mode"),
+        CANT_LIE_DOWN_IN_COMBAT => Some("You can't lie down while in combat mode"),
+        CANT_CHAT_EMOTE_IN_COMBAT => Some("You can't use chat emotes in combat mode"),
+        0x44 => Some("You can't use chat emotes from this position"),
+        _ => None,
+    }
+}
+
 /// The four stance actions, which are the entries declared in input map `4` rather than in
 /// `Emotes`. Named because they are the four the shipped keymap binds by default (`Y`, `H`, `G`,
 /// `B`) and because [`crate::actions::movement::action`] declares them separately.
@@ -233,6 +251,22 @@ mod tests {
             Some(0x1300_0135),
             "Helper"
         );
+    }
+
+    #[test]
+    fn a_refused_stance_or_emote_says_why_and_anything_else_says_nothing() {
+        for (refusal, text) in [
+            (0x3E, "You are too tired to move!"),
+            (0x3F, "You can't crouch while in combat mode"),
+            (0x40, "You can't sit down while in combat mode"),
+            (0x41, "You can't lie down while in combat mode"),
+            (0x42, "You can't use chat emotes in combat mode"),
+            (0x44, "You can't use chat emotes from this position"),
+        ] {
+            assert_eq!(refusal_text(refusal), Some(text));
+        }
+        assert_eq!(refusal_text(0), None);
+        assert_eq!(refusal_text(0x45), None, "too many actions says nothing");
     }
 
     /// **The claim the header makes, as an assertion.** `HandleKeyboardCommand`'s

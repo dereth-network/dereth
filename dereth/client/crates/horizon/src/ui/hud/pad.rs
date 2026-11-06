@@ -55,9 +55,13 @@ impl Hud {
             .iter()
             .map(|b| (b.name.clone(), b.plugin.clone()))
             .collect();
-        let names: Vec<&str> = MENU[..MENU.len() - 1]
+        // A window the world's era does not have is not on the menu.
+        let entries: Vec<usize> = (0..MENU.len() - 1)
+            .filter(|&i| MENU[i].1.is_none_or(|id| windows.offers(id)))
+            .collect();
+        let names: Vec<&str> = entries
             .iter()
-            .map(|(name, _)| *name)
+            .map(|&i| MENU[i].0)
             .chain(plugins.iter().map(|(name, _)| name.as_str()))
             .chain(std::iter::once(MENU[MENU.len() - 1].0))
             .collect();
@@ -101,7 +105,7 @@ impl Hud {
         };
         ctx.input.pad.menu = false;
         // A plugin's entry opens or closes its main window, as its button on the bar does.
-        let first_plugin = MENU.len() - 1;
+        let first_plugin = entries.len();
         if let Some((_, plugin)) = i.checked_sub(first_plugin).and_then(|n| plugins.get(n)) {
             windows.plugins.push_input(dereth_plugin_ui::Input::Bar {
                 plugin: plugin.clone(),
@@ -111,7 +115,7 @@ impl Hud {
         let i = if i >= first_plugin + plugins.len() {
             MENU.len() - 1
         } else {
-            i
+            entries[i]
         };
         match MENU[i] {
             (_, Some(id)) => {

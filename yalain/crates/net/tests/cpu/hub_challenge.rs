@@ -4,7 +4,7 @@ use std::net::{SocketAddr, SocketAddrV4};
 
 use dereth_network_protocol::challenge::{Challenge, NONCE_LEN};
 use yalain_net::server::{NetConfig, Port, ServerNet, HUB_CHALLENGES_KEPT};
-use yalain_net::LocalTime;
+use yalain_net::{fixed_stream, LocalTime};
 
 fn challenge(nonce: u8) -> Challenge {
     Challenge {
@@ -19,7 +19,12 @@ fn bytes(c: &Challenge) -> Vec<u8> {
 
 fn net() -> ServerNet {
     let world: SocketAddrV4 = "127.0.0.1:9002".parse().expect("an address");
-    ServerNet::new(NetConfig::retail_ids(world), 7, 0.0, LocalTime(1.0))
+    ServerNet::new(
+        NetConfig::retail_ids(world),
+        fixed_stream(7),
+        0.0,
+        LocalTime(1.0),
+    )
 }
 
 /// A datagram from the hub to `port`; what the server sent back and the events it made.

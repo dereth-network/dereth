@@ -91,3 +91,96 @@ fn a_cache_told_not_to_keep_free_records_throws_them_away() {
     assert_eq!(db.cached(KIND), (0, 0));
     assert!(db.unload_cell_data());
 }
+
+/// **Every record type the client makes a cache for has a decoder**: the seventy-seven types its
+/// cache start makes an object cache for.
+///
+/// Behaviour: data.database.every-cached-type-has-a-decoder
+#[test]
+fn every_record_type_the_client_makes_a_cache_for_has_a_decoder() {
+    const CACHED: [u32; 77] = [
+        0x4000_0004,
+        0x4000_0005,
+        0x4000_0006,
+        0x4000_0008,
+        0x4000_0009,
+        0x4000_000A,
+        0x4000_000B,
+        0x4000_000C,
+        0x4000_000D,
+        0x4000_000E,
+        0x4000_000F,
+        0x4000_0010,
+        0x4000_0011,
+        0x4000_0012,
+        0x4000_0013,
+        0x4000_0014,
+        0x4000_0015,
+        0x4000_0016,
+        0x4000_0018,
+        0x4000_0019,
+        0x4000_001D,
+        0x4000_0021,
+        0x4000_0022,
+        0x4000_0025,
+        0x4000_0026,
+        0x4000_0028,
+        0x4000_0029,
+        0x4000_002A,
+        0x4000_002B,
+        0x4000_002C,
+        0x4000_002D,
+        0x4000_002E,
+        0x4000_002F,
+        0x4000_0030,
+        0x4000_0031,
+        0x4000_0032,
+        0x4000_0033,
+        0x4000_0034,
+        0x4000_0035,
+        0x4000_0036,
+        0x4000_0039,
+        0x4000_003C,
+        0x4000_003D,
+        0x4000_003E,
+        0x4000_003F,
+        0x4000_0040,
+        0x4000_0042,
+        0x4000_0043,
+        0x4000_0044,
+        0x4000_0046,
+        0x4000_0047,
+        0x4000_0048,
+        0x4000_0049,
+        0x4000_004A,
+        0x4000_004B,
+        0x4000_004C,
+        0x4000_004D,
+        0x4000_004E,
+        0x4000_004F,
+        0x4000_0050,
+        0x4000_0051,
+        0x4000_0052,
+        0x4000_0053,
+        0x4000_0054,
+        0x4000_0055,
+        0x4000_0056,
+        0x4000_0057,
+        0x4000_0059,
+        0x4000_005A,
+        0x4000_005B,
+        0x4000_005C,
+        0x4000_005D,
+        0x4000_005E,
+        0x4000_005F,
+        0x4000_0060,
+        0x4000_0061,
+        0x4000_0062,
+    ];
+    for kind in CACHED {
+        assert!(
+            auberean_assets::Record::has_decoder(RecordType(kind)),
+            "{kind:#x}"
+        );
+    }
+}

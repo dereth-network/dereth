@@ -177,3 +177,20 @@ fn a_ray_meets_triangles_as_the_clients_trace_finds_them() {
     let hit = trace(v(1.0, 0.25, 1.0), down, 10.0, [floor], false).expect("met");
     assert!((hit.point.x - 0.25).abs() < 1e-5 && (hit.point.y - 0.75).abs() < 1e-5);
 }
+
+/// The lights standing outdoors lay their pools on the land whenever the land is drawn: with the
+/// camera outdoors, or in a room that looks out, but not in a room that doesn't, and never with
+/// light effects off.
+///
+/// Behaviour: draw.decal.light-pools-show-from-a-room-that-looks-out
+#[test]
+fn light_pools_show_from_a_room_that_looks_out() {
+    use auberean_scene::lays_light_pools;
+    const OUTDOORS: u32 = 0x7D64_0001;
+    const ROOM: u32 = 0x7D64_0100;
+    assert!(lays_light_pools(true, OUTDOORS, false));
+    assert!(lays_light_pools(true, ROOM, true));
+    assert!(!lays_light_pools(true, ROOM, false));
+    assert!(!lays_light_pools(false, OUTDOORS, false));
+    assert!(!lays_light_pools(false, ROOM, true));
+}

@@ -1512,6 +1512,10 @@ pub struct CharGenScreen {
     /// The account flag character randomisation is handed and the expansion-warning dialog build
     /// tests.
     pub account_has_tod: bool,
+    /// The systems the world has: whether skill credits left at the end are lost.
+    pub era_features: dereth_primitives::EraFeatures,
+    /// Whether the credit warning open, or last answered, is the one about lost skill credits.
+    pub warned_of_lost_skill_credits: bool,
     /// The world's rules roll a random heritage among the three original ones only, as for an
     /// account without the expansion.
     pub random_original_heritages_only: bool,
@@ -1631,6 +1635,8 @@ impl Default for CharGenScreen {
             left_enabled: false,
             right_enabled: false,
             account_has_tod: false,
+            era_features: dereth_primitives::EraFeatures::default(),
+            warned_of_lost_skill_credits: false,
             random_original_heritages_only: false,
             fourth_town: None,
             open_dialog: None,
@@ -2481,6 +2487,11 @@ impl CharGenScreen {
     /// The already-sent test is the double-send guard and is why the credit warning's "yes" can
     /// safely re-enter with the check off.
     pub fn do_finish(&mut self, check_credits: bool) -> bool {
+        // Each Finish asks about lost skill credits again; the answered question stays answered
+        // only for the finish that goes on from it.
+        if check_credits {
+            self.warned_of_lost_skill_credits = false;
+        }
         let name = self.state.name.trim().to_string();
         self.state.name = name.clone();
         if !self.name_entered || name.is_empty() {
@@ -2489,6 +2500,16 @@ impl CharGenScreen {
             return false;
         }
         if check_credits && self.state.remaining_atrb_credits > 0 {
+            self.open_dialog = Some(CharGenDialog::CreditWarning);
+            return false;
+        }
+        if !self.warned_of_lost_skill_credits
+            && dereth_client_contract::era::loses_skill_credits(
+                self.era_features,
+                self.state.remaining_skill_credits,
+            )
+        {
+            self.warned_of_lost_skill_credits = true;
             self.open_dialog = Some(CharGenDialog::CreditWarning);
             return false;
         }
@@ -3352,6 +3373,7 @@ impl Screen for CharGenScreen {
         // the heritage; with the flag still false the Viamontian
         // heritage could never come up on the opening roll of a Throne of Destiny account.
         self.account_has_tod = host.account_has_tod;
+        self.era_features = host.era_features;
         self.random_original_heritages_only = host.world_rules.random_original_heritages_only;
         self.fourth_town = host
             .world_rules

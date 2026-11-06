@@ -77,6 +77,8 @@ pub(crate) struct Manager {
     pub now: f64,
     /// The pointer moved since the elements under it were last worked out.
     pub moved: bool,
+    /// A scroll bar took the wheel step under way.
+    pub wheel_taken: bool,
     // The screen flow's part: listeners outside the tree, removals waiting, elements by name,
     // the drag in progress.
     /// Listeners outside the tree: the next number, what each registered for, its mail.
@@ -96,8 +98,8 @@ pub(crate) struct Manager {
     pub object_clean: VecDeque<(Listener, Handle, u32)>,
     /// Elements by name, oldest first.
     pub by_name: HashMap<Token, Vec<Handle>>,
-    /// Elements hidden and waiting to be removed at the next tick.
-    pub delete_queue: Vec<Handle>,
+    /// The use key is down.
+    pub use_down: bool,
     /// The left button is down; where it last went down.
     pub left_down: bool,
     pub press_x: i32,
@@ -152,7 +154,21 @@ impl Ui {
             }
             (contains && n.mouse_visible).then_some(h)
         }
-        self.roots().iter().find_map(|r| walk(self, *r, x, y, true))
+        self.pointer_roots()
+            .into_iter()
+            .find_map(|r| walk(self, r, x, y, true))
+    }
+
+    /// The top-level elements the pointer reaches, nearest first: all but the tooltip, which it
+    /// passes through.
+    // D2-11207, D2-11208, D2-11210
+    fn pointer_roots(&self) -> Vec<Handle> {
+        let tip = self.tips.shown;
+        self.roots()
+            .iter()
+            .copied()
+            .filter(|r| Some(*r) != tip)
+            .collect()
     }
 
     // -----------------------------------------------------------------------------------------
@@ -426,17 +442,6 @@ impl Ui {
             .and_then(|l| l.iter().copied().find(|h| self.node(*h).is_some()))
     }
 
-    /// The element named `name` in the root `root` (the first made).
-    // D2-11261
-    #[must_use]
-    pub fn unique_match_element(&self, name: Token, root: Handle) -> Option<Handle> {
-        self.mgr.by_name.get(&name).and_then(|l| {
-            l.iter()
-                .copied()
-                .find(|h| self.node(*h).is_some() && self.root_of(*h) == root)
-        })
-    }
-
     /// Note a new element by its name.
     pub(crate) fn note_name(&mut self, h: Handle) {
         if let Some(n) = self.node(h) {
@@ -446,17 +451,6 @@ impl Ui {
                 l.push(h);
             }
         }
-    }
-
-    /// Make the top-level element `name` of the layout an enumeration value names (through the
-    /// layouts' mapping) and put it on the screen.
-    // D2-11194
-    pub fn create_root_element(&mut self, layout_enum: u32, name: Token) -> Option<Handle> {
-        let id = self.assets().data_id_by_enum(layout_enum, LAYOUT_MAPPING);
-        if id == 0 {
-            return None;
-        }
-        self.create_root_element_by_data_id(id, name)
     }
 
     /// Make the top-level element `name` of the layout record `layout` and put it on the screen,
@@ -479,41 +473,14 @@ impl Ui {
         }
     }
 
-    /// Take a root off the screen, hide it and remove it at the next tick.
-    // D2-11249
-    pub fn remove_and_delete_root_element(&mut self, h: Handle) {
-        self.remove_root_element(h);
-        self.add_element_to_delete_queue(h);
-    }
-
-    /// Hide an element and remove it at the next tick (an element may ask for its own removal
-    /// while it is still handling an event).
-    // D2-11245
-    pub fn add_element_to_delete_queue(&mut self, h: Handle) {
-        if self.node(h).is_none() {
-            return;
-        }
-        self.set_visible(h, false);
-        if !self.mgr.delete_queue.contains(&h) {
-            self.mgr.delete_queue.push(h);
-        }
-    }
-
-    /// Remove the elements waiting for removal.
-    // D2-11209
-    pub(crate) fn clean_delete_queue(&mut self) {
-        for h in std::mem::take(&mut self.mgr.delete_queue) {
-            self.remove(h);
-        }
-    }
-
     // -----------------------------------------------------------------------------------------
     // The pointer
     // -----------------------------------------------------------------------------------------
 
     /// The pointer moved to `(x, y)`: whoever listens for the move hears it (an element moving or
-    /// resizing with the pointer), and the elements under it are worked out again. Returns
-    /// whether the pointer is over the interface.
+    /// resizing with the pointer); a press becomes a drag of what it was on, however far this move
+    /// went; then the elements under it are worked out again. Returns whether the pointer is over
+    /// the interface.
     // D2-11206
     pub fn pointer_move(&mut self, x: i32, y: i32) -> bool {
         self.mgr.x = x;
@@ -521,8 +488,8 @@ impl Ui {
         self.broadcast_global(global::MOUSE_MOVE, 0);
         self.drag_follows_pointer();
         self.mgr.moved = true;
-        self.update_mouse();
         self.check_drag_and_drop();
+        self.update_mouse();
         self.top().is_some()
     }
 
@@ -538,7 +505,7 @@ impl Ui {
         let mut top = None;
         let mut tip = None;
         let mut handled = false;
-        for r in self.roots().to_vec() {
+        for r in self.pointer_roots() {
             if handled {
                 break;
             }
@@ -611,12 +578,19 @@ impl Ui {
             }
         }
         let (x, y) = (self.mgr.x, self.mgr.y);
+        let top = self.top();
+        self.mgr.wheel_taken = false;
         let mut handled = false;
-        for r in self.roots().to_vec() {
+        for r in self.pointer_roots() {
             if handled {
                 break;
             }
             self.notify_mouse_down(r, x, y, button, &mut handled);
+        }
+        if (button == button_id::WHEEL_UP || button == button_id::WHEEL_DOWN)
+            && !self.mgr.wheel_taken
+        {
+            self.wheel_the_window(top, x, y, button);
         }
         self.flush_pending();
         self.update_mouse();
@@ -634,7 +608,7 @@ impl Ui {
         }
         let (x, y) = (self.mgr.x, self.mgr.y);
         let mut handled = false;
-        for r in self.roots().to_vec() {
+        for r in self.pointer_roots() {
             if handled {
                 break;
             }
@@ -660,6 +634,9 @@ impl Ui {
     /// element took it.
     // D2-11198, D2-11199
     pub fn key(&mut self, key: u32, down: bool) -> bool {
+        if key == key_id::USE {
+            self.mgr.use_down = down;
+        }
         let used = match (self.mgr.active, key) {
             (Some(a), key_id::LEFT | key_id::RIGHT | key_id::UP | key_id::DOWN | key_id::USE) => {
                 self.element_key(a, key, down)
@@ -694,6 +671,7 @@ impl Ui {
     }
 
     /// Whether Shift and Ctrl are held, as the host last said.
+    // D2-03447, D2-03446
     #[must_use]
     pub fn modifiers(&self) -> (bool, bool) {
         (self.keyboard.shift, self.keyboard.ctrl)
@@ -749,7 +727,6 @@ impl Ui {
     // D2-11277
     pub fn use_time(&mut self, now: f64) {
         self.mgr.now = now;
-        self.clean_delete_queue();
         if self.mgr.moved {
             self.update_mouse();
         }
@@ -821,7 +798,6 @@ impl Ui {
             self.remove(d);
         }
         self.clear_tooltip();
-        self.clean_delete_queue();
         let m = &mut self.mgr;
         m.globals.clear();
         m.listeners.clear();
@@ -835,13 +811,4 @@ impl Ui {
     // -----------------------------------------------------------------------------------------
     // Depth
     // -----------------------------------------------------------------------------------------
-
-    /// Put a root in front of every other root (a window brought forward).
-    // D2-11230
-    pub fn make_topmost(&mut self, root: Handle) {
-        if !self.roots().contains(&root) {
-            return;
-        }
-        self.bring_root_to_front(root);
-    }
 }

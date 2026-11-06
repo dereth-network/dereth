@@ -38,6 +38,8 @@ pub struct CachedRecords<'a> {
     pub template: DataId,
     /// The client's random numbers, which the bodies made from these records draw from.
     pub dice: Random,
+    /// How hard the world's wind blows at the moment.
+    pub wind: f32,
 }
 
 impl std::fmt::Debug for CachedRecords<'_> {
@@ -54,12 +56,6 @@ impl<'a> CachedRecords<'a> {
             template: DataId(DEFAULT_TEMPLATE),
             ..Self::default()
         }
-    }
-
-    /// Let go of the character template; the next use finds it again.
-    // D2-15058
-    pub fn release_template(&self) {
-        self.templates.borrow_mut().remove(&self.template.0);
     }
 
     fn get<T: Decode>(&self, cache: &Cache<T>, id: DataId) -> Option<Arc<T>> {
@@ -109,5 +105,8 @@ impl BodyRecords for CachedRecords<'_> {
     }
     fn dice(&self) -> Option<&Random> {
         Some(&self.dice)
+    }
+    fn wind(&self) -> f32 {
+        self.wind
     }
 }

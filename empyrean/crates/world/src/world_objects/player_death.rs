@@ -514,6 +514,16 @@ pub fn thread_safe_teleport_on_death(w: &mut World, this: ObjectGuid) {
 // ACE: Player.HandleActionDie
 /// Called when player uses the /die command.
 pub fn handle_action_die(w: &mut World, this: ObjectGuid) {
+    // DIVERGE: `@die` arrived with `@lifestone`'s recall (`EraFeatures::lifestone_recall`, V472);
+    // before it `@lifestone` was the way to die.
+    if !crate::world_objects::era_gates::has(
+        w,
+        this,
+        w.era.features.lifestone_recall,
+        "@die command",
+    ) {
+        return;
+    }
     let is_dead = {
         let o = obj(w, this);
         o.health().current(o) == 0
@@ -537,6 +547,28 @@ pub fn handle_action_die(w: &mut World, this: ObjectGuid) {
         let num_deaths = obj(w, this).num_deaths();
         handle_suicide(w, this, num_deaths, 0);
     }
+}
+
+/// Not ACE: `@lifestone` where it is no recall (`EraFeatures::lifestone_recall`, V472). The
+/// character dies at once, an ordinary death with its corpse, vitae and lifestone return,
+/// refused as `@die` is to the dead, to a character in portal space, and while a death it asked
+/// for is under way.
+pub fn die_by_lifestone_command(w: &mut World, this: ObjectGuid) {
+    let is_dead = {
+        let o = obj(w, this);
+        o.health().current(o) == 0
+    };
+    if is_dead || player_teleporting(w, this) {
+        send_weenie_error(w, this, WeenieError::YoureTooBusy);
+        return;
+    }
+    if fields(w, this).suicide_in_progress {
+        return;
+    }
+    fields_mut(w, this).suicide_in_progress = true;
+    let info = DamageHistoryInfo::new(w, this, 0.0);
+    let top = damage_history::of(w, this).top_damager();
+    dispatch::die::die(w, this, Some(info), top);
 }
 
 // ACE: Player.SuicideMessages
@@ -604,7 +636,9 @@ pub fn calculate_death_items(
     let num_coins_dropped = get_num_coins_dropped(w, this);
 
     let level = obj(w, this).level().unwrap_or(1);
-    let can_drop_wielded = level >= 35;
+    // DIVERGE: without the later low-level relief (`EraFormulas::death_loss_exemptions`, V474)
+    // wielded items are lost at every level.
+    let can_drop_wielded = level >= 35 || !w.era.formulas.death_loss_exemptions;
 
     // get all items in inventory
     let mut inventory = player_get_all_possessions(w, this);
@@ -806,26 +840,38 @@ pub const MAX_ITEMS_DROPPED: i32 = 14;
 // ACE: Player.GetNumItemsDropped
 /// Rolls for the # of items to drop for a player death: none to level 10, 0 or 1 to level 20,
 /// then `level / 20` (the era's divisor) plus 0 to 2 (one `ThreadSafeRandom.Next` draw from
-/// level 11), capped at 14, less 5 per Clutch of the Miser unless a PK death.
+/// level 11), capped at 14, less 5 per Clutch of the Miser unless a PK death. Without the
+/// low-level relief, `max(level / divisor, 1)` at every level, plus 0 to 2 above level 10.
 pub fn get_num_items_dropped(w: &World, this: ObjectGuid, corpse: ObjectGuid) -> i32 {
     // take augments into consideration?
 
     let level = obj(w, this).level().unwrap_or(1);
-
-    if level <= 10 {
-        return 0;
-    }
-
-    if (11..=20).contains(&level) {
-        return ThreadSafeRandom::next(0, 1);
-    }
-
-    // level 21+
-    // DIVERGE: the era's divisor (`EraFormulas::death_items_level_divisor`): level / 10 before
-    // the later halving, ClassicACE's `GetNumItemsDropped` outside its end-of-retail ruleset.
-    // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Player_Death.cs
     let divisor = w.era.formulas.death_items_level_divisor;
-    let mut num_items_dropped = level / divisor + ThreadSafeRandom::next(0, 2);
+
+    // DIVERGE: before the low-level relief (`EraFormulas::death_loss_exemptions`, V474) every
+    // death loses at least one item, and the 0 to 2 more begin above level 10.
+    let mut num_items_dropped = if w.era.formulas.death_loss_exemptions {
+        if level <= 10 {
+            return 0;
+        }
+
+        if (11..=20).contains(&level) {
+            return ThreadSafeRandom::next(0, 1);
+        }
+
+        // level 21+
+        // DIVERGE: the era's divisor (`EraFormulas::death_items_level_divisor`): level / 10 before
+        // the later halving, ClassicACE's `GetNumItemsDropped` outside its end-of-retail ruleset.
+        // Rules ported from ClassicACE (bDekaru), AGPL-3.0: Source/ACE.Server/WorldObjects/Player_Death.cs
+        level / divisor + ThreadSafeRandom::next(0, 2)
+    } else {
+        let extra = if level > 10 {
+            ThreadSafeRandom::next(0, 2)
+        } else {
+            0
+        };
+        (level / divisor).max(1) + extra
+    };
 
     num_items_dropped = num_items_dropped.min(MAX_ITEMS_DROPPED); // is this really a max cap?
 
@@ -851,7 +897,9 @@ pub fn get_num_coins_dropped(w: &World, this: ObjectGuid) -> i32 {
     let level = o.level().unwrap_or(1);
     let coins = o.coin_value().unwrap_or(0);
 
-    if level > 5 {
+    // DIVERGE: before the low-level relief (`EraFormulas::death_loss_exemptions`, V474) every
+    // death loses half the coins carried.
+    if level > 5 || !w.era.formulas.death_loss_exemptions {
         coins / 2
     } else {
         0
@@ -978,6 +1026,15 @@ pub fn permit_time() -> TimeSpan {
 // ACE: Player.HandleActionAddPlayerPermission
 /// /permit: lets an online player who accepts permissions loot one of this player's corpses.
 pub fn handle_action_add_player_permission(w: &mut World, this: ObjectGuid, player_name: &str) {
+    // DIVERGE: V478, a world without corpse permits (April 2001) refuses the request.
+    if !crate::world_objects::era_gates::has(
+        w,
+        this,
+        w.era.features.corpse_permissions,
+        "corpse permits",
+    ) {
+        return;
+    }
     // is this player online?
     let Some(player) = player_manager::get_online_player_by_name(w, player_name) else {
         send(w, this, [chat(&format!("{player_name} is not online."))]);
@@ -1048,6 +1105,15 @@ pub fn handle_action_add_player_permission(w: &mut World, this: ObjectGuid, play
 /// "doesn't have permission" line ACE's null check meant, naming the player as typed. ACE read the
 /// missing player's name before that check and threw, so nothing was answered.
 pub fn handle_action_remove_player_permission(w: &mut World, this: ObjectGuid, player_name: &str) {
+    // DIVERGE: V478, a world without corpse permits (April 2001) refuses the request.
+    if !crate::world_objects::era_gates::has(
+        w,
+        this,
+        w.era.features.corpse_permissions,
+        "corpse permits",
+    ) {
+        return;
+    }
     // is this player online?
     let Some(player) = player_manager::get_online_player_by_name(w, player_name) else {
         send(
@@ -1130,6 +1196,15 @@ pub fn has_loot_permission(w: &mut World, this: ObjectGuid, guid: ObjectGuid) ->
 // ACE: Player.HandleActionDisplayPlayerConsentList
 /// @consent who: the players whose corpses this player may loot.
 pub fn handle_action_display_player_consent_list(w: &mut World, this: ObjectGuid) {
+    // DIVERGE: V478, a world without corpse permits (April 2001) refuses the request.
+    if !crate::world_objects::era_gates::has(
+        w,
+        this,
+        w.era.features.corpse_permissions,
+        "corpse permits",
+    ) {
+        return;
+    }
     prune_permissions(w, this);
 
     if fields(w, this).loot_permission.is_empty() {
@@ -1168,6 +1243,15 @@ pub fn handle_action_display_player_consent_list(w: &mut World, this: ObjectGuid
 // ACE: Player.HandleActionClearPlayerConsentList
 /// @consent clear.
 pub fn handle_action_clear_player_consent_list(w: &mut World, this: ObjectGuid) {
+    // DIVERGE: V478, a world without corpse permits (April 2001) refuses the request.
+    if !crate::world_objects::era_gates::has(
+        w,
+        this,
+        w.era.features.corpse_permissions,
+        "corpse permits",
+    ) {
+        return;
+    }
     prune_permissions(w, this);
 
     if fields(w, this).loot_permission.is_empty() {
@@ -1196,6 +1280,15 @@ pub fn handle_action_remove_from_player_consent_list(
     this: ObjectGuid,
     player_name: &str,
 ) {
+    // DIVERGE: V478, a world without corpse permits (April 2001) refuses the request.
+    if !crate::world_objects::era_gates::has(
+        w,
+        this,
+        w.era.features.corpse_permissions,
+        "corpse permits",
+    ) {
+        return;
+    }
     let (player, _) = player_manager::find_by_name(w, player_name);
 
     let Some(player) = player else {
@@ -1241,14 +1334,36 @@ pub fn handle_action_remove_from_player_consent_list(
 
 // ACE: Player.SetLifestoneProtection
 pub fn set_lifestone_protection(w: &mut World, this: ObjectGuid) {
+    // DIVERGE: without lifestone protection (`EraFeatures::lifestone_protection`, V465) a
+    // resurrection grants no immunity, and clears what a restored character still carries.
+    if !w.era.features.lifestone_protection {
+        clear_lifestone_protection(obj_mut(w, this));
+        return;
+    }
     let o = obj_mut(w, this);
     o.set_under_lifestone_protection(true);
     o.set_lifestone_protection_timestamp(Some(0.0));
 }
 
+/// Not ACE: whether resurrection protection is effective in this world, including on restored
+/// players (`EraFeatures::lifestone_protection`, V465).
+#[must_use]
+pub fn under_lifestone_protection(w: &World, this: ObjectGuid) -> bool {
+    w.era.features.lifestone_protection && obj(w, this).under_lifestone_protection()
+}
+
+fn clear_lifestone_protection(o: &mut WorldObject) {
+    o.set_under_lifestone_protection(false);
+    o.set_lifestone_protection_timestamp(None);
+}
+
 // ACE: Player.HandleLifestoneProtection
 /// The lifestone's magic turns an attack away.
 pub fn handle_lifestone_protection(w: &mut World, this: ObjectGuid) {
+    if !w.era.features.lifestone_protection {
+        clear_lifestone_protection(obj_mut(w, this));
+        return;
+    }
     send_weenie_error(w, this, WeenieError::LifestoneMagicProtectsYou);
     // `EnqueueBroadcast(new GameMessageScript(Guid, PlayScript.ShieldUpBlue));`
     world_object_enqueue_broadcast_script(w, this, PlayScript::ShieldUpBlue);
@@ -1261,6 +1376,10 @@ pub const LIFESTONE_PROTECTION_TIME_SECONDS: f64 = 60.0;
 // ACE: Player.LifestoneProtectionTick
 /// Counts the protection time on each heartbeat; after a minute it ends.
 pub fn lifestone_protection_tick(w: &mut World, this: ObjectGuid) {
+    if !w.era.features.lifestone_protection {
+        clear_lifestone_protection(obj_mut(w, this));
+        return;
+    }
     if !obj(w, this).under_lifestone_protection() {
         return;
     }
@@ -1292,9 +1411,10 @@ pub fn lifestone_protection_tick(w: &mut World, this: ObjectGuid) {
 
 // ACE: Player.LifestoneProtectionDispel
 pub fn lifestone_protection_dispel(w: &mut World, this: ObjectGuid) {
-    let o = obj_mut(w, this);
-    o.set_under_lifestone_protection(false);
-    o.set_lifestone_protection_timestamp(None);
+    clear_lifestone_protection(obj_mut(w, this));
+    if !w.era.features.lifestone_protection {
+        return;
+    }
 
     send(
         w,

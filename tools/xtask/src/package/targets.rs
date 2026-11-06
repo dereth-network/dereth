@@ -66,11 +66,6 @@ pub const TARGETS: &[Target] = &[
         os: Os::Mac,
         arch: Arch::Aarch64,
     },
-    Target {
-        triple: "x86_64-apple-darwin",
-        os: Os::Mac,
-        arch: Arch::X86_64,
-    },
 ];
 
 /// The targets Dereth (the launcher, with the client) is released for. Each builds natively on
@@ -80,7 +75,6 @@ pub const DERETH_TRIPLES: &[&str] = &[
     "x86_64-pc-windows-msvc",
     "x86_64-unknown-linux-gnu",
     "aarch64-apple-darwin",
-    "x86_64-apple-darwin",
 ];
 
 /// The oldest glibc a Dereth Linux release runs on: the release is built on Ubuntu 22.04, whose

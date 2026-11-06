@@ -155,3 +155,43 @@ fn a_pack_with_an_era_this_build_does_not_know_is_refused() {
     assert!(err.to_string().contains("era 9"), "{err}");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn a_launch_pack_keeps_its_identity_without_requiring_complete_content() {
+    let dir = scratch("import-pack-launch");
+    let sql = sixteen_py_dump(&dir);
+    let output = dir.join("launch.pack");
+    let result = build(&sql, &output, Some("launch"));
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let pack = Pack::open(&output).unwrap();
+    assert_eq!(pack.era(), EraId::Launch);
+    pack.verify_hash().unwrap();
+    let bytes = std::fs::read(&output).unwrap();
+    assert_eq!(&bytes[0x74..0x78], &[2, 0, 0, 0]);
+    let report: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(dir.join("launch.pack.report.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(report["era"], "launch");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// An ACE dump's pack is the pack this importer built before the Launch content existed: the same
+/// importer version and no capability flag, so a rebuilt pack keeps its content hash and the
+/// overlays made against it.
+#[test]
+fn an_ace_dump_s_pack_keeps_its_importer_version_and_carries_no_launch_capability() {
+    use empyrean_content::pack::format::{PackHeader, FLAG_INDEX_SORTED};
+    let dir = scratch("import-pack-identity");
+    let sql = sixteen_py_dump(&dir);
+    let out = dir.join("eor.pack");
+    assert!(build(&sql, &out, None).status.success());
+    let header = PackHeader::read(&std::fs::read(&out).unwrap()).unwrap();
+    assert_eq!(header.importer_version, 100);
+    assert_eq!(header.flags, FLAG_INDEX_SORTED);
+    std::fs::remove_dir_all(&dir).ok();
+}

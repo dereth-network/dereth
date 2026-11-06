@@ -100,6 +100,100 @@ fn scene_drawn(h: &mut Harness, b: usize) {
     h.run(5);
 }
 
+/// A camp as many as its spots fills every one, whatever the dice say, and a creature's replacement
+/// takes the spot that is free.
+/// Behaviour: server.creatures.spots-hold-one
+#[test]
+fn a_camp_as_many_as_its_spots_fills_every_one() {
+    #[allow(clippy::cast_possible_truncation)]
+    let place = |at: yalain_store::StoredPosition| (at.origin[0] * 10.0).round() as i32;
+    for seed in 1..40 {
+        let mut h = Harness::new();
+        h.server.rng = yalain_world::rng::Rng::new(seed);
+        h.add_creatures(2);
+        let camp = &mut h.server.spawns.camps[0];
+        camp.population = 3;
+        camp.spots.push((0x0299_0109, [70.0, 248.0, -44.6]));
+        h.player_in_world("one", "Elara");
+        let mut spots: Vec<i32> = h
+            .server
+            .things
+            .by_id
+            .values()
+            .filter(|t| t.template == TEST_CREATURE)
+            .filter_map(|t| t.creature.as_ref().map(|c| place(c.home)))
+            .collect();
+        spots.sort_unstable();
+        assert_eq!(spots, vec![650, 660, 700], "seed {seed}");
+    }
+}
+
+/// A camp keeps its population with fewer spots than creatures: each spot is held, and the rest
+/// share them.
+/// Behaviour: server.creatures.spots-doubled-when-short
+#[test]
+fn a_camp_with_fewer_spots_than_creatures_still_places_them_all() {
+    #[allow(clippy::cast_possible_truncation)]
+    let place = |at: yalain_store::StoredPosition| (at.origin[0] * 10.0).round() as i32;
+    for seed in 1..40 {
+        let mut h = Harness::new();
+        h.server.rng = yalain_world::rng::Rng::new(seed);
+        h.add_creatures(2);
+        h.server.spawns.camps[0].population = 5;
+        h.player_in_world("one", "Elara");
+        let spots: Vec<i32> = h
+            .server
+            .things
+            .by_id
+            .values()
+            .filter(|t| t.template == TEST_CREATURE)
+            .filter_map(|t| t.creature.as_ref().map(|c| place(c.home)))
+            .collect();
+        assert_eq!(spots.len(), 5, "seed {seed}");
+        let mut held = spots.clone();
+        held.sort_unstable();
+        held.dedup();
+        assert_eq!(held, vec![650, 660], "seed {seed}");
+    }
+}
+
+/// However many players are in the world, a creature's look reads the state only of those near it:
+/// the world's every creature looks once a second, so reading all of them costs a pass of the world
+/// about a millisecond a player.
+/// Behaviour: server.creatures.look-reads-near-players-only
+#[test]
+fn a_creature_looking_reads_the_state_of_the_players_near_it_only() {
+    let mut h = Harness::new();
+    let (_, near) = h.player_in_world("one", "Elara");
+    h.player_in_world("two", "Bran");
+    h.player_in_world("three", "Coll");
+    let here = yalain_store::StoredPosition {
+        cell: 0x6FA9_0025,
+        origin: [90.0, 90.0, 80.0],
+        rotation: [1.0, 0.0, 0.0, 0.0],
+    };
+    for p in h.server.players.values_mut() {
+        p.position = if p.character == near {
+            here
+        } else {
+            // One far in this block, one blocks away.
+            let far = p.character % 2 == 0;
+            yalain_store::StoredPosition {
+                cell: if far { 0x6FA9_0001 } else { 0x20A9_0025 },
+                origin: [if far { 5.0 } else { 90.0 }, 5.0, 80.0],
+                ..here
+            }
+        };
+    }
+    let mut read = Vec::new();
+    let noticed = yalain_world::ai::notices_among(&h.server, &here, 20.0, |p| {
+        read.push(p.character);
+        true
+    });
+    assert_eq!(noticed, Some(near));
+    assert_eq!(read, vec![near], "the far players' states stay unread");
+}
+
 /// A creature that attacks first notices a player within its perception and comes at it: its
 /// places reach the player's client, each nearer than the last, until it is within reach.
 /// Behaviour: server.creatures.notice-and-close-in
@@ -266,4 +360,199 @@ fn a_creature_gives_up_a_second_after_the_player_leaves_its_perception() {
         (0.9..=1.6).contains(&t),
         "about a second beyond its perception: {t} s"
     );
+}
+
+/// A player's numbers are read without what follows them in its qualities: creatures ask whether
+/// each player near them is dead many times a step.
+/// Behaviour: server.creatures.is-dead-reads-numbers-only
+#[test]
+fn whether_a_player_is_dead_is_read_from_its_numbers_alone() {
+    use auberean_protocol::types::Qualities;
+    use auberean_protocol::wire::{Field, Writer};
+    use yalain_world::player::quality;
+    let numbers_only = |health: i32| {
+        let mut q = Qualities {
+            header: Qualities::INTS,
+            ..Qualities::default()
+        };
+        yalain_world::quals::set(&mut q.ints, quality::HEALTH, health);
+        let mut w = Writer::default();
+        q.write(&mut w);
+        let mut bytes = w.finish();
+        // Tables said to follow the numbers that were never written: reading them would fail.
+        bytes[0] |= u8::try_from(Qualities::BOOLS | Qualities::STRINGS).unwrap();
+        bytes
+    };
+    let mut h = Harness::new();
+    let (_, me) = h.player_in_world("one", "Elara");
+    let p = h
+        .server
+        .players
+        .values_mut()
+        .find(|p| p.character == me)
+        .unwrap();
+    p.qualities = numbers_only(0);
+    assert!(yalain_world::combat::is_dead(p));
+    p.qualities = numbers_only(1);
+    assert!(!yalain_world::combat::is_dead(p));
+}
+
+/// A creature after a player, and how far it stands from it.
+fn after_player(h: &mut Harness, scale: f32) -> (u64, f32) {
+    h.add_creatures(1);
+    let (b, _) = h.player_in_world("one", "Elara");
+    scene_drawn(h, b);
+    let id = creature_ids(h, b)[0];
+    let c = h
+        .server
+        .things
+        .get_mut(id)
+        .and_then(|t| t.creature.as_mut())
+        .expect("a creature");
+    c.stats.scale = scale;
+    let chasing = h.run_until(200, |h| {
+        h.server
+            .things
+            .get(id)
+            .and_then(|t| t.creature.as_ref())
+            .is_some_and(|c| c.mode == yalain_world::things::Mode::Chasing)
+    });
+    assert!(chasing, "it goes after the player");
+    (id, 0.4 * scale)
+}
+
+fn gap(h: &Harness, id: u64) -> f32 {
+    let at = h.server.things.get(id).and_then(|t| t.at).expect("placed");
+    let p = h.server.players.values().next().expect("a player");
+    let (dx, dy) = (
+        at.origin[0] - p.position.origin[0],
+        at.origin[1] - p.position.origin[1],
+    );
+    (dx * dx + dy * dy).sqrt()
+}
+
+/// The player keeps this far from the creature, along the line between them.
+fn keep_off(h: &mut Harness, id: u64, d: f32) {
+    let at = h.server.things.get(id).and_then(|t| t.at).expect("placed");
+    let p = h.server.players.values_mut().next().expect("a player");
+    p.position.origin = [at.origin[0] - d, at.origin[1], at.origin[2]];
+    p.position.cell = at.cell;
+}
+
+fn due(h: &Harness, id: u64) -> f64 {
+    h.server
+        .things
+        .get(id)
+        .and_then(|t| t.creature.as_ref())
+        .map(|c| c.next_attack)
+        .expect("a creature")
+}
+
+/// A creature running at a player who stands goes on to where its body says, and swings from there.
+/// Behaviour: server.creatures.stops-by-its-body
+#[test]
+fn a_creature_runs_at_a_standing_player_to_where_its_body_stops_and_swings_from_there() {
+    for scale in [1.0f32, 2.5] {
+        let mut h = Harness::new();
+        let (id, radius) = after_player(&mut h, scale);
+        keep_off(&mut h, id, 15.0);
+        // Due to swing all the way: it still waits until it gets there.
+        let now = h.now.0;
+        let c = h
+            .server
+            .things
+            .get_mut(id)
+            .and_then(|t| t.creature.as_mut())
+            .expect("a creature");
+        c.next_attack = now;
+        let was = due(&h, id);
+        let swung = h.run_until(400, |h| due(h, id) != was);
+        assert!(swung, "it swings");
+        let d = gap(&h, id);
+        assert!(
+            (d - (radius + 0.7)).abs() < 0.01,
+            "scale {scale}: it swung from {d} m"
+        );
+    }
+}
+
+/// A creature that has come to a stop stays there while the player is within its reach, however far
+/// past where it stops, and strikes; beyond its reach it runs again.
+/// Behaviour: server.creatures.reach-goes-with-its-body
+#[test]
+fn a_creature_stands_and_swings_while_a_player_is_within_its_reach_and_runs_beyond() {
+    for scale in [1.0f32, 2.5] {
+        let mut h = Harness::new();
+        let (id, radius) = after_player(&mut h, scale);
+        keep_off(&mut h, id, 15.0);
+        let was = due(&h, id);
+        assert!(h.run_until(400, |h| due(h, id) != was), "it swings");
+        let reach = radius + 3.0;
+        keep_off(&mut h, id, reach - 0.1);
+        let at = h.server.things.get(id).and_then(|t| t.at).expect("placed");
+        let was = due(&h, id);
+        assert!(h.run_until(400, |h| due(h, id) != was), "it swings again");
+        assert_eq!(
+            h.server.things.get(id).and_then(|t| t.at).map(|t| t.origin),
+            Some(at.origin),
+            "scale {scale}: not a step"
+        );
+        keep_off(&mut h, id, reach + 0.1);
+        h.run(4);
+        assert!(gap(&h, id) < reach, "scale {scale}: it runs at the player");
+    }
+}
+
+/// A player who keeps within a running creature's reach, but away from where it stops, is swung at
+/// on the run; one beyond its reach is not.
+/// Behaviour: server.creatures.swings-at-who-keeps-away
+#[test]
+fn a_creature_swings_on_the_run_at_a_player_who_keeps_within_its_reach() {
+    let mut h = Harness::new();
+    let (id, radius) = after_player(&mut h, 1.0);
+    // It comes to be due to strike, and has to run.
+    for _ in 0..40 {
+        keep_off(&mut h, id, radius + 4.0);
+        h.step();
+    }
+    let was = due(&h, id);
+    assert!(was <= h.now.0, "due, and no swing from beyond its reach");
+    let mut steps = 0;
+    while due(&h, id) == was {
+        keep_off(&mut h, id, radius + 2.5);
+        h.step();
+        steps += 1;
+        assert!(steps < 40, "it swings");
+    }
+}
+
+/// A creature after a player on the move stops further off than from one who stands.
+/// Behaviour: server.creatures.stops-further-from-one-moving
+#[test]
+fn a_creature_running_at_a_player_on_the_move_stops_further_off() {
+    let mut h = Harness::new();
+    let (id, radius) = after_player(&mut h, 1.0);
+    keep_off(&mut h, id, 15.0);
+    let walk = |h: &mut Harness| {
+        h.run(5);
+        let gap = gap(h, id);
+        let p = h.server.players.values_mut().next().expect("a player");
+        p.position.origin[0] -= 1.0;
+        gap
+    };
+    let mut caught = false;
+    for _ in 0..60 {
+        caught = walk(&mut h) <= radius + 3.0;
+        if caught {
+            break;
+        }
+    }
+    assert!(caught, "it comes within reach");
+    for _ in 0..2 {
+        walk(&mut h);
+    }
+    for _ in 0..8 {
+        let d = walk(&mut h);
+        assert!(d >= radius + 1.99 && d <= radius + 3.01, "{d} m");
+    }
 }

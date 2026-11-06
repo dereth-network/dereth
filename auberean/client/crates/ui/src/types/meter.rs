@@ -2,11 +2,12 @@
 //! (a top and a bottom fill likewise down a meter standing up); a goal position reached at once,
 //! or smoothly over the clock; the fills' states changing as a smooth move passes set shares.
 
-use dereth_primitives::num::to_i32;
-
 use crate::manager::global;
 use crate::system::{Handle, Ui, Value};
 use crate::token::{attr, state, Token};
+
+/// A meter's fill, where it goes and, cut to length, its size.
+type Fill = (Token, (i32, i32), Option<(i32, i32)>);
 
 /// What a meter keeps between events.
 #[derive(Clone, Debug, Default)]
@@ -46,56 +47,44 @@ impl Ui {
 
     /// A meter's fills at its position: a left fill shows from the left edge to the position, a
     /// right fill from the position to the right edge (a top fill from the top down to it, a
-    /// bottom fill from it down); a meter that moves its fills slides them whole, otherwise it
-    /// cuts them to length.
+    /// bottom fill from it down); a meter that moves its fills slides them, each keeping its own
+    /// size, otherwise it cuts them to length.
     // D2-11625
     pub fn lay_out_meter(&mut self, h: Handle) {
         let Some(n) = self.node(h) else { return };
-        let pos = n.float_attr(attr::POSITION).or(n.meter).unwrap_or(0.0);
+        let pos = f64::from(n.float_attr(attr::POSITION).or(n.meter).unwrap_or(0.0));
         let moves = n.bool_attr(attr::MOVE_FILL);
         let (w, hh) = (n.rect.width(), n.rect.height());
-        #[allow(clippy::cast_precision_loss)]
-        let at = to_i32(pos * w as f32);
-        #[allow(clippy::cast_precision_loss)]
-        let at_y = to_i32(pos * hh as f32);
-        let fills = [
-            (
-                attr::LEFT_FILL,
-                if moves {
-                    crate::Rect::sized(at - w, 0, w, hh)
-                } else {
-                    crate::Rect::sized(0, 0, at, hh)
-                },
-            ),
-            (
-                name::TOP_FILL,
-                if moves {
-                    crate::Rect::sized(0, at_y - hh, w, hh)
-                } else {
-                    crate::Rect::sized(0, 0, w, at_y)
-                },
-            ),
-            (
-                attr::RIGHT_FILL,
-                if moves {
-                    crate::Rect::sized(at, 0, w, hh)
-                } else {
-                    crate::Rect::sized(at, 0, w - at, hh)
-                },
-            ),
-            (
-                name::BOTTOM_FILL,
-                if moves {
-                    crate::Rect::sized(0, at_y, w, hh)
-                } else {
-                    crate::Rect::sized(0, at_y, w, hh - at_y)
-                },
-            ),
-        ];
-        for (fill, r) in fills {
+        // Worked out wide and cut toward zero.
+        let share = |size: i32| dereth_primitives::num::to_i32_f64(pos * f64::from(size));
+        let hidden = |size: i32| dereth_primitives::num::to_i32_f64((pos - 1.0) * f64::from(size));
+        let (at, at_y) = (share(w), share(hh));
+        // Where a moving fill goes, or where a cut fill goes and its size.
+        let fills: [Fill; 4] = if moves {
+            [
+                (attr::LEFT_FILL, (hidden(w), 0), None),
+                (name::TOP_FILL, (0, hidden(hh)), None),
+                (attr::RIGHT_FILL, (at, 0), None),
+                (name::BOTTOM_FILL, (0, at_y), None),
+            ]
+        } else {
+            [
+                (attr::LEFT_FILL, (0, 0), Some((at, hh))),
+                (name::TOP_FILL, (0, 0), Some((w, at_y))),
+                (attr::RIGHT_FILL, (at, 0), Some((w - at, hh))),
+                (name::BOTTOM_FILL, (0, at_y), Some((w, hh - at_y))),
+            ]
+        };
+        for (fill, (x, y), size) in fills {
             if let Some(f) = self.child(h, fill) {
+                let Some(fl) = self.node(f) else { continue };
+                let (fw, fh) = size.unwrap_or((fl.rect.width(), fl.rect.height()));
+                let rect = crate::Rect::sized(x, y, fw, fh);
+                if fl.sized && fl.rect == rect {
+                    continue;
+                }
                 if let Some(fl) = self.node_mut(f) {
-                    fl.rect = r;
+                    fl.rect = rect;
                     fl.sized = true;
                 }
                 self.place_children(f);
@@ -106,7 +95,7 @@ impl Ui {
     /// Set a meter's fill at once, 0 to 1 (any smooth move stops).
     pub fn set_meter(&mut self, h: Handle, fill: f32) {
         let fill = fill.clamp(0.0, 1.0);
-        if let Some(n) = self.node_mut(h) {
+        if let Some(n) = self.node_mut_undrawn(h) {
             n.meter = Some(fill);
             n.lists.meter.animating = false;
         }
@@ -246,7 +235,7 @@ impl Ui {
     // D2-11636
     pub(crate) fn meter_float_set(&mut self, h: Handle, a: Token, v: f32, changed: bool) {
         if changed && a == attr::POSITION {
-            if let Some(n) = self.node_mut(h) {
+            if let Some(n) = self.node_mut_undrawn(h) {
                 n.meter = Some(v);
             }
             self.lay_out_meter(h);

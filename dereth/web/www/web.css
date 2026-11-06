@@ -1,7 +1,6 @@
-/* The web front page's own rules, beside the desktop launcher's stylesheet (launcher.css, a copy
- * of the desktop's, kept as it is): the canvas the game draws into under the launcher, the log over
- * it, what only the web page shows, and the shell at phone width, where the rail is a bar along
- * the top. */
+/* The web front page's own rules, beside the desktop launcher's stylesheet (style.css, which the
+ * build brings here): the canvas the game draws into under the launcher, the log over it, what only
+ * the web page shows, and the shell at phone width, where the rail is a bar along the top. */
 
 #stage { position: fixed; inset: 0; display: grid; place-items: center; }
 #view { display: block; background: #000; outline: none; image-rendering: auto; cursor: default; }
@@ -13,7 +12,8 @@
  * login form for the browser's password manager to read, never seen. */
 .login-name { position: absolute; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; pointer-events: none; }
 
-/* No window to drag: the shell starts nearer the top. */
+/* No window to drag: no strip to drag it by, and the shell starts nearer the top. */
+.drag { display: none; }
 .shell { padding-top: 28px; }
 .notice { top: 28px; }
 

@@ -39,6 +39,7 @@ pub struct Flow<P> {
     argument: String,
     factories: Vec<(Token, Factory<P>)>,
     /// What lives across screens.
+    // D2-11875
     pub data: P,
 }
 
@@ -92,12 +93,6 @@ impl<P> Flow<P> {
         argument.clone_into(&mut self.argument);
     }
 
-    /// What lives across screens, as a panel asks its framework for it.
-    // D2-11875
-    pub fn data_mut(&mut self) -> &mut P {
-        &mut self.data
-    }
-
     /// The current screen's mode.
     #[must_use]
     pub const fn mode(&self) -> Token {
@@ -115,6 +110,12 @@ impl<P> Flow<P> {
     #[must_use]
     pub fn current(&self) -> Option<&dyn Screen<P>> {
         self.current.as_deref()
+    }
+
+    /// What lives across screens.
+    #[must_use]
+    pub const fn data(&self) -> &P {
+        &self.data
     }
 
     /// The screen up, to tell it something, with what lives across screens.

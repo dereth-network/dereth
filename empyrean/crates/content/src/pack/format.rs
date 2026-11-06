@@ -45,8 +45,12 @@ pub const REGION_ALIGN: u64 = 8;
 
 /// Always set, and asserted on open.
 pub const FLAG_INDEX_SORTED: u32 = 1 << 0;
+/// Recipes depend on current-vital preconditions. Older readers must refuse this content.
+pub const FLAG_RECIPE_VITALS: u32 = 1 << 1;
 /// Bits outside this mask must be zero.
-pub const FLAGS_KNOWN: u32 = FLAG_INDEX_SORTED;
+/// Source loot tables require an aware reader.
+pub const FLAG_SOURCE_LOOT: u32 = 1 << 2;
+pub const FLAGS_KNOWN: u32 = FLAG_INDEX_SORTED | FLAG_RECIPE_VITALS | FLAG_SOURCE_LOOT;
 
 /// A single record longer than this is refused by the writer.
 pub const MAX_RECORD_LEN: usize = 64 * 1024 * 1024;

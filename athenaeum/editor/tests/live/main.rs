@@ -17,12 +17,13 @@ use std::time::{Duration, Instant};
 use athenaeum_editor::characters::{self, Item, Making, Quest, QuestAt, Recipe, Skill, Start};
 use athenaeum_editor::live::{self, Ask, Entry, Event, Live, Programs, Reloaded, Said, Setup};
 use athenaeum_editor::stop::windowless;
-use athenaeum_foundry::edit::{NewKind, NewRow};
+use athenaeum_foundry::edit::{ClearingShape, NewKind, NewRow};
 use athenaeum_foundry::{new, world, Session};
+use auberean_dat::overlay::WORLD_FOLDER;
 use auberean_dat::testing::require_target_install;
 use auberean_world::chargen;
 use yalain_world_db::compile::outdoor_cell;
-use yalain_world_db::release::{cache_dir_for, Host, PINNED_TAG};
+use yalain_world_db::release::{pinned_in_cache, PINNED_TAG};
 use yalain_world_db::Files;
 
 /// A guard against a hang, not the time a step is expected to take.
@@ -47,15 +48,11 @@ fn database() -> PathBuf {
     if let Some(v) = std::env::var_os(WORLD_DB_VAR).filter(|v| !v.is_empty()) {
         return PathBuf::from(v);
     }
-    let cached =
-        cache_dir_for(Host::current(), |n| std::env::var_os(n)).map(|c| c.join(PINNED_TAG));
-    match cached {
-        Some(d) if d.join("world.toml").is_file() => d,
-        _ => panic!(
-            "no world database: set {WORLD_DB_VAR} to a checkout, or fetch the pinned release \
-             ({PINNED_TAG}) with `yalain world fetch`"
-        ),
-    }
+    pinned_in_cache().unwrap_or_else(|why| {
+        panic!(
+            "no world database: {why}. Set {WORLD_DB_VAR} to a checkout, or fetch the pinned release ({PINNED_TAG}) with `yalain world fetch`"
+        )
+    })
 }
 
 /// A program: the variable that names it, else the file of that name beside this test binary's
@@ -289,6 +286,8 @@ fn recipes_characters_play_the_world_live_on_one_server_made_built_and_placed_at
         },
         folder: session.dir().join(live::FOLDER),
         base: Some(base),
+        key: String::new(),
+        clearings: Vec::new(),
     };
     let mut recipe = Recipe::new("Tester");
     recipe.race = chargen::TUMEROK;
@@ -748,6 +747,8 @@ fn a_server_started_on_ports_another_program_holds_moves_on_to_free_ones() {
         },
         folder: session.dir().join(live::FOLDER),
         base: Some(base),
+        key: String::new(),
+        clearings: Vec::new(),
     };
     let p = live::free_port(live::first_port(41_500, std::process::id())).expect("free ports");
     let held: Vec<UdpSocket> = (0..4)
@@ -802,6 +803,8 @@ fn two_playtests_started_at_once_on_the_same_free_ports_each_serve_on_their_own(
             },
             folder: s.dir().join(live::FOLDER),
             base: Some(base.clone()),
+            key: String::new(),
+            clearings: Vec::new(),
         })
         .collect();
     let p = live::free_port(live::first_port(41_900, std::process::id())).expect("free ports");
@@ -914,4 +917,81 @@ fn a_server_whose_console_ends_stops_by_itself_keeping_everyone() {
         log.contains("stopping: 0 characters in the world kept"),
         "{log}"
     );
+}
+
+/// A world with a clearing, played: the server and our client read the one overlay the editor made
+/// for the world, and a clearing changed while the server runs is in the folder when it has
+/// reloaded.
+#[test]
+fn a_clearing_is_read_by_the_server_and_by_the_client_play_starts() {
+    let install = require_target_install();
+    let base = database();
+    let scratch = Scratch::new("athenaeum-clearing");
+    let mut session = plain_world(&scratch.0, &base, "clearing");
+    let item = session
+        .place_clearing(0xB590, [75.0, 45.0], ClearingShape::Round { radius: 25.0 })
+        .expect("the clearing");
+    let setup_of = |session: &Session| Setup {
+        programs: Programs {
+            yalain: Some(program("YALAIN_BIN", "yalain")),
+            server_dats: Some(install.clone()),
+            client: Some(program("AUBEREAN_BIN", "auberean")),
+            client_dats: Some(install.clone()),
+            retail: None,
+            client_args: vec!["--no-window".into(), "1200".into(), "--no-sound".into()],
+            port: 41_700,
+        },
+        folder: session.dir().join(live::FOLDER),
+        base: Some(base.clone()),
+        key: session.key().to_owned(),
+        clearings: session
+            .clearings()
+            .into_iter()
+            .map(|(c, l)| (c.clone(), l))
+            .collect(),
+    };
+    let setup = setup_of(&session);
+    let mut live = Live::default();
+    live.start(&setup, session.files()).expect("Yalain starts");
+    until(&mut live, &setup, "the server up", |e, _| {
+        e.contains(&Event::Up).then_some(())
+    });
+    assert!(
+        log_of(&setup).contains("overlay"),
+        "the server reads it: {}",
+        logs(&setup)
+    );
+    let folder = setup.world().join(WORLD_FOLDER);
+    let container = folder.join("overlay_cell.dat");
+    let first = std::fs::read(&container).expect("the overlay");
+
+    // Played, the client is told the folder.
+    let recipe = Recipe::new("Tester");
+    live.prepare(&setup, &recipe, None).expect("the character");
+    live.play_when_ready("Tester", false);
+    played(&mut live, &setup, "Tester made and played");
+    let client_log = setup.folder.join("client.log");
+    until(&mut live, &setup, "the client reading it", |_, _| {
+        std::fs::read_to_string(&client_log)
+            .ok()
+            .filter(|t| t.contains("through a world's overlay"))
+    });
+
+    // Changed as it runs: the folder is replaced under the server and the client, and the server
+    // takes it up.
+    session
+        .set(&item, "radius", "40.0")
+        .expect("a bigger clearing");
+    let setup = setup_of(&session);
+    assert!(live.publish(&setup, session.files()).expect("published"));
+    until(&mut live, &setup, "the reload", |e, _| {
+        reloaded(e).map(|_| ())
+    });
+    let second = std::fs::read(&container).expect("the overlay");
+    assert_ne!(first, second);
+    let world = auberean_dat::overlay::WorldOverlay::of_world(&setup.world())
+        .expect("reads")
+        .expect("an overlay");
+    assert_eq!(world.world(), session.key());
+    live.stop_all();
 }

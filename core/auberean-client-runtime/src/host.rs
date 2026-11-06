@@ -23,12 +23,13 @@
 //!   answers 1, or 8 for an object that is not here).
 
 use std::any::Any;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
+use auberean_assets::names::FileNames;
 use auberean_assets::script::Qualities as Record;
 use auberean_client_model::Model;
-use auberean_dat::DatFile;
+use auberean_dat::{DatFile, MasterMap};
 use auberean_script::bridge::{object_process, receive, Outcome};
 use auberean_script::graph::SavedState;
 use auberean_script::library::Library;
@@ -105,6 +106,9 @@ pub struct Shown {
     pub about: Option<u64>,
     pub kind: u32,
     pub text: TextInfo,
+    /// The notices the panels had been sent when it was written: panels hear both as they come,
+    /// so what a notice changes applies only to the lines after it.
+    pub notices_before: usize,
 }
 
 /// The engine side of the scripts: the saved states, the model, and what the scripts did to it.
@@ -118,6 +122,13 @@ pub struct ClientHost {
     /// Instance to object, and object to instance.
     pub links: HashMap<u32, u64>,
     pub instances: HashMap<u64, u32>,
+    /// Objects created since the last upkeep, the soonest the world's upkeep could have made them.
+    /// This client has them from the moment they are created; a move's answer must not find the
+    /// item it moves among them, since it names the item only when it can find it.
+    pub being_made: HashSet<u64>,
+    /// The item whose move is being answered: a script asking for it while it is being made finds
+    /// nothing.
+    pub answering_a_move: Option<u64>,
     /// What scripts sent to the server: the function, its packed arguments, encrypted or not.
     pub sends: Vec<(u32, Vec<u8>, bool)>,
     /// Notices to the panels, by native, counted.
@@ -133,6 +144,8 @@ pub struct ClientHost {
     pub bodies: crate::body::Bodies,
     /// What the bodies say of themselves when the scripts ask, as a front end last read them.
     pub readings: crate::body::Readings,
+    /// What the cells the bodies have been in made of them, as a front end last read it.
+    pub materials: crate::body::Materials,
     /// What the scripts asked of the objects' bodies, in order, for a front end to carry out.
     pub body_requests: Vec<crate::physics_object::BodyRequest>,
     /// The kinds of log line the client keeps.
@@ -149,6 +162,8 @@ pub struct ClientHost {
     pub camera_fx_stops: u32,
     /// The game clock as scripts read it.
     pub clock: f64,
+    /// The world's clock, while a call runs (the runtime lends it).
+    pub game_clock: Option<auberean_world::calendar::GameClock>,
     /// Examination requests whole, by reference: the machine holds only their packed forms.
     pub requests: HashMap<u32, crate::examination::Request>,
     /// Selections whole, by reference, likewise.
@@ -186,10 +201,25 @@ pub struct ClientHost {
     /// The machine's wall clock and the files in the client's own folder, when the front end
     /// gives them (none: the natives that need them answer as the client does when they fail).
     pub local: Option<Box<dyn LocalSystem + Send>>,
-    records: HashMap<u32, Option<Arc<Record>>>,
+    records: HashMap<u32, Arc<Record>>,
     /// The client's one data cache: the data files' records, decoded once and kept (opened the
     /// first time one is asked for), shared with the data cache's requests.
     pub(crate) cache: Option<crate::cache::DataCache>,
+    /// The client's table of every record's file name, which the scripts ask.
+    pub file_names: FileNames,
+    /// Where the record types' folders would be, for that table.
+    master: MasterMap,
+}
+
+/// The table as the client starts it with its data cache: folders off, ids not to be made, only
+/// read. No install has the file of names, so it stays empty.
+fn started_file_names(master: &MasterMap) -> FileNames {
+    let mut names = FileNames::new();
+    names.set_uses_folders(false);
+    names.set_ids_may_be_made(false);
+    names.init(4, 0, master);
+    names.verify_types();
+    names
 }
 
 /// The host's files, by bare names only: any other name is refused, as is every file when the
@@ -264,6 +294,24 @@ impl Host for ClientHost {
         self.text.data_id_by_enum(value, mapping)
     }
 
+    fn data_id_by_name(&mut self, name: &str, record_type: u32) -> u32 {
+        let db = self
+            .cache
+            .as_ref()
+            .filter(|c| !c.is_empty())
+            .map(crate::cache::DataCache::database);
+        self.file_names.id(name, record_type, db, &self.master)
+    }
+
+    fn file_name_by_id(&mut self, id: u32) -> Vec<u16> {
+        let db = self
+            .cache
+            .as_ref()
+            .filter(|c| !c.is_empty())
+            .map(crate::cache::DataCache::database);
+        self.file_names.file_name_of_wide(id, db, &self.master)
+    }
+
     fn text(&mut self) -> Option<&mut dyn auberean_text::Source> {
         Some(&mut self.text)
     }
@@ -334,20 +382,24 @@ impl ClientHost {
         self.cache.as_ref().filter(|c| !c.is_empty())
     }
 
-    /// The qualities record with this id, read once: an object's defaults, the record its own
-    /// qualities derive from. A record the portal file holds that does
-    /// not read is read again first: only a failure that repeats is remembered (a read the
-    /// machine got wrong once would otherwise hide the record for the rest of the run).
-    // D2-07253
+    /// The qualities record with this id: an object's defaults, the record its own qualities
+    /// derive from. It is read through the data cache, so one the server sent is read as the
+    /// files' own are. A record is kept once read and a missing one is looked for again next time:
+    /// it may come. A record the portal file holds that does not read is read again first.
+    // D2-07253, D2-12600
     pub(crate) fn record(&mut self, id: u32) -> Option<Arc<Record>> {
         if id == 0 {
             return None;
         }
         if let Some(r) = self.records.get(&id) {
-            return r.clone();
+            return Some(r.clone());
         }
         let read = || {
-            self.portal.read(id).ok().and_then(|b| {
+            let bytes = match self.data_cache() {
+                Some(c) => c.database().read(id),
+                None => self.portal.read(id).ok(),
+            };
+            bytes.and_then(|b| {
                 auberean_assets::decode::<Record>(id, &b, &auberean_assets::Context::empty()).ok()
             })
         };
@@ -360,7 +412,9 @@ impl ClientHost {
             r = read();
         }
         let r = r.map(Arc::new);
-        self.records.insert(id, r.clone());
+        if let Some(r) = &r {
+            self.records.insert(id, r.clone());
+        }
         r
     }
 
@@ -588,6 +642,8 @@ pub fn model_natives(lib: &Library) -> NativeTable {
     }
     for (id, f) in crate::selection::natives()
         .chain(crate::repository::natives())
+        .chain(crate::quality_dump::natives())
+        .chain(crate::game_time::natives())
         .chain(crate::shell::natives())
         .chain(crate::latent::natives())
         .chain(crate::combat::natives())
@@ -612,13 +668,19 @@ pub fn is_panel_notice(lib: &Library, id: u32) -> bool {
 /// A host over a portal file and a linked program.
 #[must_use]
 pub fn new_host(portal: Arc<DatFile>, program: Arc<Program>) -> ClientHost {
+    let mut master = MasterMap::default();
+    master.init();
     ClientHost {
+        file_names: started_file_names(&master),
+        master,
         states: StateCache::new(Arc::clone(&portal)),
         program,
         portal,
         model: Model::new(),
         links: HashMap::new(),
         instances: HashMap::new(),
+        being_made: HashSet::new(),
+        answering_a_move: None,
         sends: Vec::new(),
         notices: BTreeMap::new(),
         panel_notices: Vec::new(),
@@ -626,6 +688,7 @@ pub fn new_host(portal: Arc<DatFile>, program: Arc<Program>) -> ClientHost {
         frozen: HashMap::new(),
         bodies: HashMap::new(),
         readings: HashMap::new(),
+        materials: HashMap::new(),
         body_requests: Vec::new(),
         logs: crate::log_system::LogMasks::default(),
         looks: HashMap::new(),
@@ -633,6 +696,7 @@ pub fn new_host(portal: Arc<DatFile>, program: Arc<Program>) -> ClientHost {
         behaviors: Vec::new(),
         camera_fx_stops: 0,
         clock: 0.0,
+        game_clock: None,
         requests: HashMap::new(),
         selections: HashMap::new(),
         dice: auberean_glue::numbers::Random::new(),
@@ -1425,6 +1489,7 @@ impl Scripts {
 
     /// The player's options as the options panel reads them: the player's current options
     /// profile, held as the engine holds it. `None` when there is no player here or it has none.
+    // D2-00577, D2-01120
     pub fn options(&mut self) -> Option<GameplayOptions> {
         let (_, r) = self.call_interface(crate::interface::function::CURRENT_OPTIONS, &[]);
         let o = self.vm.heap.native(r).ok()?.unpacked();
@@ -1513,14 +1578,19 @@ fn is_the_player(c: &mut Call<'_>) -> Result<Status, Stop> {
 }
 
 /// The instance of an object by id (`fp[-3..-2]`), or the null reference when the client does
-/// not have it.
-// D2-04665, D2-08057
+/// not have it yet.
+// D2-04665, D2-08057, D2-05641
 fn weenie_object(c: &mut Call<'_>) -> Result<Status, Stop> {
     if c.receiver()? == NULL {
         return Ok(Status::Crash);
     }
     let id = c.long_at(-3)?;
-    let r = instance(c, id)?;
+    let h = host(c)?;
+    let r = if h.answering_a_move == Some(id) && h.being_made.contains(&id) {
+        NULL
+    } else {
+        instance(c, id)?
+    };
     c.write(-4, r, tag::REFERENCE)?;
     Ok(Status::Success)
 }
@@ -1542,16 +1612,21 @@ fn instance(c: &mut Call<'_>, id: u64) -> Result<u32, Stop> {
     Ok(i)
 }
 
-/// Where the player is: a new position (below the receiver), the player's cell and frame; the
-/// zero position before the player has a place.
+/// Where the receiver's object stands: a new position (below the receiver), its body's cell and
+/// frame; the zero position when it has no place.
 // D2-04671, D2-08172
 fn my_position(c: &mut Call<'_>) -> Result<Status, Stop> {
     if c.receiver()? == NULL {
         return Ok(Status::Crash);
     }
-    let (cell, o, q) = host(c)?
-        .my_position
-        .unwrap_or((0, [0.0; 3], [1.0, 0.0, 0.0, 0.0]));
+    let r = c.receiver()?;
+    let object = host(c)?.links.get(&r).copied();
+    let zero = (0, [0.0; 3], [1.0, 0.0, 0.0, 0.0]);
+    let (cell, o, q) = match object {
+        Some(id) if host(c)?.model.player == Some(id) => host(c)?.my_position.unwrap_or(zero),
+        Some(id) => crate::combat::standing(c, id)?.map_or(zero, |(cell, at)| (cell, at, zero.2)),
+        None => zero,
+    };
     let frame = [
         o[0].to_bits(),
         o[1].to_bits(),
@@ -1798,7 +1873,13 @@ fn display_string_info(c: &mut Call<'_>) -> Result<Status, Stop> {
     let h = host(c)?;
     let about = h.links.get(&about).copied();
     *h.notices.entry(native).or_default() += 1;
-    h.shown.push(Shown { about, kind, text });
+    let notices_before = h.panel_notices.len();
+    h.shown.push(Shown {
+        about,
+        kind,
+        text,
+        notices_before,
+    });
     c.write(-5, 1, tag::MIXED)?;
     Ok(Status::Success)
 }

@@ -9,6 +9,7 @@ mod examine;
 mod keeping;
 mod logging_in_again;
 mod logging_off;
+mod long_lines;
 mod looks;
 mod places;
 mod presence;

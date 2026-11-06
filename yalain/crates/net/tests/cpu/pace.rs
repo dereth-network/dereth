@@ -7,7 +7,9 @@ use dereth_transport::flow::NAK_INTERVAL;
 use dereth_transport::session::{MAX_NAK_IDS, SENT_CACHE_MAX_AGE, SENT_CACHE_MAX_PACKETS};
 use dereth_transport::wire::{PacketFlags, ParsedPacket, ProtoHeader, MAX_DATAGRAM_OUT};
 use yalain_net::endpoint::Endpoint;
-use yalain_net::pace::{BYTES_PER_INTERVAL, WINDOW};
+use yalain_net::pace::{
+    check_rate, Pace, BYTES_PER_INTERVAL, MAX_BYTES_PER_SECOND, MIN_BYTES_PER_SECOND, WINDOW,
+};
 use yalain_net::LocalTime;
 
 use super::pair;
@@ -86,9 +88,15 @@ struct Run {
 
 /// Run both ends until the client holds every message in `sent` (queue, bytes) or `limit`
 /// virtual seconds pass; the server queues each message at the start.
-fn run(sent: &[(u16, Vec<u8>)], mut link: Link, limit: f64) -> (Run, Endpoint) {
+fn run(sent: &[(u16, Vec<u8>)], link: Link, limit: f64) -> (Run, Endpoint) {
+    run_at(Pace::default(), sent, link, limit)
+}
+
+/// [`run`], the server's large messages at `pace`.
+fn run_at(pace: Pace, sent: &[(u16, Vec<u8>)], mut link: Link, limit: f64) -> (Run, Endpoint) {
     let mut now = LocalTime(1.0);
     let (mut server, mut client) = pair(now);
+    server.pace = pace;
     for (i, (queue, m)) in sent.iter().enumerate() {
         server.send_blob(*queue, 0x23F1_0000_0000_0000 | i as u64, m.clone());
     }
@@ -281,4 +289,98 @@ fn a_large_message_holds_back_only_the_messages_on_its_own_queue() {
          ({large_at:.2} s)"
     );
     assert!(server.pace.is_empty());
+}
+
+/// A host's highest rate: a seven-megabyte message over the same lossy link, with the link down
+/// for twenty seconds on the way, arrives whole in a fraction of the two minutes. No interval
+/// carries more than the rate's budget of first sends; however fast the server goes it never has
+/// more out than the window, far below the 4,096 packets it keeps for resending; and nothing is
+/// let go.
+/// Behaviour: server.net.large-message-rate-setting
+#[test]
+fn a_seven_megabyte_message_at_the_highest_rate_arrives_whole_and_loses_nothing_it_sent() {
+    let mut rng = Rng(0x5EED_1234_ABCD_0004);
+    let library = rng.bytes(LIBRARY);
+    let link = Link {
+        loss: 0.05,
+        buffer: 400,
+        outage: (10.0, 30.0),
+        rng: Rng(0x0123_4567_89AB_CDEF),
+    };
+    let pace = Pace::at_rate(MAX_BYTES_PER_SECOND);
+    let (r, _) = run_at(pace, &[(DATABASE, library.clone())], link, 600.0);
+    let got = r.got.get(&DATABASE).expect("the message arrived");
+    assert!(got[0].1 == library, "intact");
+    let took = got[0].0 - 1.0;
+    #[allow(clippy::cast_precision_loss)]
+    let at_full_rate = LIBRARY as f64 / f64::from(MAX_BYTES_PER_SECOND);
+    assert!(
+        took > at_full_rate && took < at_full_rate + 60.0,
+        "{took:.1} s, against {at_full_rate:.1} s at the full rate and 20 s down"
+    );
+    let budget = usize::try_from(MAX_BYTES_PER_SECOND / 2).expect("small");
+    let most = r.new_bytes.values().copied().max().unwrap_or(0);
+    assert!(
+        most <= budget + MAX_DATAGRAM_OUT,
+        "at most an interval's budget of first sends in any interval: {most}"
+    );
+    assert!(
+        most > 2 * BYTES_PER_INTERVAL,
+        "well past the default rate's: {most}"
+    );
+    assert!(
+        r.most_out <= WINDOW + 8,
+        "never more out than the window: {}",
+        r.most_out
+    );
+    assert!(r.most_out as usize <= SENT_CACHE_MAX_PACKETS / 2);
+    assert!(!r.rejected, "no packet let go");
+}
+
+/// A host's lowest rate: a large message over a lossy link still arrives, at that rate.
+/// Behaviour: server.net.large-message-rate-setting
+#[test]
+fn a_large_message_at_the_lowest_rate_still_arrives() {
+    let mut rng = Rng(0x5EED_1234_ABCD_0005);
+    let large = rng.bytes(100_000);
+    let link = Link {
+        loss: 0.05,
+        buffer: 400,
+        outage: (0.0, 0.0),
+        rng: Rng(0x0123_4567_89AB_CDEF),
+    };
+    let pace = Pace::at_rate(MIN_BYTES_PER_SECOND);
+    let (r, _) = run_at(pace, &[(DATABASE, large.clone())], link, 300.0);
+    let got = r.got.get(&DATABASE).expect("the message arrived");
+    assert!(got[0].1 == large, "intact");
+    let took = got[0].0 - 1.0;
+    #[allow(clippy::cast_precision_loss)]
+    let at_full_rate = large.len() as f64 / f64::from(MIN_BYTES_PER_SECOND);
+    assert!(
+        took > at_full_rate * 0.8 && took < at_full_rate * 1.5,
+        "{took:.1} s, against {at_full_rate:.1} s at the full rate"
+    );
+    assert!(!r.rejected, "no packet let go");
+}
+
+/// What counts as large does not change with the rate: at the highest, a message longer than the
+/// 2013 servers' budget still goes by the pace and the window.
+/// Behaviour: server.net.large-message-rate-setting
+#[test]
+fn a_higher_rate_lets_no_large_message_skip_the_pace() {
+    let pace = Pace::at_rate(MAX_BYTES_PER_SECOND);
+    assert!(pace.takes(DATABASE, BYTES_PER_INTERVAL + 1));
+    assert!(!pace.takes(DATABASE, BYTES_PER_INTERVAL));
+}
+
+/// The rates a host may set: the 2013 servers' and the bounds, and nothing beyond them.
+/// Behaviour: server.net.large-message-rate-setting
+#[test]
+fn a_rate_out_of_bounds_is_refused() {
+    for rate in [MIN_BYTES_PER_SECOND, 65_536, MAX_BYTES_PER_SECOND] {
+        assert_eq!(check_rate(rate), Ok(()));
+    }
+    for rate in [0, MIN_BYTES_PER_SECOND - 1, MAX_BYTES_PER_SECOND + 1] {
+        assert!(check_rate(rate).is_err(), "{rate}");
+    }
 }

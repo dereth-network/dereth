@@ -39,7 +39,10 @@
 //! players it reaches (2017: each a record of three minutes, so two run at a time). One who holds a
 //! record from an earlier pulse that this one missed is told (`Effect_PulseMissed`), and its client
 //! shows that record running down. Turning it off takes its pulsed records and its own off; so does
-//! going into portal space.
+//! going into portal space, but for a resurrection's: its auras stay on, and pulse again three
+//! seconds after it is back, beside their own round (2017: 0 of 98 auras off at the 44 requests of
+//! players holding one listed; 129 of 137 returns by players whose pulses came before it pulsed so,
+//! a median 2.97 s after it was told it lives).
 //!
 //! **Lifestone protection.** A player is protected for three minutes as it is resurrected: the
 //! protection is added in the request's tick, before portal space, and its glow (the effect the
@@ -61,13 +64,13 @@ use auberean_protocol::types::{PhysicsStory, StoryHook};
 use auberean_protocol::ServerMessage;
 use auberean_script::args::Arg;
 use auberean_script::native_object::TextInfo;
-use yalain_content::quests::Update;
 use yalain_net::{BlobKind, ConnId, ServerNet};
 use yalain_store::Store;
 
 use crate::effect_defs::{aura_target, combo_flag, vital, Aura, Combo, EffectDef, Kind};
 use crate::graph::{tag, Builder, Slot};
 use crate::player::quality;
+use crate::quests::Move;
 use crate::rules::Outcome;
 use crate::state::EffectState;
 use crate::{progress, quals, session, Clock, Server, Timer};
@@ -121,6 +124,8 @@ pub const PULSE_FLAGS: u32 = 0xC52;
 /// 95%), then every 121 to 124 seconds (12,036 pulses: quartiles 121.0, 122.4, 123.9).
 pub const PULSE_LEAST: f64 = 121.0;
 pub const PULSE_MOST: f64 = 124.0;
+/// How long after a player is back from a resurrection its auras pulse again.
+pub const AURAS_PULSE_AFTER_RETURN: f64 = 3.0;
 
 /// A creature's change over time: the first tick a share of this after the add, then every so
 /// many seconds (2017, a creature's single change over time: the first 0.1-10.4 s, then 5.7-11.2 s,
@@ -209,10 +214,15 @@ pub mod learned {
 /// The quality of damage added to a player's hits (an integer, 295).
 pub const DAMAGE_ADD: u32 = 0x4_0127;
 
+/// The quality of what a player's skills cost above their own (an integer, 296; negative lowers them).
+pub const VIGOR_COST_ADD: u32 = 0x4_0128;
+
 /// The quality of armor rating (an integer, 293), and of attack speed (a float, 297: a share of
 /// the usual pace, 0 for a hold).
 pub const ARMOR_RATING: u32 = 0x4_0125;
 pub const ATTACK_SPEED: u32 = 0x3_0129;
+/// The stats of skills: this with the skill's value.
+pub const SKILL_STAT: u32 = 0x80_0000;
 
 /// Lifestone protection: its saved state, how long it lasts, its record's flags and categories,
 /// its glow, and the text its end shows (type 8).
@@ -318,6 +328,9 @@ pub struct Cast {
     pub skill: u32,
     pub item: u64,
     pub giver: Option<(u64, Option<(u32, u32)>)>,
+    /// It answers another effect, and so is not answered in turn: two holders can't go back and
+    /// forth.
+    pub answers: bool,
 }
 
 /// The class priority of a record.
@@ -394,6 +407,34 @@ pub fn modifier(
     (add, mult)
 }
 
+/// What a holder's effects make of its rating in a skill: each change in turn, a whole number of
+/// points added or the rating multiplied, what is left never below nothing (2017: a change of 6.82
+/// raised a rating of 40 to 46).
+#[must_use]
+pub fn skill_rating(
+    table: &crate::effect_defs::EffectTable,
+    records: &[EffectState],
+    skill: u32,
+    rating: u32,
+) -> u32 {
+    let stat = SKILL_STAT | skill;
+    let mut out = i64::from(rating);
+    for e in applying(table, records) {
+        let Some(d) = table.get(e.state) else {
+            continue;
+        };
+        for (s, multiplies, v) in d.changes(e.spellcraft) {
+            if s == stat {
+                #[allow(clippy::cast_precision_loss)]
+                let then = if multiplies { out as f32 * v } else { v };
+                let then = i64::from(dereth_primitives::num::to_i32(then.trunc()));
+                out = if multiplies { then } else { out + then };
+            }
+        }
+    }
+    u32::try_from(out.max(0)).unwrap_or(rating)
+}
+
 /// A player's greatest health or vigor with its effects (the client counts them the same way).
 #[must_use]
 pub fn max_vital<S: Store>(s: &Server<S>, p: &crate::world::Player, max_quality: u32) -> i32 {
@@ -416,6 +457,12 @@ pub fn max_vital<S: Store>(s: &Server<S>, p: &crate::world::Player, max_quality:
 pub fn damage_added<S: Store>(s: &Server<S>, p: &crate::world::Player) -> i32 {
     let (add, _) = modifier(&s.effect_table, &p.play.effects, DAMAGE_ADD);
     dereth_primitives::num::to_i32(add)
+}
+
+/// What a player's effects add to its skills' costs (negative: what they take off).
+#[must_use]
+pub fn vigor_cost_added<S: Store>(s: &Server<S>, p: &crate::world::Player) -> f32 {
+    modifier(&s.effect_table, &p.play.effects, VIGOR_COST_ADD).0
 }
 
 /// Put an effect on a player: what it does, as cast. Returns whether it did anything.
@@ -448,6 +495,10 @@ pub fn apply_on<S: Store>(
     if !present(s, on) {
         return false;
     }
+    reply_to(s, net, on, &def, cast, clock);
+    if warded(s, on, &def) {
+        return false;
+    }
     match (&def.kind, on) {
         (Kind::InstantVital { flags, change }, On::Player(world)) => {
             let amount =
@@ -467,16 +518,15 @@ pub fn apply_on<S: Store>(
             true
         }
         (Kind::Quest { quest, update }, On::Player(world)) => {
-            let up = match update & 0xF000_0000 {
-                0x1000_0000 => Update::Bestow,
-                0x3000_0000 => Update::Complete,
-                crate::quests::update::FAIL => {
-                    crate::quests::fail(s, net, world, *quest, clock);
-                    return true;
-                }
-                _ => Update::Advance(update & 0x0FFF_FFFF),
+            let act = match update & 0xF000_0000 {
+                crate::quests::update::BESTOW => Move::Bestow,
+                crate::quests::update::COMPLETE => Move::Complete,
+                crate::quests::update::FAIL => Move::Fail,
+                crate::quests::update::INCREMENT => Move::Increment,
+                _ => Move::Advance(update & 0x0FFF_FFFF),
             };
-            crate::quests::apply(s, net, world, *quest, up, 0, clock);
+            let e = crate::quests::QuestEffect { quest: *quest, act };
+            crate::quests::moves(s, net, world, e, true, clock);
             true
         }
         // A teleport is no record: its target goes when its time is up (2017: 10.0 s after the
@@ -491,7 +541,7 @@ pub fn apply_on<S: Store>(
             true
         }
         (Kind::GrantRecipe(recipe), On::Player(world)) => {
-            crate::craft::learn(s, net, world, *recipe);
+            crate::craft::learn(s, net, world, *recipe, clock);
             if def.fx != 0 {
                 show_fx(s, net, world, def.fx);
             }
@@ -512,10 +562,15 @@ pub fn apply_on<S: Store>(
             crate::craft::forget(s, net, world, *recipe);
             true
         }
+        (Kind::Taunt(share), On::Creature(id)) => {
+            crate::ai::taunted(s, id, cast.caster, *share, clock.local.0);
+            true
+        }
         (
             Kind::Quest { .. } | Kind::GrantRecipe(_) | Kind::RemoveRecipe(_) | Kind::Teleport(_),
             On::Creature(_),
         )
+        | (Kind::Taunt(_), On::Player(_))
         | (Kind::Aura(_), _) => false,
         // A pet is summoned as its skill's use ends ([`crate::pets`]), never as an effect; a
         // recall is its skill's trip ([`crate::skill_use`]).
@@ -524,10 +579,232 @@ pub fn apply_on<S: Store>(
             combine(s, net, on, &def, c, cast, clock);
             true
         }
-        (Kind::Other, _) if !def.lasts() => false,
+        (
+            Kind::Other
+            | Kind::Counter { .. }
+            | Kind::Reply { .. }
+            | Kind::Watcher(_)
+            | Kind::Ward { .. },
+            _,
+        ) if !def.lasts() => false,
         _ => {
             add_on(s, net, on, &def, cast, Shape::TIMED, clock);
             true
+        }
+    }
+}
+
+/// Does a ward its target holds keep this effect off? The top of each class of ward draws, by its
+/// chance at its spellcraft. A use's own effects come on in the order its data lists them, the ward
+/// after what it would keep off, so it doesn't keep off its own.
+fn warded<S: Store>(s: &mut Server<S>, on: On, def: &EffectDef) -> bool {
+    let chances: Vec<f32> = applying(&s.effect_table, records_of(s, on))
+        .into_iter()
+        .filter_map(|r| match &s.effect_table.get(r.state)?.kind {
+            Kind::Ward { classes, chance }
+                if classes.is_empty() || classes.contains(&def.eq_class) =>
+            {
+                chance.at(r.spellcraft)
+            }
+            _ => None,
+        })
+        .collect();
+    chances.into_iter().any(|c| s.rng.chance(c))
+}
+
+/// A harmful effect comes at its target from another: each reply the target holds may answer, by its
+/// chance at its spellcraft, with its effect on who sent it, whether or not a ward keeps this one
+/// off. An answer isn't answered. No recording holds a holder of one: their lists and chances are
+/// the data's, and the rest our choice, the harmful alone being answered so that helping a holder
+/// costs nothing.
+fn reply_to<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    on: On,
+    def: &EffectDef,
+    cast: Cast,
+    clock: Clock,
+) {
+    if cast.answers || def.internal_flags & crate::effect_defs::HARMFUL == 0 {
+        return;
+    }
+    let holder = match on {
+        On::Player(world) => s.players.get(&world).map_or(0, |p| p.character),
+        On::Creature(id) => id,
+    };
+    if cast.caster == holder {
+        return;
+    }
+    let replies: Vec<(u32, f32, EffectState)> = applying(&s.effect_table, records_of(s, on))
+        .into_iter()
+        .filter_map(|r| match &s.effect_table.get(r.state)?.kind {
+            Kind::Reply {
+                effect,
+                chance,
+                classes,
+            } if classes.is_empty() || classes.contains(&def.eq_class) => {
+                Some((*effect, chance.at(r.spellcraft)?, *r))
+            }
+            _ => None,
+        })
+        .collect();
+    let source = conn_of(s, cast.caster).map_or(On::Creature(cast.caster), On::Player);
+    for (effect, chance, record) in replies {
+        if s.rng.chance(chance) {
+            let answer = Cast {
+                caster: holder,
+                spellcraft: record.spellcraft,
+                pk: matches!(on, On::Player(_)),
+                answers: true,
+                ..Cast::default()
+            };
+            apply_on(s, net, source, effect, answer, clock);
+        }
+    }
+}
+
+/// An attack has reached a player: each counter it holds may answer, by its chance at its
+/// spellcraft, with its effect on the attacker. An effect's harm over time is no attack.
+pub fn answer_attack<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    by: u64,
+    clock: Clock,
+) {
+    let Some(p) = s.players.get(&world) else {
+        return;
+    };
+    let me = p.character;
+    let counters: Vec<(u32, f32, f32, u64)> = p
+        .play
+        .effects
+        .iter()
+        .filter_map(|r| match &s.effect_table.get(r.state)?.kind {
+            Kind::Counter { effect, chance } => {
+                let at = chance.at(r.spellcraft)?;
+                Some((*effect, at, r.spellcraft, r.item))
+            }
+            _ => None,
+        })
+        .collect();
+    for (effect, chance, spellcraft, item) in counters {
+        if !s.rng.chance(chance) {
+            continue;
+        }
+        let on = conn_of(s, by).map_or(On::Creature(by), On::Player);
+        let cast = Cast {
+            caster: me,
+            spellcraft,
+            pk: true,
+            item,
+            ..Cast::default()
+        };
+        apply_on(s, net, on, effect, cast, clock);
+    }
+}
+
+/// What an attack's harm comes to once its target's effects have watched it: what is left of it
+/// (below nothing, it heals), and what goes back to the attacker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Harm {
+    pub left: i32,
+    pub back: i32,
+}
+
+impl Harm {
+    /// Harm no effect has touched.
+    #[must_use]
+    pub const fn plain(left: i32) -> Self {
+        Self { left, back: 0 }
+    }
+}
+
+/// A side of a watcher, drawn: nothing unless its chance comes up, else its amount at the spellcraft
+/// plus up to its spread.
+fn drawn<S: Store>(s: &mut Server<S>, side: &crate::effect_defs::Share, spellcraft: f32) -> f32 {
+    if !s.rng.chance(side.chance) {
+        return 0.0;
+    }
+    side.amount.at(spellcraft).unwrap_or(0.0) + s.rng.between(0.0, side.spread)
+}
+
+/// What the watchers a target holds make of an attack's harm, drawn as the attack is told: the top
+/// of each class, the higher classes first, each seeing what those before it left. Each takes
+/// from the harm and sends back, by its own draws, what its amounts come to of the harm it saw,
+/// rounded up (2017: 317 of 317 strikes on a wearer of a fifth, 360 sending back 72, so reckoned in
+/// single precision; two classes add, a tenth and 0.19 sending back 0.3). Sending back a player's
+/// attack is multiplied by what the watcher says for that. A creature is not healed by it. What
+/// is left is not stopped at nothing: an amount larger than the harm heals (2017: a strike told as
+/// 106 health gained).
+pub fn answer_harm<S: Store>(s: &mut Server<S>, on: On, harm: i32, by_a_player: bool) -> Harm {
+    let mut watchers: Vec<(u32, crate::effect_defs::Watcher, f32)> =
+        applying(&s.effect_table, records_of(s, on))
+            .into_iter()
+            .filter_map(|r| {
+                let d = s.effect_table.get(r.state)?;
+                match &d.kind {
+                    Kind::Watcher(w) => Some((d.eq_class, (**w).clone(), r.spellcraft)),
+                    _ => None,
+                }
+            })
+            .collect();
+    watchers.sort_by_key(|w| std::cmp::Reverse(w.0));
+    let (mut left, mut back) = (harm, 0);
+    for (_, w, spellcraft) in watchers {
+        let mut sent = drawn(s, &w.sends_back, spellcraft);
+        if by_a_player {
+            sent *= w.against_a_player;
+        }
+        let absorbed = drawn(s, &w.absorbs, spellcraft);
+        if !w.watches || left <= 0 {
+            continue;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let of = if w.shares { left as f32 } else { 1.0 };
+        back += dereth_primitives::num::to_i32((of * sent).ceil());
+        left -= dereth_primitives::num::to_i32((of * absorbed).ceil());
+    }
+    if matches!(on, On::Creature(_)) {
+        left = left.max(0);
+    }
+    Harm { left, back }
+}
+
+/// What a target's effects sent back reaches its attacker: a player loses that health, and may die
+/// of it; a creature or a pet is hurt by the target (2017: where it took a fifth of a creature's
+/// health or more, 17 kills, the attacks alone came to 0.89 of it, with what went back 1.14; a
+/// player's health fell by it, 51 of 98 alone between two updates).
+pub(crate) fn harm_back<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    attacker: u64,
+    target: u64,
+    back: i32,
+    clock: Clock,
+) {
+    if back <= 0 {
+        return;
+    }
+    if let Some(world) = conn_of(s, attacker) {
+        if s.players
+            .get(&world)
+            .is_some_and(|p| p.trip.is_some() || crate::combat::is_dead(p))
+        {
+            return;
+        }
+        let (share, was) = crate::combat::lose_health(s, net, world, back);
+        crate::combat::wounded(s, net, attacker, share, was);
+        crate::combat::after_hurt(s, net, world, target, clock);
+    } else if s
+        .things
+        .get(attacker)
+        .is_some_and(crate::things::Thing::alive)
+    {
+        if conn_of(s, target).is_some() {
+            crate::combat::hurt_creature(s, net, attacker, target, back, clock);
+        } else {
+            crate::pets::struck(s, net, attacker, (target, 0), back, clock);
         }
     }
 }
@@ -685,7 +962,7 @@ fn health_story(
 
 /// Change a creature's health by an amount: its story of it, then a hurt (which may kill it) or a
 /// heal (not past its greatest health).
-fn creature_health<S: Store>(
+pub(crate) fn creature_health<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
     id: u64,
@@ -1314,8 +1591,11 @@ pub fn enter<S: Store>(s: &mut Server<S>, net: &ServerNet, world: ConnId, clock:
     }
 }
 
-/// A resurrection takes off the records whose effects a death ends.
-pub fn resurrected<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
+/// A resurrection takes off the records whose effects a death ends, as it is asked for (2017: of the
+/// records still running at 227 requests, 1,664 of 1,664 such were gone before the protection's add,
+/// 192 of 192 worn ones and 432 of 432 others stayed). A ride ends as rides end. Returns the
+/// appearances no record shows now, for the caller to stop when they are due.
+pub fn resurrected<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) -> Vec<u32> {
     let gone: Vec<u32> = s.players.get(&world).map_or_else(Vec::new, |p| {
         p.play
             .effects
@@ -1330,12 +1610,16 @@ pub fn resurrected<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Conn
             .map(|e| e.eid)
             .collect()
     });
+    let mut stop = Vec::new();
     for eid in gone {
         // A ride ends as rides end.
         if !crate::mounts::record_ends(s, net, world, eid) {
-            remove(s, net, world, eid);
+            if let Some(Some(fx)) = take_off(s, net, On::Player(world), eid) {
+                stop.push(fx);
+            }
         }
     }
+    stop
 }
 
 /// The effect registry a session start carries: the records, the id counter, each class's top
@@ -1582,7 +1866,11 @@ pub fn aura_on<S: Store>(
     };
     let me = p.character;
     let eid = next_eid(p);
-    let fx = pulse_records(s, net, world, me, &a, spellcraft, clock);
+    let fx = if pulses_on_held(&a) {
+        Vec::new()
+    } else {
+        pulse_records(s, net, world, me, &a, spellcraft, clock)
+    };
     let e = EffectState {
         eid,
         state: aura,
@@ -1635,6 +1923,9 @@ fn pulse_records<S: Store>(
             timeout: None,
             acting: me,
         };
+        if warded(s, On::Player(world), &d) {
+            continue;
+        }
         if add_quietly(s, net, On::Player(world), &d, cast, shape, clock).is_some()
             && d.fx != 0
             && shows_once(s, On::Player(world), d.fx)
@@ -1643,6 +1934,278 @@ fn pulse_records<S: Store>(
         }
     }
     fx
+}
+
+/// Whether an aura's pulses go on what its user holds, not on anyone: no record of one is ever on a
+/// player (2017: 0 records of their pulses beside 11 of such auras), and the item's examination
+/// lists them.
+fn pulses_on_held(a: &Aura) -> bool {
+    a.targets & (aura_target::WEAPON | aura_target::SHIELD | aura_target::ITEM) != 0
+}
+
+/// The pulsed effects auras hold on a thing in a player's hands, each with its aura's spellcraft:
+/// a weapon's or a shield's by what the aura names, anything held by an aura for items, from the
+/// player's own auras and those of its fellows within the aura's range (2017: Human skills' auras
+/// named on 6 weapons of other races' players, in 8 captures). Of one effect from several auras,
+/// the strongest.
+#[must_use]
+pub fn on_held<S: Store>(s: &Server<S>, player: u64, item: u64, shield: bool) -> Vec<(u32, f32)> {
+    let Some(p) = s.players.values().find(|p| p.character == player) else {
+        return Vec::new();
+    };
+    if !crate::skill_use::wielded(s, player)
+        .iter()
+        .any(|(i, _)| *i == item)
+    {
+        return Vec::new();
+    }
+    let kind = if shield {
+        aura_target::SHIELD
+    } else {
+        aura_target::WEAPON
+    };
+    let mut held: Vec<(u32, f32)> = Vec::new();
+    let fellows: Vec<&crate::world::Player> = s
+        .fellowships
+        .of(player)
+        .into_iter()
+        .flat_map(|i| s.fellowships.list[i].fellows.iter())
+        .filter(|f| f.id != player && p.scene_drawn && p.trip.is_none())
+        .filter_map(|f| s.players.values().find(|o| o.character == f.id))
+        .collect();
+    for from in std::iter::once(p).chain(fellows) {
+        let auras = from
+            .play
+            .effects
+            .iter()
+            .filter(|e| e.flags == AURA_FLAGS)
+            .filter_map(|e| Some((aura_def(s, e.state)?, e.spellcraft)))
+            .filter(|(a, _)| a.targets & (kind | aura_target::ITEM) != 0)
+            .filter(|(a, _)| {
+                from.character == player
+                    || crate::presence::distance(&p.position, &from.position)
+                        .is_some_and(|d| d <= a.range)
+            });
+        for (a, spellcraft) in auras {
+            for state in a.pulsed {
+                match held.iter_mut().find(|(st, _)| *st == state) {
+                    Some(h) => h.1 = h.1.max(spellcraft),
+                    None => held.push((state, spellcraft)),
+                }
+            }
+        }
+    }
+    held
+}
+
+/// The effects held on a thing in the world: those skills put on it, wherever it is, and those auras
+/// hold on it when a player has it in hand.
+#[must_use]
+pub fn on_thing<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> Vec<(u32, f32)> {
+    let mut held: Vec<(u32, f32)> = running_on_item(s, t)
+        .into_iter()
+        .map(|e| (e.state, e.spellcraft))
+        .collect();
+    held.extend(auras_on_thing(s, t));
+    held
+}
+
+/// The effects auras hold on a thing in the world: nothing unless a player has it in hand.
+#[must_use]
+pub fn auras_on_thing<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> Vec<(u32, f32)> {
+    let Some((holder, _)) = t.wielded else {
+        return Vec::new();
+    };
+    let shield = crate::skill_use::implement_of(&s.catalog, t.template)
+        == Some(crate::skill_use::implement::SHIELD);
+    on_held(s, holder, t.id, shield)
+}
+
+/// The class of an effect that attunes what it is on to whoever holds it.
+const ATTUNEMENT_CLASS: u32 = 114;
+
+/// The effects skills put on an item that are still running: the top one of each class, by its
+/// priority, then its spellcraft, then the later to end.
+#[must_use]
+pub fn running_on_item<S: Store>(
+    s: &Server<S>,
+    t: &crate::things::Thing,
+) -> Vec<crate::things::TimedEffect> {
+    let mut top: Vec<(u32, f32, crate::things::TimedEffect)> = Vec::new();
+    for e in t.timed.iter().filter(|e| e.until > s.game_now) {
+        let Some(d) = s.effect_table.get(e.state) else {
+            continue;
+        };
+        let priority = d.priority.at(e.spellcraft).unwrap_or(0.0);
+        let rank = |p: f32, x: &crate::things::TimedEffect| (p, x.spellcraft, x.until);
+        match top.iter_mut().find(|(class, _, _)| *class == d.eq_class) {
+            Some(held) => {
+                if rank(priority, e) > rank(held.1, &held.2) {
+                    (held.1, held.2) = (priority, *e);
+                }
+            }
+            None => top.push((d.eq_class, priority, *e)),
+        }
+    }
+    top.into_iter().map(|(_, _, e)| e).collect()
+}
+
+/// Does an effect that attunes an item run on this one?
+#[must_use]
+pub fn attuned_by_effect<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> bool {
+    t.timed.iter().any(|e| {
+        e.until > s.game_now
+            && s.effect_table
+                .get(e.state)
+                .is_some_and(|d| d.eq_class == ATTUNEMENT_CLASS)
+    })
+}
+
+/// A message about an item to all who see it: its holder alone unless it is in hand.
+fn tell_of_item<S: Store>(s: &mut Server<S>, net: &mut ServerNet, item: u64, m: &ServerMessage) {
+    let Some(t) = s.things.get(item) else {
+        return;
+    };
+    let holder = t.wielded.or(t.container).map(|(holder, _)| holder);
+    if let Some(world) = holder.and_then(|h| crate::social::world_of(s, h)) {
+        crate::inventory::to_holder(s, net, world, item, m);
+    }
+}
+
+/// A skill puts an effect on an item, for its time on the game clock whoever holds it after. An item
+/// carries one of each effect: a new one takes the place of an older one no stronger, and a weaker
+/// one changes nothing. Its look plays as the first effect showing it goes on (2017: 25 of 32 first
+/// stories on an item played it, 2 of 23 with one running), and stops as the last ends.
+pub fn put_on_item<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    item: u64,
+    state: u32,
+    spellcraft: f32,
+    clock: Clock,
+) {
+    let Some(def) = s.effect_table.get(state).cloned() else {
+        s.unhandled
+            .note(format!("an effect {state:08X} the server does not know"));
+        return;
+    };
+    let Some(seconds) = def.duration.at(spellcraft) else {
+        return;
+    };
+    let now = net.game_time(clock.local);
+    let until = now + f64::from(seconds);
+    let Some(t) = s.things.get_mut(item) else {
+        return;
+    };
+    t.timed.retain(|e| e.until > now);
+    if t.timed
+        .iter()
+        .any(|e| e.state == state && e.spellcraft > spellcraft)
+    {
+        return;
+    }
+    let showing = def.fx != 0
+        && s.things.get(item).is_some_and(|t| {
+            t.timed
+                .iter()
+                .any(|e| s.effect_table.get(e.state).is_some_and(|d| d.fx == def.fx))
+        });
+    let Some(t) = s.things.get_mut(item) else {
+        return;
+    };
+    t.timed.retain(|e| e.state != state);
+    t.timed.push(crate::things::TimedEffect {
+        state,
+        spellcraft,
+        until,
+    });
+    if def.fx != 0 && !showing {
+        let m = ServerMessage::DoFx(ObjectEvent {
+            sender: crate::inventory::visual(s, item),
+            action: Fx {
+                fx: def.fx,
+                scalar: 1.0,
+            },
+        });
+        tell_of_item(s, net, item, &m);
+        s.after(
+            clock,
+            f64::from(seconds),
+            crate::Timer::ItemEffectEnds { item, fx: def.fx },
+        );
+    }
+}
+
+/// The time of the look an item's effects show is up: it stops, unless an effect showing it runs on.
+pub fn item_effect_ends<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    item: u64,
+    fx: u32,
+    clock: Clock,
+) {
+    let now = net.game_time(clock.local);
+    let Some(t) = s.things.get_mut(item) else {
+        return;
+    };
+    t.timed.retain(|e| e.until > now);
+    let last = s.things.get(item).and_then(|t| {
+        t.timed
+            .iter()
+            .filter(|e| s.effect_table.get(e.state).is_some_and(|d| d.fx == fx))
+            .map(|e| e.until)
+            .max_by(f64::total_cmp)
+    });
+    if let Some(last) = last {
+        s.after(clock, last - now, crate::Timer::ItemEffectEnds { item, fx });
+        return;
+    }
+    let m = ServerMessage::StopFx(ObjectEvent {
+        sender: crate::inventory::visual(s, item),
+        action: Word(fx),
+    });
+    tell_of_item(s, net, item, &m);
+}
+
+/// What these effects on an item multiply a stat of it by.
+#[must_use]
+pub fn held_multiplier<S: Store>(s: &Server<S>, held: &[(u32, f32)], stat: u32) -> f32 {
+    held.iter()
+        .filter_map(|(state, spellcraft)| Some((s.effect_table.get(*state)?, *spellcraft)))
+        .flat_map(|(d, spellcraft)| d.changes(spellcraft))
+        .filter(|(st, multiply, _)| *st == stat && *multiply)
+        .map(|(_, _, by)| by)
+        .product()
+}
+
+/// A weapon's greatest damage under these effects, rounded down: each multiplier, then what is added
+/// (2017: the shown span of 23 of 23 weapons plain and under one of them, the least following from
+/// the greatest by the weapon's variance; hits rolled that span, 44 wide where its plain span is 35).
+#[must_use]
+pub fn held_damage<S: Store>(s: &Server<S>, held: &[(u32, f32)], most: i32) -> i32 {
+    let added: f32 = held
+        .iter()
+        .filter_map(|(state, spellcraft)| Some((s.effect_table.get(*state)?, *spellcraft)))
+        .flat_map(|(d, spellcraft)| d.changes(spellcraft))
+        .filter(|(st, multiply, _)| *st == crate::made::stat::DAMAGE && !*multiply)
+        .map(|(_, _, by)| by)
+        .sum();
+    #[allow(clippy::cast_precision_loss)]
+    let whole = most as f32 * held_multiplier(s, held, crate::made::stat::DAMAGE) + added;
+    dereth_primitives::num::to_i32(whole.floor())
+}
+
+/// What these effects on an item add to its shield rating, rounded down.
+#[must_use]
+pub fn held_rating<S: Store>(s: &Server<S>, held: &[(u32, f32)]) -> i32 {
+    let added: f32 = held
+        .iter()
+        .filter_map(|(state, spellcraft)| Some((s.effect_table.get(*state)?, *spellcraft)))
+        .flat_map(|(d, spellcraft)| d.changes(spellcraft))
+        .filter(|(st, multiply, _)| *st == crate::made::stat::ARMOR && !*multiply)
+        .map(|(_, _, by)| by)
+        .sum();
+    dereth_primitives::num::floor_to_i32(added)
 }
 
 /// The players an aura's pulse reaches, when it reaches players: its user, and each of its fellows
@@ -1689,16 +2252,56 @@ pub fn pulse<S: Store>(
     eid: u32,
     clock: Clock,
 ) {
+    if !pulse_once(s, net, world, eid, clock) {
+        return;
+    }
+    let wait = f64::from(s.rng.between(0.0, 1.0));
+    s.after(
+        clock,
+        PULSE_LEAST + wait * (PULSE_MOST - PULSE_LEAST),
+        Timer::AuraPulse { world, eid },
+    );
+}
+
+/// Three seconds after a player is back from a resurrection, each aura it held through it pulses
+/// beside its own round.
+pub fn auras_pulse_again<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    clock: Clock,
+) {
+    let held: Vec<u32> = s.players.get(&world).map_or_else(Vec::new, |p| {
+        p.play
+            .effects
+            .iter()
+            .filter(|e| e.flags == AURA_FLAGS)
+            .map(|e| e.eid)
+            .collect()
+    });
+    for eid in held {
+        pulse_once(s, net, world, eid, clock);
+    }
+}
+
+/// One pulse of an aura, without its next: false if it is no longer on.
+fn pulse_once<S: Store>(
+    s: &mut Server<S>,
+    net: &mut ServerNet,
+    world: ConnId,
+    eid: u32,
+    clock: Clock,
+) -> bool {
     let Some(aura) = s
         .players
         .get(&world)
         .and_then(|p| p.play.effects.iter().find(|e| e.eid == eid))
         .copied()
     else {
-        return;
+        return false;
     };
     let Some(a) = aura_def(s, aura.state) else {
-        return;
+        return false;
     };
     let reached = pulse_reaches(s, world, &a);
     for to in &reached {
@@ -1728,12 +2331,7 @@ pub fn pulse<S: Store>(
     for (to, eids) in missed {
         progress::private(net, to, &pulse_missed_call(&eids));
     }
-    let wait = f64::from(s.rng.between(0.0, 1.0));
-    s.after(
-        clock,
-        PULSE_LEAST + wait * (PULSE_MOST - PULSE_LEAST),
-        Timer::AuraPulse { world, eid },
-    );
+    true
 }
 
 /// Turn an aura off: the records of its pulses its user holds, oldest first, then its own; the
@@ -1776,8 +2374,8 @@ pub fn aura_off<S: Store>(
     stop
 }
 
-/// A player goes into portal space: every aura it holds turns off (its toggle, its records, the
-/// appearances they showed).
+/// A player goes into portal space, other than to come back from its death: every aura it holds
+/// turns off (its toggle, its records, the appearances they showed).
 pub fn auras_off<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     let held: Vec<EffectState> = s.players.get(&world).map_or_else(Vec::new, |p| {
         p.play

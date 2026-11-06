@@ -92,7 +92,6 @@ pub fn running_reports_walk_with_the_run_hold_key() {
 // -------------------------------------------------------------------------------------------
 
 /// A body may only enter the world where it fits.
-#[cfg(windows)]
 pub fn enter_world_refuses_a_body_inside_a_building() {
     use std::sync::Arc;
 

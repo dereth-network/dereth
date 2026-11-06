@@ -507,6 +507,8 @@ struct Replay<'a> {
     unread: std::collections::BTreeSet<u32>,
     /// The chat panel was made: the player's commands are known.
     commands_known: bool,
+    /// The purchases the recorded player made, and those the scripts said it could afford.
+    purchases: (u32, u32),
 }
 
 impl<'a> Replay<'a> {
@@ -526,6 +528,7 @@ impl<'a> Replay<'a> {
             reread: 0,
             unread: std::collections::BTreeSet::new(),
             commands_known: false,
+            purchases: (0, 0),
         }
     }
 
@@ -854,6 +857,10 @@ impl<'a> Replay<'a> {
                 }) else {
                     return;
                 };
+                c.refresh_store();
+                let most = c.store().max_purchase.get(&item).copied().unwrap_or(0);
+                self.purchases.0 += 1;
+                self.purchases.1 += u32::from(most >= quantity);
                 // Pushed last first: the slot, the quantity, the item.
                 let a = [
                     InterfaceArg::Word(slot),
@@ -1264,6 +1271,13 @@ fn selecting_what_the_recorded_player_selected_sends_what_the_recorded_client_se
             t.other
         );
     }
+    // What the recorded player bought, the scripts said it could: the shop window asks before it
+    // buys.
+    assert!(
+        r.purchases.0 > 0 && r.purchases.1 == r.purchases.0,
+        "{:?}",
+        r.purchases
+    );
     // A corpse placed in the world takes the player's selection when its creature was selected:
     // those selections are the scripts' own. The replay places a corpse as its message arrives,
     // the client once its parts have loaded, so a few selections (and the uses, attacks and
@@ -1496,8 +1510,10 @@ const CUSTOM_EMOTE_COMMAND: (u32, u32) = (0x4100_0007, 0x28E8_995D);
 /// What a rider asked of its scripts and what came of it.
 #[derive(Default, Debug)]
 struct Rides {
-    /// Recorded mounts with the player in the world.
+    /// Recorded mounts with the player in the world, and those that came while the private stream
+    /// held them.
     mounted: u64,
+    held: u64,
     /// The lines shown, by the request and the line, and the server calls the requests sent.
     lines: BTreeMap<(&'static str, String), u64>,
     sends: u64,
@@ -1591,6 +1607,15 @@ fn a_rider_is_refused_attacks_and_emotes_by_its_scripts() {
         if !now || c.model.player_object().is_none() {
             return;
         }
+        // Held behind a missing private stamp, the mount has not taken effect yet.
+        let on_mount = c
+            .model
+            .player_object()
+            .is_some_and(|o| o.qualities.bools.get(&MOUNTED).is_some_and(|v| *v != 0));
+        if !on_mount {
+            t.held += 1;
+            return;
+        }
         t.mounted += 1;
         // Made known with each session's play screen.
         if !commands || c.with_host(|h| h.commands.names.is_empty()).unwrap_or(true) {
@@ -1634,6 +1659,7 @@ fn a_rider_is_refused_attacks_and_emotes_by_its_scripts() {
     let emote = "You cannot perform emotes while you are on your mount.
 ";
     assert!(t.mounted >= 200, "{t:?}");
+    assert!(t.held * 100 < t.mounted, "{t:?}");
     let shown = |request: &'static str, line: &str| t.lines.get(&(request, line.to_owned()));
     assert_eq!(shown("attack", attack), Some(&t.mounted), "{t:?}");
     for request in ["menu emote", "typed emote", "custom emote"] {

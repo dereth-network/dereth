@@ -15,7 +15,7 @@
 //! # The two ids the client never writes down, and where they came from
 //!
 //! Preview initialization resolves enums `0x10000001` and `0x10000002` through the object cache.
-//! That is [`dereth_client_runtime::assets::enum_did`](dereth_client_runtime::assets::enum_did)'s two-level
+//! That is [`dereth_client_runtime::assets::enum_did`]'s two-level
 //! lookup, and the **group is 7, `UIASSET`** -- the same group the UI sound table
 //! (`0x10000003`) comes from, which is what pins it. In this dat build the master `DidMapper`
 //! `0x25000000` sends group 7 to `0x25000010`, and that mapper's own enum-to-name table names

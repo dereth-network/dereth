@@ -20,6 +20,31 @@ pub struct LootProfile {
     pub extras: Vec<(u32, f32)>,
     pub placed: String,
     pub confidence: String,
+    /// What a chest's draw is: the level it is treasure of, and the worth each piece draws from.
+    pub chest: Option<ChestTreasure>,
+}
+
+/// What a chest of a profile holds as treasure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChestTreasure {
+    pub level: i32,
+    pub value: (u32, u32),
+}
+
+/// A chest's column: `LEVEL:LOW:HIGH`, or empty.
+fn chest(s: &str) -> Result<Option<ChestTreasure>, String> {
+    if s.is_empty() {
+        return Ok(None);
+    }
+    let f: Vec<&str> = s.split(':').collect();
+    let [level, low, high] = f[..] else {
+        return Err(format!("a chest is LEVEL:LOW:HIGH, not {s}"));
+    };
+    let bad = |e: std::num::ParseIntError| format!("{s}: {e}");
+    Ok(Some(ChestTreasure {
+        level: level.parse().map_err(bad)?,
+        value: (low.parse().map_err(bad)?, high.parse().map_err(bad)?),
+    }))
 }
 
 /// Every profile, by name.
@@ -29,13 +54,14 @@ pub struct LootTable {
 }
 
 /// The table's columns, in order.
-pub const COLUMNS: [&str; 6] = [
+pub const COLUMNS: [&str; 7] = [
     "profile",
     "counts",
     "items",
     "extras",
     "placed",
     "confidence",
+    "chest",
 ];
 
 fn hex(s: &str) -> Result<u32, String> {
@@ -75,10 +101,14 @@ impl LootTable {
                 .join(",");
             let _ = writeln!(
                 out,
-                "{}\t{counts}\t{items}\t{extras}\t{}\t{}",
+                "{}\t{counts}\t{items}\t{extras}\t{}\t{}\t{}",
                 p.name,
                 p.placed.replace(['\t', '\n'], " "),
-                p.confidence
+                p.confidence,
+                p.chest.map_or_else(String::new, |c| format!(
+                    "{}:{}:{}",
+                    c.level, c.value.0, c.value.1
+                ))
             );
         }
         out
@@ -132,6 +162,7 @@ impl LootTable {
                 extras,
                 placed: c[4].to_string(),
                 confidence: c[5].to_string(),
+                chest: chest(c[6]).map_err(at)?,
             });
         }
         Ok(Self { profiles })

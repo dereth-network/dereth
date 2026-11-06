@@ -1138,7 +1138,7 @@ impl Net {
         //   * a `RejectRetransmit` leaves our own NAK set standing, so the client asks for a
         //     sequence the server has already said is gone, for ever, every 0.6 s;
         //   * an `AckSequence` retires nothing, so `SentPacketHistory` is bounded only by this
-        //     crate's own 4096-packet / 120-second cap and never by the protocol.
+        //     crate's own bounds of packets and age and never by the protocol.
         //
         // The order is the original's: NAK before reject before ack. It matters, because
         // Ack enqueueing checks the sent-packet store, and the flush this ack schedules is

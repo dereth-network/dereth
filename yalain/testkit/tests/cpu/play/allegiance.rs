@@ -488,3 +488,176 @@ fn a_vassals_experience_is_pooled_and_paid_to_its_patron_up_to_the_levels_cap() 
     award(&mut h, vid, 1_000);
     assert_eq!(total(&h), 350);
 }
+
+/// A store edited by hand into a circle of oaths still has an end: every walk counts each member
+/// once, and none of them hangs.
+/// Behaviour: server.allegiance.a-stored-circle-has-an-end
+#[test]
+fn a_stored_circle_of_oaths_is_walked_once_round() {
+    use yalain_world::allegiance::{Allegiances, Node as Member};
+    let mut a = Allegiances::default();
+    for (id, patron) in [(1, 3), (2, 1), (3, 2), (4, 3)] {
+        a.nodes.insert(
+            id,
+            Member {
+                patron,
+                ..Member::default()
+            },
+        );
+    }
+    let mut members = a.tree(1);
+    members.sort_unstable();
+    assert_eq!(members, [1, 2, 3, 4]);
+    assert_eq!(a.size(1), 4);
+    assert!(a.rank(1) >= 1);
+    assert_eq!(a.monarch(1), None);
+}
+
+/// Ranks and trees read from the whole table at once come out as walking it member by member does,
+/// on a world's worth of oaths of every shape, and on a stored circle.
+/// Behaviour: server.allegiance.ranks-read-in-one-pass
+#[test]
+fn ranks_and_trees_read_at_once_come_out_as_a_walk_member_by_member() {
+    use std::collections::{BTreeMap, BTreeSet};
+    use yalain_world::allegiance::{Allegiances, Node};
+    fn walk(a: &Allegiances, id: u64, seen: &mut BTreeSet<u64>) -> u32 {
+        seen.insert(id);
+        let mut ranks = Vec::new();
+        for v in a.vassals(id) {
+            if seen.insert(v) {
+                ranks.push(walk(a, v, seen));
+            }
+        }
+        let Some(&top) = ranks.iter().max() else {
+            return 1;
+        };
+        let held = ranks.iter().filter(|r| **r == top).count();
+        (if held >= 2 { top + 1 } else { top }).clamp(1, yalain_world::allegiance::TOP_RANK)
+    }
+    fn walked_tree(a: &Allegiances, id: u64) -> Vec<u64> {
+        let mut out = vec![id];
+        let mut seen = BTreeSet::from([id]);
+        let mut i = 0;
+        while i < out.len() {
+            for v in a.vassals(out[i]) {
+                if seen.insert(v) {
+                    out.push(v);
+                }
+            }
+            i += 1;
+        }
+        out
+    }
+    let mut word = 12_345_u64;
+    let mut next = move |below: u64| {
+        word = word.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        (word >> 33) % below
+    };
+    let mut a = Allegiances::default();
+    for id in 1..=800_u64 {
+        // A patron from those before it, or none; oaths in no order of their ids.
+        let patron = if next(9) == 0 { 0 } else { 1 + next(id) };
+        let patron = if patron >= id { 0 } else { patron };
+        #[allow(clippy::cast_precision_loss)]
+        let joined = next(1000) as f64;
+        a.nodes.insert(
+            id,
+            Node {
+                patron,
+                joined,
+                ..Node::default()
+            },
+        );
+    }
+    let ranks: BTreeMap<u64, u32> = a.ranks();
+    assert_eq!(ranks.len(), 800);
+    for id in 1..=800_u64 {
+        let by_walk = walk(&a, id, &mut BTreeSet::new());
+        assert_eq!(a.rank(id), by_walk, "{id}");
+        assert_eq!(ranks[&id], by_walk, "{id}");
+        assert_eq!(a.tree(id), walked_tree(&a, id), "{id}");
+    }
+    assert_eq!(a.rank(9_999), 0, "no member");
+    // Two who swore to each other end, as a stored table may hold them.
+    a.nodes.insert(
+        5_000,
+        Node {
+            patron: 5_001,
+            ..Node::default()
+        },
+    );
+    a.nodes.insert(
+        5_001,
+        Node {
+            patron: 5_000,
+            ..Node::default()
+        },
+    );
+    assert!(a.rank(5_000) >= 1);
+    assert!(a.ranks()[&5_001] >= 1);
+    assert_eq!(a.tree(5_000), [5_000, 5_001]);
+}
+
+/// A long allegiance's export comes out of a connection's allowance of rows: one is answered as
+/// asked for, however long; one asked straight after it, past what's left, isn't; in time another
+/// is. An ordinary member's are all answered.
+/// Behaviour: server.allegiance.tree-export-out-of-an-allowance
+#[test]
+fn the_tree_export_comes_out_of_an_allowance_by_its_members() {
+    use yalain_world::allegiance::Node as Member;
+    use yalain_world::market::{PAGE_ROWS_A_SECOND, PAGE_ROWS_HELD};
+    let (mut h, a, b) = two();
+    let (ma, mid) = b;
+    sworn(&mut h, a, b);
+    let ask = [string_arg("allegianceexport.xml")];
+    let exports = |h: &Harness, from: usize| {
+        h.calls(ma, from)
+            .iter()
+            .filter(|(f, _)| *f == function::EXPORT)
+            .count()
+    };
+    let from = h.bots[ma].inbox.len();
+    for _ in 0..20 {
+        h.ask(ma, function::TREE_EXPORT, &ask, 2);
+    }
+    h.run(10);
+    assert_eq!(
+        exports(&h, from),
+        20,
+        "a small allegiance's are all answered"
+    );
+    // As long as what a connection holds takes.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let members = PAGE_ROWS_HELD as u64;
+    for i in 0..members {
+        let joined = i as f64;
+        h.server.allegiances.nodes.insert(
+            0x2130_0000_0100_0000 + i,
+            Member {
+                patron: mid,
+                joined,
+                ..Member::default()
+            },
+        );
+    }
+    h.step_by(PAGE_ROWS_HELD / PAGE_ROWS_A_SECOND + 1.0);
+    let from = h.bots[ma].inbox.len();
+    let call = yalain_testkit::play::server_call(function::TREE_EXPORT, &ask);
+    h.bots[ma].send(true, queue::WEENIE, &call);
+    h.bots[ma].send(true, queue::WEENIE, &call);
+    assert!(
+        h.run_until(50_000, |h| exports(h, from) >= 1),
+        "a long one comes"
+    );
+    assert!(
+        !h.run_until(5_000, |h| exports(h, from) >= 2),
+        "the next isn't answered"
+    );
+    h.step_by(PAGE_ROWS_HELD / PAGE_ROWS_A_SECOND + 1.0);
+    let from = h.bots[ma].inbox.len();
+    h.bots[ma].send(true, queue::WEENIE, &call);
+    assert!(
+        h.run_until(50_000, |h| exports(h, from) >= 1),
+        "back in time"
+    );
+}

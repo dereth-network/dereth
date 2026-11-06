@@ -380,6 +380,7 @@ pub fn physics_geometry(d: &DecodedCell) -> EnvCellGeometry {
             .collect(),
         // Environment-cell unpacking stores `flags & 1` into the cell's seen-outside flag.
         seen_outside: d.cell.flags & 1 != 0,
+        holds_without_portals: false,
         static_objects: d
             .cell
             .static_objects
@@ -638,6 +639,7 @@ fn registration_geometry(d: &DecodedCell, cell_bsp: Option<Arc<BspTree>>) -> Env
             .map(|&c| CellId((d.id.0 & 0xFFFF_0000) | u32::from(c)))
             .collect(),
         seen_outside: d.cell.flags & 1 != 0,
+        holds_without_portals: false,
         static_objects: Vec::new(),
     }
 }

@@ -62,10 +62,27 @@ pub fn ids_of(kind: u8) -> Vec<u32> {
 /// waiting, the hardware idle), so a test has the machine's device to itself from making its
 /// renderer until it lets it go. The tests' other work runs on the binary's threads meanwhile.
 pub fn renderer() -> Held {
-    static TURN: Mutex<()> = Mutex::new(());
-    let turn = TURN.lock().unwrap_or_else(PoisonError::into_inner);
+    let turn = turn();
     let renderer = Renderer::new().unwrap_or_else(|e| panic!("a hardware device: {e}"));
     eprintln!("adapter: {}", renderer.adapter);
+    Held {
+        renderer,
+        _turn: turn,
+    }
+}
+
+fn turn() -> MutexGuard<'static, ()> {
+    static TURN: Mutex<()> = Mutex::new(());
+    TURN.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// [`renderer`], the edges smoothed or not.
+pub fn renderer_antialiased(antialiasing: bool) -> Held {
+    let turn = turn();
+    let instance =
+        wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+    let renderer = Renderer::antialiased(&instance, None, antialiasing)
+        .unwrap_or_else(|e| panic!("a hardware device: {e}"));
     Held {
         renderer,
         _turn: turn,
