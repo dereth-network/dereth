@@ -12,7 +12,9 @@ use auberean_physics::land::{Block, Land};
 use auberean_physics::motion::values::default_values;
 use auberean_physics::world::World;
 use auberean_primitives::Vec3;
-use auberean_scene::others::{is_loaded, position_of, LostCell, LostCells, OtherBody, Received};
+use auberean_scene::others::{
+    is_loaded, out_of_physics_range, position_of, LostCell, LostCells, OtherBody, Received,
+};
 use dereth_physics::geom::Sphere;
 
 const FRAME: f64 = 1.0 / 60.0;
@@ -326,6 +328,7 @@ fn made(entity: u32) -> auberean_client_sdk::model::Object {
         wielder: None,
         in_world: true,
         teleport_stamp: None,
+        position_stamp: 0,
         creations: 1,
         qualities: auberean_client_sdk::model::Qualities::default(),
         reports: Vec::new(),
@@ -512,4 +515,164 @@ fn an_object_moves_as_its_qualities_record_says() {
     }
     assert!((ends[0] - 72.0).abs() < 0.05, "followed: {}", ends[0]);
     assert!((ends[1] - 70.0).abs() < 1e-4, "stayed: {}", ends[1]);
+}
+
+/// Behaviour: desktop.others.a-moving-body-past-the-range-stops-until-a-position-comes
+#[test]
+fn a_moving_body_past_the_range_stops_until_a_position_comes() {
+    let at = position_of(&place(70.0, 70.0, 0.0, 0.0, 1.0, 1));
+    let mut ob = OtherBody::new(7, config(), at, 0.0, (1, 0));
+    ob.body.set_mobile(true);
+    let near = position_of(&place(90.0, 70.0, 0.0, 0.0, 1.0, 1));
+    let mut far = near;
+    far.frame.origin.y += 96.5;
+    assert!(!out_of_physics_range(&near, &at));
+    assert!(out_of_physics_range(&far, &at));
+    // The player's near: it runs on.
+    ob.check_range(&near);
+    assert!(ob.in_range);
+    assert!(ob.body.is_movement_active());
+    // The player has walked away and no position has come: it stops where it is, and its sounds
+    // are silent.
+    ob.check_range(&far);
+    assert!(!ob.in_range);
+    assert!(!ob.body.is_movement_active());
+    assert!(ob.body.should_mute_sound(&|_| None));
+    // A body whose movement has stopped doesn't look again; a position does.
+    ob.check_range(&near);
+    assert!(!ob.in_range);
+    let again = place(70.0, 70.0, 0.0, 0.0, 2.0, 2);
+    assert!(matches!(
+        ob.receive(&again, Some(&near), true),
+        Received::Taken
+    ));
+    assert!(ob.in_range);
+    assert!(ob.body.is_movement_active());
+    assert!(!ob.body.should_mute_sound(&|_| None));
+}
+
+/// Behaviour: desktop.others.a-moving-body-past-the-range-stops-until-a-position-comes
+#[test]
+fn a_body_that_cannot_move_does_not_look_at_the_range() {
+    let at = position_of(&place(70.0, 70.0, 0.0, 0.0, 1.0, 1));
+    let mut ob = OtherBody::new(7, config(), at, 0.0, (1, 0));
+    ob.body.set_mobile(false);
+    let mut far = at;
+    far.frame.origin.y += 200.0;
+    ob.check_range(&far);
+    assert!(ob.in_range);
+}
+
+/// A made-up figure: one bone, no animations.
+struct FigureRecords(std::sync::Arc<auberean_assets::setup::Setup>);
+
+impl auberean_animation::Animations for FigureRecords {
+    fn animation(
+        &self,
+        _id: auberean_primitives::DataId,
+    ) -> Option<std::sync::Arc<auberean_assets::animation::Animation>> {
+        None
+    }
+}
+
+impl auberean_world::look::LookRecords for FigureRecords {
+    fn visual(
+        &self,
+        _id: auberean_primitives::DataId,
+    ) -> Option<std::sync::Arc<auberean_assets::visual::VisualDesc>> {
+        None
+    }
+    fn appearance(
+        &self,
+        _id: auberean_primitives::DataId,
+    ) -> Option<std::sync::Arc<auberean_assets::visual::Appearance>> {
+        None
+    }
+}
+
+impl auberean_animation::BodyRecords for FigureRecords {
+    fn setup(
+        &self,
+        _id: auberean_primitives::DataId,
+    ) -> Option<std::sync::Arc<auberean_assets::setup::Setup>> {
+        Some(self.0.clone())
+    }
+    fn wind(&self) -> f32 {
+        0.0
+    }
+    fn anim_map(
+        &self,
+        _id: auberean_primitives::DataId,
+    ) -> Option<std::sync::Arc<auberean_assets::animation::AnimMap>> {
+        None
+    }
+    fn behavior_table(
+        &self,
+        _id: auberean_primitives::DataId,
+    ) -> Option<std::sync::Arc<auberean_assets::animation::BehaviorTable>> {
+        None
+    }
+}
+
+fn figure() -> auberean_animation::Body {
+    let records = FigureRecords(std::sync::Arc::new(auberean_assets::setup::Setup {
+        bones: vec![auberean_assets::setup::Bone {
+            parent: u32::MAX,
+            id: 1,
+        }],
+        ..auberean_assets::setup::Setup::default()
+    }));
+    let mut look = auberean_world::look::Look::default();
+    look.add_group(&auberean_world::look::Group {
+        key: 1,
+        setup: auberean_primitives::DataId(0x0400_0001),
+        ..auberean_world::look::Group::default()
+    })
+    .expect("the group");
+    auberean_animation::Body::from_look(&records, &look).expect("the figure")
+}
+
+/// A jump another body's animation reaches lifts it, even from rest, with no position sent; its
+/// hooks are still handed on. Its figure fires each jump once, so the next step lifts it no more,
+/// and a figure that sets off none leaves the body where it stands.
+///
+/// Behaviour: desktop.others.an-animations-jump-lifts-another-body
+#[test]
+fn an_animations_jump_lifts_another_body() {
+    let land = world();
+    let mut w = World::new();
+    let at = position_of(&place(70.0, 70.0, 0.0, 0.0, 0.0, 1));
+    let mut b = OtherBody::new(7, config(), at, 0.0, (1, 0));
+    let mut ticker = Ticker::new(0.0);
+    for _ in 0..ticker.ticks(1.0) {
+        b.tick(&land, &mut w, &mut NoObjects, 1.0);
+    }
+    assert!(b.body.contact, "it stands on the ground");
+    b.body.set_movement_active(false);
+
+    let mut f = figure();
+    assert!(b.take_figure_triggers(&mut f).is_empty());
+    assert!(b.body.contact, "nothing set off, it stays");
+    assert!(!b.body.is_movement_active());
+
+    f.triggers
+        .impulses
+        .push(auberean_assets::animation::Impulse {
+            jump: true,
+            impulse: None,
+            number: 0,
+            time: 0.5,
+        });
+    f.triggers.hooks.push(auberean_assets::animation::GameHook {
+        kind: 3,
+        number: 0,
+        data: 0,
+        triggered: false,
+        time: 0.5,
+    });
+    assert_eq!(b.take_figure_triggers(&mut f), vec![3]);
+    assert!(!b.body.contact, "off the ground");
+    assert!(b.body.is_movement_active(), "awake");
+    assert!(b.body.velocity.z > 6.0, "up at the jump impulse");
+    assert!(f.triggers.impulses.is_empty(), "it fires once");
 }

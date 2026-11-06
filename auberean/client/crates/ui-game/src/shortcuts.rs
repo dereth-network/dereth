@@ -399,8 +399,8 @@ impl Shortcuts {
         self.check_attack_buttons(ui);
     }
 
-    /// A button asks to start or stop attacking: to start, a player who targets automatically
-    /// selects the nearest foe first; the buttons go on showing the state the player is in until
+    /// A button asks to start or stop attacking: to start, a player who targets automatically, with
+    /// nothing selected it could attack, selects the nearest foe first; the buttons go on showing the state the player is in until
     /// the scripts say it changed.
     // D2-02492
     pub fn request_attack_state_change(
@@ -1291,6 +1291,7 @@ impl Shortcuts {
             _ => return,
         };
         out.push(Request::Examine(e));
+        out.push(Request::OpenExaminationPanel);
     }
 
     /// Something dropped: taken by the list, the slot under the pointer gets its shortcut (the
@@ -1532,7 +1533,7 @@ impl Child for Shortcuts {
     /// This frame's word from the scripts, then the notices that waited for it.
     fn update(&mut self, ui: &mut Ui, view: &View<'_>, out: &mut Vec<Request>) {
         if let Some(w) = view.world {
-            self.auto_target = w.auto_target;
+            self.auto_target = w.should_auto_target;
         }
         if let Some(s) = view.shortcuts {
             self.take_source(ui, s, out);

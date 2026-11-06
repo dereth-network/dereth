@@ -403,6 +403,60 @@ fn a_system_without_limits_runs_until_stopped() {
     assert!(approximate_lifetime(&desc(Vec::new(), 0.0)).abs() < 1e-6);
 }
 
+/// A system of its own draws at its place without the place's turn: on an object turned a quarter
+/// about the vertical, its particle 2 m along the emitter's x is still 2 m east of the place, and its
+/// quad as wide across the screen as on an object not turned.
+///
+/// Behaviour: draw.particles.a-system-of-its-own-draws-without-its-places-turn
+#[test]
+fn a_system_of_its_own_draws_without_its_places_turn() {
+    let e = Emitter {
+        origin: steady3(2.0, 0.0, 0.0),
+        ..emitter(1.0, 1, 1, 100.0, Vec::new())
+    };
+    let desc = Particles {
+        max_particles: 500,
+        scale_type: 2,
+        physics_time_step: 0.05,
+        start_fade_distance: 40.0,
+        stop_fade_distance: 60.0,
+        world_space: false,
+        emitters: vec![e],
+        ..Particles::default()
+    };
+    let at = Vec3::new(10.0, 0.0, 0.0);
+    let half = std::f32::consts::FRAC_1_SQRT_2;
+    let turned = Mat4::from_parts(
+        at,
+        auberean_primitives::Quat {
+            w: half,
+            x: 0.0,
+            y: 0.0,
+            z: half,
+        },
+        Vec3::new(1.0, 1.0, 1.0),
+    );
+    let quad_on = |place: Mat4| {
+        let mut s = ParticleSet::new(
+            desc.clone(),
+            vec![auberean_draw::material::draw_layer(
+                &auberean_assets::material::MaterialLayer::default(),
+            )],
+            place,
+            Vec3::new(1.0, 1.0, 1.0),
+            0.0,
+            &Random::new(),
+        );
+        run(&mut s, 40);
+        quads(&drawn(&s, 2.0))
+    };
+    let turned = quad_on(turned);
+    let plain = quad_on(Mat4::translation(at));
+    assert_eq!(turned.len(), 1);
+    assert_eq!(turned, plain);
+    assert!((turned[0].0[0] - 12.0).abs() < 1e-3, "{turned:?}");
+}
+
 /// A system whose particles live in the world starts its emitters' distance reckoning where it is
 /// first placed: placed 30 m from the origin, an emitter discharging every metre it moves
 /// discharges nothing until it moves, then a blast for each metre.
@@ -495,4 +549,76 @@ fn a_repulsor_pushes_the_particles_in_its_range() {
     assert_eq!(systems.repulsors(), 1, "held still");
     drop(again);
     assert_eq!(systems.repulsors(), 0, "the last hold gone");
+}
+
+/// An effect entry moves its slider to its intensity over its ramp time, and an entry with a color
+/// moves the object's four color sliders to that color's parts; an entry with neither moves none.
+///
+/// Behaviour: draw.effects.an-effect-moves-its-sliders-over-its-ramp
+#[test]
+fn an_effect_moves_its_sliders_over_its_ramp() {
+    use auberean_assets::fx::FxNode;
+    use auberean_draw::effects::{node_sliders, FxSlider};
+    let slider = |slider, value| FxSlider {
+        slider,
+        value,
+        time: 2.0,
+        children: false,
+    };
+    let node = FxNode {
+        slider: Some(0x4000_0015),
+        intensity: Some(0.25),
+        ramp_time: Some(2.0),
+        ..FxNode::default()
+    };
+    assert_eq!(node_sliders(&node), [slider(0x4000_0015, 0.25)]);
+    let node = FxNode {
+        color: Some((
+            true,
+            auberean_primitives::Rgba {
+                r: 0.1,
+                g: 0.2,
+                b: 0.3,
+                a: 0.4,
+            },
+        )),
+        ramp_time: Some(2.0),
+        ..FxNode::default()
+    };
+    assert_eq!(
+        node_sliders(&node),
+        [
+            slider(0x4000_0016, 0.1),
+            slider(0x4000_0017, 0.2),
+            slider(0x4000_0018, 0.3),
+            slider(0x4000_001A, 0.4),
+        ]
+    );
+    assert!(node_sliders(&FxNode::default()).is_empty());
+}
+
+/// A system draws with its look's particle scale, times its object's scale when its description
+/// scales it with its object; a system that does not draws by the particle scale alone.
+///
+/// Behaviour: draw.particles.a-looks-particle-scale-sizes-its-systems
+#[test]
+fn a_looks_particle_scale_sizes_its_systems() {
+    let object = Vec3::new(1.5, 1.5, 3.0);
+    let with_object = system(Emitter::default());
+    assert_eq!(with_object.desc().scale_type, 2);
+    assert_eq!(
+        with_object.drawn_scale(object, 2.0),
+        Vec3::new(3.0, 3.0, 6.0)
+    );
+    let mut desc = with_object.desc().clone();
+    desc.scale_type = 1;
+    let alone = ParticleSet::new(
+        desc,
+        Vec::new(),
+        Mat4::IDENTITY,
+        object,
+        0.0,
+        &Random::new(),
+    );
+    assert_eq!(alone.drawn_scale(object, 2.0), Vec3::new(2.0, 2.0, 2.0));
 }

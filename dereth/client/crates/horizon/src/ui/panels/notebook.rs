@@ -42,7 +42,8 @@ fn set(j: &JournalView, field: JournalField) -> UiRequest {
 impl Windows {
     /// The game is told when the notebook is on screen, which loads it, and when it is not.
     pub(super) fn follow_notebook(&mut self, state: &GameState, out: &mut Outcome) {
-        let shown = state.notebook && self.is_open(WindowId::Journal) && self.journal_tab == 1;
+        let shown =
+            state.notebook && self.is_open(WindowId::Journal) && self.journal_page(state) == 1;
         if shown != self.notebook_shown {
             self.notebook_shown = shown;
             out.requests
@@ -66,10 +67,6 @@ impl Windows {
         let j = &state.journal;
         let name = TextStyle::new(Family::Body, 13.0, ctx.colours.text()).edge(ctx.colours.edge());
         let dim = TextStyle::new(Family::Body, 12.0, ctx.colours.dim()).edge(ctx.colours.edge());
-        if !state.notebook {
-            p.text_in(&dim, body, Align::Centre, "This world has no journal.");
-            return;
-        }
         if !j.loaded {
             p.text_in(&dim, body, Align::Centre, "...");
             return;

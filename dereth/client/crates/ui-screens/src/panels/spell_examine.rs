@@ -254,8 +254,18 @@ impl SpellExamineUi {
         set_text(ui, self.mana, &mana);
         self.mana_text = Some(mana);
 
-        self.duration_text = duration_text(v.duration);
-        if let Some(d) = self.duration_text.clone() {
+        self.duration_text =
+            dereth_presentation::spell::duration_text_for(v.duration, view.era_features());
+        // This layout has no line of its own for a charge: it shares the duration's.
+        let charge = view
+            .spell_charge(spell)
+            .map(dereth_presentation::spell::charge_text);
+        let line = match (&self.duration_text, charge) {
+            (Some(d), Some(c)) => Some(format!("{d}  {c}")),
+            (Some(d), None) => Some(d.clone()),
+            (None, c) => c,
+        };
+        if let Some(d) = line {
             set_text(ui, self.duration, &d);
         }
 

@@ -19,8 +19,9 @@ impl Body {
     // D2-06124, D2-06117
     pub fn add_impulse(&mut self, v: Vec3) -> bool {
         self.set_contact_state(false);
+        self.set_misc_active(true);
         self.do_element(AIR);
-        self.velocity = v;
+        crate::motion::Owner::set_velocity(self, v);
         true
     }
 
@@ -34,7 +35,7 @@ impl Body {
     /// An impulse of `speed` away from the object `target` (one the host keeps), plus `up` straight
     /// up. With `again`, the push is divided by the distance once more, so it weakens with
     /// distance. Under 0.0002 m from the object only `up` is given; with no such object nothing is.
-    // D2-06125, D2-05844
+    // D2-06125
     pub fn add_targeted_impulse(&mut self, target: u64, speed: f32, again: bool, up: f32) -> bool {
         let Some(t) = self.targets.get(&target).copied() else {
             return false;
@@ -173,7 +174,6 @@ impl Body {
 
     /// A velocity "in the body's frame": it is set as the landblock-frame velocity as it is, not
     /// turned by the body's heading, and kept as the body's animation velocity.
-    // D2-05985
     pub fn set_local_velocity(&mut self, v: Vec3) {
         crate::motion::Owner::set_velocity(self, v);
         self.anim_velocity = v;
@@ -187,16 +187,9 @@ impl Body {
     }
 
     /// A rate of turn in the body's frame, turned into the landblock's.
-    // D2-05986
     pub fn set_local_omega_velocity(&mut self, w: Vec3) {
         let g = geom::local_to_global(&self.position.frame, w);
         self.set_omega_velocity(g);
-    }
-
-    // D2-05990
-    #[must_use]
-    pub const fn global_velocity(&self) -> Vec3 {
-        self.velocity
     }
 
     /// Whether the body moves faster than about 0.014 m/s.
@@ -207,26 +200,13 @@ impl Body {
     }
 
     /// The heading the body's frame faces.
-    // D2-05992, D2-06436
+    // D2-05992, D2-06436, D2-02015
     #[must_use]
     pub fn frame_heading(&self) -> Heading {
         geom::frame_heading(&self.position.frame)
     }
 
-    /// Where the body faces, as a level unit vector.
-    // D2-05993, D2-06435
-    #[must_use]
-    pub fn vector_heading(&self) -> Vec3 {
-        let r = self.frame_heading().radians();
-        Vec3::new(
-            dereth_primitives::num::math::sinf(r),
-            dereth_primitives::num::math::cosf(r),
-            0.0,
-        )
-    }
-
     /// The heading from the body to a place.
-    // D2-05994
     #[must_use]
     pub fn calc_heading(&self, to: &Position) -> Heading {
         geom::heading_to(&self.position, to)
@@ -278,27 +258,7 @@ impl Body {
         }
     }
 
-    /// The distance from the body to a place: from its cylinder (its radius and height) when
-    /// asked, else from its origin.
-    // D2-05987
-    #[must_use]
-    pub fn distance_to_position(&self, p: &Position, cylinder: bool) -> f32 {
-        if cylinder {
-            let me = &self.position;
-            return geom::cylinder_distance(
-                crate::motion::Owner::radius(self),
-                crate::motion::Owner::height(self),
-                me,
-                0.0,
-                0.0,
-                p,
-            );
-        }
-        geom::distance(&self.position, p)
-    }
-
     /// The distance between the body's cylinder and another's (its radius and height at `p`).
-    // D2-05988
     #[must_use]
     pub fn distance_to_object(&self, p: &Position, radius: f32, height: f32) -> f32 {
         geom::cylinder_distance(

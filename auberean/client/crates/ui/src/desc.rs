@@ -244,6 +244,19 @@ impl Library {
         self.get(d).states.iter().find(|st| st.id == s)
     }
 
+    /// How the child named `child` of a state of an element follows its parent's size.
+    pub(crate) fn set_child_edges(&mut self, d: DescIx, s: Token, child: Token, edges: [u8; 4]) {
+        let Some(c) = self.state(d, s).and_then(|st| {
+            st.children
+                .iter()
+                .copied()
+                .find(|c| self.get(*c).id == child)
+        }) else {
+            return;
+        };
+        self.elements[c.0 as usize].edges = edges;
+    }
+
     /// What a reference stands for: the top-level element its base state's `referent` names,
     /// followed through further references; an element that is no reference is itself.
     // D2-11067

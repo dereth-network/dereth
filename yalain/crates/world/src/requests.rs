@@ -41,6 +41,13 @@ pub fn call<S: Store>(
 ) {
     let f = call.function.0;
     tracing::debug!(?world, "call {f:#010x}");
+    // Before anything is read of it.
+    if crate::admin_calls::is_admin_call(f) {
+        return crate::admin_calls::call(s, net, world, f, &call.args.0, clock);
+    }
+    if chat::carries_words(f) && call.args.0.len() > chat::MOST_TALK_BYTES {
+        return chat::too_long(s, net, world);
+    }
     let Ok(values) = calls::values(&call.args.0) else {
         s.unhandled
             .note(format!("script call {f:#010x} whose values do not read"));
@@ -66,7 +73,7 @@ pub fn call<S: Store>(
             crate::allegiance::decline(s, net, world, &values);
         }
         crate::allegiance::function::TREE_EXPORT => {
-            crate::allegiance::export(s, net, world, &values);
+            crate::allegiance::export(s, net, world, &values, clock.local);
         }
         crate::fellowship::function::CREATE => {
             crate::fellowship::create(s, net, world, &values, clock);
@@ -89,10 +96,10 @@ pub fn call<S: Store>(
         crate::trade::function::CLOSE => crate::trade::close(s, net, world),
         crate::scenes::function::DONE => crate::scenes::done(s, world, &values, clock),
         crate::market::function::ENTER_STORE => {
-            crate::market::enter_store(s, net, world, &values);
+            crate::market::enter_store(s, net, world, &values, clock.local);
         }
         crate::market::function::ENTER_CONSIGNMENT => {
-            crate::market::enter_consignment(s, net, world, &values);
+            crate::market::enter_consignment(s, net, world, &values, clock.local);
         }
         crate::market::function::SELL => crate::market::sell(s, net, world, &values, clock),
         crate::market::function::COLLECT => crate::market::collect(s, net, world, &values),
@@ -170,8 +177,12 @@ pub fn call<S: Store>(
             crate::skill_use::cut_by_transmute(s, net, world, clock);
             crate::inventory::transmute_all(s, net, world, &values);
         }
-        crate::store::function::NEXT_SALES => crate::store::turn_page(s, net, world, true),
-        crate::store::function::PREV_SALES => crate::store::turn_page(s, net, world, false),
+        crate::store::function::NEXT_SALES => {
+            crate::store::turn_page(s, net, world, true, clock.local);
+        }
+        crate::store::function::PREV_SALES => {
+            crate::store::turn_page(s, net, world, false, clock.local);
+        }
         crate::store::function::LEAVE_STORE => crate::store::leave(s, world),
         crate::store::function::PURCHASE => crate::store::purchase(s, net, world, &values, clock),
         crate::skills::function::TRAIN => crate::skills::train(s, net, world, &values),
@@ -200,10 +211,11 @@ fn fight_ends_trade<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: Con
 }
 
 /// The vitals of an object the world knows, by id: a player's from its qualities, a creature a
-/// camp keeps alive from its own, a placed creature's or a person's from its template.
+/// camp keeps alive from its own, a placed creature's or a person's from its template. As a client
+/// may be told of it.
 #[must_use]
-pub fn vitals_of<S: Store>(s: &Server<S>, id: u64) -> Option<Vitals> {
-    if let Some(p) = s.players.values().find(|p| p.character == id) {
+pub fn vitals_of<S: Store>(s: &Server<S>, viewer: ConnId, id: u64) -> Option<Vitals> {
+    if let Some(p) = crate::presence::player_for(s, viewer, id).and_then(|w| s.players.get(&w)) {
         return Vitals::of_qualities(&p.qualities);
     }
     if let Some(t) = s.things.get(id) {
@@ -230,12 +242,74 @@ fn thing_vitals(t: &crate::things::Thing) -> Vitals {
     }
 }
 
+/// What is held on a thing, what skills put on it and what auras hold on it in its holder's hands: each listed with its spellcraft, its vigor cost
+/// lowered and a weapon's combat delay with it, rounded down, a weapon's damage raised (2017: 67
+/// profiles of weapons and shields under Balance and Featherweight, 18 to 13, 18 to 11, 7 to 5; a
+/// weapon's delay under Swift Killer 18 to 14, 12 to 9, 10 to 8, a shield's 8 stays 8; its damage
+/// under Infected Caress 180-240 to 231-308, under Wound Twister 43-54 to 49-62).
+fn enchanted_for_now<S: Store>(s: &Server<S>, t: &crate::things::Thing, v: &mut profile::ItemView) {
+    let shield = crate::skill_use::implement_of(&s.catalog, t.template)
+        == Some(crate::skill_use::implement::SHIELD);
+    let timed = crate::effects::running_on_item(s, t);
+    let held = crate::effects::on_thing(s, t);
+    if held.is_empty() {
+        return;
+    }
+    let by = |stat: u32, n: i32| {
+        #[allow(clippy::cast_precision_loss)]
+        let lowered = n as f32 * crate::effects::held_multiplier(s, &held, stat);
+        dereth_primitives::num::to_i32(lowered.floor())
+    };
+    // What skills put on it says so: its damage and shield rating drawn as enchanted, with what
+    // it gives a weapon of a rating as a line of its own (2017: a weapon's 67 at spellcraft 48,
+    // 70 at 51; a shield's 36 to 76 at 30).
+    let by_skills: Vec<(u32, f32)> = timed.iter().map(|e| (e.state, e.spellcraft)).collect();
+    if let Some(w) = &mut v.weapon {
+        v.damage_changed |= crate::effects::held_damage(s, &by_skills, w.0) != w.0;
+        w.0 = crate::effects::held_damage(s, &held, w.0);
+        w.3 = by(crate::made::stat::VIGOR, w.3);
+        if !shield {
+            w.2 = by(crate::made::stat::COMBAT_DELAY, w.2);
+        }
+        let rating = crate::effects::held_rating(s, &by_skills);
+        if rating != 0 {
+            match (&mut v.shield, &mut v.armor) {
+                (Some(r), _) | (None, Some((r, _, _))) => {
+                    *r += rating;
+                    v.rating_changed = true;
+                }
+                (None, None) => v.rating_given = Some(rating),
+            }
+        }
+    }
+    let ends = |state: u32| timed.iter().find(|e| e.state == state).map(|e| e.until);
+    for (state, spellcraft) in held.iter().copied() {
+        let Some(shown) = s
+            .effect_table
+            .get(state)
+            .and_then(profile::EffectShown::of)
+            .filter(|x| x.visible)
+        else {
+            continue;
+        };
+        v.effects.push(profile::ItemEffect {
+            when: profile::When::Enchantment,
+            table: shown.table,
+            spellcraft: shown
+                .spellcraft_shown
+                .then_some(dereth_primitives::num::to_i32(spellcraft)),
+            amount: None,
+            ends: ends(state),
+        });
+    }
+}
+
 /// What an item's profile shows: its class's facts for a starting weapon, else its template's;
-/// its own value when it has one (treasure), else its template's times its count; its icon; the
-/// effects its template lists; who made it; whether its kind is destroyed on use; the skills it
-/// takes.
-fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::ItemView {
-    let own_value = (t.value > 0).then_some(t.value);
+/// its value, each piece's own when it has one (treasure) else its template's, times its count; its icon; the
+/// effects its template lists; who made it and what is inscribed on it; whether its kind is
+/// destroyed on use; the skills it takes.
+pub fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::ItemView {
+    let own_value = (t.value > 0).then(|| t.value.saturating_mul(t.quantity.max(1)));
     let mut v = profile::starting_weapon(t.template).unwrap_or_else(|| {
         s.catalog
             .get(t.template)
@@ -243,25 +317,37 @@ fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::Item
                 profile::ItemView::of(&tp.props, t.quantity, own_value)
             })
     });
-    if let Some(icon) = s.catalog.icons.get(&t.template) {
-        v.icon.clone_from(icon);
+    if s.catalog.icons.contains_key(&t.template) {
+        v.icon = crate::inventory::icon_of(s, t);
     }
     if let Some(e) = s.item_effects.get(&t.template) {
         v.effects.clone_from(e);
     }
     v.crafter.clone_from(&t.crafter);
+    v.inscription.clone_from(&t.inscription);
     // A worn item shows its durability now.
     if let (Some(now), Some((_, most))) = (t.durability, v.durability) {
         v.durability = Some((i32::try_from(now).unwrap_or(i32::MAX), most));
     }
     v.destroyed_on_use |= s.destroyed_on_use.contains(&t.description.package);
+    v.jewelry = s.treasure.jewelry.contains(&t.description.package);
     // A treasure item's own least level and Arcane Lore, and a treasure potion's own effect and
     // name.
-    if let Some(l) = t.own.min_level {
-        v.min_level = l;
-    }
-    if let Some(l) = t.own.arcane_lore {
-        v.arcane_lore = l;
+    if let Some(kind) = crate::craft::totem::noun(t.template) {
+        // A totem's own least level and Arcane Lore are its target's.
+        v.totem = Some(profile::TotemView {
+            kind,
+            least_level: t.own.min_level,
+            least_lore: t.own.arcane_lore,
+        });
+        v.destroyed_on_use = true;
+    } else {
+        if let Some(l) = t.own.min_level {
+            v.min_level = l;
+        }
+        if let Some(l) = t.own.arcane_lore {
+            v.arcane_lore = l;
+        }
     }
     if let Some(e) = t.own.effect {
         let shown = s
@@ -274,10 +360,24 @@ fn item_view<S: Store>(s: &Server<S>, t: &crate::things::Thing) -> profile::Item
             spellcraft: shown
                 .is_none_or(|x| x.spellcraft_shown)
                 .then_some(dereth_primitives::num::to_i32(e.spellcraft)),
+            amount: None,
+            ends: None,
         });
         if t.quantity <= 1 {
             v.name = Some(profile::potion_name(&t.facts, e.table));
         }
+    }
+    crate::made::show(s, t, &mut v);
+    enchanted_for_now(s, t, &mut v);
+    if let Some(table) = t.own.suffix {
+        let word = t.own.made.map_or(0, |m| m.prefix);
+        v.name = Some(if v.jewelry {
+            profile::potion_name(&t.facts, table)
+        } else if word != 0 {
+            profile::treasure_word_name(&t.facts, table, word)
+        } else {
+            profile::treasure_name(&t.facts, table)
+        });
     }
     // The skills it takes, by their names.
     if let Some(tp) = s.catalog.get(t.template) {
@@ -399,7 +499,8 @@ fn profile_bytes<S: Store>(
 ) -> Option<Vec<u8>> {
     let me = s.players.get(&world)?;
     let my_level = examine::level_of(&me.qualities);
-    let profile = if let Some(q) = s.players.values().find(|q| q.character == req.object) {
+    let seen = crate::presence::player_for(s, world, req.object).and_then(|w| s.players.get(&w));
+    let profile = if let Some(q) = seen {
         let v = Vitals::of_qualities(&q.qualities).unwrap_or_default();
         profile::player(
             req.asked,
@@ -409,8 +510,17 @@ fn profile_bytes<S: Store>(
             examine::level_of(&q.qualities),
             crate::kingdoms::of(&q.qualities),
             v,
+            q.play.quest_rating,
         )
     } else if let Some(t) = s.things.get(req.object) {
+        // An item in another player's pack is seen by no one until it is offered.
+        let another_holds = t.kind == crate::things::Kind::Item
+            && t.container
+                .is_some_and(|(c, _)| c != me.character && crate::social::world_of(s, c).is_some());
+        if another_holds && !me.known.contains_key(&req.object) {
+            s.unhandled.note("examining an item another player holds");
+            return None;
+        }
         // What the world runs: a creature a camp keeps alive, a corpse, an item, a resource node,
         // a dye plant.
         match t.kind {
@@ -420,7 +530,15 @@ fn profile_bytes<S: Store>(
                 thing_vitals(t),
                 profile::chance_to_hit(my_level, t.level()),
             ),
-            crate::things::Kind::Item => profile::item(req.asked, &item_view(s, t)),
+            crate::things::Kind::Item => {
+                let mut v = item_view(s, t);
+                v.bound = match t.own.bound_to {
+                    0 => None,
+                    who if who == me.character => Some(profile::BoundTo::You),
+                    _ => Some(profile::BoundTo::Another),
+                };
+                profile::item(req.asked, &v)
+            }
             crate::things::Kind::Plant => crate::plants::profile(s, req.asked, t, now),
             crate::things::Kind::Corpse
             | crate::things::Kind::Node
@@ -431,7 +549,12 @@ fn profile_bytes<S: Store>(
     } else if let Some(i) = crate::presence::content_by_id(&s.content.objects, req.object) {
         let o = &s.content.objects[i];
         let f = &o.facts;
-        let named = o.description.name.map(|(sid, t)| profile::string(t, sid));
+        let named = o
+            .description
+            .name_text
+            .as_deref()
+            .map(profile::literal)
+            .or_else(|| o.description.name.map(|(sid, t)| profile::string(t, sid)));
         match o.kind {
             yalain_content::Kind::Creature => profile::monster(
                 req.asked,
@@ -462,7 +585,29 @@ fn profile_bytes<S: Store>(
                         f,
                     )
                 } else {
-                    profile::npc(req.asked, named.unwrap_or_else(|| profile::item_name(f)), f)
+                    // An object for monarchs alone goes by its plain name (2017: 14 of 14).
+                    let monarchs = s
+                        .catalog
+                        .get(o.template)
+                        .is_some_and(|t| t.props.flag("Usage_MonarchOnly"));
+                    let plain = || {
+                        f.name.map_or_else(
+                            || profile::literal(""),
+                            |(sid, t)| profile::string(t, sid),
+                        )
+                    };
+                    let name = named.unwrap_or_else(|| {
+                        if monarchs {
+                            plain()
+                        } else {
+                            profile::item_name(f)
+                        }
+                    });
+                    let mut p = profile::npc(req.asked, name, f);
+                    if monarchs {
+                        profile::monarch_lines(&mut p);
+                    }
+                    p
                 }
             }
         }
@@ -483,7 +628,7 @@ fn select<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, v: &[
             _ => None,
         })
         .unwrap_or(0);
-    let vitals = vitals_of(s, id);
+    let vitals = vitals_of(s, world, id);
     let Some(p) = s.players.get_mut(&world) else {
         return;
     };

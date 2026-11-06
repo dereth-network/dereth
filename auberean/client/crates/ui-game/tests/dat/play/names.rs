@@ -109,12 +109,79 @@ fn a_selection_faded_out_of_sight_is_not_marked() {
     assert_eq!(shown(&ui, &p), (true, true), "seen again");
 }
 
+/// An item selected in the pack and then put down is named and marked as soon as it lies in the
+/// world, with no new selection.
+///
+/// Behaviour: ui.names.an-item-selected-in-the-pack-is-marked-once-put-down
+#[test]
+fn an_item_selected_in_the_pack_is_marked_once_put_down() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut w = world(vec![]);
+    w.selection = 7;
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    let shown = |ui: &Ui, p: &GamePlay| {
+        let n = names_of(p);
+        (
+            ui.shown(n.reticle[0].expect("a mark")),
+            ui.shown(n.selection_name.expect("the name")),
+        )
+    };
+    assert_eq!(shown(&ui, &p), (false, false), "in the pack");
+    w.things.push(body_at(7, 0.0, 10.0, [1.0, 0.5, 0.0, 1.0]));
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    assert_eq!(shown(&ui, &p), (true, true), "on the ground");
+}
+
 fn names_of(p: &GamePlay) -> &Names {
     p.child::<Names>().expect("the names")
 }
 
 fn rect(ui: &Ui, h: Option<auberean_ui::Handle>) -> auberean_ui::Rect {
     ui.screen_rect(h.expect("made")).expect("placed")
+}
+
+/// While portal space is drawn no name, and no mark of the selection, stands over it, even with the
+/// server done with the player and its objects known; they come back as it goes.
+///
+/// Behaviour: ui.names.no-names-stand-over-portal-space
+#[test]
+fn no_names_stand_over_portal_space() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut w = world(vec![
+        body_at(7, 0.0, 10.0, [1.0; 4]),
+        body_at(8, 3.0, 10.0, [1.0; 4]),
+    ]);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, true);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, false);
+    w.selection = 7;
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    let shown = |ui: &Ui, p: &GamePlay| {
+        let names = names_of(p).names().iter();
+        names.filter(|x| ui.shown(x.element)).count()
+    };
+    let marked = |ui: &Ui, p: &GamePlay| {
+        let n = names_of(p);
+        n.reticle.iter().flatten().any(|m| ui.shown(*m))
+    };
+    assert_eq!(shown(&ui, &p), 1, "the other's name");
+    assert!(marked(&ui, &p), "the selection's marks");
+
+    w.portal_drawn = true;
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    assert_eq!(shown(&ui, &p), 0, "no name over portal space");
+    assert!(!marked(&ui, &p), "no marks over it");
+
+    w.portal_drawn = false;
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    assert_eq!(shown(&ui, &p), 1, "the name is back");
+    assert!(marked(&ui, &p), "and the marks");
 }
 
 /// The selection's name stands over it in its radar color, its meters under the name once the
@@ -216,7 +283,7 @@ fn an_arrow_points_to_a_selection_off_the_screen() {
     let mut far = world(vec![body_at(8, 0.0, 450.0, [1.0; 4])]);
     far.selection = 8;
     let out = tick(&mut ui, &mut p, &mut t, &far, &[]);
-    assert!(out.contains(&Request::Select(0)), "{out:?}");
+    assert!(out.contains(&Request::SetSelection(0)), "{out:?}");
 }
 
 /// Placed after the world moves on, the clock only asks for the marks to be placed: they stay
@@ -304,13 +371,39 @@ fn names_over_heads_stand_clear_of_each_other() {
     ui.pointer_button(button_id::LEFT, true);
     let out = tick(&mut ui, &mut p, &mut t, &w, &[]);
     ui.pointer_button(button_id::LEFT, false);
-    assert!(out.contains(&Request::Select(id)), "{out:?}");
+    assert!(out.contains(&Request::SetSelection(id)), "{out:?}");
 
     ui.key(action::SHOW_NAMES, true);
     let out = tick(&mut ui, &mut p, &mut t, &w, &[]);
     ui.key(action::SHOW_NAMES, false);
     assert!(out.contains(&Request::ShowNames(false)));
     assert!(names_of(&p).names().is_empty());
+}
+
+/// A name over a head near the screen's side runs off the edge, cut there, not pushed back in.
+///
+/// Behaviour: ui.names.a-name-at-the-screens-side-runs-off-it
+#[test]
+fn a_name_at_the_screens_side_runs_off_it() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    // Eleven meters off is just inside the right edge from eleven meters back at this view.
+    let w = world(vec![body_at(7, 11.0, 10.0, [1.0; 4])]);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, true);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, false);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    let n = names_of(&p);
+    let shown: Vec<_> = n
+        .names()
+        .iter()
+        .filter(|x| ui.shown(x.element))
+        .map(|x| ui.screen_rect(x.element).expect("placed"))
+        .collect();
+    assert_eq!(shown.len(), 1, "{shown:?}");
+    assert!(shown[0].x0 < 1024 && shown[0].x1 > 1023, "{shown:?}");
 }
 
 /// A name the scripts give as a string reference is given to the name over the object's head and
@@ -371,6 +464,59 @@ fn a_renamed_object_is_named_anew_once_its_string_table_comes() {
     assert!(selected.starts_with("From the server"), "{selected:?}");
 }
 
+/// An item changing names it anew, the name over its head as well as the selection's, so a stack's
+/// count does not go stale; another object's name stays as it was made.
+///
+/// Behaviour: ui.names.an-item-that-changes-is-named-anew
+#[test]
+fn an_item_that_changes_is_named_anew() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let mut thing = body_at(7, 0.0, 10.0, [1.0; 4]);
+    thing.name_info = Some(StringInfo::literal("5 Ore"));
+    let mut other = body_at(8, 3.0, 10.0, [1.0; 4]);
+    other.name_info = Some(StringInfo::literal("Pick"));
+    let mut w = world(vec![thing, other]);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, true);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    ui.key(action::SHOW_NAMES, false);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    let over = |ui: &Ui, p: &GamePlay, id: u64| {
+        names_of(p)
+            .names()
+            .iter()
+            .find(|x| x.object == id)
+            .map(|x| ui.text(x.element).unwrap_or_default())
+    };
+    assert_eq!(over(&ui, &p, 7).as_deref(), Some("5 Ore"));
+    w.things[1].name_info = Some(StringInfo::literal("3 Ore"));
+    w.things[2].name_info = Some(StringInfo::literal("Renamed"));
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    assert_eq!(
+        over(&ui, &p, 7).as_deref(),
+        Some("5 Ore"),
+        "nothing said yet"
+    );
+    let changed = Notice {
+        native: names::notice::ITEM_UPDATE,
+        about: Some(7),
+        ..Notice::default()
+    };
+    tick(&mut ui, &mut p, &mut t, &w, &[changed]);
+    assert_eq!(
+        over(&ui, &p, 7).as_deref(),
+        Some("3 Ore"),
+        "the stack's new count"
+    );
+    assert_eq!(
+        over(&ui, &p, 8).as_deref(),
+        Some("Pick"),
+        "the other as it was"
+    );
+}
+
 /// Boxes overlap when they share a texel; a box moved off another goes the shortest way it may
 /// and may not come straight back.
 ///
@@ -391,6 +537,11 @@ fn a_name_moves_off_another_the_shortest_way() {
 
 /// A hit's damage text as the scripts fill it: red, two seconds, scale 1.
 fn hit(object: u64, text: &str) -> Notice {
+    hit_at(object, text, 1.0)
+}
+
+/// A hit's damage text at a scale.
+fn hit_at(object: u64, text: &str, scale: f32) -> Notice {
     Notice {
         native: names::notice::DO_3D_DAMAGE,
         about: Some(object),
@@ -400,10 +551,66 @@ fn hit(object: u64, text: &str) -> Notice {
                 text: text.to_owned(),
                 color: [1.0, 0.0, 0.0, 1.0],
                 duration: 2.0,
-                scale: 1.0,
+                scale,
             },
         ))],
     }
+}
+
+/// A hit's damage text is drawn at its scale, and stands over the object by the size it is drawn
+/// at, so a larger one stands further left.
+///
+/// Behaviour: ui.names.damage-text-is-drawn-at-its-scale
+#[test]
+fn damage_text_is_drawn_at_its_scale() {
+    let at = |scale: f32| {
+        let mut ui = Ui::new(records(), 1024, 768);
+        let mut p = play(&mut ui);
+        let mut t = 0.0;
+        let w = world(vec![body_at(7, 0.0, 10.0, [1.0; 4])]);
+        tick(&mut ui, &mut p, &mut t, &w, &[]);
+        tick(&mut ui, &mut p, &mut t, &w, &[hit_at(7, "12", scale)]);
+        let text = names_of(&p).damage()[0].element;
+        let drawn = ui.node(text).expect("the text").object_scale;
+        (drawn, rect(&ui, Some(text)))
+    };
+    let (one, plain) = at(1.0);
+    let (two, large) = at(2.0);
+    assert_eq!((one, two), (1.0, 2.0));
+    assert_eq!(
+        (plain.width(), plain.height()),
+        (large.width(), large.height()),
+        "its own size stays; the drawing is what scales"
+    );
+    let half = plain.width() / 2;
+    assert!(
+        (plain.x0 - large.x0 - half).abs() <= 1,
+        "half its width further left: {plain:?} {large:?}"
+    );
+}
+
+/// A hit's damage text fades out over its life: whole as it begins, about half gone half way.
+///
+/// Behaviour: ui.names.damage-text-fades-out-over-its-life
+#[test]
+fn damage_text_fades_out_over_its_life() {
+    let mut ui = Ui::new(records(), 1024, 768);
+    let mut p = play(&mut ui);
+    let mut t = 0.0;
+    let w = world(vec![body_at(7, 0.0, 10.0, [1.0; 4])]);
+    tick(&mut ui, &mut p, &mut t, &w, &[]);
+    tick(&mut ui, &mut p, &mut t, &w, &[hit(7, "12")]);
+    let text = names_of(&p).damage()[0].element;
+    let alpha = |ui: &Ui| ui.node(text).expect("the text").object_alpha;
+    assert!(alpha(&ui) > 0.95, "whole as it begins: {}", alpha(&ui));
+    for _ in 0..19 {
+        tick(&mut ui, &mut p, &mut t, &w, &[]);
+    }
+    assert!(
+        (0.4..=0.6).contains(&alpha(&ui)),
+        "about half gone half way: {}",
+        alpha(&ui)
+    );
 }
 
 /// A hit's damage text stands over the struck object's box in its color and rises three of its

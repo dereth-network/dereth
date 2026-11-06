@@ -192,3 +192,78 @@ pub fn hit_ground(
 pub fn heading_rotation(degrees: f32) -> [f32; 4] {
     yalain_world_db::compile::heading_rotation(degrees)
 }
+
+/// How far along `dir` from `from` a line first meets a flat polygon of these corners: in lengths of
+/// `dir`, ahead of `from`, from either side.
+#[must_use]
+pub fn ray_polygon(from: [f32; 3], dir: [f32; 3], corners: &[[f32; 3]]) -> Option<f32> {
+    let &[first, ref rest @ ..] = corners else {
+        return None;
+    };
+    rest.windows(2)
+        .filter_map(|w| {
+            let (a, b) = (sub(w[0], first), sub(w[1], first));
+            let p = cross(dir, b);
+            let det = dot(a, p);
+            if det.abs() < 1e-7 {
+                return None;
+            }
+            let to = sub(from, first);
+            let u = dot(to, p) / det;
+            let q = cross(to, a);
+            let v = dot(dir, q) / det;
+            let t = dot(b, q) / det;
+            (u >= 0.0 && v >= 0.0 && u + v <= 1.0 && t > 0.0).then_some(t)
+        })
+        .min_by(f32::total_cmp)
+}
+
+/// A point of the world's grid as a point of landblock `lb`, however far from its middle: a
+/// dungeon's rooms run on past their block's own ground.
+#[must_use]
+pub fn local_in(lb: u16, g: [f32; 3]) -> [f32; 3] {
+    let [bx, by] = lb.to_be_bytes().map(f32::from);
+    [g[0] - bx * BLOCK, g[1] - by * BLOCK, g[2]]
+}
+
+/// How far along `dir` a line from `from` first meets a box; 0 from inside it.
+#[must_use]
+pub fn ray_box(from: [f32; 3], dir: [f32; 3], lo: [f32; 3], hi: [f32; 3]) -> Option<f32> {
+    let (mut near, mut far) = (0.0_f32, f32::MAX);
+    for i in 0..3 {
+        if dir[i].abs() < 1e-7 {
+            if from[i] < lo[i] || from[i] > hi[i] {
+                return None;
+            }
+            continue;
+        }
+        let (a, b) = ((lo[i] - from[i]) / dir[i], (hi[i] - from[i]) / dir[i]);
+        near = near.max(a.min(b));
+        far = far.min(a.max(b));
+        if near > far {
+            return None;
+        }
+    }
+    Some(near)
+}
+
+/// A point turned by the opposite of a rotation (scalar first).
+#[must_use]
+pub fn unrotated(q: [f32; 4], p: [f32; 3]) -> [f32; 3] {
+    let u = [-q[1], -q[2], -q[3]];
+    let t = cross(u, p);
+    let t = [2.0 * t[0], 2.0 * t[1], 2.0 * t[2]];
+    let c = cross(u, t);
+    [
+        p[0] + q[0] * t[0] + c[0],
+        p[1] + q[0] * t[1] + c[1],
+        p[2] + q[0] * t[2] + c[2],
+    ]
+}
+
+/// Whether a triangle is level enough to stand on, whichever way round it is wound.
+#[must_use]
+pub fn is_level(t: &[[f32; 3]; 3]) -> bool {
+    let n = norm(cross(sub(t[1], t[0]), sub(t[2], t[0])));
+    n[2].abs() > 0.5
+}

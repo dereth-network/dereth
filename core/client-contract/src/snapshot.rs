@@ -645,11 +645,11 @@ impl GameView for GameSnapshot {
     }
     fn era_ui(&self) -> crate::era::EraUiFacts {
         self.resolved_era_ui.unwrap_or_else(|| {
-            crate::era::EraUiFacts::for_profile(
-                self.era
-                    .as_ref()
-                    .map_or(dereth_primitives::EraId::Eor, |e| e.era),
-            )
+            self.era
+                .as_ref()
+                .map_or_else(crate::era::EraUiFacts::default, |e| {
+                    crate::era::EraUiFacts::for_world(e.era, e.features())
+                })
         })
     }
     fn aetheria_slots(&self) -> u8 {

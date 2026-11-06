@@ -480,16 +480,22 @@ impl Child for FriendsPage {
     }
 
     /// The game as shown this frame kept.
-    fn update(&mut self, _ui: &mut Ui, view: &View<'_>, _out: &mut Vec<PlayRequest>) {
+    fn update(&mut self, ui: &mut Ui, view: &View<'_>, _out: &mut Vec<PlayRequest>) {
         let Some(w) = view.world else { return };
         self.player = w.player;
         self.player_name = w
             .thing(w.player)
             .map(|t| t.name.clone())
             .unwrap_or_default();
-        self.selection = w
+        let selection = w
             .thing(w.selection)
             .map(|t| (is_player(t.kind), t.name.clone()));
+        // The notice of a new selection comes before this frame's view of it.
+        let changed = selection != self.selection;
+        self.selection = selection;
+        if changed {
+            self.selection_changed(ui);
+        }
         self.moving = w.moving;
     }
 

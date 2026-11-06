@@ -151,3 +151,13 @@ fn a_file_without_the_magic_is_refused() {
     f[HEADER_OFFSET as usize] = 0;
     assert!(matches!(DatFile::from_bytes(f), Err(DatError::BadMagic(_))));
 }
+
+#[test]
+fn the_start_of_a_record_is_what_its_first_block_holds() {
+    let long: Vec<u8> = (0..200).map(|i| i as u8).collect();
+    let d = DatFile::from_bytes(build(&[(0x0100, long.clone()), (0x0200, vec![7; 5])], 1))
+        .expect("opens");
+    assert_eq!(d.read_start(0x0100).expect("read"), long[..BLOCK - 4]);
+    assert_eq!(d.read_start(0x0200).expect("read"), [7; 5]);
+    assert!(matches!(d.read_start(0x0300), Err(DatError::NotFound(_))));
+}

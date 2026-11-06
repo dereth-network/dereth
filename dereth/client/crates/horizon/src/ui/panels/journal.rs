@@ -47,15 +47,27 @@ impl Windows {
         out: &mut Outcome,
     ) {
         let k = p.scale;
-        kit::tabs(
-            p,
-            ctx,
-            Rect::new(body.x, body.y, body.w, 26.0 * k),
-            &["Contracts", "Notebook"],
-            &mut self.journal_tab,
-        );
+        // A tab for each page the world has.
+        let strip = Rect::new(body.x, body.y, body.w, 26.0 * k);
+        if self.has_contracts() && state.notebook {
+            kit::tabs(
+                p,
+                ctx,
+                strip,
+                &["Contracts", "Notebook"],
+                &mut self.journal_tab,
+            );
+        } else {
+            let mut only = 0;
+            let caption = if state.notebook {
+                "Notebook"
+            } else {
+                "Contracts"
+            };
+            kit::tabs(p, ctx, strip, &[caption], &mut only);
+        }
         let body = Rect::new(body.x, body.y + 34.0 * k, body.w, body.h - 34.0 * k);
-        if self.journal_tab == 1 {
+        if self.journal_page(state) == 1 {
             self.notebook(p, ctx, state, body, out);
             return;
         }
@@ -150,6 +162,21 @@ impl Windows {
         let _ = out;
     }
 
+    /// Whether the world has the Journal window's Contracts tab.
+    fn has_contracts(&self) -> bool {
+        !self.refuses(dereth_client_contract::era::EraSurface::Contracts)
+    }
+
+    /// The Journal's page on show, 0 the contracts and 1 the notebook: the tab chosen, or the one
+    /// page the world has.
+    pub(super) fn journal_page(&self, state: &GameState) -> usize {
+        match (self.has_contracts(), state.notebook) {
+            (true, false) => 0,
+            (false, true) => 1,
+            _ => self.journal_tab,
+        }
+    }
+
     /// The question before a contract is abandoned.
     pub(super) fn abandon_question(
         &mut self,
@@ -222,8 +249,10 @@ impl Windows {
                 &format!("{} / {}", info.encumbrance, info.capacity),
             );
             y += 18.0 * k;
-            row(p, y, "Augmentations", &info.augmentations.to_string());
-            y += 18.0 * k;
+            if self.world.features.is_none_or(|f| f.augmentations) {
+                row(p, y, "Augmentations", &info.augmentations.to_string());
+                y += 18.0 * k;
+            }
             let innate = info
                 .innate
                 .iter()
@@ -242,7 +271,8 @@ impl Windows {
         }
         // The titles: the one shown, and a list to choose another from.
         let titles = &state.titles;
-        if titles.titles.is_empty() {
+        if titles.titles.is_empty() || self.refuses(dereth_client_contract::era::EraSurface::Titles)
+        {
             return;
         }
         p.text(&section, area.x + 14.0 * k, y, "TITLES");

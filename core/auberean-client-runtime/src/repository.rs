@@ -509,18 +509,18 @@ pub fn string_info_of(v: &TextInfo) -> StringInfo {
 }
 
 /// A narrow text as the scripts see it: a character a byte.
-fn widen(s: &[u8]) -> Vec<u16> {
+pub(crate) fn widen(s: &[u8]) -> Vec<u16> {
     s.iter().map(|b| u16::from(*b)).collect()
 }
 
 /// A wide text kept narrow: a character a byte, one past the narrow range as a question mark.
-fn narrow(s: &[u16]) -> Vec<u8> {
+pub(crate) fn narrow(s: &[u16]) -> Vec<u8> {
     s.iter().map(|c| u8::try_from(*c).unwrap_or(b'?')).collect()
 }
 
 /// A position as the scripts hold one: its cell, and its origin and rotation (scalar first) as
 /// bits.
-fn position_words(p: &Placement) -> (u32, [u32; 7]) {
+pub(crate) fn position_words(p: &Placement) -> (u32, [u32; 7]) {
     let f = &p.frame;
     (
         p.cell,
@@ -699,12 +699,21 @@ pub fn is_mobile(h: &mut ClientHost, id: u64) -> bool {
     answer(h, &BOOL, id, 8).unwrap_or(1) != 0
 }
 
-/// Whether an object is a creature: every bit of 4F (hexadecimal) set in its kind (number 14
-/// hexadecimal, 0 when it has none).
+/// An object's kind: its number 14 (hexadecimal), 0 when it has none.
+fn kind_bits(h: &mut ClientHost, id: u64) -> u32 {
+    answer(h, &INT, id, 0x14).unwrap_or(0).cast_unsigned()
+}
+
+/// Whether an object is a player: every bit of 1F (hexadecimal) set in its kind.
+// D2-08058
+pub fn is_player(h: &mut ClientHost, id: u64) -> bool {
+    kind_bits(h, id) & 0x1F == 0x1F
+}
+
+/// Whether an object is a creature: every bit of 4F (hexadecimal) set in its kind.
 // D2-08059
 pub fn is_creature(h: &mut ClientHost, id: u64) -> bool {
-    let kind = answer(h, &INT, id, 0x14).unwrap_or(0).cast_unsigned();
-    kind & 0x4F == 0x4F
+    kind_bits(h, id) & 0x4F == 0x4F
 }
 
 /// Whether an object is of a kind a detection reports: the report's 64-bit mask against the

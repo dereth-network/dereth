@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use auberean_assets::bsp::{Node, Tree};
 use auberean_assets::mesh::{Mesh, MeshPolygon, VertexArray};
+use auberean_primitives::DataId;
 use auberean_world::math::Mat4;
 use dereth_physics::geom::{BspNode, BspNodeKind, BspTree, Plane, Polygon, Sphere};
 use dereth_primitives::{Quat, Vec3};
@@ -45,18 +46,27 @@ fn polygon(p: &MeshPolygon, at: &[Vec3]) -> Option<Polygon> {
     (vertices.len() >= 3).then(|| Polygon::new(vertices))
 }
 
+/// A mesh's physics polygons in the shared core's form, or `None` when its vertices store no
+/// positions. A polygon that cannot be built takes the place it holds in the list as a degenerate
+/// one.
+#[must_use]
+pub fn physics_polygons(mesh: &Mesh) -> Option<Vec<Polygon>> {
+    let at = positions(&mesh.vertices)?;
+    Some(
+        mesh.physics_polygons
+            .iter()
+            .map(|p| polygon(p, &at).unwrap_or_else(|| Polygon::new(vec![Vec3::ZERO; 3])))
+            .collect(),
+    )
+}
+
 /// A mesh's physics tree in the shared core's form, or `None` when the mesh has none. A leaf names
 /// its polygons by id; an id the mesh does not have is taken as an index.
 // D2-04121, D2-04134, D2-04146, D2-04160
 #[must_use]
 pub fn physics_tree(mesh: &Mesh) -> Option<BspTree> {
     let tree = mesh.physics_tree.as_ref()?;
-    let at = positions(&mesh.vertices)?;
-    let polygons: Vec<Polygon> = mesh
-        .physics_polygons
-        .iter()
-        .map(|p| polygon(p, &at).unwrap_or_else(|| Polygon::new(vec![Vec3::ZERO; 3])))
-        .collect();
+    let polygons = physics_polygons(mesh)?;
     let by_id: HashMap<u16, u32> = mesh
         .physics_polygons
         .iter()
@@ -190,7 +200,8 @@ pub fn decompose(m: &Mat4) -> Placement {
     }
 }
 
-/// A cache of meshes' physics trees, and of what a part needs of each mesh, by mesh id.
+/// A cache of meshes' physics trees, and of what a part needs of each mesh, by mesh id: a mesh is
+/// read once for both.
 #[derive(Debug, Default)]
 pub struct Trees {
     by_mesh: HashMap<u32, Option<Arc<BspTree>>>,
@@ -200,21 +211,33 @@ pub struct Trees {
 impl Trees {
     /// The physics tree of mesh `id`, decoded with `load` the first time it is asked for.
     pub fn get(&mut self, id: u32, load: impl FnOnce(u32) -> Option<Mesh>) -> Option<Arc<BspTree>> {
-        self.by_mesh
-            .entry(id)
-            .or_insert_with(|| load(id).as_ref().and_then(physics_tree).map(Arc::new))
-            .clone()
+        if !self.by_mesh.contains_key(&id) {
+            self.read(id, load);
+        }
+        self.by_mesh.get(&id).cloned().flatten()
     }
 
-    /// What a part needs of mesh `id`, when it was kept: `Some(None)` for a mesh not in the data.
-    #[must_use]
-    pub fn part_mesh(&self, id: u32) -> Option<Option<crate::parts::PartMesh>> {
-        self.part_meshes.get(&id).cloned()
+    /// What a part needs of mesh `id`, decoded with `load` the first time either it or the mesh's
+    /// tree is asked for; none for a mesh not in the data.
+    pub fn part_mesh(
+        &mut self,
+        id: u32,
+        load: impl FnOnce(u32) -> Option<Mesh>,
+    ) -> Option<crate::parts::PartMesh> {
+        if !self.part_meshes.contains_key(&id) {
+            self.read(id, load);
+        }
+        self.part_meshes.get(&id).cloned().flatten()
     }
 
-    /// Keeps what a part needs of mesh `id`.
-    pub fn keep_part_mesh(&mut self, id: u32, mesh: Option<crate::parts::PartMesh>) {
-        self.part_meshes.insert(id, mesh);
+    fn read(&mut self, id: u32, load: impl FnOnce(u32) -> Option<Mesh>) {
+        let mesh = load(id);
+        let tree = mesh.as_ref().and_then(physics_tree).map(Arc::new);
+        let part = mesh
+            .as_ref()
+            .map(|m| crate::parts::PartMesh::of(DataId(id), m, tree.clone()));
+        self.by_mesh.insert(id, tree);
+        self.part_meshes.insert(id, part);
     }
 }
 
@@ -253,5 +276,30 @@ mod tests {
             && (p.rotation.z - q.z).abs() < 1e-4;
         let opposite = (p.rotation.w + q.w).abs() < 1e-4 && (p.rotation.x + q.x).abs() < 1e-4;
         assert!(same || opposite, "{:?} vs {q:?}", p.rotation);
+    }
+
+    /// A mesh's tree and what a part needs of it come from one reading of it, whichever is asked
+    /// first, and a mesh not in the data is asked after once.
+    #[test]
+    fn a_mesh_is_read_once_for_its_tree_and_for_its_part() {
+        let reads = std::cell::Cell::new(0);
+        let load = |id: u32| {
+            reads.set(reads.get() + 1);
+            (id != 3).then(|| Mesh {
+                kind: id,
+                ..Mesh::default()
+            })
+        };
+        let mut t = Trees::default();
+        assert!(t.get(1, load).is_none());
+        assert_eq!(t.part_mesh(1, load).expect("a part").kind, 1);
+        assert_eq!(reads.get(), 1);
+        assert_eq!(t.part_mesh(2, load).expect("a part").kind, 2);
+        assert!(t.get(2, load).is_none());
+        assert_eq!(reads.get(), 2);
+        assert!(t.part_mesh(3, load).is_none());
+        assert!(t.get(3, load).is_none());
+        assert!(t.part_mesh(3, load).is_none());
+        assert_eq!(reads.get(), 3);
     }
 }

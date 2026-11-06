@@ -1,7 +1,7 @@
 [package]
 name = "athenaeum-editor"
 description = "Athenaeum, the Asheron's Call 2 world builder: a world's rows drawn where they stand in the world as the client draws it, selected, placed, moved, turned, changed and removed, saved into the world's pack, and played on Yalain."
-version = "0.1.1" # Athenaeum's own version, shared by its three crates (not the workspace's)
+version = "0.1.3" # Athenaeum's own version, shared by its three crates (not the workspace's)
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -13,6 +13,9 @@ autotests = false
 # Tier switch only: no code is gated on it. It selects the `live` test binary, which plays a world
 # on Yalain and Auberean as programs, with the end-of-retail install and the world database.
 live = []
+# Tier switch only: no code is gated on it. It selects the `dat` test binary, which needs the
+# end-of-retail install and the world database.
+retail-dats = []
 
 [build-dependencies]
 # Links the application icon (`assets/athenaeum.ico`) into the executable, where Explorer and the
@@ -34,6 +37,8 @@ auberean-assets.workspace = true
 auberean-dat = { workspace = true, features = ["fs"] }
 auberean-animation.workspace = true
 auberean-physics.workspace = true
+# The interior cells' trees and polygons: which room a point is in, and the floor under a look.
+dereth-physics.workspace = true
 auberean-primitives.workspace = true
 auberean-draw.workspace = true
 auberean-gpu.workspace = true
@@ -68,6 +73,11 @@ auberean-dat = { workspace = true, features = ["fs", "test-support"] }
 [[test]]
 name = "cpu"
 path = "tests/cpu/main.rs"
+
+[[test]]
+name = "dat"
+path = "tests/dat/main.rs"
+required-features = ["retail-dats"]
 
 [[test]]
 name = "live"

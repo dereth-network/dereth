@@ -223,6 +223,7 @@ fn synthetic_spell(i: &Value) -> Spell {
         ..DbSpell::default()
     };
     let mut spell = Spell {
+        rules_category: None,
         spell_base: Some(base),
         spell: Some(Arc::new(db)),
         formula: None,
@@ -2001,4 +2002,183 @@ fn show_resist_info_buffers_an_unresisted_projectiles_report() {
             .debug_damage_buffer
             .is_none()
     );
+}
+
+mod launch_transfers {
+    use super::*;
+    use empyrean_common::era::{EraExt as _, EraId};
+
+    fn cast(w: &mut World, caster: ObjectGuid, target: ObjectGuid, spell: &Spell) {
+        magic::try_cast_spell(
+            w,
+            caster,
+            spell,
+            Some(target),
+            None,
+            None,
+            false,
+            false,
+            true,
+        );
+    }
+
+    /// Divergence: V468
+    #[test]
+    fn launch_self_transfers_spend_the_full_source_when_only_some_or_none_fits() {
+        for era in EraId::ALL {
+            for (missing, gain) in [(0, 0), (1, 1), (24, 24), (60, 40)] {
+                let mut w = world();
+                w.era = era.rules();
+                set_vital(&mut w, PLAYER, PropertyAttribute2nd::MaxStamina, 100, 80);
+                set_vital(
+                    &mut w,
+                    PLAYER,
+                    PropertyAttribute2nd::MaxMana,
+                    100,
+                    100 - missing,
+                );
+                let transfer = spell(&w, 11);
+                start_capture();
+                cast(&mut w, PLAYER, PLAYER, &transfer);
+                let cost = if era == EraId::Launch { 40 } else { gain };
+                assert_eq!(
+                    current(&w, PLAYER, PropertyAttribute2nd::MaxStamina),
+                    80 - cost
+                );
+                assert_eq!(
+                    current(&w, PLAYER, PropertyAttribute2nd::MaxMana),
+                    100 - missing + gain
+                );
+                assert_eq!(chats(), [format!("You cast Stamina to Mana Self I on yourself and lose {cost} points of stamina and also gain {gain} points of mana")]);
+            }
+        }
+    }
+
+    /// Divergence: V468
+    #[test]
+    fn launch_drains_keep_their_cost_at_full_destination_and_preserve_losses_and_rounding() {
+        for era in EraId::ALL {
+            for (missing, gain, later_cost) in [(0, 0, 0), (1, 1, 1), (18, 18, 20), (60, 36, 40)] {
+                let mut w = world();
+                w.era = era.rules();
+                set_vital(&mut w, MONSTER, PropertyAttribute2nd::MaxMana, 100, 80);
+                set_vital(
+                    &mut w,
+                    PLAYER,
+                    PropertyAttribute2nd::MaxMana,
+                    100,
+                    100 - missing,
+                );
+                let drain = spell(&w, 5);
+                start_capture();
+                cast(&mut w, PLAYER, MONSTER, &drain);
+                let cost = if era == EraId::Launch { 40 } else { later_cost };
+                assert_eq!(
+                    current(&w, MONSTER, PropertyAttribute2nd::MaxMana),
+                    80 - cost
+                );
+                assert_eq!(
+                    current(&w, PLAYER, PropertyAttribute2nd::MaxMana),
+                    100 - missing + gain
+                );
+                assert_eq!(chats(), [format!("You gain {gain} points of mana due to casting Drain Mana Other I on Drudge")]);
+            }
+        }
+    }
+
+    /// Divergence: V468
+    #[test]
+    fn launch_overflow_applies_to_each_vital_and_to_remote_infusions() {
+        for era in EraId::ALL {
+            for (vital, maximum) in [
+                (
+                    PropertyAttribute2nd::Health,
+                    PropertyAttribute2nd::MaxHealth,
+                ),
+                (
+                    PropertyAttribute2nd::Stamina,
+                    PropertyAttribute2nd::MaxStamina,
+                ),
+                (PropertyAttribute2nd::Mana, PropertyAttribute2nd::MaxMana),
+            ] {
+                for flags in [
+                    TransferFlags::TargetSource.0 | TransferFlags::CasterDestination.0,
+                    TransferFlags::CasterSource.0 | TransferFlags::TargetDestination.0,
+                ] {
+                    let mut w = world();
+                    w.era = era.rules();
+                    let (source, destination) = if flags & TransferFlags::CasterSource.0 != 0 {
+                        (PLAYER, MONSTER)
+                    } else {
+                        (MONSTER, PLAYER)
+                    };
+                    set_vital(&mut w, source, maximum, 100, 80);
+                    set_vital(&mut w, destination, maximum, 100, 99);
+                    let mut transfer = spell(&w, 5);
+                    let data = Arc::make_mut(transfer.spell.as_mut().unwrap());
+                    data.source = Some(i32::from(vital.0));
+                    data.destination = Some(i32::from(vital.0));
+                    data.loss_percent = Some(0.0);
+                    data.transfer_bitfield = Some(flags.cast_unsigned());
+                    start_capture();
+                    magic::handle_cast_spell_transfer(&mut w, PLAYER, &transfer, Some(MONSTER));
+                    let cost = if era == EraId::Launch { 40 } else { 1 };
+                    assert_eq!(
+                        current(&w, source, maximum),
+                        80 - cost,
+                        "{era:?} {vital:?} {flags}"
+                    );
+                    assert_eq!(current(&w, destination, maximum), 100);
+                    let lines = chats();
+                    assert_eq!(lines.len(), 1);
+                    assert!(lines[0].contains(if source == PLAYER {
+                        "You lose"
+                    } else {
+                        "You gain"
+                    }));
+                }
+            }
+        }
+    }
+
+    /// Divergence: V468
+    #[test]
+    fn transfer_overflow_keeps_data_caps_zero_sources_and_unclipped_results() {
+        for era in EraId::ALL {
+            for (source, cap, loss, expected_launch_cost, expected_later_cost, gain) in [
+                (80, 10, -0.5, 10, 7, 10),
+                (80, 10, 0.0, 10, 10, 10),
+                (80, 0, 0.0, 40, 40, 40),
+                (0, 0, 0.0, 0, 0, 0),
+            ] {
+                let mut w = world();
+                w.era = era.rules();
+                set_vital(
+                    &mut w,
+                    PLAYER,
+                    PropertyAttribute2nd::MaxStamina,
+                    100,
+                    source,
+                );
+                set_vital(&mut w, PLAYER, PropertyAttribute2nd::MaxMana, 100, 0);
+                let mut transfer = spell(&w, 11);
+                let data = Arc::make_mut(transfer.spell.as_mut().unwrap());
+                data.transfer_cap = Some(cap);
+                data.loss_percent = Some(loss);
+                start_capture();
+                cast(&mut w, PLAYER, PLAYER, &transfer);
+                let cost = if era == EraId::Launch {
+                    expected_launch_cost
+                } else {
+                    expected_later_cost
+                };
+                assert_eq!(
+                    current(&w, PLAYER, PropertyAttribute2nd::MaxStamina),
+                    source - cost
+                );
+                assert_eq!(current(&w, PLAYER, PropertyAttribute2nd::MaxMana), gain);
+                assert_eq!(chats().len(), 1);
+            }
+        }
+    }
 }

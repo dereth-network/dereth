@@ -461,7 +461,6 @@ impl Sighting {
         self.int_app[i]
     }
 
-    // D2-15616
     pub fn set_int_app(&mut self, i: usize, v: u32) {
         self.int_app[i] = v;
     }
@@ -472,7 +471,6 @@ impl Sighting {
         self.float_app[i]
     }
 
-    // D2-15618
     pub fn set_float_app(&mut self, i: usize, v: f32) {
         self.float_app[i] = v;
     }
@@ -624,24 +622,20 @@ impl DetectorSettings {
         self.volume.global_box()
     }
 
-    // D2-15639
     pub fn set_shape_box(&mut self, y0: f32, y1: f32, x0: f32, x1: f32, z0: f32, z1: f32) {
         self.volume.create_box(y0, y1, x0, x1, z0, z1);
     }
 
-    // D2-15640
     pub fn set_shape_sphere(&mut self, radius: f32, center: Vec3) {
         self.volume.create_sphere(radius, center);
     }
 
-    // D2-15641
     pub fn set_shape_sphere_cone(&mut self, center: Vec3, radius: f32, dir: Vec3, angle: f32) {
         self.volume.create_sphere_cone(center, radius, dir, angle);
     }
 
     /// A shell between two radii (put in order, at least 0), between two headings (each brought
     /// into 0 to 360 degrees) and two elevations (put in order, each held to -90 to 90 degrees).
-    // D2-15642
     #[allow(clippy::too_many_arguments)]
     pub fn set_shape_attack_cone(
         &mut self,
@@ -686,14 +680,12 @@ impl DetectorSettings {
 
     /// An upright cylinder of `radius` around `center`, reaching `height` above it and `below`
     /// beneath it.
-    // D2-15648
     pub fn set_shape_cylinder(&mut self, radius: f32, height: f32, below: f32, center: Vec3) {
         let low = Vec3::new(center.x, center.y, center.z - below);
         self.volume.create_cylinder(radius, low, height + below);
     }
 
     /// Stands on the detecting body, `height` up its height and moved by `offset`.
-    // D2-15643
     pub fn use_detecting_object_for_base_position(
         &mut self,
         height: f32,
@@ -708,7 +700,6 @@ impl DetectorSettings {
 
     /// Centers on a target: its id, how far it may be, its height and scale, the offset from it,
     /// what blocks the offset, and whether to detect where a blocked offset stops.
-    // D2-15644
     #[allow(clippy::too_many_arguments)]
     pub fn set_detect_offset(
         &mut self,
@@ -731,7 +722,6 @@ impl DetectorSettings {
         self.detect_at_blocked_offset = at_blocked;
     }
 
-    // D2-15645
     pub fn set_los_blocking_masks(
         &mut self,
         objects: &ObjectEthereality,
@@ -783,19 +773,16 @@ impl DetectorSettings {
             && self.targets[0] == self.center_on_target
     }
 
-    // D2-15657
     pub fn set_detection_object_type(&mut self, t: ReportType) {
         self.report = t;
     }
 
-    // D2-15660
     pub fn add_target(&mut self, object: u64) {
         if !self.in_target_list(object) {
             self.targets.push(object);
         }
     }
 
-    // D2-15661
     pub fn add_exclude_object(&mut self, object: u64) {
         if !self.in_exclude_list(object) {
             self.ignored.push(object);
@@ -867,6 +854,7 @@ pub struct ObjectRays {
     pub rays: Vec<Ray>,
 }
 
+// D2-06868, D2-13368, D2-15628
 impl ObjectRays {
     // D2-13367
     #[must_use]

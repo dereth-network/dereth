@@ -46,13 +46,11 @@ impl Matrix4 {
     }
 
     /// Becomes a translation by `v`.
-    // D2-13273
     pub fn translate_vec(&mut self, v: Vec3) {
         self.translate(v.x, v.y, v.z);
     }
 
     /// Becomes the 3 x 3 translation of a plane's points by `(x, y)`: the third row carries it.
-    // D2-13274
     pub fn translate3(&mut self, x: f32, y: f32) {
         self.0 = IDENTITY;
         self.0[8] = x;
@@ -60,7 +58,6 @@ impl Matrix4 {
     }
 
     /// Becomes a turn of `angle` radians about the x axis.
-    // D2-13275
     pub fn rotate_x(&mut self, angle: f32) {
         let (c, s) = (n(math::cos(w(angle))), n(math::sin(w(angle))));
         self.0 = IDENTITY;
@@ -71,7 +68,6 @@ impl Matrix4 {
     }
 
     /// Becomes a turn of `angle` radians about the y axis.
-    // D2-13276
     pub fn rotate_y(&mut self, angle: f32) {
         let (c, s) = (n(math::cos(w(angle))), n(math::sin(w(angle))));
         self.0 = IDENTITY;
@@ -82,7 +78,6 @@ impl Matrix4 {
     }
 
     /// Becomes a turn of `angle` radians about the z axis.
-    // D2-13277
     pub fn rotate_z(&mut self, angle: f32) {
         let (c, s) = (n(math::cos(w(angle))), n(math::sin(w(angle))));
         self.0 = IDENTITY;
@@ -171,7 +166,6 @@ impl Matrix4 {
     /// Becomes the inverse of `src`'s upper 3 x 3 (the rest the identity's), answering the
     /// reciprocal of its determinant; a determinant of exactly zero leaves the identity and
     /// answers zero.
-    // D2-13281
     pub fn inverse3(&mut self, src: &Self) -> f32 {
         let s = |i: usize| w(src.0[i]);
         self.0 = IDENTITY;
@@ -199,7 +193,6 @@ impl Matrix4 {
     }
 
     /// The rotation this matrix's upper 3 x 3 holds, its rows the axes, made unit length.
-    // D2-13282
     #[must_use]
     pub fn quaternion_from_rotation(&self) -> Quat {
         let m = &self.0;
@@ -234,7 +227,6 @@ impl Matrix4 {
     }
 
     /// Becomes the rotation `q`: its rows the rotation's axes.
-    // D2-13287
     pub fn rotation_from_quaternion(&mut self, q: Quat) {
         let a = rotation_axes(q);
         self.rotate_basis([a[0], a[1], a[2]], [a[3], a[4], a[5]], [a[6], a[7], a[8]]);

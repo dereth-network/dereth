@@ -796,3 +796,16 @@ fn the_era_section_turns_systems_on_and_off() {
     assert!(text.contains("\n# trade = true\n"), "{text}");
     assert!(toml_config::from_toml_str("[era]\nchess = \"yes\"\n").is_err());
 }
+
+/// Divergence: V477
+/// `[era] any_dat_files` lets a world start on files its era does not expect; it is off unless
+/// set, and survives the trip.
+#[test]
+fn the_era_section_can_allow_other_data_files() {
+    assert!(!MasterConfiguration::default().era.any_dat_files);
+    let parsed = toml("[era]\nprofile = \"launch\"\nany_dat_files = true\n");
+    assert_eq!(parsed.unknown_keys, Vec::<String>::new());
+    assert!(parsed.config.era.any_dat_files);
+    assert_eq!(parsed.config.era.features.get("any_dat_files"), None);
+    assert_eq!(via_toml(&parsed.config), parsed.config);
+}

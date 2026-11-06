@@ -73,6 +73,33 @@ pub mod meta {
     pub const RIGHT_SHIFT: u32 = 0x8100_0436;
     pub const LEFT_CTRL: u32 = 0x8100_041D;
     pub const RIGHT_CTRL: u32 = 0x8100_049D;
+
+    /// The modifier a key is held with, of those held (left Shift 1, right Shift 2, left Ctrl 4,
+    /// right Ctrl 8): the first in that order, none when none is.
+    // D2-04914
+    #[must_use]
+    pub const fn of_held(held: u8) -> u32 {
+        if held & 1 != 0 {
+            LEFT_SHIFT
+        } else if held & 2 != 0 {
+            RIGHT_SHIFT
+        } else if held & 4 != 0 {
+            LEFT_CTRL
+        } else if held & 8 != 0 {
+            RIGHT_CTRL
+        } else {
+            0
+        }
+    }
+}
+
+/// Whether an input is a modifier key, which is no key to bind by itself.
+// D2-04913
+const fn is_meta_key(input: u32) -> bool {
+    matches!(
+        input,
+        meta::LEFT_SHIFT | meta::RIGHT_SHIFT | meta::LEFT_CTRL | meta::RIGHT_CTRL
+    )
 }
 
 /// Clear All's question (the data holds no words for it: it is asked empty).
@@ -100,6 +127,7 @@ pub struct KeyMaps {
 impl KeyMaps {
     /// The keys an action is bound to, each with the modifier its map is held with: from the
     /// bottom map up, each once.
+    // D2-04954
     #[must_use]
     pub fn mapped_keys(&self, action: u32) -> Vec<(u32, u32)> {
         let mut out = Vec::new();
@@ -432,7 +460,7 @@ impl Keyboard {
 
     /// How a key is written, with the modifier held with it (`Ctrl - F5`); none for a key with no
     /// name.
-    // D2-01756
+    // D2-01756, D2-14175
     fn inq_key_string_info(ui: &Ui, key: u32, m: u32) -> Option<String> {
         let k = key_name(key)?;
         let literal = |s: &str| Var::Text(Box::new(StringInfo::literal(s)));
@@ -646,6 +674,9 @@ impl Keyboard {
                     base: self.maps.base.clone(),
                     ..m.clone()
                 };
+                // Bound at once and written with Apply, so Undo does not take it back.
+                // D2-01769
+                out.push(Request::LiveKeys(self.maps.clone()));
             }
             self.modified = true;
             self.update_buttons(ui);
@@ -750,7 +781,7 @@ impl Keyboard {
         if self.confirmation_boxes_open()
             || key == POINTER_X
             || key == POINTER_Y
-            || self.maps.reserved(key)
+            || is_meta_key(key)
             || self.selected.is_none()
             || key_name(key).is_none()
         {

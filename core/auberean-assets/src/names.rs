@@ -499,7 +499,6 @@ impl FileNames {
     }
 
     /// [`FileNames::id`] of a wide name.
-    // D2-14616
     pub fn id_wide(
         &mut self,
         name: &[u16],
@@ -529,7 +528,6 @@ impl FileNames {
     }
 
     /// [`FileNames::id_by_extension`] of a wide name.
-    // D2-14618
     pub fn id_by_extension_wide(
         &mut self,
         name: &[u16],
@@ -566,7 +564,6 @@ impl FileNames {
     }
 
     /// [`FileNames::file_name_of`] as a wide text.
-    // D2-14612
     pub fn file_name_of_wide(
         &mut self,
         id: u32,

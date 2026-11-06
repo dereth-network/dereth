@@ -85,4 +85,10 @@ tables! {
     TREASURE_WIELDED = 17, "treasure_wielded";
     /// `version`; key: id.
     VERSION = 18, "version";
+    /// Optional current-vital preconditions; key: recipe id. Requires the recipe-vitals flag.
+    RECIPE_VITAL = 19, "recipe_vital";
+    /// Six-group source treasure, keyed by treasure type.
+    GROUPED_TREASURE = 20, "grouped_treasure";
+    /// Versioned source loot inputs, singleton key 1.
+    LOOT_POLICY = 21, "loot_policy";
 }

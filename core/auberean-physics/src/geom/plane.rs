@@ -94,6 +94,37 @@ fn side_by(d: f64, eps: f64) -> Side {
     }
 }
 
+/// The plane of a polygon's corners: its normal the unit sum of the fan's cross products from the
+/// first corner, its offset the mean of the corners' along that normal, negated.
+// D2-04175
+#[must_use]
+pub fn plane_of_corners(corners: &[Vec3]) -> Plane {
+    let Some(&first) = corners.first() else {
+        return Plane::new(Vec3::ZERO, 0.0);
+    };
+    let (mut x, mut y, mut z) = (0.0f32, 0.0f32, 0.0f32);
+    for pair in corners[1..].windows(2) {
+        let (a, b) = (pair[0], pair[1]);
+        let (ax, ay, az) = (a.x - first.x, a.y - first.y, a.z - first.z);
+        let (bx, by, bz) = (b.x - first.x, b.y - first.y, b.z - first.z);
+        x += ay * bz - az * by;
+        y += az * bx - ax * bz;
+        z += ax * by - ay * bx;
+    }
+    let len = (x * x + y * y + z * z).sqrt();
+    let normal = if len > 0.0 {
+        Vec3::new(x / len, y / len, z / len)
+    } else {
+        Vec3::ZERO
+    };
+    let sum: f32 = corners
+        .iter()
+        .map(|p| normal.x * p.x + normal.y * p.y + normal.z * p.z)
+        .sum();
+    #[allow(clippy::cast_precision_loss)]
+    Plane::new(normal, -(sum / corners.len() as f32))
+}
+
 impl PlaneOps for Plane {
     // D2-03797
     fn through(normal: Vec3, point: Vec3) -> Plane {
@@ -378,3 +409,22 @@ pub fn side_of(d: f64) -> Side {
 
 /// A polygon: its corners in order.
 pub type Polygon = Vec<Vec3>;
+
+#[cfg(test)]
+mod corner_tests {
+    //! Behaviour: none (a polygon's plane, held to hand-worked values)
+    use super::*;
+
+    #[test]
+    fn a_polygons_plane_is_the_mean_of_its_corners_along_its_normal() {
+        let square = [
+            Vec3::new(0.0, 0.0, 2.0),
+            Vec3::new(1.0, 0.0, 2.0),
+            Vec3::new(1.0, 1.0, 2.0),
+            Vec3::new(0.0, 1.0, 2.0),
+        ];
+        let p = plane_of_corners(&square);
+        assert_eq!(p.normal, Vec3::new(0.0, 0.0, 1.0));
+        assert_eq!(p.d, -2.0);
+    }
+}

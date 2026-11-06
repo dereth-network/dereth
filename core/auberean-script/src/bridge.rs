@@ -124,12 +124,6 @@ pub fn object_process(
     Ok(vm.create_process(instance))
 }
 
-/// Pack an object for an outgoing call: its graph from the table.
-// D2-16746
-pub fn pack_object(vm: &Vm, id: u32) -> Result<Arg, Stop> {
-    Ok(Arg::Object(vm.heap.export(id)?))
-}
-
 /// A value handed to a sending function.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Param {

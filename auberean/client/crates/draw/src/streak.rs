@@ -282,6 +282,8 @@ impl Trail {
             .iter()
             .map(|layer| ObjectBatch {
                 vertices: vertices.clone(),
+                posed: None,
+                played: None,
                 indices: indices.clone(),
                 transform: place,
                 layer: layer.clone(),
@@ -298,6 +300,11 @@ impl Trail {
                 kept_by: None,
                 anchor: None,
                 step: Some(Pass::Streaks),
+                visible: None,
+                block: None,
+                far: false,
+                ground: None,
+                lod: None,
             })
             .collect()
     }

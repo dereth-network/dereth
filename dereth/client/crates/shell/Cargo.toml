@@ -77,6 +77,10 @@ dereth-plugin-lua.workspace = true
 workspace = true
 
 [[test]]
+name = "era_surfaces"
+path = "tests/era_surfaces.rs"
+
+[[test]]
 name = "host_resources"
 path = "tests/host_resources.rs"
 required-features = ["retail-dats"]

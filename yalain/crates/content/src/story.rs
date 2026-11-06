@@ -38,6 +38,8 @@ pub struct StoryTable {
     pub scenes: BTreeMap<u32, Scene>,
     /// The scene each shard (by its object id) bestows.
     pub shards: BTreeMap<u64, u32>,
+    /// The quest each shard that has one (by its object id) completes as the player comes out.
+    pub shard_quests: BTreeMap<u64, u32>,
     /// The scenes a new character holds from its first entry, in the order it is told of them.
     pub at_start: Vec<u32>,
     /// The scene each door (by its cell and template) plays on the way to its destination.

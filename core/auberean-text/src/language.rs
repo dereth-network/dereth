@@ -44,12 +44,10 @@ pub struct GoreOverrides {
 }
 
 impl GoreOverrides {
-    // D2-14185
     pub fn set_top_gore_level(&mut self, level: u32) {
         self.top_gore_level = level;
     }
 
-    // D2-14186
     pub fn set_top_blood_color(&mut self, color: u32) {
         self.top_blood_color = color;
     }
@@ -148,7 +146,6 @@ impl Language {
     }
 
     /// The highest blood color allowed: the command line's when it set one, else the language's.
-    // D2-14180
     #[must_use]
     pub fn top_blood_level(&self, overrides: GoreOverrides) -> u32 {
         if overrides.top_blood_color != 0 {

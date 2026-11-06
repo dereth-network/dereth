@@ -42,7 +42,9 @@ use empyrean_net::status_ping::{StatusFacts, StatusPing, StatusPingConfig, World
 use empyrean_net::{NetConfig, Outgoing, PortKind, ServerNet};
 use empyrean_server::config_file::{self, ConfigSource};
 use empyrean_server::websocket::{EndpointConfig, WebSocketEndpoint};
-use empyrean_server::{dat_directory, database_manager, guid_manager_boot, world_pack};
+use empyrean_server::{
+    dat_directory, dat_identity, database_manager, guid_manager_boot, world_pack,
+};
 use empyrean_store::SqliteShard;
 use empyrean_world::entity::actions::i_action::Action;
 use empyrean_world::entity::timers::TimersState;
@@ -173,6 +175,9 @@ pub fn main(options: &Options) -> ExitCode {
     };
     apply_log_level(&config.server.log_level);
     log_paths(&config, &paths);
+    if config.era.profile == empyrean_common::era::EraId::Launch {
+        log::warn!("Launch is experimental: its rules and world are still being checked against 1999, and characters do not move between eras");
+    }
 
     // Not ACE (V451): `[federation]` is read before anything starts. A world told to join the
     // Dereth Network with a setting it cannot serve does not start, as for any other setting
@@ -383,9 +388,12 @@ pub fn main(options: &Options) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    let character_limit = empyrean_common::config_manager::ConfigManager::try_config()
+        .and_then(|c| c.era.max_characters_per_account);
     on_world(&startup, move |w| {
         property_manager::install_shard_config(w, shard_config);
         property_manager::initialize(w, true);
+        property_manager::apply_configured_character_limit(w, character_limit);
     });
 
     log::info!("Initializing GuidManager...");
@@ -864,10 +872,23 @@ fn open_dats(config: &MasterConfiguration, paths: &PathBase) -> Result<Arc<DatMa
     let dir = dat_directory::configured_dat_directory(config, paths);
     // Not ACE: one folder may hold both dat sets; the world's overlay's base, else its era,
     // chooses which it reads.
-    let mut source = RealDats::open_era(&dir, dat_directory::world_set(config, paths))
-        .map_err(|e| format!("{}: {e}", dir.display()))?;
-    // Not ACE: the world's data overlay over the base files.
+    let set = dat_directory::world_set(config, paths);
+    let mut source =
+        RealDats::open_era(&dir, set).map_err(|e| format!("{}: {e}", dir.display()))?;
+    // DIVERGE: V477, the files are named in the log, and a world whose era expects other files
+    // does not start unless the operator allows it. A world with an overlay is checked against
+    // the overlay's base instead (below).
+    let files = dat_identity::fingerprint(&dir, set);
+    log::info!("Data files: {}", files.describe());
     let overlay = config.dat_overlay.path.trim();
+    if overlay.is_empty() {
+        match dat_identity::verdict(config.era.profile, &files, config.era.any_dat_files) {
+            dat_identity::Verdict::Suits => {}
+            dat_identity::Verdict::Allowed(line) => log::warn!("{line}"),
+            dat_identity::Verdict::Refused(line) => return Err(line),
+        }
+    }
+    // Not ACE: the world's data overlay over the base files.
     if !overlay.is_empty() {
         let overlay = paths.resolve(overlay);
         source = source

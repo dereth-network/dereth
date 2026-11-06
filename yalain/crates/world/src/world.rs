@@ -11,11 +11,17 @@
 //! ends the portal effect.
 //!
 //! **Moving.** The client reports where its player is; the server takes it (the client decides
-//! for now), sends the player its own position back, and creates the objects that come into range
-//! as it crosses landblocks. Turning the head is sent back the same way.
+//! within what a body can do), sends the player its own position back, and creates the objects that
+//! come into range as it crosses landblocks. Turning the head is sent back the same way.
+//!
+//! **A place too far.** A report that goes further than a body could have since the last ones takes
+//! the player nowhere: the server moves its force-position stamp on and tells the player where it
+//! stands, and its client goes back there (2017: 608 such corrections in 1,806,692 reports, the next
+//! report from the corrected place, at its stamp, in 515). Reports that have not heard of the new
+//! stamp are not taken. A land cell its point does not lie in is no place at all.
 //!
 //! **Options.** The client sends its options as they change; the server keeps them for the next
-//! session start.
+//! session start, up to what a character keeps ([`crate::options`]).
 //!
 //! **Logging off.** A character whose player logs off stays in the world, its movement frozen,
 //! for about nineteen seconds: it glows at once (the portal effect, for all who see it), plays its
@@ -30,6 +36,7 @@
 use dereth_primitives::num::math;
 use std::collections::BTreeMap;
 
+use auberean_protocol::login::CharacterRefused;
 use auberean_protocol::physics::{position_flags, Fx, ObjectPosition, Word};
 use auberean_protocol::types::{ObjectStamp, Qualities, VisualDesc};
 use auberean_protocol::wire::{Field, Reader, Writer};
@@ -64,6 +71,11 @@ pub struct Player {
     pub name: String,
     pub race: u32,
     pub sex: u32,
+    /// It entered as an admin character: of the admin template, from an admin's account. Admin
+    /// calls also need the account's flag at the time of the call.
+    pub admin_character: bool,
+    /// What an admin's commands have set on it, while it is in the world.
+    pub admin: crate::admin_calls::AdminState,
     /// How it looks, as the character list shows it.
     pub look: VisualDesc,
     /// The instance stamp of its object.
@@ -74,13 +86,20 @@ pub struct Player {
     pub position_stamp: u16,
     /// The teleport stamp: moved on each time the server puts the player somewhere.
     pub teleport_stamp: u16,
-    /// The force-position stamp.
+    /// The force-position stamp: moved on each time the server refuses a place the player reported.
     pub force_position_stamp: u16,
+    /// How far its reports may yet take it.
+    pub travel: Travel,
+    /// When it was last told where it stands after a place it reported was refused.
+    pub told_back: f64,
     pub position: StoredPosition,
     /// Its heading and asked motion as last reported.
     pub heading_motion: u32,
     pub position_stream: u32,
     pub head_stream: u32,
+    /// When its place last brought its view up to date, and whether its place has moved it since.
+    pub view_brought: f64,
+    pub view_owed: bool,
     /// The objects and players its client has been told of, by id.
     pub known: BTreeMap<u64, Seen>,
     pub options: Options,
@@ -89,6 +108,12 @@ pub struct Player {
     pub scene_drawn: bool,
     /// The object it has selected (0 for none).
     pub selection: u64,
+    /// An admin call of its was refused and logged this stay.
+    pub refused_admin_call: bool,
+    /// An admin command it typed was refused and logged this stay.
+    pub refused_admin_line: bool,
+    /// When it entered the world this time, on the local clock.
+    pub entered_at: f64,
     /// The stamp of its last movement order.
     pub move_to_stamp: u16,
     /// A use it is being walked toward: the use and the reach it needs.
@@ -107,6 +132,8 @@ pub struct Player {
     pub play: crate::state::PlayState,
     /// The store it is in: the storekeeper, the store, the first sale of the page shown.
     pub shopping: Option<(u64, u32, u32)>,
+    /// The rows of market pages its connection may yet have ([`crate::market`]).
+    pub page_rows: Option<crate::call_limit::Bucket>,
     /// Its attack run, while it attacks.
     pub attacking: Option<crate::combat::Run>,
     /// Its death, until it is resurrected.
@@ -133,6 +160,8 @@ pub struct Player {
     pub queued: Option<crate::skill_use::Request>,
     /// A special waiting for its attack run's next swing.
     pub in_run: Option<crate::skill_use::Request>,
+    /// How fast it may talk, once it has, and when it was last told it is past that.
+    pub talk: Option<(crate::call_limit::Bucket, Option<f64>)>,
     /// When it last used each skill (game time), from which the skill's recovery counts.
     pub last_used: std::collections::HashMap<u32, f64>,
     /// Another player it is walked to, and what for.
@@ -155,6 +184,16 @@ pub struct Player {
 }
 
 impl Player {
+    /// Its name as the world shows it: with the words an admin put after it, if any.
+    #[must_use]
+    pub fn shown_name(&self) -> String {
+        if self.play.suffix.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{} {}", self.name, self.play.suffix)
+        }
+    }
+
     /// Its object, with its instance stamp.
     #[must_use]
     pub const fn stamp(&self) -> ObjectStamp {
@@ -270,8 +309,63 @@ pub(crate) fn first_state<S: Store>(s: &Server<S>, c: &yalain_store::Character) 
     }
 }
 
+/// What a character is kept as, for its entry; the reason its client is refused when it cannot be
+/// read. A character whose kept state cannot be read does not enter: played on a new state, its next
+/// save would write over what it had. The bytes stay where they are in the store, and the operator is
+/// told which.
+pub(crate) fn kept_for_entry<S: Store>(
+    s: &mut Server<S>,
+    c: &yalain_store::Character,
+) -> Result<(WorldState, crate::state::PlayState), u32> {
+    let id = format_args!("{:#x}", c.id);
+    let st = match crate::saves::state_of(s, c.id) {
+        Ok(st) => st.unwrap_or_default(),
+        Err(e) => {
+            tracing::error!(
+                id = %id,
+                "{}: the store could not read this character, so it may not enter: {e}",
+                c.name
+            );
+            return Err(CharacterRefused::ERROR);
+        }
+    };
+    let damaged = |what: &str, e: &str| {
+        tracing::error!(
+            id = %id,
+            "{}: its kept {what} does not read, so it may not enter: {e}. Nothing is changed: its \
+             bytes stay in the database, in the character's rows of world_state and play_state",
+            c.name
+        );
+        CharacterRefused::CORRUPT_CHARACTER
+    };
+    let play = crate::state::PlayState::from_bytes(&st.play).map_err(|e| {
+        if crate::state::kept_by_a_newer_build(&st.play) {
+            tracing::error!(
+                id = %id,
+                "{}: a newer Yalain kept this character, so it may not enter this one: {e}. Nothing \
+                 is changed: run that Yalain, or put back a backup kept before its upgrade",
+                c.name
+            );
+            return CharacterRefused::OLD_CHARACTER;
+        }
+        damaged("play state", &e)
+    })?;
+    if !st.qualities.is_empty() {
+        Qualities::read(&mut Reader::new(&st.qualities))
+            .map_err(|e| damaged("qualities", &e.to_string()))?;
+    }
+    if !st.options.is_empty() {
+        Options::from_packed(&st.options).map_err(|e| damaged("options", &e))?;
+    }
+    Ok((st, play))
+}
+
 /// A character enters the world on a connection (its world connection, or its login connection
-/// when the server sends no referral).
+/// when the server sends no referral). A character that may not is not touched, and the reason its
+/// client is to be told comes back.
+///
+/// # Errors
+/// The reason to refuse it with: its state cannot be read.
 pub fn enter<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -279,19 +373,24 @@ pub fn enter<S: Store>(
     login: ConnId,
     character: u64,
     clock: Clock,
-) {
-    let Ok(Some(c)) = s.store.character(character) else {
-        s.unhandled
-            .note("entering with a character the store has not");
-        return;
+) -> Result<(), u32> {
+    let c = match s.store.character(character) {
+        Ok(Some(c)) => c,
+        Ok(None) => {
+            s.unhandled
+                .note("entering with a character the store has not");
+            return Err(CharacterRefused::NOT_OWNED);
+        }
+        Err(e) => {
+            tracing::error!(
+                id = format_args!("{character:#x}"),
+                "the store could not read this character, so it may not enter: {e}"
+            );
+            return Err(CharacterRefused::ERROR);
+        }
     };
+    let (mut st, play) = kept_for_entry(s, &c)?;
     let fresh = first_state(s, &c);
-    let mut st = s
-        .store
-        .world_state(character)
-        .ok()
-        .flatten()
-        .unwrap_or_default();
     if st.qualities.is_empty() {
         st.qualities = fresh.qualities;
     }
@@ -302,10 +401,22 @@ pub fn enter<S: Store>(
         st.position = fresh.position;
     }
     let Some(position) = st.position else {
-        s.unhandled
-            .note("a character with no start area for its race");
-        return;
+        tracing::error!(
+            id = format_args!("{character:#x}"),
+            race = c.race,
+            "this character has no place to start: its race has no start area in this world's data, \
+             so it may not enter"
+        );
+        return Err(CharacterRefused::COULD_NOT_PLACE);
     };
+    // One that left the world dead enters where it returns to, and comes back a moment later.
+    let dead = crate::examine::Vitals::of_qualities(&st.qualities).is_some_and(|v| v.health == 0);
+    let position = if dead {
+        crate::places::resurrection_place_of(s, &st.places, position)
+    } else {
+        position
+    };
+    st.position = Some(position);
     // Never in the world before (one the operator made with a build holds what it was given, and
     // is new all the same).
     let first_entry = st.instances == 0;
@@ -313,14 +424,30 @@ pub fn enter<S: Store>(
     let new_character = st.play.is_empty() || first_entry;
     let conflict = crate::kingdoms::status_at(&s.content.conflict, position.cell);
     crate::kingdoms::entering(&mut st.qualities, conflict, new_character);
-    let _ = s.store.set_world_state(character, &st);
-    let options = Options::from_packed(&st.options).unwrap_or_else(|e| {
+    s.saves.hold(character, st.clone());
+    let mut options = Options::from_packed(&st.options).map_err(|e| {
+        tracing::error!(
+            id = format_args!("{character:#x}"),
+            "{}: a new character's options do not read: {e}",
+            c.name
+        );
+        CharacterRefused::CORRUPT_CHARACTER
+    })?;
+    let left_out = options.keep_within_bounds();
+    if left_out.any() {
         tracing::warn!(
             id = format_args!("{character:#x}"),
-            "kept options do not read ({e}); a new character's"
+            aliases = left_out.aliases,
+            parts = left_out.parts,
+            "{}: options past what a character keeps were left out as it entered",
+            c.name
         );
-        Options::new_character(&s.start.skills.get(&c.race).cloned().unwrap_or_default())
-    });
+    }
+    // The template follows the account's flag at every entry: an admin character of an account no
+    // longer an admin's enters as a player.
+    let admin_character = c.entity_did == player::ADMIN_ENTITY
+        && s.sessions.get(&login).is_some_and(|x| x.account.admin);
+    player::set_template(&mut st.qualities, admin_character);
     let qualities = Qualities::read(&mut Reader::new(&st.qualities)).unwrap_or_default();
     let look = VisualDesc::read(&mut Reader::new(&c.look)).unwrap_or_default();
     // A connection that carried a character before (no referral) numbers its private messages
@@ -332,12 +459,18 @@ pub fn enter<S: Store>(
         name: c.name.clone(),
         race: c.race,
         sex: c.sex,
+        admin_character,
+        admin: crate::admin_calls::AdminState::default(),
         look: look.clone(),
         instance: st.instances,
         visual: player::PLAYER_VISUAL_STAMP,
         position_stamp: 1,
         teleport_stamp: 0,
         force_position_stamp: 0,
+        travel: Travel::default(),
+        told_back: f64::NEG_INFINITY,
+        view_brought: f64::NEG_INFINITY,
+        view_owed: false,
         heading_motion: u32::from(heading_of_rotation(position.rotation)) << 24 | IDLE_MOTION,
         position,
         position_stream: net.new_stream(world).unwrap_or(0),
@@ -347,6 +480,9 @@ pub fn enter<S: Store>(
         qualities: st.qualities.clone(),
         scene_drawn: false,
         selection: 0,
+        refused_admin_call: false,
+        refused_admin_line: false,
+        entered_at: clock.local.0,
         move_to_stamp: 0,
         walking_to: None,
         giving: None,
@@ -354,11 +490,9 @@ pub fn enter<S: Store>(
         following: None,
         trip: None,
         places: st.places.clone(),
-        play: crate::state::PlayState::from_bytes(&st.play).unwrap_or_else(|e| {
-            tracing::warn!(id = format_args!("{character:#x}"), "kept play state: {e}");
-            crate::state::PlayState::default()
-        }),
+        play,
         shopping: None,
+        page_rows: None,
         attacking: None,
         dying: None,
         open_container: None,
@@ -374,6 +508,7 @@ pub fn enter<S: Store>(
         queued: None,
         in_run: None,
         last_used: std::collections::HashMap::new(),
+        talk: None,
         approaching: None,
         shard_protection: None,
         riding: None,
@@ -382,17 +517,25 @@ pub fn enter<S: Store>(
         untraining: None,
         conflict,
     };
+    p.admin.cloaked = p.admin_character && p.play.cloaked;
     let me = ObjectStamp {
         id: character,
         instance_stamp: p.instance,
         other_stamp: 0,
     };
     // It is drawn wearing what it wears.
-    p.look = crate::equip::dressed(&look, &s.catalog, &p.play.items, c.race, c.sex);
+    p.look = crate::equip::dressed(
+        &look,
+        &s.catalog,
+        &p.play.items,
+        &p.play.item_states,
+        c.race,
+        c.sex,
+    );
     let at = player::placement(&position);
     let object = player::player_object(
         character,
-        &c.name,
+        &p.shown_name(),
         c.sex,
         p.look.clone(),
         at,
@@ -480,17 +623,24 @@ pub fn enter<S: Store>(
             }
         }
     }
+    let clashed = crate::inventory::fresh_ids_for_clashes(&mut s.things, &mut p.play, &c.name);
     // Whatever it wielded when it left, it still wields; the pack holds the rest.
     crate::inventory::close_up(&mut p.play.items);
     let mut pack: Vec<&crate::state::Held> =
         p.play.items.iter().filter(|h| h.location == 0).collect();
-    pack.sort_by_key(|h| h.slot);
+    pack.sort_by_key(|h| crate::inventory::pack_order(h.slot));
     let contents: Vec<u64> = pack.iter().map(|h| h.id).collect();
-    let worn = crate::inventory::worn(&s.catalog, &p.play.items, c.race, c.sex);
+    let worn = crate::inventory::worn(
+        &s.catalog,
+        &p.play.items,
+        &p.play.item_states,
+        c.race,
+        c.sex,
+    );
     let game_now = net.game_time(clock.local);
     s.game_now = game_now;
-    // A skill's wait does not run while the character is away: its last use moves on by the time
-    // since the character was last kept.
+    // A skill's wait does not run while the character is away, nor a quest's time: its last use,
+    // and when each quest was given, move on by the time since the character was last kept.
     let away = if p.play.kept_at > 0.0 {
         (game_now - p.play.kept_at).max(0.0)
     } else {
@@ -504,8 +654,11 @@ pub fn enter<S: Store>(
     let game_epoch = game_now - clock.unix as f64;
     // The effects that ran out while the character was away are gone before its session starts.
     crate::effects::prune(&mut p.play, game_now);
-    // So have the quests whose time ran out.
-    crate::quests::ran_out_away(&s.quests, &mut p.play.quests, clock.unix);
+    // So have the quests with no time left when it left; the others' time stood still.
+    #[allow(clippy::cast_possible_truncation)]
+    let away_s = away as i64;
+    crate::quests::ran_out_before_leaving(&s.quests, &mut p.play.quests, clock.unix - away_s);
+    crate::quests::time_stood_still(&mut p.play.quests, away_s, clock.unix);
     let effects = crate::effects::registry(s, &p);
     let start = SessionStart {
         server_faction: 0,
@@ -540,17 +693,26 @@ pub fn enter<S: Store>(
         send(net, world, BlobKind::PRIVATE, &session::welcome());
     }
     s.players.insert(world, p);
+    if dead {
+        s.after(
+            clock,
+            crate::death::BACK_AFTER_ENTRY,
+            crate::Timer::BackAfterEntry { world },
+        );
+    }
     if new_character {
         crate::scenes::first_entry(s, net, world);
     }
     crate::effects::enter(s, net, world, clock);
     crate::craft::enter(s, net, world, clock);
+    crate::workshops::moved(s, net, world, clock);
     crate::quests::timers_at_entry(s, world, clock);
     // The items it holds: in its pack, and in its hands (held there, as it left them).
     let instance = s.players.get(&world).map_or(0, |p| p.instance);
     for id in crate::inventory::enter(s, world) {
         if let Some(t) = s.things.get(id) {
-            let m = ServerMessage::CreateObject(crate::inventory::held_create(t, instance));
+            let m =
+                ServerMessage::CreateObject(crate::inventory::held_create(&s.catalog, t, instance));
             send(net, world, BlobKind::UNORDERED, &m);
         }
         if let Some(p) = s.players.get_mut(&world) {
@@ -566,14 +728,21 @@ pub fn enter<S: Store>(
     if new_character {
         crate::inventory::give(s, net, world, crate::inventory::GUIDE_BOOK, 1);
     }
+    if clashed {
+        keep_player(s, world);
+    }
     crate::market::enter(s, net, world);
     presence::refresh(s, net, world);
     crate::chat::tell_allegiance_and_channels(s, net, world);
     crate::admin::entered(s, net, world);
+    crate::admin_calls::entered(s, net, world);
     // The operator's message of the day, one notice (its lines in order), as Empyrean shows its
     // own at entry.
     if !s.cfg.motd.trim().is_empty() {
         crate::login::notice(net, world, &s.cfg.motd);
+    }
+    if s.saves.failing() {
+        crate::login::notice(net, world, crate::saves::CANNOT_SAVE);
     }
     tracing::info!(
         target: crate::answers::TARGET,
@@ -588,6 +757,7 @@ pub fn enter<S: Store>(
             )
         )
     );
+    Ok(())
 }
 
 /// Keep what a character is in the world. Its next periodic save is counted from now
@@ -599,23 +769,19 @@ fn keep<S: Store>(s: &mut Server<S>, p: &Player) {
     play.last_used = p.last_used.iter().map(|(k, t)| (*k, *t)).collect();
     play.last_used.sort_by_key(|(k, _)| *k);
     play.kept_at = s.game_now;
+    play.played_seconds = crate::saves::played_seconds(p, s.saves.now.0);
+    play.cloaked = p.admin.cloaked;
     // What its items carry of their own (their instance stamps, their makers, their wear) is kept
     // with them.
     play.item_states = play
         .items
         .iter()
         .filter_map(|h| {
-            let t = s.things.get(h.id)?;
-            Some(crate::state::ItemState {
-                id: h.id,
-                instance: t.instance,
-                crafter: t.crafter.clone(),
-                durability: t.durability,
-                destination: t.destination,
-                bonuses: t.bonuses.clone(),
-                binds_on_use: t.binds_on_use,
-                own: t.own,
-            })
+            // Not in the world yet (a save as its holder enters): as it was last kept.
+            match s.things.get(h.id) {
+                Some(t) => Some(crate::state::ItemState::of(t)),
+                None => p.play.item_states.iter().find(|k| k.id == h.id).cloned(),
+            }
         })
         .collect();
     let st = WorldState {
@@ -626,12 +792,7 @@ fn keep<S: Store>(s: &mut Server<S>, p: &Player) {
         places: p.places.clone(),
         play: play.to_bytes(),
     };
-    if let Err(e) = s.store.set_world_state(p.character, &st) {
-        tracing::warn!(
-            id = format_args!("{:#x}", p.character),
-            "the world state was not kept: {e}"
-        );
-    }
+    s.saves.hold(p.character, st);
 }
 
 /// Keep what the character on a world connection is in the world.
@@ -647,10 +808,15 @@ pub fn keep_player<S: Store>(s: &mut Server<S>, world: ConnId) {
 pub fn leave<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
     // Its fellowship and its trade go on without it.
     if let Some(id) = s.players.get(&world).map(|p| p.character) {
+        crate::admin_calls::rooms::leave_all(s, id);
         crate::fellowship::leave(s, net, id);
         crate::trade::left(s, net, id);
         crate::pets::owner_leaves(s, net, id);
         crate::plants::owner_leaves(s, net, id);
+        crate::drops::left(s, world);
+        crate::gives::left(s, net, world);
+        crate::usable::chests::left(s, net, world);
+        crate::usable::vaults::left(s, world);
     }
     if let Some(p) = s.players.remove(&world) {
         presence::depart(s, net, &p);
@@ -874,6 +1040,10 @@ pub fn is_world_message(m: &ClientMessage) -> bool {
     )
 }
 
+/// The most a client's call may carry, in bytes. The largest of the 299,860 calls recorded in 2017
+/// was 7,676 bytes; a message may be 8 MB, and what a call says is kept, or said to everyone near.
+pub const MOST_CALL_BYTES: usize = 64 * 1024;
+
 /// A message from a player's client on its world connection.
 pub fn message<S: Store>(
     s: &mut Server<S>,
@@ -883,6 +1053,9 @@ pub fn message<S: Store>(
     bytes: &[u8],
     clock: Clock,
 ) {
+    if !s.call_limits.allow(world, clock.local) {
+        return;
+    }
     let m = match ClientBlob::decode(q, bytes) {
         Ok(ClientBlob::Message(m)) => m,
         Ok(ClientBlob::Secure { queue, .. }) => {
@@ -896,6 +1069,14 @@ pub fn message<S: Store>(
             return;
         }
     };
+    // Far behind in what it has been sent: its reports still count, what it asks for waits.
+    if matches!(
+        m,
+        ClientMessage::ServerCall(_) | ClientMessage::ForceCreate(_)
+    ) && net.large_waiting_on(world, queue::EVENT) >= crate::call_limit::MOST_BEHIND
+    {
+        return;
+    }
     let Some(mut p) = s.players.remove(&world) else {
         s.unhandled.note(format!(
             "world message {:#x} before the character entered",
@@ -922,9 +1103,12 @@ pub fn message<S: Store>(
                     },
                     action: Word(ARRIVAL_FX),
                 });
-                send(net, world, BlobKind::VISUAL, &stop);
-                // The things of the other cells of an interior, held back until now.
+                let id = p.character;
                 s.players.insert(world, p);
+                // For all who see it, whose next visual message waits on this stamp (2017: 7,175
+                // of the 8,186 of these a client took were about someone else).
+                crate::combat::to_all_seeing(s, net, id, &stop);
+                // The things of the other cells of an interior, held back until now.
                 presence::refresh(s, net, world);
                 // Arrived: the status of where it now is.
                 return crate::kingdoms::check(s, net, world);
@@ -945,6 +1129,10 @@ pub fn message<S: Store>(
         ClientMessage::ForceCreate(t) => {
             s.players.insert(world, p);
             return presence::force_create(s, net, world, t.0);
+        }
+        ClientMessage::ServerCall(call) if call.args.0.len() > MOST_CALL_BYTES => {
+            s.unhandled
+                .note(format!("a call of {} bytes", call.args.0.len()));
         }
         ClientMessage::ServerCall(call) => {
             if kept_call(&mut p, call.function.0, &call.args.0) {
@@ -971,6 +1159,58 @@ pub const fn motion(sideways: u8, forward: u8, vertical: u8) -> u32 {
 /// The asked motion of a player standing still: every motion byte at its middle.
 pub const IDLE_MOTION: u32 = motion(127, 127, 127);
 
+/// How many meters of a player's reports go unquestioned at once, and how fast more come, in meters
+/// a second. Of 1,825,084 recorded reports, one needed more: 1,422 m after 252 s unheard. No 5 s of
+/// recorded play covered more than 42 m a second.
+pub const TRAVEL_HELD: f32 = 500.0;
+pub const TRAVEL_SPEED: f32 = 60.0;
+/// How long a client that has not heard where it stands goes before it is told again, in seconds.
+pub const TOLD_BACK_AGAIN: f64 = 1.0;
+
+/// How far a player's reports may yet take it, and when that was last reckoned.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Travel {
+    meters: f32,
+    at: f64,
+}
+
+impl Default for Travel {
+    fn default() -> Self {
+        Self {
+            meters: TRAVEL_HELD,
+            at: f64::NEG_INFINITY,
+        }
+    }
+}
+
+impl Travel {
+    /// A report would take the player this far, at this time: whether it may. A place it may not
+    /// reach takes nothing from what it holds.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn spend(&mut self, meters: f32, now: f64) -> bool {
+        let gained = (now - self.at).max(0.0) * f64::from(TRAVEL_SPEED);
+        self.meters = (f64::from(self.meters) + gained).min(f64::from(TRAVEL_HELD)) as f32;
+        self.at = now;
+        if meters > self.meters {
+            return false;
+        }
+        self.meters -= meters;
+        true
+    }
+}
+
+/// Is this land cell the one a point of its landblock lies in? All 1,503,957 reports recorded on the
+/// land were.
+#[must_use]
+pub fn land_cell_holds(cell: u32, point: [f32; 2]) -> bool {
+    let side = crate::spawn::BLOCK_SIDE;
+    if !(0.0..=side).contains(&point[0]) || !(0.0..=side).contains(&point[1]) {
+        return false;
+    }
+    let inside = |v: f32| v.min(side - 0.001);
+    crate::spawn::outdoor(cell >> 16, inside(point[0]), inside(point[1])).0 == cell
+}
+
 fn moved<S: Store>(
     s: &mut Server<S>,
     net: &mut ServerNet,
@@ -978,10 +1218,14 @@ fn moved<S: Store>(
     c: &auberean_protocol::physics::ClientPosition,
     clock: Clock,
 ) {
-    let finite = [c.origin.x, c.origin.y, c.origin.z]
+    // On the land, or within its side of a block: the 1,827,746 reports recorded came to 720 m.
+    let on_land = [c.origin.x, c.origin.y, c.origin.z]
         .iter()
-        .all(|v| v.is_finite());
-    if c.cell == 0 || !finite {
+        .all(|v| v.abs() <= crate::spawn::LAND_SIDE);
+    let on_its_cell = !s.cfg.holds_reports
+        || presence::indoors(c.cell)
+        || land_cell_holds(c.cell, [c.origin.x, c.origin.y]);
+    if c.cell == 0 || !on_land || !on_its_cell {
         s.unhandled.note("a position that is no place");
         return;
     }
@@ -998,6 +1242,39 @@ fn moved<S: Store>(
             "a place reported with an old teleport stamp"
         );
         return;
+    }
+    if c.force_position_stamp != p.force_position_stamp {
+        // Reported from before the server last refused a place: the client has not heard yet, and
+        // what told it may have been lost on the way.
+        if clock.local.0 - p.told_back >= TOLD_BACK_AGAIN {
+            p.told_back = clock.local.0;
+            let m = p.next_position(time, ON_GROUND);
+            let told = ServerMessage::Position(m).encode();
+            net.send_ephemeral(world, queue::EVENT, p.position_stream, told);
+        }
+        return;
+    }
+    if s.cfg.holds_reports && !p.admin_character {
+        let reported = StoredPosition {
+            cell: c.cell,
+            origin: [c.origin.x, c.origin.y, c.origin.z],
+            rotation: p.position.rotation,
+        };
+        let (dx, dy, dz) = crate::ai::offset(&p.position, &reported);
+        let far = (dx * dx + dy * dy + dz * dz).sqrt();
+        if !p.travel.spend(far, clock.local.0) {
+            tracing::debug!(
+                ?world,
+                far,
+                "a place too far: the player is told where it stands"
+            );
+            p.force_position_stamp = p.force_position_stamp.wrapping_add(1);
+            p.told_back = clock.local.0;
+            let m = p.next_position(time, ON_GROUND);
+            let told = ServerMessage::Position(m).encode();
+            net.send_ephemeral(world, queue::EVENT, p.position_stream, told);
+            return;
+        }
     }
     if c.cell != p.position.cell {
         tracing::debug!(
@@ -1028,7 +1305,7 @@ fn moved<S: Store>(
         || presence::land_cell(c.cell, [c.origin.x, c.origin.y, c.origin.z])
             != presence::land_cell(before.cell, before.origin);
     if moved_view {
-        presence::refresh(s, net, world);
+        presence::view_moved(s, net, world, clock);
     }
     if c.cell >> 16 != before.cell >> 16 {
         crate::kingdoms::check(s, net, world);
@@ -1038,6 +1315,7 @@ fn moved<S: Store>(
     crate::gives::moved(s, net, world, clock);
     crate::places::walked(s, net, world, clock);
     crate::usable::chests::moved(s, net, world, clock);
+    crate::inventory::moved(s, net, world);
     crate::skill_use::moved(s, net, world, clock);
     if jumped {
         // An item's use under way is cut short by a jump.
@@ -1045,10 +1323,14 @@ fn moved<S: Store>(
     }
     crate::social::moved(s, net, world, clock);
     crate::mounts::moved(s, world, clock);
+    crate::workshops::moved(s, net, world, clock);
 }
 
 /// Keep an option the client sends. Returns whether the call was one the server keeps.
 fn kept_call(p: &mut Player, function: u32, args: &[u8]) -> bool {
+    if args.len() > crate::options::MOST_PART_BYTES {
+        return false;
+    }
     let Ok(v) = uploads::values(args) else {
         return false;
     };

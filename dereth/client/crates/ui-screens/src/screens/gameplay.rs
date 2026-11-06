@@ -2899,6 +2899,8 @@ impl GamePlayScreen {
         }
         // The Character Options rows for what the era lacks are greyed out.
         self.character_options.apply_era(ui, Some(features));
+        // So are the key rows, rebuilt with the next pass over the page.
+        self.key_bindings.set_era(features);
         let pages: Vec<(u32, bool)> = self
             .panels
             .pages
@@ -3936,22 +3938,10 @@ impl Screen for GamePlayScreen {
 }
 
 /// Whether the page `element` (of the toolbar stack or the environment stack) belongs to a system
-/// `features` lacks: the quest page without the journal, the secure-trade window without trade,
-/// the salvage window without tinkering, the house purchase window without housing, and the chess
-/// window without chess.
+/// `features` lacks ([`crate::panels::era::era_surface_of`]).
 #[must_use]
 pub fn era_lacks_page(features: dereth_primitives::EraFeatures, element: ElementId) -> bool {
-    use crate::panels::{journal, minigame, salvage, slumlord, trade};
-    match element {
-        e if e == journal::PAGE => {
-            dereth_client_contract::era::quest_page(features, None).is_none()
-        }
-        e if e == trade::WINDOW => !features.trade,
-        e if e == salvage::PANEL => !features.tinkering,
-        e if e == slumlord::PANEL => !features.housing,
-        e if e == minigame::PANEL => !features.chess,
-        _ => false,
-    }
+    crate::panels::era::era_surface_of(element).is_some_and(|s| !s.offered(features))
 }
 
 #[cfg(test)]

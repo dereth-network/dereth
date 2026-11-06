@@ -100,6 +100,82 @@ fn vigor_sent(h: &Harness, b: usize, from: usize) -> Vec<i32> {
         .collect()
 }
 
+/// A special is critical only by what its weapon adds: never from a weapon that adds nothing, every
+/// time from one that adds it all.
+/// Behaviour: server.specials.critical-by-weapon-only
+#[test]
+fn a_specials_critical_comes_only_from_its_weapon() {
+    use yalain_world::combat::CRITICAL_BONUS;
+    use yalain_world::effect_defs::{numeric, EffectDef, Kind, Scale};
+    use yalain_world::rules::Outcome;
+    const BONUS: u32 = 0x6F00_0001;
+    let results = |bonus: bool| -> Vec<u32> {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        let bow = h.arm(b, me, BOW);
+        h.server.effect_table.effects.insert(
+            BONUS,
+            EffectDef {
+                state: BONUS,
+                kind: Kind::Numeric {
+                    flags: numeric::ADD,
+                    stats: vec![CRITICAL_BONUS],
+                    magnitude: Scale(vec![(0.0, 1.0)]),
+                },
+                duration: Scale::default(),
+                priority: Scale::default(),
+                fx: 0,
+                external_flags: 0,
+                internal_flags: 0,
+                enum_value: 0,
+                eq_class: 0,
+                name: None,
+            },
+        );
+        if bonus {
+            h.server
+                .things
+                .get_mut(bow)
+                .expect("held")
+                .enchantments
+                .push((BONUS, 9.0));
+        }
+        let t = h.server.things.get_mut(beetle).expect("the beetle");
+        t.max_health = 100_000_000;
+        t.health = 100_000_000;
+        let mut out = Vec::new();
+        for use_id in 0..120 {
+            let from = use_skill(&mut h, b, 1000 + use_id, DEADEYE, beetle);
+            h.run(600);
+            for m in h.world_messages(b, from) {
+                if let ServerMessage::DoStory(e) = m {
+                    for k in &e.action.hooks {
+                        if k.target == beetle && k.numbers[3] < 0 {
+                            out.push(k.numbers[0].cast_unsigned());
+                        }
+                    }
+                }
+            }
+            for p in h.server.players.values_mut() {
+                yalain_world::quals::set_int(&mut p.qualities, VIGOR, 100);
+            }
+        }
+        out
+    };
+    let plain = results(false);
+    assert!(plain.len() > 30, "{}", plain.len());
+    assert!(
+        plain.iter().all(|r| *r == Outcome::Hit.code()),
+        "{plain:x?}"
+    );
+    let with = results(true);
+    assert!(with.len() > 30, "{}", with.len());
+    assert!(
+        with.iter().all(|r| *r == Outcome::Critical.code()),
+        "{with:x?}"
+    );
+}
+
 /// Deadeye from rest with the starting bow: the player attacking, in the bow's combat mode,
 /// turned to its target; its vigor paid (32 and the bow's 4); the special's story from the player
 /// with the use's number, the skill and its missile naming the bow; the beetle tells how the
@@ -158,6 +234,709 @@ fn deadeye_from_rest_shoots_and_ends_with_the_skills_information() {
     );
     assert!(msgs.iter().any(|m| matches!(m, ServerMessage::DoMode(e) if e.sender.id == me && e.action.0 == 0x4000_0001)), "at peace");
     assert!(h.server.players.values().all(|p| p.using.is_none()));
+}
+
+/// A special goes at its player's pace, from rest and inside a run.
+/// Behaviour: server.weapons.attack-speed-effects
+#[test]
+fn a_special_goes_at_its_players_pace() {
+    for run in [false, true] {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        h.arm(b, me, BOW);
+        super::attack_speed::speeded(&mut h, 27, 1.7, true);
+        if run {
+            h.bots[b].send(
+                true,
+                queue::WEENIE,
+                &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+            );
+            h.run(30);
+        }
+        let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+        h.run(80);
+        let ts = h
+            .world_messages(b, from)
+            .iter()
+            .find_map(|m| match m {
+                ServerMessage::DoStory(e) if e.sender.id == me && e.action.skill == DEADEYE => {
+                    Some(e.action.attacker_behavior.time_scale)
+                }
+                _ => None,
+            })
+            .expect("the special's story");
+        assert!((1.72..=2.12).contains(&ts), "{ts} in a run: {run}");
+    }
+}
+
+/// A skill whose definition says it goes faster tells its story at the square of that, and what
+/// comes next follows: at Sinew Snap's 1.6, 2.56 times what the player's other skills are told at.
+/// Behaviour: server.specials.combat-speed-squared
+#[test]
+fn a_skill_that_says_it_goes_faster_is_told_at_the_square_of_it() {
+    const LONG: u32 = 0x4100_007B;
+    let told = |speed: Option<f32>, run: bool| -> Vec<(f32, f64)> {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        h.arm(b, me, BOW);
+        let u = h
+            .server
+            .skill_table
+            .skills
+            .get_mut(&DEADEYE)
+            .and_then(|d| d.usage.as_mut())
+            .expect("Deadeye");
+        u.combat_speed = speed;
+        u.behavior_other = [LONG; 3];
+        if run {
+            h.bots[b].send(
+                true,
+                queue::WEENIE,
+                &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+            );
+            h.run(30);
+        }
+        let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+        let mut at = Vec::new();
+        for _ in 0..200 {
+            h.step();
+            let n = at.len();
+            for (i, m) in h.world_messages(b, from).iter().enumerate() {
+                if i < n {
+                    continue;
+                }
+                let ts = match m {
+                    ServerMessage::DoStory(e) if e.sender.id == me && e.action.attacker == me => {
+                        Some(e.action.attacker_behavior.time_scale)
+                    }
+                    _ => None,
+                };
+                at.push((ts.unwrap_or(0.0), h.now.0));
+            }
+        }
+        at.retain(|x| x.0 > 0.0);
+        at
+    };
+    let plain = told(None, true);
+    let fast = told(Some(1.6), true);
+    assert!(plain.len() > 2 && fast.len() > 2);
+    let alone = told(Some(1.6), false);
+    let bare = yalain_world::combat::time_scale_at_delay(0);
+    assert!(
+        (bare * 0.9..=bare * 1.1).contains(&plain[0].0),
+        "{:?}",
+        plain[0]
+    );
+    let at = bare * 2.56;
+    assert!((at * 0.9..=at * 1.1).contains(&fast[0].0), "{:?}", fast[0]);
+    assert!(
+        (at * 0.9..=at * 1.1).contains(&alone[0].0),
+        "{:?}",
+        alone[0]
+    );
+    // The next story comes the animation over the time scale and the pause on.
+    for (run, name) in [(&plain, "plain"), (&fast, "fast")] {
+        let gap = run[1].1 - run[0].1;
+        let due = 3.25 / f64::from(run[0].0) + yalain_world::skill_use::NEXT_SWING_AFTER;
+        assert!(
+            (gap - due).abs() < 0.11,
+            "{name}: {gap:.3} where {due:.3} was due"
+        );
+    }
+}
+
+/// A special is refused while its user holds an effect that bars it, the refusal saying so, and
+/// goes once the effect is off; an effect it doesn't name bars nothing.
+/// Behaviour: server.specials.barred-by-an-effect
+#[test]
+fn a_special_under_an_effect_that_bars_it_is_refused_until_the_effect_is_off() {
+    const BAR: u32 = 0x7000_7E01;
+    const OTHER: u32 = 0x7000_7E02;
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, BOW);
+    h.server
+        .skill_table
+        .skills
+        .get_mut(&DEADEYE)
+        .and_then(|d| d.usage.as_mut())
+        .expect("used")
+        .barring_effects = vec![BAR];
+    let hold = |h: &mut Harness, state: u32| {
+        let p = h.server.players.values_mut().next().expect("the player");
+        let eid = yalain_world::effects::next_eid(p);
+        p.play
+            .effects
+            .retain(|e| e.state != BAR && e.state != OTHER);
+        p.play.effects.push(yalain_world::state::EffectState {
+            eid,
+            state,
+            cast: 0.0,
+            timeout: 1.0e9,
+            caster: 0,
+            spellcraft: 10.0,
+            pk: false,
+            acting: 0,
+            skill: 0,
+            item: 0,
+            flags: 0,
+            categories: 1,
+        });
+    };
+    hold(&mut h, BAR);
+    let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+    h.run(80);
+    let told = |h: &Harness, from: usize| {
+        h.world_messages(b, from)
+            .iter()
+            .filter(|m| matches!(m, ServerMessage::DoStory(e) if e.sender.id == me))
+            .count()
+    };
+    assert_eq!(told(&h, from), 0, "barred: no story");
+    assert!(calls_of(&h, b, from).iter().any(|(f, args)| {
+        *f == yalain_world::skill_use::function::REFUSED
+            && args.contains(&Value::Int(
+                yalain_world::skill_use::refusal::BARRED_BY_EFFECT,
+            ))
+    }));
+    hold(&mut h, OTHER);
+    let from = use_skill(&mut h, b, 7, DEADEYE, beetle);
+    h.run(80);
+    assert!(told(&h, from) > 0, "another effect bars nothing");
+}
+
+/// A special waiting for a run's next swing still goes when the run has nothing it may swing.
+/// Behaviour: server.weapons.withheld-run-waits
+#[test]
+fn a_special_inside_a_run_with_nothing_to_swing_still_goes() {
+    const NEVER_CARRIED: u32 = 0x6F00_7E00;
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    h.arm(b, me, BOW);
+    for d in h.server.skill_table.skills.values_mut() {
+        if d.auto_attack {
+            d.usage.as_mut().expect("used").required_effects = vec![NEVER_CARRIED];
+        }
+    }
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(START_ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    h.run(30);
+    let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+    h.run(80);
+    let told: Vec<u32> = h
+        .world_messages(b, from)
+        .iter()
+        .filter_map(|m| match m {
+            ServerMessage::DoStory(e) if e.sender.id == me => Some(e.action.skill),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(told, [DEADEYE]);
+}
+
+/// A special's hook that adds by rating adds at the player's rating in it: Deadeye with a hook of
+/// points does that much more than without.
+/// Behaviour: server.specials.hook-adds-by-rating
+#[test]
+fn a_specials_hook_adds_by_the_players_rating() {
+    let hits = |points: Vec<(f32, f32)>| -> i32 {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        const BOW_OF_KNOWN_DAMAGE: u32 = 0x4700_07A3;
+        let mut p = yalain_content::Props::default();
+        p.set("Weapon_Damage", yalain_content::Prop::Int(100));
+        h.server.catalog.insert(yalain_testkit::test_template(
+            BOW_OF_KNOWN_DAMAGE,
+            0x1067,
+            p,
+        ));
+        h.server
+            .catalog
+            .implements
+            .insert(BOW_OF_KNOWN_DAMAGE, yalain_world::skill_use::implement::BOW);
+        h.arm(b, me, BOW_OF_KNOWN_DAMAGE);
+        let u = h
+            .server
+            .skill_table
+            .skills
+            .get_mut(&DEADEYE)
+            .and_then(|d| d.usage.as_mut())
+            .expect("Deadeye");
+        for hook in &mut u.hooks {
+            hook.add_by_rating.clone_from(&points);
+        }
+        if let Some(t) = h.server.things.get_mut(beetle) {
+            t.max_health = 10_000_000;
+            t.health = 10_000_000;
+        }
+        for _ in 0..50 {
+            let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+            h.run(120);
+            let plain = h.world_messages(b, from).iter().find_map(|m| match m {
+                ServerMessage::DoStory(e) => e
+                    .action
+                    .hooks
+                    .iter()
+                    .find(|k| k.numbers[0] == 0x4000_0008 && k.numbers[3] < 0)
+                    .map(|k| -k.numbers[3]),
+                _ => None,
+            });
+            if let Some(d) = plain {
+                return d;
+            }
+        }
+        panic!("no plain hit in 50 uses");
+    };
+    let without = hits(Vec::new());
+    let with = hits(vec![(1.0, 40.0), (100.0, 40.0)]);
+    assert_eq!(with - without, 40, "{with} {without}");
+}
+
+/// The rating a skill's information caches.
+fn cached_rating(info: &[Value]) -> u32 {
+    match info.first().and_then(Value::root) {
+        Some(yalain_world::calls::Node::Script { slots, .. }) => slots[2].1,
+        other => panic!("the skill's information: {other:?}"),
+    }
+}
+
+/// An effect raising a skill raises its rating: the hook's add and the rating its information
+/// caches are its holder's with the effect, by whole points.
+/// Behaviour: server.skills.rating-with-effects
+#[test]
+fn an_effect_raising_a_skill_raises_what_its_hook_adds_and_the_rating_cached() {
+    use yalain_world::effect_defs::{numeric, EffectDef, Kind, Scale};
+    const RAISES: u32 = 0x6F00_0002;
+    // Each point of rating adds a point.
+    let used = |raised: bool| -> (i32, u32) {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        const BOW_OF_KNOWN_DAMAGE: u32 = 0x4700_07A3;
+        let mut p = yalain_content::Props::default();
+        p.set("Weapon_Damage", yalain_content::Prop::Int(100));
+        h.server.catalog.insert(yalain_testkit::test_template(
+            BOW_OF_KNOWN_DAMAGE,
+            0x1067,
+            p,
+        ));
+        h.server
+            .catalog
+            .implements
+            .insert(BOW_OF_KNOWN_DAMAGE, yalain_world::skill_use::implement::BOW);
+        h.arm(b, me, BOW_OF_KNOWN_DAMAGE);
+        let d = h
+            .server
+            .skill_table
+            .skills
+            .get_mut(&DEADEYE)
+            .expect("Deadeye");
+        d.cap = 50;
+        for hook in &mut d.usage.as_mut().expect("used").hooks {
+            hook.add_by_rating = vec![(0.0, 0.0), (1000.0, 1000.0)];
+        }
+        h.server.effect_table.effects.insert(
+            RAISES,
+            EffectDef {
+                state: RAISES,
+                kind: Kind::Numeric {
+                    flags: numeric::ADD,
+                    stats: vec![yalain_world::effects::SKILL_STAT | DEADEYE],
+                    magnitude: Scale(vec![(0.0, 6.82)]),
+                },
+                duration: Scale::default(),
+                priority: Scale::default(),
+                fx: 0,
+                external_flags: 0,
+                internal_flags: 0,
+                enum_value: 0,
+                eq_class: 0,
+                name: None,
+            },
+        );
+        if raised {
+            let cast = h.net.game_time(h.now);
+            let p = h.server.players.values_mut().next().expect("the player");
+            let eid = yalain_world::effects::next_eid(p);
+            p.play.effects.push(yalain_world::state::EffectState {
+                eid,
+                state: RAISES,
+                cast,
+                timeout: 1.0e9,
+                caster: 0,
+                spellcraft: 10.0,
+                pk: false,
+                acting: 0,
+                skill: 0,
+                item: 0,
+                flags: 0,
+                categories: 1,
+            });
+        }
+        if let Some(t) = h.server.things.get_mut(beetle) {
+            t.max_health = 10_000_000;
+            t.health = 10_000_000;
+        }
+        for _ in 0..50 {
+            let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+            h.run(120);
+            let plain = h.world_messages(b, from).iter().find_map(|m| match m {
+                ServerMessage::DoStory(e) => e
+                    .action
+                    .hooks
+                    .iter()
+                    .find(|k| k.numbers[0] == 0x4000_0008 && k.numbers[3] < 0)
+                    .map(|k| -k.numbers[3]),
+                _ => None,
+            });
+            if let Some(d) = plain {
+                let info = calls_of(&h, b, from)
+                    .into_iter()
+                    .find(|(f, _)| *f == SKILL_INFO)
+                    .expect("the skill's information");
+                return (d, cached_rating(&info.1));
+            }
+        }
+        panic!("no plain hit in 50 uses");
+    };
+    let (d0, r0) = used(false);
+    let (d1, r1) = used(true);
+    assert_eq!(r1, r0 + 6, "cached {r1} over {r0}");
+    assert_eq!(d1 - d0, 6, "hit {d1} over {d0}");
+}
+
+/// A special's critical does a quarter more than its plain hit, not double, its hook's add with the
+/// rest.
+/// Behaviour: server.specials.critical-size
+#[test]
+fn a_specials_critical_does_a_quarter_more_than_its_plain_hit() {
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    const BOW_OF_KNOWN_DAMAGE: u32 = 0x4700_07A3;
+    let mut p = yalain_content::Props::default();
+    p.set("Weapon_Damage", yalain_content::Prop::Int(100))
+        .set("Weapon_Variance", yalain_content::Prop::Float(0.0));
+    h.server.catalog.insert(yalain_testkit::test_template(
+        BOW_OF_KNOWN_DAMAGE,
+        0x1067,
+        p,
+    ));
+    h.server
+        .catalog
+        .implements
+        .insert(BOW_OF_KNOWN_DAMAGE, yalain_world::skill_use::implement::BOW);
+    let bow = h.arm(b, me, BOW_OF_KNOWN_DAMAGE);
+    // A special is critical only by its weapon's bonus: this one, half the time.
+    const BONUS: u32 = 0x6F00_0001;
+    h.server.effect_table.effects.insert(
+        BONUS,
+        yalain_world::effect_defs::EffectDef {
+            state: BONUS,
+            kind: yalain_world::effect_defs::Kind::Numeric {
+                flags: yalain_world::effect_defs::numeric::ADD,
+                stats: vec![yalain_world::combat::CRITICAL_BONUS],
+                magnitude: yalain_world::effect_defs::Scale(vec![(0.0, 0.5)]),
+            },
+            duration: yalain_world::effect_defs::Scale::default(),
+            priority: yalain_world::effect_defs::Scale::default(),
+            fx: 0,
+            external_flags: 0,
+            internal_flags: 0,
+            enum_value: 0,
+            eq_class: 0,
+            name: None,
+        },
+    );
+    h.server
+        .things
+        .get_mut(bow)
+        .expect("held")
+        .enchantments
+        .push((BONUS, 9.0));
+    let u = h
+        .server
+        .skill_table
+        .skills
+        .get_mut(&DEADEYE)
+        .and_then(|d| d.usage.as_mut())
+        .expect("Deadeye");
+    for hook in &mut u.hooks {
+        hook.add_by_rating = vec![(1.0, 40.0), (100.0, 40.0)];
+    }
+    if let Some(t) = h.server.things.get_mut(beetle) {
+        t.max_health = 10_000_000;
+        t.health = 10_000_000;
+    }
+    h.server.rng = yalain_world::rng::Rng::new(7);
+    let (mut plain, mut critical) = (None, None);
+    for _ in 0..1000 {
+        if plain.is_some() && critical.is_some() {
+            break;
+        }
+        let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+        h.run(120);
+        for m in h.world_messages(b, from) {
+            let ServerMessage::DoStory(e) = m else {
+                continue;
+            };
+            for k in &e.action.hooks {
+                if k.numbers[3] < 0 && k.numbers[0] == 0x4000_0008 {
+                    plain = Some(-k.numbers[3]);
+                } else if k.numbers[3] < 0 && k.numbers[0] == 0x4000_0009 {
+                    critical = Some(-k.numbers[3]);
+                }
+            }
+        }
+    }
+    let (plain, critical) = (plain.expect("a plain hit"), critical.expect("a critical"));
+    assert_eq!(critical, (plain * 5 + 2) / 4, "{plain}");
+}
+
+/// A hook of the left hand does the damage of what that hand holds, a shield's too, and the right
+/// hand's weapon's with nothing there that does damage. A hook of the right hand is untouched.
+/// Behaviour: server.specials.hook-of-the-left-hand
+#[test]
+fn a_hook_of_the_left_hand_does_the_damage_of_what_it_holds() {
+    use yalain_content::{Prop, Props};
+    use yalain_world::skill_use::hook_flag::LEFT_HAND;
+    const SHIELD: u32 = 0x4700_07A4;
+    const CLOTH: u32 = 0x4700_07A5;
+    const BOW_OF_KNOWN_DAMAGE: u32 = 0x4700_07A3;
+    let hit = |flags: u32, left: Option<u32>| -> i32 {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        let known = |h: &mut Harness, t: u32, damage: i64| {
+            let mut p = Props::default();
+            p.set("Weapon_Damage", Prop::Int(damage))
+                .set("Weapon_Variance", Prop::Float(0.0));
+            h.server
+                .catalog
+                .insert(yalain_testkit::test_template(t, 0x1067, p));
+        };
+        known(&mut h, BOW_OF_KNOWN_DAMAGE, 100);
+        known(&mut h, SHIELD, 30);
+        h.server.catalog.insert(yalain_testkit::test_template(
+            CLOTH,
+            0x200,
+            Props::default(),
+        ));
+        h.server
+            .catalog
+            .implements
+            .insert(BOW_OF_KNOWN_DAMAGE, yalain_world::skill_use::implement::BOW);
+        h.arm(b, me, BOW_OF_KNOWN_DAMAGE);
+        if let Some(template) = left {
+            let id =
+                yalain_world::inventory::make_item(&mut h.server, template, 1, 0).expect("made");
+            let p = h.server.players.values_mut().next().expect("in the world");
+            let slot = u32::try_from(p.play.items.len()).unwrap_or(0);
+            p.play.items.push(yalain_world::state::Held {
+                id,
+                template,
+                slot,
+                location: yalain_world::equip::OFF_HAND,
+                quantity: 1,
+            });
+        }
+        let u = h
+            .server
+            .skill_table
+            .skills
+            .get_mut(&DEADEYE)
+            .and_then(|d| d.usage.as_mut())
+            .expect("Deadeye");
+        u.implements_left = -1;
+        for hook in &mut u.hooks {
+            hook.flags |= flags;
+            hook.add = 0.0;
+            hook.add_by_rating.clear();
+        }
+        if let Some(t) = h.server.things.get_mut(beetle) {
+            t.max_health = 10_000_000;
+            t.health = 10_000_000;
+            if let Some(c) = t.creature.as_mut() {
+                c.stats.armor = 0;
+            }
+        }
+        h.server.rng = yalain_world::rng::Rng::new(7);
+        for _ in 0..200 {
+            let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+            h.run(120);
+            for m in h.world_messages(b, from) {
+                let ServerMessage::DoStory(e) = m else {
+                    continue;
+                };
+                for k in &e.action.hooks {
+                    if k.numbers[3] < 0 && k.numbers[0] == 0x4000_0008 {
+                        return -k.numbers[3];
+                    }
+                }
+            }
+        }
+        panic!("no plain hit");
+    };
+    assert_eq!(hit(0, Some(SHIELD)), 100, "the right hand's own hook");
+    assert_eq!(hit(LEFT_HAND, None), 100, "nothing in the left hand");
+    assert_eq!(
+        hit(LEFT_HAND, Some(CLOTH)),
+        100,
+        "nothing there with damage"
+    );
+    assert_eq!(hit(LEFT_HAND, Some(SHIELD)), 30, "the shield's");
+}
+
+/// An effect that lowers a skill's cost does, a fraction rounded up, down to half the skill's own:
+/// Deadeye costs 32 and the bow's 4.
+/// Behaviour: server.specials.vigor-lowered-by-effects
+#[test]
+fn an_effect_lowers_what_a_skill_costs_down_to_half_its_own() {
+    use yalain_world::effect_defs::{EffectDef, Kind, Scale};
+    const LOWERS: u32 = 0x6F00_7777;
+    let paid = |by: f32| -> i32 {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        h.arm(b, me, BOW);
+        let mut d: EffectDef = h
+            .server
+            .effect_table
+            .effects
+            .values()
+            .next()
+            .cloned()
+            .expect("an effect");
+        d.state = LOWERS;
+        d.fx = 0;
+        d.eq_class = 0;
+        d.duration = Scale(vec![(0.0, 3000.0)]);
+        d.kind = Kind::Numeric {
+            flags: 0,
+            stats: vec![yalain_world::effects::VIGOR_COST_ADD],
+            magnitude: Scale(vec![(0.0, by)]),
+        };
+        h.server.effect_table.effects.insert(LOWERS, d);
+        let world = *h.server.players.keys().next().expect("in the world");
+        let clock = h.clock();
+        let cast = yalain_world::effects::Cast {
+            caster: me,
+            spellcraft: 1.0,
+            ..yalain_world::effects::Cast::default()
+        };
+        assert!(yalain_world::effects::apply(
+            &mut h.server,
+            &mut h.net,
+            world,
+            LOWERS,
+            cast,
+            clock
+        ));
+        h.run(2);
+        let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+        h.run(80);
+        100 - vigor_sent(&h, b, from).first().copied().expect("it paid")
+    };
+    assert_eq!(paid(0.0), 36);
+    assert_eq!(paid(-10.0), 26);
+    assert_eq!(paid(-10.5), 26, "rounded up");
+    assert_eq!(paid(-1000.0), 16, "half its own");
+}
+
+/// What an aura multiplies a held item's cost by comes off that item, rounded down: Deadeye costs its
+/// 32 and a bow of 18, which at 0.72 costs 12.
+/// Behaviour: server.specials.vigor-of-what-is-held-under-an-aura
+#[test]
+fn an_aura_on_what_is_held_lowers_its_cost_rounded_down() {
+    use yalain_world::effect_defs::{aura_target, numeric, Aura, EffectDef, Kind, Scale};
+    const LOWERS: u32 = 0x6F00_7778;
+    const LOOTED: u32 = 0x4700_07A3;
+    let paid = |by: Option<f32>| -> i32 {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        let mut p = yalain_content::Props::default();
+        p.set("Weapon_VigorCost", yalain_content::Prop::Int(18));
+        h.server
+            .catalog
+            .insert(yalain_testkit::test_template(LOOTED, 0x1067, p));
+        h.server
+            .catalog
+            .implements
+            .insert(LOOTED, yalain_world::skill_use::implement::BOW);
+        h.arm(b, me, LOOTED);
+        if let Some(by) = by {
+            let mut d: EffectDef = h
+                .server
+                .effect_table
+                .effects
+                .values()
+                .next()
+                .cloned()
+                .expect("an effect");
+            d.state = LOWERS;
+            d.fx = 0;
+            d.eq_class = 0;
+            d.duration = Scale(vec![(0.0, 3000.0)]);
+            d.kind = Kind::Numeric {
+                flags: numeric::MULTIPLY,
+                stats: vec![yalain_world::made::stat::VIGOR],
+                magnitude: Scale(vec![(0.0, by)]),
+            };
+            let aura = EffectDef {
+                state: LOWERS + 1,
+                kind: Kind::Aura(Aura {
+                    pulsed: vec![LOWERS],
+                    targets: aura_target::ITEM,
+                    range: 300.0,
+                }),
+                ..d.clone()
+            };
+            h.server.effect_table.effects.insert(LOWERS, d);
+            h.server.effect_table.effects.insert(LOWERS + 1, aura);
+            let world = *h.server.players.keys().next().expect("in the world");
+            let clock = h.clock();
+            yalain_world::effects::aura_on(
+                &mut h.server,
+                &mut h.net,
+                world,
+                LOWERS + 1,
+                0,
+                1.0,
+                clock,
+            );
+            h.run(2);
+        }
+        let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+        h.run(80);
+        100 - vigor_sent(&h, b, from).first().copied().expect("it paid")
+    };
+    assert_eq!(paid(None), 32 + 18);
+    assert_eq!(paid(Some(0.72)), 32 + 12);
+}
+
+/// A bow the player came by costs what it says, not what a starting bow does.
+/// Behaviour: server.specials.vigor-of-what-is-held
+#[test]
+fn deadeye_with_a_looted_bow_pays_that_bows_cost() {
+    let (mut h, b, me, beetle) = beside_a_beetle();
+    practice_target(&mut h, beetle);
+    const LOOTED: u32 = 0x4700_07A3;
+    let mut p = yalain_content::Props::default();
+    p.set("Weapon_VigorCost", yalain_content::Prop::Int(18));
+    h.server
+        .catalog
+        .insert(yalain_testkit::test_template(LOOTED, 0x1067, p));
+    h.server
+        .catalog
+        .implements
+        .insert(LOOTED, yalain_world::skill_use::implement::BOW);
+    h.arm(b, me, LOOTED);
+    let from = use_skill(&mut h, b, 6, DEADEYE, beetle);
+    h.run(80);
+    assert_eq!(
+        vigor_sent(&h, b, from).first(),
+        Some(&50),
+        "100 less 32 and 18"
+    );
 }
 
 /// A special with nothing in hand is refused in one tick: the player attacking, the use over,
@@ -476,7 +1255,7 @@ fn vigor_spent_to_nothing_by_a_recall_comes_back_at_rest() {
 }
 
 /// Wielding names the item's place in the pack as the client keeps it (the pack's order, closed
-/// up behind anything taken out), and whatever was in hand goes back to the pack's end first.
+/// up behind anything taken out), and whatever was in hand goes back where it was first.
 /// Behaviour: server.inventory.wield-keeps-the-packs-order
 #[test]
 fn wielding_names_the_items_place_and_the_pack_closes_up() {
@@ -689,4 +1468,57 @@ fn a_skills_range_is_measured_between_the_bodies() {
     let from = use_skill(&mut h, b, 10, DEADEYE, beetle);
     h.run(6);
     assert!(!functions(&h, b, from).contains(&function::REFUSED));
+}
+
+/// The harm a skill counts for at a creature's draw is its points' share more or less, one point to
+/// one percent; what the creature loses is the damage itself.
+/// Behaviour: server.creatures.a-skills-harm-counts-by-its-points
+#[test]
+fn a_skills_harm_counts_at_a_draw_by_its_points_and_takes_only_its_damage() {
+    use yalain_world::ai::harm_noticed;
+    for (skill, counted) in [
+        (701, 10_100),
+        (326, 9_900),
+        (2189, 10_500),
+        (322, 10_050),
+        (96, 10_000),
+    ] {
+        assert_eq!(harm_noticed(skill, 10_000), counted, "skill {skill}");
+    }
+    // A missile's and a strike's, each by a skill that counts for more.
+    for (skill, like, weapon) in [(2189, DEADEYE, BOW), (2190, 176, SWORD)] {
+        let (mut h, b, me, beetle) = beside_a_beetle();
+        practice_target(&mut h, beetle);
+        h.arm(b, me, weapon);
+        let mut def = h.server.skill_table.skills[&like].clone();
+        def.id = skill;
+        let usage = def.usage.as_mut().expect("used");
+        usage.max_range = 1000.0;
+        usage.min_range = -1.0;
+        usage.ui_flags &= !yalain_world::skill_use::ui_flag::MOVE_TO;
+        for hook in &mut usage.hooks {
+            hook.add = 5_000.0;
+        }
+        h.server.skill_table.skills.insert(skill, def);
+        if let Some(t) = h.server.things.get_mut(beetle) {
+            t.max_health = 1_000_000;
+            t.health = 1_000_000;
+        }
+        use_skill(&mut h, b, 6, skill, beetle);
+        h.run(80);
+        let t = h.server.things.get(beetle).expect("alive");
+        let lost = 1_000_000 - t.health;
+        let harm: i64 = t
+            .creature
+            .as_ref()
+            .expect("a creature")
+            .harm
+            .iter()
+            .filter(|e| e.1 == me)
+            .map(|e| e.2)
+            .sum();
+        assert!(lost > 100, "skill {skill} hit for {lost}");
+        assert_eq!(harm, harm_noticed(skill, lost), "skill {skill}");
+        assert!(harm > i64::from(lost));
+    }
 }

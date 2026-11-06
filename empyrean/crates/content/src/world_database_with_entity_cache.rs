@@ -18,6 +18,7 @@ use empyrean_entity::enums::{PropertyDataId, WeenieType};
 use crate::adapter::weenie_converter::convert_to_entity_weenie;
 use crate::entity::HouseListResults;
 use crate::error::PackError;
+use crate::loot::{DeathLootProfile, GroupedTreasureDeath, SourceLootPolicy};
 use crate::models::world::*;
 use crate::pack::{Pack, TableId};
 use crate::world_database::{sql_ci_eq, WorldDatabaseBase};
@@ -26,6 +27,7 @@ type EntityWeenie = empyrean_entity::Weenie;
 type Tiered<T> = HashMap<i32, HashMap<i32, Arc<Vec<T>>>>;
 /// Source class id to target class id to cook book (`null` for a miss).
 type CookbookCache = HashMap<u32, HashMap<u32, Option<Arc<CookBook>>>>;
+type SourcePolicyCache = Option<(Option<Arc<[u8]>>, Arc<SourceLootPolicy>)>;
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -46,6 +48,7 @@ struct Caches {
     creature_weenie_names_lower_invariant_cache: Mutex<HashMap<String, u32>>,
     cookbook_cache: Mutex<CookbookCache>,
     recipe_cache: Mutex<HashMap<u32, Option<Arc<Recipe>>>>,
+    source_policy: Mutex<SourcePolicyCache>,
     cached_encounters: Mutex<HashMap<u16, Arc<Vec<Encounter>>>>,
     cached_events: Mutex<HashMap<String, Option<Arc<Event>>>>,
     cached_house_portals: Mutex<HashMap<u32, Arc<Vec<HousePortal>>>>,
@@ -507,6 +510,57 @@ impl WorldDatabaseWithEntityCache {
             .iter()
             .map(|b| self.get_cookbook(b.source_wcid, b.target_wcid))
             .collect()
+    }
+
+    /// Source profiles remain live across overlay edits.
+    pub fn get_grouped_treasure(&self, data_id: u32) -> Option<GroupedTreasureDeath> {
+        self.base.get_grouped_treasure(data_id)
+    }
+    pub fn get_source_loot_policy(&self) -> Option<Arc<SourceLootPolicy>> {
+        let over = self
+            .base
+            .overlay()
+            .and_then(|o| o.layer().get(TableId::LOOT_POLICY, 1));
+        if matches!(over, Some(None)) {
+            return None;
+        }
+        let bytes = over.flatten();
+        let mut cache = lock(&self.c.source_policy);
+        if let Some((previous, policy)) = &*cache {
+            let same = match (previous, &bytes) {
+                (None, None) => true,
+                (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                _ => false,
+            };
+            if same {
+                return Some(policy.clone());
+            }
+        }
+        let policy = Arc::new(self.base.get_source_loot_policy()?);
+        *cache = Some((bytes, policy.clone()));
+        Some(policy)
+    }
+    pub fn get_death_loot_profile(&self, data_id: u32) -> Option<DeathLootProfile> {
+        if let Some(row) = self.get_grouped_treasure(data_id) {
+            // A grouped profile is made with the content's source loot policy. Import refuses to
+            // delete the policy while a profile uses it, but an overlay changed by other means
+            // can still lack it; the death then makes no loot rather than stopping the world.
+            let Some(policy) = self.get_source_loot_policy() else {
+                log::error!(
+                    "death treasure {data_id} is a grouped source profile, but the content has no source loot policy: no loot is made"
+                );
+                return None;
+            };
+            Some(DeathLootProfile::Ac1999(Arc::new(row), policy))
+        } else {
+            self.get_cached_death_treasure(data_id)
+                .map(DeathLootProfile::Ace)
+        }
+    }
+    /// Optional current-vital preconditions; kept live across content edits.
+    #[must_use]
+    pub fn get_recipe_vital_requirement(&self, recipe_id: u32) -> Option<RecipeVitalRequirement> {
+        self.base.get_recipe_vital_requirement(recipe_id)
     }
 
     // ACE: WorldDatabaseWithEntityCache.GetCachedRecipe

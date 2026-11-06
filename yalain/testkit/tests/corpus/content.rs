@@ -39,7 +39,7 @@ fn installed() -> Option<&'static Install> {
             .find(|(n, _)| *n == DatName::Portal)?;
         let dat = DatFile::open(&path).ok()?;
         let ctx = Context::from_portal(&dat).ok()?;
-        let lib = Library::from_record(&dat.read(RECORD).ok()?).ok()?;
+        let lib = dat.read_checked(RECORD, Library::from_record).ok()?.value;
         Some(Install { dat, ctx, lib })
     })
     .as_ref()
@@ -254,6 +254,19 @@ fn new_humans_start_in_a_copy_of_the_training_hall_with_their_races_skills() {
             "race {race} starts somewhere"
         );
         assert!(!rules.skills[&race].is_empty(), "race {race} has skills");
+    }
+    // Whatever start area a client names, a character of a race it can make has a place: each of
+    // its race's areas holds one, and any other falls back to the first.
+    for (race, _, _) in yalain_world::chargen::BODY_ENTITIES {
+        let kinds = &rules.by_race[&race];
+        assert!(!kinds.is_empty(), "race {race} has start areas");
+        for kind in kinds {
+            let area = rules.area_for(race, *kind).expect("an area");
+            assert!(
+                !area.places.is_empty(),
+                "race {race} area {kind} has places"
+            );
+        }
     }
     println!(
         "start areas: {}",
