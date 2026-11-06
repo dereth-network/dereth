@@ -1373,6 +1373,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "desktop.looks.a-look-sent-again-plays-its-effects-again",
+        says: "A visual description the server sends again, unchanged, is applied as any other: \
+               the object's parts stay, and its effects, its look's startup effects with them, \
+               play again.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-LOOK-SENT-AGAIN"),
+        station: "auberean-scene::cpu::others::a_look_sent_again_plays_its_effects_again",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "desktop.looks.an-effects-appearance-dresses-the-body-it-plays-on",
         says: "The appearance an object's effects lay over it or take off it changes the object's \
                own descriptions (its own with the effects' appearance laid on, kept when the \

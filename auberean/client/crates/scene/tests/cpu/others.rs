@@ -335,6 +335,7 @@ fn made(entity: u32) -> auberean_client_sdk::model::Object {
         id: 0x5000_0001,
         instance_stamp: 0,
         visual: VisualDesc::default(),
+        visual_updates: 0,
         physics: PhysicsDesc::default(),
         weenie: WeenieDesc {
             entity_did: entity,
@@ -352,6 +353,25 @@ fn made(entity: u32) -> auberean_client_sdk::model::Object {
         qualities: auberean_client_sdk::model::Qualities::default(),
         reports: Vec::new(),
     }
+}
+
+/// A description the server sends again counts as sent again, though nothing in it changed: retail
+/// applies it, so the object's effects play again. A changed one goes the way of a new look, and
+/// one already taken is not sent again.
+///
+/// Behaviour: desktop.looks.a-look-sent-again-plays-its-effects-again
+#[test]
+fn a_look_sent_again_plays_its_effects_again() {
+    use auberean_scene::others::sent_again;
+    let mut o = made(1);
+    let taken = o.visual.clone();
+    assert!(!sent_again(Some(&taken), 0, &o), "nothing sent since");
+    o.visual_updates = 1;
+    assert!(sent_again(Some(&taken), 0, &o), "the same one again");
+    assert!(!sent_again(Some(&taken), 1, &o), "already taken");
+    assert!(!sent_again(None, 0, &o), "no look taken yet");
+    o.visual.bits ^= 1;
+    assert!(!sent_again(Some(&taken), 0, &o), "a changed one");
 }
 
 /// An object's body takes the profile its qualities give, asked as the object answers them: its

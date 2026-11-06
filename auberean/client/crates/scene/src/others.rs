@@ -503,6 +503,8 @@ impl OtherBody {
 struct Other {
     /// The description the figure was put together from.
     visual: Option<WireVisual>,
+    /// The object's count of descriptions sent, at the last one taken.
+    visual_updates: u32,
     /// Its own descriptions (none when its look is a stored record's).
     dress: Option<ObjectLook>,
     figure: Option<Figure>,
@@ -936,6 +938,12 @@ impl Others {
                     }
                 }
             }
+            if sent_again(b.visual.as_ref(), b.visual_updates, o) {
+                // The description it has, sent again: its parts stay, and its effects play again.
+                let look = look_after(records, anims, &o.visual, &mut b.dress);
+                crate::takes_look(anims, &mut b.figure, &mut b.effects, look.as_ref(), o.id);
+            }
+            b.visual_updates = o.visual_updates;
             if b.visual.as_ref() != Some(&o.visual) {
                 let looks = Looks {
                     records,
@@ -1109,6 +1117,7 @@ impl Others {
         }
         let mut b = Other {
             visual: None,
+            visual_updates: o.visual_updates,
             dress: None,
             figure: None,
             body: None,
@@ -1472,6 +1481,12 @@ pub(crate) struct Looks<'a, 'w> {
     pub anims: &'a CachedRecords<'w>,
     pub world: &'a mut World,
     pub trees: &'a mut Trees,
+}
+
+/// Whether the server has sent `o` the description already taken again, since the count `updates`.
+#[must_use]
+pub fn sent_again(taken: Option<&WireVisual>, updates: u32, o: &Object) -> bool {
+    updates != o.visual_updates && taken == Some(&o.visual)
 }
 
 /// Object `o`'s entry takes the look of `visual`: its figure brought up to date (made when it has

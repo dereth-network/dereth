@@ -157,6 +157,8 @@ struct Player {
     /// The description it was last sent, and its own descriptions (none when its look is a stored
     /// record's).
     visual: auberean_client_sdk::protocol::types::VisualDesc,
+    /// The object's count of descriptions sent, at the last one taken.
+    visual_updates: u32,
     dress: Option<auberean_animation::look::ObjectLook>,
     body: Body,
     figure: Figure,
@@ -2435,6 +2437,7 @@ impl<'w> Scene<'w> {
         Some(Player {
             id: o.id,
             visual: o.visual.clone(),
+            visual_updates: o.visual_updates,
             dress,
             body,
             figure,
@@ -2465,6 +2468,7 @@ impl<'w> Scene<'w> {
             return;
         };
         p.visual = o.visual.clone();
+        p.visual_updates = o.visual_updates;
         let records = &self.world.records;
         let Some(look) = figures::look_after(records, &self.anims, &o.visual, &mut p.dress) else {
             return;
@@ -2516,7 +2520,7 @@ impl<'w> Scene<'w> {
                 }
             }
             (Some(o), Some(p)) if p.id == o.id => {
-                if p.visual != o.visual {
+                if p.visual != o.visual || p.visual_updates != o.visual_updates {
                     self.player_takes_visual(o);
                 }
             }
