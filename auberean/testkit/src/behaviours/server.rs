@@ -3744,6 +3744,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.experience.from-level-50-the-upper-side-falls-a-level-sooner",
+        says: "From level 50 what is above a killer pays in full to eight above it, then 20% less a \
+               level, at least 1%; at level 49 it pays in full to nine above.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-UPPER-SIDE-AT-50"),
+        station: "yalain-testkit::cpu::play::rules::from_level_50_what_is_above_a_killer_falls_a_level_sooner",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.experience.solo-kill-award",
         says: "A solo kill by a killer under level 50 pays the creature's death experience in full from ten \
                levels below the killer to nine above, 15% less a level further below (at least 1%), 20% less a \
