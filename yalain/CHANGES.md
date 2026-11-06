@@ -30,6 +30,7 @@ what they see, not how it was done.
 - Portals now refuse players below their level.
 - From level 50, creatures far above you pay less a level sooner.
 - Expert butchery cuts now come with skill, not the creature's level.
+- Fixed summoning skills and contracts making no pet, and dye plants, practice gems and gifts giving nothing.
 
 ## 0.2.1 (2026-11-05)
 - Fixed sold consignments still showing as in stock.

@@ -78,20 +78,30 @@ pub const BANDS: [f32; 4] = [100.0, 200.0, 400.0, 800.0];
 const CELL: f32 = 20.0;
 const BLOCK: f32 = 160.0;
 
+/// The first resource node of each region's set.
+const REGION_NODES: [(&str, u32); 3] = [
+    ("Linvak", 0x4700_0C97),
+    ("Omishan", 0x4700_0CA1),
+    ("Osteth", 0x4700_0CA6),
+];
+
+/// The materials of a region's set of nodes, in its order.
+const NODE_MATERIALS: [&str; 5] = ["Crystal", "Iron", "Silver", "Stone", "Wood"];
+
+/// Every resource node a map can conjure.
+pub fn nodes() -> impl Iterator<Item = u32> {
+    REGION_NODES
+        .iter()
+        .flat_map(|(_, first)| (*first..).take(NODE_MATERIALS.len()))
+}
+
 /// The resource node a map's summoning effect names: its region's set, one node per material.
 #[must_use]
 pub fn summoned_by(effect: &str) -> Option<u32> {
     let rest = effect.strip_prefix("Eff_SummonMine_")?;
     let (material, region) = rest.split_once('_')?;
-    let first = match region {
-        "Linvak" => 0x4700_0C97,
-        "Omishan" => 0x4700_0CA1,
-        "Osteth" => 0x4700_0CA6,
-        _ => return None,
-    };
-    let n = ["Crystal", "Iron", "Silver", "Stone", "Wood"]
-        .iter()
-        .position(|m| *m == material)?;
+    let (_, first) = REGION_NODES.iter().find(|(r, _)| *r == region)?;
+    let n = NODE_MATERIALS.iter().position(|m| *m == material)?;
     Some(first + u32::try_from(n).ok()?)
 }
 

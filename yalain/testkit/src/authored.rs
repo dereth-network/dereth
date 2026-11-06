@@ -490,9 +490,22 @@ impl Portal {
             .profiles
             .iter()
             .flat_map(|p| p.items.iter().map(|(t, _)| *t));
-        // The human starting weapons besides: a new character's pack.
-        let starting = [0x4700_051B, 0x4700_051C, 0x4700_051D];
-        for id in spawned.chain(dropped).chain(starting) {
+        // Everything the server's rules and the world's rows make, as a real start asks for it.
+        let made = yalain_world::makes::by_the_server().into_iter().chain(
+            yalain_world::makes::by_the_rows(yalain_world::makes::Rows {
+                objects: &t.content.objects,
+                stores: &t.stores,
+                quests: &t.quests,
+                crafting: &t.crafting,
+                death_spawns: &t.death_spawns,
+            }),
+        );
+        let mut seen = std::collections::HashSet::new();
+        for id in spawned
+            .chain(dropped)
+            .chain(made)
+            .filter(|id| seen.insert(*id))
+        {
             let t = self.template(id);
             let icon = yalain_content::icon_layers(t.description.look, &|did| {
                 auberean_assets::decode(did, &self.dat.read(did).ok()?, &self.ctx).ok()

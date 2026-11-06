@@ -6160,6 +6160,51 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Corpus,
     },
     behaviour! {
+        id: "server.makes.a-real-start-describes-what-the-rows-make",
+        says: "A real start of the executable describes what a world's rows make: an operator's \
+               recipe naming them is made.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MAKES-REAL-START-ROWS"),
+        station: "yalain::live::configured::a_real_start_describes_everything_a_worlds_rows_make",
+        tier: Tier::Live,
+    },
+    behaviour! {
+        id: "server.makes.a-real-start-describes-what-the-server-makes",
+        says: "A real start of the executable describes what the server's own rules make, every pet, \
+               dye plant and map node: an operator's recipe naming them is made.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MAKES-REAL-START"),
+        station: "yalain::live::configured::a_real_start_describes_everything_the_servers_rules_make",
+        tier: Tier::Live,
+    },
+    behaviour! {
+        id: "server.makes.the-install-holds-what-the-server-makes",
+        says: "Every kind of pet is a creature in the install, every map node gives a material, and all \
+               the server's own rules make reads from it.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MAKES-INSTALL"),
+        station: "yalain-testkit::dat::makes::every_kind_of_pet_is_a_creature_the_install_describes",
+        tier: Tier::Dat,
+    },
+    behaviour! {
+        id: "server.makes.the-rows-name-what-they-make",
+        says: "A start asks for what a world's rows make with the rest: a give row's gift and its item, \
+               what a death or a use makes by a row, and what a node gives.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MAKES-ROWS"),
+        station: "yalain-testkit::cpu::play::makes::a_give_rows_gift_and_a_death_spawn_are_named_with_the_other_rows",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.makes.the-server-names-what-it-makes",
+        says: "A start asks for what the server's own rules make: every pet of every kind, every dye \
+               plant with its seed, pollen and harvest, and every node a map conjures.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MAKES-LIST"),
+        station: "yalain-testkit::cpu::play::makes::the_server_names_every_pet_plant_and_map_node_it_makes",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.a-bound-item-is-not-sold",
         says: "An item bound by use in combat is refused its sale (45009), nothing taken and the item \
                kept; one marked to bind and not yet bound goes up.",

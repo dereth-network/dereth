@@ -1747,26 +1747,18 @@ fn load_play(portal: &data::Portal, compiled: Tables) -> Result<(ContentPack, Pl
             craft_skills = craft.skills.len(),
             "the effects and crafting read"
         );
-        let more: Vec<u32> = data::MORE_TEMPLATES
-            .iter()
-            .copied()
-            .chain(yalain_world::mounts::ITEMS)
-            .chain([yalain_world::usable::portals::TEMPLATE])
-            .chain(stores.sales.iter().map(|s| s.product))
-            .chain(quests.steps.iter().flat_map(|s| s.gives.iter().copied()))
-            .chain(
-                crafting
-                    .butchery
-                    .iter()
-                    .flat_map(|b| b.items.iter().copied()),
-            )
-            .chain(quests.steps.iter().filter_map(|s| match s.trigger {
-                yalain_content::quests::Trigger::Take(t) => Some(t),
-                _ => None,
-            }))
+        let more: Vec<u32> = yalain_world::makes::by_the_server()
+            .into_iter()
+            .chain(yalain_world::makes::by_the_rows(
+                yalain_world::makes::Rows {
+                    objects: &content.objects,
+                    stores: &stores,
+                    quests: &quests,
+                    crafting: &crafting,
+                    death_spawns: &death_spawns,
+                },
+            ))
             .chain(craft.templates())
-            // The placed objects' own (a chest's lock and contents, a door's).
-            .chain(content.objects.iter().map(|o| o.template))
             .collect();
         let (mut catalog, mut skipped) = data::catalog(portal, &spawns, &loot, &more)?;
         // The weapons the creatures wield, described with the rest.

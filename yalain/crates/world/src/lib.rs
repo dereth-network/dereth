@@ -98,6 +98,7 @@ pub mod kingdoms;
 pub mod levels;
 pub mod login;
 pub mod made;
+pub mod makes;
 pub mod map_trips;
 pub mod market;
 pub mod mining;
