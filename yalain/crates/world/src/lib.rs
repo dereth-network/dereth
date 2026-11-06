@@ -1049,6 +1049,7 @@ impl<S: Store> Server<S> {
         trade::look(self, net, clock);
         self.saves.piece_begins();
         market::look(self, net, clock);
+        market::look_for_expired(self, net);
         self.saves.piece_begins();
         drops::look(self, net, clock);
         self.saves.piece_begins();

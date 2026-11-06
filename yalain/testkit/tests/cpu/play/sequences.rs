@@ -623,6 +623,13 @@ fn step(s: &mut Script) -> String {
                     .filter(|c| c.sold < c.offered)
                     .map(|c| (c.item, c.offered - c.sold))
                     .collect();
+            // Now and then a sale's time has run out: buying it is refused, its seller still has it.
+            if s.dice.below(4) == 0 {
+                let now = s.h.server.game_now;
+                if let Some(c) = s.h.server.market.list.iter_mut().find(|c| c.in_stock()) {
+                    c.entered = now - market::ON_SALE_SECONDS - 1.0;
+                }
+            }
             match s.dice.pick(&sales) {
                 Some((item, n)) => {
                     let f = store::function::PURCHASE;

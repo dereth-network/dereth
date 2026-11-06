@@ -5911,6 +5911,19 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.market.a-sale-past-its-time-is-not-sold",
+        says: "A consignment unsold eleven days after it went up leaves its store and can't be \
+               bought; its seller's lists mark it expired and a seller in the world is told. It \
+               stays with its broker, whole, until its seller collects it: a stop, a crash and a \
+               full pack don't touch it. Our choice of when: the client counts to ten days and \
+               forgets its reminder at eleven, the one sale recorded that long stayed unexpired \
+               past ten, and no recording shows one expire.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-MARKET-EXPIRY"),
+        station: "yalain-testkit::cpu::play::market::a_sale_past_its_time_leaves_its_store_and_is_not_bought",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.market.a-seller-at-its-broker-sees-a-sale",
         says: "A sale bought while its seller is shopping at that broker reaches the seller by its \
                reminder sent whole, and its consignments page sent again if open, as a client \
