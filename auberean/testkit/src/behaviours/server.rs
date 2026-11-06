@@ -6246,6 +6246,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.network.a-tell-waits-a-turn-of-each",
+        says: "What waits for the hub goes by turns of its characters: however much is other characters', a tell waits for one turn of each.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-HUB-SHARE"),
+        station: "yalain-friends::cpu::network::a_tell_waits_a_turn_of_each_character_however_much_waits_for_the_hub",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.network.answers-owed-capped",
         says: "A world owed a hundred answers already is not answered again, and its tell not shown, until \
                it is owed fewer; an answer the hub stopped waiting for after thirty seconds is dropped.",

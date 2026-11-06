@@ -359,6 +359,88 @@ struct Queued {
     message: Message,
 }
 
+/// Who a message is sent for: the character whose lane it waits in, or none for the world's own.
+fn lane_of(message: &Message) -> String {
+    match message {
+        Message::Tell { from: who, .. }
+        | Message::Channel { by: who, .. }
+        | Message::Person { who, .. }
+        | Message::RoomSay { from: who, .. } => who.key(),
+        _ => String::new(),
+    }
+}
+
+/// What waits for the hub: a lane to each character and one for the world's own, which take turns,
+/// so that however much of it is one character's, another's next waits for one turn of each.
+#[derive(Debug, Clone, Default)]
+struct Outbox {
+    lanes: HashMap<String, VecDeque<Queued>>,
+    turns: VecDeque<String>,
+    len: usize,
+}
+
+impl Outbox {
+    fn push_back(&mut self, q: Queued) {
+        let key = lane_of(&q.message);
+        let lane = self.lanes.entry(key.clone()).or_default();
+        if lane.is_empty() {
+            self.turns.push_back(key);
+        }
+        lane.push_back(q);
+        self.len += 1;
+    }
+
+    /// Back at the head of its lane, whose turn comes next.
+    fn push_front(&mut self, q: Queued) {
+        let key = lane_of(&q.message);
+        let lane = self.lanes.entry(key.clone()).or_default();
+        if lane.is_empty() {
+            self.turns.push_front(key);
+        }
+        lane.push_front(q);
+        self.len += 1;
+    }
+
+    fn pop_front(&mut self) -> Option<Queued> {
+        let key = self.turns.pop_front()?;
+        let lane = self.lanes.get_mut(&key)?;
+        let q = lane.pop_front()?;
+        if lane.is_empty() {
+            self.lanes.remove(&key);
+        } else {
+            self.turns.push_back(key);
+        }
+        self.len -= 1;
+        Some(q)
+    }
+
+    const fn len(&self) -> usize {
+        self.len
+    }
+
+    fn retain(&mut self, mut keep: impl FnMut(&Queued) -> bool) {
+        for lane in self.lanes.values_mut() {
+            lane.retain(&mut keep);
+        }
+        self.lanes.retain(|_, lane| !lane.is_empty());
+        let lanes = &self.lanes;
+        self.turns.retain(|key| lanes.contains_key(key));
+        self.len = lanes.values().map(VecDeque::len).sum();
+    }
+
+    /// Everything waiting, each lane's in its order and the lanes by their turns.
+    fn take_all(&mut self) -> Vec<Queued> {
+        let mut all = Vec::with_capacity(self.len);
+        for key in std::mem::take(&mut self.turns) {
+            if let Some(lane) = self.lanes.remove(&key) {
+                all.extend(lane);
+            }
+        }
+        self.len = 0;
+        all
+    }
+}
+
 /// An answer this world owes another world, as its frame, and when it was owed.
 #[derive(Debug, Clone)]
 struct Owed {
@@ -434,7 +516,7 @@ pub struct Federation {
     /// `hello`, while greeting.
     control: Vec<Message>,
     /// This world's own tells, in order.
-    outbox: VecDeque<Queued>,
+    outbox: Outbox,
     /// The answers owed to each other world: sent after the outbox, a world at a time in turn.
     answers: BTreeMap<String, VecDeque<Owed>>,
     /// The world whose answer went last.
@@ -536,7 +618,7 @@ impl Federation {
             hub_errors_logged: 0,
             limits: Limits::DEFAULT,
             control: Vec::new(),
-            outbox: VecDeque::new(),
+            outbox: Outbox::default(),
             answers: BTreeMap::new(),
             answered: String::new(),
             chatter: Chatter::default(),
@@ -855,8 +937,8 @@ impl Federation {
 
     /// What to send now: `hello` while greeting; once welcomed, what is queued, as fast as the
     /// hub's per-world limit allows (the rest waits for the next call, so a burst of watches at a
-    /// reconnect is never dropped at the hub). This world's own tells go first, then the answers
-    /// it owes other worlds (a world at a time in turn), then watches and presence answers (a
+    /// reconnect is never dropped at the hub). This world's own tells and asks go first, its
+    /// characters in turn, then the answers it owes other worlds (a world at a time in turn), then watches and presence answers (a
     /// world at a time, each at most at its share of the pace), then the directory's listings
     /// (within the hub's paces for listings), so no number of the later can hold up the
     /// earlier.
