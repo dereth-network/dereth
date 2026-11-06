@@ -20,6 +20,14 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "session.connection.a-server-that-starts-over-ends-the-session",
+        says: "A connection request of a newer iteration from a server the session is talking to ends the session: the server is dead.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-CONNECT-NEWER-ITERATION"),
+        station: "auberean-client-net::cpu::server_lost::a_server_that_starts_over_ends_the_session",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "session.connection.a-servers-goodbye-with-an-error-is-told",
         says: "The login server or the current world server letting its connection go with an error \
                is told, with the error; letting it go with no error is not.",

@@ -340,8 +340,17 @@ impl Session {
     ) {
         let rec = header.rec_id;
         let existing = self.links.get(&rec).map(|l| l.iteration);
-        if iteration_verdict(existing, header.iteration) == IterationVerdict::Ignore {
-            return;
+        match iteration_verdict(existing, header.iteration) {
+            IterationVerdict::Ignore => return,
+            // A newer connection in the place of one the session is talking to: that server has
+            // started over, so the session is over too.
+            IterationVerdict::TearDownAndRebuild => {
+                if self.net.remove_connection(RecipientId(rec)) {
+                    self.logged_off = true;
+                    self.events.push_back(Event::ServerDied);
+                }
+            }
+            IterationVerdict::Fresh => {}
         }
         let login = self.links.is_empty() || self.links.get(&rec).is_some_and(|l| l.login);
         let net_id = u16::try_from(cr.net_id & 0xFFFF).unwrap_or(0);
