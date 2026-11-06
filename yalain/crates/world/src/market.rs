@@ -1047,7 +1047,12 @@ pub fn collect<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, 
             progress::private(net, world, &m);
             return;
         }
-        s.market.list.remove(i);
+        // What sold of it stays to be paid.
+        if c.sold > 0 {
+            s.market.list[i].offered = c.sold;
+        } else {
+            s.market.list.remove(i);
+        }
         let stamp = s
             .things
             .get(c.item)
@@ -1095,6 +1100,7 @@ pub fn enter<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId) {
         .filter(|c| c.owner == me)
         .map(|c| c.keeper)
         .collect();
+    keepers.sort_unstable();
     keepers.dedup();
     for keeper in keepers {
         if let Some(br) = broker_of(s, keeper) {
@@ -1115,11 +1121,15 @@ pub fn purchase<S: Store>(
     if !ensure(s) {
         return false;
     }
+    // A sold row keeps its item's number until its price is collected, and the buyer may have put
+    // the item up again.
+    let of_item = |c: &Consignment| c.item == item && c.keeper == keeper;
     let Some(i) = s
         .market
         .list
         .iter()
-        .position(|c| c.item == item && c.keeper == keeper)
+        .position(|c| of_item(c) && c.sold < c.offered)
+        .or_else(|| s.market.list.iter().position(of_item))
     else {
         return false;
     };

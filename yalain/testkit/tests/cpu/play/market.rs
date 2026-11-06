@@ -1396,3 +1396,141 @@ fn nothing_is_put_up_for_sale_while_a_trip_counts_on_the_pack() {
         "still held"
     );
 }
+
+/// A player entering the world has one reminder for each broker its consignments are with, however
+/// they lie in the list.
+/// Behaviour: server.market.catalog-consignments-and-player-sales
+#[test]
+fn a_player_entering_has_one_reminder_per_broker_however_its_sales_lie() {
+    const OTHER: u64 = BROKER + 1;
+    const OTHER_TEMPLATE: u32 = BROKER_TEMPLATE + 1;
+    let mut h = world();
+    let mut other = broker();
+    other.object = Some(OTHER);
+    other.template = OTHER_TEMPLATE;
+    h.server.content.objects.push(other);
+    h.server.brokers.insert(
+        OTHER_TEMPLATE,
+        Broker {
+            catalog: CATALOG,
+            location: (0x0D3C_90C4, 0x2500_0CE6),
+        },
+    );
+    let (a, ida) = h.player_in_world("one", "Seller");
+    h.server.market.loaded = true;
+    let row = |sale, keeper| yalain_world::market::Consignment {
+        owner: ida,
+        keeper,
+        ..sale_row(sale)
+    };
+    h.server.market.list = vec![row(1, BROKER), row(2, OTHER), row(3, BROKER)];
+    let w = world_of(&h, ida);
+    let from = h.bots[a].inbox.len();
+    yalain_world::market::enter(&mut h.server, &mut h.net, w);
+    h.run(3);
+    let told = h
+        .functions(a, from)
+        .iter()
+        .filter(|f| **f == function::SALE_REMINDERS)
+        .count();
+    assert_eq!(told, 2);
+}
+
+/// An item bought and put up again sells again, while the first sale of it waits for its seller to
+/// collect its price, and that price is still there to collect.
+/// Behaviour: server.market.catalog-consignments-and-player-sales
+#[test]
+fn an_item_bought_and_put_up_again_sells_again_while_its_first_price_waits() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    let (b, idb) = h.player_in_world("two", "Buyer");
+    let (c, idc) = h.player_in_world("three", "Next");
+    at_the_broker(&mut h, ida);
+    at_the_broker(&mut h, idb);
+    at_the_broker(&mut h, idc);
+    money(&mut h, ida, 1_000);
+    money(&mut h, idb, 5_000);
+    money(&mut h, idc, 5_000);
+    let sword = put_up_a_made_item(&mut h, a, ida);
+    let first = h.server.market.list[0].sale;
+    buy(&mut h, b, idb, sword);
+    h.ask(
+        b,
+        function::SELL,
+        &[
+            Arg::Int(STORE),
+            Arg::Int(200),
+            Arg::Int(1),
+            Arg::LongInt(sword),
+            Arg::LongInt(BROKER),
+        ],
+        10,
+    );
+    assert_eq!(h.server.market.list.len(), 2, "the two sales of one item");
+    let from = h.bots[c].inbox.len();
+    buy(&mut h, c, idc, sword);
+    assert_eq!(
+        last_money(&h, c, from),
+        Some(4_800),
+        "bought at its new price"
+    );
+    let wc = world_of(&h, idc);
+    assert!(h.server.players[&wc]
+        .play
+        .items
+        .iter()
+        .any(|i| i.id == sword));
+    let from = h.bots[a].inbox.len();
+    h.ask(
+        a,
+        function::COLLECT,
+        &[Arg::Int(1), Arg::Int(first), Arg::LongInt(BROKER)],
+        10,
+    );
+    assert!(last_money(&h, a, from).is_some(), "its price paid");
+    assert!(h.server.things.get(sword).is_some(), "the item stays");
+}
+
+/// What is left of a part-sold consignment comes back without losing the price of what sold, which
+/// stays to be collected.
+/// Behaviour: server.market.a-consignment-comes-back-only-unsold-with-room-and-its-template
+#[test]
+fn taking_back_what_is_left_of_a_sale_keeps_the_price_of_what_sold() {
+    let mut h = world();
+    let (a, ida) = h.player_in_world("one", "Seller");
+    at_the_broker(&mut h, ida);
+    money(&mut h, ida, 1_000);
+    let gem = yalain_world::inventory::make_item(&mut h.server, GEM, 3, 0).expect("made");
+    h.server.market.loaded = true;
+    h.server.market.list = vec![yalain_world::market::Consignment {
+        owner: ida,
+        item: gem,
+        price: 10.0,
+        offered: 3,
+        sold: 1,
+        ..sale_row(1)
+    }];
+    h.ask(
+        a,
+        function::COLLECT,
+        &[Arg::Int(0), Arg::Int(1), Arg::LongInt(BROKER)],
+        10,
+    );
+    assert_eq!(h.server.market.list.len(), 1, "its price still to collect");
+    assert_eq!(
+        (
+            h.server.market.list[0].offered,
+            h.server.market.list[0].sold
+        ),
+        (1, 1)
+    );
+    let from = h.bots[a].inbox.len();
+    h.ask(
+        a,
+        function::COLLECT,
+        &[Arg::Int(1), Arg::Int(1), Arg::LongInt(BROKER)],
+        10,
+    );
+    assert_eq!(last_money(&h, a, from), Some(1_010), "one sold at 10");
+    assert!(h.server.market.list.is_empty());
+}
