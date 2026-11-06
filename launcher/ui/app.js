@@ -1779,8 +1779,10 @@ async function openWorld(slug, notice, preset) {
   const classic = [preset?.classic_set_id, p.classic_set_id].find(validClassic) ?? classicDefault?.id ?? null;
   // The art pack starts on what was played here last, which may be none, else the Library's default.
   const lastPack = preset?.art_pack_id ?? p.art_pack_id;
-  const packDefault = view.art_packs.find((a) => a.is_default)?.id ?? null;
-  const artPack = lastPack === "" ? null : view.art_packs.some((a) => a.id === lastPack) ? lastPack : packDefault;
+  // A host without art packs (the browser) leaves them off; `offered` here means the clients.
+  const packs = ui.snap?.offers?.art_packs === false ? [] : view.art_packs ?? [];
+  const packDefault = packs.find((a) => a.is_default)?.id ?? null;
+  const artPack = lastPack === "" ? null : packs.some((a) => a.id === lastPack) ? lastPack : packDefault;
   const acct = view.accounts.find((a) => a.username === account);
   ui.world = {
     view,
@@ -1835,7 +1837,7 @@ function formChoice() {
     client: f.client,
     dat_set_id: ["dereth", "auberean"].includes(f.client) ? f.dat_set_id : null,
     classic_set_id: f.client === "dereth" ? f.classic_set_id : null,
-    art_pack_id: f.client === "dereth" ? (f.art_pack_id ?? "") : null,
+    art_pack_id: f.client === "dereth" && offered("art_packs") ? (f.art_pack_id ?? "") : null,
   };
 }
 
@@ -1930,7 +1932,7 @@ function worldPage() {
     + (w.view.offers_private_copy ? `<option value="__private">Create a private copy (1.4 GB)</option>` : "")
     + (world.dats.custom && !more ? `<option value="__custom">Add this world's downloaded data files...</option>` : "");
   const classicOpts = none(f.classic_set_id) + w.view.classic_sets.map((s) => option(s, f.classic_set_id)).join("");
-  const packOpts = noPack(f.art_pack_id) + w.view.art_packs.map((a) => `<option value="${esc(a.id)}" ${a.id === f.art_pack_id ? "selected" : ""}>${esc(a.name)}${a.is_default ? " (default)" : ""}</option>`).join("");
+  const packOpts = noPack(f.art_pack_id) + (w.view.art_packs ?? []).map((a) => `<option value="${esc(a.id)}" ${a.id === f.art_pack_id ? "selected" : ""}>${esc(a.name)}${a.is_default ? " (default)" : ""}</option>`).join("");
   const eraName = eraText(world);
   const dataNote = world.era_state === "checking" || world.era_state === "unknown"
     ? "This world has not said its era yet. It needs Modern data files, and Classic ones too if it plays an era before Throne of Destiny."
@@ -1952,7 +1954,7 @@ function worldPage() {
     ? `<label class="lab">DATA</label><div class="plain">The data files beside the retail client <span class="muted small">${esc(ui.snap.state.retail?.path ?? "")}</span></div>`
     : `<label class="lab" for="dats">MODERN DATA</label><select id="dats" class="field">${setOpts}</select>
        <label class="lab" for="classic">${needs === "original" ? "1999 DATA" : "CLASSIC DATA"}</label><select id="classic" class="field">${classicOpts}</select>
-       <label class="lab" for="art-pack">ART PACK</label><select id="art-pack" class="field">${packOpts}</select>
+       ${offered("art_packs") ? `<label class="lab" for="art-pack">ART PACK</label><select id="art-pack" class="field">${packOpts}</select>` : ""}
        <p class="note ${missing ? "warn" : "muted"}">${esc(dataNote)}</p>${ownFiles}`;
   const remembers = ui.snap.vault_name === "memory only" ? "Remember until the launcher closes" : "Save password securely";
   // Asheron's Call 2: the client, and the data files it plays (the retail client its own).
@@ -2106,12 +2108,12 @@ function library() {
   }
   return `<div class="column wide" style="height:100%">
       ${pending}
-      <section class="panel grow"><header><h1>LIBRARY</h1><button class="btn" data-act="add-dats">+ Add data files</button><button class="btn" data-act="add-art-pack">+ Add art pack</button></header>
+      <section class="panel grow"><header><h1>LIBRARY</h1><button class="btn" data-act="add-dats">+ Add data files</button>${!ac2Realm && offered("art_packs") ? `<button class="btn" data-act="add-art-pack">+ Add art pack</button>` : ""}</header>
         <div class="scroll">${retailHere() ? `<h2>RETAIL CLIENT</h2><div class="list">${retail}</div>` : ""}
           ${client}
           ${sets}
           ${host.librarySections?.(ui.snap) ?? ""}
-          ${ac2Realm ? "" : `<h2>ART PACKS</h2><p class="muted small">Optional. Models and materials the Dereth client draws with Better Lighting. A world's page chooses which, or none, and without one it draws the game's own.</p><div class="list">${packs}</div>`}
+          ${ac2Realm || !offered("art_packs") ? "" : `<h2>ART PACKS</h2><p class="muted small">Optional. Models and materials the Dereth client draws with Better Lighting. A world's page chooses which, or none, and without one it draws the game's own.</p><div class="list">${packs}</div>`}
           ${offered("discord") ? `<h2>DISCORD</h2><div class="list">${discordRow()}</div>` : ""}</div>
       </section>
     </div>`;

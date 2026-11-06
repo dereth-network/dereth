@@ -1250,6 +1250,22 @@ mod tests {
         assert!(!library.contains("\"stock\""), "{library}");
     }
 
+    /// A host without art packs (the browser's) opens a world, whose view has no list, and the
+    /// Library and the world's page offer none.
+    #[test]
+    fn the_page_offers_art_packs_only_where_its_host_has_them() {
+        let open = page_function("openWorld");
+        assert!(open.contains("offers?.art_packs === false ? []"), "{open}");
+        assert!(open.contains("view.art_packs ?? []"), "{open}");
+        assert!(page_function("worldPage").contains("(w.view.art_packs ?? [])"));
+        for name in ["worldPage", "formChoice", "library"] {
+            assert!(
+                page_function(name).contains("offered(\"art_packs\")"),
+                "{name}"
+            );
+        }
+    }
+
     /// Every button the Library draws answers a click: the page's click listener looks for each of
     /// their data attributes.
     #[test]
