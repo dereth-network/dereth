@@ -452,9 +452,9 @@ pub fn corpse_create(t: &Thing) -> CreateObject {
         },
         CORPSE_NUMBERS,
     );
-    // The originator, the claimant (nobody), the killer.
+    // The originator, the claimant, the killer.
     weenie.objects[3] = originator;
-    weenie.objects[4] = 0;
+    weenie.objects[4] = t.corpse.as_ref().map_or(0, |c| c.claimant);
     weenie.objects[5] = killer;
     CreateObject {
         id: t.id,
@@ -631,6 +631,13 @@ pub fn corpse_appears<S: Store>(
         .values()
         .find(|p| p.character == killer)
         .map_or(0, |p| crate::examine::level_of(&p.qualities));
+    let group = dead.facts.group;
+    let claimant = s.fellowships.of(killer).map_or(0, |i| {
+        let Server {
+            fellowships, rng, ..
+        } = &mut *s;
+        fellowships.list[i].next_claimant(group, rng)
+    });
     corpse.corpse = Some(Corpse {
         killer,
         originator: creature,
@@ -639,6 +646,7 @@ pub fn corpse_appears<S: Store>(
         creature: dead.template,
         butchered: false,
         killer_level,
+        claimant,
         unlocks: clock.local.0 + LOOT_LOCK - CORPSE_AFTER,
         ..Corpse::default()
     });
@@ -673,7 +681,7 @@ pub fn corpse_appears<S: Store>(
         .get(id)
         .and_then(|t| t.named.clone())
         .unwrap_or_else(|| corpse_name(None));
-    for m in corpse_settles(id, scale, pose, killer, creature, name) {
+    for m in corpse_settles(id, scale, pose, (killer, claimant), creature, name) {
         to_all_seeing(s, net, id, &m);
     }
     s.after(clock, LEAVES_AFTER, Timer::Vanish { id: creature });
@@ -690,7 +698,7 @@ pub fn corpse_settles(
     id: u64,
     scale: f32,
     pose: f32,
-    killer: u64,
+    (killer, claimant): (u64, u64),
     creature: u64,
     name: StringInfo,
 ) -> Vec<ServerMessage> {
@@ -727,7 +735,7 @@ pub fn corpse_settles(
         }),
     ];
     for (n, quality, value) in [
-        (7, q::CLAIMANT, 0),
+        (7, q::CLAIMANT, claimant),
         (8, q::PLUNDERER, killer),
         (9, q::ORIGINATOR, creature),
     ] {
@@ -756,7 +764,7 @@ pub fn corpse_block(t: &Thing) -> Vec<ServerMessage> {
         t.id,
         t.description.scale.unwrap_or(1.0),
         t.pose.unwrap_or(0.0),
-        c.killer,
+        (c.killer, c.claimant),
         c.originator,
         t.named.clone().unwrap_or_else(|| corpse_name(None)),
     )

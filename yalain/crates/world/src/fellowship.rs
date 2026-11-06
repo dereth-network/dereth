@@ -16,6 +16,11 @@
 //! leaving leaves the fellowship to its oldest fellow (each client works this out itself).
 //! **Disbanding**: every fellow is cleared of it and told.
 //!
+//! **Loot**: how a fellowship was made says whose a kill's corpse is ([`crate::death::may_loot`]).
+//! Shared, it is the killer's and every fellow's; given in turns, the next fellow's by its id, for
+//! every creature or, the rest shared, for group creatures alone; at random, a fellow's; not shared,
+//! the killer's alone.
+//!
 //! **The fellows' updates**: each fellow is looked at every three and a half to seven and a half
 //! seconds; what changed of its health, vigor, their greatest, its level and its cell is sent to
 //! every fellow, itself included.
@@ -159,6 +164,8 @@ pub struct Fellowship {
     pub room: u32,
     /// Its fellows, in the order they joined.
     pub fellows: Vec<Fellow>,
+    /// The fellow its last turn or draw of loot went to.
+    pub last_claimant: u64,
 }
 
 impl Fellowship {
@@ -171,6 +178,31 @@ impl Fellowship {
     #[must_use]
     pub fn shares_loot(&self) -> bool {
         self.flags & (flag::SHARES_LOOT | flag::TURNS_GROUP_LOOT) != 0
+    }
+
+    /// The fellow a kill's loot goes to, if its looting method gives it to one: at random, or to
+    /// the next by its id, round and round, for every creature or for group creatures alone.
+    pub fn next_claimant(&mut self, group: bool, rng: &mut crate::rng::Rng) -> u64 {
+        let turns = self.flags & flag::TURNS_LOOT != 0
+            || (group && self.flags & flag::TURNS_GROUP_LOOT != 0);
+        let next = if self.flags & flag::DRAWS_LOOT != 0 {
+            self.fellows
+                .get(rng.below(self.fellows.len()))
+                .map_or(0, |f| f.id)
+        } else if turns {
+            let ids = || self.fellows.iter().map(|f| f.id);
+            ids()
+                .filter(|id| *id > self.last_claimant)
+                .min()
+                .or_else(|| ids().min())
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        if next != 0 {
+            self.last_claimant = next;
+        }
+        next
     }
 
     #[must_use]
@@ -375,7 +407,7 @@ fn fellowship_message<S: Store>(s: &Server<S>, i: usize) -> ServerMessage {
     b.fill(
         root,
         &[
-            Slot::Long(0),
+            Slot::Long(f.last_claimant),
             Slot::Int(f.flags),
             Slot::Int(f.room),
             Slot::Ref(Some(table)),
@@ -479,6 +511,7 @@ pub fn create<S: Store>(
             sent: Vitals::default(),
             next_check: clock.local.0 + CHECK_EVERY,
         }],
+        last_claimant: 0,
     });
     let i = s.fellowships.list.len() - 1;
     show(net, world, NOTICE, channel(text::CHANNEL_ENTERED));

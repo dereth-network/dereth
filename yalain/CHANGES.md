@@ -20,6 +20,7 @@ what they see, not how it was done.
 - Unsold consignments now expire after 11 days and wait at the broker to be collected.
 - Transmutation Master now pays its extra gold.
 - Corpses are locked to the killer and their fellows until first opened or for two minutes.
+- Fellowships' looting methods now work.
 
 ## 0.2.1 (2026-11-05)
 - Fixed sold consignments still showing as in stock.

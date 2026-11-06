@@ -5639,6 +5639,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.loot.a-claimant-gone",
+        says: "A corpse given to a fellow who has gone stays that fellow's until the time is up, \
+               and then opens to anyone.",
+        since: TOOLING,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-CLAIMANT-GONE"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_corpse_given_to_a_fellow_who_left_is_freed_by_the_time",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.loot.a-killer-dead",
         says: "A killer's death leaves its fellows their right to its corpse.",
         since: TOOLING,
@@ -5688,6 +5697,14 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-CORPSE-WALK-AWAY"),
         station: "yalain-testkit::cpu::play::fights::an_open_corpse_closes_when_its_opener_walks_away",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.drawn-at-random",
+        says: "Drawn at random, a kill's corpse goes to one of the fellows.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-DRAWN"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_fellowship_drawing_lots_gives_each_corpse_to_one_of_its_fellows",
         tier: Tier::Cpu,
     },
     behaviour! {
@@ -5945,6 +5962,25 @@ pub static ROWS: &[Behaviour] = &[
         since: RETAIL,
         evidence: Evidence::Private("AC2-EVID-SRV-TRANSMUTE"),
         station: "yalain-testkit::cpu::play::fights::turning_a_corpses_items_into_money_pays_their_value",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.turns-by-id",
+        says: "In a fellowship that takes turns each kill's corpse goes to the next fellow by its \
+               id, round and round, whoever killed it, and is told so; only that fellow may open it \
+               until it is opened.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-TURNS"),
+        station: "yalain-testkit::cpu::play::corpse_rights::a_fellowship_taking_turns_gives_each_corpse_to_the_next_fellow_by_id",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
+        id: "server.loot.turns-for-group-creatures",
+        says: "Taking turns for group creatures alone gives a group creature's corpse in turn and \
+               leaves any other's shared.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-LOOT-GROUP-TURNS"),
+        station: "yalain-testkit::cpu::play::corpse_rights::turns_for_group_creatures_leave_other_kills_shared",
         tier: Tier::Cpu,
     },
     behaviour! {

@@ -327,6 +327,7 @@ fn fellows(h: &mut Harness, ids: &[u64]) {
                 next_check: f64::MAX,
             })
             .collect(),
+        last_claimant: 0,
     });
 }
 

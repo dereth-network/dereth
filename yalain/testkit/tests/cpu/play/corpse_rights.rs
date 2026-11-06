@@ -17,6 +17,9 @@ const USE_DONE: u32 = 0x8216_0021;
 /// Loot's method when a fellowship is made: not shared, and shared.
 const NOT_SHARED: u32 = 0;
 const SHARED: u32 = 1;
+const TURNS: u32 = 2;
+const GROUP_TURNS: u32 = 3;
+const DRAWN: u32 = 4;
 
 fn string_arg(s: &str) -> Arg {
     let mut b = Builder::new();
@@ -550,4 +553,120 @@ fn a_fellow_who_left_on_the_way_to_a_corpse_is_refused_at_it() {
             .any(|(f, _)| *f == inventory::OPEN_DONE),
         "not opened"
     );
+}
+
+fn claimant_of(h: &Harness, corpse: u64) -> u64 {
+    h.server
+        .things
+        .get(corpse)
+        .and_then(|t| t.corpse.as_ref())
+        .map_or(0, |c| c.claimant)
+}
+
+/// A creature to kill, again.
+fn another(h: &mut Harness) {
+    h.add_creatures(1);
+    h.run(10);
+}
+
+fn sorted(mut ids: Vec<u64>) -> Vec<u64> {
+    ids.sort_unstable();
+    ids
+}
+
+/// In a fellowship that takes turns each kill's corpse goes to the next fellow by its id, round and
+/// round, whoever killed it; only that fellow may open it, until it is opened; and it is told as its
+/// claimant.
+/// Behaviour: server.loot.turns-by-id
+#[test]
+fn a_fellowship_taking_turns_gives_each_corpse_to_the_next_fellow_by_id() {
+    let (mut h, a, b) = two();
+    make_fellowship(&mut h, a, &[b], TURNS);
+    let ids = sorted(vec![a.1, b.1]);
+    let mut gone_to = Vec::new();
+    let mut last = 0;
+    for _ in 0..3 {
+        another(&mut h);
+        last = corpse_of_kill(&mut h, a.1);
+        gone_to.push(claimant_of(&h, last));
+    }
+    assert_eq!(gone_to, vec![ids[0], ids[1], ids[0]]);
+    let (holder, not) = if ids[0] == a.1 { (a, b) } else { (b, a) };
+    let (opened, said) = use_corpse(&mut h, not, last);
+    assert!(!opened, "not the next fellow's, even the killer's");
+    assert_eq!(said, vec![places::USE_STATUS_NO_RIGHT]);
+    let told = yalain_world::death::corpse_block(h.server.things.get(last).expect("the corpse"));
+    assert!(told.iter().any(|m| matches!(
+        m,
+        ServerMessage::UpdateInstanceIdVisual(q)
+            if q.quality == death::q::CLAIMANT && q.value == holder.1
+    )));
+    assert!(use_corpse(&mut h, holder, last).0);
+    close(&mut h, holder, last);
+    assert!(
+        use_corpse(&mut h, not, last).0,
+        "freed by its first opening"
+    );
+}
+
+/// Taking turns for group creatures alone leaves any other creature's corpse shared, and gives a
+/// group creature's in turn.
+/// Behaviour: server.loot.turns-for-group-creatures
+#[test]
+fn turns_for_group_creatures_leave_other_kills_shared() {
+    let (mut h, a, b) = two();
+    make_fellowship(&mut h, a, &[b], GROUP_TURNS);
+    let corpse = corpse_of_kill(&mut h, a.1);
+    assert_eq!(claimant_of(&h, corpse), 0);
+    assert!(use_corpse(&mut h, b, corpse).0, "shared");
+    close(&mut h, b, corpse);
+    another(&mut h);
+    let beetle = living(&h);
+    h.server
+        .things
+        .get_mut(beetle)
+        .expect("the creature")
+        .facts
+        .group = true;
+    let corpse = corpse_of_kill(&mut h, a.1);
+    assert_eq!(claimant_of(&h, corpse), sorted(vec![a.1, b.1])[0]);
+}
+
+/// Drawn at random, a corpse goes to one of the fellows, and to each in time.
+/// Behaviour: server.loot.drawn-at-random
+#[test]
+fn a_fellowship_drawing_lots_gives_each_corpse_to_one_of_its_fellows() {
+    let (mut h, a, b) = two();
+    make_fellowship(&mut h, a, &[b], DRAWN);
+    let mut gone_to = std::collections::BTreeSet::new();
+    for _ in 0..30 {
+        another(&mut h);
+        let corpse = corpse_of_kill(&mut h, a.1);
+        gone_to.insert(claimant_of(&h, corpse));
+    }
+    assert_eq!(
+        gone_to.into_iter().collect::<Vec<_>>(),
+        sorted(vec![a.1, b.1])
+    );
+}
+
+/// A fellow a corpse was given to and who has gone leaves it to the time, like any other right.
+/// Behaviour: server.loot.a-claimant-gone
+#[test]
+fn a_corpse_given_to_a_fellow_who_left_is_freed_by_the_time() {
+    let (mut h, a, b) = two();
+    make_fellowship(&mut h, a, &[b], TURNS);
+    let corpse = corpse_of_kill(&mut h, a.1);
+    let (holder, not) = if claimant_of(&h, corpse) == a.1 {
+        (a, b)
+    } else {
+        (b, a)
+    };
+    log_off(&mut h, holder);
+    stand_at(&mut h, corpse);
+    assert!(!use_corpse(&mut h, not, corpse).0);
+    let left = locked_for(&h, corpse);
+    h.advance(left + 0.5);
+    h.run(1);
+    assert!(use_corpse(&mut h, not, corpse).0);
 }
