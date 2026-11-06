@@ -14,6 +14,7 @@ pre-release leaves it for the final release, and its notes show it as it is);
 
 ## Unreleased
 - Fixed a crash on exit on Linux with Wayland and NVIDIA.
+- Launch: the character page and character options show only what 1999's did.
 - Launch: spells ask for the tapers of your own account.
 - A window nobody can see no longer runs flat out.
 - macOS: Command works as Control, for shortcuts and copy and paste too.

@@ -17,10 +17,21 @@ impl CharacterOptions {
 /// but those for what the era lacks, which the page leaves out. Each is the row's index among
 /// [`rows`] and where it sits down the list.
 fn shown(features: Option<&dereth_primitives::EraFeatures>) -> Vec<(usize, i32)> {
-    rows()
-        .iter()
+    let rows = rows();
+    let shows = |r: &crate::character_options_model::OptionRow| {
+        r.kind != "heading" && r.needs.met(features)
+    };
+    rows.iter()
         .enumerate()
-        .filter(|(_, r)| r.kind == "heading" || r.needs.met(features))
+        .filter(|(i, r)| {
+            if r.kind != "heading" {
+                return shows(r);
+            }
+            rows[i + 1..]
+                .iter()
+                .take_while(|next| next.kind != "heading")
+                .any(shows)
+        })
         .enumerate()
         .map(|(k, (i, _))| (i, 6 + ROW_HEIGHT * i32_from(k)))
         .collect()
@@ -136,6 +147,45 @@ impl Panel for CharacterOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Behaviour: options.pages.a-row-for-what-the-worlds-era-lacks-is-not-shown
+    #[test]
+    fn a_launch_page_has_no_heading_with_nothing_under_it_and_only_the_1999_clients_options() {
+        let launch = dereth_primitives::EraId::Launch.features();
+        let captions: Vec<&str> = shown(Some(&launch))
+            .iter()
+            .map(|&(i, _)| rows()[i].caption.as_str())
+            .collect();
+        for gone in [
+            "Allow Others to See Your",
+            "Display Spell Durations",
+            "Display Crafting Chance of Success Dialog",
+            "Always Daylight Outdoors",
+            "Disable Distance Fog",
+            "Fishing Skill",
+            "Allow others to see your Fishing Skill",
+            "Use Charge Attack",
+            "Lead Missile Targets",
+            "Use Fast Missiles",
+        ] {
+            assert!(!captions.contains(&gone), "{gone}: {captions:?}");
+        }
+        for kept in [
+            "Automatically Create Shortcuts",
+            "Display Tooltips",
+            "Attempt to Deceive Other Players",
+            "Let Other Players Give You Items",
+            "Run as Default Movement",
+        ] {
+            assert!(captions.contains(&kept), "{kept}: {captions:?}");
+        }
+        let eor = dereth_primitives::EraId::Eor.features();
+        let later: Vec<&str> = shown(Some(&eor))
+            .iter()
+            .map(|&(i, _)| rows()[i].caption.as_str())
+            .collect();
+        assert!(later.contains(&"Display Spell Durations"));
+    }
 
     /// Behaviour: options.pages.a-row-for-what-the-worlds-era-lacks-is-not-shown
     #[test]
