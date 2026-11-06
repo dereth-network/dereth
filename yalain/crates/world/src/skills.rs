@@ -259,6 +259,8 @@ pub struct Usage {
     pub implements_left: i32,
     /// The kinds of target it takes.
     pub valid_targets: u32,
+    /// The classes of pet it may be aimed at, when it is aimed at pets alone.
+    pub valid_pet_class: u32,
     /// The kinds of object it may be aimed at, when it names them.
     pub valid_object_kinds: Vec<u32>,
     /// What the user plays on another: a hit, a miss, a critical; and on itself: a hit, a miss.
@@ -530,6 +532,7 @@ impl Usage {
             implements_right: word("m_AllowedImplementsRight")?.cast_signed(),
             implements_left: word("m_AllowedImplementsLeft")?.cast_signed(),
             valid_targets: word("m_validTargets")?,
+            valid_pet_class: word("m_validPetOnly").unwrap_or(0),
             valid_object_kinds: nav
                 .field(o, "m_validWeenieTypes")
                 .ok()

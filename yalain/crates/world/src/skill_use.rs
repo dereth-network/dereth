@@ -457,6 +457,8 @@ pub enum Aim {
     Thing(u64),
     /// An item its user holds.
     Item(u64),
+    /// A pet of its user's.
+    Pet(u64),
 }
 
 /// A use under way.
@@ -790,6 +792,8 @@ pub fn recall_places<S: Store>(s: &Server<S>, world: ConnId, r: &Recall) -> Vec<
 pub mod target_bit {
     /// An item its user holds, in the pack or in hand.
     pub const OWN_ITEM: u32 = 0x2;
+    /// Only a pet of the class the skill names.
+    pub const PET_ONLY: u32 = 0x40_0000;
     /// Only an object of the kinds the skill names.
     pub const OF_KINDS: u32 = 0x80_0000;
     /// An item its user has in hand.
@@ -800,6 +804,12 @@ pub mod target_bit {
 pub mod object_kind {
     pub const SHIELD: u32 = 0x1_0081;
     pub const WEAPON: u32 = 0x2_0081;
+}
+
+/// Is this skill aimed at a pet of its user's, of the class it names?
+#[must_use]
+pub fn aims_at_pet(u: &Usage) -> bool {
+    u.valid_targets & target_bit::PET_ONLY != 0
 }
 
 /// Is this skill aimed at an item?
@@ -878,6 +888,9 @@ pub fn aim_of<S: Store>(s: &Server<S>, world: ConnId, r: Request, u: &Usage) -> 
     let me = s.players.get(&world).map_or(0, |p| p.character);
     if aims_at_item(u) {
         return Aim::Item(item_aim(s, me, u, r.target).unwrap_or(0));
+    }
+    if aims_at_pet(u) {
+        return Aim::Pet(r.target);
     }
     if self_only(u) || (r.target == me && helpful(u)) {
         return Aim::Me;
@@ -1146,6 +1159,25 @@ fn check<S: Store>(
     }
     match aim_of(s, world, r, &u) {
         Aim::Me | Aim::Item(_) => {}
+        Aim::Pet(pet) => {
+            let held = s
+                .pets
+                .by_id
+                .get(&pet)
+                .filter(|q| q.owner == p.character)
+                .filter(|q| u.valid_pet_class == 0 || q.class & u.valid_pet_class != 0);
+            if held.is_none() {
+                return Err(refusal::TARGET_GONE);
+            }
+            let Some(at) = s.things.get(pet).filter(|t| t.alive()).and_then(|t| t.at) else {
+                return Err(refusal::TARGET_GONE);
+            };
+            if u.max_range >= 0.0
+                && crate::presence::distance(&p.position, &at).is_none_or(|d| d > u.max_range)
+            {
+                return Err(refusal::TOO_FAR);
+            }
+        }
         Aim::Player(c, other) => {
             // A hostile skill at another player: only as who may harm whom allows.
             if !helpful(&u) {
@@ -1861,7 +1893,7 @@ fn story<S: Store>(
     let rating = rating_of(s, world, r.skill);
     let held = wielded(s, me);
     let on_self = aim == Aim::Me;
-    let on_item = matches!(aim, Aim::Item(_));
+    let on_item = matches!(aim, Aim::Item(_) | Aim::Pet(_));
     let target = aimed_at(aim).unwrap_or(me);
     // A strike that walks the player to its target does not reach from afar: wait for the player
     // to come into reach.
@@ -1946,7 +1978,7 @@ fn story<S: Store>(
     pay(s, net, world, &u);
     // The outcome of its damaging hook (a strike's at once; a missile's as it arrives).
     let target_thing = match aim {
-        Aim::Item(_) => None,
+        Aim::Item(_) | Aim::Pet(_) => None,
         // Another player: its level, no armor.
         Aim::Player(c, _) if !helpful(&u) => s
             .players
@@ -2170,7 +2202,7 @@ fn landings_of<S: Store>(
             .players
             .get(&c)
             .map(|p| (p.position, crate::reach::PLAYER)),
-        Aim::Me | Aim::Item(_) => s
+        Aim::Me | Aim::Item(_) | Aim::Pet(_) => s
             .players
             .get(&world)
             .map(|p| (p.position, crate::reach::PLAYER)),
@@ -2248,7 +2280,7 @@ fn position_of<S: Store>(s: &Server<S>, aim: Aim, target: u64) -> Option<StoredP
 pub const fn aimed_at(aim: Aim) -> Option<u64> {
     match aim {
         Aim::Me => None,
-        Aim::Player(_, id) | Aim::Thing(id) | Aim::Item(id) => Some(id),
+        Aim::Player(_, id) | Aim::Thing(id) | Aim::Item(id) | Aim::Pet(id) => Some(id),
     }
 }
 
@@ -2290,6 +2322,27 @@ fn hook<S: Store>(s: &mut Server<S>, net: &mut ServerNet, world: ConnId, clock: 
         Aim::Thing(_) => return,
         Aim::Item(item) => {
             lands_on_item(s, net, world, &u, item, spellcraft, clock);
+            return;
+        }
+        Aim::Pet(pet) => {
+            let at = s.things.get(pet).and_then(|t| t.at);
+            for state in &u.target_effects {
+                if !summons_at(s, net, world, (&u, *state), spellcraft, at, clock) {
+                    crate::effects::apply_on(
+                        s,
+                        net,
+                        crate::effects::On::Creature(pet),
+                        *state,
+                        crate::effects::Cast {
+                            caster: me,
+                            spellcraft,
+                            pk: true,
+                            ..crate::effects::Cast::default()
+                        },
+                        clock,
+                    );
+                }
+            }
             return;
         }
     };

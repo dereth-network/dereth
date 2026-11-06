@@ -887,6 +887,142 @@ fn a_pet_a_skill_makes_at_a_creature_appears_beside_it_and_goes_after_it() {
     assert!((at.origin[0] - there.origin[0]).abs() < 3.0, "beside it");
 }
 
+/// A skill aimed at a pet lands on one of its user's own of the class it names, and never harms
+/// it: what it leaves on the pet opens one attack and bars another. Another player's pet is
+/// refused.
+/// Behaviour: server.pets.effects-on-a-pet-choose-its-attack
+#[test]
+fn a_skill_aimed_at_the_users_pet_changes_which_attack_the_pet_uses() {
+    const BARREL: u32 = 3002;
+    const SINGLE: u32 = 3003;
+    const DOUBLE: u32 = 3004;
+    const TWIN: u32 = 0x7000_08BE;
+    let mut h = Harness::new();
+    with_kind(&mut h, &LASHER, 1);
+    // The test world's bolt, thrown from 9 m to 20 m.
+    let missile = h.server.skill_table.skills[&65].clone();
+    let mut with = |id: u32, req: Vec<u32>, bar: Vec<u32>| {
+        let mut d = missile.clone();
+        d.id = id;
+        if let Some(u) = d.usage.as_mut() {
+            u.required_effects = req;
+            u.barring_effects = bar;
+        }
+        h.server.skill_table.skills.insert(id, d);
+    };
+    with(SINGLE, Vec::new(), vec![TWIN]);
+    with(DOUBLE, vec![TWIN], Vec::new());
+    let mut barrel = h.server.skill_table.skills[&SKILL].clone();
+    barrel.id = BARREL;
+    if let Some(u) = barrel.usage.as_mut() {
+        u.user_effects = Vec::new();
+        u.target_effects = vec![TWIN];
+        u.valid_targets = 0x60_0000;
+        u.valid_pet_class = LASHER.class;
+        u.max_range = 40.0;
+        u.ui_flags = 0x12C0;
+    }
+    h.server.skill_table.skills.insert(BARREL, barrel);
+    h.server.effect_table.effects.insert(
+        TWIN,
+        EffectDef {
+            duration: Scale(vec![(1.0, 300.0)]),
+            ..yalain_testkit::plain_effect(TWIN)
+        },
+    );
+    let mut props = Props::default();
+    props
+        .set("GameplayStatistics_MaxHealth", Prop::Int(5))
+        .set("AICombat_NaturalDamage", Prop::Float(1.0))
+        .set("AICombat_NaturalVariance", Prop::Float(0.5))
+        .set("NPC_StartingSkill1", Prop::Word(SINGLE))
+        .set("NPC_StartingSkill1Level", Prop::Int(1))
+        .set("NPC_StartingSkill2", Prop::Word(DOUBLE))
+        .set("NPC_StartingSkill2Level", Prop::Int(1));
+    h.server
+        .catalog
+        .insert(test_template(LASHER.template, 0x1169, props));
+    let (b, me) = summoner(&mut h);
+    let (other, them) = h.player_in_world("two", "Merrin");
+    for who in [me, them] {
+        let p = h
+            .server
+            .players
+            .values_mut()
+            .find(|p| p.character == who)
+            .expect("in the world");
+        p.play.skills.push(SkillState {
+            skill: BARREL,
+            granted: 0,
+            mask: 0x1,
+            cost: 2,
+            children: 0,
+            dependents: 0,
+            spent: 0,
+        });
+    }
+    h.run(20);
+    h.arm(other, them, SWORD);
+    let pet = {
+        let from = summon(&mut h, b);
+        pet_added(&h, b, from)
+    }
+    .expect("a pet");
+    let beetle = beetles(&h)[0];
+    put_near(&mut h, beetle, me, 15.0, 0.0);
+    // The beetle may fight the player meanwhile: enough health to outlast the test.
+    if let Some(p) = h.server.players.values_mut().find(|p| p.character == me) {
+        quals::set_int(&mut p.qualities, quality::HEALTH_MAX, 100_000);
+        quals::set_int(&mut p.qualities, quality::HEALTH, 100_000);
+    }
+    let thrown = |h: &Harness, from: usize| {
+        h.world_messages(b, from).iter().find_map(|m| match m {
+            ServerMessage::DoStory(e) if e.sender.id == pet && e.action.skill != 0 => {
+                Some(e.action.skill)
+            }
+            _ => None,
+        })
+    };
+    let from = h.bots[b].inbox.len();
+    h.bots[b].send(
+        true,
+        queue::WEENIE,
+        &server_call(function::ATTACK, &[Arg::LongInt(beetle)]),
+    );
+    assert!(h.run_until(300, |h| thrown(h, from).is_some()));
+    assert_eq!(thrown(&h, from), Some(SINGLE), "no effect on it yet");
+    // Another player's use lands on nothing.
+    let their = use_skill(&mut h, other, BARREL, pet);
+    assert!(h
+        .calls(other, their)
+        .iter()
+        .any(|(f, v)| *f == 0x8204_001A && !v.is_empty()));
+    assert!(
+        yalain_world::effects::records_of(&h.server, yalain_world::effects::On::Creature(pet))
+            .is_empty()
+    );
+    h.run(200);
+    let used = use_skill(&mut h, b, BARREL, pet);
+    h.run(200);
+    assert!(
+        yalain_world::effects::records_of(&h.server, yalain_world::effects::On::Creature(pet))
+            .iter()
+            .any(|e| e.state == TWIN)
+    );
+    assert!(
+        !h.world_messages(b, used).iter().any(|m| matches!(
+            m,
+            ServerMessage::DoStory(e) if e.action.attacker == me
+                && e.action.hooks.iter().any(|k| k.target == pet && k.numbers[3] != 0)
+        )),
+        "it never harms the pet"
+    );
+    h.run(60);
+    let from = h.bots[b].inbox.len();
+    assert!(h.run_until(300, |h| thrown(h, from).is_some()));
+    assert_eq!(thrown(&h, from), Some(DOUBLE), "its effect opens the other");
+}
+
 /// A kind's health at a level is its row's, between its levels the line, and never less than its
 /// template's.
 /// Behaviour: server.pets.health-by-kind-and-level

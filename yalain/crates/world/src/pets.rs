@@ -18,6 +18,9 @@
 //! as many live pets of a class as the skill allows; a pet counts toward every class it shares a bit
 //! with, and others do not count. Aimed at a creature, its pet appears beside it and goes after it.
 //!
+//! **Effects on it**: a skill aimed at pets lands on its user's own, of the class it names, and never
+//! harms it. What it leaves there can open one of the pet's attacks and bar another, as each attack
+//! says. A pet whose template's skills include no attack takes no order to attack and fights nothing.
 //!
 //! **Orders** (the pet window's, and `/pet`): a mode is echoed back, pet and mode, and kept; a
 //! name is kept in the written form of names and shown as "Name (kind)", to the owner as the pet's
@@ -2001,7 +2004,8 @@ fn taunted<S: Store>(s: &mut Server<S>, net: &mut ServerNet, target: u64, pet: u
     turn_on_pet(s, net, target, pet, clock);
 }
 
-/// A pet's attacks: its template's skills that attack.
+/// A pet's attacks: its template's skills that attack, as the effects on it allow (what its owner
+/// put on it may open one and bar another): one that asks for an effect first.
 fn attacks<S: Store>(s: &Server<S>, id: u64) -> Vec<AttackSkill> {
     let Some(stats) = s
         .things
@@ -2011,13 +2015,28 @@ fn attacks<S: Store>(s: &Server<S>, id: u64) -> Vec<AttackSkill> {
     else {
         return Vec::new();
     };
-    stats
+    let on = crate::effects::records_of(s, crate::effects::On::Creature(id));
+    let carries = |state: &u32| on.iter().any(|e| e.state == *state);
+    let usage = |skill: u32| {
+        s.skill_table
+            .skills
+            .get(&skill)
+            .and_then(|d| d.usage.as_ref())
+    };
+    let mut open: Vec<AttackSkill> = stats
         .skills
         .iter()
+        .filter(|(skill, _)| {
+            usage(*skill).is_none_or(|u| {
+                u.required_effects.iter().all(carries) && !u.barring_effects.iter().any(carries)
+            })
+        })
         .filter_map(|(skill, rating)| {
             crate::missiles::attack_skill(&s.skill_table, *skill, *rating)
         })
-        .collect()
+        .collect();
+    open.sort_by_key(|a| usage(a.skill).is_none_or(|u| u.required_effects.is_empty()));
+    open
 }
 
 /// The chance a creature fighting another turns on a pet that strikes it (2017: 590 of 958).

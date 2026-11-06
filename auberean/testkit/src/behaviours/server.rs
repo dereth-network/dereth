@@ -8432,6 +8432,15 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.pets.effects-on-a-pet-choose-its-attack",
+        says: "A skill aimed at pets lands on its user's own pet and never harms it; what it \
+               leaves on the pet opens one of the pet's attacks and bars another.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-PETS-EFFECTS-ON-PET"),
+        station: "yalain-testkit::cpu::play::pet_kinds::a_skill_aimed_at_the_users_pet_changes_which_attack_the_pet_uses",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.pets.ethereality-where-it-stands",
         says: "A pet come into a landblock of another conflict status takes its owner's movement \
                ethereality for it, with its own bit, told to every client that knows it.",
