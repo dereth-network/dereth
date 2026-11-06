@@ -1813,6 +1813,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "ui.panels.help-buttons-do-not-show",
+        says: "The panels' help buttons do not show, on the panels made with the play screen and \
+               on those made when they first open.",
+        since: THIS_CLIENT,
+        divergence: "CD2-help-buttons-do-not-show",
+        evidence: Evidence::Private("AC2-EVID-UI-HELP-HIDDEN"),
+        station: "auberean-ui-game::dat::play::help::the_panels_help_buttons_do_not_show",
+        tier: Tier::Dat,
+    },
+    behaviour! {
         id: "ui.pet.the-mode-buttons-step-from-the-mode-asked",
         says: "The mode buttons step from the mode last asked, not the one the pet has taken: \
                Next twice before the pet answers is two steps on, and Previous then one back.",

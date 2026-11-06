@@ -1142,6 +1142,7 @@ impl Ui {
     // D2-11360, D2-11171
     pub fn set_visible(&mut self, h: Handle, v: bool) {
         let Some(n) = self.node(h) else { return };
+        let v = v && !self.mgr.never_shown.contains(&n.id);
         let parent_shown = n.parent.is_none_or(|p| self.shown(p));
         let was = n.visible;
         let before = parent_shown && was;

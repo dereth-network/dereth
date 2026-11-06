@@ -43,6 +43,8 @@ fn a_book_shows_its_pages_and_turns_them() {
     )]);
     let book = w.el("Book");
     assert!(w.shown(book), "open");
+    let help = w.el("BookHelpButton");
+    assert!(!w.shown(help), "no help button on a panel made as it opens");
     assert_eq!(w.text(w.el("Panel_Title_Book")), "A Tale");
     let b = w.play.child::<Book>().expect("the book");
     let (page, last) = b.page();

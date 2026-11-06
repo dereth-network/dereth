@@ -14,6 +14,7 @@ not how it was done.
 - Fixed other players and creatures hanging in the air after a long move.
 - Fixed rooms losing their lights in copies of a shared dungeon.
 - Fixed the client staying on a server that had restarted.
+- The panels no longer show help buttons that did nothing.
 
 ## 0.1.4 (2026-11-05)
 

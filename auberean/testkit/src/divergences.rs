@@ -79,6 +79,11 @@ pub static DIVERGENCES: &[Divergence] = &[
                the monitor, so the picture was stretched.",
     },
     Divergence {
+        id: "CD2-help-buttons-do-not-show",
+        says: "The panels have no help button: the retail client's opens a help window this \
+               client does not have.",
+    },
+    Divergence {
         id: "CD2-input-method-is-always-offered",
         says: "Wherever you can type, your system's input method is offered. The original client \
                offered it only with its preference on or a command line switch.",
