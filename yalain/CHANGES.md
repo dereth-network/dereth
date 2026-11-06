@@ -22,6 +22,7 @@ what they see, not how it was done.
 - Corpses are locked to the killer and their fellows until first opened or for two minutes.
 - Fellowships' looting methods now work.
 - Examining a corpse says who may loot it and who first did.
+- Characters who aren't heroes stop at level 50.
 
 ## 0.2.1 (2026-11-05)
 - Fixed sold consignments still showing as in stock.

@@ -3669,6 +3669,16 @@ pub static ROWS: &[Behaviour] = &[
         tier: Tier::Cpu,
     },
     behaviour! {
+        id: "server.experience.a-non-hero-stops-at-level-fifty",
+        says: "A character that is no hero rises no further than level 50, whatever its experience; \
+               its total keeps counting, and it takes the levels it earned at its next award as a \
+               hero.",
+        since: RETAIL,
+        evidence: Evidence::Private("AC2-EVID-SRV-NONHERO-LEVEL-TOP"),
+        station: "yalain-testkit::cpu::play::experience::a_character_that_is_no_hero_stops_at_level_fifty_until_it_is_one",
+        tier: Tier::Cpu,
+    },
+    behaviour! {
         id: "server.experience.from-level-50-the-fall-comes-sooner",
         says: "From level 50 what is below a player pays in full only to four levels below it, then 20% less a \
                level, at least 1%, for a kill and for a completion by its challenge; at level 49 it pays as at any \
